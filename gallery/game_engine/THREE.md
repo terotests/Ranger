@@ -93,9 +93,14 @@ façade (interpreter), Ranger code directly, or (future) a WASM guest.
   browser the viewer decodes images with a canvas instead (the host can't decode
   JPEG/PNG in-browser); both feed the same `setImage` seam.
 
-### Example scenes
+### Example scenes (demos)
+See [§8 Demos & parity](#8-demos--parity) for the full catalog, the
+where-does-it-run support matrix, and the API-coverage table.
 - **Cube** — the canonical rotating textured cube (`three/tsx/cube.tsx`),
   unmodified.
+- **Cubes** — a ring of crate-textured, colour-tinted spinning cubes
+  (`three/tsx/cubes.tsx`): the same scene-graph code with many meshes, run 1:1 on
+  the generic bridge (no new engine code).
 - **Teapot** — `webgl_geometry_teapot` (`three/tsx/teapot.tsx`): lit materials,
   env-map reflections, a lil-gui panel; OrbitControls.
 - **Sponza** — the light-probe-volume scene (`three/tsx/sponza.tsx`): the real
@@ -115,7 +120,7 @@ cd gallery/game_engine/web
 npm install
 npm run build            # -> dist/ (static, self-contained)
 cd dist && python3 -m http.server 8000
-# open http://localhost:8000 and pick "Cube 3D", "Teapot", or "Sponza"
+# open http://localhost:8000 and pick "Cube 3D", "Cubes", "Teapot", or "Sponza"
 ```
 The gallery interprets each scene's `.tsx` against the `three.tsx` façade and
 renders it with WebGL. Editing the shown script hot-reloads the scene.
@@ -140,9 +145,22 @@ npm run engine:game-sdl:launcher
 ```
 The launcher lists games from `games/*/game.info`. The Three.js scenes appear in
 the **Tests** category:
-- `games/teapot` — `render=three`
-- `games/sponza` — `render=sponza` (fetches + decodes the model once, then runs
-  it; WASD / arrows move, drag to look).
+- `games/cube`, `games/cubes` — `render=tsx`: the **generic** interpreted-`.tsx`
+  path — any `three.tsx`-façade scene through `ThreeTsxBridge` + `ThreeGLBackend`,
+  the exact browser tsx3d-gl path, native. No per-demo runner: the scene file alone
+  decides what renders (see §8.1). *(The native `render=tsx` path uses the
+  procedural checker texture today; host-side image decode for `.tsx` scenes is the
+  remaining follow-up.)*
+- `games/teapot` — `render=three` (host = OrbitControls + lil-gui panel + procedural
+  env cube / UV texture plumbing).
+- `games/sponza` — `render=sponza` (host = first-person controls + async glTF +
+  the `ThreeSponzaScene` GI-bake plumbing; WASD / arrows move, drag to look).
+
+Every example — cube, cubes, teapot, Sponza — reconciles through the **one** generic
+`ThreeTsxBridge`; the hosts are pure plumbing (controls, GUI, async loading, the
+GPU-technique GI bake). **There are no per-demo `*_tsx_bridge.rgr` files** — both
+the teapot and Sponza bridges have been deleted (see
+[`IDEAL_THREE.md §5`](./IDEAL_THREE.md)).
 
 ---
 
@@ -215,7 +233,10 @@ GL renders are verified by codegen + (browser) a headless-Chromium harness.
 - **No PBR specular / metallic-roughness** — materials are Lambert diffuse;
   Sponza's roughness/metallic maps are not used, so no view-dependent highlights.
 - **baseColor is not sRGB-decoded** — color textures are sampled as linear, which
-  skews midtone color (three.js linearizes sRGB color maps before lighting).
+  skews midtone color (three.js linearizes sRGB color maps before lighting). Related:
+  a texture's `colorSpace` / `wrapS` / `wrapT` / `anisotropy` set in the scene are
+  carried on the façade but not yet applied by the object model / backend (the
+  reconcile reads only the image), so they take their engine defaults.
 - **GI is an analytic bake, not captured** — the probe SH is sky + ground bounce
   + sun-with-shadow-visibility; there is no per-probe cubemap capture, so no
   colored inter-surface bounce.
@@ -223,3 +244,148 @@ GL renders are verified by codegen + (browser) a headless-Chromium harness.
 - **`normalScale`** (per-material normal-map strength) is not wired from the glTF.
 - The native GL runs are codegen-verified in CI; the visual run is a local
   desktop-GL / device step.
+
+---
+
+## 8. Demos & parity
+
+The goal is to run the **three.js examples section** (`threejs.org/examples`) 1:1
+on three targets — **web** (WebGL), **macOS** (desktop OpenGL via SDL), and
+**Raspberry Pi 5** (GLES2 via SDL) — from one Ranger object model. This section is
+the demo catalog (what we have, where each runs) and the API-coverage table (what
+is still missing to reach more of the examples section). The API *design* behind it
+is in [`IDEAL_THREE.md`](./IDEAL_THREE.md).
+
+### 8.1 Demos we have
+
+| Demo | Scene | Three.js example | Renders via | Notes |
+|---|---|---|---|---|
+| **Cube** | `three/tsx/cube.tsx` | the intro rotating cube | generic bridge (`ThreeTsxBridge`) | canonical script, unmodified |
+| **Cubes** | `three/tsx/cubes.tsx` | multi-mesh scene graph | generic bridge | many tinted crate cubes; no new engine code |
+| **Teapot** | `three/tsx/teapot.tsx` | `webgl_geometry_teapot` | `ThreeTeapotTsxBridge` | lit + env-map reflections, lil-gui panel, OrbitControls |
+| **Sponza** | `three/tsx/sponza.tsx` | `webgl_lightprobe` / light-probe volume | `ThreeSponzaTsxBridge` | real glTF model + textures + normal maps, sky, shadows, ACES, baked GI, first-person |
+
+### 8.2 Where they run (support matrix)
+
+✅ works (renders the specified assets) · ◐ codegen-verified, visual run pending.
+
+| Demo | Web gallery (WebGL) | Native SDL (macOS / Linux desktop GL) | Raspberry Pi 5 (GLES2) |
+|---|---|---|---|
+| **Cube** | ✅ `Cube 3D` (real crate texture) | ◐ launcher `games/cube` (`render=tsx`), real crate via `texture.ppm`; codegen-verified | ◐ same build (GLES2 on ARM); codegen-verified |
+| **Cubes** | ✅ `Cubes` (real crate texture) | ◐ launcher `games/cubes` (`render=tsx`), real crate via `texture.ppm`; codegen-verified | ◐ same build (GLES2 on ARM); codegen-verified |
+| **Teapot** | ✅ `Teapot` | ✅ `build-teapot-sdl.sh`, launcher `games/teapot` (`render=three`) | ✅ same build (GLES2 auto-selected on ARM) |
+| **Sponza** | ✅ `Sponza` | ✅ `build-sponza-sdl.sh`, launcher `games/sponza` (`render=sponza`) | ✅ same build (GLES2 path); fetch + decode over the network |
+
+Notes: the native GL renders are codegen-verified (`-l=cpp`) and run on the user's
+desktop/device; the browser renders are verified in headless Chromium. The
+Pi-5/GLES2 divergences (float-texture formats, NPOT mipmaps, depth-target formats)
+are guarded in `three_gl.rgr`; Apple Silicon is treated as desktop GL, not GLES2.
+Cube/Cubes run natively through the *same* generic `ThreeTsxBridge` +
+`ThreeGLBackend` as the web (`render=tsx`) and load the real crate (`texture.ppm`
+staged in the game folder, decoded to the scene's texture path before the first
+frame).
+
+### 8.2.1 Fidelity — the TSX drives the real objects, no silent fakes
+
+The reconciler's job is that the interpreted TSX actually drives the real object
+model — not a façade that quietly hardcodes or drops what the scene specified.
+Two guarantees make "are we running the specified thing?" **machine-checkable**:
+
+**Specified settings are honoured (real driving).** The generic `ThreeTsxBridge`
+reconciles, from the interpreted scene onto the real objects: geometry/material/
+light **types**, transforms, **camera orientation** (`camera.rotation`, not just
+position), **`scene.background`**, the renderer's **`toneMapping` /
+`toneMappingExposure` / `shadowMap.enabled`**, a Preetham **`Sky`**, and a
+**shadow-casting** directional light (`castShadow` + `shadow.mapSize` / extents).
+`three_tsx_bridge_driven_test` and `three_tsx_bridge_features_test` assert each is
+reflected in the real `ThreeWebGLRenderer` / `ThreeScene` / camera / sky / light —
+so a scene that aims the camera, sets a clear colour, a tone-map curve, a sky or a
+shadow-caster gets exactly that, not a hard-wired host value. (Unspecified values
+keep sensible defaults — that is healthy, and not counted.) The generic bridge
+therefore already reconciles the **Sponza scene content** (sky + sun + lit meshes);
+this is why no per-demo scene bridge is needed — see the deprecation note below.
+
+**Unspecified-but-unsupported things are loud, never faked.** Anything the scene
+*specifies* that the bridge cannot reconcile is **counted and warned**, never
+silently substituted:
+- Textures: `hostTextureCount()` (real supplied asset) vs `fallbackTextureCount()`
+  (placeholder); `collectTextureRequests()` reports the referenced paths so a host
+  loads exactly those before frame 1. Web decodes the image, native decodes
+  `texture.ppm`, and the native runner **logs** `tsx textures: host=N fallback=M`
+  each launch.
+- Everything else: `unsupportedCount()` (+ a one-line warning) covers an
+  unsupported geometry/material/light type or an unhandled feature (e.g. a material
+  `envMap` with no supplied cube map). It renders a visible placeholder but **says
+  so**, instead of pretending the TSX drove it.
+
+Tests in `run.sh`: `three_tsx_bridge_texture_test` (no asset ⇒ `fallback=1/host=0`;
+supplied ⇒ `fallback=0/host=1`) and `three_tsx_bridge_driven_test` (camera / tone
+mapping / background honoured; `envMap` ⇒ `unsupportedCount()≥1`).
+`fallbackTextureCount()==0` **and** `unsupportedCount()==0` is the guarantee that a
+scene rendered exactly what it specified.
+
+Known exceptions (documented, not hidden — these are host **plumbing** choices, not
+reconciliation): the **Sponza** host sets tone-mapping exposure to `0.09` (a
+deliberate compensation for the non-PBR Lambert shading — the canonical scene's PBR
+exposure of `1.0` would blow out), and drives the view via its first-person
+controller rather than the scene's `camera.rotation`; in the browser it renders
+procedural boxes until the glTF model streams in. (The scene itself — sky, sun,
+model, meshes — is reconciled by the generic bridge; only these policy/plumbing bits
+live in the host's `ThreeSponzaScene` module.)
+
+### 8.3 API coverage — what's missing for the rest of the examples
+
+Status: ✅ implemented · ◐ partial · ✗ missing. "Unlocks" names the example family
+that becomes reachable once the row is ✅ on all three targets.
+
+| Three.js module | Implemented (✅ / ◐) | Missing (✗) | Unlocks |
+|---|---|---|---|
+| **Math** | Vector3, Euler, Quaternion, Matrix4, Box3, Color, MathUtils ✅; Vector3.setFromSphericalCoords ◐ | Vector2, Vector4, Matrix3, Sphere, Plane, Ray, Frustum, Triangle, Spherical, Cylindrical | prerequisite for raycasting, UV/2D work, culling |
+| **Core** | Object3D (transforms/world matrix/children ⇒ also covers Group), BufferGeometry (position/normal/uv/tangent/index), Clock via ThreeTimer ✅ | Raycaster, InstancedBufferGeometry, InterleavedBuffer, BufferAttribute usage beyond the fixed set, Layers, morph attributes | picking/interaction examples, instancing |
+| **Cameras** | PerspectiveCamera ✅ | OrthographicCamera (public), CubeCamera, ArrayCamera, StereoCamera | ortho/CAD, cubemap-capture, VR examples |
+| **Geometries** | BoxGeometry, TeapotGeometry ✅ | Sphere, Plane, Circle, Cylinder, Cone, Torus, TorusKnot, Ring, Tetra/Octa/Icosa/Dodeca, Capsule, Extrude, Lathe, Tube, Shape, Text, Edges/Wireframe geometry | **most `webgl_geometry_*` examples** |
+| **Materials** | MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial (map + envMap; normalMap via glTF) ✅ | MeshStandardMaterial / MeshPhysicalMaterial (PBR metallic-roughness + IBL), ShaderMaterial / RawShaderMaterial, PointsMaterial, LineBasicMaterial / LineDashedMaterial, MeshToon/Matcap/Depth/Normal/Distance materials, per-material normalScale/aoMap/emissiveMap/roughnessMap | **material examples, correct glTF, custom-shader examples** |
+| **Lights** | AmbientLight, DirectionalLight (+ shadow, PCF) ✅; LightProbeGrid (custom SH GI) ◐ | PointLight, SpotLight, HemisphereLight, RectAreaLight, standard LightProbe, point/spot shadow maps | **lights & shadow examples** |
+| **Objects** | Mesh ✅ | Points, Line / LineSegments / LineLoop, Sprite, InstancedMesh, SkinnedMesh + Skeleton/Bone, LOD | particles, lines, sprites, instancing, skinned characters |
+| **Textures** | Texture, CubeTexture (env/skybox) ✅; wrapping/filtering ◐ | DataTexture, CanvasTexture, VideoTexture, CompressedTexture (KTX2/Basis), DepthTexture (public), sRGB color-space decode | procedural/video/compressed-texture examples, correct color |
+| **Loaders** | TextureLoader, CubeTextureLoader, GLTFLoader (geometry + TRS nodes + baseColor/normal textures) ◐ | glTF PBR materials / animations / skins / Draco / KTX2 / morph; OBJ, FBX, Collada, STL, PLY, 3MF, USDZ loaders | **loader examples** (the largest example family) |
+| **Animation** | — | AnimationMixer, AnimationClip, KeyframeTrack, morph-target & skeletal animation, AnimationObjectGroup | **animation examples**, animated glTF |
+| **Controls** (jsm) | OrbitControls, FirstPersonControls ✅ | TrackballControls, FlyControls, MapControls, PointerLockControls, TransformControls, DragControls, ArcballControls | controls & editor-style examples |
+| **Renderer** | WebGLRenderer (render, setSize, tone mapping, shadow map, FBO) ◐ | EffectComposer + passes (post-processing), WebGLRenderTarget as public API, MRT, instanced/indirect draw, WebGPURenderer/TSL | **postprocessing examples**, render-target examples |
+| **Scene extras** | Scene, Sky (Preetham) ✅ | Fog / FogExp2, background as texture/cubemap API, environment (IBL) property | fog examples, environment-lit examples |
+| **Helpers** | LightProbeGridHelper (custom) ◐ | GridHelper, AxesHelper, Box3Helper, CameraHelper, Directional/Point/SpotLightHelper, SkeletonHelper, VertexNormalsHelper | helper/debug examples |
+| **Tone/color** | ACES + Reinhard tone mapping, exposure ✅ | full color-management (sRGB working/output color spaces), LinearToneMapping/Cineon/AgX | color-managed examples, AgX examples |
+
+### 8.4 Roadmap (priority order)
+
+Ordered by how many example pages each unlocks per unit of work. Every item stays
+inside the shared constraints — object model (ES6 + C++), GPU work as `gpu_*`
+es6/cpp templates, shaders in **GLSL ES 1.00** — so each landed row advances web,
+macOS, and Pi 5 together.
+
+1. **Primitive geometries** — Sphere, Plane, Cylinder, Cone, Torus, TorusKnot,
+   Circle, Ring, the polyhedra. Pure object-model math, portable by construction;
+   lights up most `webgl_geometry_*` pages. Highest ratio. (A "Shapes" demo becomes
+   trivial on the generic bridge, like Cubes.)
+2. **MeshStandardMaterial (PBR) + IBL** — metallic-roughness lighting, an
+   environment prefilter (FBO passes already exist), sRGB baseColor decode. Unlocks
+   the material family and makes glTF render correctly. Stays ES 1.00 (analytic BRDF
+   + prefiltered mip chain, no compute).
+3. **Point / Spot / Hemisphere lights** (+ point/spot shadows) — extends the
+   übershader light loop; shadow FBO plumbing is reusable. Unlocks lights & shadows.
+4. **Points & Line objects** (`PointsMaterial`, `LineBasicMaterial`) — new draw
+   modes (`GL_POINTS`/`GL_LINES`) + tiny shaders; particles/lines examples, cheap on
+   all three targets.
+5. **glTF animation + skinning** (`AnimationMixer`, morph + skeletal) — CPU-side
+   sampling is portable; skinning needs a bone-matrix uniform path (ES 1.00-friendly).
+   Unlocks animation and animated-loader examples.
+6. **Raycaster + a couple more controls** (Transform/Trackball) — interaction/
+   picking family; pure object model, no GPU work.
+7. **More loaders** (OBJ/STL/PLY first — text/binary, no external deps; then
+   Draco/KTX2, which need decoders like the JPEG/PNG path already used natively).
+8. **Post-processing** (`EffectComposer` + core passes: FXAA, bloom, outline).
+   Feasible in ES 1.00 with ping-pong FBOs + the existing float-texture support; the
+   main risk item on GLES2/Pi (format/precision limits), so scope passes to what the
+   shared dialect allows.
+9. **Fog, Sprite, InstancedMesh, DataTexture/CanvasTexture** — smaller families,
+   each a modest object-model + shader-uniform addition.

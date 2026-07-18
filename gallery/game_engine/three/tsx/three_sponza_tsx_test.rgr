@@ -1,15 +1,16 @@
 ; ==============================================================================
-; three_sponza_tsx_test — run sponza.tsx in the interpreter, reconcile, hot-reload.
+; three_sponza_tsx_test — sponza.tsx runs through the GENERIC bridge + plumbing.
 ; ==============================================================================
-; Loads the three.tsx façade + sponza.tsx into ComponentEngine, runs the scene's
-; init(), reconciles through ThreeSponzaTsxBridge into the Ranger core scene, and
-; asserts it was built (sky uniforms, shadow-casting sun, probe volume, model
-; bounds). Then it exercises the hot-reload path: calling exported hooks
-; (setLightElevation / setProbeCountX) and re-reconciling changes the core scene —
-; proving edits to the interpreted scene reload live, like teapot.tsx.
+; sponza.tsx has NO bespoke bridge. It reconciles through the one generic
+; ThreeTsxBridge (sky, shadow-casting sun, host-attached model, camera); the
+; ThreeSponzaScene PLUMBING module runs on those reconciled objects (bounds →
+; shadow extent, the baked GI probe volume, per-probe visibility, FPC). This
+; asserts the reconcile (sky uniforms, sun, probe volume, model bounds) and the
+; hot-reload path (edit a knob + re-run the plumbing changes the core scene).
 ; ==============================================================================
 
-Import "three_sponza_tsx_bridge.rgr"
+Import "three_tsx_bridge.rgr"
+Import "three_sponza_scene.rgr"
 Import "../src/three_mesh.rgr"
 Import "../src/three_box_geometry.rgr"
 
@@ -49,6 +50,8 @@ class ThreeSponzaTsxTest {
         push tv (EvalValue.number(2.0))
         push tk "RepeatWrapping"
         push tv (EvalValue.number(1000.0))
+        push tk "ACESFilmicToneMapping"
+        push tv (EvalValue.number(4.0))
         engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
 
         def wk:[string]
@@ -77,6 +80,7 @@ class ThreeSponzaTsxTest {
         engine.quiet = true
         ThreeSponzaTsxTest.registerGlobals(engine)
         engine.loadScript(src)
+        engine.callFunction("init" (EvalValue.null()))
 
         ; the host's decoded model: a 20 x 10 x 8 box stands in for Sponza.
         def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
@@ -84,47 +88,50 @@ class ThreeSponzaTsxTest {
         def modelMesh:ThreeMesh (new ThreeMesh)
         modelMesh.setGeometry(geo)
 
-        def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
-        bridge.setEngine(engine)
-        bridge.setModel(modelMesh)
-        bridge.initFromScript()
+        ; generic bridge reconciles the declared scene graph.
+        def gbridge (new ThreeTsxBridge)
+        gbridge.setEngine(engine)
+        gbridge.setHostModel(modelMesh)
+        gbridge.reconcile(1280 720)
+        ; plumbing module runs on the reconciled objects.
+        def sponza (new ThreeSponzaScene)
+        sponza.setEngine(engine)
+        sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
+        sponza.reconcile()
 
-        print "== interpreted scene reconciled into the core =="
-        ; scene composed: sky, model, light target, light, probes, helper
-        this.ok("scene has 6 children" ((bridge.scene.scene.childCount()) == 6))
-        ; sky uniforms flowed from the interpreted script (rayleigh 2, mieG 0.8)
-        this.near("sky rayleigh 2" bridge.scene.sky.rayleigh 2.0)
-        this.near("sky mieDirectionalG 0.8" bridge.scene.sky.mieDirectionalG 0.8)
-        this.near("sky turbidity 10" bridge.scene.sky.turbidity 10.0)
-        ; probe volume: 10 x 7 x 7 = 490
-        this.near("probe count 490" (to_double (bridge.scene.probes.probeCount())) 490.0)
-        ; sun / light from az -45 / elev 55
-        this.near("light intensity 100" bridge.scene.dirLight.intensity 100.0)
-        this.ok("light casts shadow" bridge.scene.dirLight.castShadow)
-        this.ok("light above target" (bridge.scene.dirLight.position.y > bridge.scene.targetY))
-        this.near("sky sun y = cos(35)" bridge.scene.sky.sunPosition.y 0.819152)
-        ; model bounds measured (host box is 20 x 10)
-        this.near("model size x = 20" bridge.scene.sizeX 20.0)
-        this.near("model size y = 10" bridge.scene.sizeY 10.0)
+        print "== sponza.tsx reconciled through the generic bridge + plumbing =="
+        ; sky uniforms flowed from the interpreted script (via the generic bridge)
+        this.near("sky rayleigh 2" sponza.sky.rayleigh 2.0)
+        this.near("sky mieDirectionalG 0.8" sponza.sky.mieDirectionalG 0.8)
+        this.near("sky turbidity 10" sponza.sky.turbidity 10.0)
+        ; probe volume: 10 x 7 x 7 = 490 (built + baked by the plumbing)
+        this.near("probe count 490" (to_double (sponza.probes.probeCount())) 490.0)
+        ; sun / light from az -45 / elev 55 (reconciled by the generic bridge)
+        this.near("light intensity 100" sponza.dirLight.intensity 100.0)
+        this.ok("light casts shadow" sponza.dirLight.castShadow)
+        this.ok("light above target (bounds-scaled by the plumbing)" (sponza.dirLight.position.y > sponza.targetY))
+        this.near("sky sun y = cos(35)" sponza.sky.sunPosition.y 0.819152)
+        ; model bounds measured by the plumbing (host box is 20 x 10)
+        this.near("model size x = 20" sponza.sizeX 20.0)
+        this.near("model size y = 10" sponza.sizeY 10.0)
 
-        print "== hot-reload: edit the interpreted scene, re-reconcile =="
-        ; drop the sun toward the horizon -> the sky sun uniform lifts (cos(70))
-        def before:double bridge.scene.sky.sunPosition.y
+        print "== hot-reload: edit a knob, re-run the plumbing =="
+        def before:double sponza.sky.sunPosition.y
         engine.callFunction("setLightElevation" (EvalValue.number(20.0)))
-        bridge.reconcile()
-        this.near("elevation now 20" bridge.scene.lightElevation 20.0)
-        this.near("sun y = cos(70)" bridge.scene.sky.sunPosition.y 0.342020)
-        this.ok("sun moved" (bridge.scene.sky.sunPosition.y != before))
+        sponza.reconcile()
+        this.near("elevation now 20" sponza.lightElevation 20.0)
+        this.near("sun y = cos(70)" sponza.sky.sunPosition.y 0.342020)
+        this.ok("sun moved" (sponza.sky.sunPosition.y != before))
 
         ; change a probe count -> the volume rebuilds + rebakes (4 x 7 x 7 = 196)
         engine.callFunction("setProbeCountX" (EvalValue.number(4.0)))
-        bridge.reconcile()
-        this.near("probe count now 196" (to_double (bridge.scene.probes.probeCount())) 196.0)
+        sponza.reconcile()
+        this.near("probe count now 196" (to_double (sponza.probes.probeCount())) 196.0)
 
         ; toggle GI off -> the probe volume hides
         engine.callFunction("setGI" (EvalValue.boolean(false)))
-        bridge.reconcile()
-        this.ok("GI toggled off" (bridge.scene.probes.visible == false))
+        sponza.reconcile()
+        this.ok("GI toggled off" (sponza.probes.visible == false))
 
         print "== summary =="
         print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))

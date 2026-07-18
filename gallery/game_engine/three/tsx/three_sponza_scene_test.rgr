@@ -66,6 +66,11 @@ class ThreeSponzaSceneTest {
         s.lightAzimuth = 90.0
         s.lightElevation = 30.0
         s.lightIntensity = 5.0
+        ; the generic bridge normally reconciles the sun's colour/intensity/castShadow
+        ; from sponza.tsx; this standalone test drives build() directly, so set them as
+        ; the bridge would (build() only adds the bounds-derived config + probe bake).
+        s.dirLight.intensity = 5.0
+        s.dirLight.castShadow = true
         s.build(model)
 
         ; derived metrics from bounds
@@ -74,8 +79,9 @@ class ThreeSponzaSceneTest {
         ck.near("lightBaseDistance = max(sx,sz)" s.lightBaseDistance 20.0)
         ck.near("probeFar = maxdim*2" s.probeFar 40.0)
 
-        ; scene composition: sky, model, light target, light, probes, helper
-        ck.near("scene child count" (to_double (s.scene.childCount())) 6.0)
+        ; build() now adds only what the bridge does not: the shadow target + the
+        ; baked probe volume + its helper (sky/model/sun are the bridge's, added there).
+        ck.near("scene child count (target + probes + helper)" (to_double (s.scene.childCount())) 3.0)
 
         ; probe volume: 3 x 3 x 3 = 27 (from the knobs)
         ck.near("probe count = cx*cy*cz" (to_double (s.probes.probeCount())) 27.0)

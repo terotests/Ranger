@@ -14,17 +14,27 @@
 ; drives either. No JavaScript in the engine — compiles to C++ too.
 ; ==============================================================================
 
-Import "../three/tsx/three_teapot_tsx_bridge.rgr"
+Import "../three/tsx/three_tsx_bridge.rgr"
 Import "../three/src/three_gl_backend.rgr"
 Import "../three/src/three_orbit_controls.rgr"
+Import "../three/src/three_cube_texture.rgr"
+Import "../three/src/three_texture.rgr"
 Import "../three/tsx/three_gui_overlay.rgr"
 
+; The teapot runs on the ONE generic reconciler (ThreeTsxBridge). This host is pure
+; PLUMBING (IDEAL_THREE §5): OrbitControls + the lil-gui panel + input, plus the
+; procedural env cube map / UV texture / grey background the upstream example loads
+; from image files — supplied to the generic bridge, not reconciled by a bespoke
+; per-demo bridge. There is no ThreeTeapotTsxBridge any more.
 class WebTeapotTsxHost {
     def engine:ComponentEngine (new ComponentEngine())
-    def bridge:ThreeTeapotTsxBridge (new ThreeTeapotTsxBridge)
+    def bridge:ThreeTsxBridge (new ThreeTsxBridge)
     def gl:ThreeGLBackend (new ThreeGLBackend)
     def controls:ThreeOrbitControls (new ThreeOrbitControls)
     def gui:ThreeGuiOverlay (new ThreeGuiOverlay)
+    ; procedural assets the example would fetch as image files (host plumbing).
+    def envCube:ThreeCubeTexture (new ThreeCubeTexture)
+    def envBuilt:boolean false
     def ready:boolean false
     def sceneDirty:boolean true
     def w:int 600
@@ -77,10 +87,25 @@ class WebTeapotTsxHost {
         engine.loadScript(src)
         engine.callFunction("init" (EvalValue.null()))
         engine.callFunction("renderScene" (EvalValue.null()))
+        this.setupAssets()
         this.initControls()
         ready = true
         sceneDirty = true
         return "ok"
+    }
+
+    ; Supply the procedural assets the upstream example loads from image files —
+    ; the UV-grid map (for the 'textured' material) and the reflection cube map (for
+    ; the 'reflective' material) — to the generic bridge. This is host plumbing, not
+    ; reconciliation: the scene still declares `map` / `envMap`, the host just decodes
+    ; the pixels (here procedurally), exactly as a TextureLoader would.
+    fn setupAssets:void () {
+        if (envBuilt == false) {
+            envCube = (ThreeCubeTexture.proceduralSky(64))
+            envBuilt = true
+        }
+        def uv:ThreeTexture (ThreeTexture.uvGrid(256 8))
+        bridge.setTexture("textures/uv_grid_opengl.jpg" uv.rgba uv.width uv.height)
     }
 
     fn loadFromVfs:string (dir:string facadeFile:string teapotFile:string winW:int winH:int dpr:double) {
@@ -119,6 +144,23 @@ class WebTeapotTsxHost {
     fn frame:void () {
         if (ready == false) {
             return
+        }
+        ; environment/background policy (plumbing): the reflective material shows the
+        ; cube map as a skybox + reflects it; every other mode uses the example's grey
+        ; clear. The scene reconciliation (incl. envMap → reflective material) is the
+        ; generic bridge's; supplying the cube map + choosing the background is ours.
+        def sh:EvalValue (engine.callFunction("currentShading" (EvalValue.null())))
+        def reflective:boolean false
+        if (sh.isString()) {
+            if (sh.stringValue == "reflective") {
+                reflective = true
+            }
+        }
+        if reflective {
+            bridge.scene.setEnvironmentMap(envCube)
+        } {
+            bridge.scene.hasEnvCube = false
+            bridge.scene.setBackground(0.6667 0.6667 0.6667)
         }
         bridge.renderFrame(w h)
     }

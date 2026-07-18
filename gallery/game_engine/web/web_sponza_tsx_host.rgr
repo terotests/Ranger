@@ -3,9 +3,10 @@
 ; ==============================================================================
 ;
 ; The Sponza counterpart to web_teapot_tsx_host. sponza.tsx (the editable scene
-; code) runs in ComponentEngine against the three.tsx façade; ThreeSponzaTsxBridge
-; reconciles it into the Ranger Three core (ThreeSponzaScene); ThreeGLBackend +
-; ThreeWebGLRenderer draw it with real WebGL. FirstPersonControls are host
+; code) runs in ComponentEngine against the three.tsx façade; the generic
+; ThreeTsxBridge reconciles it and ThreeSponzaScene (plumbing) bakes the GI on the
+; reconciled objects; ThreeGLBackend + ThreeWebGLRenderer draw it with real WebGL.
+; FirstPersonControls are host
 ; plumbing (WASD keys + pointer look routed in from the viewer).
 ;
 ; The browser cannot run the host-side glTF download (no child_process), so the
@@ -18,7 +19,8 @@
 ; viewer drives (setupGL / load / frame / key + look input / setSize).
 ; ==============================================================================
 
-Import "../three/tsx/three_sponza_tsx_bridge.rgr"
+Import "../three/tsx/three_tsx_bridge.rgr"
+Import "../three/tsx/three_sponza_scene.rgr"
 Import "../three/src/three_webgl_renderer.rgr"
 Import "../three/src/three_gl_backend.rgr"
 Import "../three/src/three_mesh.rgr"
@@ -26,9 +28,15 @@ Import "../three/src/three_mesh_lambert_material.rgr"
 Import "../three/src/three_box_geometry.rgr"
 Import "../three/src/three_gltf_file.rgr"
 
+; The Sponza scene reconciles through the ONE generic ThreeTsxBridge (sky, shadow-
+; casting sun, host-attached model, camera); ThreeSponzaScene is the GPU-technique
+; PLUMBING module (bounds → shadow extent, the diffuse-GI probe bake + per-probe
+; visibility, first-person controls) running on the bridge's reconciled objects.
+; There is no ThreeSponzaTsxBridge.
 class WebSponzaTsxHost {
     def engine:ComponentEngine (new ComponentEngine())
-    def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
+    def gbridge:ThreeTsxBridge (new ThreeTsxBridge)
+    def sponza:ThreeSponzaScene (new ThreeSponzaScene)
     def gl:ThreeGLBackend (new ThreeGLBackend)
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
     ; the glTF loader kept from loadWithModel so a viewer can push decoded texture
@@ -125,39 +133,47 @@ class WebSponzaTsxHost {
         renderer.setToneMappingExposure(0.09)
         renderer.setShadowMapEnabled(true)
 
-        bridge.setEngine(engine)
-        bridge.setModel(model)
         def src:string ((facadeSrc + "\n") + sponzaSrc)
         engine.loadScript(src)
-        bridge.initFromScript()
-        bridge.scene.setViewport(winW winH)
+        engine.callFunction("init" (EvalValue.null()))
+        ; generic bridge reconciles the declared scene graph (sky, sun+shadow, the
+        ; host-attached model, camera) into gbridge.scene.
+        gbridge.setEngine(engine)
+        gbridge.setHostModel(model)
+        gbridge.reconcile(winW winH)
+        ; the plumbing module runs on those reconciled objects: bounds → shadow
+        ; extent, the baked GI probe volume, first-person controls.
+        sponza.setEngine(engine)
+        sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
+        sponza.reconcile()
+        sponza.setViewport(winW winH)
         ready = true
         return "ok"
     }
 
     ; frame the procedural test scene (~40 units): a fixed vantage looking at it.
     fn frameTestCamera:void () {
-        bridge.scene.fpc.setMovementSpeed(18.0)
-        bridge.scene.fpc.setLook(180.0 (0.0 - 8.0))
-        bridge.scene.camera.position.set(0.0 9.0 34.0)
-        bridge.scene.update(0.0)
+        sponza.fpc.setMovementSpeed(18.0)
+        sponza.fpc.setLook(180.0 (0.0 - 8.0))
+        gbridge.camera.position.set(0.0 9.0 34.0)
+        sponza.update(0.0)
     }
     ; frame the real Sponza model: keep the interpreted camera position (sponza.tsx
     ; places it inside the hall) and aim the first-person view down the long axis.
     fn frameModelCamera:void () {
-        bridge.scene.fpc.setMovementSpeed(6.0)
-        bridge.scene.fpc.setLook(90.0 0.0)
-        bridge.scene.update(0.0)
+        sponza.fpc.setMovementSpeed(6.0)
+        sponza.fpc.setLook(90.0 0.0)
+        sponza.update(0.0)
     }
 
     ; render one frame so the GPU shadow map is populated, read it back, and compute
     ; per-probe sun visibility so shadowed probes lose their direct-sun GI lobe. Runs
     ; once after load (the first visible frame then uses the shadow-aware bake).
     fn establishProbeVisibility:void () {
-        renderer.render(bridge.scene.scene bridge.scene.camera)
+        renderer.render(gbridge.scene gbridge.camera)
         def size:int (gl.shadowMapSize())
         def depth:buffer (gl.readShadowDepth())
-        bridge.scene.applyProbeVisibility(depth size)
+        sponza.applyProbeVisibility(depth size)
     }
 
     ; Load with the procedural test scene (the browser can't fetch the real model).
@@ -208,26 +224,26 @@ class WebSponzaTsxHost {
         if (ready == false) {
             return
         }
-        bridge.scene.update(dt)
-        renderer.render(bridge.scene.scene bridge.scene.camera)
+        sponza.update(dt)
+        renderer.render(gbridge.scene gbridge.camera)
     }
 
     fn setSize:void (winW:int winH:int) {
         w = winW
         h = winH
         renderer.setSize(winW winH)
-        bridge.scene.setViewport(winW winH)
+        sponza.setViewport(winW winH)
     }
 
     ; --- first-person input (routed from the viewer) --------------------------
     fn keyDown:void (key:string) {
-        bridge.scene.fpc.keyDown(key)
+        sponza.fpc.keyDown(key)
     }
     fn keyUp:void (key:string) {
-        bridge.scene.fpc.keyUp(key)
+        sponza.fpc.keyUp(key)
     }
     fn look:void (dx:double dy:double) {
-        bridge.scene.fpc.handleLook(dx dy)
+        sponza.fpc.handleLook(dx dy)
     }
 
     ; the scene is first-person animated, so every frame may differ.
@@ -253,18 +269,18 @@ class WebSponzaTsxHost {
     fn setExposure:void (e:double) {
         renderer.setToneMappingExposure(e)
     }
-    fn infoCX:double () { return bridge.scene.centerX }
-    fn infoCY:double () { return bridge.scene.centerY }
-    fn infoCZ:double () { return bridge.scene.centerZ }
-    fn infoSX:double () { return bridge.scene.sizeX }
-    fn infoSY:double () { return bridge.scene.sizeY }
-    fn infoSZ:double () { return bridge.scene.sizeZ }
-    fn infoMeshes:int () { return (bridge.scene.model.childCount()) }
+    fn infoCX:double () { return sponza.centerX }
+    fn infoCY:double () { return sponza.centerY }
+    fn infoCZ:double () { return sponza.centerZ }
+    fn infoSX:double () { return sponza.sizeX }
+    fn infoSY:double () { return sponza.sizeY }
+    fn infoSZ:double () { return sponza.sizeZ }
+    fn infoMeshes:int () { return (sponza.model.childCount()) }
     ; place the camera outside + above the model, aimed at its centre (overview).
     fn setCameraLook:void (px:double py:double pz:double lon:double lat:double) {
-        bridge.scene.camera.position.set(px py pz)
-        bridge.scene.fpc.setLook(lon lat)
-        bridge.scene.update(0.0)
+        gbridge.camera.position.set(px py pz)
+        sponza.fpc.setLook(lon lat)
+        sponza.update(0.0)
     }
 
     fn isReady:boolean () {

@@ -1,13 +1,16 @@
 ; ==============================================================================
-; three_teapot_tsx_test — run teapot.tsx 1:1 in the interpreter, reconcile, check.
+; three_teapot_tsx_test — teapot.tsx runs 1:1 through the GENERIC bridge.
 ; ==============================================================================
-; Loads the three.tsx façade + teapot.tsx into ComponentEngine, runs the example's
-; init()+render(), reconciles through ThreeTeapotTsxBridge, and asserts the Ranger
-; scene was built (lights + a tessellated teapot mesh) and that the host hooks
-; (setShading) drive a material swap — the editable interpreter path end to end.
+; The teapot has NO bespoke bridge any more: teapot.tsx reconciles through the one
+; generic ThreeTsxBridge (the OrbitControls + lil-gui panel + procedural env cube /
+; UV texture are host plumbing, in WebTeapotTsxHost). This checks the reconcile
+; (camera, lights, the tessellated teapot mesh) AND rebuild-on-change: when the
+; scene re-tessellates (the GUI's setTess → createNewTeapot removes + re-adds the
+; mesh), the generic bridge REBUILDS it — the render changes — instead of freezing
+; the first mesh. Software backend, headless.
 ; ==============================================================================
 
-Import "three_teapot_tsx_bridge.rgr"
+Import "three_tsx_bridge.rgr"
 
 class ThreeTeapotTsxTest {
     def passed:int 0
@@ -16,13 +19,35 @@ class ThreeTeapotTsxTest {
     fn ok:void (label:string cond:boolean) {
         if cond {
             passed = (passed + 1)
-            def m:string ("  PASS " + label)
-            print m
+            print ("  PASS " + label)
         } {
             failed = (failed + 1)
-            def m2:string ("  FAIL " + label)
-            print m2
+            print ("  FAIL " + label)
         }
+    }
+
+    sfn checksum:int (color:buffer w:int h:int) {
+        def n:int ((w * h) * 3)
+        def sum:int 0
+        def i:int 0
+        while (i < n) {
+            sum = (((sum * 31) + (buffer_get color i)) % 1000000007)
+            i = (i + 1)
+        }
+        return sum
+    }
+    sfn covered:int (color:buffer w:int h:int) {
+        def n:int (w * h)
+        def c:int 0
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            if ((((buffer_get color o) + (buffer_get color (o + 1))) + (buffer_get color (o + 2))) > 60) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
     }
 
     sfn registerGlobals:void (engine:ComponentEngine) {
@@ -39,7 +64,6 @@ class ThreeTeapotTsxTest {
         push tk "RepeatWrapping"
         push tv (EvalValue.number(1000.0))
         engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
-
         def wk:[string]
         def wv:[EvalValue]
         push wk "innerWidth"
@@ -69,37 +93,31 @@ class ThreeTeapotTsxTest {
         engine.callFunction("init" (EvalValue.null()))
         engine.callFunction("renderScene" (EvalValue.null()))
 
-        def bridge:ThreeTeapotTsxBridge (new ThreeTeapotTsxBridge)
+        def bridge (new ThreeTsxBridge)
         bridge.setEngine(engine)
         bridge.renderFrame(600 600)
+        def frame0:buffer (bridge.raw())
+        def sum0:int (ThreeTeapotTsxTest.checksum(frame0 600 600))
+        def cov0:int (ThreeTeapotTsxTest.covered(frame0 600 600))
+        print ("  mesh=" + (to_string (bridge.meshCount())) + " amb=" + (to_string (bridge.ambientLightCount())) + " dir=" + (to_string (bridge.directionalLightCount())) + " covered=" + (to_string cov0))
 
-        ; camera reconciled (fov 45, far 80000)
         this.ok("camera fov 45" ((bridge.camera.fov > 44.9) && (bridge.camera.fov < 45.1)))
         this.ok("camera far 80000" (bridge.camera.far > 79000.0))
+        this.ok("one teapot mesh reconciled" ((bridge.meshCount()) == 1))
+        this.ok("ambient + directional lights reconciled" (((bridge.ambientLightCount()) == 1) && ((bridge.directionalLightCount()) == 1)))
+        this.ok("teapot renders (covers the frame)" (cov0 > 20000))
 
-        ; scene: ambient + directional + teapot mesh
-        this.ok("scene has 3 children" ((bridge.scene.childCount()) == 3))
-        this.ok("lights built" bridge.lightsBuilt)
-
-        ; teapot geometry built (tess 15 → many verts)
-        def vc:int (bridge.mesh.geometry.vertexCount())
-        print ("  teapot verts=" + (to_string vc) + " shading=" + bridge.sigShading)
-        this.ok("teapot tessellated" (vc > 1000))
-        this.ok("default shading glossy=phong" (bridge.sigShading == "phong"))
-
-        ; host hook: switch to wireframe → signature changes to wire
-        engine.callFunction("setShading" (EvalValue.string("wireframe")))
+        ; rebuild-on-change: re-tessellate via the GUI hook. createNewTeapot removes
+        ; and re-adds the mesh with a new geometry signature; the generic bridge must
+        ; rebuild it, so the render changes. (If it froze the first mesh, sum0==sumN.)
+        engine.callFunction("setTess" (EvalValue.number(4.0)))
         bridge.renderFrame(600 600)
-        this.ok("shading swapped to wire" (bridge.sigShading == "wire"))
-
-        ; switch to reflective → env cube built + skybox enabled
-        engine.callFunction("setShading" (EvalValue.string("reflective")))
-        bridge.renderFrame(600 600)
-        this.ok("reflective enables skybox" bridge.scene.hasEnvCube)
+        def sumN:int (ThreeTeapotTsxTest.checksum((bridge.raw()) 600 600))
+        this.ok("re-tessellation rebuilt the mesh (render changed)" (sum0 != sumN))
+        this.ok("still one mesh after rebuild" ((bridge.meshCount()) == 1))
 
         print "== summary =="
-        def s:string (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
-        print s
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
         if (failed == 0) {
             print "ALL PASS"
         } {

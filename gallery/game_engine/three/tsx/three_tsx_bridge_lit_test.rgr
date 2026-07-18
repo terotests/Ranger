@@ -1,0 +1,121 @@
+; ==============================================================================
+; three_tsx_bridge_lit_test — the GENERIC bridge is not cube-only.
+; ==============================================================================
+; Drives an interpreted *lit* scene (lit.tsx: a Lambert box + a DirectionalLight +
+; an AmbientLight) through the SAME ThreeTsxBridge the cube/cubes use, and proves
+; the bridge reconciled each façade object into its REAL object-model counterpart
+; by type — a real ThreeDirectionalLight, a real ThreeAmbientLight, and a real
+; ThreeMeshLambertMaterial — with no demo-specific bridge. This is the §5
+; generic-reconciliation guarantee: adding a scene needs no new bridge.
+;
+; (The software backend does not shade — lighting is the GL backend's job — so the
+; assertion is on the reconciled object graph, not on lit pixels.)
+; ==============================================================================
+
+Import "three_tsx_bridge.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeTsxBridgeLitTest {
+    sfn coveredPixels:int (color:buffer w:int h:int) {
+        def n:int (w * h)
+        def covered:int 0
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            def r:int (buffer_get color o)
+            def g:int (buffer_get color (o + 1))
+            def b:int (buffer_get color (o + 2))
+            if (((r + g) + b) > 60) {
+                covered = (covered + 1)
+            }
+            i = (i + 1)
+        }
+        return covered
+    }
+
+    sfn m@(main):void () {
+        def W:int 200
+        def H:int 200
+
+        def engine (new ComponentEngine())
+        engine.quiet = true
+
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(200.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(200.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def lit:buffer (buffer_read_file "gallery/game_engine/three/tsx" "lit.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string lit))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def bridge (new ThreeTsxBridge)
+        bridge.setEngine(engine)
+        bridge.renderFrame(W H)
+        def frame0:buffer (bridge.raw())
+        def cov0:int (ThreeTsxBridgeLitTest.coveredPixels(frame0 W H))
+
+        def passed:int 0
+        def failed:int 0
+        print "== interpreted lit.tsx reconciled through the GENERIC bridge =="
+        print ("mesh=" + (to_string (bridge.meshCount())) + " ambient=" + (to_string (bridge.ambientLightCount())) + " directional=" + (to_string (bridge.directionalLightCount())) + " mat=" + (bridge.firstMaterialKind()) + " covered=" + (to_string cov0))
+
+        if ((bridge.meshCount()) == 1) {
+            passed = (passed + 1)
+            print "  PASS one real ThreeMesh built"
+        } {
+            failed = (failed + 1)
+            print "  FAIL mesh count wrong"
+        }
+        if ((bridge.ambientLightCount()) == 1) {
+            passed = (passed + 1)
+            print "  PASS AmbientLight mapped to a real ThreeAmbientLight"
+        } {
+            failed = (failed + 1)
+            print "  FAIL ambient light not reconciled"
+        }
+        if ((bridge.directionalLightCount()) == 1) {
+            passed = (passed + 1)
+            print "  PASS DirectionalLight mapped to a real ThreeDirectionalLight"
+        } {
+            failed = (failed + 1)
+            print "  FAIL directional light not reconciled"
+        }
+        if ((bridge.firstMaterialKind()) == "lambert") {
+            passed = (passed + 1)
+            print "  PASS MeshLambertMaterial mapped by type (not a hard-coded basic)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL material kind wrong"
+        }
+        if (cov0 > 3000) {
+            passed = (passed + 1)
+            print "  PASS the lit box renders (covers the frame)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL box did not render"
+        }
+
+        print "== summary =="
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

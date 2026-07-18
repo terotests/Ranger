@@ -24,6 +24,7 @@ Import "./as_sprite_runner.rgr"
 Import "./wasm3d_runner.rgr"
 Import "../web/web_teapot_tsx_host.rgr"
 Import "../web/web_sponza_tsx_host.rgr"
+Import "../web/web_tsx3d_gl_host.rgr"
 Import "../three/src/three_gltf_file.rgr"
 Import "../three/src/three_gltf_textures.rgr"
 Import "../three/src/three_object3d.rgr"
@@ -70,6 +71,14 @@ class GameSdlRunner {
     def useTeapot:boolean false
     def teapotPrevBtn:int 0
     def teapotGuiTex:int 0
+    ; render=tsx: the GENERIC interpreted-.tsx path (any three.tsx-façade scene:
+    ; cube, cubes, a lit scene, …) through the same ThreeTsxBridge + Three GL
+    ; backend the browser tsx3d-gl host uses. No per-demo code — the scene file
+    ; alone decides what renders. Tests category.
+    def tsx3dHost:WebTsx3dGlHost (new WebTsx3dGlHost)
+    def useTsx3d:boolean false
+    def tsxPpmCur:int 0
+    def tsxFidelityLogged:boolean false
     ; render=sponza: the interpreted light-probe Sponza scene (FPC + GI + shadows +
     ; sky). The real glTF model is fetched + decoded once (host-side) and cached.
     def sponzaHost:WebSponzaTsxHost (new WebSponzaTsxHost)
@@ -559,13 +568,21 @@ class GameSdlRunner {
     ; composite the GUI panel and swap. A held quit (Q/Esc/Back) returns to menu.
     fn drawTeapot:void () {
         gfx_input_poll
+        ; track the real framebuffer size (fullscreen / resize) so the GL viewport +
+        ; camera aspect + the GUI panel placement follow it, instead of the initial
+        ; window size (a small postcard in the bottom-left on the Pi otherwise).
+        def curW:int (gfx_surface_width)
+        def curH:int (gfx_surface_height)
+        if (curW < 1) { curW = pw }
+        if (curH < 1) { curH = ph }
+        teapotHost.setSize(curW curH)
         def mx:int (gfx_mouse_x)
         def my:int (gfx_mouse_y)
         def btn:int (gfx_mouse_buttons)
         def wheel:int (gfx_mouse_wheel)
         def gw:int (teapotHost.guiW())
         def gh:int (teapotHost.guiH())
-        def panelX:int (pw - gw)
+        def panelX:int (curW - gw)
         def leftNow:int (bit_and btn 1)
         def leftPrev:int (bit_and teapotPrevBtn 1)
         if ((leftPrev == 0) && (leftNow == 1)) {
@@ -590,11 +607,147 @@ class GameSdlRunner {
         }
         teapotPrevBtn = btn
         teapotHost.frame()
-        gpu_draw_overlay teapotGuiTex panelX 0 gw gh pw ph
+        gpu_draw_overlay teapotGuiTex panelX 0 gw gh curW curH
         gfx_gl_swap
         def mask:int (gfx_input_source_mask 0)
         if ((bit_and mask 8) != 0) {
             useTeapot = false
+            this.loadMenuGame()
+        }
+    }
+
+    ; Load a render=tsx game: ANY interpreted three.tsx-façade scene, rendered
+    ; through the generic ThreeTsxBridge + ThreeGLBackend — the exact browser
+    ; tsx3d-gl path, native. The scene file (index.tsx by convention) + the shared
+    ; three.tsx façade come from the game folder; nothing here is demo-specific, so
+    ; cube.tsx, cubes.tsx and any future scene run with no runner changes.
+    fn loadTsx3dAt:void (path:string) {
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = false
+        useStreamRunner = false
+        useWasm3d = false
+        useTeapot = false
+        useSponza = false
+        useTsx3d = true
+        this.presentLoadingScreen("LOADING SCENE")
+        def dir:string (this.dirOf(path))
+        def sceneFile:string (this.baseOf(path))
+        def ok:boolean (tsx3dHost.setupGL(""))
+        if (ok == false) {
+            useTsx3d = false
+            print "[game-engine] tsx3d GL init failed"
+            this.loadMenuGame()
+            return
+        }
+        def r:string (tsx3dHost.loadFromVfs(dir "three.tsx" sceneFile pw ph 1.0))
+        if (r != "ok") {
+            useTsx3d = false
+            print ("[game-engine] tsx3d load failed: " + r)
+            this.loadMenuGame()
+            return
+        }
+        ; supply the specified texture(s) before the first reconcile, so we render
+        ; the real asset rather than the bridge's placeholder fallback.
+        this.loadTsxTextures(dir)
+        tsxFidelityLogged = false
+        currentScriptPath = path
+        currentGamePath = path
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        print ("[game-engine] three tsx scene: " + path)
+    }
+
+    ; Read one whitespace-separated integer from a PPM (P6) header at tsxPpmCur.
+    fn tsxPpmInt:int (buf:buffer) {
+        def go:boolean true
+        while (go) {
+            def ch:int (buffer_get buf tsxPpmCur)
+            if (ch == 32) { tsxPpmCur = (tsxPpmCur + 1) } {
+            if (ch == 10) { tsxPpmCur = (tsxPpmCur + 1) } {
+            if (ch == 9) { tsxPpmCur = (tsxPpmCur + 1) } {
+            if (ch == 13) { tsxPpmCur = (tsxPpmCur + 1) } {
+                go = false
+            }}}}
+        }
+        def val:int 0
+        def go2:boolean true
+        while (go2) {
+            def ch2:int (buffer_get buf tsxPpmCur)
+            if (ch2 < 48) { go2 = false } {
+            if (ch2 > 57) { go2 = false } {
+                val = ((val * 10) + (ch2 - 48))
+                tsxPpmCur = (tsxPpmCur + 1)
+            }}
+        }
+        return val
+    }
+
+    ; Load the REAL texture the scene specifies (staged as texture.ppm in the game
+    ; folder), decode it (P6 -> RGBA) and register it under every texture path the
+    ; scene references — so the native .tsx path renders the specified asset, not a
+    ; placeholder. If no texture.ppm is present, nothing is supplied and the bridge's
+    ; (loud, counted) fallback applies — never a silent substitution.
+    fn loadTsxTextures:void (dir:string) {
+        if ((file_exists dir "texture.ppm") == false) {
+            return
+        }
+        def reqs:[string] (tsx3dHost.collectTextureRequests())
+        if ((array_length reqs) < 1) {
+            return
+        }
+        def buf:buffer (buffer_read_file dir "texture.ppm")
+        tsxPpmCur = 2
+        def tw:int (this.tsxPpmInt(buf))
+        def th:int (this.tsxPpmInt(buf))
+        def mx:int (this.tsxPpmInt(buf))
+        tsxPpmCur = (tsxPpmCur + 1)
+        def n:int (tw * th)
+        def rgba:buffer (buffer_alloc (n * 4))
+        def i:int 0
+        while (i < n) {
+            def so:int (tsxPpmCur + (i * 3))
+            def dof:int (i * 4)
+            buffer_set rgba dof (buffer_get buf so)
+            buffer_set rgba (dof + 1) (buffer_get buf (so + 1))
+            buffer_set rgba (dof + 2) (buffer_get buf (so + 2))
+            buffer_set rgba (dof + 3) 255
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length reqs)) {
+            tsx3dHost.setTexture((itemAt reqs j) rgba tw th)
+            j = (j + 1)
+        }
+    }
+
+    ; Per-frame for a render=tsx game: advance the interpreted animate() + draw the
+    ; reconciled scene through the GL backend, then swap. The scene drives its own
+    ; camera/animation (setAnimationLoop), so no input plumbing is needed; a held
+    ; quit (Q/Esc/Back) returns to the menu.
+    fn drawTsx3d:void () {
+        gfx_input_poll
+        def w:int (gfx_surface_width)
+        def h:int (gfx_surface_height)
+        if (w < 1) { w = pw }
+        if (h < 1) { h = ph }
+        tsx3dHost.setSize(w h)
+        tsx3dHost.frame()
+        gfx_gl_swap
+        ; after the first reconcile, report texture fidelity (real asset vs
+        ; placeholder) so a run self-declares whether it ran the specified textures.
+        if (tsxFidelityLogged == false) {
+            print ("[game-engine] tsx textures: host=" + (to_string (tsx3dHost.hostTextureCount())) + " fallback=" + (to_string (tsx3dHost.fallbackTextureCount())))
+            tsxFidelityLogged = true
+        }
+        def mask:int (gfx_input_source_mask 0)
+        if ((bit_and mask 8) != 0) {
+            useTsx3d = false
             this.loadMenuGame()
         }
     }
@@ -690,6 +843,14 @@ class GameSdlRunner {
         }
         sponzaMouseDown = leftNow
 
+        ; track the real framebuffer size each frame so fullscreen / resize updates
+        ; the GL viewport + camera aspect (else the scene is drawn at the old small
+        ; size — a postcard in the bottom-left after a fullscreen toggle on the Pi).
+        def sw:int (gfx_surface_width)
+        def sh:int (gfx_surface_height)
+        if (((sw > 0) && (sh > 0))) {
+            sponzaHost.setSize(sw sh)
+        }
         sponzaHost.frame()
         gfx_gl_swap
         if ((bit_and mask 8) != 0) {
@@ -1079,6 +1240,7 @@ class GameSdlRunner {
         useWasm3d = false
         useTeapot = false
         useSponza = false
+        useTsx3d = false
         currentGamePath = path
         if (this.isStreamingPath(path)) {
             splitScreenActive = false
@@ -1108,6 +1270,12 @@ class GameSdlRunner {
             splitScreenActive = false
             wasmSplitActive = false
             this.loadSponzaAt(path)
+            return
+        }
+        if ((this.renderOf(path)) == "tsx") {
+            splitScreenActive = false
+            wasmSplitActive = false
+            this.loadTsx3dAt(path)
             return
         }
         if (this.isAsPath(path)) {
@@ -1311,6 +1479,12 @@ class GameSdlRunner {
             ; interpreted Sponza scene (FPC + GI + shadows + sky); draws + swaps
             ; directly through the Three GL backend.
             this.drawSponza()
+            return
+        }
+        if (useTsx3d) {
+            ; any interpreted three.tsx scene (cube/cubes/…) through the generic
+            ; ThreeTsxBridge + Three GL backend; draws + swaps directly.
+            this.drawTsx3d()
             return
         }
         def s0:int (gfx_ticks_ms)
@@ -1603,6 +1777,9 @@ class GameSdlRunner {
             }
             if ((indexOf txt "render=three") >= 0) {
                 return "three"
+            }
+            if ((indexOf txt "render=tsx") >= 0) {
+                return "tsx"
             }
         }
         return ""
@@ -2195,10 +2372,11 @@ class GameSdlRunner {
                     }
                 }
             } {
-                if (useTeapot || useSponza) {
-                    ; The interpreted teapot/sponza (render=three/sponza) has no
-                    ; GameRunner scene: their whole per-frame update runs inside
-                    ; drawTeapot()/drawSponza() (called from draw() below). Falling
+                if (useTeapot || useSponza || useTsx3d) {
+                    ; The interpreted teapot/sponza/tsx (render=three/sponza/tsx)
+                    ; has no GameRunner scene: their whole per-frame update runs
+                    ; inside drawTeapot()/drawSponza()/drawTsx3d() (called from
+                    ; draw() below). Falling
                     ; through to runner.frameWithInput() would step the never-loaded
                     ; default runner, whose particle pool is empty while maxCount is
                     ; still 96 -> itemAt pool 0 throws std::out_of_range. draw()

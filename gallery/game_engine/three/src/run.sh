@@ -62,6 +62,10 @@ run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and
 # rasterised (software backend) — proves the façade scene actually renders.
 run_tsx_poc three_tsx_bridge_test
+run_tsx_poc three_tsx_bridge_lit_test
+run_tsx_poc three_tsx_bridge_texture_test
+run_tsx_poc three_tsx_bridge_driven_test
+run_tsx_poc three_tsx_bridge_features_test
 run_tsx_poc three_teapot_tsx_test
 # The Sponza light-probe scene (demo/host layer): the composition recipe, and
 # sponza.tsx interpreted + reconciled into the core with hot-reload (editing the

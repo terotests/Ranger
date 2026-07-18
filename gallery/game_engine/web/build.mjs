@@ -180,6 +180,16 @@ const TSX3D_GL_SCENES = [
     texturePath: "textures/crate.gif",
     controls: "The canonical Three.js rotating cube, unmodified, on the Ranger Three clone + WebGL. Edit camera.position.z or the rotation speed and reload.",
   },
+  {
+    id: "cubes3d",
+    title: "Cubes — many meshes on the GPU",
+    scriptDir: "gallery/game_engine/three/tsx",
+    script: "cubes.tsx",
+    facade: "gallery/game_engine/three/tsx/three.tsx",
+    texture: "gallery/game_engine/games/cube3d_wasm/assets/crate.ppm",
+    texturePath: "textures/crate.gif",
+    controls: "A ring of crate-textured cubes, each tinted a different colour, orbiting and spinning — the same Three.js scene-graph code run 1:1 in the interpreter on the Ranger Three clone + WebGL. Edit COUNT, RADIUS or the colour palette in cubes.tsx and reload.",
+  },
 ];
 
 // Interpreted WebGL teapot (kind:"teapot-tsx"). The webgl_geometry_teapot *scene*

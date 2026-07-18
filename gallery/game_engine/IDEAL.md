@@ -23,7 +23,8 @@
 > ACES tone mapping, and a baked diffuse-GI probe volume with per-probe sun
 > visibility. It runs interpreted with hot reload in the browser gallery and
 > natively via SDL (macOS / Linux / Raspberry Pi), and both the teapot and Sponza
-> appear in the native launcher menu. See `THREE.md` and `IDEAL_THREE §8`.
+> appear in the native launcher menu. See `THREE.md` (demos, support matrix, API
+coverage) and `IDEAL_THREE.md` (the API/design reference).
 
 ---
 

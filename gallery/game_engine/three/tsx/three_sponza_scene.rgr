@@ -1,31 +1,33 @@
 ; ==============================================================================
-; three_sponza_scene — the light-probe-volume scene composition (demo/host layer).
+; three_sponza_scene — the light-probe-volume PLUMBING MODULE (demo/host layer).
 ; ==============================================================================
-; NOT part of the canonical object model (three/src). This is the reconciliation
-; target the Sponza hosts share: it assembles a probe-lit scene — Sky + a
-; shadow-casting DirectionalLight + a host-supplied model + a baked LightProbeGrid
-; + FirstPersonControls — out of the object-model classes. The scene's tunable
-; knobs (grid dims/counts/bounds, light angle/intensity/colour, sky uniforms) are
-; NOT baked here: they are set by the caller before build(), from sponza.tsx's
-; params via three_sponza_tsx_bridge (the single source of truth). The defaults
-; below are neutral placeholders, not the demo's values.
-;
-; What IS here is the composition recipe: how the light distance, shadow-camera
-; extent and probe-volume far plane derive from the model's bounds. The model is a
-; plain Object3D argument, so composition is decoupled from asset loading and is
-; unit-testable. Pure Ranger (compiles to C++ for the native SDL host).
+; NOT a reconciler and NOT part of the object model. IDEAL_THREE §5: the ONE
+; reconciler is the generic ThreeTsxBridge, which reconciles sponza.tsx's declared
+; scene content (the Sky, the shadow-casting DirectionalLight, the host-attached
+; model, lit meshes, camera). THIS module is the GPU-technique plumbing that runs
+; ON those reconciled objects: it derives the light distance / shadow-camera extent
+; / probe-volume far plane from the model bounds, builds + bakes the diffuse-GI
+; LightProbeGrid (the bridge can't bake), runs the per-probe sun-visibility pass,
+; and owns the FirstPersonControls. `bind()` points scene/camera/sky/dirLight/model
+; at the bridge's reconciled objects (so the bake math below is unchanged); the GUI
+; knobs are read from the interpreted `params` in reconcile(). There is no
+; ThreeSponzaTsxBridge — this module + the generic bridge replace it.
+; Pure Ranger (compiles to C++ for the native SDL host).
 ; ==============================================================================
 
 Import "../src/three_scene.rgr"
 Import "../src/three_perspective_camera.rgr"
 Import "../src/three_sky.rgr"
 Import "../src/three_light.rgr"
+Import "../src/three_object3d.rgr"
 Import "../src/three_light_probe_grid.rgr"
 Import "../src/three_light_probe_grid_helper.rgr"
 Import "../src/three_first_person_controls.rgr"
 Import "../src/three_box3.rgr"
 Import "../src/three_vector3.rgr"
 Import "../src/three_math_utils.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class ThreeSponzaScene {
     def scene:ThreeScene (new ThreeScene)
@@ -36,6 +38,14 @@ class ThreeSponzaScene {
     def probesHelper:ThreeLightProbeGridHelper (new ThreeLightProbeGridHelper)
     def fpc:ThreeFirstPersonControls (new ThreeFirstPersonControls)
     def model:ThreeObject3D (new ThreeObject3D)
+
+    ; reconcile state (this module reads the interpreted GUI params + drives build /
+    ; hot-reload; scene/camera/sky/dirLight are the generic bridge's, set by bind()).
+    def engine:ComponentEngine (new ComponentEngine())
+    def built:boolean false
+    def sigCountX:int (0 - 1)
+    def sigCountY:int (0 - 1)
+    def sigCountZ:int (0 - 1)
 
     ; derived model metrics (filled by build() from the model bounds)
     def sizeX:double 1.0
@@ -88,17 +98,112 @@ class ThreeSponzaScene {
         return (ThreeSponzaScene.maxOf2(m c))
     }
 
+    fn setEngine:ThreeSponzaScene (e:ComponentEngine) {
+        engine = e
+        return this
+    }
+    ; point scene/camera/sky/dirLight/model at the generic bridge's reconciled
+    ; objects, so the bake/shadow math below operates on the SAME graph the bridge
+    ; built + renders. (The generic bridge reconciled the Sky/DirectionalLight from
+    ; sponza.tsx; this module adds only the derived config + the baked probe volume.)
+    fn bind:ThreeSponzaScene (s:ThreeScene cam:ThreePerspectiveCamera sun:ThreeDirectionalLight skyNode:ThreeSky mdl:ThreeObject3D) {
+        this.scene = s
+        this.camera = cam
+        this.dirLight = sun
+        this.sky = skyNode
+        this.model = mdl
+        return this
+    }
+
+    fn numOr:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNumber()) {
+            return (v.toNumber())
+        }
+        return dflt
+    }
+    fn boolOr:boolean (obj:EvalValue key:string dflt:boolean) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        return dflt
+    }
+    ; read the interpreted `params` (the GUI knobs) into this module's fields. The
+    ; sky uniforms, light colour/intensity and camera are already reconciled by the
+    ; generic bridge — only the probe-volume / GI knobs are read here.
+    fn applyParams:void () {
+        def p:EvalValue (engine.getGlobal("params"))
+        if (p.isObject() == false) {
+            return
+        }
+        this.lightAzimuth = (this.numOr(p "lightAzimuth" (0.0 - 45.0)))
+        this.lightElevation = (this.numOr(p "lightElevation" 55.0))
+        this.lightIntensity = (this.numOr(p "lightIntensity" 100.0))
+        this.gridSizeX = (this.numOr(p "sizeX" 21.0))
+        this.gridSizeY = (this.numOr(p "sizeY" 11.0))
+        this.gridSizeZ = (this.numOr(p "sizeZ" 9.0))
+        this.countX = (to_int (this.numOr(p "countX" 10.0)))
+        this.countY = (to_int (this.numOr(p "countY" 7.0)))
+        this.countZ = (to_int (this.numOr(p "countZ" 7.0)))
+        this.boundsX = (this.numOr(p "boundsX" (0.0 - 0.5)))
+        this.boundsY = (this.numOr(p "boundsY" 6.0))
+        this.boundsZ = (this.numOr(p "boundsZ" (0.0 - 0.3)))
+        this.bounces = (to_int (this.numOr(p "bounces" 1.0)))
+        this.shadows = (this.boolOr(p "shadows" true))
+        this.enabled = (this.boolOr(p "enabled" true))
+        this.showProbes = (this.boolOr(p "showProbes" false))
+    }
+
+    fn countsChanged:boolean () {
+        if (this.countX != sigCountX) { return true }
+        if (this.countY != sigCountY) { return true }
+        if (this.countZ != sigCountZ) { return true }
+        return false
+    }
+    fn captureCounts:void () {
+        sigCountX = this.countX
+        sigCountY = this.countY
+        sigCountZ = this.countZ
+    }
+
+    ; run the interpreted init() then the first reconcile (build) — the host calls
+    ; this after the generic bridge has reconciled the scene graph + bind().
+    fn initFromScript:void () {
+        this.engine.callFunction("init" (EvalValue.null()))
+        this.reconcile()
+    }
+
+    ; read the current GUI params and (first time) build the derived config + baked
+    ; probe volume; thereafter hot-reload — rebuild + rebake the probes on a count
+    ; change, and re-place the sun + re-bake the GI fill for angle/intensity edits.
+    fn reconcile:void () {
+        this.applyParams()
+        if (built == false) {
+            this.build(this.model)
+            this.captureCounts()
+            built = true
+            return
+        }
+        if (this.countsChanged()) {
+            this.rebuildProbes()
+            this.captureCounts()
+        }
+        this.probes.visible = this.enabled
+        this.updateLightPosition()
+        this.refreshGI()
+    }
+
     ; assemble the scene around a host-supplied model. Uses the current knob values
     ; (the caller sets them first); the camera + sky uniforms are configured by the
     ; caller too, not baked here.
+    ; Derive the bounds-based config + build the baked probe volume ON the generic
+    ; bridge's reconciled objects (sky / dirLight / model are already in this.scene,
+    ; put there by the bridge; bind() pointed our references at them). We add only
+    ; what the bridge does not: the sun's shadow TARGET, the bounds-derived shadow
+    ; extent, the sun's bounds-scaled position, and the baked LightProbeGrid.
     fn build:ThreeSponzaScene (modelRoot:ThreeObject3D) {
         this.model = modelRoot
-
-        ; SKY — a large inverted dome; its scattering uniforms come from the caller.
-        this.sky.scale.setScalar(450000.0)
-        this.scene.add(this.sky)
-
-        this.scene.add(this.model)
 
         ; model bounds -> composition recipe (light distance, probe far).
         def box:ThreeBox3 (this.model.boundingBox())
@@ -116,24 +221,21 @@ class ThreeSponzaScene {
         this.lightBaseDistance = (ThreeSponzaScene.maxOf2(sz.x sz.z))
         this.probeFar = ((ThreeSponzaScene.maxOf3(sz.x sz.y sz.z)) * 2.0)
 
-        ; DIRECTIONAL LIGHT (+ shadow) — colour/intensity/shadows are knobs; the
-        ; shadow-camera extent + far derive from the model bounds.
-        this.dirLight.setColorHex(this.lightColorHex)
-        this.dirLight.intensity = this.lightIntensity
+        ; SHADOW — the sun's colour/intensity/castShadow/mapSize are reconciled by the
+        ; bridge from sponza.tsx; here we add the shadow target + the bounds-derived
+        ; ortho extent (the extent is not something the scene declares).
         this.dirLight.target.position.set(this.centerX this.targetY this.centerZ)
         this.scene.add(this.dirLight.target)
-        this.dirLight.castShadow = this.shadows
-        this.dirLight.shadow.setMapSize(this.shadowMapSize)
         def shadowExtent:double ((ThreeSponzaScene.maxOf2(sz.x sz.z)) * 0.7)
         this.dirLight.shadow.setExtent((0.0 - shadowExtent) shadowExtent shadowExtent (0.0 - shadowExtent) 0.1 (sz.y * 4.0))
-        this.scene.add(this.dirLight)
 
         this.updateLightPosition()
 
-        ; LIGHT PROBE GRID
+        ; LIGHT PROBE GRID (built + baked here — the bridge can't bake; the GI bake
+        ; is this module's job) added to the bridge's scene.
         this.rebuildProbes()
 
-        ; FIRST-PERSON CONTROLS
+        ; FIRST-PERSON CONTROLS on the bridge's camera.
         this.fpc.setCamera(this.camera)
         this.fpc.setMovementSpeed(this.movementSpeed)
         this.fpc.setLookSpeed(this.lookSpeed)

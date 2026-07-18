@@ -4,8 +4,8 @@
 ; reloads live). Native counterpart to the web host.
 ; ==============================================================================
 ; Same design as tsx3d_sdl_runner, but the scene is the real Three clone: the TSX
-; interpreter runs sponza.tsx against the three.tsx façade, ThreeSponzaTsxBridge
-; reconciles it into the Ranger core (ThreeSponzaScene), and ThreeGLBackend draws
+; interpreter runs sponza.tsx against the three.tsx façade, the generic ThreeTsxBridge
+; reconciles it (ThreeSponzaScene is the GI-bake plumbing), and ThreeGLBackend draws
 ; it through the shared three_gl operators (desktop GL). The host owns the loop,
 ; the first-person input, and the hot-reload file watch — the interpreter only
 ; declares the scene (and re-declares it on edit).
@@ -24,7 +24,8 @@
 ; ==============================================================================
 
 Import "../gfx_sdl.rgr"
-Import "tsx/three_sponza_tsx_bridge.rgr"
+Import "tsx/three_tsx_bridge.rgr"
+Import "tsx/three_sponza_scene.rgr"
 Import "src/three_webgl_renderer.rgr"
 Import "src/three_gl_backend.rgr"
 Import "src/three_mesh.rgr"
@@ -152,12 +153,19 @@ class SponzaSdlRunner {
         print ("[sponza] loading model: " + modelURL)
         def hostModel:ThreeObject3D (SponzaSdlRunner.loadModel(modelURL))
 
-        def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
-        bridge.setEngine(engine)
-        bridge.setModel(hostModel)
-        bridge.initFromScript()
-        bridge.scene.setViewport(runner.pw runner.ph)
-        print ("[sponza] scene declared: probes=" + (to_string (bridge.scene.probes.probeCount())))
+        ; generic bridge reconciles the declared scene graph; ThreeSponzaScene is the
+        ; GPU-technique plumbing (bounds/shadow/GI bake/FPC) on the reconciled objects.
+        engine.callFunction("init" (EvalValue.null()))
+        def gbridge:ThreeTsxBridge (new ThreeTsxBridge)
+        gbridge.setEngine(engine)
+        gbridge.setHostModel(hostModel)
+        gbridge.reconcile(runner.pw runner.ph)
+        def sponza:ThreeSponzaScene (new ThreeSponzaScene)
+        sponza.setEngine(engine)
+        sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
+        sponza.reconcile()
+        sponza.setViewport(runner.pw runner.ph)
+        print ("[sponza] scene declared: probes=" + (to_string (sponza.probes.probeCount())))
 
         def frame:int 0
         def running:boolean true
@@ -177,13 +185,13 @@ class SponzaSdlRunner {
                 curW = sw
                 curH = sh
                 renderer.setSize(curW curH)
-                bridge.scene.setViewport(curW curH)
+                sponza.setViewport(curW curH)
             }
 
-            runner.applyInput(bridge.scene.fpc mask)
-            bridge.scene.update(dt)
+            runner.applyInput(sponza.fpc mask)
+            sponza.update(dt)
 
-            renderer.render(bridge.scene.scene bridge.scene.camera)
+            renderer.render(gbridge.scene gbridge.camera)
             gfx_3d_present
 
             ; hot reload: re-read sponza.tsx; on change, rebuild the interpreted scene.
@@ -196,12 +204,17 @@ class SponzaSdlRunner {
                     e2.quiet = true
                     SponzaSdlRunner.registerGlobals(e2 runner.pw runner.ph)
                     e2.loadScript((facadeSrc + "\n") + curSrc)
+                    e2.callFunction("init" (EvalValue.null()))
                     engine = e2
-                    bridge = (new ThreeSponzaTsxBridge)
-                    bridge.setEngine(e2)
-                    bridge.setModel(hostModel)
-                    bridge.initFromScript()
-                    bridge.scene.setViewport(runner.pw runner.ph)
+                    gbridge = (new ThreeTsxBridge)
+                    gbridge.setEngine(e2)
+                    gbridge.setHostModel(hostModel)
+                    gbridge.reconcile(runner.pw runner.ph)
+                    sponza = (new ThreeSponzaScene)
+                    sponza.setEngine(e2)
+                    sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
+                    sponza.reconcile()
+                    sponza.setViewport(runner.pw runner.ph)
                     print "[sponza] hot-reloaded sponza.tsx"
                 }
             }
