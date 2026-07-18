@@ -14,7 +14,7 @@
 >   on Part II: reconciler, resource sharing, bridge-call model, parity rig.
 > - **Part IV — Class Registry** (the bridge ABI contract, special review).
 > - **Part V — the Bridge** (native classes via `NativeClassAdapter` + object
->   invocation + native modules like `ranger-game`; D2 = Line B).
+>   invocation + native modules like `ranger-game`).
 >
 > Hard rule from the review: **stop adding Three classes/loaders/geometries until
 > identity, keyed reconciliation, and resource sharing land** — every new feature
@@ -24,9 +24,10 @@
 > - **D1 = keep `ranger_games/`.** It is load-bearing (TSX→native/C++/Rust
 >   portability tests + npm scripts). Part I is therefore **complete at tranche
 >   1**; no further file deletion.
-> - **D2 = Line B — native-object adapter.** Goal is broad Three.js value
->   parity ("paste almost any Three.js code"), so the interpreter gets a real
->   native-object adapter (Part V), not just a bounded façade subset.
+> - **D2 = native-object adapter.** The goal is that almost any Three.js code
+>   runs and gives the same results as real Three.js. To get there the interpreter
+>   builds real Ranger objects (Part V), instead of supporting only a hand-picked
+>   set of Three.js features.
 > - **D3 = keep planning.** No implementation yet; this document + the ADR are
 >   the review artifacts.
 
@@ -123,7 +124,7 @@ core/
               wasm_cap_gate, wasm_block_validator, the generic *_runner.rgr,
               + the wasm/*.h ABI headers
   (subsystems: three/ physics/ model3d/ lpc/ pose/ ui/ lib/ — move under
-   core/ too, or keep as siblings? → decision C1)
+   core/ too, or stay siblings — this is decision C1)
 ```
 **Blast radius.** Imports are **relative**, so each moved file rewrites its own
 `../` imports *and* every importer's path to it (e.g. `framebuffer.rgr` alone
@@ -246,7 +247,7 @@ With II.A identity + II.B handles this disappears: the reconciler resolves `geo`
 identity to **one** geometry handle that both meshes point at, and a **refcount**
 on the handle frees it when the last mesh referencing it goes away. No extra
 machinery — sharing and lifetime fall straight out of "one source object → one
-id." (This is why III.4 below is now just a pointer here.)
+id."
 
 ---
 
@@ -358,12 +359,12 @@ value parity split, honest 0/31 reporting), but:
   `component_engine_js_semantics_test`) covering the items in
   [`TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md) (#7 identity, #8
   missing-member, etc.), so JS-runtime gaps don't hide inside the Three-API "GAP"
-  bucket. (Detail lives in that doc — not repeated here.)
+  bucket.
 - Add **cross-layer** parity (façade state == host canonical object) and
   regression tests for the behaviors already specified in **II.E** (resource
   aliasing, refcounted lifetime) and **III.3** (real removal; stable identity
   under insert/reorder/reparent) — a bounded resource count on reload is the
-  headline assertion. Scenarios live there, not re-listed here.
+  headline assertion.
 - Report **several numbers, not one percentage.** A single "X% of Three.js
   works" hides *why* a case failed and drifts every time a probe is added.
   Instead count each stage separately: how many cases **ran without throwing**,
@@ -598,7 +599,7 @@ the whole engine; deepest risk, needs the new semantics suite)
 
 **D. Three façade & reconciler** — `three/tsx/`
 - `three.tsx` (585) — delete the hand-copied `Vector3`/`Object3D` classes +
-  `__removed` hack (Line B removes most of the file). **M**
+  `__removed` hack (the adapter removes most of the file). **M**
 - `three_tsx_bridge.rgr` (1109) — reconciler: index/DFS cache → identity-keyed
   mark-and-sweep; resource reuse by identity. **L**
 - `three_native_bridge.rgr` (206) — regenerated from the registry. **S**
@@ -629,7 +630,7 @@ the whole engine; deepest risk, needs the new semantics suite)
 # Decisions — RESOLVED
 - **D1 = keep `ranger_games/`.** Part I complete at tranche 1; no further
   deletions.
-- **D2 = Line B** (native-object adapter, Part V).
+- **D2 = native-object adapter** for broad Three.js support (Part V).
 - **D3 = keep planning.** No code yet; this doc + `docs/ADR-0001-three-scene-
   host-authority.md` are the artifacts to review.
 
