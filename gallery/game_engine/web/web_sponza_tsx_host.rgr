@@ -189,6 +189,15 @@ class WebSponzaTsxHost {
         return r
     }
 
+    ; Load with a model the caller already built + textured (the native launcher
+    ; decodes it over HTTP; the decoders stay out of this browser bundle).
+    fn loadModel3D:string (facadeSrc:string sponzaSrc:string model:ThreeObject3D winW:int winH:int dpr:double) {
+        def r:string (this.loadScene(facadeSrc sponzaSrc model winW winH dpr))
+        this.frameModelCamera()
+        this.establishProbeVisibility()
+        return r
+    }
+
     fn loadFromVfs:string (dir:string facadeFile:string sponzaFile:string winW:int winH:int dpr:double) {
         def f:buffer (buffer_read_file dir facadeFile)
         def c:buffer (buffer_read_file dir sponzaFile)

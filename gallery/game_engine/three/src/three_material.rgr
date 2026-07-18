@@ -30,6 +30,9 @@ class ThreeMaterial {
     ; optional colour map (texture)
     def hasMap:boolean false
     def map:ThreeTexture (new ThreeTexture)
+    ; tangent-space normal map (perturbs the shading normal). Applied when set.
+    def hasNormalMap:boolean false
+    def normalMap:ThreeTexture (new ThreeTexture)
 
     ; render state
     def wireframe:boolean false
@@ -95,6 +98,11 @@ class ThreeMaterial {
     fn setMap:ThreeMaterial (t:ThreeTexture) {
         this.map = t
         this.hasMap = true
+        return this
+    }
+    fn setNormalMap:ThreeMaterial (t:ThreeTexture) {
+        this.normalMap = t
+        this.hasNormalMap = true
         return this
     }
     fn setReflective:ThreeMaterial (b:boolean) {

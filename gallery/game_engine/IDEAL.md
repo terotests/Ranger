@@ -10,15 +10,20 @@
 > target, the violation is shown next to the ideal so the gap is concrete.
 >
 > **3D:** [`IDEAL_3D.md`](./IDEAL_3D.md) is the WASM host-owned-scene model;
-> [`IDEAL_THREE.md`](./IDEAL_THREE.md) is the portable **Ranger clone of Three.js**
-> — one Ranger object model (compiles to C++/WASM/ES6) driven by a TSX façade,
-> Ranger code, or a WASM guest, with a pluggable software/WebGL/GLES backend.
-> Three example scenes run 1:1 in the interpreter against that model: the rotating
-> cube, the teapot ([`three/IDEAL_TEAPOT.md`](./three/IDEAL_TEAPOT.md), rendered on
-> the GPU in the browser) and the Sponza light-probe volume
-> ([`three/IDEAL_SPONZA.md`](./three/IDEAL_SPONZA.md) — sky, shadows, ACES tone
-> mapping, a baked diffuse-GI probe volume; runs interpreted with hot reload and
-> has a native SDL runner). See `IDEAL_THREE §8`.
+> [`IDEAL_THREE.md`](./IDEAL_THREE.md) is the design/layering doc for the portable
+> **Ranger clone of Three.js** — one Ranger object model (compiles to C++/WASM/ES6)
+> driven by a TSX façade, Ranger code, or a WASM guest, with a pluggable
+> software/WebGL/GLES backend. **[`THREE.md`](./THREE.md) documents what is built
+> today and how to run and extend it.** Three example scenes run 1:1 in the
+> interpreter against that model: the rotating cube, the teapot
+> ([`three/IDEAL_TEAPOT.md`](./three/IDEAL_TEAPOT.md), rendered on the GPU in the
+> browser) and the Sponza light-probe volume
+> ([`three/IDEAL_SPONZA.md`](./three/IDEAL_SPONZA.md)) — the real glTF Sponza model
+> with textures + tangent-space normal maps, an atmospheric sky, shadow mapping,
+> ACES tone mapping, and a baked diffuse-GI probe volume with per-probe sun
+> visibility. It runs interpreted with hot reload in the browser gallery and
+> natively via SDL (macOS / Linux / Raspberry Pi), and both the teapot and Sponza
+> appear in the native launcher menu. See `THREE.md` and `IDEAL_THREE §8`.
 
 ---
 

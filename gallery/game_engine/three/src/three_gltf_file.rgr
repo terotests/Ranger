@@ -30,18 +30,21 @@ class ThreeGLTFFile {
     ; the glTF's buffers (a .glb has one — the BIN chunk; a .gltf has one per
     ; external .bin, fetched by uri). bufferViews[bv].buffer selects which.
     def buffers:[buffer]
-    def accessorsJson:JsonValue (new JsonValue)
-    def bufferViewsJson:JsonValue (new JsonValue)
-    def meshesJson:JsonValue (new JsonValue)
-    def nodesJson:JsonValue (new JsonValue)
-    def materialsJson:JsonValue (new JsonValue)
-    def texturesJson:JsonValue (new JsonValue)
-    def imagesJson:JsonValue (new JsonValue)
+    def accessorsJson:ThreeJsonValue (new ThreeJsonValue)
+    def bufferViewsJson:ThreeJsonValue (new ThreeJsonValue)
+    def meshesJson:ThreeJsonValue (new ThreeJsonValue)
+    def nodesJson:ThreeJsonValue (new ThreeJsonValue)
+    def materialsJson:ThreeJsonValue (new ThreeJsonValue)
+    def texturesJson:ThreeJsonValue (new ThreeJsonValue)
+    def imagesJson:ThreeJsonValue (new ThreeJsonValue)
     ; textured primitives collected during build: the material to receive the
     ; decoded pixels, paired with its baseColorTexture image index. A host that
     ; decoded the images (only it can — JPEG/PNG) fills these in via setImage().
     def texMaterials:[ThreeMaterial]
     def texImageIdx:[int]
+    ; same, for normalTexture (a material may have both a baseColor + a normal map).
+    def normalMaterials:[ThreeMaterial]
+    def normalImageIdx:[int]
 
     sfn subBuffer:buffer (src:buffer off:int len:int) {
         def dst:buffer (buffer_alloc len)
@@ -59,9 +62,9 @@ class ThreeGLTFFile {
 
     ; a ThreeGLTFAccessor with an absolute BIN offset for accessor index ai.
     fn accessorFor:ThreeGLTFAccessor (ai:int) {
-        def acc:JsonValue (this.accessorsJson.at(ai))
+        def acc:ThreeJsonValue (this.accessorsJson.at(ai))
         def bvIndex:int (acc.intOr("bufferView" 0))
-        def bv:JsonValue (this.bufferViewsJson.at(bvIndex))
+        def bv:ThreeJsonValue (this.bufferViewsJson.at(bvIndex))
         def bvOffset:int (bv.intOr("byteOffset" 0))
         def accOffset:int (acc.intOr("byteOffset" 0))
         def stride:int (bv.intOr("byteStride" 0))
@@ -76,14 +79,14 @@ class ThreeGLTFFile {
 
     ; the backing buffer for accessor ai (via its bufferView's `buffer` index).
     fn bufferFor:buffer (ai:int) {
-        def acc:JsonValue (this.accessorsJson.at(ai))
+        def acc:ThreeJsonValue (this.accessorsJson.at(ai))
         def bvIndex:int (acc.intOr("bufferView" 0))
-        def bv:JsonValue (this.bufferViewsJson.at(bvIndex))
+        def bv:ThreeJsonValue (this.bufferViewsJson.at(bvIndex))
         def bufIndex:int (bv.intOr("buffer" 0))
         return (itemAt this.buffers bufIndex)
     }
 
-    fn decodeFloatAttr:[double] (attrs:JsonValue name:string) {
+    fn decodeFloatAttr:[double] (attrs:ThreeJsonValue name:string) {
         def out:[double]
         if (attrs.has(name)) {
             def ai:int (attrs.intOr(name 0))
@@ -94,8 +97,8 @@ class ThreeGLTFFile {
         return out
     }
 
-    fn buildPrimitiveGeometry:ThreeBufferGeometry (prim:JsonValue) {
-        def attrs:JsonValue (prim.get("attributes"))
+    fn buildPrimitiveGeometry:ThreeBufferGeometry (prim:ThreeJsonValue) {
+        def attrs:ThreeJsonValue (prim.get("attributes"))
         def positions:[double] (this.decodeFloatAttr(attrs "POSITION"))
         def normals:[double] (this.decodeFloatAttr(attrs "NORMAL"))
         def uvs:[double] (this.decodeFloatAttr(attrs "TEXCOORD_0"))
@@ -106,39 +109,45 @@ class ThreeGLTFFile {
             def idxBuf:buffer (this.bufferFor(idxAi))
             indices = (ThreeGLTFLoader.decodeIndices(idxBuf idxAcc))
         }
-        return (ThreeGLTFLoader.buildGeometry(positions normals uvs indices))
+        def geo:ThreeBufferGeometry (ThreeGLTFLoader.buildGeometry(positions normals uvs indices))
+        ; TANGENT (VEC4: xyz + handedness) for normal mapping, when the mesh has it.
+        def tangents:[double] (this.decodeFloatAttr(attrs "TANGENT"))
+        if ((array_length tangents) > 0) {
+            geo.tangents = tangents
+        }
+        return geo
     }
 
-    fn applyTransform:void (obj:ThreeObject3D node:JsonValue) {
+    fn applyTransform:void (obj:ThreeObject3D node:ThreeJsonValue) {
         if (node.has("translation")) {
-            def t:JsonValue (node.get("translation"))
-            def t0:JsonValue (t.at(0))
-            def t1:JsonValue (t.at(1))
-            def t2:JsonValue (t.at(2))
+            def t:ThreeJsonValue (node.get("translation"))
+            def t0:ThreeJsonValue (t.at(0))
+            def t1:ThreeJsonValue (t.at(1))
+            def t2:ThreeJsonValue (t.at(2))
             obj.position.set((t0.asNumber()) (t1.asNumber()) (t2.asNumber()))
         }
         if (node.has("rotation")) {
-            def r:JsonValue (node.get("rotation"))
-            def r0:JsonValue (r.at(0))
-            def r1:JsonValue (r.at(1))
-            def r2:JsonValue (r.at(2))
-            def r3:JsonValue (r.at(3))
+            def r:ThreeJsonValue (node.get("rotation"))
+            def r0:ThreeJsonValue (r.at(0))
+            def r1:ThreeJsonValue (r.at(1))
+            def r2:ThreeJsonValue (r.at(2))
+            def r3:ThreeJsonValue (r.at(3))
             obj.quaternion.set((r0.asNumber()) (r1.asNumber()) (r2.asNumber()) (r3.asNumber()))
             obj.quatDriven = true
         }
         if (node.has("scale")) {
-            def s:JsonValue (node.get("scale"))
-            def s0:JsonValue (s.at(0))
-            def s1:JsonValue (s.at(1))
-            def s2:JsonValue (s.at(2))
+            def s:ThreeJsonValue (node.get("scale"))
+            def s0:ThreeJsonValue (s.at(0))
+            def s1:ThreeJsonValue (s.at(1))
+            def s2:ThreeJsonValue (s.at(2))
             obj.scale.set((s0.asNumber()) (s1.asNumber()) (s2.asNumber()))
         }
         if (node.has("matrix")) {
             ; TRS not given: use the matrix translation column (elements 12,13,14).
-            def m:JsonValue (node.get("matrix"))
-            def m12:JsonValue (m.at(12))
-            def m13:JsonValue (m.at(13))
-            def m14:JsonValue (m.at(14))
+            def m:ThreeJsonValue (node.get("matrix"))
+            def m12:ThreeJsonValue (m.at(12))
+            def m13:ThreeJsonValue (m.at(13))
+            def m14:ThreeJsonValue (m.at(14))
             obj.position.set((m12.asNumber()) (m13.asNumber()) (m14.asNumber()))
         }
     }
@@ -152,17 +161,17 @@ class ThreeGLTFFile {
         if ((this.materialsJson.length()) <= mi) {
             return (0 - 1)
         }
-        def mat:JsonValue (this.materialsJson.at(mi))
-        def pbr:JsonValue (mat.get("pbrMetallicRoughness"))
+        def mat:ThreeJsonValue (this.materialsJson.at(mi))
+        def pbr:ThreeJsonValue (mat.get("pbrMetallicRoughness"))
         if (pbr.has("baseColorTexture") == false) {
             return (0 - 1)
         }
-        def bct:JsonValue (pbr.get("baseColorTexture"))
+        def bct:ThreeJsonValue (pbr.get("baseColorTexture"))
         def ti:int (bct.intOr("index" (0 - 1)))
         if (ti < 0) {
             return (0 - 1)
         }
-        def tex:JsonValue (this.texturesJson.at(ti))
+        def tex:ThreeJsonValue (this.texturesJson.at(ti))
         return (tex.intOr("source" (0 - 1)))
     }
 
@@ -172,11 +181,34 @@ class ThreeGLTFFile {
     }
     ; the uri of image i (the file the host fetches + decodes), "" if none.
     fn imageUri:string (i:int) {
-        def img:JsonValue (this.imagesJson.at(i))
+        def img:ThreeJsonValue (this.imagesJson.at(i))
         return (img.strOr("uri" ""))
     }
-    ; a host supplies decoded RGBA pixels for a baseColorTexture image; every
-    ; primitive material bound to that image gets the texture as its map.
+    ; the normalTexture image index for material mi (-1 if none): material ->
+    ; normalTexture.index (a texture) -> texture.source.
+    fn normalIndexForMaterial:int (mi:int) {
+        if (mi < 0) {
+            return (0 - 1)
+        }
+        if ((this.materialsJson.length()) <= mi) {
+            return (0 - 1)
+        }
+        def mat:ThreeJsonValue (this.materialsJson.at(mi))
+        if (mat.has("normalTexture") == false) {
+            return (0 - 1)
+        }
+        def nt:ThreeJsonValue (mat.get("normalTexture"))
+        def ti:int (nt.intOr("index" (0 - 1)))
+        if (ti < 0) {
+            return (0 - 1)
+        }
+        def tex:ThreeJsonValue (this.texturesJson.at(ti))
+        return (tex.intOr("source" (0 - 1)))
+    }
+
+    ; a host supplies decoded RGBA pixels for an image; every material bound to it
+    ; as a baseColor gets it as its map, and every material bound to it as a normal
+    ; map gets it as its normalMap (one decode serves both roles).
     fn setImage:void (imageIndex:int rgba:buffer w:int h:int) {
         def tex:ThreeTexture (new ThreeTexture)
         tex.setImage(rgba w h)
@@ -189,21 +221,30 @@ class ThreeGLTFFile {
             }
             k = (k + 1)
         }
+        def kn:int 0
+        def nn:int (array_length this.normalMaterials)
+        while (kn < nn) {
+            if ((itemAt this.normalImageIdx kn) == imageIndex) {
+                def nmat:ThreeMaterial (itemAt this.normalMaterials kn)
+                nmat.setNormalMap(tex)
+            }
+            kn = (kn + 1)
+        }
     }
 
     fn buildNode:ThreeObject3D (ni:int) {
-        def node:JsonValue (this.nodesJson.at(ni))
+        def node:ThreeJsonValue (this.nodesJson.at(ni))
         def obj:ThreeObject3D (new ThreeObject3D)
         this.applyTransform(obj node)
 
         if (node.has("mesh")) {
             def mi:int (node.intOr("mesh" 0))
-            def mesh:JsonValue (this.meshesJson.at(mi))
-            def prims:JsonValue (mesh.get("primitives"))
+            def mesh:ThreeJsonValue (this.meshesJson.at(mi))
+            def prims:ThreeJsonValue (mesh.get("primitives"))
             def np:int (prims.length())
             def pi:int 0
             while (pi < np) {
-                def prim:JsonValue (prims.at(pi))
+                def prim:ThreeJsonValue (prims.at(pi))
                 def geo:ThreeBufferGeometry (this.buildPrimitiveGeometry(prim))
                 def m:ThreeMesh (new ThreeMesh)
                 m.setGeometry(geo)
@@ -223,6 +264,12 @@ class ThreeGLTFFile {
                     push this.texMaterials matBase
                     push this.texImageIdx imgIdx
                 }
+                ; record the normal map (if any) so a host can attach its pixels.
+                def normalImgIdx:int (this.normalIndexForMaterial(matIdx))
+                if (normalImgIdx >= 0) {
+                    push this.normalMaterials matBase
+                    push this.normalImageIdx normalImgIdx
+                }
                 m.setMaterial(matBase)
                 m.castShadow = true
                 m.receiveShadow = true
@@ -233,11 +280,11 @@ class ThreeGLTFFile {
         }
 
         if (node.has("children")) {
-            def ch:JsonValue (node.get("children"))
+            def ch:ThreeJsonValue (node.get("children"))
             def nch:int (ch.length())
             def ci:int 0
             while (ci < nch) {
-                def cIdxV:JsonValue (ch.at(ci))
+                def cIdxV:ThreeJsonValue (ch.at(ci))
                 def cIdx:int (cIdxV.asInt())
                 def child:ThreeObject3D (this.buildNode(cIdx))
                 obj.add(child)
@@ -248,7 +295,7 @@ class ThreeGLTFFile {
     }
 
     ; build the model tree from a parsed glTF JSON (this.buffers already filled).
-    fn buildFromGltf:ThreeObject3D (gltf:JsonValue) {
+    fn buildFromGltf:ThreeObject3D (gltf:ThreeJsonValue) {
         def root:ThreeObject3D (new ThreeObject3D)
         this.accessorsJson = (gltf.get("accessors"))
         this.bufferViewsJson = (gltf.get("bufferViews"))
@@ -258,14 +305,14 @@ class ThreeGLTFFile {
         this.texturesJson = (gltf.get("textures"))
         this.imagesJson = (gltf.get("images"))
 
-        def scenesJson:JsonValue (gltf.get("scenes"))
+        def scenesJson:ThreeJsonValue (gltf.get("scenes"))
         def sceneIdx:int (gltf.intOr("scene" 0))
-        def scene:JsonValue (scenesJson.at(sceneIdx))
-        def sceneNodes:JsonValue (scene.get("nodes"))
+        def scene:ThreeJsonValue (scenesJson.at(sceneIdx))
+        def sceneNodes:ThreeJsonValue (scene.get("nodes"))
         def nn:int (sceneNodes.length())
         def i:int 0
         while (i < nn) {
-            def nIdxV:JsonValue (sceneNodes.at(i))
+            def nIdxV:ThreeJsonValue (sceneNodes.at(i))
             def nIdx:int (nIdxV.asInt())
             def child:ThreeObject3D (this.buildNode(nIdx))
             root.add(child)
@@ -294,8 +341,8 @@ class ThreeGLTFFile {
         }
         push this.buffers bin
 
-        def parser:JsonParser (new JsonParser)
-        def gltf:JsonValue (parser.parseBytes(jsonBuf))
+        def parser:ThreeJsonParser (new ThreeJsonParser)
+        def gltf:ThreeJsonValue (parser.parseBytes(jsonBuf))
         return (this.buildFromGltf(gltf))
     }
 
@@ -322,15 +369,15 @@ class ThreeGLTFFile {
         if ((buffer_length jsonBytes) == 0) {
             return root
         }
-        def parser:JsonParser (new JsonParser)
-        def gltf:JsonValue (parser.parseBytes(jsonBytes))
+        def parser:ThreeJsonParser (new ThreeJsonParser)
+        def gltf:ThreeJsonValue (parser.parseBytes(jsonBytes))
 
         def base:string (ThreeGLTFFile.dirOf(url))
-        def buffersJson:JsonValue (gltf.get("buffers"))
+        def buffersJson:ThreeJsonValue (gltf.get("buffers"))
         def nb:int (buffersJson.length())
         def bi:int 0
         while (bi < nb) {
-            def bufJson:JsonValue (buffersJson.at(bi))
+            def bufJson:ThreeJsonValue (buffersJson.at(bi))
             def uri:string (bufJson.strOr("uri" ""))
             def data:buffer (buffer_alloc 0)
             if (uri != "") {
@@ -354,14 +401,14 @@ class ThreeGLTFFile {
         if ((buffer_length jsonBytes) == 0) {
             return root
         }
-        def parser:JsonParser (new JsonParser)
-        def gltf:JsonValue (parser.parseBytes(jsonBytes))
+        def parser:ThreeJsonParser (new ThreeJsonParser)
+        def gltf:ThreeJsonValue (parser.parseBytes(jsonBytes))
 
-        def buffersJson:JsonValue (gltf.get("buffers"))
+        def buffersJson:ThreeJsonValue (gltf.get("buffers"))
         def nb:int (buffersJson.length())
         def bi:int 0
         while (bi < nb) {
-            def bufJson:JsonValue (buffersJson.at(bi))
+            def bufJson:ThreeJsonValue (buffersJson.at(bi))
             def uri:string (bufJson.strOr("uri" ""))
             def data:buffer (buffer_alloc 0)
             if (uri != "") {

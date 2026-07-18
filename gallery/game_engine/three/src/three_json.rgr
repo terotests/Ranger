@@ -3,7 +3,7 @@
 ; ==============================================================================
 ; Needed for the native glTF loader: lib/JSON is ES6-only (backed by JSON.parse),
 ; so it can't compile to C++. This parser is pure Ranger — it scans the source as
-; a byte buffer (O(1) indexing) and builds a JsonValue tree, so the SDL/native host
+; a byte buffer (O(1) indexing) and builds a ThreeJsonValue tree, so the SDL/native host
 ; can read a .gltf/.glb JSON chunk on-device.
 ;
 ; Scope: objects, arrays, strings, numbers, true/false/null. String values are
@@ -15,14 +15,14 @@
 Import "three_vector3.rgr"
 
 ; kind: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object
-class JsonValue {
+class ThreeJsonValue {
     def kind:int 0
     def numberValue:double 0.0
     def boolValue:boolean false
     def stringValue:string ""
-    def items:[JsonValue]
+    def items:[ThreeJsonValue]
     def keys:[string]
-    def vals:[JsonValue]
+    def vals:[ThreeJsonValue]
 
     fn isNull:boolean () { return (this.kind == 0) }
     fn isBool:boolean () { return (this.kind == 1) }
@@ -41,7 +41,7 @@ class JsonValue {
         if (this.kind == 5) { return (array_length this.keys) }
         return 0
     }
-    fn at:JsonValue (i:int) {
+    fn at:ThreeJsonValue (i:int) {
         return (itemAt this.items i)
     }
     fn has:boolean (key:string) {
@@ -54,8 +54,8 @@ class JsonValue {
         }
         return false
     }
-    ; returns the value for key, or a null JsonValue if absent.
-    fn get:JsonValue (key:string) {
+    ; returns the value for key, or a null ThreeJsonValue if absent.
+    fn get:ThreeJsonValue (key:string) {
         def n:int (array_length this.keys)
         def i:int 0
         while (i < n) {
@@ -65,38 +65,38 @@ class JsonValue {
             }
             i = (i + 1)
         }
-        return (new JsonValue)
+        return (new ThreeJsonValue)
     }
     ; number for key with a default when absent / not a number.
     fn numOr:double (key:string dflt:double) {
-        def v:JsonValue (this.get(key))
+        def v:ThreeJsonValue (this.get(key))
         if (v.isNumber()) { return v.numberValue }
         return dflt
     }
     fn intOr:int (key:string dflt:int) {
-        def v:JsonValue (this.get(key))
+        def v:ThreeJsonValue (this.get(key))
         if (v.isNumber()) { return (to_int v.numberValue) }
         return dflt
     }
     fn strOr:string (key:string dflt:string) {
-        def v:JsonValue (this.get(key))
+        def v:ThreeJsonValue (this.get(key))
         if (v.isString()) { return v.stringValue }
         return dflt
     }
 }
 
-class JsonParser {
+class ThreeJsonParser {
     def bytes:buffer (buffer_alloc 0)
     def pos:int 0
     def len:int 0
 
-    fn parse:JsonValue (text:string) {
+    fn parse:ThreeJsonValue (text:string) {
         def b:buffer (buffer_from_string text)
         return (this.parseBytes(b))
     }
     ; parse straight from a byte buffer — avoids stringifying the whole document
     ; (buffer_to_string on a large buffer overflows the es6 String.fromCharCode).
-    fn parseBytes:JsonValue (b:buffer) {
+    fn parseBytes:ThreeJsonValue (b:buffer) {
         this.bytes = b
         this.len = (buffer_length b)
         this.pos = 0
@@ -126,10 +126,10 @@ class JsonParser {
         }
     }
 
-    fn parseValue:JsonValue () {
+    fn parseValue:ThreeJsonValue () {
         this.skipWs()
         if (this.pos >= this.len) {
-            return (new JsonValue)
+            return (new ThreeJsonValue)
         }
         def b:int (this.byteAt(this.pos))
         if (b == 123) { return (this.parseObject()) }
@@ -141,10 +141,10 @@ class JsonParser {
         return (this.parseNumber())
     }
 
-    ; consume `word` and return a bool/null JsonValue (kind 1 with boolValue, or 0).
-    fn parseLiteral:JsonValue (word:string kind:int) {
+    ; consume `word` and return a bool/null ThreeJsonValue (kind 1 with boolValue, or 0).
+    fn parseLiteral:ThreeJsonValue (word:string kind:int) {
         this.pos = (this.pos + (strlen word))
-        def v:JsonValue (new JsonValue)
+        def v:ThreeJsonValue (new ThreeJsonValue)
         v.kind = kind
         if (kind == 1) {
             v.boolValue = (word == "true")
@@ -161,7 +161,7 @@ class JsonParser {
         if (b == 69) { return true }
         return false
     }
-    fn parseNumber:JsonValue () {
+    fn parseNumber:ThreeJsonValue () {
         def start:int this.pos
         def scanning:boolean true
         while scanning {
@@ -177,14 +177,14 @@ class JsonParser {
             }
         }
         def slice:string (this.sliceStr(start this.pos))
-        def v:JsonValue (new JsonValue)
+        def v:ThreeJsonValue (new ThreeJsonValue)
         v.kind = 2
         v.numberValue = (unwrap (str2double slice))
         return v
     }
 
     ; raw string slice between quotes (escapes not decoded — see header).
-    fn parseString:JsonValue () {
+    fn parseString:ThreeJsonValue () {
         this.pos = (this.pos + 1)
         def start:int this.pos
         while (this.pos < this.len) {
@@ -192,7 +192,7 @@ class JsonParser {
             if (b == 34) {
                 def s:string (this.sliceStr(start this.pos))
                 this.pos = (this.pos + 1)
-                def v:JsonValue (new JsonValue)
+                def v:ThreeJsonValue (new ThreeJsonValue)
                 v.kind = 3
                 v.stringValue = s
                 return v
@@ -203,13 +203,13 @@ class JsonParser {
                 this.pos = (this.pos + 1)
             }
         }
-        def v2:JsonValue (new JsonValue)
+        def v2:ThreeJsonValue (new ThreeJsonValue)
         v2.kind = 3
         return v2
     }
 
-    fn parseArray:JsonValue () {
-        def v:JsonValue (new JsonValue)
+    fn parseArray:ThreeJsonValue () {
+        def v:ThreeJsonValue (new ThreeJsonValue)
         v.kind = 4
         this.pos = (this.pos + 1)
         this.skipWs()
@@ -222,7 +222,7 @@ class JsonParser {
         def running:boolean true
         while running {
             this.skipWs()
-            def item:JsonValue (this.parseValue())
+            def item:ThreeJsonValue (this.parseValue())
             push v.items item
             this.skipWs()
             def b:int 0
@@ -237,8 +237,8 @@ class JsonParser {
         return v
     }
 
-    fn parseObject:JsonValue () {
-        def v:JsonValue (new JsonValue)
+    fn parseObject:ThreeJsonValue () {
+        def v:ThreeJsonValue (new ThreeJsonValue)
         v.kind = 5
         this.pos = (this.pos + 1)
         this.skipWs()
@@ -251,12 +251,12 @@ class JsonParser {
         def running:boolean true
         while running {
             this.skipWs()
-            def keyVal:JsonValue (this.parseString())
+            def keyVal:ThreeJsonValue (this.parseString())
             this.skipWs()
             ; skip ':'
             this.pos = (this.pos + 1)
             this.skipWs()
-            def valVal:JsonValue (this.parseValue())
+            def valVal:ThreeJsonValue (this.parseValue())
             push v.keys keyVal.stringValue
             push v.vals valVal
             this.skipWs()
