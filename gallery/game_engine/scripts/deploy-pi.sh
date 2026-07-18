@@ -23,8 +23,9 @@
 #   ~/initservice.sh  — wires lxsession / labwc / crontab -> ~/start.sh
 #   ~/start.sh        — launch game (manual or from autostart)
 #
-# Copies the local repo (excl. node_modules/tmp), installs deps on the Pi,
-# runs npm install + compile + engine:game-sdl build (-O3).
+# Copies the local repo (excl. node_modules/tmp), installs deps on the Pi
+# (incl. libcurl4-openssl-dev for three_http / Sponza), runs npm install +
+# compile + engine:game-sdl build (-O3).
 
 set -euo pipefail
 
@@ -145,8 +146,9 @@ CAMEOF
 echo "==> 1/$TOTAL_STEPS Test SSH: $TARGET"
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok; uname -m'
 
-echo "==> 2/$TOTAL_STEPS Install Pi packages (clang, SDL2, GLES2, alsa-utils, x11-utils, node, npm)"
-ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git clang pkg-config libsdl2-dev libgles2-mesa-dev alsa-utils x11-utils nodejs npm v4l-utils'
+echo "==> 2/$TOTAL_STEPS Install Pi packages (clang, SDL2, GLES2, libcurl, alsa-utils, x11-utils, node, npm)"
+# libcurl4-openssl-dev: game_sdl pulls three_http (Sponza glTF fetch) which #includes <curl/curl.h>
+ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git clang pkg-config libsdl2-dev libgles2-mesa-dev libcurl4-openssl-dev alsa-utils x11-utils nodejs npm v4l-utils'
 
 echo "==> Check USB camera (pose game input)"
 if check_usb_camera; then

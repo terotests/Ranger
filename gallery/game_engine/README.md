@@ -746,7 +746,7 @@ npm run build:raspberry
 # → dist/raspberry-pi5/ (pong + games/menu/scripting + lib + compiler + DEPLOY.md)
 ```
 
-Kopioi `pong` Pi:lle ja aja HDMI-konsolissa. SDL-pelit (`engine:game-sdl`) vaativat Pi:llä `libsdl2-dev` ja käännöksen laitteella tai vastaavan cross-buildin. GPU-present (GLES2) on oletus SDL-hostissa; sheet-spritet voidaan renderöidä GPU-overlayna.
+Kopioi `pong` Pi:lle ja aja HDMI-konsolissa. SDL-pelit (`engine:game-sdl`) vaativat Pi:llä `libsdl2-dev` + `libcurl4-openssl-dev` (Sponza / `three_http`) ja käännöksen laitteella tai vastaavan cross-buildin. GPU-present (GLES2) on oletus SDL-hostissa; sheet-spritet voidaan renderöidä GPU-overlayna.
 
 ## LPC-spritesheet-compositor
 
