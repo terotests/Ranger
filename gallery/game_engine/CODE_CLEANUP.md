@@ -352,9 +352,12 @@ the one **Class Registry** contract — see **Part IV**.
 ## III.7 Harden the parity rig (`THREE_VALUE_PARITY_TESTS.md`)
 Good foundation (real Three.js goldens, natural Three code as input, render vs
 value parity split, honest 0/31 reporting), but:
-- `matchField()` uses `ev.toNumber()`; `null.toNumber()==0`, `null.toBool()==
-  false`, so a **missing** impl passes when the golden is `0`/`false`. Type-check
-  first; give a field one of `MISSING / THREW / WRONG_TYPE / VALUE_MISMATCH / OK`.
+- The test can pass a broken case by accident. When a value is missing it comes
+  back as `null`, and the check turns `null` into `0` (or `false`) before
+  comparing — so if the correct answer happens to be `0` or `false`, a missing or
+  broken feature still looks correct. Fix: check the value's type before
+  comparing, and label each field `OK`, `MISSING`, `WRONG TYPE`, `WRONG VALUE`, or
+  `ERROR` instead of a bare pass/fail.
 - Give the interpreter semantics gaps their **own** suite (a
   `component_engine_js_semantics_test`) covering the items in
   [`TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md) (#7 identity, #8
