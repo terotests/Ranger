@@ -24,6 +24,7 @@ Import "./as_sprite_runner.rgr"
 Import "./wasm3d_runner.rgr"
 Import "../web/web_teapot_tsx_host.rgr"
 Import "../web/web_sponza_tsx_host.rgr"
+Import "../web/web_tsx3d_gl_host.rgr"
 Import "../three/src/three_gltf_file.rgr"
 Import "../three/src/three_gltf_textures.rgr"
 Import "../three/src/three_object3d.rgr"
@@ -70,6 +71,12 @@ class GameSdlRunner {
     def useTeapot:boolean false
     def teapotPrevBtn:int 0
     def teapotGuiTex:int 0
+    ; render=tsx: the GENERIC interpreted-.tsx path (any three.tsx-façade scene:
+    ; cube, cubes, a lit scene, …) through the same ThreeTsxBridge + Three GL
+    ; backend the browser tsx3d-gl host uses. No per-demo code — the scene file
+    ; alone decides what renders. Tests category.
+    def tsx3dHost:WebTsx3dGlHost (new WebTsx3dGlHost)
+    def useTsx3d:boolean false
     ; render=sponza: the interpreted light-probe Sponza scene (FPC + GI + shadows +
     ; sky). The real glTF model is fetched + decoded once (host-side) and cached.
     def sponzaHost:WebSponzaTsxHost (new WebSponzaTsxHost)
@@ -599,6 +606,69 @@ class GameSdlRunner {
         }
     }
 
+    ; Load a render=tsx game: ANY interpreted three.tsx-façade scene, rendered
+    ; through the generic ThreeTsxBridge + ThreeGLBackend — the exact browser
+    ; tsx3d-gl path, native. The scene file (index.tsx by convention) + the shared
+    ; three.tsx façade come from the game folder; nothing here is demo-specific, so
+    ; cube.tsx, cubes.tsx and any future scene run with no runner changes.
+    fn loadTsx3dAt:void (path:string) {
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = false
+        useStreamRunner = false
+        useWasm3d = false
+        useTeapot = false
+        useSponza = false
+        useTsx3d = true
+        this.presentLoadingScreen("LOADING SCENE")
+        def dir:string (this.dirOf(path))
+        def sceneFile:string (this.baseOf(path))
+        def ok:boolean (tsx3dHost.setupGL(""))
+        if (ok == false) {
+            useTsx3d = false
+            print "[game-engine] tsx3d GL init failed"
+            this.loadMenuGame()
+            return
+        }
+        def r:string (tsx3dHost.loadFromVfs(dir "three.tsx" sceneFile pw ph 1.0))
+        if (r != "ok") {
+            useTsx3d = false
+            print ("[game-engine] tsx3d load failed: " + r)
+            this.loadMenuGame()
+            return
+        }
+        currentScriptPath = path
+        currentGamePath = path
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        print ("[game-engine] three tsx scene: " + path)
+    }
+
+    ; Per-frame for a render=tsx game: advance the interpreted animate() + draw the
+    ; reconciled scene through the GL backend, then swap. The scene drives its own
+    ; camera/animation (setAnimationLoop), so no input plumbing is needed; a held
+    ; quit (Q/Esc/Back) returns to the menu.
+    fn drawTsx3d:void () {
+        gfx_input_poll
+        def w:int (gfx_surface_width)
+        def h:int (gfx_surface_height)
+        if (w < 1) { w = pw }
+        if (h < 1) { h = ph }
+        tsx3dHost.setSize(w h)
+        tsx3dHost.frame()
+        gfx_gl_swap
+        def mask:int (gfx_input_source_mask 0)
+        if ((bit_and mask 8) != 0) {
+            useTsx3d = false
+            this.loadMenuGame()
+        }
+    }
+
     ; Load a render=sponza game: the interpreted light-probe Sponza scene through
     ; WebSponzaTsxHost. The real glTF model + textures are fetched + decoded once
     ; (host-side, over HTTP) and cached across re-launch; the scene + façade come
@@ -1079,6 +1149,7 @@ class GameSdlRunner {
         useWasm3d = false
         useTeapot = false
         useSponza = false
+        useTsx3d = false
         currentGamePath = path
         if (this.isStreamingPath(path)) {
             splitScreenActive = false
@@ -1108,6 +1179,12 @@ class GameSdlRunner {
             splitScreenActive = false
             wasmSplitActive = false
             this.loadSponzaAt(path)
+            return
+        }
+        if ((this.renderOf(path)) == "tsx") {
+            splitScreenActive = false
+            wasmSplitActive = false
+            this.loadTsx3dAt(path)
             return
         }
         if (this.isAsPath(path)) {
@@ -1311,6 +1388,12 @@ class GameSdlRunner {
             ; interpreted Sponza scene (FPC + GI + shadows + sky); draws + swaps
             ; directly through the Three GL backend.
             this.drawSponza()
+            return
+        }
+        if (useTsx3d) {
+            ; any interpreted three.tsx scene (cube/cubes/…) through the generic
+            ; ThreeTsxBridge + Three GL backend; draws + swaps directly.
+            this.drawTsx3d()
             return
         }
         def s0:int (gfx_ticks_ms)
@@ -1603,6 +1686,9 @@ class GameSdlRunner {
             }
             if ((indexOf txt "render=three") >= 0) {
                 return "three"
+            }
+            if ((indexOf txt "render=tsx") >= 0) {
+                return "tsx"
             }
         }
         return ""
@@ -2195,10 +2281,11 @@ class GameSdlRunner {
                     }
                 }
             } {
-                if (useTeapot || useSponza) {
-                    ; The interpreted teapot/sponza (render=three/sponza) has no
-                    ; GameRunner scene: their whole per-frame update runs inside
-                    ; drawTeapot()/drawSponza() (called from draw() below). Falling
+                if (useTeapot || useSponza || useTsx3d) {
+                    ; The interpreted teapot/sponza/tsx (render=three/sponza/tsx)
+                    ; has no GameRunner scene: their whole per-frame update runs
+                    ; inside drawTeapot()/drawSponza()/drawTsx3d() (called from
+                    ; draw() below). Falling
                     ; through to runner.frameWithInput() would step the never-loaded
                     ; default runner, whose particle pool is empty while maxCount is
                     ; still 96 -> itemAt pool 0 throws std::out_of_range. draw()

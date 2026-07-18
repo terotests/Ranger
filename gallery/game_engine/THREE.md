@@ -145,9 +145,19 @@ npm run engine:game-sdl:launcher
 ```
 The launcher lists games from `games/*/game.info`. The Three.js scenes appear in
 the **Tests** category:
-- `games/teapot` — `render=three`
-- `games/sponza` — `render=sponza` (fetches + decodes the model once, then runs
-  it; WASD / arrows move, drag to look).
+- `games/cube`, `games/cubes` — `render=tsx`: the **generic** interpreted-`.tsx`
+  path — any `three.tsx`-façade scene through `ThreeTsxBridge` + `ThreeGLBackend`,
+  the exact browser tsx3d-gl path, native. No per-demo runner: the scene file alone
+  decides what renders (see §8.1). *(The native `render=tsx` path uses the
+  procedural checker texture today; host-side image decode for `.tsx` scenes is the
+  remaining follow-up.)*
+- `games/teapot` — `render=three` (specialised host: OrbitControls + lil-gui panel).
+- `games/sponza` — `render=sponza` (specialised host: first-person + async glTF;
+  WASD / arrows move, drag to look).
+
+`render=three`/`render=sponza` are transitional per-example hosts kept only for
+their **plumbing** (controls, GUI, async loading); the scene reconciliation in all
+three is the one generic `ThreeTsxBridge` (see [`IDEAL_THREE.md §5`](./IDEAL_THREE.md)).
 
 ---
 
@@ -251,13 +261,13 @@ is in [`IDEAL_THREE.md`](./IDEAL_THREE.md).
 
 ### 8.2 Where they run (support matrix)
 
-✅ works · ◐ shares the same object model + GL backend but no host/launcher entry
-is wired yet · — n/a.
+✅ works · ◐ codegen-verified but visual run pending · ✱ works with the procedural
+checker texture (host image decode for `.tsx` scenes is a follow-up) · — n/a.
 
 | Demo | Web gallery (WebGL) | Native SDL (macOS / Linux desktop GL) | Raspberry Pi 5 (GLES2) |
 |---|---|---|---|
-| **Cube** | ✅ `Cube 3D` | ◐ object model is portable; no SDL runner wired | ◐ portable; not wired |
-| **Cubes** | ✅ `Cubes` | ◐ portable; no SDL runner wired | ◐ portable; not wired |
+| **Cube** | ✅ `Cube 3D` | ✱ launcher `games/cube` (`render=tsx`), codegen-verified | ✱ same build (GLES2 on ARM), codegen-verified |
+| **Cubes** | ✅ `Cubes` | ✱ launcher `games/cubes` (`render=tsx`), codegen-verified | ✱ same build (GLES2 on ARM), codegen-verified |
 | **Teapot** | ✅ `Teapot` | ✅ `build-teapot-sdl.sh`, launcher `games/teapot` (`render=three`) | ✅ same build (GLES2 auto-selected on ARM) |
 | **Sponza** | ✅ `Sponza` | ✅ `build-sponza-sdl.sh`, launcher `games/sponza` (`render=sponza`) | ✅ same build (GLES2 path); fetch + decode over the network |
 
@@ -265,8 +275,11 @@ Notes: the native GL renders are codegen-verified (`-l=cpp`) and run on the user
 desktop/device; the browser renders are verified in headless Chromium. The
 Pi-5/GLES2 divergences (float-texture formats, NPOT mipmaps, depth-target formats)
 are guarded in `three_gl.rgr`; Apple Silicon is treated as desktop GL, not GLES2.
-Cube/Cubes run through the generic web host only today — they share the object
-model, so a native runner is a wiring task, not new engine work.
+Cube/Cubes now run natively through the same generic `ThreeTsxBridge` +
+`ThreeGLBackend` as the web (`render=tsx`); the ✱ is only that the native `.tsx`
+path uses the procedural checker instead of the crate image pending host-side
+`.tsx` texture decode — the geometry, materials, lights and animation are the real
+render.
 
 ### 8.3 API coverage — what's missing for the rest of the examples
 
