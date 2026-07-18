@@ -444,13 +444,31 @@ interface NativeClassAdapter {
   fn invokeMethod(self:NativeRef m:string args:[EvalValue]) : EvalValue
 }
 ```
-**Backing objects are the canonical Ranger types** — `Vector3`→`Vec3`,
-`Matrix4`→`Mat4`, `Quaternion`→`Quat`, `Object3D`→host `ThreeObject3D` — so the
-interpreter, host scene, and parity tests read the **same** math. A `NativeRef`
-EvalValue gets an `identityId` (Part II), so shared instances are one value
-everywhere (what makes II.E aliasing + III.3 reconciliation work).
+Canonical types: `Vector3`↔`Vec3`, `Matrix4`↔`Mat4`, `Quaternion`↔`Quat`,
+`Object3D`↔host `ThreeObject3D` — chosen so interpreter, host, and parity read
+the **same** math. A host-backed `NativeRef` gets an `identityId` (Part II), so
+shared instances are one value everywhere (what makes II.E aliasing + III.3
+reconciliation work); its *lifetime* is Part VI.
 
-## V.3 Object invocation (the dispatch path)
+## V.3 Residency — guest-side, host-side, or hybrid
+Not every bridged class is host-backed, and this split is a first-class part of
+the contract because crossing the boundary (especially WASM) per call is
+expensive. Each class is one of:
+- **Guest-side** — a plain interpreter value; every method runs in the
+  interpreter, no host round-trip. Right for hot value math (`Vector3.add`
+  shouldn't cross the boundary).
+- **Host-backed** — the canonical object lives in the host registry (Part II) and
+  every method proxies to native. Required when the host owns the truth
+  (`Object3D` in the scene graph, GPU resources).
+- **Hybrid** — host-backed, but its *hot* methods run guest-side on a mirrored
+  value while its *state-changing* methods proxy to the host. e.g. `Vector3`
+  arithmetic stays local; assigning it into `mesh.position` syncs to the host.
+
+So the **Class Registry (Part IV) marks each method/prop with an execution site**
+(`guest` | `host`), and the adapter proxies only the `host` ones. Keeping value
+types guest-side is also what keeps the GC problem (Part VI) small.
+
+## V.4 Object invocation (the dispatch path)
 How the interpreter drives a native-class value at runtime — four hooks, no
 façade class in `three.tsx`:
 ```
@@ -463,7 +481,7 @@ The interpreter picks the adapter by the value's `nativeClassId` (== the Part IV
 `classId` / Object Type ID), so dispatch is a table lookup, and an unknown
 member is a defined error, not a crash.
 
-## V.4 Native modules — `import * as Ranger from "ranger-game"`
+## V.5 Native modules — `import * as Ranger from "ranger-game"`
 Beyond classes, the bridge exposes host functionality as **importable native
 modules**. `ranger-game` is the core module namespace — the TSX-visible face of
 the guest library `lib/ranger_game/` (`input`, `scene`, `sprite`, `ui`, `world`,
@@ -483,36 +501,130 @@ contract** (versioned, append-only), so a game compiled against `ranger-game`
 keeps working when the host adds capabilities. Candidate first exports:
 `controllers`/`input`, `time`, `audio`, and read-only engine/config state.
 
-## V.5 First cut & risk
-First classes: `Vector3, Euler, Quaternion, Matrix4, Object3D, Color`
-(geometry/material/texture stay host resources via the command surface; loaders
-wait for the hard gate). First module surface: `ranger-game` input/controllers.
-**Risk:** a ComponentEngine change (`new`, member access, method dispatch, and
-now module import gain a native path), so it lands behind the semantics suite
-(III.7) and must keep the `EVGElement` UI path green as client #0.
+## V.6 First cut & risk
+First classes: `Vector3, Euler, Quaternion, Matrix4, Object3D, Color` (their
+residency per V.3 — value math guest-side, `Object3D` host-backed);
+geometry/material/texture stay host-backed resources via the command surface;
+loaders wait for the hard gate. First module surface: `ranger-game`
+input/controllers. **Risk:** a ComponentEngine change (`new`, member access,
+method dispatch, and now module import gain a native path), so it lands behind
+the semantics suite (III.7) and must keep the `EVGElement` UI path green as
+client #0.
 
 ---
 
-# Recommended execution order (Line B locked)
-0. **ADR** (§III.2) — lock "host owns state"; retire the contradictory
-   `IDEAL_THREE.md`/`THREE.md` descriptions. *(Doc-only; see `docs/ADR-0001`.)*
-1. **Interpreter semantics** (§II.A) — `identityId` + `equals()` by identity,
-   `getMember` missing→`undefined`, identity-keyed Map/Set, clear error states —
-   behind the new semantics suite. **Prereq for everything below.**
-2. **Native-object adapter** (Part V) — generalize the `valueType 7` native slot
-   into `NativeClassAdapter`; back `Vector3/Euler/Quaternion/Matrix4/Object3D/
-   Color` with the Ranger canonical types; keep `EVGElement` working as client #0.
-3. **Identity-keyed reconciler** (§III.3) — replace index/DFS cache with a keyed
-   diff + mark-and-sweep, keyed on the §II.A identity.
-4. **Resource aliasing + lifecycle + host EntityRegistry** (§II.B, §II.E) — shared
-   resources by identity; generation handles; refcount/release; fold in
-   `model3d`'s registry; regression-test resource counts.
-5. **Capability components** (§III.5) — retire `sunLight()/skyNode()/…`.
-6. **Command ABI from the Class Registry** (§III.6 → Part IV) — kill host/native drift.
-7. **Extend the parity rig** (§III.7) — types, errors, identity, aliasing,
-   cross-layer.
-> **Hard gate:** do not add the next material/loader/geometry until steps 1–4
-> land.
+# Part VI — Cross-boundary lifetime & garbage collection
+A host-backed or hybrid value (V.3) holds a host registry handle (II.B), retained
+on create. The hard question: **when the guest-side value dies, who releases the
+host object?** Get it wrong and you leak host objects (the II.B leak, now across
+the boundary) or free one still in use.
+
+**The constraint that shapes the answer.** Ranger compiles to ES6 (JS GC — no
+deterministic finalizer beyond `WeakRef`/`FinalizationRegistry`), C++ (RAII /
+refcount), and WASM (manual). So the design **cannot** rely on a host-language
+finalizer firing uniformly; lifetime must be *explicit and deterministic*.
+
+Approach:
+1. **Guest-side values need no host GC.** They are plain interpreter values,
+   reclaimed by the interpreter's own memory management — another reason to keep
+   value math guest-side (V.3).
+2. **Host-backed objects are owned by the scene and freed by the reconciler.** The
+   scene graph is the ownership root; each reconcile pass (III.3) marks every
+   handle reachable from the live tree and **releases the unmarked** —
+   registry-level mark-and-sweep. GC and reconciliation are the *same* pass.
+3. **Refcount for sharing.** `retain`/`release` (II.B) handle shared resources
+   (one geometry, two meshes): the resource frees when the *last* referrer is
+   swept, not when the first mesh goes.
+4. **Explicit `dispose()` is honored, not required.** A script may `dispose()` to
+   free eagerly (matching Three.js) — it just calls `release`; correctness never
+   depends on it being called.
+5. **No reliance on interpreter finalizers.** A host-backed value that escapes the
+   scene (held only in a script variable) is pinned by an explicit retain while
+   the interpreter value is alive and released at a defined boundary;
+   `WeakRef`/`FinalizationRegistry` is at most a JS-backend optimization, never the
+   contract. The escape case is **decision C3** — favor guest-side residency to
+   avoid it.
+
+# Part VII — One guest support layer, generated (don't hand-replicate)
+Today each guest path hand-writes its **own** copy of the same support classes:
+`three.tsx` carries a full `Vector3`/`Object3D` façade (~90 methods), the Rust
+WASM helpers duplicate the math in `lib/ranger_game/src/scene.rs` (`Vec3`, `Quat`,
+`Color`, `Scene`), and an AssemblyScript guest would add a third copy. Same
+classes, N implementations → the same drift as the command ABI, at the class
+level (a method fixed in one copy stays wrong in the others).
+
+**Rule: a support class is defined once and every guest face is generated from
+it — never hand-copied per language.** Concretely:
+- The **Class Registry (Part IV)** is that single definition (names, methods,
+  props, types).
+- On the interpreter path, the native adapter (Part V) removes the `three.tsx`
+  façade entirely — the classes *are* the host's canonical types, so there is no
+  second copy to drift.
+- For compiled guests (Rust/AS) that genuinely need local structs, **generate**
+  them from the registry (the same codegen that emits the wrappers in Part IV),
+  so `lib/ranger_game/` scene types and the AS equivalents can't diverge from the
+  host.
+- A **parity test** asserts each generated guest support matches the registry —
+  the class-level analog of Part IV's surface-parity test.
+
+This is the class-level half of IDEAL.md's "parity across guest paths": a game
+written once behaves identically compiled or interpreted because there is exactly
+one definition of each class, not one per backend.
+
+---
+
+# Affected components (for work estimation)
+The components each Part touches, grouped so the effort is visible. Sizes are
+current line counts; **S/M/L** is rough change size, not calendar time.
+
+**A. Interpreter core** — `gallery/pdf_writer/src/jsx/` (shared by pdf_writer +
+the whole engine; deepest risk, needs the new semantics suite)
+- `EvalValue.rgr` (553) — `identityId`; `equals()` by identity; `getMember`
+  missing→`undefined`; a generic native slot (`nativeObject`/`nativeClassId`). **M**
+- `ComponentEngine.rgr` (7288) — route `new` / member get-set / method call to the
+  adapter; native-module import resolution; identity-keyed Map/Set. **L**
+
+**B. Bridge & adapters** — new code
+- `NativeClassAdapter` + per-class adapters: `Vector3, Euler, Quaternion,
+  Matrix4, Object3D, Color`. **M**
+- `ranger-game` native module (input/controllers, audio, time). **M**
+- *Reuses* existing canonical math — `three/src/three_vector3.rgr` (232),
+  `three_matrix4.rgr` (480), `three_quaternion.rgr` (166) — as backing, not rewritten. **S**
+
+**C. Class Registry + codegen** — new (Part IV)
+- The registry data (classes/methods/props + Type IDs). **M**
+- Generators: `ThreeSceneHost` iface, `three_native_bridge` has/invoke, WASM
+  imports, TS/Rust wrappers, doc table, surface-parity test. **L**
+
+**D. Three façade & reconciler** — `three/tsx/`
+- `three.tsx` (585) — delete the hand-copied `Vector3`/`Object3D` classes +
+  `__removed` hack (Line B removes most of the file). **M**
+- `three_tsx_bridge.rgr` (1109) — reconciler: index/DFS cache → identity-keyed
+  mark-and-sweep; resource reuse by identity. **L**
+- `three_native_bridge.rgr` (206) — regenerated from the registry. **S**
+
+**E. Host registry** — `three/src/`, `model3d/`
+- `three_scene_host.rgr` (394) — generation handles + `typeId` + `resolveAs` +
+  refcount; make `entityRemove` free. **M**
+- `model3d/EntityModel.rgr` — fold its parallel `EntityRegistry` onto the core. **M**
+
+**F. Guest support (generated, not hand-copied — Part VII)**
+- `lib/ranger_game/src/scene.rs` (986) — generate math/scene types from the
+  registry instead of maintaining them by hand. **M** (+ AS guest if/when added)
+
+**G. Tests**
+- `component_engine_js_semantics_test` (new). **M**
+- Harden value-parity (`matchField` typing + status enum); surface-parity;
+  reconciler resource-count/lifecycle regression; guest-support parity. **M**
+
+**H. Docs**
+- ADR-0001 edits to `IDEAL_THREE.md` / `THREE.md` / `THREE_BRIDGE.md`. **S**
+- `TSX_ENGINE_ISSUES.md` (done).
+
+> **Hard gate (dependency, not a schedule):** the interpreter identity (A),
+> native adapter (B), identity-keyed reconciler (D), and resource aliasing +
+> registry (E) block adding any new material/loader/geometry — everything else
+> builds on them.
 
 # Decisions — RESOLVED
 - **D1 = keep `ranger_games/`.** Part I complete at tranche 1; no further
@@ -521,9 +633,9 @@ now module import gain a native path), so it lands behind the semantics suite
 - **D3 = keep planning.** No code yet; this doc + `docs/ADR-0001-three-scene-
   host-authority.md` are the artifacts to review.
 
-**Open for your review before any implementation:** does the step 0→4 ordering
-work, and do you want the ADR (step 0) landed as the first concrete change since
-it's doc-only and unblocks the doc cleanup?
+**Open for your review:** this is a design/analysis document, not yet a project
+plan — no ordering or scheduling is implied. Sequencing comes later, once the
+design is agreed.
 
 ---
-*Part I tranche 1 committed. Part II is planning-only pending your review.*
+*Part I tranche 1 committed. The rest is design-only, under review.*
