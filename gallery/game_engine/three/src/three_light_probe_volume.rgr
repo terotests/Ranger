@@ -20,6 +20,11 @@ Import "three_vector3.rgr"
 Import "three_matrix4.rgr"
 Import "three_light_probe_grid.rgr"
 Import "three_light_probe_grid_helper.rgr"
+Import "three_spherical_harmonics3.rgr"
+Import "three_cube_map.rgr"
+Import "three_cube_camera.rgr"
+Import "three_light_probe_generator.rgr"
+Import "three_webgl_renderer.rgr"
 
 class ThreeLightProbeVolume {
     ; --- knobs (the caller sets these from the scene's params) ---
@@ -45,6 +50,9 @@ class ThreeLightProbeVolume {
     def sigCountY:int (0 - 1)
     def sigCountZ:int (0 - 1)
 
+    ; cube-face resolution for the scene-capture bake (per probe, per face).
+    def captureFaceSize:int 16
+
     ; (re)create the grid at the current settings; removes the previous volume +
     ; helper first so hot-reloads don't leak scene children. Does NOT bake — the
     ; caller bakes right after (the bake is art direction, supplied by the caller).
@@ -60,9 +68,38 @@ class ThreeLightProbeVolume {
         scene.add(this.probesHelper)
     }
 
+    ; GENERIC diffuse-GI bake (Three.js LightProbeGenerator path): capture a cube at
+    ; each probe's world position with `renderer`, project it to SH, and store it.
+    ; This integrates the ACTUAL scene (lit surfaces, sky, occlusion), so it needs no
+    ; sun/sky/ground model and no single-sun shadow-readback pass — shadowing falls
+    ; out of the capture. Cost is 6 renders per probe: keep the grid modest or
+    ; captureFaceSize small (it is a one-time bake / hot-reload step).
+    fn bakeFromScene:void (scene:ThreeScene renderer:ThreeWebGLRenderer) {
+        def wp:ThreeVector3 (new ThreeVector3)
+        def iz:int 0
+        while (iz < this.probes.countZ) {
+            def iy:int 0
+            while (iy < this.probes.countY) {
+                def ix:int 0
+                while (ix < this.probes.countX) {
+                    this.probes.probeWorldPos(ix iy iz wp)
+                    def cube:ThreeCubeMap (ThreeCubeCamera.capture(renderer scene wp.x wp.y wp.z this.captureFaceSize))
+                    def sh:ThreeSphericalHarmonics3 (ThreeLightProbeGenerator.fromCubeTexture(cube))
+                    def p:ThreeSphericalHarmonics3 (this.probes.getProbe(ix iy iz))
+                    p.copyFrom(sh)
+                    ix = (ix + 1)
+                }
+                iy = (iy + 1)
+            }
+            iz = (iz + 1)
+        }
+        this.probes.bakeVersion = (this.probes.bakeVersion + 1)
+    }
+
     ; bake the volume as a directional SH environment from explicit radiance: a sun
     ; lobe along `sun`, a sky term (from above), a ground bounce (from below). The
     ; caller computes the levels/tints (its look); the volume just stores them.
+    ; (The analytic stand-in, kept until the capture bake is wired into the recipe.)
     fn bake:void (sunX:double sunY:double sunZ:double sunR:double sunG:double sunB:double skyR:double skyG:double skyB:double gndR:double gndG:double gndB:double) {
         this.probes.bakeDirectional(sunX sunY sunZ sunR sunG sunB skyR skyG skyB gndR gndG gndB)
     }
