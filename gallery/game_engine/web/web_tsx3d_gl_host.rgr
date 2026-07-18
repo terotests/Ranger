@@ -20,11 +20,14 @@
 
 Import "../three/tsx/three_tsx_bridge.rgr"
 Import "../three/src/three_gl_backend.rgr"
+Import "../physics/tsx/cannon_native_bridge.rgr"
 
 class WebTsx3dGlHost {
     def engine:ComponentEngine (new ComponentEngine())
     def bridge:ThreeTsxBridge (new ThreeTsxBridge)
     def gl:ThreeGLBackend (new ThreeGLBackend)
+    def cannonBridge:CannonNativeBridge (new CannonNativeBridge)
+    def useCannon:boolean false
     def ready:boolean false
     def w:int 800
     def h:int 600
@@ -63,12 +66,28 @@ class WebTsx3dGlHost {
     ; Load the façade + the 1:1 cube script (concatenated, one program) and run
     ; the example's init() to build the scene.
     fn load:string (facadeSrc:string cubeSrc:string winW:int winH:int dpr:double) {
+        return (this.loadScene("" facadeSrc cubeSrc winW winH dpr))
+    }
+
+    ; Load optional Cannon façade + Three façade + scene. When cannonSrc is
+    ; non-empty, the real Ranger Cannon engine is bound via CannonNativeBridge so
+    ; `import * as CANNON from 'cannon-es'` drives host physics 1:1 (same pattern
+    ; as physics/tsx/cannon_box_scene.tsx), while Three reconciles meshes.
+    fn loadScene:string (cannonSrc:string threeSrc:string sceneSrc:string winW:int winH:int dpr:double) {
         w = winW
         h = winH
+        useCannon = false
+        engine = (new ComponentEngine())
         engine.quiet = true
         this.registerGlobals(winW winH dpr)
         bridge.setEngine(engine)
-        def src:string ((facadeSrc + "\n") + cubeSrc)
+        def src:string ((threeSrc + "\n") + sceneSrc)
+        if ((strlen cannonSrc) > 0) {
+            useCannon = true
+            cannonBridge = (new CannonNativeBridge)
+            engine.setNativeBridge(cannonBridge)
+            src = (((cannonSrc + "\n") + threeSrc) + "\n") + sceneSrc
+        }
         engine.loadScript(src)
         def r:EvalValue (engine.callFunction("init" (EvalValue.null())))
         ready = true
@@ -77,11 +96,41 @@ class WebTsx3dGlHost {
 
     ; Same, reading façade + cube from the VFS (files mounted at their repo paths).
     fn loadFromVfs:string (dir:string facadeFile:string cubeFile:string winW:int winH:int dpr:double) {
-        def f:buffer (buffer_read_file dir facadeFile)
-        def c:buffer (buffer_read_file dir cubeFile)
-        def fs:string (buffer_to_string f)
-        def cs:string (buffer_to_string c)
-        return (this.load(fs cs winW winH dpr))
+        return (this.loadFromVfsEx(dir facadeFile cubeFile "" winW winH dpr))
+    }
+
+    ; VFS load with optional Cannon façade file (empty cannonFile => Three-only).
+    fn loadFromVfsEx:string (dir:string threeFile:string sceneFile:string cannonFile:string winW:int winH:int dpr:double) {
+        def t:buffer (buffer_read_file dir threeFile)
+        def s:buffer (buffer_read_file dir sceneFile)
+        def threeSrc:string (buffer_to_string t)
+        def sceneSrc:string (buffer_to_string s)
+        def cannonSrc:string ""
+        if ((strlen cannonFile) > 0) {
+            def c:buffer (buffer_read_file dir cannonFile)
+            cannonSrc = (buffer_to_string c)
+        }
+        return (this.loadScene(cannonSrc threeSrc sceneSrc winW winH dpr))
+    }
+
+    ; Forward pad/keyboard state into the scene when it exports setControls().
+    ; Cube/cubes ignore this (missing export → callFunction no-ops).
+    fn setControls:void (up:boolean down:boolean left:boolean right:boolean) {
+        if (ready == false) {
+            return
+        }
+        def k:[string]
+        def v:[EvalValue]
+        push k "up"
+        push v (EvalValue.boolean(up))
+        push k "down"
+        push v (EvalValue.boolean(down))
+        push k "left"
+        push v (EvalValue.boolean(left))
+        push k "right"
+        push v (EvalValue.boolean(right))
+        def props:EvalValue (EvalValue.object(k v))
+        def r:EvalValue (engine.callFunction("setControls" props))
     }
 
     ; Hand decoded RGBA pixels for a texture path to the bridge. The browser host
