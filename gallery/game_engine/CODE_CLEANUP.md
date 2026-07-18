@@ -8,10 +8,11 @@
 > - **Part I — delete dead weight** (files that serve no test/build/shipped-game
 >   need). Tranche 1 **done**; no further deletions (see decisions).
 > - **Part II — fix the Three object model.** An external architecture review
->   (folded in below, every claim verified against code) shows the entity-ID
->   problem is a *symptom* of a deeper root cause: **the interpreter has no
->   stable object identity.** The fix is identity-first, and it comes with a hard
->   rule: **stop adding Three classes/loaders/geometries until identity, keyed
+>   (folded in below) shows the entity-ID
+>   problem is one of **several coupled issues** — the biggest being that the
+>   interpreter has no stable object identity, which the entity-handle problem
+>   sits on top of. The fix is identity-first, and it comes with a hard rule:
+>   **stop adding Three classes/loaders/geometries until identity, keyed
 >   reconciliation, and resource sharing are fixed** — every new feature
 >   otherwise grows the signature/flag/typed-accessor web and gets harder to
 >   unwind.
@@ -28,16 +29,28 @@
 
 ---
 
-# Part I — dead-file cleanup
+# Part I — reorganize first, delete later
 
-## I.1 Keep/delete criterion
+**Strategy (owner):** do **not** delete eagerly. First build a single `core/`
+folder and move the genuine engine core into it; then whatever is left *outside*
+`core/` (and outside `games/`, `docs/`, `assets/`, `menu/`, `prototypes/`) is
+the real cleanup candidate set, judged with the boundary already made concrete.
+Reorg is compile-verified (`bin/output.js` runs here); nothing is removed until
+the core boundary is drawn.
+
+## I.0 Protected — never delete
+`docs/`, `assets/`, `menu/` are kept as-is. `ranger_games/` is kept too, moved
+to `prototypes/` (§I.3). `games/<name>/` are the shipped games.
+
+## I.1 Keep/delete criterion (applied only after the core move)
 A file **stays** iff it is (a) engine core / reusable subsystem imported by a
-shipped path, (b) a shipped game under `games/<name>/`, or (c) reachable from a
-test/build root: a vitest `.test.ts`, `scripts/*.sh|*.mjs`, repo-root
-`package.json`, **or a subsystem test runner like `three/src/run.sh`**. Anything
-else is a delete candidate.
+shipped path, (b) a shipped game under `games/<name>/`, (c) reachable from a
+test/build root (a vitest `.test.ts`, `scripts/*.sh|*.mjs`, repo-root
+`package.json`, or a subsystem runner like `three/src/run.sh`), or (d) in a
+protected folder (§I.0). Everything else — surfaced by "what sits outside
+`core/` after the move" — is a delete candidate, decided then, not now.
 
-## I.2 Tranche 1 — DONE (28 files, all verified zero-reference)
+## I.2 Tranche 1 — DONE (28 files, all zero-reference)
 Removed on this branch; every file confirmed unreferenced across all roots +
 `.rgr` imports before deletion:
 - `old/ylos/` (superseded original of `games/ylos2-4`).
@@ -57,45 +70,80 @@ Removed on this branch; every file confirmed unreferenced across all roots +
 couldn't be run here; safety is by construction — none of the 28 are referenced
 by any test/build root or import.)*
 
-## I.3 Pending tranches — need a decision (NOT dead weight)
-The survey **corrected** an assumption: `ranger_games/` is *not* an orphan
-island. Five files are load-bearing test/build fixtures:
+## I.3 `ranger_games/` → `prototypes/` (keep, don't delete)
+`ranger_games/` is **not** dead — it's the TSX→native/C++/Rust portability proof
+(load-bearing for `ts-to-ranger-{native,host}.test.ts`, `game-engine-render.
+test.ts`, the `engine:*` npm scripts, and several `build-*.sh`). **Decision:
+keep it, but move it and its TSX→Ranger tests under a `prototypes/` folder** so
+the main line is uncluttered without losing the proof. Mechanical move only —
+relocate `ranger_games/` → `prototypes/ranger_games/`, the `ts-to-ranger-*`
+tests → `prototypes/` (or `tests/prototypes/`), and rewrite the relative
+`Import` paths + the test/`package.json`/`build-*.sh` path references; verify by
+compiling. No behaviour change.
 
-| File | Loaded by |
-|------|-----------|
-| `ranger_games/pong_sdl.rgr` | `game-engine-render.test.ts`, `scripts/build-sdl.sh` |
-| `ranger_games/{counter,invaders,pong,spawner}_native_runner.rgr` | `ts-to-ranger-{native,host}.test.ts`, `package.json engine:*:native` |
-| `ranger_games/{invaders,pong,pacman}_native_sdl_runner.rgr` | `scripts/build-game-sdl-native.sh` |
-| `ranger_games/{sprite_char,streaming_world}_sdl.rgr` | `scripts/build-{sprite-char,streaming-world}-sdl.sh` |
-| `ranger_games/pong.rgr` | `package.json engine:compile{,:cpp,:rust}`, `engine:run`, `build-native.sh`, `build-raspberry.sh` |
+## I.4 Flag: a game name in a core file is a leak, by definition
+Principle (AGENTS.md rule #1): a generic runner/core file must know **nothing**
+about a specific game. So **any file under the core area whose name contains a
+game** (`autopeli`, `pong`, `pacman`, `invaders`, `sprite_char`,
+`streaming_world`, `pyorretris`, …) is suspect and flagged for review — it is
+either mislabeled core, a game that belongs under `games/`, or a demo. Survey of
+`scripting/`:
 
-Deleting these deletes the **TSX→native/C++/Rust portability proof** and breaks
-those tests + npm scripts. So it's a "remove the feature + its tests + its build
-wiring + its README/AGENTS sections" decision, not a cleanup. Same for the
-`category=Tests` game variants (`games/ranger_autopeli`, `ranger_pong`,
-`rust_pong`, `autopeli_as_src`, `autopeli_physics`, `autopeli_wasm`) — each is
-reachable only through its own `scripting/*_runner_demo.rgr`, so a variant and
-its runner must go together.
+| File | Verdict |
+|------|---------|
+| `wasm_autopeli_setup.rgr`, `wasm_autopeli_render.rgr` | **The leak.** Imported by the *generic* `wasm_physics_runner.rgr` — a runner reaching into a game. Move the game logic to `games/autopeli_*/`; the runner binds via the `GameSceneProvider` seam (`IDEAL.md` §8). Not a plain `rm`; a refactor. |
+| `streaming_world_runner.rgr` | Game-named "runner" → belongs with `games/streaming_world/`, not core. Review. |
+| `sprite_char_poc.rgr`, `sprite_char_poc_demo.rgr` | PoC for the sprite-char game → `games/sprite_char/` or `prototypes/`. Review. |
+| `ranger_autopeli_runner_demo`, `ranger_pong_runner_demo`, `wasm_autopeli_runner_demo`, `wasm_pong_runner_demo`, `pyorretris2p_demo` | Game-named demos, imported by no runner. Test-referenced ones move with their game/`prototypes/`; orphans join the delete list after the core move. |
 
-**Decisions needed** (§ Decisions, bottom).
+**Rule going forward:** after the `core/` move (§I.5), a CI grep asserts no file
+in `core/` contains a game name in its filename *or* an `Import` of one — the
+mechanical version of "the runner has nothing to do with the games."
 
-## I.4 NOT deletable — refactor targets, not cleanup
-`scripting/wasm_autopeli_setup.rgr` and `wasm_autopeli_render.rgr` are the
-"world encoded twice" smell AGENTS.md flags, but they are **live imports** of
-`wasm_physics_runner.rgr`. They're removed by the `IDEAL.md` §8 seam refactor,
-not by `rm`.
+## I.5 The `core/` move — Phase 1 (do this before any more deletion)
+`scripting/` is a dumpster: 88 `.rgr` mixing game-neutral **core** (facades,
+ABI, generic runners), **games** (`*.game.tsx`), and **demos**
+(`*_runner_demo.rgr`), plus loose core files at the engine root
+(`framebuffer.rgr`, `gfx_sdl.rgr`, `rgba_fast_blit.rgr`, `wasm_runtime.rgr`).
+Move the core into one `core/` folder so the boundary is physical, not implied.
+
+**Proposed target layout** (subsystems already have their own folders; the open
+question is whether they move *under* `core/` or stay siblings):
+```
+core/
+  gfx/        framebuffer.rgr, gfx_sdl.rgr, rgba_fast_blit.rgr
+  runtime/    game_runtime, game_physics, game_audio, game_hud, game_sprite,
+              game_camera, game_input, game_particles, game_persistence,
+              game_fixed_step, game_runner_mode, game_entity_store,
+              game_world_grid, … (the game-neutral scripting/ facades)
+  wasm/       wasm_runtime.rgr, wasm_abi_io, wasm_ui_io, as_abi_bridge,
+              wasm_cap_gate, wasm_block_validator, the generic *_runner.rgr,
+              + the wasm/*.h ABI headers
+  (subsystems: three/ physics/ model3d/ lpc/ pose/ ui/ lib/ — move under
+   core/ too, or keep as siblings? → decision C1)
+```
+**Blast radius.** Imports are **relative**, so each moved file rewrites its own
+`../` imports *and* every importer's path to it (e.g. `framebuffer.rgr` alone
+has 27 importers). Therefore move in **blast-ordered tranches, compile-verified**:
+1. **Loose gfx roots** (`framebuffer`, `gfx_sdl`, `rgba_fast_blit`) → `core/gfx/`
+   — self-contained, ~30 importer edits, a clean first proof of the mechanic.
+2. **`wasm_runtime` + ABI/runners** → `core/wasm/`.
+3. **`scripting/` game-neutral facades** → `core/runtime/` (leaving games +
+   demos behind — which is exactly what makes the leftover set the cleanup list).
+4. **Subsystems** (`three/`, `physics/`, …) → under `core/` *iff* C1 says so.
+Each tranche: `git mv`, rewrite `Import` strings + test/script/`package.json`
+paths, compile the affected roots via `bin/output.js`, commit. No deletion in
+Phase 1.
+
+**Then** Part I.1's criterion is applied to whatever remains outside `core/`,
+`games/`, `prototypes/`, and the protected folders — the delete list writes
+itself.
 
 ---
 
 # Part II — fix the Three object model (the real work)
 
-## II.0 The one-line diagnosis
-The system is quietly building **two products at once**: (1) a Three.js-compatible
-JS runtime, and (2) a Ranger-native object model. They can converge, but only
-once the contract between them is explicit and the interpreter has real object
-identity. Today the seam leaks in five verified places.
-
-## II.1 Root cause — the interpreter has no stable object identity  *(verified)*
+## II.1 Issue — the interpreter has no stable object identity
 - `EvalValue.equals()` returns **`false` for every object and array**
   (`gallery/pdf_writer/src/jsx/EvalValue.rgr:540-541`, *"reference equality for
   now → return false"*). So `a === a` is false; `Map`/`Set` object keys (same
@@ -107,7 +155,7 @@ identity. Today the seam leaks in five verified places.
   `EvalValue.undefined()`). Breaks default params, `typeof`, `??`, optional
   chaining, and lets tests confuse "missing" with a real `0`/`false`.
 
-**The type system it plugs into** (`EvalValue.valueType`, verified): `0` null,
+**The type system it plugs into** (`EvalValue.valueType`): `0` null,
 `1` number, `2` string, `3` bool, `4` array, `5` object, `6` function/bound-
 method, `7` **native `EVGElement`** (`EvalValue.element()` — a native Ranger
 object already wrapped in an EvalValue), `8` undefined, `9` Map, `10` Set. Map
@@ -140,7 +188,7 @@ Write one ADR: **"`ThreeSceneHost` owns authoritative state; interpreter/Ranger/
 WASM front-ends hold opaque handles and own no Three object graph."** Then delete
 or mark-historical the alternative descriptions.
 
-## II.3 Reconciler: key by identity, mark-and-sweep  *(verified)*
+## II.3 Reconciler: key by identity, mark-and-sweep
 `three_tsx_bridge.rgr` caches top-level nodes by `scene.children` index and
 nested nodes by DFS ordinal, and states it *"Assumes a stable tree shape"*
 (`:77,86,89`). `syncScene()` walks only currently-visible children with **no
@@ -152,7 +200,7 @@ geometry`, `material id → material`, `texture id → texture`). Each reconcile
 1) mark reached identities, 2) create missing, 3) update changed, 4) **destroy
 unmarked**, 5) set parent links explicitly. Never use an array index as identity.
 
-## II.4 Resource sharing + lifecycle  *(verified)*
+## II.4 Resource sharing + lifecycle
 `buildMeshH()` always calls `buildGeometryH()`/`buildMaterialH()`
 (`three_tsx_bridge.rgr:~560`), so two meshes sharing one `geometry`/`material` in
 Three.js get **separate** host resources — material edits don't affect both, and
@@ -176,7 +224,7 @@ generation-checked handles + a free list + refcount, replacing the append-only
 earlier decision.) `model3d/EntityModel.rgr`'s parallel index-based
 `EntityRegistry` folds onto the same core.
 
-## II.5 Type-erasure → capability components  *(verified direction)*
+## II.5 Type-erasure → capability components
 `ThreeSceneHost.entities` stores everything as `ThreeObject3D`; with no downcast,
 Sponza reaches typed nodes via `sunLight()/skyNode()/modelNode()` accessors on
 the bridge. Each new technique (probe, fog, post) would grow that list until the
@@ -185,7 +233,7 @@ capability model — `EntityHandle → optional {DirectionalLight, Sky, Mesh,
 ProbeGrid} component`; technique code depends on host capabilities, not
 `ThreeTsxBridge`.
 
-## II.6 Command ABI from one schema  *(drift verified)*
+## II.6 Command ABI from one schema
 Host exposes 10 geometry constructors; `ThreeNativeBridge.invoke` exposes 2
 (Box, Teapot). The declarative reconciler calls the host directly so demos work,
 but the command transport is hand-maintained and already drifted. **Fix:** one
