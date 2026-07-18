@@ -4,8 +4,8 @@
 // under gravity while spinning (initial angularVelocity); each frame the mesh
 // copies the body's pose — exactly the cannon.js/three.js integration pattern.
 //
-// The real integration runs Ranger-side: CannonTsxBridge steps the world and
-// writes body.position / body.quaternion back before animate() reads them, so
+// The world/body/shape are real host Cannon objects (handles); world.fixedStep()
+// calls the real engine and pulls each body's pose back into its view, so
 // `mesh.position.copy(body.position)` picks up the simulated pose.
 // ============================================================================
 
@@ -31,7 +31,7 @@ export function init() {
 }
 
 function animate() {
-  // Step the physics world (bridge-driven; this is the façade marker).
+  // Step the physics world (runs the real Ranger engine via the native binding).
   world.fixedStep();
 
   // Copy coordinates from cannon to the mesh.
@@ -39,7 +39,7 @@ function animate() {
   mesh.quaternion.copy(body.quaternion);
 }
 
-// The host frame loop calls tick() each frame (after the bridge steps physics).
+// The host frame loop calls tick() each frame.
 export function tick() { animate(); }
 
 // --- introspection hooks (the test reads the simulated pose off the mesh) ---

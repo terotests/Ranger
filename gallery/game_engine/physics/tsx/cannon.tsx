@@ -1,31 +1,52 @@
 // ============================================================================
-// cannon.tsx — thin TSX façade for the Ranger Cannon port (capability: 'cannon').
+// cannon.tsx — 1:1 TSX façade for the Ranger Cannon port (capability: 'cannon').
 // ============================================================================
 //
-// Layer 1 (mirrors three.tsx): the CANNON.* classes the TSX interpreter sees, so
-// a canonical cannon-es script runs 1:1. These are THIN — plain data + trivial
-// methods. The simulation is the Ranger core (physics/src, the Cannon* classes),
-// reached by CannonTsxBridge: each frame the bridge reconciles this façade world
-// into the real CannonWorld, steps it, and writes the resulting body.position /
-// body.quaternion back onto these objects. So the interpreted
-// `mesh.position.copy(body.position)` reads simulated values.
+// NOT a per-demo data mirror. Each CANNON.* object here is a thin HANDLE to
+// exactly one host Cannon* object (physics/src), reached through the native
+// bridge (cannon_native_bridge.rgr) by bare calls (cannon_world_new, …). The
+// host is the single source of truth: constructors create the host object,
+// methods delegate to it, and there is no duplicated physics state on the guest.
+// So any cannon-es program drives the real engine — there is no reconciliation
+// step that only understands the fields one demo happens to use.
 //
-// Interpreter constraints honoured: no `extends`/`super` (each shape is its own
-// flat class), no `=== undefined` (params guarded by truthiness).
+// The one guest-held state is the transform VIEW (body.position / .quaternion):
+// the interpreter has no native property interception, so World.step() pulls each
+// body's pose from the host into its view once per step (generic over all bodies).
+// Setting an input (body.angularVelocity.set / world.gravity.set) forwards to the
+// host immediately.
+//
+// Interpreter constraints honoured: no `extends`/`super`, no `=== undefined`.
 // ============================================================================
 
+// Body type constants (cannon-es: DYNAMIC=1, STATIC=2, KINEMATIC=4).
+const BODY_DYNAMIC = 1;
+const BODY_STATIC = 2;
+const BODY_KINEMATIC = 4;
+
+// A 3-vector. Unbound (e.g. a Box's halfExtents) it is plain data. Bound to a
+// host body field (__bodyOwner + __field) or the world gravity (__worldOwner),
+// set/copy also push the value to the host.
 class Vec3 {
   x = 0;
   y = 0;
   z = 0;
+  __bodyOwner = 0;   // host body handle, 0 = unbound
+  __field = 0;       // 1=position 2=velocity 3=angularVelocity
+  __worldOwner = 0;  // host world handle for gravity, 0 = unbound
   constructor(x, y, z) {
     if (x) { this.x = x; }
     if (y) { this.y = y; }
     if (z) { this.z = z; }
   }
-  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
-  copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; return this; }
-  clone() { const v = new Vec3(); v.x = this.x; v.y = this.y; v.z = this.z; return v; }
+  set(x, y, z) {
+    this.x = x; this.y = y; this.z = z;
+    if (this.__bodyOwner) { cannon_body_set_vec(this.__bodyOwner, this.__field, x, y, z); }
+    if (this.__worldOwner) { cannon_world_set_gravity(this.__worldOwner, x, y, z); }
+    return this;
+  }
+  copy(v) { return this.set(v.x, v.y, v.z); }
+  clone() { const o = new Vec3(); o.x = this.x; o.y = this.y; o.z = this.z; return o; }
 }
 
 class Quaternion {
@@ -33,123 +54,125 @@ class Quaternion {
   y = 0;
   z = 0;
   w = 1;
-  set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
-  copy(q) { this.x = q.x; this.y = q.y; this.z = q.z; this.w = q.w; return this; }
-  // axis (Vec3), angle (radians) -> unit quaternion.
+  __owner = 0;   // host body handle, 0 = unbound
+  set(x, y, z, w) {
+    this.x = x; this.y = y; this.z = z; this.w = w;
+    if (this.__owner) { cannon_body_set_quat(this.__owner, x, y, z, w); }
+    return this;
+  }
+  copy(q) { return this.set(q.x, q.y, q.z, q.w); }
   setFromAxisAngle(axis, angle) {
     const s = Math.sin(angle * 0.5);
-    this.x = axis.x * s;
-    this.y = axis.y * s;
-    this.z = axis.z * s;
-    this.w = Math.cos(angle * 0.5);
-    return this;
+    return this.set(axis.x * s, axis.y * s, axis.z * s, Math.cos(angle * 0.5));
   }
 }
 
-// --- Shapes (flat — the interpreter has no `extends`) ------------------------
-// A discriminating field (`shapeType`) lets the bridge tell them apart without
-// instanceof: 1=Box, 2=Sphere, 4=Plane (matches cannon-es Shape.types bits).
+// --- Shapes: each creates one host shape and holds its handle -----------------
 class Box {
   isShape = true;
-  shapeType = 1;
-  halfExtents = new Vec3(1, 1, 1);
+  __h = 0;
   constructor(halfExtents) {
-    if (halfExtents) { this.halfExtents = halfExtents; }
+    let hx = 1; let hy = 1; let hz = 1;
+    if (halfExtents) { hx = halfExtents.x; hy = halfExtents.y; hz = halfExtents.z; }
+    this.__h = cannon_box_new(hx, hy, hz);
   }
 }
 
 class Sphere {
   isShape = true;
-  shapeType = 2;
-  radius = 1;
+  __h = 0;
   constructor(radius) {
-    if (radius) { this.radius = radius; }
+    let r = 1;
+    if (radius) { r = radius; }
+    this.__h = cannon_sphere_new(r);
   }
 }
 
 class Plane {
   isShape = true;
-  shapeType = 4;
+  __h = 0;
+  constructor() {
+    this.__h = cannon_plane_new();
+  }
 }
-
-// Body type constants (cannon-es: DYNAMIC=1, STATIC=2, KINEMATIC=4).
-const BODY_DYNAMIC = 1;
-const BODY_STATIC = 2;
-const BODY_KINEMATIC = 4;
 
 class Body {
   isBody = true;
+  __h = 0;
   mass = 0;
   type = 2;
-  position = new Vec3();
-  velocity = new Vec3();
-  angularVelocity = new Vec3();
-  quaternion = new Quaternion();
-  linearDamping = 0.01;
-  angularDamping = 0.01;
-  allowSleep = true;
   shapes = [];
   constructor(params) {
+    let mass = 0;
+    if (params) { if (params.mass) { mass = params.mass; } }
+    this.__h = cannon_body_new(mass);
+    this.mass = mass;
+    if (mass > 0) { this.type = 1; } else { this.type = 2; }
+
+    // Transform views bound to this host body.
+    this.position = new Vec3();
+    this.position.__bodyOwner = this.__h;
+    this.position.__field = 1;
+    this.velocity = new Vec3();
+    this.velocity.__bodyOwner = this.__h;
+    this.velocity.__field = 2;
+    this.angularVelocity = new Vec3();
+    this.angularVelocity.__bodyOwner = this.__h;
+    this.angularVelocity.__field = 3;
+    this.quaternion = new Quaternion();
+    this.quaternion.__owner = this.__h;
+
     if (params) {
-      if (params.mass) { this.mass = params.mass; }
-      if (params.type) { this.type = params.type; }
       if (params.position) { this.position.copy(params.position); }
       if (params.velocity) { this.velocity.copy(params.velocity); }
-      if (params.shape) { this.shapes.push(params.shape); }
-    }
-    // Derive dynamic/static from mass the way cannon-es does, unless type given.
-    if (params) {
-      if (params.type) { this.type = params.type; }
-      else { if (this.mass > 0) { this.type = 1; } else { this.type = 2; } }
+      if (params.shape) { this.addShape(params.shape); }
     }
   }
-  addShape(shape) { this.shapes.push(shape); return this; }
-  applyForce(force, point) { return this; }
-}
-
-class Material {
-  isMaterial = true;
-  friction = -1;
-  restitution = -1;
-  constructor(params) {
-    if (params) {
-      if (params.friction) { this.friction = params.friction; }
-      if (params.restitution) { this.restitution = params.restitution; }
-    }
-  }
-}
-
-class ContactMaterial {
-  isContactMaterial = true;
-  friction = 0.3;
-  restitution = 0.3;
-  constructor(m1, m2, params) {
-    if (params) {
-      if (params.friction) { this.friction = params.friction; }
-      if (params.restitution) { this.restitution = params.restitution; }
-    }
+  addShape(shape) {
+    this.shapes.push(shape);
+    cannon_body_add_shape(this.__h, shape.__h);
+    return this;
   }
 }
 
 class World {
   isWorld = true;
-  gravity = new Vec3(0, 0, 0);
+  __h = 0;
   bodies = [];
-  contactMaterials = [];
-  // Counters so the interpreted script (and tests) can confirm the loop drove it.
   stepCount = 0;
   time = 0;
   constructor(params) {
+    this.__h = cannon_world_new();
+    this.gravity = new Vec3();
+    this.gravity.__worldOwner = this.__h;
     if (params) {
       if (params.gravity) { this.gravity.copy(params.gravity); }
     }
   }
-  addBody(body) { this.bodies.push(body); return this; }
-  addContactMaterial(cm) { this.contactMaterials.push(cm); return this; }
-  // The real integration runs Ranger-side (CannonTsxBridge.stepFrame). These are
-  // markers: they advance the façade clock so control flow / logging is sane. The
-  // bridge does the physics and writes body.position/quaternion back before the
-  // script reads them.
-  step(dt) { this.stepCount = this.stepCount + 1; this.time = this.time + dt; return this; }
+  addBody(body) {
+    this.bodies.push(body);
+    cannon_world_add_body(this.__h, body.__h);
+    return this;
+  }
+  // Step the real engine, then pull every body's pose from the host into its
+  // view (generic — no per-shape / per-demo knowledge).
+  step(dt) {
+    cannon_world_step(this.__h, dt);
+    this.stepCount = this.stepCount + 1;
+    this.time = this.time + dt;
+    let i = 0;
+    while (i < this.bodies.length) {
+      const b = this.bodies[i];
+      b.position.x = cannon_body_get(b.__h, 0);
+      b.position.y = cannon_body_get(b.__h, 1);
+      b.position.z = cannon_body_get(b.__h, 2);
+      b.quaternion.x = cannon_body_get(b.__h, 3);
+      b.quaternion.y = cannon_body_get(b.__h, 4);
+      b.quaternion.z = cannon_body_get(b.__h, 5);
+      b.quaternion.w = cannon_body_get(b.__h, 6);
+      i = i + 1;
+    }
+    return this;
+  }
   fixedStep() { return this.step(1 / 60); }
 }
