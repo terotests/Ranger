@@ -16,6 +16,11 @@
 import {
   BRICK_COUNT,
   BRICK_W,
+  PADDLE_H,
+  PADDLE_HALF,
+  PADDLE_MAX_X,
+  PADDLE_MIN_X,
+  PADDLE_W,
   brickId,
   brickX,
   brickY,
@@ -33,7 +38,7 @@ function screens(): string[] {
 function sprites(props: { screen: string }): SpriteDef[] {
   if (props.screen == "play") {
     const list = buildBrickSprites();
-    list.push({ id: "paddle", kind: "rect", w: 64, h: 10, r: 120, g: 220, b: 255 });
+    list.push({ id: "paddle", kind: "rect", w: PADDLE_W, h: PADDLE_H, r: 120, g: 220, b: 255 });
     list.push({ id: "ball", kind: "circle", rad: 5, r: 245, g: 245, b: 130 });
     return list;
   }
@@ -119,8 +124,8 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
 
   if (props.left || props.up) { px = px - dt * 0.34; }
   if (props.right || props.down) { px = px + dt * 0.34; }
-  if (px < 40) { px = 40; }
-  if (px > 440) { px = 440; }
+  if (px < PADDLE_MIN_X) { px = PADDLE_MIN_X; }
+  if (px > PADDLE_MAX_X) { px = PADDLE_MAX_X; }
 
   bx = bx + vx * dt;
   by = by + vy * dt;
@@ -130,11 +135,11 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
   if (bx > 474) { bx = 474; vx = 0 - vx; }
 
   if (by > py - 14) {
-    if (bx > px - 36) {
-      if (bx < px + 36) {
+    if (bx > px - PADDLE_HALF) {
+      if (bx < px + PADDLE_HALF) {
         by = py - 14;
         vy = 0 - vy;
-        const hit = (bx - px) / 36.0;
+        const hit = (bx - px) / PADDLE_HALF;
         vx = vx + hit * 0.06;
       }
     }
