@@ -568,13 +568,21 @@ class GameSdlRunner {
     ; composite the GUI panel and swap. A held quit (Q/Esc/Back) returns to menu.
     fn drawTeapot:void () {
         gfx_input_poll
+        ; track the real framebuffer size (fullscreen / resize) so the GL viewport +
+        ; camera aspect + the GUI panel placement follow it, instead of the initial
+        ; window size (a small postcard in the bottom-left on the Pi otherwise).
+        def curW:int (gfx_surface_width)
+        def curH:int (gfx_surface_height)
+        if (curW < 1) { curW = pw }
+        if (curH < 1) { curH = ph }
+        teapotHost.setSize(curW curH)
         def mx:int (gfx_mouse_x)
         def my:int (gfx_mouse_y)
         def btn:int (gfx_mouse_buttons)
         def wheel:int (gfx_mouse_wheel)
         def gw:int (teapotHost.guiW())
         def gh:int (teapotHost.guiH())
-        def panelX:int (pw - gw)
+        def panelX:int (curW - gw)
         def leftNow:int (bit_and btn 1)
         def leftPrev:int (bit_and teapotPrevBtn 1)
         if ((leftPrev == 0) && (leftNow == 1)) {
@@ -599,7 +607,7 @@ class GameSdlRunner {
         }
         teapotPrevBtn = btn
         teapotHost.frame()
-        gpu_draw_overlay teapotGuiTex panelX 0 gw gh pw ph
+        gpu_draw_overlay teapotGuiTex panelX 0 gw gh curW curH
         gfx_gl_swap
         def mask:int (gfx_input_source_mask 0)
         if ((bit_and mask 8) != 0) {
@@ -835,6 +843,14 @@ class GameSdlRunner {
         }
         sponzaMouseDown = leftNow
 
+        ; track the real framebuffer size each frame so fullscreen / resize updates
+        ; the GL viewport + camera aspect (else the scene is drawn at the old small
+        ; size — a postcard in the bottom-left after a fullscreen toggle on the Pi).
+        def sw:int (gfx_surface_width)
+        def sh:int (gfx_surface_height)
+        if (((sw > 0) && (sh > 0))) {
+            sponzaHost.setSize(sw sh)
+        }
         sponzaHost.frame()
         gfx_gl_swap
         if ((bit_and mask 8) != 0) {
