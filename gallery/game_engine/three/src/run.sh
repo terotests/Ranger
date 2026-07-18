@@ -91,6 +91,11 @@ run_tsx_poc three_convergence_test
 # Cylinder/Cone/Torus/TorusKnot driven THROUGH THE INTERPRETER — the JS scene
 # supplies args, the real geometry is built in the Ranger host, validated vs goldens.
 run_feature geometry/three_geometry_parity_test
+# Multi-feature spec runner (three/tests/spec/): ONE compiled runner, data-driven
+# from spec_goldens.json — camera + projection matrix, transformed-mesh world
+# matrix, colour families, and view-frustum culling, all validated vs real three.js
+# with no rendering. Compiled once instead of one .rgr per feature (the speedup).
+run_feature spec/three_spec_runner
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and

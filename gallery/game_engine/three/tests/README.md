@@ -20,6 +20,21 @@ Every feature folder is self-contained:
 |---|---|---|
 | [`value_parity/`](./value_parity/) | Math + core API value parity (Vector2/3, Matrix4, Quaternion, Euler, Color, Object3D, MathUtils) returning correct values through the interpreter | 9 baseline PASS; parity `0/31` (the measured backlog) |
 | [`geometry/`](./geometry/) | Primitive + complex geometry construction (Plane, Circle, Ring, Sphere, Cylinder, Cone, Torus, TorusKnot) built in the Ranger host from interpreter args | `62/62` PASS |
+| [`spec/`](./spec/) | Camera (projection matrix), transformed-mesh world matrix, colour families, view-frustum culling — one runner, one description file | `57/57` PASS |
+
+Requested but gated on engine/façade wiring (documented in [`spec/README.md`](./spec/README.md)):
+**object hierarchy** (needs a façade `Group` + nested reconcile), **animation** (needs an
+object-model `KeyframeTrack`/mixer), **model loading** (parser exists + unit-tested, but the
+async host-side loader isn't interpreter-driven yet).
+
+## One runner + a description file (why `spec/` is shaped that way)
+
+The per-suite cost is Ranger→ES6 **compilation** (~8 s each); running the compiled JS is
+sub-second. So the way to go faster is fewer *compiles*, not fewer *checks*. The `spec/`
+runner is compiled **once** and reads its expected values from a data file
+(`../reference/spec_goldens.json`) at run time — adding cases is a JSON edit, and several
+features share one compile. New feature areas that fit this shape should join `spec/` rather
+than get their own compiled suite.
 
 Shared inputs live outside these folders (they are not per-feature):
 - `../reference/` — the pinned three.js checkout, the golden generators
