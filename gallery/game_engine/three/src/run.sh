@@ -61,6 +61,9 @@ run_suite three_json_test
 run_suite three_http_test
 run_suite three_light_probe_grid_test
 run_suite three_light_probe_grid_helper_test
+# Three.js cube→SH projection (LightProbeGenerator): the generic, scene-capturing
+# diffuse-GI bake that replaces the analytic sun/sky/ground stand-in.
+run_suite three_light_probe_generator_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_first_person_controls_test
