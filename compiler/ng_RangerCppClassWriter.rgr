@@ -460,6 +460,21 @@ class RangerCppClassWriter {
     if (((v_type != RangerNodeType.Buffer) && (v_type != RangerNodeType.IntBuffer)) && (v_type != RangerNodeType.DoubleBuffer)) {
       return false
     }
+    ; Methods that take part in virtual dispatch must keep one signature across
+    ; the whole override set. A sibling override may legitimately return a fresh
+    ; buffer (by value), so we cannot unilaterally switch one variant to a
+    ; reference return without risking a signature mismatch that silently breaks
+    ; overriding. Keep value semantics for any method whose class participates
+    ; in inheritance (either as a base with subclasses or as a derived class).
+    if (!null? variant.container_class) {
+      def cc:RangerAppClassDesc (unwrap variant.container_class)
+      if cc.is_inherited {
+        return false
+      }
+      if ((array_length cc.extends_classes) > 0) {
+        return false
+      }
+    }
     if (null? variant.fnBody) {
       return false
     }
@@ -970,6 +985,14 @@ class RangerCppClassWriter {
     ; Params often carry their type in type_name with value_type still NoType.
     def tn:string typeNode.type_name
     if (tn == "string") { return true }
+    ; A buffer parameter that is never written is read-only. Passing it as
+    ; `const std::vector<T>&` (rather than a non-const `&`) both avoids the copy
+    ; and — crucially — lets it bind to a temporary, e.g. a buffer returned
+    ; by value from an accessor: copyInto(renderer.raw(), ...). Mutated buffers
+    ; are caught above (set_cnt / needs_cpp_reference) and stay non-const.
+    if (tn == "buffer") { return true }
+    if (tn == "int_buffer") { return true }
+    if (tn == "double_buffer") { return true }
     if ((strlen tn) > 0) {
       ; Collection literal types "[T]" / "[K:T]" map to std::vector / std::map.
       def firstCh:string (substring tn 0 1)

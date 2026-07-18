@@ -19123,6 +19123,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( ((v_type != 16) && (v_type != 17)) && (v_type != 18) ) {
         return false;
       }
+      if ( (typeof(variant.container_class) !== "undefined" && variant.container_class != null )  ) {
+        const cc = variant.container_class;
+        if ( cc.is_inherited ) {
+          return false;
+        }
+        if ( (cc.extends_classes.length) > 0 ) {
+          return false;
+        }
+      }
       if ( typeof(variant.fnBody) === "undefined" ) {
         return false;
       }
@@ -19553,6 +19562,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       const tn = typeNode.type_name;
       if ( tn == "string" ) {
+        return true;
+      }
+      if ( tn == "buffer" ) {
+        return true;
+      }
+      if ( tn == "int_buffer" ) {
+        return true;
+      }
+      if ( tn == "double_buffer" ) {
         return true;
       }
       if ( (tn.length) > 0 ) {
@@ -39701,8 +39719,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.mutatingOps["buffer_set"] = true;
       this.mutatingOps["int_buffer_set"] = true;
       this.mutatingOps["double_buffer_set"] = true;
+      this.mutatingOps["buffer_fill"] = true;
       this.mutatingOps["int_buffer_fill"] = true;
       this.mutatingOps["double_buffer_fill"] = true;
+      this.mutatingOps["buffer_copy"] = true;
+      this.mutatingOps["int_buffer_copy"] = true;
+      this.mutatingOps["double_buffer_copy"] = true;
       this.mutatingOps["push"] = true;
       this.mutatingOps["set"] = true;
       this.mutatingOps["clear"] = true;
@@ -40388,6 +40410,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         var m = cl.methods[i];
         this.analyzeFunction(m);
       };
+      for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+        var sm = cl.static_methods[i_1];
+        this.analyzeFunction(sm);
+      };
       if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
         this.analyzeFunction(cl.constructor_fn);
       }
@@ -40500,6 +40526,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         var m = cl.methods[i];
         this.analyzeTransitiveMutBorrow(m, changedParams);
       };
+      for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+        var sm = cl.static_methods[i_1];
+        this.analyzeTransitiveMutBorrow(sm, changedParams);
+      };
       if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
         this.analyzeTransitiveMutBorrow(cl.constructor_fn, changedParams);
       }
@@ -40601,6 +40631,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         var m = cl.methods[i];
         this.analyzeMethodMutation(m);
       };
+      for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+        var sm = cl.static_methods[i_1];
+        this.analyzeMethodMutation(sm);
+      };
       if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
         this.analyzeMethodMutation(cl.constructor_fn);
       }
@@ -40673,6 +40707,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       for ( let i = 0; i < cl.methods.length; i++) {
         var m = cl.methods[i];
         this.analyzeMethodParamMutations(m);
+      };
+      for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+        var sm = cl.static_methods[i_1];
+        this.analyzeMethodParamMutations(sm);
       };
       if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
         this.analyzeMethodParamMutations(cl.constructor_fn);

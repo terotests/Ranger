@@ -23,12 +23,21 @@ class StaticAnalyzer {
   }
   
   fn initMutatingOps:void () {
-    ; Buffer/array mutation operators - these modify data IN-PLACE
+    ; Buffer/array mutation operators - these modify their target IN-PLACE.
+    ; The mutated argument is the operator's first operand (e.g. the buffer in
+    ; `buffer_set`, the destination in `buffer_copy`). Every op that writes its
+    ; target must be listed here so the target parameter is passed by non-const
+    ; reference (a read-only buffer is now passed as const&, which would break
+    ; an in-place write that this list fails to flag).
     set mutatingOps "buffer_set" true
     set mutatingOps "int_buffer_set" true
     set mutatingOps "double_buffer_set" true
+    set mutatingOps "buffer_fill" true
     set mutatingOps "int_buffer_fill" true
     set mutatingOps "double_buffer_fill" true
+    set mutatingOps "buffer_copy" true
+    set mutatingOps "int_buffer_copy" true
+    set mutatingOps "double_buffer_copy" true
     
     ; Array mutation operators - these modify the array IN-PLACE
     set mutatingOps "push" true
@@ -956,11 +965,18 @@ class StaticAnalyzer {
   ; Analyze all methods in a class
   fn analyzeClass:void (cl:RangerAppClassDesc) {
     currentClass = cl
-    
+
     for cl.methods m:RangerAppFunctionDesc i {
       this.analyzeFunction(m)
     }
-    
+    ; Static methods need the same param-mutation analysis as instance methods,
+    ; otherwise a mutated buffer/array/map parameter of an `sfn` is emitted by
+    ; value and its in-place writes are silently lost (and, with read-only
+    ; buffers now passed as const&, a mutated one would wrongly become const).
+    for cl.static_methods sm:RangerAppFunctionDesc i {
+      this.analyzeFunction(sm)
+    }
+
     ; Also analyze the constructor
     if (!null? cl.constructor_fn) {
       this.analyzeFunction((unwrap cl.constructor_fn))
@@ -1116,11 +1132,14 @@ class StaticAnalyzer {
   ; Analyze transitive mutable borrow for all methods in a class
   fn analyzeClassTransitiveMutBorrow:void (cl:RangerAppClassDesc changedParams:[string]) {
     currentClass = cl
-    
+
     for cl.methods m:RangerAppFunctionDesc i {
       this.analyzeTransitiveMutBorrow(m changedParams)
     }
-    
+    for cl.static_methods sm:RangerAppFunctionDesc i {
+      this.analyzeTransitiveMutBorrow(sm changedParams)
+    }
+
     if (!null? cl.constructor_fn) {
       this.analyzeTransitiveMutBorrow((unwrap cl.constructor_fn) changedParams)
     }
@@ -1257,11 +1276,14 @@ class StaticAnalyzer {
   ; Analyze mutation behavior for all methods in a class
   fn analyzeClassMutation:void (cl:RangerAppClassDesc) {
     currentClass = cl
-    
+
     for cl.methods m:RangerAppFunctionDesc i {
       this.analyzeMethodMutation(m)
     }
-    
+    for cl.static_methods sm:RangerAppFunctionDesc i {
+      this.analyzeMethodMutation(sm)
+    }
+
     if (!null? cl.constructor_fn) {
       this.analyzeMethodMutation((unwrap cl.constructor_fn))
     }
@@ -1362,11 +1384,14 @@ class StaticAnalyzer {
   ; Analyze parameter mutations for all methods in a class
   fn analyzeClassParamMutations:void (cl:RangerAppClassDesc) {
     currentClass = cl
-    
+
     for cl.methods m:RangerAppFunctionDesc i {
       this.analyzeMethodParamMutations(m)
     }
-    
+    for cl.static_methods sm:RangerAppFunctionDesc i {
+      this.analyzeMethodParamMutations(sm)
+    }
+
     if (!null? cl.constructor_fn) {
       this.analyzeMethodParamMutations((unwrap cl.constructor_fn))
     }
