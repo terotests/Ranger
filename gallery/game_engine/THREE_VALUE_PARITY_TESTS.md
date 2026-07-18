@@ -43,8 +43,8 @@ always-runnable metric.
 | `three/reference/fetch-three-reference.sh` | `npm pack`s the pinned three.js and extracts `src/`+`build/` into `vendor/` (gitignored). GitHub isn't needed — the npm registry is reachable. |
 | `three/reference/gen-goldens.mjs` | Imports the **real** three.js and computes reference values; one entry per probe. Run after bumping the pinned version. |
 | `three/reference/goldens.json` | The committed golden numbers. The harness reads this at run time (no vendored source needed in CI). |
-| `three/tsx/parity/parity_probes.tsx` | The probes: idiomatic three.js (`new THREE.Vector3(1,2,3).cross(v).normalize()`), one exported function per golden key, plus `base_*` functions using only façade-supported idioms. |
-| `three/src/three_value_parity_test.rgr` | The instrumentation harness + the ordered probe list + the report. Wired into `run.sh` as `run_parity`. |
+| `three/tests/value_parity/parity_probes.tsx` | The probes: idiomatic three.js (`new THREE.Vector3(1,2,3).cross(v).normalize()`), one exported function per golden key, plus `base_*` functions using only façade-supported idioms. |
+| `three/tests/value_parity/three_value_parity_test.rgr` | The instrumentation harness + the ordered probe list + the report. Wired into `run.sh` as `run_feature`. |
 
 ## The instrumentation
 
@@ -81,7 +81,7 @@ node gallery/game_engine/three/reference/gen-goldens.mjs \
 # the test itself (goldens.json is committed — no vendor needed here)
 bash gallery/game_engine/three/src/run.sh        # includes three_value_parity_test
 # or just this suite:
-node bin/output.js -es6 gallery/game_engine/three/src/three_value_parity_test.rgr \
+node bin/output.js -es6 gallery/game_engine/three/tests/value_parity/three_value_parity_test.rgr \
      -d=.out -o=t.js && node .out/t.js
 ```
 
@@ -130,8 +130,8 @@ against the goldens.
 | `three/reference/gen-geom-goldens.mjs` → `geom_goldens.json` | For each geometry, from real three.js: `vertexCount`, `indexCount`, bounding box, and **exact sample vertices** (first/middle/last). |
 | `three/src/three_primitive_geometries.rgr` | `Plane/Circle/Ring/Sphere/Cylinder/Cone/Torus/TorusKnot` ported **1:1** from three.js's generators (same loop nesting ⇒ vertex _i_ equals three.js's vertex _i_). Object model — ES6 + C++, no rendering. **This is where the objects live.** |
 | façade `three.tsx` + `three_scene_host.rgr` + `three_tsx_bridge.rgr` | Thin façade classes carry the args; the host has a `geometry*()` builder per type; the bridge routes each façade geometry flag → the host builder with three.js-default args. |
-| `three/tsx/geom/geom_probes.tsx` | The **JS scene** run by the interpreter: one mesh per geometry, in golden order. |
-| `three/src/three_geometry_parity_test.rgr` | Interprets the scene, reconciles it into the host, reads the real geometries back, and asserts count + bbox + exact samples + render-free invariants (whole-triangle index, in-range indices, unit normals). In `run.sh`. |
+| `three/tests/geometry/geom_probes.tsx` | The **JS scene** run by the interpreter: one mesh per geometry, in golden order. |
+| `three/tests/geometry/three_geometry_parity_test.rgr` | Interprets the scene, reconciles it into the host, reads the real geometries back, and asserts count + bbox + exact samples + render-free invariants (whole-triangle index, in-range indices, unit normals). In `run.sh`. |
 
 Result today: **62/62 PASS** — the interpreter builds all eight primitives + box in
 the Ranger host (`host built geometries: 9`) and each matches real three.js exactly

@@ -28,14 +28,15 @@ run_tsx_poc() {
   echo
 }
 
-# Value-parity gate (THREE.md §9): interprets natural three.js snippets on the
-# façade and diffs the engine's returned values against real-three.js goldens.
-# Reads the committed goldens.json — no vendored three.js needed at run time. The
-# extra grep surfaces the "value parity: implemented=X/Y" measurement line.
-run_parity() {
-  local name="$1"
+# Feature test folders (three/tests/<feature>/): each is a self-contained,
+# interpreter-driven suite — a JS .tsx scene + its .rgr driver + a README. Pass the
+# path under three/tests (e.g. "value_parity/three_value_parity_test"). The broad
+# grep also surfaces the "value parity: implemented=X/Y" measurement line.
+run_feature() {
+  local rel="$1"
+  local name="$(basename "$rel")"
   echo "### ${name}"
-  $RGRC "gallery/game_engine/three/src/${name}.rgr" -d="$OUT" -o="${name}.js" >/dev/null 2>&1
+  $RGRC "gallery/game_engine/three/tests/${rel}.rgr" -d="$OUT" -o="${name}.js" >/dev/null 2>&1
   node "$OUT/${name}.js" | grep -E "PASS |FAIL |ALL PASS|SOME FAILED|passed=|value parity:"
   echo
 }
@@ -75,10 +76,10 @@ run_suite three_gl_backend_test
 # one registry by integer handle; no front-end owns Three objects privately.
 run_suite three_scene_host_test
 
-# The value-parity conformance gate (THREE.md §9): baseline idioms hard-asserted
-# (regression gate), plus the measured "implemented=X/Y" parity % against
-# real-three.js goldens. GAPs are the backlog, not failures.
-run_parity three_value_parity_test
+# The value-parity conformance gate (three/tests/value_parity/, THREE.md §9):
+# baseline idioms hard-asserted (regression gate), plus the measured
+# "implemented=X/Y" parity % against real-three.js goldens. GAPs are the backlog.
+run_feature value_parity/three_value_parity_test
 
 # The interpreter transport for the command ABI: bare `three_*(...)` calls
 # routed through ThreeNativeBridge into the one shared ThreeSceneHost.
@@ -86,10 +87,10 @@ run_tsx_poc three_native_bridge_test
 # Convergence: the interpreter front-end and a direct-command guest land on
 # identical host-registry state, and both drive ONE shared registry.
 run_tsx_poc three_convergence_test
-# Primitive + complex geometries (Plane/Circle/Ring/Sphere/Cylinder/Cone/Torus/
-# TorusKnot), driven THROUGH THE INTERPRETER: the JS scene supplies args, the real
-# geometry is built in the Ranger host, validated against real-three.js goldens.
-run_suite three_geometry_parity_test
+# Primitive + complex geometries (three/tests/geometry/): Plane/Circle/Ring/Sphere/
+# Cylinder/Cone/Torus/TorusKnot driven THROUGH THE INTERPRETER — the JS scene
+# supplies args, the real geometry is built in the Ranger host, validated vs goldens.
+run_feature geometry/three_geometry_parity_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and

@@ -21,9 +21,9 @@
 ;     line. GAPs are the measured backlog; they do NOT fail the suite.
 ; ==============================================================================
 
-Import "three_json.rgr"
-Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../src/three_json.rgr"
+Import "../../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 ; ------------------------------------------------------------------ probe rig
 class ThreeValueProbe {
@@ -55,7 +55,7 @@ class ThreeValueProbe {
         engine.registerGlobal("window" (EvalValue.object(wk wv)))
 
         def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
-        def scene:buffer (buffer_read_file "gallery/game_engine/three/tsx/parity" "parity_probes.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/three/tests/value_parity" "parity_probes.tsx")
         def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
         engine.loadScript(src)
 

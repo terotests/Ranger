@@ -11,10 +11,10 @@
 ; render-free invariants (unit normals, in-range indices). No GPU involved.
 ; ==============================================================================
 
-Import "../tsx/three_tsx_bridge.rgr"
-Import "three_json.rgr"
-Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../tsx/three_tsx_bridge.rgr"
+Import "../../src/three_json.rgr"
+Import "../../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class GeomParityCheck {
     def passed:int 0
@@ -154,7 +154,7 @@ class ThreeGeometryParityTest {
         engine.registerGlobal("window" (EvalValue.object(wk wv)))
 
         def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
-        def scene:buffer (buffer_read_file "gallery/game_engine/three/tsx/geom" "geom_probes.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/three/tests/geometry" "geom_probes.tsx")
         def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
         engine.loadScript(src)
         def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
