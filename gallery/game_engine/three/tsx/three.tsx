@@ -144,6 +144,81 @@ class BoxGeometry {
   depth = 1;
 }
 
+// --- Primitive + complex geometries -----------------------------------------
+// Thin arg holders ONLY: the vertex data is built in the Ranger host from these
+// args (the bridge reads them and commands host.geometry*()). No geometry math in
+// JS — the objects live in Ranger. Omitted args stay undefined; the bridge/host
+// supplies the three.js default (single place), matching the Box path.
+class PlaneGeometry {
+  isPlaneGeometry = true;
+  constructor(width, height, widthSegments, heightSegments) {
+    this.width = width; this.height = height;
+    this.widthSegments = widthSegments; this.heightSegments = heightSegments;
+  }
+  dispose() { }
+}
+class CircleGeometry {
+  isCircleGeometry = true;
+  constructor(radius, segments, thetaStart, thetaLength) {
+    this.radius = radius; this.segments = segments;
+    this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class RingGeometry {
+  isRingGeometry = true;
+  constructor(innerRadius, outerRadius, thetaSegments, phiSegments, thetaStart, thetaLength) {
+    this.innerRadius = innerRadius; this.outerRadius = outerRadius;
+    this.thetaSegments = thetaSegments; this.phiSegments = phiSegments;
+    this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class SphereGeometry {
+  isSphereGeometry = true;
+  constructor(radius, widthSegments, heightSegments, phiStart, phiLength, thetaStart, thetaLength) {
+    this.radius = radius; this.widthSegments = widthSegments; this.heightSegments = heightSegments;
+    this.phiStart = phiStart; this.phiLength = phiLength;
+    this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class CylinderGeometry {
+  isCylinderGeometry = true;
+  constructor(radiusTop, radiusBottom, height, radialSegments, heightSegments, openEnded, thetaStart, thetaLength) {
+    this.radiusTop = radiusTop; this.radiusBottom = radiusBottom; this.height = height;
+    this.radialSegments = radialSegments; this.heightSegments = heightSegments;
+    this.openEnded = openEnded; this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class ConeGeometry {
+  isConeGeometry = true;
+  constructor(radius, height, radialSegments, heightSegments, openEnded, thetaStart, thetaLength) {
+    this.radius = radius; this.height = height;
+    this.radialSegments = radialSegments; this.heightSegments = heightSegments;
+    this.openEnded = openEnded; this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class TorusGeometry {
+  isTorusGeometry = true;
+  constructor(radius, tube, radialSegments, tubularSegments, arc) {
+    this.radius = radius; this.tube = tube;
+    this.radialSegments = radialSegments; this.tubularSegments = tubularSegments; this.arc = arc;
+  }
+  dispose() { }
+}
+class TorusKnotGeometry {
+  isTorusKnotGeometry = true;
+  constructor(radius, tube, tubularSegments, radialSegments, p, q) {
+    this.radius = radius; this.tube = tube;
+    this.tubularSegments = tubularSegments; this.radialSegments = radialSegments;
+    this.p = p; this.q = q;
+  }
+  dispose() { }
+}
+
 class Texture {
   isTexture = true;
   path = "";

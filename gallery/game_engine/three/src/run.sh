@@ -86,6 +86,10 @@ run_tsx_poc three_native_bridge_test
 # Convergence: the interpreter front-end and a direct-command guest land on
 # identical host-registry state, and both drive ONE shared registry.
 run_tsx_poc three_convergence_test
+# Primitive + complex geometries (Plane/Circle/Ring/Sphere/Cylinder/Cone/Torus/
+# TorusKnot), driven THROUGH THE INTERPRETER: the JS scene supplies args, the real
+# geometry is built in the Ranger host, validated against real-three.js goldens.
+run_suite three_geometry_parity_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and

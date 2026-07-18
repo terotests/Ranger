@@ -111,6 +111,41 @@ Edit `THREE_VERSION` in `fetch-three-reference.sh`, re-fetch, regenerate
 `goldens.json`, and re-run. Diffs in the goldens are three.js behavior changes
 (e.g. color-management defaults) — review them before committing.
 
+## Geometry parity (pure data, no rendering) — driven through the interpreter
+
+Geometry is positions/normals/uvs/indices — fully testable without a GPU. Crucially
+the **objects do not live in JS**: `new THREE.SphereGeometry(1,8,6)` in the
+interpreted scene only carries the _args_; the real vertex data is built in the
+**Ranger host** from those args (the same single-truth registry the demos use). The
+test therefore drives the whole stack — interpreter → bridge → host — and validates
+the **real Ranger object**, not anything on the JS façade.
+
+Flow: `geom_probes.tsx` (JS) → `ComponentEngine` interprets it → `ThreeTsxBridge`
+reads each mesh's geometry args and commands `ThreeSceneHost.geometry*()` → the host
+constructs the Ranger geometry → the test reads `host.geometryAt(h)` and diffs it
+against the goldens.
+
+| File | Role |
+|---|---|
+| `three/reference/gen-geom-goldens.mjs` → `geom_goldens.json` | For each geometry, from real three.js: `vertexCount`, `indexCount`, bounding box, and **exact sample vertices** (first/middle/last). |
+| `three/src/three_primitive_geometries.rgr` | `Plane/Circle/Ring/Sphere/Cylinder/Cone/Torus/TorusKnot` ported **1:1** from three.js's generators (same loop nesting ⇒ vertex _i_ equals three.js's vertex _i_). Object model — ES6 + C++, no rendering. **This is where the objects live.** |
+| façade `three.tsx` + `three_scene_host.rgr` + `three_tsx_bridge.rgr` | Thin façade classes carry the args; the host has a `geometry*()` builder per type; the bridge routes each façade geometry flag → the host builder with three.js-default args. |
+| `three/tsx/geom/geom_probes.tsx` | The **JS scene** run by the interpreter: one mesh per geometry, in golden order. |
+| `three/src/three_geometry_parity_test.rgr` | Interprets the scene, reconciles it into the host, reads the real geometries back, and asserts count + bbox + exact samples + render-free invariants (whole-triangle index, in-range indices, unit normals). In `run.sh`. |
+
+Result today: **62/62 PASS** — the interpreter builds all eight primitives + box in
+the Ranger host (`host built geometries: 9`) and each matches real three.js exactly
+(counts, bbox, sampled vertices). The pre-existing hand-written `ThreeBoxGeometry` is
+an equivalent tessellation with a _different vertex order_, so its exact-sample check
+is skipped with a `NOTE` (count + bbox still checked) — documented, not faked.
+
+To add a geometry: (1) port its `src/geometries/*.js` generator into
+`three_primitive_geometries.rgr`; (2) add a `geometryX()` builder to
+`three_scene_host.rgr`; (3) add the façade arg-holder class + the bridge flag→builder
+route (`buildGeometryH` / `geometrySig`); (4) add a `capture(new THREE.XGeometry(...))`
+to `gen-geom-goldens.mjs` and a mesh to `geom_probes.tsx` (same params, same order);
+regenerate `geom_goldens.json`; add one `ck.check(...)` line to the test.
+
 ## Coverage roadmap (probe families to add next)
 
 The first batch covers the highest-leverage **value** surface (THREE.md §9.4 steps
