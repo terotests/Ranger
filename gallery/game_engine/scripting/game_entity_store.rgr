@@ -7,7 +7,7 @@
 ; (world → screen). Legacy games keep using state.entities in screen space.
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 Import "./game_sprite.rgr"
 Import "./game_world_grid.rgr"
 

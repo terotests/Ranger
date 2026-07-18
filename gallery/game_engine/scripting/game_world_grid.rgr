@@ -18,7 +18,7 @@
 ; that and are not on the S1 hot path.
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 
 class WorldGrid {
     ; false => 1x1 world, cullsEntity always false (no-op, backwards compatible).

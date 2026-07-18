@@ -14,7 +14,7 @@
 ;   3–8       — players[i]=gamepad i, plus keyboard merged into players[0]
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 Import "../gfx_sdl.rgr"
 
 ; Bit layout shared with gfx_sdl C++ shim (per source mask).

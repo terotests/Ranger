@@ -19,8 +19,8 @@ Import "../framebuffer.rgr"
 Import "../gfx_sdl.rgr"
 Import "../ui/WasmUiSelect.rgr"
 Import "./as_source_runner.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
-Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../eval/jsx/EvalValue.rgr"
+Import "../eval/jsx/ComponentEngine.rgr"
 
 class GameUiRunner {
     def canvas:SoftCanvas (new SoftCanvas)

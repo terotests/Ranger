@@ -2,8 +2,8 @@
 ; game_composite_bridge — chain multiple EvalNativeBridge handlers.
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/ComponentEngine.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 
 class CompositeEvalNativeBridge extends EvalNativeBridge {
     def bridges:[EvalNativeBridge]

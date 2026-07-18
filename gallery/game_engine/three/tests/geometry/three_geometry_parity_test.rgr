@@ -13,8 +13,8 @@
 
 Import "../../tsx/three_tsx_bridge.rgr"
 Import "../../src/three_json.rgr"
-Import "../../../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../../eval/jsx/ComponentEngine.rgr"
+Import "../../../eval/jsx/EvalValue.rgr"
 
 class GeomParityCheck {
     def passed:int 0

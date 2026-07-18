@@ -7,7 +7,7 @@
 ;   launchDown / launchPulse             — optional dynamic launch helper
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 Import "../physics/src/cannon_world.rgr"
 Import "../physics/src/cannon_body.rgr"
 Import "../physics/src/cannon_sphere.rgr"

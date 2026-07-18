@@ -2,8 +2,8 @@
 ; game_static_bg_bridge — native bg* drawing calls for createStaticBg().
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/ComponentEngine.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 Import "../framebuffer.rgr"
 
 class GameStaticBgNativeBridge extends EvalNativeBridge {

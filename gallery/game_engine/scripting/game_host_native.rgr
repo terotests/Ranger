@@ -10,8 +10,8 @@
 ;   resetGameData()      delete gamedata.json
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/ComponentEngine.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 Import "./game_persistence.rgr"
 
 class GameHostNativeBridge extends EvalNativeBridge {

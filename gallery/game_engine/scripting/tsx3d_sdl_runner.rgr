@@ -20,8 +20,8 @@
 Import "../gfx_sdl.rgr"
 Import "../model3d/Scene3dBridge.rgr"
 Import "../model3d/Model3dGlUploader.rgr"
-Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/ComponentEngine.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 
 class Tsx3dSdlRunner {
     def pw:int 960

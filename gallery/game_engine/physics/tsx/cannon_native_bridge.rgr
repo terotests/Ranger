@@ -34,8 +34,8 @@ Import "../src/cannon_sphere.rgr"
 Import "../src/cannon_plane.rgr"
 Import "../src/cannon_vec3.rgr"
 Import "../src/cannon_shape.rgr"
-Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../eval/jsx/ComponentEngine.rgr"
+Import "../../eval/jsx/EvalValue.rgr"
 
 class CannonNativeBridge extends EvalNativeBridge {
     def worlds:[CannonWorld]

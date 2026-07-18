@@ -55,8 +55,8 @@ Import "../src/three_light.rgr"
 Import "../src/three_sky.rgr"
 Import "../src/three_light_probe_volume.rgr"
 Import "../src/three_texture.rgr"
-Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../eval/jsx/ComponentEngine.rgr"
+Import "../../eval/jsx/EvalValue.rgr"
 
 class ThreeTsxBridge {
     def engine:ComponentEngine (new ComponentEngine())

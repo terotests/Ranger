@@ -2,8 +2,8 @@
 ; tsx_engine_demo - regression harness for ComponentEngine script evaluation.
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/ComponentEngine.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 
 class TsxEngineDemo {
     sfn m@(main):void () {

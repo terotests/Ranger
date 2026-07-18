@@ -15,7 +15,7 @@
 ; ==============================================================================
 
 Import "../../../lib/ranger-dir.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 
 class GameCatalogEntry {
     def id:string ""

@@ -14,8 +14,8 @@
 ; with GameRunner.setNativeBridge(bridge) after bridge.wire(host).
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/ComponentEngine.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
 class GameVocalFxBridge extends EvalNativeBridge {

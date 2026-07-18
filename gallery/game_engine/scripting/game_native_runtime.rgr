@@ -8,7 +8,7 @@
 
 Import "../framebuffer.rgr"
 Import "../../ts_to_ranger/game_script_types.rgr"
-Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../eval/jsx/EvalValue.rgr"
 Import "./game_sprite.rgr"
 Import "./game_audio.rgr"
 
