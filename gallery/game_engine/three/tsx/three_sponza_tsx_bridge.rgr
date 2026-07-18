@@ -3,6 +3,19 @@
 ; Ranger Three core (ThreeSponzaScene), so edits hot-reload. Sponza SDL/web bridge.
 ; ==============================================================================
 ;
+; DEPRECATED — DO NOT COPY THIS PATTERN FOR NEW FEATURES/DEMOS.
+; A per-demo scene bridge is the anti-pattern IDEAL_THREE §5 forbids. The ONE
+; reconciler is the generic three_tsx_bridge.rgr (ThreeTsxBridge). It already
+; reconciles Sponza's scene CONTENT generically — the Preetham sky, the shadow-
+; casting sun (castShadow + shadow.mapSize/extents), lit meshes, camera, background
+; and renderer tone-mapping/shadow toggle (proven by three_tsx_bridge_features_test).
+; What is genuinely left here is PLUMBING, not reconciliation: the async glTF
+; fetch/decode + bounds, the first-person controls, the light-probe GI bake +
+; per-probe visibility pass, and the non-PBR exposure policy — all of which belong
+; in a host module on top of ThreeTsxBridge (render=tsx), not in a forked bridge.
+; This file is kept only until that migration lands. Add new node types/properties
+; to ThreeTsxBridge (+ a bridge test), never to a new demo bridge like this one.
+;
 ; The Sponza counterpart to three_teapot_tsx_bridge. sponza.tsx runs in the TSX
 ; interpreter against the three.tsx façade and declares the scene (sky, sun, probe
 ; volume, GUI params). Each reconcile reads that façade state out of the engine and

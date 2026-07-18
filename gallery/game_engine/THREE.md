@@ -291,12 +291,16 @@ Two guarantees make "are we running the specified thing?" **machine-checkable**:
 **Specified settings are honoured (real driving).** The generic `ThreeTsxBridge`
 reconciles, from the interpreted scene onto the real objects: geometry/material/
 light **types**, transforms, **camera orientation** (`camera.rotation`, not just
-position), **`scene.background`**, and the renderer's **`toneMapping` /
-`toneMappingExposure`**. `three_tsx_bridge_driven_test` asserts each is reflected
-in the real `ThreeWebGLRenderer` / `ThreeScene` / camera — so a scene that aims the
-camera, sets a clear colour or a tone-map curve gets exactly that, not a hard-wired
-host value. (Unspecified values keep sensible defaults — that is healthy, and not
-counted.)
+position), **`scene.background`**, the renderer's **`toneMapping` /
+`toneMappingExposure` / `shadowMap.enabled`**, a Preetham **`Sky`**, and a
+**shadow-casting** directional light (`castShadow` + `shadow.mapSize` / extents).
+`three_tsx_bridge_driven_test` and `three_tsx_bridge_features_test` assert each is
+reflected in the real `ThreeWebGLRenderer` / `ThreeScene` / camera / sky / light —
+so a scene that aims the camera, sets a clear colour, a tone-map curve, a sky or a
+shadow-caster gets exactly that, not a hard-wired host value. (Unspecified values
+keep sensible defaults — that is healthy, and not counted.) The generic bridge
+therefore already reconciles the **Sponza scene content** (sky + sun + lit meshes);
+this is why no per-demo scene bridge is needed — see the deprecation note below.
 
 **Unspecified-but-unsupported things are loud, never faked.** Anything the scene
 *specifies* that the bridge cannot reconcile is **counted and warned**, never

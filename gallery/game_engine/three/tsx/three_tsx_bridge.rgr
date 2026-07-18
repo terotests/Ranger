@@ -44,6 +44,7 @@ Import "../src/three_mesh_basic_material.rgr"
 Import "../src/three_mesh_lambert_material.rgr"
 Import "../src/three_mesh_phong_material.rgr"
 Import "../src/three_light.rgr"
+Import "../src/three_sky.rgr"
 Import "../src/three_texture.rgr"
 Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
@@ -77,6 +78,7 @@ class ThreeTsxBridge {
     def nMesh:int 0
     def nAmbient:int 0
     def nDirectional:int 0
+    def nSky:int 0
     def firstMatKind:string ""
     ; anything the scene SPECIFIED that we could not reconcile to a real object
     ; (an unsupported geometry / material / light / feature). Counted + warned so a
@@ -87,6 +89,7 @@ class ThreeTsxBridge {
     fn meshCount:int () { return nMesh }
     fn ambientLightCount:int () { return nAmbient }
     fn directionalLightCount:int () { return nDirectional }
+    fn skyCount:int () { return nSky }
     fn firstMaterialKind:string () { return firstMatKind }
     fn unsupportedCount:int () { return nUnsupported }
 
@@ -201,6 +204,13 @@ class ThreeTsxBridge {
             if (ex.isNumber()) {
                 renderer.setToneMappingExposure((ex.toNumber()))
             }
+            def sm:EvalValue (rd.getMember("shadowMap"))
+            if (sm.isObject()) {
+                def en:EvalValue (sm.getMember("enabled"))
+                if (en.isBoolean()) {
+                    renderer.setShadowMapEnabled(en.boolValue)
+                }
+            }
         }
         def sc:EvalValue (engine.getGlobal("scene"))
         if (sc.isObject()) {
@@ -288,10 +298,47 @@ class ThreeTsxBridge {
             if (dp.isObject()) {
                 dir.setDirection((this.num(dp "x")) (this.num(dp "y")) (this.num(dp "z")))
             }
+            ; shadow casting — honour castShadow + shadow.mapSize + shadow.camera
+            ; extents the scene specifies (the renderer runs the depth pass when the
+            ; light casts and the renderer's shadow map is enabled).
+            dir.setCastShadow((this.boolOr(childV "castShadow" false)))
+            def sh:EvalValue (childV.getMember("shadow"))
+            if (sh.isObject()) {
+                def ms:EvalValue (sh.getMember("mapSize"))
+                if (ms.isNumber()) {
+                    dir.shadow.setMapSize((to_int (ms.toNumber())))
+                }
+                def shcam:EvalValue (sh.getMember("camera"))
+                if (shcam.isObject()) {
+                    dir.shadow.setExtent((this.numOr(shcam "left" (0.0 - 5.0)))
+                        (this.numOr(shcam "right" 5.0))
+                        (this.numOr(shcam "top" 5.0))
+                        (this.numOr(shcam "bottom" (0.0 - 5.0)))
+                        (this.numOr(shcam "near" 0.5))
+                        (this.numOr(shcam "far" 500.0)))
+                }
+            }
             scene.add(dir)
             push nodes dir
             nDirectional = (nDirectional + 1)
             return dir
+        }
+        ; sky (Preetham atmosphere) — a real ThreeSky the renderer draws behind the
+        ; scene; its scattering params + sun direction are driven by the scene.
+        if (this.flagOn(childV "isSky")) {
+            def sky:ThreeSky (new ThreeSky)
+            sky.setTurbidity((this.numOr(childV "turbidity" 10.0)))
+            sky.setRayleigh((this.numOr(childV "rayleigh" 3.0)))
+            sky.setMieCoefficient((this.numOr(childV "mieCoefficient" 0.005)))
+            sky.setMieDirectionalG((this.numOr(childV "mieDirectionalG" 0.7)))
+            def sp:EvalValue (childV.getMember("sunPosition"))
+            if (sp.isObject()) {
+                sky.setSunPosition((this.num(sp "x")) (this.num(sp "y")) (this.num(sp "z")))
+            }
+            scene.add(sky)
+            push nodes sky
+            nSky = (nSky + 1)
+            return sky
         }
         ; mesh (default) — typed geometry + typed material
         if (this.flagOn(childV "isMesh")) {
@@ -305,11 +352,17 @@ class ThreeTsxBridge {
         ; type — Point/Spot/Hemisphere — or any other object). Report it (loud +
         ; counted) rather than pretending it rendered; an empty Object3D keeps the
         ; parallel-array indexing intact.
+        if (this.flagOn(childV "isLightProbeGrid")) {
+            this.noteUnsupported("light-probe grid (its GI bake is a host plumbing pass, not scene reconciliation)")
+        } {
+        if (this.flagOn(childV "isModel")) {
+            this.noteUnsupported("model (its async load/decode is host plumbing — attach via a host module)")
+        } {
         if (this.flagOn(childV "isLight")) {
             this.noteUnsupported("light (only Ambient/Directional are reconciled)")
         } {
-            this.noteUnsupported("scene object (not a Mesh/Ambient/Directional light)")
-        }
+            this.noteUnsupported("scene object (not a Mesh/Ambient/Directional light/Sky)")
+        }}}
         def o:ThreeObject3D (new ThreeObject3D)
         scene.add(o)
         push nodes o

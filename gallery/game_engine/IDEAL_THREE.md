@@ -127,22 +127,43 @@ per-frame mutation). The façade avoids it.
 - **The backend is pluggable.** The object model is agnostic to software vs GPU;
   WASM can use the software backend (pure Ranger → WASM) or a WASM-hosted GL
   binding without touching the model.
-- **Reconciliation is generic, against the real object model — never per-demo.**
-  The bridge maps each interpreted façade object to its **canonical Ranger
-  counterpart by type** — geometry (Box/Teapot/…), material (Basic/Lambert/Phong,
-  colour/map/side/…), light (Ambient/Directional), and transform — producing a real
-  `ThreeScene` / `ThreeObject3D` / `ThreeMesh` graph that the renderer walks
-  (`updateMatrixWorld`, `walkLights`, `renderObject`). A bridge that hard-codes one
-  geometry + one material is **demo-only and forbidden**: adding a new example must
-  not require a new bridge, because the scene is reconciled against the same object
-  model every example targets. This is what keeps the system general rather than a
-  set of one-off demos. Host **plumbing that is not scene content** — controls, GUI
-  panels, async asset streaming — may be per-example modules (they are not part of
-  the object model, exactly as OrbitControls / loaders sit in `examples/jsm` in
-  three.js), but they select and drive the *one* generic reconciler; they never
-  replace it. `three/tsx/three_tsx_bridge.rgr` (`ThreeTsxBridge`) is that generic
-  reconciler; the teapot/Sponza bridges are transitional specialisations to be
-  folded back into it + a plumbing module.
+- **There is exactly ONE reconciler, and it is generic. Never write a per-demo
+  scene bridge.** `three/tsx/three_tsx_bridge.rgr` (`ThreeTsxBridge`) maps each
+  interpreted façade object to its **canonical Ranger counterpart by type** —
+  geometry (Box/Teapot/…), material (Basic/Lambert/Phong, colour/map/side/…), light
+  (Ambient/Directional + shadow), **sky**, camera (position **and** orientation),
+  `scene.background`, and `renderer` tone-mapping / shadow toggle — producing a real
+  `ThreeScene` / `ThreeObject3D` graph the renderer walks (`updateMatrixWorld`,
+  `walkLights`, `renderObject`). It anything it cannot reconcile is **counted and
+  warned** (`unsupportedCount` / `fallbackTextureCount`), never silently faked.
+
+  ### The one way to add a feature
+  A new capability is added by making the interpreted TSX drive the **real object
+  model**, in this order — not by branching per demo:
+  1. Add/extend the **object-model** class in `three/src` (pure Ranger, `-l=cpp`
+     clean, a `*_test.rgr`).
+  2. If it needs the GPU, add the `gpu_*` op (es6 **and** cpp templates) and any
+     GLSL ES 1.00 shader work.
+  3. Teach **`ThreeTsxBridge`** to reconcile that node/property **by type**, and add
+     a bridge test that asserts the interpreted scene produced the real object
+     (see `three_tsx_bridge_{lit,driven,features}_test`).
+  4. Only genuinely non-scene concerns become a **host plumbing module** — input
+     controllers (Orbit/first-person), async asset fetch/decode, GPU passes the host
+     orchestrates (e.g. the light-probe **GI bake** + per-probe visibility), and
+     render policy (e.g. exposure compensation). Plumbing *drives* the one
+     reconciler; it never forks it. This mirrors three.js, where controls and
+     loaders live in `examples/jsm`, not in the core.
+
+  A bridge that hard-codes one geometry + one material — or a second `*_tsx_bridge`
+  per demo — is **forbidden**: adding an example must not add a reconciler.
+
+  > **Deprecated:** `three/tsx/three_teapot_tsx_bridge.rgr` and
+  > `three/tsx/three_sponza_tsx_bridge.rgr` are **transitional** and are *not* the
+  > pattern to copy. Their scene reconciliation belongs in `ThreeTsxBridge` (the
+  > generic bridge already reconciles the Sponza scene *content* — sky, shadow-
+  > casting sun, lit meshes — see `three_tsx_bridge_features_test`); their remaining
+  > job is plumbing (FPC, async glTF, the GI bake, exposure policy), which moves to a
+  > host module as they are retired in favour of `render=tsx`.
 
 ## 6. The implemented API surface
 

@@ -3,6 +3,18 @@
 ; Ranger Three core, then render it (WebGL/GLES in a host, or software headless).
 ; ==============================================================================
 ;
+; DEPRECATED — DO NOT COPY THIS PATTERN FOR NEW FEATURES/DEMOS.
+; A per-demo scene bridge is exactly the anti-pattern IDEAL_THREE §5 forbids: the
+; ONE reconciler is the generic three_tsx_bridge.rgr (ThreeTsxBridge), which maps
+; the interpreted scene onto the real object model by type. This teapot bridge is
+; transitional; its reconciliation (Box/Teapot geometry, Basic/Lambert/Phong
+; materials, Ambient/Directional lights, camera, background) is already handled
+; generically by ThreeTsxBridge. It is kept only until the teapot is rehosted on
+; render=tsx with its OrbitControls + lil-gui panel as a host plumbing module.
+; New node types/properties go in ThreeTsxBridge (+ a *_tsx_bridge_*_test), never
+; in a new demo bridge like this one.
+; ==============================================================================
+;
 ; The teapot counterpart to three_tsx_bridge (which handles the cube). The
 ; canonical webgl_geometry_teapot init/render code runs in the TSX interpreter
 ; against the three.tsx façade (lights, MeshPhong/Lambert/Basic, TeapotGeometry,

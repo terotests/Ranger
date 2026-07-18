@@ -268,6 +268,8 @@ class WebGLRenderer {
   // instead of being dropped). Defaults match three.js (NoToneMapping, exposure 1).
   toneMapping = 0;
   toneMappingExposure = 1;
+  // Real shadow-map toggle the bridge reads (renderer.shadowMap.enabled).
+  shadowMap = { enabled: false };
   constructor(params) { }
   setPixelRatio(r) { this.pixelRatio = r; }
   setSize(w, h) { this.width = w; this.height = h; }

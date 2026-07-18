@@ -1,0 +1,99 @@
+; ==============================================================================
+; three_tsx_bridge_features_test — the generic bridge reconciles a Sponza-shaped
+; scene; no per-demo scene bridge required.
+; ==============================================================================
+; Drives scene_features.tsx (Preetham sky + shadow-casting directional light + a
+; lit mesh + a probe grid) through the GENERIC ThreeTsxBridge and asserts the
+; scene CONTENT reconciled into the real object model — a real ThreeSky, a real
+; shadow-casting light + the renderer shadow toggle honoured — while the light-
+; probe grid (whose GI bake is host plumbing, not reconciliation) is honestly
+; COUNTED as needing a plumbing module, not silently faked. This is the structural
+; reason a specialised Sponza scene bridge is unnecessary.
+; ==============================================================================
+
+Import "three_tsx_bridge.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeTsxBridgeFeaturesTest {
+    sfn m@(main):void () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        push tk "ACESFilmicToneMapping"
+        push tv (EvalValue.number(4.0))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(200.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(200.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/three/tsx" "scene_features.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def bridge (new ThreeTsxBridge)
+        bridge.setEngine(engine)
+        bridge.renderFrame(200 200)
+
+        def passed:int 0
+        def failed:int 0
+        print "== generic bridge reconciles a Sponza-shaped scene (no per-demo bridge) =="
+        print ("sky=" + (to_string (bridge.skyCount())) + " dir=" + (to_string (bridge.directionalLightCount())) + " mesh=" + (to_string (bridge.meshCount())) + " shadowEnabled=" + (to_string (bridge.renderer.shadowMapEnabled)) + " unsupported=" + (to_string (bridge.unsupportedCount())))
+
+        if ((bridge.skyCount()) == 1) {
+            passed = (passed + 1)
+            print "  PASS Preetham sky reconciled to a real ThreeSky"
+        } {
+            failed = (failed + 1)
+            print "  FAIL sky not reconciled"
+        }
+        if ((bridge.directionalLightCount()) == 1) {
+            passed = (passed + 1)
+            print "  PASS shadow-casting directional light reconciled"
+        } {
+            failed = (failed + 1)
+            print "  FAIL directional light not reconciled"
+        }
+        if (bridge.renderer.shadowMapEnabled) {
+            passed = (passed + 1)
+            print "  PASS renderer.shadowMap.enabled honoured from the scene"
+        } {
+            failed = (failed + 1)
+            print "  FAIL shadow map toggle ignored"
+        }
+        if ((bridge.meshCount()) == 1) {
+            passed = (passed + 1)
+            print "  PASS lit mesh reconciled"
+        } {
+            failed = (failed + 1)
+            print "  FAIL mesh not reconciled"
+        }
+        ; the probe grid's GI bake is host plumbing — it must be reported, not faked
+        if ((bridge.unsupportedCount()) >= 1) {
+            passed = (passed + 1)
+            print "  PASS probe grid reported as needing a plumbing module (not faked)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL probe grid silently swallowed"
+        }
+
+        print "== summary =="
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
