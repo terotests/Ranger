@@ -1,20 +1,32 @@
 ; ==============================================================================
-; three_tsx_bridge — reconcile the interpreted TSX façade scene into the Ranger
-; Three core, then render it (software headless, or WebGL/GLES in a host).
+; three_tsx_bridge — the GENERIC reconciler: map an interpreted TSX façade scene
+; onto the REAL Ranger Three object model, then render it (software headless, or
+; WebGL/GLES in a host).
 ; ==============================================================================
 ;
-; This is the render bridge of IDEAL_THREE §7. The canonical Three.js script runs
-; in the TSX interpreter (ComponentEngine) against the thin `three.tsx` façade,
-; which holds only plain data (positions, rotations, geometry params, the texture
-; path). Each frame the host advances the script (animate()) and calls
-; renderFrame(): the bridge reads the façade `scene` + `camera` out of the engine
-; (getGlobal + EvalValue member reads), builds/updates the *canonical* Ranger
-; objects (ThreeScene / ThreePerspectiveCamera / ThreeMesh / …), and draws them
-; through the pluggable backend. This is the `needsUpdate` model — mutable
-; per-frame state is re-read fresh; heavy resources (geometry, textures) are built
-; once and cached by index/path so the GPU upload happens a single time.
+; This is the render bridge of IDEAL_THREE §7 and the generic-reconciliation rule
+; of §5. The canonical Three.js script runs in the TSX interpreter
+; (ComponentEngine) against the thin `three.tsx` façade, which holds only plain
+; data (positions, rotations, geometry params, material params, the texture path).
+; Each frame the host advances the script (animate()) and calls renderFrame(): the
+; bridge reads the façade `scene` + `camera` out of the engine (getGlobal +
+; EvalValue member reads) and reconciles them into the *canonical* Ranger objects
+; — every façade object mapped to its real counterpart BY TYPE:
 ;
-; No GPU code here: renderer draws through ThreeRenderBackend, so the bridge is
+;   - geometry  → ThreeBoxGeometry / ThreeTeapotGeometry (by isXxxGeometry flag)
+;   - material  → ThreeMeshBasicMaterial / …Lambert / …Phong (by isXxxMaterial),
+;                 with colour / map / side / wireframe / shininess / specular / …
+;   - light     → ThreeAmbientLight / ThreeDirectionalLight (by isXxxLight)
+;   - transform → position / rotation / scale, re-read fresh every frame
+;
+; …then draws the real `ThreeScene` through the pluggable backend. Because it maps
+; against the real object model (not a demo-specific shortcut), adding a new scene
+; needs NO new bridge — the same reconciler renders the cube, the many-cubes scene,
+; a lit Lambert/Phong scene, and so on. This is the `needsUpdate` model: mutable
+; per-frame state (transforms) is re-read every frame; heavy resources (geometry,
+; textures) are built once and cached by index/path so the upload happens once.
+;
+; No GPU code here: the renderer draws through ThreeRenderBackend, so the bridge is
 ; pure Ranger and compiles to C++ as well as ES6. The host chooses the backend
 ; (software = headless/Raspberry Pi; ThreeGLBackend = WebGL browser / desktop GL).
 ; ==============================================================================
@@ -22,10 +34,16 @@
 Import "../src/three_webgl_renderer.rgr"
 Import "../src/three_render_backend.rgr"
 Import "../src/three_scene.rgr"
+Import "../src/three_object3d.rgr"
 Import "../src/three_perspective_camera.rgr"
 Import "../src/three_box_geometry.rgr"
+Import "../src/three_teapot_geometry.rgr"
 Import "../src/three_mesh.rgr"
+Import "../src/three_material.rgr"
 Import "../src/three_mesh_basic_material.rgr"
+Import "../src/three_mesh_lambert_material.rgr"
+Import "../src/three_mesh_phong_material.rgr"
+Import "../src/three_light.rgr"
 Import "../src/three_texture.rgr"
 Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
@@ -36,11 +54,24 @@ class ThreeTsxBridge {
     def scene:ThreeScene (new ThreeScene)
     def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
 
-    ; Ranger meshes, parallel to the façade scene.children (built once, index-keyed).
-    def meshes:[ThreeMesh]
+    ; Ranger nodes, parallel to the façade scene.children (built once, index-keyed).
+    ; Any node is a ThreeObject3D subclass — mesh or light — so one array holds them.
+    def nodes:[ThreeObject3D]
     ; texture cache by path (host-supplied pixels, or a checker fallback).
     def texPaths:[string]
     def texObjs:[ThreeTexture]
+
+    ; reconcile bookkeeping (also serves as introspection for tests: proves the
+    ; façade was mapped to the right REAL object types, not a single hard-coded one).
+    def nMesh:int 0
+    def nAmbient:int 0
+    def nDirectional:int 0
+    def firstMatKind:string ""
+
+    fn meshCount:int () { return nMesh }
+    fn ambientLightCount:int () { return nAmbient }
+    fn directionalLightCount:int () { return nDirectional }
+    fn firstMaterialKind:string () { return firstMatKind }
 
     fn setEngine:ThreeTsxBridge (e:ComponentEngine) {
         engine = e
@@ -54,7 +85,7 @@ class ThreeTsxBridge {
     }
 
     ; Supply decoded pixels for a texture path (e.g. the host decoded the image).
-    ; Call before the first renderFrame so the mesh material picks it up.
+    ; Call before the first renderFrame so the material picks it up.
     fn setTexture:void (path:string rgba:buffer w:int h:int) {
         def tex:ThreeTexture (new ThreeTexture)
         tex.setImage(rgba w h)
@@ -75,6 +106,27 @@ class ThreeTsxBridge {
         def v:EvalValue (obj.getMember(key))
         return (v.toNumber())
     }
+    fn numOr:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNumber()) {
+            return (v.toNumber())
+        }
+        return dflt
+    }
+    fn boolOr:boolean (obj:EvalValue key:string dflt:boolean) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        return dflt
+    }
+    fn flagOn:boolean (obj:EvalValue key:string) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        return false
+    }
 
     ; --- per-frame reconcile --------------------------------------------------
     fn syncCamera:void () {
@@ -82,18 +134,12 @@ class ThreeTsxBridge {
         if (cam.isObject() == false) {
             return
         }
-        def fov:double (this.num(cam "fov"))
-        def aspect:double (this.num(cam "aspect"))
-        def near:double (this.num(cam "near"))
-        def far:double (this.num(cam "far"))
-        if (fov <= 0.0) {
-            fov = 50.0
-        }
+        def fov:double (this.numOr(cam "fov" 50.0))
+        def aspect:double (this.numOr(cam "aspect" 1.0))
+        def near:double (this.numOr(cam "near" 0.1))
+        def far:double (this.numOr(cam "far" 2000.0))
         if (aspect <= 0.0) {
             aspect = 1.0
-        }
-        if (near <= 0.0) {
-            near = 0.1
         }
         if (far <= near) {
             far = 2000.0
@@ -118,99 +164,202 @@ class ThreeTsxBridge {
         def i:int 0
         while (i < n) {
             def childV:EvalValue (childrenV.getIndex(i))
-            this.syncMesh(i childV)
+            this.syncNode(i childV)
             i = (i + 1)
         }
     }
 
-    fn syncMesh:void (i:int childV:EvalValue) {
-        def m:ThreeMesh (this.ensureMesh(i childV))
+    ; Reconcile façade child i: build its real node on first sight, then update the
+    ; mutable per-frame transform (position/rotation/scale).
+    fn syncNode:void (i:int childV:EvalValue) {
+        if (childV.isObject() == false) {
+            return
+        }
+        def node:ThreeObject3D (this.ensureNode(i childV))
         def rot:EvalValue (childV.getMember("rotation"))
         if (rot.isObject()) {
-            m.rotation.set((this.num(rot "x")) (this.num(rot "y")) (this.num(rot "z")))
+            node.rotation.set((this.num(rot "x")) (this.num(rot "y")) (this.num(rot "z")))
         }
         def pos:EvalValue (childV.getMember("position"))
         if (pos.isObject()) {
-            m.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
+            node.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
         }
         def scl:EvalValue (childV.getMember("scale"))
         if (scl.isObject()) {
             def sx:double (this.num(scl "x"))
             def sy:double (this.num(scl "y"))
             def sz:double (this.num(scl "z"))
-            if (sx == 0.0) {
-                sx = 1.0
-            }
-            if (sy == 0.0) {
-                sy = 1.0
-            }
-            if (sz == 0.0) {
-                sz = 1.0
-            }
-            m.scale.set(sx sy sz)
+            if (sx == 0.0) { sx = 1.0 }
+            if (sy == 0.0) { sy = 1.0 }
+            if (sz == 0.0) { sz = 1.0 }
+            node.scale.set(sx sy sz)
         }
     }
 
-    ; Build the Ranger mesh for façade child i on first sight (geometry + material
-    ; + texture), then reuse it — so the geometry/texture upload happens once.
-    fn ensureMesh:ThreeMesh (i:int childV:EvalValue) {
-        if (i < (array_length meshes)) {
-            return (itemAt meshes i)
+    ; Build the real Ranger node for façade child i (by type), add it to the scene,
+    ; and cache it — so the geometry/texture upload happens once. A light and a mesh
+    ; are both ThreeObject3D, so the same cache holds either.
+    fn ensureNode:ThreeObject3D (i:int childV:EvalValue) {
+        if (i < (array_length nodes)) {
+            return (itemAt nodes i)
         }
+        ; light? (Ambient / Directional) — built with its colour/intensity/direction
+        if (this.flagOn(childV "isAmbientLight")) {
+            def amb:ThreeAmbientLight (new ThreeAmbientLight)
+            amb.setColorHex((to_int (this.numOr(childV "color" 16777215.0))))
+            amb.setIntensity((this.numOr(childV "intensity" 1.0)))
+            scene.add(amb)
+            push nodes amb
+            nAmbient = (nAmbient + 1)
+            return amb
+        }
+        if (this.flagOn(childV "isDirectionalLight")) {
+            def dir:ThreeDirectionalLight (new ThreeDirectionalLight)
+            dir.setColorHex((to_int (this.numOr(childV "color" 16777215.0))))
+            dir.setIntensity((this.numOr(childV "intensity" 1.0)))
+            def dp:EvalValue (childV.getMember("position"))
+            if (dp.isObject()) {
+                dir.setDirection((this.num(dp "x")) (this.num(dp "y")) (this.num(dp "z")))
+            }
+            scene.add(dir)
+            push nodes dir
+            nDirectional = (nDirectional + 1)
+            return dir
+        }
+        ; mesh (default) — typed geometry + typed material
+        if (this.flagOn(childV "isMesh")) {
+            def m:ThreeMesh (this.buildMesh(childV))
+            scene.add(m)
+            push nodes m
+            nMesh = (nMesh + 1)
+            return m
+        }
+        ; unknown node kind: an empty Object3D keeps index alignment and renders
+        ; nothing (Object3D.renderInto is a no-op), so an unrecognised child is
+        ; skipped without breaking the parallel-array indexing.
+        def o:ThreeObject3D (new ThreeObject3D)
+        scene.add(o)
+        push nodes o
+        return o
+    }
+
+    ; --- mesh: typed geometry + typed material --------------------------------
+    fn buildMesh:ThreeMesh (childV:EvalValue) {
         def m:ThreeMesh (new ThreeMesh)
-
-        ; geometry (BoxGeometry width/height/depth; default unit cube)
-        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
         def geoV:EvalValue (childV.getMember("geometry"))
-        def gw:double 1.0
-        def gh:double 1.0
-        def gd:double 1.0
+
+        def isTeapot:boolean false
         if (geoV.isObject()) {
-            def w:double (this.num(geoV "width"))
-            def h:double (this.num(geoV "height"))
-            def d:double (this.num(geoV "depth"))
-            if (w > 0.0) {
-                gw = w
-            }
-            if (h > 0.0) {
-                gh = h
-            }
-            if (d > 0.0) {
-                gd = d
+            if (this.flagOn(geoV "isTeapotGeometry")) {
+                isTeapot = true
             }
         }
-        geo.setSize(gw gh gd)
-        m.setGeometry(geo)
+        if isTeapot {
+            def tgeo:ThreeTeapotGeometry (new ThreeTeapotGeometry)
+            tgeo.setTeapot((this.numOr(geoV "size" 300.0))
+                (to_int (this.numOr(geoV "segments" 10.0)))
+                (this.boolOr(geoV "bottom" true))
+                (this.boolOr(geoV "lid" true))
+                (this.boolOr(geoV "body" true))
+                (this.boolOr(geoV "fitLid" true))
+                (this.boolOr(geoV "blinn" true)))
+            m.setGeometry(tgeo)
+        } {
+            ; BoxGeometry (default unit cube)
+            def gw:double 1.0
+            def gh:double 1.0
+            def gd:double 1.0
+            if (geoV.isObject()) {
+                def w:double (this.numOr(geoV "width" 1.0))
+                def h:double (this.numOr(geoV "height" 1.0))
+                def d:double (this.numOr(geoV "depth" 1.0))
+                if (w > 0.0) { gw = w }
+                if (h > 0.0) { gh = h }
+                if (d > 0.0) { gd = d }
+            }
+            def box:ThreeBoxGeometry (new ThreeBoxGeometry)
+            box.setSize(gw gh gd)
+            m.setGeometry(box)
+        }
 
-        ; material + optional texture map
-        def mat:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
         def matV:EvalValue (childV.getMember("material"))
-        if (matV.isObject()) {
-            def colV:EvalValue (matV.getMember("color"))
-            def col:double (colV.toNumber())
-            if (col > 0.0) {
-                def ci:int (to_int col)
-                def r:int (idiv ci 65536)
-                def g:int (idiv (ci - (r * 65536)) 256)
-                def b:int (((ci - (r * 65536)) - (g * 256)))
-                mat.setColor(((to_double r) / 255.0) ((to_double g) / 255.0) ((to_double b) / 255.0))
-            }
-            def mapV:EvalValue (matV.getMember("map"))
-            if (mapV.isObject()) {
-                def pathV:EvalValue (mapV.getMember("path"))
-                def tex:ThreeTexture (this.textureForPath(pathV.stringValue))
-                mat.setMap(tex)
-            }
+        if (nMesh == 0) {
+            firstMatKind = (this.materialKind(matV))
         }
+        def mat:ThreeMaterial (this.buildMaterial(matV))
         m.setMaterial(mat)
-
-        scene.add(m)
-        push meshes m
         return m
     }
 
-    ; Host-supplied texture for the path, else a visible checker so a UV-mapped
-    ; material still shows textured faces headlessly.
+    ; --- material: typed by isXxxMaterial flag --------------------------------
+    fn materialKind:string (matV:EvalValue) {
+        if (this.flagOn(matV "isMeshBasicMaterial")) { return "basic" }
+        if (this.flagOn(matV "isMeshLambertMaterial")) { return "lambert" }
+        if (this.flagOn(matV "isMeshPhongMaterial")) { return "phong" }
+        return "basic"
+    }
+
+    fn buildMaterial:ThreeMaterial (matV:EvalValue) {
+        if (matV.isObject() == false) {
+            def d:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+            return d
+        }
+        def kind:string (this.materialKind(matV))
+        def side:int (to_int (this.numOr(matV "side" 0.0)))
+        def colHex:int 16777215
+        def cv:EvalValue (matV.getMember("color"))
+        if (cv.isNumber()) {
+            colHex = (to_int (cv.toNumber()))
+        }
+
+        if (kind == "basic") {
+            def mb:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+            mb.setColorHex(colHex)
+            mb.setSide(side)
+            mb.setWireframe((this.boolOr(matV "wireframe" false)))
+            this.applyMap(mb matV)
+            return mb
+        }
+        if (kind == "lambert") {
+            def ml:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+            ml.setColorHex(colHex)
+            ml.setSide(side)
+            this.applyMap(ml matV)
+            return ml
+        }
+        ; phong
+        def mp:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+        mp.setColorHex(colHex)
+        mp.setSide(side)
+        mp.setShininess((this.numOr(matV "shininess" 30.0)))
+        def spec:EvalValue (matV.getMember("specular"))
+        if (spec.isNumber()) {
+            mp.setSpecularHex((to_int (spec.toNumber())))
+        }
+        if (this.boolOr(matV "flatShading" false)) {
+            mp.setFlatShading(true)
+        }
+        this.applyMap(mp matV)
+        return mp
+    }
+
+    ; texture map: host pixels for the path if supplied, else a visible checker so a
+    ; UV-mapped material still shows textured faces headlessly.
+    fn applyMap:void (mat:ThreeMaterial matV:EvalValue) {
+        def mapV:EvalValue (matV.getMember("map"))
+        if (mapV.isObject() == false) {
+            return
+        }
+        def pathV:EvalValue (mapV.getMember("path"))
+        def path:string ""
+        if (pathV.isString()) {
+            path = pathV.stringValue
+        }
+        mat.setMap((this.textureForPath(path)))
+    }
+
+    ; Host-supplied texture for the path, else a checker (cached so repeat paths and
+    ; many meshes share one upload).
     fn textureForPath:ThreeTexture (path:string) {
         def i:int 0
         while (i < (array_length texPaths)) {
@@ -225,8 +374,8 @@ class ThreeTsxBridge {
         return tex
     }
 
-    ; 2x2 RGBA checker (same as the cube demo) — a stand-in when the host has not
-    ; supplied decoded image pixels for the texture path.
+    ; 2x2 RGBA checker — a stand-in when the host has not supplied decoded image
+    ; pixels for the texture path.
     fn checkerTexture:ThreeTexture () {
         def px:buffer (buffer_alloc 16)
         buffer_set px 0 220

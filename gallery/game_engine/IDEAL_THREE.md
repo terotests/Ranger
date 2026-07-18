@@ -127,6 +127,22 @@ per-frame mutation). The façade avoids it.
 - **The backend is pluggable.** The object model is agnostic to software vs GPU;
   WASM can use the software backend (pure Ranger → WASM) or a WASM-hosted GL
   binding without touching the model.
+- **Reconciliation is generic, against the real object model — never per-demo.**
+  The bridge maps each interpreted façade object to its **canonical Ranger
+  counterpart by type** — geometry (Box/Teapot/…), material (Basic/Lambert/Phong,
+  colour/map/side/…), light (Ambient/Directional), and transform — producing a real
+  `ThreeScene` / `ThreeObject3D` / `ThreeMesh` graph that the renderer walks
+  (`updateMatrixWorld`, `walkLights`, `renderObject`). A bridge that hard-codes one
+  geometry + one material is **demo-only and forbidden**: adding a new example must
+  not require a new bridge, because the scene is reconciled against the same object
+  model every example targets. This is what keeps the system general rather than a
+  set of one-off demos. Host **plumbing that is not scene content** — controls, GUI
+  panels, async asset streaming — may be per-example modules (they are not part of
+  the object model, exactly as OrbitControls / loaders sit in `examples/jsm` in
+  three.js), but they select and drive the *one* generic reconciler; they never
+  replace it. `three/tsx/three_tsx_bridge.rgr` (`ThreeTsxBridge`) is that generic
+  reconciler; the teapot/Sponza bridges are transitional specialisations to be
+  folded back into it + a plumbing module.
 
 ## 6. The implemented API surface
 
