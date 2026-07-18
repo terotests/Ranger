@@ -27,10 +27,32 @@ The reconciler no longer owns a private `ThreeScene` / `[ThreeObject3D]` graph:
 it caches only host **entity handles**, and its `scene` / `camera` / `renderer`
 fields are read-through references to the host's owned instances (kept so the
 demo plumbing — `ThreeSponzaScene`, the web hosts, the native runners — reads
-the one registry rather than a fork). The one remaining cleanup, when someone
-touches the Sponza device path, is to migrate that plumbing's `bind(...)` from
-host-owned object refs to raw integer handles — an API-surface change, not an
-ownership change (ownership already lives solely in `ThreeSceneHost`).
+the one registry rather than a fork).
+
+### Why the GPU-technique plumbing takes typed refs, not raw handles
+
+`ThreeSponzaScene.bind(scene, camera, sun, sky, model)` takes typed object
+references, not integer handles — and that is the **intended** seam, not a
+leftover. The registry is deliberately **type-erased**: it stores every entity
+as the base `ThreeObject3D` and drives one generic render walk. But a GPU
+technique operates *on the typed object*: the GI/shadow bake calls
+`sun.target.position.set(...)`, `sun.shadow.setExtent(...)`,
+`sun.shadowViewProjection()` (returns a `ThreeMatrix4` for the depth pass) and
+`sky.copySunPosition(...)`. None of that survives an integer-handle command ABI.
+
+Making `bind` handle-only would force one of two things the guardrails forbid:
+either **downcast** `host.entityAt(h)` back to `ThreeDirectionalLight` / `ThreeSky`
+(Ranger has no downcast), or push a growing pile of **game-specific typed
+accessors / matrix read-backs** into the host — breaking "the host is a
+game-neutral transport, no frozen taxonomies" (§5). So the correct division of
+labour is: the **host is the single type-erased registry** that owns every
+object and renders generically; the **reconciler is the single type-aware layer**
+that hands a technique module typed references to the host's *own* instances
+(via `sunLight()` / `skyNode()` / `modelNode()`). Bounds already flow through the
+base method (`model.boundingBox()`), and any *write* the plumbing makes to the
+sun (e.g. the ortho extent) has a handle command too (`three_light_shadow_extent`).
+There is one registry and one reconciler; the typed accessors are how a
+type-aware technique reaches host-owned objects — not a second graph.
 
 ## 1. Why this change
 
