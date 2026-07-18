@@ -621,6 +621,8 @@ class GameSdlRunner {
     ; tsx3d-gl path, native. The scene file (index.tsx by convention) + the shared
     ; three.tsx façade come from the game folder; nothing here is demo-specific, so
     ; cube.tsx, cubes.tsx and any future scene run with no runner changes.
+    ; Optional cannon.tsx in the same folder wires the Ranger Cannon façade so a
+    ; scene can `import * as CANNON from 'cannon-es'` alongside THREE.
     fn loadTsx3dAt:void (path:string) {
         useWasmRunner = false
         useWasmPhysics = false
@@ -640,7 +642,11 @@ class GameSdlRunner {
             this.loadMenuGame()
             return
         }
-        def r:string (tsx3dHost.loadFromVfs(dir "three.tsx" sceneFile pw ph 1.0))
+        def cannonFile:string ""
+        if (file_exists dir "cannon.tsx") {
+            cannonFile = "cannon.tsx"
+        }
+        def r:string (tsx3dHost.loadFromVfsEx(dir "three.tsx" sceneFile cannonFile pw ph 1.0))
         if (r != "ok") {
             useTsx3d = false
             print ("[game-engine] tsx3d load failed: " + r)
@@ -660,7 +666,11 @@ class GameSdlRunner {
         this.syncInputEdges()
         gameInputSnap.resetSoloPad()
         gfx_clear_should_close
-        print ("[game-engine] three tsx scene: " + path)
+        if ((strlen cannonFile) > 0) {
+            print ("[game-engine] three+cannon tsx scene: " + path)
+        } {
+            print ("[game-engine] three tsx scene: " + path)
+        }
     }
 
     ; Read one whitespace-separated integer from a PPM (P6) header at tsxPpmCur.
@@ -727,15 +737,21 @@ class GameSdlRunner {
     }
 
     ; Per-frame for a render=tsx game: advance the interpreted animate() + draw the
-    ; reconciled scene through the GL backend, then swap. The scene drives its own
-    ; camera/animation (setAnimationLoop), so no input plumbing is needed; a held
-    ; quit (Q/Esc/Back) returns to the menu.
+    ; reconciled scene through the GL backend, then swap. Keyboard/pad directions
+    ; are forwarded via setControls() when the scene exports it (Cannon racers);
+    ; cube/cubes ignore the call. A held quit (Q/Esc/Back) returns to the menu.
     fn drawTsx3d:void () {
         gfx_input_poll
         def w:int (gfx_surface_width)
         def h:int (gfx_surface_height)
         if (w < 1) { w = pw }
         if (h < 1) { h = ph }
+        def mask:int (bit_or (gfx_input_source_mask 0) (gfx_input_source_mask 2))
+        def up:boolean ((bit_and mask (InputMask.UP())) != 0)
+        def down:boolean ((bit_and mask (InputMask.DOWN())) != 0)
+        def left:boolean ((bit_and mask (InputMask.LEFT())) != 0)
+        def right:boolean ((bit_and mask (InputMask.RIGHT())) != 0)
+        tsx3dHost.setControls(up down left right)
         tsx3dHost.setSize(w h)
         tsx3dHost.frame()
         gfx_gl_swap
@@ -745,7 +761,6 @@ class GameSdlRunner {
             print ("[game-engine] tsx textures: host=" + (to_string (tsx3dHost.hostTextureCount())) + " fallback=" + (to_string (tsx3dHost.fallbackTextureCount())))
             tsxFidelityLogged = true
         }
-        def mask:int (gfx_input_source_mask 0)
         if ((bit_and mask 8) != 0) {
             useTsx3d = false
             this.loadMenuGame()

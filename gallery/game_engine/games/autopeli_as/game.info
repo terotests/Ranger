@@ -1,4 +1,4 @@
-name=Autopeli
+name=Autopeli Classic
 engine=wasm
 module=logic.wasm
 abi=linear
@@ -7,4 +7,4 @@ assets=assets
 splitScreen=auto
 autoscale=true
 icon=assets/image.png
-category=Games
+category=Tests

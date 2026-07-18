@@ -184,6 +184,41 @@ class ThreeGLTFFile {
         def img:ThreeJsonValue (this.imagesJson.at(i))
         return (img.strOr("uri" ""))
     }
+    ; mimeType for image i (embedded .glb images usually set this; "" if absent).
+    fn imageMimeType:string (i:int) {
+        def img:ThreeJsonValue (this.imagesJson.at(i))
+        return (img.strOr("mimeType" ""))
+    }
+    ; bufferView index for an embedded image (-1 if the image is uri-based).
+    fn imageBufferView:int (i:int) {
+        def img:ThreeJsonValue (this.imagesJson.at(i))
+        return (img.intOr("bufferView" (0 - 1)))
+    }
+    ; Slice the bytes of bufferView bv out of the glTF buffers (embedded images).
+    fn bufferViewBytes:buffer (bvIndex:int) {
+        def empty:buffer (buffer_alloc 0)
+        if (bvIndex < 0) {
+            return empty
+        }
+        if ((this.bufferViewsJson.length()) <= bvIndex) {
+            return empty
+        }
+        def bv:ThreeJsonValue (this.bufferViewsJson.at(bvIndex))
+        def bufIndex:int (bv.intOr("buffer" 0))
+        if (bufIndex < 0) {
+            return empty
+        }
+        if ((array_length this.buffers) <= bufIndex) {
+            return empty
+        }
+        def src:buffer (itemAt this.buffers bufIndex)
+        def off:int (bv.intOr("byteOffset" 0))
+        def len:int (bv.intOr("byteLength" 0))
+        if (len <= 0) {
+            return empty
+        }
+        return (ThreeGLTFFile.subBuffer(src off len))
+    }
     ; the normalTexture image index for material mi (-1 if none): material ->
     ; normalTexture.index (a texture) -> texture.source.
     fn normalIndexForMaterial:int (mi:int) {

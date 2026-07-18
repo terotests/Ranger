@@ -109,6 +109,10 @@ class ThreeTsxBridge {
     def hasSky:boolean false
     def hostModel:ThreeObject3D (new ThreeObject3D)
     def hasHostModel:boolean false
+    ; Named host-decoded models for `new THREE.GLTFModel('Duck')` — multiple
+    ; preloaded .glb roots keyed by basename (Sponza keeps using setHostModel).
+    def hostModelNames:[string]
+    def hostModels:[ThreeObject3D]
     def reconciledModel:ThreeObject3D (new ThreeObject3D)
     def hasModelNode:boolean false
     ; anything the scene SPECIFIED that we could not reconcile to a real object
@@ -150,6 +154,52 @@ class ThreeTsxBridge {
         hostModel = m
         hasHostModel = true
         return this
+    }
+
+    fn clearHostModels:void () {
+        def emptyNames:[string]
+        def emptyModels:[ThreeObject3D]
+        hostModelNames = emptyNames
+        hostModels = emptyModels
+        hasHostModel = false
+        hostModel = (new ThreeObject3D)
+    }
+
+    ; Register a named .glb root for `new THREE.GLTFModel(name)`.
+    fn registerHostModel:void (name:string m:ThreeObject3D) {
+        push hostModelNames name
+        push hostModels m
+        if (hasHostModel == false) {
+            hostModel = m
+            hasHostModel = true
+        }
+    }
+
+    fn findHostModel:ThreeObject3D (name:string) {
+        def i:int 0
+        while (i < (array_length hostModelNames)) {
+            if ((itemAt hostModelNames i) == name) {
+                return (itemAt hostModels i)
+            }
+            i = (i + 1)
+        }
+        def miss:ThreeObject3D (new ThreeObject3D)
+        return miss
+    }
+
+    fn hasNamedHostModel:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length hostModelNames)) {
+            if ((itemAt hostModelNames i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn hostModelCount:int () {
+        return (array_length hostModelNames)
     }
 
     ; point this reconciler at an EXISTING host so several front-ends command one
@@ -608,15 +658,34 @@ class ThreeTsxBridge {
             return (this.registerNode(h "" false))
         }
         ; host-attached model (GLTFModel placeholder). The decoded geometry is
-        ; supplied by the host (setHostModel); the bridge attaches it to the scene.
+        ; supplied by the host (setHostModel / registerHostModel); the bridge
+        ; attaches it to the scene. Named models win; legacy single hostModel is
+        ; the fallback (Sponza / unnamed placeholders).
         if (this.flagOn(childV "isModel")) {
-            if hasHostModel {
-                def h:int (host.modelAttach(sceneH hostModel))
-                reconciledModel = hostModel
+            def modelName:string ""
+            def nameV:EvalValue (childV.getMember("name"))
+            if (nameV.isString()) {
+                modelName = (nameV.toString())
+            }
+            def attach:ThreeObject3D (new ThreeObject3D)
+            def found:boolean false
+            if ((strlen modelName) > 0) {
+                if (this.hasNamedHostModel(modelName)) {
+                    attach = (this.findHostModel(modelName))
+                    found = true
+                }
+            }
+            if ((found == false) && hasHostModel) {
+                attach = hostModel
+                found = true
+            }
+            if found {
+                def h:int (host.modelAttach(sceneH attach))
+                reconciledModel = attach
                 hasModelNode = true
                 return (this.registerNode(h "" false))
             }
-            this.noteUnsupported("model (no host-decoded geometry supplied via setHostModel)")
+            this.noteUnsupported("model (no host-decoded geometry supplied via setHostModel/registerHostModel)")
             def mo:ThreeObject3D (new ThreeObject3D)
             def hh:int (host.modelAttach(sceneH mo))
             return (this.registerNode(hh "" false))

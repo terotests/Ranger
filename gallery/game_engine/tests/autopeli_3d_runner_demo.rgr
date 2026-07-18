@@ -1,0 +1,155 @@
+; ==============================================================================
+; autopeli_3d_runner_demo — headless Cannon+Three Autopeli smoke test.
+; ==============================================================================
+; Loads games/autopeli_3d (cannon.tsx + three.tsx + index.tsx) in the TSX
+; interpreter with CannonNativeBridge, holds accelerate for N frames, and asserts
+; the car advanced along -Z via the real host Cannon step (no GL required).
+; ==============================================================================
+
+Import "../physics/tsx/cannon_native_bridge.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class Autopeli3dRunnerDemo {
+    sfn callNum:double (engine:ComponentEngine name:string) {
+        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        return (r.toNumber())
+    }
+
+    sfn setControls:void (engine:ComponentEngine up:boolean down:boolean left:boolean right:boolean) {
+        def k:[string]
+        def v:[EvalValue]
+        push k "up"
+        push v (EvalValue.boolean(up))
+        push k "down"
+        push v (EvalValue.boolean(down))
+        push k "left"
+        push v (EvalValue.boolean(left))
+        push k "right"
+        push v (EvalValue.boolean(right))
+        def r:EvalValue (engine.callFunction("setControls" (EvalValue.object(k v))))
+    }
+
+    sfn m@(main):void () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+
+        def bridge (new CannonNativeBridge)
+        engine.setNativeBridge(bridge)
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(480.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(270.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def dir:string "gallery/game_engine/games/autopeli_3d"
+        def cannon:buffer (buffer_read_file dir "cannon.tsx")
+        def three:buffer (buffer_read_file dir "three.tsx")
+        def scene:buffer (buffer_read_file dir "index.tsx")
+        def src:string ((((buffer_to_string cannon) + "\n") + (buffer_to_string three)) + "\n") + (buffer_to_string scene)
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def z0:double (Autopeli3dRunnerDemo.callNum(engine "carZ"))
+        def bodies0:double (Autopeli3dRunnerDemo.callNum(engine "bodyCount"))
+        def traffic0:double (Autopeli3dRunnerDemo.callNum(engine "trafficCount"))
+        def cones0:double (Autopeli3dRunnerDemo.callNum(engine "coneCount"))
+        def glb0:double (Autopeli3dRunnerDemo.callNum(engine "glbPropCount"))
+
+        def frames:int 180
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def f:int 0
+        while (f < frames) {
+            Autopeli3dRunnerDemo.setControls(engine true false false false)
+            def t:EvalValue (engine.callFunction("tick" (EvalValue.null())))
+            f = (f + 1)
+        }
+
+        def zN:double (Autopeli3dRunnerDemo.callNum(engine "carZ"))
+        def steps:double (Autopeli3dRunnerDemo.callNum(engine "stepCount"))
+        def spd:double (Autopeli3dRunnerDemo.callNum(engine "carSpeed"))
+        def won:double (Autopeli3dRunnerDemo.callNum(engine "hasWon"))
+
+        def passed:int 0
+        def failed:int 0
+        print "== autopeli_3d Cannon+Three headless smoke =="
+        print ("bodies=" + (to_string bodies0) + " traffic=" + (to_string traffic0) + " cones=" + (to_string cones0) + " glb=" + (to_string glb0) + " z0=" + (to_string z0) + " zN=" + (to_string zN) + " speed=" + (to_string spd) + " steps=" + (to_string steps) + " won=" + (to_string won))
+
+        if (bodies0 >= 10.0) {
+            passed = (passed + 1)
+            print "  PASS world built with ground/road/car/traffic/cones"
+        } {
+            failed = (failed + 1)
+            print "  FAIL expected many Cannon bodies"
+        }
+        if (traffic0 >= 4.0) {
+            passed = (passed + 1)
+            print "  PASS traffic spawned"
+        } {
+            failed = (failed + 1)
+            print "  FAIL traffic missing"
+        }
+        if (cones0 >= 4.0) {
+            passed = (passed + 1)
+            print "  PASS cones spawned"
+        } {
+            failed = (failed + 1)
+            print "  FAIL cones missing"
+        }
+        if (glb0 >= 3.0) {
+            passed = (passed + 1)
+            print "  PASS glb prop placeholders declared (Duck/BoxTextured/bush_1)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL expected spinning glb props in the scene"
+        }
+        if (zN < (z0 - 8.0)) {
+            passed = (passed + 1)
+            print "  PASS car advanced along -Z under throttle (real Cannon step)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL car did not advance — physics/controls not driving pose"
+        }
+        if (steps >= (to_double frames)) {
+            passed = (passed + 1)
+            print "  PASS world.fixedStep ran each frame"
+        } {
+            failed = (failed + 1)
+            print "  FAIL step count too low"
+        }
+        if (spd > 1.0) {
+            passed = (passed + 1)
+            print "  PASS throttle built speed"
+        } {
+            failed = (failed + 1)
+            print "  FAIL speed stayed near zero"
+        }
+
+        print "== summary =="
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "autopeli-3d-runner done"
+            print "ALL PASS"
+        } {
+            print "autopeli-3d-runner FAIL"
+            print "SOME FAILED"
+        }
+    }
+}
