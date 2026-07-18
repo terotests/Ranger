@@ -230,7 +230,10 @@ GL renders are verified by codegen + (browser) a headless-Chromium harness.
 - **No PBR specular / metallic-roughness** — materials are Lambert diffuse;
   Sponza's roughness/metallic maps are not used, so no view-dependent highlights.
 - **baseColor is not sRGB-decoded** — color textures are sampled as linear, which
-  skews midtone color (three.js linearizes sRGB color maps before lighting).
+  skews midtone color (three.js linearizes sRGB color maps before lighting). Related:
+  a texture's `colorSpace` / `wrapS` / `wrapT` / `anisotropy` set in the scene are
+  carried on the façade but not yet applied by the object model / backend (the
+  reconcile reads only the image), so they take their engine defaults.
 - **GI is an analytic bake, not captured** — the probe SH is sky + ground bounce
   + sun-with-shadow-visibility; there is no per-probe cubemap capture, so no
   colored inter-surface bounce.
@@ -279,23 +282,48 @@ Cube/Cubes run natively through the *same* generic `ThreeTsxBridge` +
 staged in the game folder, decoded to the scene's texture path before the first
 frame).
 
-### 8.2.1 Fidelity — no silent fallbacks
+### 8.2.1 Fidelity — the TSX drives the real objects, no silent fakes
 
-"Are we rendering the specified asset, or did the system quietly substitute
-something?" is a **machine-checkable** question, not a matter of eyeballing:
+The reconciler's job is that the interpreted TSX actually drives the real object
+model — not a façade that quietly hardcodes or drops what the scene specified.
+Two guarantees make "are we running the specified thing?" **machine-checkable**:
 
-- `ThreeTsxBridge` records provenance for every texture a material asks for:
-  `hostTextureCount()` (real supplied asset) vs `fallbackTextureCount()`
-  (placeholder). A missing asset is **counted and warned once** — never silent.
-- `collectTextureRequests()` reports exactly the paths a scene references, so a
-  host loads precisely the specified assets before the first frame.
-- Web decodes the image and hands the pixels in; native decodes `texture.ppm` and
-  hands the pixels in; the native runner then **logs** `tsx textures: host=N
-  fallback=M` each launch, so a run self-declares its fidelity.
-- `three_tsx_bridge_texture_test` (in `run.sh`) asserts the accounting both ways:
-  no asset ⇒ `fallback=1/host=0` (loud), specified asset supplied ⇒
-  `fallback=0/host=1`. `fallbackTextureCount()==0` is the guarantee that the
-  specified textures — not a demo placeholder — are what render.
+**Specified settings are honoured (real driving).** The generic `ThreeTsxBridge`
+reconciles, from the interpreted scene onto the real objects: geometry/material/
+light **types**, transforms, **camera orientation** (`camera.rotation`, not just
+position), **`scene.background`**, and the renderer's **`toneMapping` /
+`toneMappingExposure`**. `three_tsx_bridge_driven_test` asserts each is reflected
+in the real `ThreeWebGLRenderer` / `ThreeScene` / camera — so a scene that aims the
+camera, sets a clear colour or a tone-map curve gets exactly that, not a hard-wired
+host value. (Unspecified values keep sensible defaults — that is healthy, and not
+counted.)
+
+**Unspecified-but-unsupported things are loud, never faked.** Anything the scene
+*specifies* that the bridge cannot reconcile is **counted and warned**, never
+silently substituted:
+- Textures: `hostTextureCount()` (real supplied asset) vs `fallbackTextureCount()`
+  (placeholder); `collectTextureRequests()` reports the referenced paths so a host
+  loads exactly those before frame 1. Web decodes the image, native decodes
+  `texture.ppm`, and the native runner **logs** `tsx textures: host=N fallback=M`
+  each launch.
+- Everything else: `unsupportedCount()` (+ a one-line warning) covers an
+  unsupported geometry/material/light type or an unhandled feature (e.g. a material
+  `envMap` with no supplied cube map). It renders a visible placeholder but **says
+  so**, instead of pretending the TSX drove it.
+
+Tests in `run.sh`: `three_tsx_bridge_texture_test` (no asset ⇒ `fallback=1/host=0`;
+supplied ⇒ `fallback=0/host=1`) and `three_tsx_bridge_driven_test` (camera / tone
+mapping / background honoured; `envMap` ⇒ `unsupportedCount()≥1`).
+`fallbackTextureCount()==0` **and** `unsupportedCount()==0` is the guarantee that a
+scene rendered exactly what it specified.
+
+Known transitional exceptions (documented, not hidden): the **Sponza** host still
+sets tone-mapping exposure to `0.09` (a deliberate compensation for the non-PBR
+Lambert shading — the canonical scene's PBR exposure of `1.0` would blow out), and
+drives the initial view via its first-person controller rather than the scene's
+`camera.rotation`; in the browser it renders procedural boxes until the glTF model
+streams in. These live in the specialised Sponza host and are resolved when it is
+folded into the generic `render=tsx` path.
 
 ### 8.3 API coverage — what's missing for the rest of the examples
 

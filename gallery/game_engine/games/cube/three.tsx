@@ -263,6 +263,11 @@ class WebGLRenderer {
   pixelRatio = 1;
   frames = 0;
   hasLoop = 0;
+  // Tone mapping is real, interpreter-visible state the bridge reads (so the
+  // scene's renderer.toneMapping / .toneMappingExposure actually drive the render
+  // instead of being dropped). Defaults match three.js (NoToneMapping, exposure 1).
+  toneMapping = 0;
+  toneMappingExposure = 1;
   constructor(params) { }
   setPixelRatio(r) { this.pixelRatio = r; }
   setSize(w, h) { this.width = w; this.height = h; }

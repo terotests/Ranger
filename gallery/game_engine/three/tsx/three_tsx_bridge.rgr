@@ -78,11 +78,24 @@ class ThreeTsxBridge {
     def nAmbient:int 0
     def nDirectional:int 0
     def firstMatKind:string ""
+    ; anything the scene SPECIFIED that we could not reconcile to a real object
+    ; (an unsupported geometry / material / light / feature). Counted + warned so a
+    ; deviation from the specified scene is never a silent fake. (Sensible defaults
+    ; for UNspecified values are not counted — only specified-but-unhandled ones.)
+    def nUnsupported:int 0
 
     fn meshCount:int () { return nMesh }
     fn ambientLightCount:int () { return nAmbient }
     fn directionalLightCount:int () { return nDirectional }
     fn firstMaterialKind:string () { return firstMatKind }
+    fn unsupportedCount:int () { return nUnsupported }
+
+    ; A specified thing we can't honour — report it (loud) and count it, instead of
+    ; silently substituting something else and pretending the TSX drove it.
+    fn noteUnsupported:void (what:string) {
+        print ("[three] WARNING: scene specified '" + what + "' but it is not reconciled to a real object (not a silent fake)")
+        nUnsupported = (nUnsupported + 1)
+    }
     ; texture-fidelity introspection: how many referenced textures were satisfied
     ; by real host pixels vs a placeholder. fallbackTextureCount()==0 means every
     ; texture the scene specified is the real asset (no silent substitution).
@@ -164,6 +177,44 @@ class ThreeTsxBridge {
         def pos:EvalValue (cam.getMember("position"))
         if (pos.isObject()) {
             camera.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
+        }
+        ; camera ORIENTATION — honour the interpreted camera.rotation (the core
+        ; derives the view matrix from the world transform), so a scene that aims the
+        ; camera actually aims it, instead of the view being hard-wired to look down -Z.
+        def crot:EvalValue (cam.getMember("rotation"))
+        if (crot.isObject()) {
+            camera.rotation.set((this.num(crot "x")) (this.num(crot "y")) (this.num(crot "z")))
+        }
+    }
+
+    ; Honour the interpreted renderer + scene settings (tone mapping / exposure /
+    ; background) that the TSX specifies — the real WebGLRenderer/Scene drive them,
+    ; not a hard-wired host value. Unspecified values keep their sensible defaults.
+    fn syncRenderer:void () {
+        def rd:EvalValue (engine.getGlobal("renderer"))
+        if (rd.isObject()) {
+            def tm:EvalValue (rd.getMember("toneMapping"))
+            if (tm.isNumber()) {
+                renderer.setToneMapping((to_int (tm.toNumber())))
+            }
+            def ex:EvalValue (rd.getMember("toneMappingExposure"))
+            if (ex.isNumber()) {
+                renderer.setToneMappingExposure((ex.toNumber()))
+            }
+        }
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject()) {
+            def bg:EvalValue (sc.getMember("background"))
+            if (bg.isObject()) {
+                def h:EvalValue (bg.getMember("hex"))
+                if (h.isNumber()) {
+                    def hex:int (to_int (h.toNumber()))
+                    def r:int (idiv hex 65536)
+                    def g:int (idiv (hex - (r * 65536)) 256)
+                    def b:int ((hex - (r * 65536)) - (g * 256))
+                    scene.setBackground(((to_double r) / 255.0) ((to_double g) / 255.0) ((to_double b) / 255.0))
+                }
+            }
         }
     }
 
@@ -250,9 +301,15 @@ class ThreeTsxBridge {
             nMesh = (nMesh + 1)
             return m
         }
-        ; unknown node kind: an empty Object3D keeps index alignment and renders
-        ; nothing (Object3D.renderInto is a no-op), so an unrecognised child is
-        ; skipped without breaking the parallel-array indexing.
+        ; a child the scene specified but we don't reconcile (an unsupported light
+        ; type — Point/Spot/Hemisphere — or any other object). Report it (loud +
+        ; counted) rather than pretending it rendered; an empty Object3D keeps the
+        ; parallel-array indexing intact.
+        if (this.flagOn(childV "isLight")) {
+            this.noteUnsupported("light (only Ambient/Directional are reconciled)")
+        } {
+            this.noteUnsupported("scene object (not a Mesh/Ambient/Directional light)")
+        }
         def o:ThreeObject3D (new ThreeObject3D)
         scene.add(o)
         push nodes o
@@ -268,6 +325,13 @@ class ThreeTsxBridge {
         if (geoV.isObject()) {
             if (this.flagOn(geoV "isTeapotGeometry")) {
                 isTeapot = true
+            } {
+                ; a geometry object that is neither Box nor Teapot is an unsupported
+                ; type — report it (loud) rather than silently rendering a box in its
+                ; place. (No geometry object at all = the sensible unit-box default.)
+                if ((this.flagOn(geoV "isBoxGeometry")) == false) {
+                    this.noteUnsupported("geometry (only Box/Teapot are reconciled)")
+                }
             }
         }
         if isTeapot {
@@ -321,6 +385,20 @@ class ThreeTsxBridge {
             return d
         }
         def kind:string (this.materialKind(matV))
+        ; unknown material type specified? report it (we render a basic placeholder).
+        if ((this.flagOn(matV "isMeshBasicMaterial")) == false) {
+            if ((this.flagOn(matV "isMeshLambertMaterial")) == false) {
+                if ((this.flagOn(matV "isMeshPhongMaterial")) == false) {
+                    this.noteUnsupported("material (only Basic/Lambert/Phong are reconciled)")
+                }
+            }
+        }
+        ; envMap specified but the generic bridge has no supplied cube map to reflect
+        ; — report it rather than silently rendering a non-reflective material.
+        def emv:EvalValue (matV.getMember("envMap"))
+        if (emv.isObject()) {
+            this.noteUnsupported("material.envMap (needs a supplied cube map)")
+        }
         def side:int (to_int (this.numOr(matV "side" 0.0)))
         def colHex:int 16777215
         def cv:EvalValue (matV.getMember("color"))
@@ -482,6 +560,7 @@ class ThreeTsxBridge {
     ; Reconcile the current façade scene and draw one frame at w*h.
     fn renderFrame:void (w:int h:int) {
         renderer.setSize(w h)
+        this.syncRenderer()
         this.syncCamera()
         this.syncScene()
         renderer.render(scene camera)

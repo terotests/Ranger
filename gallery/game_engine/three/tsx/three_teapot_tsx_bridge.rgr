@@ -133,6 +133,12 @@ class ThreeTeapotTsxBridge {
         if (pos.isObject()) {
             camera.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
         }
+        ; honour camera orientation the scene sets (OrbitControls drives it via the
+        ; host, but a scene that sets camera.rotation directly must be respected too).
+        def crot:EvalValue (cam.getMember("rotation"))
+        if (crot.isObject()) {
+            camera.rotation.set((this.num(crot "x")) (this.num(crot "y")) (this.num(crot "z")))
+        }
     }
 
     ; --- lights (read from scene.children each reconcile) ---------------------

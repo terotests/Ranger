@@ -1,0 +1,112 @@
+; ==============================================================================
+; three_tsx_bridge_driven_test — the interpreted TSX really drives the objects.
+; ==============================================================================
+; Drives driven.tsx (which SPECIFIES camera orientation, renderer tone mapping +
+; exposure, scene background, and an unsupported envMap) through the generic
+; bridge, and asserts the real object model reflects exactly what the TSX said —
+; not a hard-wired host value — and that the one unsupported feature is COUNTED,
+; not silently faked.
+; ==============================================================================
+
+Import "three_tsx_bridge.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeTsxBridgeDrivenTest {
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.01)
+    }
+
+    sfn m@(main):void () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        push tk "ACESFilmicToneMapping"
+        push tv (EvalValue.number(4.0))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(200.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(200.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/three/tsx" "driven.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def bridge (new ThreeTsxBridge)
+        bridge.setEngine(engine)
+        bridge.renderFrame(200 200)
+
+        def passed:int 0
+        def failed:int 0
+        print "== interpreted TSX drives the real objects (no hard-wired surface) =="
+
+        ; renderer tone mapping + exposure honoured
+        if ((bridge.renderer.toneMapping) == 4) {
+            passed = (passed + 1)
+            print "  PASS renderer.toneMapping honoured (ACES=4)"
+        } {
+            failed = (failed + 1)
+            print ("  FAIL toneMapping=" + (to_string (bridge.renderer.toneMapping)))
+        }
+        if (ThreeTsxBridgeDrivenTest.near((bridge.renderer.toneMappingExposure) 0.5)) {
+            passed = (passed + 1)
+            print "  PASS renderer.toneMappingExposure honoured (0.5)"
+        } {
+            failed = (failed + 1)
+            print ("  FAIL exposure=" + (to_string (bridge.renderer.toneMappingExposure)))
+        }
+
+        ; camera orientation honoured
+        if (ThreeTsxBridgeDrivenTest.near((bridge.camera.rotation.x) 0.3)) {
+            passed = (passed + 1)
+            print "  PASS camera.rotation honoured (not hard-wired to look down -Z)"
+        } {
+            failed = (failed + 1)
+            print ("  FAIL camera.rotation.x=" + (to_string (bridge.camera.rotation.x)))
+        }
+
+        ; scene background honoured
+        if (bridge.scene.hasBackground) {
+            if (ThreeTsxBridgeDrivenTest.near((bridge.scene.backgroundR) 1.0)) {
+                passed = (passed + 1)
+                print "  PASS scene.background honoured (red clear colour)"
+            } {
+                failed = (failed + 1)
+                print ("  FAIL backgroundR=" + (to_string (bridge.scene.backgroundR)))
+            }
+        } {
+            failed = (failed + 1)
+            print "  FAIL scene.background ignored (fell back to hard-wired clear)"
+        }
+
+        ; unsupported feature reported, not faked
+        if ((bridge.unsupportedCount()) >= 1) {
+            passed = (passed + 1)
+            print "  PASS envMap reported as unsupported (counted, not silently faked)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL unsupported feature was silently swallowed"
+        }
+
+        print "== summary =="
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
