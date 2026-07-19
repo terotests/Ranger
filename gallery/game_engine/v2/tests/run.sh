@@ -188,6 +188,8 @@ run_suite ui/tests/clip_overflow_test
 run_suite ui/tests/box_shadow_test
 # rounded-corner anti-aliasing (sub-pixel coverage on fills/strokes)
 run_suite ui/tests/rounded_aa_test
+# filled <Path> elements (SVG path -> flatten -> scanline polygon fill)
+run_suite ui/tests/svg_path_test
 # ui widget/layout logic (headless)
 run_suite ui/tests/UITest
 

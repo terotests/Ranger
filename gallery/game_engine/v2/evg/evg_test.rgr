@@ -46,6 +46,7 @@ class EVGTest {
         test.testJustifyDistribution(t)
         test.testAlignStretch(t)
         test.testFlexWrap(t)
+        test.testTextIntrinsicWidth(t)
         test.testSvgPath(t)
         t.summary()
     }
@@ -535,6 +536,29 @@ class EVGTest {
         lay2.layout(nw)
         t.near("nowrap: third child stays on the first row" f.calculatedY d.calculatedY)
         t.near("nowrap: third child at x = 200" f.calculatedX 200.0)
+    }
+
+    ; ---- #1: text/label leaf shrink-wraps to content width in a row ----------
+    ; (was: text took full parent width and pushed siblings to the next row)
+    fn testTextIntrinsicWidth:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(100.0))
+        root.flexDirection = "row"
+        def label (new EVGElement())
+        label.textContent = "Hi"
+        root.addChild(label)
+        def box (new EVGElement())
+        box.width = (EVGUnit.px(50.0))
+        box.height = (EVGUnit.px(30.0))
+        root.addChild(box)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        ; label must NOT be full 400px width — it shrink-wraps to "Hi"
+        t.ok("text label shrink-wraps (not full width)" (label.calculatedWidth < 200.0))
+        ; the box stays on the SAME row (not pushed down) right after the label
+        t.near("sibling stays on the same row" box.calculatedY label.calculatedY)
+        t.near("sibling sits right after the label" box.calculatedX label.calculatedWidth)
     }
 
     fn testSvgPath:void (t:RgTest) {

@@ -556,6 +556,76 @@ class UIContext {
         }
     }
 
+    ; Fill a polygon given as a flat [x0,y0,x1,y1,...] point list, even-odd rule,
+    ; via scanline rasterization. Honors the clip stack (goes through blendPixel).
+    ; Used to render <Path> elements (evg/ISSUES.md #3) — the caller flattens the
+    ; SVG path (SVGPathParser.flatten) and offsets/scales the points to the box.
+    fn fillPolygon:void (pts:[double] r:int g:int b:int a:int) {
+        def m:int (array_length pts)
+        def npts:int (idiv m 2)
+        if (npts < 3) { return }
+        def minY:double (itemAt pts 1)
+        def maxY:double (itemAt pts 1)
+        def k:int 0
+        while (k < npts) {
+            def yv:double (itemAt pts ((k * 2) + 1))
+            if (yv < minY) { minY = yv }
+            if (yv > maxY) { maxY = yv }
+            k = (k + 1)
+        }
+        def y:int (to_int minY)
+        def yEnd:int (to_int maxY)
+        while (y <= yEnd) {
+            def sy:double ((to_double y) + 0.5)
+            def xs:[double]
+            def e:int 0
+            while (e < npts) {
+                def ax:double (itemAt pts (e * 2))
+                def ay:double (itemAt pts ((e * 2) + 1))
+                def ni:int (e + 1)
+                if (ni >= npts) { ni = 0 }
+                def bx:double (itemAt pts (ni * 2))
+                def by:double (itemAt pts ((ni * 2) + 1))
+                def cross:boolean false
+                if ((ay <= sy) && (by > sy)) { cross = true }
+                if ((by <= sy) && (ay > sy)) { cross = true }
+                if cross {
+                    def tX:double (ax + (((sy - ay) / (by - ay)) * (bx - ax)))
+                    push xs tX
+                }
+                e = (e + 1)
+            }
+            ; insertion-sort the crossings ascending
+            def cnt:int (array_length xs)
+            def ii:int 1
+            while (ii < cnt) {
+                def keyv:double (itemAt xs ii)
+                def jj:int (ii - 1)
+                while ((jj >= 0) && ((itemAt xs jj) > keyv)) {
+                    set xs (jj + 1) (itemAt xs jj)
+                    jj = (jj - 1)
+                }
+                set xs (jj + 1) keyv
+                ii = (ii + 1)
+            }
+            ; fill spans between crossing pairs
+            def p:int 0
+            while ((p + 1) < cnt) {
+                def xa:double (itemAt xs p)
+                def xb:double (itemAt xs (p + 1))
+                def xi:int (to_int xa)
+                def xe:int (to_int xb)
+                def xx:int xi
+                while (xx <= xe) {
+                    this.blendPixel(xx y r g b a)
+                    xx = (xx + 1)
+                }
+                p = (p + 2)
+            }
+            y = (y + 1)
+        }
+    }
+
     ; --- text ------------------------------------------------------------------
     fn text:void (s:string x:int y:int size:double col:EVGColor) {
         if (this.hasClipFlag) {

@@ -28,6 +28,7 @@ Import "../scripting/wasm_ui_io.rgr"
 Import "../scripting/game_image_loader.rgr"
 Import "../evg/EVGLayout.rgr"
 Import "../evg/EVGElement.rgr"
+Import "../evg/SVGPathParser.rgr"
 
 ; -----------------------------------------------------------------------------
 ; Guest-driven effects: the WASM UI guest fires env.rg_ui_glow(node,dur,delay,tag)
@@ -531,6 +532,42 @@ class WasmUiRenderer {
         ; box) > 2-stop linear gradient > solid backgroundColor. A missing/invalid
         ; image falls through so the panel still draws.
         def bgDrawn:boolean false
+        ; <Path> element: fill the SVG path (scaled to the box) with the
+        ; backgroundColor, in place of the rectangular background (ISSUES.md #3).
+        if ((strlen el.svgPath) > 0) {
+            def parser:SVGPathParser (new SVGPathParser)
+            parser.parse(el.svgPath)
+            def pb:PathBounds (parser.getBounds())
+            def pw:double pb.width
+            def ph:double pb.height
+            if (pw <= 0.0) { pw = 1.0 }
+            if (ph <= 0.0) { ph = 1.0 }
+            def raw:[double] (parser.flatten(12))
+            def sp:[double]
+            def np:int (idiv (array_length raw) 2)
+            def q:int 0
+            while (q < np) {
+                def px:double (itemAt raw (q * 2))
+                def py:double (itemAt raw ((q * 2) + 1))
+                def sxp:double ((to_double x) + (((px - pb.minX) / pw) * (to_double rw)))
+                def syp:double ((to_double y) + (((py - pb.minY) / ph) * (to_double rh)))
+                push sp sxp
+                push sp syp
+                q = (q + 1)
+            }
+            def fr:int 0
+            def fg:int 0
+            def fb:int 0
+            def fa:int 255
+            if el.backgroundColor.isSet {
+                fr = (el.backgroundColor.red())
+                fg = (el.backgroundColor.green())
+                fb = (el.backgroundColor.blue())
+                fa = (to_int ((el.backgroundColor.alpha()) * 255.0))
+            }
+            ctx.fillPolygon(sp fr fg fb fa)
+            bgDrawn = true
+        }
         if el.bgImageSet {
             def img:ImageBuffer (this.bgImageFor(el.bgImagePath))
             if (imgLoader.isValidImage(img)) {

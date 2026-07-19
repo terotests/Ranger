@@ -156,7 +156,10 @@ class EVGElement {
     
     ; Clip path (for any element)
     def clipPath:string ""
-    
+    ; SVG path data (the `d` attribute) for a <Path> element — filled with
+    ; backgroundColor, scaled to the element box (evg/ISSUES.md #3).
+    def svgPath:string ""
+
     ; CSS class (for reference)
     def className:string ""
     
@@ -822,6 +825,10 @@ class EVGElement {
         ; Clip path (SVG path for clipping)
         if ((name == "clip-path") || (name == "clipPath")) {
             clipPath = value
+            return
+        }
+        if (((name == "d") || (name == "svgPath")) || (name == "path")) {
+            svgPath = value
             return
         }
         
