@@ -1,0 +1,128 @@
+; ==============================================================================
+; web_live2d_host — the REAL ylos2 (ranger:2d) game, software-rendered in-browser.
+; ==============================================================================
+; The LIVE-PATH 2D web host — the v1-parity cousin of web_live3d_host. Where the
+; 3D host drives the ranger:three façade, this one wraps the SAME generic
+; RgGameHost that boots interpreted ranger:2d TSX games headlessly
+; (tests/tools/ylos2_screenshot.rgr uses it), and presents a pane through the
+; SAMPLING backend (RgTexturedRenderer2D via Rg2DPresenter.presentTextured) into
+; a w*h*3 RGB buffer the JS viewer blits.
+;
+;   game index.tsx  ── import { runtime } from "ranger:core"
+;                      import * as TWO   from "ranger:2d"
+;     __rgGameInit()   loads pkg:// atlases (real LPC PNG walk sheets), declares
+;                      the split-screen pane views ONCE  ──▶  RgRegistryBridge
+;     __rgGameUpdate() moves players / camera per host-owned tick     │
+;                                                                     ▼
+;                                     Rg2DPresenter.presentTextured(pane) →
+;                                     RgTexturedRenderer2D → RgFramebuffer grid →
+;                                     w*h*3 RGB buffer → 2D canvas putImageData
+;
+; No 3D, no ranger:three arena is touched by the game. Compiles to JS for the
+; browser (build-live2d.mjs) exactly like the other web hosts.
+; ==============================================================================
+
+Import "../runtime/game_host/RgGameHost.rgr"
+Import "../runtime/game_host/Rg2DPresenter.rgr"
+
+class WebLive2dHost {
+    def host:RgGameHost (new RgGameHost())
+    def ready:boolean false
+    def w:int 480
+    def h:int 270
+    ; base sky under the gradient bands (0x4f96cf) — same value ylos2_screenshot
+    ; passes to presentTextured (the app/scene sky is a presenter parameter).
+    def sky:int 5215951
+    ; The resolved w*h*3 RGB frame the viewer blits.
+    def outBuf:buffer (buffer_alloc 0)
+
+    ; Idempotent — load() does the real work; the viewer may call either.
+    fn setup:void () {
+    }
+
+    ; Boot the REAL game from the VFS: RgGameHost.load registers the ranger:core /
+    ; ranger:2d / ranger:three virtual modules (read from modules/ under v2Root),
+    ; sets the bridge packageDir to `dir` so pkg:// atlases + their PNG sheets
+    ; resolve, evaluates index.tsx and runs __rgGameInit(). Mirrors the headless
+    ; boot in ylos2_screenshot.rgr.
+    fn load:string (dir:string file:string winW:int winH:int) {
+        this.w = winW
+        this.h = winH
+        def ok:boolean (this.host.load(dir file))
+        if (ok == false) {
+            return "fail"
+        }
+        this.ready = true
+        ; Advance a few frames so moving platforms / players settle into a live
+        ; pose before the first present (ylos2_screenshot steps 4 frames).
+        def f 0
+        while (f < 4) {
+            this.host.frame(33.333)
+            f = (f + 1)
+        }
+        return "ok"
+    }
+
+    ; Feed logical key state for one player (slot 0/1). left/right/jump map to the
+    ; exact actions ylos2 reads (pad.isDown("left"/"right"/"jump")). down persists
+    ; across frames; the frame-boundary clears only the wasPressed edge.
+    fn input:void (slot:int left:boolean right:boolean jump:boolean) {
+        if (this.ready == false) {
+            return
+        }
+        this.host.bridge.input.setAction(slot "left" left)
+        this.host.bridge.input.setAction(slot "right" right)
+        this.host.bridge.input.setAction(slot "jump" jump)
+    }
+
+    ; Advance the live game one host-owned tick, then present pane 0 through the
+    ; sampling backend into the RGB buffer. The JS viewer calls this each rAF.
+    fn frame:void (dtMs:double) {
+        if (this.ready == false) {
+            return
+        }
+        this.host.frame(dtMs)
+        def fb:RgFramebuffer (RgFramebuffer.create(this.w this.h))
+        Rg2DPresenter.presentTextured(this.host.bridge 0 fb this.sky)
+        def total:int ((this.w * this.h) * 3)
+        def out:buffer (buffer_alloc total)
+        def y 0
+        while (y < this.h) {
+            def x 0
+            while (x < this.w) {
+                def c:int (fb.at(x y))
+                def r:int (idiv c 65536)
+                def g:int (idiv (c - (r * 65536)) 256)
+                def b:int ((c - (r * 65536)) - (g * 256))
+                def d:int (((y * this.w) + x) * 3)
+                buffer_set out d r
+                buffer_set out (d + 1) g
+                buffer_set out (d + 2) b
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        this.outBuf = out
+    }
+
+    ; The last presented frame as a w*h*3 RGB buffer.
+    fn framePixels:buffer () {
+        return this.outBuf
+    }
+    fn frameW:int () {
+        return this.w
+    }
+    fn frameH:int () {
+        return this.h
+    }
+    fn isReady:boolean () {
+        return this.ready
+    }
+    ; Observability — the viewer surfaces these if the frame comes up blank.
+    fn errorCount:int () {
+        return this.host.bridge.errorCount
+    }
+    fn lastError:string () {
+        return this.host.bridge.lastError
+    }
+}
