@@ -8,7 +8,7 @@ driver and the roadmap below over that checklist.
 
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
-| Headless gate | `npm run engine:v2:test` → 89 suites + boundary gate | — |
+| Headless gate | `npm run engine:v2:test` → 91 suites + boundary gate | — |
 | Live 3D web demos | `ranger:three` cube / teapot / courtyard / real glTF model, **browser-verified** in headless Chromium (`web/tests/browser_smoke.mjs`) | sky/GI/first-person/textures polish |
 | Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — live-path demos (cube, teapot, a procedural courtyard, and a real glTF model — NOT the Sponza atrium) re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
@@ -509,12 +509,25 @@ rumble, vocal FX, music score, LPC/bitmap assets.
       texture store → sampled sprite render, gated). Also **`web/web_live2d_host.rgr`**
       runs ylos2 in the browser with real LPC sprites (browser-verified via
       `web/tests/browser_smoke.mjs`).
-- [ ] Vocals / one-shots → real audio sink. **Design increment**: `AudioClip` is
-      created with no sound data (`createClip()` takes no args), so one-shots have
-      nothing to synthesize — the clip/source API needs to carry a synth spec (or
-      a decoded sample); the `GameAudio` additive synth already exists (music uses
-      it via the SDL pump) but isn't reachable from a clip. Then route one-shots
-      through it to a capturing PCM sink and gate non-silent output.
+- [x] **One-shots → real audio sink** (`tests/unit/audio/one_shot_pcm_test`, 6
+      asserts). `AudioClip` now carries a synth spec (`freqHz/durationMs/volume/
+      wave`); `rgcore_audio_one_shot` synthesises the source's clip tone into
+      REAL, non-silent PCM through the `GameAudio` additive synth and pushes it
+      to a capturing sink (the SDL sink queues the same PCM). ylos2's celebrate
+      SFX is a real 660Hz/220ms ding. No-arg `createClip()` callers keep a
+      neutral default tone. Gate 91/91.
+- [ ] **Vocals → real audio sink** (follow-up). `rgcore_vocal` is still a
+      cue/counter recorder (`push vocalCues`); route it through the same synth
+      spec → `GameAudio` → capturing sink path the one-shots now use, and gate
+      non-silent output.
+- [ ] **EVG render polish** (see [`evg/ISSUES.md`](./evg/ISSUES.md) #4, #5).
+      Render-path characterization (July 19, 2026) confirmed text centering
+      (H+V, real glyph-width measurement) and glow both render correctly. Open:
+      **#4** box-shadow/text-shadow are modeled (`EVGElement.shadow*`) but never
+      rasterized and have no RGU1 key to transmit them — add a `UIContext` shadow
+      primitive + `drawElement` call + `wasm_ui_io` key; **#5** (quality)
+      rounded-corner fills are not anti-aliased (hard boolean corner test in
+      `UIContext.roundedInside`) so edges are jagged vs AA glyphs.
 - [ ] **Chess port** — after W is green (not the current critical path).
 
 ### Open decisions (still block a crisp “done”)
