@@ -9,6 +9,9 @@ Implementation contract for the game-engine cleanup.
 | **Worked examples** | Camera + physics pose; geometry upload; TS `ranger:core` game; Rust/WASM `ranger_wasm` game + ABI |
 | **Implementation gates** | Required order and tests before calling a migration done |
 
+**Implementation plan (v2 tree):** [`CODE_CLEANUP_PLAN.md`](./CODE_CLEANUP_PLAN.md)
+— phased ground-up build under [`v2/`](./v2/); interpreter + WASM bridge before rendering.
+
 Archived inventory and exploratory drafts:
 [`CODE_CLEANUP_OLD.md`](./CODE_CLEANUP_OLD.md).
 
