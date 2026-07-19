@@ -70,6 +70,13 @@ run_suite interp/adapter/tests/adapter_overlay_test
 run_suite interp/adapter/tests/adapter_hybrid_test
 run_suite tests/unit/interp/adapter_churn_test
 
+# ---- Phase 5 — WASM bridge (D-WASM / D-WASM-MEM / D-ASYNC) --------------------
+run_suite bridge/wasm/tests/create_free/create_free_test
+run_suite bridge/wasm/tests/retain_release/retain_release_test
+run_suite bridge/wasm/tests/async_poll/async_poll_test
+run_suite bridge/wasm/tests/span_bounds/span_bounds_test
+run_suite bridge/parity/tests/parity_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"

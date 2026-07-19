@@ -1,0 +1,82 @@
+; ==============================================================================
+; async_poll_test — bridge/wasm/tests/async_poll gate (D-ASYNC).
+; ==============================================================================
+; Poll-based async with exactly-once result transfer:
+;   - first COMPLETE poll transfers the result; later COMPLETE polls transfer
+;     nothing (no double-transfer / double-free)
+;   - release on a completed-but-unconsumed request releases the result (no leak)
+;   - cancel is best-effort; a late host result is released host-side
+;   - realm teardown releases every unconsumed result (D-OWN backstop)
+; ==============================================================================
+
+Import "../../async/RgAsync.rgr"
+Import "../../../../host/arenas/RgHost.rgr"
+Import "../../../../host/handles/RgHandle.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class AsyncPollTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/wasm/async_poll"))
+        def a:RgAsync (new RgAsync)
+
+        ; ---- exactly-once result transfer -----------------------------------
+        def req:int (a.begin())
+        def st0:int (a.poll(req))
+        t.eqInt("fresh request polls PENDING" st0 (RgAsyncStatus.pending()))
+        t.no("no transfer while pending" a.transferred)
+
+        ; host finishes: the loaded asset is a real host handle
+        def owned:OwnedHandle (a.host.geometryCreate(1 128))
+        def resultH:RgHandle owned.handle
+        a.hostComplete(req resultH)
+
+        def st1:int (a.poll(req))
+        t.eqInt("first poll reports COMPLETE" st1 (RgAsyncStatus.complete()))
+        t.ok("first COMPLETE poll transfers the result" a.transferred)
+        t.eqInt("transferred handle is the result slot" a.outHandle.slot resultH.slot)
+        t.ok("result handle is live for the caller" (a.host.isLive(resultH)))
+        t.eqInt("result owned once (refcount 1)" (a.host.refcount(resultH)) 1)
+
+        def st2:int (a.poll(req))
+        t.eqInt("second poll still COMPLETE" st2 (RgAsyncStatus.complete()))
+        t.no("second COMPLETE poll transfers nothing (exactly-once)" a.transferred)
+        t.eqInt("result still owned once (no double transfer)" (a.host.refcount(resultH)) 1)
+
+        ; release after consumption must NOT free the caller-owned result
+        a.release(req)
+        t.ok("consumed result survives request release" (a.host.isLive(resultH)))
+
+        ; ---- release of an unconsumed result frees it (no leak) -------------
+        def req2:int (a.begin())
+        def owned2:OwnedHandle (a.host.geometryCreate(1 64))
+        def result2:RgHandle owned2.handle
+        a.hostComplete(req2 result2)
+        ; release WITHOUT polling — the unconsumed result must be released
+        a.release(req2)
+        t.no("unconsumed result released on request release" (a.host.isLive(result2)))
+
+        ; ---- cancel is best-effort; late result released host-side ----------
+        def req3:int (a.begin())
+        a.cancel(req3)
+        def st3:int (a.poll(req3))
+        t.eqInt("cancelled request polls CANCELLED" st3 (RgAsyncStatus.cancelled()))
+        def owned3:OwnedHandle (a.host.geometryCreate(1 32))
+        def result3:RgHandle owned3.handle
+        a.hostComplete(req3 result3)   ; arrives after cancel
+        t.no("late result after cancel is released host-side" (a.host.isLive(result3)))
+
+        ; ---- realm teardown backstop ---------------------------------------
+        def req4:int (a.begin())
+        def owned4:OwnedHandle (a.host.geometryCreate(1 16))
+        def result4:RgHandle owned4.handle
+        a.hostComplete(req4 result4)   ; completed but never consumed
+        def req5:int (a.begin())        ; still pending
+        def reclaimed:int (a.teardown())
+        t.eqInt("teardown released the one unconsumed result" reclaimed 1)
+        t.no("unconsumed result reclaimed by teardown" (a.host.isLive(result4)))
+        def st5:int (a.poll(req5))
+        t.eqInt("torn-down request polls INVALID" st5 (RgAsyncStatus.invalid()))
+
+        t.summary()
+    }
+}

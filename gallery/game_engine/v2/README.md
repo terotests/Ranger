@@ -120,7 +120,13 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   guest-commit-wins), and the D-PROP overlay (unknown write → guest overlay, host
   never sees it). Tests in `interp/adapter/tests/` + `tests/unit/interp/`.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (15 suites, 240
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 15/15 suites passed`.
+- **Phase 5 — WASM bridge (D-WASM / D-WASM-MEM / D-ASYNC): ✅ green.**
+  `bridge/wasm/imports/` (`rg_*` create/retain/release over the same host, two-word
+  handle transport), `bridge/wasm/async/` (poll-based D-ASYNC, exactly-once result
+  transfer), `bridge/wasm/memory/` (checked span bounds), and `bridge/parity/`
+  (adapter and WASM paths produce identical arena traces).
 
-*Later phases (5+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (20 suites, 299
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 20/20 suites passed`.
+
+*Later phases (6+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

@@ -1,0 +1,68 @@
+; ==============================================================================
+; create_free_test — bridge/wasm/tests/create_free gate (D-WASM / D-OWN).
+; ==============================================================================
+; A compiled guest creates and frees handles through the rg_* imports; handles
+; cross as two i32 words. Arena occupancy matches the host-side tests: create
+; grows the arena, release shrinks it, a mesh retains geo + mat.
+; ==============================================================================
+
+Import "../../imports/RgWasmImports.rgr"
+Import "../../../../host/handles/RgHandle.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class CreateFreeTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/wasm/create_free"))
+        def w:RgWasmImports (new RgWasmImports)
+
+        ; ---- rg_geometry_create --------------------------------------------
+        def s1:int (w.rg_geometry_create(36))
+        t.eqInt("geometry create status OK" s1 (RgErr.ok()))
+        def geoLo:int w.retLo
+        def geoHi:int w.retHi
+        t.ok("geometry handle words are live" (w.isLiveWords(geoLo geoHi)))
+        t.eqInt("occupancy 1 after geometry" (w.occupancy()) 1)
+
+        ; ---- rg_material_create --------------------------------------------
+        def s2:int (w.rg_material_create())
+        def matLo:int w.retLo
+        def matHi:int w.retHi
+        t.eqInt("occupancy 2 after material" (w.occupancy()) 2)
+
+        ; ---- rg_mesh_create (handles cross as words) -----------------------
+        def s3:int (w.rg_mesh_create(geoLo geoHi matLo matHi))
+        t.eqInt("mesh create status OK" s3 (RgErr.ok()))
+        def meshLo:int w.retLo
+        def meshHi:int w.retHi
+        t.eqInt("occupancy 3 after mesh" (w.occupancy()) 3)
+        ; the mesh retained geo + mat → refcount 2 each
+        t.eqInt("mesh retained geometry (refcount 2)" (w.refcountWords(geoLo geoHi)) 2)
+        t.eqInt("mesh retained material (refcount 2)" (w.refcountWords(matLo matHi)) 2)
+
+        ; ---- two-word transport round-trips --------------------------------
+        def geoH:RgHandle (RgHandle.unpack(geoLo geoHi))
+        t.ok("unpacked geometry handle valid" (geoH.isValid()))
+        t.eqInt("unpacked geometry typeId" geoH.typeId 10)
+
+        ; ---- rg_release: guest drops its own geo/mat; mesh still holds ------
+        def rg:int (w.rg_release(geoLo geoHi))
+        t.eqInt("release geo status OK" rg (RgErr.ok()))
+        t.ok("geo still live (mesh retains it)" (w.isLiveWords(geoLo geoHi)))
+        t.eqInt("geo refcount back to 1" (w.refcountWords(geoLo geoHi)) 1)
+        w.rg_release(matLo matHi)
+
+        ; ---- release the mesh: frees mesh + its retained children ----------
+        def rm:int (w.rg_release(meshLo meshHi))
+        t.eqInt("release mesh status OK" rm (RgErr.ok()))
+        t.no("mesh not live after release" (w.isLiveWords(meshLo meshHi)))
+        t.no("geo freed with the mesh" (w.isLiveWords(geoLo geoHi)))
+        t.no("mat freed with the mesh" (w.isLiveWords(matLo matHi)))
+        t.eqInt("arena empty after full teardown" (w.occupancy()) 0)
+
+        ; ---- releasing a stale handle → typed error, not UB ----------------
+        def rs:int (w.rg_release(meshLo meshHi))
+        t.eqInt("double release of freed mesh is STALE" rs (RgErr.stale()))
+
+        t.summary()
+    }
+}

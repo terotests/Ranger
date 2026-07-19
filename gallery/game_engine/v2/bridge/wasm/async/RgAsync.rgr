@@ -1,0 +1,163 @@
+; ==============================================================================
+; RgAsync — poll-based async request table (D-ASYNC).
+; ==============================================================================
+; The binary async contract is polling + a frame-boundary completion queue — no
+; ABI callbacks. A loader is:
+;
+;   begin(kind) -> requestH            request owned by the caller
+;   poll(requestH) -> PENDING|COMPLETE|FAILED|CANCELLED   (+ result transfer)
+;   cancel(requestH)                    later polls report CANCELLED
+;   release(requestH)                   frees the request slot (+ unconsumed result)
+;
+; Rules enforced:
+;   1. Exactly-once result transfer — the FIRST COMPLETE poll transfers the
+;      result handle to the caller; later COMPLETE polls transfer nothing.
+;      release on a completed-but-unconsumed request releases the result too.
+;   2. Cancellation is best-effort — after cancel, poll reports CANCELLED and a
+;      late host result is released host-side.
+;   3. Realm teardown cancels outstanding requests and releases unconsumed
+;      results (D-OWN backstop).
+;
+; `hostComplete` stands in for the host finishing work and queuing the completion
+; at the frame boundary (a test hook, not a guest-callable import).
+; ==============================================================================
+
+Import "../../../host/arenas/RgHost.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+
+class RgAsyncStatus {
+    sfn pending:int () { return 0 }
+    sfn complete:int () { return 1 }
+    sfn failed:int () { return 2 }
+    sfn cancelled:int () { return 3 }
+    sfn invalid:int () { return 4 }
+}
+
+class RgAsyncReq {
+    def reqId:int 0
+    def status:int 0
+    def resultHandle:RgHandle (new RgHandle)
+    def resultReady:boolean false
+    def resultConsumed:boolean false
+    def live:boolean true
+}
+
+class RgAsync {
+    def host:RgHost (new RgHost)
+    def reqs:[RgAsyncReq]
+    def nextId:int 1
+
+    ; result-transfer register: the FIRST COMPLETE poll sets these
+    def outHandle:RgHandle (new RgHandle)
+    def transferred:boolean false
+
+    fn find:RgAsyncReq (reqId:int) {
+        def n:int (array_length this.reqs)
+        def i 0
+        while (i < n) {
+            def r:RgAsyncReq (itemAt this.reqs i)
+            if (r.reqId == reqId) {
+                return r
+            }
+            i = (i + 1)
+        }
+        return (new RgAsyncReq)
+    }
+
+    ; ---- begin --------------------------------------------------------------
+    fn begin:int () {
+        def r:RgAsyncReq (new RgAsyncReq)
+        r.reqId = this.nextId
+        this.nextId = (this.nextId + 1)
+        r.status = (RgAsyncStatus.pending())
+        r.live = true
+        push this.reqs r
+        return r.reqId
+    }
+
+    ; ---- host completion hook (frame-boundary drain, simulated) -------------
+    fn hostComplete:void (reqId:int handle:RgHandle) {
+        def req:RgAsyncReq (this.find(reqId))
+        if (req.live == false) { return }
+        ; a request cancelled before completion: release the late result host-side
+        if (req.status == (RgAsyncStatus.cancelled())) {
+            this.host.releaseHandleInternal(handle)
+            return
+        }
+        req.status = (RgAsyncStatus.complete())
+        req.resultHandle = handle
+        req.resultReady = true
+        req.resultConsumed = false
+    }
+
+    ; ---- poll (exactly-once result transfer) --------------------------------
+    fn poll:int (reqId:int) {
+        this.transferred = false
+        this.outHandle = (RgHandle.invalid())
+        def req:RgAsyncReq (this.find(reqId))
+        if (req.live == false) {
+            return (RgAsyncStatus.invalid())
+        }
+        if (req.status == (RgAsyncStatus.complete())) {
+            if (req.resultReady) {
+                if (req.resultConsumed == false) {
+                    this.outHandle = req.resultHandle
+                    this.transferred = true
+                    req.resultConsumed = true
+                }
+            }
+        }
+        return req.status
+    }
+
+    ; ---- cancel (best-effort) ----------------------------------------------
+    fn cancel:void (reqId:int) {
+        def req:RgAsyncReq (this.find(reqId))
+        if (req.live == false) { return }
+        ; if it already completed with an unconsumed result, release it now
+        if (req.resultReady) {
+            if (req.resultConsumed == false) {
+                this.host.releaseHandleInternal(req.resultHandle)
+                req.resultConsumed = true
+            }
+        }
+        req.status = (RgAsyncStatus.cancelled())
+    }
+
+    ; ---- release (frees request; releases an unconsumed result) -------------
+    fn release:void (reqId:int) {
+        def req:RgAsyncReq (this.find(reqId))
+        if (req.live == false) { return }
+        if (req.resultReady) {
+            if (req.resultConsumed == false) {
+                this.host.releaseHandleInternal(req.resultHandle)
+                req.resultConsumed = true
+            }
+        }
+        req.live = false
+    }
+
+    ; ---- realm teardown backstop -------------------------------------------
+    ; Cancels outstanding requests and releases every unconsumed result.
+    fn teardown:int () {
+        def n:int (array_length this.reqs)
+        def released 0
+        def i 0
+        while (i < n) {
+            def r:RgAsyncReq (itemAt this.reqs i)
+            if (r.live) {
+                if (r.resultReady) {
+                    if (r.resultConsumed == false) {
+                        this.host.releaseHandleInternal(r.resultHandle)
+                        r.resultConsumed = true
+                        released = (released + 1)
+                    }
+                }
+                r.status = (RgAsyncStatus.cancelled())
+                r.live = false
+            }
+            i = (i + 1)
+        }
+        return released
+    }
+}

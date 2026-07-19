@@ -1,0 +1,96 @@
+; ==============================================================================
+; parity_test — bridge/parity gate (D-SYNC / D-WASM convergence).
+; ==============================================================================
+; The interpreter adapter path and the WASM import path issue the SAME registry
+; commands and must land on identical arena state. Running one create scenario
+; (geometry → material → mesh) through each front-end produces an identical
+; trace: same handle slots, same occupancy after every step, same retain effect.
+; ==============================================================================
+
+Import "../../wasm/imports/RgWasmImports.rgr"
+Import "../../../interp/adapter/RgAdapter.rgr"
+Import "../../../interp/values/RgValue.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class ParityTest {
+    ; Drive the scenario through the WASM imports → trace of ints:
+    ; [geoSlot, occ1, matSlot, occ2, meshSlot, occ3, geoRefcountAfterMesh]
+    sfn wasmTrace:[int] () {
+        def w:RgWasmImports (new RgWasmImports)
+        def out:[int]
+        w.rg_geometry_create(36)
+        def geo:RgHandle (RgHandle.unpack(w.retLo w.retHi))
+        push out geo.slot
+        push out (w.occupancy())
+        def geoLo:int w.retLo
+        def geoHi:int w.retHi
+        w.rg_material_create()
+        def mat:RgHandle (RgHandle.unpack(w.retLo w.retHi))
+        push out mat.slot
+        push out (w.occupancy())
+        def matLo:int w.retLo
+        def matHi:int w.retHi
+        w.rg_mesh_create(geoLo geoHi matLo matHi)
+        def mesh:RgHandle (RgHandle.unpack(w.retLo w.retHi))
+        push out mesh.slot
+        push out (w.occupancy())
+        push out (w.refcountWords(geoLo geoHi))
+        return out
+    }
+
+    ; Drive the same scenario through the interpreter adapter → identical trace.
+    sfn adapterTrace:[int] () {
+        def a:RgAdapter (new RgAdapter)
+        def out:[int]
+        def geo:RgValue (a.constructGeometry(36))
+        def gb:RgBinding (a.findBinding(geo))
+        push out gb.handle.slot
+        push out (a.host.liveCount())
+        def mat:RgValue (a.constructMaterial())
+        def mb:RgBinding (a.findBinding(mat))
+        push out mb.handle.slot
+        push out (a.host.liveCount())
+        def mesh:RgValue (a.constructMesh(geo mat))
+        push out (a.meshHandleSlot(mesh))
+        push out (a.host.liveCount())
+        push out (a.host.refcount(gb.handle))
+        return out
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/parity"))
+        def wt:[int] (ParityTest.wasmTrace())
+        def at:[int] (ParityTest.adapterTrace())
+
+        t.eqInt("trace lengths match" (array_length wt) (array_length at))
+
+        def labels:[string]
+        push labels "geo slot"
+        push labels "occupancy after geo"
+        push labels "mat slot"
+        push labels "occupancy after mat"
+        push labels "mesh slot"
+        push labels "occupancy after mesh"
+        push labels "geo refcount after mesh"
+
+        def n:int (array_length wt)
+        def mismatches 0
+        def i 0
+        while (i < n) {
+            def wv:int (itemAt wt i)
+            def av:int (itemAt at i)
+            t.eqInt(("parity: " + (itemAt labels i)) wv av)
+            if (wv != av) { mismatches = (mismatches + 1) }
+            i = (i + 1)
+        }
+        t.eqInt("no trace mismatches between adapter and wasm paths" mismatches 0)
+
+        ; spot-check the known canonical values
+        t.eqInt("geo slot is 1" (itemAt wt 0) 1)
+        t.eqInt("occupancy reaches 3" (itemAt wt 5) 3)
+        t.eqInt("geo retained by mesh on both paths" (itemAt wt 6) 2)
+
+        t.summary()
+    }
+}
