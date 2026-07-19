@@ -9,11 +9,11 @@ driver and the roadmap below over that checklist.
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
 | Headless gate | `npm run engine:v2:test` → 46 suites + boundary gate | — |
-| TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | must-pass **chess** missing |
+| TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
-| Hybrid 2D+3D (path A) | thin slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | clip/fill/alpha essentials; RT lifetime; ordered passes; **GPU later** |
+| Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
 | Native SDL | `RgSdlGameHost` + `build-sdl-v2.sh` + `engine:game-sdl:launcher:v2` (macOS-oriented today) | **Pi 5 arm64** build/smoke; cross-platform `pkg-config`; live CI |
-| WASM32 published ABI | create/free/parity fixtures | IDL extract + freeze (BRIDGES steps 4–7) |
+| WASM32 / Rust | create/free/parity **fixtures** only | IDL + wasm32 profile + **Rust ylos3d** conformance guest + wire vectors |
 | v1 | still **runnable legacy** (~many titles under `games/`) | archival only at an explicit milestone (not Phase 12) |
 
 **Docs inconsistency:** README / older notes still say “no SDL window”;
@@ -25,103 +25,190 @@ Mark checklist items `[x]` when they land and stay green.
 
 ---
 
-## Three milestones (prove in this order)
+## PoC priority — full path over more games
 
-“v1 parity” does **not** yet mean every v1 title. With only `ylos2` / `ylos3d`
-on disk and Chess named but missing, the first bar is:
+**WASM is a first-class part of the v2 PoC**, not a follow-on after “all the
+TSX games.” The interpreter profile (TSX → `RgRegistryBridge`) is necessary
+but not sufficient: the same semantic commands must also run from a
+**Rust→wasm32** guest against the same host ([`BRIDGES.md`](./BRIDGES.md)
+rev 2).
 
-> The selected parity games behave correctly through the v2 API and run through
-> the **same** native host on both **macOS** and **Raspberry Pi 5**.
+**Adding more games right now is not the priority.** Chess and a wider catalog
+stay on the long-term must-pass list, but they wait until the **end-to-end
+path** is validated:
+
+```text
+TSX ylos2 / ylos3d  (interpreter profile)     ✓ partly green
+        +
+Rust ylos3d         (wasm32 profile)          ← elevate this
+        ↓
+same host arenas / present / (later) native SDL on macOS + Pi 5
+```
+
+`ylos3d` is the right WASM reference: it already exercises **2D + embedded 3D
+RTT + split panes + input + audio façades** — more of the registry surface
+than Chess would. Porting Chess early would expand content without proving
+the second guest language / ABI.
+
+---
+
+## Four milestones (prove in this order)
+
+“v1 parity” does **not** yet mean every v1 title. The PoC bar is:
+
+> Selected packages (`ylos2`, `ylos3d`) behave correctly through the v2 API
+> from **both** the TSX interpreter profile **and** a Rust wasm32 guest, and
+> the TSX packages also run through the same native host on **macOS** and
+> **Raspberry Pi 5**.
 
 | # | Milestone | Goal |
 |---|-----------|------|
-| **A** | **v1 gameplay / API parity** | Chess + ylos2 through v2 APIs (headless + native) |
+| **W** | **WASM / Rust path (PoC)** | IDL + wasm32 profile + **Rust `ylos3d`** conformance guest + wire vectors; same host as TSX |
+| **A** | **Selected gameplay / API parity** | Deepen `ylos2` / `ylos3d` (not new titles); matrices below |
 | **B** | **Native platform parity** | Same packages on macOS arm64 **and** Pi 5 arm64 SDL |
-| **C** | **Hybrid 2D/3D performance** | Embedded 3D without blowing the Pi frame budget; GPU without CPU readback |
+| **C** | **Hybrid 2D/3D performance** | Embedded 3D within Pi budgets; GPU without CPU readback |
 
 Software-rasterizer polish remains useful for CI / screenshots / ownership
 debugging, but it **stops being the main line** once the current image is
 visually correct. Do not deepen SW 3D (mips, fancy materials, anisotropic,
-advanced lighting) ahead of A/B.
+advanced lighting) ahead of W/A/B. **Do not** expand the game catalog ahead of W.
 
 ### Revised implementation sequence
 
-1. **[ ] Parity definition** — freeze executable matrices for ylos2 + Chess
-   (below).
-2. **[ ] Native smoke** — macOS **and** Pi 5: build, launch, input, split-screen,
-   audio (see § Native SDL / platform gates).
-3. **[ ] Cross-platform software screenshots** — same deterministic frame on
-   Node SW / macOS SW→SDL / Pi SW→SDL; pixel hash or tiny tolerance.
-4. **[ ] Performance instrumentation** — per-stage timings + allocation
-   counters; set Pi budgets before expanding hybrid work.
-5. **[ ] Software renderer correctness essentials only** — clipping, fill
-   rules, alpha, simple nearest/linear, configurable 1×/2× SSAA; no crashes /
-   giant triangles (see § Software reference — demoted).
-6. **[ ] Real render-target lifetime + ordered frame passes.**
-7. **[ ] 3D sprite update modes + resolution limits** — so embedded 3D cannot
-   steal the 2D frame budget.
-8. **[ ] Pi GLES backend** — GPU 3D RTT + GPU 2D composition **without**
-   readback every frame.
-9. **[ ] macOS GPU backend** — compatibility GL OK for parity; **Metal** as the
-   durable path; public API stays `Texture2D` / `RenderTarget` / `Sampler` /
-   `RenderPass` (not `GLuint`).
-10. **[ ] Broader v1 game ports** — after A+B are proven.
+1. **[ ] BRIDGES IDL extract** — semantic IDL; regenerate interpreter table
+   (coverage gate stays green). See § Milestone W.
+2. **[ ] wasm32 profile + wire vectors** — unsigned/token lowering, golden
+   vectors (handles, strings, spans, errors).
+3. **[ ] Rust `ylos3d` reference guest** — real game (not a toy fixture) on
+   wasm32 against the **same** host arenas/present path as TSX `ylos3d`.
+4. **[ ] Freeze gate** — TSX interpreter + Rust wasm32 both green on one host
+   before any published ABI freeze.
+5. **[ ] Parity matrices** — executable Node / macOS / Pi checks for ylos2 +
+   ylos3d (Chess later).
+6. **[ ] Native smoke** — macOS **and** Pi 5: build, launch, input, split,
+   audio.
+7. **[ ] Cross-platform software screenshots** — Node / macOS / Pi hashes.
+8. **[ ] Performance instrumentation** — Pi budgets before hybrid expansion.
+9. **[ ] SW correctness essentials** — clip, fill rule, alpha, nearest/linear,
+   1×/2× SSAA (demoted detail section below).
+10. **[ ] RT lifetime + ordered frame passes** · 3D sprite update modes.
+11. **[ ] Pi GLES / macOS Metal** — Milestone C; public API stays
+    `Texture2D` / `RenderTarget` / `Sampler` / `RenderPass`.
+12. **[ ] Broader v1 ports (Chess, …)** — **only after** W + A + B prove the
+    full path.
 
-### Practical definition of success (first platform milestone)
+### Practical definition of success (PoC + first platform milestone)
 
 ```text
-The same v2 ylos2 package:
-- launches from the v2 launcher,
-- runs at stable speed (~60 Hz),
-- accepts two local players,
-- presents split-screen correctly,
-- plays music and effects,
-- supports controller rumble,
-- can show one animated 3D sprite (optional enhancement),
-- and works without game-specific host code
-on both macOS and Raspberry Pi 5.
+PoC (WASM):
+- TSX ylos3d and Rust→wasm32 ylos3d drive the same host commands
+- wire vectors pinned; no published ABI until both guests pass
+- hybrid 2D+3D slice works from both guest languages
+
+Platform:
+- the same v2 ylos2 (and ylos3d) packages:
+  - launch from the v2 launcher,
+  - run at stable speed (~60 Hz),
+  - accept two local players / split-screen,
+  - play music and effects, rumble where available,
+  - show the embedded 3D sprite path,
+  - with no game-specific host code
+  on both macOS and Raspberry Pi 5.
 ```
 
-That proves something more important than advanced AA: **the v2 API is portable
-and can replace the selected v1 runtime paths.**
+That proves: **one API, two guest languages (TSX + Rust/WASM), two native
+machines** — more important than shipping additional titles.
 
 ---
 
-## Milestone A — freeze a concrete parity matrix
+## Milestone W — WASM / Rust / BRIDGES (elevate for PoC)
 
-Before more renderer work, define exactly what must match. Must-pass titles
-(`games/README.md`): **ylos2** + **chess**.
+Contract: [`BRIDGES.md`](./BRIDGES.md) rev 2. Today steps 1–2 are done
+(interpreter table + coverage); step 3 (real TSX guests) is in progress;
+**steps 4–7 are the PoC spine**.
 
-**ylos2 target capabilities** (from game policy / QUESTIONS): sprite + atlas,
-camera scroll, split-screen, 2P input, particles, rumble, vocal FX, music
-score, LPC/bitmap assets.
+| Step | Work | Status |
+|------|------|--------|
+| 1–2 | Interpreter profile table + generic bridge + coverage | done (not a published ABI) |
+| 3 | Real TSX guests (ylos2 / ylos3d / launcher) | in progress |
+| **4** | **IDL extraction** — full types, identities, capabilities; regen interpreter table from IDL × profile | **not started — next** |
+| **5** | **wasm32 profile** — token/epoch lowering; golden **wire vectors** | not started |
+| **5b** | **Rust→wasm32 `ylos3d` conformance guest** — reference implementation covering hybrid use cases | **elevate** |
+| 6 | Extend IDL to three + cannon; dispatcher emitter; generated façades | after 5 |
+| 7 | **Golden freeze** only when TSX + Rust guests both pass on one host | gated |
 
-**Chess target capabilities:** atlas pieces, text/UI, cursor actions; rules/AI
-unchanged (pure TS copy).
+### Why Rust `ylos3d` (not a toy, not Chess first)
+
+- Covers **ranger:2d + ranger:three RTT + surface panes + input + audio** in one
+  package — the interesting v2 surface.
+- Forces the wasm32 lowering to be real (handles, strings/assets, errors), not
+  just `create`/`free` fixtures under `bridge/wasm/tests/`.
+- Proves D-IDENTITY / D-OWN / D-SYNC across a second guest language.
+- Keeps content scope fixed while the **transport** is the variable under test.
+
+### Checklist
+
+- [ ] Author semantic IDL; stop growing the hand `dispatchRow` if-chain
+      (`RgRegistryBridge` — BRIDGES §2.4 / step 5 emitter replaces it)
+- [ ] Regenerate interpreter-profile command table from IDL; coverage gate red
+      on drift
+- [ ] wasm32 ABI profile + import surface under `bridge/` (or
+      `registry/generated/`)
+- [ ] Golden wire vectors: handles, strings, spans, enums/results, typed errors
+- [ ] **Rust crate**: `ylos3d`-equivalent guest issuing the same registry
+      commands (split, sprites/atlases, 3D RTT gems, frame loop)
+- [ ] Host loads Rust wasm module through the generic path (no
+      game-specific `.rgr` shell — same rule as TSX packages)
+- [ ] Parity assertions: TSX ylos3d vs Rust ylos3d on host state / present
+      smoke (pixel or command-trace level)
+- [ ] old-guest / new-host compatibility runs before freeze
+- [ ] **Do not freeze** a published wasm32 ABI until step 7 criteria pass
+
+### Explicit non-goals until W is green
+
+- [ ] Porting Chess or other v1 titles “to show progress”
+- [ ] Growing the launcher catalog with missing folders
+- [ ] Treating bridge fixture suites as sufficient WASM validation
+
+---
+
+## Milestone A — selected gameplay matrix (ylos2 / ylos3d first)
+
+Deepen the **existing** packages before new ones. Long-term must-pass names
+remain ylos2 + Chess (`games/README.md`), but **Chess is queued after
+Milestone W**.
+
+**ylos2:** sprite + atlas, camera scroll, split-screen, 2P input, particles,
+rumble, vocal FX, music score, LPC/bitmap assets.
+
+**ylos3d:** above + embedded 3D RTT sprites (the WASM reference target).
+
+**Chess (later):** atlas pieces, text/UI, cursor; rules/AI unchanged.
 
 ### Executable matrix (fill as gates land)
 
-| Capability | Node/headless | macOS SDL | Pi 5 SDL |
-|------------|:-------------:|:---------:|:--------:|
-| Game loads | ✓ e2e | [ ] | [ ] |
-| Assets resolve | partial | [ ] | [ ] |
-| 1-player input | ✓ / attract | [ ] | [ ] |
-| 2-player input | ✓ e2e | [ ] | [ ] |
-| Split panes | ✓ e2e | [ ] | [ ] |
-| Music | score text / pump | [ ] | [ ] |
-| SFX / vocals | record-only | [ ] | [ ] |
-| Rumble | simulated | [ ] | [ ] |
-| Stable ~60 Hz gameplay | N/A | [ ] | [ ] |
-| Clean shutdown / relaunch | ✓ launch handoff | [ ] | [ ] |
+| Capability | Node/headless | macOS SDL | Pi 5 SDL | Rust wasm32 |
+|------------|:-------------:|:---------:|:--------:|:-----------:|
+| ylos2 loads | ✓ e2e | [ ] | [ ] | N/A (2D-only TSX first) |
+| ylos3d loads | ✓ e2e | [ ] | [ ] | [ ] **PoC** |
+| Assets resolve | partial | [ ] | [ ] | [ ] |
+| 1-player input | ✓ / attract | [ ] | [ ] | [ ] |
+| 2-player input | ✓ e2e | [ ] | [ ] | [ ] |
+| Split panes | ✓ e2e | [ ] | [ ] | [ ] |
+| Embedded 3D RTT | ✓ ylos3d | [ ] | [ ] | [ ] |
+| Music | score / pump | [ ] | [ ] | [ ] |
+| SFX / vocals | record-only | [ ] | [ ] | [ ] |
+| Rumble | simulated | [ ] | [ ] | [ ] |
+| Stable ~60 Hz | N/A | [ ] | [ ] | N/A |
+| Clean shutdown / relaunch | ✓ launch | [ ] | [ ] | [ ] |
 
-- [ ] Turn the matrix into runnable smoke scripts (headless already partly
-      covered; native = fixed-duration auto-run that exits).
-- [ ] Honest launcher catalog — only list games that exist (`ylos2`, `ylos3d`
-      today; add Chess when ported). Strip dead Chess/Breakout entries.
-- [ ] Close ylos2 bar ([`QUESTIONS.md`](./QUESTIONS.md) Q4–Q7) and extend e2e.
-- [ ] Real atlas pixels (`image` / PNG → `RgTexture2D`) + LPC decoder suite.
-- [ ] Port **chess** onto `ranger:2d` + EVG/HUD.
-- [ ] Vocals / one-shots → real audio sink (not only bridge counters).
+- [ ] Runnable smoke scripts for the matrix (native = fixed-duration exit).
+- [ ] Honest launcher catalog — only existing packages; no fake Chess/Breakout
+      entries.
+- [ ] Close ylos2 bar ([`QUESTIONS.md`](./QUESTIONS.md) Q4–Q7); extend e2e.
+- [ ] Real atlas pixels + LPC decoder suite.
+- [ ] Vocals / one-shots → real audio sink.
+- [ ] **Chess port** — after W is green (not the current critical path).
 
 ### Open decisions (still block a crisp “done”)
 
@@ -129,7 +216,7 @@ unchanged (pure TS copy).
 |----|--------|
 | Q1 | Atlas `image` line + pixel upload |
 | Q4–Q7 | ylos2 façades vs play-feel bar |
-| BRIDGES | wasm32 freeze / hand `dispatchRow` |
+| BRIDGES | IDL / wasm32 freeze / hand `dispatchRow` |
 | Import policy | `ts_parser` outside v2 vs vendored |
 | Plan Intent | archival legacy only at explicit end-of-v1 milestone |
 
@@ -143,8 +230,8 @@ Treat [`CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md) checkboxes as historical
 | 8–10b | **Largely done**; assets/art incomplete |
 | 9 | **Slice done**; Cannon still staged |
 | 11 | **SW + textured done**; GL scaffold |
-| 12 | **In progress** — ylos2 e2e; chess absent |
-| BRIDGES 1–3 | Guests in progress; IDL/wasm freeze **not started** |
+| 12 | **PoC in progress** — ylos2/ylos3d e2e; Chess deferred; WASM path open |
+| BRIDGES 1–3 | TSX guests in progress; **IDL/wasm/Rust not started** |
 
 ---
 
