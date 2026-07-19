@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "bodyType": "female",
+  "note": "Ylos 2 P1 — compose_female.png (lpc_demo_female.rgr)",
+  "selections": {
+    "body": { "itemId": "body_female", "name": "Female body" },
+    "torso": { "itemId": "torso_longsleeve", "name": "Long sleeve shirt" },
+    "legs": { "itemId": "legs_pants_blue", "name": "Blue pants" },
+    "feet": { "itemId": "feet_boots_thin", "name": "Basic boots (thin)" },
+    "head": { "itemId": "heads_human_female", "name": "Human female head" },
+    "hair": { "itemId": "hair_long_tied", "name": "Long tied hair" }
+  },
+  "selectedAnimation": "walk"
+}

@@ -1,0 +1,154 @@
+; ==============================================================================
+; UISoftKeyboard - on-screen keyboard for touch / gamepad / mouse text entry.
+; ==============================================================================
+;
+; A grid of keys drawn inside the widget's bounds. It carries NO reference to
+; the UILayer (avoids an import cycle): it just answers "which key token is at
+; this point?" and "what character does that token produce?". UILayer routes the
+; result into the focused text input. Control tokens: Shift, back, OK, space.
+;
+; Usable three ways, all through the same tokenAt():
+;   * pointer/touch  - click a key
+;   * mouse hover     - updateHover() highlights the key under the cursor
+;   * gamepad/keys    - a caller can move a selection cursor over the grid
+; ==============================================================================
+
+Import "UIWidget.rgr"
+
+class UISoftKeyboard {
+    Extends(UIWidget)
+
+    ; Each row is a space-separated list of key tokens.
+    def rows:[string]
+    def shift:boolean false
+    def hoverToken:string ""
+    def pad:int 3
+
+    Constructor () {
+        kind = 5
+        push rows "1 2 3 4 5 6 7 8 9 0"
+        push rows "Q W E R T Y U I O P"
+        push rows "A S D F G H J K L"
+        push rows "Z X C V B N M"
+        push rows "Shift space back OK"
+    }
+
+    fn rowCount:int () {
+        return (array_length rows)
+    }
+
+    fn tokensAt:[string] (r:int) {
+        return (strsplit (itemAt rows r) " ")
+    }
+
+    fn rowHeight:int () {
+        def rc:int (this.rowCount())
+        if (rc < 1) { rc = 1 }
+        return (to_int (h / rc))
+    }
+
+    ; Return the key token at a framebuffer point, or "" if none.
+    fn tokenAt:string (px:int py:int) {
+        if ((this.contains(px py)) == false) {
+            return ""
+        }
+        def rh:int (this.rowHeight())
+        if (rh < 1) { rh = 1 }
+        def r:int (to_int ((py - y) / rh))
+        def rc:int (this.rowCount())
+        if (r < 0) { r = 0 }
+        if (r >= rc) { r = (rc - 1) }
+        def toks:[string] (this.tokensAt(r))
+        def n:int (array_length toks)
+        if (n < 1) { return "" }
+        def c:int (to_int (((px - x) * n) / w))
+        if (c < 0) { c = 0 }
+        if (c >= n) { c = (n - 1) }
+        return (itemAt toks c)
+    }
+
+    fn isControl:boolean (token:string) {
+        if (token == "Shift") { return true }
+        if (token == "back") { return true }
+        if (token == "OK") { return true }
+        return false
+    }
+
+    ; The actual character a printable token produces (case applied), or "" for
+    ; control tokens.
+    fn charFor:string (token:string) {
+        if (token == "space") { return " " }
+        if (this.isControl(token)) { return "" }
+        ; letters/digits: tokens are stored uppercase
+        def code:int (charAt token 0)
+        if ((code >= 65) && (code <= 90)) {
+            if (shift == false) {
+                return (strfromcode (code + 32))   ; lowercase
+            }
+        }
+        return token
+    }
+
+    fn displayLabel:string (token:string) {
+        if (token == "space") { return "Space" }
+        if (token == "back") { return "<-" }
+        if (token == "OK") { return "OK" }
+        if (token == "Shift") {
+            if shift { return "SHIFT" }
+            return "shift"
+        }
+        return (this.charFor(token))
+    }
+
+    fn toggleShift:void () {
+        if shift {
+            shift = false
+        } {
+            shift = true
+        }
+    }
+
+    fn updateHover:void (px:int py:int) {
+        hoverToken = (this.tokenAt(px py))
+    }
+
+    fn draw:void (ctx:UIContext) {
+        if (visible == false) { return }
+        ctx.fillRect(x y w h ctx.theme.panelBg)
+        ctx.strokeRect(x y w h 1 ctx.theme.panelBorder)
+
+        def rh:int (this.rowHeight())
+        def r:int 0
+        def rc:int (this.rowCount())
+        while (r < rc) {
+            def toks:[string] (this.tokensAt(r))
+            def n:int (array_length toks)
+            def ry:int (y + (r * rh))
+            def c:int 0
+            while (c < n) {
+                def kx:int (x + (to_int ((c * w) / n)))
+                def kxNext:int (x + (to_int (((c + 1) * w) / n)))
+                def kw:int (kxNext - kx)
+                def token:string (itemAt toks c)
+                def bg:EVGColor ctx.theme.keyBg
+                if (token == hoverToken) {
+                    bg = ctx.theme.buttonHover
+                }
+                if ((token == "Shift") && shift) {
+                    bg = ctx.theme.accent
+                }
+                ctx.fillRect((kx + pad) (ry + pad) (kw - (pad * 2)) (rh - (pad * 2)) bg)
+                ctx.strokeRect((kx + pad) (ry + pad) (kw - (pad * 2)) (rh - (pad * 2)) 1 ctx.theme.buttonBorder)
+                ; centered label
+                def lbl:string (this.displayLabel(token))
+                def tw:int (to_int (ctx.measureWidth(lbl fontSize)))
+                def lh:int (to_int (ctx.lineHeight(fontSize)))
+                def tx:int (kx + (to_int ((kw - tw) / 2)))
+                def ty:int (ry + (to_int ((rh - lh) / 2)))
+                ctx.text(lbl tx ty fontSize ctx.theme.keyText)
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+}

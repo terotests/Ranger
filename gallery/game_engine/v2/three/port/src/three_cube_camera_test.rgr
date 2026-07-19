@@ -1,0 +1,111 @@
+; ==============================================================================
+; three_cube_camera_test — capture→project round-trips a known scene (Three.js GI).
+; ==============================================================================
+; End-to-end: build a scene with a bright box on ONE side of a probe, capture a
+; cube at the probe with ThreeCubeCamera, project it with ThreeLightProbeGenerator,
+; and assert the probe's irradiance points toward the bright box. This validates
+; that the capture's face orientation and the projection's face mapping AGREE —
+; the whole generic bake (capture the real scene → SH), with no analytic model.
+; ==============================================================================
+
+Import "three_cube_camera.rgr"
+Import "three_light_probe_generator.rgr"
+Import "three_cube_map.rgr"
+Import "three_spherical_harmonics3.rgr"
+Import "three_scene.rgr"
+Import "three_mesh.rgr"
+Import "three_box_geometry.rgr"
+Import "three_mesh_basic_material.rgr"
+Import "three_software_backend.rgr"
+Import "three_webgl_renderer.rgr"
+Import "three_vector3.rgr"
+
+class ThreeCubeCameraTest {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    ; a bright unlit box centred at (cx,cy,cz), added to `scene`.
+    fn addBox:void (scene:ThreeScene cx:double cy:double cz:double) {
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(4.0 4.0 4.0)
+        def mat:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        mat.setColorHex(16777215)
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry(geo)
+        m.setMaterial(mat)
+        m.position.set(cx cy cz)
+        scene.add(m)
+    }
+
+    fn irradiance:double (sh:ThreeSphericalHarmonics3 x:double y:double z:double) {
+        def t:ThreeVector3 (new ThreeVector3)
+        sh.getIrradianceAt(x y z t)
+        return t.x
+    }
+
+    ; capture at the origin in `scene` and return the projected probe.
+    fn bakeAtOrigin:ThreeSphericalHarmonics3 (scene:ThreeScene) {
+        def sw:ThreeSoftwareBackend (new ThreeSoftwareBackend)
+        def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        renderer.setBackend(sw)
+        def cube:ThreeCubeMap (ThreeCubeCamera.capture(renderer scene 0.0 0.0 0.0 24))
+        return (ThreeLightProbeGenerator.fromCubeTexture(cube))
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeCubeCameraTest (new ThreeCubeCameraTest)
+        t.run()
+    }
+
+    fn run:void () {
+        print "== ThreeCubeCamera (capture) → LightProbeGenerator (project) =="
+
+        ; bright box on the +X side of the probe.
+        def sx:ThreeScene (new ThreeScene)
+        sx.setBackground(0.0 0.0 0.0)
+        this.addBox(sx 8.0 0.0 0.0)
+        def shx:ThreeSphericalHarmonics3 (this.bakeAtOrigin(sx))
+        def xp:double (this.irradiance(shx 1.0 0.0 0.0))
+        def xn:double (this.irradiance(shx (0.0 - 1.0) 0.0 0.0))
+        this.ok("+X box: probe brighter toward +X than -X" (xp > xn))
+        this.ok("+X box: +X irradiance is positive" (xp > 0.0))
+
+        ; bright box on the +Y side.
+        def sy:ThreeScene (new ThreeScene)
+        sy.setBackground(0.0 0.0 0.0)
+        this.addBox(sy 0.0 8.0 0.0)
+        def shy:ThreeSphericalHarmonics3 (this.bakeAtOrigin(sy))
+        def yup:double (this.irradiance(shy 0.0 1.0 0.0))
+        def ydn:double (this.irradiance(shy 0.0 (0.0 - 1.0) 0.0))
+        this.ok("+Y box: probe brighter toward +Y than -Y" (yup > ydn))
+
+        ; bright box on the -Z side.
+        def sz:ThreeScene (new ThreeScene)
+        sz.setBackground(0.0 0.0 0.0)
+        this.addBox(sz 0.0 0.0 (0.0 - 8.0))
+        def shz:ThreeSphericalHarmonics3 (this.bakeAtOrigin(sz))
+        def zneg:double (this.irradiance(shz 0.0 0.0 (0.0 - 1.0)))
+        def zpos:double (this.irradiance(shz 0.0 0.0 1.0))
+        this.ok("-Z box: probe brighter toward -Z than +Z" (zneg > zpos))
+
+        ; an empty (black) scene bakes to ~no irradiance (nothing captured).
+        def se:ThreeScene (new ThreeScene)
+        se.setBackground(0.0 0.0 0.0)
+        def she:ThreeSphericalHarmonics3 (this.bakeAtOrigin(se))
+        def eup:double (this.irradiance(she 0.0 1.0 0.0))
+        this.ok("empty scene: near-zero irradiance" (eup < 0.05))
+
+        print "== summary =="
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        if (failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

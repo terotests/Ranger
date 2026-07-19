@@ -1,0 +1,343 @@
+; ==============================================================================
+; Model3dScriptBridge.rgr — expose host GLB loading + GL-mesh creation to TSX.
+; ==============================================================================
+; This is the experiment: instead of a WASM guest building/owning meshes and
+; marshalling them across the shared-block ABI (wasm3d_runner + rg_* imports),
+; a *.tsx* game script drives the exact same host-side path directly through the
+; TSX interpreter's native-bridge seam (ComponentEngine EvalNativeBridge).
+;
+; The heavy lifting already lives host-side and WASM-free:
+;   GLB bytes -> GlbImporter -> ModelAsset -> MeshBridge.fromModel
+;             -> EngineMeshData (GL-ready fixed-point vertex/index buffers)
+;             -> gfx_3d_mesh_upload_hp / gfx_3d_upload_texture (GL buffers)
+;
+; This bridge wraps that ketju as flat host functions a script can call:
+;
+;   loadModel(dir, file) -> number   ; parse a .glb, prep GL-ready buffers, id (-1 on error)
+;   modelInfo(id)        -> object    ; { ok, nodes, meshes, textures, verts, indices, tris,
+;                                     ;   hasTexture, texW, texH, sizeX, sizeY, sizeZ }
+;   buildGLMesh(id)      -> object    ; upload the mesh -> { glMeshId, glTexId, checksum, ... }
+;   modelError()         -> string    ; last error text
+;
+; GL upload is an INJECTABLE seam (Mesh3dUploader). Headless builds keep the
+; default null uploader — it simulates handle allocation and reports the
+; buffer checksum, so the whole load+prepare path is verifiable under Node with
+; no display. The SDL host injects Model3dGlUploader (real gfx_3d_* calls). One
+; bridge, two branches — the guest .tsx is identical in both.
+; ==============================================================================
+
+Import "ModelLoader.rgr"
+Import "MeshBridge.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+; ------------------------------------------------------------------------------
+; Injectable GL-upload seam. Default (this base class) is the headless "null"
+; uploader: it hands back a simulated, monotonically increasing handle (as a
+; real GL allocator would) without touching any GL context. The SDL host
+; subclasses this (see Model3dGlUploader.rgr) to call the real gfx_3d_* uploads.
+; ------------------------------------------------------------------------------
+class Mesh3dUploader {
+    def nextMesh:int 0
+    def nextTex:int 0
+    def glEnabled:boolean false
+
+    fn uploadMesh:int (vertsHp:int_buffer vertexCount:int indices:int_buffer indexCount:int) {
+        nextMesh = (nextMesh + 1)
+        return nextMesh
+    }
+    fn uploadTexture:int (rgba:buffer w:int h:int) {
+        nextTex = (nextTex + 1)
+        return nextTex
+    }
+}
+
+; One loaded model: its parsed asset plus the GL-ready mesh MeshBridge produced.
+class Model3dEntry {
+    def id:int 0
+    def model:ModelAsset (new ModelAsset)
+    def mesh:EngineMeshData (new EngineMeshData)
+    def glMeshId:int 0
+    def glTexId:int 0
+    def built:boolean false
+}
+
+class Model3dScriptBridge extends EvalNativeBridge {
+    def loader:ModelLoader (new ModelLoader)
+    def bridge:MeshBridge (new MeshBridge)
+    def uploader:Mesh3dUploader (new Mesh3dUploader)
+    def entries:[Model3dEntry]
+    def lastError:string ""
+    def radius:double 0.0
+
+    ; Host wiring hooks --------------------------------------------------------
+    fn setUploader:void (u:Mesh3dUploader) {
+        uploader = u
+    }
+    ; Optional presentation scaling (mirrors game.info model_radius); <=0 = none.
+    fn setRadius:void (r:double) {
+        radius = r
+    }
+
+    ; Arg helpers --------------------------------------------------------------
+    fn argStr:string (args:[EvalValue] i:int) {
+        if ((array_length args) <= i) {
+            return ""
+        }
+        def v:EvalValue (itemAt args i)
+        return (v.toString())
+    }
+    fn argInt:int (args:[EvalValue] i:int) {
+        if ((array_length args) <= i) {
+            return 0
+        }
+        def v:EvalValue (itemAt args i)
+        return (to_int (v.toNumber()))
+    }
+
+    fn findEntry:int (id:int) {
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:Model3dEntry (itemAt entries i)
+            if (e.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; ---- runner-facing accessors (NOT script-callable; used by a host runner to
+    ;      turn a script's model id into GL draw parameters) -------------------
+    fn glMeshOf:int (id:int) {
+        def idx:int (this.findEntry(id))
+        if (idx < 0) {
+            return 0
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        return e.glMeshId
+    }
+    fn glTexOf:int (id:int) {
+        def idx:int (this.findEntry(id))
+        if (idx < 0) {
+            return 0
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        return e.glTexId
+    }
+    fn indexCountOf:int (id:int) {
+        def idx:int (this.findEntry(id))
+        if (idx < 0) {
+            return 0
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        return e.mesh.indexCount
+    }
+    fn isBuilt:boolean (id:int) {
+        def idx:int (this.findEntry(id))
+        if (idx < 0) {
+            return false
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        return e.built
+    }
+
+    ; A deterministic fold over the GL-ready high-precision vertex buffer. Proves
+    ; (headlessly) that the exact bytes that would reach the GPU were assembled.
+    fn checksum:int (buf:int_buffer count:int) {
+        def sum:int 0
+        def i:int 0
+        while (i < count) {
+            def w:int (int_buffer_get buf i)
+            sum = (((sum * 31) + w) % 2147483647)
+            i = (i + 1)
+        }
+        return sum
+    }
+
+    fn chan255:int (v:double) {
+        def n:int (to_int (v * 255.0))
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
+
+    ; EvalNativeBridge contract -----------------------------------------------
+    fn has:boolean (name:string) {
+        if (name == "loadModel") {
+            return true
+        }
+        if (name == "modelInfo") {
+            return true
+        }
+        if (name == "buildGLMesh") {
+            return true
+        }
+        if (name == "modelError") {
+            return true
+        }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        if (name == "loadModel") {
+            return (this.doLoad(args))
+        }
+        if (name == "modelInfo") {
+            return (this.doInfo(args))
+        }
+        if (name == "buildGLMesh") {
+            return (this.doBuild(args))
+        }
+        if (name == "modelError") {
+            return (EvalValue.string(lastError))
+        }
+        return (EvalValue.null())
+    }
+
+    ; loadModel(dir, file) -> number ------------------------------------------
+    fn doLoad:EvalValue (args:[EvalValue]) {
+        def dir:string (this.argStr(args 0))
+        def file:string (this.argStr(args 1))
+        def id:int 0
+        if (radius > 0.0) {
+            id = (loader.loadFromFileRadius(dir file radius))
+        } {
+            id = (loader.loadFromFile(dir file))
+        }
+        if (loader.ok == false) {
+            lastError = loader.lastError
+            return (EvalValue.fromInt(0 - 1))
+        }
+        def model:ModelAsset (loader.getModel(id))
+        def em:EngineMeshData (bridge.fromModel(model))
+        if (em.ok == false) {
+            lastError = em.error
+            return (EvalValue.fromInt(0 - 1))
+        }
+        def e:Model3dEntry (new Model3dEntry)
+        e.id = id
+        e.model = model
+        e.mesh = em
+        push entries e
+        lastError = ""
+        return (EvalValue.fromInt(id))
+    }
+
+    ; modelInfo(id) -> object -------------------------------------------------
+    fn doInfo:EvalValue (args:[EvalValue]) {
+        def id:int (this.argInt(args 0))
+        def idx:int (this.findEntry(id))
+        def keys:[string]
+        def vals:[EvalValue]
+        if (idx < 0) {
+            push keys "ok"
+            push vals (EvalValue.fromInt(0))
+            return (EvalValue.object(keys vals))
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        def m:ModelAsset e.model
+        def em:EngineMeshData e.mesh
+        def szx:double (em.maxX - em.minX)
+        def szy:double (em.maxY - em.minY)
+        def szz:double (em.maxZ - em.minZ)
+        def nodes:int (m.nodeCount())
+        def meshes:int (m.meshCount())
+        def textures:int (m.textureCount())
+        def tris:int (idiv em.indexCount 3)
+        def tex:int 0
+        if (em.hasTexture) {
+            tex = 1
+        }
+        push keys "ok"
+        push vals (EvalValue.fromInt(1))
+        push keys "nodes"
+        push vals (EvalValue.fromInt(nodes))
+        push keys "meshes"
+        push vals (EvalValue.fromInt(meshes))
+        push keys "textures"
+        push vals (EvalValue.fromInt(textures))
+        push keys "verts"
+        push vals (EvalValue.fromInt(em.vertexCount))
+        push keys "indices"
+        push vals (EvalValue.fromInt(em.indexCount))
+        push keys "tris"
+        push vals (EvalValue.fromInt(tris))
+        push keys "hasTexture"
+        push vals (EvalValue.fromInt(tex))
+        push keys "texW"
+        push vals (EvalValue.fromInt(em.texWidth))
+        push keys "texH"
+        push vals (EvalValue.fromInt(em.texHeight))
+        push keys "sizeX"
+        push vals (EvalValue.number(szx))
+        push keys "sizeY"
+        push vals (EvalValue.number(szy))
+        push keys "sizeZ"
+        push vals (EvalValue.number(szz))
+        return (EvalValue.object(keys vals))
+    }
+
+    ; buildGLMesh(id) -> object -----------------------------------------------
+    ; Runs the GL-upload seam. Headless: simulated handles + real checksum.
+    ; SDL host: real gfx_3d_mesh_upload_hp / gfx_3d_upload_texture handles.
+    fn doBuild:EvalValue (args:[EvalValue]) {
+        def id:int (this.argInt(args 0))
+        def idx:int (this.findEntry(id))
+        def keys:[string]
+        def vals:[EvalValue]
+        if (idx < 0) {
+            push keys "ok"
+            push vals (EvalValue.fromInt(0))
+            return (EvalValue.object(keys vals))
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        def em:EngineMeshData e.mesh
+        def glMesh:int (uploader.uploadMesh(em.vertsHp em.vertexCount em.indices em.indexCount))
+        def glTex:int 0
+        if (em.hasTexture) {
+            glTex = (uploader.uploadTexture(em.texRgba em.texWidth em.texHeight))
+        }
+        e.glMeshId = glMesh
+        e.glTexId = glTex
+        e.built = true
+        def words:int (em.vertexCount * 8)
+        def cs:int (this.checksum(em.vertsHp words))
+        def tris:int (idiv em.indexCount 3)
+        def tex:int 0
+        if (em.hasTexture) {
+            tex = 1
+        }
+        def gl:int 0
+        if (uploader.glEnabled) {
+            gl = 1
+        }
+        push keys "ok"
+        push vals (EvalValue.fromInt(1))
+        push keys "glMeshId"
+        push vals (EvalValue.fromInt(glMesh))
+        push keys "glTexId"
+        push vals (EvalValue.fromInt(glTex))
+        push keys "glReal"
+        push vals (EvalValue.fromInt(gl))
+        push keys "vertexCount"
+        push vals (EvalValue.fromInt(em.vertexCount))
+        push keys "indexCount"
+        push vals (EvalValue.fromInt(em.indexCount))
+        push keys "triCount"
+        push vals (EvalValue.fromInt(tris))
+        push keys "hasTexture"
+        push vals (EvalValue.fromInt(tex))
+        push keys "texWidth"
+        push vals (EvalValue.fromInt(em.texWidth))
+        push keys "texHeight"
+        push vals (EvalValue.fromInt(em.texHeight))
+        push keys "checksum"
+        push vals (EvalValue.fromInt(cs))
+        return (EvalValue.object(keys vals))
+    }
+}

@@ -36,9 +36,15 @@ engine (`ranger:core` / `ranger:three` / `ranger:cannon` or `ranger_wasm`).
 |-----------|---------|----------|--------|
 | *(none yet)* | | copy / rewrite | pending |
 
-Suggested early picks (small, high signal): rotating cube, teapot, one
-Cannon stack / sandbox, one input+audio sample — exact order follows module
-readiness.
+Suggested early picks (small, high signal):
+
+- **3D:** rotating cube, teapot, one Cannon stack / sandbox
+- **2D / sprites:** Pac-Man or Breakout class title; one LPC / `sprite_char`
+  sample (uses `v2/sprites/` + `v2/lpc/`)
+- **Audio/input:** one sample exercising `ranger:core`
+
+Exact order follows module readiness — do not skip 2D because Three landed
+first.
 
 ## Unit / contract tests that gate this folder
 

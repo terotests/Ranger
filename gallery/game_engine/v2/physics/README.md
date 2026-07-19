@@ -1,23 +1,9 @@
-# physics — step & pose sync (headless)
+# physics — v2 physics area
 
-Physics stepping that writes body pose; mesh sync via host commands.
+| Path | Role |
+|------|------|
+| [`cannon/`](./cannon/) | Staged, well-tested Cannon port (from v1 `physics/src`) |
+| [`step/`](./step/) | Host `fixed_step` wiring (to implement) |
+| [`tests/`](./tests/) | Cross-cutting physics gates |
 
-**Plan phase:** 9 — see [`CODE_CLEANUP_PLAN.md`](../../CODE_CLEANUP_PLAN.md).
-
-## Binding decisions
-
-- D-TYPE
-- D-SYNC
-
-## To implement
-
-- Reuse Cannon kernels selectively; no SDL runners
-
-## Unit / contract tests that gate this folder
-
-- fixed_step_changes_pose
-- pose_copy_to_mesh_commands
-
----
-
-*Scaffold only (Phase 0). Implementation arrives in later phases.*
+Live handles eventually sit in `host/arenas/physics/`.

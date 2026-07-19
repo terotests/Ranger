@@ -1,0 +1,132 @@
+; ==============================================================================
+; ui_anim_visual_demo — render the UIAnimator glow effect onto a real UI element.
+; ==============================================================================
+; Authors a small card, starts a fluent glow animation on the middle button, and
+; renders frames across the delay+duration timeline — the glow flashes 0->1->0
+; and the `after` callback fires once when it completes. Dumps a PNG per frame so
+; the effect is visible, and self-checks the peak + callback.
+; ==============================================================================
+
+Import "UIAnimator.rgr"
+Import "WasmUiSelect.rgr"
+Import "RgUiWriter.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class VisCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+; callback target handed to .after(...)
+class VisDone {
+    def fired:int 0
+    fn mark:void () {
+        fired = (fired + 1)
+    }
+}
+
+class UIAnimVisualDemo {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def rnd:WasmUiRenderer (new WasmUiRenderer)
+    def doc:WasmUiDoc (new WasmUiDoc)
+    def root:EVGElement (EVGElement.createDiv())
+    def anim:UIAnimator (new UIAnimator)
+    def cw:int 360
+    def ch:int 300
+    def peak:double 0.0
+
+    sfn buildUi:[int] () {
+        def w:RgUiWriter (new RgUiWriter)
+        w.view(1 0 0).column().center().padding(20)
+        w.view(2 1 0).column().center().padding(16).width(300).bg(36 42 64 255).radius(16)
+        w.label(10 2 0 "Effect Demo" 4294967295 20)
+        w.button(11 2 1 "New Game" 3839943679 16).width(200).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(12 2 2 "Play" 3839943679 16).width(200).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(13 2 3 "Quit" 4285559039 16).width(200).padding(10).bg(220 120 120 40).border(2 200 110 110 255).radius(9).textCenter().margin(6)
+        return (w.emit())
+    }
+
+    ; draw the animated glow for a target element at its current intensity
+    fn drawGlow:void (id:string) {
+        def t:double (anim.intensityFor(id))
+        if (t > 0.0) {
+            def hit:RectHit (rnd.findRect(root id))
+            if hit.found {
+                def spread:int (to_int (4.0 + (t * 20.0)))
+                def alpha:int (to_int (t * 235.0))
+                ctx.glowRoundRect((hit.x - 3) (hit.y - 3) (hit.w + 6) (hit.h + 6) (hit.rad + 3) 255 255 255 spread alpha)
+            }
+        }
+    }
+
+    fn drawFrame:void (file:string) {
+        canvas.clear(16 18 30)
+        rnd.draw(ctx root)
+        this.drawGlow("12")
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (canvas.getWidth())
+        rb.height = (canvas.getHeight())
+        rb.pixels = (canvas.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/ui" file)
+    }
+
+    ; advance the animation, sample the peak, render a frame
+    fn step:void (dtMs:int file:string) {
+        anim.tick(dtMs)
+        def t:double (anim.intensityFor("12"))
+        if (t > peak) { peak = t }
+        this.drawFrame(file)
+    }
+
+    sfn m@(main):void () {
+        def d:UIAnimVisualDemo (new UIAnimVisualDemo)
+        def c:VisCheck (new VisCheck)
+        def done:VisDone (new VisDone)
+
+        d.canvas.init(d.cw d.ch)
+        d.ctx.attach(d.canvas)
+        d.ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        d.ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+
+        def bytes:[int] (UIAnimVisualDemo.buildUi())
+        d.doc.loadBytes(bytes (array_length bytes))
+        def builder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+        d.root = (builder.build(d.doc))
+        d.rnd.layoutTree(d.ctx d.root d.cw d.ch)
+
+        ; fluent effect: glow "Play" (#12), 0.5s after a 0.1s delay, then callback
+        d.anim.animation().glow("12").duration(0.5).delay(0.1).after(done.mark).start()
+        c.ok("animation registered" ((d.anim.activeCount()) == 1))
+
+        d.drawFrame("anim_0_start.png")          ; t=0   (glow off, in delay)
+        d.step(100 "anim_1_delay.png")           ; t=100 (delay boundary, ~0)
+        d.step(150 "anim_2_ramp.png")            ; t=250 (ramping)
+        d.step(100 "anim_3_peak.png")            ; t=350 (peak ~1.0)
+        d.step(150 "anim_4_fade.png")            ; t=500 (fading)
+        d.step(100 "anim_5_done.png")            ; t=600 (complete -> callback, glow off)
+
+        c.ok(("glow peaked near 1.0 (got " + (to_string d.peak) + ")") (d.peak > 0.9))
+        c.ok("after() fired once on completion" (done.fired == 1))
+        c.ok("glow cleared after completion" ((d.anim.intensityFor("12")) == 0.0))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+        print "wrote anim_0_start.png .. anim_5_done.png"
+    }
+}

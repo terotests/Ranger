@@ -1,0 +1,97 @@
+; ==============================================================================
+; three_frustum — (Three.js port of src/math/Frustum.js + the Plane bits it uses).
+; ==============================================================================
+; Six clip planes extracted from a projection (or view-projection) matrix, for
+; view-frustum culling — pure math, no rendering. Each plane is (nx,ny,nz,constant)
+; with a unit normal; a point/sphere is inside when it is on the positive side of
+; all six. WebGL coordinate system (matches the engine's GL backend).
+;
+; planes[0..5] = right, left, bottom, top, far, near (three.js order).
+; ==============================================================================
+
+Import "three_matrix4.rgr"
+
+class ThreeFrustum {
+    def isFrustum:boolean true
+    ; plane components, 6 planes: normal (nx,ny,nz) + constant (c)
+    def nx:[double]
+    def ny:[double]
+    def nz:[double]
+    def nc:[double]
+
+    fn ensure:void () {
+        if ((array_length this.nx) < 6) {
+            def i:int 0
+            while (i < 6) {
+                push this.nx 0.0
+                push this.ny 0.0
+                push this.nz 0.0
+                push this.nc 0.0
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; set + normalise plane p from raw (x,y,z,w).
+    fn setPlane:void (p:int x:double y:double z:double w:double) {
+        def len:double (sqrt(((x * x) + (y * y)) + (z * z)))
+        if (len < 0.000000001) { len = 1.0 }
+        set this.nx p (x / len)
+        set this.ny p (y / len)
+        set this.nz p (z / len)
+        set this.nc p (w / len)
+    }
+
+    ; three.js Frustum.setFromProjectionMatrix (WebGL coordinate system).
+    fn setFromProjectionMatrix:ThreeFrustum (m:ThreeMatrix4) {
+        this.ensure()
+        def me0:double (m.eGet(0))
+        def me1:double (m.eGet(1))
+        def me2:double (m.eGet(2))
+        def me3:double (m.eGet(3))
+        def me4:double (m.eGet(4))
+        def me5:double (m.eGet(5))
+        def me6:double (m.eGet(6))
+        def me7:double (m.eGet(7))
+        def me8:double (m.eGet(8))
+        def me9:double (m.eGet(9))
+        def me10:double (m.eGet(10))
+        def me11:double (m.eGet(11))
+        def me12:double (m.eGet(12))
+        def me13:double (m.eGet(13))
+        def me14:double (m.eGet(14))
+        def me15:double (m.eGet(15))
+        this.setPlane(0 (me3 - me0) (me7 - me4) (me11 - me8) (me15 - me12))
+        this.setPlane(1 (me3 + me0) (me7 + me4) (me11 + me8) (me15 + me12))
+        this.setPlane(2 (me3 + me1) (me7 + me5) (me11 + me9) (me15 + me13))
+        this.setPlane(3 (me3 - me1) (me7 - me5) (me11 - me9) (me15 - me13))
+        this.setPlane(4 (me3 - me2) (me7 - me6) (me11 - me10) (me15 - me14))
+        this.setPlane(5 (me3 + me2) (me7 + me6) (me11 + me10) (me15 + me14))
+        return this
+    }
+
+    fn distanceToPoint:double (p:int px:double py:double pz:double) {
+        return (((((itemAt this.nx p) * px) + ((itemAt this.ny p) * py)) + ((itemAt this.nz p) * pz)) + (itemAt this.nc p))
+    }
+
+    ; a point is inside iff it is in front of all six planes.
+    fn containsPoint:boolean (px:double py:double pz:double) {
+        def i:int 0
+        while (i < 6) {
+            if ((this.distanceToPoint(i px py pz)) < 0.0) { return false }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; a sphere intersects iff its centre is no farther than -radius behind any plane.
+    fn intersectsSphere:boolean (cx:double cy:double cz:double radius:double) {
+        def negR:double (0.0 - radius)
+        def i:int 0
+        while (i < 6) {
+            if ((this.distanceToPoint(i cx cy cz)) < negR) { return false }
+            i = (i + 1)
+        }
+        return true
+    }
+}

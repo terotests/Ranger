@@ -1,0 +1,128 @@
+; ==============================================================================
+; cannon_overlap_keeper_test — Cannon.js test/OverlapKeeper.js ported.
+; ==============================================================================
+
+Import "cannon_overlap_keeper.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonOverlapKeeperTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "OverlapKeeper.construct")) { this.construct(h) }
+        if (this.filter.matches(filter "OverlapKeeper.set")) { this.setTest(h) }
+        if (this.filter.matches(filter "OverlapKeeper.getDiff")) { this.getDiff(h) }
+    }
+
+    fn intArrayEquals:boolean (a:[int] aCount:int b:[int] bCount:int) {
+        if (aCount != bCount) {
+            return false
+        }
+        def i 0
+        while (i < aCount) {
+            if ((itemAt a i) != (itemAt b i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn sliceCurrent:boolean (keeper:CannonOverlapKeeper expected:[int] expectedCount:int) {
+        return (this.intArrayEquals(keeper.current keeper.currentCount expected expectedCount))
+    }
+
+    fn construct:void (h:CannonTestHarness) {
+        h.beginTest("OverlapKeeper.construct")
+        def keeper:CannonOverlapKeeper (new CannonOverlapKeeper)
+        h.ok(true "constructed")
+        h.finishTest()
+    }
+
+    fn setTest:void (h:CannonTestHarness) {
+        h.beginTest("OverlapKeeper.set")
+        def keeper:CannonOverlapKeeper (new CannonOverlapKeeper)
+        keeper.set(1 2)
+        def expected1:[int]
+        push expected1 (keeper.getKey(1 2))
+        def eq1:boolean (this.sliceCurrent(keeper expected1 1))
+        h.ok(eq1 "one pair")
+
+        keeper.set(3 2)
+        def expected2:[int]
+        push expected2 (keeper.getKey(1 2))
+        push expected2 (keeper.getKey(3 2))
+        def eq2:boolean (this.sliceCurrent(keeper expected2 2))
+        h.ok(eq2 "two pairs")
+
+        keeper.set(3 1)
+        def expected3:[int]
+        push expected3 (keeper.getKey(1 2))
+        push expected3 (keeper.getKey(1 3))
+        push expected3 (keeper.getKey(3 2))
+        def eq3:boolean (this.sliceCurrent(keeper expected3 3))
+        h.ok(eq3 "three pairs")
+        h.finishTest()
+    }
+
+    fn getDiff:void (h:CannonTestHarness) {
+        h.beginTest("OverlapKeeper.getDiff")
+        def keeper:CannonOverlapKeeper (new CannonOverlapKeeper)
+        keeper.set(1 2)
+        keeper.set(3 2)
+        keeper.set(3 1)
+        keeper.tick()
+        keeper.set(1 2)
+        keeper.set(3 2)
+        keeper.set(3 1)
+
+        def additions1:[int]
+        def removals1:[int]
+        keeper.getDiff(additions1 removals1)
+        def addLen1:int (array_length additions1)
+        def remLen1:int (array_length removals1)
+        h.equalInt(addLen1 0 "no additions")
+        h.equalInt(remLen1 0 "no removals")
+
+        keeper.tick()
+        keeper.set(1 2)
+        def additions2:[int]
+        def removals2:[int]
+        keeper.getDiff(additions2 removals2)
+        def addLen2:int (array_length additions2)
+        h.equalInt(addLen2 0 "no additions after shrink")
+        def expectedRem:[int]
+        push expectedRem 1
+        push expectedRem 3
+        push expectedRem 2
+        push expectedRem 3
+        def remOk:boolean (this.intArrayEquals(removals2 4 expectedRem 4))
+        h.ok(remOk "removed pairs")
+
+        keeper.tick()
+        keeper.set(1 2)
+        keeper.set(1 2)
+        def additions3:[int]
+        def removals3:[int]
+        keeper.getDiff(additions3 removals3)
+        def addLen3:int (array_length additions3)
+        def remLen3:int (array_length removals3)
+        h.equalInt(addLen3 0 "duplicate additions")
+        h.equalInt(remLen3 0 "duplicate removals")
+
+        keeper.set(3 2)
+        keeper.set(3 1)
+        def additions4:[int]
+        def removals4:[int]
+        keeper.getDiff(additions4 removals4)
+        def expectedAdd:[int]
+        push expectedAdd 1
+        push expectedAdd 3
+        push expectedAdd 2
+        push expectedAdd 3
+        def addOk:boolean (this.intArrayEquals(additions4 4 expectedAdd 4))
+        h.ok(addOk "re-added pairs")
+        h.finishTest()
+    }
+}

@@ -1,0 +1,302 @@
+; ==============================================================================
+; as_sprite_runner — render a guest-authored, rotatable 2D sprite scene from an
+; interpreted .as game, over the ABI bridge. NO physics.
+; ==============================================================================
+;
+; This is the counterpart to game_ui_runner (which renders the guest's RGU1 UI
+; document): here the guest fills a per-frame sprite draw list via the bridge
+; (spriteReset / drawSprite tpl x y angleDeg frame) and the host blits each
+; declared template at the guest-given centre AND rotation. Position and rotation
+; are authored ENTIRELY by the guest — the "rotational capabilities of sprites"
+; exposed straight to WASM/.as, with no physics engine in the loop.
+;
+; Templates come from the game's declare_resources() (hostRect -> a coloured
+; block). The scene is driven headlessly (write dt/time/input into the shared
+; RGW1 header, call update(), read the list back and draw) exactly like the WASM
+; host would, so one .as source proves the whole path without a physics world.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "./as_source_runner.rgr"
+Import "./game_audio.rgr"
+
+class AsSpriteScene {
+    def runner:AsSourceRunner (new AsSourceRunner)
+    def canvas:SoftCanvas (new SoftCanvas)
+    def audio:GameAudio (new GameAudio)
+    def audioOn:boolean false
+    def pw:int 480
+    def ph:int 270
+    def timeMs:int 0
+    def loaded:boolean false
+    def OFF_SCORE:int 40
+
+    ; rect templates by declaration index (only rect templates are drawn here;
+    ; sheet templates fall back to a plain grey square so a game still renders).
+    def tplW:[int]
+    def tplH:[int]
+    def tplR:[int]
+    def tplG:[int]
+    def tplB:[int]
+
+    ; page background
+    def bgR:int 12
+    def bgG:int 14
+    def bgB:int 22
+
+    ; shared RGW1 header offsets (host -> guest)
+    def OFF_DT:int 12
+    def OFF_TIME:int 16
+    def OFF_INPUT:int 20
+    ; second player's input edge mask, for render=sprites games that declare
+    ; players=2 (e.g. two-player Pyorretris). Single-player games ignore it.
+    def OFF_INPUT2:int 24
+
+    fn init:void (w:int h:int) {
+        pw = w
+        ph = h
+        canvas.init(w h)
+        audio.init()
+    }
+
+    ; Map a guest sound id to a synth voice. The guest emits small ints via
+    ; playSound(id); the host owns the voice choice.
+    fn soundName:string (id:int) {
+        if (id == 1) { return "blip" }     ; move / rotate
+        if (id == 2) { return "brick" }    ; piece locks
+        if (id == 3) { return "win" }      ; line cleared
+        if (id == 4) { return "lose" }     ; top-out / game over
+        return "blip"
+    }
+
+    ; Drain the guest's one-shot sound queue and play each (host clears it, so the
+    ; guest never resets it). No-op audio when no sink is wired (headless).
+    fn drainSounds:void () {
+        def n:int (runner.bridge.sndCount())
+        if audioOn {
+            def i 0
+            while (i < n) {
+                audio.play((this.soundName((runner.bridge.sndAt(i)))))
+                i = (i + 1)
+            }
+        }
+        runner.bridge.sndClear()
+    }
+
+    fn setBg:void (r:int g:int b:int) {
+        bgR = r
+        bgG = g
+        bgB = b
+    }
+
+    fn loadTemplates:void () {
+        def a:[int]
+        def b2:[int]
+        def c:[int]
+        def d:[int]
+        def e:[int]
+        tplW = a
+        tplH = b2
+        tplR = c
+        tplG = d
+        tplB = e
+        runner.callDeclareResources()
+        def n:int (runner.bridge.resCount())
+        def i 0
+        while (i < n) {
+            def kind:int (runner.bridge.resKind(i))
+            if (kind == 2) {
+                push tplW (runner.bridge.resIval(i 4))
+                push tplH (runner.bridge.resIval(i 5))
+                push tplR (runner.bridge.resIval(i 6))
+                push tplG (runner.bridge.resIval(i 7))
+                push tplB (runner.bridge.resIval(i 8))
+            } {
+                push tplW 12
+                push tplH 12
+                push tplR 200
+                push tplG 200
+                push tplB 200
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn loadGame:boolean (dir:string) {
+        if ((runner.bindDir(dir)) == false) {
+            print ("[as-sprite] load failed: " + dir)
+            return false
+        }
+        runner.callInit()
+        this.loadTemplates()
+        loaded = true
+        print ("[as-sprite] loaded interpreted guest: " + runner.asFile + " templates=" + (to_string (array_length tplW)))
+        return true
+    }
+
+    fn inputMask:int (up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def m:int 0
+        if up { m = (m + 1) }
+        if down { m = (m + 2) }
+        if left { m = (m + 4) }
+        if right { m = (m + 8) }
+        if action { m = (m + 16) }
+        return m
+    }
+
+    ; Advance one frame: publish dt/time/input into the shared header, call the
+    ; guest's update(), which rebuilds its sprite draw list via the bridge.
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        if (loaded == false) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        runner.abiWrite(OFF_DT dtMs)
+        runner.abiWrite(OFF_TIME timeMs)
+        runner.abiWrite(OFF_INPUT (this.inputMask(up down left right action)))
+        runner.callUpdate()
+        this.drainSounds()
+    }
+
+    fn frameMask:void (dtMs:int mask:int) {
+        if (loaded == false) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        runner.abiWrite(OFF_DT dtMs)
+        runner.abiWrite(OFF_TIME timeMs)
+        runner.abiWrite(OFF_INPUT mask)
+        runner.callUpdate()
+        this.drainSounds()
+    }
+
+    ; Two-player variant: publish an input edge mask for each player (P1 in
+    ; OFF_INPUT, P2 in OFF_INPUT2) before running the guest's update(). A solo
+    ; game that only reads OFF_INPUT still works (mask1 is simply ignored).
+    fn frameMask2:void (dtMs:int mask0:int mask1:int) {
+        if (loaded == false) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        runner.abiWrite(OFF_DT dtMs)
+        runner.abiWrite(OFF_TIME timeMs)
+        runner.abiWrite(OFF_INPUT mask0)
+        runner.abiWrite(OFF_INPUT2 mask1)
+        runner.callUpdate()
+        this.drainSounds()
+    }
+
+    ; Draw the guest's current sprite list to the canvas (rotated blocks).
+    fn draw:void () {
+        canvas.clear(bgR bgG bgB)
+        def n:int (runner.bridge.sprCount())
+        def nt:int (array_length tplW)
+        def i 0
+        while (i < n) {
+            def tpl:int (runner.bridge.sprTplAt(i))
+            if (tpl >= 0) {
+                if (tpl < nt) {
+                    def x:int (runner.bridge.sprXAt(i))
+                    def y:int (runner.bridge.sprYAt(i))
+                    def ang:int (runner.bridge.sprAngAt(i))
+                    def bw:int (itemAt tplW tpl)
+                    def rr:int (itemAt tplR tpl)
+                    def gg:int (itemAt tplG tpl)
+                    def bb:int (itemAt tplB tpl)
+                    canvas.drawBlockRotated(x y bw (to_double ang) rr gg bb)
+                }
+            }
+            i = (i + 1)
+        }
+        this.drawScoreHud()
+    }
+
+    ; ---- score HUD: a compact 3x5 block-font readout of OFF_SCORE ----
+    fn drawScoreHud:void () {
+        def score:int (runner.abiRead(OFF_SCORE))
+        if (score < 0) { score = 0 }
+        this.drawInt(score 12 14 4 236 224 120)
+    }
+
+    fn drawInt:void (value:int x:int y:int s:int r:int g:int b:int) {
+        def digits:[int]
+        if (value == 0) {
+            push digits 0
+        } {
+            def v:int value
+            while (v > 0) {
+                def d:int (v - (idiv v 10) * 10)
+                push digits d
+                v = (idiv v 10)
+            }
+        }
+        def n:int (array_length digits)
+        def i 0
+        while (i < n) {
+            def d:int (itemAt digits (n - 1 - i))
+            this.drawDigit(d (x + (i * (s * 4))) y s r g b)
+            i = (i + 1)
+        }
+    }
+
+    fn drawDigit:void (d:int x:int y:int s:int r:int g:int b:int) {
+        def bits:string (this.digitBits(d))
+        def row 0
+        while (row < 5) {
+            def col 0
+            while (col < 3) {
+                def idx ((row * 3) + col)
+                if ((substring bits idx (idx + 1)) == "1") {
+                    canvas.fillRect((x + (col * s)) (y + (row * s)) s s r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn digitBits:string (d:int) {
+        if (d == 0) { return "111101101101111" }
+        if (d == 1) { return "010110010010111" }
+        if (d == 2) { return "111001111100111" }
+        if (d == 3) { return "111001111001111" }
+        if (d == 4) { return "101101111001001" }
+        if (d == 5) { return "111100111001111" }
+        if (d == 6) { return "111100111101111" }
+        if (d == 7) { return "111001010010010" }
+        if (d == 8) { return "111101111101111" }
+        if (d == 9) { return "111101111001111" }
+        return "000000000000000"
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn spriteCount:int () {
+        return (runner.bridge.sprCount())
+    }
+
+    fn templateCount:int () {
+        return (array_length tplW)
+    }
+
+    fn abiRead:int (off:int) {
+        return (runner.abiRead(off))
+    }
+
+    ; Max |angle| across the current sprite list (test helper: proves the guest is
+    ; actually driving rotation over the ABI).
+    fn maxAbsAngle:int () {
+        def n:int (runner.bridge.sprCount())
+        def m:int 0
+        def i 0
+        while (i < n) {
+            def a:int (runner.bridge.sprAngAt(i))
+            if (a < 0) { a = (0 - a) }
+            if (a > m) { m = a }
+            i = (i + 1)
+        }
+        return m
+    }
+}

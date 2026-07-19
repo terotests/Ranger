@@ -1,0 +1,247 @@
+; ==============================================================================
+; cannon_world — physics world (Cannon.js port).
+;   Pipeline per step: apply gravity -> broadphase -> narrowphase (SPOOK contact
+;   equations) -> GS solver -> semi-implicit Euler integration.
+;   The previous hand-tuned arcade impulse resolver has been replaced by the
+;   faithful cannon-es GSSolver (see PLAN_PHYSICS_ENGINE.md, Vaihe 1).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_shape.rgr"
+Import "cannon_equation.rgr"
+Import "cannon_gssolver.rgr"
+Import "cannon_contact_material.rgr"
+Import "cannon_array_collision_matrix.rgr"
+Import "cannon_naive_broadphase.rgr"
+Import "cannon_narrowphase.rgr"
+Import "cannon_overlap_keeper.rgr"
+Import "cannon_constraint.rgr"
+Import "cannon_ray.rgr"
+
+class CannonWorld {
+    def dt:double (1.0 / 60.0)
+    def gravity:CannonVec3 (new CannonVec3)
+    def bodies:[CannonBody]
+    def constraints:[CannonConstraint]
+    def broadphase:CannonNaiveBroadphase
+    def narrowphase:CannonNarrowphase
+    def solver:CannonGSSolver
+    def collisionMatrix:CannonArrayCollisionMatrix
+    def collisionMatrixPrevious:CannonArrayCollisionMatrix
+    def bodyOverlapKeeper:CannonOverlapKeeper
+    def shapeOverlapKeeper:CannonOverlapKeeper
+    def defaultContactMaterial:CannonContactMaterial
+    def time:double 0.0
+    def stepnumber:int 0
+
+    fn initWorld:void () {
+        this.gravity.set(0.0 0.0 (0.0 - 9.82))
+        this.broadphase = (new CannonNaiveBroadphase)
+        this.narrowphase = (new CannonNarrowphase)
+        this.solver = (new CannonGSSolver)
+        this.collisionMatrix = (new CannonArrayCollisionMatrix)
+        this.collisionMatrixPrevious = (new CannonArrayCollisionMatrix)
+        this.bodyOverlapKeeper = (new CannonOverlapKeeper)
+        this.shapeOverlapKeeper = (new CannonOverlapKeeper)
+        this.defaultContactMaterial = (new CannonContactMaterial)
+        this.defaultContactMaterial.initDefault()
+    }
+
+    fn setGravity:void (x:double y:double z:double) {
+        this.gravity.set(x y z)
+    }
+
+    fn addConstraint:void (c:CannonConstraint) {
+        push this.constraints c
+    }
+
+    fn addBody:void (body:CannonBody) {
+        body.index = (array_length this.bodies)
+        body.id = body.index
+        push this.bodies body
+        this.collisionMatrix.setNumObjects((array_length this.bodies))
+        this.collisionMatrixPrevious.setNumObjects((array_length this.bodies))
+    }
+
+    fn collisionMatrixTick:void () {
+        def temp:CannonArrayCollisionMatrix this.collisionMatrixPrevious
+        this.collisionMatrixPrevious = this.collisionMatrix
+        this.collisionMatrix = temp
+        this.collisionMatrix.reset()
+        this.bodyOverlapKeeper.tick()
+        this.shapeOverlapKeeper.tick()
+    }
+
+    fn internalStep:void (dt:double) {
+        this.dt = dt
+        def gx:double this.gravity.x
+        def gy:double this.gravity.y
+        def gz:double this.gravity.z
+
+        ; 1) Apply gravity to dynamic bodies.
+        def i 0
+        while (i < (array_length this.bodies)) {
+            def body:CannonBody (itemAt this.bodies i)
+            if (body.type == 1) {
+                body.force.x = (body.force.x + (body.mass * gx))
+                body.force.y = (body.force.y + (body.mass * gy))
+                body.force.z = (body.force.z + (body.mass * gz))
+            }
+            i = (i + 1)
+        }
+
+        ; 2) Broadphase + narrowphase (produces SPOOK contact equations).
+        this.broadphase.collisionPairs(this.bodies)
+        this.collisionMatrixTick()
+        this.narrowphase.currentContactMaterial = this.defaultContactMaterial
+        this.narrowphase.getContacts(this.broadphase.outPairs1 this.broadphase.outPairs2)
+
+        ; 3) Record collision matrix + overlap keepers from the contacts.
+        def contactCount:int (array_length this.narrowphase.result)
+        def k 0
+        while (k < contactCount) {
+            def c:CannonEquation (itemAt this.narrowphase.result k)
+            def bi:CannonBody c.bi
+            def bj:CannonBody c.bj
+            def si:CannonShape c.si
+            def sj:CannonShape c.sj
+            this.collisionMatrix.set(bi bj true)
+            this.bodyOverlapKeeper.set(bi.id bj.id)
+            this.shapeOverlapKeeper.set(si.id sj.id)
+            k = (k + 1)
+        }
+
+        ; 4) Solve the constraint system: contact equations + two friction
+        ;    equations per contact (Coulomb friction, slip force = mu*g*reducedMass).
+        this.solver.removeAllEquations()
+        def e 0
+        while (e < contactCount) {
+            def c:CannonEquation (itemAt this.narrowphase.result e)
+            this.solver.addEquation(c)
+            e = (e + 1)
+        }
+        def friction:double this.defaultContactMaterial.friction
+        if (friction > 0.0) {
+            def gLen:double (this.gravity.norm())
+            def mug:double (friction * gLen)
+            def f 0
+            while (f < contactCount) {
+                def c:CannonEquation (itemAt this.narrowphase.result f)
+                def bi:CannonBody (unwrap c.bi)
+                def bj:CannonBody (unwrap c.bj)
+                def reduced:double (bi.invMass + bj.invMass)
+                if (reduced > 0.0) {
+                    reduced = (1.0 / reduced)
+                }
+                def slip:double (mug * reduced)
+                def fe1:CannonEquation (new CannonEquation)
+                fe1.initFriction(bi bj slip)
+                def fe2:CannonEquation (new CannonEquation)
+                fe2.initFriction(bi bj slip)
+                c.ni.tangents(fe1.t fe2.t)
+                fe1.ri.copy(c.ri)
+                fe1.rj.copy(c.rj)
+                fe2.ri.copy(c.ri)
+                fe2.rj.copy(c.rj)
+                fe1.si = c.si
+                fe1.sj = c.sj
+                fe2.si = c.si
+                fe2.sj = c.sj
+                this.solver.addEquation(fe1)
+                this.solver.addEquation(fe2)
+                f = (f + 1)
+            }
+        }
+
+        ; Joint constraints: refresh jacobians and feed their equations in.
+        def ci 0
+        while (ci < (array_length this.constraints)) {
+            def con:CannonConstraint (itemAt this.constraints ci)
+            con.update()
+            def ei 0
+            while (ei < (array_length con.equations)) {
+                def eq:CannonEquation (itemAt con.equations ei)
+                this.solver.addEquation(eq)
+                ei = (ei + 1)
+            }
+            ci = (ci + 1)
+        }
+
+        this.solver.solve(dt this.bodies)
+
+        ; 5) Integrate velocities and positions.
+        i = 0
+        while (i < (array_length this.bodies)) {
+            def body:CannonBody (itemAt this.bodies i)
+            body.integrate(dt)
+            i = (i + 1)
+        }
+
+        this.clearForces()
+        this.time = (this.time + dt)
+        this.stepnumber = (this.stepnumber + 1)
+
+        ; 6) Sleep bookkeeping: idle bodies stop integrating (perf).
+        def sidx 0
+        while (sidx < (array_length this.bodies)) {
+            def sb:CannonBody (itemAt this.bodies sidx)
+            sb.sleepTick(this.time)
+            sidx = (sidx + 1)
+        }
+    }
+
+    fn step:void (dt:double) {
+        this.internalStep(dt)
+    }
+
+    ; Cast a ray and keep the closest hit across all bodies.
+    fn raycastClosest:boolean (from:CannonVec3 to:CannonVec3 result:CannonRaycastResult) {
+        def ray:CannonRay (new CannonRay)
+        ray.initRay(from to)
+        ray.mode = 1
+        ray.result = result
+        result.reset()
+        ray.updateDirection()
+        def i 0
+        while (i < (array_length this.bodies)) {
+            def b:CannonBody (itemAt this.bodies i)
+            ray.intersectBody(b)
+            i = (i + 1)
+        }
+        return result.hasHit
+    }
+
+    ; Cast a ray and stop at the first hit (fast occlusion / line-of-sight test).
+    fn raycastAny:boolean (from:CannonVec3 to:CannonVec3 result:CannonRaycastResult) {
+        def ray:CannonRay (new CannonRay)
+        ray.initRay(from to)
+        ray.mode = 2
+        ray.result = result
+        result.reset()
+        ray.updateDirection()
+        def i 0
+        def stop:boolean false
+        while (i < (array_length this.bodies)) {
+            if (stop == false) {
+                def b:CannonBody (itemAt this.bodies i)
+                ray.intersectBody(b)
+                if (result.shouldStop) {
+                    stop = true
+                }
+            }
+            i = (i + 1)
+        }
+        return result.hasHit
+    }
+
+    fn clearForces:void () {
+        def i 0
+        while (i < (array_length this.bodies)) {
+            def body:CannonBody (itemAt this.bodies i)
+            body.force.setZero()
+            body.torque.setZero()
+            i = (i + 1)
+        }
+    }
+}

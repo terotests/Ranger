@@ -1,0 +1,80 @@
+; ==============================================================================
+; three_gltf_textures — native texture decode for a glTF model (host/native only).
+; ==============================================================================
+; The browser decodes a model's JPEG/PNG images with a canvas and streams the RGBA
+; into ThreeGLTFFile.setImage. Native hosts (SDL / Raspberry Pi) have no canvas, so
+; this fetches each baseColor image over HTTP and decodes it with Ranger's own
+; JPEG / PNG decoders, then feeds the pixels through the SAME setImage seam.
+;
+; Kept OUT of three_gltf_file so the browser host (which never uses this path) does
+; not compile the decoders into its bundle. The native runner imports this instead.
+;
+; Images are V-flipped on upload: glTF UVs are top-left origin, GL textures bottom
+; -left — matching what the browser viewer does with its canvas flip.
+; NOTE: decoding dozens of JPEGs in pure Ranger is slow; this is a one-time load
+; step (a host may want to show a "decoding textures…" note).
+; ==============================================================================
+
+Import "three_gltf_file.rgr"
+Import "three_http.rgr"
+Import "../../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../lpc/src/png_decoder.rgr"
+
+class ThreeGLTFTextures {
+    ; true if uri ends with ".png" (case-insensitive on the extension letters).
+    sfn isPng:boolean (uri:string) {
+        def n:int (strlen uri)
+        if (n < 4) {
+            return false
+        }
+        def ext:string (substring uri (n - 4) n)
+        if (ext == ".png") { return true }
+        if (ext == ".PNG") { return true }
+        return false
+    }
+
+    ; flip an RGBA buffer vertically (row 0 <-> row h-1), returning a new buffer.
+    sfn flipV:buffer (src:buffer w:int h:int) {
+        def rowBytes:int (w * 4)
+        def dst:buffer (buffer_alloc (rowBytes * h))
+        def y:int 0
+        while (y < h) {
+            def srcRow:int (((h - 1) - y) * rowBytes)
+            def dstRow:int (y * rowBytes)
+            buffer_copy dst dstRow src srcRow rowBytes
+            y = (y + 1)
+        }
+        return dst
+    }
+
+    ; fetch + decode every baseColor image the model references and attach it to the
+    ; materials that use it. baseURL is the directory the .gltf lives in.
+    sfn load:void (file:ThreeGLTFFile baseURL:string) {
+        def n:int (file.imageCount())
+        def jpg:JPEGDecoder (new JPEGDecoder)
+        def png:PNGDecoder (new PNGDecoder)
+        def i:int 0
+        while (i < n) {
+            def uri:string (file.imageUri(i))
+            if (uri != "") {
+                def full:string ((baseURL + "/") + uri)
+                def bytes:buffer (http_get_bytes full)
+                if ((buffer_length bytes) > 0) {
+                    def img:ImageBuffer (new ImageBuffer)
+                    if (ThreeGLTFTextures.isPng(uri)) {
+                        img = (png.decodeBytes(bytes))
+                    } {
+                        img = (jpg.decodeBytes(bytes))
+                    }
+                    ; a decoder returns width<=1 on failure (e.g. unsupported subset)
+                    if (img.width > 1) {
+                        def flipped:buffer (ThreeGLTFTextures.flipV(img.pixels img.width img.height))
+                        file.setImage(i flipped img.width img.height)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

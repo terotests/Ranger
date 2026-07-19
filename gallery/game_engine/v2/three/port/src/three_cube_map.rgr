@@ -1,0 +1,54 @@
+; ==============================================================================
+; three_cube_map — a 6-face cube of captured radiance (the CubeCamera target).
+; ==============================================================================
+; Holds the six square faces of an environment capture (RGB bytes, one buffer per
+; face) in the standard cube order +X,-X,+Y,-Y,+Z,-Z. A CubeCamera renders the
+; scene into it from a probe position; ThreeLightProbeGenerator projects it to
+; spherical harmonics — exactly Three.js's WebGLCubeRenderTarget →
+; LightProbeGenerator.fromCubeRenderTarget path. Pure Ranger (ES6 + C++).
+; ==============================================================================
+
+class ThreeCubeMap {
+    def size:int 0
+    def faces:[buffer]
+
+    ; allocate a size×size cube (6 zeroed RGB byte faces).
+    sfn create:ThreeCubeMap (size:int) {
+        def c:ThreeCubeMap (new ThreeCubeMap)
+        c.size = size
+        def i:int 0
+        while (i < 6) {
+            push c.faces (buffer_alloc ((size * size) * 3))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn faceBuffer:buffer (face:int) {
+        return (itemAt this.faces face)
+    }
+    fn setFace:void (face:int buf:buffer) {
+        set this.faces face buf
+    }
+
+    ; fill one face with a constant RGB (0..255) — for tests / clears.
+    fn fillFace:void (face:int r:int g:int b:int) {
+        def buf:buffer (itemAt this.faces face)
+        def n:int (this.size * this.size)
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            buffer_set buf o r
+            buffer_set buf (o + 1) g
+            buffer_set buf (o + 2) b
+            i = (i + 1)
+        }
+    }
+    fn fillAll:void (r:int g:int b:int) {
+        def f:int 0
+        while (f < 6) {
+            this.fillFace(f r g b)
+            f = (f + 1)
+        }
+    }
+}

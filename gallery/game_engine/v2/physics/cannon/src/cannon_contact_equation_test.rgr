@@ -1,0 +1,48 @@
+; ==============================================================================
+; cannon_contact_equation_test — Cannon.js test/ContactEquation.js ported.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_contact_equation.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonContactEquationTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "ContactEquation.construct")) { this.construct(h) }
+        if (this.filter.matches(filter "ContactEquation.getImpactVelocityAlongNormal")) { this.getImpactVelocityAlongNormal(h) }
+    }
+
+    fn construct:void (h:CannonTestHarness) {
+        h.beginTest("ContactEquation.construct")
+        def bodyA:CannonBody (new CannonBody)
+        def bodyB:CannonBody (new CannonBody)
+        def contact:CannonContactEquation (new CannonContactEquation)
+        contact.initContact(bodyA bodyB)
+        h.ok(true "constructed")
+        h.finishTest()
+    }
+
+    fn getImpactVelocityAlongNormal:void (h:CannonTestHarness) {
+        h.beginTest("ContactEquation.getImpactVelocityAlongNormal")
+        def bodyA:CannonBody (new CannonBody)
+        bodyA.initDynamic(1.0)
+        bodyA.position.set(1.0 0.0 0.0)
+        bodyA.velocity.set((0.0 - 10.0) 0.0 0.0)
+        def bodyB:CannonBody (new CannonBody)
+        bodyB.initDynamic(1.0)
+        bodyB.position.set((0.0 - 1.0) 0.0 0.0)
+        bodyB.velocity.set(1.0 0.0 0.0)
+        def contact:CannonContactEquation (new CannonContactEquation)
+        contact.initContact(bodyA bodyB)
+        contact.ni.set(1.0 0.0 0.0)
+        contact.ri.set((0.0 - 1.0) 0.0 0.0)
+        contact.rj.set(1.0 0.0 0.0)
+        def v:double (contact.getImpactVelocityAlongNormal())
+        h.equal(v (0.0 - 11.0) "impact along normal")
+        h.finishTest()
+    }
+}

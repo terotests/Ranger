@@ -1,0 +1,338 @@
+; ==============================================================================
+; RgUiWriter - author an RGU1 UI document (bytes) on the host, in Ranger.
+; ==============================================================================
+;
+; The RGU1 bridge (wasm/wasm_ui_abi.h) is normally guest->host: an AssemblyScript
+; / Rust WASM guest builds the byte block and the host reads it. This writer
+; emits the SAME bytes from Ranger, which is useful for:
+;   * testing the whole host path (reader -> EVG tree -> selection) WITHOUT a
+;     WASM runtime (the es6 dev build has no wasm),
+;   * host-authored / fallback UI when there is no guest,
+;   * documenting the exact byte format next to the reader.
+;
+; It mirrors the AS `Ui` builder (as_autopeli/assembly/ui.ts): fluent
+; view/label/button openers + selectable()/onActivate(). `emit()` returns a
+; byte array that `WasmUiDoc.loadBytes(...)` parses.
+; ==============================================================================
+
+class RgNode {
+    def id:int 0
+    def parent:int 0
+    def kind:int 1
+    def flags:int 0
+    def firstProp:int 0
+    def propCount:int 0
+    def order:int 0
+    def eventMask:int 0
+}
+
+class RgProp {
+    def key:int 0
+    def ptype:int 1
+    ; up to 4 explicit value bytes for colors; otherwise valueA/valueB ints.
+    def valueA:int 0
+    def valueB:int 0
+    def isColor:boolean false
+    def cr:int 0
+    def cg:int 0
+    def cb:int 0
+    def ca:int 0
+}
+
+class RgUiWriter {
+    def nodes:[RgNode]
+    def props:[RgProp]
+    def strBytes:[int]
+    def rootId:int 0
+    def cur:RgNode (new RgNode)
+    def hasCur:boolean false
+
+    ; property type constants
+    def T_I32:int 1
+    def T_COLOR:int 3
+    def T_STRING:int 4
+    def T_ENUM:int 7
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        clear nodes
+        clear props
+        clear strBytes
+        rootId = 0
+        hasCur = false
+    }
+
+    ; ---- nodes ---------------------------------------------------------------
+    fn node:RgNode (id:int parent:int kind:int order:int) {
+        def n:RgNode (new RgNode)
+        n.id = id
+        n.parent = parent
+        n.kind = kind
+        n.order = order
+        n.firstProp = (array_length props)
+        n.propCount = 0
+        if ((array_length nodes) == 0) {
+            rootId = id
+        }
+        push nodes n
+        cur = n
+        hasCur = true
+        return n
+    }
+
+    fn view:RgUiWriter (id:int parent:int order:int) {
+        this.node(id parent 1 order)
+        return this
+    }
+
+    fn button:RgUiWriter (id:int parent:int order:int s:string color:int fontSize:int) {
+        this.node(id parent 5 order)
+        this.addTextProps(s color fontSize)
+        return this
+    }
+
+    ; A TEXT node (text -> font-size -> color), matching the reader's key order.
+    ; Returns the writer so visual attrs (margin, …) can chain like button().
+    fn label:RgUiWriter (id:int parent:int order:int s:string color:int fontSize:int) {
+        this.node(id parent 2 order)
+        this.addTextProps(s color fontSize)
+        return this
+    }
+
+    fn addTextProps:void (s:string color:int fontSize:int) {
+        this.propStr(1 s)          ; K_TEXT
+        this.propI32(4 fontSize)   ; K_FONT_SIZE
+        this.propColorRGBA(3 color)   ; K_COLOR (0xRRGGBBAA)
+    }
+
+    ; ---- fluent props on the current node ------------------------------------
+    fn row:RgUiWriter () {
+        this.propEnum(21 0)
+        return this
+    }
+    fn column:RgUiWriter () {
+        this.propEnum(21 1)
+        return this
+    }
+    fn padding:RgUiWriter (v:int) {
+        this.propI32(12 v)
+        return this
+    }
+    fn width:RgUiWriter (v:int) {
+        this.propI32(10 v)
+        return this
+    }
+    fn height:RgUiWriter (v:int) {
+        this.propI32(11 v)
+        return this
+    }
+    fn bg:RgUiWriter (r:int g:int b:int a:int) {
+        this.propColorBytes(2 r g b a)
+        return this
+    }
+    fn margin:RgUiWriter (v:int) {
+        this.propI32(13 v)
+        return this
+    }
+    fn radius:RgUiWriter (v:int) {
+        this.propI32(14 v)
+        return this
+    }
+    fn borderColor:RgUiWriter (r:int g:int b:int a:int) {
+        this.propColorBytes(15 r g b a)
+        return this
+    }
+    fn borderWidth:RgUiWriter (v:int) {
+        this.propI32(16 v)
+        return this
+    }
+    fn border:RgUiWriter (wdt:int r:int g:int b:int a:int) {
+        this.propColorBytes(15 r g b a)
+        this.propI32(16 wdt)
+        return this
+    }
+    ; RgUiAlign: 0 start, 1 center, 2 end, 3 space-between
+    fn alignItems:RgUiWriter (a:int) {
+        this.propEnum(22 a)
+        return this
+    }
+    fn justify:RgUiWriter (a:int) {
+        this.propEnum(23 a)
+        return this
+    }
+    fn textAlign:RgUiWriter (a:int) {
+        this.propEnum(24 a)
+        return this
+    }
+    fn center:RgUiWriter () {
+        this.propEnum(22 1)
+        return this
+    }
+    fn textCenter:RgUiWriter () {
+        this.propEnum(24 1)
+        return this
+    }
+
+    ; ---- fluent interactivity ------------------------------------------------
+    fn selectable:RgUiWriter () {
+        if hasCur { cur.flags = (bit_or cur.flags 1) }
+        return this
+    }
+    fn defaultSelected:RgUiWriter () {
+        if hasCur { cur.flags = (bit_or cur.flags 4) }
+        return this
+    }
+    fn disabled:RgUiWriter () {
+        if hasCur { cur.flags = (bit_or cur.flags 2) }
+        return this
+    }
+    fn onActivate:RgUiWriter () {
+        if hasCur {
+            cur.flags = (bit_or cur.flags 1)
+            cur.eventMask = (bit_or cur.eventMask 1)
+        }
+        return this
+    }
+
+    ; ---- low-level prop appenders --------------------------------------------
+    fn beginProp:RgProp (key:int ptype:int) {
+        def p:RgProp (new RgProp)
+        p.key = key
+        p.ptype = ptype
+        push props p
+        if hasCur {
+            cur.propCount = (cur.propCount + 1)
+        }
+        return p
+    }
+    fn propI32:void (key:int v:int) {
+        def p (this.beginProp(key T_I32))
+        p.valueA = v
+    }
+    fn propEnum:void (key:int v:int) {
+        def p (this.beginProp(key T_ENUM))
+        p.valueA = v
+    }
+    fn propColorRGBA:void (key:int rgba:int) {
+        ; rgba is 0xRRGGBBAA packed as an int; split into bytes.
+        def r (bit_and (bit_shr rgba 24) 255)
+        def g (bit_and (bit_shr rgba 16) 255)
+        def b (bit_and (bit_shr rgba 8) 255)
+        def a (bit_and rgba 255)
+        this.propColorBytes(key r g b a)
+    }
+    fn propColorBytes:void (key:int r:int g:int b:int a:int) {
+        def p (this.beginProp(key T_COLOR))
+        p.isColor = true
+        p.cr = r
+        p.cg = g
+        p.cb = b
+        p.ca = a
+    }
+    fn propStr:void (key:int s:string) {
+        def p (this.beginProp(key T_STRING))
+        def off (array_length strBytes)
+        def i 0
+        def n (strlen s)
+        while (i < n) {
+            push strBytes (charAt s i)
+            i = (i + 1)
+        }
+        p.valueA = off
+        p.valueB = n
+    }
+
+    ; ---- emit flat RGU1 bytes ------------------------------------------------
+    fn setU8:void (arr:[int] off:int v:int) {
+        set arr off (bit_and v 255)
+    }
+    fn setU16:void (arr:[int] off:int v:int) {
+        this.setU8(arr off (bit_and v 255))
+        this.setU8(arr (off + 1) (bit_and (bit_shr v 8) 255))
+    }
+    fn setU32:void (arr:[int] off:int v:int) {
+        this.setU8(arr off (bit_and v 255))
+        this.setU8(arr (off + 1) (bit_and (bit_shr v 8) 255))
+        this.setU8(arr (off + 2) (bit_and (bit_shr v 16) 255))
+        this.setU8(arr (off + 3) (bit_and (bit_shr v 24) 255))
+    }
+
+    fn emit:[int] () {
+        def nodeCount (array_length nodes)
+        def propCount (array_length props)
+        def stringSize (array_length strBytes)
+        def nodeOffset 64
+        def propOffset (nodeOffset + (nodeCount * 32))
+        def stringOffset (propOffset + (propCount * 16))
+        def total (stringOffset + stringSize)
+
+        def out:[int]
+        def z 0
+        while (z < total) {
+            push out 0
+            z = (z + 1)
+        }
+
+        ; header
+        this.setU32(out 0 827672402)      ; magic 'RGU1' (0x31554752)
+        this.setU16(out 4 1)              ; major
+        this.setU16(out 6 0)              ; minor
+        this.setU32(out 8 1)              ; revision
+        this.setU32(out 12 rootId)
+        this.setU32(out 16 nodeOffset)
+        this.setU32(out 20 nodeCount)
+        this.setU32(out 24 propOffset)
+        this.setU32(out 28 propCount)
+        this.setU32(out 32 stringOffset)
+        this.setU32(out 36 stringSize)
+        this.setU32(out 40 1)             ; FLAG_VALID
+
+        ; nodes
+        def i 0
+        while (i < nodeCount) {
+            def n:RgNode (itemAt nodes i)
+            def b (nodeOffset + (i * 32))
+            this.setU32(out b n.id)
+            this.setU32(out (b + 4) n.parent)
+            this.setU16(out (b + 8) n.kind)
+            this.setU16(out (b + 10) n.flags)
+            this.setU32(out (b + 12) n.firstProp)
+            this.setU16(out (b + 16) n.propCount)
+            this.setU16(out (b + 18) n.order)
+            this.setU32(out (b + 20) n.eventMask)
+            i = (i + 1)
+        }
+
+        ; props
+        def p 0
+        while (p < propCount) {
+            def pr:RgProp (itemAt props p)
+            def pb (propOffset + (p * 16))
+            this.setU16(out pb pr.key)
+            this.setU8(out (pb + 2) pr.ptype)
+            this.setU8(out (pb + 3) 0)
+            if pr.isColor {
+                ; value_a bytes = [A,B,G,R] (little-endian of 0xRRGGBBAA)
+                this.setU8(out (pb + 4) pr.ca)
+                this.setU8(out (pb + 5) pr.cb)
+                this.setU8(out (pb + 6) pr.cg)
+                this.setU8(out (pb + 7) pr.cr)
+            } {
+                this.setU32(out (pb + 4) pr.valueA)
+                this.setU32(out (pb + 8) pr.valueB)
+            }
+            p = (p + 1)
+        }
+
+        ; string table
+        def s 0
+        while (s < stringSize) {
+            this.setU8(out (stringOffset + s) (itemAt strBytes s))
+            s = (s + 1)
+        }
+
+        return out
+    }
+}

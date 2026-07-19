@@ -1,0 +1,36 @@
+{
+  "pack": "demo-male-walk",
+  "source": "Universal-LPC-Spritesheet-Character-Generator (CREDITS.csv)",
+  "items": [
+    {
+      "file": "body/bodies/male/walk.png",
+      "authors": ["bluecarrot16", "JaidynReiman", "Benjamin K. Smith (BenCreating)", "Evert", "Eliza Wyatt (ElizaWy)", "TheraHedwig", "MuffinElZangano", "Durrani", "Johannes Sjölund (wulax)", "Stephen Challener (Redshrike)"],
+      "licenses": ["OGA-BY 3.0", "CC-BY-SA 3.0", "GPL 3.0"],
+      "urls": ["https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles"]
+    },
+    {
+      "file": "legs/pants/male/walk.png",
+      "authors": ["bluecarrot16", "JaidynReiman", "ElizaWy", "Matthew Krohn (makrohn)", "Johannes Sjölund (wulax)", "Stephen Challener (Redshrike)"],
+      "licenses": ["OGA-BY 3.0", "GPL 3.0", "CC-BY-SA 3.0"],
+      "urls": ["https://opengameart.org/content/lpc-expanded-pants"]
+    },
+    {
+      "file": "feet/boots/basic/male/walk.png",
+      "authors": ["JaidynReiman", "bluecarrot16", "Nila122"],
+      "licenses": ["OGA-BY 3.0", "CC-BY-SA 3.0", "GPL 2.0", "GPL 3.0"],
+      "urls": ["https://opengameart.org/content/lpc-expanded-socks-shoes"]
+    },
+    {
+      "file": "head/heads/human/male/walk.png",
+      "authors": ["bluecarrot16", "Benjamin K. Smith (BenCreating)", "Stephen Challener (Redshrike)"],
+      "licenses": ["OGA-BY 3.0", "CC-BY-SA 3.0", "GPL 3.0"],
+      "urls": ["https://opengameart.org/content/lpc-character-bases"]
+    },
+    {
+      "file": "hair/natural/adult/walk.png",
+      "authors": ["ElizaWy", "bluecarrot16"],
+      "licenses": ["CC0"],
+      "urls": ["https://opengameart.org/content/lpc-hair"]
+    }
+  ]
+}

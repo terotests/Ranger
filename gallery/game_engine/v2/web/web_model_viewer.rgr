@@ -1,0 +1,82 @@
+; ==============================================================================
+; web_model_viewer — browser-facing wrapper for the model3d 3D asset pipeline.
+; ==============================================================================
+;
+; Same host-side (no-WASM, no-GPU) path the model3d/demo uses, exposed as a flat
+; API the JS/canvas harness drives:
+;
+;   ModelLoader   parses a GLB (glTF container + accessors + embedded PNG/JPEG)
+;   instantiate   builds the entity scene with world transforms
+;   SoftRenderer3D z-buffered, textured, directionally-lit software rasteriser
+;
+; File reads (the .glb) go through the same require('fs') the VFS shims, so the
+; model is just mounted into the VFS at its repo-relative path. render() fills an
+; RGB buffer (renderer.color) that the JS side turns into ImageData.
+; ==============================================================================
+
+Import "../model3d/ModelLoader.rgr"
+Import "../model3d/demo/SoftRenderer3D.rgr"
+
+class WebModelViewer {
+    def loader:ModelLoader (new ModelLoader)
+    def renderer:SoftRenderer3D (new SoftRenderer3D)
+    def modelId:int 0
+    def loaded:boolean false
+
+    ; Load + instantiate a GLB from the VFS. Returns false on parse failure
+    ; (see error()).
+    fn load:boolean (dir:string file:string) {
+        loaded = false
+        modelId = (loader.loadFromFile(dir file))
+        if (loader.ok == false) {
+            return false
+        }
+        loader.instantiate(modelId)
+        loaded = true
+        return true
+    }
+
+    ; Orbit the camera around the world-up axis (radians). Advance it per frame
+    ; for a spinning model.
+    fn setOrbit:void (rad:double) {
+        renderer.orbitYRad = rad
+    }
+
+    ; Software-render the loaded model into an w*h RGB frame. Camera auto-frames
+    ; the model's world bounding box.
+    fn render:void (w:int h:int) {
+        renderer.init(w h)
+        if (loaded == false) {
+            return
+        }
+        def model:ModelAsset (loader.getModel(modelId))
+        renderer.renderModel(model loader.entities)
+    }
+
+    ; The rendered frame as tightly packed RGB (w*h*3 bytes).
+    fn raw:buffer () {
+        return (renderer.color)
+    }
+
+    fn width:int () {
+        return (renderer.w)
+    }
+
+    fn height:int () {
+        return (renderer.h)
+    }
+
+    fn triangleCount:int () {
+        if (loaded == false) {
+            return 0
+        }
+        def model:ModelAsset (loader.getModel(modelId))
+        def mesh:MeshAsset (model.getMesh(0))
+        def prim:MeshPrimitiveAsset (itemAt mesh.primitives 0)
+        return (idiv (prim.indexCount()) 3)
+    }
+
+    fn error:string () {
+        return (loader.lastError)
+    }
+}

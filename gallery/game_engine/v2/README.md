@@ -14,14 +14,21 @@ interpreter + host arenas + WASM bridge first; rendering last.
 | Folder | Role | First real work |
 |--------|------|-----------------|
 | [`registry/`](./registry/) | Schema + codegen for every surface | Phase 3 |
-| [`interp/`](./interp/) | TSX evaluator, identity, adapter | Phase 1 → 4 |
+| [`interp/`](./interp/) | TSX evaluator, identity, adapter (staged sources under `migrate/src`) | Phase 1 → 4 |
 | [`host/`](./host/) | Handles, typed arenas, ownership (D-OWN), commands | Phase 2 |
-| [`bridge/`](./bridge/) | WASM imports, module inject, parity | Phase 5 |
+| [`bridge/`](./bridge/) | WASM imports, legacy block headers, module inject, parity | Phase 5 |
 | [`modules/`](./modules/) | `ranger:*` + `ranger_wasm` façades | Phase 8 |
 | [`runtime/`](./runtime/) | Host-driven `Game` loop | Phase 8–10 |
-| [`physics/`](./physics/) | Headless step + pose sync | Phase 9 |
+| [`physics/`](./physics/) | Staged Cannon port + step wiring | Phase 9 |
+| [`three/`](./three/) | Staged Three class port + tests (no `tsx` bridge) | Phase 2–7 |
+| [`sprites/`](./sprites/) | **2D sprites** — host, RGSP1, rust helpers | Phase 10b |
+| [`lpc/`](./lpc/) | LPC spritesheet compositor (staged) | Phase 10b |
+| [`evg/`](./evg/) | EVG layout/vector primitives (staged) | UI / soft-2D |
+| [`model3d/`](./model3d/) | glTF / model readers (staged) | Phase 10 |
+| [`ui/`](./ui/) | Retained UI widgets (staged) | with EVG |
+| [`web/`](./web/) | Browser VFS + publish framework (staged) | after headless gates |
 | [`render/`](./render/) | Backends only — **do not start early** | Phase 11 |
-| [`games/`](./games/) | Selected titles re-implemented on v2 API (v1 kept) | Phase 12 |
+| [`games/`](./games/) | Selected **2D + 3D** titles on v2 API (v1 kept) | Phase 12 |
 | [`tests/`](./tests/) | Cross-cutting unit + D-* contract gates | Phase 1+ |
 
 Each subdirectory has its own `README.md` listing what to implement and which
@@ -35,18 +42,21 @@ unit tests gate that folder.
   before any renderer exists
 - Rebuild **including games** under `games/` — select, copy-or-rewrite; **do not
   delete** top-level `../games/`
+- Keep **2D sprites** first-class (`sprites/`, `lpc/`) — not a 3D-only engine
+- Staged copies are present; rewire imports before treating them as live
 
 ## Unit / contract tests that gate this folder
 
 - `tests/unit/*` and `tests/contract/*` are the cross-cutting gates
 - A phase is done only when its folder README tests pass
+- Staged ports bring their upstream `*_test.rgr` files — re-home runners next
 
 ## Notes
 
-- Plan: [`../CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md) (see **Rebuild
-  everything in v2/** at the top)
+- Plan: [`../CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md) (rebuild policy +
+  **Staged modular imports** + **2D sprites**)
 - Contract: [`../CODE_CLEANUP.md`](../CODE_CLEANUP.md)
-- v1 `three/`, `scripting/`, `games/` stay as reference; ports land only in v2
+- v1 trees stay as reference; work and game ports land in v2
 
 ---
 

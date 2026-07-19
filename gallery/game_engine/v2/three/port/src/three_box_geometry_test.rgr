@@ -1,0 +1,100 @@
+; ==============================================================================
+; three_box_geometry_test — BufferGeometry + BoxGeometry checks.
+; ==============================================================================
+
+Import "three_box_geometry.rgr"
+
+class ThreeBoxCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class ThreeBoxGeometryTest {
+    sfn m@(main):void () {
+        def ck:ThreeBoxCheck (new ThreeBoxCheck)
+        print "== ThreeBoxGeometry (Three.js BoxGeometry port) =="
+
+        def g:ThreeBoxGeometry (new ThreeBoxGeometry)
+        g.setSize(1.0 1.0 1.0)
+        ck.ok("24 vertices" ((g.vertexCount()) == 24))
+        ck.ok("36 indices" ((g.indexCount()) == 36))
+
+        ; every position component within the unit half-extent
+        def vc:int (g.vertexCount())
+        def posOk:boolean true
+        def nrmOk:boolean true
+        def uvOk:boolean true
+        def i:int 0
+        while (i < vc) {
+            def cc:int 0
+            while (cc < 3) {
+                def p:double (g.getPosition(i cc))
+                if ((p < (0.0 - 0.5001)) || (p > 0.5001)) {
+                    posOk = false
+                }
+                cc = (cc + 1)
+            }
+            ; per-face normal is a unit axis vector -> length 1
+            def nx:double (g.getNormal(i 0))
+            def ny:double (g.getNormal(i 1))
+            def nz:double (g.getNormal(i 2))
+            def nl:double (sqrt (((nx * nx) + (ny * ny)) + (nz * nz)))
+            if ((nl < 0.999) || (nl > 1.001)) {
+                nrmOk = false
+            }
+            def u:double (g.getUv(i 0))
+            def v:double (g.getUv(i 1))
+            if ((((u < 0.0) || (u > 1.0)) || (v < 0.0)) || (v > 1.0)) {
+                uvOk = false
+            }
+            i = (i + 1)
+        }
+        ck.ok("positions within half-extent" posOk)
+        ck.ok("normals are unit vectors" nrmOk)
+        ck.ok("uvs in 0..1" uvOk)
+
+        ; indices reference valid vertices
+        def ic:int (g.indexCount())
+        def idxOk:boolean true
+        def k:int 0
+        while (k < ic) {
+            def idx:int (g.getIndex(k))
+            if ((idx < 0) || (idx >= vc)) {
+                idxOk = false
+            }
+            k = (k + 1)
+        }
+        ck.ok("indices in range" idxOk)
+
+        ; a corner exists at (0.5, 0.5, 0.5) somewhere
+        def foundCorner:boolean false
+        def j:int 0
+        while (j < vc) {
+            def px:double (g.getPosition(j 0))
+            def py:double (g.getPosition(j 1))
+            def pz:double (g.getPosition(j 2))
+            if (((px > 0.499) && (py > 0.499)) && (pz > 0.499)) {
+                foundCorner = true
+            }
+            j = (j + 1)
+        }
+        ck.ok("has +++ corner" foundCorner)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

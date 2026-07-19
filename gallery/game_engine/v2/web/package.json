@@ -1,0 +1,13 @@
+{
+  "name": "ranger-web-games",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Ranger game engine compiled to JS, running games in the browser with a Monaco editor + live reload.",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "monaco-editor": "0.55.1"
+  }
+}

@@ -1,0 +1,278 @@
+; ==============================================================================
+; sprite_char_poc — WASM sprite test game (core; no gfx/SDL dependency).
+; ==============================================================================
+;
+; A playable PoC for the ready character set: a character-select menu, then a
+; play screen where the pad walks / turns / jumps the chosen character. The core
+; is gfx-free so it runs in the es6/Node build (see sprite_char_poc_demo) and is
+; embedded by the SDL front-end (sprite_char_sdl) for a real gamepad.
+;
+; It drives the SAME path a WASM guest would: it writes the RGSP1 block and asks
+; the host bridge (SpriteHost) to resolve each slot to a spritesheet frame. The
+; input->slot logic here mirrors games/sprite_char/src/src/lib.rs so behaviour is
+; identical whether the guest is this code or the built sprite_char.wasm.
+;
+; Input mask bits (gfx_poll_mask / gfx_input_source_mask):
+;   1 up  2 down  4 action  8 back/quit  16 left  32 right
+
+Import "../framebuffer.rgr"
+Import "./wasm_sprite_runner.rgr"
+Import "../lpc/src/lpc_char_catalog.rgr"
+Import "../lpc/src/png_decoder.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+class SpriteCharApp {
+    def pw:int 320
+    def ph:int 200
+    def canvas:SoftCanvas (new SoftCanvas())
+    def host:SpriteHost (new SpriteHost())
+    def catalog:LpcCharCatalog (new LpcCharCatalog())
+    def png:PNGDecoder (new PNGDecoder())
+
+    def sheets:[ImageBuffer]      ; decoded walk sheets, index = charId - 1
+    def loaded:boolean false
+
+    def block:[int]               ; RGSP1 shared block (2560 bytes)
+    def screen:string "select"
+    def selIndex:int 0            ; 0..3 in the menu
+    def selectedChar:int 1        ; committed character id (1..4)
+    def prevMask:int 0
+
+    ; play-screen character state (mirrors the guest's slot 0)
+    def playAnim:int 0            ; 0 walk, 2 jump
+    def playDir:int 2             ; face down by default
+    def playClock:int 0
+    def quit:boolean false
+
+    fn zeroBlock:void (n:int) {
+        clear block
+        def i 0
+        while (i < n) {
+            push block 0
+            i = (i + 1)
+        }
+    }
+
+    fn setI32:void (off:int val:int) {
+        set block off (bit_and val 255)
+        set block (off + 1) (bit_and (bit_shr val 8) 255)
+        set block (off + 2) (bit_and (bit_shr val 16) 255)
+        set block (off + 3) (bit_and (bit_shr val 24) 255)
+    }
+
+    fn init:void (width:int height:int) {
+        pw = width
+        ph = height
+        canvas.init(pw ph)
+        this.zeroBlock(2560)
+        this.setI32(0 1347635026)   ; magic 'RGSP'
+        this.setI32(4 1)            ; version
+        this.setI32(8 2560)         ; size
+        this.setI32(20 4)           ; char_count (host-provided)
+        this.setI32(24 1)           ; slot_count (play uses one slot)
+        host.bind(block 2560)
+        this.loadSheets()
+    }
+
+    fn loadSheets:void () {
+        clear sheets
+        def root:string "gallery/game_engine/lpc/pack/characters/"
+        def c 1
+        while (c <= 4) {
+            def slug:string (this.catalog.slugOf(c))
+            def rel:string (slug + "/walk.png")
+            def img:ImageBuffer (png.decodeRelative(root rel))
+            push sheets img
+            c = (c + 1)
+        }
+        loaded = true
+    }
+
+    fn sheetFor:ImageBuffer (charId:int) {
+        def idx:int (charId - 1)
+        if (idx < 0) { return (itemAt sheets 0) }
+        if (idx >= (array_length sheets)) { return (itemAt sheets 0) }
+        return (itemAt sheets idx)
+    }
+
+    ; blit one 64x64 (dir,frame) cell of a character sheet into the canvas.
+    fn blitCell:void (charId:int dir:int frame:int dx:int dy:int) {
+        def img:ImageBuffer (this.sheetFor(charId))
+        if (img.width <= 1) { return }
+        def sx:int (frame * 64)
+        def sy:int (dir * 64)
+        canvas.blitter.blitRectBuf(canvas.px canvas.w img sx sy 64 64 dx dy)
+    }
+
+    ; rising edge of a mask bit versus the previous frame.
+    fn edge:boolean (mask:int bit:int) {
+        def now:boolean ((bit_and mask bit) != 0)
+        def was:boolean ((bit_and prevMask bit) != 0)
+        return (now && (was == false))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; update: advance one frame given dt (ms) and the input mask.
+    ; --------------------------------------------------------------------------
+    fn update:void (dt:int mask:int) {
+        if (screen == "select") {
+            this.updateSelect(mask)
+        } {
+            this.updatePlay(dt mask)
+        }
+        prevMask = mask
+    }
+
+    fn updateSelect:void (mask:int) {
+        if (this.edge(mask 16)) {          ; left
+            selIndex = (selIndex - 1)
+            if (selIndex < 0) { selIndex = 3 }
+        }
+        if (this.edge(mask 32)) {          ; right
+            selIndex = (selIndex + 1)
+            if (selIndex > 3) { selIndex = 0 }
+        }
+        if (this.edge(mask 4)) {           ; action = choose
+            selectedChar = (selIndex + 1)
+            screen = "play"
+            playAnim = 0
+            playDir = 2
+            playClock = 0
+        }
+        if (this.edge(mask 8)) {           ; back = quit from menu
+            quit = true
+        }
+    }
+
+    fn updatePlay:void (dt:int mask:int) {
+        if (this.edge(mask 8)) {           ; back to menu
+            screen = "select"
+            return
+        }
+
+        def left:boolean ((bit_and mask 16) != 0)
+        def right:boolean ((bit_and mask 32) != 0)
+        def up:boolean ((bit_and mask 1) != 0)
+        def down:boolean ((bit_and mask 2) != 0)
+
+        if (playAnim == 2) {
+            ; jump in progress: finish, then fall back to walking
+            playClock = (playClock + dt)
+            if (playClock >= 500) {
+                playAnim = 0
+                playClock = 0
+            }
+        } {
+            if (this.edge(mask 4)) {       ; action = jump
+                playAnim = 2
+                playClock = 0
+            } {
+                ; turn to the held direction and walk; stand still when idle
+                def moving:boolean false
+                if (left) {
+                    playDir = 1
+                    moving = true
+                }
+                if (right) {
+                    playDir = 3
+                    moving = true
+                }
+                if (up) {
+                    playDir = 0
+                    moving = true
+                }
+                if (down) {
+                    playDir = 2
+                    moving = true
+                }
+                if (moving) {
+                    playClock = (playClock + dt)
+                } {
+                    playClock = 0
+                }
+            }
+        }
+
+        ; publish the guest's slot 0 into the RGSP1 block (feet-anchored)
+        def groundTop:int 86              ; 150 ground - 64 cell
+        this.setI32(24 1)                 ; slot_count
+        this.setI32(64 selectedChar)      ; slot0 charId
+        this.setI32(68 playAnim)          ; +4  anim
+        this.setI32(72 playDir)           ; +8  dir
+        this.setI32(76 1)                 ; +12 flags ACTIVE
+        this.setI32(80 (144 * 256))       ; +16 xFp
+        this.setI32(84 (groundTop * 256)) ; +20 yFp
+        this.setI32(88 playClock)         ; +24 clock
+        this.setI32(92 0)                 ; +28 frame
+    }
+
+    ; --------------------------------------------------------------------------
+    ; render: draw the current screen into the canvas.
+    ; --------------------------------------------------------------------------
+    fn render:void () {
+        if (screen == "select") {
+            this.renderSelect()
+        } {
+            this.renderPlay()
+        }
+    }
+
+    fn renderSelect:void () {
+        canvas.clear(26 28 38)
+        canvas.fillRect(0 0 pw 22 40 44 60)     ; title bar
+        ; four characters (front-facing, standing frame 0) in a row
+        def i 0
+        while (i < 4) {
+            def cx:int (24 + (i * 72))
+            def charId:int (i + 1)
+            def boxX:int (cx - 8)
+            def innerX:int (cx - 4)
+            ; selection highlight box behind the current pick
+            if (i == selIndex) {
+                canvas.fillRect(boxX 44 72 80 90 140 220)
+                canvas.fillRect(innerX 48 64 72 26 28 38)
+            }
+            this.blitCell(charId 2 0 cx 52)
+            ; accent swatch under each character
+            def sr:int (this.swatchR(charId))
+            def sg:int (this.swatchG(charId))
+            def sb:int (this.swatchB(charId))
+            canvas.fillRect(cx 128 56 6 sr sg sb)
+            i = (i + 1)
+        }
+    }
+
+    fn renderPlay:void () {
+        canvas.clear(30 34 46)
+        canvas.fillRect(0 150 pw 4 70 76 96)    ; ground line
+        def d:SpriteDraw (host.resolve(0))
+        if (d.valid) {
+            this.blitCell(d.charId d.dir d.frame d.screenX d.screenY)
+        }
+        ; small accent bar so the chosen character reads at a glance
+        def br:int (this.swatchR(selectedChar))
+        def bg:int (this.swatchG(selectedChar))
+        def bb:int (this.swatchB(selectedChar))
+        canvas.fillRect(0 0 pw 6 br bg bb)
+    }
+
+    ; accent colours (roughly each character's clothing tint)
+    fn swatchR:int (charId:int) {
+        if (charId == 1) { return 70 }
+        if (charId == 2) { return 120 }
+        if (charId == 3) { return 130 }
+        return 175
+    }
+    fn swatchG:int (charId:int) {
+        if (charId == 1) { return 160 }
+        if (charId == 2) { return 140 }
+        if (charId == 3) { return 70 }
+        return 45
+    }
+    fn swatchB:int (charId:int) {
+        if (charId == 1) { return 60 }
+        if (charId == 2) { return 185 }
+        if (charId == 3) { return 190 }
+        return 55
+    }
+}

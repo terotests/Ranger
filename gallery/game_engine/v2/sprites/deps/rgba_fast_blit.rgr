@@ -1,0 +1,234 @@
+; ==============================================================================
+; rgba_fast_blit — buffer-level RGBA blit for real-time compositing.
+; ==============================================================================
+; Avoids per-pixel Color / RasterPixel allocations. Uses direct buffer byte
+; access and integer source-over blending for partial alpha.
+
+Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class RgbaFastBlit {
+    fn clamp255:int (n:int) {
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
+
+    fn div256:int (n:int) {
+        return (bit_shr n 8)
+    }
+
+    fn blendChan:int (src:int dst:int srcA:int invA:int) {
+        def mix:int ((src * srcA) + (dst * invA))
+        def scaled:int (this.div256(mix))
+        return (this.clamp255(scaled))
+    }
+
+    ; Porter-Duff source-over at a byte offset in dstBuf (RGBA layout).
+    fn blendOverBytes:void (dstBuf:buffer dstOff:int srcR:int srcG:int srcB:int srcA:int) {
+        if (srcA <= 0) {
+            return
+        }
+        if (srcA >= 255) {
+            buffer_set dstBuf dstOff srcR
+            buffer_set dstBuf (dstOff + 1) srcG
+            buffer_set dstBuf (dstOff + 2) srcB
+            buffer_set dstBuf (dstOff + 3) 255
+            return
+        }
+
+        def dstA:int (buffer_get dstBuf (dstOff + 3))
+        if (dstA <= 0) {
+            buffer_set dstBuf dstOff srcR
+            buffer_set dstBuf (dstOff + 1) srcG
+            buffer_set dstBuf (dstOff + 2) srcB
+            buffer_set dstBuf (dstOff + 3) srcA
+            return
+        }
+
+        def invA:int (255 - srcA)
+        def dstR:int (buffer_get dstBuf dstOff)
+        def dstG:int (buffer_get dstBuf (dstOff + 1))
+        def dstB:int (buffer_get dstBuf (dstOff + 2))
+
+        def outR:int (this.blendChan(srcR dstR srcA invA))
+        def outG:int (this.blendChan(srcG dstG srcA invA))
+        def outB:int (this.blendChan(srcB dstB srcA invA))
+        def alphaMix:int (this.div256(dstA * invA))
+        def outA:int (this.clamp255(srcA + alphaMix))
+
+        buffer_set dstBuf dstOff outR
+        buffer_set dstBuf (dstOff + 1) outG
+        buffer_set dstBuf (dstOff + 2) outB
+        buffer_set dstBuf (dstOff + 3) outA
+    }
+
+    fn copyOpaquePixel:void (dstBuf:buffer dstOff:int srcBuf:buffer srcOff:int) {
+        buffer_set dstBuf dstOff (buffer_get srcBuf srcOff)
+        buffer_set dstBuf (dstOff + 1) (buffer_get srcBuf (srcOff + 1))
+        buffer_set dstBuf (dstOff + 2) (buffer_get srcBuf (srcOff + 2))
+        buffer_set dstBuf (dstOff + 3) 255
+    }
+
+    fn copyOpaquePixelRaster:void (dest:RasterBuffer dstOff:int srcBuf:buffer srcOff:int) {
+        buffer_set dest.pixels dstOff (buffer_get srcBuf srcOff)
+        buffer_set dest.pixels (dstOff + 1) (buffer_get srcBuf (srcOff + 1))
+        buffer_set dest.pixels (dstOff + 2) (buffer_get srcBuf (srcOff + 2))
+        buffer_set dest.pixels (dstOff + 3) 255
+    }
+
+    fn blendOverBytesRaster:void (dest:RasterBuffer dstOff:int srcR:int srcG:int srcB:int srcA:int) {
+        if (srcA <= 0) {
+            return
+        }
+        if (srcA >= 255) {
+            buffer_set dest.pixels dstOff srcR
+            buffer_set dest.pixels (dstOff + 1) srcG
+            buffer_set dest.pixels (dstOff + 2) srcB
+            buffer_set dest.pixels (dstOff + 3) 255
+            return
+        }
+
+        def dstA:int (buffer_get dest.pixels (dstOff + 3))
+        if (dstA <= 0) {
+            buffer_set dest.pixels dstOff srcR
+            buffer_set dest.pixels (dstOff + 1) srcG
+            buffer_set dest.pixels (dstOff + 2) srcB
+            buffer_set dest.pixels (dstOff + 3) srcA
+            return
+        }
+
+        def invA:int (255 - srcA)
+        def dstR:int (buffer_get dest.pixels dstOff)
+        def dstG:int (buffer_get dest.pixels (dstOff + 1))
+        def dstB:int (buffer_get dest.pixels (dstOff + 2))
+
+        def outR:int (this.blendChan(srcR dstR srcA invA))
+        def outG:int (this.blendChan(srcG dstG srcA invA))
+        def outB:int (this.blendChan(srcB dstB srcA invA))
+        def alphaMix:int (this.div256(dstA * invA))
+        def outA:int (this.clamp255(srcA + alphaMix))
+
+        buffer_set dest.pixels dstOff outR
+        buffer_set dest.pixels (dstOff + 1) outG
+        buffer_set dest.pixels (dstOff + 2) outB
+        buffer_set dest.pixels (dstOff + 3) outA
+    }
+
+    ; First layer onto a cleared buffer: copy source pixels, no blending.
+    fn blitFirstLayer:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
+        def srcBuf:buffer (src.getRawBuffer())
+        def destW:int (dest.width)
+        def srcW:int (src.width)
+        def sh:int (src.height)
+        def sw:int (src.width)
+
+        def y 0
+        while (y < sh) {
+            def srcRowOff:int (y * srcW * 4)
+            def dstRowOff:int (((dy + y) * destW) + dx) * 4
+            def x 0
+            while (x < sw) {
+                def sOff:int (srcRowOff + (x * 4))
+                def srcA:int (buffer_get srcBuf (sOff + 3))
+                if (srcA > 0) {
+                    def dOff:int (dstRowOff + (x * 4))
+                    if (srcA >= 255) {
+                        this.copyOpaquePixelRaster(dest dOff srcBuf sOff)
+                    } {
+                        buffer_set dest.pixels dOff (buffer_get srcBuf sOff)
+                        buffer_set dest.pixels (dOff + 1) (buffer_get srcBuf (sOff + 1))
+                        buffer_set dest.pixels (dOff + 2) (buffer_get srcBuf (sOff + 2))
+                        buffer_set dest.pixels (dOff + 3) srcA
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    fn blitRect:void (dest:RasterBuffer src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
+        def srcBuf:buffer (src.getRawBuffer())
+        def destW:int (dest.width)
+        def srcW:int (src.width)
+
+        def y 0
+        while (y < sh) {
+            def srcRowOff:int ((((sy + y) * srcW) + sx) * 4)
+            def dstRowOff:int ((((dy + y) * destW) + dx) * 4)
+            def x 0
+            while (x < sw) {
+                def sOff:int (srcRowOff + (x * 4))
+                def srcA:int (buffer_get srcBuf (sOff + 3))
+                if (srcA > 0) {
+                    def dOff:int (dstRowOff + (x * 4))
+                    if (srcA >= 255) {
+                        this.copyOpaquePixelRaster(dest dOff srcBuf sOff)
+                        x = (x + 1)
+                    } {
+                        this.blendOverBytesRaster(dest dOff
+                            (buffer_get srcBuf sOff)
+                            (buffer_get srcBuf (sOff + 1))
+                            (buffer_get srcBuf (sOff + 2))
+                            srcA)
+                        x = (x + 1)
+                    }
+                } {
+                    x = (x + 1)
+                }
+            }
+            y = (y + 1)
+        }
+    }
+
+    fn blitImage:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
+        this.blitRect(dest src 0 0 src.width src.height dx dy)
+    }
+
+    ; Alpha-composite a source sub-rectangle straight into a raw destination
+    ; buffer (RGBA8888, width destW). Unlike blitRect(dest:RasterBuffer ...),
+    ; the destination is a `buffer` passed by reference, so it works when the
+    ; caller only has the raw pixel bytes (SoftCanvas.px). This is the C++-safe
+    ; path: wrapping the canvas bytes in a temporary RasterBuffer copies the
+    ; std::vector under C++ value semantics and silently drops the writes.
+    fn blitRectBuf:void (dstBuf:buffer destW:int src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
+        def srcBuf:buffer (src.getRawBuffer())
+        def srcW:int (src.width)
+        def y 0
+        while (y < sh) {
+            def srcRowOff:int ((((sy + y) * srcW) + sx) * 4)
+            def dstRowOff:int ((((dy + y) * destW) + dx) * 4)
+            def x 0
+            while (x < sw) {
+                def sOff:int (srcRowOff + (x * 4))
+                def srcA:int (buffer_get srcBuf (sOff + 3))
+                if (srcA > 0) {
+                    def dOff:int (dstRowOff + (x * 4))
+                    if (srcA >= 255) {
+                        ; opaque: direct copy. Writing dstBuf here (buffer_set)
+                        ; also marks the parameter as mutated so it is emitted as
+                        ; a non-const C++ reference (works without the transitive
+                        ; mutable-ref compiler pass).
+                        buffer_set dstBuf dOff (buffer_get srcBuf sOff)
+                        buffer_set dstBuf (dOff + 1) (buffer_get srcBuf (sOff + 1))
+                        buffer_set dstBuf (dOff + 2) (buffer_get srcBuf (sOff + 2))
+                        buffer_set dstBuf (dOff + 3) 255
+                    } {
+                        this.blendOverBytes(dstBuf dOff
+                            (buffer_get srcBuf sOff)
+                            (buffer_get srcBuf (sOff + 1))
+                            (buffer_get srcBuf (sOff + 2))
+                            srcA)
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+}

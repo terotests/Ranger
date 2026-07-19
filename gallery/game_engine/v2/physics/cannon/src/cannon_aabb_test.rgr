@@ -1,0 +1,185 @@
+; ==============================================================================
+; cannon_aabb_test — Cannon.js test/AABB.js ported to Ranger.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_aabb.rgr"
+Import "cannon_transform.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonAABBTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "AABB.construct")) { this.construct(h) }
+        if (this.filter.matches(filter "AABB.copy")) { this.copy(h) }
+        if (this.filter.matches(filter "AABB.clone")) { this.clone(h) }
+        if (this.filter.matches(filter "AABB.extend")) { this.extend(h) }
+        if (this.filter.matches(filter "AABB.overlaps")) { this.overlaps(h) }
+        if (this.filter.matches(filter "AABB.contains")) { this.contains(h) }
+        if (this.filter.matches(filter "AABB.toLocalFrame")) { this.toLocalFrame(h) }
+        if (this.filter.matches(filter "AABB.toWorldFrame")) { this.toWorldFrame(h) }
+    }
+
+    fn construct:void (h:CannonTestHarness) {
+        h.beginTest("AABB.construct")
+        def a:CannonAABB (new CannonAABB)
+        h.ok(true "constructed")
+        h.finishTest()
+    }
+
+    fn copy:void (h:CannonTestHarness) {
+        h.beginTest("AABB.copy")
+        def a:CannonAABB (new CannonAABB)
+        def b:CannonAABB (new CannonAABB)
+        a.upperBound.set(1.0 2.0 3.0)
+        b.copy(a)
+        def same:boolean (a.almostEquals(b 0.000001))
+        h.ok(same "copy")
+        h.finishTest()
+    }
+
+    fn clone:void (h:CannonTestHarness) {
+        h.beginTest("AABB.clone")
+        def a:CannonAABB (new CannonAABB)
+        a.lowerBound.set((0.0 - 1.0) (0.0 - 2.0) (0.0 - 3.0))
+        a.upperBound.set(1.0 2.0 3.0)
+        def b:CannonAABB (a.cloneNew())
+        def same:boolean (a.almostEquals(b 0.000001))
+        h.ok(same "clone values")
+        h.finishTest()
+    }
+
+    fn extend:void (h:CannonTestHarness) {
+        h.beginTest("AABB.extend")
+        def a:CannonAABB (new CannonAABB)
+        a.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0))
+        a.upperBound.set(1.0 1.0 1.0)
+        def b:CannonAABB (new CannonAABB)
+        b.lowerBound.set((0.0 - 2.0) (0.0 - 2.0) (0.0 - 2.0))
+        b.upperBound.set(2.0 2.0 2.0)
+        a.extend(b)
+        def same1:boolean (a.almostEquals(b 0.000001))
+        h.ok(same1 "extend to larger")
+
+        a.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0))
+        a.upperBound.set(1.0 1.0 1.0)
+        b.lowerBound.set((0.0 - 2.0) (0.0 - 2.0) (0.0 - 2.0))
+        b.upperBound.set(2.0 2.0 2.0)
+        b.extend(a)
+        def expectedLo:CannonVec3 (new CannonVec3)
+        expectedLo.set((0.0 - 2.0) (0.0 - 2.0) (0.0 - 2.0))
+        def loOk:boolean (b.lowerBound.almostEquals(expectedLo 0.000001))
+        h.ok(loOk "extend b lower")
+        h.finishTest()
+    }
+
+    fn overlaps:void (h:CannonTestHarness) {
+        h.beginTest("AABB.overlaps")
+        def a:CannonAABB (new CannonAABB)
+        def b:CannonAABB (new CannonAABB)
+
+        a.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) 0.0)
+        a.upperBound.set(1.0 1.0 0.0)
+        b.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) 0.0)
+        b.upperBound.set(1.0 1.0 0.0)
+        def ov0:boolean (a.overlaps(b))
+        h.ok(ov0 "same aabb")
+
+        b.lowerBound.set(1.0 1.0 0.0)
+        b.upperBound.set(2.0 2.0 0.0)
+        def ov1:boolean (a.overlaps(b))
+        h.ok(ov1 "corner overlap")
+
+        b.lowerBound.set(1.1 1.1 0.0)
+        b.upperBound.set(2.0 2.0 0.0)
+        def ov2:boolean (a.overlaps(b))
+        h.ok((ov2 == false) "separated")
+
+        b.lowerBound.set((0.0 - 0.5) (0.0 - 0.5) 0.0)
+        b.upperBound.set(0.5 0.5 0.0)
+        def ov3:boolean (a.overlaps(b))
+        h.ok(ov3 "inside")
+
+        b.lowerBound.set((0.0 - 3.0) (0.0 - 0.5) 0.0)
+        b.upperBound.set((0.0 - 2.0) 0.5 0.0)
+        def ov4:boolean (a.overlaps(b))
+        h.ok((ov4 == false) "translated")
+        h.finishTest()
+    }
+
+    fn contains:void (h:CannonTestHarness) {
+        h.beginTest("AABB.contains")
+        def a:CannonAABB (new CannonAABB)
+        def b:CannonAABB (new CannonAABB)
+        a.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0))
+        a.upperBound.set(1.0 1.0 1.0)
+        b.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0))
+        b.upperBound.set(1.0 1.0 1.0)
+        def c0:boolean (a.contains(b))
+        h.ok(c0 "equal")
+
+        a.lowerBound.set((0.0 - 2.0) (0.0 - 2.0) (0.0 - 2.0))
+        a.upperBound.set(2.0 2.0 2.0)
+        def c1:boolean (a.contains(b))
+        h.ok(c1 "b inside a")
+
+        b.lowerBound.set((0.0 - 3.0) (0.0 - 3.0) (0.0 - 3.0))
+        b.upperBound.set(3.0 3.0 3.0)
+        def c2:boolean (a.contains(b))
+        h.equalBool(c2 false "a not inside b")
+
+        a.lowerBound.set(0.0 0.0 0.0)
+        a.upperBound.set(2.0 2.0 2.0)
+        b.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0))
+        b.upperBound.set(1.0 1.0 1.0)
+        def c3:boolean (a.contains(b))
+        h.equalBool(c3 false "disjoint")
+        h.finishTest()
+    }
+
+    fn toLocalFrame:void (h:CannonTestHarness) {
+        h.beginTest("AABB.toLocalFrame")
+        def worldAABB:CannonAABB (new CannonAABB)
+        def localAABB:CannonAABB (new CannonAABB)
+        def frame:CannonTransform (new CannonTransform)
+        worldAABB.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0))
+        worldAABB.upperBound.set(1.0 1.0 1.0)
+
+        worldAABB.toLocalFrame(frame localAABB)
+        def same:boolean (localAABB.almostEquals(worldAABB 0.000001))
+        h.ok(same "no transform")
+
+        frame.position.set((0.0 - 1.0) 0.0 0.0)
+        worldAABB.toLocalFrame(frame localAABB)
+        def expected:CannonAABB (new CannonAABB)
+        expected.lowerBound.set(0.0 (0.0 - 1.0) (0.0 - 1.0))
+        expected.upperBound.set(2.0 1.0 1.0)
+        def moved:boolean (localAABB.almostEquals(expected 0.000001))
+        h.ok(moved "translation")
+        h.finishTest()
+    }
+
+    fn toWorldFrame:void (h:CannonTestHarness) {
+        h.beginTest("AABB.toWorldFrame")
+        def localAABB:CannonAABB (new CannonAABB)
+        def worldAABB:CannonAABB (new CannonAABB)
+        def frame:CannonTransform (new CannonTransform)
+        localAABB.lowerBound.set((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0))
+        localAABB.upperBound.set(1.0 1.0 1.0)
+
+        localAABB.toWorldFrame(frame worldAABB)
+        def same:boolean (localAABB.almostEquals(worldAABB 0.000001))
+        h.ok(same "no transform")
+
+        frame.position.set(1.0 0.0 0.0)
+        localAABB.toWorldFrame(frame worldAABB)
+        def expected:CannonAABB (new CannonAABB)
+        expected.lowerBound.set(0.0 (0.0 - 1.0) (0.0 - 1.0))
+        expected.upperBound.set(2.0 1.0 1.0)
+        def moved:boolean (worldAABB.almostEquals(expected 0.000001))
+        h.ok(moved "translation")
+        h.finishTest()
+    }
+}

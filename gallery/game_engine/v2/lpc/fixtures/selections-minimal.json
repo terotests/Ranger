@@ -1,0 +1,45 @@
+{
+  "version": 2,
+  "bodyType": "male",
+  "selections": {
+    "body": {
+      "itemId": "body",
+      "variant": "",
+      "recolor": "light",
+      "name": "Body (light)"
+    },
+    "head": {
+      "itemId": "heads_human_male",
+      "variant": "",
+      "recolor": "light",
+      "name": "Human Male (light)"
+    },
+    "hair": {
+      "itemId": "hair_natural",
+      "variant": "blonde",
+      "recolor": "",
+      "name": "Natural (blonde)"
+    },
+    "legs": {
+      "itemId": "legs_pants",
+      "variant": "",
+      "recolor": "blue",
+      "name": "Pants (blue)"
+    },
+    "feet": {
+      "itemId": "feet_shoes_basic",
+      "variant": "brown",
+      "recolor": "",
+      "name": "Basic shoes (brown)"
+    }
+  },
+  "selectedAnimation": "walk",
+  "matchBodyColorEnabled": true,
+  "enabledLicenses": {
+    "CC0": true,
+    "CC-BY": true,
+    "CC-BY-SA": true,
+    "OGA-BY": true,
+    "GPL": true
+  }
+}

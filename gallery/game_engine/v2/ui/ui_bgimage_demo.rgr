@@ -1,0 +1,71 @@
+; ==============================================================================
+; ui_bgimage_demo — EVG background images clipped to a rounded path.
+; ==============================================================================
+; Loads the invaders background PNG and paints it as the fill of rounded EVG
+; panels via UIContext.fillRoundRectImage — the image is sampled only inside the
+; rounded corners, so it clips cleanly to the path (a big hero panel and a
+; heavily-rounded thumbnail prove the clipping at different radii). Dumps a PNG.
+; ==============================================================================
+
+Import "UIContext.rgr"
+Import "../scripting/game_image_loader.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class UIBgImageDemo {
+    sfn snap:void (canvas:SoftCanvas file:string) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (canvas.getWidth())
+        rb.height = (canvas.getHeight())
+        rb.pixels = (canvas.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/ui" file)
+    }
+
+    sfn m@(main):void () {
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(380 430)
+        def ctx:UIContext (new UIContext)
+        ctx.attach(canvas)
+        ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+
+        ; load the invaders background image
+        def loader:GameImageLoader (new GameImageLoader)
+        def img:ImageBuffer (loader.load("gallery/game_engine/games/invaders/assets/invaders_bg.png"))
+        def okImg:boolean (loader.isValidImage(img))
+        print (("image loaded=" + (to_string okImg)) + ("  " + ((to_string img.width) + ("x" + (to_string img.height)))))
+
+        ; page + card
+        canvas.clear(16 18 30)
+        def card:EVGColor (EVGColor.rgba(30 34 52 1.0))
+        ctx.fillRoundRect(20 20 340 390 18 card)
+
+        def white:EVGColor (EVGColor.rgba(255 255 255 1.0))
+        def muted:EVGColor (EVGColor.rgba(150 176 208 1.0))
+        ctx.text("EVG background image" 70 44 20.0 white)
+
+        if okImg {
+            ; hero panel: image clipped to a rounded rect + a border
+            ctx.fillRoundRectImage(50 84 280 190 22 img)
+            ctx.strokeRoundRectA(50 84 280 190 22 2 120 150 210 255)
+
+            ; heavily-rounded thumbnail (near-circular) — same image, tight clip
+            ctx.fillRoundRectImage(50 300 92 92 44 img)
+            ctx.strokeRoundRectA(50 300 92 92 44 2 120 150 210 255)
+
+            ctx.text("clipped to the" 160 322 15.0 muted)
+            ctx.text("rounded path" 160 344 15.0 muted)
+        } {
+            ctx.text("(invaders_bg.png not found)" 60 160 14.0 muted)
+        }
+
+        UIBgImageDemo.snap(canvas "bgimage_demo.png")
+        print "wrote bgimage_demo.png"
+        if okImg {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

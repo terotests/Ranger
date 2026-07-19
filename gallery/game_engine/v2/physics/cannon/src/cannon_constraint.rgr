@@ -1,0 +1,144 @@
+; ==============================================================================
+; cannon_constraint — joint constraints (cannon-es src/constraints/*).
+;
+; Unified via a `kind` field (port idiom). A constraint owns a set of
+; CannonEquations and an update() that recomputes their jacobians each step.
+;   kind 1 = point-to-point: three bilateral contact equations (ni = x/y/z axes,
+;            minForce = -maxForce) that pin a point on body A to a point on body
+;            B while leaving all relative rotation free — a ball-and-socket joint.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_equation.rgr"
+
+class CannonConstraint {
+    sdef KIND_P2P:int 1
+    sdef KIND_HINGE:int 2
+
+    def kind:int 1
+    def bodyA:CannonBody
+    def bodyB:CannonBody
+    def equations:[CannonEquation]
+    def pivotA:CannonVec3 (new CannonVec3)
+    def pivotB:CannonVec3 (new CannonVec3)
+    ; hinge: local rotation axes on each body (equations[3], equations[4] are the
+    ; two rotational equations that keep the world hinge axes aligned).
+    def axisA:CannonVec3 (new CannonVec3)
+    def axisB:CannonVec3 (new CannonVec3)
+    def worldAxisA:CannonVec3 (new CannonVec3)
+    def worldAxisB:CannonVec3 (new CannonVec3)
+    ; hinge motor (equations[5]): actively drives spin about the hinge axis.
+    def motorEnabled:boolean false
+    def motorTargetVelocity:double 0.0
+    def motorMaxForce:double 1000000.0
+
+    fn initPointToPoint:void (bodyA:CannonBody pivotA:CannonVec3 bodyB:CannonBody pivotB:CannonVec3 maxForce:double) {
+        this.kind = 1
+        this.bodyA = bodyA
+        this.bodyB = bodyB
+        this.pivotA.copy(pivotA)
+        this.pivotB.copy(pivotB)
+        def ex:CannonEquation (new CannonEquation)
+        ex.initContact(bodyA bodyB maxForce)
+        ex.minForce = (0.0 - maxForce)
+        def ey:CannonEquation (new CannonEquation)
+        ey.initContact(bodyA bodyB maxForce)
+        ey.minForce = (0.0 - maxForce)
+        def ez:CannonEquation (new CannonEquation)
+        ez.initContact(bodyA bodyB maxForce)
+        ez.minForce = (0.0 - maxForce)
+        push this.equations ex
+        push this.equations ey
+        push this.equations ez
+    }
+
+    ; Hinge = point-to-point (pin the pivot) + two rotational equations that keep
+    ; the two bodies' hinge axes aligned, leaving one free rotation DOF.
+    fn initHinge:void (bodyA:CannonBody pivotA:CannonVec3 axisA:CannonVec3 bodyB:CannonBody pivotB:CannonVec3 axisB:CannonVec3 maxForce:double) {
+        this.initPointToPoint(bodyA pivotA bodyB pivotB maxForce)
+        this.kind = 2
+        this.axisA.copy(axisA)
+        this.axisA.normalizeSelf()
+        this.axisB.copy(axisB)
+        this.axisB.normalizeSelf()
+        def r1:CannonEquation (new CannonEquation)
+        r1.initRotational(bodyA bodyB maxForce)
+        def r2:CannonEquation (new CannonEquation)
+        r2.initRotational(bodyA bodyB maxForce)
+        def motor:CannonEquation (new CannonEquation)
+        motor.initMotor(bodyA bodyB maxForce)
+        this.motorMaxForce = maxForce
+        push this.equations r1
+        push this.equations r2
+        push this.equations motor
+    }
+
+    fn enableMotor:void () {
+        this.motorEnabled = true
+    }
+
+    fn disableMotor:void () {
+        this.motorEnabled = false
+    }
+
+    fn setMotorSpeed:void (speed:double) {
+        this.motorTargetVelocity = speed
+    }
+
+    fn setMotorMaxForce:void (maxForce:double) {
+        this.motorMaxForce = maxForce
+    }
+
+    fn update:void () {
+        if (this.kind == 1) {
+            this.updatePointToPoint()
+        }
+        if (this.kind == 2) {
+            this.updateHinge()
+        }
+    }
+
+    fn updateHinge:void () {
+        this.updatePointToPoint()
+        def a:CannonBody (unwrap this.bodyA)
+        def b:CannonBody (unwrap this.bodyB)
+        a.quaternion.vmult(this.axisA this.worldAxisA)
+        b.quaternion.vmult(this.axisB this.worldAxisB)
+        def r1:CannonEquation (itemAt this.equations 3)
+        def r2:CannonEquation (itemAt this.equations 4)
+        ; r1.axisA and r2.axisA are the two tangents of the A-side hinge axis;
+        ; both are kept orthogonal to the B-side hinge axis, forcing alignment.
+        this.worldAxisA.tangents(r1.axisA r2.axisA)
+        r1.axisB.copy(this.worldAxisB)
+        r2.axisB.copy(this.worldAxisB)
+        ; motor (equations[5]): drive spin about the world hinge axis.
+        def motor:CannonEquation (itemAt this.equations 5)
+        motor.enabled = this.motorEnabled
+        if (this.motorEnabled) {
+            motor.axisA.copy(this.worldAxisA)
+            motor.axisB.copy(this.worldAxisB)
+            motor.targetVelocity = this.motorTargetVelocity
+            motor.maxForce = this.motorMaxForce
+            motor.minForce = (0.0 - this.motorMaxForce)
+        }
+    }
+
+    fn updatePointToPoint:void () {
+        def a:CannonBody (unwrap this.bodyA)
+        def b:CannonBody (unwrap this.bodyB)
+        def ex:CannonEquation (itemAt this.equations 0)
+        def ey:CannonEquation (itemAt this.equations 1)
+        def ez:CannonEquation (itemAt this.equations 2)
+        ; ri = R_A * pivotA, rj = R_B * pivotB (world offsets to the shared point)
+        a.quaternion.vmult(this.pivotA ex.ri)
+        b.quaternion.vmult(this.pivotB ex.rj)
+        ey.ri.copy(ex.ri)
+        ey.rj.copy(ex.rj)
+        ez.ri.copy(ex.ri)
+        ez.rj.copy(ex.rj)
+        ex.ni.set(1.0 0.0 0.0)
+        ey.ni.set(0.0 1.0 0.0)
+        ez.ni.set(0.0 0.0 1.0)
+    }
+}

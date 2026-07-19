@@ -56,23 +56,69 @@ selected, re-implemented, old copies kept.
 | [`docs/ADR-0001-three-scene-host-authority.md`](./docs/ADR-0001-three-scene-host-authority.md) | Host authority ADR |
 
 The existing `three/`, `scripting/`, `physics/`, `wasm/`, and top-level `games/`
-trees remain as the **v1 reference / demo** stack. They are not deleted. v2
-starts empty of render backends and only pulls in (or rewrites) what each phase
-and each selected game actually need.
+trees remain as the **v1 reference / demo** stack. They are not deleted.
+
+**Staged imports:** well-tested modular packages are **copied into `v2/`**
+(see below) so work happens on the new tree. Copies start as *staged* — import
+paths may still point at v1 until rewired. Reconciler / `three/tsx` bridges are
+**not** copied.
+
+---
+
+## Staged modular imports (copied into `v2/`)
+
+Copy mature, unit-tested modules; leave tangled bridge/demo shells in v1.
+
+| v2 path | Copied from | Why | Skipped |
+|---------|-------------|-----|---------|
+| `physics/cannon/src/` | `physics/src/` | Cannon port + 23 `*_test.rgr` | `physics/tsx/` bridge |
+| `three/port/src/` + `tests/` | `three/src/`, `three/tests/` | Class-per-file Three port + tests | `three/tsx/` reconciler wrappers |
+| `interp/migrate/src/` | `pdf_writer/src/jsx/{EvalValue,ComponentEngine,JSXToEVG}.rgr` | TSX evaluator core | Full pdf_writer |
+| `bridge/wasm/legacy_blocks/` | `wasm/*.h` (+ small workers) | RGW1/RGSP1/RGU1 block ABI reference | — |
+| `sprites/` | `scripting/game_sprite.rgr`, `wasm_sprite_abi.h`, `lib/ranger_game`, runners | **2D sprites** (see below) | Full `scripting/` |
+| `lpc/` | `lpc/` (no `output/`) | LPC sheet compositor + pack | Full Universal LPC art tree |
+| `evg/` | `gallery/evg/` | EVG layout/vector primitives + test | `original/`, `bin/` |
+| `model3d/` | `model3d/` (no `demo/`) | glTF readers + tests | — |
+| `ui/` | `ui/` | Retained UI / EVG launcher widgets | — |
+| `web/` | `web/` (no `node_modules`/`dist`) | Browser VFS + publish framework | — |
+
+Each folder’s README records provenance and rewire status.
+
+### 2D sprites are first-class (do not drop)
+
+The old games framework is not 3D-only: Pac-Man, Breakout, Ylos, character
+walkers, and RGSP1 WASM guests all depend on **retained sprites**, sheets, and
+(often) **LPC** composition. v2 must keep that path:
+
+| Piece | v2 home | Role |
+|-------|---------|------|
+| Retained sprite host | `sprites/host/game_sprite.rgr` | `sprites()` vocabulary + draw dispatch |
+| RGSP1 block ABI | `sprites/abi/wasm_sprite_abi.h` | Compiled sprite guests |
+| Rust helpers | `sprites/rust/ranger_game` | `SpriteGame` / `sprite_game!` |
+| LPC compositor | `lpc/` | Sheet bake for character games |
+| Soft/blit deps | `sprites/deps/` | framebuffer helpers (SDL present stays Phase 11) |
+
+Long-term, sprite entities should grow **host arenas + registry commands** with
+the same D-HANDLE / D-OWN / D-LIFE rules as meshes. Until then, RGSP1 remains a
+supported legacy block (versioned like other WASM surfaces).
+
+Selected **2D games** belong in `v2/games/` the same way as 3D titles (copy or
+rewrite by maturity).
 
 ---
 
 ## Principles
 
-1. **New tree; never delete v1 to “make room”.** Create `gallery/game_engine/v2/`
-   (engine + `games/`). Copy or rewrite selectively; leave the old tree intact.
-   Do not bulk-import `three/src` or the reconciler bridge.
-2. **Headless before pixels.** No GL/SDL/software rasterizer until create /
-   retain / release / membership / dispose-backend pass on both the adapter
-   path and the WASM import path.
+1. **New tree; never delete v1 to “make room”.** Engine + games + staged
+   modules live under `v2/`. Leave the old tree intact. Copy modular tested
+   packages; **do not** copy reconciler / `three/tsx` / `physics/tsx` bridges.
+2. **Headless before pixels.** No GL/SDL present path until create / retain /
+   release / membership / dispose-backend pass on adapter + WASM command paths.
+   Soft-2D sprite *logic* and RGSP1 validation can be tested headless earlier.
 3. **One registry → every surface.** Schema under `v2/registry/` generates host
    commands, adapter bindings, WASM imports, TypeScript decls, and Rust
-   wrappers (D-REGISTRY).
+   wrappers (D-REGISTRY). Legacy block ABIs (RGSP1, RGU1, …) stay documented
+   until superseded.
 4. **Tests own the gate.** Each folder README lists the unit tests that prove
    that folder’s contract. A step is done only when those tests pass and the
    obsolete path is unused or tracked for retirement.
@@ -80,7 +126,9 @@ and each selected game actually need.
    issue the same registry commands against the same arenas (D-MODULES).
 6. **Games are selected ports.** Re-implement chosen titles under `v2/games/`
    on the new API; copy when the old code is mature enough, rewrite when it is
-   not. Keep the originals.
+   not. Keep the originals. **Include 2D/sprite games**, not only Three demos.
+7. **Staged copies are not live wiring.** A file under `v2/` still needs import
+   rewires, registry exposure, and gate tests before games depend on it.
 
 ---
 
@@ -129,6 +177,7 @@ gallery/game_engine/v2/
 │   │   │   ├── clip/
 │   │   │   ├── source/
 │   │   │   └── voice/
+│   │   ├── sprites/               # 2D sprite/sheet handles (Phase 10b)
 │   │   └── input/
 │   │       ├── action_map/
 │   │       └── gamepad/
@@ -182,13 +231,27 @@ gallery/game_engine/v2/
 ├── runtime/                       # host-driven Game loop (no RAF)
 │   ├── game_trait/
 │   └── frame/
-├── physics/                       # step / sync pose (after arenas)
+├── physics/                       # Cannon port (staged) + step wiring
+│   ├── cannon/                    # COPY of physics/src + tests
 │   └── step/
+├── three/                         # staged Ranger Three port (not tsx bridge)
+│   └── port/                      # COPY of three/src + three/tests
+├── sprites/                       # FIRST-CLASS 2D (host + RGSP1 + rust)
+│   ├── host/
+│   ├── abi/
+│   ├── rust/
+│   ├── runners/                   # reference only until rewired
+│   └── deps/
+├── lpc/                           # COPY LPC compositor + pack
+├── evg/                           # COPY gallery/evg primitives
+├── model3d/                       # COPY model readers + tests
+├── ui/                            # COPY retained UI widgets
+├── web/                           # COPY browser publish / VFS host
 ├── render/                        # LAST — backends only read host state
 │   └── backends/
 │       ├── software/
 │       └── gl/
-├── games/                         # selected titles re-implemented on v2 API
+├── games/                         # selected 2D + 3D titles on v2 API
 │   └── <name>/                    # copy-or-rewrite from top-level games/
 └── tests/                         # cross-cutting runners
     ├── unit/
@@ -230,34 +293,41 @@ of `gallery/game_engine/games/`.
 | **8** | Module isolation → `ranger:*` + frame pipeline | 4, 5 | No |
 | **9** | Physics arenas + pose sync (no draw) | 6, 8 | No |
 | **10** | Audio / input / surface (D-OWN voices, D-ASYNC loads) | 8 | No |
-| **11** | Render backends (software first, then GL) | 6–10 | **Yes** |
-| **12** | Selected `v2/games/` ports + `RETIRE-RECONCILE` | 11 | Yes |
+| **10b** | Sprite arenas + RGSP1 validation (headless 2D) | 2, 8 | No* |
+| **11** | Render backends (software/GL) + sprite present path | 6–10b | **Yes** |
+| **12** | Selected `v2/games/` (2D + 3D) + `RETIRE-RECONCILE` | 11 | Yes |
+
+\*Sprite *slot/list* logic and ABI validation are headless; blitting/present
+needs Phase 11.
 
 Phases 1–5 are the critical path: **before any frame is drawn**, create and free
 objects through both bridges under unit tests (ownership rules included).
 
 ---
 
-## Phase 0 — Scaffold (current step)
+## Phase 0 — Scaffold + staged modular copies (current step)
 
 **Deliverable**
 
 - [`CODE_CLEANUP_PLAN.md`](./CODE_CLEANUP_PLAN.md) (this file)
 - [`v2/`](./v2/) directory tree with a `README.md` in every folder
 - [`v2/games/`](./v2/games/) ready for selected ports (no bulk game copy yet)
+- Staged copies of modular tested packages (physics, three port, evaluator,
+  wasm headers, sprites, lpc, evg, model3d, ui, web)
 
 **Done when**
 
-- Layout matches the tree above
+- Layout matches the tree above (including `sprites/`)
 - Each README states: purpose, CODE_CLEANUP decisions, planned sources (if any),
   and the unit tests that gate that folder
-- Plan states clearly: rebuild in v2 (including games), do not delete v1
-- No production code required yet (stubs / empty `tests/` dirs are fine)
+- Plan states clearly: rebuild in v2 (including games + 2D sprites), do not
+  delete v1
+- Staged copies exist; rewire/live wiring is later phases
 
 **Do not**
 
-- Move `three_tsx_bridge.rgr` or reconciler paths into v2
-- Add render backends
+- Copy `three/tsx` or `physics/tsx` reconciler bridges into v2
+- Treat staged copies as live (games still must not depend on broken imports)
 - Bulk-copy or delete top-level `games/`
 
 ---
@@ -455,13 +525,30 @@ Prefer fake devices so CI stays headless.
 
 ---
 
+## Phase 10b — 2D sprites (headless host + RGSP1)
+
+Rewire staged `sprites/` onto host arenas / registry (or keep RGSP1 as a
+versioned block with validators). LPC compose can feed sheets.
+
+**Unit tests (gate)**
+
+| Test area | Asserts |
+|-----------|---------|
+| `sprites/` + `tests/contract` (to add) | add/remove retained sprite ≠ release sheet |
+| RGSP1 header | magic/version/size/slot clamps rejected when invalid |
+| optional LPC | compose preset → sheet bytes loadable by sprite host |
+
+---
+
 ## Phase 11 — Render (first time pixels are required)
 
 Backends under `v2/render/backends/` **read** host state only. Rendering is not
 a sync boundary (D-SYNC). Software backend first for CI; GL/SDL second.
+**Sprite present/blit** paths land here alongside 3D (soft-2D or GLES quads).
 
 **Gate:** cube/teapot-style fixture renders from live host objects created via
-adapter **and** via WASM — without calling any reconciler.
+adapter **and** via WASM — without calling any reconciler. Plus one retained
+sprite/sheet smoke (2D).
 
 ---
 
@@ -469,11 +556,12 @@ adapter **and** via WASM — without calling any reconciler.
 
 Re-home gameplay onto the new API; **leave the old games tree untouched**.
 
-1. **Select** a small set of titles (cube / teapot / one physics toy / one
-   input+audio sample — exact list TBD in `v2/games/README.md`).
+1. **Select** a small set of titles spanning **2D and 3D** (e.g. cube / teapot /
+   one Cannon toy / one sprite game such as Pac-Man or Breakout / one LPC
+   character sample — exact list in `v2/games/README.md`).
 2. For each title: **copy** into `v2/games/<name>/` if the old sources are
-   already close to live `ranger:*` usage; otherwise **rewrite** a thin version
-   on `runtime.start` / `export_game!`.
+   already close to the target API; otherwise **rewrite** a thin version on
+   `runtime.start` / `export_game!` / sprite APIs.
 3. Prove the game runs only against v2 modules (no reconciler imports).
 4. When `RETIRE-RECONCILE` criteria in CODE_CLEANUP are met, remove the
    reconciler from the *engine* path. Still do not require deleting v1 games.
@@ -489,17 +577,18 @@ tangled. **Never delete the v1 original** as part of a port.
 | Keep in v1 (reference; do not delete) | Why |
 |---------------------------------------|-----|
 | Top-level `games/*` | Source of truth for “what the game did”; ports land in `v2/games/` |
-| `three/tsx/*` wrapper tree + reconciler | Temporary compatibility (D-SYNC) until RETIRE-RECONCILE |
-| `three/src/three_gl_*.rgr`, software backend | Phase 11 only (adapt into `v2/render/`) |
-| Full `scripting/*` game runners | Reference for runners; rewrite against v2 runtime |
+| `three/tsx/*`, `physics/tsx/*` | Reconciler-era bridges — not copied into v2 |
+| Full `scripting/*` | Engine runners stay as reference; pieces staged under `sprites/`, etc. |
 
-| Bring early (copy/adapt) | Phase |
-|--------------------------|-------|
-| `EvalValue` / identity-related eval | 1 |
-| Minimal `ThreeSceneHost` handle/arena ideas (not full renderer) | 2 |
-| ABI header patterns from `wasm/*.h` / `ABI_V2_PROPOSAL.md` (as reference) | 5 |
-| Cannon math/body kernels (not SDL runners) | 9 |
-| Selected small games → `v2/games/<name>/` | 12 (earlier smoke OK once modules exist) |
+| Already staged under `v2/` (rewire next) | Phase |
+|------------------------------------------|-------|
+| `interp/migrate/src` evaluator slice | 1 |
+| `three/port` math/object model (+ backends later) | 2–7, 11 |
+| `bridge/wasm/legacy_blocks` | 5 / sprites / UI |
+| `physics/cannon` | 9 |
+| `sprites/*`, `lpc/`, `evg/`, `ui/` | 10b–11 |
+| `model3d/`, `web/` | 10–12 |
+| Selected small games → `v2/games/<name>/` | 12 |
 
 ---
 
@@ -546,8 +635,9 @@ Authoritative list: CODE_CLEANUP **Implementation gates** (9 steps). Plan map:
 - [ ] **Phase 8** — Module isolation → `ranger:*` + frame pipeline (drain async)
 - [ ] **Phase 9** — Physics step + pose sync (headless)
 - [ ] **Phase 10** — Audio/input/surface fakes (D-OWN voices, D-ASYNC loads)
-- [ ] **Phase 11** — First render from live host objects
-- [ ] **Phase 12** — Selected games re-implemented under `v2/games/` + `RETIRE-RECONCILE` (v1 games kept)
+- [ ] **Phase 10b** — Sprite host/RGSP1 headless gates (+ LPC smoke)
+- [ ] **Phase 11** — First render from live host objects + sprite present
+- [ ] **Phase 12** — Selected 2D+3D games under `v2/games/` + `RETIRE-RECONCILE` (v1 kept)
 
 ---
 

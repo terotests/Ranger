@@ -1,0 +1,208 @@
+; ==============================================================================
+; UITest - self-checking unit tests for the EVG UI layer (pure logic).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and a final
+; "ALL PASS" line (grep-able for CI). Covers input edges, hit-testing, focus &
+; text routing, editing, dragging, selection/removal, tab focus, the software
+; keyboard, and TrueType wrapping vs. the bitmap fallback.
+; ==============================================================================
+
+Import "../UILayer.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class UITest {
+    sfn newInput:UIInput () {
+        def i:UIInput (new UIInput)
+        return i
+    }
+
+    ; press+release "click" at a point, two frames.
+    sfn click:void (layer:UILayer input:UIInput px:int py:int) {
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(true)
+        layer.update(input)
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(false)
+        layer.update(input)
+    }
+
+    sfn buildLayer:UILayer () {
+        def layer:UILayer (new UILayer)
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(400 300)
+        layer.attach(canvas)
+        ; font optional for logic; load if available so wrap tests are real
+        layer.ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        layer.ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+
+        def btn:UIButton (new UIButton)
+        btn.id = "b"
+        btn.text = "Go"
+        btn.setBounds(10 10 80 30)
+        layer.add(btn)
+
+        def name:UITextInput (new UITextInput)
+        name.id = "name"
+        name.setBounds(10 60 300 30)
+        layer.add(name)
+
+        def box:UIBox (new UIBox)
+        box.id = "box"
+        box.setBounds(40 120 50 50)
+        layer.add(box)
+        return layer
+    }
+
+    sfn m@(main):void () {
+        def c:Checker (new Checker)
+        print "== UIInput edges =="
+        def inp:UIInput (new UIInput)
+        inp.newFrame()
+        inp.setPointerDown(true)
+        c.ok("press edge" inp.pointerPressed)
+        c.ok("not released on press" (inp.pointerReleased == false))
+        inp.newFrame()
+        inp.setPointerDown(false)
+        c.ok("release edge" inp.pointerReleased)
+        c.ok("press cleared next frame" (inp.pointerPressed == false))
+
+        print "== hit testing =="
+        def hbtn:UIButton (new UIButton)
+        hbtn.setBounds(10 10 80 30)
+        c.ok("contains inside" (hbtn.contains(20 20)))
+        c.ok("outside right" (hbtn.contains(100 20) == false))
+        c.ok("edge exclusive" (hbtn.contains(90 20) == false))
+
+        print "== focus + text routing =="
+        def layer:UILayer (UITest.buildLayer())
+        UITest.click(layer inp 30 72)
+        c.eqStr("focus is name" layer.focusId "name")
+        inp.newFrame()
+        inp.pushText("Neo")
+        layer.update(inp)
+        def nameW:UIWidget (layer.get("name"))
+        c.eqStr("typed value" nameW.text "Neo")
+
+        print "== editing: backspace + caret + delete =="
+        inp.newFrame()
+        inp.pushKey((UIKey.backspace()))
+        layer.update(inp)
+        def nameW2:UIWidget (layer.get("name"))
+        c.eqStr("after backspace" nameW2.text "Ne")
+        ; move caret home then delete-forward removes 'N'
+        inp.newFrame()
+        inp.pushKey((UIKey.left()))
+        layer.update(inp)
+        inp.newFrame()
+        inp.pushKey((UIKey.left()))
+        layer.update(inp)
+        inp.newFrame()
+        inp.pushKey((UIKey.del()))
+        layer.update(inp)
+        def nameW3:UIWidget (layer.get("name"))
+        c.eqStr("after delete-forward at home" nameW3.text "e")
+
+        print "== dragging a box =="
+        def layer2:UILayer (UITest.buildLayer())
+        ; press on the box, move, release
+        inp.newFrame()
+        inp.setPointerPos(50 130)
+        inp.setPointerDown(true)
+        layer2.update(inp)
+        inp.newFrame()
+        inp.setPointerPos(200 210)
+        inp.setPointerDown(true)
+        layer2.update(inp)
+        inp.newFrame()
+        inp.setPointerPos(200 210)
+        inp.setPointerDown(false)
+        layer2.update(inp)
+        def boxW:UIWidget (layer2.get("box"))
+        ; grabbed at offset (10,10) -> new x = 200-10, y = 210-10
+        c.eqInt("dragged x" boxW.x 190)
+        c.eqInt("dragged y" boxW.y 200)
+        c.eqStr("box selected via press" layer2.selectedId "box")
+
+        print "== selection removal =="
+        def before:int (array_length layer2.widgets)
+        layer2.removeSelected()
+        def after:int (array_length layer2.widgets)
+        c.eqInt("widget removed" after (before - 1))
+        c.eqStr("selection cleared" layer2.selectedId "")
+
+        print "== tab focus cycling =="
+        def layer3:UILayer (UITest.buildLayer())
+        layer3.setFocus("b")
+        inp.newFrame()
+        inp.pushKey((UIKey.tab()))
+        layer3.update(inp)
+        c.eqStr("tab moved focus to name" layer3.focusId "name")
+
+        print "== software keyboard =="
+        def kb:UISoftKeyboard (new UISoftKeyboard)
+        kb.setBounds(0 0 400 100)
+        c.eqStr("charFor A lower (no shift)" (kb.charFor("A")) "a")
+        kb.toggleShift()
+        c.eqStr("charFor A upper (shift)" (kb.charFor("A")) "A")
+        c.eqStr("charFor space" (kb.charFor("space")) " ")
+        c.ok("back is control" (kb.isControl("back")))
+        c.ok("A is not control" (kb.isControl("A") == false))
+        ; tokenAt: row0 is "1..0" across full width -> first cell is '1'
+        c.eqStr("tokenAt top-left" (kb.tokenAt(5 5)) "1")
+
+        print "== keyboard routed into focused field =="
+        def layer4:UILayer (UITest.buildLayer())
+        layer4.showKeyboard(0 200 400 100)
+        UITest.click(layer4 inp 30 72)        ; focus name
+        layer4.applyKeyboardToken("H")
+        layer4.applyKeyboardToken("I")
+        def nameK:UIWidget (layer4.get("name"))
+        c.eqStr("keyboard typed lowercase" nameK.text "hi")
+
+        print "== text wrapping (TrueType metrics) =="
+        def tw:double (layer.ctx.measureWidth("Hello" 16.0))
+        c.ok("measured width positive" (tw > 0.0))
+        def lines:[string] (layer.ctx.tr.wrap("the quick brown fox jumps over the lazy dog" 16.0 120.0))
+        c.ok("wrap produced multiple lines" ((array_length lines) > 1))
+
+        print "== bitmap fallback wrapping (no font) =="
+        def bare:UITextRenderer (new UITextRenderer)
+        c.ok("bitmap: no font loaded" (bare.hasFont == false))
+        def bl:[string] (bare.wrap("aaaa bbbb cccc dddd eeee" 12.0 40.0))
+        c.ok("bitmap wrap produced multiple lines" ((array_length bl) > 1))
+        def bw:double (bare.measureWidth("abc" 12.0))
+        c.ok("bitmap measured width positive" (bw > 0.0))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

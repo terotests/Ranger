@@ -1,0 +1,221 @@
+; ==============================================================================
+; wasm_sprite_runner — host side of the RGSP1 sprite ABI.
+; Offsets/layout mirror wasm/wasm_sprite_abi.h.
+; ==============================================================================
+;
+; The guest owns the slot list (which character, animation, direction, position);
+; the host owns the catalog + rendering. Each tick the host reads the guest's
+; RGSP1 block (UNTRUSTED — every id/count/index is clamped or defaulted) and
+; resolves each active slot into a concrete draw command: which spritesheet, the
+; source sub-rect for the current animation frame + direction, and the on-screen
+; position (with a synthesised hop for JUMP until real jump art is present).
+;
+; This layer is pure logic and PNG-free so it is testable in the es6/Node build,
+; where the wasm_* operators are stubs. The demo (wasm_sprite_runner_demo) feeds
+; it a hand-written block — exactly the bytes a Rust/AS guest would write — and
+; blits the resolved commands into a montage.
+
+Import "../lpc/src/lpc_char_catalog.rgr"
+
+; One resolved draw command for a slot (what the renderer needs, nothing more).
+class SpriteDraw {
+    def valid:boolean false
+    def charId:int 0
+    def name:string ""
+    def slug:string ""
+    def sheet:string ""     ; pack-relative sheet path
+    def anim:int 0
+    def dir:int 0
+    def frame:int 0
+    def frameW:int 64
+    def frameH:int 64
+    def srcX:int 0
+    def srcY:int 0
+    def screenX:int 0       ; top-left blit target (feet-anchored, hop applied)
+    def screenY:int 0
+    def hopPx:int 0         ; vertical hop for JUMP (already applied to screenY)
+    def flipX:boolean false
+}
+
+; Little-endian view over a host-owned copy of the guest's RGSP1 block.
+class SpriteAbiBlock {
+    def bytes:[int]
+    def length:int 0
+
+    fn u8:int (off:int) {
+        if (off < 0) { return 0 }
+        if (off >= length) { return 0 }
+        return (itemAt bytes off)
+    }
+
+    fn u32:int (off:int) {
+        def b0 (this.u8(off))
+        def b1 (this.u8(off + 1))
+        def b2 (this.u8(off + 2))
+        def b3 (this.u8(off + 3))
+        return (b0 + ((b1 * 256) + ((b2 * 65536) + (b3 * 16777216))))
+    }
+
+    ; signed 32-bit (positions may be negative). Built from bytes so it stays
+    ; correct on a 32-bit int target (C++) as well as es6 doubles — no literal
+    ; ever exceeds INT_MAX, unlike a (v - 4294967296) fixup would.
+    fn i32:int (off:int) {
+        def b0:int (this.u8(off))
+        def b1:int (this.u8(off + 1))
+        def b2:int (this.u8(off + 2))
+        def b3:int (this.u8(off + 3))
+        def lo:int ((b0 + (b1 * 256)) + (b2 * 65536))
+        if (b3 >= 128) {
+            return (lo + ((b3 - 256) * 16777216))
+        }
+        return (lo + (b3 * 16777216))
+    }
+
+    fn setLength:void (n:int) {
+        length = n
+    }
+}
+
+class SpriteHost {
+    def catalog:LpcCharCatalog (new LpcCharCatalog())
+    def block:SpriteAbiBlock (new SpriteAbiBlock())
+
+    ; ---- RGSP1 offsets (mirror wasm_sprite_abi.h; inlined below because Ranger
+    ; forbids a method call as an argument to another method call) -------------
+    ;   0 magic  4 version  8 size  12 dt_ms  16 time_ms  20 char_count
+    ;   24 slot_count  64 slots[]  slot: +0 charId +4 anim +8 dir +12 flags
+    ;   +16 xFp +20 yFp +24 clock +28 frame ; slotSize 32 ; maxSlots 64
+    fn maxSlots:int ()      { return 64 }
+    fn slotSize:int ()      { return 32 }
+    fn abiMagic:int ()      { return 1347635026 }   ; 'RGSP' little-endian (0x50534752)
+    fn frameSize:int ()     { return 64 }
+
+    fn bind:void (bytes:[int] length:int) {
+        block.bytes = bytes
+        block.setLength(length)
+    }
+
+    fn magicOk:boolean () {
+        def m:int (block.u32(0))
+        def want:int (this.abiMagic())
+        return (m == want)
+    }
+
+    fn version:int ()   { return (block.u32(4)) }
+    fn dtMs:int ()      { return (block.i32(12)) }
+    fn timeMs:int ()    { return (block.i32(16)) }
+
+    fn slotCount:int () {
+        def n:int (block.i32(24))
+        def cap:int (this.maxSlots())
+        if (n < 0) { return 0 }
+        if (n > cap) { return cap }
+        return n
+    }
+
+    fn slotBase:int (i:int) {
+        return (64 + (i * 32))
+    }
+
+    ; ---- animation table (mirror pack/characters/catalog.json) --------------
+    fn animFrameCount:int (anim:int) {
+        if (anim == 2) { return 5 }     ; jump
+        return 9                        ; walk / run share the 9-frame strip
+    }
+    fn animFps:int (anim:int) {
+        if (anim == 1) { return 13 }    ; run
+        if (anim == 2) { return 10 }    ; jump
+        return 9                        ; walk
+    }
+    fn jumpHoldFrame:int ()  { return 2 }
+    fn jumpHopPixels:int ()  { return 14 }
+    fn jumpDurationMs:int () { return 500 }
+
+    ; Parabolic hop height (px) for a jump clock position, peaking mid-jump.
+    fn hopFor:int (clockMs:int) {
+        def dur:int (this.jumpDurationMs())
+        def t:int clockMs
+        if (t < 0) { t = 0 }
+        if (t > dur) { t = dur }
+        ; hop = hopPx * 4 * p * (1-p), p = t/dur ; integer form over dur*dur
+        def num:int ((((this.jumpHopPixels()) * 4) * t) * (dur - t))
+        return (to_int (num / (dur * dur)))
+    }
+
+    ; Frame index for host-driven timing.
+    fn timedFrame:int (anim:int clockMs:int) {
+        def fc:int (this.animFrameCount(anim))
+        def fps:int (this.animFps(anim))
+        if (fc <= 0) { return 0 }
+        def f:int (to_int ((clockMs * fps) / 1000))
+        def q:int (to_int (f / fc))
+        return (f - (q * fc))   ; f mod fc
+    }
+
+    fn clampDir:int (d:int) {
+        if (d < 0) { return 0 }
+        if (d > 3) { return 3 }
+        return d
+    }
+
+    ; Resolve slot i into a draw command. Returns an invalid SpriteDraw for empty
+    ; / out-of-catalog slots (caller skips !valid).
+    fn resolve:SpriteDraw (i:int) {
+        def d:SpriteDraw (new SpriteDraw())
+        if (i < 0) { return d }
+        if (i >= (this.slotCount())) { return d }
+
+        def base:int (this.slotBase(i))
+        def charId:int (block.i32(base + 0))
+        def flags:int (block.u32(base + 12))
+        def active:boolean ((bit_and flags 1) != 0)
+        if (charId <= 0) { return d }
+        if (charId > (this.catalog.charCount())) { return d }
+        if (active == false) { return d }
+
+        def anim:int (block.i32(base + 4))
+        def dirRaw:int (block.i32(base + 8))
+        def dir:int (this.clampDir(dirRaw))
+        def xFp:int (block.i32(base + 16))
+        def yFp:int (block.i32(base + 20))
+        def clock:int (block.i32(base + 24))
+
+        def frame:int 0
+        def frameOverride:boolean ((bit_and flags 2) != 0)
+        if (frameOverride) {
+            frame = (block.i32(base + 28))
+        } {
+            ; jump falls back to walk art: hold a mid-stride frame, animate the hop
+            if (anim == 2) {
+                frame = (this.jumpHoldFrame())
+            } {
+                frame = (this.timedFrame(anim clock))
+            }
+        }
+
+        def fw:int (this.frameSize())
+        def fh:int (this.frameSize())
+        def hop:int 0
+        if (anim == 2) {
+            hop = (this.hopFor(clock))
+        }
+
+        d.valid = true
+        d.charId = charId
+        d.name = (this.catalog.nameOf(charId))
+        d.slug = (this.catalog.slugOf(charId))
+        d.sheet = (d.slug + "/walk.png")
+        d.anim = anim
+        d.dir = dir
+        d.frame = frame
+        d.frameW = fw
+        d.frameH = fh
+        d.srcX = (frame * fw)
+        d.srcY = (dir * fh)                 ; walk layout: sheet rows are directions
+        d.screenX = (to_int (xFp / 256))
+        d.screenY = ((to_int (yFp / 256)) - hop)
+        d.hopPx = hop
+        d.flipX = ((bit_and flags 4) != 0)
+        return d
+    }
+}

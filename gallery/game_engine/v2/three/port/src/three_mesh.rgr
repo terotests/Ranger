@@ -1,0 +1,72 @@
+; ==============================================================================
+; three_mesh — geometry + material scene node (Three.js src/objects/Mesh.js).
+; ==============================================================================
+; An Object3D that pairs a geometry with a material. `new Mesh(geometry, material)`
+; in Three.js -> `new ThreeMesh` + `.setGeometry(g).setMaterial(m)` here. The
+; material is the base ThreeMaterial so a Basic/Lambert/Phong instance all fit.
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_buffer_geometry.rgr"
+Import "three_material.rgr"
+Import "three_render_backend.rgr"
+Import "three_matrix4.rgr"
+
+class ThreeMesh extends ThreeObject3D {
+    def isMesh:boolean true
+    def geometry:ThreeBufferGeometry (new ThreeBufferGeometry)
+    def material:ThreeMaterial (new ThreeMaterial)
+    ; shadow participation (the example sets both on every Sponza mesh).
+    def castShadow:boolean false
+    def receiveShadow:boolean false
+
+    fn setGeometry:ThreeMesh (g:ThreeBufferGeometry) {
+        this.geometry = g
+        return this
+    }
+    fn setMaterial:ThreeMesh (m:ThreeMaterial) {
+        this.material = m
+        return this
+    }
+
+    ; override: draw this mesh with model = world matrix and mvp = viewProj * world.
+    ; The backend reads lighting/appearance from the material and lights from the
+    ; per-frame setLights/setView the renderer already fed it.
+    fn renderInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
+        if (this.visible == false) {
+            return
+        }
+        def mvp:ThreeMatrix4 (viewProj.clone())
+        mvp.multiply(this.matrixWorld)
+        backend.drawMesh(this.geometry this.matrixWorld mvp this.material)
+    }
+
+    ; override: draw this mesh's depth from the light (only if it casts shadows).
+    fn renderDepthInto:void (backend:ThreeRenderBackend lightViewProj:ThreeMatrix4) {
+        if (this.visible == false) {
+            return
+        }
+        if (this.castShadow == false) {
+            return
+        }
+        def mvp:ThreeMatrix4 (lightViewProj.clone())
+        mvp.multiply(this.matrixWorld)
+        backend.drawDepth(this.geometry mvp)
+    }
+
+    ; override: expand a Box3 by this mesh's vertices, transformed into world space.
+    fn contributeBounds:void (box:ThreeBox3) {
+        def vc:int (this.geometry.vertexCount())
+        def v:int 0
+        def local:ThreeVector3 (new ThreeVector3)
+        while (v < vc) {
+            def px:double (this.geometry.getPosition(v 0))
+            def py:double (this.geometry.getPosition(v 1))
+            def pz:double (this.geometry.getPosition(v 2))
+            local.set(px py pz)
+            def world:ThreeVector3 (this.matrixWorld.transformPoint(local))
+            box.expandByPoint(world)
+            v = (v + 1)
+        }
+    }
+}

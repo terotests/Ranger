@@ -1,0 +1,44 @@
+; ==============================================================================
+; cannon_trimesh — static triangle mesh (cannon-es Trimesh, subset).
+;   Triangles are stored flat (9 doubles per triangle: v0, v1, v2). Collision
+;   with a sphere (see cannon_narrowphase) uses the closest point on each
+;   triangle. Intended for static level geometry.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_shape.rgr"
+
+class CannonTrimesh extends CannonShape {
+    def verts:[double]
+    def hugeRadius:double 1000000000.0
+
+    fn initTrimesh:void () {
+        this.initShape(8)
+        this.boundingSphereRadius = this.hugeRadius
+    }
+
+    fn addTriangle:void (ax:double ay:double az:double bx:double by:double bz:double cx:double cy:double cz:double) {
+        push this.verts ax
+        push this.verts ay
+        push this.verts az
+        push this.verts bx
+        push this.verts by
+        push this.verts bz
+        push this.verts cx
+        push this.verts cy
+        push this.verts cz
+    }
+
+    fn updateBoundingSphereRadius:void () {
+        this.boundingSphereRadius = this.hugeRadius
+    }
+
+    fn trimeshTriangleCount:int () {
+        return (idiv (array_length this.verts) 9)
+    }
+
+    fn trimeshVertex:void (tri:int corner:int out:CannonVec3) {
+        def base:int ((tri * 9) + (corner * 3))
+        out.set((itemAt this.verts base) (itemAt this.verts (base + 1)) (itemAt this.verts (base + 2)))
+    }
+}

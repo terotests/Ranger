@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ranger Games — edit &amp; live-reload in the browser</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎮</text></svg>"
+    />
+    <link rel="stylesheet" href="./editor.bundle.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c1020;
+        --panel: #151a2e;
+        --ink: #e6e9f3;
+        --muted: #97a0bd;
+        --accent: #6ea8ff;
+        --good: #58d38c;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: radial-gradient(1200px 600px at 50% -10%, #1b2140, var(--bg));
+        color: var(--ink);
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      header { padding: 18px 22px 6px; }
+      h1 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+      .sub { color: var(--muted); margin: 2px 0 0; font-size: 13px; }
+      .sub code { color: var(--accent); }
+      .toolbar {
+        display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+        padding: 10px 22px;
+      }
+      select, button {
+        font: inherit; color: var(--ink); background: #1e2540;
+        border: 1px solid #313a5c; border-radius: 8px; padding: 7px 11px; cursor: pointer;
+      }
+      button:hover, select:hover { border-color: var(--accent); }
+      label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+      .status { margin-left: auto; color: var(--muted); font-size: 13px; min-width: 0; }
+      .status .ok { color: var(--good); }
+      main {
+        --editor-pct: 55%;
+        flex: 1; display: flex; gap: 0; padding: 4px 22px 22px;
+        align-items: stretch; min-height: 0;
+      }
+      .card {
+        background: var(--panel); border: 1px solid #262d47; border-radius: 12px;
+        overflow: hidden; box-shadow: 0 20px 60px -30px #000a;
+        display: flex; flex-direction: column; min-height: 0;
+      }
+      .card .cap {
+        padding: 8px 12px; color: var(--muted); font-size: 12px;
+        border-bottom: 1px solid #262d47; flex: 0 0 auto;
+      }
+      .editor-pane {
+        flex: 0 0 var(--editor-pct); min-width: 240px; max-width: calc(100% - 210px);
+      }
+      .view-pane { flex: 1 1 auto; min-width: 200px; }
+      .splitter {
+        flex: 0 0 10px; margin: 0 2px; cursor: col-resize; touch-action: none;
+        position: relative; align-self: stretch; border-radius: 6px;
+        background: transparent;
+      }
+      .splitter::before {
+        content: ""; position: absolute; top: 12px; bottom: 12px; left: 3px; right: 3px;
+        border-radius: 3px; background: #262d47; transition: background 0.12s ease;
+      }
+      .splitter:hover::before,
+      .splitter:focus-visible::before,
+      body.splitting .splitter::before {
+        background: var(--accent);
+      }
+      .splitter:focus-visible { outline: none; }
+      body.splitting { cursor: col-resize; user-select: none; }
+      body.splitting iframe, body.splitting canvas { pointer-events: none; }
+      #editor { flex: 1; min-height: 280px; width: 100%; height: 100%; }
+      .stage { padding: 14px; flex: 1; min-width: 0; }
+      canvas {
+        display: block; image-rendering: pixelated;
+        width: 100%; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
+        border-radius: 8px; background: #0a0e1a;
+      }
+      /* WebGL 3D games (kind:tsx3d-gl) want a square, smoothly-sampled surface. */
+      canvas.gl3d { aspect-ratio: 1 / 1; image-rendering: auto; }
+      .controls { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+      .hint { color: var(--muted); font-size: 12px; padding: 0 22px 18px; }
+      .hint code { color: var(--accent); }
+      a { color: var(--accent); }
+      main.no-editor .editor-pane,
+      main.no-editor .splitter { display: none; }
+      main.no-editor .view-pane { flex: 1 1 auto; max-width: none; }
+      @media (max-width: 900px) {
+        main { flex-direction: column; gap: 14px; }
+        .editor-pane { flex: none; width: 100%; max-width: none; min-width: 0; }
+        .view-pane { flex: none; width: 100%; min-width: 0; }
+        .splitter { display: none; }
+        #editor { height: 50vh; flex: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Ranger Games — live editor</h1>
+      <p class="sub">
+        The engine compiled to <code>JavaScript</code>, a <code>Monaco</code>
+        editor, and a <code>virtual filesystem</code> shared between them. Edit
+        the game and it hot-reloads — no restart.
+      </p>
+    </header>
+
+    <div class="toolbar">
+      <label>Game <select id="game"></select></label>
+      <label class="chk"><input type="checkbox" id="autoreload" checked /> Auto-reload on edit</label>
+      <label class="chk"><input type="checkbox" id="sound" checked /> Sound</label>
+      <button id="reload">Reload now</button>
+      <button id="restart">Restart</button>
+      <button id="pause">Pause</button>
+      <span class="status" id="status">loading…</span>
+    </div>
+
+    <main id="split">
+      <section class="card editor-pane">
+        <div class="cap" id="filecap">script</div>
+        <div id="editor"></div>
+      </section>
+      <div
+        class="splitter"
+        id="splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize editor and game view"
+        aria-valuemin="20"
+        aria-valuemax="80"
+        aria-valuenow="55"
+        tabindex="0"
+      ></div>
+      <section class="card view-pane">
+        <div class="cap">canvas — the running game</div>
+        <div class="stage">
+          <canvas id="screen" width="480" height="270"></canvas>
+          <div class="controls" id="controls"></div>
+        </div>
+      </section>
+    </main>
+
+    <p class="hint">
+      Try editing a constant near the top of the script (a colour, a speed, a
+      size) and watch the game update. Edits to <code>update</code>/<code>hud</code>
+      keep the running state; edits to <code>initState</code>/<code>sprites</code>
+      rebuild the scene. A connected <code>gamepad</code> works too (d-pad/stick +
+      A), and sound is the engine's own synth played through Web Audio.
+    </p>
+
+    <script src="./vfs.js"></script>
+    <script src="./engine-host.js"></script>
+    <script src="./runner.js"></script>
+    <script src="./tsx3d-viewer.js"></script>
+    <script src="./tsx3d-gl-viewer.js"></script>
+    <script src="./teapot-tsx-viewer.js"></script>
+    <script src="./sponza-tsx-viewer.js"></script>
+    <script src="./editor.bundle.js"></script>
+    <script>
+      const statusEl = document.getElementById("status");
+      const selectEl = document.getElementById("game");
+      const controlsEl = document.getElementById("controls");
+      const fileCapEl = document.getElementById("filecap");
+      const autoEl = document.getElementById("autoreload");
+      const splitEl = document.getElementById("split");
+      const splitterEl = document.getElementById("splitter");
+      let canvas = document.getElementById("screen");
+      let bundleSource = null;
+      let tsx3dBundle = null;
+      let tsx3dGlBundle = null;
+      let teapotTsxBundle = null;
+      let sponzaTsxBundle = null;
+      let registry = [];
+      let session = null;
+      let editor = null;
+      let paused = false;
+      let editTimer = 0;
+      let suppressChange = false;
+
+      const SPLIT_KEY = "ranger-games-editor-pct";
+      const SPLIT_DEFAULT = 55;
+      const SPLIT_MIN = 20;
+      const SPLIT_MAX = 80;
+
+      const setStatus = (msg, ok) =>
+        (statusEl.innerHTML = ok ? '<span class="ok">' + msg + "</span>" : msg);
+
+      function setEditorPct(pct) {
+        const n = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(pct)));
+        splitEl.style.setProperty("--editor-pct", n + "%");
+        splitterEl.setAttribute("aria-valuenow", String(n));
+        try {
+          localStorage.setItem(SPLIT_KEY, String(n));
+        } catch (_) {}
+        return n;
+      }
+
+      function initSplitter() {
+        let saved = SPLIT_DEFAULT;
+        try {
+          const raw = localStorage.getItem(SPLIT_KEY);
+          if (raw != null && raw !== "") saved = Number(raw);
+        } catch (_) {}
+        if (!Number.isFinite(saved)) saved = SPLIT_DEFAULT;
+        setEditorPct(saved);
+
+        let dragging = false;
+        const onMove = (clientX) => {
+          const rect = splitEl.getBoundingClientRect();
+          if (rect.width <= 0) return;
+          setEditorPct(((clientX - rect.left) / rect.width) * 100);
+        };
+
+        splitterEl.addEventListener("pointerdown", (e) => {
+          if (window.matchMedia("(max-width: 900px)").matches) return;
+          dragging = true;
+          document.body.classList.add("splitting");
+          splitterEl.setPointerCapture(e.pointerId);
+          e.preventDefault();
+        });
+        splitterEl.addEventListener("pointermove", (e) => {
+          if (!dragging) return;
+          onMove(e.clientX);
+        });
+        const endDrag = (e) => {
+          if (!dragging) return;
+          dragging = false;
+          document.body.classList.remove("splitting");
+          try {
+            splitterEl.releasePointerCapture(e.pointerId);
+          } catch (_) {}
+        };
+        splitterEl.addEventListener("pointerup", endDrag);
+        splitterEl.addEventListener("pointercancel", endDrag);
+        splitterEl.addEventListener("dblclick", () => setEditorPct(SPLIT_DEFAULT));
+        splitterEl.addEventListener("keydown", (e) => {
+          const cur = Number(splitterEl.getAttribute("aria-valuenow")) || SPLIT_DEFAULT;
+          if (e.key === "ArrowLeft") {
+            setEditorPct(cur - 2);
+            e.preventDefault();
+          } else if (e.key === "ArrowRight") {
+            setEditorPct(cur + 2);
+            e.preventDefault();
+          } else if (e.key === "Home") {
+            setEditorPct(SPLIT_MIN);
+            e.preventDefault();
+          } else if (e.key === "End") {
+            setEditorPct(SPLIT_MAX);
+            e.preventDefault();
+          }
+        });
+      }
+
+      async function fetchText(u) {
+        const r = await fetch(u);
+        if (!r.ok) throw new Error("fetch " + u + " -> " + r.status);
+        return r.text();
+      }
+      async function fetchBuffer(u) {
+        const r = await fetch(u);
+        if (!r.ok) throw new Error("fetch " + u + " -> " + r.status);
+        return r.arrayBuffer();
+      }
+
+      function ensureEditor(value) {
+        if (!window.RangerEditor) return null; // editor bundle absent
+        if (!editor) {
+          editor = window.RangerEditor.create(document.getElementById("editor"), value, {});
+          editor.onDidChangeModelContent(() => {
+            if (suppressChange) return;
+            if (!autoEl.checked) {
+              setStatus("edited — press Reload now");
+              return;
+            }
+            clearTimeout(editTimer);
+            editTimer = setTimeout(applyEdit, 350);
+          });
+        } else {
+          suppressChange = true;
+          editor.setValue(value);
+          suppressChange = false;
+        }
+        return editor;
+      }
+
+      function applyEdit() {
+        if (!session || !editor || typeof session.reload !== "function") return;
+        try {
+          const rebuilt = session.reload(editor.getValue());
+          setStatus(rebuilt ? "reloaded ✓ (scene rebuilt)" : "reloaded ✓ (state kept)", true);
+        } catch (e) {
+          setStatus("reload error: " + e.message);
+          console.error(e);
+        }
+      }
+
+      // Replace the canvas element so each game gets a clean context: a WebGL
+      // (tsx3d-gl) game and a 2D game/scene can't share one canvas (the context
+      // type is fixed once acquired).
+      function freshCanvas(width, height, gl3d) {
+        const old = document.getElementById("screen");
+        const c = document.createElement("canvas");
+        c.id = "screen";
+        c.width = width || 480;
+        c.height = height || 270;
+        if (gl3d) c.className = "gl3d";
+        old.replaceWith(c);
+        canvas = c;
+        return c;
+      }
+
+      async function loadGame(entry) {
+        if (session) {
+          session.stop();
+          // release any per-game DOM the session added (e.g. the teapot's 2D GUI
+          // overlay canvas), so it doesn't linger over the next game.
+          if (typeof session.dispose === "function") session.dispose();
+        }
+        setStatus("loading " + entry.title + "…");
+        controlsEl.textContent = entry.controls || "";
+        fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
+        const gl3d = entry.kind === "tsx3d-gl" || entry.kind === "teapot-tsx" || entry.kind === "sponza-tsx";
+        freshCanvas(entry.width || entry.size, entry.height || entry.size, gl3d);
+
+        // WebGL TSX 3D: the canonical Three.js cube runs 1:1 in the interpreter
+        // and renders on the GPU through WebTsx3dGlHost. The editor shows cube.tsx.
+        if (entry.kind === "tsx3d-gl") {
+          if (!tsx3dGlBundle) tsx3dGlBundle = await fetchText("./tsx3d-gl.bundle.js");
+          const [facadeSrc, cubeSrc] = await Promise.all([
+            fetchText(entry.facadeUrl),
+            fetchText(entry.scriptUrl),
+          ]);
+          session = await window.RangerTsx3dViewer.launch({
+            bundleSource: tsx3dGlBundle,
+            canvas,
+            facadeSrc,
+            cubeSrc,
+            texturePath: entry.texturePath,
+            textureUrl: entry.textureUrl,
+          });
+          ensureEditor(session.getSource());
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
+          setStatus(entry.title + " — the interpreted cube.tsx, drawn with WebGL", true);
+          return;
+        }
+
+        // Interpreted WebGL teapot: teapot.tsx (the example's scene code) runs in
+        // the interpreter and renders on the GPU through WebTeapotTsxHost. The
+        // editor shows teapot.tsx and edits hot-reload; orbit/zoom/panel drive it.
+        if (entry.kind === "teapot-tsx") {
+          if (!teapotTsxBundle) teapotTsxBundle = await fetchText("./teapot-tsx.bundle.js");
+          const [facadeSrc, scriptSrc] = await Promise.all([
+            fetchText(entry.facadeUrl),
+            fetchText(entry.scriptUrl),
+          ]);
+          session = await window.RangerTeapotTsxViewer.launch({
+            bundleSource: teapotTsxBundle,
+            canvas,
+            facadeSrc,
+            scriptSrc,
+          });
+          ensureEditor(session.getSource());
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
+          setStatus(entry.title + " — the interpreted teapot.tsx, drawn with WebGL", true);
+          return;
+        }
+
+        // Interpreted WebGL Sponza: sponza.tsx runs in the interpreter and renders
+        // on the GPU through WebSponzaTsxHost. The real glTF model + textures stream
+        // in from the Khronos sample assets; WASD / arrows move, drag to look.
+        if (entry.kind === "sponza-tsx") {
+          if (!sponzaTsxBundle) sponzaTsxBundle = await fetchText("./sponza-tsx.bundle.js");
+          const [facadeSrc, scriptSrc] = await Promise.all([
+            fetchText(entry.facadeUrl),
+            fetchText(entry.scriptUrl),
+          ]);
+          session = await window.RangerSponzaTsxViewer.launch({
+            bundleSource: sponzaTsxBundle,
+            canvas,
+            facadeSrc,
+            scriptSrc,
+            onStatus: (msg, ready) => setStatus(msg, ready === true),
+          });
+          ensureEditor(session.getSource());
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
+          setStatus(entry.title + " — streaming model + textures…", true);
+          return;
+        }
+
+        // TSX-script-driven 3D scene: run the .tsx through WebTsx3dHost (host
+        // loads the GLB + software-renders), not the 2D GameRunner. The editor
+        // shows the actual scene script.
+        if (entry.kind === "tsx3d") {
+          const zipBuffer = await fetchBuffer(entry.pkg);
+          session = await window.RangerTsx3d.launch({
+            bundleSource: tsx3dBundle,
+            zipBuffer,
+            canvas,
+            size: entry.size || 480,
+            scriptDir: entry.scriptDir,
+            scriptFile: entry.script,
+          });
+          ensureEditor(session.getSource());
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
+          setStatus(entry.title + " — " + session.host.triangleCount() + " triangles (software-rendered)", true);
+          return;
+        }
+
+        const zipBuffer = await fetchBuffer(entry.pkg);
+        session = await window.RangerRunner.launch({
+          bundleSource,
+          zipBuffer,
+          width: entry.width,
+          height: entry.height,
+          canvas,
+          scriptDir: entry.scriptDir,
+          scriptFile: entry.script,
+          muted: !document.getElementById("sound").checked,
+          onStats: (s) => {
+            if (!document.hidden)
+              setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
+          },
+        });
+        ensureEditor(session.getSource());
+        paused = false;
+        document.getElementById("pause").textContent = "Pause";
+      }
+
+      async function boot() {
+        try {
+          bundleSource = await fetchText("./engine.bundle.js");
+          tsx3dBundle = await fetchText("./tsx3d.bundle.js");
+          registry = JSON.parse(await fetchText("./games.json"));
+          selectEl.innerHTML = registry
+            .map((g, i) => '<option value="' + i + '">' + g.title + "</option>")
+            .join("");
+          selectEl.onchange = () => loadGame(registry[+selectEl.value]);
+          document.getElementById("reload").onclick = applyEdit;
+          document.getElementById("sound").onchange = (e) => {
+            if (session && session.setMuted) session.setMuted(!e.target.checked);
+          };
+          document.getElementById("restart").onclick = () => loadGame(registry[+selectEl.value]);
+          document.getElementById("pause").onclick = () => {
+            if (!session) return;
+            paused = !paused;
+            if (paused) session.stop();
+            else session.start();
+            document.getElementById("pause").textContent = paused ? "Resume" : "Pause";
+          };
+          initSplitter();
+          await loadGame(registry[0]);
+          if (!window.RangerEditor) {
+            splitEl.classList.add("no-editor");
+            document.getElementById("editor").innerHTML =
+              '<p style="padding:16px;color:#97a0bd">Editor bundle not built — run <code>npm ci</code> in <code>gallery/game_engine/web</code> then rebuild.</p>';
+          }
+        } catch (e) {
+          setStatus("error: " + e.message);
+          console.error(e);
+        }
+      }
+      boot();
+    </script>
+  </body>
+</html>

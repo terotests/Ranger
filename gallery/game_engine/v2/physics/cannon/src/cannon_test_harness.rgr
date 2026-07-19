@@ -1,0 +1,88 @@
+; ==============================================================================
+; cannon_test_harness — minimal nodeunit-style assertions for Cannon port tests.
+; ==============================================================================
+
+class CannonTestHarness {
+    def failCount:int 0
+    def passCount:int 0
+    def currentTest:string ""
+    def testFailed:boolean false
+
+    fn beginTest:void (name:string) {
+        this.currentTest = name
+        this.testFailed = false
+    }
+
+    fn ok:boolean (condition:boolean message:string) {
+        if (condition) {
+            return true
+        }
+        this.testFailed = true
+        this.failCount = (this.failCount + 1)
+        print ("FAIL " + this.currentTest + ": " + message)
+        return false
+    }
+
+    fn equal:boolean (actual:double expected:double message:string) {
+        if (actual == expected) {
+            return true
+        }
+        this.testFailed = true
+        this.failCount = (this.failCount + 1)
+        print ("FAIL " + this.currentTest + ": " + message + " got=" + (to_string actual) + " expected=" + (to_string expected))
+        return false
+    }
+
+    fn equalInt:boolean (actual:int expected:int message:string) {
+        if (actual == expected) {
+            return true
+        }
+        this.testFailed = true
+        this.failCount = (this.failCount + 1)
+        print ("FAIL " + this.currentTest + ": " + message + " got=" + (to_string actual) + " expected=" + (to_string expected))
+        return false
+    }
+
+    fn equalBool:boolean (actual:boolean expected:boolean message:string) {
+        if (actual == expected) {
+            return true
+        }
+        this.testFailed = true
+        this.failCount = (this.failCount + 1)
+        print ("FAIL " + this.currentTest + ": " + message)
+        return false
+    }
+
+    fn equalString:boolean (actual:string expected:string message:string) {
+        if (actual == expected) {
+            return true
+        }
+        this.testFailed = true
+        this.failCount = (this.failCount + 1)
+        print ("FAIL " + this.currentTest + ": " + message)
+        return false
+    }
+
+    fn nearEqual:boolean (actual:double expected:double precision:double message:string) {
+        def d:double (actual - expected)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d <= precision) {
+            return true
+        }
+        this.testFailed = true
+        this.failCount = (this.failCount + 1)
+        print ("FAIL " + this.currentTest + ": " + message + " got=" + (to_string actual) + " expected=" + (to_string expected))
+        return false
+    }
+
+    fn finishTest:void () {
+        if (this.testFailed) {
+            print ("RESULT " + this.currentTest + " FAIL")
+            return
+        }
+        this.passCount = (this.passCount + 1)
+        print ("RESULT " + this.currentTest + " PASS")
+    }
+}

@@ -1,0 +1,195 @@
+; EVGGradient.rgr - Gradient parsing and storage for EVG layout
+; Supports: linear-gradient, radial-gradient with multiple color stops
+
+Import "EVGColor.rgr"
+
+; A single color stop in a gradient
+class EVGGradientStop {
+    def percentage:double 0.0   ; 0.0 to 1.0 (or 0 to 100 if not normalized)
+    def color:EVGColor (new EVGColor())
+    
+    Constructor () {
+    }
+    
+    sfn create:EVGGradientStop (pct:double col:EVGColor) {
+        def stop:EVGGradientStop (new EVGGradientStop())
+        stop.percentage = pct
+        stop.color = col
+        return stop
+    }
+}
+
+; Gradient definition with type, angle, and color stops
+class EVGGradient {
+    def isSet:boolean false
+    def isLinear:boolean true     ; true = linear, false = radial
+    def angle:double 0.0          ; degrees for linear gradient (0 = to top, 90 = to right)
+    def stops:[EVGGradientStop]
+    
+    Constructor () {
+        def s:[EVGGradientStop]
+        stops = s
+    }
+    
+    ; Get the first color (for simple 2-color gradients)
+    fn getStartColor:EVGColor () {
+        if ((array_length stops) > 0) {
+            def stop:EVGGradientStop (itemAt stops 0)
+            return stop.color
+        }
+        return (EVGColor.noColor())
+    }
+    
+    ; Get the last color (for simple 2-color gradients)
+    fn getEndColor:EVGColor () {
+        def len:int (array_length stops)
+        if (len > 0) {
+            def stop:EVGGradientStop (itemAt stops (len - 1))
+            return stop.color
+        }
+        return (EVGColor.noColor())
+    }
+    
+    ; Get number of color stops
+    fn getStopCount:int () {
+        return (array_length stops)
+    }
+    
+    ; Get a specific color stop
+    fn getStop:EVGGradientStop (index:int) {
+        return (itemAt stops index)
+    }
+    
+    ; Add a color stop
+    fn addStop:void (percentage:double color:EVGColor) {
+        def stop:EVGGradientStop (EVGGradientStop.create(percentage color))
+        push stops stop
+    }
+    
+    ; Parse a CSS gradient string like:
+    ; linear-gradient(90deg, #3498db, #9b59b6)
+    ; linear-gradient(45deg, #e74c3c, #f39c12)
+    ; radial-gradient(circle, #9b59b6, #2c3e50)
+    ; linear-gradient(90deg, #e74c3c, #f39c12, #2ecc71, #3498db)
+    sfn parse:EVGGradient (gradStr:string) {
+        def grad:EVGGradient (new EVGGradient())
+        
+        def len:int (strlen gradStr)
+        if (len == 0) {
+            return grad
+        }
+        
+        ; Check gradient type
+        def linearIdx:int (indexOf gradStr "linear-gradient")
+        def radialIdx:int (indexOf gradStr "radial-gradient")
+        
+        if (linearIdx >= 0) {
+            grad.isLinear = true
+            grad.isSet = true
+        }
+        if (radialIdx >= 0) {
+            grad.isLinear = false
+            grad.isSet = true
+        }
+        
+        if (grad.isSet == false) {
+            return grad
+        }
+        
+        ; Parse angle for linear gradient
+        if grad.isLinear {
+            def degIdx:int (indexOf gradStr "deg")
+            if (degIdx > 0) {
+                def startIdx:int (indexOf gradStr "(")
+                if (startIdx >= 0) {
+                    def angleStr:string (substring gradStr (startIdx + 1) degIdx)
+                    def angleVal@(optional):double (to_double (trim angleStr))
+                    if angleVal {
+                        grad.angle = (unwrap angleVal)
+                    }
+                }
+            }
+        }
+        
+        ; Parse colors - find all hex colors (#xxx or #xxxxxx)
+        def colors:[EVGColor]
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt gradStr i)
+            if (ch == 35) { ; '#'
+                ; Found a color - extract hex digits
+                def colorStart:int i
+                def colorEnd:int (i + 1)
+                while (colorEnd < len) {
+                    def c:int (charAt gradStr colorEnd)
+                    ; Check if hex digit (0-9, a-f, A-F)
+                    def isHex:boolean false
+                    if ((c >= 48) && (c <= 57)) {
+                        isHex = true
+                    }
+                    if ((c >= 65) && (c <= 70)) {
+                        isHex = true
+                    }
+                    if ((c >= 97) && (c <= 102)) {
+                        isHex = true
+                    }
+                    if isHex {
+                        colorEnd = colorEnd + 1
+                    } {
+                        break
+                    }
+                }
+                def colorStr:string (substring gradStr colorStart colorEnd)
+                def parsedColor:EVGColor (EVGColor.parseHex(colorStr))
+                if parsedColor.isSet {
+                    push colors parsedColor
+                }
+                i = colorEnd
+            } {
+                i = i + 1
+            }
+        }
+        
+        ; Create stops with evenly distributed percentages
+        def numColors:int (array_length colors)
+        if (numColors > 0) {
+            def colorIdx:int 0
+            while (colorIdx < numColors) {
+                def pct:double 0.0
+                if (numColors > 1) {
+                    pct = ((to_double colorIdx) / (to_double (numColors - 1)))
+                }
+                def col:EVGColor (itemAt colors colorIdx)
+                grad.addStop(pct col)
+                colorIdx = colorIdx + 1
+            }
+        }
+        
+        return grad
+    }
+    
+    ; Convert back to CSS string
+    fn toCSSString:string () {
+        if (isSet == false) {
+            return ""
+        }
+        
+        def result:string ""
+        if isLinear {
+            result = "linear-gradient(" + (to_string angle) + "deg"
+        } {
+            result = "radial-gradient(circle"
+        }
+        
+        def numStops:int (array_length stops)
+        def i:int 0
+        while (i < numStops) {
+            def stop:EVGGradientStop (itemAt stops i)
+            result = result + ", " + (stop.color.toCSSString())
+            i = i + 1
+        }
+        
+        result = result + ")"
+        return result
+    }
+}

@@ -1,0 +1,392 @@
+; ==============================================================================
+; cannon_body — rigid body (Cannon.js port subset for pinball / arcade).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_aabb.rgr"
+Import "cannon_shape.rgr"
+Import "cannon_box.rgr"
+Import "cannon_mat3.rgr"
+
+class CannonBody {
+    sdef TYPE_DYNAMIC:int 1
+    sdef TYPE_STATIC:int 2
+    sdef TYPE_KINEMATIC:int 4
+    sdef SLEEP_AWAKE:int 0
+    sdef SLEEP_SLEEPY:int 1
+    sdef SLEEP_SLEEPING:int 2
+    def sleepSpeedLimit:double 0.1
+    def sleepTimeLimit:double 1.0
+    def timeLastSleepy:double 0.0
+    def id:int 0
+    def index:int 0
+    def mass:double 0.0
+    def invMass:double 0.0
+    def type:int 2
+    def boundingRadius:double 0.0
+    def collisionFilterGroup:int 1
+    def collisionFilterMask:int -1
+    def collisionResponse:boolean true
+    def allowSleep:boolean true
+    def sleepState:int 0
+    def position:CannonVec3 (new CannonVec3)
+    def velocity:CannonVec3 (new CannonVec3)
+    def angularVelocity:CannonVec3 (new CannonVec3)
+    def force:CannonVec3 (new CannonVec3)
+    def torque:CannonVec3 (new CannonVec3)
+    def quaternion:CannonQuaternion (new CannonQuaternion)
+    def inertia:CannonVec3 (new CannonVec3)
+    def invInertia:CannonVec3 (new CannonVec3)
+    def aabb:CannonAABB (new CannonAABB)
+    def shapes:[CannonShape]
+    def shapeOffsets:[CannonVec3]
+    def shapeOrientations:[CannonQuaternion]
+    def aabbNeedsUpdate:boolean true
+    def tmpOffset:CannonVec3 (new CannonVec3)
+    def tmpOrientation:CannonQuaternion (new CannonQuaternion)
+    def tmpShapeAabb:CannonAABB (new CannonAABB)
+    def tmpRotForce:CannonVec3 (new CannonVec3)
+    def tmpVelo:CannonVec3 (new CannonVec3)
+    ; --- SPOOK solver state (cannon-es) ---
+    def isTrigger:boolean false
+    def vlambda:CannonVec3 (new CannonVec3)
+    def wlambda:CannonVec3 (new CannonVec3)
+    def linearFactor:CannonVec3 (new CannonVec3)
+    def angularFactor:CannonVec3 (new CannonVec3)
+    def invMassSolve:double 0.0
+    def invInertiaWorld:CannonMat3 (new CannonMat3)
+    def invInertiaWorldSolve:CannonMat3 (new CannonMat3)
+    def uiwM1:CannonMat3 (new CannonMat3)
+    def uiwM2:CannonMat3 (new CannonMat3)
+    def solveStateReady:boolean false
+
+    fn initDynamic:void (mass:double) {
+        this.mass = mass
+        if (mass > 0.0) {
+            this.invMass = (1.0 / mass)
+            this.type = 1
+        } {
+            this.invMass = 0.0
+            this.type = 2
+        }
+    }
+
+    fn initStatic:void () {
+        this.mass = 0.0
+        this.invMass = 0.0
+        this.type = 2
+    }
+
+    fn addShape:void (shape:CannonShape) {
+        def shapeId:int (array_length this.shapes)
+        push this.shapes shape
+        shape.id = shapeId
+        def off:CannonVec3 (new CannonVec3)
+        def orn:CannonQuaternion (new CannonQuaternion)
+        orn.set(0.0 0.0 0.0 1.0)
+        push this.shapeOffsets off
+        push this.shapeOrientations orn
+        this.aabbNeedsUpdate = true
+        this.updateBoundingRadius()
+        this.updateMassProperties()
+    }
+
+    fn addShapeOffset:void (shape:CannonShape offset:CannonVec3) {
+        def shapeId:int (array_length this.shapes)
+        push this.shapes shape
+        shape.id = shapeId
+        def off:CannonVec3 (new CannonVec3)
+        off.copy(offset)
+        def orn:CannonQuaternion (new CannonQuaternion)
+        orn.set(0.0 0.0 0.0 1.0)
+        push this.shapeOffsets off
+        push this.shapeOrientations orn
+        this.aabbNeedsUpdate = true
+        this.updateBoundingRadius()
+        this.updateMassProperties()
+    }
+
+    fn updateBoundingRadius:void () {
+        def n:int (array_length this.shapes)
+        def radius:double 0.0
+        def i 0
+        while (i < n) {
+            def shape:CannonShape (itemAt this.shapes i)
+            shape.updateBoundingSphereRadius()
+            def shapeOffset:CannonVec3 (itemAt this.shapeOffsets i)
+            def offsetLen:double shapeOffset.norm()
+            def r:double shape.boundingSphereRadius
+            def total:double (offsetLen + r)
+            if (total > radius) {
+                radius = total
+            }
+            i = (i + 1)
+        }
+        this.boundingRadius = radius
+    }
+
+    fn computeAABB:void () {
+        def n:int (array_length this.shapes)
+        if (n == 0) {
+            return
+        }
+        def i 0
+        while (i < n) {
+            def shape:CannonShape (itemAt this.shapes i)
+            def shapeOffset:CannonVec3 (itemAt this.shapeOffsets i)
+            def shapeOrientation:CannonQuaternion (itemAt this.shapeOrientations i)
+            def offset:CannonVec3 this.tmpOffset
+            this.quaternion.vmult(shapeOffset offset)
+            offset.vadd(this.position offset)
+            def orientation:CannonQuaternion this.tmpOrientation
+            shapeOrientation.multInto(this.quaternion orientation)
+            def shapeAabb:CannonAABB this.tmpShapeAabb
+            shape.calculateWorldAABB(offset orientation shapeAabb.lowerBound shapeAabb.upperBound)
+            if (i == 0) {
+                this.aabb.copy(shapeAabb)
+            } {
+                this.aabb.extend(shapeAabb)
+            }
+            i = (i + 1)
+        }
+        this.aabbNeedsUpdate = false
+    }
+
+    fn updateMassProperties:void () {
+        if (this.mass > 0.0) {
+            this.invMass = (1.0 / this.mass)
+        } {
+            this.invMass = 0.0
+        }
+        this.computeAABB()
+        def shapeCount:int (array_length this.shapes)
+        if (shapeCount == 1) {
+            def shape:CannonShape (itemAt this.shapes 0)
+            if (shape.type == 1) {
+                def r:double shape.radius
+                def I:double ((0.2 * this.mass) * r * r)
+                this.inertia.x = I
+                this.inertia.y = I
+                this.inertia.z = I
+                if (I > 0.0) {
+                    this.invInertia.x = (1.0 / I)
+                    this.invInertia.y = (1.0 / I)
+                    this.invInertia.z = (1.0 / I)
+                } {
+                    this.invInertia.x = 0.0
+                    this.invInertia.y = 0.0
+                    this.invInertia.z = 0.0
+                }
+                return
+            }
+        }
+        def half:CannonVec3 (new CannonVec3)
+        def boxHelper:CannonBox (new CannonBox)
+        half.x = (this.aabb.upperBound.x - this.aabb.lowerBound.x) * 0.5
+        half.y = (this.aabb.upperBound.y - this.aabb.lowerBound.y) * 0.5
+        half.z = (this.aabb.upperBound.z - this.aabb.lowerBound.z) * 0.5
+        boxHelper.calculateInertiaFromHalfExtents(half this.mass this.inertia)
+        if (this.inertia.x > 0.0) {
+            this.invInertia.x = (1.0 / this.inertia.x)
+        } {
+            this.invInertia.x = 0.0
+        }
+        if (this.inertia.y > 0.0) {
+            this.invInertia.y = (1.0 / this.inertia.y)
+        } {
+            this.invInertia.y = 0.0
+        }
+        if (this.inertia.z > 0.0) {
+            this.invInertia.z = (1.0 / this.inertia.z)
+        } {
+            this.invInertia.z = 0.0
+        }
+    }
+
+    ; Semi-implicit Euler integration of one body (cannon-es Body.integrate).
+    ; Only dynamic bodies move; linear/angular factors let a game constrain a
+    ; body to a plane / single spin axis (default factors are (1,1,1)).
+    fn wakeUp:void () {
+        this.sleepState = 0
+    }
+
+    ; Put a body to sleep: it stops integrating until woken.
+    fn sleep:void () {
+        this.sleepState = 2
+        this.velocity.setZero()
+        this.angularVelocity.setZero()
+    }
+
+    ; Advance the sleep state machine (cannon-es Body.sleepTick): a slow body
+    ; becomes SLEEPY, and staying slow past sleepTimeLimit puts it to SLEEPING.
+    fn sleepTick:void (time:double) {
+        if (this.allowSleep == false) {
+            return
+        }
+        if (this.type != 1) {
+            return
+        }
+        def sp:double ((this.velocity.norm2()) + (this.angularVelocity.norm2()))
+        def limit:double (this.sleepSpeedLimit * this.sleepSpeedLimit)
+        if (this.sleepState == 0) {
+            if (sp < limit) {
+                this.sleepState = 1
+                this.timeLastSleepy = time
+            }
+            return
+        }
+        if (this.sleepState == 1) {
+            if (sp > limit) {
+                this.wakeUp()
+                return
+            }
+            if ((time - this.timeLastSleepy) > this.sleepTimeLimit) {
+                this.sleep()
+            }
+        }
+    }
+
+    fn integrate:void (dt:double) {
+        if (this.type != 1) {
+            return
+        }
+        if (this.sleepState == 2) {
+            return
+        }
+        this.initSolveState()
+        this.velocity.x = (this.velocity.x + (((this.force.x * this.invMass) * dt) * this.linearFactor.x))
+        this.velocity.y = (this.velocity.y + (((this.force.y * this.invMass) * dt) * this.linearFactor.y))
+        this.velocity.z = (this.velocity.z + (((this.force.z * this.invMass) * dt) * this.linearFactor.z))
+        this.updateInertiaWorld()
+        this.tmpRotForce.x = (this.torque.x * this.angularFactor.x)
+        this.tmpRotForce.y = (this.torque.y * this.angularFactor.y)
+        this.tmpRotForce.z = (this.torque.z * this.angularFactor.z)
+        this.invInertiaWorld.vmultInto(this.tmpRotForce this.tmpVelo)
+        this.angularVelocity.addScaledVector(dt this.tmpVelo this.angularVelocity)
+        this.position.x = (this.position.x + (this.velocity.x * dt))
+        this.position.y = (this.position.y + (this.velocity.y * dt))
+        this.position.z = (this.position.z + (this.velocity.z * dt))
+        this.quaternion.integrate(this.angularVelocity dt this.angularFactor this.quaternion)
+        this.quaternion.normalize()
+    }
+
+    fn clampAngularVelocity:void (maxW:double) {
+        if (this.type != 1) {
+            return
+        }
+        this.angularVelocity.x = 0.0
+        this.angularVelocity.y = 0.0
+        def wz:double this.angularVelocity.z
+        if (wz > maxW) {
+            this.angularVelocity.z = maxW
+        }
+        if (wz < (0.0 - maxW)) {
+            this.angularVelocity.z = (0.0 - maxW)
+        }
+    }
+
+    ; Initialise the Mat3 solver scratch once (field initialisers cannot fill
+    ; the 9-element arrays), and set the default linear/angular factors to 1.
+    fn initSolveState:void () {
+        if (this.solveStateReady) {
+            return
+        }
+        this.invInertiaWorld.initZero()
+        this.invInertiaWorldSolve.initZero()
+        this.uiwM1.initZero()
+        this.uiwM2.initZero()
+        this.linearFactor.set(1.0 1.0 1.0)
+        this.angularFactor.set(1.0 1.0 1.0)
+        this.solveStateReady = true
+    }
+
+    ; invInertiaWorld = R * diag(invInertia) * R^T   (cannon-es Body.updateInertiaWorld)
+    fn updateInertiaWorld:void () {
+        this.initSolveState()
+        this.uiwM1.setRotationFromQuaternion(this.quaternion)
+        this.uiwM1.transposeInto(this.uiwM2)
+        this.uiwM1.scaleInto(this.invInertia this.uiwM1)
+        this.uiwM1.mmultInto(this.uiwM2 this.invInertiaWorld)
+    }
+
+    ; Dynamic bodies contribute their real inverse mass/inertia to the solver;
+    ; static and kinematic bodies act as if infinitely massive (zero).
+    fn updateSolveMassProperties:void () {
+        this.initSolveState()
+        if (this.type == 1) {
+            if (this.sleepState == 2) {
+                this.invMassSolve = 0.0
+                this.invInertiaWorldSolve.setZero()
+            } {
+                this.updateInertiaWorld()
+                this.invMassSolve = this.invMass
+                this.invInertiaWorldSolve.copyFrom(this.invInertiaWorld)
+            }
+        } {
+            this.invMassSolve = 0.0
+            this.invInertiaWorldSolve.setZero()
+        }
+    }
+
+    fn pointToLocalFrame:void (worldPoint:CannonVec3 result:CannonVec3) {
+        worldPoint.vsub(this.position result)
+        def conj:CannonQuaternion (new CannonQuaternion)
+        this.quaternion.conjugateInto(conj)
+        conj.vmult(result result)
+    }
+
+    fn pointToWorldFrame:void (localPoint:CannonVec3 result:CannonVec3) {
+        this.quaternion.vmult(localPoint result)
+        result.vadd(this.position result)
+    }
+
+    fn vectorToWorldFrame:void (localVector:CannonVec3 result:CannonVec3) {
+        this.quaternion.vmult(localVector result)
+    }
+
+    fn applyForce:void (force:CannonVec3 relativePoint:CannonVec3) {
+        if (this.type != 1) {
+            return
+        }
+        relativePoint.crossInto(force this.tmpRotForce)
+        this.force.vadd(force this.force)
+        this.torque.vadd(this.tmpRotForce this.torque)
+    }
+
+    fn applyLocalForce:void (localForce:CannonVec3 localPoint:CannonVec3) {
+        def worldForce:CannonVec3 (new CannonVec3)
+        def worldPoint:CannonVec3 (new CannonVec3)
+        this.vectorToWorldFrame(localForce worldForce)
+        this.vectorToWorldFrame(localPoint worldPoint)
+        this.applyForce(worldForce worldPoint)
+    }
+
+    fn applyImpulse:void (impulse:CannonVec3 relativePoint:CannonVec3) {
+        if (this.type != 1) {
+            return
+        }
+        def velo:CannonVec3 this.tmpVelo
+        impulse.scaleInto(this.invMass velo)
+        this.velocity.vadd(velo this.velocity)
+        relativePoint.crossInto(impulse this.tmpRotForce)
+        this.angularVelocity.x = this.angularVelocity.x + (this.tmpRotForce.x * this.invInertia.x)
+        this.angularVelocity.y = this.angularVelocity.y + (this.tmpRotForce.y * this.invInertia.y)
+        this.angularVelocity.z = this.angularVelocity.z + (this.tmpRotForce.z * this.invInertia.z)
+    }
+
+    fn applyLocalImpulse:void (localImpulse:CannonVec3 localPoint:CannonVec3) {
+        def worldImpulse:CannonVec3 (new CannonVec3)
+        def worldPoint:CannonVec3 (new CannonVec3)
+        this.vectorToWorldFrame(localImpulse worldImpulse)
+        this.vectorToWorldFrame(localPoint worldPoint)
+        this.applyImpulse(worldImpulse worldPoint)
+    }
+
+    fn getVelocityAtWorldPoint:void (worldPoint:CannonVec3 result:CannonVec3) {
+        def r:CannonVec3 (new CannonVec3)
+        worldPoint.vsub(this.position r)
+        this.angularVelocity.crossInto(r result)
+        result.vadd(this.velocity result)
+    }
+}

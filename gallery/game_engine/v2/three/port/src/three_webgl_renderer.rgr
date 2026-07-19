@@ -1,0 +1,286 @@
+; ==============================================================================
+; three_webgl_renderer — (Three.js port of src/renderers/WebGLRenderer.js, core).
+; ==============================================================================
+;
+; render(scene, camera) walks the scene graph and draws each mesh through a
+; PLUGGABLE backend (three_render_backend.rgr) — there is no GPU code here, so
+; the renderer core is pure Ranger and compiles to C++ for native/embedded.
+;
+; Default backend: the pure-Ranger ThreeSoftwareBackend (works headless / on a
+; Raspberry Pi). A browser host can inject a WebGL backend via setBackend(...)
+; for GPU acceleration — the same scene, drawn on the GPU.
+;
+; The rAF `setAnimationLoop` / `domElement` bits of Three.js are browser-host
+; concerns and live in the web wrapper, not in this portable core.
+; ==============================================================================
+
+Import "three_render_backend.rgr"
+Import "three_software_backend.rgr"
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_object3d.rgr"
+Import "three_matrix4.rgr"
+
+class ThreeWebGLRenderer {
+    def isWebGLRenderer:boolean true
+    def w:int 300
+    def h:int 150
+    def pixelRatio:double 1.0
+    def software:ThreeSoftwareBackend (new ThreeSoftwareBackend)
+    def backend:ThreeRenderBackend (new ThreeRenderBackend)
+    def useSoftware:boolean true
+    def clearR:double 0.086
+    def clearG:double 0.102
+    def clearB:double 0.133
+
+    ; HDR output: tone-mapping mode (ThreeToneMapping.* enum, default
+    ; NoToneMapping = 0) + exposure. The GL backend feeds these to the übershader
+    ; epilogue (uToneMapping/uExposure); shadowMapEnabled gates the shadow pass.
+    def toneMapping:int 0
+    def toneMappingExposure:double 1.0
+    def shadowMapEnabled:boolean false
+
+    ; per-frame light accumulators (filled by walkLights, fed to the backend)
+    def accAmbR:double 0.0
+    def accAmbG:double 0.0
+    def accAmbB:double 0.0
+    def accDirs:[double]
+    def accCols:[double]
+    def accCount:int 0
+
+    ; shadow pass: the first shadow-casting light found while walking the scene,
+    ; and its light-space view-projection (fed to the depth pass + the lit pass).
+    def shadowFound:boolean false
+    def shadowVP:ThreeMatrix4 (new ThreeMatrix4)
+
+    ; inject a GPU (e.g. WebGL) backend; default is the software rasteriser.
+    fn setBackend:ThreeWebGLRenderer (b:ThreeRenderBackend) {
+        backend = b
+        useSoftware = false
+        return this
+    }
+    fn setSize:ThreeWebGLRenderer (width:int height:int) {
+        w = width
+        h = height
+        return this
+    }
+    fn setPixelRatio:ThreeWebGLRenderer (r:double) {
+        pixelRatio = r
+        return this
+    }
+    fn setClearColor:ThreeWebGLRenderer (r:double g:double b:double) {
+        clearR = r
+        clearG = g
+        clearB = b
+        return this
+    }
+    fn setToneMapping:ThreeWebGLRenderer (mode:int) {
+        toneMapping = mode
+        return this
+    }
+    fn setToneMappingExposure:ThreeWebGLRenderer (exposure:double) {
+        toneMappingExposure = exposure
+        return this
+    }
+    fn setShadowMapEnabled:ThreeWebGLRenderer (enabled:boolean) {
+        shadowMapEnabled = enabled
+        return this
+    }
+
+    fn activeBackend:ThreeRenderBackend () {
+        if useSoftware {
+            return software
+        }
+        return backend
+    }
+
+    fn render:void (scene:ThreeScene camera:ThreePerspectiveCamera) {
+        camera.updateProjectionMatrix()
+        camera.updateViewMatrix()
+        scene.updateMatrixWorld()
+        def be:ThreeRenderBackend (this.activeBackend())
+        def br:double clearR
+        def bg:double clearG
+        def bb:double clearB
+        if scene.hasBackground {
+            br = scene.backgroundR
+            bg = scene.backgroundG
+            bb = scene.backgroundB
+        }
+        be.beginFrame(w h br bg bb)
+        ; lights (collected from the scene) + camera position for specular
+        this.applyLights(scene be)
+        be.setView(camera.position.x camera.position.y camera.position.z)
+        be.setToneMapping(toneMapping toneMappingExposure)
+
+        ; shadow map (two-pass): render the casters' depth from the light, then feed
+        ; that depth map + the light view-projection to the lit pass below.
+        if shadowMapEnabled {
+            shadowFound = false
+            this.findShadow(scene)
+            if shadowFound {
+                be.beginShadowPass()
+                this.renderDepth(scene be)
+                be.endShadowPass(w h)
+                be.setShadow(shadowVP true)
+            } {
+                be.setShadow(shadowVP false)
+            }
+        } {
+            be.setShadow(shadowVP false)
+        }
+        ; view-projection = projection * inverse(camera world)
+        def vp:ThreeMatrix4 (new ThreeMatrix4)
+        vp.multiplyMatrices(camera.projectionMatrix camera.matrixWorldInverse)
+        ; environment cube map: upload + select it, then draw the skybox behind
+        ; everything (a large cube at the origin, depth-writes off in the backend).
+        if scene.hasEnvCube {
+            def eh:int (be.ensureEnvironment(scene.envCube))
+            be.setEnvironment(eh)
+            def scaleM:ThreeMatrix4 (new ThreeMatrix4)
+            scaleM.makeScale(20000.0 20000.0 20000.0)
+            def skyMvp:ThreeMatrix4 (new ThreeMatrix4)
+            skyMvp.multiplyMatrices(vp scaleM)
+            be.drawSkybox(eh skyMvp)
+        } {
+            be.setEnvironment(0)
+        }
+        ; light-probe GI: disable first (so a probe-less scene doesn't keep stale
+        ; state), then let any probe volume in the tree hand its SH to the backend.
+        def noBuf:buffer (buffer_alloc 0)
+        be.setProbeVolume(noBuf 0 1 1 1 0.0 0.0 0.0 1.0 1.0 1.0 0 false)
+        this.renderGI(scene be)
+        ; atmosphere sky (Preetham dome): drawn first, behind everything.
+        this.renderSky(scene be vp)
+        this.renderObject(scene be vp)
+        be.endFrame()
+    }
+
+    ; Walk the scene, sum ambient light, collect up to 4 directional lights, and
+    ; hand them to the backend once for the frame.
+    fn applyLights:void (scene:ThreeObject3D be:ThreeRenderBackend) {
+        accAmbR = 0.0
+        accAmbG = 0.0
+        accAmbB = 0.0
+        def emptyD:[double]
+        def emptyC:[double]
+        accDirs = emptyD
+        accCols = emptyC
+        accCount = 0
+        this.walkLights(scene)
+        be.setLights(accAmbR accAmbG accAmbB accCount accDirs accCols)
+    }
+
+    fn walkLights:void (node:ThreeObject3D) {
+        def k:int (node.lightKind())
+        ; kind 1 = AmbientLight, kind 3 = LightProbeGrid GI fill — both add a
+        ; uniform ambient term (the probe volume's baked irradiance).
+        if ((k == 1) || (k == 3)) {
+            accAmbR = (accAmbR + (node.lightR()))
+            accAmbG = (accAmbG + (node.lightG()))
+            accAmbB = (accAmbB + (node.lightB()))
+        }
+        if (k == 2) {
+            if (accCount < 4) {
+                def dx:double node.position.x
+                def dy:double node.position.y
+                def dz:double node.position.z
+                def len:double (sqrt(((dx * dx) + (dy * dy)) + (dz * dz)))
+                if (len < 0.000001) {
+                    len = 1.0
+                }
+                push accDirs (dx / len)
+                push accDirs (dy / len)
+                push accDirs (dz / len)
+                push accCols (node.lightR())
+                push accCols (node.lightG())
+                push accCols (node.lightB())
+                accCount = (accCount + 1)
+            }
+        }
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (node.getChild(i))
+            this.walkLights(c)
+            i = (i + 1)
+        }
+    }
+
+    ; find the first shadow-casting light in the tree; record its view-projection.
+    fn findShadow:void (node:ThreeObject3D) {
+        if (shadowFound == false) {
+            if (node.castsShadow()) {
+                shadowVP = (node.lightViewProjection())
+                shadowFound = true
+                return
+            }
+            def i:int 0
+            def n:int (node.childCount())
+            while (i < n) {
+                def c:ThreeObject3D (node.getChild(i))
+                this.findShadow(c)
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; sky pass: draw any atmosphere/background dome behind the scene.
+    fn renderSky:void (obj:ThreeObject3D be:ThreeRenderBackend vp:ThreeMatrix4) {
+        obj.renderSkyInto(be vp)
+        def i:int 0
+        def n:int (obj.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (obj.getChild(i))
+            this.renderSky(c be vp)
+            i = (i + 1)
+        }
+    }
+
+    ; GI pass: let any light-probe volume in the tree upload its SH to the backend.
+    fn renderGI:void (obj:ThreeObject3D be:ThreeRenderBackend) {
+        obj.renderGIInto(be)
+        def i:int 0
+        def n:int (obj.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (obj.getChild(i))
+            this.renderGI(c be)
+            i = (i + 1)
+        }
+    }
+
+    ; depth pass: draw every caster's depth from the light (uses shadowVP).
+    fn renderDepth:void (obj:ThreeObject3D be:ThreeRenderBackend) {
+        obj.renderDepthInto(be shadowVP)
+        def i:int 0
+        def n:int (obj.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (obj.getChild(i))
+            this.renderDepth(c be)
+            i = (i + 1)
+        }
+    }
+
+    fn renderObject:void (obj:ThreeObject3D be:ThreeRenderBackend vp:ThreeMatrix4) {
+        obj.renderInto(be vp)
+        def i:int 0
+        def n:int (obj.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (obj.getChild(i))
+            this.renderObject(c be vp)
+            i = (i + 1)
+        }
+    }
+
+    ; the rendered RGB frame from the active backend (software path).
+    fn raw:buffer () {
+        def be:ThreeRenderBackend (this.activeBackend())
+        return (be.raw())
+    }
+    fn width:int () {
+        return w
+    }
+    fn height:int () {
+        return h
+    }
+}

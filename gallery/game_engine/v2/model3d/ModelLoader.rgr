@@ -1,0 +1,86 @@
+; ==============================================================================
+; ModelLoader.rgr — public host API tying the 3D asset pipeline together.
+; ==============================================================================
+; This is the load_model() / instantiate_model() / find_child() surface the plan
+; describes, host-side and WASM-free:
+;
+;   let model = loader.loadFromFile("models" "robot.glb")   // -> ModelHandle id
+;   let robot = loader.instantiate(model)                   // -> root EntityId
+;   let hand  = loader.findChild(robot "RightHand")         // -> EntityId
+;
+; loadFromBuffer runs the GLB importer, decodes embedded PNG/JPEG textures into
+; RGBA, and registers the resulting ModelAsset in the AssetRegistry. instantiate
+; expands a model into the host EntityRegistry. Errors surface via ok/lastError.
+; ==============================================================================
+
+Import "GlbImporter.rgr"
+Import "EntityModel.rgr"
+Import "TextureDecode.rgr"
+
+class ModelLoader {
+    def registry:AssetRegistry (new AssetRegistry)
+    def entities:EntityRegistry (new EntityRegistry)
+    def ok:boolean true
+    def lastError:string ""
+    def decodeTextures:boolean true
+
+    ; load + register a model from GLB bytes; returns a model id, or -1 on error
+    fn loadFromBuffer:int (bytes:buffer) {
+        def imp:GlbImporter (new GlbImporter)
+        def model:ModelAsset (imp.importModel(bytes))
+        if (imp.ok == false) {
+            ok = false
+            lastError = imp.error
+            return (0 - 1)
+        }
+        if decodeTextures {
+            def n:int (model.textureCount())
+            def i:int 0
+            while (i < n) {
+                def tex:TextureAsset (model.getTexture(i))
+                TextureDecode.decodeInto(tex)
+                i = (i + 1)
+            }
+        }
+        ok = true
+        lastError = ""
+        return (registry.addModel(model))
+    }
+    fn loadFromFile:int (dir:string file:string) {
+        def bytes:buffer (buffer_read_file dir file)
+        return (this.loadFromBuffer(bytes))
+    }
+
+    ; load + scale so the model's farthest vertex from the origin sits at
+    ; `radius` units (radius <= 0 = no scaling). Presentation size, e.g. a viewer
+    ; can show any model — a 0.5-unit chair or a 165-unit duck — at a set size.
+    fn loadFromBufferRadius:int (bytes:buffer radius:double) {
+        def id:int (this.loadFromBuffer(bytes))
+        if (id >= 0) {
+            if (radius > 0.0) {
+                def model:ModelAsset (registry.getModel(id))
+                model.scaleToRadius(radius)
+            }
+        }
+        return id
+    }
+    fn loadFromFileRadius:int (dir:string file:string radius:double) {
+        def bytes:buffer (buffer_read_file dir file)
+        return (this.loadFromBufferRadius(bytes radius))
+    }
+
+    fn getModel:ModelAsset (modelId:int) {
+        return (registry.getModel(modelId))
+    }
+    ; expand a loaded model into the entity scene; returns the root EntityId
+    fn instantiate:int (modelId:int) {
+        def model:ModelAsset (registry.getModel(modelId))
+        return (ModelInstancer.instantiate(entities model))
+    }
+    fn findChild:int (rootEntity:int name:string) {
+        return (entities.findChild(rootEntity name))
+    }
+    fn getEntity:Entity (entityId:int) {
+        return (entities.get(entityId))
+    }
+}

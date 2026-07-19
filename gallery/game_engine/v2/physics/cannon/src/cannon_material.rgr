@@ -1,0 +1,12 @@
+; ==============================================================================
+; cannon_material — physics material (Cannon.js port subset).
+; ==============================================================================
+
+class CannonMaterial {
+    def id:int 0
+    def friction:double (0.0 - 1.0)
+    def restitution:double (0.0 - 1.0)
+
+    fn initMaterial:void () {
+    }
+}

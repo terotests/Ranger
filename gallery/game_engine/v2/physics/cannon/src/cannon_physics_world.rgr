@@ -1,0 +1,144 @@
+; ==============================================================================
+; cannon_physics_world — Cannon engine behind the PhysicsWorld interface.
+;
+; Adapts the full Cannon port (solver, joints, collision, raycast) to the
+; engine-neutral PhysicsWorld contract. Bodies are stored in an array and
+; referenced by their index (the opaque handle the interface hands out).
+; ==============================================================================
+
+Import "physics_world.rgr"
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_body.rgr"
+Import "cannon_sphere.rgr"
+Import "cannon_box.rgr"
+Import "cannon_plane.rgr"
+Import "cannon_constraint.rgr"
+Import "cannon_ray.rgr"
+Import "cannon_world.rgr"
+
+class CannonPhysicsWorld extends PhysicsWorld {
+    def world:CannonWorld (new CannonWorld)
+    def bodies:[CannonBody]
+    def rayResult:CannonRaycastResult (new CannonRaycastResult)
+    def rayFrom:CannonVec3 (new CannonVec3)
+    def rayTo:CannonVec3 (new CannonVec3)
+
+    fn initWorld:void () {
+        this.world.initWorld()
+    }
+
+    fn setGravity:void (x:double y:double z:double) {
+        this.world.setGravity(x y z)
+    }
+
+    fn registerBody:int (b:CannonBody) {
+        this.world.addBody(b)
+        def id:int (array_length this.bodies)
+        push this.bodies b
+        return id
+    }
+
+    fn addSphere:int (mass:double x:double y:double z:double radius:double) {
+        def b:CannonBody (new CannonBody)
+        if (mass > 0.0) {
+            b.initDynamic(mass)
+        } {
+            b.initStatic()
+        }
+        def s:CannonSphere (new CannonSphere)
+        s.initSphere(radius)
+        b.addShape(s)
+        b.position.set(x y z)
+        return (this.registerBody(b))
+    }
+
+    fn addBox:int (mass:double x:double y:double z:double hx:double hy:double hz:double) {
+        def b:CannonBody (new CannonBody)
+        if (mass > 0.0) {
+            b.initDynamic(mass)
+        } {
+            b.initStatic()
+        }
+        def he:CannonVec3 (new CannonVec3)
+        he.set(hx hy hz)
+        def s:CannonBox (new CannonBox)
+        s.initBox(he)
+        b.addShape(s)
+        b.position.set(x y z)
+        return (this.registerBody(b))
+    }
+
+    fn addStaticPlane:int (nx:double ny:double nz:double) {
+        def b:CannonBody (new CannonBody)
+        b.initStatic()
+        def s:CannonPlane (new CannonPlane)
+        s.initPlane()
+        b.addShape(s)
+        ; orient the plane so its local +Z normal points along (nx,ny,nz)
+        def from:CannonVec3 (new CannonVec3)
+        from.set(0.0 0.0 1.0)
+        def to:CannonVec3 (new CannonVec3)
+        to.set(nx ny nz)
+        b.quaternion.setFromVectors(from to)
+        return (this.registerBody(b))
+    }
+
+    fn addPointToPoint:void (bodyA:int pax:double pay:double paz:double bodyB:int pbx:double pby:double pbz:double) {
+        def a:CannonBody (itemAt this.bodies bodyA)
+        def bb:CannonBody (itemAt this.bodies bodyB)
+        def pivotA:CannonVec3 (new CannonVec3)
+        pivotA.set(pax pay paz)
+        def pivotB:CannonVec3 (new CannonVec3)
+        pivotB.set(pbx pby pbz)
+        def c:CannonConstraint (new CannonConstraint)
+        c.initPointToPoint(a pivotA bb pivotB 1000000.0)
+        this.world.addConstraint(c)
+    }
+
+    fn setBodyVelocity:void (id:int vx:double vy:double vz:double) {
+        def b:CannonBody (itemAt this.bodies id)
+        b.velocity.set(vx vy vz)
+    }
+
+    fn bodyPosX:double (id:int) {
+        def b:CannonBody (itemAt this.bodies id)
+        return b.position.x
+    }
+
+    fn bodyPosY:double (id:int) {
+        def b:CannonBody (itemAt this.bodies id)
+        return b.position.y
+    }
+
+    fn bodyPosZ:double (id:int) {
+        def b:CannonBody (itemAt this.bodies id)
+        return b.position.z
+    }
+
+    fn step:void (dt:double) {
+        this.world.step(dt)
+    }
+
+    fn raycastClosest:boolean (fx:double fy:double fz:double tx:double ty:double tz:double) {
+        this.rayFrom.set(fx fy fz)
+        this.rayTo.set(tx ty tz)
+        return (this.world.raycastClosest(this.rayFrom this.rayTo this.rayResult))
+    }
+
+    fn rayHitX:double () {
+        return this.rayResult.hitPointWorld.x
+    }
+
+    fn rayHitY:double () {
+        return this.rayResult.hitPointWorld.y
+    }
+
+    fn rayHitZ:double () {
+        return this.rayResult.hitPointWorld.z
+    }
+
+    fn rayDistance:double () {
+        return this.rayResult.distance
+    }
+}

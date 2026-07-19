@@ -1,0 +1,33 @@
+; ==============================================================================
+; cannon_sphere_test — Cannon.js test/Sphere.js ported to Ranger.
+; ==============================================================================
+
+Import "cannon_sphere.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonSphereTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Sphere.throwOnWrongRadius")) { this.throwOnWrongRadius(h) }
+    }
+
+    fn throwOnWrongRadius:void (h:CannonTestHarness) {
+        h.beginTest("Sphere.throwOnWrongRadius")
+        def ok0:CannonSphere (new CannonSphere)
+        def ok1:boolean (ok0.initSphere(1.0))
+        h.ok(ok1 "radius 1 ok")
+        def okZero:CannonSphere (new CannonSphere)
+        def ok2:boolean (okZero.initSphere(0.0))
+        h.ok(ok2 "radius 0 ok")
+        def bad:CannonSphere (new CannonSphere)
+        def ok3:boolean (bad.initSphere((0.0 - 1.0)))
+        if (ok3) {
+            h.ok(false "negative radius should fail")
+        } {
+            h.ok(true "negative radius rejected")
+        }
+        h.finishTest()
+    }
+}

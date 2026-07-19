@@ -1,0 +1,102 @@
+; ==============================================================================
+; three_gltf_file_test — .glb chunk split + JSON + accessor decode + node tree.
+; ==============================================================================
+; Assembles a minimal .glb in memory (a JSON chunk describing one triangle mesh +
+; a BIN chunk with 3 VEC3 float positions) and asserts loadGLB produces a model
+; with the right bounds. Deterministic (no network). A live parse of a real
+; KhronosGroup .glb is verified manually. Prints "ALL PASS".
+; ==============================================================================
+
+Import "three_gltf_file.rgr"
+Import "three_box3.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeGltfFileTest {
+    ; little-endian uint32
+    sfn wU32:void (buf:buffer off:int v:int) {
+        buffer_set buf off (bit_and v 255)
+        buffer_set buf (off + 1) (bit_and (bit_shr v 8) 255)
+        buffer_set buf (off + 2) (bit_and (bit_shr v 16) 255)
+        buffer_set buf (off + 3) (bit_and (bit_shr v 24) 255)
+    }
+    sfn put4:void (buf:buffer off:int b0:int b1:int b2:int b3:int) {
+        buffer_set buf off b0
+        buffer_set buf (off + 1) b1
+        buffer_set buf (off + 2) b2
+        buffer_set buf (off + 3) b3
+    }
+
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeGLTFFile (.glb parse) =="
+
+        ; --- JSON chunk: one triangle mesh, non-indexed, POSITION accessor 0 ----
+        def json:string "{\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"buffers\":[{\"byteLength\":36}]}"
+        ; pad to a 4-byte boundary with spaces (glTF requirement; parser skips them)
+        while ((bit_and (strlen json) 3) != 0) {
+            json = (json + " ")
+        }
+        def jsonBytes:buffer (buffer_from_string json)
+        def jsonLen:int (buffer_length jsonBytes)
+
+        ; --- BIN chunk: 3 VEC3 float positions (0,0,0)(1,0,0)(0,1,0) = 36 bytes ---
+        def binLen:int 36
+        def total:int (((((12 + 8) + jsonLen) + 8) + binLen))
+        def glb:buffer (buffer_alloc total)
+
+        ; header: magic 'glTF', version 2, total length
+        ThreeGltfFileTest.put4(glb 0 103 108 84 70)
+        ThreeGltfFileTest.wU32(glb 4 2)
+        ThreeGltfFileTest.wU32(glb 8 total)
+        ; JSON chunk header: length + type 'JSON'
+        ThreeGltfFileTest.wU32(glb 12 jsonLen)
+        ThreeGltfFileTest.put4(glb 16 74 83 79 78)
+        buffer_copy glb 20 jsonBytes 0 jsonLen
+        ; BIN chunk header: length + type 'BIN\0'
+        def binHdr:int (20 + jsonLen)
+        ThreeGltfFileTest.wU32(glb binHdr binLen)
+        ThreeGltfFileTest.put4(glb (binHdr + 4) 66 73 78 0)
+        def binData:int (binHdr + 8)
+        ; positions: v1.x = 1.0 at +12, v2.y = 1.0 at +28 (rest zero)
+        ThreeGltfFileTest.put4(glb (binData + 12) 0 0 128 63)
+        ThreeGltfFileTest.put4(glb (binData + 28) 0 0 128 63)
+
+        ; --- parse ---
+        def loader:ThreeGLTFFile (new ThreeGLTFFile)
+        def model:ThreeObject3D (loader.loadGLB(glb))
+        ck.near("model has 1 scene node" (to_double (model.childCount())) 1.0)
+
+        def box:ThreeBox3 (model.boundingBox())
+        def sz:ThreeVector3 (new ThreeVector3)
+        box.getSize(sz)
+        ck.near("bounds size x" sz.x 1.0)
+        ck.near("bounds size y" sz.y 1.0)
+        ck.near("bounds size z" sz.z 0.0)
+        ck.near("bounds min x" box.min.x 0.0)
+        ck.near("bounds max x" box.max.x 1.0)
+        ck.near("bounds max y" box.max.y 1.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

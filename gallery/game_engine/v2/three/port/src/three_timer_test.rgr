@@ -1,0 +1,80 @@
+; ==============================================================================
+; three_timer_test — ThreeTimer (Three.js Timer port) unit checks.
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_timer.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.000001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeTimerTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeTimer (Three.js Timer port) =="
+
+        def t:ThreeTimer (new ThreeTimer)
+
+        ; first update establishes the baseline: delta must be 0 (no prior frame).
+        t.update(1000.0)
+        ck.near("first delta is 0" (t.getDelta()) 0.0)
+        ck.near("first elapsed is 0" (t.getElapsed()) 0.0)
+
+        ; next frame 16ms later -> 0.016s delta
+        t.update(1016.0)
+        ck.near("delta 16ms" (t.getDelta()) 0.016)
+        ck.near("elapsed after one frame" (t.getElapsed()) 0.016)
+
+        ; another 100ms frame accumulates elapsed
+        t.update(1116.0)
+        ck.near("delta 100ms" (t.getDelta()) 0.1)
+        ck.near("elapsed accumulates" (t.getElapsed()) 0.116)
+
+        ; timescale doubles the reported delta
+        def t2:ThreeTimer (new ThreeTimer)
+        t2.setTimescale(2.0)
+        t2.update(0.0)
+        t2.update(1000.0)
+        ck.near("timescale 2x delta" (t2.getDelta()) 2.0)
+
+        ; reset returns to a fresh clock
+        t.reset()
+        t.update(5000.0)
+        ck.near("delta 0 after reset" (t.getDelta()) 0.0)
+        ck.near("elapsed 0 after reset" (t.getElapsed()) 0.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

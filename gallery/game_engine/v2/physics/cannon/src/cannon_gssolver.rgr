@@ -1,0 +1,136 @@
+; ==============================================================================
+; cannon_gssolver — Gauss-Seidel SPOOK solver (cannon-es src/solver/GSSolver).
+;   Solves the list of CannonEquation constraints and writes the resulting
+;   delta velocities back into the bodies.
+; ==============================================================================
+
+Import "cannon_equation.rgr"
+Import "cannon_body.rgr"
+
+class CannonGSSolver {
+    def iterations:int 10
+    def tolerance:double 0.0000001
+    def equations:[CannonEquation]
+    ; per-solve scratch (reused between solves)
+    def lambda:[double]
+    def Bs:[double]
+    def invCs:[double]
+
+    fn addEquation:void (eq:CannonEquation) {
+        if (eq.enabled) {
+            if (eq.bi.isTrigger == false) {
+                if (eq.bj.isTrigger == false) {
+                    push this.equations eq
+                }
+            }
+        }
+    }
+
+    fn removeAllEquations:void () {
+        clear this.equations
+    }
+
+    ; Returns the number of iterations performed.
+    fn solve:int (dt:double bodies:[CannonBody]) {
+        def Neq:int (array_length this.equations)
+        if (Neq == 0) {
+            return 0
+        }
+        def maxIter:int this.iterations
+        def tolSquared:double (this.tolerance * this.tolerance)
+        def Nbodies:int (array_length bodies)
+        def h:double dt
+
+        ; Update solve-mass properties for every body.
+        def bidx:int 0
+        while (bidx < Nbodies) {
+            def bb:CannonBody (itemAt bodies bidx)
+            bb.updateSolveMassProperties()
+            bidx = (bidx + 1)
+        }
+
+        ; Precompute B and 1/C for each equation (constant over iterations).
+        clear this.lambda
+        clear this.Bs
+        clear this.invCs
+        def i:int 0
+        while (i < Neq) {
+            def c:CannonEquation (itemAt this.equations i)
+            push this.lambda 0.0
+            push this.Bs (c.computeB(h))
+            push this.invCs (1.0 / (c.computeC()))
+            i = (i + 1)
+        }
+
+        ; Reset solver delta velocities.
+        def r:int 0
+        while (r < Nbodies) {
+            def bb:CannonBody (itemAt bodies r)
+            bb.vlambda.setZero()
+            bb.wlambda.setZero()
+            r = (r + 1)
+        }
+
+        ; Gauss-Seidel iterations.
+        def iter:int 0
+        def converged:boolean false
+        while (iter < maxIter) {
+            if (converged) {
+                iter = maxIter
+            } {
+                def deltalambdaTot:double 0.0
+                def j:int 0
+                while (j < Neq) {
+                    def c:CannonEquation (itemAt this.equations j)
+                    def B:double (itemAt this.Bs j)
+                    def invC:double (itemAt this.invCs j)
+                    def lambdaj:double (itemAt this.lambda j)
+                    def GWlambda:double (c.computeGWlambda())
+                    def deltalambda:double (invC * ((B - GWlambda) - (c.eps * lambdaj)))
+                    def newLambda:double (lambdaj + deltalambda)
+                    if (newLambda < c.minForce) {
+                        deltalambda = (c.minForce - lambdaj)
+                    } {
+                        if (newLambda > c.maxForce) {
+                            deltalambda = (c.maxForce - lambdaj)
+                        }
+                    }
+                    set this.lambda j (lambdaj + deltalambda)
+                    def ad:double deltalambda
+                    if (ad < 0.0) {
+                        ad = (0.0 - ad)
+                    }
+                    deltalambdaTot = (deltalambdaTot + ad)
+                    c.addToWlambda(deltalambda)
+                    j = (j + 1)
+                }
+                if ((deltalambdaTot * deltalambdaTot) < tolSquared) {
+                    converged = true
+                }
+                iter = (iter + 1)
+            }
+        }
+
+        ; Add the solver result to the actual body velocities.
+        def a2:int 0
+        while (a2 < Nbodies) {
+            def bb:CannonBody (itemAt bodies a2)
+            bb.vlambda.vmulInto(bb.linearFactor bb.vlambda)
+            bb.velocity.vadd(bb.vlambda bb.velocity)
+            bb.wlambda.vmulInto(bb.angularFactor bb.wlambda)
+            bb.angularVelocity.vadd(bb.wlambda bb.angularVelocity)
+            a2 = (a2 + 1)
+        }
+
+        ; Store multipliers.
+        def invDt:double (1.0 / h)
+        def m:int 0
+        while (m < Neq) {
+            def c:CannonEquation (itemAt this.equations m)
+            c.multiplier = ((itemAt this.lambda m) * invDt)
+            m = (m + 1)
+        }
+
+        return iter
+    }
+}

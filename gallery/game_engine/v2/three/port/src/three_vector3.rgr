@@ -1,0 +1,232 @@
+; ==============================================================================
+; three_vector3 — 3D vector (Three.js port of src/math/Vector3.js).
+; ==============================================================================
+;
+; First piece of the Ranger clone of Three.js (mirrors the physics/ Cannon.js
+; port: one class per file, ported faithfully, with a matching *_test.rgr). The
+; API follows Three.js: fluent methods return `this` so calls chain
+; (v.set(1,2,3).multiplyScalar(2)), and the isVector3 marker is kept.
+;
+; Ranger note: Three.js constructs `new Vector3(x,y,z)`; Ranger classes here
+; construct empty (`new ThreeVector3`) then `.set(x,y,z)` — matching the Cannon
+; port's `new CannonVec3` + `.set(...)` convention. `ThreeVector3.of(x,y,z)` is a
+; static convenience for one-liners.
+; ==============================================================================
+
+class ThreeVector3 {
+    def isVector3:boolean true
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+
+    sfn of:ThreeVector3 (x:double y:double z:double) {
+        def v:ThreeVector3 (new ThreeVector3)
+        v.x = x
+        v.y = y
+        v.z = z
+        return v
+    }
+
+    fn set:ThreeVector3 (x:double y:double z:double) {
+        this.x = x
+        this.y = y
+        this.z = z
+        return this
+    }
+    fn setScalar:ThreeVector3 (s:double) {
+        this.x = s
+        this.y = s
+        this.z = s
+        return this
+    }
+    fn setX:ThreeVector3 (x:double) {
+        this.x = x
+        return this
+    }
+    fn setY:ThreeVector3 (y:double) {
+        this.y = y
+        return this
+    }
+    fn setZ:ThreeVector3 (z:double) {
+        this.z = z
+        return this
+    }
+
+    ; Position on a sphere: radius, phi = polar angle from +Y (0..PI),
+    ; theta = azimuth in the XZ plane. Matches Three's Vector3.setFromSphericalCoords;
+    ; the Sponza example uses it to turn (elevation, azimuth) into a sun direction.
+    fn setFromSphericalCoords:ThreeVector3 (radius:double phi:double theta:double) {
+        def sinPhiRadius:double (radius * (sin phi))
+        this.x = (sinPhiRadius * (sin theta))
+        this.y = (radius * (cos phi))
+        this.z = (sinPhiRadius * (cos theta))
+        return this
+    }
+
+    fn copy:ThreeVector3 (v:ThreeVector3) {
+        this.x = v.x
+        this.y = v.y
+        this.z = v.z
+        return this
+    }
+    fn clone:ThreeVector3 () {
+        return (ThreeVector3.of(this.x this.y this.z))
+    }
+
+    fn add:ThreeVector3 (v:ThreeVector3) {
+        this.x = (this.x + v.x)
+        this.y = (this.y + v.y)
+        this.z = (this.z + v.z)
+        return this
+    }
+    fn addScalar:ThreeVector3 (s:double) {
+        this.x = (this.x + s)
+        this.y = (this.y + s)
+        this.z = (this.z + s)
+        return this
+    }
+    fn addVectors:ThreeVector3 (a:ThreeVector3 b:ThreeVector3) {
+        this.x = (a.x + b.x)
+        this.y = (a.y + b.y)
+        this.z = (a.z + b.z)
+        return this
+    }
+    fn addScaledVector:ThreeVector3 (v:ThreeVector3 s:double) {
+        this.x = (this.x + (v.x * s))
+        this.y = (this.y + (v.y * s))
+        this.z = (this.z + (v.z * s))
+        return this
+    }
+
+    fn sub:ThreeVector3 (v:ThreeVector3) {
+        this.x = (this.x - v.x)
+        this.y = (this.y - v.y)
+        this.z = (this.z - v.z)
+        return this
+    }
+    fn subScalar:ThreeVector3 (s:double) {
+        this.x = (this.x - s)
+        this.y = (this.y - s)
+        this.z = (this.z - s)
+        return this
+    }
+    fn subVectors:ThreeVector3 (a:ThreeVector3 b:ThreeVector3) {
+        this.x = (a.x - b.x)
+        this.y = (a.y - b.y)
+        this.z = (a.z - b.z)
+        return this
+    }
+
+    fn multiply:ThreeVector3 (v:ThreeVector3) {
+        this.x = (this.x * v.x)
+        this.y = (this.y * v.y)
+        this.z = (this.z * v.z)
+        return this
+    }
+    fn multiplyScalar:ThreeVector3 (s:double) {
+        this.x = (this.x * s)
+        this.y = (this.y * s)
+        this.z = (this.z * s)
+        return this
+    }
+    fn multiplyVectors:ThreeVector3 (a:ThreeVector3 b:ThreeVector3) {
+        this.x = (a.x * b.x)
+        this.y = (a.y * b.y)
+        this.z = (a.z * b.z)
+        return this
+    }
+
+    fn divideScalar:ThreeVector3 (s:double) {
+        return (this.multiplyScalar(1.0 / s))
+    }
+
+    fn negate:ThreeVector3 () {
+        this.x = (0.0 - this.x)
+        this.y = (0.0 - this.y)
+        this.z = (0.0 - this.z)
+        return this
+    }
+
+    fn dot:double (v:ThreeVector3) {
+        return (((this.x * v.x) + (this.y * v.y)) + (this.z * v.z))
+    }
+
+    fn lengthSq:double () {
+        return (((this.x * this.x) + (this.y * this.y)) + (this.z * this.z))
+    }
+    fn length:double () {
+        return (sqrt (this.lengthSq()))
+    }
+    fn manhattanLength:double () {
+        def ax:double this.x
+        if (ax < 0.0) {
+            ax = (0.0 - ax)
+        }
+        def ay:double this.y
+        if (ay < 0.0) {
+            ay = (0.0 - ay)
+        }
+        def az:double this.z
+        if (az < 0.0) {
+            az = (0.0 - az)
+        }
+        return ((ax + ay) + az)
+    }
+
+    fn normalize:ThreeVector3 () {
+        def l:double (this.length())
+        if (l == 0.0) {
+            return this
+        }
+        return (this.divideScalar(l))
+    }
+    fn setLength:ThreeVector3 (l:double) {
+        return (this.normalize().multiplyScalar(l))
+    }
+
+    fn cross:ThreeVector3 (v:ThreeVector3) {
+        return (this.crossVectors(this v))
+    }
+    fn crossVectors:ThreeVector3 (a:ThreeVector3 b:ThreeVector3) {
+        def ax:double a.x
+        def ay:double a.y
+        def az:double a.z
+        def bx:double b.x
+        def by:double b.y
+        def bz:double b.z
+        this.x = ((ay * bz) - (az * by))
+        this.y = ((az * bx) - (ax * bz))
+        this.z = ((ax * by) - (ay * bx))
+        return this
+    }
+
+    fn distanceToSquared:double (v:ThreeVector3) {
+        def dx:double (this.x - v.x)
+        def dy:double (this.y - v.y)
+        def dz:double (this.z - v.z)
+        return (((dx * dx) + (dy * dy)) + (dz * dz))
+    }
+    fn distanceTo:double (v:ThreeVector3) {
+        return (sqrt (this.distanceToSquared(v)))
+    }
+
+    fn lerp:ThreeVector3 (v:ThreeVector3 alpha:double) {
+        this.x = (this.x + ((v.x - this.x) * alpha))
+        this.y = (this.y + ((v.y - this.y) * alpha))
+        this.z = (this.z + ((v.z - this.z) * alpha))
+        return this
+    }
+
+    fn equals:boolean (v:ThreeVector3) {
+        if (this.x != v.x) {
+            return false
+        }
+        if (this.y != v.y) {
+            return false
+        }
+        if (this.z != v.z) {
+            return false
+        }
+        return true
+    }
+}

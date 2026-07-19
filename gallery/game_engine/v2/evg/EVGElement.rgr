@@ -1,0 +1,866 @@
+; EVGElement.rgr - Base element class for EVG layout
+
+Import "EVGUnit.rgr"
+Import "EVGColor.rgr"
+Import "EVGBox.rgr"
+Import "EVGGradient.rgr"
+
+; Element type constants
+; 0 = CONTAINER (div)
+; 1 = TEXT (span)
+; 2 = IMAGE (img)
+; 3 = PATH (svg path)
+
+class EVGElement {
+    def id:string ""
+    def tagName:string "div"
+    def elementType:int 0
+    
+    ; Print/Book format properties
+    def format:string ""           ; Book format: "a4", "trade-5x8", "large-square", etc.
+    def orientation:string ""      ; "portrait" or "landscape"
+    def pageWidth:double 0.0       ; Resolved page width in points
+    def pageHeight:double 0.0      ; Resolved page height in points
+    
+    ; Tree structure
+    def parent@(optional):EVGElement
+    def children:[EVGElement]
+    
+    ; Dimensions
+    def width:EVGUnit
+    def height:EVGUnit
+    def minWidth:EVGUnit
+    def minHeight:EVGUnit
+    def maxWidth:EVGUnit
+    def maxHeight:EVGUnit
+    
+    ; Position (for absolute positioning)
+    def left:EVGUnit
+    def top:EVGUnit
+    def right:EVGUnit
+    def bottom:EVGUnit
+    def x:EVGUnit
+    def y:EVGUnit
+    
+    ; Box model
+    def box:EVGBox
+    
+    ; Visual properties
+    def backgroundColor:EVGColor
+    def opacity:double 1.0
+
+    ; Linear-gradient background (RGU1 GRAD_FROM/GRAD_TO/GRAD_DIR). When gradientSet
+    ; the renderer fills the (rounded) box with a 2-stop linear gradient instead of
+    ; the solid backgroundColor. gradientDir: 0 = vertical (top->bottom), 1 =
+    ; horizontal (left->right).
+    def gradientSet:boolean false
+    def gradientFrom:EVGColor
+    def gradientTo:EVGColor
+    def gradientDir:int 0
+
+    ; Absolute placement (RGU1 ABS_X/ABS_Y): when absPosSet the element is laid out
+    ; at (absX, absY) in page pixels instead of participating in flex flow — used
+    ; for coord-reported overlay effects.
+    def absPosSet:boolean false
+    def absX:double 0.0
+    def absY:double 0.0
+
+    ; Animated glow strength 0..1 (RGU1 GLOW prop). The guest drives this over
+    ; time (a procedural effect animation); the renderer draws a soft halo behind
+    ; the element scaled by it. 0 = no glow.
+    def glowIntensity:double 0.0
+
+    ; Background image clipped to the (rounded) box (RGU1 BG_IMAGE prop). When
+    ; bgImageSet the renderer paints bgImagePath inside the rounded rect instead of
+    ; the solid/gradient fill. The path is host-resolvable (the guest is sandboxed;
+    ; the host loads the pixels), so an .as menu can show real image tiles.
+    def bgImageSet:boolean false
+    def bgImagePath:string ""
+
+    ; Layout properties
+    def direction:string "row"
+    def align:string "left"
+    def verticalAlign:string "top"
+    def isInline:boolean false
+    def lineBreak:boolean false
+    def overflow:string "visible"
+    
+    ; Typography (inherited)
+    def fontSize:EVGUnit
+    def fontFamily:string "Noto Sans"
+    def fontWeight:string "normal"
+    def lineHeight:double 1.2
+    def textAlign:string "left"
+    def color:EVGColor
+    def textContent:string ""
+    
+    ; CSS Flexbox properties
+    def display:string "block"
+    def flex:double 0.0
+    def flexDirection:string "column"
+    def justifyContent:string "flex-start"
+    def alignItems:string "flex-start"
+    def gap:EVGUnit
+    def position:string "relative"
+    
+    ; CSS Margin/Padding (shorthand expansion handled at parse time)
+    def marginTop:EVGUnit
+    def marginRight:EVGUnit
+    def marginBottom:EVGUnit
+    def marginLeft:EVGUnit
+    def paddingTop:EVGUnit
+    def paddingRight:EVGUnit
+    def paddingBottom:EVGUnit
+    def paddingLeft:EVGUnit
+    
+    ; CSS Border
+    def borderWidth:EVGUnit
+    def borderTopWidth:EVGUnit
+    def borderRightWidth:EVGUnit
+    def borderBottomWidth:EVGUnit
+    def borderLeftWidth:EVGUnit
+    def borderColor:EVGColor
+    def borderRadius:EVGUnit
+    
+    ; Image properties
+    def src:string ""
+    def alt:string ""
+    ; Image viewBox for cropping/zooming: "x% y% w% h%" or "x y w h" (pixels)
+    def imageViewBox:string ""
+    ; Parsed image viewBox values (0-1 range for percentages)
+    def imageViewBoxX:double 0.0
+    def imageViewBoxY:double 0.0
+    def imageViewBoxW:double 1.0
+    def imageViewBoxH:double 1.0
+    def imageViewBoxSet:boolean false
+    ; Image offset for positioning within container (can be negative)
+    ; Works with object-position CSS property
+    def imageOffsetX:EVGUnit
+    def imageOffsetY:EVGUnit
+    ; Image sizing: "cover", "contain", "fill", "none"
+    ; Default is "cover" - preserves aspect ratio, fills container, clips overflow
+    def objectFit:string "cover"
+    ; Original image dimensions (set by image loader)
+    def sourceWidth:double 0.0
+    def sourceHeight:double 0.0
+    
+    ; SVG Path properties
+    def svgPath:string ""
+    def viewBox:string ""
+    def fillColor:EVGColor
+    def strokeColor:EVGColor
+    def strokeWidth:double 0.0
+    
+    ; Clip path (for any element)
+    def clipPath:string ""
+    
+    ; CSS class (for reference)
+    def className:string ""
+    
+    ; PDF/Print settings (for Print element)
+    def imageQuality:int 0          ; JPEG quality 1-100 (0 = use default)
+    def maxImageSize:int 0          ; Max image dimension in pixels (0 = use default)
+    
+    ; Transform
+    def rotate:double 0.0
+    def scale:double 1.0
+    
+    ; Shadow
+    def shadowRadius:EVGUnit
+    def shadowColor:EVGColor
+    def shadowOffsetX:EVGUnit
+    def shadowOffsetY:EVGUnit
+    
+    ; Gradient (CSS gradient string like "linear-gradient(90deg, #ff0000, #0000ff)")
+    def backgroundGradient:string ""
+    ; Parsed gradient (for renderers to use)
+    def gradient:EVGGradient (new EVGGradient())
+    
+    ; Calculated values (output from layout)
+    def calculatedX:double 0.0
+    def calculatedY:double 0.0
+    def calculatedWidth:double 0.0
+    def calculatedHeight:double 0.0
+    def calculatedInnerWidth:double 0.0
+    def calculatedInnerHeight:double 0.0
+    def calculatedFlexWidth:double 0.0
+    def calculatedPage:int 0
+    def isAbsolute:boolean false
+    def isLayoutComplete:boolean false
+    def unitsResolved:boolean false
+    
+    ; For statement evaluation: indicates if a return was executed
+    def hasReturn:boolean false
+    def hasBreak:boolean false
+    def hasContinue:boolean false
+    
+    ; Inherited font size in pixels
+    def inheritedFontSize:double 14.0
+    
+    Constructor () {
+        tagName = "div"
+        elementType = 0
+        
+        width = (EVGUnit.unset())
+        height = (EVGUnit.unset())
+        minWidth = (EVGUnit.unset())
+        minHeight = (EVGUnit.unset())
+        maxWidth = (EVGUnit.unset())
+        maxHeight = (EVGUnit.unset())
+        
+        left = (EVGUnit.unset())
+        top = (EVGUnit.unset())
+        right = (EVGUnit.unset())
+        bottom = (EVGUnit.unset())
+        x = (EVGUnit.unset())
+        y = (EVGUnit.unset())
+        
+        def newBox (new EVGBox())
+        box = newBox
+        
+        backgroundColor = (EVGColor.noColor())
+        color = (EVGColor.black())
+        
+        fontSize = (EVGUnit.px(14.0))
+        
+        shadowRadius = (EVGUnit.unset())
+        shadowColor = (EVGColor.noColor())
+        shadowOffsetX = (EVGUnit.unset())
+        shadowOffsetY = (EVGUnit.unset())
+        
+        imageOffsetX = (EVGUnit.unset())
+        imageOffsetY = (EVGUnit.unset())
+        
+        fillColor = (EVGColor.noColor())
+        strokeColor = (EVGColor.noColor())
+    }
+    
+    sfn createDiv:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "div"
+        el.elementType = 0
+        return el
+    }
+    
+    sfn createSpan:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "span"
+        el.elementType = 1
+        return el
+    }
+    
+    sfn createImg:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "img"
+        el.elementType = 2
+        return el
+    }
+    
+    sfn createPath:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "path"
+        el.elementType = 3
+        return el
+    }
+    
+    fn addChild:void (child:EVGElement) {
+        child.parent = this
+        push children child
+    }
+    
+    fn resetLayoutState:void () {
+        ; Reset layout state for re-layout
+        unitsResolved = false
+        calculatedX = 0.0
+        calculatedY = 0.0
+        calculatedWidth = 0.0
+        calculatedHeight = 0.0
+        ; Recursively reset children
+        def i:int 0
+        while (i < (array_length children)) {
+            def child:EVGElement (itemAt children i)
+            child.resetLayoutState()
+            i = i + 1
+        }
+    }
+    
+    fn getChildCount:int () {
+        return (array_length children)
+    }
+    
+    fn getChild:EVGElement (index:int) {
+        return (itemAt children index)
+    }
+    
+    fn hasParent:boolean () {
+        ; Check if parent is set - use simple boolean check
+        if parent {
+            return true
+        }
+        return false
+    }
+    
+    fn isContainer:boolean () {
+        return (elementType == 0)
+    }
+    
+    fn isText:boolean () {
+        return (elementType == 1)
+    }
+    
+    fn isImage:boolean () {
+        return (elementType == 2)
+    }
+    
+    fn isPath:boolean () {
+        return (elementType == 3)
+    }
+    
+    fn hasAbsolutePosition:boolean () {
+        ; Check if element has absolute positioning
+        ; Layer elements are always absolute (overlay parent)
+        if ((tagName == "layer") || (tagName == "Layer")) {
+            return true
+        }
+        if left.isSet {
+            return true
+        }
+        if top.isSet {
+            return true
+        }
+        if right.isSet {
+            return true
+        }
+        if bottom.isSet {
+            return true
+        }
+        if x.isSet {
+            return true
+        }
+        if y.isSet {
+            return true
+        }
+        return false
+    }
+    
+    ; Resolve book format to page dimensions in points (72 DPI)
+    ; Returns [width, height] based on format and orientation
+    fn resolveBookFormat:void () {
+        def w:double 595.0   ; Default A4 width
+        def h:double 842.0   ; Default A4 height
+        
+        ; Blurb book formats (width x height in points @ 72 DPI)
+        if (format == "a4") {
+            w = 595.0
+            h = 842.0
+        }
+        if (format == "letter") {
+            w = 612.0
+            h = 792.0
+        }
+        if (format == "trade-5x8") {
+            w = 360.0
+            h = 576.0
+        }
+        if (format == "trade-6x9") {
+            w = 432.0
+            h = 648.0
+        }
+        if (format == "trade-8x10") {
+            w = 576.0
+            h = 720.0
+        }
+        if (format == "mini-square") {
+            w = 360.0
+            h = 360.0
+        }
+        if (format == "small-square") {
+            w = 504.0
+            h = 504.0
+        }
+        if (format == "standard-portrait") {
+            w = 576.0
+            h = 720.0
+        }
+        if (format == "standard-landscape") {
+            w = 720.0
+            h = 576.0
+        }
+        if (format == "large-landscape") {
+            w = 936.0
+            h = 792.0
+        }
+        if (format == "large-square") {
+            w = 864.0
+            h = 864.0
+        }
+        if (format == "magazine") {
+            w = 612.0
+            h = 792.0
+        }
+        
+        ; Apply orientation (swap dimensions for landscape if not already landscape format)
+        if (orientation == "landscape") {
+            if (w < h) {
+                ; Swap width and height for landscape
+                def temp:double w
+                w = h
+                h = temp
+            }
+        }
+        if (orientation == "portrait") {
+            if (w > h) {
+                ; Swap width and height for portrait
+                def temp:double w
+                w = h
+                h = temp
+            }
+        }
+        
+        ; If custom dimensions provided, use them
+        if (pageWidth > 0.0) {
+            w = pageWidth
+        }
+        if (pageHeight > 0.0) {
+            h = pageHeight
+        }
+        
+        ; Store resolved dimensions
+        pageWidth = w
+        pageHeight = h
+    }
+    
+    fn inheritProperties:void (parentEl:EVGElement) {
+        ; Inherit properties from parent
+        if (fontFamily == "Noto Sans") {
+            fontFamily = parentEl.fontFamily
+        }
+        if (color.isSet == false) {
+            color = parentEl.color
+        }
+        inheritedFontSize = parentEl.inheritedFontSize
+        if fontSize.isSet {
+            fontSize.resolve(inheritedFontSize inheritedFontSize)
+            inheritedFontSize = fontSize.pixels
+        }
+    }
+    
+    fn resolveUnits:void (parentWidth:double parentHeight:double) {
+        ; Skip if already resolved - prevents double-resolution of percentages
+        if unitsResolved {
+            return
+        }
+        unitsResolved = true
+        
+        ; Resolve all unit values to pixels
+        def fs:double inheritedFontSize
+        
+        ; Dimensions - width uses parentWidth, height uses parentHeight
+        width.resolveWithHeight(parentWidth parentHeight fs)
+        height.resolveForHeight(parentWidth parentHeight fs)
+        minWidth.resolve(parentWidth fs)
+        minHeight.resolve(parentHeight fs)
+        maxWidth.resolve(parentWidth fs)
+        maxHeight.resolve(parentHeight fs)
+        
+        ; Position
+        left.resolve(parentWidth fs)
+        top.resolve(parentHeight fs)
+        right.resolve(parentWidth fs)
+        bottom.resolve(parentHeight fs)
+        x.resolve(parentWidth fs)
+        y.resolve(parentHeight fs)
+        
+        ; Box model
+        box.resolveUnits(parentWidth parentHeight fs)
+        
+        ; Shadow
+        shadowRadius.resolve(parentWidth fs)
+        shadowOffsetX.resolve(parentWidth fs)
+        shadowOffsetY.resolve(parentHeight fs)
+        
+        ; Determine if absolute positioning
+        isAbsolute = (this.hasAbsolutePosition())
+    }
+    
+    fn setAttribute:void (name:string value:string) {
+        ; Set attribute by name (for parser)
+        
+        if (name == "id") {
+            id = value
+            return
+        }
+        
+        ; Book format properties
+        if (name == "format") {
+            format = (to_lowercase value)
+            return
+        }
+        if (name == "orientation") {
+            orientation = (to_lowercase value)
+            return
+        }
+        if (name == "pageWidth") {
+            def pw@(optional):double (to_double value)
+            if pw {
+                pageWidth = (unwrap pw)
+            }
+            return
+        }
+        if (name == "pageHeight") {
+            def ph@(optional):double (to_double value)
+            if ph {
+                pageHeight = (unwrap ph)
+            }
+            return
+        }
+        
+        ; Dimensions
+        if (name == "width") {
+            width = (EVGUnit.parse(value))
+            return
+        }
+        if (name == "height") {
+            height = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "min-width") || (name == "minWidth")) {
+            minWidth = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "min-height") || (name == "minHeight")) {
+            minHeight = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "max-width") || (name == "maxWidth")) {
+            maxWidth = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "max-height") || (name == "maxHeight")) {
+            maxHeight = (EVGUnit.parse(value))
+            return
+        }
+        
+        ; Position
+        if (name == "left") {
+            left = (EVGUnit.parse(value))
+            return
+        }
+        if (name == "top") {
+            top = (EVGUnit.parse(value))
+            return
+        }
+        if (name == "right") {
+            right = (EVGUnit.parse(value))
+            return
+        }
+        if (name == "bottom") {
+            bottom = (EVGUnit.parse(value))
+            return
+        }
+        if (name == "x") {
+            x = (EVGUnit.parse(value))
+            return
+        }
+        if (name == "y") {
+            y = (EVGUnit.parse(value))
+            return
+        }
+        
+        ; Margin
+        if (name == "margin") {
+            box.setMargin((EVGUnit.parse(value)))
+            return
+        }
+        if ((name == "margin-left") || (name == "marginLeft")) {
+            box.marginLeft = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "margin-right") || (name == "marginRight")) {
+            box.marginRight = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "margin-top") || (name == "marginTop")) {
+            box.marginTop = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "margin-bottom") || (name == "marginBottom")) {
+            box.marginBottom = (EVGUnit.parse(value))
+            return
+        }
+        
+        ; Padding
+        if (name == "padding") {
+            box.setPadding((EVGUnit.parse(value)))
+            return
+        }
+        if ((name == "padding-left") || (name == "paddingLeft")) {
+            box.paddingLeft = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "padding-right") || (name == "paddingRight")) {
+            box.paddingRight = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "padding-top") || (name == "paddingTop")) {
+            box.paddingTop = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "padding-bottom") || (name == "paddingBottom")) {
+            box.paddingBottom = (EVGUnit.parse(value))
+            return
+        }
+        
+        ; Border
+        if ((name == "border-width") || (name == "borderWidth")) {
+            box.borderWidth = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "border-color") || (name == "borderColor")) {
+            box.borderColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "border-radius") || (name == "borderRadius")) {
+            box.borderRadius = (EVGUnit.parse(value))
+            return
+        }
+
+        ; ---- rich EVG effect props, drawn by WasmUiRenderer from these fields.
+        ; camelCase spellings so the TSX parser (which splits '-') can carry them.
+        ; Animated glow halo strength (0..1).
+        if (name == "glow") {
+            def gv@(optional):double (to_double value)
+            glowIntensity = (unwrap gv)
+            return
+        }
+        ; Background art clipped to the rounded box (the .as menu's tile image).
+        if ((name == "background-image") || (name == "backgroundImage")) {
+            bgImageSet = true
+            bgImagePath = value
+            return
+        }
+        ; 2-stop linear gradient fill (RGU1 GRAD_FROM/GRAD_TO/GRAD_DIR).
+        if ((name == "gradient-from") || (name == "gradientFrom")) {
+            gradientFrom = (EVGColor.parse(value))
+            gradientSet = true
+            return
+        }
+        if ((name == "gradient-to") || (name == "gradientTo")) {
+            gradientTo = (EVGColor.parse(value))
+            gradientSet = true
+            return
+        }
+        if ((name == "gradient-dir") || (name == "gradientDir")) {
+            def dv@(optional):int (to_int value)
+            gradientDir = (unwrap dv)
+            return
+        }
+
+        ; Colors
+        if ((name == "background-color") || (name == "backgroundColor")) {
+            backgroundColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "background-gradient") || (name == "backgroundGradient")) {
+            backgroundGradient = value
+            gradient = (EVGGradient.parse(value))
+            return
+        }
+        ; Also support "background" which can be a gradient
+        if (name == "background") {
+            ; Check if it's a gradient
+            if ((contains value "linear-gradient") || (contains value "radial-gradient")) {
+                backgroundGradient = value
+                gradient = (EVGGradient.parse(value))
+            } {
+                ; Treat as color
+                backgroundColor = (EVGColor.parse(value))
+            }
+            return
+        }
+        if (name == "color") {
+            color = (EVGColor.parse(value))
+            return
+        }
+        if (name == "opacity") {
+            def val@(optional):double (to_double value)
+            opacity = (unwrap val)
+            return
+        }
+        
+        ; Image properties
+        if ((name == "object-fit") || (name == "objectFit")) {
+            objectFit = value
+            return
+        }
+        if ((name == "image-offset-x") || (name == "imageOffsetX")) {
+            imageOffsetX = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "image-offset-y") || (name == "imageOffsetY")) {
+            imageOffsetY = (EVGUnit.parse(value))
+            return
+        }
+        
+        ; Layout
+        if (name == "direction") {
+            direction = value
+            return
+        }
+        if (name == "align") {
+            align = value
+            return
+        }
+        if ((name == "vertical-align") || (name == "verticalAlign")) {
+            verticalAlign = value
+            return
+        }
+        if (name == "inline") {
+            isInline = (value == "true")
+            return
+        }
+        if ((name == "line-break") || (name == "lineBreak")) {
+            lineBreak = (value == "true")
+            return
+        }
+        if (name == "overflow") {
+            overflow = value
+            return
+        }
+        
+        ; Flexbox
+        if ((name == "flex-direction") || (name == "flexDirection")) {
+            flexDirection = value
+            return
+        }
+        if (name == "flex") {
+            def val@(optional):double (to_double value)
+            if val {
+                flex = (unwrap val)
+            }
+            return
+        }
+        if (name == "gap") {
+            gap = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "justify-content") || (name == "justifyContent")) {
+            justifyContent = value
+            return
+        }
+        if ((name == "align-items") || (name == "alignItems")) {
+            alignItems = value
+            return
+        }
+        
+        ; Typography
+        if ((name == "font-size") || (name == "fontSize")) {
+            fontSize = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "font-family") || (name == "fontFamily")) {
+            fontFamily = value
+            return
+        }
+        if ((name == "font-weight") || (name == "fontWeight")) {
+            fontWeight = value
+            return
+        }
+        if ((name == "text-align") || (name == "textAlign")) {
+            textAlign = value
+            return
+        }
+        if ((name == "line-height") || (name == "lineHeight")) {
+            def val@(optional):double (to_double value)
+            if val {
+                lineHeight = (unwrap val)
+            }
+            return
+        }
+        
+        ; Transform
+        if (name == "rotate") {
+            def val@(optional):double (to_double value)
+            rotate = (unwrap val)
+            return
+        }
+        if (name == "scale") {
+            def val@(optional):double (to_double value)
+            scale = (unwrap val)
+            return
+        }
+        
+        ; Shadow
+        if ((name == "shadow-radius") || (name == "shadowRadius")) {
+            shadowRadius = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "shadow-color") || (name == "shadowColor")) {
+            shadowColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "shadow-offset-x") || (name == "shadowOffsetX")) {
+            shadowOffsetX = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "shadow-offset-y") || (name == "shadowOffsetY")) {
+            shadowOffsetY = (EVGUnit.parse(value))
+            return
+        }
+        
+        ; Clip path (SVG path for clipping)
+        if ((name == "clip-path") || (name == "clipPath")) {
+            clipPath = value
+            return
+        }
+        
+        ; PDF/Print settings
+        if (name == "imageQuality") {
+            def val@(optional):int (to_int value)
+            if val {
+                imageQuality = (unwrap val)
+            }
+            return
+        }
+        if (name == "maxImageSize") {
+            def val@(optional):int (to_int value)
+            if val {
+                maxImageSize = (unwrap val)
+            }
+            return
+        }
+        
+        ; SVG Path attributes
+        if ((name == "d") || (name == "svgPath")) {
+            svgPath = value
+            return
+        }
+        if (name == "viewBox") {
+            viewBox = value
+            return
+        }
+        if (name == "fill") {
+            fillColor = (EVGColor.parse(value))
+            return
+        }
+        if (name == "stroke") {
+            strokeColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "stroke-width") || (name == "strokeWidth")) {
+            def val@(optional):double (to_double value)
+            if val {
+                strokeWidth = (unwrap val)
+            }
+            return
+        }
+    }
+    
+    fn getCalculatedBounds:string () {
+        return ("(" + (to_string calculatedX) + ", " + (to_string calculatedY) + ") " + (to_string calculatedWidth) + "x" + (to_string calculatedHeight))
+    }
+    
+    fn toString:string () {
+        return ("<" + tagName + " id=\"" + id + "\" " + (this.getCalculatedBounds()) + ">")
+    }
+}

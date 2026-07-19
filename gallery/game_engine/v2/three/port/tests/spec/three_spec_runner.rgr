@@ -1,0 +1,175 @@
+; ==============================================================================
+; three_spec_runner — ONE compiled runner for several no-render features.
+; ==============================================================================
+; Answers "can we go faster?": instead of one compiled .rgr per feature (~8 s of
+; Ranger→ES6 compile each), this single runner is compiled once and reads a
+; data-driven description file (../../reference/spec_goldens.json, computed from
+; the real three.js) that lists the expected values for the internal Ranger
+; objects. It interprets ONE scene (spec_scene.tsx) through ComponentEngine,
+; reconciles it into the host via ThreeTsxBridge, then checks — with no rendering:
+;
+;   camera   — the perspective projection matrix (ThreeMatrix4.makePerspective)
+;   matrix   — a transformed mesh's world matrix (ThreeMatrix4.compose(T,R,S))
+;   colors   — material + background channels (raw hex/255; families)
+;   culling  — a ThreeFrustum from the projection matrix vs points + spheres
+;
+; Adding expected values is a JSON edit (no recompile); adding a whole feature is
+; a check function + a JSON section. Prints per-check PASS/FAIL and ALL PASS.
+; ==============================================================================
+
+Import "../../tsx/three_tsx_bridge.rgr"
+Import "../../src/three_frustum.rgr"
+Import "../../src/three_json.rgr"
+Import "../../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class SpecCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d < 0.001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+    fn boolEq:void (name:string got:boolean want:boolean) {
+        this.ok((name + " (" + (to_string got) + ")") (got == want))
+    }
+}
+
+class ThreeSpecRunner {
+    ; --- camera + matrix: projection matrix elements --------------------------
+    sfn checkCamera:void (ck:SpecCheck bridge:ThreeTsxBridge golds:ThreeJsonValue) {
+        print "== camera / matrix: perspective projection matrix =="
+        def proj:ThreeJsonValue ((golds.get("camera")).get("projection"))
+        def m:ThreeMatrix4 (bridge.camera.projectionMatrix)
+        def i:int 0
+        while (i < 16) {
+            ck.near(("proj[" + (to_string i) + "]") (m.eGet(i)) ((proj.at(i)).asNumber()))
+            i = (i + 1)
+        }
+    }
+
+    ; --- matrix: a transformed mesh's world matrix (compose(T,R,S)) -----------
+    sfn checkWorldMatrix:void (ck:SpecCheck bridge:ThreeTsxBridge golds:ThreeJsonValue) {
+        print "== matrix: transformed mesh world matrix (compose T,R,S) =="
+        def wm:ThreeJsonValue ((golds.get("worldMatrix")).get("matrix"))
+        ; entity handle 4 = the transformed white mesh (see spec_scene.tsx)
+        def e:ThreeObject3D (bridge.host.entityAt(4))
+        e.updateMatrix()
+        def m:ThreeMatrix4 (e.matrix)
+        def i:int 0
+        while (i < 16) {
+            ck.near(("world[" + (to_string i) + "]") (m.eGet(i)) ((wm.at(i)).asNumber()))
+            i = (i + 1)
+        }
+    }
+
+    ; --- colors: material channels + scene background (raw hex/255) -----------
+    sfn checkColor:void (ck:SpecCheck bridge:ThreeTsxBridge golds:ThreeJsonValue key:string matH:int) {
+        def g:ThreeJsonValue ((golds.get("colors")).get(key))
+        def mat:ThreeMaterial (bridge.host.materialAt(matH))
+        ck.near((key + " r") mat.colorR (g.numOr("r" 0.0)))
+        ck.near((key + " g") mat.colorG (g.numOr("g" 0.0)))
+        ck.near((key + " b") mat.colorB (g.numOr("b" 0.0)))
+    }
+    sfn checkColors:void (ck:SpecCheck bridge:ThreeTsxBridge golds:ThreeJsonValue) {
+        print "== colors: material families + scene background (raw hex/255) =="
+        ThreeSpecRunner.checkColor(ck bridge golds "warm" 1)
+        ThreeSpecRunner.checkColor(ck bridge golds "green" 2)
+        ThreeSpecRunner.checkColor(ck bridge golds "dark" 3)
+        ThreeSpecRunner.checkColor(ck bridge golds "white" 4)
+        def bg:ThreeJsonValue ((golds.get("colors")).get("background"))
+        def sc:ThreeScene (bridge.host.sceneAt(bridge.sceneH))
+        ck.near("background r" sc.backgroundR (bg.numOr("r" 0.0)))
+        ck.near("background g" sc.backgroundG (bg.numOr("g" 0.0)))
+        ck.near("background b" sc.backgroundB (bg.numOr("b" 0.0)))
+    }
+
+    ; --- culling: frustum from the projection matrix vs points + spheres ------
+    sfn checkCulling:void (ck:SpecCheck bridge:ThreeTsxBridge golds:ThreeJsonValue) {
+        print "== culling: view-frustum containment (no rendering) =="
+        def fr:ThreeFrustum (new ThreeFrustum)
+        fr.setFromProjectionMatrix(bridge.camera.projectionMatrix)
+        def pts:ThreeJsonValue (golds.get("cullPoints"))
+        def i:int 0
+        while (i < (pts.length())) {
+            def p:ThreeJsonValue (pts.at(i))
+            def got:boolean (fr.containsPoint((p.numOr("x" 0.0)) (p.numOr("y" 0.0)) (p.numOr("z" 0.0))))
+            ck.boolEq(("point " + (to_string i) + " inside") got ((p.get("inside")).asBool()))
+            i = (i + 1)
+        }
+        def sph:ThreeJsonValue (golds.get("cullSpheres"))
+        def j:int 0
+        while (j < (sph.length())) {
+            def s:ThreeJsonValue (sph.at(j))
+            def got2:boolean (fr.intersectsSphere((s.numOr("x" 0.0)) (s.numOr("y" 0.0)) (s.numOr("z" 0.0)) (s.numOr("r" 0.0))))
+            ck.boolEq(("sphere " + (to_string j) + " inside") got2 ((s.get("inside")).asBool()))
+            j = (j + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def ck:SpecCheck (new SpecCheck)
+
+        ; --- description file (expected values for the internal objects) -------
+        def gbuf:buffer (buffer_read_file "gallery/game_engine/three/reference" "spec_goldens.json")
+        def parser:ThreeJsonParser (new ThreeJsonParser)
+        def golds:ThreeJsonValue (parser.parse((buffer_to_string gbuf)))
+
+        ; --- run the one scene through the interpreter + reconcile into host ---
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(300.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(200.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/three/tests/spec" "spec_scene.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def bridge (new ThreeTsxBridge)
+        bridge.setEngine(engine)
+        bridge.renderFrame(300 200)
+
+        ThreeSpecRunner.checkCamera(ck bridge golds)
+        ThreeSpecRunner.checkWorldMatrix(ck bridge golds)
+        ThreeSpecRunner.checkColors(ck bridge golds)
+        ThreeSpecRunner.checkCulling(ck bridge golds)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

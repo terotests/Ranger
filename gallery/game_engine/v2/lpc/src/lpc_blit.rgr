@@ -1,0 +1,23 @@
+; ==============================================================================
+; lpc_blit — alpha blit ImageBuffer → RasterBuffer (fast buffer path).
+; ==============================================================================
+
+Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../rgba_fast_blit.rgr"
+
+class LpcBlit {
+    def fast:RgbaFastBlit (new RgbaFastBlit())
+
+    fn blit:void (dest:RasterBuffer src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
+        this.fast.blitRect(dest src sx sy sw sh dx dy)
+    }
+
+    fn blitImage:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
+        this.fast.blitImage(dest src dx dy)
+    }
+
+    fn blitFirstLayer:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
+        this.fast.blitFirstLayer(dest src dx dy)
+    }
+}

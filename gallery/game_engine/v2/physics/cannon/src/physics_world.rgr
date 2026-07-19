@@ -1,0 +1,79 @@
+; ==============================================================================
+; physics_world — engine-neutral physics interface (IDEAL.md §2.5).
+;
+; A game / test talks to this contract instead of a concrete engine, so the
+; arcade core, the Cannon port (CannonPhysicsWorld), or a future host-native
+; backend (Jolt/Rapier) are interchangeable behind it. Only primitives cross the
+; boundary — no engine-specific body/shape objects leak through. Bodies are
+; referenced by an opaque integer handle.
+;
+; The base is an empty world (every method a no-op / default); real engines
+; subclass and override. See cannon_physics_world.rgr for the Cannon adapter.
+; ==============================================================================
+
+class PhysicsWorld {
+    fn initWorld:void () {
+    }
+
+    fn setGravity:void (x:double y:double z:double) {
+    }
+
+    ; --- body creation (mass <= 0 => static). Returns an opaque body handle. ---
+    fn addSphere:int (mass:double x:double y:double z:double radius:double) {
+        return -1
+    }
+
+    fn addBox:int (mass:double x:double y:double z:double hx:double hy:double hz:double) {
+        return -1
+    }
+
+    ; A static infinite plane whose surface normal points along (nx,ny,nz).
+    fn addStaticPlane:int (nx:double ny:double nz:double) {
+        return -1
+    }
+
+    ; --- constraints ---
+    fn addPointToPoint:void (bodyA:int pax:double pay:double paz:double bodyB:int pbx:double pby:double pbz:double) {
+    }
+
+    ; --- per-body I/O ---
+    fn setBodyVelocity:void (id:int vx:double vy:double vz:double) {
+    }
+
+    fn bodyPosX:double (id:int) {
+        return 0.0
+    }
+
+    fn bodyPosY:double (id:int) {
+        return 0.0
+    }
+
+    fn bodyPosZ:double (id:int) {
+        return 0.0
+    }
+
+    ; --- simulation ---
+    fn step:void (dt:double) {
+    }
+
+    ; --- raycasting: cast, then read the closest hit ---
+    fn raycastClosest:boolean (fx:double fy:double fz:double tx:double ty:double tz:double) {
+        return false
+    }
+
+    fn rayHitX:double () {
+        return 0.0
+    }
+
+    fn rayHitY:double () {
+        return 0.0
+    }
+
+    fn rayHitZ:double () {
+        return 0.0
+    }
+
+    fn rayDistance:double () {
+        return -1.0
+    }
+}

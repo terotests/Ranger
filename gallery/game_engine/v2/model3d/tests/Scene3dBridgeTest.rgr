@@ -1,0 +1,85 @@
+; ==============================================================================
+; Scene3dBridgeTest.rgr — headless proof of the host-owned TSX 3D scene path.
+; ==============================================================================
+; Verifies (under Node, no display) that a short .tsx init() declaring a scene
+; drives the full host-side load + GL-upload + placement pipeline through
+; Scene3dBridge. The null uploader stands in for GL (SDL host injects the real
+; one); everything the script triggers — parse, mesh build, instance placement,
+; spin, host animation advance — is asserted here.
+; ==============================================================================
+
+Import "../Scene3dBridge.rgr"
+Import "GlbFixture.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class Scene3dBridgeTest {
+    sfn m@(main):void () {
+        def ck:Checker (new Checker)
+
+        ; a real GLB on disk for the script to load
+        def glb:buffer (GlbFixture.build())
+        def dir:string "/tmp"
+        buffer_write_file dir "fixture.glb" glb
+
+        ; interpreter + host scene bridge (headless null uploader)
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def scene:Scene3dBridge (new Scene3dBridge)
+        scene.setAssetDir(dir)
+        scene.setRadius(1.0)
+        engine.setNativeBridge(scene)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/model3d/tests" "scene_bridge_demo.tsx")
+        engine.loadScript((buffer_to_string buf))
+
+        ; the ONLY script evaluation — declares the whole scene
+        engine.callFunction("init" (EvalValue.null()))
+
+        print "== Scene3dBridge (host-owned scene) checks =="
+        ck.eqInt("one instance added" (scene.count()) 1)
+
+        def inst:SceneInstance (scene.instAt(0))
+        ck.eqInt("instance index count (fixture 1 tri)" inst.count 3)
+        ck.ok("GL mesh handle allocated" (inst.glMesh > 0))
+        ck.ok("GL texture handle allocated (embedded PNG)" (inst.glTex > 0))
+        ck.ok("place() set x=2" (inst.px == 2.0))
+        ck.ok("spin() set 1.0 rad/s" (inst.spin == 1.0))
+
+        ; host-owned animation: advance 1s -> ry advances by spin
+        scene.advance(1000)
+        ck.ok("advance() rotated ~1.0 rad" ((inst.ry > 0.9) && (inst.ry < 1.1)))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

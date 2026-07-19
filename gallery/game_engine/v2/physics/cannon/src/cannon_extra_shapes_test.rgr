@@ -1,0 +1,91 @@
+; ==============================================================================
+; cannon_extra_shapes_test — Particle (point mass) and Trimesh (static mesh).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_sphere.rgr"
+Import "cannon_plane.rgr"
+Import "cannon_particle.rgr"
+Import "cannon_trimesh.rgr"
+Import "cannon_body.rgr"
+Import "cannon_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonExtraShapesTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Particle.onPlane")) { this.particleOnPlane(h) }
+        if (this.filter.matches(filter "Trimesh.sphereRests")) { this.trimeshSphere(h) }
+    }
+
+    ; A particle (zero-radius point) falls onto a +Z plane and rests at its surface.
+    fn particleOnPlane:void (h:CannonTestHarness) {
+        h.beginTest("Particle.onPlane")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def plane:CannonPlane (new CannonPlane)
+        plane.initPlane()
+        ground.addShape(plane)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def p:CannonBody (new CannonBody)
+        p.initDynamic(1.0)
+        def particle:CannonParticle (new CannonParticle)
+        particle.initParticle()
+        p.addShape(particle)
+        p.position.set(0.0 0.0 2.0)
+        world.addBody(p)
+
+        def s 0
+        while (s < 150) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        h.nearEqual(p.position.z 0.0 0.2 "particle rests at the plane surface (z~0)")
+        print ("particleZ=" + (to_string p.position.z))
+        h.finishTest()
+    }
+
+    ; A ball settles on a trimesh floor (two triangles forming a quad at z=0).
+    fn trimeshSphere:void (h:CannonTestHarness) {
+        h.beginTest("Trimesh.sphereRests")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def mesh:CannonTrimesh (new CannonTrimesh)
+        mesh.initTrimesh()
+        mesh.addTriangle((0.0 - 5.0) (0.0 - 5.0) 0.0 5.0 (0.0 - 5.0) 0.0 5.0 5.0 0.0)
+        mesh.addTriangle((0.0 - 5.0) (0.0 - 5.0) 0.0 5.0 5.0 0.0 (0.0 - 5.0) 5.0 0.0)
+        ground.addShape(mesh)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def ball:CannonBody (new CannonBody)
+        ball.initDynamic(1.0)
+        def sphere:CannonSphere (new CannonSphere)
+        sphere.initSphere(0.5)
+        ball.addShape(sphere)
+        ball.position.set(0.0 0.0 2.0)
+        world.addBody(ball)
+
+        def s 0
+        while (s < 150) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def z:double ball.position.z
+        h.nearEqual(z 0.5 0.2 "ball rests one radius above the trimesh floor")
+        print ("trimeshZ=" + (to_string z))
+        h.finishTest()
+    }
+}

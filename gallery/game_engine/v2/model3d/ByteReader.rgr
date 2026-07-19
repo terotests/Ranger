@@ -1,0 +1,174 @@
+; ==============================================================================
+; ByteReader.rgr — little-endian reads over a byte buffer (GLB/glTF BIN data).
+; ==============================================================================
+; glTF stores all multi-byte values little-endian. This wraps a `buffer` and
+; offers positional and absolute reads for the scalar types accessors use:
+; u8/u16/u32 (indices) and IEEE-754 float32 (positions, normals, uv, TRS).
+; float32 is decoded from raw bytes so the loader never depends on a host codec.
+; ==============================================================================
+
+class ByteReader {
+    def buf:buffer (buffer_alloc 0)
+    def pos:int 0
+    def len:int 0
+
+    fn init:void (b:buffer) {
+        buf = b
+        pos = 0
+        len = (buffer_length b)
+    }
+    fn seek:void (p:int) {
+        pos = p
+    }
+    fn tell:int () {
+        return pos
+    }
+    fn remaining:int () {
+        return (len - pos)
+    }
+
+    ; ---- absolute reads -----------------------------------------------------
+    fn u8at:int (off:int) {
+        return (buffer_get buf off)
+    }
+    fn i8at:int (off:int) {
+        def v:int (buffer_get buf off)
+        if (v >= 128) {
+            return (v - 256)
+        }
+        return v
+    }
+    fn u16at:int (off:int) {
+        def b0:int (buffer_get buf off)
+        def b1:int (buffer_get buf (off + 1))
+        return (b0 + (b1 * 256))
+    }
+    fn i16at:int (off:int) {
+        def v:int (this.u16at(off))
+        if (v >= 32768) {
+            return (v - 65536)
+        }
+        return v
+    }
+    ; multiply (not shift) so the high byte never trips 32-bit sign in JS/ES6.
+    fn u32at:int (off:int) {
+        def b0:int (buffer_get buf off)
+        def b1:int (buffer_get buf (off + 1))
+        def b2:int (buffer_get buf (off + 2))
+        def b3:int (buffer_get buf (off + 3))
+        return (b0 + ((b1 * 256) + ((b2 * 65536) + (b3 * 16777216))))
+    }
+    fn f32at:double (off:int) {
+        def b0:int (buffer_get buf off)
+        def b1:int (buffer_get buf (off + 1))
+        def b2:int (buffer_get buf (off + 2))
+        def b3:int (buffer_get buf (off + 3))
+        return (ByteReader.decodeF32(b0 b1 b2 b3))
+    }
+
+    ; ---- positional reads (advance pos) -------------------------------------
+    fn u8:int () {
+        def v:int (this.u8at(pos))
+        pos = (pos + 1)
+        return v
+    }
+    fn u16:int () {
+        def v:int (this.u16at(pos))
+        pos = (pos + 2)
+        return v
+    }
+    fn u32:int () {
+        def v:int (this.u32at(pos))
+        pos = (pos + 4)
+        return v
+    }
+    fn f32:double () {
+        def v:double (this.f32at(pos))
+        pos = (pos + 4)
+        return v
+    }
+
+    ; ---- float32 bit decoding ----------------------------------------------
+    sfn pow2:double (e:int) {
+        def r:double 1.0
+        def k:int 0
+        if (e >= 0) {
+            while (k < e) {
+                r = (r * 2.0)
+                k = (k + 1)
+            }
+        } {
+            def nn:int (0 - e)
+            while (k < nn) {
+                r = (r / 2.0)
+                k = (k + 1)
+            }
+        }
+        return r
+    }
+    sfn decodeF32:double (b0:int b1:int b2:int b3:int) {
+        def sign:double 1.0
+        if ((bit_and b3 128) != 0) {
+            sign = -1.0
+        }
+        def exp:int (bit_or (bit_shl (bit_and b3 127) 1) (bit_shr b2 7))
+        def mant:int (bit_or (bit_or (bit_shl (bit_and b2 127) 16) (bit_shl b1 8)) b0)
+        if (exp == 0) {
+            return (sign * ((to_double mant) * (ByteReader.pow2(0 - 149))))
+        }
+        if (exp == 255) {
+            ; inf / nan are not valid glTF geometry values; clamp to 0
+            return 0.0
+        }
+        def frac:double (1.0 + ((to_double mant) / 8388608.0))
+        return (sign * (frac * (ByteReader.pow2(exp - 127))))
+    }
+
+    ; ---- float32 encoding (for building fixtures / round-trips) -------------
+    sfn encodeF32:void (dst:buffer off:int value:double) {
+        def sign:int 0
+        def v:double value
+        if (v < 0.0) {
+            sign = 128
+            v = (0.0 - v)
+        }
+        if (v == 0.0) {
+            buffer_set dst off 0
+            buffer_set dst (off + 1) 0
+            buffer_set dst (off + 2) 0
+            buffer_set dst (off + 3) sign
+            return
+        }
+        ; normalise into [1,2) tracking the exponent
+        def e:int 0
+        while (v >= 2.0) {
+            v = (v / 2.0)
+            e = (e + 1)
+        }
+        while (v < 1.0) {
+            v = (v * 2.0)
+            e = (e - 1)
+        }
+        def biased:int (e + 127)
+        def frac:double (v - 1.0)
+        def mant:int (to_int (frac * 8388608.0))
+        def b0:int (bit_and mant 255)
+        def b1:int (bit_and (bit_shr mant 8) 255)
+        def b2:int (bit_or (bit_and (bit_shr mant 16) 127) (bit_shl (bit_and biased 1) 7))
+        def b3:int (bit_or sign (bit_and (bit_shr biased 1) 127))
+        buffer_set dst off b0
+        buffer_set dst (off + 1) b1
+        buffer_set dst (off + 2) b2
+        buffer_set dst (off + 3) b3
+    }
+    sfn encodeU16:void (dst:buffer off:int value:int) {
+        buffer_set dst off (bit_and value 255)
+        buffer_set dst (off + 1) (bit_and (bit_shr value 8) 255)
+    }
+    sfn encodeU32:void (dst:buffer off:int value:int) {
+        buffer_set dst off (bit_and value 255)
+        buffer_set dst (off + 1) (bit_and (bit_shr value 8) 255)
+        buffer_set dst (off + 2) (bit_and (bit_shr value 16) 255)
+        buffer_set dst (off + 3) (bit_and (bit_shr value 24) 255)
+    }
+}

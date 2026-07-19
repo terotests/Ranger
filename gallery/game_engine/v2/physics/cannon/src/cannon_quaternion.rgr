@@ -1,0 +1,216 @@
+; ==============================================================================
+; cannon_quaternion — rotation quaternion (Cannon.js port).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+
+class CannonQuaternion {
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def w:double 1.0
+
+    fn set:void (x:double y:double z:double w:double) {
+        this.x = x
+        this.y = y
+        this.z = z
+        this.w = w
+    }
+
+    fn copy:void (source:CannonQuaternion) {
+        this.x = source.x
+        this.y = source.y
+        this.z = source.z
+        this.w = source.w
+    }
+
+    fn setFromAxisAngle:void (axis:CannonVec3 angle:double) {
+        def s:double (sin(angle * 0.5))
+        this.x = axis.x * s
+        this.y = axis.y * s
+        this.z = axis.z * s
+        this.w = (cos(angle * 0.5))
+    }
+
+    fn conjugateInto:void (target:CannonQuaternion) {
+        target.x = (0.0 - this.x)
+        target.y = (0.0 - this.y)
+        target.z = (0.0 - this.z)
+        target.w = this.w
+    }
+
+    fn inverseInto:void (target:CannonQuaternion) {
+        def x:double this.x
+        def y:double this.y
+        def z:double this.z
+        def w:double this.w
+        this.conjugateInto(target)
+        def inorm2:double 1.0 / (((x * x) + (y * y)) + ((z * z) + (w * w)))
+        target.x = target.x * inorm2
+        target.y = target.y * inorm2
+        target.z = target.z * inorm2
+        target.w = target.w * inorm2
+    }
+
+    fn multInto:void (q:CannonQuaternion target:CannonQuaternion) {
+        def ax:double this.x
+        def ay:double this.y
+        def az:double this.z
+        def aw:double this.w
+        def bx:double q.x
+        def by:double q.y
+        def bz:double q.z
+        def bw:double q.w
+        target.x = (((ax * bw) + (aw * bx)) + (ay * bz)) - (az * by)
+        target.y = (((ay * bw) + (aw * by)) + (az * bx)) - (ax * bz)
+        target.z = (((az * bw) + (aw * bz)) + (ax * by)) - (ay * bx)
+        target.w = (((aw * bw) - (ax * bx)) - (ay * by)) - (az * bz)
+    }
+
+    fn normalize:void () {
+        def l:double (sqrt((((this.x * this.x) + (this.y * this.y)) + (this.z * this.z)) + (this.w * this.w)))
+        if (l == 0.0) {
+            this.x = 0.0
+            this.y = 0.0
+            this.z = 0.0
+            this.w = 0.0
+            return
+        }
+        def inv:double (1.0 / l)
+        this.x = this.x * inv
+        this.y = this.y * inv
+        this.z = this.z * inv
+        this.w = this.w * inv
+    }
+
+    fn setFromVectors:void (u:CannonVec3 v:CannonVec3) {
+        if (u.isAntiparallelTo(v 0.000001)) {
+            def axis:CannonVec3 (new CannonVec3)
+            axis.set(1.0 0.0 0.0)
+            def cross:CannonVec3 (u.crossNew(axis))
+            if (cross.norm() < 0.01) {
+                axis.set(0.0 1.0 0.0)
+                def cross2:CannonVec3 (u.crossNew(axis))
+                cross.copy(cross2)
+            }
+            def pi:double 3.141592653589793
+            this.setFromAxisAngle(cross pi)
+            return
+        }
+        def a:CannonVec3 (u.crossNew(v))
+        this.x = a.x
+        this.y = a.y
+        this.z = a.z
+        def un:double (u.norm())
+        def vn:double (v.norm())
+        def uv:double (u.dot(v))
+        def uw:double ((un * vn) + uv)
+        this.w = uw
+        this.normalize()
+    }
+
+    fn slerpInto:void (toQuat:CannonQuaternion t:double target:CannonQuaternion) {
+        def x:double this.x
+        def y:double this.y
+        def z:double this.z
+        def w:double this.w
+        def bx:double toQuat.x
+        def by:double toQuat.y
+        def bz:double toQuat.z
+        def bw:double toQuat.w
+        def cosHalfTheta:double ((((x * bx) + (y * by)) + (z * bz)) + (w * bw))
+        if (cosHalfTheta < 0.0) {
+            bx = (0.0 - bx)
+            by = (0.0 - by)
+            bz = (0.0 - bz)
+            bw = (0.0 - bw)
+            cosHalfTheta = (0.0 - cosHalfTheta)
+        }
+        if (cosHalfTheta >= 1.0) {
+            target.x = x
+            target.y = y
+            target.z = z
+            target.w = w
+            return
+        }
+        def halfTheta:double (acos(cosHalfTheta))
+        def sinHalfTheta:double (sqrt(1.0 - (cosHalfTheta * cosHalfTheta)))
+        if (sinHalfTheta < 0.001) {
+            target.x = (((x * 0.5) * (1.0 - t)) + ((bx * 0.5) * (1.0 + t)))
+            target.y = (((y * 0.5) * (1.0 - t)) + ((by * 0.5) * (1.0 + t)))
+            target.z = (((z * 0.5) * (1.0 - t)) + ((bz * 0.5) * (1.0 + t)))
+            target.w = (((w * 0.5) * (1.0 - t)) + ((bw * 0.5) * (1.0 + t)))
+            return
+        }
+        def ratioA:double (sin((1.0 - t) * halfTheta) / sinHalfTheta)
+        def ratioB:double (sin(t * halfTheta) / sinHalfTheta)
+        target.x = ((x * ratioA) + (bx * ratioB))
+        target.y = ((y * ratioA) + (by * ratioB))
+        target.z = ((z * ratioA) + (bz * ratioB))
+        target.w = ((w * ratioA) + (bw * ratioB))
+    }
+
+    fn almostEquals:boolean (q:CannonQuaternion precision:double) {
+        if ((this.x - q.x) > precision) {
+            return false
+        }
+        if ((q.x - this.x) > precision) {
+            return false
+        }
+        if ((this.y - q.y) > precision) {
+            return false
+        }
+        if ((q.y - this.y) > precision) {
+            return false
+        }
+        if ((this.z - q.z) > precision) {
+            return false
+        }
+        if ((q.z - this.z) > precision) {
+            return false
+        }
+        if ((this.w - q.w) > precision) {
+            return false
+        }
+        if ((q.w - this.w) > precision) {
+            return false
+        }
+        return true
+    }
+
+    ; Integrate angular velocity into orientation (cannon-es Quaternion.integrate).
+    ; target may alias this (all reads are cached first).
+    fn integrate:void (w:CannonVec3 dt:double angularFactor:CannonVec3 target:CannonQuaternion) {
+        def ax:double (w.x * angularFactor.x)
+        def ay:double (w.y * angularFactor.y)
+        def az:double (w.z * angularFactor.z)
+        def bx:double this.x
+        def by:double this.y
+        def bz:double this.z
+        def bw:double this.w
+        def half:double (dt * 0.5)
+        target.x = (bx + (half * (((ax * bw) + (ay * bz)) - (az * by))))
+        target.y = (by + (half * (((ay * bw) + (az * bx)) - (ax * bz))))
+        target.z = (bz + (half * (((az * bw) + (ax * by)) - (ay * bx))))
+        target.w = (bw + (half * (((0.0 - (ax * bx)) - (ay * by)) - (az * bz))))
+    }
+
+    fn vmult:void (v:CannonVec3 target:CannonVec3) {
+        def vx:double v.x
+        def vy:double v.y
+        def vz:double v.z
+        def qx:double this.x
+        def qy:double this.y
+        def qz:double this.z
+        def qw:double this.w
+
+        def ix:double ((qw * vx) + (qy * vz)) - (qz * vy)
+        def iy:double ((qw * vy) + (qz * vx)) - (qx * vz)
+        def iz:double ((qw * vz) + (qx * vy)) - (qy * vx)
+        def iw:double (0.0 - (((qx * vx) + (qy * vy)) + (qz * vz)))
+
+        target.x = (((ix * qw) + (iw * (0.0 - qx))) + (iy * (0.0 - qz))) - (iz * (0.0 - qy))
+        target.y = (((iy * qw) + (iw * (0.0 - qy))) + (iz * (0.0 - qx))) - (ix * (0.0 - qz))
+        target.z = (((iz * qw) + (iw * (0.0 - qz))) + (ix * (0.0 - qy))) - (iy * (0.0 - qx))
+    }
+}

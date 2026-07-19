@@ -1,0 +1,260 @@
+; ==============================================================================
+; MeshBridge.rgr — convert a loaded model3d mesh into the engine's GPU-mesh
+; format so a GLB can be drawn by the host-managed 3D scene (gfx_sdl.rgr).
+; ==============================================================================
+; model3d parses a GLB into a ModelAsset (positions/normals/uvs/indices in
+; double + decoded RGBA textures). The SDL scene renderer uploads meshes through
+; `gfx_3d_mesh_upload verts:int_buffer vcount idx:int_buffer icount` (C++
+; `rgfx_mesh_upload`), which expects the guest's 8-word fixed-point vertex:
+;
+;   word 0..2  position  * 256      (FP_SCALE)
+;   word 3..5  normal    * 65536     (Q16.16)
+;   word 6     vertex colour         (ignored by the uploader; kept as 0)
+;   word 7     uv packed: (u*4096 & 0xffff) | ((v*4096 & 0xffff) << 16)
+;
+; This module produces exactly that layout from a MeshPrimitiveAsset, plus the
+; base-colour texture (decoded RGBA) so the runner can bind it. It reuses the
+; loader's host object model — no GLB parsing is duplicated here. WASM-free.
+; ==============================================================================
+
+Import "AssetModel.rgr"
+
+; Engine-ready geometry for one primitive: fixed-point interleaved vertices +
+; indices ready for `gfx_3d_mesh_upload`, plus the resolved base-colour texture.
+class EngineMeshData {
+    def verts:int_buffer (int_buffer_alloc 0)
+    ; high-precision vertices: positions Q16.16 (x65536) for gfx_3d_mesh_upload_hp
+    def vertsHp:int_buffer (int_buffer_alloc 0)
+    def indices:int_buffer (int_buffer_alloc 0)
+    def vertexCount:int 0
+    def indexCount:int 0
+    def hasTexture:boolean false
+    def texWidth:int 0
+    def texHeight:int 0
+    def texRgba:buffer (buffer_alloc 0)
+    ; material (from the GLB): base colour tint (incl. alpha), emissive glow,
+    ; and whether it should blend (alphaMode BLEND). Defaults = opaque white.
+    def baseColorR:double 1.0
+    def baseColorG:double 1.0
+    def baseColorB:double 1.0
+    def baseColorA:double 1.0
+    def emissiveR:double 0.0
+    def emissiveG:double 0.0
+    def emissiveB:double 0.0
+    def blend:boolean false
+    ; mesh-space bounding box of the converted primitive (before any node
+    ; transform) — lets the host see how big a model is (a fixed-camera viewer
+    ; can't frame a 100+ unit model placed at the origin).
+    def minX:double 0.0
+    def minY:double 0.0
+    def minZ:double 0.0
+    def maxX:double 0.0
+    def maxY:double 0.0
+    def maxZ:double 0.0
+    def ok:boolean false
+    def error:string ""
+}
+
+class MeshBridge {
+    ; round-half-away-from-zero (to_int truncates toward zero)
+    fn roundToInt:int (v:double) {
+        if (v >= 0.0) {
+            return (to_int (v + 0.5))
+        }
+        return (to_int (v - 0.5))
+    }
+    fn fx256:int (v:double) {
+        def s:double (v * 256.0)
+        return (this.roundToInt(s))
+    }
+    fn q16:int (v:double) {
+        def s:double (v * 65536.0)
+        return (this.roundToInt(s))
+    }
+    fn clampU16:int (n:int) {
+        if (n < 0) {
+            return 0
+        }
+        if (n > 65535) {
+            return 65535
+        }
+        return n
+    }
+    ; pack a uv into one 32-bit word: low 16 = u*4096, high 16 = v*4096
+    fn packUv:int (u:double v:double) {
+        def us:double (u * 4096.0)
+        def vs:double (v * 4096.0)
+        def ur:int (this.roundToInt(us))
+        def vr:int (this.roundToInt(vs))
+        def ui:int (this.clampU16(ur))
+        def vi:int (this.clampU16(vr))
+        return (ui + (vi * 65536))
+    }
+
+    ; interleaved fixed-point vertices (vertexCount * 8 words)
+    fn primitiveVerts:int_buffer (prim:MeshPrimitiveAsset) {
+        def vc:int (prim.vertexCount())
+        def buf:int_buffer (int_buffer_alloc (vc * 8))
+        def hasN:boolean (prim.hasNormals())
+        def hasUv:boolean (prim.hasUvs())
+        def i:int 0
+        while (i < vc) {
+            def o:int (i * 8)
+            def p:Vec3 (itemAt prim.positions i)
+            int_buffer_set buf o (this.fx256(p.x))
+            int_buffer_set buf (o + 1) (this.fx256(p.y))
+            int_buffer_set buf (o + 2) (this.fx256(p.z))
+            def nx:double 0.0
+            def ny:double 1.0
+            def nz:double 0.0
+            if hasN {
+                def n:Vec3 (itemAt prim.normals i)
+                nx = n.x
+                ny = n.y
+                nz = n.z
+            }
+            int_buffer_set buf (o + 3) (this.q16(nx))
+            int_buffer_set buf (o + 4) (this.q16(ny))
+            int_buffer_set buf (o + 5) (this.q16(nz))
+            int_buffer_set buf (o + 6) 0
+            def uu:double 0.0
+            def vv:double 0.0
+            if hasUv {
+                def uv:Vec2 (itemAt prim.uvs i)
+                uu = uv.x
+                vv = uv.y
+            }
+            int_buffer_set buf (o + 7) (this.packUv(uu vv))
+            i = (i + 1)
+        }
+        return buf
+    }
+
+    ; same interleaved layout as primitiveVerts, but positions are Q16.16
+    ; (x65536) so dense unit-scale meshes keep sub-1/256 precision.
+    fn primitiveVertsHp:int_buffer (prim:MeshPrimitiveAsset) {
+        def vc:int (prim.vertexCount())
+        def buf:int_buffer (int_buffer_alloc (vc * 8))
+        def hasN:boolean (prim.hasNormals())
+        def hasUv:boolean (prim.hasUvs())
+        def i:int 0
+        while (i < vc) {
+            def o:int (i * 8)
+            def p:Vec3 (itemAt prim.positions i)
+            int_buffer_set buf o (this.q16(p.x))
+            int_buffer_set buf (o + 1) (this.q16(p.y))
+            int_buffer_set buf (o + 2) (this.q16(p.z))
+            def nx:double 0.0
+            def ny:double 1.0
+            def nz:double 0.0
+            if hasN {
+                def n:Vec3 (itemAt prim.normals i)
+                nx = n.x
+                ny = n.y
+                nz = n.z
+            }
+            int_buffer_set buf (o + 3) (this.q16(nx))
+            int_buffer_set buf (o + 4) (this.q16(ny))
+            int_buffer_set buf (o + 5) (this.q16(nz))
+            int_buffer_set buf (o + 6) 0
+            def uu:double 0.0
+            def vv:double 0.0
+            if hasUv {
+                def uv:Vec2 (itemAt prim.uvs i)
+                uu = uv.x
+                vv = uv.y
+            }
+            int_buffer_set buf (o + 7) (this.packUv(uu vv))
+            i = (i + 1)
+        }
+        return buf
+    }
+
+    fn computeBounds:void (prim:MeshPrimitiveAsset out:EngineMeshData) {
+        def vc:int (prim.vertexCount())
+        if (vc <= 0) {
+            return
+        }
+        def p0:Vec3 (itemAt prim.positions 0)
+        out.minX = p0.x
+        out.maxX = p0.x
+        out.minY = p0.y
+        out.maxY = p0.y
+        out.minZ = p0.z
+        out.maxZ = p0.z
+        def i:int 1
+        while (i < vc) {
+            def p:Vec3 (itemAt prim.positions i)
+            if (p.x < out.minX) { out.minX = p.x }
+            if (p.x > out.maxX) { out.maxX = p.x }
+            if (p.y < out.minY) { out.minY = p.y }
+            if (p.y > out.maxY) { out.maxY = p.y }
+            if (p.z < out.minZ) { out.minZ = p.z }
+            if (p.z > out.maxZ) { out.maxZ = p.z }
+            i = (i + 1)
+        }
+    }
+
+    fn primitiveIndices:int_buffer (prim:MeshPrimitiveAsset) {
+        def ic:int (prim.indexCount())
+        def buf:int_buffer (int_buffer_alloc ic)
+        def i:int 0
+        while (i < ic) {
+            int_buffer_set buf i (itemAt prim.indices i)
+            i = (i + 1)
+        }
+        return buf
+    }
+
+    ; convert the first primitive of the first mesh of a model, resolving its
+    ; base-colour texture. `ok` is false with an `error` when unusable.
+    fn fromModel:EngineMeshData (model:ModelAsset) {
+        def out:EngineMeshData (new EngineMeshData)
+        if ((model.meshCount()) <= 0) {
+            out.error = "model has no meshes"
+            return out
+        }
+        def mesh:MeshAsset (model.getMesh(0))
+        if ((mesh.primitiveCount()) <= 0) {
+            out.error = "mesh has no primitives"
+            return out
+        }
+        def prim:MeshPrimitiveAsset (itemAt mesh.primitives 0)
+        if ((prim.mode) != 4) {
+            out.error = "primitive mode is not TRIANGLES"
+            return out
+        }
+        out.verts = (this.primitiveVerts(prim))
+        out.vertsHp = (this.primitiveVertsHp(prim))
+        out.indices = (this.primitiveIndices(prim))
+        out.vertexCount = (prim.vertexCount())
+        out.indexCount = (prim.indexCount())
+        this.computeBounds(prim out)
+        def matIdx:int (prim.material)
+        if (matIdx >= 0) {
+            def mat:MaterialAsset (model.getMaterial(matIdx))
+            out.baseColorR = mat.baseColorR
+            out.baseColorG = mat.baseColorG
+            out.baseColorB = mat.baseColorB
+            out.baseColorA = mat.baseColorA
+            out.emissiveR = mat.emissiveR
+            out.emissiveG = mat.emissiveG
+            out.emissiveB = mat.emissiveB
+            if ((mat.alphaMode) == 2) {
+                out.blend = true
+            }
+            def texIdx:int (mat.baseColorTexture)
+            if (texIdx >= 0) {
+                def tex:TextureAsset (model.getTexture(texIdx))
+                if tex.decoded {
+                    out.hasTexture = true
+                    out.texWidth = tex.width
+                    out.texHeight = tex.height
+                    out.texRgba = tex.rgba
+                }
+            }
+        }
+        out.ok = true
+        return out
+    }
+}

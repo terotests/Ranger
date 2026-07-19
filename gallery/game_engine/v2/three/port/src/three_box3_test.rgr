@@ -1,0 +1,157 @@
+; ==============================================================================
+; three_box3_test — ThreeBox3 (Three.js Box3 port) unit checks, plus the
+; setFromObject-equivalent (Object3D.boundingBox / expandBox3 over meshes).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_box3.rgr"
+Import "three_mesh.rgr"
+Import "three_box_geometry.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.000001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeBox3Test {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeBox3 (Three.js Box3 port) =="
+
+        ; fresh box is empty
+        def b:ThreeBox3 (new ThreeBox3)
+        ck.ok("fresh box empty" (b.isEmpty()))
+
+        ; expandByPoint sets both min and max to the first point
+        b.expandByXYZ(1.0 2.0 3.0)
+        ck.ok("not empty after point" (b.isEmpty() == false))
+        ck.near("min x = point" b.min.x 1.0)
+        ck.near("max x = point" b.max.x 1.0)
+
+        ; second point grows the box
+        b.expandByXYZ((0.0 - 1.0) 5.0 0.0)
+        ck.near("min x grows" b.min.x (0.0 - 1.0))
+        ck.near("max y grows" b.max.y 5.0)
+        ck.near("min z" b.min.z 0.0)
+        ck.near("max z" b.max.z 3.0)
+
+        ; size / center
+        def sz:ThreeVector3 (new ThreeVector3)
+        b.getSize(sz)
+        ck.near("size x" sz.x 2.0)
+        ck.near("size y" sz.y 3.0)
+        ck.near("size z" sz.z 3.0)
+        def ctr:ThreeVector3 (new ThreeVector3)
+        b.getCenter(ctr)
+        ck.near("center x" ctr.x 0.0)
+        ck.near("center y" ctr.y 3.5)
+        ck.near("center z" ctr.z 1.5)
+
+        ; containsPoint
+        ck.ok("contains center" (b.containsPoint(ctr)))
+        def outside:ThreeVector3 (ThreeVector3.of(100.0 0.0 0.0))
+        ck.ok("excludes far point" (b.containsPoint(outside) == false))
+
+        ; setFromPoints
+        def pts:[ThreeVector3]
+        push pts (ThreeVector3.of((0.0 - 2.0) 0.0 0.0))
+        push pts (ThreeVector3.of(4.0 0.0 0.0))
+        push pts (ThreeVector3.of(0.0 6.0 (0.0 - 3.0)))
+        def bp:ThreeBox3 (new ThreeBox3)
+        bp.setFromPoints(pts)
+        ck.near("fromPoints min x" bp.min.x (0.0 - 2.0))
+        ck.near("fromPoints max x" bp.max.x 4.0)
+        ck.near("fromPoints max y" bp.max.y 6.0)
+        ck.near("fromPoints min z" bp.min.z (0.0 - 3.0))
+
+        ; union of two boxes
+        def u1:ThreeBox3 (new ThreeBox3)
+        u1.expandByXYZ(0.0 0.0 0.0)
+        u1.expandByXYZ(1.0 1.0 1.0)
+        def u2:ThreeBox3 (new ThreeBox3)
+        u2.expandByXYZ(2.0 2.0 2.0)
+        u2.expandByXYZ(3.0 3.0 3.0)
+        u1.union(u2)
+        ck.near("union min" u1.min.x 0.0)
+        ck.near("union max" u1.max.x 3.0)
+
+        ; bounding-sphere radius of a 2x2x2 box = half the space diagonal = sqrt(3)
+        def bs:ThreeBox3 (new ThreeBox3)
+        bs.expandByXYZ((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0))
+        bs.expandByXYZ(1.0 1.0 1.0)
+        ck.near("bounding sphere radius" (bs.getBoundingSphereRadius()) 1.7320508075688772)
+
+        print "== setFromObject (Object3D.boundingBox) =="
+
+        ; a 2x2x2 box mesh translated to x=10: bounds [9,11] x [-1,1] x [-1,1]
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(2.0 2.0 2.0)
+        def mesh:ThreeMesh (new ThreeMesh)
+        mesh.setGeometry(geo)
+        mesh.position.set(10.0 0.0 0.0)
+        def mb:ThreeBox3 (mesh.boundingBox())
+        ck.near("mesh min x" mb.min.x 9.0)
+        ck.near("mesh max x" mb.max.x 11.0)
+        ck.near("mesh min y" mb.min.y (0.0 - 1.0))
+        ck.near("mesh max z" mb.max.z 1.0)
+        def msz:ThreeVector3 (new ThreeVector3)
+        mb.getSize(msz)
+        ck.near("mesh size x" msz.x 2.0)
+        def mctr:ThreeVector3 (new ThreeVector3)
+        mb.getCenter(mctr)
+        ck.near("mesh center x" mctr.x 10.0)
+
+        ; a parent with two child meshes: bounds unite both, recursively
+        def parent:ThreeObject3D (new ThreeObject3D)
+        def g1:ThreeBoxGeometry (new ThreeBoxGeometry)
+        g1.setSize(2.0 2.0 2.0)
+        def m1:ThreeMesh (new ThreeMesh)
+        m1.setGeometry(g1)
+        m1.position.set((0.0 - 5.0) 0.0 0.0)
+        def g2:ThreeBoxGeometry (new ThreeBoxGeometry)
+        g2.setSize(2.0 2.0 2.0)
+        def m2:ThreeMesh (new ThreeMesh)
+        m2.setGeometry(g2)
+        m2.position.set(5.0 0.0 0.0)
+        parent.add(m1)
+        parent.add(m2)
+        def pb:ThreeBox3 (parent.boundingBox())
+        ck.near("subtree min x" pb.min.x (0.0 - 6.0))
+        ck.near("subtree max x" pb.max.x 6.0)
+        def psz:ThreeVector3 (new ThreeVector3)
+        pb.getSize(psz)
+        ck.near("subtree size x" psz.x 12.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -1,0 +1,15 @@
+; ==============================================================================
+; three_mesh_lambert_material — (Three.js src/materials/MeshLambertMaterial.js).
+; ==============================================================================
+; Diffuse (Lambert) lit material: ambient + N·L per light, no specular highlight.
+; shadingMode() = 1 selects the Lambert path in the übershader.
+; ==============================================================================
+
+Import "three_material.rgr"
+
+class ThreeMeshLambertMaterial extends ThreeMaterial {
+    def isMeshLambertMaterial:boolean true
+    fn shadingMode:int () {
+        return 1
+    }
+}

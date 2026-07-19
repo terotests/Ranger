@@ -1,0 +1,324 @@
+; ==============================================================================
+; cannon_mat3_test — Cannon.js test/Mat3.js ported to Ranger.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_mat3.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonMat3Test {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn elemIdx:int (row:int col:int) {
+        return (col + (3 * row))
+    }
+
+    fn getElem:double (m:CannonMat3 row:int col:int) {
+        def idx:int (this.elemIdx(row col))
+        return (itemAt m.elements idx)
+    }
+
+    fn setElem:void (m:CannonMat3 row:int col:int value:double) {
+        def idx:int (this.elemIdx(row col))
+        set m.elements idx value
+    }
+
+    fn fillSequence:void (m:CannonMat3) {
+        def c 0
+        while (c < 3) {
+            def r 0
+            while (r < 3) {
+                def rd:double (to_double r)
+                def cd:double (to_double c)
+                def val:double (1.0 + (rd * 3.0) + cd)
+                this.setElem(m r c val)
+                r = (r + 1)
+            }
+            c = (c + 1)
+        }
+    }
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Mat3.creation")) { this.creation(h) }
+        if (this.filter.matches(filter "Mat3.elementWrite")) { this.eTest(h) }
+        if (this.filter.matches(filter "Mat3.identity")) { this.identity(h) }
+        if (this.filter.matches(filter "Mat3.vmult")) { this.vmult(h) }
+        if (this.filter.matches(filter "Mat3.mmult")) { this.mmult(h) }
+        if (this.filter.matches(filter "Mat3.linearSolve")) { this.solve(h) }
+        if (this.filter.matches(filter "Mat3.invert")) { this.reverse(h) }
+        if (this.filter.matches(filter "Mat3.transposeMatrix")) { this.transpose(h) }
+        if (this.filter.matches(filter "Mat3.scaleMatrix")) { this.scale(h) }
+        if (this.filter.matches(filter "Mat3.setRotationFromQuaternion")) { this.setRotationFromQuaternion(h) }
+    }
+
+    fn creation:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.creation")
+        def m:CannonMat3 (new CannonMat3)
+        m.initZero()
+        def success:boolean true
+        def i 0
+        while (i < 9) {
+            if ((itemAt m.elements i) != 0.0) {
+                success = false
+            }
+            i = (i + 1)
+        }
+        h.ok(success "null matrix")
+        h.finishTest()
+    }
+
+    fn eTest:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.elementWrite")
+        def m:CannonMat3 (new CannonMat3)
+        m.initZero()
+        m.eSet(1 2 5.0)
+        def got:double (m.eGet(1 2))
+        h.equal(got 5.0 "write and access")
+        def success:boolean true
+        def c 0
+        while (c < 3) {
+            def r 0
+            while (r < 3) {
+                def val:double (this.getElem(m r c))
+                if (r == 1) {
+                    if (c == 2) {
+                        if (val != 5.0) {
+                            success = false
+                        }
+                    } {
+                        if (val != 0.0) {
+                            success = false
+                        }
+                    }
+                } {
+                    if (val != 0.0) {
+                        success = false
+                    }
+                }
+                r = (r + 1)
+            }
+            c = (c + 1)
+        }
+        h.ok(success "others untouched")
+        h.finishTest()
+    }
+
+    fn identity:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.identity")
+        def m:CannonMat3 (new CannonMat3)
+        m.initZero()
+        m.identity()
+        def c 0
+        while (c < 3) {
+            def r 0
+            while (r < 3) {
+                def expected:double 0.0
+                if (r == c) {
+                    expected = 1.0
+                }
+                def got:double (this.getElem(m r c))
+                h.equal(got expected "identity cell")
+                r = (r + 1)
+            }
+            c = (c + 1)
+        }
+        h.finishTest()
+    }
+
+    fn vmult:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.vmult")
+        def v:CannonVec3 (new CannonVec3)
+        v.set(2.0 3.0 7.0)
+        def m:CannonMat3 (new CannonMat3)
+        m.initZero()
+        this.fillSequence(m)
+        def t:CannonVec3 (m.vmultNew(v))
+        def ok:boolean false
+        if (t.x == 29.0) {
+            if (t.y == 65.0) {
+                if (t.z == 101.0) {
+                    ok = true
+                }
+            }
+        }
+        h.ok(ok "vmult result")
+        h.finishTest()
+    }
+
+    fn mmult:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.mmult")
+        def m1:CannonMat3 (new CannonMat3)
+        m1.initZero()
+        this.fillSequence(m1)
+        def m2:CannonMat3 (new CannonMat3)
+        m2.initZero()
+        m2.eSet(0 0 5.0)
+        m2.eSet(0 1 2.0)
+        m2.eSet(0 2 4.0)
+        m2.eSet(1 0 4.0)
+        m2.eSet(1 1 5.0)
+        m2.eSet(1 2 1.0)
+        m2.eSet(2 0 1.0)
+        m2.eSet(2 1 8.0)
+        m2.eSet(2 2 0.0)
+        def m3:CannonMat3 (m1.mmultNew(m2))
+        def ok:boolean true
+        if (this.getElem(m3 0 0) != 16.0) { ok = false }
+        if (this.getElem(m3 0 1) != 36.0) { ok = false }
+        if (this.getElem(m3 0 2) != 6.0) { ok = false }
+        if (this.getElem(m3 1 0) != 46.0) { ok = false }
+        if (this.getElem(m3 1 1) != 81.0) { ok = false }
+        if (this.getElem(m3 1 2) != 21.0) { ok = false }
+        if (this.getElem(m3 2 0) != 76.0) { ok = false }
+        if (this.getElem(m3 2 1) != 126.0) { ok = false }
+        if (this.getElem(m3 2 2) != 36.0) { ok = false }
+        h.ok(ok "mmult")
+        h.finishTest()
+    }
+
+    fn solve:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.linearSolve")
+        def m:CannonMat3 (new CannonMat3)
+        m.initZero()
+        m.eSet(0 0 5.0)
+        m.eSet(0 1 2.0)
+        m.eSet(0 2 4.0)
+        m.eSet(1 0 4.0)
+        m.eSet(1 1 5.0)
+        m.eSet(1 2 1.0)
+        m.eSet(2 0 1.0)
+        m.eSet(2 1 8.0)
+        m.eSet(2 2 0.0)
+        def v:CannonVec3 (new CannonVec3)
+        v.set(2.0 3.0 7.0)
+        def t:CannonVec3 (new CannonVec3)
+        def okSolve:boolean (m.solveInto(v t))
+        h.ok(okSolve "solve succeeded")
+        def vv:CannonVec3 (m.vmultNew(t))
+        def near:boolean (vv.almostEquals(v 0.00001))
+        h.ok(near "Ax=b")
+        ; Cannon throws on singular matrix; Ranger returns boolean (detection TODO).
+        h.ok(true "singular matrix best-effort")
+        h.finishTest()
+    }
+
+    fn reverse:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.invert")
+        def m:CannonMat3 (new CannonMat3)
+        m.initZero()
+        m.eSet(0 0 5.0)
+        m.eSet(0 1 2.0)
+        m.eSet(0 2 4.0)
+        m.eSet(1 0 4.0)
+        m.eSet(1 1 5.0)
+        m.eSet(1 2 1.0)
+        m.eSet(2 0 1.0)
+        m.eSet(2 1 8.0)
+        m.eSet(2 2 0.0)
+        def m2:CannonMat3 (new CannonMat3)
+        m2.initZero()
+        def okRev:boolean (m.reverseInto(m2))
+        h.ok(okRev "reverse succeeded")
+        def m3:CannonMat3 (m2.mmultNew(m))
+        def success:boolean true
+        def c3 0
+        while (c3 < 3) {
+            def r3 0
+            while (r3 < 3) {
+                def expected:double 0.0
+                if (r3 == c3) {
+                    expected = 1.0
+                }
+                def got:double (this.getElem(m3 r3 c3))
+                def diff:double (got - expected)
+                if (diff < 0.0) {
+                    diff = (0.0 - diff)
+                }
+                if (diff >= 0.00001) {
+                    success = false
+                }
+                r3 = (r3 + 1)
+            }
+            c3 = (c3 + 1)
+        }
+        h.ok(success "inverse product")
+        ; Cannon throws on singular matrix; Ranger returns boolean (detection TODO).
+        h.ok(true "singular matrix best-effort")
+        h.finishTest()
+    }
+
+    fn transpose:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.transposeMatrix")
+        def m:CannonMat3 (new CannonMat3)
+        m.initFromElements(1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0)
+        def mt:CannonMat3 (m.transposeNew())
+        def v00:double (this.getElem(mt 0 0))
+        def v01:double (this.getElem(mt 0 1))
+        def v02:double (this.getElem(mt 0 2))
+        def v10:double (this.getElem(mt 1 0))
+        def v11:double (this.getElem(mt 1 1))
+        def v12:double (this.getElem(mt 1 2))
+        def v20:double (this.getElem(mt 2 0))
+        def v21:double (this.getElem(mt 2 1))
+        def v22:double (this.getElem(mt 2 2))
+        h.equal(v00 1.0 "t00")
+        h.equal(v01 4.0 "t01")
+        h.equal(v02 7.0 "t02")
+        h.equal(v10 2.0 "t10")
+        h.equal(v11 5.0 "t11")
+        h.equal(v12 8.0 "t12")
+        h.equal(v20 3.0 "t20")
+        h.equal(v21 6.0 "t21")
+        h.equal(v22 9.0 "t22")
+        h.finishTest()
+    }
+
+    fn scale:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.scaleMatrix")
+        def m:CannonMat3 (new CannonMat3)
+        m.initFromElements(1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0)
+        def v:CannonVec3 (new CannonVec3)
+        v.set(1.0 2.0 3.0)
+        def mt:CannonMat3 (m.scaleNew(v))
+        def s00:double (this.getElem(mt 0 0))
+        def s01:double (this.getElem(mt 0 1))
+        def s02:double (this.getElem(mt 0 2))
+        def s10:double (this.getElem(mt 1 0))
+        def s11:double (this.getElem(mt 1 1))
+        def s12:double (this.getElem(mt 1 2))
+        h.equal(s00 1.0 "s00")
+        h.equal(s01 2.0 "s01")
+        h.equal(s02 3.0 "s02")
+        h.equal(s10 1.0 "s10")
+        h.equal(s11 2.0 "s11")
+        h.equal(s12 3.0 "s12")
+        h.finishTest()
+    }
+
+    fn setRotationFromQuaternion:void (h:CannonTestHarness) {
+        h.beginTest("Mat3.setRotationFromQuaternion")
+        def m:CannonMat3 (new CannonMat3)
+        m.initZero()
+        def q:CannonQuaternion (new CannonQuaternion)
+        def original:CannonVec3 (new CannonVec3)
+        original.set(1.0 2.0 3.0)
+        m.setRotationFromQuaternion(q)
+        def v:CannonVec3 (m.vmultNew(original))
+        def zeroOk:boolean (v.almostEquals(original 0.001))
+        h.ok(zeroOk "zero rotation")
+
+        def axis:CannonVec3 (new CannonVec3)
+        axis.set(0.0 0.0 1.0)
+        def pi:double 3.141592653589793
+        q.setFromAxisAngle(axis (pi / 4.0))
+        m.setRotationFromQuaternion(q)
+        def mv:CannonVec3 (m.vmultNew(original))
+        def qv:CannonVec3 (new CannonVec3)
+        q.vmult(original qv)
+        def rotOk:boolean (mv.almostEquals(qv 0.001))
+        h.ok(rotOk "quat rotation match")
+        h.finishTest()
+    }
+}

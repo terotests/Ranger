@@ -1,0 +1,103 @@
+; ==============================================================================
+; cannon_ray_test — raycasting against spheres and planes through the world.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_sphere.rgr"
+Import "cannon_plane.rgr"
+Import "cannon_body.rgr"
+Import "cannon_ray.rgr"
+Import "cannon_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonRayTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Ray.sphereHit")) { this.sphereHit(h) }
+        if (this.filter.matches(filter "Ray.sphereMiss")) { this.sphereMiss(h) }
+        if (this.filter.matches(filter "Ray.planeHit")) { this.planeHit(h) }
+    }
+
+    ; A ray through a unit sphere hits the near surface at x = -1, distance 4.
+    fn sphereHit:void (h:CannonTestHarness) {
+        h.beginTest("Ray.sphereHit")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        def body:CannonBody (new CannonBody)
+        body.initStatic()
+        def shape:CannonSphere (new CannonSphere)
+        shape.initSphere(1.0)
+        body.addShape(shape)
+        body.position.set(0.0 0.0 0.0)
+        world.addBody(body)
+
+        def from:CannonVec3 (new CannonVec3)
+        from.set((0.0 - 5.0) 0.0 0.0)
+        def to:CannonVec3 (new CannonVec3)
+        to.set(5.0 0.0 0.0)
+        def result:CannonRaycastResult (new CannonRaycastResult)
+        def hit:boolean (world.raycastClosest(from to result))
+
+        h.ok(hit "ray hits the sphere")
+        h.ok(result.hasHit "result.hasHit set")
+        h.nearEqual(result.distance 4.0 0.001 "closest hit distance is 4")
+        h.nearEqual(result.hitPointWorld.x (0.0 - 1.0) 0.001 "hit point at x = -1")
+        h.nearEqual(result.hitNormalWorld.x (0.0 - 1.0) 0.001 "surface normal points back along -x")
+        print ("raySphereDist=" + (to_string result.distance))
+        h.finishTest()
+    }
+
+    ; A ray passing above the sphere records no hit.
+    fn sphereMiss:void (h:CannonTestHarness) {
+        h.beginTest("Ray.sphereMiss")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        def body:CannonBody (new CannonBody)
+        body.initStatic()
+        def shape:CannonSphere (new CannonSphere)
+        shape.initSphere(1.0)
+        body.addShape(shape)
+        body.position.set(0.0 0.0 0.0)
+        world.addBody(body)
+
+        def from:CannonVec3 (new CannonVec3)
+        from.set((0.0 - 5.0) 5.0 0.0)
+        def to:CannonVec3 (new CannonVec3)
+        to.set(5.0 5.0 0.0)
+        def result:CannonRaycastResult (new CannonRaycastResult)
+        def hit:boolean (world.raycastClosest(from to result))
+
+        h.equalBool(hit false "ray misses the sphere")
+        h.equalBool(result.hasHit false "result reports no hit")
+        h.finishTest()
+    }
+
+    ; A ray dropped straight down onto the ground plane hits z = 0 at distance 5.
+    fn planeHit:void (h:CannonTestHarness) {
+        h.beginTest("Ray.planeHit")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        def body:CannonBody (new CannonBody)
+        body.initStatic()
+        def plane:CannonPlane (new CannonPlane)
+        plane.initPlane()
+        body.addShape(plane)
+        body.position.set(0.0 0.0 0.0)
+        world.addBody(body)
+
+        def from:CannonVec3 (new CannonVec3)
+        from.set(0.0 0.0 5.0)
+        def to:CannonVec3 (new CannonVec3)
+        to.set(0.0 0.0 (0.0 - 5.0))
+        def result:CannonRaycastResult (new CannonRaycastResult)
+        def hit:boolean (world.raycastClosest(from to result))
+
+        h.ok(hit "ray hits the plane")
+        h.nearEqual(result.hitPointWorld.z 0.0 0.001 "hit point at z = 0")
+        h.nearEqual(result.distance 5.0 0.001 "hit distance is 5")
+        print ("rayPlaneDist=" + (to_string result.distance))
+        h.finishTest()
+    }
+}

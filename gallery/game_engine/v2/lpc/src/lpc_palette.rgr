@@ -1,0 +1,109 @@
+; ==============================================================================
+; lpc_palette — CPU palette recolor (colorize per layer group).
+; ==============================================================================
+;
+; The compositor calls `apply(img itemId)` for every layer, where `itemId` is the
+; layer *group* ("body", "legs", "feet", "head", "hair"). A recolor profile is a
+; small table group -> (mode, tint). Two modes:
+;
+;   mode 0 IDENTITY  — return the source layer untouched (skin, face, …).
+;   mode 1 COLORIZE  — out.rgb = luminance(src) * tint / 255, alpha preserved.
+;                      Turns a shaded base layer into a single-hue, still-shaded
+;                      garment. This is what makes several visually distinct
+;                      characters out of ONE embedded walk sheet.
+;
+; Keeping body/head on IDENTITY preserves the face; legs/feet/hair carry the
+; per-character colour. Profiles come from the character catalog (lpc_char_catalog).
+
+Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+; tint modes (passed to setGroup): 0 = IDENTITY (untouched), 1 = COLORIZE.
+class LpcPalette {
+    ; Parallel arrays form the group -> tint table.
+    def groups:[string]
+    def modes:[int]
+    def tintR:[int]
+    def tintG:[int]
+    def tintB:[int]
+
+    fn clampByte:int (n:int) {
+        if (n < 0) { return 0 }
+        if (n > 255) { return 255 }
+        return n
+    }
+
+    fn clearProfile:void () {
+        clear groups
+        clear modes
+        clear tintR
+        clear tintG
+        clear tintB
+    }
+
+    ; Register one group rule. mode 0 = identity, 1 = colorize with (r g b).
+    fn setGroup:void (group:string mode:int r:int g:int b:int) {
+        push groups group
+        push modes mode
+        push tintR r
+        push tintG g
+        push tintB b
+    }
+
+    fn groupIndex:int (group:string) {
+        def i 0
+        while (i < (array_length groups)) {
+            if ((itemAt groups i) == group) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Returns a recoloured copy for colorize groups, or the source for identity /
+    ; unknown groups (no allocation on the fast path).
+    fn apply:ImageBuffer (src:ImageBuffer itemId:string) {
+        def idx:int (this.groupIndex(itemId))
+        if (idx < 0) {
+            return src
+        }
+        def mode:int (itemAt modes idx)
+        if (mode == 0) {
+            return src
+        }
+
+        def tr:int (itemAt tintR idx)
+        def tg:int (itemAt tintG idx)
+        def tb:int (itemAt tintB idx)
+
+        def out:ImageBuffer (new ImageBuffer())
+        out.initClear(src.width src.height)
+        def n:int (src.width * src.height)
+        def i 0
+        while (i < n) {
+            def off:int (i * 4)
+            def a:int (buffer_get src.pixels (off + 3))
+            if (a == 0) {
+                buffer_set out.pixels off 0
+                buffer_set out.pixels (off + 1) 0
+                buffer_set out.pixels (off + 2) 0
+                buffer_set out.pixels (off + 3) 0
+            } {
+                def r:int (buffer_get src.pixels off)
+                def g:int (buffer_get src.pixels (off + 1))
+                def b:int (buffer_get src.pixels (off + 2))
+                ; luminance (Rec.601-ish, integer): (54R + 183G + 19B) / 256
+                def lum:int (to_int (((r * 54) + (g * 183) + (b * 19)) / 256))
+                def outR:int (to_int ((lum * tr) / 255))
+                def outG:int (to_int ((lum * tg) / 255))
+                def outB:int (to_int ((lum * tb) / 255))
+                buffer_set out.pixels off (this.clampByte(outR))
+                buffer_set out.pixels (off + 1) (this.clampByte(outG))
+                buffer_set out.pixels (off + 2) (this.clampByte(outB))
+                buffer_set out.pixels (off + 3) a
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
