@@ -1,0 +1,71 @@
+; ==============================================================================
+; as_source_demo — headless proof: interpret a .as game against the RGW1/RGU1
+; ABI and read back the shared memory (same layout the WASM host reads).
+; ==============================================================================
+
+Import "./as_source_runner.rgr"
+
+class AsSourceDemo {
+    sfn readUiStr:string (runner:AsSourceRunner nodeIndex:int) {
+        ; node at ui offset 64 + nodeIndex*32; first_property at +12; prop table
+        ; at 2112, prop size 16; string prop value_a/value_b at prop+4/+8;
+        ; string table at 4160.
+        def nb (64 + (nodeIndex * 32))
+        def fp (runner.uiByte(nb + 12))    ; first_property (low byte is enough here)
+        def pb (2112 + (fp * 16))
+        def a (runner.uiByte(pb + 4))
+        def n (runner.uiByte(pb + 8))
+        def s ""
+        def i 0
+        while (i < n) {
+            def code (runner.uiByte((4160 + a) + i))
+            s = (+ s (strfromcode code))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn m@(main):void () {
+        def runner:AsSourceRunner (new AsSourceRunner)
+        def dir:string "gallery/game_engine/games/as_demo"
+
+        if ((runner.folderHasAs(dir)) == false) {
+            print "FAIL: no .as file in folder"
+            return
+        }
+        print (+ "found .as game: " runner.asFile)
+
+        if ((runner.bindDir(dir)) == false) {
+            print "FAIL: bindDir"
+            return
+        }
+
+        runner.callInit()
+        def magic (runner.abiRead(0))
+        print (+ "RGW1 magic=" (to_string magic))
+
+        def f 0
+        while (f < 3) {
+            runner.callUpdate()
+            f = (f + 1)
+        }
+
+        print (+ "score=" (to_string (runner.abiRead(40))))
+        print (+ "ui revision=" (to_string (runner.uiRevision())))
+        ; RGU1 header: magic byte0..3 -> read as 4 bytes; node count at offset 20
+        def uiMagic0 (runner.uiByte(0))
+        def nodeCount (runner.uiByte(20))
+        print (+ "RGU1 magic byte0=" (to_string uiMagic0))
+        print (+ "RGU1 nodeCount=" (to_string nodeCount))
+        print (+ "text node 2 = \"" (+ (AsSourceDemo.readUiStr(runner 1)) "\""))
+        print (+ "text node 3 = \"" (+ (AsSourceDemo.readUiStr(runner 2)) "\""))
+
+        if (magic == 827803474) {
+            if ((runner.abiRead(40)) == 3) {
+                print "AS SOURCE ENGINE OK"
+                return
+            }
+        }
+        print "FAIL: unexpected ABI state"
+    }
+}

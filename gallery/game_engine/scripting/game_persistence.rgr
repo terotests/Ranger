@@ -6,7 +6,7 @@
 ; reads and writes a single JSON object the game can use freely (high scores, etc.).
 ; ==============================================================================
 
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class GamePersistence {
     def dataFile:string "gamedata.json"

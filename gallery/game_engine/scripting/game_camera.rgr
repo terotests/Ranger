@@ -10,7 +10,7 @@
 ; runner reads cameraY from state unchanged (backwards compatible).
 ; ==============================================================================
 
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class GameCamera {
     def enabled:boolean false

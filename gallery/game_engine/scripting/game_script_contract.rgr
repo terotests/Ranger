@@ -17,7 +17,7 @@
 ; corrupting the runtime with a garbage value.
 ; ==============================================================================
 
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class ScriptContractResult {
     def ok:boolean true

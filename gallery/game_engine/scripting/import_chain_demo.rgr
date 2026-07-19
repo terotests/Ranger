@@ -1,7 +1,7 @@
 ; Regression: transitive relative imports resolve from the importer's directory.
 
-Import "../eval/jsx/ComponentEngine.rgr"
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class ImportChainDemo {
     sfn m@(main):void () {

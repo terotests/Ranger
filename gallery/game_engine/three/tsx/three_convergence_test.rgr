@@ -22,8 +22,8 @@ Import "three_tsx_bridge.rgr"
 Import "three_native_bridge.rgr"
 Import "../src/three_scene_host.rgr"
 Import "../src/three_software_backend.rgr"
-Import "../../eval/jsx/ComponentEngine.rgr"
-Import "../../eval/jsx/EvalValue.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class ThreeConvergenceTest {
     def passed:int 0

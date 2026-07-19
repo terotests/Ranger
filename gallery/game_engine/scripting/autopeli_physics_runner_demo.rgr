@@ -1,0 +1,55 @@
+; ==============================================================================
+; autopeli_physics_runner_demo - headless physics racer integration test.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class AutopeliPhysicsRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/autopeli_physics" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/autopeli_physics")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def y0:int (runner.entityY("p1"))
+        def i 0
+        while (i < 400) {
+            runner.frame(16 true false false false false false)
+            i = (i + 1)
+        }
+        def y1:int (runner.entityY("p1"))
+        def spd:double 0.0
+        def worldEv:EvalValue (runner.state.getMember("worldEntities"))
+        if (worldEv.isObject()) {
+            def p1Ev:EvalValue (worldEv.getMember("p1"))
+            if (p1Ev.isObject()) {
+                spd = (runner.memDouble(p1Ev "speed" 0.0))
+            }
+        }
+        def hits:int (runner.memInt(runner.state "hits" 0))
+        def moved:boolean false
+        if (y1 != y0) {
+            moved = true
+        }
+        print (("y0=" + (to_string y0)))
+        print (("y1=" + (to_string y1)))
+        print (("speed=" + (to_string spd)))
+        print (("hits=" + (to_string hits)))
+        def physOn:int 0
+        if (runner.isPhysicsEnabled()) {
+            physOn = 1
+        }
+        print (("physics=" + (to_string physOn)))
+        if (moved) {
+            if (runner.isPhysicsEnabled()) {
+                print "autopeli-physics-runner done"
+                return
+            }
+        }
+        print "autopeli-physics-runner FAIL"
+    }
+}

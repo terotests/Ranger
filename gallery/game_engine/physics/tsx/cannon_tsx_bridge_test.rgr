@@ -16,8 +16,8 @@
 ; ==============================================================================
 
 Import "cannon_native_bridge.rgr"
-Import "../../eval/jsx/ComponentEngine.rgr"
-Import "../../eval/jsx/EvalValue.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class CannonTsxBridgeTest {
     sfn callNum:double (engine:ComponentEngine name:string) {

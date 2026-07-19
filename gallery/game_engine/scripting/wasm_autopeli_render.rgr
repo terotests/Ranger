@@ -6,7 +6,7 @@ Import "../framebuffer.rgr"
 Import "./game_image_loader.rgr"
 Import "./wasm_autopeli_setup.rgr"
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class WasmVisualEntity {
     def id:string ""

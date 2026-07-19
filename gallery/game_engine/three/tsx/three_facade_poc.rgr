@@ -7,8 +7,8 @@
 ; The GPU render bridge lands next; this confirms the 1:1 code executes.
 ; ==============================================================================
 
-Import "../../eval/jsx/ComponentEngine.rgr"
-Import "../../eval/jsx/EvalValue.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class ThreeFacadePocCheck {
     def passed:int 0

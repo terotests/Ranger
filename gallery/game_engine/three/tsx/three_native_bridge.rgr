@@ -21,8 +21,8 @@
 ; ==============================================================================
 
 Import "../src/three_scene_host.rgr"
-Import "../../eval/jsx/ComponentEngine.rgr"
-Import "../../eval/jsx/EvalValue.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class ThreeNativeBridge extends EvalNativeBridge {
     ; the ONE registry every front-end drives; share it via setHost.

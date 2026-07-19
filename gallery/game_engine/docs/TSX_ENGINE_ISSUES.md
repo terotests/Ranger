@@ -47,7 +47,7 @@ The evaluator tags every value with an integer `valueType`
 | 4 | array | keys of Map/Set are stored here |
 | 5 | object | |
 | 6 | function / bound-method | `function()` / `boundMethod()` |
-| 7 | **native `EVGElement`** | `EvalValue.element()` — a native Ranger object already wrapped in an EvalValue. Proves the interpreter can hold a native host object; the native-object adapter ([`CODE_CLEANUP.md`](../CODE_CLEANUP.md) §II.9) generalizes exactly this slot. |
+| 7 | **native `EVGElement`** | `EvalValue.element()` — a native Ranger object already wrapped in an EvalValue. Proves the interpreter can hold a native host object; the native-object adapter ([`CODE_CLEANUP.md`](../CODE_CLEANUP.md), bridge chapter) generalizes exactly this slot. |
 | 8 | undefined | distinct from null (but `getMember` wrongly returns null — issue #8) |
 | 9 | Map | keys in `arrayValue`, looked up via the broken `equals()` (issue #7), so object keys silently fail |
 | 10 | Set | same as Map |
@@ -66,4 +66,4 @@ The evaluator tags every value with an integer `valueType`
 > (tools/lib/bench) and `ts_to_ranger`. Moving it "under game_engine" would invert
 > the dependency (pdf_writer → game_engine); the cleaner alternative is to promote
 > it to a shared gallery-level module both import. Tracked in
-> [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) §I.6.
+> [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) (eval-engine chapter I.1).

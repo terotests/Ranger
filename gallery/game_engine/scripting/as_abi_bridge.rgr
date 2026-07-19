@@ -9,8 +9,8 @@
 ; asc, against an identical ABI contract.
 ; ==============================================================================
 
-Import "../eval/jsx/ComponentEngine.rgr"
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class AsAbiBridge {
     Extends(EvalNativeBridge)

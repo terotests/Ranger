@@ -6,7 +6,7 @@
 Import "./physics_core.rgr"
 Import "./physics_vehicle.rgr"
 Import "./game_physics_bridge.rgr"
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class GamePhysics {
     def enabled:boolean false

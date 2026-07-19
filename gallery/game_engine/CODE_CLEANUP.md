@@ -155,7 +155,7 @@ no error, just a voice that works on some paths and not others.
 
 Games import the Three.js façade as `import * as THREE from 'three'`. The
 interpreter resolves the bare name by checking **the game's own folder first**
-(`eval/jsx/ComponentEngine.rgr:1160`), so each 3D game copied the façade in:
+(`gallery/pdf_writer/src/jsx/ComponentEngine.rgr:1160`), so each 3D game copied the façade in:
 
 | Copy | Lines |
 |------|-------|
@@ -399,7 +399,7 @@ the fix's definition of done.
 
 ### 0.22 EvalValue object equality returns false; downstream effects
 
-`eval/jsx/EvalValue.rgr:540`:
+`gallery/pdf_writer/src/jsx/EvalValue.rgr:540`:
 
 ```
 ; Arrays and objects - reference equality for now
@@ -787,24 +787,30 @@ convention — and this map is the inventory that move works from.
 Each chapter is written the same way: **Status now** describes what is on disk
 today, then **Actions** lists what to do with it.
 
-## I.1 The eval engine — `eval/`
+## I.1 The eval engine — planned `eval/`
 
 ### Status now
-- `eval/` holds a self-contained copy of the JSX/TSX interpreter: `eval/jsx/`
-  (`ComponentEngine.rgr` ≈ 7,300 lines, `EvalValue.rgr` ≈ 550, `JSXToEVG.rgr`),
-  `eval/jpeg/JPEGMetadata.rgr`, and `eval/core/Buffer.rgr`.
-- It was copied out of `gallery/pdf_writer/src/jsx/` and has **no** references
-  back into `pdf_writer`. Its only external dependencies are the shared gallery
+- The JSX/TSX interpreter lives in `gallery/pdf_writer/src/jsx/`
+  (`ComponentEngine.rgr` ≈ 7,300 lines, `EvalValue.rgr` ≈ 550, `JSXToEVG.rgr`)
+  and is imported by 46 game-engine files. It is the interpreter that runs
+  `*.game.tsx` and `.as` scripts at runtime.
+- Its only pdf_writer-internal dependencies are `../jpeg/JPEGMetadata.rgr` and
+  `../core/Buffer.rgr`; everything else it imports is the shared gallery
   modules `ts_parser/` and `evg/`.
-- All 46 game-engine importers now point at this copy (`../eval/jsx/…`), and both
-  `EvalValue` and `ComponentEngine` compile from the new location.
-- This is the interpreter that runs `*.game.tsx` and `.as` scripts at runtime.
+- The move was validated in a spike on this branch (since reverted to keep the
+  PR design-only): copying the five files to `gallery/game_engine/eval/`
+  mirroring the `{jsx,jpeg,core}` layout leaves every relative import valid,
+  the copy contains no pdf_writer references, all 46 importers repoint with a
+  one-line path change each, and both `EvalValue` and `ComponentEngine` compile
+  from the new location.
 
 ### Actions
-- Develop the object-identity and native-adapter work (entity-registry and bridge chapters) directly
-  on this copy, independent of `pdf_writer`.
-- Move it back into `pdf_writer` once it is stable, or promote it to a shared
-  module both can use.
+- Copy the interpreter to `gallery/game_engine/eval/` exactly as spiked, and
+  repoint the 46 importers.
+- Develop the object-identity and native-adapter work (entity-registry and
+  bridge chapters) on that copy, independent of `pdf_writer`.
+- Move it back into `pdf_writer` once stable, or promote it to a shared module
+  both can use.
 - In the final layout it belongs under `core/` (e.g. `core/eval/`).
 
 ## I.2 The graphics layer — loose files at the engine root
@@ -949,8 +955,11 @@ today, then **Actions** lists what to do with it.
 ### Status now
 - `games/` (70 files) — the shipped games; these are the ones that matter.
 - `scripting/*.game.tsx` (13) — games that happen to live in `scripting/`.
-- `scripting/*_demo.rgr` (30) — demo runners; 22 orphaned demos were already
-  removed, the rest are still referenced by the test suite.
+- `scripting/*_demo.rgr` (52) — demo runners; 22 were verified orphaned (no
+  test, script, package.json or import references them) and are first in line
+  for deletion in the implementation phase; the rest are referenced by the test
+  suite. Debug/bisect scratch (`autopeli_debug_*`, `autopeli_bisect`) and
+  `old/ylos` are likewise verified deletable.
 - `ranger_games/` (16) — the TSX→native/C++/Rust portability proof (load-bearing
   for tests and npm scripts).
 - `docs/`, `assets/`, `menu/` are kept as-is.
@@ -971,8 +980,9 @@ today, then **Actions** lists what to do with it.
 - Imports are relative paths, so moving one file rewrites its own `../` imports
   *and* every importer's path to it. The Ranger compiler (`bin/output.js`) runs
   here, so each move can be compile-verified.
-- The eval-engine copy (I.1) already proved the mechanic end to end: five files
-  relocated and 46 importers repointed, both compiling from the new location.
+- The eval-engine spike (I.1) proved the mechanic end to end — five files
+  relocated, 46 importers repointed, both compiling from the new location —
+  and was then reverted so this branch stays design-only.
 
 ### Actions
 - Move in blast-ordered, compile-verified tranches:
@@ -1479,8 +1489,9 @@ the whole engine; deepest risk, needs the new semantics suite)
 > builds on them.
 
 # Decisions
-- **D1 = keep `ranger_games/`.** File cleanup complete at tranche 1; no further
-  deletions.
+- **D1 = keep `ranger_games/`.** The verified-orphan list (I.11) is the only
+  approved deletion set, executed in the implementation phase, not on this
+  branch.
 - **D2 = native-object adapter** for broad Three.js support (bridge chapter).
 - **D3 = keep planning.** No code yet; this doc + `docs/ADR-0001-three-scene-
   host-authority.md` are the artifacts to review.
@@ -1490,4 +1501,4 @@ plan — no ordering or scheduling is implied. Sequencing comes later, once the
 design is agreed.
 
 ---
-*Cleanup tranche 1 committed. The rest is design-only, under review.*
+*This branch is design-only: planning documents, no code changes.*

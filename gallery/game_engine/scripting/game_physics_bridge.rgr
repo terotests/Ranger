@@ -15,7 +15,7 @@
 ; Boundary kind "worldBounds" (alias "rect"): keep bodies inside the AABB, not a wall.
 ; ==============================================================================
 
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "./physics_core.rgr"
 
 class GamePhysicsBridge {

@@ -10,8 +10,8 @@
 
 Import "../Scene3dBridge.rgr"
 Import "GlbFixture.rgr"
-Import "../../eval/jsx/ComponentEngine.rgr"
-Import "../../eval/jsx/EvalValue.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class Checker {
     def passed:int 0

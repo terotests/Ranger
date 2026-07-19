@@ -9,8 +9,8 @@
 ; ==============================================================================
 
 Import "three_tsx_bridge.rgr"
-Import "../../eval/jsx/ComponentEngine.rgr"
-Import "../../eval/jsx/EvalValue.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class ThreeTsxBridgeDrivenTest {
     sfn near:boolean (a:double b:double) {

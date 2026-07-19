@@ -20,8 +20,8 @@
 
 Import "../model3d/ModelLoader.rgr"
 Import "../model3d/demo/SoftRenderer3D.rgr"
-Import "../eval/jsx/ComponentEngine.rgr"
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 ; One model the script declared. Each keeps its own ModelLoader so its model and
 ; entity registry stay paired for SoftRenderer3D.renderModel(model, registry).

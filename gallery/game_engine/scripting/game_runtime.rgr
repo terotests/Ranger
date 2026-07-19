@@ -15,8 +15,8 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
-Import "../eval/jsx/ComponentEngine.rgr"
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "./game_sprite.rgr"
 Import "./game_hud.rgr"

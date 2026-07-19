@@ -12,8 +12,8 @@
 ; ==============================================================================
 
 Import "../../../lib/ranger-dir.rgr"
-Import "../eval/jsx/ComponentEngine.rgr"
-Import "../eval/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "./as_abi_bridge.rgr"
 
 class AsSourceRunner {
