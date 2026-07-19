@@ -106,8 +106,22 @@
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
-    "@vscode/vsce": "^2.22.0",
+    "@vscode/vsce": "^3.9.2",
     "eslint": "^8.54.0",
     "typescript": "^5.3.2"
+  },
+  "overrides": {
+    "flatted": "^3.4.2",
+    "tmp": "^0.2.7",
+    "undici": "^7.24.0",
+    "js-yaml": "^4.3.0",
+    "markdown-it": "^14.3.0",
+    "picomatch": "^2.3.2",
+    "ajv@6": "6.15.0",
+    "brace-expansion@1": "1.1.16",
+    "brace-expansion@2": "2.0.3",
+    "minimatch@3": "3.1.5",
+    "minimatch@5": "5.1.9",
+    "minimatch@9": "9.0.9"
   }
 }
