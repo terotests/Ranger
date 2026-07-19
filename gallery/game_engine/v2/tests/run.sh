@@ -103,6 +103,9 @@ run_suite tests/contract/d_2d/d_2d_contract_test
 # ---- Phase 11 — render (software 2D present, D-SYNC) -------------------------
 run_suite render/tests/software_present2d_test
 
+# ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
+run_suite modules/ranger_core/tests/devices_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"

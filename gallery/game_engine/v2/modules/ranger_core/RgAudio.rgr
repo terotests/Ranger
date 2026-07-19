@@ -1,0 +1,264 @@
+; ==============================================================================
+; RgAudio — clip ≠ source ≠ voice, ownership per D-OWN / D-LIFE.
+; ==============================================================================
+;   AudioClip    decoded / shared resource          clipH
+;   AudioSource  persistent emitter (retains clip)   sourceH
+;   AudioVoice   one active playback instance         voiceH
+;
+; Ownership (D-OWN):
+;   - createSource retains the clip (refcount).
+;   - source.play()        → a CALLER-owned voice (stop/release it, or it lives
+;                            until source release / realm teardown).
+;   - source.playOneShot() → a MIXER-owned voice; the mixer auto-releases it at
+;                            completion — nothing for the caller to leak.
+;   - play() does NOT clone the clip or source.
+;   - attachTo is a WEAK, generation-checked link; destroying the target
+;     auto-detaches and never keeps a dead entity alive.
+;   - clip.disposeBackend() releases device buffers only (bumps resourceRevision)
+;     — the clip handle stays valid; that is NOT clip.release().
+; ==============================================================================
+
+Import "../../host/RgRegistry.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+
+class RgAudioType {
+    sfn clip:int () { return 40 }
+    sfn source:int () { return 41 }
+    sfn voice:int () { return 42 }
+}
+
+class RgAudioClip {
+    def resourceRevision:int 0
+}
+
+class RgAudioSource {
+    def clipH:RgHandle (new RgHandle)
+    def attachTargetSlot:int 0   ; weak target (0 = detached)
+    def attached:boolean false
+}
+
+class RgAudioVoice {
+    def sourceSlot:int 0
+    def mixerOwned:boolean false
+    def done:boolean false
+}
+
+class RgAudio {
+    def registry:RgRegistry (new RgRegistry)
+    def realmId:int 1
+    def clips:[RgAudioClip]
+    def clipFree:[int]
+    def sources:[RgAudioSource]
+    def sourceFree:[int]
+    def voices:[RgAudioVoice]
+    def voiceFree:[int]
+
+    fn allocClip:int () {
+        def nf:int (array_length this.clipFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.clipFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.clipFree i)
+                i = (i + 1)
+            }
+            this.clipFree = kept
+            return idx
+        }
+        def n:int (array_length this.clips)
+        push this.clips (new RgAudioClip)
+        return n
+    }
+    fn allocSource:int () {
+        def nf:int (array_length this.sourceFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.sourceFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.sourceFree i)
+                i = (i + 1)
+            }
+            this.sourceFree = kept
+            return idx
+        }
+        def n:int (array_length this.sources)
+        push this.sources (new RgAudioSource)
+        return n
+    }
+    fn allocVoice:int () {
+        def nf:int (array_length this.voiceFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.voiceFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.voiceFree i)
+                i = (i + 1)
+            }
+            this.voiceFree = kept
+            return idx
+        }
+        def n:int (array_length this.voices)
+        push this.voices (new RgAudioVoice)
+        return n
+    }
+
+    ; ---- clip ---------------------------------------------------------------
+    fn clipCreate:OwnedHandle () {
+        def idx:int (this.allocClip())
+        def c:RgAudioClip (itemAt this.clips idx)
+        c.resourceRevision = 0
+        def h:RgHandle (this.registry.alloc(this.realmId (RgAudioType.clip()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    fn clipDisposeBackend:RgResolve (clipH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(clipH (RgAudioType.clip())))
+        if (r.ok == false) { return r }
+        def c:RgAudioClip (itemAt this.clips r.payloadIndex)
+        c.resourceRevision = (c.resourceRevision + 1)
+        return r
+    }
+    fn clipResourceRevision:int (clipH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(clipH (RgAudioType.clip())))
+        if (r.ok == false) { return (0 - 1) }
+        def c:RgAudioClip (itemAt this.clips r.payloadIndex)
+        return c.resourceRevision
+    }
+
+    ; ---- source (retains clip) ---------------------------------------------
+    fn sourceCreate:OwnedHandle (clipH:RgHandle) {
+        def idx:int (this.allocSource())
+        def s:RgAudioSource (itemAt this.sources idx)
+        s.clipH = clipH
+        s.attachTargetSlot = 0
+        s.attached = false
+        this.registry.retain(clipH)
+        def h:RgHandle (this.registry.alloc(this.realmId (RgAudioType.source()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    ; weak attach (does not retain the target); targetLive is queried at use.
+    fn sourceAttach:RgResolve (sourceH:RgHandle targetSlot:int) {
+        def r:RgResolve (this.registry.resolveTyped(sourceH (RgAudioType.source())))
+        if (r.ok == false) { return r }
+        def s:RgAudioSource (itemAt this.sources r.payloadIndex)
+        s.attachTargetSlot = targetSlot
+        s.attached = true
+        return r
+    }
+    ; the attachment is valid only while the source is live AND the target lives.
+    fn sourceAttachValid:boolean (sourceH:RgHandle targetLive:boolean) {
+        def r:RgResolve (this.registry.resolveTyped(sourceH (RgAudioType.source())))
+        if (r.ok == false) { return false }
+        def s:RgAudioSource (itemAt this.sources r.payloadIndex)
+        if (s.attached == false) { return false }
+        return targetLive
+    }
+
+    ; play() → caller-owned voice; does not retain clip/source.
+    fn sourcePlay:OwnedHandle (sourceH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(sourceH (RgAudioType.source())))
+        def idx:int (this.allocVoice())
+        def v:RgAudioVoice (itemAt this.voices idx)
+        v.sourceSlot = sourceH.slot
+        v.mixerOwned = false
+        v.done = false
+        def h:RgHandle (this.registry.alloc(this.realmId (RgAudioType.voice()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    ; playOneShot() → mixer-owned voice; the caller gets nothing to leak. Returns
+    ; the internal handle only so tests can observe it; real guests ignore it.
+    fn sourcePlayOneShot:RgHandle (sourceH:RgHandle) {
+        def idx:int (this.allocVoice())
+        def v:RgAudioVoice (itemAt this.voices idx)
+        v.sourceSlot = sourceH.slot
+        v.mixerOwned = true
+        v.done = false
+        return (this.registry.alloc(this.realmId (RgAudioType.voice()) idx))
+    }
+
+    ; mark a mixer voice's playback finished (test hook for the mixer clock).
+    fn markVoiceDone:void (voiceH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(voiceH (RgAudioType.voice())))
+        if (r.ok == false) { return }
+        def v:RgAudioVoice (itemAt this.voices r.payloadIndex)
+        v.done = true
+    }
+
+    ; frame boundary: the mixer auto-releases finished mixer-owned voices;
+    ; caller-owned voices are never touched. Returns how many it reclaimed.
+    fn completeOneShots:int () {
+        def n:int (array_length this.registry.gen)
+        def reclaimed 0
+        def i 0
+        while (i < n) {
+            if ((itemAt this.registry.live i)) {
+                if ((itemAt this.registry.typ i) == (RgAudioType.voice())) {
+                    def payIdx:int (itemAt this.registry.payload i)
+                    def v:RgAudioVoice (itemAt this.voices payIdx)
+                    if (v.mixerOwned) {
+                        if (v.done) {
+                            def vh:RgHandle (RgHandle.of((i + 1) (itemAt this.registry.gen i) (itemAt this.registry.realm i) (RgAudioType.voice())))
+                            this.registry.releaseOnce(vh)
+                            push this.voiceFree payIdx
+                            reclaimed = (reclaimed + 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return reclaimed
+    }
+
+    ; caller stops/releases a play() voice.
+    fn voiceRelease:RgResolve (owned:OwnedHandle) {
+        if (owned.released) { return (RgResolve.fail((RgErr.doubleRelease()))) }
+        def r:RgResolve (this.registry.releaseOnce(owned.handle))
+        if (r.ok) {
+            owned.released = true
+            if (r.freed) { push this.voiceFree r.payloadIndex }
+        }
+        return r
+    }
+
+    ; source.release() ends source ownership + drops its retained clip ref.
+    fn sourceRelease:RgResolve (owned:OwnedHandle) {
+        if (owned.released) { return (RgResolve.fail((RgErr.doubleRelease()))) }
+        def r:RgResolve (this.registry.resolveTyped(owned.handle (RgAudioType.source())))
+        def clipH:RgHandle (new RgHandle)
+        if (r.ok) {
+            def s:RgAudioSource (itemAt this.sources r.payloadIndex)
+            clipH = s.clipH
+        }
+        def rr:RgResolve (this.registry.releaseOnce(owned.handle))
+        if (rr.ok) {
+            owned.released = true
+            if (rr.freed) {
+                push this.sourceFree rr.payloadIndex
+                this.registry.releaseOnce(clipH)
+            }
+        }
+        return rr
+    }
+
+    fn refcount:int (h:RgHandle) { return (this.registry.refcountOf(h)) }
+    fn isLive:boolean (h:RgHandle) { return (this.registry.isLive(h)) }
+    fn liveOfType:int (typeId:int) {
+        def n:int (array_length this.registry.gen)
+        def c 0
+        def i 0
+        while (i < n) {
+            if ((itemAt this.registry.live i)) {
+                if ((itemAt this.registry.typ i) == typeId) { c = (c + 1) }
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+}

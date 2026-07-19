@@ -176,7 +176,18 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   backend reads host state only (rendering is not a sync boundary, D-SYNC: no
   handles allocated, no scene mutation). Gate: `render/tests/software_present2d_test`.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (32 suites, 511
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 32/32 suites passed`.
+- **Phase 10 — Audio / input / surface devices (fakes): ✅ green.**
+  `modules/ranger_core/RgAudio.rgr` (clip ≠ source ≠ voice with D-OWN: source
+  retains clip; `play()` caller-owned voice; `playOneShot()` mixer-owned
+  auto-release; weak attach; disposeBackend ≠ release) and
+  `RgInputSurface.rgr` (generation-checked gamepad identity, player stable across
+  reconnect, action edge states + axis1D, split-screen panes). Gate:
+  `modules/ranger_core/tests/devices_test`.
 
-*Later phases (10 devices / 12 games) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (33 suites, 553
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
+
+Phases 1–11 of `../CODE_CLEANUP_PLAN.md` are validated headlessly (identity →
+handles/arenas → registry → adapter → WASM bridge → lifetimes → geometry →
+modules/frame → physics → 2D → software present → devices). Phase 12 (selected
+game ports) is the remaining integration milestone.
