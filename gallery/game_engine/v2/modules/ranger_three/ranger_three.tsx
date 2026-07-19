@@ -41,6 +41,27 @@ class OctahedronGeometry {
   constructor(radius) { this.id = rg3d_geometry_octahedron(radius); }
 }
 
+// Flat plane primitive (floor). width/height, then optional segment counts.
+class PlaneGeometry {
+  id = 0;
+  constructor(width, height, wSeg, hSeg) {
+    this.id = rg3d_geometry_plane(width, height, wSeg || 1, hSeg || 1);
+  }
+}
+
+// Utah teapot (Three.js addons TeapotGeometry). A leaf resource — no membership.
+// The 5 part/shape flags are booleans; the bridge carries them as i32 0/1.
+class TeapotGeometry {
+  id = 0;
+  constructor(size, seg, bottom, lid, body, fitLid, blinn) {
+    // The 5 shape flags are i32 in the schema; a JS boolean does not coerce
+    // through the native-bridge int decode, so normalise here (accepts true/false
+    // OR 1/0 from callers).
+    this.id = rg3d_geometry_teapot(size, seg,
+      bottom ? 1 : 0, lid ? 1 : 0, body ? 1 : 0, fitLid ? 1 : 0, blinn ? 1 : 0);
+  }
+}
+
 class MeshBasicMaterial {
   id = 0;
   constructor(colorHex) { this.id = rg3d_material_basic(colorHex); }
@@ -54,17 +75,21 @@ class MeshLambertMaterial {
   }
 }
 
+// D-SYNC: create the light DETACHED (no scene membership). Establish membership
+// separately via scene.add(light) — lights are plain scene children the renderer
+// collects by walking the tree, so scene.add registers them for rendering.
 class AmbientLight {
   id = 0;
-  constructor(scene, colorHex, intensity) {
-    this.id = rg3d_light_ambient(scene.id, colorHex, intensity);
+  constructor(colorHex, intensity) {
+    this.id = rg3d_light_ambient(colorHex, intensity);
   }
 }
 
+// D-SYNC: create DETACHED; establish membership via scene.add(light).
 class DirectionalLight {
   id = 0;
-  constructor(scene, colorHex, intensity, dx, dy, dz) {
-    this.id = rg3d_light_directional(scene.id, colorHex, intensity, dx, dy, dz);
+  constructor(colorHex, intensity, dx, dy, dz) {
+    this.id = rg3d_light_directional(colorHex, intensity, dx, dy, dz);
   }
 }
 
@@ -83,12 +108,35 @@ class Mesh {
   }
 }
 
-// Package-relative .glb attached under a scene (host-decoded via ThreeGLTFFile).
-// Games pass any pkg:// uri — the engine has no asset- or game-specific loaders.
+// THREE.Group — a transform-only node that owns children. D-SYNC: created
+// DETACHED (no scene membership); establish membership via scene.add(group).
+// A group is a first-class entity: usable AS a child (scene.add(group)) and AS a
+// parent (group.add(mesh)). setTransform/setScale move the whole subtree.
+//
+// Group.remove(child) is intentionally OMITTED: rg3d_entity_remove takes a SCENE
+// handle (host.entityRemove(sceneH, entH) removes from a scene root), so it cannot
+// express "detach a child from a group". To move a child out of a group, reparent
+// it with scene.add(child) / otherGroup.add(child) — entity_set_parent detaches
+// from the current parent first, which covers the group case correctly.
+class Group {
+  id = 0;
+  constructor() { this.id = rg3d_group_create(); }
+  add(obj) { rg3d_entity_set_parent(obj.id, this.id); }
+  setTransform(px, py, pz, ex, ey, ez) {
+    rg3d_mesh_transform(this.id, px, py, pz, ex, ey, ez);
+  }
+  setScale(sx, sy, sz) {
+    rg3d_mesh_set_scale(this.id, sx, sy, sz);
+  }
+}
+
+// Package-relative .glb host-decoded via ThreeGLTFFile. Games pass any pkg:// uri
+// — the engine has no asset- or game-specific loaders.
+// D-SYNC: create DETACHED; establish membership separately via scene.add(model).
 class GLTFModel {
   id = 0;
-  constructor(scene, uri) {
-    this.id = rg3d_model_load(scene.id, uri);
+  constructor(uri) {
+    this.id = rg3d_model_load(uri);
   }
   setTransform(px, py, pz, ex, ey, ez) {
     rg3d_mesh_transform(this.id, px, py, pz, ex, ey, ez);
@@ -96,6 +144,21 @@ class GLTFModel {
   setScale(sx, sy, sz) {
     rg3d_mesh_set_scale(this.id, sx, sy, sz);
   }
+}
+
+// Spherical orbit-camera controller (Three.js addons OrbitControls), bound to a
+// camera at construction. The game feeds pointer/wheel events + viewport/target;
+// apply() writes the bound camera's pose. phase: 0=down, 1=move, 2=up.
+class OrbitControls {
+  id = 0;
+  constructor(camera) { this.id = rg3d_orbit_create(camera.id); }
+  setViewport(w, h) { rg3d_orbit_viewport(this.id, w, h); }
+  setTarget(x, y, z) { rg3d_orbit_target(this.id, x, y, z); }
+  pointerDown(x, y, button) { rg3d_orbit_pointer(this.id, 0, x, y, button); }
+  pointerMove(x, y) { rg3d_orbit_pointer(this.id, 1, x, y, 0); }
+  pointerUp() { rg3d_orbit_pointer(this.id, 2, 0, 0, 0); }
+  wheel(delta) { rg3d_orbit_wheel(this.id, delta); }
+  apply() { rg3d_orbit_apply(this.id); }
 }
 
 class Renderer3D {

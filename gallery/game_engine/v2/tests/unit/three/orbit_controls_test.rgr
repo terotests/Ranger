@@ -1,0 +1,154 @@
+; ==============================================================================
+; orbit_controls_test — the live ranger:three orbit-camera command surface.
+; ==============================================================================
+; Drives the SAME generic transport a guest uses (RgRegistryBridge.invoke with
+; EvalValue args): create a scene + camera at a known start pose, build an
+; OrbitControls bound to that camera, feed a horizontal rotate drag + a wheel
+; dolly, and assert the bound camera's pose changed the way a spherical orbit
+; predicts. Camera position is read back through the read-only cameraPos*
+; accessors (host cameraPosX/Y/Z → RgRangerThree → here). No typed errors.
+;
+; TESTS-FIRST: before the rg3d_orbit_* rows are wired these commands are
+; unknown → typed errors → errorCount > 0 → these assertions FAIL. After wiring
+; the schema/host/arena/dispatch/facade, they pass.
+; ==============================================================================
+
+Import "../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../harness/RgTest.rgr"
+
+class OrbitControlsTest {
+    def b:RgRegistryBridge (RgRegistryBridge.create())
+
+    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+
+    fn callI:int (name:string args:[EvalValue]) {
+        def r:EvalValue (this.b.invoke(name args))
+        return (to_int r.numberValue)
+    }
+    fn callN:void (name:string args:[EvalValue]) {
+        this.b.invoke(name args)
+    }
+
+    ; sqrt of x^2+y^2+z^2 — camera distance from the (0,0,0) orbit target.
+    fn dist:double (x:double y:double z:double) {
+        return (sqrt(((x * x) + (y * y)) + (z * z)))
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/unit/three/orbit_controls"))
+        def s:OrbitControlsTest (new OrbitControlsTest)
+        def b:RgRegistryBridge s.b
+
+        ; ---- scene + camera at a known start pose (0,0,3) looking at origin ----
+        def empty:[EvalValue]
+        def scene3:int (s.callI("rg3d_scene_create" empty))
+        def cam3:int (s.callI("rg3d_camera_create" empty))
+        t.ok("scene + camera minted" ((scene3 > 0) && (cam3 > 0)))
+
+        def cset:[EvalValue]
+        push cset (s.num((to_double cam3)))
+        push cset (s.num(50.0))
+        push cset (s.num(1.0))
+        push cset (s.num(0.1))
+        push cset (s.num(100.0))
+        s.callN("rg3d_camera_set" cset)
+
+        def cpose:[EvalValue]
+        push cpose (s.num((to_double cam3)))
+        push cpose (s.num(0.0))
+        push cpose (s.num(0.0))
+        push cpose (s.num(3.0))
+        push cpose (s.num(0.0))
+        push cpose (s.num(0.0))
+        push cpose (s.num(0.0))
+        s.callN("rg3d_camera_pose" cpose)
+
+        def cam3H:RgHandle (b.resolveGuestId(cam3))
+        def startX:double (b.d3.cameraPosX(cam3H))
+        def startY:double (b.d3.cameraPosY(cam3H))
+        def startZ:double (b.d3.cameraPosZ(cam3H))
+        t.near("camera starts at x=0" startX 0.0)
+        t.near("camera starts at z=3" startZ 3.0)
+
+        ; ---- orbit controls bound to that camera ------------------------------
+        def ocA:[EvalValue]
+        push ocA (s.num((to_double cam3)))
+        def orbit:int (s.callI("rg3d_orbit_create" ocA))
+        t.ok("orbit controls minted" (orbit > 0))
+
+        def vpA:[EvalValue]
+        push vpA (s.num((to_double orbit)))
+        push vpA (s.num(600.0))
+        push vpA (s.num(600.0))
+        s.callN("rg3d_orbit_viewport" vpA)
+
+        def tgA:[EvalValue]
+        push tgA (s.num((to_double orbit)))
+        push tgA (s.num(0.0))
+        push tgA (s.num(0.0))
+        push tgA (s.num(0.0))
+        s.callN("rg3d_orbit_target" tgA)
+
+        ; ---- horizontal rotate drag: down (100,100) → move (160,100) → up -----
+        def pdA:[EvalValue]
+        push pdA (s.num((to_double orbit)))
+        push pdA (s.num(0.0))       ; phase 0 = down
+        push pdA (s.num(100.0))
+        push pdA (s.num(100.0))
+        push pdA (s.num(0.0))       ; button 0 = rotate
+        s.callN("rg3d_orbit_pointer" pdA)
+
+        def pmA:[EvalValue]
+        push pmA (s.num((to_double orbit)))
+        push pmA (s.num(1.0))       ; phase 1 = move
+        push pmA (s.num(160.0))     ; +60px horizontal
+        push pmA (s.num(100.0))     ; same vertical (pure azimuth orbit)
+        push pmA (s.num(0.0))
+        s.callN("rg3d_orbit_pointer" pmA)
+
+        def puA:[EvalValue]
+        push puA (s.num((to_double orbit)))
+        push puA (s.num(2.0))       ; phase 2 = up
+        push puA (s.num(0.0))
+        push puA (s.num(0.0))
+        push puA (s.num(0.0))
+        s.callN("rg3d_orbit_pointer" puA)
+
+        def apA:[EvalValue]
+        push apA (s.num((to_double orbit)))
+        s.callN("rg3d_orbit_apply" apA)
+
+        def rotX:double (b.d3.cameraPosX(cam3H))
+        def rotY:double (b.d3.cameraPosY(cam3H))
+        def rotZ:double (b.d3.cameraPosZ(cam3H))
+
+        ; a horizontal orbit swings the camera in x, pulls z toward the target
+        ; plane, and leaves the polar height (y) unchanged.
+        t.ok("horizontal orbit moved camera off the x axis" (rotX < (0.0 - 0.5)))
+        t.ok("horizontal orbit reduced z" (rotZ < 2.9))
+        t.near("horizontal orbit kept y (no polar change)" rotY 0.0)
+
+        ; rotation preserves the orbit radius (~3).
+        def rotDist:double (s.dist(rotX rotY rotZ))
+        t.near("rotation preserves orbit radius" rotDist 3.0)
+
+        ; ---- wheel dolly OUT increases the camera distance --------------------
+        def whA:[EvalValue]
+        push whA (s.num((to_double orbit)))
+        push whA (s.num(1.0))       ; positive delta = dolly out (radius *= 1.1)
+        s.callN("rg3d_orbit_wheel" whA)
+        s.callN("rg3d_orbit_apply" apA)
+
+        def dolX:double (b.d3.cameraPosX(cam3H))
+        def dolY:double (b.d3.cameraPosY(cam3H))
+        def dolZ:double (b.d3.cameraPosZ(cam3H))
+        def dolDist:double (s.dist(dolX dolY dolZ))
+        t.ok("wheel dolly increased camera distance" (dolDist > rotDist))
+        t.near("wheel dolly radius is ~3.3" dolDist 3.3)
+
+        ; ---- the whole sequence raised no typed errors ------------------------
+        t.eqInt("no typed errors across the orbit sequence" b.errorCount 0)
+
+        t.summary()
+    }
+}

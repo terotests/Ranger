@@ -180,15 +180,21 @@ function makeDiamondSprite(renderer3d) {
   const scene = new THREE.Scene();
   // Bind lights to locals — the TSX evaluator may skip unused `new` expressions.
   // Slightly cooler/dimmer key so facets shade instead of blowing to white.
-  const amb = new THREE.AmbientLight(scene, 16777215, 0.38);
-  const key = new THREE.DirectionalLight(scene, 16777215, 1.25, 0.4, 1.2, 0.5);
-  const fill = new THREE.DirectionalLight(scene, 12648447, 0.55, -0.85, 0.3, -0.5);
-  const rim = new THREE.DirectionalLight(scene, 14745599, 0.7, -0.3, 0.4, -1.0);
-  const under = new THREE.DirectionalLight(scene, 10526880, 0.55, 0.2, -1.0, 0.3);
+  const amb = new THREE.AmbientLight(16777215, 0.38);
+  scene.add(amb);
+  const key = new THREE.DirectionalLight(16777215, 1.25, 0.4, 1.2, 0.5);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(12648447, 0.55, -0.85, 0.3, -0.5);
+  scene.add(fill);
+  const rim = new THREE.DirectionalLight(14745599, 0.7, -0.3, 0.4, -1.0);
+  scene.add(rim);
+  const under = new THREE.DirectionalLight(10526880, 0.55, 0.2, -1.0, 0.3);
+  scene.add(under);
   // Keep the gem clear of the near plane while spinning.
   const camera = new THREE.PerspectiveCamera(32, 0.55, 0.5, 40);
   camera.setPose(0.0, -0.12, 3.8, 0.0, 0.0, 0.0);
-  const mesh = new THREE.GLTFModel(scene, "pkg://models/diamond.glb");
+  const mesh = new THREE.GLTFModel("pkg://models/diamond.glb");
+  scene.add(mesh);
   mesh.setTransform(0, 0, 0, 0.12, 0.6, 0.08);
   mesh.setScale(1.55, 1.55, 1.55);
   // RT matches on-screen sprite pixels; engine RTT does 2× SSAA resolve into it

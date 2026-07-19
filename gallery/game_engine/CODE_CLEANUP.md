@@ -121,15 +121,25 @@ typed registry slot / typed arena  (D-TYPE)
 canonical Ranger object
 ```
 
-**Reconciler status:** `three_tsx_bridge.rgr` remains a **temporary compatibility
-adapter** for demos that still build a wrapper scene tree and call `reconcile()`.
-It must not be described as the final architecture.
+**Reconciler status: RETIRED ✅.** `three_tsx_bridge.rgr` (and `three_gui_overlay`)
+have been **deleted**, along with the reconcile-based web hosts
+(`web_{tsx3d_gl,teapot_tsx,sponza_tsx,teapot_gl_probe,teapot_sdl_runner}`) and the
+5 unwired reconcile value-parity tests (`three/port/tests/{spec,geometry,
+animation,object_hierarchy}`). The Sponza typed accessors went with the bridge.
+The live `ranger:three` object model is the sole path.
 
-**Deletion milestone (`RETIRE-RECONCILE`):** when the live adapter covers Mesh /
-Group / Scene / Light / Camera construct + parent + transform + shared geo/mat,
-and teapot + sponza + cube demos no longer call `ThreeTsxBridge.reconcile` (or
-equivalent), delete the index/DFS reconcile path and the Sponza typed accessors
-(`sunLight` / `skyNode` / `modelNode`).
+**Deletion milestone (`RETIRE-RECONCILE`) — done.** The live adapter covers
+Scene / Camera / Mesh / Group / Light / Model construct + parent + transform +
+shared geo/mat (+ TeapotGeometry, PlaneGeometry, OrbitControls). The LIVE-path
+demos are the cube, the teapot, a **procedural courtyard** (`courtyard_live.tsx`
+— PlaneGeometry floor + boxes + lights, NOT the Sponza atrium) and a **real glTF
+model** (`model_live.tsx` — loads `games/ylos3d/models/diamond.glb` through the
+live `rg3d_model_load` path) (`web/web_live3d_host.rgr` + `web/guests/three/*.tsx`),
+each **browser-verified rendering in headless Chromium** via
+`web/tests/browser_smoke.mjs` (this also caught a real façade boolean-coercion
+bug the unit tests missed). The index/DFS reconcile path and Sponza accessors are
+gone; the full gate stays green (89/89). (A true Sponza-atrium live demo remains a
+follow-up — it needs a Sponza `.gltf`/`.glb` asset that is not in-tree.)
 
 **STATUS (live path — membership decoupled from creation):** the LIVE
 `ranger:three` path now separates object lifetime from scene membership per the
@@ -143,6 +153,10 @@ D-SYNC table:
   (`modules/ranger_three/ranger_three.tsx`). `rg3d_mesh_create` lowered to
   `(geo, mat)`.
 
+Done since: (0) `AmbientLight` / `DirectionalLight` / `GLTFModel` migrated to
+detached-create + `scene.add`; (0b) membership detach is O(1) (parent
+back-reference); (0c) the demos were ported to the live path and the reconciler
+deleted (see status above). Historical remaining-work note (now resolved) below:
 Remaining before `RETIRE-RECONCILE`: (1) migrate the still-fused live ctors —
 `AmbientLight` / `DirectionalLight` / `GLTFModel` take a `scene` arg — onto the
 same detached-create + `scene.add` shape; (2) move the teapot/sponza/cube

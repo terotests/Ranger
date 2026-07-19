@@ -31,6 +31,13 @@ class ThreeSchema {
         def geo:RgClassDef (RgClassDef.of(32 "Geometry3D"))
         geo.addMethod((RgMethodDef.cmd(3010 "rg3d_geometry_box" "rg3d_geometry_box" "d:d:d" "h" "create")))
         geo.addMethod((RgMethodDef.cmd(3011 "rg3d_geometry_octahedron" "rg3d_geometry_octahedron" "d" "h" "create")))
+        ; Utah teapot resource. size(d), segments(i); the 5 part/shape booleans
+        ; (bottom, lid, body, fitLid, blinn) are encoded as i32 0/1 (the argSpec
+        ; alphabet is {i,d,s,h,ai,ad}; no bool code) and converted in dispatch.
+        geo.addMethod((RgMethodDef.cmd(3012 "rg3d_geometry_teapot" "rg3d_geometry_teapot" "d:i:i:i:i:i:i" "h" "create")))
+        ; Flat plane primitive (floor). width(d), height(d), then the segment
+        ; counts wSeg(i), hSeg(i). A leaf resource, mirrors geometry_box.
+        geo.addMethod((RgMethodDef.cmd(3013 "rg3d_geometry_plane" "rg3d_geometry_plane" "d:d:i:i" "h" "create")))
         s.addClass(geo)
 
         ; ---- Material3D (33) -------------------------------------------------
@@ -51,6 +58,10 @@ class ThreeSchema {
         mesh.addMethod((RgMethodDef.cmd(3033 "rg3d_entity_set_parent" "rg3d_entity_set_parent" "h:h" "v" "none")))
         ; D-SYNC: detach membership ONLY (scene, entity) — do NOT destroy the object.
         mesh.addMethod((RgMethodDef.cmd(3034 "rg3d_entity_remove" "rg3d_entity_remove" "h:h" "v" "none")))
+        ; D-SYNC: DETACHED create — a transform-only Group/Object3D node (no args,
+        ; like scene_create). It is a first-class entity: usable as a child
+        ; (scene.add(group)) and as a parent (group.add(mesh)).
+        mesh.addMethod((RgMethodDef.cmd(3035 "rg3d_group_create" "rg3d_group_create" "" "h" "create")))
         s.addClass(mesh)
 
         ; ---- Renderer3D (35) — RTT into a Texture2D / RenderTarget ------------
@@ -60,14 +71,29 @@ class ThreeSchema {
 
         ; ---- Light3D (36) — ambient + directional for SW Lambert -------------
         def light:RgClassDef (RgClassDef.of(36 "Light3D"))
-        light.addMethod((RgMethodDef.cmd(3050 "rg3d_light_ambient" "rg3d_light_ambient" "h:i:d" "h" "create")))
-        light.addMethod((RgMethodDef.cmd(3051 "rg3d_light_directional" "rg3d_light_directional" "h:i:d:d:d:d" "h" "create")))
+        light.addMethod((RgMethodDef.cmd(3050 "rg3d_light_ambient" "rg3d_light_ambient" "i:d" "h" "create")))
+        light.addMethod((RgMethodDef.cmd(3051 "rg3d_light_directional" "rg3d_light_directional" "i:d:d:d:d" "h" "create")))
         s.addClass(light)
 
         ; ---- Model3D (37) — package-relative .glb → scene entity --------------
         def model:RgClassDef (RgClassDef.of(37 "Model3D"))
-        model.addMethod((RgMethodDef.cmd(3060 "rg3d_model_load" "rg3d_model_load" "h:s" "h" "create")))
+        model.addMethod((RgMethodDef.cmd(3060 "rg3d_model_load" "rg3d_model_load" "s" "h" "create")))
         s.addClass(model)
+
+        ; ---- OrbitControls3D (38) — spherical camera controller --------------
+        ; Own decade (3070+): the "continue after group's 3035" range (3036..3041)
+        ; would collide with rg3d_render_to (3040), so orbit takes the next free
+        ; decade after model (3060), matching the one-class-per-decade layout.
+        ; create binds to a camera (h→h); the rest drive the bound controller.
+        def orbit:RgClassDef (RgClassDef.of(38 "OrbitControls3D"))
+        orbit.addMethod((RgMethodDef.cmd(3070 "rg3d_orbit_create" "rg3d_orbit_create" "h" "h" "create")))
+        orbit.addMethod((RgMethodDef.cmd(3071 "rg3d_orbit_viewport" "rg3d_orbit_viewport" "h:i:i" "v" "none")))
+        orbit.addMethod((RgMethodDef.cmd(3072 "rg3d_orbit_target" "rg3d_orbit_target" "h:d:d:d" "v" "none")))
+        ; pointer: (ctrl, phase i, x d, y d, button i). phase 0=down/1=move/2=up.
+        orbit.addMethod((RgMethodDef.cmd(3073 "rg3d_orbit_pointer" "rg3d_orbit_pointer" "h:i:d:d:i" "v" "none")))
+        orbit.addMethod((RgMethodDef.cmd(3074 "rg3d_orbit_wheel" "rg3d_orbit_wheel" "h:d" "v" "none")))
+        orbit.addMethod((RgMethodDef.cmd(3075 "rg3d_orbit_apply" "rg3d_orbit_apply" "h" "v" "none")))
+        s.addClass(orbit)
 
         return s
     }

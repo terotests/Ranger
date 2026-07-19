@@ -3,7 +3,7 @@
 ; ==============================================================================
 ; ThreeLight is an Object3D with a colour + intensity. AmbientLight lights every
 ; surface uniformly; DirectionalLight lights from a direction (its position, used
-; as the direction toward the light, as in the teapot example). The lightKind /
+; as the direction toward the light, per the three.js convention). The lightKind /
 ; lightR/G/B overrides let the renderer collect lights while walking the tree.
 ; ==============================================================================
 

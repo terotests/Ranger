@@ -1,5 +1,5 @@
 ; ==============================================================================
-; three_gltf_loader_test — glTF binary accessor decoder (Sponza slice 6).
+; three_gltf_loader_test — glTF binary accessor decoder.
 ; ==============================================================================
 ; Builds a hand-encoded little-endian binary buffer (a single triangle: 3 VEC3
 ; float positions + 3 UNSIGNED_SHORT indices) and asserts the decoder round-trips

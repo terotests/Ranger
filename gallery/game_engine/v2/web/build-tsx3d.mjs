@@ -18,7 +18,17 @@ import path from "node:path";
 import url from "node:url";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, "..", "..", "..");
+// Repo root — walk up until bin/output.js is found (robust to the web/ dir depth;
+// this file was vendored from v1 web/ into v2/web/, one level deeper).
+function findRoot(start) {
+  let d = start;
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(d, "bin", "output.js"))) return d;
+    d = path.dirname(d);
+  }
+  return path.resolve(start, "..", "..", "..", "..");
+}
+const ROOT = findRoot(HERE);
 const SRC = path.join(HERE, "src");
 const argv = process.argv.slice(2);
 const outArg = argv.indexOf("--out");

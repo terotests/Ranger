@@ -473,7 +473,7 @@ class RgRegistryBridge extends EvalNativeBridge {
     ; Package-relative .glb → scene entity. Game-agnostic: any uri under the
     ; loaded package. Embedded PNG bufferViews are decoded here (bridge owns
     ; imaging); geometry/materials come from ThreeGLTFFile.
-    fn loadModelAsset:int (sceneH:RgHandle uri:string) {
+    fn loadModelAsset:int (uri:string) {
         def rel:string uri
         if ((indexOf uri "pkg://") == 0) {
             rel = (substring uri 6)
@@ -498,7 +498,7 @@ class RgRegistryBridge extends EvalNativeBridge {
             i = (i + 1)
         }
         this.d3.clearErr()
-        def o:OwnedHandle (this.d3.modelAttachRoot(sceneH root))
+        def o:OwnedHandle (this.d3.modelAttachRoot(root))
         if ((o.handle.isValid()) == false) { return 0 }
         return (this.mintId(o))
     }
@@ -777,8 +777,20 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
+        if (row.name == "rg3d_geometry_plane") {
+            def o:OwnedHandle (this.d3.geometryPlane((a.dblAt(0)) (a.dblAt(1)) (a.intAt(2)) (a.intAt(3))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
         if (row.name == "rg3d_geometry_octahedron") {
             def o:OwnedHandle (this.d3.geometryOctahedron((a.dblAt(0))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_geometry_teapot") {
+            ; the 5 shape flags are carried as i32 0/1 (schema argSpec has no bool
+            ; code) — decode them back to booleans for the host signature.
+            def o:OwnedHandle (this.d3.geometryTeapot((a.dblAt(0)) (a.intAt(1)) ((a.intAt(2)) != 0) ((a.intAt(3)) != 0) ((a.intAt(4)) != 0) ((a.intAt(5)) != 0) ((a.intAt(6)) != 0)))
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
@@ -801,7 +813,7 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg3d_light_ambient") {
             this.d3.clearErr()
-            def o:OwnedHandle (this.d3.lightAmbient((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2))))
+            def o:OwnedHandle (this.d3.lightAmbient((a.intAt(0)) (a.dblAt(1))))
             if ((o.handle.isValid()) == false) {
                 return (this.fail3d(row.name))
             }
@@ -810,10 +822,15 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg3d_light_directional") {
             this.d3.clearErr()
-            def o:OwnedHandle (this.d3.lightDirectional((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5))))
+            def o:OwnedHandle (this.d3.lightDirectional((a.intAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4))))
             if ((o.handle.isValid()) == false) {
                 return (this.fail3d(row.name))
             }
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_group_create") {
+            def o:OwnedHandle (this.d3.groupCreate())
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
@@ -855,9 +872,9 @@ class RgRegistryBridge extends EvalNativeBridge {
             return (EvalValue.null())
         }
         if (row.name == "rg3d_model_load") {
-            def mid:int (this.loadModelAsset((a.handleAt(0)) (a.strAt(1))))
+            def mid:int (this.loadModelAsset((a.strAt(0))))
             if (mid < 1) {
-                return (this.fail("model-not-found:" + (a.strAt(1))))
+                return (this.fail("model-not-found:" + (a.strAt(0))))
             }
             return (RgRegistryBridge.retI(mid))
         }
@@ -869,6 +886,50 @@ class RgRegistryBridge extends EvalNativeBridge {
                 return (this.fail3d(row.name))
             }
             this.appendPass3D((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2)) (a.intAt(3)) (a.intAt(4)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_create") {
+            this.d3.clearErr()
+            def o:OwnedHandle (this.d3.orbitCreate((a.handleAt(0))))
+            if ((o.handle.isValid()) == false) {
+                return (this.fail3d(row.name))
+            }
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_orbit_viewport") {
+            this.d3.clearErr()
+            if ((this.d3.orbitViewport((a.handleAt(0)) (a.intAt(1)) (a.intAt(2)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_target") {
+            this.d3.clearErr()
+            if ((this.d3.orbitTarget((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_pointer") {
+            this.d3.clearErr()
+            if ((this.d3.orbitPointer((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.intAt(4)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_wheel") {
+            this.d3.clearErr()
+            if ((this.d3.orbitWheel((a.handleAt(0)) (a.dblAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_apply") {
+            this.d3.clearErr()
+            if ((this.d3.orbitApply((a.handleAt(0)))) == false) {
+                return (this.fail3d(row.name))
+            }
             return (EvalValue.null())
         }
         if (row.name == "rgcore_assets_load_atlas") {

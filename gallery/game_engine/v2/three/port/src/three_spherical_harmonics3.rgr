@@ -1,6 +1,6 @@
 ; ==============================================================================
 ; three_spherical_harmonics3 — order-2 SH (9 RGB coefficients). Three.js port of
-; src/math/SphericalHarmonics3.js. Sponza slice 7 (light-probe GI).
+; src/math/SphericalHarmonics3.js (light-probe GI).
 ; ==============================================================================
 ; Each light probe stores incoming radiance as 9 spherical-harmonic coefficients
 ; per channel (RGB packed in a Vector3). The bake projects captured radiance into

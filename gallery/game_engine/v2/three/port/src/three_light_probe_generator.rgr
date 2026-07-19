@@ -11,7 +11,7 @@
 ;   * normalise by 4π / totalWeight.
 ; Because it integrates the ACTUAL captured scene (any lights, colours, occlusion),
 ; this replaces the analytic sun/sky/ground stand-in — GI now works for any scene,
-; not just a sunlit courtyard, and shadowing falls out of the capture. Pure Ranger
+; not just direct sunlight, and shadowing falls out of the capture. Pure Ranger
 ; (ES6 + C++); the capture that feeds it is ThreeCubeCamera.
 ; ==============================================================================
 

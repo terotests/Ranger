@@ -9,7 +9,7 @@ driver and the roadmap below over that checklist.
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
 | Headless gate | `npm run engine:v2:test` → 88 suites + boundary gate | — |
-| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity + Map/Set/`indexOf` on the **real** interpreter; live 3D path splits object lifetime from scene membership (`new Mesh(g,m)` detached, `scene.add`/`remove`) | migrate fused light/GLTF ctors; then `RETIRE-RECONCILE` |
+| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — live-path demos (cube, teapot, a procedural courtyard, and a real glTF model — NOT the Sponza atrium) re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
@@ -44,13 +44,32 @@ handle → separate object / membership / GPU lifetimes) is now advancing on the
       DETACHED create; `scene.add(mesh)` / `scene.remove(mesh)` establish/detach
       membership as separate ops (`modules/ranger_three/ranger_three.tsx`).
       `rg3d_mesh_create` lowered to `(geo, mat)`.
-- [ ] **Migrate the still-fused live ctors** — `AmbientLight` /
-      `DirectionalLight` / `GLTFModel` still take a `scene` arg; move them onto
-      the same detached-create + `scene.add` shape (this one legitimately edits
-      `games/ylos3d/index.tsx`; guard with `ylos3d_e2e`).
-- [ ] **`RETIRE-RECONCILE`** — migrate the teapot/sponza/cube THREE-port façade
-      demos (the only `ThreeTsxBridge.reconcile` callers, a **separate** guest
-      surface) onto the live path, then delete the index/DFS reconcile path.
+- [x] **Unfused live lights + GLTFModel** — `AmbientLight(color,intensity)`,
+      `DirectionalLight(color,intensity,dx,dy,dz)`, `GLTFModel(uri)` now create
+      DETACHED; membership is `scene.add(x)`. Lights are plain scene children, so
+      `entitySetParent` registers them for rendering. `games/ylos3d/index.tsx`
+      migrated faithfully; `ylos3d_e2e` green.
+- [x] **O(1) membership detach** — `ThreeObject3D` gained a parent
+      back-reference; `detachEntity` drops via the parent instead of scanning all
+      scenes+entities. Handle resolution was already O(1)/generation-safe
+      (`RgRegistry` slot table) — no index-based guest IDs.
+- [x] **`RETIRE-RECONCILE`** — **done.** Ported the THREE demo surface onto the
+      live registry (Group, TeapotGeometry, PlaneGeometry, OrbitControls),
+      re-implemented the live-path demos on the LIVE path — the cube, the
+      teapot, a procedural courtyard (`courtyard_live.tsx`, PlaneGeometry + boxes,
+      NOT the Sponza atrium) and a real glTF model (`model_live.tsx`, loads
+      `games/ylos3d/models/diamond.glb` via `rg3d_model_load`)
+      (`web/web_live3d_host.rgr` + `web/guests/three/*.tsx`), and
+      **browser-verified** each renders in headless Chromium via
+      `web/tests/browser_smoke.mjs`. Then deleted `three_tsx_bridge` +
+      `three_gui_overlay`, the 5 reconcile web hosts, the 5 unwired reconcile
+      tests, and the Sponza typed accessors. Full gate stays 89/89.
+      Follow-ups (live-path polish, not blockers): sky/background, light-probe GI,
+      first-person controls, material textures/PBR — all documented; the SW
+      rasteriser's `w*8` span guard still drops huge flat quads (subdivide meshes;
+      see the "remove the 8x span guard" item). A true **Sponza-atrium** live demo
+      is also a follow-up — it needs a Sponza `.gltf`/`.glb` asset that is not
+      in-tree (the current `courtyard_live` is procedural primitives, not Sponza).
 
 See [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) D-IDENTITY / D-SYNC for the contract.
 

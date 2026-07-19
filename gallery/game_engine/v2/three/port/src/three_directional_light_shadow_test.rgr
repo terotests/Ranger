@@ -1,6 +1,6 @@
 ; ==============================================================================
 ; three_directional_light_shadow_test — makeOrthographic + the light-space
-; view-projection (Sponza slice 4).
+; view-projection.
 ; ==============================================================================
 ; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
 ; ==============================================================================

@@ -1,0 +1,154 @@
+; ==============================================================================
+; web_live3d_host — LIVE ranger:three scene, software-rendered in the browser.
+; ==============================================================================
+; The LIVE-PATH 3D web host (replaced the removed ThreeTsxBridge reconciler
+; hosts at RETIRE-RECONCILE): instead of interpreting a
+; Three.js script into a reconciled core each frame (ComponentEngine +
+; ThreeTsxBridge), it runs a guest that drives the ranger:three FAÇADE directly.
+; Every `new THREE.*` / setTransform is an immediate method-call lowered through
+; the ONE live transport — RgRegistryBridge — into RgRangerThree → ThreeSceneHost.
+; No reconciler is involved (RETIRE-RECONCILE keystone).
+;
+;   guest cube_live.tsx  ── import * as THREE from "ranger:three"
+;     init()  builds Scene / Camera / BoxGeometry / MeshLambertMaterial / Mesh
+;             + lights  ──▶  RgRegistryBridge.invoke(rg3d_*)  ──▶  RgRangerThree
+;     tick(dt) mutates the mesh transform                          │
+;                                                                  ▼
+;                                            ThreeSceneHost.render → SW backend
+;                                            → raw() RGB buffer → 2D canvas blit
+;
+; The render seam is the SAME software path the embed3d/RTT tests exercise
+; (RgRangerThree.renderToTexture calls host.render + host.raw()); here the host
+; renders straight to a w*h*3 RGB buffer the viewer blits, no RenderTarget needed.
+; Compiles to JS for the browser (build-live3d.mjs) exactly like the other hosts.
+; ==============================================================================
+
+Import "../interp/engine/RgRegistryBridge.rgr"
+
+class WebLive3dHost {
+    def engine:ComponentEngine (new ComponentEngine())
+    def bridge:RgRegistryBridge (RgRegistryBridge.create())
+    def ready:boolean false
+    def w:int 480
+    def h:int 480
+    ; ThreeSceneHost payload indices for the guest's one Scene / one Camera.
+    def sceneIdx:int 0
+    def camIdx:int 0
+    ; The resolved (2× SSAA → w*h*3 RGB) frame the viewer blits.
+    def outBuf:buffer (buffer_alloc 0)
+
+    ; Install the LIVE bridge as the interpreter's native seam. Idempotent —
+    ; load() calls it too, so a viewer may call either.
+    fn setup:void () {
+        this.engine.quiet = true
+        this.engine.setNativeBridge(this.bridge)
+    }
+
+    ; Register the ranger:three façade as a virtual module, evaluate the guest,
+    ; run its init(), then resolve the guest scene/camera handle ids to their
+    ; ThreeSceneHost indices (bridge.resolveGuestId → d3.sceneH / d3.cameraH).
+    fn load:string (facadeSrc:string guestSrc:string winW:int winH:int) {
+        this.w = winW
+        this.h = winH
+        this.engine.quiet = true
+        this.engine.setNativeBridge(this.bridge)
+        ; `import * as THREE from "ranger:three"` resolves to this source.
+        this.engine.registerVirtualModule("ranger:three" facadeSrc)
+        this.engine.loadScript(guestSrc)
+        def initR:EvalValue (this.engine.callFunction("init" (EvalValue.null())))
+        def sidV:EvalValue (this.engine.callFunction("sceneGuestId" (EvalValue.null())))
+        def cidV:EvalValue (this.engine.callFunction("cameraGuestId" (EvalValue.null())))
+        def sgid:int (to_int sidV.numberValue)
+        def cgid:int (to_int cidV.numberValue)
+        def sh:RgHandle (this.bridge.resolveGuestId(sgid))
+        def ch:RgHandle (this.bridge.resolveGuestId(cgid))
+        this.sceneIdx = (this.bridge.d3.sceneH(sh))
+        this.camIdx = (this.bridge.d3.cameraH(ch))
+        this.ready = true
+        return "ok"
+    }
+
+    ; Same, reading façade + guest from the VFS (files mounted at repo paths).
+    fn loadFromVfs:string (facadeDir:string facadeFile:string guestDir:string guestFile:string winW:int winH:int) {
+        def f:buffer (buffer_read_file facadeDir facadeFile)
+        def g:buffer (buffer_read_file guestDir guestFile)
+        return (this.load((buffer_to_string f) (buffer_to_string g) winW winH))
+    }
+
+    ; Advance the live scene one step, then software-render it to the RGB buffer.
+    ; The JS viewer calls this each requestAnimationFrame.
+    fn frame:void (dtMs:double) {
+        if (this.ready == false) {
+            return
+        }
+        this.engine.callFunction("tick" (EvalValue.number(dtMs)))
+        ; 2× supersample then box-downsample (same seam as RgRangerThree.render-
+        ; ToTexture): the SW backend rasterises at 2w×2h and the 2×2 resolve
+        ; anti-aliases the silhouette, so the cube edges blend to the background
+        ; as a smooth gradient — real coverage AND many distinct pixel colours.
+        def sw:int (this.w * 2)
+        def sh:int (this.h * 2)
+        this.bridge.d3.host.renderer.setClearColor(0.0 0.0 0.0)
+        this.bridge.d3.host.render(this.sceneIdx this.camIdx sw sh)
+        def raw:buffer (this.bridge.d3.host.raw())
+        def total:int ((this.w * this.h) * 3)
+        def out:buffer (buffer_alloc total)
+        def y:int 0
+        while (y < this.h) {
+            def x:int 0
+            while (x < this.w) {
+                def sumR:int 0
+                def sumG:int 0
+                def sumB:int 0
+                def dy:int 0
+                while (dy < 2) {
+                    def dx:int 0
+                    while (dx < 2) {
+                        def sx:int ((x * 2) + dx)
+                        def sy:int ((y * 2) + dy)
+                        def o:int (((sy * sw) + sx) * 3)
+                        sumR = (sumR + (buffer_get raw o))
+                        sumG = (sumG + (buffer_get raw (o + 1)))
+                        sumB = (sumB + (buffer_get raw (o + 2)))
+                        dx = (dx + 1)
+                    }
+                    dy = (dy + 1)
+                }
+                def d:int (((y * this.w) + x) * 3)
+                buffer_set out d (idiv sumR 4)
+                buffer_set out (d + 1) (idiv sumG 4)
+                buffer_set out (d + 2) (idiv sumB 4)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        this.outBuf = out
+    }
+
+    ; The last rendered frame as a w*h*3 RGB buffer (2× SSAA resolved).
+    fn framePixels:buffer () {
+        return this.outBuf
+    }
+    fn frameW:int () {
+        return this.w
+    }
+    fn frameH:int () {
+        return this.h
+    }
+    fn isReady:boolean () {
+        return this.ready
+    }
+    ; Observability — the viewer surfaces these if the frame comes up blank.
+    fn sceneIndex:int () {
+        return this.sceneIdx
+    }
+    fn cameraIndex:int () {
+        return this.camIdx
+    }
+    fn errorCount:int () {
+        return this.bridge.errorCount
+    }
+    fn lastError:string () {
+        return this.bridge.lastError
+    }
+}

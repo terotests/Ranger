@@ -1,5 +1,5 @@
 ; ==============================================================================
-; registry_entity_parent_test — D-SYNC increments 1 & 2: standalone membership.
+; registry_entity_parent_test — D-SYNC increments 1, 2 & 3: standalone membership.
 ; ==============================================================================
 ; Exercises the D-SYNC binding contract through the REAL generic bridge exactly
 ; as a guest would (invoke with EvalValue args): object lifetime and scene
@@ -20,6 +20,7 @@
 
 Import "../../../interp/engine/RgRegistryBridge.rgr"
 Import "../../../three/port/src/three_scene.rgr"
+Import "../../../three/port/src/three_object3d.rgr"
 Import "../../harness/RgTest.rgr"
 
 class RegistryEntityParentTest {
@@ -42,6 +43,14 @@ class RegistryEntityParentTest {
         def idx:int (this.b.d3.sceneH((this.b.resolveGuestId(sid))))
         def sc:ThreeScene (this.b.d3.host.sceneAt(idx))
         return (sc.childCount())
+    }
+
+    ; live child count of the ENTITY (mesh|light|group) behind guest id `gid`
+    ; (guest id -> RgHandle -> host entities[] index -> ThreeObject3D.childCount()).
+    fn entityChildCount:int (gid:int) {
+        def idx:int (this.b.d3.entityH((this.b.resolveGuestId(gid))))
+        def e:ThreeObject3D (this.b.d3.host.entityAt(idx))
+        return (e.childCount())
     }
 
     sfn m@(main):void () {
@@ -113,8 +122,132 @@ class RegistryEntityParentTest {
         t.eqInt("host entity count still unchanged (pure membership)"
             (b.d3.host.entityCount()) entitiesBefore)
 
+        ; ========================================================================
+        ; D-SYNC increment 3: LIGHTS follow the SAME detached-create + membership
+        ; lifecycle as Mesh. `rg3d_light_ambient(color, intensity)` creates a light
+        ; DETACHED (no scene arg — object lifetime is independent of membership);
+        ; `rg3d_entity_set_parent(light, scene)` establishes membership (+1 child).
+        ; ========================================================================
+        def sceneC:int (s.callI("rg3d_scene_create" empty))
+        t.ok("scene C minted" (sceneC > 0))
+        t.eqInt("scene C starts empty" (s.sceneChildCount(sceneC)) 0)
+
+        def errBeforeLight:int b.errorCount
+        def ambA:[EvalValue]
+        push ambA (s.num(16777215.0))
+        push ambA (s.num(0.38))
+        def light:int (s.callI("rg3d_light_ambient" ambA))
+        t.ok("ambient light minted (detached)" (light > 0))
+        t.eqInt("detached light create leaves scene C empty" (s.sceneChildCount(sceneC)) 0)
+        t.eqInt("detached light create is a clean typed success (no bridge error)"
+            b.errorCount errBeforeLight)
+
+        def litParA:[EvalValue]
+        push litParA (s.num((to_double light)))
+        push litParA (s.num((to_double sceneC)))
+        s.callN("rg3d_entity_set_parent" litParA)
+        t.eqInt("scene C counts the light at that set_parent call" (s.sceneChildCount(sceneC)) 1)
+        t.eqInt("light set_parent is a clean typed success (no bridge error)"
+            b.errorCount errBeforeLight)
+
         ; errorCount 0 throughout the lifecycle
         t.eqInt("no bridge errors across the whole lifecycle" b.errorCount 0)
+
+        ; ========================================================================
+        ; PORT increment (ranger:three live surface): TeapotGeometry + Group.
+        ; ========================================================================
+        ; (1) TeapotGeometry — a leaf geometry resource (no membership) that mints a
+        ;     valid handle and is usable in rg3d_mesh_create. size(d), segments(i),
+        ;     then the 5 shape flags as i32 0/1 (bottom, lid, body, fitLid, blinn).
+        def errBeforeTeapot:int b.errorCount
+        def teaA:[EvalValue]
+        push teaA (s.num(1.0))
+        push teaA (s.num(2.0))
+        push teaA (s.num(1.0))
+        push teaA (s.num(1.0))
+        push teaA (s.num(1.0))
+        push teaA (s.num(1.0))
+        push teaA (s.num(1.0))
+        def teaG:int (s.callI("rg3d_geometry_teapot" teaA))
+        t.ok("teapot geometry minted" (teaG > 0))
+        t.eqInt("teapot create is a clean typed success (no bridge error)"
+            b.errorCount errBeforeTeapot)
+        def teaMeshA:[EvalValue]
+        push teaMeshA (s.num((to_double teaG)))
+        push teaMeshA (s.num((to_double mat)))
+        def teaMesh:int (s.callI("rg3d_mesh_create" teaMeshA))
+        t.ok("mesh_create accepts the teapot geometry" (teaMesh > 0))
+        t.eqInt("teapot mesh_create is a clean typed success" b.errorCount errBeforeTeapot)
+
+        ; (1b) PlaneGeometry — the floor primitive on the live path. Assert the
+        ;     live command mints a valid handle usable in rg3d_mesh_create.
+        ;     width(d), height(d), then wSeg(i), hSeg(i).
+        def errBeforePlane:int b.errorCount
+        def plnA:[EvalValue]
+        push plnA (s.num(10.0))
+        push plnA (s.num(10.0))
+        push plnA (s.num(1.0))
+        push plnA (s.num(1.0))
+        def plnG:int (s.callI("rg3d_geometry_plane" plnA))
+        t.ok("plane geometry minted" (plnG > 0))
+        t.eqInt("plane create is a clean typed success (no bridge error)"
+            b.errorCount errBeforePlane)
+        def plnMeshA:[EvalValue]
+        push plnMeshA (s.num((to_double plnG)))
+        push plnMeshA (s.num((to_double mat)))
+        def plnMesh:int (s.callI("rg3d_mesh_create" plnMeshA))
+        t.ok("mesh_create accepts the plane geometry" (plnMesh > 0))
+        t.eqInt("plane mesh_create is a clean typed success" b.errorCount errBeforePlane)
+
+        ; (2) Group — a D-SYNC entity: DETACHED create (in NO scene), usable AS a
+        ;     child (scene.add(group)) and AS a parent (group.add(mesh)).
+        def sceneD:int (s.callI("rg3d_scene_create" empty))
+        t.ok("scene D minted" (sceneD > 0))
+        t.eqInt("scene D starts empty" (s.sceneChildCount(sceneD)) 0)
+
+        def errBeforeGroup:int b.errorCount
+        def grpArgs:[EvalValue]
+        def grp:int (s.callI("rg3d_group_create" grpArgs))
+        t.ok("group minted (detached)" (grp > 0))
+        t.eqInt("detached group create leaves scene D empty" (s.sceneChildCount(sceneD)) 0)
+        t.eqInt("group create is a clean typed success (no bridge error)"
+            b.errorCount errBeforeGroup)
+
+        ; scene.add(group): scene D +1
+        def grpParD:[EvalValue]
+        push grpParD (s.num((to_double grp)))
+        push grpParD (s.num((to_double sceneD)))
+        s.callN("rg3d_entity_set_parent" grpParD)
+        t.eqInt("scene D counts the group at that set_parent call" (s.sceneChildCount(sceneD)) 1)
+        t.eqInt("group starts with no children" (s.entityChildCount(grp)) 0)
+
+        ; group.add(mesh): nest a mesh UNDER the group — group +1, scene D direct
+        ; child count UNCHANGED (the mesh is the group's child, not the scene's).
+        def gMeshA:[EvalValue]
+        push gMeshA (s.num((to_double boxG)))
+        push gMeshA (s.num((to_double mat)))
+        def gm:int (s.callI("rg3d_mesh_create" gMeshA))
+        def gmParG:[EvalValue]
+        push gmParG (s.num((to_double gm)))
+        push gmParG (s.num((to_double grp)))
+        s.callN("rg3d_entity_set_parent" gmParG)
+        t.eqInt("group now counts the nested mesh" (s.entityChildCount(grp)) 1)
+        t.eqInt("scene D direct child count unchanged (mesh is under the group)"
+            (s.sceneChildCount(sceneD)) 1)
+
+        ; reparent the mesh from the group to the scene: group loses it, scene gains
+        ; it, and the mesh's guest id is unchanged (pure membership move).
+        def gmToScene:[EvalValue]
+        push gmToScene (s.num((to_double gm)))
+        push gmToScene (s.num((to_double sceneD)))
+        s.callN("rg3d_entity_set_parent" gmToScene)
+        t.eqInt("group loses the reparented mesh" (s.entityChildCount(grp)) 0)
+        t.eqInt("scene D gains the mesh (group + mesh = 2 direct children)"
+            (s.sceneChildCount(sceneD)) 2)
+        t.ok("mesh guest id unchanged after reparent out of the group"
+            ((b.resolveGuestId(gm)).isValid()))
+
+        t.eqInt("no bridge errors across the teapot + group lifecycle" b.errorCount 0)
 
         t.summary()
     }

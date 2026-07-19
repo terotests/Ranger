@@ -1,6 +1,6 @@
 ; ==============================================================================
 ; three_loading_manager — asset load tracking (Three.js port of
-; src/loaders/LoadingManager.js). Sponza slice 2.
+; src/loaders/LoadingManager.js).
 ; ==============================================================================
 ; Tracks in-flight loads so the host can drive a progress bar and know when the
 ; scene is ready. Three exposes onStart/onProgress/onLoad/onError callbacks; the

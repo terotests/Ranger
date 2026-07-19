@@ -31,16 +31,39 @@ class ThreeObject3D {
     def matrix:ThreeMatrix4 (new ThreeMatrix4)
     def matrixWorld:ThreeMatrix4 (new ThreeMatrix4)
     def children:[ThreeObject3D]
+    ; Optional parent back-reference (0-or-1 element): empty = no parent. Lets
+    ; membership detach in O(1) via the parent instead of scanning every scene +
+    ; entity. Maintained ONLY by add()/remove() below — the only child mutators.
+    def parentRef:[ThreeObject3D]
     ; when set by lookAt(), the local matrix uses `quaternion` directly instead of
     ; re-deriving it from the Euler `rotation` each frame.
     def quatDriven:boolean false
 
+    fn hasParent:boolean () { return ((array_length this.parentRef) > 0) }
+    fn getParent:ThreeObject3D () { return (itemAt this.parentRef 0) }
+    fn setParentRef:void (p:ThreeObject3D) {
+        def a:[ThreeObject3D]
+        push a p
+        this.parentRef = a
+    }
+    fn clearParentRef:void () {
+        def e:[ThreeObject3D]
+        this.parentRef = e
+    }
+
     fn add:ThreeObject3D (child:ThreeObject3D) {
+        ; three.js semantics: a child has exactly one parent — detach from the
+        ; old parent first (keeps parentRef authoritative for O(1) detach).
+        if (child.hasParent()) {
+            (child.getParent()).removeChildOnly(child)
+        }
         push this.children child
+        child.setParentRef(this)
         return this
     }
-    ; remove a child by identity (rebuilds the child list without it).
-    fn remove:ThreeObject3D (child:ThreeObject3D) {
+    ; Drop `child` from THIS node's children[] only — does NOT touch child.parentRef
+    ; (used by add() while reparenting). Rebuilds the child list without it.
+    fn removeChildOnly:void (child:ThreeObject3D) {
         def next:[ThreeObject3D]
         def i:int 0
         def n:int (array_length this.children)
@@ -52,6 +75,12 @@ class ThreeObject3D {
             i = (i + 1)
         }
         this.children = next
+    }
+    ; remove a child by identity (rebuilds the child list without it) and clear
+    ; its parent back-reference.
+    fn remove:ThreeObject3D (child:ThreeObject3D) {
+        this.removeChildOnly(child)
+        child.clearParentRef()
         return this
     }
     fn childCount:int () {

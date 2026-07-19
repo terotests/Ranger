@@ -1,6 +1,6 @@
 ; ==============================================================================
 ; three_directional_light_shadow — shadow config for a directional light
-; (Three.js src/lights/DirectionalLightShadow.js). Sponza slice 4.
+; (Three.js src/lights/DirectionalLightShadow.js).
 ; ==============================================================================
 ; Holds the shadow-map resolution and the orthographic shadow-camera frustum, and
 ; builds the light-space view-projection matrix used both to render the depth map

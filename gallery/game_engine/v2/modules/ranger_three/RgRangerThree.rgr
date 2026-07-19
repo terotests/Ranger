@@ -21,6 +21,8 @@ class Rg3DType {
     sfn material:int () { return 43 }
     sfn mesh:int () { return 44 }
     sfn light:int () { return 45 }
+    sfn group:int () { return 46 }
+    sfn orbit:int () { return 47 }
 }
 
 class RgRangerThree {
@@ -90,9 +92,44 @@ class RgRangerThree {
         return r.payloadIndex
     }
 
+    fn orbitH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.orbit())))
+        if (r.ok == false) {
+            this.lastErr = "wrong-type:orbit"
+            return 0
+        }
+        return r.payloadIndex
+    }
+
+    ; D-SYNC: resolve ANY renderable scene entity to its host entities[] index.
+    ; Meshes, host-decoded model roots (mesh-typed), lights and groups all live in
+    ; the host entities[] array, so membership ops (set_parent / remove) accept any
+    ; of them uniformly — a group is usable both AS a child and AS a parent.
+    ; Returns 0 (typed "wrong-type:mesh" in lastErr, backward compatible with the
+    ; mesh-only guard) when the handle is none of them.
+    fn entityH:int (h:RgHandle) {
+        def rm:RgResolve (this.registry.resolveTyped(h (Rg3DType.mesh())))
+        if (rm.ok) { return rm.payloadIndex }
+        def rl:RgResolve (this.registry.resolveTyped(h (Rg3DType.light())))
+        if (rl.ok) { return rl.payloadIndex }
+        def rg:RgResolve (this.registry.resolveTyped(h (Rg3DType.group())))
+        if (rg.ok) { return rg.payloadIndex }
+        this.lastErr = "wrong-type:mesh"
+        return 0
+    }
+
     fn sceneCreate:OwnedHandle () {
         def th:int (this.host.sceneNew())
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.scene()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    ; D-SYNC: DETACHED create — a Group node with a stable handle and NO scene
+    ; membership. Membership is established separately via entitySetParent
+    ; (scene.add(group)). Mirrors sceneCreate/meshCreate detached.
+    fn groupCreate:OwnedHandle () {
+        def th:int (this.host.groupNewDetached())
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.group()) th))
         return (OwnedHandle.own(h))
     }
 
@@ -100,6 +137,25 @@ class RgRangerThree {
         def th:int (this.host.cameraNew())
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.camera()) th))
         return (OwnedHandle.own(h))
+    }
+
+    ; Read-only camera world-position accessors (general query for tools /
+    ; controllers). Resolve the camera typed; a bad handle reads 0.0 (never
+    ; mutates, never a typed error).
+    fn cameraPosX:double (camH:RgHandle) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return 0.0 }
+        return (this.host.cameraPosX(cam))
+    }
+    fn cameraPosY:double (camH:RgHandle) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return 0.0 }
+        return (this.host.cameraPosY(cam))
+    }
+    fn cameraPosZ:double (camH:RgHandle) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return 0.0 }
+        return (this.host.cameraPosZ(cam))
     }
 
     fn cameraSet:boolean (camH:RgHandle fov:double aspect:double near:double far:double) {
@@ -116,14 +172,75 @@ class RgRangerThree {
         return true
     }
 
+    ; --- orbit controls -------------------------------------------------------
+    ; Create an OrbitControls bound to an existing camera. Invalid handle out on
+    ; a bad camera (mirrors meshCreate's resource-resolve guard).
+    fn orbitCreate:OwnedHandle (camH:RgHandle) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+        def th:int (this.host.orbitCreate(cam))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.orbit()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn orbitViewport:boolean (ctrlH:RgHandle w:int h:int) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitViewport(oc w h)
+        return true
+    }
+
+    fn orbitTarget:boolean (ctrlH:RgHandle x:double y:double z:double) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitTarget(oc x y z)
+        return true
+    }
+
+    fn orbitPointer:boolean (ctrlH:RgHandle phase:int x:double y:double button:int) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitPointer(oc phase x y button)
+        return true
+    }
+
+    fn orbitWheel:boolean (ctrlH:RgHandle delta:double) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitWheel(oc delta)
+        return true
+    }
+
+    fn orbitApply:boolean (ctrlH:RgHandle) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitApply(oc)
+        return true
+    }
+
     fn geometryBox:OwnedHandle (w:double h:double d:double) {
         def th:int (this.host.geometryBox(w h d))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
         return (OwnedHandle.own(h))
     }
 
+    ; Flat plane geometry (leaf resource, mirrors geometryBox). Used as a floor.
+    fn geometryPlane:OwnedHandle (width:double height:double wSeg:int hSeg:int) {
+        def th:int (this.host.geometryPlane(width height wSeg hSeg))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
     fn geometryOctahedron:OwnedHandle (radius:double) {
         def th:int (this.host.geometryOctahedron(radius))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    ; Utah teapot geometry (leaf resource, mirrors geometryBox). The 5 part/shape
+    ; flags arrive as booleans; the bridge decodes the schema's i32 0/1 encoding.
+    fn geometryTeapot:OwnedHandle (size:double seg:int bottom:boolean lid:boolean body:boolean fitLid:boolean blinn:boolean) {
+        def th:int (this.host.geometryTeapot(size seg bottom lid body fitLid blinn))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
         return (OwnedHandle.own(h))
     }
@@ -147,18 +264,18 @@ class RgRangerThree {
         return true
     }
 
-    fn lightAmbient:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double) {
-        def sh:int (this.sceneH(sceneH))
-        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
-        def th:int (this.host.lightAmbient(sh colorHex intensity))
+    ; D-SYNC: DETACHED create — object lifetime is independent of scene
+    ; membership. No scene handle: builds the light into entities[] without adding
+    ; it to any scene. Membership is established separately via entitySetParent.
+    fn lightAmbient:OwnedHandle (colorHex:int intensity:double) {
+        def th:int (this.host.lightAmbientDetached(colorHex intensity))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.light()) th))
         return (OwnedHandle.own(h))
     }
 
-    fn lightDirectional:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double dx:double dy:double dz:double) {
-        def sh:int (this.sceneH(sceneH))
-        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
-        def th:int (this.host.lightDirectional(sh colorHex intensity dx dy dz false 0))
+    ; D-SYNC: DETACHED create (see lightAmbient). Preserves the extra shadow params.
+    fn lightDirectional:OwnedHandle (colorHex:int intensity:double dx:double dy:double dz:double) {
+        def th:int (this.host.lightDirectionalDetached(colorHex intensity dx dy dz false 0))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.light()) th))
         return (OwnedHandle.own(h))
     }
@@ -176,15 +293,19 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
+    ; Transform ops are entity-generic (host.entityTransform/entitySetScale act on
+    ; ANY entities[] node), so resolve via entityH (mesh|light|group) — this lets a
+    ; Group be transformed as a unit (group.setTransform). A non-entity handle
+    ; still fails entityH with the mesh-compatible "wrong-type:mesh" guard.
     fn meshTransform:boolean (meshH:RgHandle px:double py:double pz:double ex:double ey:double ez:double) {
-        def mesh:int (this.meshH(meshH))
+        def mesh:int (this.entityH(meshH))
         if (mesh == 0) { return false }
         this.host.entityTransform(mesh px py pz ex ey ez 1.0 1.0 1.0)
         return true
     }
 
     fn meshSetScale:boolean (meshH:RgHandle sx:double sy:double sz:double) {
-        def mesh:int (this.meshH(meshH))
+        def mesh:int (this.entityH(meshH))
         if (mesh == 0) { return false }
         this.host.entitySetScale(mesh sx sy sz)
         return true
@@ -197,7 +318,7 @@ class RgRangerThree {
     ; bad-handle in lastErr) on any unresolved handle, mirroring meshTransform's
     ; guard so the bridge turns it into a typed error.
     fn entitySetParent:boolean (childH:RgHandle parentH:RgHandle) {
-        def child:int (this.meshH(childH))
+        def child:int (this.entityH(childH))
         if (child == 0) { return false }
         def ps:int (this.sceneH(parentH))
         if (ps != 0) {
@@ -205,7 +326,9 @@ class RgRangerThree {
             this.host.entitySetParent(child ps 0)
             return true
         }
-        def pe:int (this.meshH(parentH))
+        ; A parent may be any entity — mesh, light OR group — so a group is usable
+        ; AS a parent (group.add(child)). Resolve via entityH (mesh|light|group).
+        def pe:int (this.entityH(parentH))
         if (pe != 0) {
             this.lastErr = ""
             this.host.entitySetParent(child 0 pe)
@@ -223,7 +346,7 @@ class RgRangerThree {
     fn entityRemove:boolean (sceneH:RgHandle entH:RgHandle) {
         def sh:int (this.sceneH(sceneH))
         if (sh == 0) { return false }
-        def eh:int (this.meshH(entH))
+        def eh:int (this.entityH(entH))
         if (eh == 0) { return false }
         this.host.entityRemove(sh eh)
         return true
@@ -231,10 +354,10 @@ class RgRangerThree {
 
     ; Attach a host-decoded Object3D subtree (e.g. from ThreeGLTFFile.loadGLB).
     ; Package I/O and image decode stay in the bridge — this arena is game-agnostic.
-    fn modelAttachRoot:OwnedHandle (sceneH:RgHandle root:ThreeObject3D) {
-        def sh:int (this.sceneH(sceneH))
-        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
-        def th:int (this.host.modelAttach(sh root))
+    ; D-SYNC: DETACHED create — register the decoded root into entities[] with NO
+    ; scene membership. Membership is established separately via entitySetParent.
+    fn modelAttachRoot:OwnedHandle (root:ThreeObject3D) {
+        def th:int (this.host.modelAttachDetached(root))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
         return (OwnedHandle.own(h))
     }

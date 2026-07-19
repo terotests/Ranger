@@ -1884,7 +1884,7 @@ static void rgfx_gpu_start_frame(int w, int h) {
     g_rgfx_fb_w = drawW;
     g_rgfx_fb_h = drawH;
     glViewport(0, 0, drawW, drawH);
-    // Reset the 3D state a three_gl game (teapot/Sponza/tsx) may have left enabled,
+    // Reset the 3D state a 3D game may have left enabled,
     // so the 2D present's quads are not back-face-culled or depth-rejected -> the
     // menu would otherwise come back black after exiting a GL game.
     glDisable(GL_CULL_FACE);

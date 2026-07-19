@@ -51,19 +51,27 @@ class RttSpriteTest {
         push cpA (s.num(0.0))
         push cpA (s.num(0.0))
         b.invoke("rg3d_camera_pose" cpA)
+        ; D-SYNC: DETACHED light create (color, intensity[, dir]), then establish
+        ; scene membership via set_parent. The resulting scene graph is identical.
         def ambA:[EvalValue]
-        push ambA (s.num((to_double sceneId)))
         push ambA (s.num(16777215.0))
         push ambA (s.num(0.35))
-        s.callI(b "rg3d_light_ambient" ambA)
+        def ambId:int (s.callI(b "rg3d_light_ambient" ambA))
+        def ambParA:[EvalValue]
+        push ambParA (s.num((to_double ambId)))
+        push ambParA (s.num((to_double sceneId)))
+        b.invoke("rg3d_entity_set_parent" ambParA)
         def dirA:[EvalValue]
-        push dirA (s.num((to_double sceneId)))
         push dirA (s.num(16777215.0))
         push dirA (s.num(0.95))
         push dirA (s.num(0.6))
         push dirA (s.num(1.0))
         push dirA (s.num(0.4))
-        s.callI(b "rg3d_light_directional" dirA)
+        def dirId:int (s.callI(b "rg3d_light_directional" dirA))
+        def dirParA:[EvalValue]
+        push dirParA (s.num((to_double dirId)))
+        push dirParA (s.num((to_double sceneId)))
+        b.invoke("rg3d_entity_set_parent" dirParA)
         def geoA:[EvalValue]
         push geoA (s.num(0.9))
         def geoId:int (s.callI(b "rg3d_geometry_octahedron" geoA))
