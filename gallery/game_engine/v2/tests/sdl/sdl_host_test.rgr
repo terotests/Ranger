@@ -1,0 +1,58 @@
+; ==============================================================================
+; sdl_host_test — the SDL host's TESTABLE seams (no window required).
+; ==============================================================================
+; The native SDL loop can't run under Node (gfx_* stub to no-ops), but its two
+; pure seams — the framebuffer -> RGBA pack and the input-mask -> logical-action
+; map — are host logic and MUST be correct. This suite exercises both, and by
+; importing RgSdlGameHost it also compile-checks the whole native driver.
+;
+; Boundary check: the map feeds bridge.input (host device) with LOGICAL actions
+; only; nothing here reaches into ranger:core or any game.
+; ==============================================================================
+
+Import "../../runtime/sdl/RgSdlGameHost.rgr"
+Import "../harness/RgTest.rgr"
+
+class SdlHostTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/sdl/sdl_host (framebuffer pack + input map)"))
+
+        ; ---- framebuffer 0xRRGGBB -> tightly-packed RGBA bytes --------------
+        def fb:RgFramebuffer (RgFramebuffer.create(2 1))
+        fb.plot(0 0 16744516)   ; 0xFF8044 = 255,128,68
+        fb.plot(1 0 66051)      ; 0x010203 = 1,2,3
+        def buf:buffer (fb.toRgbaBuffer())
+        t.eqInt("px0 R" (buffer_get buf 0) 255)
+        t.eqInt("px0 G" (buffer_get buf 1) 128)
+        t.eqInt("px0 B" (buffer_get buf 2) 68)
+        t.eqInt("px0 A (opaque)" (buffer_get buf 3) 255)
+        t.eqInt("px1 R" (buffer_get buf 4) 1)
+        t.eqInt("px1 G" (buffer_get buf 5) 2)
+        t.eqInt("px1 B" (buffer_get buf 6) 3)
+        t.eqInt("px1 A (opaque)" (buffer_get buf 7) 255)
+
+        ; ---- input-mask -> logical actions (host input config) --------------
+        def sdl:RgSdlGameHost (new RgSdlGameHost)
+        ; bits: 16 left · 32 right · 1 up · 2 down · 4 action
+        sdl.mapMask(0 (bit_or 16 4))   ; hold left + action
+        def inp:RgInput sdl.host.bridge.input
+        t.ok("left is down" (inp.isDown(0 "left")))
+        t.no("right is not down" (inp.isDown(0 "right")))
+        t.ok("action maps to jump" (inp.isDown(0 "jump")))
+        t.ok("action is down" (inp.isDown(0 "action")))
+        t.no("down is not down" (inp.isDown(0 "down")))
+
+        ; releasing clears (each frame re-feeds the full mask)
+        sdl.mapMask(0 32)              ; now only right
+        t.no("left released" (inp.isDown(0 "left")))
+        t.ok("right now down" (inp.isDown(0 "right")))
+        t.no("jump released" (inp.isDown(0 "jump")))
+
+        ; player 1 is independent
+        sdl.mapMask(1 1)              ; up -> jump for player 1
+        t.ok("player 1 jump (up)" (inp.isDown(1 "jump")))
+        t.no("player 0 unaffected" (inp.isDown(0 "jump")))
+
+        t.summary()
+    }
+}

@@ -67,6 +67,29 @@ class RgFramebuffer {
         set this.pixels ((py * this.width) + px) color
     }
 
+    ; Pack the 0xRRGGBB int grid into a tightly-packed RGBA byte buffer
+    ; (w*h*4, opaque) — the format the native present operators (gfx_present /
+    ; gfx_present_split, SDL_PIXELFORMAT_RGBA32) expect. Pure conversion;
+    ; testable headlessly, independent of any window.
+    fn toRgbaBuffer:buffer () {
+        def n:int (this.width * this.height)
+        def buf:buffer (buffer_alloc (n * 4))
+        def i 0
+        while (i < n) {
+            def c:int (itemAt this.pixels i)
+            def r:int (idiv c 65536)
+            def g:int (idiv (c - (r * 65536)) 256)
+            def b:int ((c - (r * 65536)) - (g * 256))
+            def o:int (i * 4)
+            buffer_set buf o r
+            buffer_set buf (o + 1) g
+            buffer_set buf (o + 2) b
+            buffer_set buf (o + 3) 255
+            i = (i + 1)
+        }
+        return buf
+    }
+
     ; ---- immediate-mode fills (v1 SoftCanvas parity, 0xRRGGBB grid) ----------
     ; Clipped opaque rectangle. Mirrors SoftCanvas.fillRect (framebuffer.rgr):
     ; the static-environment primitive the game paints platforms/sky/flag with.

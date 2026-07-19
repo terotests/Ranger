@@ -1,0 +1,20 @@
+; ==============================================================================
+; RgSdlMain — native entry point for the v2 SDL2 build.
+; ==============================================================================
+; Boots the generic SDL host on the LAUNCHER menu (engine infrastructure, not a
+; game). The launcher hands off to a chosen game through the same generic
+; RgGameHost.launch mechanism the tests exercise — so adding a game still needs
+; only its .tsx folder, never a native entry of its own.
+;
+; Native build (macOS): compile this to C++ and link SDL2 — see README.md.
+; Under es6 the gfx_* operators stub out, so this main is a headless no-op.
+; ==============================================================================
+
+Import "RgSdlGameHost.rgr"
+
+class RgSdlMain {
+    sfn m@(main):void () {
+        def h:RgSdlGameHost (new RgSdlGameHost)
+        def _r:int (h.run("gallery/game_engine/v2/menu" "launcher.tsx"))
+    }
+}

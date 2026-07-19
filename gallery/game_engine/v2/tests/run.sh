@@ -108,6 +108,9 @@ run_suite render/tests/software_present2d_test
 # texture pixel store + sampling backend (real texels, sprite size/z/flip)
 run_suite modules/ranger_2d/tests/texture_store_test
 run_suite tests/render/textured_render_test
+# native SDL host — testable seams (framebuffer->RGBA pack, input map); the
+# import also compile-checks the whole native driver against the gfx_* stubs
+run_suite tests/sdl/sdl_host_test
 
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test
