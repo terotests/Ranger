@@ -42,6 +42,15 @@ class RgFramebuffer {
         }
     }
 
+    fn fill:void (color:int) {
+        def n:int (this.width * this.height)
+        def i 0
+        while (i < n) {
+            set this.pixels i color
+            i = (i + 1)
+        }
+    }
+
     fn at:int (px:int py:int) {
         if (px < 0) { return 0 }
         if (py < 0) { return 0 }

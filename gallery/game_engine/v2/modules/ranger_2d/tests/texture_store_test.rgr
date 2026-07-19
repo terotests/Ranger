@@ -1,0 +1,70 @@
+; ==============================================================================
+; texture_store_test — the texture pixel store + sampling (D-2D).
+; ==============================================================================
+; A dimensions-only texture samples nothing; after an upload it samples exact
+; texels, clamps out-of-bounds reads (no crash, no wrap), and keeps the sprite
+; transform state (size / z / flip) the sampling backend reads. Direct host
+; unit — no interpreter, no bridge.
+; ==============================================================================
+
+Import "../RgRanger2D.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../host/ownership/OwnedHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class TextureStoreTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("modules/ranger_2d/texture_store"))
+        def d:RgRanger2D (new RgRanger2D)
+
+        def texO:OwnedHandle (d.textureCreate(2 2))
+        def texH:RgHandle texO.handle
+        t.no("a fresh texture has no pixel store" (d.textureHasPixels(texH)))
+        t.eqInt("store-less sample is transparent (alpha 0)" (d.texelA(texH 0 0)) 0)
+
+        ; upload a 2x2: (0,0)=red opaque (1,0)=green opaque
+        ;               (0,1)=blue half   (1,1)=transparent
+        def rgb:[int]
+        push rgb 16711680   ; 0xff0000
+        push rgb 65280      ; 0x00ff00
+        push rgb 255        ; 0x0000ff
+        push rgb 16777215   ; 0xffffff
+        def alpha:[int]
+        push alpha 255
+        push alpha 255
+        push alpha 128
+        push alpha 0
+        d.textureUpload(texH 2 2 rgb alpha)
+        t.ok("texture reports a pixel store after upload" (d.textureHasPixels(texH)))
+
+        t.eqInt("texel (0,0) rgb" (d.texelRGB(texH 0 0)) 16711680)
+        t.eqInt("texel (0,0) alpha" (d.texelA(texH 0 0)) 255)
+        t.eqInt("texel (1,0) rgb" (d.texelRGB(texH 1 0)) 65280)
+        t.eqInt("texel (0,1) alpha (half)" (d.texelA(texH 0 1)) 128)
+        t.eqInt("texel (1,1) alpha (transparent)" (d.texelA(texH 1 1)) 0)
+
+        ; out-of-bounds reads clamp to the edge (no wrap, no crash)
+        t.eqInt("negative x clamps to column 0" (d.texelRGB(texH (0 - 5) 0)) 16711680)
+        t.eqInt("x past width clamps to last column" (d.texelRGB(texH 99 0)) 65280)
+        t.eqInt("y past height clamps to last row" (d.texelRGB(texH 0 99)) 255)
+
+        ; sprite transform state the backend reads
+        def atO:OwnedHandle (d.atlasCreate(texH))
+        d.atlasAddRegion(atO.handle "r" 0 0 2 2)
+        def spO:OwnedHandle (d.spriteCreate(atO.handle 0))
+        def spH:RgHandle spO.handle
+        t.near("default sprite size is 0 (native region)" (d.spriteW(spH)) 0.0)
+        d.spriteSetSize(spH 40.0 8.0)
+        t.near("sprite width set" (d.spriteW(spH)) 40.0)
+        t.near("sprite height set" (d.spriteH(spH)) 8.0)
+        d.spriteSetZ(spH 4)
+        t.eqInt("sprite z set" (d.spriteZ(spH)) 4)
+        t.no("sprite not flipped by default" (d.spriteFlipX(spH)))
+        d.spriteSetFlipX(spH 1)
+        t.ok("sprite flipX set" (d.spriteFlipX(spH)))
+        d.spriteSetFlipX(spH 0)
+        t.no("sprite flipX cleared" (d.spriteFlipX(spH)))
+
+        t.summary()
+    }
+}

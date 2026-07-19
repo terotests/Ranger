@@ -105,6 +105,9 @@ run_suite tests/contract/d_2d/d_2d_contract_test
 
 # ---- Phase 11 — render (software 2D present, D-SYNC) -------------------------
 run_suite render/tests/software_present2d_test
+# texture pixel store + sampling backend (real texels, sprite size/z/flip)
+run_suite modules/ranger_2d/tests/texture_store_test
+run_suite tests/render/textured_render_test
 
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test

@@ -118,6 +118,27 @@ class RegistryBridgeCoverageTest {
         push srA (s.num((to_double rWalk)))
         s.callN("rg2d_sprite_set_region" srA)
 
+        ; size / z / flip — the transform state a sampling backend reads
+        def szA:[EvalValue]
+        push szA (s.num((to_double sprite)))
+        push szA (s.num(48.0))
+        push szA (s.num(12.0))
+        s.callN("rg2d_sprite_set_size" szA)
+        t.near("host sprite width written through the bridge"
+            (b.d2.spriteW((b.resolveGuestId(sprite)))) 48.0)
+        def zA:[EvalValue]
+        push zA (s.num((to_double sprite)))
+        push zA (s.num(3.0))
+        s.callN("rg2d_sprite_set_z" zA)
+        t.eqInt("host sprite z written through the bridge"
+            (b.d2.spriteZ((b.resolveGuestId(sprite)))) 3)
+        def fxA:[EvalValue]
+        push fxA (s.num((to_double sprite)))
+        push fxA (s.num(1.0))
+        s.callN("rg2d_sprite_set_flip" fxA)
+        t.ok("host sprite flipX written through the bridge"
+            (b.d2.spriteFlipX((b.resolveGuestId(sprite)))))
+
         def layerArgs:[EvalValue]
         def layer:int (s.callI("rg2d_layer_create" layerArgs))
         def laA:[EvalValue]

@@ -28,6 +28,13 @@ class Sprite2D {
   constructor(atlas, regionIndex) { this.id = rg2d_sprite_create(atlas.id, regionIndex); }
   setPos(x, y) { rg2d_sprite_set_pos(this.id, x, y); }
   setRegion(regionIndex) { rg2d_sprite_set_region(this.id, regionIndex); }
+  // destination extent in world units (unset = native region size): a platform
+  // stretches one region across its span; a background covers the view.
+  setSize(w, h) { rg2d_sprite_set_size(this.id, w, h); }
+  // painter order within the layer (bg < platforms < players)
+  setZ(z) { rg2d_sprite_set_z(this.id, z); }
+  // horizontal mirror for facing
+  setFlipX(on) { rg2d_sprite_set_flip(this.id, on ? 1 : 0); }
   release() { return rg2d_sprite_release(this.id); }
 }
 

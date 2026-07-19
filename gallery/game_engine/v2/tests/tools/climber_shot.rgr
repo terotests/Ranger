@@ -1,0 +1,71 @@
+; ==============================================================================
+; climber_shot — render the climber sample through the SAMPLING backend.
+; ==============================================================================
+; Boots tests/render/samples/climber on the generic host, runs a few frames,
+; and presents BOTH panes through RgTexturedRenderer2D (real texel sampling)
+; into RGBA-24 framebuffers. Emits an "RGBSHOT <w> <h>" dump (6 hex chars per
+; pixel, 0xRRGGBB) that dump_rgb_to_png.js turns into a PNG. Diagnostic only.
+;
+;   node bin/output.js -es6 gallery/game_engine/v2/tests/tools/climber_shot.rgr \
+;     -d=out -o=cshot.js && node out/cshot.js > c.txt
+;   node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js c.txt c.png 4
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+
+class ClimberShot {
+    sfn hex2:string (v:int) {
+        def d:string "0123456789abcdef"
+        def hi:int (idiv v 16)
+        def lo:int (v - (hi * 16))
+        return ((substring d hi (hi + 1)) + (substring d lo (lo + 1)))
+    }
+    sfn hex6:string (rgb:int) {
+        def r:int (idiv rgb 65536)
+        def g:int (idiv (rgb - (r * 65536)) 256)
+        def b:int ((rgb - (r * 65536)) - (g * 256))
+        return (((ClimberShot.hex2(r)) + (ClimberShot.hex2(g))) + (ClimberShot.hex2(b)))
+    }
+
+    sfn m@(main):void () {
+        def host:RgGameHost (new RgGameHost)
+        if ((host.load("gallery/game_engine/v2/tests/render/samples/climber" "index.tsx")) == false) {
+            print "ERROR: climber failed to load"
+            return
+        }
+        def f 0
+        while (f < 20) {
+            host.frame(33.333)
+            f = (f + 1)
+        }
+        def paneW:int 120
+        def paneH:int 96
+        def sky:int 9357039   ; 0x8ec7ef
+        def divider:int 3421742   ; 0x343a2e
+        def fb0:RgFramebuffer (RgFramebuffer.create(paneW paneH))
+        def fb1:RgFramebuffer (RgFramebuffer.create(paneW paneH))
+        def d0:int (Rg2DPresenter.presentTextured(host.bridge 0 fb0 sky))
+        def d1:int (Rg2DPresenter.presentTextured(host.bridge 1 fb1 sky))
+        print ("DRAWN " + ((to_string d0) + (" " + (to_string d1))))
+        def totalW:int ((paneW * 2) + 1)
+        print ("RGBSHOT " + ((to_string totalW) + (" " + (to_string paneH))))
+        def y 0
+        while (y < paneH) {
+            def line:string ""
+            def x 0
+            while (x < paneW) {
+                line = (line + (ClimberShot.hex6((fb0.at(x y)))))
+                x = (x + 1)
+            }
+            line = (line + (ClimberShot.hex6(divider)))
+            def x2 0
+            while (x2 < paneW) {
+                line = (line + (ClimberShot.hex6((fb1.at(x2 y)))))
+                x2 = (x2 + 1)
+            }
+            print line
+            y = (y + 1)
+        }
+    }
+}

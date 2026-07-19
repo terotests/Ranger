@@ -39,6 +39,12 @@ class TwoDSchema {
         sprite.addMethod((RgMethodDef.cmd(2021 "rg2d_sprite_set_pos" "rg2d_sprite_set_pos" "h:d:d" "v" "none")))
         sprite.addMethod((RgMethodDef.cmd(2022 "rg2d_sprite_set_region" "rg2d_sprite_set_region" "h:i" "v" "none")))
         sprite.addMethod((RgMethodDef.cmd(2023 "rg2d_sprite_release" "rg2d_sprite_release" "h" "i" "release")))
+        ; destination extent / draw order / facing — the transform state a
+        ; sampling backend needs beyond position (platform width, backgrounds,
+        ; painter order, mirror). Native-region size when unset (w=h=0).
+        sprite.addMethod((RgMethodDef.cmd(2024 "rg2d_sprite_set_size" "rg2d_sprite_set_size" "h:d:d" "v" "none")))
+        sprite.addMethod((RgMethodDef.cmd(2025 "rg2d_sprite_set_z" "rg2d_sprite_set_z" "h:i" "v" "none")))
+        sprite.addMethod((RgMethodDef.cmd(2026 "rg2d_sprite_set_flip" "rg2d_sprite_set_flip" "h:i" "v" "none")))
         s.addClass(sprite)
 
         ; ---- Layer2D (23) ----------------------------------------------------

@@ -260,6 +260,111 @@ class RgRegistryBridge extends EvalNativeBridge {
         return (unwrap v)
     }
 
+    ; one hex digit's value (0-15) from a char code; non-hex → 0.
+    sfn hexDigit:int (code:int) {
+        if (code >= 48) {
+            if (code <= 57) { return (code - 48) }
+        }
+        if (code >= 97) {
+            if (code <= 102) { return ((code - 97) + 10) }
+        }
+        if (code >= 65) {
+            if (code <= 70) { return ((code - 65) + 10) }
+        }
+        return 0
+    }
+    fn hexToInt:int (s:string) {
+        def v 0
+        def i 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            v = ((v * 16) + (RgRegistryBridge.hexDigit(c)))
+            i = (i + 1)
+        }
+        return v
+    }
+
+    ; Load a decoded pixel store from the documented .rgtx package raster into a
+    ; texture. Format (palette-indexed ASCII — small, human-authorable, no PNG
+    ; decoder; the JSON/asset pipeline replaces it later, same texture store):
+    ;   rgtex <w> <h>
+    ;   pal <idx0-15> <rrggbb> <aa>      (one per used palette entry)
+    ;   row <hexchars>                   (h rows, w chars, each = palette index)
+    fn loadTextureFile:boolean (texH:RgHandle rel:string) {
+        if (this.packageDir == "") { return false }
+        def pdir:string this.packageDir
+        def raw:buffer (buffer_read_file pdir rel)
+        def src:string (buffer_to_string raw)
+        if ((strlen src) == 0) { return false }
+        def w 0
+        def h 0
+        def palRGB:[int]
+        def palA:[int]
+        def pi 0
+        while (pi < 16) {
+            push palRGB 0
+            push palA 0
+            pi = (pi + 1)
+        }
+        def rgb:[int]
+        def alpha:[int]
+        def rowCount 0
+        def lines:[string] (strsplit src "\n")
+        def n:int (array_length lines)
+        def i 0
+        while (i < n) {
+            def line:string (trim (itemAt lines i))
+            def toks:[string] (strsplit line " ")
+            if ((array_length toks) > 0) {
+                def kind:string (itemAt toks 0)
+                if (kind == "rgtex") {
+                    w = (this.s2i((itemAt toks 1)))
+                    h = (this.s2i((itemAt toks 2)))
+                    def total:int (w * h)
+                    def k 0
+                    while (k < total) {
+                        push rgb 0
+                        push alpha 0
+                        k = (k + 1)
+                    }
+                }
+                if (kind == "pal") {
+                    def idx:int (this.s2i((itemAt toks 1)))
+                    if (idx >= 0) {
+                        if (idx < 16) {
+                            set palRGB idx (this.hexToInt((itemAt toks 2)))
+                            set palA idx (this.hexToInt((itemAt toks 3)))
+                        }
+                    }
+                }
+                if (kind == "row") {
+                    if ((array_length toks) > 1) {
+                        def chars:string (itemAt toks 1)
+                        def cn:int (strlen chars)
+                        def cxi 0
+                        while (cxi < cn) {
+                            def pidx:int (RgRegistryBridge.hexDigit((charAt chars cxi)))
+                            def dst:int ((rowCount * w) + cxi)
+                            if (dst >= 0) {
+                                if (dst < (array_length rgb)) {
+                                    set rgb dst (itemAt palRGB pidx)
+                                    set alpha dst (itemAt palA pidx)
+                                }
+                            }
+                            cxi = (cxi + 1)
+                        }
+                        rowCount = (rowCount + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (w <= 0) { return false }
+        this.d2.textureUpload(texH w h rgb alpha)
+        return true
+    }
+
     fn loadAtlasAsset:int (uri:string) {
         def rel:string uri
         if ((indexOf uri "pkg://") == 0) {
@@ -287,6 +392,15 @@ class RgRegistryBridge extends EvalNativeBridge {
                     atlasOwned = ao
                     atlasGuestId = (this.mintId(ao))
                     this.mintId(to)
+                }
+                if (kind == "image") {
+                    ; `image <uri>` uploads a decoded pixel store into the
+                    ; texture just created by the `texture` line (D-2D). Regions
+                    ; index into these texels; a backend samples them.
+                    if texOwned {
+                        def txo:OwnedHandle (unwrap texOwned)
+                        this.loadTextureFile(txo.handle (itemAt toks 1))
+                    }
                 }
                 if (kind == "region") {
                     if atlasOwned {
@@ -361,6 +475,18 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg2d_sprite_set_region") {
             this.d2.spriteSetRegion((a.handleAt(0)) (a.intAt(1)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_sprite_set_size") {
+            this.d2.spriteSetSize((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_sprite_set_z") {
+            this.d2.spriteSetZ((a.handleAt(0)) (a.intAt(1)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_sprite_set_flip") {
+            this.d2.spriteSetFlipX((a.handleAt(0)) (a.intAt(1)))
             return (EvalValue.null())
         }
         if (row.name == "rg2d_sprite_release") {

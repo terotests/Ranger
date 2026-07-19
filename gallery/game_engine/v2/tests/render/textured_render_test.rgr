@@ -1,0 +1,118 @@
+; ==============================================================================
+; textured_render_test — the SAMPLING backend renders a real image (D-SYNC).
+; ==============================================================================
+; Boots the climber sample (tests/render/samples/climber) on the GENERIC host
+; and presents a pane through RgTexturedRenderer2D — asserting the produced
+; framebuffer is an actual picture, not a marker plot:
+;   - the sky clear shows where no sprite covers
+;   - the ground band spans (nearly) the full pane width — proves sprite SIZE
+;     (a region stretched across a span), the thing flat markers cannot show
+;   - the ground samples its dark top edge vs grass body — proves per-texel
+;     sampling within a region, not a flat fill
+;   - a player's hair/skin/shirt texels appear — proves the character is drawn
+;     from real pixel data loaded via the package `.rgtx` image
+;   - the pickup's cyan texels appear
+;   - painter z-order puts players above platforms above ground
+;   - an unbound pane presents nothing (-1), same contract as the marker path
+; Same host state as every other test; only the backend differs.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+Import "../harness/RgTest.rgr"
+
+class TexturedRenderTest {
+    sfn rgb:int (r:int g:int b:int) { return (((r * 65536) + (g * 256)) + b) }
+
+    sfn countInRow:int (fb:RgFramebuffer y:int c0:int c1:int) {
+        def n 0
+        def x 0
+        while (x < fb.width) {
+            def p:int (fb.at(x y))
+            if (p == c0) { n = (n + 1) }
+            if (p == c1) { n = (n + 1) }
+            x = (x + 1)
+        }
+        return n
+    }
+
+    sfn anyColor:boolean (fb:RgFramebuffer c:int) {
+        def y 0
+        while (y < fb.height) {
+            def x 0
+            while (x < fb.width) {
+                if ((fb.at(x y)) == c) { return true }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return false
+    }
+
+    ; first y (scanning down) where color c appears at column x, or -1.
+    sfn firstRowOf:int (fb:RgFramebuffer x:int c:int) {
+        def y 0
+        while (y < fb.height) {
+            if ((fb.at(x y)) == c) { return y }
+            y = (y + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/render/textured_render (sampling backend)"))
+        def host:RgGameHost (new RgGameHost)
+        t.ok("climber sample loaded on the generic host"
+            (host.load("gallery/game_engine/v2/tests/render/samples/climber" "index.tsx")))
+
+        def f 0
+        while (f < 20) {
+            host.frame(33.333)
+            f = (f + 1)
+        }
+
+        def sky:int (TexturedRenderTest.rgb(142 198 239))
+        def grass:int (TexturedRenderTest.rgb(63 168 95))
+        def edge:int (TexturedRenderTest.rgb(47 127 71))
+        def hair:int (TexturedRenderTest.rgb(210 58 32))
+        def gem:int (TexturedRenderTest.rgb(127 224 255))
+
+        def fb:RgFramebuffer (RgFramebuffer.create(120 96))
+        def drawn:int (Rg2DPresenter.presentTextured(host.bridge 0 fb sky))
+        t.eqInt("pane 0 blitted all 7 sprites (ground+3 plat+gem+2 players)" drawn 7)
+
+        ; sky where nothing covers (top-left)
+        t.eqInt("sky clear shows through the empty top-left" (fb.at(10 10)) sky)
+
+        ; ground band: full-width, sampled edge-over-grass (proves SIZE + texel)
+        def groundGreen:int (TexturedRenderTest.countInRow(fb 92 grass edge))
+        t.ok("ground band spans nearly the full pane width (size works)"
+            (groundGreen > 100))
+        t.eqInt("ground body samples grass" (fb.at(60 92)) grass)
+        t.eqInt("ground top samples the darker edge row" (fb.at(60 87)) edge)
+
+        ; character + pickup drawn from real texels
+        t.ok("a player's hair texels are on screen" (TexturedRenderTest.anyColor(fb hair)))
+        t.ok("the pickup's cyan texels are on screen" (TexturedRenderTest.anyColor(fb gem)))
+
+        ; painter order: the gem (z=2) sits ABOVE the ground (z=0) — its cyan
+        ; appears higher up than the first ground pixel in a column it occupies.
+        def gemTop:int (TexturedRenderTest.firstRowOf(fb 75 gem))
+        def groundTop:int (TexturedRenderTest.firstRowOf(fb 60 grass))
+        t.ok("pickup drawn above the ground band (z-order)"
+            ((gemTop >= 0) && (gemTop < groundTop)))
+
+        ; second pane also presents from the same host state
+        def fb1:RgFramebuffer (RgFramebuffer.create(120 96))
+        def drawn1:int (Rg2DPresenter.presentTextured(host.bridge 1 fb1 sky))
+        t.eqInt("pane 1 blits the same 7 sprites (split-screen)" drawn1 7)
+
+        ; an unbound pane presents nothing — same contract as the marker path
+        def fb2:RgFramebuffer (RgFramebuffer.create(120 96))
+        t.eqInt("an unbound pane presents nothing (-1)"
+            (Rg2DPresenter.presentTextured(host.bridge 5 fb2 sky)) (0 - 1))
+
+        t.eqInt("no bridge errors across the render" host.bridge.errorCount 0)
+        t.summary()
+    }
+}
