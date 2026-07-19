@@ -1,10 +1,11 @@
 # ADR-0001 — `ThreeSceneHost` owns authoritative Three state
 
-> Status: **proposed** (planning). Context: `CODE_CLEANUP.md` (D-SYNC).
+> Status: **proposed** (planning). Context: `CODE_CLEANUP.md` (D-SYNC, also
+> D-IDENTITY / D-ADAPTER / D-LIFE / D-TYPE).
 > Supersedes the conflicting architecture statements in `IDEAL_THREE.md`,
 > `THREE_BRIDGE.md`, and `THREE.md`.
-> Exploratory notes that used to live beside these decisions:
-> [`CODE_CLEANUP_OLD.md`](../CODE_CLEANUP_OLD.md).
+> Bulk memory rules: [`WASM_MEMORY_ABI.md`](./WASM_MEMORY_ABI.md).
+> Exploratory archive: [`CODE_CLEANUP_OLD.md`](../CODE_CLEANUP_OLD.md).
 
 ## Context
 
