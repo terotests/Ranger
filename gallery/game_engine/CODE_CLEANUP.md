@@ -5,8 +5,8 @@ Implementation contract for the game-engine cleanup.
 | Section | Contents |
 |---------|----------|
 | **Components and actors** | What each name used in the code comments refers to |
-| **Binding decisions** | D-IDENTITY … D-GEO (below) |
-| **Worked examples** | Camera + physics pose; geometry upload / update / read-back |
+| **Binding decisions** | D-IDENTITY … D-GEO + D-MODULES |
+| **Worked examples** | Camera + physics pose; geometry upload; `ranger:core` game + input + audio |
 | **Implementation gates** | Required order and tests before calling a migration done |
 
 Archived inventory and exploratory drafts:
@@ -33,6 +33,8 @@ the worked examples name them with the labels in bold.
 | **render** | The renderer backend | GL/SDL or the software rasterizer. Reads host scene state each frame and draws it. Rendering never creates objects and is never a sync boundary for script state (D-SYNC). |
 | **wrapper** | The TSX wrapper classes | `three/tsx/three.tsx` — guest-side classes that imitate the Three.js API so existing Three.js-style code runs unchanged. Target model: thin declarations over the adapter. Today they still build a private scene tree consumed by the temporary reconciler (D-SYNC). |
 | **WASM boundary** | The compiled-guest ABI | For compiled guests there is no interpreter or adapter; the guest calls generated imports and only `i32` values and byte ranges cross (D-WASM, D-WASM-MEM). Command names, handles, and timing rules are the same as on the interpreted path. |
+| **runtime** | `ranger:core` capability root | Realm-scoped host services: surface, input, audio, assets, time, log, platform (D-MODULES). Not a browser global and not a cross-guest singleton. |
+| **modules** | Virtual import packages | `ranger:three`, `ranger:cannon`, `ranger:core` — injected by the Ranger runtime for the current `realmId` (D-MODULES). |
 
 Comment convention in the code examples: comments are prefixed with the actor
 that performs the step — `// guest:`, `// interp:`, `// adapter:`, `// host:`,
@@ -433,6 +435,199 @@ Read-back uses the **same** `geoH`:
 ```
 geometryReadPositions(geoH, first, count, outSpan) -> n
 ```
+
+
+## D-MODULES — Importable packages: `ranger:core`, `ranger:three`, `ranger:cannon`
+
+TypeScript (and the TSX interpreter) import **virtual modules** injected by the
+Ranger runtime for the current `realmId`. They are not ordinary globals and not
+shared across guests.
+
+```ts
+import * as THREE from "ranger:three"
+import * as CANNON from "ranger:cannon"
+
+import {
+  runtime,
+  type Game,
+  type FrameInfo,
+  type ActionMap,
+  type AudioClip,
+  type AudioSource,
+} from "ranger:core"
+```
+
+### Package responsibilities
+
+```text
+ranger:core
+├─ runtime / game loop          runtime.start(game)
+├─ surface and display          runtime.surface.size, attachRenderer
+├─ input
+│  ├─ keyboard / mouse / touch / gamepads
+│  ├─ action maps               logical actions, not gamepads[0]
+│  ├─ player assignment         runtime.input.player(i)
+│  └─ haptics                   player.rumble(…)
+├─ audio
+│  ├─ clips / sources / voices  separate identities (below)
+│  ├─ listener                  attachTo(camera)
+│  └─ mixer buses
+├─ asset loading                runtime.assets.loadAudio / loadModel / …
+├─ timing                       FrameInfo.delta, fixedDelta
+├─ logging                      runtime.log.*
+└─ platform capabilities        runtime.platform.*
+
+ranger:three
+├─ scenes, cameras, meshes, geometry, materials
+└─ renderer façade              (live NativeRefs — D-SYNC)
+
+ranger:cannon
+├─ worlds, bodies, shapes, constraints
+└─ physics arenas               (separate from Three handles — D-TYPE)
+```
+
+`ranger:three` and `ranger:cannon` provide **domain object APIs** (`new Mesh`,
+`new Body`). `ranger:core` provides the **host environment and services**.
+
+Today’s `ranger-game` / `scripting/engine.d.ts` surface migrates toward
+`ranger:core`; new examples must not invent `window` / `document` /
+`requestAnimationFrame` as the native Ranger API (web-compat shims may still
+exist, but they resolve to the same runtime services).
+
+### What uses `new` vs what the runtime owns
+
+| Type | Creation |
+|------|----------|
+| `THREE.Mesh`, `THREE.Scene`, `CANNON.Body` | `new` → host handle (D-SYNC) |
+| User-defined `PlayerController` / `PhysicsVisual` | `new` — **guest-only** class; holds NativeRefs, no host handle of its own |
+| `AudioSource` | `runtime.audio.createSource(…)` (or registered `new AudioSource` if in D-REGISTRY) |
+| `AudioClip` | returned by `runtime.assets.loadAudio` — not `new` |
+| `Gamepad` | discovered by input; **not** constructed |
+| Audio output device / display / window / frame clock | owned by runtime; **not** constructed |
+
+Undesirable:
+
+```ts
+const pad = new Gamepad()
+const audioDevice = new AudioDevice()
+const window = new Window()
+```
+
+Those represent platform-owned capabilities. Guests receive controlled
+references scoped to their realm.
+
+### Input: action maps over `gamepads[0]`
+
+Raw enumeration may exist for diagnostics:
+
+```ts
+for (const pad of runtime.input.gamepads()) {
+  runtime.log.info(`${pad.name}: ${pad.connected}`)
+}
+```
+
+Game logic should use **logical actions**:
+
+```ts
+controls.axis1D("rotate")
+controls.wasPressed("jump")
+```
+
+A gamepad’s array index is not stable identity (disconnect / reconnect / reorder /
+reassign / layout differences). Distinguish:
+
+```text
+Device identity     physical connection + generation (D-HANDLE-style)
+Player assignment   logical player 0, player 1, …
+Action              jump, rotate, accelerate, pause, …
+```
+
+```text
+GamepadHandle { slot, generation, realmId }
+PlayerInput   { playerIndex, assignedDeviceHandles[], actionMap }
+```
+
+`runtime.input.player(0)` remains “player one” even if their controller
+reconnects under a different device handle.
+
+### Audio: clip ≠ source ≠ voice (and D-LIFE applies)
+
+```text
+AudioClip    decoded / shared resource          clipH
+AudioSource  persistent emitter (pose, bus, …)  sourceH
+AudioVoice   one active playback instance       voiceH
+```
+
+```ts
+const clip = await runtime.assets.loadAudio("explosion.ogg")
+// host: assetsLoadAudio → clipH (refcount resource)
+
+const source = runtime.audio.createSource(clip, { spatial: true })
+// host: audioSourceCreate(clipH, …) → sourceH; retain(clipH)
+
+source.attachTo(mesh)
+// host: audioSourceAttachEntity(sourceH, meshH) — borrowed entity ref
+
+const voice1 = source.play()
+const voice2 = source.play()
+// host: audioSourcePlay(sourceH) → voice1H, voice2H
+//       does not clone clipH or sourceH
+```
+
+Lifetimes follow D-LIFE:
+
+- `clip.disposeBackend()` / device-buffer release — backend only; `clipH` stays valid.
+- `clip.release()` — object ownership (refcount); may invalidate the handle.
+- Removing a mesh does not release attached sources; `source.release()` does.
+
+### Guest classes vs native classes
+
+```ts
+class PhysicsVisual {
+  constructor(
+    readonly body: CANNON.Body,
+    readonly mesh: THREE.Mesh,
+  ) {}
+}
+```
+
+Remains a **pure guest** object: it composes NativeRefs and needs no host
+handle. Register a class in D-REGISTRY only when its state/ops must live in
+Ranger (e.g. `AudioSource` with host pose attachment and voice allocation).
+
+Registry entries carry `module: ranger:core | ranger:three | ranger:cannon`
+so codegen emits the correct import package, interpreter registration, WASM
+surface, and TypeScript declarations (D-REGISTRY).
+
+### Capability root (not unrelated globals)
+
+Expose one root on `runtime`:
+
+```ts
+runtime.surface
+runtime.input
+runtime.audio
+runtime.assets
+runtime.time
+runtime.log
+runtime.platform
+```
+
+rather than bare `GamePads` / `Audio` / `Window` / `Assets` / `Clock` globals.
+The root carries realm, permissions, backend, and lifecycle.
+
+Compatibility vs native style:
+
+```ts
+// web-compat shim (optional)          // Ranger-native (preferred in new demos)
+window.innerWidth                      runtime.surface.size.width
+requestAnimationFrame(...)             runtime.start(game)  // host owns the tick
+document.body.appendChild(...)         runtime.surface.attachRenderer(renderer)
+```
+
+Both may resolve to the same host services; new examples use `ranger:core`
+explicitly.
+
 
 ---
 
@@ -993,15 +1188,16 @@ Uses **current** host poses: mesh from the copy lines, camera from W.2
 
 ## W.7 Mapping onto Ranger packages
 
-| Concern | Target home |
-|---------|-------------|
-| `cameraH` / `meshH` / `sceneH` / materials / geometries | `ThreeSceneHost` + typed arenas (`three/`) |
-| `worldH` / `bodyH` | `PhysicsWorld` implementation (`physics/`), wired through the guest ABI / `ranger-game` |
-| Script loop `animate` | Guest TSX / WASM `update`; host calls fixed step then guest, or guest calls step via import |
-| `renderer.render` | Host frame end (`gfx_sdl` / WebGL backend) reading host camera + scene |
+| Concern | Import / home |
+|---------|----------------|
+| `cameraH` / `meshH` / `sceneH` / materials / geometries | `ranger:three` → `ThreeSceneHost` + typed arenas |
+| `worldH` / `bodyH` | `ranger:cannon` → `PhysicsWorld` arenas |
+| Frame tick, surface, input, audio, assets | `ranger:core` → `runtime.*` (D-MODULES) |
+| `renderer.render` | Host frame end (`gfx_sdl` / WebGL); on native, surface from `runtime.surface` |
 
 The ABI may expose fewer sugar names (`rg_set_translation(meshH,x,y,z)`), but
-the **identity and timing rules** are the same as the Three lines above.
+the **identity and timing rules** are the same as the Three lines above. Prefer
+the `ranger:*` imports in new demos (worked example 3).
 
 ---
 
@@ -1066,6 +1262,261 @@ authoritative vertex array on the guest after upload.
 
 ---
 
+---
+
+# Worked example — `ranger:core` game with input and audio
+
+Target API for a small game: custom guest classes, action-map input, spatial
+audio, and the D-LIFE split on shutdown. Not a claim that every symbol already
+exists — this is the contract demos migrate toward (D-MODULES).
+
+```ts
+import * as THREE from "ranger:three"
+import * as CANNON from "ranger:cannon"
+
+import {
+  runtime,
+  type Game,
+  type FrameInfo,
+  type ActionMap,
+  type AudioClip,
+  type AudioSource,
+} from "ranger:core"
+
+/**
+ * Guest-only class: no host handle of its own.
+ * Composes a Cannon body + Three mesh (two NativeRefs).
+ */
+class PhysicsVisual {
+  constructor(
+    readonly body: CANNON.Body,
+    readonly mesh: THREE.Mesh,
+  ) {}
+
+  syncFromPhysics(): void {
+    this.mesh.position.copy(this.body.position)
+    // physics: bodyGetPosition(bodyH)
+    // host:    meshSetPosition(meshH, …) — live drawable write (D-SYNC)
+    this.mesh.quaternion.copy(this.body.quaternion)
+    // physics: bodyGetQuaternion → host: meshSetQuaternion
+  }
+
+  teleport(x: number, y: number, z: number): void {
+    // guest: physics remains authoritative for simulation pose
+    this.body.position.set(x, y, z)
+    // physics: bodySetPosition(bodyH, x,y,z)
+    this.body.velocity.set(0, 0, 0)
+    this.body.angularVelocity.set(0, 0, 0)
+    // physics: clear residual motion
+    this.syncFromPhysics()
+    // host: drawable matches within the same frame
+  }
+}
+
+class BoxGame implements Game {
+  private camera!: THREE.PerspectiveCamera
+  private scene!: THREE.Scene
+  private renderer!: THREE.WebGLRenderer
+
+  private world!: CANNON.World
+  private box!: PhysicsVisual
+
+  private controls!: ActionMap
+
+  private collisionClip!: AudioClip
+  private collisionSound!: AudioSource
+
+  async init(): Promise<void> {
+    const size = runtime.surface.size
+    // runtime: realm-scoped surface metrics (not window.innerWidth)
+
+    // --- Three (ranger:three) -------------------------------------------
+
+    this.camera = new THREE.PerspectiveCamera(
+      75,
+      size.width / size.height,
+      0.1,
+      100,
+    )
+    // adapter: construct("PerspectiveCamera", …)
+    // host:    cameraCreatePerspective(…) → cameraH
+
+    this.camera.position.set(0, 2, 6)
+    // host: cameraSetPosition(cameraH, 0, 2, 6) — script policy (D-SYNC)
+
+    this.scene = new THREE.Scene()
+    // host: sceneCreate(realmId) → sceneH
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true })
+    // host: rendererCreate({ antialias }) → rendererH
+    //       (native: often bind existing gfx_sdl / framebuffer)
+
+    runtime.surface.attachRenderer(this.renderer)
+    // runtime: attach rendererH to the runtime-owned surface — no DOM
+    this.renderer.setSize(size.width, size.height)
+    // host: rendererSetSize(rendererH, w, h)
+
+    const geometry = new THREE.BoxGeometry(2, 2, 2)
+    // host: geometryBox(2,2,2) → geoH
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      wireframe: true,
+    })
+    // host: materialBasic(…) → matH
+
+    const mesh = new THREE.Mesh(geometry, material)
+    // host: meshCreate(geoH, matH) → meshH; retain geo/mat
+    this.scene.add(mesh)
+    // host: entitySetParent(meshH, sceneH) — membership only
+
+    // --- Cannon (ranger:cannon) -----------------------------------------
+
+    this.world = new CANNON.World()
+    // physics: physicsWorldCreate() → worldH
+
+    const body = new CANNON.Body({ mass: 1 })
+    // physics: bodyCreate(mass=1) → bodyH  (no world membership yet)
+    body.addShape(new CANNON.Box(new CANNON.Vec3(1, 1, 1)))
+    // physics: bodyAddBoxShape(bodyH, 1,1,1)
+    body.angularDamping = 0.5
+    // physics: bodySetAngularDamping(bodyH, 0.5)
+    this.world.addBody(body)
+    // physics: worldAddBody(worldH, bodyH) — membership only
+
+    this.box = new PhysicsVisual(body, mesh)
+    // guest: pure guest object; no new host handle
+
+    // --- Input (ranger:core) — action map, not gamepads[0] --------------
+
+    this.controls = runtime.input.createActionMap({
+      rotate: {
+        type: "axis1d",
+        keyboard: { negative: "ArrowLeft", positive: "ArrowRight" },
+        gamepad: { axis: "leftX" },
+      },
+      jump: {
+        type: "button",
+        keyboard: ["Space"],
+        gamepad: { button: "south" },
+      },
+      reset: {
+        type: "button",
+        keyboard: ["KeyR"],
+        gamepad: { button: "west" },
+      },
+    })
+    // runtime: actionMapCreate(…) → mapH in this realm
+    //          binds logical actions → current player device assignment
+    //          (device handle may change; player index does not)
+
+    // --- Audio (ranger:core) — clip ≠ source ≠ voice --------------------
+
+    this.collisionClip = await runtime.assets.loadAudio(
+      "audio/box-impact.ogg",
+    )
+    // runtime/host: assetsLoadAudio → clipH (shared decoded resource)
+
+    this.collisionSound = runtime.audio.createSource(
+      this.collisionClip,
+      { bus: "sfx", spatial: true, volume: 0.8 },
+    )
+    // host: audioSourceCreate(clipH, …) → sourceH; retain(clipH)
+
+    this.collisionSound.attachTo(this.box.mesh)
+    // host: audioSourceAttachEntity(sourceH, meshH)
+    //       spatial pose follows the Three entity on the host
+
+    runtime.audio.listener.attachTo(this.camera)
+    // host: audioListenerAttachEntity(listenerH, cameraH)
+  }
+
+  resize(width: number, height: number): void {
+    this.camera.aspect = width / height
+    // host: cameraSetAspect(cameraH, aspect)
+    this.camera.updateProjectionMatrix()
+    // host: cameraUpdateProjectionMatrix(cameraH)
+    this.renderer.setSize(width, height)
+    // host: rendererSetSize(rendererH, w, h)
+  }
+
+  update(frame: FrameInfo): void {
+    // runtime: host tick calls update — no guest requestAnimationFrame required
+
+    const rotate = this.controls.axis1D("rotate")
+    // runtime: read logical action (keyboard and/or assigned gamepad)
+
+    this.box.body.angularVelocity.y += rotate * 12 * frame.delta
+    // physics: bodyGet/SetAngularVelocity — simulation authority
+
+    if (this.controls.wasPressed("jump")) {
+      this.box.body.applyImpulse(new CANNON.Vec3(0, 5, 0))
+      // physics: bodyApplyImpulse(bodyH, …)
+
+      this.collisionSound.play()
+      // host: audioSourcePlay(sourceH) → voiceH
+      //       new voice instance; does not clone clipH / sourceH
+
+      // player 0 = logical assignment, not gamepads[0]
+      runtime.input.player(0)?.rumble({
+        lowFrequency: 0.3,
+        highFrequency: 0.8,
+        durationMs: 120,
+      })
+      // runtime: haptics on the device(s) currently assigned to player 0
+    }
+
+    if (this.controls.wasPressed("reset")) {
+      this.box.teleport(0, 3, 0)
+    }
+
+    this.world.fixedStep(frame.fixedDelta, frame.delta)
+    // physics: zero, one, or several steps; bodyH pose advances
+
+    this.box.syncFromPhysics()
+    // host: mesh pose ← body pose (same frame)
+
+    this.renderer.render(this.scene, this.camera)
+    // host/render: rendererRender(rendererH, sceneH, cameraH)
+  }
+
+  shutdown(): void {
+    this.collisionSound.stop()
+    // host: audioSourceStop(sourceH) — stop voices; sourceH still valid
+
+    this.collisionSound.release()
+    this.collisionClip.release()
+    // host: release(sourceH), release(clipH) — object lifetime (D-LIFE)
+    //       not the same as disposeBackend
+
+    this.box.mesh.geometry.dispose()
+    this.box.mesh.material.dispose()
+    // host: geometryDisposeBackend(geoH), materialDisposeBackend(matH)
+    //       GPU/backend only; handles remain until release
+
+    this.scene.remove(this.box.mesh)
+    // host: entityDetach(meshH) — membership only; does not release meshH
+  }
+}
+
+runtime.start(new BoxGame())
+// runtime: register Game with this realm; host owns the frame loop and
+//          calls init → (resize)* → update* → shutdown
+```
+
+### What this example adds beyond W.1–W.5
+
+| Concern | Contract |
+|---------|----------|
+| Imports | `ranger:three` / `ranger:cannon` / `ranger:core` — realm-scoped virtual modules |
+| Frame loop | `runtime.start(game)` — host tick; not `requestAnimationFrame` as the native API |
+| Surface | `runtime.surface` — no `document.body.appendChild` |
+| Input | Action map + logical player; device handle ≠ player index |
+| Audio | `clipH` / `sourceH` / `voiceH` distinct; `play()` mints voices |
+| Custom class | `PhysicsVisual` stays guest-only |
+| Shutdown | `dispose()` = backend; `release()` = object; `remove` = membership |
+
+
+
 # Implementation gates
 
 **Required order:**
@@ -1075,8 +1526,10 @@ authoritative vertex array on the guest after upload.
 3. Typed registry and arenas (D-REGISTRY, D-TYPE, D-HANDLE).
 4. Shared resource identity and lifetime (D-SYNC, D-LIFE, D-GEO).
 5. Generated bridge and WASM surfaces (D-REGISTRY, D-WASM, D-WASM-MEM).
-6. Migrate demos to live objects (D-SYNC).
-7. Delete structural reconciliation (`RETIRE-RECONCILE`).
+6. Virtual modules + runtime capability root (D-MODULES): `ranger:core` /
+   `ranger:three` / `ranger:cannon`, realm-scoped.
+7. Migrate demos to live objects + `runtime.start(Game)` (D-SYNC, D-MODULES).
+8. Delete structural reconciliation (`RETIRE-RECONCILE`).
 
 **Required test gates:**
 
@@ -1086,11 +1539,17 @@ authoritative vertex array on the guest after upload.
 - Shared geometry/material identity (two meshes, one `geoH` / `matH`).
 - Scene removal ≠ release.
 - `DisposeBackend` ≠ release.
-- Stale and cross-realm handle rejection.
-- Generated-surface parity (host / native bridge / WASM / wrappers).
+- Stale and cross-realm handle rejection (including cross-realm `runtime` /
+  gamepad / audio access).
+- Generated-surface parity (host / native bridge / WASM / wrappers /
+  `ranger:*` TypeScript declarations).
 - Existing WASM import signature compatibility (D-WASM).
 - Reordering and reparenting never change identity.
 - Geometry upload → update → read-back on one `geoH` (worked example 2).
+- Action-map input survives gamepad reconnect under a new device handle
+  (same logical player).
+- `AudioSource.play()` twice → two voices, one `clipH` / `sourceH`.
+- Guest-only class (`PhysicsVisual`) never appears in a host arena.
 
 A migration is complete only when its replaced path is removed in the same
 change, or is covered by an explicitly tracked retirement item
