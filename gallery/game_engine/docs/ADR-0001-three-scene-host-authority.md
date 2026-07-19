@@ -1,9 +1,10 @@
 # ADR-0001 — `ThreeSceneHost` owns authoritative Three state
 
-> Status: **proposed** (planning). Context: `CODE_CLEANUP.md` §III.2 and
-> Architecture decisions (D-SYNC).
+> Status: **proposed** (planning). Context: `CODE_CLEANUP.md` (D-SYNC).
 > Supersedes the conflicting architecture statements in `IDEAL_THREE.md`,
 > `THREE_BRIDGE.md`, and `THREE.md`.
+> Exploratory notes that used to live beside these decisions:
+> [`CODE_CLEANUP_OLD.md`](../CODE_CLEANUP_OLD.md).
 
 ## Context
 
@@ -61,11 +62,11 @@ Corollaries:
   model or marked historical.
 - `THREE.md`'s demo table is corrected to describe Teapot/Sponza through the
   host (live adapter; reconciler only while still temporary).
-- Premise for `CODE_CLEANUP.md` II–V: host owns host-object identity; after II.A
-  the interpreter owns script-object identity; the live adapter binds them at
-  construct time. The reconciler must not create a second host object for an
-  already-constructed live instance.
-- The native-object adapter (V.2) does **not** change ownership: adapter backing
+- Premise for `CODE_CLEANUP.md` (D-SYNC / D-TYPE / D-LIFE): host owns host-object
+  identity; script values hold NativeRefs to those handles; the live adapter
+  binds them at construct time. The reconciler must not create a second host
+  object for an already-constructed live instance.
+- The native-object adapter does **not** change ownership: adapter backing
   objects are the host's canonical types, so value parity and host state are the
   same objects, not two mirrors.
 
