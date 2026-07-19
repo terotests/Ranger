@@ -34,3 +34,14 @@ twice in one realm returns the cached namespace (body evaluated once); two realm
 get separate instances; a failed init is cached as failed (no silent re-run); a
 circular import is a deterministic hard error. Gate:
 `tests/module_isolation_test.rgr` (18). Run via `bash ../../tests/run.sh`.
+
+## Progress — enforced by the real engine ✅ green
+
+The rules this model pins are now implemented in the staged evaluator
+(`interp/migrate/src/ComponentEngine.rgr`): every virtual `ranger:*` module
+evaluates in its own `EvalContext` (parented on the host scope only), classes
+live in per-module tables, functions are closures over their module scope, and
+the import clause is the only door into a module (named imports + `import * as
+NS` namespaces, member-new through the namespace). The shared-scope import
+behavior (TSX_ENGINE_ISSUES #5/#9) is fixed. Engine-level gate:
+`../../tests/unit/interp/module_scope_isolation_test.rgr` (12).

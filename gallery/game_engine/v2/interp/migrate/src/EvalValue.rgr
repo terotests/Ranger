@@ -37,6 +37,11 @@ class EvalValue {
     ; by integer id into ComponentEngine.closureScopes to avoid a type cycle
     ; (EvalContext lives in ComponentEngine, which imports this file). -1 = none.
     def closureId:int (0 - 1)
+    ; Module provenance for a function value: the virtual-module name it was
+    ; defined in ("" = the entry script). Set at creation (captureClosure /
+    ; bound-method), consumed at call time so the body evaluates rooted in its
+    ; OWN module scope — the D-MODULES scope-isolation contract.
+    def homeModule:string ""
     def functionNode@(optional):TSNode  ; For function AST nodes
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     

@@ -192,6 +192,22 @@ class ComponentEngine {
     def virtualModuleNames:[string]
     def virtualModuleSrcs:[string]
     def virtualModulesLoaded:[string]
+    ; Per-module isolation state (D-MODULES). Each loaded virtual module owns an
+    ; EvalContext parented on hostScope ONLY — module bindings never land in the
+    ; entry script's scope and the entry scope is invisible to module code. The
+    ; scope is held through closureScopes (ClosureCell) by id, because pushing an
+    ; EvalContext into an array directly would deep-copy its binding maps.
+    def moduleScopeNames:[string]
+    def moduleScopeIds:[int]
+    ; Class declarations of virtual modules, keyed "<module>::<ClassName>" —
+    ; deliberately NOT the engine-wide `classes` map, so two modules may export
+    ; the same class name without clobbering and un-imported classes stay
+    ; unreachable from the entry script.
+    def moduleClasses:[string:TSNode]
+    ; The module whose code is currently executing ("" = entry script). Saved and
+    ; restored around every boundary crossing (module load, function/method call,
+    ; construction); bare-name `new X()` resolves against the current module.
+    def currentModule:string ""
     ; Survives loadScript(): skip tokenize+parse when path mtime is unchanged.
     def importAstCache:[CachedImportAst]
     
@@ -646,12 +662,14 @@ class ComponentEngine {
     ; ---- virtual modules (D-MODULES, interpreter profile) -------------------
     ; A `ranger:*` import is not a file: the host registers each package's
     ; guest-side source once, and an `import ... from "ranger:x"` evaluates that
-    ; registered source exactly once per engine (classes into the class table,
-    ; consts/functions into module scope — see materializeImportedModule).
-    ; Un-imported packages are NOT injected: dependencies are explicit.
-    ; KNOWN LIMIT (tracked): bindings land in the shared module scope; true
-    ; per-namespace isolation is the scope rework gated by
-    ; interp/module_isolation tests.
+    ; registered source exactly once per engine — in its OWN module scope
+    ; (parented on hostScope only). Nothing leaks: the entry script reaches a
+    ; module's bindings solely through its import clause (named imports /
+    ; `import * as NS` namespace, member-new through the namespace), and module
+    ; code never sees entry bindings. Un-imported packages are NOT injected:
+    ; dependencies are explicit. This satisfies the RgModuleSystem rules pinned
+    ; by interp/module_isolation: per-import namespace, no clobber, cached
+    ; single evaluation per engine/realm.
     fn registerVirtualModule:void (name:string src:string) {
         virtualModuleNames = (this.listWithStringIfMissing(virtualModuleNames name))
         push virtualModuleSrcs src
@@ -667,6 +685,40 @@ class ComponentEngine {
             i = i + 1
         }
         return ""
+    }
+
+    ; The isolated scope a loaded virtual module evaluates in. Falls back to the
+    ; entry module scope for an unknown name (defensive: callers pass names that
+    ; came from loaded values).
+    fn moduleScopeFor:EvalContext (name:string) {
+        def i:int 0
+        def n:int (array_length moduleScopeNames)
+        while (i < n) {
+            if ((itemAt moduleScopeNames i) == name) {
+                def cid:int (itemAt moduleScopeIds i)
+                def cell:ClosureCell (itemAt closureScopes cid)
+                if cell.ctx {
+                    def c:EvalContext (unwrap cell.ctx)
+                    ; every stored scope is its own moduleRoot, so this is the
+                    ; scope itself (via a method call, which the optionality
+                    ; checker accepts as a non-optional producer)
+                    return (c.moduleScope())
+                }
+            }
+            i = (i + 1)
+        }
+        return (moduleScope.moduleScope())
+    }
+
+    ; A module's class declaration by (module, class) — empty node on miss.
+    fn moduleClassNode:TSNode (moduleName:string clsName:string) {
+        def empty:TSNode (new TSNode())
+        def key:string (moduleName + ("::" + clsName))
+        def cn@(optional):TSNode (get moduleClasses key)
+        if (null? cn) {
+            return empty
+        }
+        return (unwrap cn)
     }
 
     fn loadVirtualModule:void (name:string) {
@@ -685,8 +737,187 @@ class ComponentEngine {
         vParser.initParser(vTokens)
         vParser.tsxMode = jsxParsing
         def vAst:TSNode (vParser.parseProgram())
+        ; The module's own scope: parented on hostScope ONLY (never the entry
+        ; script's moduleScope). Held via ClosureCell so array storage keeps a
+        ; pointer instead of deep-copying the context.
+        def mscope:EvalContext (new EvalContext())
+        mscope.parent = hostScope
+        mscope.moduleRoot = mscope
+        def cid:int (array_length closureScopes)
+        def cell (new ClosureCell)
+        cell.ctx = mscope
+        push closureScopes cell
+        push moduleScopeNames name
+        push moduleScopeIds cid
+        ; Evaluate the module INSIDE its scope: its imports bind into it, its
+        ; functions capture it as their closure, its classes go to the
+        ; per-module table, its consts/lets evaluate in it, and its top-level
+        ; statements run in it. Declaration order mirrors loadScript: functions
+        ; + classes first, then variables, then expression statements.
+        def savedModule:string currentModule
+        def savedCtx:EvalContext context
+        currentModule = name
+        context = mscope
         this.processImports(vAst)
-        this.materializeImportedModule(vAst)
+        this.materializeVirtualModule(vAst)
+        this.runVirtualTopLevel(vAst)
+        context = savedCtx
+        currentModule = savedModule
+    }
+
+    fn materializeVirtualModule:void (ast:TSNode) {
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            this.materializeVirtualDecl(node)
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length ast.children)) {
+            def vnode:TSNode (itemAt ast.children j)
+            this.materializeVirtualVar(vnode)
+            j = (j + 1)
+        }
+    }
+
+    ; Pass 1: functions become closures over the module scope; classes go to the
+    ; per-module class table.
+    fn materializeVirtualDecl:void (node:TSNode) {
+        if (node.nodeType == "FunctionDeclaration") {
+            if ((strlen node.name) > 0) {
+                def fv:EvalValue (this.captureClosure(node))
+                context.define(node.name fv)
+            }
+            return
+        }
+        if (node.nodeType == "ClassDeclaration") {
+            if ((strlen node.name) > 0) {
+                def key:string (currentModule + ("::" + node.name))
+                set moduleClasses key node
+            }
+            return
+        }
+        if (node.nodeType == "ExportNamedDeclaration") {
+            if node.left {
+                this.materializeVirtualDecl((unwrap node.left))
+            }
+            return
+        }
+        if (node.nodeType == "ExportDefaultDeclaration") {
+            if node.left {
+                this.materializeVirtualDecl((unwrap node.left))
+            }
+        }
+    }
+
+    ; Pass 2: top-level const/let evaluate with the module scope as context.
+    fn materializeVirtualVar:void (node:TSNode) {
+        if (node.nodeType == "VariableDeclaration") {
+            def i:int 0
+            while (i < (array_length node.children)) {
+                def decl:TSNode (itemAt node.children i)
+                if (decl.nodeType == "VariableDeclarator") {
+                    if decl.init {
+                        def value:EvalValue (this.evaluateExpr((unwrap decl.init)))
+                        context.define(decl.name value)
+                    } {
+                        context.define(decl.name (EvalValue.undefined()))
+                    }
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        if (node.nodeType == "ExportNamedDeclaration") {
+            if node.left {
+                this.materializeVirtualVar((unwrap node.left))
+            }
+            return
+        }
+        if (node.nodeType == "ExportDefaultDeclaration") {
+            if node.left {
+                this.materializeVirtualVar((unwrap node.left))
+            }
+        }
+    }
+
+    ; Pass 3: top-level expression statements run in the module scope.
+    fn runVirtualTopLevel:void (ast:TSNode) {
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def stmt:TSNode (itemAt ast.children i)
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    this.evaluateExprForSideEffect((unwrap stmt.left))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A loaded module's top-level binding by name (host lifecycle door: the
+    ; entry points a guest wired via runtime.start live in ranger:core's scope,
+    ; not the entry script's). Null when no loaded module binds the name.
+    fn lookupModuleExport:EvalValue (name:string) {
+        def i:int 0
+        def n:int (array_length moduleScopeNames)
+        while (i < n) {
+            def cid:int (itemAt moduleScopeIds i)
+            def cell:ClosureCell (itemAt closureScopes cid)
+            if cell.ctx {
+                def sc:EvalContext (unwrap cell.ctx)
+                if (has sc.bindings name) {
+                    return (sc.lookup(name))
+                }
+            }
+            i = (i + 1)
+        }
+        return (EvalValue.null())
+    }
+
+    ; Namespace object for `import * as NS from "ranger:x"`: a snapshot of the
+    ; module's top-level value bindings plus a hidden home-module tag that
+    ; member-new (`new NS.Class()`) resolves the module's class table through.
+    fn buildNamespaceValue:EvalValue (name:string) {
+        def ks:[string]
+        def vs:[EvalValue]
+        def ns:EvalValue (EvalValue.object(ks vs))
+        ns.setMember("__nsmodule__" (EvalValue.string(name)))
+        def sc:EvalContext (this.moduleScopeFor(name))
+        def bnames:[string] (keys sc.bindings)
+        def i:int 0
+        while (i < (array_length bnames)) {
+            def bn:string (itemAt bnames i)
+            def bv:EvalValue (sc.lookup(bn))
+            ns.setMember(bn bv)
+            i = (i + 1)
+        }
+        return ns
+    }
+
+    ; Bind an import clause of a virtual module into the IMPORTER's scope
+    ; (context = entry moduleScope, another module's scope, or a fixture).
+    fn bindVirtualImportSpecifiers:void (node:TSNode moduleName:string) {
+        def sc:EvalContext (this.moduleScopeFor(moduleName))
+        def j:int 0
+        while (j < (array_length node.children)) {
+            def spec:TSNode (itemAt node.children j)
+            if (spec.nodeType == "ImportNamespaceSpecifier") {
+                def nsv:EvalValue (this.buildNamespaceValue(moduleName))
+                context.define(spec.name nsv)
+            }
+            if (spec.nodeType == "ImportSpecifier") {
+                if (spec.kind != "type") {
+                    def localName:string spec.name
+                    if ((strlen spec.value) > 0) {
+                        localName = spec.value
+                    }
+                    def v:EvalValue (sc.lookup(spec.name))
+                    context.define(localName v)
+                }
+            }
+            j = (j + 1)
+        }
     }
 
     fn collectCallArgs:[EvalValue] (node:TSNode) {
@@ -869,6 +1100,25 @@ class ComponentEngine {
     fn callFunction:EvalValue (name:string props:EvalValue) {
         def fnValue:EvalValue (context.lookup(name))
         if (false == (fnValue.isFunction())) {
+            ; Host lifecycle door: a name not in the entry scope may be a loaded
+            ; virtual module's top-level function (e.g. the ranger:core
+            ; __rgGameInit / __rgGameUpdate entry points — module scopes are
+            ; isolated, so they are NOT entry bindings). Module functions carry
+            ; their closure, so the call roots in their own module scope.
+            def mv:EvalValue (this.lookupModuleExport(name))
+            if (mv.isFunction()) {
+                if mv.functionNode {
+                    def margs:[EvalValue]
+                    push margs props
+                    def mout:EvalValue (this.callFnValueWithValues(mv margs))
+                    if scriptThrew {
+                        this.trace("Uncaught exception: " + (scriptThrowValue.toString()))
+                        scriptThrew = false
+                        scriptThrowValue = (EvalValue.null())
+                    }
+                    return mout
+                }
+            }
             return (EvalValue.null())
         }
         if (null? fnValue.functionNode) {
@@ -936,9 +1186,13 @@ class ComponentEngine {
         if ((strlen modulePath) == 0) {
             return
         }
-        ; Virtual `ranger:*` packages: evaluate the registered source once.
+        ; Virtual `ranger:*` packages: evaluate the registered source once (in
+        ; its own scope), then bind THIS import clause into the importer's
+        ; scope — named imports and `import * as NS` namespaces. Nothing beyond
+        ; the clause becomes visible.
         if ((indexOf modulePath "ranger:") == 0) {
             this.loadVirtualModule(modulePath)
+            this.bindVirtualImportSpecifiers(node modulePath)
             return
         }
         if ((indexOf modulePath "evg_types") >= 0) {
@@ -3206,6 +3460,9 @@ class ComponentEngine {
         cell.ctx = context
         push closureScopes cell
         fv.closureId = id
+        ; provenance: the module this function was DEFINED in ("" = entry), so a
+        ; call can restore the right module register for bare-name `new`.
+        fv.homeModule = currentModule
         return fv
     }
 
@@ -3231,6 +3488,7 @@ class ComponentEngine {
         def savedContext:EvalContext context
         def savedDidReturn:boolean scriptDidReturn
         def savedReturnValue:EvalValue scriptReturnValue
+        def savedModule:string currentModule
         scriptDidReturn = false
         scriptReturnValue = (EvalValue.null())
         def parent:EvalContext context
@@ -3241,7 +3499,20 @@ class ComponentEngine {
                     parent = (unwrap cell.ctx)
                 }
             }
+        } {
+            ; No captured scope: root lexically by provenance. A module-owned
+            ; value roots in its module scope; an entry-owned value invoked FROM
+            ; module code roots in the entry module scope (never the module's
+            ; chain). Pure entry→entry calls keep the legacy caller chain.
+            if ((strlen fnValue.homeModule) > 0) {
+                parent = (this.moduleScopeFor(fnValue.homeModule))
+            } {
+                if ((strlen currentModule) > 0) {
+                    parent = moduleScope
+                }
+            }
         }
+        currentModule = fnValue.homeModule
         context = (parent.createChild())
         if fnValue.boundThis {
             context.define("this" (unwrap fnValue.boundThis))
@@ -3257,6 +3528,7 @@ class ComponentEngine {
             }
         }
         context = savedContext
+        currentModule = savedModule
         scriptDidReturn = savedDidReturn
         scriptReturnValue = savedReturnValue
         return result
@@ -4168,7 +4440,10 @@ class ComponentEngine {
                 ; or invoke a field that holds a function value (e.g. this.afterCb).
                 def uClsN:string (this.instanceClassName(obj))
                 if ((strlen uClsN) > 0) {
-                    def uMethod:TSNode (this.findMethodInClass(uClsN methodName))
+                    ; module-aware dispatch: the instance's home-module tag picks
+                    ; the class table (or the entry-realm map when untagged)
+                    def uCls:TSNode (this.classNodeForInstance(obj))
+                    def uMethod:TSNode (this.findMethodOnClassNode(uCls methodName))
                     if (uMethod.nodeType == "MethodDefinition") {
                         return (this.callUserFunctionNode(uMethod node.children obj true))
                     }
@@ -5208,7 +5483,7 @@ class ComponentEngine {
                         def i:int 0
                         while (i < (array_length ks)) {
                             def k:string (itemAt ks i)
-                            if (k != "__class__") {
+                            if (false == (this.isHiddenInstanceKey(k))) {
                                 push items (EvalValue.string(k))
                             }
                             i = (i + 1)
@@ -5221,7 +5496,7 @@ class ComponentEngine {
                         def i:int 0
                         while (i < (array_length ks)) {
                             def k:string (itemAt ks i)
-                            if (k != "__class__") {
+                            if (false == (this.isHiddenInstanceKey(k))) {
                                 push items (src.getMember(k))
                             }
                             i = (i + 1)
@@ -5234,7 +5509,7 @@ class ComponentEngine {
                         def i:int 0
                         while (i < (array_length ks)) {
                             def k:string (itemAt ks i)
-                            if (k != "__class__") {
+                            if (false == (this.isHiddenInstanceKey(k))) {
                                 def pair:[EvalValue]
                                 push pair (EvalValue.string(k))
                                 push pair (src.getMember(k))
@@ -5874,6 +6149,74 @@ class ComponentEngine {
         return ""
     }
 
+    ; The virtual module an instance's class was declared in ("" = entry-realm
+    ; class). Stamped by evaluateNewExpr for module-owned classes.
+    fn instanceModuleTag:string (obj:EvalValue) {
+        if (obj.valueType != 5) { return "" }
+        def mv@(optional):EvalValue (get obj.objectMap "__module__")
+        if mv {
+            def m:EvalValue (unwrap mv)
+            if (m.valueType == 2) {
+                return m.stringValue
+            }
+        }
+        return ""
+    }
+
+    ; Resolve the class declaration an instance was constructed from: a module
+    ; tag routes to that module's class table, otherwise the engine-wide map
+    ; (entry-realm classes). Empty node when unknown.
+    fn classNodeForInstance:TSNode (obj:EvalValue) {
+        def empty:TSNode (new TSNode())
+        def clsName:string (this.instanceClassName(obj))
+        if ((strlen clsName) == 0) {
+            return empty
+        }
+        def tag:string (this.instanceModuleTag(obj))
+        if ((strlen tag) > 0) {
+            return (this.moduleClassNode(tag clsName))
+        }
+        def cn@(optional):TSNode (get classes clsName)
+        if (null? cn) {
+            return empty
+        }
+        return (unwrap cn)
+    }
+
+    fn findMethodOnClassNode:TSNode (cls:TSNode methodName:string) {
+        def empty:TSNode (new TSNode())
+        if (null? cls.body) { return empty }
+        def body:TSNode (unwrap cls.body)
+        def i 0
+        while (i < (array_length body.children)) {
+            def m:TSNode (itemAt body.children i)
+            if (m.nodeType == "MethodDefinition") {
+                if (m.name == methodName) {
+                    return m
+                }
+            }
+            i = (i + 1)
+        }
+        return empty
+    }
+
+    fn findConstructorOnClassNode:TSNode (cls:TSNode) {
+        def empty:TSNode (new TSNode())
+        if (null? cls.body) { return empty }
+        def body:TSNode (unwrap cls.body)
+        def i 0
+        while (i < (array_length body.children)) {
+            def m:TSNode (itemAt body.children i)
+            if (m.nodeType == "MethodDefinition") {
+                if (m.kind == "constructor") {
+                    return m
+                }
+            }
+            i = (i + 1)
+        }
+        return empty
+    }
+
     ; The MethodDefinition node named `methodName` on class `clsName`, or an empty
     ; node (nodeType "") when there is none.
     fn findMethodInClass:TSNode (clsName:string methodName:string) {
@@ -5923,6 +6266,7 @@ class ComponentEngine {
         def savedContext:EvalContext context
         def savedDidReturn:boolean scriptDidReturn
         def savedReturnValue:EvalValue scriptReturnValue
+        def savedModule:string currentModule
         scriptDidReturn = false
         scriptReturnValue = (EvalValue.null())
         ; Evaluate arg expressions (expanding ...spread) IN THE CALLER'S CONTEXT
@@ -5949,7 +6293,30 @@ class ComponentEngine {
             }
             i = (i + 1)
         }
-        context = (context.createChild())
+        ; Root the call scope lexically at the DEFINING module (D-MODULES scope
+        ; isolation): a method on a module-owned instance runs rooted in that
+        ; module's scope (its module-level state, never the caller's chain); an
+        ; entry-realm method invoked FROM module code roots at the entry module
+        ; scope. Pure entry→entry calls keep the legacy caller-chain parent.
+        def parentScope:EvalContext context
+        def homeTag:string ""
+        def tagged:boolean false
+        if hasThis {
+            homeTag = (this.instanceModuleTag(thisVal))
+            if ((strlen homeTag) > 0) {
+                tagged = true
+            }
+        }
+        if tagged {
+            parentScope = (this.moduleScopeFor(homeTag))
+            currentModule = homeTag
+        } {
+            if ((strlen currentModule) > 0) {
+                parentScope = moduleScope
+            }
+            currentModule = ""
+        }
+        context = (parentScope.createChild())
         if hasThis {
             context.define("this" thisVal)
         }
@@ -5957,6 +6324,7 @@ class ComponentEngine {
         def body:TSNode (this.getFunctionBody(fnNode))
         def result:EvalValue (this.evaluateFunctionBodyValue(body))
         context = savedContext
+        currentModule = savedModule
         scriptDidReturn = savedDidReturn
         scriptReturnValue = savedReturnValue
         return result
@@ -5964,11 +6332,39 @@ class ComponentEngine {
 
     ; Evaluate `new ClassName(args)` -> an instance object with initialised fields
     ; and its constructor run.
+    ;
+    ; Class resolution is module-scoped (D-MODULES):
+    ;   `new NS.Class()`   — NS is an imported module namespace: the class comes
+    ;                        from THAT module's class table (member-new).
+    ;   `new Class()`      — resolves in the CURRENT module's table when module
+    ;                        code is executing, else the entry-realm map. Module
+    ;                        classes are never reachable bare from the entry
+    ;                        script: importing the namespace is the only door.
+    ; Instances are stamped with their class's home module so method dispatch
+    ; and scope rooting stay with the defining module for the object's lifetime.
     fn evaluateNewExpr:EvalValue (node:TSNode) {
         def className:string ""
+        def nsModule:string ""
+        def viaNamespace:boolean false
         if node.left {
             def callee:TSNode (unwrap node.left)
             className = callee.name
+            if (callee.nodeType == "MemberExpression") {
+                if callee.left {
+                    def baseNode:TSNode (unwrap callee.left)
+                    def baseV:EvalValue (this.evaluateExpr(baseNode))
+                    if (baseV.valueType == 5) {
+                        def tagV@(optional):EvalValue (get baseV.objectMap "__nsmodule__")
+                        if tagV {
+                            def tag:EvalValue (unwrap tagV)
+                            if (tag.valueType == 2) {
+                                nsModule = tag.stringValue
+                                viaNamespace = true
+                            }
+                        }
+                    }
+                }
+            }
         }
         ; Built-in collections: new Map([[k,v]...]) / new Set([v...]).
         if (className == "Map") {
@@ -6002,20 +6398,45 @@ class ComponentEngine {
             }
             return st
         }
-        def cn@(optional):TSNode (get classes className)
-        if (null? cn) {
+        ; Resolve the class declaration in the right table (see fn comment).
+        def clsModule:string currentModule
+        def cls:TSNode (new TSNode())
+        if viaNamespace {
+            clsModule = nsModule
+            cls = (this.moduleClassNode(nsModule className))
+        } {
+            if ((strlen currentModule) > 0) {
+                cls = (this.moduleClassNode(currentModule className))
+            } {
+                def cn@(optional):TSNode (get classes className)
+                if cn {
+                    cls = (unwrap cn)
+                }
+            }
+        }
+        if (cls.nodeType != "ClassDeclaration") {
             return (EvalValue.null())
         }
-        def cls:TSNode (unwrap cn)
         def keys0:[string]
         def vals0:[EvalValue]
         def inst:EvalValue (EvalValue.object(keys0 vals0))
         inst.setMember("__class__" (EvalValue.string(className)))
-        ; field initialisers (PropertyDefinition) run with this=inst
+        if ((strlen clsModule) > 0) {
+            inst.setMember("__module__" (EvalValue.string(clsModule)))
+        }
+        ; field initialisers (PropertyDefinition) run with this=inst, rooted in
+        ; the class's home module scope (a module class's `field = new Other()`
+        ; must see ITS module, not the construction site).
         if cls.body {
             def body:TSNode (unwrap cls.body)
             def savedCtx:EvalContext context
-            context = (context.createChild())
+            def savedModule:string currentModule
+            def fieldParent:EvalContext context
+            if ((strlen clsModule) > 0) {
+                fieldParent = (this.moduleScopeFor(clsModule))
+                currentModule = clsModule
+            }
+            context = (fieldParent.createChild())
             context.define("this" inst)
             def i 0
             while (i < (array_length body.children)) {
@@ -6029,8 +6450,11 @@ class ComponentEngine {
                 i = (i + 1)
             }
             context = savedCtx
+            currentModule = savedModule
         }
-        def ctor:TSNode (this.findConstructor(className))
+        ; Constructor args evaluate at the construction site (caller context/
+        ; module); the body roots at the instance's home module via the tag.
+        def ctor:TSNode (this.findConstructorOnClassNode(cls))
         if (ctor.nodeType == "MethodDefinition") {
             def _r:EvalValue (this.callUserFunctionNode(ctor node.children inst true))
         }
@@ -6092,9 +6516,14 @@ class ComponentEngine {
                         return fieldV
                     }
                 }
-                def mnode:TSNode (this.findMethodInClass(clsN propName))
+                def mcls:TSNode (this.classNodeForInstance(obj))
+                def mnode:TSNode (this.findMethodOnClassNode(mcls propName))
                 if (mnode.nodeType == "MethodDefinition") {
-                    return (EvalValue.boundMethod(mnode obj))
+                    def bm:EvalValue (EvalValue.boundMethod(mnode obj))
+                    ; provenance travels with the value: a stored method of a
+                    ; module instance still roots in its module when invoked
+                    bm.homeModule = (this.instanceModuleTag(obj))
+                    return bm
                 }
             }
 
@@ -6160,6 +6589,16 @@ class ComponentEngine {
             return 1
         }
         return 0
+    }
+
+    ; Internal bookkeeping members stamped on values by the evaluator — never
+    ; enumerable guest data. __class__/__module__ tag instances with their class
+    ; and its home module; __nsmodule__ tags an imported module namespace.
+    fn isHiddenInstanceKey:boolean (k:string) {
+        if (k == "__class__") { return true }
+        if (k == "__module__") { return true }
+        if (k == "__nsmodule__") { return true }
+        return false
     }
 
     ; Own enumerable keys of an object value (wrapper so callers where `keys` is
@@ -6255,7 +6694,7 @@ class ComponentEngine {
             def first:boolean true
             while (i < (array_length ks)) {
                 def k:string (itemAt ks i)
-                if (k != "__class__") {
+                if (false == (this.isHiddenInstanceKey(k))) {
                     if (first == false) {
                         out = (out + ",")
                     }
