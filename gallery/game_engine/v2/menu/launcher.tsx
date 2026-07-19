@@ -85,6 +85,7 @@ function init() {
   selectSfx = new AudioSource();
   cursorSprite = new Sprite2D(atlas, rCursor);
   layer.add(cursorSprite);
+  surfacePaneView(0, layer, cam);
   buildTiles();
   log("launcher-v2 init: categories=" + CATALOG.length);
   return 1;
@@ -124,9 +125,7 @@ function update(props) {
   return 1;
 }
 
-// ---- runner accessors ------------------------------------------------------
-function getLayerId() { return layer.id; }
-function getCameraId(slot) { return cam.id; }
+// ---- test-observation accessors (games/AGENTS.md rule 5) -------------------
 function selectedIndex(slot) { return selected; }
 function currentPage(slot) { return page; }
 function tileCount(slot) { return tileSprites.length; }

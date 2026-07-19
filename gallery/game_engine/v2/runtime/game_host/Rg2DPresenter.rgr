@@ -1,0 +1,55 @@
+; ==============================================================================
+; Rg2DPresenter — pane presentation from host-owned surface state (D-SYNC).
+; ==============================================================================
+; Split out of RgGameHost per design review: the lifecycle host is renderer-
+; agnostic; presentation is an adapter that READS the pane views the guest
+; declared once (rgcore_surface_pane_view → REAL layer/camera handles stored in
+; RgSurface pane state) and invokes a selected renderer. No guest accessors, no
+; surrogate-id round trips, no named script exports:
+;
+;   pane index → host surface pane → layer handle + camera handle → renderer
+;
+; This file binds the SOFTWARE backend; a GPU presenter is a sibling adapter
+; over the same pane state, not a change to the host or the games.
+; ==============================================================================
+
+Import "../../interp/engine/RgRegistryBridge.rgr"
+Import "../../render/backends/software/RgSoftwareRenderer2D.rgr"
+
+class Rg2DPresenter {
+    ; Present one pane from host pane state. Returns sprites drawn (-1 if the
+    ; pane has no declared view).
+    sfn present:int (bridge:RgRegistryBridge paneIndex:int fb:RgFramebuffer) {
+        def layerH:RgHandle (bridge.surface.paneLayer(paneIndex))
+        def camH:RgHandle (bridge.surface.paneCam(paneIndex))
+        if ((layerH.isValid()) == false) { return (0 - 1) }
+        if ((camH.isValid()) == false) { return (0 - 1) }
+        return (RgSoftwareRenderer2D.present2D(bridge.d2 fb layerH camH))
+    }
+
+    ; ---- debug helper (test/diagnostic output, not core presentation) -------
+    sfn dumpPane:void (fb:RgFramebuffer label:string) {
+        print ("  --- " + label + " (48x12 downsample of 96x96) ---")
+        def row 0
+        while (row < 12) {
+            def line:string "  "
+            def col 0
+            while (col < 48) {
+                def hit:boolean false
+                def dy 0
+                while (dy < 8) {
+                    def dx 0
+                    while (dx < 2) {
+                        if ((fb.at((col * 2 + dx) (row * 8 + dy))) != 0) { hit = true }
+                        dx = (dx + 1)
+                    }
+                    dy = (dy + 1)
+                }
+                if hit { line = (line + "#") } { line = (line + ".") }
+                col = (col + 1)
+            }
+            print line
+            row = (row + 1)
+        }
+    }
+}

@@ -97,6 +97,9 @@ The must-pass ylos2 port runs from this folder as **pure TSX content**
 (`ylos2/index.tsx` on the `ranger2d.tsx` façade). There is **no per-game
 `.rgr`**: `../runtime/game_host/RgGameHost.rgr` is the one generic host (v1
 GameRunner analog) — adding a new v2 game means adding a game folder with
-`index.tsx`, nothing else. Game protocol: `init()` / `update(props)` +
-`getLayerId()` / `getCameraId(pane)` (+ optional `autopilotBits(slot)` attract
-mode). E2E gates: `../tests/e2e/ylos2_e2e_test`, `../tests/e2e/launcher_e2e_test`.
+`index.tsx`, nothing else. Game protocol: `init()` / `update(props)`;
+presentation is declared once via `surfacePaneView(pane, layer, cam)` (real
+handles stored in host pane state — no guest accessor round trip; a presenter
+reads pane state and picks the renderer). Optional `autopilotBits(slot)`
+attract mode is consumed by the separate `RgAttractDriver`, never by the host.
+E2E gates: `../tests/e2e/ylos2_e2e_test`, `../tests/e2e/launcher_e2e_test`.

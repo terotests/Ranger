@@ -9,6 +9,8 @@
 ; ==============================================================================
 
 Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+Import "../../runtime/game_host/RgAttractDriver.rgr"
 Import "../harness/RgTest.rgr"
 
 class Ylos2E2ETest {
@@ -33,11 +35,11 @@ class Ylos2E2ETest {
         def startY1:double (host.callSlot("playerY" 0))
         def sprite1IdA:int (to_int (host.callSlot("playerSpriteId" 0)))
 
-        ; ---- attract mode through the generic host --------------------------
-        host.attractPlayers = 2
+        ; ---- attract mode via the optional driver (host stays input-agnostic)
         def frame 0
         def goalFrame:int (0 - 1)
         while (frame < 3600) {
+            RgAttractDriver.feedPlayers(host 2)
             host.frame(33.333)
             frame = (frame + 1)
             if (goalFrame < 0) {
@@ -68,14 +70,14 @@ class Ylos2E2ETest {
         def sh:RgHandle (host.bridge.resolveGuestId(sprite1IdB))
         t.ok("player sprite handle live in the arena" (host.bridge.d2.isLive(sh)))
 
-        ; ---- split-screen present via the generic protocol ------------------
+        ; ---- split-screen present from host-owned pane views ----------------
         def fbL:RgFramebuffer (RgFramebuffer.create(96 96))
         def fbR:RgFramebuffer (RgFramebuffer.create(96 96))
-        t.ok("left pane drew sprites" ((host.presentPane(0 fbL)) > 0))
-        t.ok("right pane drew sprites" ((host.presentPane(1 fbR)) > 0))
+        t.ok("left pane drew sprites" ((Rg2DPresenter.present(host.bridge 0 fbL)) > 0))
+        t.ok("right pane drew sprites" ((Rg2DPresenter.present(host.bridge 1 fbR)) > 0))
         t.ok("P1 at left-pane centre" ((fbL.at(48 48)) != 0))
         t.ok("P2 at right-pane centre" ((fbR.at(48 48)) != 0))
-        RgGameHost.dumpPane(fbL "left pane (P1 at summit)")
+        Rg2DPresenter.dumpPane(fbL "left pane (P1 at summit)")
 
         t.summary()
     }

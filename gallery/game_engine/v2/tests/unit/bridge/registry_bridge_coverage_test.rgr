@@ -173,6 +173,17 @@ class RegistryBridgeCoverageTest {
         s.callN("rgcore_surface_pane_player" ppA)
         t.eqInt("pane 1 bound to player 1" (b.surface.panePlayer(1)) 1)
 
+        ; pane view: real handles stored host-side (no guest accessor round trip)
+        def pvA:[EvalValue]
+        push pvA (s.num(0.0))
+        push pvA (s.num((to_double layer)))
+        push pvA (s.num((to_double cam)))
+        s.callN("rgcore_surface_pane_view" pvA)
+        def pl0:RgHandle (b.surface.paneLayer(0))
+        def pc0:RgHandle (b.surface.paneCam(0))
+        t.ok("pane 0 layer handle stored" (pl0.isValid()))
+        t.ok("pane 0 camera handle stored" (pc0.isValid()))
+
         def clipArgs:[EvalValue]
         def clipH:int (s.callI("rgcore_audio_clip_create" clipArgs))
         def srcA:[EvalValue]

@@ -8,6 +8,8 @@
 ; ==============================================================================
 
 Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+Import "../../runtime/game_host/RgAttractDriver.rgr"
 Import "../harness/RgTest.rgr"
 
 class LauncherE2ETest {
@@ -45,7 +47,7 @@ class LauncherE2ETest {
 
         ; ---- menu presents pixels via the generic protocol ------------------
         def fb:RgFramebuffer (RgFramebuffer.create(96 96))
-        t.eqInt("menu present drew 3 tiles + cursor" (host.presentPane(0 fb)) 4)
+        t.eqInt("menu present drew 3 tiles + cursor" (Rg2DPresenter.present(host.bridge 0 fb)) 4)
         t.ok("selected tile at camera centre" ((fb.at(48 48)) != 0))
 
         ; ---- select Pomppija → GENERIC handoff ------------------------------
@@ -57,9 +59,9 @@ class LauncherE2ETest {
         t.eqInt("launched game built its scene (27 sprites)"
             (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 27)
         def y0:double (host.callSlot("playerY" 0))
-        host.attractPlayers = 1
         def f 0
         while (f < 90) {
+            RgAttractDriver.feedPlayers(host 1)
             host.frame(33.333)
             f = (f + 1)
         }

@@ -203,10 +203,13 @@ checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
   arena leak), held keys don't repeat (edge ≠ level), the menu presents pixels,
   selecting Pomppija reports `games/ylos2`, and the host's generic handoff
   boots the ylos2 guest in a fresh realm.
-- **ONE generic game host — `runtime/game_host/RgGameHost.rgr`: ✅.** The v2
-  analog of v1's single GameRunner: load(gameDir) → façade+TSX → init, host
-  frame pipeline, pane present via the game protocol (`getLayerId` /
-  `getCameraId`), optional attract mode, and a generic `launch(path)` handoff.
+- **ONE generic game host — `runtime/game_host/RgGameHost.rgr`: ✅.** The
+  single generic host for interpreted v2 ranger2d TSX games (v1 GameRunner
+  analog): load(gameDir) → façade+TSX → init, host frame pipeline, and a
+  generic `launch(path)` handoff. Presentation moved to host-owned pane views
+  (`surfacePaneView` → `Rg2DPresenter` reads pane state; renderer choice lives
+  in the presenter, host is backend-agnostic); demo input moved to
+  `RgAttractDriver` (optional, out-of-band).
   **A v2 game is a folder of `.tsx` files and nothing else** — per-game `.rgr`
   runners are forbidden (the earlier `ylos2_v2_runner.rgr` /
   `launcher_v2_runner.rgr` regression is deleted); e2e assertions live in thin

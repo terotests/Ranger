@@ -138,6 +138,10 @@ function init() {
   layer.add(p2.sprite);
   players = [p1, p2];
 
+  // declare each pane's view once — host-owned pane state drives presentation
+  surfacePaneView(0, layer, cam1);
+  surfacePaneView(1, layer, cam2);
+
   log("ylos2-v2 init: platforms=" + (BASE_PLATFORMS.length + BASE_MOVING_PLATFORMS.length));
   return 1;
 }
@@ -301,9 +305,8 @@ function autopilotBits(slot) {
   return bits;
 }
 
-// ---- runner accessors (numbers only) ---------------------------------------
-function getLayerId() { return layer.id; }
-function getCameraId(slot) { if (slot == 0) { return cam1.id; } return cam2.id; }
+// ---- test-observation accessors (see games/AGENTS.md rule 5 — to migrate
+// to guest-side test fixtures; presentation no longer uses guest accessors) --
 function playerY(slot) { return players[slot].y; }
 function playerX(slot) { return players[slot].x; }
 function reachedGoal(slot) { return players[slot].reachedGoal; }

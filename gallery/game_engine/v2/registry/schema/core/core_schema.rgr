@@ -26,6 +26,10 @@ class CoreSchema {
         def surf:RgClassDef (RgClassDef.of(11 "Surface"))
         surf.addMethod((RgMethodDef.cmd(1010 "rgcore_surface_set_layout" "rgcore_surface_set_layout" "i" "v" "none")))
         surf.addMethod((RgMethodDef.cmd(1011 "rgcore_surface_pane_player" "rgcore_surface_pane_player" "i:i" "v" "none")))
+        ; pane view: the guest declares each pane's presentation resources ONCE;
+        ; the host stores the REAL layer/camera handles in pane state, so
+        ; present never round-trips through guest accessors / surrogate ids
+        surf.addMethod((RgMethodDef.cmd(1012 "rgcore_surface_pane_view" "rgcore_surface_pane_view" "i:h:h" "v" "none")))
         s.addClass(surf)
 
         ; ---- Audio (12) — clip ≠ source ≠ voice + vocal/music facades --------

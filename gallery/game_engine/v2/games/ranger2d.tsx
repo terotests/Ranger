@@ -64,6 +64,9 @@ function inputIsDown(player, action) { return rgcore_input_is_down(player, actio
 function inputWasPressed(player, action) { return rgcore_input_was_pressed(player, action) > 0; }
 function surfaceSetLayout(mode) { rgcore_surface_set_layout(mode); }
 function surfacePanePlayer(pane, player) { rgcore_surface_pane_player(pane, player); }
+// declare a pane's presentation resources ONCE (host stores the real handles;
+// present reads host pane state — no guest accessor round trip)
+function surfacePaneView(pane, layer, cam) { rgcore_surface_pane_view(pane, layer.id, cam.id); }
 function vocal(name) { rgcore_vocal(name); }
 function musicPlay(score) { rgcore_music_play(score); }
 function musicStop() { rgcore_music_stop(); }
