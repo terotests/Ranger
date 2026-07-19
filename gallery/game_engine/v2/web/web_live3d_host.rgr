@@ -1,7 +1,8 @@
 ; ==============================================================================
 ; web_live3d_host — LIVE ranger:three scene, software-rendered in the browser.
 ; ==============================================================================
-; The LIVE-PATH counterpart to web_tsx3d_gl_host: instead of interpreting a
+; The LIVE-PATH 3D web host (replaced the removed ThreeTsxBridge reconciler
+; hosts at RETIRE-RECONCILE): instead of interpreting a
 ; Three.js script into a reconciled core each frame (ComponentEngine +
 ; ThreeTsxBridge), it runs a guest that drives the ranger:three FAÇADE directly.
 ; Every `new THREE.*` / setTransform is an immediate method-call lowered through

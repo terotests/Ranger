@@ -9,7 +9,7 @@ driver and the roadmap below over that checklist.
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
 | Headless gate | `npm run engine:v2:test` → 88 suites + boundary gate | — |
-| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity + Map/Set/`indexOf` on the **real** interpreter; live 3D path splits object lifetime from scene membership for Mesh **and** lights/GLTFModel (`new X(...)` detached, `scene.add`/`remove`, O(1) detach) | `RETIRE-RECONCILE` (blocked on migrate-vs-drop of the staged reconcile demos) |
+| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — cube/teapot/sponza demos re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
@@ -53,18 +53,18 @@ handle → separate object / membership / GPU lifetimes) is now advancing on the
       back-reference; `detachEntity` drops via the parent instead of scanning all
       scenes+entities. Handle resolution was already O(1)/generation-safe
       (`RgRegistry` slot table) — no index-based guest IDs.
-- [ ] **`RETIRE-RECONCILE`** — **blocked on a scope decision, not a bounded
-      increment.** The reconciler (`three/port/tsx/three_tsx_bridge.rgr`) is used
-      ONLY by ungated, staged, GL-dependent demos (`web/web_{teapot,sponza,tsx3d_gl}_*`)
-      and 5 unwired `three/port/tests/*` value-parity suites — **no wired suite
-      touches it**. Deleting it per the contract requires the teapot/sponza demos
-      to stop calling `reconcile`, which means either (a) porting the full THREE
-      demo surface they use (teapot geometry, orbit controls, GUI overlay — none
-      of which the live `ranger:three` registry has yet) onto the live path — a
-      large feature-port — or (b) a product decision to drop the staged GL demos.
-      A live-path `Group` façade (contract lists Mesh/**Group**/Scene/Light/Camera)
-      is also still missing but would be unused until (a). Not started —
-      needs the migrate-vs-drop call.
+- [x] **`RETIRE-RECONCILE`** — **done.** Ported the THREE demo surface onto the
+      live registry (Group, TeapotGeometry, PlaneGeometry, OrbitControls),
+      re-implemented the cube / teapot / sponza demos on the LIVE path
+      (`web/web_live3d_host.rgr` + `web/guests/three/*.tsx`), and
+      **browser-verified** each renders in headless Chromium via
+      `web/tests/browser_smoke.mjs`. Then deleted `three_tsx_bridge` +
+      `three_gui_overlay`, the 5 reconcile web hosts, the 5 unwired reconcile
+      tests, and the Sponza typed accessors. Full gate stays 89/89.
+      Follow-ups (live-path polish, not blockers): sky/background, light-probe GI,
+      first-person controls, material textures/PBR — all documented; the SW
+      rasteriser's `w*8` span guard still drops huge flat quads (subdivide meshes;
+      see the "remove the 8x span guard" item).
 
 See [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) D-IDENTITY / D-SYNC for the contract.
 
