@@ -1,0 +1,58 @@
+; ==============================================================================
+; physics_step_test — physics world/body/step gate (Phase 9, headless).
+; ==============================================================================
+; A rigid-body world in its OWN arena (separate from Three, D-TYPE): create
+; bodies, fixed-step under gravity, read poses. Static bodies never move; body
+; handles are generation-checked and release-safe.
+; ==============================================================================
+
+Import "../step/RgPhysicsWorld.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class PhysicsStepTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("physics/step"))
+        def world:RgPhysicsWorld (new RgPhysicsWorld)
+        def realm:int 1
+
+        ; a dynamic body at height 10 and a static floor body
+        def ball:OwnedHandle (world.bodyCreate(realm 1.0 0.0 10.0 0.0))
+        def floor:OwnedHandle (world.bodyCreate(realm 0.0 0.0 0.0 0.0))
+        t.eqInt("two bodies live" (world.liveCount()) 2)
+        t.near("ball starts at y=10" (world.bodyY(ball.handle)) 10.0)
+
+        ; ---- one fixed step: gravity pulls the ball down -------------------
+        def dt:double 0.1
+        world.step(dt)
+        ; semi-implicit Euler: vy = -9.81*0.1 = -0.981; y = 10 + vy*0.1 = 9.9019
+        t.near("ball velocity after one step" (world.bodyVy(ball.handle)) (0.0 - 0.981))
+        t.near("ball fell after one step" (world.bodyY(ball.handle)) 9.9019)
+        t.near("static floor never moves" (world.bodyY(floor.handle)) 0.0)
+
+        ; ---- ball keeps accelerating; floor stays put ----------------------
+        def n 0
+        while (n < 9) {
+            world.step(dt)
+            n = (n + 1)
+        }
+        t.ok("ball kept falling under gravity" ((world.bodyY(ball.handle)) < 9.0))
+        t.near("static floor still at rest" (world.bodyY(floor.handle)) 0.0)
+
+        ; ---- explicit velocity set is integrated ---------------------------
+        def mover:OwnedHandle (world.bodyCreate(realm 1.0 0.0 0.0 0.0))
+        world.setVelocity(mover.handle 2.0 0.0 0.0)
+        world.step(1.0)
+        t.near("x advanced by vx*dt" (world.bodyX(mover.handle)) 2.0)
+
+        ; ---- release frees the body slot; stale handle rejected ------------
+        def rel:RgResolve (world.release(ball))
+        t.ok("release ok" rel.ok)
+        t.no("released body not live" (world.isLive(ball.handle)))
+        def rel2:RgResolve (world.release(ball))
+        t.eqInt("double release is a typed error" rel2.code (RgErr.doubleRelease()))
+
+        t.summary()
+    }
+}

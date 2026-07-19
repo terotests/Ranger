@@ -194,6 +194,14 @@ class RgAdapter {
         def b:RgBinding (this.findBinding(ref))
         return b.hostPos.x
     }
+    fn hostPosY:double (ref:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        return b.hostPos.y
+    }
+    fn hostPosRev:int (ref:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        return b.hostPos.hostRev
+    }
 
     ; ---- frame pipeline ----------------------------------------------------
     ; Between guest turns: commit dirty mirrors to the host (guest wins), then

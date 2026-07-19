@@ -1,0 +1,61 @@
+; ==============================================================================
+; pose_sync_test — physics → mesh pose sync (Phase 9 + Phase 4 hybrid).
+; ==============================================================================
+; The game copies a stepped body's pose into its mesh via host commands only.
+; The pose write bumps the mesh's hybrid HOST revision (Phase 4 invariant 2); a
+; retained position mirror stays a within-turn snapshot and only refreshes to
+; the physics pose at its next turn (invariant 3). No rendering.
+; ==============================================================================
+
+Import "../step/RgPhysicsWorld.rgr"
+Import "../../interp/adapter/RgAdapter.rgr"
+Import "../../interp/values/RgValue.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class PoseSyncTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("physics/pose_sync"))
+        def a:RgAdapter (new RgAdapter)
+        def world:RgPhysicsWorld (new RgPhysicsWorld)
+
+        ; a mesh (host pos 0,0,0) and a physics body at y=5
+        def geo:RgValue (a.constructGeometry(4))
+        def mat:RgValue (a.constructMaterial())
+        def mesh:RgValue (a.constructMesh(geo mat))
+        def body:OwnedHandle (world.bodyCreate(1 1.0 0.0 5.0 0.0))
+
+        ; turn 1: the guest snapshots the mesh position (0,0,0)
+        t.near("turn1 mesh mirror y is 0" (a.posY(mesh)) 0.0)
+        def rev0:int (a.hostPosRev(mesh))
+
+        ; ---- step physics, copy pose into the mesh (host command) ----------
+        world.step(0.1)
+        def by:double (world.bodyY(body.handle))
+        t.ok("body fell below its start" (by < 5.0))
+        ; copy physics pose → mesh host transform (host write, bumps host rev)
+        a.hostWritePos(mesh (world.bodyX(body.handle)) by (world.bodyZ(body.handle)))
+        t.eqInt("pose write bumped the mesh host revision" (a.hostPosRev(mesh)) (rev0 + 1))
+
+        ; retained mirror is a within-turn snapshot: it does NOT see the pose yet
+        t.near("mid-turn mirror still shows the old snapshot" (a.posY(mesh)) 0.0)
+        ; the host authoritative value already holds the physics pose
+        t.near("host authoritative y already holds the physics pose"
+            (a.hostPosY(mesh)) by)
+
+        ; ---- next turn: the mirror refreshes to the physics pose -----------
+        a.beginTurn()
+        t.near("next turn mirror refreshes to the physics pose" (a.posY(mesh)) by)
+
+        ; ---- a second step advances the pose again -------------------------
+        world.step(0.1)
+        def by2:double (world.bodyY(body.handle))
+        t.ok("body kept falling" (by2 < by))
+        a.hostWritePos(mesh 0.0 by2 0.0)
+        a.beginTurn()
+        t.near("mirror tracks the new physics pose next turn" (a.posY(mesh)) by2)
+
+        t.summary()
+    }
+}

@@ -155,7 +155,13 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   update error → shutdown + teardown, no retry. `runtime.time` fixed-step clock.
   Gates: `runtime/frame/tests`, `runtime/tests/clock_test`.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (28 suites, 438
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 28/28 suites passed`.
+- **Phase 9 — Physics (headless): ✅ green.** `physics/step/RgPhysicsWorld.rgr` —
+  a rigid-body world in its own arena (D-TYPE), fixed-step gravity integration,
+  generation-checked body handles. Pose sync copies a stepped body into a mesh
+  via host commands, bumping the mesh's hybrid host revision (Phase-4 invariants).
+  Gates: `physics/tests/physics_step_test`, `physics/tests/pose_sync_test`.
 
-*Later phases (9+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (30 suites, 457
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 30/30 suites passed`.
+
+*Later phases (10+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
