@@ -219,6 +219,15 @@ class RegistryBridgeCoverageTest {
         push wpA (s.str("jump"))
         t.eqInt("input wasPressed through bridge" (s.callI("rgcore_input_was_pressed" wpA)) 1)
 
+        ; haptics — the host records the rumble command on the player
+        def rmA:[EvalValue]
+        push rmA (s.num(0.0))
+        push rmA (s.num(200.0))
+        push rmA (s.num(120.0))
+        s.callN("rgcore_input_rumble" rmA)
+        t.eqInt("rumble recorded on player 0" (b.input.rumbleCount(0)) 1)
+        t.eqInt("rumble strength recorded" (b.input.lastRumbleStrength(0)) 200)
+
         def slA:[EvalValue]
         push slA (s.num(2.0))
         s.callN("rgcore_surface_set_layout" slA)

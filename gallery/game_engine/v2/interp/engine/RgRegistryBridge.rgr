@@ -612,6 +612,10 @@ class RgRegistryBridge extends EvalNativeBridge {
             }
             return (RgRegistryBridge.retI(0))
         }
+        if (row.name == "rgcore_input_rumble") {
+            this.input.rumble((a.intAt(0)) (a.intAt(1)) (a.intAt(2)))
+            return (EvalValue.null())
+        }
         if (row.name == "rgcore_surface_set_layout") {
             this.surface.setLayout((a.intAt(0)))
             return (EvalValue.null())
