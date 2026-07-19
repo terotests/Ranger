@@ -1,20 +1,26 @@
 # interp/migrate — port notes from pdf_writer
 
-Checklist of what to copy from ComponentEngine/EvalValue and what to leave behind.
+**Staged sources:** [`src/`](./src/) — copies of `EvalValue.rgr`,
+`ComponentEngine.rgr`, `JSXToEVG.rgr` from `gallery/pdf_writer/src/jsx/`.
 
 **Plan phase:** 1 — see [`CODE_CLEANUP_PLAN.md`](../../../CODE_CLEANUP_PLAN.md).
 
 ## To implement
 
-- Document file-by-file move plan
-- Record temporary dual-path status until v2 owns identity APIs
+- Split staged files into `interp/values/`, `interp/engine/`, `interp/semantics/`
+- Keep `gallery/ts_parser/` shared until a later extract
+- Land `component_engine_js_semantics_test` under `semantics/tests/`
 
 ## Notes
 
-- Source: gallery/pdf_writer/src/jsx/ComponentEngine.rgr
-- Source: gallery/pdf_writer/src/jsx/EvalValue.rgr
-- Parser: gallery/ts_parser/ (shared OK initially)
+- v1 originals remain; edit the v2 copies (or their split descendants) for v2 work
+- JSX→EVG pairs with `v2/evg/` for UI paths
+
+## Unit / contract tests that gate this folder
+
+- D-IDENTITY suite (`tests/contract/d_identity`)
+- Adapter construct path once Phase 4 opens
 
 ---
 
-*Scaffold only (Phase 0). Implementation arrives in later phases.*
+*Staged copy present; live wiring is Phase 1+.*
