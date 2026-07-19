@@ -120,6 +120,44 @@ run_suite tests/sdl/sdl_host_test
 run_suite tests/contract/d_graphics/rtt_sprite_test
 run_suite tests/contract/d_graphics/embed3d_correctness_test
 
+# ---- model3d — GLB/mesh/texture + script bridge (headless, 5 suites) ---------
+run_suite model3d/tests/model3d_suite_test
+
+# ---- three/port — Three.js Ranger port (v2), pure-logic / asset-free ---------
+run_suite three/port/src/three_vector3_test
+run_suite three/port/src/three_math_utils_test
+run_suite three/port/src/three_timer_test
+run_suite three/port/src/three_box3_test
+run_suite three/port/src/three_euler_test
+run_suite three/port/src/three_quaternion_test
+run_suite three/port/src/three_matrix4_test
+run_suite three/port/src/three_object3d_test
+run_suite three/port/src/three_light_test
+run_suite three/port/src/three_directional_light_shadow_test
+run_suite three/port/src/three_tone_mapping_test
+run_suite three/port/src/three_perspective_camera_test
+run_suite three/port/src/three_box_geometry_test
+run_suite three/port/src/three_gltf_loader_test
+run_suite three/port/src/three_gltf_file_test
+run_suite three/port/src/three_json_test
+run_suite three/port/src/three_http_test
+run_suite three/port/src/three_light_probe_grid_test
+run_suite three/port/src/three_light_probe_grid_helper_test
+run_suite three/port/src/three_light_probe_generator_test
+run_suite three/port/src/three_cube_camera_test
+run_suite three/port/src/three_teapot_test
+run_suite three/port/src/three_orbit_controls_test
+run_suite three/port/src/three_first_person_controls_test
+run_suite three/port/src/three_sun_shadow_rig_test
+run_suite three/port/src/three_light_probe_volume_test
+run_suite three/port/src/three_cube_texture_test
+run_suite three/port/src/three_sky_test
+run_suite three/port/src/three_mesh_test
+run_suite three/port/src/three_cube_demo_test
+run_suite three/port/src/three_gl_backend_test
+run_suite three/port/src/three_scene_host_test
+run_suite three/port/tests/value_parity/three_value_parity_test
+
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test
 # headless music: score parse -> beat schedule -> equal-tempered PCM synth
@@ -134,9 +172,13 @@ run_suite tests/unit/bridge/registry_bridge_coverage_test
 run_suite menu/tests/launcher_ui_test
 # EVG layout/color/text/path primitives that back the launcher UI
 run_suite evg/evg_test
+# ui widget/layout logic (headless)
+run_suite ui/tests/UITest
 
 # ---- lpc — LPC sprite pipeline (PNG decode → RGBA parity, P0) ----------------
 run_suite lpc/tests/png_decoder_test
+# sprites — headless SoftCanvas + RgbaFastBlit compositing
+run_suite sprites/tests/sprite_blit_test
 
 # ---- BRIDGES.md step 3 — real TSX guests on the ONE generic host -------------
 # Games are TSX-only folders (no per-game .rgr); RgGameHost is the single
