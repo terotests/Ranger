@@ -145,6 +145,61 @@ Still to clean up later:
 
 ---
 
+## Import isolation — `.rgr` files still escape `v2/`
+
+Verified by resolving every `Import "…"` under `v2/**/*.rgr` against the
+filesystem (1040 import lines). **35 still resolve outside `v2/`.**
+
+### Live stack (green gate) — 6 escapes, all to `gallery/ts_parser/`
+
+These are real and currently required by the interpreter:
+
+| File | Imports |
+|------|---------|
+| `interp/migrate/src/ComponentEngine.rgr` | `ts_parser_simple`, `ts_lexer`, `ts_ast_patch` |
+| `interp/migrate/src/EvalValue.rgr` | `ts_parser_simple` |
+| `interp/migrate/src/JSXToEVG.rgr` | `ts_parser_simple`, `ts_lexer` |
+
+- [ ] **Decide policy for `ts_parser`** — either (a) accept it as a shared
+      gallery dependency outside v2 and document the exception, or (b) vendor /
+      re-home a v2-local parser under `v2/interp/` so the live stack imports
+      only inside `v2/`.
+
+`runtime/`, `host/`, `modules/`, `render/`, `registry/`, `bridge/`, `menu/`,
+`audio/`, `imaging/`, `evg/`, `tests/` (aside from migrate→ts_parser) have
+**no** out-of-v2 `Import`s.
+
+### Staged / demo trees — 29 out-of-v2 imports (mostly broken)
+
+Paths still point at pre-v2 locations; many targets are **missing** on disk
+(pdf_writer / top-level evg / zip were folded into `v2/imaging`, `v2/evg`,
+`v2/imaging/zip`).
+
+| Area | Escapes to | Fix |
+|------|------------|-----|
+| `lpc/src/` | `../../../pdf_writer/…`, `../../../zip/…` | Retarget to `v2/imaging/…` (and `v2/imaging/zip/…`) |
+| `ui/` demos + `WasmUiSelect` / `EvgLauncherMenu` | `../../pdf_writer/…`, `../../evg/…`, `../scripting/…` | Use `../evg/…`, `../imaging/…`; drop or replace v1 `scripting/` deps (no `v2/scripting/`) |
+| `model3d/` (+ tests) | `../../pdf_writer/src/jsx/…`, JPEG decoder | Use `v2/interp/migrate/src/` + `v2/imaging/` |
+| `web/web_tsx3d_host.rgr` | `../../pdf_writer/src/jsx/…` | Same as model3d |
+| `web/web_game_host.rgr` | `../scripting/…` | Staged v1 host; rewrite onto `RgGameHost` or delete |
+
+### Wrong-depth / missing-inside-v2 (related)
+
+These resolve *under* `v2/` but to non-existent paths (copy-paste from v1
+depths). Same cleanup:
+
+- [ ] `sprites/deps/`, `sprites/host/`, `sprites/runners/` → `pdf_writer/…`
+- [ ] `three/port/src/three_gltf_textures.rgr` + `three/port/tests/**` →
+      `pdf_writer/src/jsx/…` / JPEG (should be migrate + imaging)
+- [ ] `menu/RgLauncherUi.rgr` runtime font dir string
+      `gallery/pdf_writer/assets/fonts` (not an `Import`, but a path escape)
+
+- [ ] Add a small gate (script or suite) that fails if any `v2/**/*.rgr`
+      `Import` resolves outside `v2/` (with an explicit allowlist for
+      `ts_parser` until policy (a)/(b) lands).
+
+---
+
 ## P0 — LPC PNG decoder has no unit test
 
 `lpc/src/png_decoder.rgr` decodes indexed (type 3) and RGB/RGBA sheets, and
