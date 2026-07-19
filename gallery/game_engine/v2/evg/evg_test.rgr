@@ -1,7 +1,19 @@
-; evg_test.rgr - Test CLI for EVG Layout Engine
-; 
-; Compile: npm run evg:compile
-; Run: npm run evg:run
+; ==============================================================================
+; evg_test.rgr — EVG layout engine gate (self-contained under v2/evg).
+; ==============================================================================
+; Exercises the EVG primitives that back the launcher / UI stack:
+;   - EVGUnit  : px / % / em / hp / fill parsing + pixel resolution
+;   - EVGColor : hex / rgb / rgba / hsl / named parsing + lighten/darken
+;   - EVGBox   : margin/padding/border resolution + inner/total/space math
+;   - EVGTextMeasurer / SimpleTextMeasurer : glyph width sum + wrapping
+;   - EVGText  : single-line measurement of a text element
+;   - EVGElement / EVGLayout : simple, nested and aligned box layout
+;   - SVGPathParser : path parse + bounding-box calculation
+;
+; Uses the shared v2 RgTest harness so the driver's "ALL PASS" grep works the
+; same as every other suite. Prints "  PASS/FAIL <name>" and a grep-able
+; "passed=N failed=0" + "ALL PASS" summary on green.
+; ==============================================================================
 
 Import "EVGUnit.rgr"
 Import "EVGColor.rgr"
@@ -10,260 +22,235 @@ Import "EVGElement.rgr"
 Import "EVGTextMeasurer.rgr"
 Import "EVGText.rgr"
 Import "EVGLayout.rgr"
+Import "SVGPathParser.rgr"
+Import "../tests/harness/RgTest.rgr"
 
 class EVGTest {
-    
+
     sfn m@(main):void () {
         def test (new EVGTest())
-        test.run()
+        def t:RgTest (RgTest.forSuite("evg/evg"))
+        test.testUnits(t)
+        test.testColors(t)
+        test.testBox(t)
+        test.testTextMeasurer(t)
+        test.testText(t)
+        test.testSimpleLayout(t)
+        test.testNestedLayout(t)
+        test.testAlignment(t)
+        test.testSvgPath(t)
+        t.summary()
     }
-    
-    fn run:void () {
-        print "=== EVG Layout Engine Tests ==="
-        print ""
-        
-        this.testUnits()
-        this.testColors()
-        this.testBox()
-        this.testTextMeasurer()
-        this.testSimpleLayout()
-        this.testNestedLayout()
-        this.testAlignment()
-        
-        print ""
-        print "=== All tests completed ==="
-    }
-    
-    fn testUnits:void () {
-        print "--- Unit Parsing Tests ---"
-        
-        ; Test pixel parsing
+
+    fn testUnits:void (t:RgTest) {
         def u1:EVGUnit (EVGUnit.parse("100px"))
-        print ("  100px -> " + (u1.toString()) + " isPixels=" + (to_string (u1.isPixels())))
-        
-        ; Test percentage parsing
+        t.ok("100px isPixels" (u1.isPixels()))
+        t.near("100px value" u1.value 100.0)
+
         def u2:EVGUnit (EVGUnit.parse("50%"))
-        print ("  50% -> " + (u2.toString()) + " isPercent=" + (to_string (u2.isPercent())))
-        
-        ; Test em parsing
+        t.ok("50% isPercent" (u2.isPercent()))
+        t.near("50% value" u2.value 50.0)
+
         def u3:EVGUnit (EVGUnit.parse("2em"))
-        print ("  2em -> " + (u3.toString()) + " isEm=" + (to_string (u3.isEm())))
-        
-        ; Test fill parsing
+        t.ok("2em isEm" (u3.isEm()))
+        t.near("2em value" u3.value 2.0)
+
         def u4:EVGUnit (EVGUnit.parse("fill"))
-        print ("  fill -> " + (u4.toString()) + " isFill=" + (to_string (u4.isFill())))
-        
-        ; Test number without unit (default to px)
+        t.ok("fill isFill" (u4.isFill()))
+
         def u5:EVGUnit (EVGUnit.parse("200"))
-        print ("  200 -> " + (u5.toString()))
-        
-        ; Test height percentage
+        t.ok("bare number defaults to px" (u5.isPixels()))
+        t.near("bare number value" u5.value 200.0)
+
         def u6:EVGUnit (EVGUnit.parse("30hp"))
-        print ("  30hp -> " + (u6.toString()) + " isHeightPercent=" + (to_string (u6.isHeightPercent())))
-        
-        ; Test unit resolution
+        t.ok("30hp isHeightPercent" (u6.isHeightPercent()))
+        t.near("30hp value" u6.value 30.0)
+
         def u7:EVGUnit (EVGUnit.parse("50%"))
         u7.resolve(400.0 14.0)
-        print ("  50% of 400 = " + (to_string u7.pixels) + "px")
-        
+        t.near("50% of 400 = 200px" u7.pixels 200.0)
+
         def u8:EVGUnit (EVGUnit.parse("1.5em"))
         u8.resolve(400.0 16.0)
-        print ("  1.5em at fontSize=16 = " + (to_string u8.pixels) + "px")
-        
-        print ""
+        t.near("1.5em at fontSize 16 = 24px" u8.pixels 24.0)
+
+        def u9:EVGUnit (EVGUnit.parse("auto"))
+        t.no("auto is unset" u9.isSet)
     }
-    
-    fn testColors:void () {
-        print "--- Color Parsing Tests ---"
-        
-        ; Test hex colors
+
+    fn testColors:void (t:RgTest) {
         def c1:EVGColor (EVGColor.parse("#FF5733"))
-        print ("  #FF5733 -> " + (c1.toCSSString()) + " hex=" + (c1.toHexString()))
-        
-        ; Test short hex
+        t.eqInt("#FF5733 red" (c1.red()) 255)
+        t.eqInt("#FF5733 green" (c1.green()) 87)
+        t.eqInt("#FF5733 blue" (c1.blue()) 51)
+        t.eqStr("#FF5733 hex roundtrip" (c1.toHexString()) "#FF5733")
+
         def c2:EVGColor (EVGColor.parse("#F00"))
-        print ("  #F00 -> " + (c2.toCSSString()))
-        
-        ; Test rgb()
+        t.eqInt("#F00 red" (c2.red()) 255)
+        t.eqInt("#F00 green" (c2.green()) 0)
+        t.eqInt("#F00 blue" (c2.blue()) 0)
+
         def c3:EVGColor (EVGColor.parse("rgb(100, 150, 200)"))
-        print ("  rgb(100, 150, 200) -> " + (c3.toCSSString()))
-        
-        ; Test rgba()
+        t.eqInt("rgb red" (c3.red()) 100)
+        t.eqInt("rgb green" (c3.green()) 150)
+        t.eqInt("rgb blue" (c3.blue()) 200)
+
         def c4:EVGColor (EVGColor.parse("rgba(255, 0, 0, 0.5)"))
-        print ("  rgba(255, 0, 0, 0.5) -> " + (c4.toCSSString()))
-        
-        ; Test named colors
+        t.eqInt("rgba red" (c4.red()) 255)
+        t.near("rgba alpha" (c4.alpha()) 0.5)
+
         def c5:EVGColor (EVGColor.parse("red"))
-        print ("  red -> " + (c5.toCSSString()))
-        
+        t.eqInt("named red r" (c5.red()) 255)
+        t.eqInt("named red g" (c5.green()) 0)
+
         def c6:EVGColor (EVGColor.parse("blue"))
-        print ("  blue -> " + (c6.toCSSString()))
-        
-        ; Test HSL
+        t.eqInt("named blue b" (c6.blue()) 255)
+        t.eqInt("named blue r" (c6.red()) 0)
+
         def c7:EVGColor (EVGColor.hslToRgb(195.0 100.0 50.0))
-        print ("  hsl(195, 100, 50) -> " + (c7.toCSSString()))
-        
-        ; Test color manipulation
+        t.eqInt("hsl(195,100,50) red" (c7.red()) 0)
+        t.eqInt("hsl(195,100,50) blue" (c7.blue()) 255)
+
         def c8:EVGColor (EVGColor.parse("#3366FF"))
+        t.eqInt("#3366FF red" (c8.red()) 51)
+        t.eqInt("#3366FF green" (c8.green()) 102)
+        t.eqInt("#3366FF blue" (c8.blue()) 255)
+
         def lighter:EVGColor (c8.lighten(0.3))
-        print ("  #3366FF lighten(0.3) -> " + (lighter.toHexString()))
-        
+        t.eqInt("#3366FF lighten(0.3) red" (lighter.red()) 112)
+
         def darker:EVGColor (c8.darken(0.3))
-        print ("  #3366FF darken(0.3) -> " + (darker.toHexString()))
-        
-        print ""
+        t.eqInt("#3366FF darken(0.3) red" (darker.red()) 35)
     }
-    
-    fn testBox:void () {
-        print "--- Box Model Tests ---"
-        
+
+    fn testBox:void (t:RgTest) {
         def box (new EVGBox())
         box.setMargin((EVGUnit.px(10.0)))
         box.setPadding((EVGUnit.px(20.0)))
         box.borderWidth = (EVGUnit.px(2.0))
-        
-        ; Resolve units
         box.resolveUnits(400.0 300.0 14.0)
-        
-        print ("  Box: " + (box.toString()))
-        print ("  Inner width of 200: " + (to_string (box.getInnerWidth(200.0))))
-        print ("  Inner height of 150: " + (to_string (box.getInnerHeight(150.0))))
-        print ("  Total width from content 100: " + (to_string (box.getTotalWidth(100.0))))
-        print ("  Horizontal space: " + (to_string (box.getHorizontalSpace())))
-        
-        print ""
+
+        t.near("margin resolved to 10px" box.marginTopPx 10.0)
+        t.near("padding resolved to 20px" box.paddingTopPx 20.0)
+        t.near("border resolved to 2px" box.borderWidthPx 2.0)
+        t.near("inner width of 200" (box.getInnerWidth(200.0)) 156.0)
+        t.near("inner height of 150" (box.getInnerHeight(150.0)) 106.0)
+        t.near("total width from content 100" (box.getTotalWidth(100.0)) 164.0)
+        t.near("horizontal space" (box.getHorizontalSpace()) 64.0)
     }
-    
-    fn testTextMeasurer:void () {
-        print "--- Text Measurement Tests ---"
-        
+
+    fn testTextMeasurer:void (t:RgTest) {
         def measurer (new SimpleTextMeasurer())
-        
-        ; Measure simple text
+
         def metrics:EVGTextMetrics (measurer.measureText("Hello, World!" "Helvetica" 14.0))
-        print ("  'Hello, World!' at 14px: " + (to_string metrics.width) + "x" + (to_string metrics.height))
-        
-        ; Measure with different font size
+        t.near("'Hello, World!' width at 14px" metrics.width 91.0)
+        t.near("'Hello, World!' height at 14px" metrics.height 16.8)
+
         def metrics2:EVGTextMetrics (measurer.measureText("Hello" "Arial" 24.0))
-        print ("  'Hello' at 24px: " + (to_string metrics2.width) + "x" + (to_string metrics2.height))
-        
-        ; Test text wrapping
+        t.near("'Hello' width at 24px" metrics2.width 54.0)
+        t.near("'Hello' height at 24px" metrics2.height 28.8)
+
         def longText:string "This is a long text that should wrap to multiple lines when the width is limited."
         def lines:[string] (measurer.wrapText(longText "Helvetica" 14.0 150.0))
-        print ("  Wrapped text (maxWidth=150):")
-        def i:int 0
-        while (i < (array_length lines)) {
-            def line:string (itemAt lines i)
-            print ("    Line " + (to_string (i + 1)) + ": \"" + line + "\"")
-            i = i + 1
-        }
-        
-        print ""
+        t.eqInt("wrapped line count (maxWidth=150)" (array_length lines) 4)
+        t.eqStr("first wrapped line" (itemAt lines 0) "This is a long text that")
     }
-    
-    fn testSimpleLayout:void () {
-        print "--- Simple Layout Test ---"
-        
-        ; Create a simple layout: root with two children
+
+    fn testText:void (t:RgTest) {
+        def measurer (new SimpleTextMeasurer())
+        def txt (EVGText.create("Hello"))
+        txt.setFontSize(24.0)
+        txt.measureText(measurer 0.0)
+        t.eqInt("EVGText single line" txt.lineCount 1)
+        t.near("EVGText measured width" txt.measuredWidth 54.0)
+        t.eqStr("EVGText line 0" (txt.getLine(0)) "Hello")
+    }
+
+    fn testSimpleLayout:void (t:RgTest) {
         def root (new EVGElement())
         root.id = "root"
         root.width = (EVGUnit.px(400.0))
         root.height = (EVGUnit.px(300.0))
-        root.backgroundColor = (EVGColor.parse("#f0f0f0"))
         root.box.setPadding((EVGUnit.px(20.0)))
-        
+
         def child1 (new EVGElement())
         child1.id = "box1"
         child1.width = (EVGUnit.px(100.0))
         child1.height = (EVGUnit.px(80.0))
-        child1.backgroundColor = (EVGColor.parse("#3498db"))
         child1.box.setMargin((EVGUnit.px(10.0)))
         root.addChild(child1)
-        
+
         def child2 (new EVGElement())
         child2.id = "box2"
         child2.width = (EVGUnit.px(100.0))
         child2.height = (EVGUnit.px(80.0))
-        child2.backgroundColor = (EVGColor.parse("#e74c3c"))
         child2.box.setMargin((EVGUnit.px(10.0)))
         root.addChild(child2)
-        
-        ; Layout
+
         def layout (new EVGLayout())
         layout.layout(root)
-        
-        ; Print results
-        print "  Layout result:"
-        layout.printLayout(root 2)
-        
-        print ""
+
+        t.near("root width" root.calculatedWidth 400.0)
+        t.near("root height" root.calculatedHeight 300.0)
+        t.near("child1 x (padding+margin)" child1.calculatedX 30.0)
+        t.near("child1 y (padding+margin)" child1.calculatedY 30.0)
+        t.near("child1 width" child1.calculatedWidth 100.0)
+        t.near("child2 stacks below child1" child2.calculatedY 130.0)
     }
-    
-    fn testNestedLayout:void () {
-        print "--- Nested Layout Test ---"
-        
-        ; Create nested layout
+
+    fn testNestedLayout:void (t:RgTest) {
         def root (new EVGElement())
         root.id = "page"
         root.width = (EVGUnit.px(400.0))
         root.height = (EVGUnit.px(400.0))
         root.box.setPadding((EVGUnit.px(10.0)))
         root.direction = "column"
-        
-        ; Header
+
         def header (new EVGElement())
         header.id = "header"
         header.width = (EVGUnit.parse("100%"))
         header.height = (EVGUnit.px(50.0))
-        header.backgroundColor = (EVGColor.parse("#2c3e50"))
         root.addChild(header)
-        
-        ; Content area with two columns
+
         def content (new EVGElement())
         content.id = "content"
         content.width = (EVGUnit.parse("100%"))
         content.height = (EVGUnit.px(250.0))
         content.direction = "row"
         root.addChild(content)
-        
+
         def leftCol (new EVGElement())
         leftCol.id = "sidebar"
         leftCol.width = (EVGUnit.px(100.0))
         leftCol.height = (EVGUnit.parse("100%"))
-        leftCol.backgroundColor = (EVGColor.parse("#34495e"))
         content.addChild(leftCol)
-        
+
         def rightCol (new EVGElement())
         rightCol.id = "main"
         rightCol.width = (EVGUnit.px(270.0))
         rightCol.height = (EVGUnit.parse("100%"))
-        rightCol.backgroundColor = (EVGColor.parse("#ecf0f1"))
         rightCol.box.setPadding((EVGUnit.px(10.0)))
         content.addChild(rightCol)
-        
-        ; Footer
+
         def footer (new EVGElement())
         footer.id = "footer"
         footer.width = (EVGUnit.parse("100%"))
         footer.height = (EVGUnit.px(40.0))
-        footer.backgroundColor = (EVGColor.parse("#2c3e50"))
         root.addChild(footer)
-        
-        ; Layout
+
         def layout (new EVGLayout())
         layout.layout(root)
-        
-        ; Print results
-        print "  Nested layout result:"
-        layout.printLayout(root 2)
-        
-        print ""
+
+        t.near("header x inside padding" header.calculatedX 10.0)
+        t.near("header y inside padding" header.calculatedY 10.0)
+        t.near("header width fills 100% minus padding" header.calculatedWidth 380.0)
+        t.near("header height" header.calculatedHeight 50.0)
+        t.near("content y below header" content.calculatedY 60.0)
+        t.near("content height" content.calculatedHeight 250.0)
+        t.near("sidebar width" leftCol.calculatedWidth 100.0)
     }
-    
-    fn testAlignment:void () {
-        print "--- Alignment Test ---"
-        
-        ; Test center alignment
+
+    fn testAlignment:void (t:RgTest) {
         def root (new EVGElement())
         root.id = "centered"
         root.width = (EVGUnit.px(400.0))
@@ -271,41 +258,32 @@ class EVGTest {
         root.align = "center"
         root.verticalAlign = "center"
         root.box.setPadding((EVGUnit.px(10.0)))
-        
+
         def box (new EVGElement())
         box.id = "box"
         box.width = (EVGUnit.px(100.0))
         box.height = (EVGUnit.px(50.0))
-        box.backgroundColor = (EVGColor.parse("#9b59b6"))
         root.addChild(box)
-        
-        ; Layout
+
         def layout (new EVGLayout())
         layout.layout(root)
-        
-        print "  Center aligned box:"
-        layout.printLayout(root 2)
-        
-        ; Test right alignment
-        def root2 (new EVGElement())
-        root2.id = "rightAlign"
-        root2.width = (EVGUnit.px(400.0))
-        root2.height = (EVGUnit.px(100.0))
-        root2.align = "right"
-        root2.box.setPadding((EVGUnit.px(10.0)))
-        
-        def box2 (new EVGElement())
-        box2.id = "rightBox"
-        box2.width = (EVGUnit.px(80.0))
-        box2.height = (EVGUnit.px(40.0))
-        root2.addChild(box2)
-        
-        def layout2 (new EVGLayout())
-        layout2.layout(root2)
-        
-        print "  Right aligned box:"
-        layout2.printLayout(root2 2)
-        
-        print ""
+
+        ; centered horizontally: (400 - 100) / 2 = 150
+        t.near("center-aligned box x" box.calculatedX 150.0)
+        t.near("center-aligned box width" box.calculatedWidth 100.0)
+    }
+
+    fn testSvgPath:void (t:RgTest) {
+        def parser (new SVGPathParser())
+        parser.parse("M 0 0 L 100 50 Z")
+
+        def cmds:[PathCommand] (parser.getCommands())
+        t.ok("path produced commands" ((array_length cmds) >= 2))
+
+        def bounds:PathBounds (parser.getBounds())
+        t.near("path bounds width" bounds.width 100.0)
+        t.near("path bounds height" bounds.height 50.0)
+        t.near("path bounds minX" bounds.minX 0.0)
+        t.near("path bounds maxX" bounds.maxX 100.0)
     }
 }
