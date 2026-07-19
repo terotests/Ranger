@@ -2,10 +2,17 @@
 
 Implementation contract for the game-engine cleanup.
 
-Archived inventory and exploratory chapters (from “Current state: duplication
-inventory” onward) live in [`CODE_CLEANUP_OLD.md`](./CODE_CLEANUP_OLD.md).
+| Section | Contents |
+|---------|----------|
+| **Binding decisions** | D-IDENTITY … D-GEO (below) |
+| **Worked examples** | Camera + physics pose; geometry upload / update / read-back |
+| **Implementation gates** | Required order and tests before calling a migration done |
 
-Related: [`docs/ADR-0001-three-scene-host-authority.md`](./docs/ADR-0001-three-scene-host-authority.md).
+Archived inventory and exploratory drafts:
+[`CODE_CLEANUP_OLD.md`](./CODE_CLEANUP_OLD.md).
+
+Related: [`docs/ADR-0001-three-scene-host-authority.md`](./docs/ADR-0001-three-scene-host-authority.md),
+[`docs/WASM_MEMORY_ABI.md`](./docs/WASM_MEMORY_ABI.md).
 
 ---
 
@@ -13,12 +20,32 @@ Related: [`docs/ADR-0001-three-scene-host-authority.md`](./docs/ADR-0001-three-s
 
 Binding choices for implementation. Treat them as decisions, not options.
 
+## D-IDENTITY — Stable interpreter reference identity
+
+Every interpreter reference value — object, array, function, and NativeRef —
+receives an immutable `identityId` scoped to its interpreter realm.
+
+Rules:
+
+- Reference `===` compares `identityId`.
+- `Map` and `Set` object keys use reference identity.
+- `Array.indexOf` / `includes` preserve JavaScript reference semantics.
+- One NativeRef identity maps to at most one live host handle in its realm.
+- Reordering, reparenting, and array-index changes never change identity.
+- Reading a missing property returns `undefined`, not `null`.
+
+The live native adapter (D-ADAPTER) and “one script object → one host handle”
+(D-SYNC) are blocked until these rules pass the
+`component_engine_js_semantics_test` suite.
+
+Companion detail / known gaps: [`docs/TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md).
+
 ## D-SYNC — Live host-backed objects; reconciler is temporary
 
-**Conflict that was in an earlier draft:** III.3 described an identity-based
-reconciler (snapshot: TSX graph → reconcile → host), while V.2 described
-`Object3D` as live host-backed natives (each `new` / property write / method
-hits the host immediately). Both cannot be the final model:
+**Conflict that was in an earlier draft:** an identity-based reconciler
+(snapshot: TSX graph → reconcile → host) versus live host-backed natives (each
+`new` / property write / method hits the host immediately). Both cannot be the
+final model:
 
 ```js
 const mesh = new THREE.Mesh(g, m); // create meshH now?
@@ -32,16 +59,16 @@ render();                          // reconcile create/attach again?
 |-----------|-------------------------|
 | `new THREE.Mesh(g, m)` | `meshCreate(geoH, matH) → meshH` once; EvalValue holds that handle |
 | `scene.add(mesh)` | `entitySetParent(meshH, sceneH)` now |
-| `mesh.position.set(...)` / assign | `entityTransform(meshH, …)` now (or an explicitly documented per-frame batch flush — never a second create) |
-| `scene.remove(mesh)` | detach membership only — does **not** release the object handle (see D-LIFE) |
+| `mesh.position.set(...)` / assign | host write now, or an explicitly documented batch flush (D-ADAPTER) — never a second create |
+| `scene.remove(mesh)` | detach membership only — does **not** release the object handle (D-LIFE) |
 
 Target stack:
 
 ```
-EvalValue NativeRef
+EvalValue NativeRef   (identityId — D-IDENTITY)
         │
         ▼
-stable host handle  (+ realmId)
+stable host handle  (+ realmId)   (D-HANDLE)
         │
         ▼
 typed registry slot / typed arena  (D-TYPE)
@@ -54,16 +81,74 @@ canonical Ranger object
 adapter** for demos that still build a façade scene tree and call `reconcile()`.
 It must not be described as the final architecture.
 
-**Deletion milestone for the structural reconciler:** when the live adapter
-covers Mesh / Group / Scene / Light / Camera construct + parent + transform +
-shared geo/mat, and teapot + sponza + cube demos no longer call
-`ThreeTsxBridge.reconcile` (or equivalent), delete the index/DFS reconcile path
-and the Sponza typed accessors (`sunLight` / `skyNode` / `modelNode`). Track as
-issue/checklist item `RETIRE-RECONCILE`.
+**Deletion milestone (`RETIRE-RECONCILE`):** when the live adapter covers Mesh /
+Group / Scene / Light / Camera construct + parent + transform + shared geo/mat,
+and teapot + sponza + cube demos no longer call `ThreeTsxBridge.reconcile` (or
+equivalent), delete the index/DFS reconcile path and the Sponza typed accessors
+(`sunLight` / `skyNode` / `modelNode`).
 
-Hot value types (`Vector3`, etc.) may keep a **local mirror** (V.3); sync
-boundaries must be explicit (`mesh.position = v`, host-dependent method, or
-documented dirty commit) — not a silent second authority.
+## D-ADAPTER — Native adapter and value residency
+
+The interpreter reaches host objects through one native-object interface:
+
+```
+construct(classId, args) -> NativeRef
+getProperty(ref, propId) -> value
+setProperty(ref, propId, value)
+invokeMethod(ref, methodId, args) -> value
+```
+
+Every registered property and method declares its **residency** (in D-REGISTRY):
+
+| Residency | Meaning | Example |
+|-----------|---------|---------|
+| `guest` | Value exists only in the interpreter; no host round-trip | `Vector3.add()` |
+| `host` | Host object is authoritative on every access | geometry, texture, most `Object3D` ops |
+| `hybrid` | Guest mirror with an **explicit** read/commit boundary | local `mesh.position` Vector3 |
+
+A hybrid value must declare exactly when synchronization occurs. Example:
+
+```js
+mesh.position.x += 1
+```
+
+Must answer, in the registry metadata for `position`:
+
+1. Does the read pull from the host first, or from a cached guest `Vector3`?
+2. Does each component write cross the boundary, or only a later commit?
+3. What is the commit boundary — assign to `mesh.position`, end of script turn,
+   or an explicit flush? **Not** an implicit `render()` / structural reconcile.
+
+Rendering must not act as an implicit structural reconciliation boundary
+(D-SYNC). Sync boundaries are declared, not inferred.
+
+## D-PROP — Native properties and dynamic overlay
+
+Host-backed objects expose **two** property stores:
+
+1. **Native properties** declared in the class registry (`position`, `geometry`,
+   `material`, `visible`, …).
+2. **Guest-side dynamic overlay** for expandos and `userData`.
+
+Semantics:
+
+```js
+mesh.nonexistent       // undefined
+mesh.nonexistent()     // TypeError-like: not a function
+mesh.customValue = 123 // allowed expando → dynamic overlay
+mesh.userData.flags = 1
+mesh.position.z = 5    // native prop → residency / sync rules (D-ADAPTER)
+```
+
+- Unknown property **read** → `undefined` (aligned with D-IDENTITY missing-member).
+- Calling an unknown or non-callable property → TypeError-like error.
+- Unknown property **write** → dynamic overlay unless the class is explicitly
+  sealed in the registry.
+- Native property writes follow their declared residency and synchronization
+  rules — they are not expandos.
+
+Without this split, implementations tend to reject all unknown properties or
+forward every expando to the host.
 
 ## D-LIFE — Three separate lifetimes (object ≠ membership ≠ GPU)
 
@@ -160,6 +245,49 @@ convention.
    instances, and WASM guests. `resolve` fails if `slot.realmId != caller.realmId`
    even when generation and type match — prevents cross-guest handle reuse.
 
+## D-REGISTRY — One schema generates every public surface
+
+The class registry is the authoritative definition of classes, properties,
+methods, and ABI lowering. `D-WASM` requires binary lowering metadata; `D-GEO`
+uses `span<f32>` — both are meaningless without this schema.
+
+**Minimum type system:**
+
+- `handle<T>`
+- `option<T>`
+- `span<T>` — ptr+len lowering on WASM (borrowed guest memory)
+- `owned_buffer<T>` / `borrowed_buffer<T>`
+- `result<T, ErrorCode>`
+- `string_view`
+- structs, enums, and scalar types (`i32`, `u32`, `f32`, `f64`, `bool`)
+
+**Each property / method declares:**
+
+- ownership and retain/release behavior
+- mutability
+- residency (`guest` | `host` | `hybrid` — D-ADAPTER)
+- sync or async behavior (loaders)
+- WASM argument/result lowering (D-WASM, D-WASM-MEM)
+- API version
+- stable binary export identity (`wasmExportName` / versioned name)
+
+**Generated outputs (one source):**
+
+- host and typed-arena dispatch
+- interpreter native-class registrations
+- WASM imports
+- TypeScript / Rust guest wrappers
+- bridge command tables
+- documentation tables
+- surface-parity tests
+
+If the schema cannot state these, codegen grows command-specific exceptions —
+the failure mode this design is trying to remove.
+
+**Status:** storage format (`.rgr` table vs data file) and exact handle packing
+(D-HANDLE) remain open; the type system and generation targets above are
+requirements before codegen.
+
 ## D-WASM — Source API ≠ binary WASM import signatures
 
 "Append args with defaults" works for a **dynamic** dispatcher
@@ -181,7 +309,7 @@ materialCreate(color: i32, opacity: f64) -> handle
 
 breaks previously compiled modules even if the host treats `opacity` as optional.
 
-**Allowed versioning models (pick per surface, document in registry metadata):**
+**Allowed versioning models (pick per surface, document in D-REGISTRY metadata):**
 
 1. **Versioned imports:** `materialCreateV1(color)`, `materialCreateV2(color, opacity)`.
 2. **Stable generic ABI:** `invoke(methodId, argPtr, argCount, resultPtr)` with
@@ -191,6 +319,21 @@ breaks previously compiled modules even if the host treats `opacity` as optional
 
 The class registry must label each method with its **binary WASM lowering**
 separately from the **source-level** TS/Rust API.
+
+## D-WASM-MEM — Linear-memory safety for bulk payloads
+
+All pointer/length geometry (and other bulk) operations follow
+[`docs/WASM_MEMORY_ABI.md`](./docs/WASM_MEMORY_ABI.md).
+
+Bounds checking, memory-growth safety, atomic copying, and chunking are
+**mandatory parts of the ABI**, not implementation optimizations. Summary:
+
+- validate offset, length, overflow, and alignment before copy
+- re-acquire the memory buffer after `memory.grow`; never cache JS views across calls
+- no guest callbacks during a bulk copy
+- chunk large uploads and read-backs
+- no fixed-capacity ABI blocks for arbitrary geometry
+- seqlock / revision for concurrently written shared memory
 
 ## D-GEO — Stable geometry handle across attribute setup
 
@@ -209,10 +352,23 @@ attribute.needsUpdate = true
     -> geometryUpdateRange(geoH, name, first, count, data…)
 ```
 
+**Two rules for vertex data:**
+
+1. **One authoritative copy** — coordinates live only in the host geometry
+   arrays. Guests hold handles or temporary read-back buffers.
+2. **Bulk crossings** — N vertices cross the WASM boundary in one call (ptr+len
+   / `span`), never one call per float (D-WASM-MEM).
+
 Handle stays stable when: geometry already attached to meshes; attributes added
 one at a time; two meshes share the geometry; an attribute is replaced; index
 data is added after positions. Convenience "create with all attributes at once"
 may exist as sugar that still returns the empty-created handle after filling.
+
+Read-back uses the **same** `geoH`:
+
+```
+geometryReadPositions(geoH, first, count, outSpan) -> n
+```
 
 ---
 
@@ -414,7 +570,7 @@ camera.position.z = 5
 
 This is the common case: **game / script sets the camera.**
 
-Residency (V.3 hybrid is allowed for `position`):
+Residency (hybrid residency — D-ADAPTER — is allowed for `position`):
 
 1. Guest may keep a local `Vector3` mirror for hot math.
 2. Assigning `camera.position.z = 5` (or `camera.position.set(0,0,5)`) is a
@@ -704,4 +860,85 @@ The ABI may expose fewer sugar names (`rg_set_translation(meshH,x,y,z)`), but
 the **identity and timing rules** are the same as the Three lines above.
 
 ---
+
+# Worked example — geometry upload, update, and read-back
+
+Validates D-GEO / D-WASM-MEM: one authoritative host vertex copy, stable `geoH`,
+bulk upload, mutation + GPU revision, read-back through the same handle.
+
+```js
+const vertices = new Float32Array([1, 1, 1,  -1, -1, 1,  -1, 1, -1 /* … */])
+const material = new THREE.MeshBasicMaterial({ color: 0xff0000 })
+// bg: materialBasic(…) → matH
+
+const g = new THREE.BufferGeometry()
+// bg: geometryCreateEmpty() → geoH  (stable from here; no attributes yet)
+
+g.setAttribute('position', new THREE.BufferAttribute(vertices, 3))
+// bg: geometrySetAttribute(geoH, "position", span<f32>, itemSize=3)
+//     one bulk copy into host geometry arrays (D-WASM-MEM); not a new geoH
+
+const m = new THREE.Mesh(g, material)
+// bg: meshCreate(geoH, matH) → meshH; retain(geoH)
+
+scene.add(m)
+// bg: entitySetParent(meshH, sceneH)
+
+g.attributes.position.setXYZ(0, 2, 3, 4)
+g.attributes.position.needsUpdate = true
+// bg: geometryUpdateRange(geoH, "position", 0, 1, data)
+//     overwrites CPU arrays; bumps contentRevision; same geoH; meshH unchanged
+
+const x = g.attributes.position.getX(0)
+// bg: geometryReadPositions(geoH, 0, 1, out) → x === 2
+//     same handle that created / rendered the geometry
+```
+
+Required effects (no alternatives):
+
+```
+geometryCreateEmpty() -> geoH
+geometrySetAttribute(geoH, ...)
+meshCreate(geoH, matH) -> meshH
+entitySetParent(meshH, sceneH)
+geometryUpdateRange(geoH, ...)
+geometryReadPositions(geoH, ...) -> 2
+```
+
+Forbidden: replacement `geoH`, mesh recreation on attribute change, or a second
+authoritative vertex array on the guest after upload.
+
+
+---
+
+# Implementation gates
+
+**Required order:**
+
+1. Interpreter identity and `undefined` semantics (D-IDENTITY).
+2. Native adapter and property-overlay semantics (D-ADAPTER, D-PROP).
+3. Typed registry and arenas (D-REGISTRY, D-TYPE, D-HANDLE).
+4. Shared resource identity and lifetime (D-SYNC, D-LIFE, D-GEO).
+5. Generated bridge and WASM surfaces (D-REGISTRY, D-WASM, D-WASM-MEM).
+6. Migrate demos to live objects (D-SYNC).
+7. Delete structural reconciliation (`RETIRE-RECONCILE`).
+
+**Required test gates:**
+
+- JavaScript reference and property semantics (`===`, Map/Set keys, missing →
+  `undefined`, expandos vs native props).
+- Same script object → same host handle.
+- Shared geometry/material identity (two meshes, one `geoH` / `matH`).
+- Scene removal ≠ release.
+- `DisposeBackend` ≠ release.
+- Stale and cross-realm handle rejection.
+- Generated-surface parity (host / native bridge / WASM / wrappers).
+- Existing WASM import signature compatibility (D-WASM).
+- Reordering and reparenting never change identity.
+- Geometry upload → update → read-back on one `geoH` (worked example 2).
+
+A migration is complete only when its replaced path is removed in the same
+change, or is covered by an explicitly tracked retirement item
+(e.g. `RETIRE-RECONCILE`). **Parity is tested across generated surfaces rather
+than promised.**
 

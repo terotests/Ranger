@@ -2,8 +2,15 @@
 
 Inventory and exploratory notes moved out of [`CODE_CLEANUP.md`](./CODE_CLEANUP.md).
 They document live duplication and historical design drafts; they are **not** the
-implementation contract. For binding direction see `CODE_CLEANUP.md`
-(Architecture decisions + worked example).
+implementation contract.
+
+**Promoted into the binding contract** (do not treat the copies below as
+authoritative if they disagree): D-IDENTITY, D-PROP, D-ADAPTER, D-REGISTRY,
+implementation gates, geometry upload example, and
+[`docs/WASM_MEMORY_ABI.md`](./docs/WASM_MEMORY_ABI.md) (from the old linear-memory
+chapter).
+
+For binding direction see [`CODE_CLEANUP.md`](./CODE_CLEANUP.md).
 
 ---
 
