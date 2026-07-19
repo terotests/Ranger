@@ -161,7 +161,16 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   via host commands, bumping the mesh's hybrid host revision (Phase-4 invariants).
   Gates: `physics/tests/physics_step_test`, `physics/tests/pose_sync_test`.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (30 suites, 457
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 30/30 suites passed`.
+- **Phase 10b — D-2D `ranger:2d` (P1): ✅ green.** `modules/ranger_2d/RgRanger2D.rgr`
+  — the first-class retained 2D system (Texture2D / SpriteAtlas / Sprite2D /
+  Layer2D / Camera2D / AnimationPlayer2D arenas + frame-local DrawList2D + weak
+  PoseBinding2D). Gate `tests/contract/d_2d` (44) covers all ten required parity
+  cases: stable sprite handles across reorder/reparent, shared atlas/texture,
+  layer-remove ≠ release, SW==GPU camera transforms, TS==WASM atlas region,
+  deterministic animation frame, leak-free draw lists, stale-binding rejection,
+  hot-reload count stability.
 
-*Later phases (10+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (31 suites, 501
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 31/31 suites passed`.
+
+*Later phases (10/11/12) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
