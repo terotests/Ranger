@@ -43,6 +43,24 @@ function probeStompEnemy(slot) {
   return e.alive;
 }
 
+// Stomp on slot 0 must leave slot 1's matching enemy alive (separate sessions).
+function probeStompIndependent(slot) {
+  const a = __game.players[0];
+  const b = __game.players[1];
+  a.enemies[0].alive = 1;
+  b.enemies[0].alive = 1;
+  a.enemies[0].x = 100;
+  a.enemies[0].y = 1700;
+  a.x = a.enemies[0].x - 13;
+  a.y = a.enemies[0].y - 10 - 44;
+  a.vy = 0.2;
+  a.done = 0;
+  __game.applyEnemyHits(a);
+  if (a.enemies[0].alive != 0) { return 0; }
+  if (b.enemies[0].alive != 1) { return 0; }
+  return 1;
+}
+
 function probeEnterFinish(slot) {
   const pl = __game.players[slot];
   __game.enterFinish(pl);

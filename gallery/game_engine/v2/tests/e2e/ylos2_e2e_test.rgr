@@ -52,9 +52,12 @@ class Ylos2E2ETest {
         t.eqInt("pane 1 has twelve enemies" (to_int (host.callSlot("enemyCount" 1))) 12)
 
         def startY1:double (host.callSlot("playerY" 0))
+        def startY2:double (host.callSlot("playerY" 1))
         def sprite1IdA:int (to_int (host.callSlot("playerSpriteId" 0)))
 
         ; ---- attract mode via the optional driver (host stays input-agnostic)
+        ; Stop when P1 reaches the goal (P2 has a harder independent enemy set
+        ; under attract and is checked for progress, not summit parity).
         def frame 0
         def goalFrame:int (0 - 1)
         while (frame < 3600) {
@@ -74,7 +77,9 @@ class Ylos2E2ETest {
         def endY2:double (host.callSlot("playerY" 1))
         print ("  frames=" + (to_string frame) + " p1.y=" + (to_string endY1) + " p2.y=" + (to_string endY2))
         t.ok("P1 climbed the tower (y decreased > 1000px)" ((startY1 - endY1) > 1000.0))
-        t.ok("P2 climbed too" (endY2 < 1400.0))
+        ; Separate sessions: P2 no longer rides P1's stomps. Attract still moves
+        ; P2 off the floor; summit parity is not required for this gate.
+        t.ok("P2 made climb progress under its own session" ((startY2 - endY2) > 100.0))
         t.ok("P1 reached the goal platform" (goalFrame > 0))
 
         ; ---- celebration through ranger:core (finish FSM + SFX vocabulary) --
@@ -93,12 +98,12 @@ class Ylos2E2ETest {
         ; ---- separate sessions + direct gameplay probes after the climb ----
         t.eqInt("sessions independent (P0 collect leaves P1 gem)"
             (to_int (host.callSlot("probeSessionsIndependent" 0))) 1)
+        t.eqInt("stomp independent (P0 stomp leaves P1 enemy)"
+            (to_int (host.callSlot("probeStompIndependent" 0))) 1)
         ; Reset-ish probes on P2 so we do not disturb P1's finished state.
         def superMs:double (host.callSlot("probeCollectDiamond" 1))
         t.ok("diamond pickup grants super timer" (superMs > 7000.0))
         t.eqInt("stomp clears enemy 0 on pane 1" (to_int (host.callSlot("probeStompEnemy" 1))) 0)
-        t.eqInt("pane 0 enemy still alive after pane 1 stomp"
-            (to_int (host.callSlot("enemyAlive" 0))) 1)
 
         ; ---- identity across the whole game ---------------------------------
         def sprite1IdB:int (to_int (host.callSlot("playerSpriteId" 0)))
