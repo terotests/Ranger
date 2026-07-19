@@ -117,6 +117,8 @@
     "engine:compile:sdl": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp ./gallery/game_engine/ranger_games/pong_sdl.rgr -d=./gallery/game_engine/ranger_games -o=pong_sdl.cpp -nodecli",
     "engine:sdl": "bash gallery/game_engine/scripts/build-sdl.sh",
     "engine:sdl:run": "bash gallery/game_engine/scripts/build-sdl.sh --run",
+    "engine:v2:test": "bash gallery/game_engine/v2/tests/run.sh",
+    "engine:v2:shot:ylos2": "bash gallery/game_engine/v2/tests/tools/ylos2_screenshot.sh",
     "engine:game-sdl": "bash gallery/game_engine/scripts/build-game-sdl.sh",
     "engine:game-sdl:run": "bash gallery/game_engine/scripts/build-game-sdl.sh --run",
     "engine:game-sdl:launcher": "bash gallery/game_engine/scripts/build-game-sdl.sh --run",

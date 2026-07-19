@@ -8,13 +8,34 @@ Headless interpreter + host arenas + WASM bridge first; rendering last.
 
 **Plan phase:** 0+ — see [`CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md).
 
-## Unit / contract tests
+## How v2 runs today (headless Node + TSX interpreter)
 
-Cross-cutting gates live under [`tests/`](./tests/) (harness
-`tests/harness/RgTest.rgr`). From the repo root:
+There is **no SDL window** yet. Everything green below is the same stack:
+
+```text
+.rgr host/driver  ──(-es6)──►  Node.js process
+                                  │
+                                  ├─ RgGameHost / bridge / arenas / SW present
+                                  │     (Ranger compiled to ES6, executed by Node)
+                                  │
+                                  └─ ComponentEngine  ←── parses & evaluates guest .tsx
+                                        (TSX interpreter written in Ranger;
+                                         game source is NOT compiled to JS ahead of time)
+```
+
+| Layer | What runs it | Notes |
+|-------|--------------|-------|
+| Host (`RgGameHost`, e2e, screenshot tools) | **Node.js** after Ranger→ES6 | `tests/run.sh` and `engine:v2:shot:*` both use `-es6` |
+| Guest game (`games/*/index.tsx`) | **TSX interpreter** (`interp/migrate/src/ComponentEngine.rgr`) | Loaded at runtime via `host.load(dir, file)`; registry commands hit real host arenas |
+| Pixels | **Software / textured CPU present** → in-memory `RgFramebuffer` | No `gfx_sdl`, no GL window; shots dump RGB text → PNG |
+
+So: yes, the process is fully a Node backend today; yes, the game still runs through the **TSX interpreter** (not as native Node/TS modules). Node only hosts the compiled Ranger engine.
+
+### Unit / contract tests
 
 ```bash
-bash gallery/game_engine/v2/tests/run.sh
+npm run engine:v2:test
+# same as: bash gallery/game_engine/v2/tests/run.sh
 ```
 
 Compiles every registered suite to ES6, runs it under Node, and prints
@@ -26,6 +47,26 @@ Compiles every registered suite to ES6, runs it under Node, and prints
 - A phase is done only when its folder README tests pass
 - Staged ports (`three/port/`, `physics/cannon/`, …) may still carry upstream
   `*_test.rgr` files outside this driver — re-home runners as they go live
+
+### Headless shots (diagnostic, not a gate)
+
+Same Node + interpreter path; after a few `host.frame` ticks the software
+presenter fills framebuffers and a tiny JS helper writes a PNG.
+
+```bash
+npm run engine:v2:shot:ylos2
+# → compile tests/tools/ylos2_screenshot.rgr → ES6
+# → Node: RgGameHost.load(v2/games/ylos2) → ComponentEngine evaluates index.tsx
+# → Rg2DPresenter.presentTextured → RGBSHOT dump → dump_rgb_to_png.js
+```
+
+Details: [`tests/tools/README.md`](./tests/tools/README.md).
+
+### SDL / native window
+
+**Not ready.** v1 still uses `npm run engine:game-sdl:run` (Ranger→C++ +
+`gfx_sdl`). v2 needs the same *host protocol* (`RgGameHost`) compiled to C++
+and bound to SDL for input/present — checklist in [`TODO.md`](./TODO.md).
 
 ## Central model
 

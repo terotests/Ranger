@@ -1,9 +1,100 @@
-# v2 — testing debt
+# v2 — debt & readiness
 
-Gaps found while reviewing unit/contract coverage under `gallery/game_engine/v2/`.
-The live headless gate is `bash gallery/game_engine/v2/tests/run.sh` (37 suites).
-Mark items `[x]` when they land in that driver (or a documented sibling runner
-that is kept green).
+Gaps found while reviewing coverage and **native/SDL run readiness** under
+`gallery/game_engine/v2/`.
+
+| Track | What is green today | What is not |
+|-------|---------------------|-------------|
+| Headless gate | `npm run engine:v2:test` → `bash gallery/game_engine/v2/tests/run.sh` (40 suites) | — |
+| SDL / native window | — | **not runnable** (see § SDL below) |
+
+Mark checklist items `[x]` when they land and stay green.
+
+---
+
+## P0 — SDL / native run readiness (not ready)
+
+### How headless works today (for contrast)
+
+v2 games **do** run through the TSX interpreter already — just not in an SDL
+process:
+
+1. Compile a Ranger host/driver with `-es6` (e.g. `tests/e2e/ylos2_e2e_test.rgr`,
+   `tests/tools/ylos2_screenshot.rgr`).
+2. **Node.js** executes that ES6 host.
+3. Host constructs `RgGameHost` → `ComponentEngine.loadScript(…)` **parses and
+   evaluates** the guest `index.tsx` (interpreter, not tsc/esbuild).
+4. Frames + software/textured present write an in-memory `RgFramebuffer`;
+   shots dump RGB → PNG. No window, no `gfx_sdl`.
+
+See [`README.md`](./README.md) “How v2 runs today”.
+
+### What v1 SDL does (target shape)
+
+```bash
+npm run engine:game-sdl:run -- gallery/game_engine/games/pong/index.tsx
+# → scripting/game_sdl_runner.rgr → C++ binary → gfx_sdl.rgr (window + input)
+```
+
+v2 has **no equivalent**. Same guest protocol (`RgGameHost` + interpreter)
+must move from “ES6 under Node” to “C++ binary + SDL bindings”.
+
+### What already exists (usable building blocks)
+
+| Piece | Status | Notes |
+|-------|--------|-------|
+| `RgGameHost` + `Rg2DPresenter` | live | load TSX via interpreter → frame; SW/textured present |
+| Software / textured 2D present | live | Phase 11; e2e + `tests/tools/*_screenshot.rgr` |
+| `bridge.input.setAction(slot, action, down)` | live | e2e / `RgAttractDriver`; guest sees logical actions only |
+| v1 `gallery/game_engine/gfx_sdl.rgr` | live (v1) | `gfx_open` / `gfx_present` / input poll — **not wired to v2** |
+| `render/backends/gl/` | scaffold only | README: “after software path works” |
+
+### Missing for SDL (checklist)
+
+**Process / build**
+
+- [ ] **`npm run engine:v2:sdl` / `engine:v2:sdl:run`** — root scripts mirroring
+      `engine:game-sdl` / `:run` (default game e.g. `v2/games/ylos2/index.tsx`)
+- [ ] **`scripts/build-v2-sdl.sh`** — Ranger→C++→link SDL2 (like
+      `build-game-sdl.sh`, output under e.g. `tmp/v2-sdl/`)
+- [ ] **Prove `-l=cpp` on the v2 interpreter stack** — today every suite is
+      `-es6` only. SDL needs `ComponentEngine` + `RgRegistryBridge` + modules
+      to compile and link as a native binary (unproven)
+
+**Bindings (the actual SDL glue)**
+
+- [ ] **v2 SDL shell `.rgr`** (host-side, **not** inside a game folder) — generic
+      loop over `RgGameHost`:
+      1. `gfx_open` / `gfx_open_gpu`
+      2. poll SDL keys/pads → `bridge.input.setAction(…)` (`left` / `right` /
+         `jump` / … — same names guests already use)
+      3. `host.frame(dtMs)` — still the **TSX interpreter** inside the binary
+      4. `Rg2DPresenter.presentTextured` (or SW) → blit to SDL
+      5. honour `launch()` via `host.loadLaunched()`
+- [ ] **Framebuffer → `gfx_present`** — v2 `RgFramebuffer` is `[int]`
+      `0xRRGGBB`; `gfx_present` wants RGBA8888 `buffer` (`SoftCanvas.raw()`).
+      Need a pack/blit helper
+- [ ] **Smoke** — `engine:v2:sdl:run:ylos2` + short
+      `SDL_VIDEODRIVER=dummy` run (parity with `engine:game-sdl:smoke:*`)
+
+**Do not**
+
+- [ ] Reuse v1 `game_sdl_runner.rgr` as the v2 host — wrong protocol
+      (`GameRunner` vs `RgGameHost`). Staged `v2/web/` / `v2/sprites/` imports of
+      `../gfx_sdl.rgr` still point at **v1** layout.
+
+### Follow-ons (after the first window opens)
+
+- [ ] Split-screen present (`gfx_present_split` or compose panes) for ylos2
+- [ ] Audio: bridge `vocalCues` / `musicScore` / one-shots → SDL audio
+      (v1: `game_audio_sdl.rgr`; v2 only records cues in the bridge today)
+- [ ] Real `render/backends/gl` path (GPU present) — optional once SW→SDL works
+
+### Intentionally out of scope for “first SDL window”
+
+- Full launcher/catalog parity with v1 menu
+- WASM guest profiles on the SDL binary
+- Replacing v1 `engine:game-sdl:*` (v1 stays runnable)
 
 ---
 
@@ -85,8 +176,15 @@ Also correct the stale claim in [`lpc/TODO.md`](./lpc/TODO.md) §1b that marked
 ## How to re-check
 
 ```bash
-# Live v2 gate (must stay green)
-bash gallery/game_engine/v2/tests/run.sh
+# Live v2 headless gate (must stay green)
+npm run engine:v2:test
+# same as: bash gallery/game_engine/v2/tests/run.sh
+
+# Optional: offline PNG of ylos2 via textured software present (no SDL window)
+npm run engine:v2:shot:ylos2
+
+# SDL window (target — not implemented yet)
+# npm run engine:v2:sdl:run -- gallery/game_engine/v2/games/ylos2/index.tsx
 
 # Inventory: local tests vs central driver
 # (suites listed in tests/run.sh vs find v2 -name '*_test.rgr')
