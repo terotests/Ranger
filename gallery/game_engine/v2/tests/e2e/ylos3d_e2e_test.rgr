@@ -1,8 +1,9 @@
 ; ==============================================================================
-; ylos3d_e2e_test — hybrid 2D + 3D diamond sprites on the generic RgGameHost.
+; ylos3d_e2e_test — ylos2 gameplay + 3D diamond sprites on the generic host.
 ; ==============================================================================
-; Asserts PLAN_2D_EMBED_3D path A: SW 3D octahedra land in CPU RenderTargets
-; and are sampled as texture-backed Sprite2Ds by the compose/textured presenter.
+; Asserts PLAN_2D_EMBED_3D path A gems sit on top of the ylos2 port (LPC sheets,
+; split-screen, enemies, immediate env). Diamonds are texture-backed Sprite2Ds
+; from SW RTT of package .glb models.
 ; ==============================================================================
 
 Import "../../runtime/game_host/RgGameHost.rgr"
@@ -25,7 +26,7 @@ class Ylos3DE2ETest {
     }
 
     sfn m@(main):void () {
-        def t:RgTest (RgTest.forSuite("tests/e2e/ylos3d (hybrid 2D embed 3D)"))
+        def t:RgTest (RgTest.forSuite("tests/e2e/ylos3d (ylos2 + embed 3D gems)"))
         def host:RgGameHost (new RgGameHost)
 
         t.ok("generic host loaded games/ylos3d"
@@ -34,18 +35,20 @@ class Ylos3DE2ETest {
         t.ok("test fixture loaded"
             (host.loadFixture("gallery/game_engine/v2/games/ylos3d/tests" "probe.tsx")))
 
-        ; 1 player + 4 diamond sprites (texture-backed)
-        t.eqInt("5 retained sprites (player + 4 diamonds)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 5)
-        t.eqInt("four diamond SceneSprite probes" (to_int (host.callSlot("diamondCount" 0))) 4)
+        ; ylos2 retained sprites + five 3D diamond sprites
+        t.eqInt("19 retained sprites (2 players + 12 enemies + 5 diamonds)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 19)
+        t.eqInt("three sheet atlases (p1 + p2 + enemy)"
+            (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 3)
+        t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
+        t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
+        t.eqInt("five diamond SceneSprite probes" (to_int (host.callSlot("diamondCount" 0))) 5)
 
-        ; diamond sprites are texture-backed (not atlas)
         def d0:int (to_int (host.callSlot("diamondSpriteId" 0)))
         def d0h:RgHandle (host.bridge.resolveGuestId(d0))
         t.ok("diamond 0 handle valid" (d0h.isValid()))
         t.ok("diamond 0 is texture-backed" (host.bridge.d2.spriteUsesTexture(d0h)))
 
-        ; a few frames: 3D diamonds sync into RTs, 2D pass samples them
         def f 0
         while (f < 8) {
             host.frame(33.333)
@@ -60,7 +63,7 @@ class Ylos3DE2ETest {
         def drawn:int (RgComposePresenter.presentPane(host.bridge 0 fb sky))
         t.ok("compose presenter drew sprites" (drawn > 0))
         def lit:int (Ylos3DE2ETest.countNonClear(fb sky))
-        t.ok("presented frame has non-sky pixels (3D gems + player)" (lit > 40))
+        t.ok("presented frame has non-sky pixels (LPC + 3D gems)" (lit > 40))
 
         t.summary()
     }
