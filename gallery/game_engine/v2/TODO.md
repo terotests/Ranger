@@ -10,114 +10,291 @@ driver and the roadmap below over that checklist.
 |-------|---------------------|-------------|
 | Headless gate | `npm run engine:v2:test` → 46 suites + boundary gate | — |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | must-pass **chess** missing |
-| SW / textured 2D | e2e + `engine:v2:shot:ylos2` | many atlases still colour markers / incomplete art |
-| Hybrid 2D+3D (path A) | thin slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | six-plane clip, top-left rule, samplers/mips, real RT, ordered pass replay — **before GPU** |
-| Native SDL | `RgSdlGameHost` + `scripts/build-sdl-v2.sh` + `engine:game-sdl:launcher:v2` | CI `SDL_VIDEODRIVER=dummy` smoke; vocals/SFX sinks |
+| SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
+| Hybrid 2D+3D (path A) | thin slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | clip/fill/alpha essentials; RT lifetime; ordered passes; **GPU later** |
+| Native SDL | `RgSdlGameHost` + `build-sdl-v2.sh` + `engine:game-sdl:launcher:v2` (macOS-oriented today) | **Pi 5 arm64** build/smoke; cross-platform `pkg-config`; live CI |
 | WASM32 published ABI | create/free/parity fixtures | IDL extract + freeze (BRIDGES steps 4–7) |
-| v1 | still **runnable legacy** | archival only at an explicit milestone (not Phase 12) |
+| v1 | still **runnable legacy** (~many titles under `games/`) | archival only at an explicit milestone (not Phase 12) |
+
+**Docs inconsistency:** README / older notes still say “no SDL window”;
+`runtime/sdl/` already has a native host (launcher, input map, split present,
+rumble, music pump). Prefer this file + `runtime/sdl/README.md` over stale
+claims. Align README when touching native work.
 
 Mark checklist items `[x]` when they land and stay green.
 
 ---
 
-## Road to v1 parity (ordered)
+## Three milestones (prove in this order)
 
-Phase 12 in the plan = **must-pass ports on v2** (chess + ylos2), not “delete v1”.
-Highest leverage is productization + must-pass games — not more staged
-Three/Cannon copies.
+“v1 parity” does **not** yet mean every v1 title. With only `ylos2` / `ylos3d`
+on disk and Chess named but missing, the first bar is:
 
-1. **[ ] Native SDL smoke that stays green** — prove
-   `npm run engine:game-sdl:launcher:v2` (or a short
-   `SDL_VIDEODRIVER=dummy` run of the built binary) for launcher → ylos2.
-   Align stale README lines that still say “no SDL window”. Optional: add
-   `engine:v2:sdl:*` aliases that call `build-sdl-v2.sh`.
-2. **[ ] Honest launcher catalog** — `menu/RgLauncherUi.rgr` hardcodes Chess /
-   Breakout paths that are **not** under `v2/games/`. Ship only existing
-   packages (`ylos2`, `ylos3d`) or data-drive the list (see abstraction debt).
-3. **[ ] Close ylos2 “must-pass” bar** — decide [`QUESTIONS.md`](./QUESTIONS.md)
-   Q4–Q7 (finish timeline / celebrate SFX / music restart / attract jump), then
-   implement that slice and extend e2e past climb + cheer + score-text.
-4. **[ ] Real atlas pixels** — `image <uri>` / PNG upload into `RgTexture2D`
-   (Q1); wire LPC decoder unit suite into `tests/run.sh` (P0 below).
-5. **[ ] Vocals / one-shots → SDL** — music already pumps via `musicScore` +
-   `pumpAudio`; wire `vocalCues` / one-shots to a real sink and shrink
-   test-only bridge counters.
-6. **[ ] Port chess** — the other named must-pass (`games/README.md`); pure TS
-   rules/AI can copy; shell on `ranger:2d` + EVG/HUD.
-7. **[ ] BRIDGES step 4+** — IDL extract; regenerate interpreter table; replace
-   hand `dispatchRow` (do not grow it); then wasm32 profile + Rust conformance
-   guest before any ABI freeze.
-8. **[ ] Shrink import allowlist** — retarget staged `lpc/` / `ui/` / `model3d/`
-   / `web/` / `sprites/` / `three/port/` escapes; decide `ts_parser` policy
-   (gallery dep vs vendor under `v2/interp/`).
-9. **[ ] Software reference + frame-pass architecture** — finish the SW path as
-   the trustworthy reference (clipping, top-left rule, samplers/mips, real
-   `RenderTarget`, ordered pass replay) **before** any GPU backend. Details in
-   § “Software reference + pass architecture” below. H1–H4 path A is only a
-   thin green slice today.
-10. **[ ] Hybrid GPU follow-ons (H5–H7)** — shared-device / surface compose
-    ([`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md)) only after the software
-    reference is stable and must-pass 2D is credible. **Do not start GPU next.**
+> The selected parity games behave correctly through the v2 API and run through
+> the **same** native host on both **macOS** and **Raspberry Pi 5**.
 
-### Open decisions that block a crisp “done”
+| # | Milestone | Goal |
+|---|-----------|------|
+| **A** | **v1 gameplay / API parity** | Chess + ylos2 through v2 APIs (headless + native) |
+| **B** | **Native platform parity** | Same packages on macOS arm64 **and** Pi 5 arm64 SDL |
+| **C** | **Hybrid 2D/3D performance** | Embedded 3D without blowing the Pi frame budget; GPU without CPU readback |
+
+Software-rasterizer polish remains useful for CI / screenshots / ownership
+debugging, but it **stops being the main line** once the current image is
+visually correct. Do not deepen SW 3D (mips, fancy materials, anisotropic,
+advanced lighting) ahead of A/B.
+
+### Revised implementation sequence
+
+1. **[ ] Parity definition** — freeze executable matrices for ylos2 + Chess
+   (below).
+2. **[ ] Native smoke** — macOS **and** Pi 5: build, launch, input, split-screen,
+   audio (see § Native SDL / platform gates).
+3. **[ ] Cross-platform software screenshots** — same deterministic frame on
+   Node SW / macOS SW→SDL / Pi SW→SDL; pixel hash or tiny tolerance.
+4. **[ ] Performance instrumentation** — per-stage timings + allocation
+   counters; set Pi budgets before expanding hybrid work.
+5. **[ ] Software renderer correctness essentials only** — clipping, fill
+   rules, alpha, simple nearest/linear, configurable 1×/2× SSAA; no crashes /
+   giant triangles (see § Software reference — demoted).
+6. **[ ] Real render-target lifetime + ordered frame passes.**
+7. **[ ] 3D sprite update modes + resolution limits** — so embedded 3D cannot
+   steal the 2D frame budget.
+8. **[ ] Pi GLES backend** — GPU 3D RTT + GPU 2D composition **without**
+   readback every frame.
+9. **[ ] macOS GPU backend** — compatibility GL OK for parity; **Metal** as the
+   durable path; public API stays `Texture2D` / `RenderTarget` / `Sampler` /
+   `RenderPass` (not `GLuint`).
+10. **[ ] Broader v1 game ports** — after A+B are proven.
+
+### Practical definition of success (first platform milestone)
+
+```text
+The same v2 ylos2 package:
+- launches from the v2 launcher,
+- runs at stable speed (~60 Hz),
+- accepts two local players,
+- presents split-screen correctly,
+- plays music and effects,
+- supports controller rumble,
+- can show one animated 3D sprite (optional enhancement),
+- and works without game-specific host code
+on both macOS and Raspberry Pi 5.
+```
+
+That proves something more important than advanced AA: **the v2 API is portable
+and can replace the selected v1 runtime paths.**
+
+---
+
+## Milestone A — freeze a concrete parity matrix
+
+Before more renderer work, define exactly what must match. Must-pass titles
+(`games/README.md`): **ylos2** + **chess**.
+
+**ylos2 target capabilities** (from game policy / QUESTIONS): sprite + atlas,
+camera scroll, split-screen, 2P input, particles, rumble, vocal FX, music
+score, LPC/bitmap assets.
+
+**Chess target capabilities:** atlas pieces, text/UI, cursor actions; rules/AI
+unchanged (pure TS copy).
+
+### Executable matrix (fill as gates land)
+
+| Capability | Node/headless | macOS SDL | Pi 5 SDL |
+|------------|:-------------:|:---------:|:--------:|
+| Game loads | ✓ e2e | [ ] | [ ] |
+| Assets resolve | partial | [ ] | [ ] |
+| 1-player input | ✓ / attract | [ ] | [ ] |
+| 2-player input | ✓ e2e | [ ] | [ ] |
+| Split panes | ✓ e2e | [ ] | [ ] |
+| Music | score text / pump | [ ] | [ ] |
+| SFX / vocals | record-only | [ ] | [ ] |
+| Rumble | simulated | [ ] | [ ] |
+| Stable ~60 Hz gameplay | N/A | [ ] | [ ] |
+| Clean shutdown / relaunch | ✓ launch handoff | [ ] | [ ] |
+
+- [ ] Turn the matrix into runnable smoke scripts (headless already partly
+      covered; native = fixed-duration auto-run that exits).
+- [ ] Honest launcher catalog — only list games that exist (`ylos2`, `ylos3d`
+      today; add Chess when ported). Strip dead Chess/Breakout entries.
+- [ ] Close ylos2 bar ([`QUESTIONS.md`](./QUESTIONS.md) Q4–Q7) and extend e2e.
+- [ ] Real atlas pixels (`image` / PNG → `RgTexture2D`) + LPC decoder suite.
+- [ ] Port **chess** onto `ranger:2d` + EVG/HUD.
+- [ ] Vocals / one-shots → real audio sink (not only bridge counters).
+
+### Open decisions (still block a crisp “done”)
 
 | ID | Blocks |
 |----|--------|
-| Q1 | Atlas `image` line + pixel upload (real art / GPU) |
-| Q4–Q7 | What “must-pass ylos2” means (façades vs play-feel) |
-| BRIDGES | When to freeze wasm32 / stop growing hand dispatch |
+| Q1 | Atlas `image` line + pixel upload |
+| Q4–Q7 | ylos2 façades vs play-feel bar |
+| BRIDGES | wasm32 freeze / hand `dispatchRow` |
 | Import policy | `ts_parser` outside v2 vs vendored |
-| Plan Intent | Archival legacy only at an explicit end-of-v1 milestone |
+| Plan Intent | archival legacy only at explicit end-of-v1 milestone |
 
 ### Plan phase status (evidence vs checklist)
 
 Treat [`CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md) checkboxes as historical.
-From `tests/run.sh` + live code:
 
 | Phase | Evidence status |
 |-------|-----------------|
 | 0–7 | **Done** (suites green) |
-| 8–10b | **Largely done** (modules, frame, devices, D-2D core); assets/art incomplete |
-| 9 | **Slice done** (step + pose); Cannon port still staged |
+| 8–10b | **Largely done**; assets/art incomplete |
+| 9 | **Slice done**; Cannon still staged |
 | 11 | **SW + textured done**; GL scaffold |
-| 12 | **In progress** — ylos2 e2e; chess absent; no archival |
-| BRIDGES 1–3 | Schema + guests in progress; IDL/wasm freeze **not started** |
+| 12 | **In progress** — ylos2 e2e; chess absent |
+| BRIDGES 1–3 | Guests in progress; IDL/wasm freeze **not started** |
 
 ---
 
-## Software reference + pass architecture (before GPU)
+## Milestone B — native SDL as a first-class gate (macOS + Pi 5)
 
-**Best next graphics move is not the GPU backend.** First turn the current
-software path into a reliable reference implementation, then complete the
-resource / pass architecture around it. See [`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md)
-(render-target lifecycle, texture views, pass retention, hazards, destinations,
-automatic producer scheduling still incomplete).
+Architecture is already right: guest sees only logical actions + `runtime.*`;
+SDL stays behind the host; same `RgGameHost` / interpreter / bridge / presenter
+in headless and native (`runtime/sdl/`).
 
-**Already landed (thin vertical slice):** SW 3D renders at 2× resolution →
-resolves into a CPU `Texture2D` → SW 2D samples that texture (`ylos3d` diamonds;
-gates `rtt_sprite` / `ylos3d_e2e`). Key files:
-`three/port/src/three_software_backend.rgr`,
-`modules/ranger_three/RgRangerThree.rgr`,
-`render/backends/software/RgTexturedRenderer2D.rgr`,
-`interp/engine/RgRegistryBridge.rgr` (pass record vs immediate RTT).
+### Platform work
 
-### Suggested PR sequence (independently reviewable)
+- [ ] **macOS arm64** build + smoke (Homebrew SDL2 path already in
+      `build-sdl-v2.sh`)
+- [ ] **Raspberry Pi OS arm64** build + smoke
+- [ ] **One build command** with platform-specific linker config
+- [ ] **`pkg-config` SDL discovery** on Linux/Pi (do not assume macOS/Homebrew
+      only)
+- [ ] **Fixed-duration automatic run** — launch ylos2, advance frames, exit 0
+- [ ] **Split-screen smoke** on both platforms
+- [ ] **Audio-device failure fallback** — headless / audio-less Pi still launches
+- [ ] **Controller connect / disconnect** testing
+- [ ] Align README (“no SDL”) with reality; optional `engine:v2:sdl:*` aliases
 
-1. Rasterizer correctness (six-plane clip + top-left + contract images)
-2. Texture sampling (sampler type, bilinear RGBA, texture alpha)
-3. Texture minification (mip chain + nearest-mip LOD)
-4. Configurable SSAA (`samples`, resolve + edge-fringe tests)
-5. Real render targets (separate identity, attachments, resize/release)
-6. Ordered frame execution (retention, exactly-once replay, multi-pass 2D)
-7. Destinations + load/store (`surface.target`, pane, offscreen)
-8. Automatic `SceneSprite3D` producer scheduling
-9. GPU 2D/3D backend parity (**last**)
+Headless suites compile-check native seams (`tests/sdl/sdl_host_test`) but do
+**not** provide a live SDL CI run (no SDL headers in current CI). Native smoke
+may stay machine-local until CI gains SDL — still required on **both** target
+machines before calling platform parity done.
 
-Highest-value immediate work: **PR 1**, then **samplers + mipmaps**.
+### Cross-platform SW screenshot gate
+
+- [ ] Render the same deterministic frame via:
+      ```text
+      Node software
+      macOS software → SDL
+      Pi software → SDL
+      ```
+- [ ] Compare pixel hashes (or tiny tolerance) so host/platform work cannot
+      silently change gameplay rendering
+
+### Pi performance budgets (before expanding hybrid)
+
+Pi 5 = quad Cortex-A76 + VideoCore VII (GLES 3.1 / Vulkan 1.3) — capable, but
+CPU render cost scales as:
+
+```text
+3D target pixels × SSAA × triangles × embedded views × update frequency
+```
+
+- [ ] Instrument per stage: guest update · 3D SW raster · SSAA resolve · 2D
+      compose · RGBA pack · SDL upload/present · audio pump
+- [ ] Provisional **60 Hz** budgets (~16.7 ms/frame) — adjust after measurement:
+      ```text
+      Game / interpreter update     ≤ 3 ms
+      2D render + composition       ≤ 4 ms
+      Small embedded 3D work        ≤ 4 ms
+      SDL packing / presentation    ≤ 3 ms
+      Remaining margin              ≥ 2 ms
+      ```
+- [ ] Soak test several minutes (thermals / sustained), not only first frames
+
+---
+
+## Milestone C — hybrid performance + GPU strategy
+
+### 3D sprite update modes (use aggressively on Pi)
+
+Embedded 3D must not rerender every game frame by default
+([`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md)):
+
+```ts
+update: "manual" | "whenDirty" | { fps: 15 } | "everyFrame"
+```
+
+| Use | Mode |
+|-----|------|
+| Inventory item | `manual` / `whenDirty` |
+| Character portrait | 10–15 fps |
+| Celebration diamond | `everyFrame` briefly |
+| Static decorative mesh | render once |
+| Full 3D world / background | `everyFrame`, **GPU required** |
+
+For v1 parity, a 3D sprite is an **enhancement** — it must not make the 2D game
+miss its frame budget.
+
+### Do not require one identical GPU API on macOS and Pi
+
+Shared layer = Ranger renderer contract, not one native GPU API:
+
+```text
+Renderer2D / Renderer3D
+        ↓
+RgGraphicsDevice
+        ├── Software   (CI, screenshots, fallback)
+        ├── GL / GLES  (Pi production; macOS parity OK)
+        └── Metal      (durable macOS)
+```
+
+Public guest API stays `Texture2D` / `RenderTarget` / `Sampler` / `RenderPass`
+— never `GLuint` / FBO types.
+
+| Platform | Parity milestone | Production direction |
+|----------|------------------|----------------------|
+| **Pi 5** | SW→SDL first | **OpenGL ES 3.1** (smaller step) or Vulkan; FBO RTT stays **GPU-resident** when sampled by 2D — **no** GPU→CPU readback→SW 2D every frame |
+| **macOS** | SDL + OpenGL OK to prove parity | Apple deprecated OpenGL (10.14+); durable path = **Metal** (direct or via abstraction) |
+
+- [ ] Pi GLES: textures, FBO RT + depth, sprite batching, basic mesh shaders,
+      RT→sprite with **no readback**
+- [ ] macOS: keep GL only as compatibility; design APIs for Metal later
+- [ ] Shader-source variants for desktop GL vs GLES where they share code
+
+---
+
+## Software reference — correctness essentials (demoted main line)
+
+SW path stays valuable for: deterministic screenshots, CI, ownership/pass
+debugging, macOS↔Pi visual compare, GPU-init fallback. It does **not** need to
+become a fully optimized production 3D renderer.
+
+**Already landed (thin slice):** SW 3D @2× → CPU `Texture2D` → SW 2D
+(`ylos3d`; `rtt_sprite` / `ylos3d_e2e`).
+
+**Finish only these essentials**, then stop deepening SW 3D ahead of milestones
+A/B:
+
+- [ ] Complete frustum clipping (six homogeneous planes)
+- [ ] Consistent triangle fill (top-left rule)
+- [ ] Correct alpha (texture α + material; no dark fringes)
+- [ ] Configurable 1× / 2× SSAA (`samples` API)
+- [ ] Nearest + linear sampling (shared `sampleLinear` at texture store)
+- [ ] No crashes / giant triangles (remove 8× span guard once clip works)
+
+**Defer** (after A/B, or never as SW mainline): mip chains / anisotropic /
+sophisticated transparent materials / advanced lighting / trilinear.
+
+### Suggested PR sequence (graphics — after native smoke is moving)
+
+1. Rasterizer correctness essentials (clip + top-left + contract images)
+2. Nearest/linear sampling + texture alpha
+3. Configurable SSAA (`samples`) + edge-fringe tests
+4. Real render targets (identity, resize/release)
+5. Ordered frame execution (retention, exactly-once replay, multi-pass 2D)
+6. Destinations + load/store
+7. `SceneSprite3D` update modes / producer scheduling
+8. Pi GLES → macOS Metal/GL parity (**Milestone C**)
+
+Detail checklists below remain the implementation notes for items 1–7.
 
 ### 1. Finish software rasterizer correctness
 
-Make this the next small graphics PR.
+Do after Milestone B smoke is moving — not ahead of native macOS/Pi gates.
 (`three/port/src/three_software_backend.rgr`)
 
 - [ ] **Six homogeneous clipping planes** — today only near-plane clip; large
@@ -174,18 +351,13 @@ Nearest-neighbour in both SW 3D and SW 2D makes upper facets noisy
 - [ ] **Wire nearest/linear into both** SW 3D rasterizer and SW 2D compositor
       (no duplicated filter math).
 
-### 3. Mipmaps (after bilinear)
+### 3. Mipmaps — **deferred** (not SW mainline)
 
-Bilinear helps magnification; diamond top facets are a **minification** problem.
+Useful later for patterned minification (e.g. diamond tops), but **do not**
+prioritize ahead of milestones A/B or Pi GLES. When revisited:
 
 - [ ] Generate mip chain on image load (`W×H`, `W/2×H/2`, …)
-- [ ] LOD from perspective-correct UV derivatives (finite differences OK for SW):
-      ```
-      rho = max(texW * |dUV/dx|, texH * |dUV/dy|)
-      lod = log2(rho)
-      ```
-- [ ] Start with **nearest mip** selection; trilinear later
-- [ ] Expect mipmapping to beat 2×→4× geometry SSAA for patterned diamond tops
+- [ ] LOD from UV derivatives; start with nearest-mip (trilinear later)
 
 ### 4. Configurable antialiasing (not hardcoded 2×)
 
@@ -273,25 +445,19 @@ samples `gem.sprite`.
 - [ ] **Do not** implement `whenDirty` until scene/camera/material/light/texture
       revision counters exist (PLAN defers this)
 
-### 9. GPU parity (explicitly last)
+### 9. GPU parity (Milestone C — last)
 
-- [ ] GPU 2D/3D backend parity tests against the SW reference images / contracts
-      above — only after PRs 1–8 make the software path trustworthy
+- [ ] Parity tests vs SW reference images — only after A/B + essentials above
+- [ ] Prefer Pi GLES / macOS Metal strategy in § Milestone C (no single forced
+      low-level API; no GPU→CPU readback loops)
 
 ---
 
-## P0 — SDL / native: productize what already exists
+## P0 — SDL / native building blocks (see Milestone B)
 
-### How headless works today (for contrast)
-
-v2 games **do** run through the TSX interpreter under Node (`-es6`):
-
-1. Compile a Ranger host/driver (e.g. `tests/e2e/ylos2_e2e_test.rgr`).
-2. **Node.js** executes that ES6 host.
-3. `RgGameHost` → `ComponentEngine` evaluates guest `index.tsx`.
-4. Software/textured present → in-memory `RgFramebuffer` (shots → PNG).
-
-See [`README.md`](./README.md) “How v2 runs today”.
+Detail for Milestone B. Headless path (contrast): Ranger `-es6` → Node →
+`RgGameHost` → `ComponentEngine` evaluates guest TSX → SW framebuffer. Native
+path: same host protocol compiled with `-l=cpp` + `gfx_sdl`.
 
 ### What already exists (do not rebuild from scratch)
 
@@ -299,38 +465,34 @@ See [`README.md`](./README.md) “How v2 runs today”.
 |-------|--------|-------|
 | `RgGameHost` + `Rg2DPresenter` | live | TSX → frame; SW/textured present |
 | `runtime/sdl/RgSdlGameHost.rgr` + `RgSdlMain.rgr` | live | launcher + game loop; pane-aware present; `clearRgb` |
-| `scripts/build-sdl-v2.sh` | live | Ranger→C++→link SDL2 |
-| `npm run engine:game-sdl:launcher:v2` | live | build + launch (needs SDL2 on the machine) |
-| `tests/sdl/sdl_host_test` | live | headless seams (RGBA pack, `mapMask`, music pump) |
-| Music → SDL PCM | live | `pumpAudio` + `audio/tests/audio_score_test` |
-| `render/backends/gl/` | scaffold | after SW→SDL is smoke-green |
+| `scripts/build-sdl-v2.sh` | live | Ranger→C++; **macOS/Homebrew-oriented today** |
+| `npm run engine:game-sdl:launcher:v2` | live | needs SDL2 on the machine |
+| `tests/sdl/sdl_host_test` | live | headless seams only (no live window in CI) |
+| Music → SDL PCM | live | `pumpAudio` |
+| `render/backends/gl/` | scaffold | after macOS+Pi SW→SDL smokes |
 
 ### Still missing (checklist)
 
-- [ ] **CI / dummy smoke** — short `SDL_VIDEODRIVER=dummy` run of the v2 binary
-      (parity with `engine:game-sdl:smoke:*`); prove launcher → ylos2 without a
-      display
-- [ ] **npm naming clarity** — either document `engine:game-sdl:launcher:v2` as
-      the v2 entry, or add `engine:v2:sdl` / `:run` aliases → `build-sdl-v2.sh`
-- [ ] **Direct game run script** — `build-sdl-v2.sh` path that skips the
-      launcher and loads a given `v2/games/<name>/index.tsx` (v1 has
-      `engine:game-sdl:run -- <path>`)
-- [ ] **Refresh docs** — README still claims “no SDL window” in places; keep
-      them aligned with `build-sdl-v2.sh`
-- [ ] **Do not** reuse v1 `game_sdl_runner.rgr` as the v2 host (`GameRunner` ≠
-      `RgGameHost`)
+- [ ] Pi 5 arm64 build (`pkg-config` SDL) — see Milestone B
+- [ ] Fixed-duration auto-run smoke on macOS **and** Pi
+- [ ] `SDL_VIDEODRIVER=dummy` / CI smoke when headers available
+- [ ] Direct game run (skip launcher) like v1 `engine:game-sdl:run -- <path>`
+- [ ] Audio-device failure fallback; controller hotplug
+- [ ] README alignment; optional `engine:v2:sdl:*` aliases
+- [ ] **Do not** reuse v1 `game_sdl_runner.rgr` (`GameRunner` ≠ `RgGameHost`)
 
-### Follow-ons (after smoke is green)
+### Follow-ons
 
 - [x] Pane-aware present (`paneCount` → single or split; neutral `clearRgb`)
-- [ ] Audio: `vocalCues` / one-shots → SDL (music path already exists)
-- [ ] Real `render/backends/gl` path (optional once SW→SDL smokes)
+- [ ] Audio: `vocalCues` / one-shots → SDL
+- [ ] Cross-platform SW screenshot hashes (Node / macOS / Pi)
 
-### Intentionally out of scope until must-pass 2D is credible
+### Intentionally out of scope until A+B are credible
 
-- Full v1 menu/catalog parity
-- WASM guest profiles on the SDL binary
+- Full v1 catalog port
+- WASM guests on the SDL binary
 - Replacing v1 `engine:game-sdl:*` (v1 stays runnable)
+- Deep SW 3D / GPU backends as the mainline
 
 ---
 
