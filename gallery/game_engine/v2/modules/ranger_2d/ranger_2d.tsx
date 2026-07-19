@@ -67,8 +67,10 @@ class Camera2D {
 
 class Renderer2D {
   // Static environment (v1 createStaticBg model): the game paints world-space
-  // primitives once per frame between beginBackground() and its render() calls;
-  // a backend rasterises them through each pane's camera UNDER the sprites.
+  // primitives between beginBackground() and render(); each render() snapshots
+  // the live list for that pane so separate sessions can paint different
+  // collectibles/FX per pane. Painting once then rendering twice keeps a
+  // shared background (backward-compatible).
   // fillRect/fillCircle take world coordinates and 8-bit r,g,b — the same
   // vocabulary v1's bgFillRect / bgFillCircle expose.
   beginBackground() { rg2d_bg_begin(); }

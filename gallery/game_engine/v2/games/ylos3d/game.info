@@ -1,7 +1,7 @@
-name=Pomppija
+name=Ylös 3D
 category=Games
 splitScreen=auto
 splitWorld=separate
 icon=assets/p1_walk.png
 iconFrames=480
-index=1
+index=2

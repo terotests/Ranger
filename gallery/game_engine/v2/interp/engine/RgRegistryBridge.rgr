@@ -121,9 +121,15 @@ class RgRegistryBridge extends EvalNativeBridge {
     fn clearPasses:void () {
         def empty:[RgFramePass]
         this.passes = empty
+        ; Drop prior-frame per-pane background snapshots so a missing render
+        ; cannot present stale session state.
+        this.d2.bgClearSnapshots()
     }
 
     fn appendPass2D:void (layerH:RgHandle camH:RgHandle pane:int) {
+        ; Snapshot the live immediate background for this pane so split-screen
+        ; guests can paint independent session backgrounds between renders.
+        this.d2.bgSnapshotPane(pane)
         def p:RgFramePass (new RgFramePass)
         p.kind = 0
         p.layerH = layerH

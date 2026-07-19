@@ -36,17 +36,19 @@ class Ylos3DE2ETest {
         t.ok("test fixture loaded"
             (host.loadFixture("gallery/game_engine/v2/games/ylos3d/tests" "probe.tsx")))
 
-        ; walk + super sprites per player, twelve enemies, five 3D diamonds
-        t.eqInt("21 retained sprites (2+2 players + 12 enemies + 5 diamonds)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 21)
+        ; walk + super per player, and a FULL enemy+diamond set per pane (separate sessions)
+        t.eqInt("38 retained sprites (2+2 players + 24 enemies + 10 diamonds)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 38)
         t.eqInt("five sheet atlases (p1 + p2 + supers + enemy)"
             (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 5)
         t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
         t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
-        t.eqInt("five diamond SceneSprite probes" (to_int (host.callSlot("diamondCount" 0))) 5)
-        t.eqInt("twelve enemy probes" (to_int (host.callSlot("enemyCount" 0))) 12)
-        t.eqInt("enemy 0 starts alive" (to_int (host.callSlot("enemyAlive" 0))) 1)
-        t.eqInt("diamond 0 starts untaken" (to_int (host.callSlot("diamondTaken" 0))) 0)
+        t.eqInt("pane 0 has five diamonds" (to_int (host.callSlot("diamondCount" 0))) 5)
+        t.eqInt("pane 1 has five diamonds" (to_int (host.callSlot("diamondCount" 1))) 5)
+        t.eqInt("pane 0 has twelve enemies" (to_int (host.callSlot("enemyCount" 0))) 12)
+        t.eqInt("pane 1 has twelve enemies" (to_int (host.callSlot("enemyCount" 1))) 12)
+        t.eqInt("enemy 0 starts alive (pane 0)" (to_int (host.callSlot("enemyAlive" 0))) 1)
+        t.eqInt("diamond 0 starts untaken (pane 0)" (to_int (host.callSlot("diamondTaken" 0))) 0)
         t.eqInt("player 0 starts without super" (to_int (host.callSlot("playerSuperMs" 0))) 0)
         t.eqInt("player 0 not finished" (to_int (host.callSlot("playerDone" 0))) 0)
 
@@ -54,6 +56,10 @@ class Ylos3DE2ETest {
         def d0h:RgHandle (host.bridge.resolveGuestId(d0))
         t.ok("diamond 0 handle valid" (d0h.isValid()))
         t.ok("diamond 0 is texture-backed" (host.bridge.d2.spriteUsesTexture(d0h)))
+        t.eqInt("diamond 0 owned by pane 0" (host.bridge.d2.spritePaneOwner(d0h)) 0)
+        def d1:int (to_int (host.callSlot("diamondSpriteId" 1)))
+        def d1h:RgHandle (host.bridge.resolveGuestId(d1))
+        t.eqInt("pane 1 diamond owned by pane 1" (host.bridge.d2.spritePaneOwner(d1h)) 1)
 
         def s0:int (to_int (host.callSlot("playerSuperSpriteId" 0)))
         def s0h:RgHandle (host.bridge.resolveGuestId(s0))
@@ -68,13 +74,19 @@ class Ylos3DE2ETest {
         t.ok("frame recorded at least one 2D pass"
             ((RgComposePresenter.passCount(host.bridge)) >= 1))
 
+        ; ---- separate sessions: P0 pickup must not clear P1's gem ----------
+        t.eqInt("sessions independent (P0 collect leaves P1 gem)"
+            (to_int (host.callSlot("probeSessionsIndependent" 0))) 1)
+
         ; ---- v1-parity gameplay probes (super / stomp / summit dance) -------
         def superMs:double (host.callSlot("probeCollectDiamond" 0))
         t.ok("diamond pickup grants super timer" (superMs > 7000.0))
         t.eqInt("diamond 0 marked taken after pickup" (to_int (host.callSlot("diamondTaken" 0))) 1)
+        t.eqInt("other pane diamond still untaken" (to_int (host.callSlot("diamondTaken" 1))) 0)
 
         def aliveAfter:int (to_int (host.callSlot("probeStompEnemy" 0)))
         t.eqInt("stomp clears enemy 0" aliveAfter 0)
+        t.eqInt("other pane enemy still alive" (to_int (host.callSlot("enemyAlive" 1))) 1)
 
         t.eqInt("enterFinish sets done" (to_int (host.callSlot("probeEnterFinish" 0))) 1)
         def finishMs:double (host.callSlot("probeTickFinish" 0))

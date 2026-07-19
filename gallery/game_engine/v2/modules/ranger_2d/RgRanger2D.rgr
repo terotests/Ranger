@@ -223,6 +223,15 @@ class RgRanger2D {
 
     ; frame-local immediate background draw list (world space; no identity)
     def bgCmds:[RgBgCmd2D]
+    ; Per-pane snapshots taken at rg2d_render time so a game can paint a
+    ; different immediate background for each split-screen pane (separate
+    ; sessions: each child's diamonds/FX). When the guest paints once and
+    ; renders twice, both panes receive the same snapshot — today's shared
+    ; env stays backward-compatible.
+    def bgCmdsPane0:[RgBgCmd2D]
+    def bgCmdsPane1:[RgBgCmd2D]
+    def bgSnap0:int 0
+    def bgSnap1:int 0
     ; frame-local immediate overlay draw list (screen space, normalised; HUD)
     def ovCmds:[RgOvCmd2D]
 
@@ -259,6 +268,39 @@ class RgRanger2D {
     }
     fn bgCount:int () {
         return (array_length this.bgCmds)
+    }
+    fn bgClearSnapshots:void () {
+        this.bgSnap0 = 0
+        this.bgSnap1 = 0
+    }
+    ; Copy the live bg list into the pane's present snapshot (called from
+    ; rg2d_render). Shallow: cmds are not mutated after append.
+    fn bgSnapshotPane:void (pane:int) {
+        def copy:[RgBgCmd2D]
+        def i 0
+        while (i < (array_length this.bgCmds)) {
+            push copy (itemAt this.bgCmds i)
+            i = (i + 1)
+        }
+        if (pane == 0) {
+            this.bgCmdsPane0 = copy
+            this.bgSnap0 = 1
+        }
+        if (pane == 1) {
+            this.bgCmdsPane1 = copy
+            this.bgSnap1 = 1
+        }
+    }
+    ; Present-time list for a pane: snapshot if one was taken this frame,
+    ; otherwise the live list (single-pane / no-render path).
+    fn bgCmdsForPane:[RgBgCmd2D] (pane:int) {
+        if (pane == 0) {
+            if (this.bgSnap0 == 1) { return this.bgCmdsPane0 }
+        }
+        if (pane == 1) {
+            if (this.bgSnap1 == 1) { return this.bgCmdsPane1 }
+        }
+        return this.bgCmds
     }
 
     ; ---- immediate overlay draw list (screen space, normalised; HUD) ---------
