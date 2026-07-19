@@ -847,13 +847,34 @@ when vendored. No engine-core source (`interp/host/modules/render/registry/
 bridge/runtime/audio`) was modified to accommodate the new tests — tests live
 under module `tests/` dirs only.
 
+**Audit (post parity wave / #435):** live-core is clean — boundary gate green,
+allowlist at 6 (`ts_parser` only), no game-title identifiers in gated prefixes
+(`runtime/`, `host/`, `modules/`, `render/`, `registry/`, `bridge/`, `interp/`,
+`imaging/`, `audio/`, `evg/`, `scripting/`). Recent vendoring/retarget commits
+did **not** put title knowledge back into live core. Residual debt below is
+docs/fork drift and older host conveniences — not new gate failures.
+
+Done since the first debt write-up:
+
+- [x] **Launcher catalog discovered, not hardcoded in Ranger** —
+      `menu/RgLauncherUi.rgr` builds cards from `GameCatalog.scan()` over
+      `v2/games/*/game.info` (filesystem discovery, v1 model). Tests assert the
+      discovered catalog (today: Pomppija / ylos2). Adding a game folder +
+      `game.info` surfaces it without editing the launcher `.rgr`.
+
 Still to clean up later:
 
-- [ ] **Launcher catalog is hardcoded in Ranger** — `menu/RgLauncherUi.rgr`
-      `init()` embeds Pomppija / Chess / Breakout / Sprites paths. Boundary map
-      wants menus as **TSX guests**; at minimum drive the catalog from data
-      (JSON / guest list) so adding a game does not edit core `.rgr`. Update
-      `menu/tests/launcher_ui_test` + `tests/e2e/launcher_e2e_test` with it.
+- [ ] **Dual `game_catalog.rgr` fork** — `menu/game_catalog.rgr` and
+      `scripting/game_catalog.rgr` diverged. Scripting copy is gate-neutral;
+      menu copy still names `autopeli` in comments (menu/ is excluded from the
+      title-name check). Neutralize the menu comments (or delete the menu copy
+      and import the scripting one), then consider adding `menu/` to
+      `LIVE_PREFIXES`.
+- [ ] **`menu/launcher.tsx` still hardcodes a guest catalog** — Pomppija /
+      Chess / Breakout / Sprites paths in TSX (Chess/Breakout are not v2 games
+      today). Guest-side is allowed by the boundary map, but it should mirror
+      discovery (or a generated list) so the TSX menu and Ranger UI do not
+      disagree.
 - [ ] **Default action-map conventions live in the SDL host** —
       `mapMask` hardwires `jump = up | action` and fixed bit→action names;
       `RgAttractDriver` hardwires left/right/jump bit packing. Document as the
@@ -878,10 +899,11 @@ Still to clean up later:
 **Keep green / do not regress**
 
 - No game name (`ylos*`, `chess`, …) in generic core `.rgr` (comments in
-  modules/runtime/host/render/bridge — docs/TODO/e2e excepted).
+  modules/runtime/host/render/bridge/scripting — docs/TODO/e2e excepted).
 - No `.rgr` runners inside `games/<name>/` (see `games/AGENTS.md`).
 - Scene clear / sky colours stay in guest paint or test tools — never baked
   into `RgSdlGameHost` / presenters as a title palette.
+- Do not grow `tests/boundary_import_allowlist.txt` (shrink only).
 
 ---
 
@@ -930,8 +952,8 @@ All previously-escaping staged trees now resolve inside `v2/`:
 - [x] `sprites/deps/`, `sprites/host/`, `sprites/runners/` → `v2/imaging/…`
 - [x] `three/port/src/three_gltf_textures.rgr` + `three/port/tests/**` →
       `v2/imaging` + `v2/interp/migrate/src`
-- [ ] `menu/RgLauncherUi.rgr` runtime font dir string
-      `gallery/pdf_writer/assets/fonts` (not an `Import`, but a path escape)
+- [x] `menu/RgLauncherUi.rgr` font dir → `gallery/game_engine/v2/menu/assets/fonts`
+      (no longer points at `gallery/pdf_writer/…`)
 
 - [x] **Boundary gate in `tests/run.sh`** — after all suites,
       `tests/check_boundaries.py` fails the run on (1) any `.rgr` under
@@ -939,7 +961,8 @@ All previously-escaping staged trees now resolve inside `v2/`:
       `tests/boundary_import_allowlist.txt`, (3) game-title identifiers in
       live-core `.rgr` — `LIVE_PREFIXES` now also covers **`scripting/`**.
       Allowlist shrunk 35 → **6** (only the `ts_parser` escapes remain)
-      — **do not grow the allowlist**.
+      — **do not grow the allowlist**. `menu/` stays excluded from (3) until
+      the dual-catalog / comment-name cleanup above lands.
 
 ---
 
@@ -1000,7 +1023,7 @@ Also correct the stale claim in [`lpc/TODO.md`](./lpc/TODO.md) §1b that marked
 | `tests/e2e/` | 3 | yes | ylos2 + ylos3d + launcher |
 | `lpc/` | 1 (`png_decoder_test`) | yes | **P0 done** — decoder unit test (type-3 + type-6 real sheets); imports retargeted to `imaging/` |
 | `sprites/` | 1 (`sprite_blit_test`) | yes | first unit test — SoftCanvas + RgbaFastBlit compositing (opaque / alpha / clip); imaging imports retargeted |
-| `menu/` | 1 (`launcher_ui_test`) | yes | unit + `tests/e2e/launcher_e2e_test`; catalog still hardcoded in `.rgr` (see abstraction debt) |
+| `menu/` | 1 (`launcher_ui_test`) | yes | unit + `tests/e2e/launcher_e2e_test`; Ranger UI discovers via `game.info` — residual: dual `game_catalog` fork + hardcoded `launcher.tsx` (see abstraction debt) |
 | `games/` | 0 | via e2e | ylos2 + ylos3d e2e; **chess** must-pass still pending |
 | `physics/cannon/` | 23 | yes | wired via `tests/cannon_suite_test` (89 assertions); self-contained inside v2 |
 | `three/port/` | 33 wired | yes | curated pure-logic / asset-free subset; jsx→`interp/migrate`, jpeg→`imaging`; `src/run.sh` repointed to v2. 5 tsx-bridge feature tests still excluded (bridge now vendored — revisit) |
