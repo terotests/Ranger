@@ -56,13 +56,17 @@ class RgSdlGameHost {
     ; last observed haptic counts, to forward only NEW rumble commands to SDL
     def lastRumble0:int 0
     def lastRumble1:int 0
-    ; host-side music playback: the guest's runtime.audio.music.play(score) is
-    ; recorded on the bridge; the host owns the synth + schedule clock and pushes
-    ; PCM to SDL. (Nothing here is game logic; the guest only ever said "play".)
+    ; host-side music + SFX playback: the guest's runtime.audio.music.play(score)
+    ; and runtime.audio.vocal.play(id) are recorded on the bridge; the host owns
+    ; the synth + schedule clock and pushes PCM to SDL. (Nothing here is game
+    ; logic; the guest only ever said "play".)
     def musicAudio:GameAudio (new GameAudio)
     def music:SoundScorePlayer (new SoundScorePlayer)
     def audioReady:boolean false
     def lastScore:string ""
+    ; Index into bridge.vocalCues already synthesised (same rising-edge pattern
+    ; as rumble — leave the cue list intact for e2e observability).
+    def lastVocal:int 0
 
     ; Map a raw input source bitmask to logical actions for one player and feed
     ; the host input device. PURE host-input config (no gfx, no game): bits are
@@ -117,7 +121,8 @@ class RgSdlGameHost {
 
     ; Bring up the host synth once: build its frequency tables, open the SDL audio
     ; device, and route synthesised PCM to it. Idempotent; native device is a
-    ; no-op under es6.
+    ; no-op under es6. After open, adopt the device's negotiated sample rate
+    ; (CoreAudio often hands back 48 kHz).
     fn initAudio:void () {
         if (this.audioReady) { return }
         this.musicAudio.init()
@@ -125,15 +130,36 @@ class RgSdlGameHost {
         this.musicAudio.sink = sink
         this.music.audio = this.musicAudio
         def _o:int (gfx_audio_open 44100)
+        def rate:int (gfx_audio_sample_rate)
+        if (rate > 0) {
+            this.musicAudio.sampleRate = rate
+        }
         this.audioReady = true
     }
 
-    ; Advance host music one frame: pick up a newly play()'d score recorded on the
-    ; bridge (the guest called runtime.audio.music.play), then tick the schedule —
-    ; each due note synthesises and queues PCM through the sink. Returns the
-    ; running note-start count so the wiring is testable without an audio device.
+    ; Drain newly-recorded vocal cues (runtime.audio.vocal.play) into the synth.
+    ; Returns how many cues were synthesised this call (testable headlessly).
+    fn pumpVocals:int () {
+        def b:RgRegistryBridge this.host.bridge
+        def n:int (array_length b.vocalCues)
+        def started:int 0
+        while (this.lastVocal < n) {
+            def id:string (itemAt b.vocalCues this.lastVocal)
+            this.musicAudio.play(id)
+            this.lastVocal = (this.lastVocal + 1)
+            started = (started + 1)
+        }
+        return started
+    }
+
+    ; Advance host audio one frame: synthesise any new vocal cues, then pick up a
+    ; newly play()'d score recorded on the bridge (the guest called
+    ; runtime.audio.music.play) and tick its schedule — each due note synthesises
+    ; and queues PCM through the sink. Returns the running note-start count so
+    ; the music wiring is testable without an audio device.
     fn pumpAudio:int (dtMs:int) {
         def b:RgRegistryBridge this.host.bridge
+        def _v:int (this.pumpVocals())
         if (b.musicPlaying) {
             if (b.musicScore != this.lastScore) {
                 this.music.load(b.musicScore)
@@ -242,6 +268,8 @@ class RgSdlGameHost {
                 this.host.loadLaunched()
                 this.lastRumble0 = 0
                 this.lastRumble1 = 0
+                this.lastVocal = 0
+                this.lastScore = ""
             }
             this.present(fbL fbR)
             gfx_delay 16

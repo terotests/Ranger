@@ -586,7 +586,10 @@ static int rgfx_try_open_audio_device(int sampleRate, const char* dev, int chann
     want.samples = 512;
     want.callback = nullptr;
     want.userdata = nullptr;
-    SDL_AudioDeviceID id = SDL_OpenAudioDevice(dev, 0, &want, &have, 0);
+    // Allow freq/channel negotiation: CoreAudio (macOS) often prefers 48 kHz,
+    // and some devices only expose stereo. Exact-match (0) silently fails there.
+    const int allow = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | SDL_AUDIO_ALLOW_CHANNELS_CHANGE;
+    SDL_AudioDeviceID id = SDL_OpenAudioDevice(dev, 0, &want, &have, allow);
     if (id == 0) {
         fprintf(stderr, \"[rgfx] audio open failed (%s, %d ch): %s\\n\",
             dev != nullptr ? dev : \"default\", channels, SDL_GetError());
@@ -642,7 +645,12 @@ static int rgfx_audio_open(int sampleRate) {
 
     rgfx_log_audio_devices();
 
-    if (rgfx_audio_dummy_only()) {
+    // SDL may report 0 / -1 devices and still open the system default via NULL
+    // (documented for CoreAudio on macOS and remote drivers). Only refuse when
+    // the driver *did* enumerate devices and every one is Dummy — the typical
+    // Linux Pulse/PipeWire-over-SSH fallback.
+    const int nDev = SDL_GetNumAudioDevices(0);
+    if (nDev > 0 && rgfx_audio_dummy_only()) {
         fprintf(stderr, \"[rgfx] Pulse/PipeWire unavailable (Dummy Output)\\n\");
         fprintf(stderr, \"[rgfx] set RANGER_AUDIO_DEVICE=plughw:N,0 (see: aplay -l)\\n\");
         return 0;
@@ -656,7 +664,7 @@ static int rgfx_audio_open(int sampleRate) {
         if (rgfx_try_open_audio_device(sampleRate, nullptr, 1)) { return 1; }
     }
 
-    fprintf(stderr, \"[rgfx] audio: no device — set RANGER_AUDIO_DEVICE=plughw:N,0 (aplay -l)\\n\");
+    fprintf(stderr, \"[rgfx] audio: no device — try default CoreAudio (macOS) or RANGER_AUDIO_DEVICE=plughw:N,0 (Linux)\\n\");
     return 0;
 }
 #include <vector>

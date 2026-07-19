@@ -802,7 +802,7 @@ path: same host protocol compiled with `-l=cpp` + `gfx_sdl`.
 | `scripts/build-sdl-v2.sh` | live | Ranger→C++; **macOS/Homebrew-oriented today** |
 | `npm run engine:game-sdl:launcher:v2` | live | needs SDL2 on the machine |
 | `tests/sdl/sdl_host_test` | live | headless seams only (no live window in CI) |
-| Music → SDL PCM | live | `pumpAudio` |
+| Music + vocal SFX → SDL PCM | live | `pumpAudio` / `pumpVocals` |
 | `render/backends/gl/` | scaffold | after macOS+Pi SW→SDL smokes |
 
 ### Still missing (checklist)
@@ -818,7 +818,7 @@ path: same host protocol compiled with `-l=cpp` + `gfx_sdl`.
 ### Follow-ons
 
 - [x] Pane-aware present (`paneCount` → single or split; neutral `clearRgb`)
-- [ ] Audio: `vocalCues` / one-shots → SDL
+- [x] Audio: `vocalCues` → SDL (`pumpVocals` → `GameAudio.play`; one-shots still record-only)
 - [ ] Cross-platform SW screenshot hashes (Node / macOS / Pi)
 
 ### Intentionally out of scope until W+A+B are credible
@@ -882,9 +882,9 @@ Still to clean up later:
       different verbs does not fork the host.
 - [ ] **Bridge observability vs real device sinks** — `RgRegistryBridge`
       accumulates `vocalCues` / `oneShotCount` / `logLines` mainly for e2e.
-      Wire vocals/one-shots to SDL (or a real sink) and shrink test-only
-      counters to something tests can still assert without looking like a
-      parallel game API.
+      Vocals now drain to SDL via `pumpVocals`; one-shots are still
+      record-only. Shrink test-only counters to something tests can still
+      assert without looking like a parallel game API.
 - [ ] **Finish generated dispatch** — interim hand `dispatchRow` if-chain in
       `interp/engine/RgRegistryBridge.rgr` (BRIDGES.md §2.4 / step 5 →
       `registry/generated/RgDispatch.rgr`). Coverage gate already locks every
