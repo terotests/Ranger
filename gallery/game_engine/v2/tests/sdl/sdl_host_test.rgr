@@ -83,6 +83,29 @@ class SdlHostTest {
         t.eqInt("back is not a launch" s4 0)
         t.eqInt("back to the category page" (ui.currentPage()) 0)
 
+        ; ---- host music pump: a guest's music.play(score) is synthesised ----
+        ; The bridge records the score (rgcore_music_play); the host owns the
+        ; synth + schedule clock. Simulate the recorded state and pump frames.
+        def snd:RgSdlGameHost (new RgSdlGameHost)
+        snd.initAudio()
+        t.eqInt("no notes before any score" (snd.pumpAudio(33)) 0)
+        ; guest played a short one-bar melody (tempo 120 -> 4 beats = 2s)
+        snd.host.bridge.musicPlaying = true
+        snd.host.bridge.musicScore = "tempo 120\n@melody piano\n1:C4 1:E4 1:G4 1:C5\n"
+        ; pump ~1.9s of frames (just under the 2s loop point): all 4 notes fire
+        ; once, before the looping score would replay the bar.
+        def ms 0
+        def started 0
+        while (ms < 1900) {
+            started = (snd.pumpAudio(33))
+            ms = (ms + 33)
+        }
+        t.eqInt("all four melody notes were synthesised" started 4)
+        ; a music_stop on the bridge halts the host clock
+        snd.host.bridge.musicPlaying = false
+        def _p:int (snd.pumpAudio(33))
+        t.ok("host music stops when the guest stops" ((snd.music.isPlaying()) == false))
+
         t.summary()
     }
 }

@@ -27,7 +27,22 @@
 Import "../game_host/RgGameHost.rgr"
 Import "../game_host/Rg2DPresenter.rgr"
 Import "../../menu/RgLauncherUi.rgr"
+Import "../../audio/game_soundscore.rgr"
 Import "../../../gfx_sdl.rgr"
+
+; The SDL audio sink: the score synth calls onSynthPlay with a PCM buffer as each
+; note fires; we hand that straight to SDL's queued audio device. Under es6 the
+; gfx_audio_* operators stub to no-ops, so the sink is inert headlessly (the note
+; still "starts" in the player — only the physical output is native).
+class RgSdlAudioSink {
+    Extends(GameAudioSink)
+    fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
+        gfx_audio_queue pcm (sampleCount * 2)   ; 16-bit mono
+    }
+    fn onClearQueue:void () {
+        gfx_audio_clear
+    }
+}
 
 class RgSdlGameHost {
     def host:RgGameHost (new RgGameHost)
@@ -38,6 +53,13 @@ class RgSdlGameHost {
     ; last observed haptic counts, to forward only NEW rumble commands to SDL
     def lastRumble0:int 0
     def lastRumble1:int 0
+    ; host-side music playback: the guest's runtime.audio.music.play(score) is
+    ; recorded on the bridge; the host owns the synth + schedule clock and pushes
+    ; PCM to SDL. (Nothing here is game logic; the guest only ever said "play".)
+    def musicAudio:GameAudio (new GameAudio)
+    def music:SoundScorePlayer (new SoundScorePlayer)
+    def audioReady:boolean false
+    def lastScore:string ""
 
     ; Map a raw input source bitmask to logical actions for one player and feed
     ; the host input device. PURE host-input config (no gfx, no game): bits are
@@ -75,6 +97,38 @@ class RgSdlGameHost {
         def dL:int (Rg2DPresenter.presentTextured(this.host.bridge 0 fbL this.sky))
         def dR:int (Rg2DPresenter.presentTextured(this.host.bridge 1 fbR this.sky))
         gfx_present_split (fbL.toRgbaBuffer()) (fbR.toRgbaBuffer()) this.paneW this.paneH
+    }
+
+    ; Bring up the host synth once: build its frequency tables, open the SDL audio
+    ; device, and route synthesised PCM to it. Idempotent; native device is a
+    ; no-op under es6.
+    fn initAudio:void () {
+        if (this.audioReady) { return }
+        this.musicAudio.init()
+        def sink:RgSdlAudioSink (new RgSdlAudioSink)
+        this.musicAudio.sink = sink
+        this.music.audio = this.musicAudio
+        def _o:int (gfx_audio_open 44100)
+        this.audioReady = true
+    }
+
+    ; Advance host music one frame: pick up a newly play()'d score recorded on the
+    ; bridge (the guest called runtime.audio.music.play), then tick the schedule —
+    ; each due note synthesises and queues PCM through the sink. Returns the
+    ; running note-start count so the wiring is testable without an audio device.
+    fn pumpAudio:int (dtMs:int) {
+        def b:RgRegistryBridge this.host.bridge
+        if (b.musicPlaying) {
+            if (b.musicScore != this.lastScore) {
+                this.music.load(b.musicScore)
+                this.music.play(true)
+                this.lastScore = b.musicScore
+            }
+            this.music.tick(dtMs)
+        } {
+            if (this.music.isPlaying()) { this.music.stop() }
+        }
+        return this.music.noteStarts
     }
 
     ; Rising edge of `bit` between the previous and current input mask. PURE host
@@ -152,6 +206,7 @@ class RgSdlGameHost {
             gfx_close
             return 0
         }
+        this.initAudio()
         def fbL:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
         def fbR:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
         def go:boolean true
@@ -161,6 +216,7 @@ class RgSdlGameHost {
             this.mapMask(1 (gfx_input_source_mask 1))
             this.host.frame(33.333)
             this.forwardRumble()
+            def _n:int (this.pumpAudio(33))
             ; generic launcher -> game handoff (no launcher-specific code)
             if ((strlen (this.host.launchRequest())) > 0) {
                 this.host.loadLaunched()
