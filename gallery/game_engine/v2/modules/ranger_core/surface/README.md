@@ -3,8 +3,8 @@
 Size, title, cursor, fullscreen — runtime-owned; guest cannot `new Surface`.
 
 **Split-screen / panes** are first-class: layout + `pane(i)` rectangles that
-`Camera2D` / renderers target (CODE_CLEANUP D-MODULES — required for ylos2 /
-pyorretris2p).
+`Camera2D` / renderers target (CODE_CLEANUP D-MODULES — required for any
+multi-viewport / 2P title).
 
 **Plan phase:** 8,10 — see [`CODE_CLEANUP_PLAN.md`](../../../../CODE_CLEANUP_PLAN.md).
 

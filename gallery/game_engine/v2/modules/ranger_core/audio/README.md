@@ -1,7 +1,7 @@
 # ranger_core/audio
 
 Clip / source / voice primitives, plus higher-level **vocal FX** and **music
-score** facades required by ylos2-class ports (CODE_CLEANUP D-MODULES).
+score** facades (CODE_CLEANUP D-MODULES).
 
 **Plan phase:** 8,10 — see [`CODE_CLEANUP_PLAN.md`](../../../../CODE_CLEANUP_PLAN.md).
 
@@ -21,7 +21,7 @@ score** facades required by ylos2-class ports (CODE_CLEANUP D-MODULES).
 - audio_api_smoke_headless
 - vocal_cue_playOneShot_no_leak
 - music_start_stop_releases_or_stops_voices
-- ylos2_port_not_blocked_on_missing_facade (contract presence)
+- vocal_and_music_facade_contract_presence
 
 ---
 

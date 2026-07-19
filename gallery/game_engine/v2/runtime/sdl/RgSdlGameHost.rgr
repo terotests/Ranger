@@ -48,8 +48,11 @@ class RgSdlGameHost {
     def host:RgGameHost (new RgGameHost)
     def paneW:int 480
     def paneH:int 270
-    ; base sky colour behind the world-space gradient bands
-    def sky:int 5215951      ; 0x4f96cf
+    ; Neutral framebuffer clear before the guest's own world-space background
+    ; paint (rg2d_bg_*). NOT a scene/sky colour — games own their art via
+    ; beginBackground/fillRect. Presenters take this as bgRGB; hosts that want a
+    ; different clear set the field, they do not bake a title's palette here.
+    def clearRgb:int 0
     ; last observed haptic counts, to forward only NEW rumble commands to SDL
     def lastRumble0:int 0
     def lastRumble1:int 0
@@ -91,11 +94,23 @@ class RgSdlGameHost {
         }
     }
 
-    ; Present both panes to the window: each pane rasterises through the generic
-    ; presenter into an RgFramebuffer, packs to RGBA, and blits side-by-side.
+    ; Present declared panes to the window. Layout comes from the guest's
+    ; runtime.surface.setLayout (paneCount on the host surface) — never from a
+    ; hardcoded 1P/2P assumption. One pane → full-window present; two or more →
+    ; side-by-side of panes 0 and 1 (further panes are a future compose path).
     fn present:void (fbL:RgFramebuffer fbR:RgFramebuffer) {
-        def dL:int (Rg2DPresenter.presentTextured(this.host.bridge 0 fbL this.sky))
-        def dR:int (Rg2DPresenter.presentTextured(this.host.bridge 1 fbR this.sky))
+        def n:int (this.host.bridge.surface.paneCount())
+        if (n <= 1) {
+            if (n == 1) {
+                def d0:int (Rg2DPresenter.presentTextured(this.host.bridge 0 fbL this.clearRgb))
+            } {
+                fbL.fill(this.clearRgb)
+            }
+            gfx_present (fbL.toRgbaBuffer()) this.paneW this.paneH
+            return
+        }
+        def dL:int (Rg2DPresenter.presentTextured(this.host.bridge 0 fbL this.clearRgb))
+        def dR:int (Rg2DPresenter.presentTextured(this.host.bridge 1 fbR this.clearRgb))
         gfx_present_split (fbL.toRgbaBuffer()) (fbR.toRgbaBuffer()) this.paneW this.paneH
     }
 
@@ -197,13 +212,17 @@ class RgSdlGameHost {
     ; Open a window and run the game loop until the window closes. Generic: the
     ; game is a folder of .tsx (dir/file). Honours the guest launch(path) request
     ; generically (menu -> game) via the same RgGameHost handoff the tests use.
+    ; Window width follows the guest-declared pane count after load (1 pane =
+    ; paneW, 2+ panes = paneW*2 for side-by-side).
     fn run:int (dir:string file:string) {
-        def title:string ("Ranger v2 — " + file)
-        if ((gfx_open title (this.paneW * 2) this.paneH) == 0) {
+        if ((this.host.load(dir file)) == false) {
             return 0
         }
-        if ((this.host.load(dir file)) == false) {
-            gfx_close
+        def panes:int (this.host.bridge.surface.paneCount())
+        def winW:int this.paneW
+        if (panes >= 2) { winW = (this.paneW * 2) }
+        def title:string ("Ranger v2 — " + file)
+        if ((gfx_open title winW this.paneH) == 0) {
             return 0
         }
         this.initAudio()
@@ -222,6 +241,15 @@ class RgSdlGameHost {
                 this.host.loadLaunched()
                 this.lastRumble0 = 0
                 this.lastRumble1 = 0
+                ; guest may declare a different pane layout on the new load
+                def nextPanes:int (this.host.bridge.surface.paneCount())
+                def nextW:int this.paneW
+                if (nextPanes >= 2) { nextW = (this.paneW * 2) }
+                if (nextW != winW) {
+                    gfx_close
+                    winW = nextW
+                    if ((gfx_open title winW this.paneH) == 0) { return 0 }
+                }
             }
             this.present(fbL fbR)
             gfx_delay 16
