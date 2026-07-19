@@ -242,6 +242,7 @@ modules/frame → physics → 2D → software present → devices). Phase 12 (se
 game ports) is the remaining integration milestone.
 
 - **Hybrid 2D+3D composition (design):** [`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md)
-  — shared `Texture2D` / `RenderTarget`, ordered pass lists + render-to-texture,
-  `SceneSprite3D` ergonomics; answers [`QUESTIONS.md`](./QUESTIONS.md) Q2/Q3.
-  Not implemented yet (follow-on phases H1–H7 after Phase 11).
+  — architecture approved; H0 not frozen pending review. Global `FramePass`
+  stream, `SurfaceTarget`/`PaneTarget`/`RenderTarget`, `TextureView2D` sprites,
+  ownership/residency/hazard rules; answers [`QUESTIONS.md`](./QUESTIONS.md)
+  Q2/Q3. Not implemented yet (H1–H7 after Phase 11).
