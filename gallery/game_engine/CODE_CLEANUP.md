@@ -72,6 +72,16 @@ The live native adapter (D-ADAPTER) and “one script object → one host handle
 (D-SYNC) are blocked until these rules pass the
 `component_engine_js_semantics_test` suite.
 
+**STATUS (landed):** the suite exists at
+`v2/interp/semantics/tests/component_engine_js_semantics_test.rgr` and is green
+in `tests/run.sh`. `EvalValue` now carries an immutable `identityId` (minted
+once per reference), `equals()` compares it for references, and a missing member
+reads as `undefined` — so `obj === obj`, object Map/Set keys, `indexOf` by
+reference, and `obj.missing === undefined` all hold on the **real** interpreter
+(not just the `RgValue`/`RgRealm` model slice). This unblocks D-ADAPTER / D-SYNC:
+the next increment is wiring the live adapter so `new`/`add`/property-write hit
+the host immediately in `ComponentEngine`, then the `RETIRE-RECONCILE` deletion.
+
 Companion detail / known gaps: [`docs/TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md).
 
 ## D-SYNC — Live host-backed objects; reconciler is temporary

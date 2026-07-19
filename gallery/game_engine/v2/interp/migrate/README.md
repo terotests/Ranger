@@ -9,7 +9,9 @@
 
 - Split staged files into `interp/values/`, `interp/engine/`, `interp/semantics/`
 - Keep `gallery/ts_parser/` shared until a later extract
-- Land `component_engine_js_semantics_test` under `semantics/tests/`
+- [x] Land `component_engine_js_semantics_test` under `semantics/tests/` —
+  done; `EvalValue` now carries an immutable `identityId` and `equals()`
+  compares it for references (D-IDENTITY on the real engine)
 
 ## Notes
 

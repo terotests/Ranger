@@ -25,6 +25,11 @@ class EvalValue {
     def numberValue:double 0.0
     def stringValue:string ""
     def boolValue:boolean false
+    ; D-IDENTITY: immutable reference identity. Object/array/function/Map/Set/
+    ; element values are stamped with a unique id (>= 1) at mint; primitives keep
+    ; 0 and compare by value. Never changed by property writes, reparenting, or
+    ; array reorder — assigned exactly once at the creation factory below.
+    def identityId:int 0
     def arrayValue:[EvalValue]
     def mapVals:[EvalValue]     ; parallel to arrayValue for valueType 9 (Map)
     def objectMap:[string:EvalValue]
@@ -107,14 +112,16 @@ class EvalValue {
     sfn array:EvalValue (items:[EvalValue]) {
         def v:EvalValue (new EvalValue())
         v.valueType = 4
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.arrayValue = items
         return v
     }
-    
+
     ; Empty Map (valueType 9): keys in arrayValue, values in mapVals by index.
     sfn mapEmpty:EvalValue () {
         def v:EvalValue (new EvalValue())
         v.valueType = 9
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         return v
     }
 
@@ -122,12 +129,14 @@ class EvalValue {
     sfn setEmpty:EvalValue () {
         def v:EvalValue (new EvalValue())
         v.valueType = 10
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         return v
     }
 
     sfn object:EvalValue (keys:[string] values:[EvalValue]) {
         def v:EvalValue (new EvalValue())
         v.valueType = 5
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         def i:int 0
         while (i < (array_length keys)) {
             if (i < (array_length values)) {
@@ -141,6 +150,7 @@ class EvalValue {
     sfn function:EvalValue (fnNode:TSNode) {
         def v:EvalValue (new EvalValue())
         v.valueType = 6
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.functionNode = fnNode
         v.functionName = fnNode.name
         return v
@@ -151,15 +161,17 @@ class EvalValue {
     sfn boundMethod:EvalValue (fnNode:TSNode thisVal:EvalValue) {
         def v:EvalValue (new EvalValue())
         v.valueType = 6
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.functionNode = fnNode
         v.functionName = fnNode.name
         v.boundThis = thisVal
         return v
     }
-    
+
     sfn element:EvalValue (el:EVGElement) {
         def v:EvalValue (new EvalValue())
         v.valueType = 7
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.evgElement = el
         return v
     }
@@ -330,6 +342,10 @@ class EvalValue {
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
             }
+            ; D-IDENTITY: a missing object property reads as `undefined`, never
+            ; `null`. Callers that use a missing member as "nullish" already test
+            ; isUndefined alongside isNull (destructuring defaults, ??, ??=).
+            return (EvalValue.undefined())
         }
         ; Array length property
         if (valueType == 4) {
@@ -542,8 +558,27 @@ class EvalValue {
         if (valueType == 3) {
             return (boolValue == other.boolValue)
         }
-        ; Arrays and objects - reference equality for now
-        return false
+        ; Reference values (array/object/function/Map/Set/element) — reference
+        ; identity (D-IDENTITY). valueTypes already match (guard above); both are
+        ; references stamped with an immutable identityId at mint, so two values
+        ; are `===` only if they are the SAME reference. A reference never reaches
+        ; here against a primitive (the valueType guard returns false first).
+        return (identityId == other.identityId)
+    }
+}
+
+; Monotonic source of reference identities (D-IDENTITY). Mirrors RgRealm.mintId:
+; every object/array/function/Map/Set/element reference gets a unique, immutable
+; identityId (>= 1) when it is minted by an EvalValue factory. A single
+; process-global counter is a strict superset of the model's "one realm per
+; engine" — ids are globally unique, so reference `===` compares identityId
+; alone (no realm tag needed). A fresh compiled suite starts the counter at 1.
+class EvalIdentityMinter @singleton(true) {
+    def nextId:int 1
+    fn mint:int () {
+        def id:int this.nextId
+        this.nextId = (this.nextId + 1)
+        return id
     }
 }
 
