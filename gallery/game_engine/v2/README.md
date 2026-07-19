@@ -113,7 +113,14 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   immutability checker), `registry/fixtures/` (Mesh/Geometry/Material sample +
   golden table). Schema validation, codegen parity, and golden-id gates.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (11 suites, 185
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 11/11 suites passed`.
+- **Phase 4 — Native adapter (D-ADAPTER / D-PROP / hybrid invariants): ✅ green.**
+  `interp/adapter/RgAdapter.rgr` — one `construct`/`getProperty`/`setProperty`
+  interface over the arenas: one script object → one host handle, cached
+  wrapper per handle, hybrid `position` mirror (identity-stable, turn-snapshot,
+  guest-commit-wins), and the D-PROP overlay (unknown write → guest overlay, host
+  never sees it). Tests in `interp/adapter/tests/` + `tests/unit/interp/`.
 
-*Later phases (4+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (15 suites, 240
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 15/15 suites passed`.
+
+*Later phases (5+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

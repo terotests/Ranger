@@ -1,0 +1,266 @@
+; ==============================================================================
+; RgAdapter — native adapter over the typed arenas (D-ADAPTER / D-PROP).
+; ==============================================================================
+; The single native-object interface the interpreter uses to reach host state:
+;
+;   construct(classId, args) -> NativeRef
+;   getProperty(ref, name)   -> value
+;   setProperty(ref, name, value)
+;
+; It ties three earlier slices together: RgRealm mints the NativeRef identity
+; (D-IDENTITY), RgHost owns the typed arenas (D-TYPE / D-OWN), and property
+; residency follows D-ADAPTER / D-PROP:
+;
+;   - host prop  (`geometry`) → returns the ONE cached wrapper for that handle
+;     (borrowed getter, D-OWN); repeated reads preserve wrapper identity.
+;   - hybrid prop (`position`) → a cached vec3 mirror per (NativeRef, prop):
+;       * mesh.position === mesh.position (one wrapper, invariant 1)
+;       * two revisions — guest dirty vs host rev (invariant 2)
+;       * turn-start refresh: first access each turn re-pulls from host; a
+;         retained reference is a within-turn snapshot and never observes host
+;         writes mid-turn; it refreshes next turn (invariant 3)
+;       * guest commit wins at the declared boundary (invariant 4)
+;   - unknown name → guest-side dynamic overlay on write, `undefined` on read;
+;     the host never sees expandos (D-PROP).
+;
+; The mesh's authoritative host position is kept here (adapter-owned host state)
+; so Phase-2 RgHost stays unmodified.
+; ==============================================================================
+
+Import "../values/RgValue.rgr"
+Import "../values/RgRealm.rgr"
+Import "../../host/arenas/RgHost.rgr"
+Import "../../host/handles/RgHandle.rgr"
+
+; Hybrid vec3 mirror: a cached guest snapshot with its own identity token.
+class RgVec3Mirror {
+    def ref:RgValue (new RgValue)   ; identity token for `===`
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def dirtyRev:int 0              ; guest writes bump this
+    def lastTurn:int 0             ; turn of last host re-pull (0 = never)
+}
+
+; Adapter-owned authoritative host position for a mesh (bumped by host systems).
+class RgHostPos {
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def hostRev:int 0
+}
+
+class RgBinding {
+    def ref:RgValue (new RgValue)   ; the NativeRef wrapper (kind 8)
+    def handle:RgHandle (new RgHandle)
+    def classId:int 0
+    def hasMirror:boolean false
+    def positionMirror:RgVec3Mirror (new RgVec3Mirror)
+    def hostPos:RgHostPos (new RgHostPos)
+    def geometryRef:RgValue (new RgValue)  ; cached borrowed wrapper (mesh.geometry)
+    ; guest-side dynamic overlay (expandos) — host never sees these
+    def overlay:[string:RgValue]
+}
+
+class RgAdapter {
+    def realm:RgRealm (RgRealm.withId(1))
+    def host:RgHost (new RgHost)
+    def bindings:[RgBinding]
+    def turn:int 1
+
+    ; class ids (mirror the registry fixture)
+    sfn CLASS_GEOMETRY:int () { return 1 }
+    sfn CLASS_MATERIAL:int () { return 2 }
+    sfn CLASS_MESH:int () { return 3 }
+
+    ; ---- binding bookkeeping -----------------------------------------------
+    fn addBinding:RgBinding (ref:RgValue handle:RgHandle classId:int) {
+        def b:RgBinding (new RgBinding)
+        b.ref = ref
+        b.handle = handle
+        b.classId = classId
+        push this.bindings b
+        return b
+    }
+
+    fn findBinding:RgBinding (ref:RgValue) {
+        def n:int (array_length this.bindings)
+        def i 0
+        while (i < n) {
+            def b:RgBinding (itemAt this.bindings i)
+            if (b.ref.identityId == ref.identityId) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return (new RgBinding)
+    }
+
+    ; ---- construct ----------------------------------------------------------
+    fn constructGeometry:RgValue (vertexCount:int) {
+        def owned:OwnedHandle (this.host.geometryCreate(this.realm.realmId vertexCount))
+        def ref:RgValue (this.realm.newNativeRef(owned.handle.slot))
+        this.addBinding(ref owned.handle (RgAdapter.CLASS_GEOMETRY()))
+        return ref
+    }
+
+    fn constructMaterial:RgValue () {
+        def owned:OwnedHandle (this.host.materialCreate(this.realm.realmId 1.0 1.0 1.0))
+        def ref:RgValue (this.realm.newNativeRef(owned.handle.slot))
+        this.addBinding(ref owned.handle (RgAdapter.CLASS_MATERIAL()))
+        return ref
+    }
+
+    ; new Mesh(geo, mat) → one meshH; the mesh retains geo + mat (D-OWN).
+    fn constructMesh:RgValue (geoRef:RgValue matRef:RgValue) {
+        def gb:RgBinding (this.findBinding(geoRef))
+        def mb:RgBinding (this.findBinding(matRef))
+        def owned:OwnedHandle (this.host.meshCreate(this.realm.realmId gb.handle mb.handle))
+        def ref:RgValue (this.realm.newNativeRef(owned.handle.slot))
+        def b:RgBinding (this.addBinding(ref owned.handle (RgAdapter.CLASS_MESH())))
+        b.hasMirror = true
+        ; the hybrid position mirror gets its own minted identity token
+        b.positionMirror.ref = (this.realm.newObject())
+        b.positionMirror.lastTurn = 0
+        ; getter returns the SAME cached wrapper for the geometry handle
+        b.geometryRef = geoRef
+        return ref
+    }
+
+    fn meshHandleSlot:int (ref:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        return b.handle.slot
+    }
+
+    ; ---- hybrid position mirror --------------------------------------------
+    ; Re-pull host → mirror on the first access in each turn (turn-start refresh).
+    fn refreshMirror:void (b:RgBinding) {
+        if (b.positionMirror.lastTurn < this.turn) {
+            b.positionMirror.x = b.hostPos.x
+            b.positionMirror.y = b.hostPos.y
+            b.positionMirror.z = b.hostPos.z
+            b.positionMirror.dirtyRev = 0
+            b.positionMirror.lastTurn = this.turn
+        }
+    }
+
+    ; getProperty(mesh, "position") → the cached mirror identity token.
+    fn positionRef:RgValue (ref:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        this.refreshMirror(b)
+        return b.positionMirror.ref
+    }
+
+    fn posX:double (ref:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        this.refreshMirror(b)
+        return b.positionMirror.x
+    }
+    fn posY:double (ref:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        this.refreshMirror(b)
+        return b.positionMirror.y
+    }
+    fn posZ:double (ref:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        this.refreshMirror(b)
+        return b.positionMirror.z
+    }
+
+    ; Guest component write (e.g. mesh.position.x = 5): mutates the mirror and
+    ; bumps its dirty revision. Does NOT reach the host until commit.
+    fn guestWritePos:void (ref:RgValue x:double y:double z:double) {
+        def b:RgBinding (this.findBinding(ref))
+        this.refreshMirror(b)
+        b.positionMirror.x = x
+        b.positionMirror.y = y
+        b.positionMirror.z = z
+        b.positionMirror.dirtyRev = (b.positionMirror.dirtyRev + 1)
+    }
+
+    ; Host system write (physics/animation) between or within turns: updates the
+    ; authoritative host value and bumps the host revision. Does NOT touch the
+    ; guest mirror (a retained mirror stays a within-turn snapshot).
+    fn hostWritePos:void (ref:RgValue x:double y:double z:double) {
+        def b:RgBinding (this.findBinding(ref))
+        b.hostPos.x = x
+        b.hostPos.y = y
+        b.hostPos.z = z
+        b.hostPos.hostRev = (b.hostPos.hostRev + 1)
+    }
+
+    ; host authoritative reads (for assertions)
+    fn hostPosX:double (ref:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        return b.hostPos.x
+    }
+
+    ; ---- frame pipeline ----------------------------------------------------
+    ; Between guest turns: commit dirty mirrors to the host (guest wins), then
+    ; advance the turn so mirrors refresh on their next access.
+    fn commitTurn:void () {
+        def n:int (array_length this.bindings)
+        def i 0
+        while (i < n) {
+            def b:RgBinding (itemAt this.bindings i)
+            if (b.hasMirror) {
+                if (b.positionMirror.dirtyRev > 0) {
+                    ; guest commit wins: full vector from the mirror snapshot
+                    b.hostPos.x = b.positionMirror.x
+                    b.hostPos.y = b.positionMirror.y
+                    b.hostPos.z = b.positionMirror.z
+                    b.hostPos.hostRev = (b.hostPos.hostRev + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn beginTurn:void () {
+        this.turn = (this.turn + 1)
+    }
+
+    ; ---- host property: geometry getter (borrowed cached wrapper) -----------
+    fn getGeometry:RgValue (meshRef:RgValue) {
+        def b:RgBinding (this.findBinding(meshRef))
+        return b.geometryRef
+    }
+
+    ; ---- dynamic overlay (D-PROP expandos) ---------------------------------
+    fn setExpando:void (ref:RgValue name:string value:RgValue) {
+        def b:RgBinding (this.findBinding(ref))
+        set b.overlay name value
+    }
+
+    ; Unknown read → undefined; overlay read → stored value. The host is never
+    ; consulted for an expando name.
+    fn getExpando:RgValue (ref:RgValue name:string) {
+        def b:RgBinding (this.findBinding(ref))
+        if (has b.overlay name) {
+            return (unwrap (get b.overlay name))
+        }
+        return (RgValue.undef())
+    }
+
+    fn hasExpando:boolean (ref:RgValue name:string) {
+        def b:RgBinding (this.findBinding(ref))
+        return (has b.overlay name)
+    }
+
+    ; ---- unified name-based property access --------------------------------
+    ; position → mirror identity, geometry → cached wrapper, else overlay/undef.
+    fn getProperty:RgValue (ref:RgValue name:string) {
+        if (name == "position") { return (this.positionRef(ref)) }
+        if (name == "geometry") { return (this.getGeometry(ref)) }
+        return (this.getExpando(ref name))
+    }
+
+    fn setProperty:void (ref:RgValue name:string value:RgValue) {
+        ; native props route through their declared residency; here only
+        ; expandos are writable by name (position writes go through guestWritePos
+        ; / commit). Unknown name → guest overlay (host never sees it).
+        if (name == "position") { return }
+        if (name == "geometry") { return }
+        this.setExpando(ref name value)
+    }
+}

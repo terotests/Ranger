@@ -1,0 +1,64 @@
+; ==============================================================================
+; adapter_hybrid_test — interp/adapter hybrid-binding invariants (D-ADAPTER).
+; ==============================================================================
+; The five hybrid invariants for `mesh.position`:
+;   1. one cached wrapper per (NativeRef, prop) → mesh.position === mesh.position
+;   2. two revisions (guest dirty vs host rev)
+;   3. turn-start refresh: a retained mirror is a within-turn snapshot; it does
+;      NOT observe host writes mid-turn and refreshes at its next turn
+;   4. guest commit wins at the declared boundary
+;   5. stable reads within a turn
+; ==============================================================================
+
+Import "../RgAdapter.rgr"
+Import "../../values/RgValue.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class AdapterHybridTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("interp/adapter/hybrid"))
+        def a:RgAdapter (new RgAdapter)
+
+        def geo:RgValue (a.constructGeometry(4))
+        def mat:RgValue (a.constructMaterial())
+        def mesh:RgValue (a.constructMesh(geo mat))
+
+        ; ---- invariant 1: one cached wrapper per (ref, prop) ----------------
+        def p1:RgValue (a.getProperty(mesh "position"))
+        def p2:RgValue (a.getProperty(mesh "position"))
+        t.ok("mesh.position === mesh.position" (RgValue.tripleEquals(p1 p2)))
+
+        ; ---- invariant 3 + 5: turn-start snapshot; stable mid-turn ---------
+        ; turn 1: host position starts at (0,0,0); first read snapshots it.
+        t.near("turn1 posX snapshot is 0" (a.posX(mesh)) 0.0)
+        ; a host system writes mid-turn (physics) — mirror must NOT observe it
+        a.hostWritePos(mesh 5.0 5.0 5.0)
+        t.near("mid-turn host write is invisible to the mirror" (a.posX(mesh)) 0.0)
+        def p3:RgValue (a.getProperty(mesh "position"))
+        t.ok("retained position wrapper identity stable mid-turn"
+            (RgValue.tripleEquals(p1 p3)))
+
+        ; next turn: the mirror refreshes to the host value on first access
+        a.beginTurn()
+        t.near("turn2 refreshes mirror to host value" (a.posX(mesh)) 5.0)
+
+        ; ---- invariant 4: guest commit wins --------------------------------
+        ; turn 2 (current): guest writes its own value; a host system also writes
+        ; the same frame; at the commit boundary the guest value wins.
+        a.guestWritePos(mesh 9.0 9.0 9.0)
+        a.hostWritePos(mesh 1.0 1.0 1.0)
+        t.near("within-turn guest read sees guest value" (a.posX(mesh)) 9.0)
+        a.commitTurn()
+        t.near("commit wrote the guest value to the host (guest wins)"
+            (a.hostPosX(mesh)) 9.0)
+
+        ; ---- invariant 2/3: after commit + new turn, mirror tracks host -----
+        a.beginTurn()
+        ; a host-only write between turns is observed next turn
+        a.hostWritePos(mesh 3.0 3.0 3.0)
+        a.beginTurn()
+        t.near("host-only write between turns is picked up" (a.posX(mesh)) 3.0)
+
+        t.summary()
+    }
+}

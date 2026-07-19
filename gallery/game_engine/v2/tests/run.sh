@@ -64,6 +64,12 @@ run_suite registry/schema/tests/schema_validation_test
 run_suite registry/codegen/tests/codegen_parity_test
 run_suite registry/codegen/tests/golden_id_test
 
+# ---- Phase 4 — native adapter (D-ADAPTER / D-PROP / hybrid invariants) --------
+run_suite interp/adapter/tests/adapter_construct_test
+run_suite interp/adapter/tests/adapter_overlay_test
+run_suite interp/adapter/tests/adapter_hybrid_test
+run_suite tests/unit/interp/adapter_churn_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"

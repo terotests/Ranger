@@ -1,0 +1,50 @@
+; ==============================================================================
+; adapter_construct_test — interp/adapter gate (D-ADAPTER / D-SYNC).
+; ==============================================================================
+; Asserts: new Mesh(g,m) → exactly one meshH; a second construct yields a
+; different handle AND a different NativeRef identity; the mesh retains its
+; geometry + material on the host (D-OWN via the adapter).
+; ==============================================================================
+
+Import "../RgAdapter.rgr"
+Import "../../values/RgValue.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class AdapterConstructTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("interp/adapter/construct"))
+        def a:RgAdapter (new RgAdapter)
+
+        def geo:RgValue (a.constructGeometry(36))
+        def mat:RgValue (a.constructMaterial())
+        def mesh:RgValue (a.constructMesh(geo mat))
+
+        t.ok("mesh ref is a native reference" (mesh.isReference()))
+        t.ok("geo ref is a native reference" (geo.isReference()))
+        t.ok("mesh has a valid host handle slot" ((a.meshHandleSlot(mesh)) != 0))
+
+        ; ---- one script object → one host handle (D-SYNC) -------------------
+        ; the same NativeRef always maps to the same host slot
+        t.eqInt("mesh handle stable across lookups"
+            (a.meshHandleSlot(mesh)) (a.meshHandleSlot(mesh)))
+
+        ; ---- second construct → different handle + identity ----------------
+        def geo2:RgValue (a.constructGeometry(8))
+        def mat2:RgValue (a.constructMaterial())
+        def mesh2:RgValue (a.constructMesh(geo2 mat2))
+        t.no("two meshes are not === (distinct identity)"
+            (RgValue.tripleEquals(mesh mesh2)))
+        t.no("two meshes have different handle slots"
+            ((a.meshHandleSlot(mesh)) == (a.meshHandleSlot(mesh2))))
+
+        ; ---- mesh retains geo + mat on the host ----------------------------
+        def geoBinding:RgBinding (a.findBinding(geo))
+        t.eqInt("geometry retained by mesh (refcount 2)"
+            (a.host.refcount(geoBinding.handle)) 2)
+        def matBinding:RgBinding (a.findBinding(mat))
+        t.eqInt("material retained by mesh (refcount 2)"
+            (a.host.refcount(matBinding.handle)) 2)
+
+        t.summary()
+    }
+}
