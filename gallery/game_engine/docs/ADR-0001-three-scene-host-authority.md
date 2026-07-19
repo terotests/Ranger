@@ -1,7 +1,8 @@
 # ADR-0001 — `ThreeSceneHost` owns authoritative Three state
 
-> Status: **proposed** (planning). Context: `CODE_CLEANUP.md` (D-SYNC, also
-> D-IDENTITY / D-ADAPTER / D-LIFE / D-TYPE).
+> Status: **accepted**. `CODE_CLEANUP.md` treats these decisions as binding;
+> this ADR is the authoritative record. Context: `CODE_CLEANUP.md` (D-SYNC,
+> also D-IDENTITY / D-ADAPTER / D-LIFE / D-TYPE).
 > Supersedes the conflicting architecture statements in `IDEAL_THREE.md`,
 > `THREE_BRIDGE.md`, and `THREE.md`.
 > Bulk memory rules: [`WASM_MEMORY_ABI.md`](./WASM_MEMORY_ABI.md).
@@ -68,8 +69,11 @@ Corollaries:
   binds them at construct time. The reconciler must not create a second host
   object for an already-constructed live instance.
 - The native-object adapter does **not** change ownership: adapter backing
-  objects are the host's canonical types, so value parity and host state are the
-  same objects, not two mirrors.
+  objects are the host's canonical types, so value parity and host state are
+  the same objects. No front-end owns a second **authoritative** scene graph;
+  guest-side value mirrors (hybrid residency) are allowed only under the
+  residency and synchronization contract (`CODE_CLEANUP.md` D-ADAPTER,
+  including its hybrid binding invariants).
 
 ## Non-goals
 

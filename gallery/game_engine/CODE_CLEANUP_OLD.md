@@ -14,9 +14,9 @@ chapter).
 
 For binding direction see [`CODE_CLEANUP.md`](./CODE_CLEANUP.md). The actor
 names used in code comments (guest, interp, adapter, host, physics, render,
-wrapper) are defined in that file's **Components and actors** section. Note on
-terminology: earlier drafts called the TSX wrapper classes a "façade"; both
-files now say "wrapper" — same thing.
+wrapper, runtime, abi) are defined in that file's **Components and actors**
+section. Note on terminology: earlier drafts called the TSX wrapper classes a
+"façade"; both files now say "wrapper" — same thing.
 
 ---
 
