@@ -818,7 +818,7 @@ path: same host protocol compiled with `-l=cpp` + `gfx_sdl`.
 ### Follow-ons
 
 - [x] Pane-aware present (`paneCount` → single or split; neutral `clearRgb`)
-- [x] Audio: `vocalCues` → SDL (`pumpVocals` → `GameAudio.play`; one-shots still record-only)
+- [x] Audio: `vocalCues` → SDL (`pumpVocals` → `GameAudio` palette + `GameVocalFx`; one-shots still record-only)
 - [ ] Cross-platform SW screenshot hashes (Node / macOS / Pi)
 
 ### Intentionally out of scope until W+A+B are credible

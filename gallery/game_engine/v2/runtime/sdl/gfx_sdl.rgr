@@ -496,15 +496,22 @@ static void rgfx_prepare_audio_env() {
         fprintf(stderr, \"[rgfx] RANGER_AUDIO_DEVICE=%s → SDL_AUDIODRIVER=alsa\\n\", dev);
         return;
     }
-    const char* existing = getenv(\"SDL_AUDIODRIVER\");
-    if (existing != nullptr && existing[0] != '\\0') {
-        fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=%s (from env)\\n\", existing);
-        return;
-    }
     const char* ranger = getenv(\"RANGER_SDL_AUDIO_DRIVER\");
     if (ranger != nullptr && ranger[0] != '\\0') {
         SDL_setenv(\"SDL_AUDIODRIVER\", ranger, 1);
         fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=%s (RANGER_SDL_AUDIO_DRIVER)\\n\", ranger);
+        return;
+    }
+#if defined(__APPLE__)
+    // macOS: always pin CoreAudio. A stale SDL_AUDIODRIVER=pulse/alsa from a
+    // shared shell profile otherwise selects a missing driver → silent output.
+    SDL_setenv(\"SDL_AUDIODRIVER\", \"coreaudio\", 1);
+    fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=coreaudio (macOS default)\\n\");
+    return;
+#endif
+    const char* existing = getenv(\"SDL_AUDIODRIVER\");
+    if (existing != nullptr && existing[0] != '\\0') {
+        fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=%s (from env)\\n\", existing);
         return;
     }
 #if defined(__linux__)
