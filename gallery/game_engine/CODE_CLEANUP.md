@@ -228,89 +228,133 @@ The demo matters because game logic almost always does two things scripts own:
 2. **Observe or move object / player positions** (here: copy cannon → mesh each
    frame; the same path is “read player pose” or “teleport player”).
 
-Full guest script (reference). Sections below quote lines again as they are
-explained.
+Full guest script (reference). `// bg:` comments state the **host / background**
+effect under the target architecture (D-SYNC). Sections below quote lines again
+as they are explained.
 
 ```js
-// three.js variables
+// three.js variables — guest bindings; become NativeRefs to host handles after init
 let camera, scene, renderer
 let mesh
 
-// cannon.js variables
+// cannon.js variables — separate physics handles (not Three mesh ids)
 let world
 let body
 
-initThree()
-initCannon()
-animate()
+initThree()   // create cameraH / sceneH / rendererH / meshH (live)
+initCannon()  // create worldH / bodyH (physics arena)
+animate()     // each frame: step body → copy pose to mesh → render
 
 function initThree() {
   // Camera
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 100)
+  // bg: cameraCreatePerspective(fov, aspect, near, far, realmId) → cameraH
+  //     EvalValue { NativeRef cameraH, identityId }; slot in camera arena
+
   camera.position.z = 5
+  // bg: cameraSetPosition(cameraH, 0, 0, 5) — live host write, same cameraH
+  //     (hybrid: optional guest Vector3 mirror, then sync boundary on assign)
 
   // Scene
   scene = new THREE.Scene()
+  // bg: sceneCreate(realmId) → sceneH in scene arena; no meshes yet
 
   // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true })
+  // bg: rendererCreate({ antialias }) → rendererH
+  //     (on Ranger native: often bind existing gfx_sdl / framebuffer surface)
+
   renderer.setSize(window.innerWidth, window.innerHeight)
+  // bg: rendererSetSize(rendererH, w, h) — viewport / backend size
 
   document.body.appendChild(renderer.domElement)
+  // bg: host presents the surface (DOM on web; SDL window on native — no appendChild)
 
   window.addEventListener('resize', onWindowResize)
+  // bg: guest-only; handler issues camera/renderer commands below
 
   // Box
   const geometry = new THREE.BoxBufferGeometry(2, 2, 2)
+  // bg: geometryBox(2, 2, 2) → geoH; CPU vertex arrays in geometry arena (D-GEO)
+
   const material = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
+  // bg: materialBasic(0xff0000, wireframe=true, …) → matH in material arena
 
   mesh = new THREE.Mesh(geometry, material)
+  // bg: meshCreate(geoH, matH) → meshH; retain(geoH), retain(matH); one host mesh now
+
   scene.add(mesh)
+  // bg: entitySetParent(meshH, sceneH) — membership only; same meshH (D-LIFE)
 }
 
 function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight
+  // bg: cameraSetAspect(cameraH, aspect) — mutates same cameraH
+
   camera.updateProjectionMatrix()
+  // bg: cameraUpdateProjectionMatrix(cameraH) — recompute projection on host
+
   renderer.setSize(window.innerWidth, window.innerHeight)
+  // bg: rendererSetSize(rendererH, w, h)
 }
 
 function initCannon() {
   world = new CANNON.World()
+  // bg: physicsWorldCreate() → worldH (PhysicsWorld / Cannon subsystem)
 
   // Box
   const shape = new CANNON.Box(new CANNON.Vec3(1, 1, 1))
+  // bg: half-extents (1,1,1) match Three box size 2; shape data for bodyCreate
+
   body = new CANNON.Body({
     mass: 1,
   })
+  // bg: bodyCreate(worldH, mass=1) → bodyH in physics body arena (≠ meshH)
+
   body.addShape(shape)
+  // bg: bodyAddBoxShape(bodyH, 1, 1, 1)
+
   body.angularVelocity.set(0, 10, 0)
+  // bg: bodySetAngularVelocity(bodyH, 0, 10, 0)
+
   body.angularDamping = 0.5
+  // bg: bodySetAngularDamping(bodyH, 0.5)
+
   world.addBody(body)
+  // bg: physics world membership for bodyH (like scene.add, but for worldH)
 }
 
 function animate() {
   requestAnimationFrame(animate)
+  // bg: host frame tick schedules next guest update (or rAF on web)
 
   // Step the physics world
   world.fixedStep()
+  // bg: physicsWorldFixedStep(worldH, dt) — advances bodyH pose in physics arena
 
   // Copy coordinates from cannon.js to three.js
   mesh.position.copy(body.position)
+  // bg: (x,y,z) = bodyGetPosition(bodyH); meshSetPosition(meshH, x,y,z)
+  //     live write to drawable; does not create/release meshH
+
   mesh.quaternion.copy(body.quaternion)
+  // bg: (qx..qw) = bodyGetQuaternion(bodyH); meshSetQuaternion(meshH, …)
 
   // Render three.js
   renderer.render(scene, camera)
+  // bg: rendererRender(rendererH, sceneH, cameraH)
+  //     reads current host poses; no reconcile / no second mesh create
 }
 ```
 
 ## W.1 Declarations — script bindings, not host objects yet
 
 ```js
-// three.js variables
+// three.js variables — guest bindings only until construct (no host objects yet)
 let camera, scene, renderer
 let mesh
 
-// cannon.js variables
+// cannon.js variables — will bind to worldH / bodyH (physics arena, not Three)
 let world
 let body
 ```
@@ -332,9 +376,9 @@ is an explicit per-frame (or binding) copy in `animate` — the architecture doe
 not magically merge “physics body” and “drawable mesh” into one id.
 
 ```js
-initThree()
-initCannon()
-animate()
+initThree()   // bg: mint cameraH, sceneH, rendererH, geoH, matH, meshH + parent
+initCannon()  // bg: mint worldH, bodyH; physics membership
+animate()     // bg: enter frame loop (step → copy pose → render)
 ```
 
 Order is intentional: create the drawable + camera first, then the physics twin,
@@ -344,6 +388,8 @@ then the loop that copies physics → mesh and renders through the camera.
 
 ```js
 camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 100)
+// bg: cameraCreatePerspective(75, aspect, 1, 100, realmId) → cameraH
+//     NativeRef in EvalValue; camera-arena payload — not a reconcile later
 ```
 
 Live path (D-SYNC), once:
@@ -362,6 +408,8 @@ camera EvalValue { NativeRef cameraH, identityId }
 
 ```js
 camera.position.z = 5
+// bg: cameraSetPosition(cameraH, 0, 0, 5) — immediate (or end-of-turn) host write
+//     stable cameraH; membership unchanged; no new camera object
 ```
 
 This is the common case: **game / script sets the camera.**
@@ -392,8 +440,10 @@ Important properties:
 ```js
 // later, e.g. follow player
 camera.position.x = mesh.position.x
+// bg: meshGetPosition(meshH) → x; cameraSetPosition component or full vec write
 camera.position.y = mesh.position.y + 2
 camera.position.z = mesh.position.z + 5
+// bg: still the same cameraH; script policy, host camera pose for render
 ```
 
 Each line is `cameraSetPosition` / component set after `meshGetPosition` (or a
@@ -406,8 +456,11 @@ camera pose is authoritative for rendering; the script is authoritative for
 ```js
 function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight
+  // bg: cameraSetAspect(cameraH, aspect)
   camera.updateProjectionMatrix()
+  // bg: cameraUpdateProjectionMatrix(cameraH)
   renderer.setSize(window.innerWidth, window.innerHeight)
+  // bg: rendererSetSize(rendererH, w, h)
 }
 ```
 
@@ -424,16 +477,16 @@ not a GPU resource `dispose()`.
 
 ```js
 scene = new THREE.Scene()
-```
-
-```
-sceneCreate(realmId) -> sceneH
+// bg: sceneCreate(realmId) → sceneH in scene arena; empty graph
 ```
 
 ```js
 renderer = new THREE.WebGLRenderer({ antialias: true })
+// bg: rendererCreate({ antialias }) → rendererH (or bind host framebuffer)
 renderer.setSize(window.innerWidth, window.innerHeight)
+// bg: rendererSetSize(rendererH, w, h)
 document.body.appendChild(renderer.domElement)
+// bg: present surface (web DOM / native SDL — no guest-owned GPU objects)
 ```
 
 On Ranger hosts the “canvas” is often the SDL / framebuffer surface already
@@ -447,10 +500,16 @@ rendererSetSize(rendererH, w, h)
 
 ```js
 const geometry = new THREE.BoxBufferGeometry(2, 2, 2)
+// bg: geometryBox(2,2,2) → geoH; CPU arrays in geometry arena
+
 const material = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
+// bg: materialBasic(…) → matH
 
 mesh = new THREE.Mesh(geometry, material)
+// bg: meshCreate(geoH, matH) → meshH; retain geo/mat — mesh is real now
+
 scene.add(mesh)
+// bg: entitySetParent(meshH, sceneH) — membership only; same meshH
 ```
 
 Line-by-line (D-GEO + D-SYNC + D-LIFE):
@@ -476,15 +535,24 @@ Default mesh pose is identity at the origin until physics (or script) writes it.
 ```js
 function initCannon() {
   world = new CANNON.World()
+  // bg: physicsWorldCreate() → worldH
 
   const shape = new CANNON.Box(new CANNON.Vec3(1, 1, 1))
+  // bg: box half-extents for the upcoming body (matches Three size 2)
+
   body = new CANNON.Body({
     mass: 1,
   })
+  // bg: bodyCreate(worldH, mass=1) → bodyH  (≠ meshH)
+
   body.addShape(shape)
+  // bg: bodyAddBoxShape(bodyH, 1,1,1)
   body.angularVelocity.set(0, 10, 0)
+  // bg: bodySetAngularVelocity(bodyH, 0,10,0)
   body.angularDamping = 0.5
+  // bg: bodySetAngularDamping(bodyH, 0.5)
   world.addBody(body)
+  // bg: add bodyH to worldH membership
 }
 ```
 
@@ -509,16 +577,21 @@ which side is authoritative this frame (usually physics), then copy.
 ```js
 function animate() {
   requestAnimationFrame(animate)
+  // bg: schedule next frame / guest update
 
   // Step the physics world
   world.fixedStep()
+  // bg: physicsWorldFixedStep(worldH, dt) — bodyH pose advances
 
   // Copy coordinates from cannon.js to three.js
   mesh.position.copy(body.position)
+  // bg: bodyGetPosition(bodyH) → meshSetPosition(meshH, …)
   mesh.quaternion.copy(body.quaternion)
+  // bg: bodyGetQuaternion(bodyH) → meshSetQuaternion(meshH, …)
 
   // Render three.js
   renderer.render(scene, camera)
+  // bg: rendererRender(rendererH, sceneH, cameraH)
 }
 ```
 
@@ -526,10 +599,7 @@ function animate() {
 
 ```js
 world.fixedStep()
-```
-
-```
-physicsWorldFixedStep(worldH, dt)   ; advances bodyH pose in the physics arena
+// bg: physicsWorldFixedStep(worldH, dt) — advances bodyH in the physics arena
 ```
 
 After this, **authoritative simulation pose** is on `bodyH`. The Three mesh is
@@ -539,7 +609,9 @@ stale until the copy lines run.
 
 ```js
 mesh.position.copy(body.position)
+// bg: bodyGetPosition(bodyH) → meshSetPosition(meshH, x,y,z)
 mesh.quaternion.copy(body.quaternion)
+// bg: bodyGetQuaternion(bodyH) → meshSetQuaternion(meshH, qx,qy,qz,qw)
 ```
 
 This is the core “game logic moves / mirrors the object” pattern:
@@ -602,10 +674,7 @@ renderer.render(sceneH, cameraH)
 
 ```js
 renderer.render(scene, camera)
-```
-
-```
-rendererRender(rendererH, sceneH, cameraH)
+// bg: rendererRender(rendererH, sceneH, cameraH) — current host poses only
 ```
 
 Uses **current** host poses: mesh from the copy lines, camera from W.2
