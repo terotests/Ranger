@@ -478,10 +478,11 @@ class ThreeDiamondGeometry extends ThreeBufferGeometry {
     fn build:ThreeDiamondGeometry (radius:double) {
         def r:double radius
         if (r <= 0.0) { r = 1.0 }
-        ; Proportions: short crown, long pointed pavilion. AABB-centred.
-        def crownH:double (r * 0.32)
-        def pavH:double (r * 1.72)
-        def tableR:double (r * 0.42)
+        ; Proportions: readable crown trapezoid + long pointed pavilion.
+        ; AABB-centred so spinning RTT gems stay framed.
+        def crownH:double (r * 0.55)
+        def pavH:double (r * 1.45)
+        def tableR:double (r * 0.34)
         def yOff:double ((pavH - crownH) * 0.5)
         def gy:double yOff
         def ty:double (crownH + yOff)
@@ -525,12 +526,12 @@ class ThreeDiamondGeometry extends ThreeBufferGeometry {
             this.pushFace(a0x ty a0z g1x gy g1z a1x ty a1z)
             i = (i + 1)
         }
-        ; pavilion: girdle → culet (narrow bottom point)
+        ; pavilion: girdle → culet (outward winding: next → curr → tip)
         i = 0
         while (i < 8) {
             def j2:int (i + 1)
             if (j2 >= 8) { j2 = 0 }
-            this.pushFace((itemAt gx i) gy (itemAt gz i) (itemAt gx j2) gy (itemAt gz j2) 0.0 by 0.0)
+            this.pushFace((itemAt gx j2) gy (itemAt gz j2) (itemAt gx i) gy (itemAt gz i) 0.0 by 0.0)
             i = (i + 1)
         }
         return this

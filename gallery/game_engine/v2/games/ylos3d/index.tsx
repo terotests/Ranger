@@ -22,8 +22,8 @@ const PLAYER_W = 26;
 const PLAYER_H = 44;
 const GEM_W = 40;
 const GEM_H = 72;
-const DIAMOND_CYAN = 8978431; // 0x88FFFF — icy cyan; glass alpha still reads on facets
-const DIAMOND_OPACITY = 0.58;
+const DIAMOND_CYAN = 10485759; // 0x9FFFFF — icy cyan; glass alpha still reads
+const DIAMOND_OPACITY = 0.62;
 
 const PLATFORMS = [
   { x: 0, y: 840, w: 480, h: 60 },
