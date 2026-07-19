@@ -32,7 +32,8 @@ Merkitse valmiit kohdat `[x]`. Pidä tämä tiedosto ajan tasalla kun vaihe eten
 ### 1b — PNG-dekoodaus (R0)
 
 - [x] `src/png_decoder.rgr` — indexed (4/8-bit) + RGBA, zlib inflate, PNG filters
-- [x] Testi: LPC walk-layer PNG:t (5 kerrosta)
+- [ ] Unit test: decode real pack sheets (576×256) via `PNGDecoder` — see
+  [`../TODO.md`](../TODO.md) P0 (compose demos are not a regression gate)
 
 ### 1c — Blit + palette (R1)
 
