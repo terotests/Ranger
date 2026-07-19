@@ -14,19 +14,6 @@ interp/migrate/src/EvalValue.rgr:../../../../../ts_parser/ts_parser_simple.rgr
 interp/migrate/src/JSXToEVG.rgr:../../../../../ts_parser/ts_lexer.rgr
 interp/migrate/src/JSXToEVG.rgr:../../../../../ts_parser/ts_parser_simple.rgr
 
-# ---- staged LPC (retarget to v2/imaging + v2/imaging/zip) ----
-lpc/src/lpc_blit.rgr:../../../pdf_writer/src/jpeg/ImageBuffer.rgr
-lpc/src/lpc_blit.rgr:../../../pdf_writer/src/raster/RasterBuffer.rgr
-lpc/src/lpc_catalog.rgr:../../../zip/ZipReader.rgr
-lpc/src/lpc_compose.rgr:../../../pdf_writer/src/jpeg/ImageBuffer.rgr
-lpc/src/lpc_compose.rgr:../../../pdf_writer/src/raster/RasterBuffer.rgr
-lpc/src/lpc_compose_runner.rgr:../../../pdf_writer/src/raster/PNGEncoder.rgr
-lpc/src/lpc_pack_builder.rgr:../../../zip/ZipWriter.rgr
-lpc/src/lpc_palette.rgr:../../../pdf_writer/src/jpeg/ImageBuffer.rgr
-lpc/src/png_decoder.rgr:../../../pdf_writer/src/core/Buffer.rgr
-lpc/src/png_decoder.rgr:../../../pdf_writer/src/jpeg/ImageBuffer.rgr
-lpc/src/png_decoder.rgr:../../../zip/Inflate.rgr
-
 # ---- staged model3d / web (retarget to migrate + imaging) ----
 model3d/Model3dScriptBridge.rgr:../../pdf_writer/src/jsx/ComponentEngine.rgr
 model3d/Model3dScriptBridge.rgr:../../pdf_writer/src/jsx/EvalValue.rgr

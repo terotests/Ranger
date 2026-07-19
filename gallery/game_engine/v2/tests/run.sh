@@ -101,6 +101,8 @@ run_suite runtime/tests/clock_test
 # ---- Phase 9 — physics (headless) --------------------------------------------
 run_suite physics/tests/physics_step_test
 run_suite physics/tests/pose_sync_test
+# Cannon.js port kernel — all 23 rigid-body suites via one aggregating entry
+run_suite physics/cannon/tests/cannon_suite_test
 
 # ---- Phase 10b — D-2D ranger:2d (P1) -----------------------------------------
 run_suite tests/contract/d_2d/d_2d_contract_test
@@ -130,6 +132,11 @@ run_suite tests/unit/bridge/registry_bridge_coverage_test
 
 # ---- menu / EVG launcher UI (self-contained ui/ + evg + fonts + framebuffer) -
 run_suite menu/tests/launcher_ui_test
+# EVG layout/color/text/path primitives that back the launcher UI
+run_suite evg/evg_test
+
+# ---- lpc — LPC sprite pipeline (PNG decode → RGBA parity, P0) ----------------
+run_suite lpc/tests/png_decoder_test
 
 # ---- BRIDGES.md step 3 — real TSX guests on the ONE generic host -------------
 # Games are TSX-only folders (no per-game .rgr); RgGameHost is the single
