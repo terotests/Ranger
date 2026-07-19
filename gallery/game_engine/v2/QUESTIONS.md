@@ -130,3 +130,85 @@ model stays**; games should not grow a second ad-hoc window.
 Until those land, keep 2D games on `TWO.Renderer2D` + `rg2d_render`; treat 3D
 demos as separate hosts. See also [`BRIDGES.md`](./BRIDGES.md) §6.3 Path D
 (render bind vs present).
+
+---
+
+## Q3 — Are pane indices `0` / `1` the most portable render target?
+
+ylos2 today:
+
+```ts
+runtime.surface.setLayout("split-vertical");
+runtime.surface.pane(0).assignPlayer(0);
+runtime.surface.pane(1).assignPlayer(1);
+// …
+this.renderer.render(this.layer, this.cam1, 0);
+this.renderer.render(this.layer, this.cam2, 1);
+```
+
+Is the third argument as a bare integer the right long-term / portable shape?
+
+### Answer (short)
+
+**The idea is portable; the bare `0`/`1` literals are the least portable
+expression of it.**
+
+What *is* portable (and matches CODE_CLEANUP):
+
+- One surface owns **panes** (viewports), not separate windows.
+- The game calls `render(scene, camera, …)` once per pane it cares about.
+- SW and GPU honour the same pane → scissor/viewport mapping.
+- Single-player omits the target (full-surface default).
+
+What is *less* portable about today’s ylos2 form:
+
+| Issue | Why |
+|-------|-----|
+| Magic indices | `0`/`1` encode layout order; easy to desync from `setLayout` / player binding |
+| Wire shape leaked to guest | Schema is `rg2d_render(h,h,i)` — interpreter-friendly, but guest API need not look like that |
+| No pane identity object | CODE_CLEANUP’s conceptual API passes a **pane / target**, not a raw int |
+| Re-bind every frame | Correct today (bind view each `render`), but games that only need a stable bind could declare once via `pane.setView(layer, cam)` (façade already has it; unused by ylos2) |
+
+CODE_CLEANUP sketch ([`CODE_CLEANUP.md`](../CODE_CLEANUP.md) — Surface viewports):
+
+```ts
+runtime.surface.setLayout("split-horizontal")
+const left = runtime.surface.pane(0)
+const right = runtime.surface.pane(1)
+
+renderer2d.render(scene, cameraP1, { target: left })
+renderer2d.render(scene, cameraP2, { target: right })
+```
+
+That is the more portable *guest* shape: hold the pane you got from the
+surface after layout, pass it as the render target. Under the hood the
+interpreter/wasm profile may still lower to a pane index or a handle — that
+is a profile detail (§2), not what games should author.
+
+### Ranking (guest API)
+
+| Form | Portability | Status |
+|------|-------------|--------|
+| `render(scene, cam)` — single full surface | Best for 1P | Intended; ylos2 is 2P so N/A |
+| `render(scene, cam, { target: pane })` or `render(scene, cam, pane)` | Best for split-screen | **Contract intent**; not what ylos2 calls today |
+| `pane.setView(layer, cam)` once + present | Good when view is stable | Façade method exists; host stores real handles |
+| `render(scene, cam, 0)` / `…, 1)` | Works; brittle authorship | **What ylos2 does now** (`argSpec "h:h:i"`) |
+
+### What stays true either way
+
+- Targeting a **surface-owned pane** (not a platform window, not a GPU
+  texture name invented by the game) is the portable model across Mac/SDL,
+  Pi, wasm, software present.
+- Indices are a fine *lowering* (and fine in headless tests). They should
+  not be the only guest-facing vocabulary once pane objects exist.
+- Player binding (`pane(i).assignPlayer(j)`) is separate from the render
+  target — input routing vs where pixels go. Don’t collapse “player 0” with
+  “pane 0” in the render API even when ylos2 happens to use the same numbers.
+
+### Open
+
+| # | Question |
+|---|----------|
+| 1 | Freeze guest signature as `render(scene, cam, pane\|options)` and keep `i` only in the interpreter/wasm lowering? |
+| 2 | Prefer declare-once `pane.setView` + implicit present, or keep explicit per-frame `render(…, pane)` (current frame-pipeline step 6)? |
+| 3 | Offscreen targets: same `target:` slot, or a different object type (`RenderTarget2D`) beside panes? |
