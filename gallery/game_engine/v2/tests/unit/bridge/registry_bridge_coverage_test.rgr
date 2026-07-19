@@ -467,6 +467,44 @@ class RegistryBridgeCoverageTest {
         t.ok("three group created + nested under scene" (grp > 0))
         t.ok("three model_load + scale + rtt ok" (mdlId > 0))
 
+        ; ---- orbit-camera controls (bound to cam3) --------------------------
+        def ocA:[EvalValue]
+        push ocA (s.num((to_double cam3)))
+        def orbit:int (s.callI("rg3d_orbit_create" ocA))
+        t.ok("three orbit controls created" (orbit > 0))
+        def ovpA:[EvalValue]
+        push ovpA (s.num((to_double orbit)))
+        push ovpA (s.num(600.0))
+        push ovpA (s.num(600.0))
+        s.callN("rg3d_orbit_viewport" ovpA)
+        def otgA:[EvalValue]
+        push otgA (s.num((to_double orbit)))
+        push otgA (s.num(0.0))
+        push otgA (s.num(0.0))
+        push otgA (s.num(0.0))
+        s.callN("rg3d_orbit_target" otgA)
+        def opdA:[EvalValue]
+        push opdA (s.num((to_double orbit)))
+        push opdA (s.num(0.0))
+        push opdA (s.num(100.0))
+        push opdA (s.num(100.0))
+        push opdA (s.num(0.0))
+        s.callN("rg3d_orbit_pointer" opdA)
+        def opmA:[EvalValue]
+        push opmA (s.num((to_double orbit)))
+        push opmA (s.num(1.0))
+        push opmA (s.num(150.0))
+        push opmA (s.num(100.0))
+        push opmA (s.num(0.0))
+        s.callN("rg3d_orbit_pointer" opmA)
+        def owA:[EvalValue]
+        push owA (s.num((to_double orbit)))
+        push owA (s.num(1.0))
+        s.callN("rg3d_orbit_wheel" owA)
+        def oaA:[EvalValue]
+        push oaA (s.num((to_double orbit)))
+        s.callN("rg3d_orbit_apply" oaA)
+
         ; ================= COVERAGE DIFF =====================================
         def missing 0
         def nrows:int (array_length b.table)

@@ -23,7 +23,7 @@ class BridgeSchemaTest {
         ; core+two_d gain rt_create / sprite_create_tex from path A; three is live.
         t.eqInt("core schema has 17 commands" (core.methodCount()) 17)
         t.eqInt("two_d schema has 28 commands" (twoD.methodCount()) 28)
-        t.eqInt("three schema has 20 commands" (three.methodCount()) 20)
+        t.eqInt("three schema has 26 commands" (three.methodCount()) 26)
         ; residency gate still applies (Sprite2D host props declare sync)
         def v2d:[string] (twoD.validate())
         t.eqInt("two_d rows pass residency validation" (array_length v2d) 0)
@@ -31,7 +31,7 @@ class BridgeSchemaTest {
         ; ---- the ONE table: union of core + two_d + three --------------------
         def base:[RgCommand] (RgCodegen.tableUnion(core twoD))
         def table:[RgCommand] (RgCodegen.tableAppend(base three))
-        t.eqInt("union table row count" (array_length table) 65)
+        t.eqInt("union table row count" (array_length table) 71)
         def viol:[string] (RgCodegen.checkTable(table))
         def nv:int (array_length viol)
         if (nv > 0) {
@@ -89,6 +89,15 @@ class BridgeSchemaTest {
         t.eqInt("mesh set_scale id" scale.id 3032)
         def mdl:RgCommand (RgCodegen.findByName(table "rg3d_model_load"))
         t.eqInt("model_load id" mdl.id 3060)
+        def orb:RgCommand (RgCodegen.findByName(table "rg3d_orbit_create"))
+        t.eqInt("orbit_create id" orb.id 3070)
+        t.eqStr("orbit_create argSpec" orb.argSpec "h")
+        t.eqStr("orbit_create retSpec (mints a handle)" orb.retSpec "h")
+        def orbp:RgCommand (RgCodegen.findByName(table "rg3d_orbit_pointer"))
+        t.eqInt("orbit_pointer id" orbp.id 3073)
+        t.eqStr("orbit_pointer argSpec" orbp.argSpec "h:i:d:d:i")
+        def orba:RgCommand (RgCodegen.findByName(table "rg3d_orbit_apply"))
+        t.eqInt("orbit_apply id" orba.id 3075)
 
         t.summary()
     }

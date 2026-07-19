@@ -22,6 +22,7 @@ class Rg3DType {
     sfn mesh:int () { return 44 }
     sfn light:int () { return 45 }
     sfn group:int () { return 46 }
+    sfn orbit:int () { return 47 }
 }
 
 class RgRangerThree {
@@ -91,6 +92,15 @@ class RgRangerThree {
         return r.payloadIndex
     }
 
+    fn orbitH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.orbit())))
+        if (r.ok == false) {
+            this.lastErr = "wrong-type:orbit"
+            return 0
+        }
+        return r.payloadIndex
+    }
+
     ; D-SYNC: resolve ANY renderable scene entity to its host entities[] index.
     ; Meshes, host-decoded model roots (mesh-typed), lights and groups all live in
     ; the host entities[] array, so membership ops (set_parent / remove) accept any
@@ -129,6 +139,24 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
+    ; read-only camera position accessors (test/debug introspection). Resolve the
+    ; camera typed; a bad handle reads 0.0 (never mutates, never a typed error).
+    fn cameraPosX:double (camH:RgHandle) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return 0.0 }
+        return (this.host.cameraPosX(cam))
+    }
+    fn cameraPosY:double (camH:RgHandle) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return 0.0 }
+        return (this.host.cameraPosY(cam))
+    }
+    fn cameraPosZ:double (camH:RgHandle) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return 0.0 }
+        return (this.host.cameraPosZ(cam))
+    }
+
     fn cameraSet:boolean (camH:RgHandle fov:double aspect:double near:double far:double) {
         def cam:int (this.cameraH(camH))
         if (cam == 0) { return false }
@@ -140,6 +168,52 @@ class RgRangerThree {
         def cam:int (this.cameraH(camH))
         if (cam == 0) { return false }
         this.host.cameraPose(cam px py pz ex ey ez)
+        return true
+    }
+
+    ; --- orbit controls -------------------------------------------------------
+    ; Create an OrbitControls bound to an existing camera. Invalid handle out on
+    ; a bad camera (mirrors meshCreate's resource-resolve guard).
+    fn orbitCreate:OwnedHandle (camH:RgHandle) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+        def th:int (this.host.orbitCreate(cam))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.orbit()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn orbitViewport:boolean (ctrlH:RgHandle w:int h:int) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitViewport(oc w h)
+        return true
+    }
+
+    fn orbitTarget:boolean (ctrlH:RgHandle x:double y:double z:double) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitTarget(oc x y z)
+        return true
+    }
+
+    fn orbitPointer:boolean (ctrlH:RgHandle phase:int x:double y:double button:int) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitPointer(oc phase x y button)
+        return true
+    }
+
+    fn orbitWheel:boolean (ctrlH:RgHandle delta:double) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitWheel(oc delta)
+        return true
+    }
+
+    fn orbitApply:boolean (ctrlH:RgHandle) {
+        def oc:int (this.orbitH(ctrlH))
+        if (oc == 0) { return false }
+        this.host.orbitApply(oc)
         return true
     }
 

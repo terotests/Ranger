@@ -883,6 +883,50 @@ class RgRegistryBridge extends EvalNativeBridge {
             this.appendPass3D((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2)) (a.intAt(3)) (a.intAt(4)))
             return (EvalValue.null())
         }
+        if (row.name == "rg3d_orbit_create") {
+            this.d3.clearErr()
+            def o:OwnedHandle (this.d3.orbitCreate((a.handleAt(0))))
+            if ((o.handle.isValid()) == false) {
+                return (this.fail3d(row.name))
+            }
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_orbit_viewport") {
+            this.d3.clearErr()
+            if ((this.d3.orbitViewport((a.handleAt(0)) (a.intAt(1)) (a.intAt(2)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_target") {
+            this.d3.clearErr()
+            if ((this.d3.orbitTarget((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_pointer") {
+            this.d3.clearErr()
+            if ((this.d3.orbitPointer((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.intAt(4)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_wheel") {
+            this.d3.clearErr()
+            if ((this.d3.orbitWheel((a.handleAt(0)) (a.dblAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_orbit_apply") {
+            this.d3.clearErr()
+            if ((this.d3.orbitApply((a.handleAt(0)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
         if (row.name == "rgcore_assets_load_atlas") {
             def atlasId:int (this.loadAtlasAsset((a.strAt(0))))
             if (atlasId < 1) {

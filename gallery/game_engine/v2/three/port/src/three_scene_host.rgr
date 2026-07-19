@@ -33,6 +33,7 @@ Import "three_sky.rgr"
 Import "three_texture.rgr"
 Import "three_webgl_renderer.rgr"
 Import "three_render_backend.rgr"
+Import "three_orbit_controls.rgr"
 
 class ThreeSceneHost {
     def scenes:[ThreeScene]
@@ -40,6 +41,9 @@ class ThreeSceneHost {
     def geometries:[ThreeBufferGeometry]
     def materials:[ThreeMaterial]
     def entities:[ThreeObject3D]
+    ; orbit-camera controllers (1-based handles, like scenes/cameras). Each is
+    ; bound to one camera and updates its pose from host-fed pointer/wheel events.
+    def orbitControls:[ThreeOrbitControls]
     ; the host owns the renderer (front-ends never own GPU resources).
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
     ; HOST-supplied texture pixels by path, + per-request provenance so a missing
@@ -58,6 +62,21 @@ class ThreeSceneHost {
     fn geometryAt:ThreeBufferGeometry (h:int) { return (itemAt geometries (h - 1)) }
     fn materialAt:ThreeMaterial (h:int) { return (itemAt materials (h - 1)) }
     fn entityAt:ThreeObject3D (h:int) { return (itemAt entities (h - 1)) }
+
+    ; read-only camera pose accessors (test/debug introspection: assert an orbit
+    ; drag actually moved the bound camera). No mutation.
+    fn cameraPosX:double (camH:int) {
+        def c:ThreePerspectiveCamera (this.cameraAt(camH))
+        return c.position.x
+    }
+    fn cameraPosY:double (camH:int) {
+        def c:ThreePerspectiveCamera (this.cameraAt(camH))
+        return c.position.y
+    }
+    fn cameraPosZ:double (camH:int) {
+        def c:ThreePerspectiveCamera (this.cameraAt(camH))
+        return c.position.z
+    }
 
     ; --- scene ----------------------------------------------------------------
     fn sceneNew:int () {
@@ -87,6 +106,42 @@ class ThreeSceneHost {
         def c:ThreePerspectiveCamera (this.cameraAt(camH))
         c.position.set(px py pz)
         c.rotation.set(ex ey ez)
+    }
+
+    ; --- orbit controls (spherical camera controller) -------------------------
+    ; A host-owned OrbitControls bound to a camera. The front-end feeds pointer
+    ; events + viewport/target; the controller writes the bound camera's pose.
+    fn orbitAt:ThreeOrbitControls (h:int) { return (itemAt orbitControls (h - 1)) }
+    fn orbitCreate:int (camH:int) {
+        def oc:ThreeOrbitControls (new ThreeOrbitControls)
+        oc.setCamera((this.cameraAt(camH)))
+        push orbitControls oc
+        return (array_length orbitControls)
+    }
+    fn orbitViewport:void (ctrlH:int w:int h:int) {
+        (this.orbitAt(ctrlH)).setViewport(w h)
+    }
+    fn orbitTarget:void (ctrlH:int x:double y:double z:double) {
+        (this.orbitAt(ctrlH)).setTarget(x y z)
+    }
+    ; phase 0 = down (button-selected mode), 1 = move, 2 = up.
+    fn orbitPointer:void (ctrlH:int phase:int x:double y:double button:int) {
+        def oc:ThreeOrbitControls (this.orbitAt(ctrlH))
+        if (phase == 0) {
+            oc.pointerDown(x y button)
+        }
+        if (phase == 1) {
+            oc.pointerMove(x y)
+        }
+        if (phase == 2) {
+            oc.pointerUp()
+        }
+    }
+    fn orbitWheel:void (ctrlH:int delta:double) {
+        (this.orbitAt(ctrlH)).wheel(delta)
+    }
+    fn orbitApply:void (ctrlH:int) {
+        (this.orbitAt(ctrlH)).applyToCamera()
     }
 
     ; --- geometry (resources) -------------------------------------------------

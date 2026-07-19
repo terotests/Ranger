@@ -134,6 +134,21 @@ class GLTFModel {
   }
 }
 
+// Spherical orbit-camera controller (Three.js addons OrbitControls), bound to a
+// camera at construction. The game feeds pointer/wheel events + viewport/target;
+// apply() writes the bound camera's pose. phase: 0=down, 1=move, 2=up.
+class OrbitControls {
+  id = 0;
+  constructor(camera) { this.id = rg3d_orbit_create(camera.id); }
+  setViewport(w, h) { rg3d_orbit_viewport(this.id, w, h); }
+  setTarget(x, y, z) { rg3d_orbit_target(this.id, x, y, z); }
+  pointerDown(x, y, button) { rg3d_orbit_pointer(this.id, 0, x, y, button); }
+  pointerMove(x, y) { rg3d_orbit_pointer(this.id, 1, x, y, 0); }
+  pointerUp() { rg3d_orbit_pointer(this.id, 2, 0, 0, 0); }
+  wheel(delta) { rg3d_orbit_wheel(this.id, delta); }
+  apply() { rg3d_orbit_apply(this.id); }
+}
+
 class Renderer3D {
   // Render into a RenderTarget / Texture2D (appends + executes SW RTT).
   render(scene, camera, target) {

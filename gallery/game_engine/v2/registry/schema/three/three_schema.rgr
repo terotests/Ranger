@@ -77,6 +77,21 @@ class ThreeSchema {
         model.addMethod((RgMethodDef.cmd(3060 "rg3d_model_load" "rg3d_model_load" "s" "h" "create")))
         s.addClass(model)
 
+        ; ---- OrbitControls3D (38) — spherical camera controller --------------
+        ; Own decade (3070+): the "continue after group's 3035" range (3036..3041)
+        ; would collide with rg3d_render_to (3040), so orbit takes the next free
+        ; decade after model (3060), matching the one-class-per-decade layout.
+        ; create binds to a camera (h→h); the rest drive the bound controller.
+        def orbit:RgClassDef (RgClassDef.of(38 "OrbitControls3D"))
+        orbit.addMethod((RgMethodDef.cmd(3070 "rg3d_orbit_create" "rg3d_orbit_create" "h" "h" "create")))
+        orbit.addMethod((RgMethodDef.cmd(3071 "rg3d_orbit_viewport" "rg3d_orbit_viewport" "h:i:i" "v" "none")))
+        orbit.addMethod((RgMethodDef.cmd(3072 "rg3d_orbit_target" "rg3d_orbit_target" "h:d:d:d" "v" "none")))
+        ; pointer: (ctrl, phase i, x d, y d, button i). phase 0=down/1=move/2=up.
+        orbit.addMethod((RgMethodDef.cmd(3073 "rg3d_orbit_pointer" "rg3d_orbit_pointer" "h:i:d:d:i" "v" "none")))
+        orbit.addMethod((RgMethodDef.cmd(3074 "rg3d_orbit_wheel" "rg3d_orbit_wheel" "h:d" "v" "none")))
+        orbit.addMethod((RgMethodDef.cmd(3075 "rg3d_orbit_apply" "rg3d_orbit_apply" "h" "v" "none")))
+        s.addClass(orbit)
+
         return s
     }
 }
