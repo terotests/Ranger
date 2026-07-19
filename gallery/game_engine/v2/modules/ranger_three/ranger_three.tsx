@@ -54,17 +54,21 @@ class MeshLambertMaterial {
   }
 }
 
+// D-SYNC: create the light DETACHED (no scene membership). Establish membership
+// separately via scene.add(light) — lights are plain scene children the renderer
+// collects by walking the tree, so scene.add registers them for rendering.
 class AmbientLight {
   id = 0;
-  constructor(scene, colorHex, intensity) {
-    this.id = rg3d_light_ambient(scene.id, colorHex, intensity);
+  constructor(colorHex, intensity) {
+    this.id = rg3d_light_ambient(colorHex, intensity);
   }
 }
 
+// D-SYNC: create DETACHED; establish membership via scene.add(light).
 class DirectionalLight {
   id = 0;
-  constructor(scene, colorHex, intensity, dx, dy, dz) {
-    this.id = rg3d_light_directional(scene.id, colorHex, intensity, dx, dy, dz);
+  constructor(colorHex, intensity, dx, dy, dz) {
+    this.id = rg3d_light_directional(colorHex, intensity, dx, dy, dz);
   }
 }
 
@@ -83,12 +87,13 @@ class Mesh {
   }
 }
 
-// Package-relative .glb attached under a scene (host-decoded via ThreeGLTFFile).
-// Games pass any pkg:// uri — the engine has no asset- or game-specific loaders.
+// Package-relative .glb host-decoded via ThreeGLTFFile. Games pass any pkg:// uri
+// — the engine has no asset- or game-specific loaders.
+// D-SYNC: create DETACHED; establish membership separately via scene.add(model).
 class GLTFModel {
   id = 0;
-  constructor(scene, uri) {
-    this.id = rg3d_model_load(scene.id, uri);
+  constructor(uri) {
+    this.id = rg3d_model_load(uri);
   }
   setTransform(px, py, pz, ex, ey, ez) {
     rg3d_mesh_transform(this.id, px, py, pz, ex, ey, ez);

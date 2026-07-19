@@ -66,12 +66,17 @@ class Embed3dCorrectnessTest {
         t.eqInt("mesh_create rejects camera as geometry" b.errorCount (e0 + 3))
         t.ok("error names wrong-type:geometry" ((indexOf b.lastError "wrong-type:geometry") >= 0))
 
-        def badLight:[EvalValue]
-        push badLight (s.num((to_double geoId)))
-        push badLight (s.num(16777215.0))
-        push badLight (s.num(0.5))
-        b.invoke("rg3d_light_ambient" badLight)
-        t.eqInt("light_ambient rejects geometry as scene" b.errorCount (e0 + 4))
+        ; D-SYNC: light_ambient is now DETACHED (color, intensity) — no handle arg,
+        ; so the old bad-scene-handle case is impossible. Repurpose the negative
+        ; coverage onto rg3d_entity_set_parent, which still takes handles: a
+        ; geometry handle where a child ENTITY (mesh) is expected must raise the
+        ; same typed bad-handle error, preserving the suite's negative-path delta.
+        def badParent:[EvalValue]
+        push badParent (s.num((to_double geoId)))
+        push badParent (s.num((to_double sceneId)))
+        b.invoke("rg3d_entity_set_parent" badParent)
+        t.eqInt("entity_set_parent rejects geometry as child" b.errorCount (e0 + 4))
+        t.ok("error names wrong-type:mesh" ((indexOf b.lastError "wrong-type:mesh") >= 0))
 
         def badOp:[EvalValue]
         push badOp (s.num((to_double sceneId)))

@@ -1,5 +1,5 @@
 ; ==============================================================================
-; registry_entity_parent_test — D-SYNC increments 1 & 2: standalone membership.
+; registry_entity_parent_test — D-SYNC increments 1, 2 & 3: standalone membership.
 ; ==============================================================================
 ; Exercises the D-SYNC binding contract through the REAL generic bridge exactly
 ; as a guest would (invoke with EvalValue args): object lifetime and scene
@@ -112,6 +112,34 @@ class RegistryEntityParentTest {
         t.eqInt("scene A stays empty" (s.sceneChildCount(sceneA)) 0)
         t.eqInt("host entity count still unchanged (pure membership)"
             (b.d3.host.entityCount()) entitiesBefore)
+
+        ; ========================================================================
+        ; D-SYNC increment 3: LIGHTS follow the SAME detached-create + membership
+        ; lifecycle as Mesh. `rg3d_light_ambient(color, intensity)` creates a light
+        ; DETACHED (no scene arg — object lifetime is independent of membership);
+        ; `rg3d_entity_set_parent(light, scene)` establishes membership (+1 child).
+        ; ========================================================================
+        def sceneC:int (s.callI("rg3d_scene_create" empty))
+        t.ok("scene C minted" (sceneC > 0))
+        t.eqInt("scene C starts empty" (s.sceneChildCount(sceneC)) 0)
+
+        def errBeforeLight:int b.errorCount
+        def ambA:[EvalValue]
+        push ambA (s.num(16777215.0))
+        push ambA (s.num(0.38))
+        def light:int (s.callI("rg3d_light_ambient" ambA))
+        t.ok("ambient light minted (detached)" (light > 0))
+        t.eqInt("detached light create leaves scene C empty" (s.sceneChildCount(sceneC)) 0)
+        t.eqInt("detached light create is a clean typed success (no bridge error)"
+            b.errorCount errBeforeLight)
+
+        def litParA:[EvalValue]
+        push litParA (s.num((to_double light)))
+        push litParA (s.num((to_double sceneC)))
+        s.callN("rg3d_entity_set_parent" litParA)
+        t.eqInt("scene C counts the light at that set_parent call" (s.sceneChildCount(sceneC)) 1)
+        t.eqInt("light set_parent is a clean typed success (no bridge error)"
+            b.errorCount errBeforeLight)
 
         ; errorCount 0 throughout the lifecycle
         t.eqInt("no bridge errors across the whole lifecycle" b.errorCount 0)

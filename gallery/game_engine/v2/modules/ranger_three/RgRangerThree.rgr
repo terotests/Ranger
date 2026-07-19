@@ -90,6 +90,20 @@ class RgRangerThree {
         return r.payloadIndex
     }
 
+    ; D-SYNC: resolve ANY renderable scene entity to its host entities[] index.
+    ; Meshes, host-decoded model roots (mesh-typed) and lights all live in the
+    ; host entities[] array, so membership ops (set_parent / remove) accept any of
+    ; them uniformly. Returns 0 (typed "wrong-type:mesh" in lastErr, backward
+    ; compatible with the mesh-only guard) when the handle is neither.
+    fn entityH:int (h:RgHandle) {
+        def rm:RgResolve (this.registry.resolveTyped(h (Rg3DType.mesh())))
+        if (rm.ok) { return rm.payloadIndex }
+        def rl:RgResolve (this.registry.resolveTyped(h (Rg3DType.light())))
+        if (rl.ok) { return rl.payloadIndex }
+        this.lastErr = "wrong-type:mesh"
+        return 0
+    }
+
     fn sceneCreate:OwnedHandle () {
         def th:int (this.host.sceneNew())
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.scene()) th))
@@ -147,18 +161,18 @@ class RgRangerThree {
         return true
     }
 
-    fn lightAmbient:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double) {
-        def sh:int (this.sceneH(sceneH))
-        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
-        def th:int (this.host.lightAmbient(sh colorHex intensity))
+    ; D-SYNC: DETACHED create — object lifetime is independent of scene
+    ; membership. No scene handle: builds the light into entities[] without adding
+    ; it to any scene. Membership is established separately via entitySetParent.
+    fn lightAmbient:OwnedHandle (colorHex:int intensity:double) {
+        def th:int (this.host.lightAmbientDetached(colorHex intensity))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.light()) th))
         return (OwnedHandle.own(h))
     }
 
-    fn lightDirectional:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double dx:double dy:double dz:double) {
-        def sh:int (this.sceneH(sceneH))
-        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
-        def th:int (this.host.lightDirectional(sh colorHex intensity dx dy dz false 0))
+    ; D-SYNC: DETACHED create (see lightAmbient). Preserves the extra shadow params.
+    fn lightDirectional:OwnedHandle (colorHex:int intensity:double dx:double dy:double dz:double) {
+        def th:int (this.host.lightDirectionalDetached(colorHex intensity dx dy dz false 0))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.light()) th))
         return (OwnedHandle.own(h))
     }
@@ -197,7 +211,7 @@ class RgRangerThree {
     ; bad-handle in lastErr) on any unresolved handle, mirroring meshTransform's
     ; guard so the bridge turns it into a typed error.
     fn entitySetParent:boolean (childH:RgHandle parentH:RgHandle) {
-        def child:int (this.meshH(childH))
+        def child:int (this.entityH(childH))
         if (child == 0) { return false }
         def ps:int (this.sceneH(parentH))
         if (ps != 0) {
@@ -223,7 +237,7 @@ class RgRangerThree {
     fn entityRemove:boolean (sceneH:RgHandle entH:RgHandle) {
         def sh:int (this.sceneH(sceneH))
         if (sh == 0) { return false }
-        def eh:int (this.meshH(entH))
+        def eh:int (this.entityH(entH))
         if (eh == 0) { return false }
         this.host.entityRemove(sh eh)
         return true
@@ -231,10 +245,10 @@ class RgRangerThree {
 
     ; Attach a host-decoded Object3D subtree (e.g. from ThreeGLTFFile.loadGLB).
     ; Package I/O and image decode stay in the bridge — this arena is game-agnostic.
-    fn modelAttachRoot:OwnedHandle (sceneH:RgHandle root:ThreeObject3D) {
-        def sh:int (this.sceneH(sceneH))
-        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
-        def th:int (this.host.modelAttach(sh root))
+    ; D-SYNC: DETACHED create — register the decoded root into entities[] with NO
+    ; scene membership. Membership is established separately via entitySetParent.
+    fn modelAttachRoot:OwnedHandle (root:ThreeObject3D) {
+        def th:int (this.host.modelAttachDetached(root))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
         return (OwnedHandle.own(h))
     }

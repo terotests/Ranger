@@ -259,6 +259,14 @@ class ThreeSceneHost {
         push entities model
         return (array_length entities)
     }
+    ; D-SYNC: register a host-decoded model subtree DETACHED — it gets a slot in
+    ; entities[] (stable handle, reparentable) but is added to NO scene. Membership
+    ; is established separately via entitySetParent (scene.add). Mirrors modelAttach
+    ; minus the scene attach.
+    fn modelAttachDetached:int (model:ThreeObject3D) {
+        push entities model
+        return (array_length entities)
+    }
 
     fn entityTransform:void (entH:int px:double py:double pz:double ex:double ey:double ez:double sx:double sy:double sz:double) {
         def e:ThreeObject3D (this.entityAt(entH))
@@ -344,6 +352,17 @@ class ThreeSceneHost {
         push entities a
         return (array_length entities)
     }
+    ; D-SYNC: create an ambient light DETACHED — a slot in entities[] (stable
+    ; handle, reparentable) with NO scene membership. Lights are plain scene
+    ; children collected by the renderer's tree walk, so a later entitySetParent
+    ; (scene.add) registers it for rendering. Mirrors lightAmbient minus the attach.
+    fn lightAmbientDetached:int (colorHex:int intensity:double) {
+        def a:ThreeAmbientLight (new ThreeAmbientLight)
+        a.setColorHex(colorHex)
+        a.setIntensity(intensity)
+        push entities a
+        return (array_length entities)
+    }
     fn lightDirectional:int (sceneH:int colorHex:int intensity:double dx:double dy:double dz:double castShadow:boolean mapSize:int) {
         def d:ThreeDirectionalLight (new ThreeDirectionalLight)
         d.setColorHex(colorHex)
@@ -355,6 +374,21 @@ class ThreeSceneHost {
         }
         def sc:ThreeScene (this.sceneAt(sceneH))
         sc.add(d)
+        push entities d
+        return (array_length entities)
+    }
+    ; D-SYNC: create a directional light DETACHED (no scene membership).
+    ; Membership is established separately via entitySetParent (scene.add).
+    ; Mirrors lightDirectional minus the scene attach.
+    fn lightDirectionalDetached:int (colorHex:int intensity:double dx:double dy:double dz:double castShadow:boolean mapSize:int) {
+        def d:ThreeDirectionalLight (new ThreeDirectionalLight)
+        d.setColorHex(colorHex)
+        d.setIntensity(intensity)
+        d.setDirection(dx dy dz)
+        d.setCastShadow(castShadow)
+        if (mapSize > 0) {
+            d.shadow.setMapSize(mapSize)
+        }
         push entities d
         return (array_length entities)
     }

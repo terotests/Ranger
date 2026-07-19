@@ -369,19 +369,27 @@ class RegistryBridgeCoverageTest {
         push opacA (s.num((to_double matLambert)))
         push opacA (s.num(0.72))
         s.callN("rg3d_material_set_opacity" opacA)
+        ; D-SYNC: DETACHED light create (no scene arg), then establish membership
+        ; under the scene via set_parent — identical scene graph, same guest id.
         def ambA:[EvalValue]
-        push ambA (s.num((to_double scene3)))
         push ambA (s.num(16777215.0))
         push ambA (s.num(0.4))
         def ambId:int (s.callI("rg3d_light_ambient" ambA))
+        def ambParA:[EvalValue]
+        push ambParA (s.num((to_double ambId)))
+        push ambParA (s.num((to_double scene3)))
+        s.callN("rg3d_entity_set_parent" ambParA)
         def dirA:[EvalValue]
-        push dirA (s.num((to_double scene3)))
         push dirA (s.num(16777215.0))
         push dirA (s.num(0.9))
         push dirA (s.num(0.5))
         push dirA (s.num(1.0))
         push dirA (s.num(0.3))
         def dirId:int (s.callI("rg3d_light_directional" dirA))
+        def dirParA:[EvalValue]
+        push dirParA (s.num((to_double dirId)))
+        push dirParA (s.num((to_double scene3)))
+        s.callN("rg3d_entity_set_parent" dirParA)
         ; D-SYNC: DETACHED create (geo, mat); membership established below.
         def mesh3A:[EvalValue]
         push mesh3A (s.num((to_double octG)))
@@ -417,10 +425,14 @@ class RegistryBridgeCoverageTest {
         s.callN("rg3d_entity_remove" remA)
         s.callN("rg3d_entity_set_parent" repA)
         ; Generic package .glb load (fixture under climber sample; not game-specific API)
+        ; D-SYNC: DETACHED load (uri only), then establish scene membership.
         def mdlA:[EvalValue]
-        push mdlA (s.num((to_double scene3)))
         push mdlA (s.str("pkg://models/sample.glb"))
         def mdlId:int (s.callI("rg3d_model_load" mdlA))
+        def mdlParA:[EvalValue]
+        push mdlParA (s.num((to_double mdlId)))
+        push mdlParA (s.num((to_double scene3)))
+        s.callN("rg3d_entity_set_parent" mdlParA)
         def rtt3:[EvalValue]
         push rtt3 (s.num((to_double scene3)))
         push rtt3 (s.num((to_double cam3)))

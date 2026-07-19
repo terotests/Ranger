@@ -473,7 +473,7 @@ class RgRegistryBridge extends EvalNativeBridge {
     ; Package-relative .glb → scene entity. Game-agnostic: any uri under the
     ; loaded package. Embedded PNG bufferViews are decoded here (bridge owns
     ; imaging); geometry/materials come from ThreeGLTFFile.
-    fn loadModelAsset:int (sceneH:RgHandle uri:string) {
+    fn loadModelAsset:int (uri:string) {
         def rel:string uri
         if ((indexOf uri "pkg://") == 0) {
             rel = (substring uri 6)
@@ -498,7 +498,7 @@ class RgRegistryBridge extends EvalNativeBridge {
             i = (i + 1)
         }
         this.d3.clearErr()
-        def o:OwnedHandle (this.d3.modelAttachRoot(sceneH root))
+        def o:OwnedHandle (this.d3.modelAttachRoot(root))
         if ((o.handle.isValid()) == false) { return 0 }
         return (this.mintId(o))
     }
@@ -801,7 +801,7 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg3d_light_ambient") {
             this.d3.clearErr()
-            def o:OwnedHandle (this.d3.lightAmbient((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2))))
+            def o:OwnedHandle (this.d3.lightAmbient((a.intAt(0)) (a.dblAt(1))))
             if ((o.handle.isValid()) == false) {
                 return (this.fail3d(row.name))
             }
@@ -810,7 +810,7 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg3d_light_directional") {
             this.d3.clearErr()
-            def o:OwnedHandle (this.d3.lightDirectional((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5))))
+            def o:OwnedHandle (this.d3.lightDirectional((a.intAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4))))
             if ((o.handle.isValid()) == false) {
                 return (this.fail3d(row.name))
             }
@@ -855,9 +855,9 @@ class RgRegistryBridge extends EvalNativeBridge {
             return (EvalValue.null())
         }
         if (row.name == "rg3d_model_load") {
-            def mid:int (this.loadModelAsset((a.handleAt(0)) (a.strAt(1))))
+            def mid:int (this.loadModelAsset((a.strAt(0))))
             if (mid < 1) {
-                return (this.fail("model-not-found:" + (a.strAt(1))))
+                return (this.fail("model-not-found:" + (a.strAt(0))))
             }
             return (RgRegistryBridge.retI(mid))
         }

@@ -60,13 +60,13 @@ class ThreeSchema {
 
         ; ---- Light3D (36) — ambient + directional for SW Lambert -------------
         def light:RgClassDef (RgClassDef.of(36 "Light3D"))
-        light.addMethod((RgMethodDef.cmd(3050 "rg3d_light_ambient" "rg3d_light_ambient" "h:i:d" "h" "create")))
-        light.addMethod((RgMethodDef.cmd(3051 "rg3d_light_directional" "rg3d_light_directional" "h:i:d:d:d:d" "h" "create")))
+        light.addMethod((RgMethodDef.cmd(3050 "rg3d_light_ambient" "rg3d_light_ambient" "i:d" "h" "create")))
+        light.addMethod((RgMethodDef.cmd(3051 "rg3d_light_directional" "rg3d_light_directional" "i:d:d:d:d" "h" "create")))
         s.addClass(light)
 
         ; ---- Model3D (37) — package-relative .glb → scene entity --------------
         def model:RgClassDef (RgClassDef.of(37 "Model3D"))
-        model.addMethod((RgMethodDef.cmd(3060 "rg3d_model_load" "rg3d_model_load" "h:s" "h" "create")))
+        model.addMethod((RgMethodDef.cmd(3060 "rg3d_model_load" "rg3d_model_load" "s" "h" "create")))
         s.addClass(model)
 
         return s
