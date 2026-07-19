@@ -11,6 +11,7 @@ driver and the roadmap below over that checklist.
 | Headless gate | `npm run engine:v2:test` → 46 suites + boundary gate | — |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | must-pass **chess** missing |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | many atlases still colour markers / incomplete art |
+| Hybrid 2D+3D (path A) | thin slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | six-plane clip, top-left rule, samplers/mips, real RT, ordered pass replay — **before GPU** |
 | Native SDL | `RgSdlGameHost` + `scripts/build-sdl-v2.sh` + `engine:game-sdl:launcher:v2` | CI `SDL_VIDEODRIVER=dummy` smoke; vocals/SFX sinks |
 | WASM32 published ABI | create/free/parity fixtures | IDL extract + freeze (BRIDGES steps 4–7) |
 | v1 | still **runnable legacy** | archival only at an explicit milestone (not Phase 12) |
