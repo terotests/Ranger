@@ -245,6 +245,41 @@ describe("C++ Code Generation", () => {
       expect(result.code).toContain(
         "std::vector<uint8_t>& faceBuffer( int face );"
       );
+      // The static copyInto's read-only `src` is a const reference (so it can
+      // bind to a by-value buffer temporary such as renderer.raw()), while its
+      // written `dst` stays a non-const reference (writes reach the caller).
+      // This also exercises mutation analysis of a static (sfn) method.
+      expect(result.code).toContain(
+        "Worker::copyInto( const std::vector<uint8_t>& src , std::vector<uint8_t>& dst , int n )"
+      );
+    });
+  });
+
+  describe("Static method parameter mutation", () => {
+    // Static (sfn) methods must get the same parameter-mutation analysis as
+    // instance methods: a mutated buffer/array/map parameter is a non-const
+    // reference (its in-place writes must reach the caller), and a read-only
+    // one is a const reference. Regression for static methods previously being
+    // skipped by the analysis (mutations were silently lost / could not compile).
+    it("should pass mutated static-method collection params by non-const reference", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/static_param_mutation.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // buffer written via buffer_set -> non-const reference
+      expect(result.code).toContain(
+        "M::sWriteBuf( std::vector<uint8_t>& dst"
+      );
+      // array mutated via push -> non-const reference
+      expect(result.code).toContain("M::sPush( std::vector<int>& arr");
+      // buffer only read -> const reference (binds to temporaries)
+      expect(result.code).toContain(
+        "M::sReadBuf( const std::vector<uint8_t>& src"
+      );
+      // destination of buffer_copy is written -> non-const reference
+      expect(result.code).toContain(
+        "M::sCopy( std::vector<uint8_t>& dst , const std::vector<uint8_t>& src"
+      );
     });
   });
 });

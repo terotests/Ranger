@@ -1,0 +1,33 @@
+; Regression fixture: static (sfn) methods must receive the same parameter
+; mutation analysis as instance methods. A mutated buffer/array parameter must
+; be a non-const C++ reference (its in-place writes must be visible to the
+; caller); a read-only buffer parameter is a const reference (so it also binds
+; to by-value temporaries). Static methods were previously skipped entirely by
+; the analysis, so their mutated collection params were emitted by value and
+; the writes were silently dropped.
+class M {
+    ; buffer written in place -> non-const reference
+    sfn sWriteBuf:void (dst:buffer n:int) {
+        def i:int 0
+        while (i < n) {
+            buffer_set dst i 7
+            i = (i + 1)
+        }
+    }
+
+    ; array mutated in place -> non-const reference
+    sfn sPush:void (arr:[int] x:int) {
+        push arr x
+    }
+
+    ; buffer only read -> const reference
+    sfn sReadBuf:int (src:buffer i:int) {
+        return (buffer_get src i)
+    }
+
+    ; destination of buffer_copy is written -> non-const reference;
+    ; source is read -> const reference
+    sfn sCopy:void (dst:buffer src:buffer n:int) {
+        buffer_copy dst 0 src 0 n
+    }
+}

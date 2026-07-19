@@ -42,9 +42,9 @@ class Worker {
 
     sfn run:void () {
         def cube:CubeMap (CubeMap.create(2))
-        def src:buffer (buffer_alloc 12)
-        ; Passing the accessor result directly to a non-const buffer& parameter
-        ; only compiles if faceBuffer returns a reference.
-        Worker.copyInto(src (cube.faceBuffer(0)) 12)
+        ; Pass a by-value buffer temporary as src (like renderer.raw()) and a
+        ; reference-returning accessor as dst (like faceBuffer). Compiles only
+        ; when src is const& (binds to the temporary) and faceBuffer returns &.
+        Worker.copyInto((cube.makeScratch(12)) (cube.faceBuffer(0)) 12)
     }
 }
