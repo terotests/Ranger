@@ -49,9 +49,14 @@ Three/Cannon copies.
 8. **[ ] Shrink import allowlist** — retarget staged `lpc/` / `ui/` / `model3d/`
    / `web/` / `sprites/` / `three/port/` escapes; decide `ts_parser` policy
    (gallery dep vs vendor under `v2/interp/`).
-9. **[ ] Hybrid follow-ons (H5–H7)** — GPU shared-device / surface compose
-   ([`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md)) only after SDL + must-pass
-   2D are credible. H1–H4 path A is a thin green slice already.
+9. **[ ] Software reference + frame-pass architecture** — finish the SW path as
+   the trustworthy reference (clipping, top-left rule, samplers/mips, real
+   `RenderTarget`, ordered pass replay) **before** any GPU backend. Details in
+   § “Software reference + pass architecture” below. H1–H4 path A is only a
+   thin green slice today.
+10. **[ ] Hybrid GPU follow-ons (H5–H7)** — shared-device / surface compose
+    ([`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md)) only after the software
+    reference is stable and must-pass 2D is credible. **Do not start GPU next.**
 
 ### Open decisions that block a crisp “done”
 
@@ -76,6 +81,201 @@ From `tests/run.sh` + live code:
 | 11 | **SW + textured done**; GL scaffold |
 | 12 | **In progress** — ylos2 e2e; chess absent; no archival |
 | BRIDGES 1–3 | Schema + guests in progress; IDL/wasm freeze **not started** |
+
+---
+
+## Software reference + pass architecture (before GPU)
+
+**Best next graphics move is not the GPU backend.** First turn the current
+software path into a reliable reference implementation, then complete the
+resource / pass architecture around it. See [`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md)
+(render-target lifecycle, texture views, pass retention, hazards, destinations,
+automatic producer scheduling still incomplete).
+
+**Already landed (thin vertical slice):** SW 3D renders at 2× resolution →
+resolves into a CPU `Texture2D` → SW 2D samples that texture (`ylos3d` diamonds;
+gates `rtt_sprite` / `ylos3d_e2e`). Key files:
+`three/port/src/three_software_backend.rgr`,
+`modules/ranger_three/RgRangerThree.rgr`,
+`render/backends/software/RgTexturedRenderer2D.rgr`,
+`interp/engine/RgRegistryBridge.rgr` (pass record vs immediate RTT).
+
+### Suggested PR sequence (independently reviewable)
+
+1. Rasterizer correctness (six-plane clip + top-left + contract images)
+2. Texture sampling (sampler type, bilinear RGBA, texture alpha)
+3. Texture minification (mip chain + nearest-mip LOD)
+4. Configurable SSAA (`samples`, resolve + edge-fringe tests)
+5. Real render targets (separate identity, attachments, resize/release)
+6. Ordered frame execution (retention, exactly-once replay, multi-pass 2D)
+7. Destinations + load/store (`surface.target`, pane, offscreen)
+8. Automatic `SceneSprite3D` producer scheduling
+9. GPU 2D/3D backend parity (**last**)
+
+Highest-value immediate work: **PR 1**, then **samplers + mipmaps**.
+
+### 1. Finish software rasterizer correctness
+
+Make this the next small graphics PR.
+(`three/port/src/three_software_backend.rgr`)
+
+- [ ] **Six homogeneous clipping planes** — today only near-plane clip; large
+      rectangles / frustum edge artifacts remain possible. Introduce a reusable
+      `ThreeClipVertex` (`x,y,z,w` + `u,v`) and Sutherland–Hodgman via one
+      generic `clipPolygon(input, plane)` against:
+      ```
+      x + w >= 0   left      |  -w + x <= 0   right
+      y + w >= 0   bottom    |  -w + y <= 0   top
+      z + w >= 0   near      |  -w + z <= 0   far
+      ```
+- [ ] **Remove the “triangle spans more than 8× framebuffer” guard** once
+      six-plane clip works — defensive only, not ordinary visibility logic.
+- [ ] **Top-left rasterization rule** — current inside test
+      `bw0 >= 0 && bw1 >= 0 && bw2 >= 0` lets adjacent triangles both (or
+      neither) own a shared edge; with transparency/SSAA that shows as shimmer /
+      seams. Classify edges with `isTopLeft(ax,ay,bx,by)`; accept
+      `edge > 0 || (edge == 0 && edgeIsTopLeft)`. Keep pixel-centre samples at
+      `x+0.5`, `y+0.5`.
+- [ ] **Rasterizer contract images / deterministic tests**
+  - [ ] Triangle crossing each frustum plane
+  - [ ] Two triangles forming a quad — no crack, no double edge
+  - [ ] Black object retains coverage
+  - [ ] One-pixel diagonal at 1× and 2× SSAA
+  - [ ] Rotating object: covered-pixel count does not jump dramatically between
+        nearby angles
+
+### 2. Real texture sampling
+
+Nearest-neighbour in both SW 3D and SW 2D makes upper facets noisy
+(`RgTexturedRenderer2D`, SW 3D texel pick).
+
+- [ ] **Sampler enum / struct** — guest-facing:
+      ```ts
+      type TextureFilter = "nearest" | "linear";
+      interface Sampler {
+        minFilter: TextureFilter; magFilter: TextureFilter;
+        wrapU: "clamp" | "repeat"; wrapV: "clamp" | "repeat";
+      }
+      ```
+- [ ] **Real `TextureView2D`** — not just `{ texture }`:
+      ```ts
+      interface TextureView2D {
+        texture: Texture2D;
+        uv: { x: number; y: number; width: number; height: number };
+        sampler: Sampler;
+      }
+      ```
+      (PLAN already calls out UV + sampler as missing.)
+- [ ] **One bilinear sampler at the texture store** —
+      `sampleLinear(textureH, u, v) → RgSampleRGBA` interpolating **all four**
+      channels. Texture alpha matters; SW 3D currently samples RGB separately
+      from material opacity — unify.
+- [ ] **Wire nearest/linear into both** SW 3D rasterizer and SW 2D compositor
+      (no duplicated filter math).
+
+### 3. Mipmaps (after bilinear)
+
+Bilinear helps magnification; diamond top facets are a **minification** problem.
+
+- [ ] Generate mip chain on image load (`W×H`, `W/2×H/2`, …)
+- [ ] LOD from perspective-correct UV derivatives (finite differences OK for SW):
+      ```
+      rho = max(texW * |dUV/dx|, texH * |dUV/dy|)
+      lod = log2(rho)
+      ```
+- [ ] Start with **nearest mip** selection; trilinear later
+- [ ] Expect mipmapping to beat 2×→4× geometry SSAA for patterned diamond tops
+
+### 4. Configurable antialiasing (not hardcoded 2×)
+
+`RgRangerThree.renderToTexture()` always renders `2w×2h` and resolves 2×2.
+Premultiplied average is fine; sample count must not be buried in the method.
+
+- [ ] Expose sample count on target / render config, e.g.
+      `runtime.graphics.createRenderTarget({ width, height, samples: 4 })`
+- [ ] SW mapping: `samples: 1 → 1×1`, `4 → 2×2`, `16 → 4×4` (name = **sample
+      count**, not resolution multiplier — maps to GPU MSAA later)
+- [ ] Transparent-edge tests: intermediate edge alpha; fully covered stays
+      opaque; no dark fringe over white / black / saturated backgrounds
+
+### 5. Real `RenderTarget` resource
+
+Creating an RT today effectively returns its colour texture identity — blocks
+depth, resize, release, attachment ownership, GPU residency.
+
+- [ ] Host type with separate identities:
+      ```rgr
+      class RgRenderTarget {
+          def colorH:RgHandle
+          def depthH:RgHandle
+          def width:int 0
+          def height:int 0
+          def samples:int 1
+          def initialized:boolean false
+      }
+      ```
+- [ ] Guest: `const target = createRenderTarget(...); const tex = target.colorTexture`
+- [ ] Lifecycle first cut: `target.resize(w,h)`, `target.release()`,
+      `target.colorTexture.view()`
+- [ ] Gates: attachment survives while an external view retains it; released
+      target cannot be rendered into; resize invalidates contents; cannot resize
+      while referenced by a live frame operation
+
+### 6. Complete frame-pass execution (architecture milestone)
+
+Bridge records 2D + 3D passes, but path A **executes 3D RTT immediately**;
+present uses the currently bound pane view rather than replaying the global
+pass list (`RgRegistryBridge` / presenters — ordered replay is “future work”
+in PLAN).
+
+Target shape:
+
+```text
+guest update → record pass… → host present
+  → execute pass 0 exactly once
+  → execute pass 1 exactly once
+  → …
+  → release frame-owned references
+```
+
+- [ ] **5a. Frame-local ownership** — on append, retain layer/scene, camera,
+      destination, sampled textures, RT attachments; release after execute or
+      frame discard
+- [ ] **5b. Execute 3D RTT during pass replay** — remove immediate execution
+      from `rg3d_render_to` (stop “recorded but already done”)
+- [ ] **5c. Execute every 2D pass**, not only the last pane binding — make
+      multi-pass sequences valid:
+      ```ts
+      renderer2d.render(world, worldCamera, { target: pane });
+      renderer2d.render(particles, worldCamera, { target: pane, clear: "none" });
+      renderer2d.render(hud, hudCamera, { target: pane, clear: "none" });
+      ```
+
+### 7. Destinations and attachment load/store
+
+After ordered execution:
+
+- [ ] Destinations: `runtime.surface.target`, `runtime.surface.pane(i)`,
+      `RenderTarget` (three types already named in PLAN)
+- [ ] Minimal colour load/store:
+      `{ color: { load: "clear"|"load", clearValue, store: "store" } }`
+- [ ] Depth load/store later with 3D-to-surface
+- [ ] Unlock composition: 3D → `surface.target`, then 2D → pane 0 / pane 1
+
+### 8. `SceneSprite3D` only after pass replay exists
+
+Convenience helper should schedule its producer automatically when a 2D pass
+samples `gem.sprite`.
+
+- [ ] Fixed resolution + `samples` + sampler + `update: "everyFrame" | "manual"`
+      (+ `invalidate()`)
+- [ ] **Do not** implement `whenDirty` until scene/camera/material/light/texture
+      revision counters exist (PLAN defers this)
+
+### 9. GPU parity (explicitly last)
+
+- [ ] GPU 2D/3D backend parity tests against the SW reference images / contracts
+      above — only after PRs 1–8 make the software path trustworthy
 
 ---
 
