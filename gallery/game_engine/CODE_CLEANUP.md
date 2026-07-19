@@ -2775,27 +2775,36 @@ ranger_wasm::export_game!(SpriteGame);
 
 # Implementation gates
 
-**Required order:**
+**Required order** (matches the phase dependency graph in
+[`CODE_CLEANUP_PLAN.md`](./CODE_CLEANUP_PLAN.md) — adapter work sits *on*
+registry commands and typed arenas, not before them):
 
-1. Interpreter identity and `undefined` semantics (D-IDENTITY).
-2. Native adapter and property-overlay semantics (D-ADAPTER, D-PROP).
-3. Typed registry and arenas (D-REGISTRY, D-TYPE, D-HANDLE).
-4. Shared resource identity, ownership, and lifetime (D-SYNC, D-LIFE, D-OWN,
-   D-GEO).
-5. Generated bridge and WASM surfaces (D-REGISTRY, D-WASM, D-WASM-MEM,
-   D-ASYNC).
+1. Interpreter identity and JS semantics (D-IDENTITY) — `===`, Map/Set keys,
+   missing → `undefined`.
+2. Registry schema plus typed handles/arenas (D-REGISTRY, D-TYPE, D-HANDLE) —
+   including published-id immutability / tombstones.
+3. Adapter / property semantics over those commands (D-ADAPTER, D-PROP) —
+   including hybrid invariants (cached wrapper identity, dual revisions,
+   turn-start refresh, guest-wins).
+4. Ownership, lifetime, and geometry (D-SYNC, D-LIFE, D-OWN, D-GEO).
+5. WASM surface and parity (D-WASM, D-WASM-MEM, D-ASYNC) — create/free,
+   retain/release, span bounds, `async_poll`.
 6. Interpreter module-namespace isolation (D-MODULES prerequisite — today
    imports share one scope, `docs/TSX_ENGINE_ISSUES.md` #5/#9).
 7. Virtual modules + runtime capability root (D-MODULES): `ranger:core` /
    `ranger:2d` / `ranger:three` / `ranger:cannon`, and
    `ranger_wasm::{core,two_d,three,cannon}` — same registry commands.
+   Includes headless `runtime.assets` / `runtime.time` fakes (needed before
+   D-2D atlas/animation gates).
 8. **D-2D** retained 2D + atlas + Camera2D + AnimationPlayer2D + DrawList2D
    (gates D-2D-1 … D-2D-10 in [`CODE_CLEANUP_PLAN.md`](./CODE_CLEANUP_PLAN.md)).
 9. Migrate demos (2D **and** 3D) to live objects + `runtime.start(Game)` /
    `ranger_wasm::export_game!` (D-SYNC, D-MODULES, D-2D).
 10. Delete structural reconciliation (`RETIRE-RECONCILE`) and retired sprite
     slot/manifest paths **under v2** after D-2D parity — **not** v1
-    `scripting/game_sprite` / runners while top-level games remain supported.
+    `scripting/game_sprite` / runners while top-level games remain supported
+    (**runnable legacy** until an explicit end-of-v1 / **archival legacy**
+    milestone — see CODE_CLEANUP_PLAN).
 
 **Required test gates:**
 
@@ -2848,9 +2857,16 @@ ranger_wasm::export_game!(SpriteGame);
   `DrawList2D` commands mint no persistent handles; `PoseBinding2D` rejects
   stale body/sprite handles; atlas/resource counts stay stable across hot
   reload.
+- **Split-screen:** two panes cover the surface without overlap gaps; render
+  to pane A does not draw into pane B; SW and GPU scissor/viewport agree.
+- **Vocal / music facades:** `runtime.audio.vocal` / `.music` exist and obey
+  clip/source/voice ownership (no parallel leak universe).
+- **v1 freeze:** after any D-2D-10 / Phase 12 cleanup, top-level chess and
+  ylos2 still launch on the v1 runtime paths.
 
 A migration is complete only when its replaced path is removed in the same
 change, or is covered by an explicitly tracked retirement item
-(e.g. `RETIRE-RECONCILE`, D-2D-10). **Parity is tested across generated
-surfaces rather than promised.**
+(e.g. `RETIRE-RECONCILE`, D-2D-10 **v2-scoped**). **Parity is tested across
+generated surfaces rather than promised.** v1 remains playable until an
+explicit end-of-v1 milestone.
 

@@ -1,11 +1,10 @@
-# arenas/two_d/shape
+# arenas/two_d/shape — Shape2D
 
-Typed arena for ranger:2d `shape` objects (D-2D, D-TYPE, D-HANDLE).
+Typed arena for ranger:2d `Shape2D` objects (D-2D, D-TYPE, D-HANDLE).
 
-**Plan phase:** 10b — D-2D-3…D-2D-6.
+**Plan phase:** 10b+.
 
 ## Notes
 
-- `draw_list` entries are frame-local: do **not** allocate generation-checked
-  object identity for individual draw commands.
+- Retained rectangles / soft shapes for games like pong/breakout.
 - Staged migration sources: [`../../../../sprites/`](../../../../sprites/)

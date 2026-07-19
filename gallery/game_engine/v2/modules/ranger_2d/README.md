@@ -11,8 +11,10 @@ Guest façades for the first-class 2D package (D-2D). Not `THREE.Sprite`.
 ## To implement
 
 - Retained: Scene2D, Sprite2D, Shape2D, Camera2D, Renderer2D, atlas/animation
+  → `host/arenas/two_d/`
 - Immediate: DrawList2D / drawSprite / drawRect (no persistent handles)
-- Wire to `host/arenas/two_d` + registry commands
+  → `host/frame_commands/two_d/draw_list/` (not arenas)
+- Wire via registry commands to those host homes
 
 ## Unit / contract tests that gate this folder
 
