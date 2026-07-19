@@ -345,11 +345,18 @@ const __game = new Ylos2Game();
 runtime.start(__game);
 
 // ---- attract mode (game feature): suggest input as bits left=1 right=2 jump=4
+// Jump must be pulsed: grounded jumps are edge-triggered (v1 jumpHold), so a
+// held jump bit across landing would never leave the ground again.
 function autopilotBits(slot) {
   const pl = __game.players[slot];
   const target = __game.nextTargetAbove(pl);
   if (target == null) { return 0; }
-  let bits = 4;
+  let bits = 0;
+  if (pl.grounded == 1) {
+    bits = 4;
+  } else if (pl.vy < 0) {
+    bits = 4;
+  }
   const cx = pl.x + PLAYER_W / 2;
   const inSpan = cx > target.x + 6 && cx < target.x + target.w - 6;
   if (!inSpan) {
