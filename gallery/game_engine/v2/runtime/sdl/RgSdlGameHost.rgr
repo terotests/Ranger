@@ -18,7 +18,7 @@
 ;   presenter         Rg2DPresenter → RgFramebuffer        — this host packs to
 ;                     RGBA and presents via gfx_present_split
 ;
-; The gfx_* operators (gfx_sdl.rgr) have es6 stubs, so this file COMPILES and
+; The gfx_* operators (v2-local gfx_sdl.rgr) have es6 stubs, so this file COMPILES and
 ; runs headlessly as a no-op; the real window exists only in the native (C++
 ; + SDL2) build. Input map (physical bit -> logical action) is host config, not
 ; game logic — a game only ever sees logical actions.
@@ -28,7 +28,7 @@ Import "../game_host/RgGameHost.rgr"
 Import "../game_host/Rg2DPresenter.rgr"
 Import "../../menu/RgLauncherUi.rgr"
 Import "../../audio/game_soundscore.rgr"
-Import "../../../gfx_sdl.rgr"
+Import "./gfx_sdl.rgr"
 
 ; The SDL audio sink: the score synth calls onSynthPlay with a PCM buffer as each
 ; note fires; we hand that straight to SDL's queued audio device. Under es6 the
