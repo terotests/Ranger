@@ -43,6 +43,7 @@ LIVE_PREFIXES = (
     "imaging/",
     "audio/",
     "evg/",
+    "scripting/",
     "framebuffer.rgr",
     "rgba_fast_blit.rgr",
 )
