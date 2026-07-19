@@ -103,7 +103,9 @@ function __rglEnd(){ }
                   (imp "<vector>") (imp "<string>") (imp "<cstdint>") (imp "<cmath>")
 (create_polyfill "
 #if defined(__APPLE__)
+#ifndef GL_SILENCE_DEPRECATION
 #define GL_SILENCE_DEPRECATION
+#endif
 #include <OpenGL/gl3.h>
 #elif defined(__arm__) || defined(__aarch64__)
 #include <GLES2/gl2.h>
