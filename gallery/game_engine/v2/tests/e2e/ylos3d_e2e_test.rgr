@@ -68,6 +68,21 @@ class Ylos3DE2ETest {
         t.ok("frame recorded at least one 2D pass"
             ((RgComposePresenter.passCount(host.bridge)) >= 1))
 
+        ; ---- v1-parity gameplay probes (super / stomp / summit dance) -------
+        def superMs:double (host.callSlot("probeCollectDiamond" 0))
+        t.ok("diamond pickup grants super timer" (superMs > 7000.0))
+        t.eqInt("diamond 0 marked taken after pickup" (to_int (host.callSlot("diamondTaken" 0))) 1)
+
+        def aliveAfter:int (to_int (host.callSlot("probeStompEnemy" 0)))
+        t.eqInt("stomp clears enemy 0" aliveAfter 0)
+
+        t.eqInt("enterFinish sets done" (to_int (host.callSlot("probeEnterFinish" 0))) 1)
+        def finishMs:double (host.callSlot("probeTickFinish" 0))
+        t.ok("finish dance advances finishMs" (finishMs >= 100.0))
+        t.ok("summit music started after finish" host.bridge.musicPlaying)
+        t.ok("celebrate one-shot fired" (host.bridge.oneShotCount >= 1))
+        t.ok("celebrate/cheer vocal cues sent" ((array_length host.bridge.vocalCues) >= 2))
+
         def fb:RgFramebuffer (RgFramebuffer.create(160 120))
         def sky:int (((50 * 65536) + (120 * 256)) + 180)
         def drawn:int (RgComposePresenter.presentPane(host.bridge 0 fb sky))
