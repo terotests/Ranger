@@ -5,12 +5,17 @@ They document live duplication and historical design drafts; they are **not** th
 implementation contract.
 
 **Promoted into the binding contract** (do not treat the copies below as
-authoritative if they disagree): D-IDENTITY, D-PROP, D-ADAPTER, D-REGISTRY,
-implementation gates, geometry upload example, and
+authoritative if they disagree): all binding decisions — D-IDENTITY, D-SYNC,
+D-ADAPTER, D-PROP, D-LIFE, D-TYPE, D-HANDLE, D-REGISTRY, D-WASM, D-WASM-MEM,
+D-GEO — plus the implementation gates, the geometry upload example, and
 [`docs/WASM_MEMORY_ABI.md`](./docs/WASM_MEMORY_ABI.md) (from the old linear-memory
 chapter).
 
-For binding direction see [`CODE_CLEANUP.md`](./CODE_CLEANUP.md).
+For binding direction see [`CODE_CLEANUP.md`](./CODE_CLEANUP.md). The actor
+names used in code comments (guest, interp, adapter, host, physics, render,
+wrapper) are defined in that file's **Components and actors** section. Note on
+terminology: earlier drafts called the TSX wrapper classes a "façade"; both
+files now say "wrapper" — same thing.
 
 ---
 
@@ -150,9 +155,9 @@ no error, just a voice that works on some paths and not others.
 
 ### 0.8 Shared script modules copied per game folder, diverged
 
-Games import the Three.js façade as `import * as THREE from 'three'`. The
+Games import the Three.js wrapper as `import * as THREE from 'three'`. The
 interpreter resolves the bare name by checking **the game's own folder first**
-(`gallery/pdf_writer/src/jsx/ComponentEngine.rgr:1160`), so each 3D game copied the façade in:
+(`gallery/pdf_writer/src/jsx/ComponentEngine.rgr:1160`), so each 3D game copied the wrapper in:
 
 | Copy | Lines |
 |------|-------|
@@ -301,7 +306,7 @@ horizontally through the transport (IDEAL.md §2.17).
 ### 0.17 Three physics paths, two vehicle implementations, one unused interface
 
 - **Path 1:** `scripting/physics_core.rgr` (701 lines, arcade 2D) behind the
-  `game_physics.rgr` facade — what games actually use.
+  `game_physics.rgr` front-end module — what games actually use.
 - **Path 2:** the full Cannon port under `physics/src/` behind the
   `physics_world.rgr` interface, with `arcade_physics_world.rgr` as a second
   implementation — and **no game or scripting file imports the interface**
@@ -404,7 +409,7 @@ return false
 Because object equality returns false, `a === a` is false in game scripts, and
 `Map`/`Set` cannot key on objects. Concrete fallout in the Three path:
 
-- Façade removal uses a `__removed` flag (`three.tsx:60,67,71`) instead of
+- Wrapper removal uses a `__removed` flag (`three.tsx:60,67,71`) instead of
   identity.
 - The reconciler stores `nodeHandles:[int]` keyed by `scene.children[i]` and
   `subHandles` in DFS order, with an explicit comment that it "Assumes a stable
@@ -448,13 +453,13 @@ Rules below make the failure modes above fail CI or compile:
 - **Every world/scene fact has exactly one owner.** The guest declares it; the
   host reads it through the ABI. A conformance fixture runs one game on both
   paths and diffs the block bytes (kills 0.6).
-- **Shared modules resolve from one place.** The façade and helpers live once on
+- **Shared modules resolve from one place.** The wrapper and helpers live once on
   the shared search path; a duplicate-basename check in CI flags a game-local
   copy of a shared module — and flags a game copied whole into a sibling folder
   (kills 0.8, 0.9).
 - **One definition per class and per subsystem, all faces generated.** The class
   registry is the single source for classes/methods/props; the
-  interpreter façade, Rust/AS guest structs, and every bridge surface are
+  interpreter wrapper, Rust/AS guest structs, and every bridge surface are
   generated from it, with a surface-parity test that fails on drift
   (kills 0.10, and the command-surface drift in 0.21).
 - **One entity registry** with stable generation-tagged ids and type ids
@@ -524,7 +529,7 @@ D-LIFE (object / membership / GPU).
 Two rules:
 
 - **One copy.** Authoritative coordinates live only in the host geometry arrays.
-  Guests and façades hold handles (or temporary read-back buffers), not a second
+  Guests and wrappers hold handles (or temporary read-back buffers), not a second
   source of truth.
 - **Bulk crossings.** N vertices cross the WASM boundary in one call. One call
   per float is the failure mode.
@@ -541,13 +546,13 @@ TSX guest script                interpreter (bridge)            host core
 const g = new THREE.BoxGeometry()
         │
         ▼
-façade name "BoxGeometry" ────► native adapter
+wrapper name "BoxGeometry" ────► native adapter
                                 construct(args)
                                        │  command: geometryBox(1,1,1)
                                        ▼
                                 ThreeSceneHost ───► ThreeBoxGeometry.setSize
                                        │                 │ pushVertex(+1,+1,+1,…)
-                                geoH = (gen|type|slot)   ▼
+                                geoH (gen-tagged handle) ▼
                                        │           ThreeBufferGeometry
                                        ▼           positions:[double] ◄── ONE copy
 g holds EvalValue{ NativeRef geoH, identityId }
@@ -567,6 +572,12 @@ read-back:
         ▼
   resolveAs(geoH, GEOMETRY) → ThreeBufferGeometry.getPosition(0,0) → 1.0
 ```
+
+Handle format note: an earlier draft drew the handle as `(gen|type|slot)` —
+a packed value carrying the type. Under D-HANDLE / D-TYPE the handle carries
+slot + generation only (packed 32-bit with documented limits, or fat two-i32);
+`typeId` and `realmId` live in the slot record, and the handle is otherwise an
+opaque bit pattern.
 
 ## Path diagram — WASM (compiled)
 
@@ -620,8 +631,13 @@ imports, JS wrapper).
 **Route 1a — parametric.** The guest names a shape; the core computes the
 coordinates.
 ```tsx
-const geometry = new THREE.BoxGeometry();          // adapter: construct("BoxGeometry")
+const geometry = new THREE.BoxGeometry();
+// adapter: construct("BoxGeometry")
+// host:    geometryBox(1,1,1) → geoH — vertex doubles are computed core-side
+//          (ThreeBoxGeometry.setSize → pushVertex); nothing crosses from the guest
 const mesh     = new THREE.Mesh(geometry, material);
+// adapter: identity(geometry) → geoH
+// host:    meshCreate(geoH, matH) → meshH
 ```
 The native adapter maps the constructor to the registry command
 `geometryBox(w, h, d) → geoH` and returns an EvalValue holding the geometry
@@ -633,10 +649,14 @@ which stays exactly as it is.
 **Route 1b — explicit vertex data (stable handle — D-GEO).** The guest types
 coordinates the Three.js way:
 ```js
-const geometry = new THREE.BufferGeometry();  // geometryCreateEmpty() → geoH
+const geometry = new THREE.BufferGeometry();
+// host: geometryCreateEmpty() → geoH — minted before any attribute exists (D-GEO)
 const vertices = new Float32Array([ 1,1,1,  -1,-1,1,  -1,1,-1 /* … */ ]);
+// guest: staging array in guest memory; not authoritative after upload
 geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-// → geometrySetAttribute(geoH, "position", span, itemSize=3)
+// adapter: one call carries the whole array as a span
+// host:    geometrySetAttribute(geoH, "position", span<f32>, itemSize=3) —
+//          one bulk copy into the core arrays; geoH unchanged
 ```
 `geoH` is minted at `new` and **does not change** when attributes are added,
 replaced, or indexed later. Bulk upload is still one crossing per
@@ -648,8 +668,12 @@ in the registry type system (see class-registry chapter).
 **Route 1c — loaded from a model file.** The guest names an asset; the host
 decodes the glTF and instantiates the subtree:
 ```rust
-let model = scene.load_model("sponza");    // → ModelHandle
-let root  = scene.instantiate(model);      // → root entity handle
+let model = scene.load_model("sponza");
+// guest: names the asset only
+// host:  decodes the glTF file into the core arrays → ModelHandle
+let root  = scene.instantiate(model);
+// host:  clones the model subtree into scene entities → root entity handle
+//        (the vertices never enter guest memory on this route)
 ```
 The vertices go file → host decoder → core arrays and never pass through guest
 code. The guest can still reach them afterwards — stage 4 works on any geometry
@@ -659,7 +683,11 @@ handle, including ones born from a file.
 morphing) is an *update*, not a rebuild:
 ```js
 geometry.attributes.position.setXYZ(7, 1.0, 2.5, 1.0);
+// adapter: buffered against the local mirror (V.3); no host call yet
 geometry.attributes.position.needsUpdate = true;
+// adapter: flush boundary for the buffered writes
+// host:    geometryUpdateRange(geoH, "position", 7, 1, data) — overwrites the
+//          CPU range and bumps contentRevision; same geoH
 ```
 The adapter buffers `setXYZ` writes against the local mirror (V.3) and, on
 `needsUpdate`, flushes:
@@ -682,7 +710,7 @@ Handles are generation-tagged, realm-tagged, and typed via arenas (II.B, D-TYPE,
 D-HANDLE). Semantics:
 
 - `meshCreate` **retains** `geoH` / `matH` (object refcount). Two meshes from the
-  same façade geometry resolve via interpreter identity (II.A) to one `geoH`.
+  same wrapper geometry resolve via interpreter identity (II.A) to one `geoH`.
 - `scene.add` / `scene.remove` change membership only — they do not
   `geometryDisposeBackend` or `release` shared resources (D-LIFE).
 - Local vertex `(1,1,1)` lives in geometry; mesh owns transform only.
@@ -697,8 +725,9 @@ design keeps, tightened by the revision from stage 1d:
 - On first draw — or when the geometry's content revision has changed — the
   backend interleaves the flat arrays into its native form: the GL backend
   packs `[px,py,pz, nx,ny,nz, u,v, tangent]` at a 48-byte stride and caches the
-  GPU buffer keyed by `(geoH, contentRevision)`; `geometryUpdateRange` or
-  `geometryDisposeBackend` (then re-upload) invalidates that cache entry only.
+  GPU buffer keyed by `(geoH, contentRevision, resourceRevision)`;
+  `geometryUpdateRange` bumps `contentRevision`, `geometryDisposeBackend` bumps
+  `resourceRevision` (D-LIFE) — either invalidates that cache entry only.
 - The vertex shader composes the two pieces of stage-2 state:
 ```glsl
 attribute vec3 aPos;                    // (1, 1, 1) — local, from the geometry
@@ -726,7 +755,7 @@ geometryReadPositions(geoH, firstVertex, count, out) → count   ; bulk copy
 ```
 
 - **Interpreter path.** `mesh.geometry` resolves through the adapter to the
-  canonical core object — not to a façade data prop — so
+  canonical core object — not to a wrapper data prop — so
   `geometry.attributes.position.getX(0)` answers from the same `positions`
   array the renderer draws. Single-value reads are cheap here because the core
   is in-process.
@@ -734,7 +763,11 @@ geometryReadPositions(geoH, firstVertex, count, out) → count   ; bulk copy
   in one crossing:
 ```rust
 let mut buf = [0f32; 3 * 24];
-let n = geo.read_positions(0, 24, &mut buf);   // one call, 24 vertices
+// guest: allocates the destination buffer (sized from geometryVertexCount)
+let n = geo.read_positions(0, 24, &mut buf);
+// guest → host: rg_geometry_read(geoH, 0, 24, bufPtr) — one boundary crossing
+// host: validates handle, range, and bounds, then bulk-copies 24 vertices
+//       into guest memory; returns the count actually copied
 ```
 - **JS host path.** The generated wrapper exposes the same two calls over the
   compiled core; a browser tool reads vertices through the wrapper, not by
@@ -829,11 +862,11 @@ Keep this next to the target diagrams so the gap is concrete:
 1. Game imports a **local** `three.tsx` (350 / 237 / 337 lines) — not the
    canonical `three/tsx/three.tsx` (585) — because `readImportSource` checks the
    game directory before `assetPaths` (`ComponentEngine.rgr:1160`).
-2. Façade builds plain interpreter objects (`valueType` object/array). No host
+2. Wrapper builds plain interpreter objects (`valueType` object/array). No host
    handle on the geometry value.
 3. `three_tsx_bridge.rgr` reconciles `scene.children[i]` → `nodeHandles[i]`
    (index key). `buildMeshH` (line 810) calls `buildGeometryH`/`buildMaterialH`
-   every time — two meshes sharing one façade `geometry` get **two** host
+   every time — two meshes sharing one wrapper `geometry` get **two** host
    geometries.
 4. `ThreeSceneHost.entityRemove` (line 255) only `scene.remove(...)`; the slot
    in `entities:[ThreeObject3D]` is never reused. Handle ≈ `array_length`.
@@ -909,7 +942,7 @@ Each subsection: **Status now** (on disk) → **Actions** (concrete moves).
   the geometries and materials, lights and textures, the WebGL and software
   renderer, the glTF loader, the light-probe GI, and `three_scene_host.rgr` — the
   one host-owned registry of scenes/cameras/geometries/materials/entities.
-- `three/tsx/` (23 files) is the front-end: the TSX façade (`three.tsx`), the
+- `three/tsx/` (23 files) is the front-end: the TSX wrapper (`three.tsx`), the
   reconciler bridge (`three_tsx_bridge.rgr`), the native command bridge, and the
   convergence/parity tests.
 - `three/tests/` (19) and `three/reference/` (14) round it out.
@@ -954,7 +987,7 @@ Each subsection: **Status now** (on disk) → **Actions** (concrete moves).
   `instantiate` / `instantiateNode` return generation-tagged handles; a stale
   handle after destroy must resolve to null.
 
-## I.6 The host runtime facades — `scripting/game_*.rgr`
+## I.6 The host runtime modules — `scripting/game_*.rgr`
 
 ### Status now
 - 49 `game_*.rgr` files mix game-neutral host runtime with other scripts. The
@@ -1047,14 +1080,14 @@ Each subsection: **Status now** (on disk) → **Actions** (concrete moves).
   for deletion in the implementation phase; the rest are referenced by the test
   suite. Debug/bisect scratch (`autopeli_debug_*`, `autopeli_bisect`) and
   `old/ylos` (still present) are delete-candidates once CI confirms no refs.
-- `ranger_games/` (16) — the TSX→native/C++/Rust portability proof (load-bearing
-  for tests and npm scripts).
+- `ranger_games/` (16) — the TSX→native/C++/Rust portability proof (required by
+  tests and npm scripts).
 - `docs/`, `assets/`, `menu/` are kept as-is.
 
 ### Actions
 - Games stay in `games/`; move the `scripting/*.game.tsx` ones there too.
 - Games must not carry private copies of shared modules: four games hold
-  diverged copies of `three.tsx` today (see V.1) — once the shared façade
+  diverged copies of `three.tsx` today (see V.1) — once the shared wrapper
   resolves via the search path, those copies are deleted.
 - Move `ranger_games/` (and its TSX→Ranger tests) under `prototypes/`.
 - Demos: keep the test-referenced ones; once the `core/` move draws the boundary,
@@ -1075,7 +1108,7 @@ Each subsection: **Status now** (on disk) → **Actions** (concrete moves).
 - Move in blast-ordered, compile-verified tranches:
   1. loose gfx roots → `core/gfx/`;
   2. `wasm_runtime` + the ABI headers and host IO → `core/wasm/`;
-  3. the game-neutral facades and runners → `core/runtime/`;
+  3. the game-neutral runtime modules and runners → `core/runtime/`;
   4. the subsystems (`three/`, `physics/`, `model3d/`, …) per decision C1.
 - After each tranche, compile the affected roots before committing.
 - No file is deleted during the move; the delete list is drawn only once the
@@ -1101,7 +1134,7 @@ Effects you can observe in games:
 
 - In a `.game.tsx` script, `a === a` is false for object `a`.
 - `Map`/`Set` cannot key on objects.
-- Three façade invented `__removed` (`three.tsx:60`) because it cannot test
+- Three wrapper invented `__removed` (`three.tsx:60`) because it cannot test
   "is this the same node?"
 - Reconciler comment at `three_tsx_bridge.rgr:89`: assumes stable tree shape.
 
@@ -1182,7 +1215,7 @@ D-WASM.
 | Interpreter object | no identity | `identityId` (II.A) on NativeRef |
 | Host object | array index | handle → typed arena payload (II.B) |
 | WASM guest | bare i32 index | same handle (II.C), realm-scoped |
-| Sync model | façade tree + reconcile | **live** construct/parent/property (D-SYNC) |
+| Sync model | wrapper tree + reconcile | **live** construct/parent/property (D-SYNC) |
 
 `identityId` ↔ `handle` is established at `construct`, not at reconcile.
 Reconciler is transitional only (`RETIRE-RECONCILE`).
@@ -1190,7 +1223,7 @@ Reconciler is transitional only (`RETIRE-RECONCILE`).
 ## II.E Shared geometry/material — concrete bug this fixes
 
 **Today** (`three_tsx_bridge.rgr:810–819`): `buildMeshH` always mints new geo/mat
-handles, so two meshes sharing one façade `geometry` get two host geometries.
+handles, so two meshes sharing one wrapper `geometry` get two host geometries.
 
 **With live adapter + II.A + II.B:** `new Mesh(geo, mat)` looks up
 `identityId(geo)` → one `geoH`, `retain`s it. Second mesh gets the same handle.
@@ -1276,7 +1309,7 @@ File: `three/tests/value_parity/three_value_parity_test.rgr`.
 (`EvalValue.rgr:220`).
 
 **Changes:** type-check + status enum; separate JS semantics suite; assert
-façade handle == host handle (II.E); **backend dispose ≠ handle release**
+wrapper handle == host handle (II.E); **backend dispose ≠ handle release**
 (D-LIFE); resource counts across hot-reload; named versioned suites — not one
 percentage.
 
@@ -1348,7 +1381,7 @@ width choice (D-HANDLE), with the type system above as a requirement.
 
 # Bridge implementation: native classes and native modules
 
-## V.1 Façade: one thin file, not five copies
+## V.1 Wrapper: one thin file, not five copies
 
 **Today (verified line counts):**
 
@@ -1364,7 +1397,7 @@ Canonical `Vector3` implements only a **small subset** (`set`, `copy`,
 `setScalar`, `clone`, `setFromSphericalCoords`) — not ~90 methods. The real
 duplication is **Object3D-shaped state and small methods** repeated across
 Scene / Group / Mesh / camera / light classes, plus diverged per-game copies.
-The deeper problem is **dual authority** (façade vs core), not raw method count.
+The deeper problem is **dual authority** (wrapper vs core), not raw method count.
 
 Cause of copies: `readImportSource` checks the game directory before
 `assetPaths` (`ComponentEngine.rgr:1160`).
@@ -1373,7 +1406,7 @@ Also duplicated: `game_helpers.tsx` / `game.d.ts` (`scripting/` + `lib/`);
 identical `breakout_bricks.tsx` (127 lines × 2).
 
 **Change:** add shared dir to `assetPaths`; delete per-game `three.tsx`; thin
-canonical façade to name → native class declarations.
+canonical wrapper to name → native class declarations.
 
 ## V.2 Native-class adapter (live host path — D-SYNC)
 
@@ -1408,10 +1441,11 @@ method, or dirty commit) — never two silent authorities.
 Do **not** treat every unknown member as one "defined error." JS semantics:
 
 ```
-mesh.nonexistent           // undefined  (missing data prop)
-mesh.nonexistent()         // TypeError: not a function
-mesh.customValue = 123     // allowed expando (userData / overlay)
-mesh.position              // native prop → host/guest residency rules
+mesh.nonexistent           // adapter: not registered, not in overlay → undefined
+mesh.nonexistent()         // interp: call on undefined → TypeError-like; no host call
+mesh.customValue = 123     // adapter: unknown write → guest-side overlay; host untouched
+mesh.position              // adapter: registered native prop → residency rules
+                           //          (host read, or bound guest mirror)
 ```
 
 Host-backed wrappers need **two stores**:
@@ -1452,7 +1486,7 @@ resources with D-GEO / D-LIFE commands. Gate with semantics suite; keep
 
 # Object lifetime across the boundary (D-LIFE)
 
-**Today:** `entityRemove` does not free slots; façade `dispose()` is empty.
+**Today:** `entityRemove` does not free slots; wrapper `dispose()` is empty.
 
 **Constraint:** ES6 / C++ / WASM — no portable finalizer. Lifetime is explicit.
 
@@ -1487,12 +1521,12 @@ mesh's handle; release of last owner invalidates handle.
 
 | Face | Where | Problem |
 |------|-------|---------|
-| TSX façade | `three.tsx` + 4 game copies | Small Vector3 subset + duplicated Object3D-shaped state; dual authority vs core |
+| TSX wrapper | `three.tsx` + 4 game copies | Small Vector3 subset + duplicated Object3D-shaped state; dual authority vs core |
 | Rust guest math | `lib/ranger_game/src/scene.rs` (986) | hand-rolled `Vec3`/`Quat`/`Color`/`Scene` |
 | (future) AS guest | — | would be a third copy |
 
 **Rule:** class registry is the single definition; generate every language face.
-Thin shared façade + live adapter on interpreter path; generated structs for
+Thin shared wrapper + live adapter on interpreter path; generated structs for
 compiled guests. Parity test against registry.
 
 ---
@@ -1517,7 +1551,7 @@ Sizes = current line counts. **S/M/L** = change size, not calendar time.
 - Schema with handle/span/option/result + wasmLowering metadata. **M**
 - Generators + surface-parity + WASM version policy tests. **L**
 
-**D. Three façade & transitional reconciler** — `three/tsx/`
+**D. Three wrapper & transitional reconciler** — `three/tsx/`
 - `three.tsx` (585) — thin declarations; empty `dispose` → DisposeBackend. **M**
 - Delete per-game `three.tsx` copies; `assetPaths`. **S**
 - `three_tsx_bridge.rgr` (1109) — shrink toward live ops; **delete** structural
