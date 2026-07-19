@@ -61,7 +61,12 @@ class RgAsync {
             }
             i = (i + 1)
         }
-        return (new RgAsyncReq)
+        ; A nonexistent id must NOT masquerade as a live pending request (the
+        ; default RgAsyncReq has live=true): return a dead sentinel so every
+        ; caller path reports INVALID / no-op.
+        def missing:RgAsyncReq (new RgAsyncReq)
+        missing.live = false
+        return missing
     }
 
     ; ---- begin --------------------------------------------------------------

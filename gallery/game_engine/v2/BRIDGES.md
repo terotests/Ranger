@@ -1,216 +1,207 @@
-# BRIDGES.md — the one generated bridge (plan, written before the code)
+# BRIDGES.md — semantic interface + generated target bindings (rev 2)
 
-Status: **plan**. No bridge code exists yet; a hand-rolled draft
-(`interp/engine/Rg2DHostBridge.rgr`, an if-chain of `rg2d_*` names) was written
-and **deleted before commit** because it reproduced the exact failure v2 exists
-to eliminate. This document specifies what will be built instead, anchored to
-[`CODE_CLEANUP.md`](../CODE_CLEANUP.md).
+**Rev 2, after design review.** Rev 1 proposed "one generated bridge and one
+command table." The review identified that as the same conflation that killed
+v1, one layer up: it fused *what an operation means*, *which host component
+implements it*, and *how one transport encodes it* into a single
+transport-shaped table — a WASM32-flavoured universal RPC system. The
+corrected statement:
+
+> **One semantic interface definition (a true IDL), with independently
+> generated and versioned target bindings.**
+
+Transport details move one layer down. Rev 1's rule "no second command table
+anywhere" is replaced by: **no second *semantic* definition anywhere; every
+profile's table is a generated, separately versioned artifact.**
 
 ---
 
-## 1. Why bridges are where v1 died
-
-Every v1 bridge was **authored per surface, per domain, sometimes per game**:
+## 1. Why v1 died at the bridges (unchanged from rev 1)
 
 | v1 artifact | Disease |
 |---|---|
-| `three/tsx/three_native_bridge.rgr` | hand if-chain of `three_*` string commands; adding a command = editing bridge code |
-| RGSP1 sprite ABI | **fixed slots**, host-only character clocks, "runner-specific ABIs" (CODE_CLEANUP D-2D calls these out by name) |
-| multiple sheet registries / runner manifests | each runner grew its own asset table instead of `runtime.assets` |
-| Sponza `sunLight()` / `skyNode()` accessors | scene-specific typed getters bolted onto a generic host (D-TYPE's opening complaint) |
-| `three_tsx_bridge.rgr` reconciler | per-frontend scene mirror, explicitly "temporary" (D-SYNC) |
+| `three_native_bridge.rgr` | hand if-chain of commands; adding one = editing bridge code |
+| RGSP1 sprite ABI | fixed slots, host-only clocks, runner-specific ABIs |
+| per-runner sheet registries | each runner grew its own asset table |
+| Sponza `sunLight()` accessors | scene-specific getters on a generic host |
+| `three_tsx_bridge.rgr` | per-frontend reconciler mirror |
 
-The common root: **the command table lived in hand-written bridge code**, so
-every new domain (2D, cannon, audio) and every new transport (interpreter,
-WASM) forked a new incompatible copy. My deleted draft did it again — it served
-`ranger:2d`+`core` only; three/cannon/audio would each have needed another
-parallel if-chain, exactly the v1 rot.
+Root cause: command knowledge lived in hand-written per-surface code. The fix
+is still generation from one authored source — but the source must be
+*semantic*, not transport-shaped.
 
-CODE_CLEANUP's answer is explicit (D-REGISTRY, "Generated outputs (one
-source)"):
-
-> host and typed-arena dispatch · interpreter native-class registrations ·
-> WASM imports · TypeScript / Rust guest wrappers · **bridge command tables** ·
-> documentation tables · surface-parity tests
-
-> *"If the schema cannot state these, codegen grows command-specific
-> exceptions — the failure mode this design is trying to remove."*
-
-So: **a bridge is generated data plus generic machinery. It is never authored
-per domain, and adding a command never edits bridge code — it adds a schema
-row.**
-
----
-
-## 2. The one bridge — architecture
+## 2. The corrected architecture
 
 ```
-registry/schema/{core,two_d,three,cannon}/   authored DATA (the only hand part)
-        │  RgSchema + lowering metadata
-        ▼
-registry/codegen/                            RgCodegen (Phase 3, extended)
-        │  emits ONE RgCommandTable + dispatchers + wrappers
-        ▼
-┌──────────────────────────────────────────────────────────────┐
-│ RgCommandTable  (rows: {id, classId, methodId, name,         │
-│   wasmExport, module, argSpec, retSpec, ownershipEffect})    │
-└──────────────────────────────────────────────────────────────┘
-   │                        │                       │
-   ▼                        ▼                       ▼
-interpreter transport   WASM import surface     guest wrappers
-(ONE EvalNativeBridge)  (bridge/wasm rg_*)      (TS façade / Rust)
-   │                        │
-   └────────► generated host dispatch ◄─────────┘
-              (table row → typed-arena method call)
-                        │
-                        ▼
-        RgRanger2D · RgAudio · RgInput · RgSurface ·
-        RgHost(three) · RgPhysicsWorld(cannon)   (Phases 2–11 arenas)
+registry/
+  interfaces/            ← authored SEMANTIC IDL (the only hand-written part)
+    ranger_core_v1
+    ranger_2d_v1
+    ranger_three_v1
+    ranger_cannon_v1
+  abi_profiles/          ← authored, small: per-target lowering rules
+    interpreter
+    wasm32_v1
+    (later: wasm64/component, native C, RPC)
+  generated/             ← all derived, regenerable, separately goldened
+    semantic_ids/        interface compatibility golden
+    interpreter/         dispatch table + EvalNativeBridge binding
+    wasm32/              import surface + wire-format vectors
+    docs/
 ```
 
-### 2.1 Schema rows (authored data — the only hand-written part)
+### 2.1 The semantic IDL (authored)
 
-Phase 3's `RgSchema` already carries classId/propId/methodId, residency,
-ownership, sync, and `wasmExport`. It gains the lowering metadata D-REGISTRY
-requires:
+Declares, per `package:interface@major`:
 
-```
-RgParamDef  { name, type }        ; type ∈ i32 f64 bool string handle<T>
-                                  ;        array<i32> array<f64> (span on WASM)
-RgMethodDef { … args:[RgParamDef], ret:type,
-              ownershipEffect ∈ { create(arena), retainArgs, releaseSelf, none },
-              targetArena }       ; which typed arena executes it
-```
+- **resources** (Sprite2D, SpriteAtlas, AudioSource, **Request** — see §2.6)
+- **methods** with full types, ownership effects, error sets, async behaviour
+- **records / enums / variants** with frozen representations
+- **capabilities** (§2.5) and thread affinity
+- version lifecycle (added-in, deprecated-in, tombstoned)
 
-Module id ranges (immutable once published, golden-id checked):
+**Type system = the CODE_CLEANUP D-REGISTRY list, not rev 1's shrunken one:**
+`i32 u32 f32 f64 bool` · `string_view` (UTF-8 bytes, byte length, no embedded
+NUL) · `handle<T>` · `option<T>` · `result<T, ErrorCode>` · `span<T>` with
+declared direction (in / out / inout) · `owned_buffer<T>` / `borrowed_buffer<T>`
+· structs (vec2/rect/color/transform) · enums with frozen repr · variants.
+Rev 1's `i32/f64/string/handle/array` alphabet is demoted to what it really
+is: the *interpreter profile's* current lowering subset, to be regenerated
+from the IDL as the IDL lands.
 
-| module | classIds | command ids |
-|---|---|---|
-| `ranger:core` | 10–19 | 1000–1999 |
-| `ranger:2d` | 20–29 | 2000–2999 |
-| `ranger:three` | 30–39 | 3000–3999 (existing fixture ids 100–199 stay tombstone-mapped) |
-| `ranger:cannon` | 40–49 | 4000–4999 |
+### 2.2 Identity is hierarchical, not a global integer range
 
-One schema dir per module (`registry/schema/two_d/`, … — the dirs already
-exist). **This answers the cross-module question directly:** three, cannon,
-audio, input, surface, and 2D are *rows in the same table*, so the single
-bridge serves all of them by construction; nothing per-domain exists to fork.
-
-### 2.2 The command table (generated)
-
-`RgCodegen.commands(schema)` (exists) grows to emit full rows including
-`argSpec` (e.g. `"h:i:i"` = handle, int, int) and `retSpec` (`"h"` create,
-`"i"`, `"d"`, `"v"`). The golden-id gate (exists) extends across all four
-modules: meaning-change / renumber / tombstone-reuse / lowering-change fail.
-
-### 2.3 Interpreter transport — ONE generic `EvalNativeBridge`
-
-`interp/engine/RgRegistryBridge.rgr` — the only `EvalNativeBridge` subclass in
-v2, and it contains **zero per-command code**:
-
-- `has(name)` = table lookup (name or `module:command`).
-- `invoke(name, args)`:
-  1. resolve the table row (unknown → typed error, never silent null),
-  2. decode `args` against `argSpec` (arity + type check; `h:` params resolve
-     the guest id → fat `RgHandle` and re-verify generation/realm/type at the
-     registry — a stale id fails exactly like the WASM path),
-  3. call the **generated dispatcher** for the row,
-  4. encode the result per `retSpec` (a `create` result mints a guest id).
-- It owns the single **guest-id ↔ OwnedHandle surrogate table** for all
-  modules (D-IDENTITY: one id ↔ one live handle; ids never reused), the realm
-  id, and `teardown()` (releases every surrogate — D-OWN backstop).
-
-The guest-visible call shapes are the D-ADAPTER quartet plus module statics:
+Rev 1 allocated fixed integer ranges per module (core 1000s, 2d 2000s, …).
+That is a central-coordination bottleneck and breaks independent packages.
+The **public identity** of an operation is:
 
 ```
-rg_construct(classId, …)            → ref     (new Sprite2D / new Body / …)
-rg_get(ref, propId) / rg_set(ref, propId, v)
-rg_invoke(ref, methodId, …)         → value   (layer.add, source.playOneShot, …)
-rg_call(commandId, …)               → value   (module-level: input, surface, time)
+package : interface @ major / operation # ordinal
+e.g.  ranger:2d / sprite@1 / set-position#2
 ```
 
-Flat per-domain names (`rg2d_sprite_create(…)`) may exist as *generated
-aliases* in the table for façade ergonomics — but they are rows, not code.
+Compact integers still exist — assigned **at generation/link time per
+process**, as an artifact, never as the published identity. The current
+1000/2000-range table is hereby re-labelled an *interpreter-profile link
+artifact*; its golden file guards that profile's stability, not the semantic
+interface.
 
-### 2.4 Generated host dispatch (the terminal glue)
+### 2.3 ABI profiles (authored, per target)
 
-Something must finally call `RgRanger2D.spriteCreate(...)`. Per D-REGISTRY that
-dispatch is a **generated output**: `registry/codegen/` gains an emitter that
-writes `registry/generated/RgDispatch.rgr` — for each table row, an arg-checked
-call into the owning arena method. Regenerating from an unchanged schema is
-byte-identical (drift test).
+Each profile states: scalar representation, pointer width, string lowering,
+span lowering, handle lowering, result convention, alignment, export/import
+naming. Signature evolution happens per profile (a new wasm export name), so
+a semantic operation can stay put while one transport re-encodes it.
 
-**Interim honesty rule:** until the emitter lands, a hand dispatcher is
-tolerated *only* behind a **coverage gate**: a test walks the table and fails
-if any row lacks a dispatcher entry or any dispatcher entry lacks a row. The
-gate makes the interim un-forkable; the emitter retires it.
+**Golden files split accordingly:** semantic-interface compatibility ·
+per-profile ABI compatibility · (where generated) source-wrapper
+compatibility. A `wasmExport` change is a *wasm32-profile* event, not a
+semantic event — rev 1's single golden conflated these.
 
-### 2.5 Same table → WASM surface (parity, D-WASM)
+### 2.4 Handle lowering (fixed now, in code)
 
-`bridge/wasm/imports/` stops hand-declaring names: its `rg_*` import list is
-the `wasmExport` column of the same table (two-word handles, out-register +
-status, as today). The existing `bridge/parity` test extends to iterate the
-table: for every command, the interpreter transport and the WASM path must
-produce identical arena traces. Signature changes = new export name/id
-(D-WASM versioning), enforced by the golden table.
+The review found two real defects, both now fixed and regression-tested:
 
-### 2.6 Guest façades are generated wrappers
+- **Signedness:** field widths are now slot:20 / type:11 / gen:20 / realm:11
+  so each packed word stays `< 2^31` — the i32 sign bit can never be set, and
+  arithmetic decode is portable. An out-of-range field refuses to pack
+  (word 0 → invalid sentinel → typed `INVALID_HANDLE`), never truncates into a
+  colliding handle. (`host/handles/RgHandle.rgr`)
+- **Wrap protection is enforced, not documented:** `RgRegistry` now retires a
+  slot permanently when its generation reaches the 20-bit cap
+  (`maxGeneration`, test-settable; `retiredCount` observable) — a transported
+  stale handle can never wrap back to validity. A registry **epoch** for
+  teardown/hot-reload of *transported* tokens is specified for the wasm32
+  profile (epoch participates in the token there).
 
-`three.tsx` proved the pattern: guest classes wrap bare commands so game code
-stays ordinary ("`cube.tsx` unmodified"). The TS façade (`ranger2d.tsx`,
-`ranger_core.tsx`, and eventually a regenerated `three.tsx`) is a **generated
-TypeScript wrapper** (a listed D-REGISTRY output): classes/methods emitted from
-the same schema rows. Interim hand façades are guest-side sugar only (no host
-knowledge beyond command names) and are marked for regeneration.
+Unsigned-mask encodings, four-scalar layouts, or opaque cookies remain open
+per profile — the profile owns the choice.
 
-### 2.7 What the design explicitly forbids
+### 2.5 Capability negotiation (new)
 
-- per-domain or per-game bridge classes; any command name containing a game
-  name (`ylos2_*` is a design bug by definition)
-- editing bridge/dispatch code to add a capability (add a schema row instead)
-- fixed-slot ABIs, runner-private clocks/manifests (time = `runtime.time`,
-  assets = `runtime.assets`)
-- scene-specific typed accessors on the host
-- a second command table anywhere (WASM, docs, façades all derive from the one)
+One bridge instance serving every module in one realm is an *integration
+test*, not the deployment model. The IDL carries per-interface metadata:
+`required-capability`, `optional`, `supported-versions`, `target-availability`,
+`permission`. At realm creation the host and guest negotiate a **profile**:
+missing optional interfaces are discoverably absent (a guest can ask); missing
+required ones fail instantiation with a typed error — never dummy
+implementations or conditionals inside a dispatcher. Headless servers (no
+render/audio), browsers (no fs), embedded (2D+input only) are first-class
+host shapes.
 
----
+### 2.6 One resource model — async requests included (bug fixed now)
 
-## 3. Implementation order (each step gated, committed green)
+Requests, streams, futures, and subscriptions are **resources in the same
+registry** as sprites and clips: realm-, generation-, and type-checked fat
+handles. Rev 1 left `RgAsync` on bare incrementing ints — a second resource
+system that would leak into every wrapper. Migration of `RgAsync` onto a
+`Request` arena is scheduled with the IDL extraction.
 
-1. **Schema rows** for the commands ylos2 + the launcher actually need
-   (~30 rows across `two_d` + `core`: texture/atlas/region/clip, sprite,
-   layer, camera, anim-player, input read, surface panes, audio one-shot /
-   vocal / music, time, log, launch). Golden table extended.
-2. **Command-table + coverage gate + `RgRegistryBridge`** (generic decode /
-   surrogate ids / typed errors / teardown). Gate: table-coverage test +
-   stale-id / wrong-arity / unknown-command typed-error tests.
-3. **ylos2 + launcher TSX run through it** (the real validation this was all
-   for): façade TSX + game TSX evaluated by the staged `ComponentEngine`,
-   frame pipeline order, split-screen software present, pixels asserted.
-4. **Extend the table to `three` + `cannon`**: map the existing three commands
-   (fixture ids tombstoned → new rows) and the cannon step/body surface; a
-   convergence test drives a 2D scene, a three mesh, and a cannon step through
-   the *same* bridge instance in one realm.
-5. **Dispatcher emitter** (`registry/codegen` → `registry/generated/*.rgr`)
-   replaces the interim hand dispatcher; coverage gate flips to comparing
-   generated output against the table.
-6. **Façade generation** for TS wrappers; regenerate `ranger2d.tsx`.
+Fixed immediately (committed, tested): looking up a **nonexistent request id**
+previously returned a default object that *looked live and pending*; it now
+returns a dead sentinel → `INVALID` from poll, no-op from cancel/release.
 
-Step 3 is deliberately before 4–6: the plan's own rule ("validate against real
-guest code") outranks completeness — but steps 4–6 are commitments, not
-options; the table design is what makes them additive rows instead of new
-bridges.
+### 2.7 Portable string / asset / buffer contracts
 
----
+- **string:** UTF-8 bytes, byte length, no embedded NUL, copied at the
+  boundary unless declared a borrowed view; declared in the IDL, lowered per
+  profile.
+- **assets:** guests address `AssetUri("pkg://sprites/hero.atlas")` /
+  `(package, asset)` — host filesystem paths are never part of the game API.
+  `runtime.assets` resolves URIs behind the capability.
+- **buffers:** ownership + direction declared per parameter (D-WASM-MEM span
+  rules already cover bounds/overflow/alignment).
 
-## 4. Test gates for bridge work
+### 2.8 What exists today, honestly re-labelled
+
+- `RgCommandTable` + `RgRegistryBridge` (+ its 28-check coverage gate) =
+  **the interpreter-profile prototype**. It stays, gated, as the thing that
+  runs TSX guests *now* — explicitly **not** a published ABI and not the
+  source of truth. Its table becomes a generated artifact of
+  (IDL × interpreter profile) during the IDL extraction.
+- `registry/schema/{core,two_d}` rows = the seed data that will be re-expressed
+  in the IDL; ids 1000–2999 = interpreter link artifact (see §2.2).
+- Guest façades (`ranger2d.tsx`) = interim hand wrappers → generated wrappers.
+
+## 3. Review findings → resolutions
+
+| # | Finding | Resolution | Status |
+|---|---|---|---|
+| 1 | table conflates semantics/host/transport | IDL + ABI profiles split (§2) | planned, governs all further bridge work |
+| 2 | type system too narrow vs CODE_CLEANUP | full D-REGISTRY type list in IDL (§2.1) | planned; rev-1 alphabet demoted to interpreter subset |
+| 3 | handle signedness + unimplemented wrap protection | 11-bit tags, loud pack failure, enforced slot retirement | **fixed now** + tests |
+| 4 | global integer ranges | hierarchical `pkg:iface@major/op#n`; ints are link artifacts | planned (§2.2) |
+| 5 | semantic vs binary versioning conflated | goldens split per layer (§2.3) | planned |
+| 6 | no capability negotiation | IDL capability metadata + realm-creation profiles (§2.5) | planned |
+| 7 | strings/assets/buffers unspecified | §2.7 contracts in IDL | planned |
+| 8 | async outside the handle model + ghost-request bug | Request as registry resource; ghost-id bug | bug **fixed now**; migration planned |
+| 9 | tests don't validate portability | conformance guests + wire vectors gate any freeze (§4) | gating rule adopted |
+
+## 4. Revised implementation order
+
+1. ~~Interpreter-profile prototype (table + generic bridge + coverage gate)~~ — done, retained, **not a published ABI**.
+2. ~~Correctness fixes: async ghost-id, handle signedness, wrap retirement~~ — **done + tested**.
+3. **Finish the real-guest validation on the interpreter profile**: ylos2 +
+   launcher TSX end-to-end (in progress — this is the review's own
+   precondition: real guests before any freeze).
+4. **IDL extraction**: full type system, hierarchical identities, capability
+   metadata; re-express core/two_d rows; regenerate the interpreter table from
+   IDL × profile (coverage gate keeps passing throughout).
+5. **wasm32 profile**: unsigned/token lowering incl. epoch, a real
+   Rust→wasm32 conformance guest, golden **wire vectors** (handles, strings,
+   spans, errors, enums, results), old-guest/new-host compatibility runs.
+6. Extend interfaces to three + cannon; dispatcher emitter; generated façades.
+7. **Golden freeze only after** both conformance guests (TSX interpreter,
+   Rust wasm32) pass against the same host and the wire vectors are pinned.
+
+## 5. Test gates (updated)
 
 | Gate | Asserts |
 |---|---|
-| table coverage | every table row dispatches; every dispatch entry has a row (drift = red) |
-| golden ids ×4 modules | published ids immutable; lowering change ⇒ new export |
-| generic decode | wrong arity / wrong type / unknown command / stale guest id → typed errors |
-| surrogate identity | one guest id per live handle; release → stale; teardown reclaims all |
-| interp ↔ WASM parity | identical arena traces per table row on both transports |
-| cross-module realm | 2d + core + three + cannon commands interleave through one bridge/realm |
-| regen determinism | codegen twice from one schema ⇒ byte-identical table + dispatch |
+| coverage (exists) | every interpreter-profile row executes; drift = red |
+| semantic golden | interface compatibility (per §2.3) |
+| per-profile golden | ABI stability per target, incl. wire vectors |
+| typed errors (exists) | unknown/arity/type/stale → typed, observable |
+| capability profiles | headless / no-audio / 2D-only hosts instantiate correctly; missing-required fails typed |
+| conformance guests | TSX + Rust wasm32 against one host; old-guest/new-host |
+| regen determinism | same IDL × profile ⇒ byte-identical artifacts |

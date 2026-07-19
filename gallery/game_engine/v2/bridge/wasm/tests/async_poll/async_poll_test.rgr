@@ -65,6 +65,15 @@ class AsyncPollTest {
         a.hostComplete(req3 result3)   ; arrives after cancel
         t.no("late result after cancel is released host-side" (a.host.isLive(result3)))
 
+        ; ---- a never-created request id is INVALID, not pending -------------
+        def stGhost:int (a.poll(9999))
+        t.eqInt("nonexistent request id polls INVALID (not PENDING)"
+            stGhost (RgAsyncStatus.invalid()))
+        a.cancel(9999)
+        a.release(9999)
+        t.eqInt("cancel/release of a nonexistent id are no-ops"
+            (a.poll(9999)) (RgAsyncStatus.invalid()))
+
         ; ---- realm teardown backstop ---------------------------------------
         def req4:int (a.begin())
         def owned4:OwnedHandle (a.host.geometryCreate(1 16))

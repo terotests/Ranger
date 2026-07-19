@@ -29,15 +29,24 @@ class RgRegistry {
     def refc:[int]
     def live:[boolean]
     def freeSlots:[int]
+    ; Generation cap (RgHandle 20-bit field). A freed slot whose generation has
+    ; reached this is PERMANENTLY retired instead of reused, so a transported
+    ; stale handle can never become valid again via wrap-around. Tests may lower
+    ; it to exercise retirement without a million allocations.
+    def maxGeneration:int 1048575
+    def retiredCount:int 0
 
     ; ---- allocation ---------------------------------------------------------
     ; Allocates a slot for a freshly created object (refcount 1) and returns its
-    ; handle. Reuses a freed slot (bumping its generation) when available.
+    ; handle. Reuses a freed slot (bumping its generation) when one is available
+    ; below the generation cap; capped slots are dropped from the free list
+    ; forever (wrap protection — see RgHandle packing policy).
     fn alloc:RgHandle (realmId:int typeId:int payloadIndex:int) {
+        ; pop free slots from the end until one is reusable; retire capped ones
+        def idx:int (0 - 1)
         def nfree:int (array_length this.freeSlots)
-        if (nfree > 0) {
-            def idx:int (itemAt this.freeSlots (nfree - 1))
-            ; pop last free slot
+        while (nfree > 0) {
+            def cand:int (itemAt this.freeSlots (nfree - 1))
             def nf:[int]
             def i 0
             while (i < (nfree - 1)) {
@@ -45,6 +54,16 @@ class RgRegistry {
                 i = (i + 1)
             }
             this.freeSlots = nf
+            nfree = (nfree - 1)
+            if ((itemAt this.gen cand) < this.maxGeneration) {
+                idx = cand
+                nfree = 0
+            } {
+                ; generation cap reached → slot retired permanently
+                this.retiredCount = (this.retiredCount + 1)
+            }
+        }
+        if (idx >= 0) {
             set this.gen idx ((itemAt this.gen idx) + 1)
             set this.realm idx realmId
             set this.typ idx typeId

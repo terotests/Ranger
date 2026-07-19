@@ -1,0 +1,182 @@
+; ==============================================================================
+; ylos2_v2_runner — run the Pomppija TSX guest end-to-end on the v2 stack.
+; ==============================================================================
+; The must-pass validation thread (BRIDGES.md step 3):
+;
+;   games/ranger2d.tsx + games/ylos2/index.tsx      (ordinary TSX guest)
+;       → ComponentEngine (staged v2 evaluator)
+;       → RgRegistryBridge (ONE table-driven transport)
+;       → ranger:2d / ranger:core arenas (Phases 2–11)
+;       → RgSoftwareRenderer2D split-screen present (pixels)
+;
+; The host owns the tick (frame pipeline): feed input → game.update(frame) →
+; present panes → frame boundary (one-shot mixer, input edges, clock). The
+; guest's attract-mode autopilot suggests each player's input; the host routes
+; those suggestions through the REAL ranger:core action map, so the guest still
+; reads input only via its capability (no side channel).
+;
+; Green means: the TSX game runs, both players climb the original level, P1
+; reaches the goal platform, the celebration (one-shot + vocal + summit music)
+; fires through ranger:core, and both split-screen panes show the player at
+; their camera's center — actual pixels from actual guest-created host state.
+; ==============================================================================
+
+Import "../../interp/engine/RgRegistryBridge.rgr"
+Import "../../render/backends/software/RgSoftwareRenderer2D.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class Ylos2V2Runner {
+    def engine:ComponentEngine (new ComponentEngine())
+    def bridge:RgRegistryBridge (RgRegistryBridge.create())
+
+    fn callNum:double (name:string arg:EvalValue) {
+        def r:EvalValue (this.engine.callFunction(name arg))
+        return r.numberValue
+    }
+    fn callSlot:double (name:string slot:int) {
+        return (this.callNum(name (EvalValue.number((to_double slot)))))
+    }
+
+    ; decode the guest's autopilot suggestion into the real input action map
+    fn feedAutopilot:void (slot:int) {
+        def bits:int (to_int (this.callSlot("autopilotBits" slot)))
+        def left:boolean ((bits % 2) == 1)
+        def right:boolean ((idiv bits 2) % 2 == 1)
+        def jump:boolean ((idiv bits 4) % 2 == 1)
+        this.bridge.input.setAction(slot "left" left)
+        this.bridge.input.setAction(slot "right" right)
+        this.bridge.input.setAction(slot "jump" jump)
+    }
+
+    fn guestHandle:RgHandle (name:string slot:int) {
+        def id:int (to_int (this.callSlot(name slot)))
+        return (this.bridge.resolveGuestId(id))
+    }
+
+    sfn dumpPane:void (fb:RgFramebuffer label:string) {
+        print ("  --- " + label + " (48x12 downsample of 96x96) ---")
+        def row 0
+        while (row < 12) {
+            def line:string "  "
+            def col 0
+            while (col < 48) {
+                def hit:boolean false
+                def dy 0
+                while (dy < 8) {
+                    def dx 0
+                    while (dx < 2) {
+                        if ((fb.at((col * 2 + dx) (row * 8 + dy))) != 0) { hit = true }
+                        dx = (dx + 1)
+                    }
+                    dy = (dy + 1)
+                }
+                if hit { line = (line + "#") } { line = (line + ".") }
+                col = (col + 1)
+            }
+            print line
+            row = (row + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("games/ylos2 on v2 (TSX guest end-to-end)"))
+        def r:Ylos2V2Runner (new Ylos2V2Runner)
+        r.engine.quiet = true
+        r.engine.setNativeBridge(r.bridge)
+
+        ; ---- load the ordinary TSX guest (façade + game, one program) -------
+        def facade:buffer (buffer_read_file "gallery/game_engine/v2/games" "ranger2d.tsx")
+        def game:buffer (buffer_read_file "gallery/game_engine/v2/games/ylos2" "index.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string game))
+        r.engine.loadScript(src)
+
+        ; ---- init(): guest builds the retained scene through the bridge -----
+        def initR:EvalValue (r.engine.callFunction("init" (EvalValue.null())))
+        t.near("guest init() ran" initR.numberValue 1.0)
+        t.eqInt("guest committed no bridge errors in init" r.bridge.errorCount 0)
+
+        ; the guest's creations are REAL host arena state
+        t.eqInt("27 retained sprites (17 static + 8 moving + 2 players)"
+            (r.bridge.d2.liveOfType((Rg2DType.sprite()))) 27)
+        t.eqInt("one atlas" (r.bridge.d2.liveOfType((Rg2DType.atlas()))) 1)
+        t.eqInt("one texture" (r.bridge.d2.liveOfType((Rg2DType.texture()))) 1)
+        t.eqInt("two cameras (one per pane)" (r.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
+        t.eqInt("split-screen: two panes" (r.bridge.surface.paneCount()) 2)
+        t.eqInt("pane 0 routes player 0" (r.bridge.surface.panePlayer(0)) 0)
+        t.eqInt("pane 1 routes player 1" (r.bridge.surface.panePlayer(1)) 1)
+
+        def startY1:double (r.callSlot("playerY" 0))
+        def sprite1IdA:int (to_int (r.callSlot("playerSpriteId" 0)))
+
+        ; ---- host-owned frame loop ------------------------------------------
+        def dtMs:double 33.333
+        def maxFrames:int 3600
+        def frame 0
+        def goalFrame:int (0 - 1)
+        def keys:[string]
+        push keys "dtMs"
+        while (frame < maxFrames) {
+            ; 1. input: route the guest's attract-mode suggestions through the
+            ;    real action map (stable for the whole update)
+            r.feedAutopilot(0)
+            r.feedAutopilot(1)
+            ; 4. guest update
+            def vals:[EvalValue]
+            push vals (EvalValue.number(dtMs))
+            r.engine.callFunction("update" (EvalValue.object(keys vals)))
+            ; 7/8. frame boundary: one-shot mixer completes, edges advance, clock
+            r.bridge.frameBoundary((dtMs / 1000.0))
+            frame = (frame + 1)
+            if (goalFrame < 0) {
+                if ((r.callSlot("reachedGoal" 0)) > 0.5) {
+                    goalFrame = frame
+                }
+            }
+            if (goalFrame > 0) {
+                break
+            }
+        }
+
+        t.eqInt("no bridge errors across the whole run" r.bridge.errorCount 0)
+
+        ; ---- the climb actually happened ------------------------------------
+        def endY1:double (r.callSlot("playerY" 0))
+        def endY2:double (r.callSlot("playerY" 1))
+        print ("  frames=" + (to_string frame) + " p1.y=" + (to_string endY1) + " p2.y=" + (to_string endY2))
+        t.ok("P1 climbed the tower (y decreased > 1000px)" ((startY1 - endY1) > 1000.0))
+        t.ok("P2 climbed too (attract mode drives both panes)" (endY2 < 1400.0))
+        t.ok("P1 reached the goal platform" (goalFrame > 0))
+        t.eqInt("goal state readable from the guest" (to_int (r.callSlot("reachedGoal" 0))) 1)
+
+        ; ---- the celebration went through ranger:core -----------------------
+        t.eqInt("celebrate one-shot fired via audio facade" r.bridge.oneShotCount 1)
+        t.eqInt("vocal cue fired" (array_length r.bridge.vocalCues) 1)
+        t.eqStr("vocal cue is the cheer" (itemAt r.bridge.vocalCues 0) "cheer")
+        t.ok("summit music playing" r.bridge.musicPlaying)
+
+        ; ---- identity: the player's sprite handle survived the whole game ----
+        def sprite1IdB:int (to_int (r.callSlot("playerSpriteId" 0)))
+        t.eqInt("player sprite guest id stable across the whole run" sprite1IdB sprite1IdA)
+        def sh:RgHandle (r.bridge.resolveGuestId(sprite1IdB))
+        t.ok("player sprite handle still live in the arena" (r.bridge.d2.isLive(sh)))
+
+        ; ---- split-screen present: pixels from guest-created host state ------
+        def layerH:RgHandle (r.guestHandle("getLayerId" 0))
+        def cam1H:RgHandle (r.guestHandle("getCameraId" 0))
+        def cam2H:RgHandle (r.guestHandle("getCameraId" 1))
+        def fbL:RgFramebuffer (RgFramebuffer.create(96 96))
+        def fbR:RgFramebuffer (RgFramebuffer.create(96 96))
+        def drawnL:int (RgSoftwareRenderer2D.present2D(r.bridge.d2 fbL layerH cam1H))
+        def drawnR:int (RgSoftwareRenderer2D.present2D(r.bridge.d2 fbR layerH cam2H))
+        t.ok("left pane drew sprites" (drawnL > 0))
+        t.ok("right pane drew sprites" (drawnR > 0))
+        ; each camera tracks its player's center → the player lands mid-pane
+        t.ok("P1 visible at left-pane center" ((fbL.at(48 48)) != 0))
+        t.ok("P2 visible at right-pane center" ((fbR.at(48 48)) != 0))
+
+        Ylos2V2Runner.dumpPane(fbL "left pane (P1 at summit)")
+        Ylos2V2Runner.dumpPane(fbR "right pane (P2)")
+
+        t.summary()
+    }
+}

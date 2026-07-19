@@ -67,6 +67,36 @@ class RgHandleTest {
         def rRightType:RgResolve (reg.resolveTyped(b 12))
         t.ok("right arena type accepted" rRightType.ok)
 
+        ; ---- signedness safety: out-of-range fields fail loudly -------------
+        ; typeId/realmId are 11-bit: 2048 would set the i32 sign bit, so pack
+        ; refuses (word 0 -> decodes to the invalid sentinel), never truncates.
+        def big:RgHandle (RgHandle.of(1 1 1 2048))
+        t.eqInt("typeId over 11 bits refuses to pack" (big.packLo()) 0)
+        def bigR:RgHandle (RgHandle.of(1 1 2048 1))
+        t.eqInt("realmId over 11 bits refuses to pack" (bigR.packHi()) 0)
+        def maxOk:RgHandle (RgHandle.of(1048575 1048575 2047 2047))
+        t.ok("max legal fields pack to positive words" ((maxOk.packLo()) > 0))
+        def back2:RgHandle (RgHandle.unpack((maxOk.packLo()) (maxOk.packHi())))
+        t.eqInt("max legal fields round-trip slot" back2.slot 1048575)
+        t.eqInt("max legal fields round-trip realm" back2.realmId 2047)
+
+        ; ---- wrap protection: generation cap retires the slot forever -------
+        def reg2:RgRegistry (new RgRegistry)
+        reg2.maxGeneration = 3
+        def w1:RgHandle (reg2.alloc(1 12 0))
+        reg2.releaseOnce(w1)
+        def w2:RgHandle (reg2.alloc(1 12 0))    ; gen 2
+        reg2.releaseOnce(w2)
+        def w3:RgHandle (reg2.alloc(1 12 0))    ; gen 3 = cap
+        t.eqInt("slot reused up to the cap" w3.slot w1.slot)
+        t.eqInt("generation reached the cap" w3.generation 3)
+        reg2.releaseOnce(w3)
+        def w4:RgHandle (reg2.alloc(1 12 0))
+        t.no("capped slot NEVER reused (fresh slot instead)" (w4.slot == w1.slot))
+        t.eqInt("one slot permanently retired" reg2.retiredCount 1)
+        def wOld:RgResolve (reg2.resolveSlot(w3))
+        t.no("old capped handle stays stale forever" wOld.ok)
+
         ; ---- invalid handle (slot 0) ----------------------------------------
         def rInv:RgResolve (reg.resolveSlot(inv))
         t.no("invalid handle rejected" rInv.ok)
