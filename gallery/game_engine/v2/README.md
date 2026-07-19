@@ -170,7 +170,13 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   deterministic animation frame, leak-free draw lists, stale-binding rejection,
   hot-reload count stability.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (31 suites, 501
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 31/31 suites passed`.
+- **Phase 11 — Render (software 2D present): ✅ green.**
+  `render/backends/software/RgSoftwareRenderer2D.rgr` rasterises retained
+  `ranger:2d` sprites into a CPU framebuffer through the shared `Camera2D` — the
+  backend reads host state only (rendering is not a sync boundary, D-SYNC: no
+  handles allocated, no scene mutation). Gate: `render/tests/software_present2d_test`.
 
-*Later phases (10/11/12) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (32 suites, 511
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 32/32 suites passed`.
+
+*Later phases (10 devices / 12 games) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

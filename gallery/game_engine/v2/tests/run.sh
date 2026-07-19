@@ -100,6 +100,9 @@ run_suite physics/tests/pose_sync_test
 # ---- Phase 10b — D-2D ranger:2d (P1) -----------------------------------------
 run_suite tests/contract/d_2d/d_2d_contract_test
 
+# ---- Phase 11 — render (software 2D present, D-SYNC) -------------------------
+run_suite render/tests/software_present2d_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"

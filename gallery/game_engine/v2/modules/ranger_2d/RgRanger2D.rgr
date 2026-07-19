@@ -260,8 +260,8 @@ class RgRanger2D {
         def tx:RgTexture2D (itemAt this.textures idx)
         tx.width = w
         tx.height = h
-        def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.texture()) idx))
-        return (OwnedHandle.own(h))
+        def th:RgHandle (this.registry.alloc(this.realmId (Rg2DType.texture()) idx))
+        return (OwnedHandle.own(th))
     }
 
     ; atlas retains its texture (shared retain, D-OWN)
@@ -366,6 +366,39 @@ class RgRanger2D {
     fn spriteRegion:int (spriteH:RgHandle) {
         def sp:RgSprite2D (this.spriteResolve(spriteH))
         return sp.regionIndex
+    }
+
+    fn spriteSetPos:void (spriteH:RgHandle x:double y:double) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        sp.x = x
+        sp.y = y
+    }
+    fn spriteX:double (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.x
+    }
+    fn spriteY:double (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.y
+    }
+
+    ; Enumerate live sprite handles (for a backend that READS host state to draw
+    ; — D-SYNC: rendering reads, it never mutates). Handles are reconstructed
+    ; from the registry slot metadata, staying generation-checked.
+    fn liveSpriteHandles:[RgHandle] () {
+        def out:[RgHandle]
+        def n:int (array_length this.registry.gen)
+        def i 0
+        while (i < n) {
+            if ((itemAt this.registry.live i)) {
+                if ((itemAt this.registry.typ i) == (Rg2DType.sprite())) {
+                    def h:RgHandle (RgHandle.of((i + 1) (itemAt this.registry.gen i) (itemAt this.registry.realm i) (Rg2DType.sprite())))
+                    push out h
+                }
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; ---- layer membership (D-LIFE lifetime 2, never ownership) --------------
