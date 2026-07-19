@@ -30,7 +30,18 @@ const MOVING_PLAT_SPEED = 0.06;
 const PLAYER_W = 26;
 const PLAYER_H = 44;
 
-const SUMMIT_MUSIC = "tempo 152 beats 4/4 @melody piano E4 G4 A4 G4 E4";
+// v1 score verbatim (game_soundscore: duration:pitch tokens, newline headers).
+// The previous one-liner stub dropped durations and three of four phrases, so
+// the real parser heard nothing useful / a different tune.
+const SUMMIT_MUSIC =
+  "tempo 152\n" +
+  "beats 4/4\n" +
+  "\n" +
+  "@melody piano\n" +
+  "0.5:E4 0.5:G4 1:A4 1:G4 1:E4\n" +
+  "0.5:D4 0.5:E4 1:G4 2:E4\n" +
+  "0.5:E4 0.5:G4 1:A4 1:C5 1:B4\n" +
+  "1:A4 1:G4 2:E4\n";
 
 // v1 level tables, verbatim.
 const BASE_PLATFORMS = [
@@ -84,6 +95,7 @@ class Ylos2Game {
   players = [];
   nowMs = 0;
   goalIndex = 16;
+  summitMusicStarted = 0;
 
   makePlayer(slot, startX) {
     return {
@@ -91,8 +103,10 @@ class Ylos2Game {
       x: startX, y: 1830 - PLAYER_H, vx: 0, vy: 0,
       grounded: 1, facing: 1,
       jumpHoldMs: -1,
+      jumpHeld: 0,
       lastGroundFeet: 1830,
       reachedGoal: 0,
+      onMover: -1,
       sprite: null, anim: null
     };
   }
@@ -134,7 +148,10 @@ class Ylos2Game {
       const s = new TWO.Sprite2D(this.atlas, rPlat);
       s.setPos(m.x + m.w / 2, m.y);
       this.layer.add(s);
-      this.movingPlats.push({ x: m.x, y: m.y, w: m.w, h: m.h, min: m.min, max: m.max, dir: m.dir, sprite: s });
+      this.movingPlats.push({
+        x: m.x, y: m.y, w: m.w, h: m.h, min: m.min, max: m.max, dir: m.dir,
+        vx: MOVING_PLAT_SPEED * m.dir, sprite: s
+      });
       i = i + 1;
     }
 
@@ -152,13 +169,29 @@ class Ylos2Game {
     return 1;
   }
 
+  tryStartSummitMusic() {
+    if (this.summitMusicStarted == 1) { return; }
+    this.summitMusicStarted = 1;
+    runtime.audio.music.play(SUMMIT_MUSIC);
+  }
+
+  markGoal(pl) {
+    if (pl.reachedGoal == 1) { return; }
+    pl.reachedGoal = 1;
+    this.celebrateSfx.playOneShot();
+    runtime.audio.vocal.play("cheer");
+    this.tryStartSummitMusic();
+  }
+
   updateMovers(dt) {
     let i = 0;
     while (i < this.movingPlats.length) {
       const m = this.movingPlats[i];
+      // v1 clamps the *right edge* to max (x + w <= max), not the left edge.
       m.x = m.x + MOVING_PLAT_SPEED * m.dir * dt;
       if (m.x < m.min) { m.x = m.min; m.dir = 1; }
-      if (m.x > m.max) { m.x = m.max; m.dir = -1; }
+      if (m.x + m.w > m.max) { m.x = m.max - m.w; m.dir = -1; }
+      m.vx = MOVING_PLAT_SPEED * m.dir;
       m.sprite.setPos(m.x + m.w / 2, m.y);
       i = i + 1;
     }
@@ -179,41 +212,43 @@ class Ylos2Game {
 
     pl.vy = pl.vy + GRAV * dt;
 
+    // v1 edge-triggers grounded jumps (hold does not auto-rejump on land).
     if (jump) {
       if (pl.grounded == 1) {
-        pl.vy = 0 - JUMP_MIN_V;
-        pl.grounded = 0;
-        pl.jumpHoldMs = 0;
+        if (pl.jumpHeld == 0) {
+          pl.vy = 0 - JUMP_MIN_V;
+          pl.grounded = 0;
+          pl.onMover = -1;
+          pl.jumpHoldMs = 0;
+        }
       } else if (pl.jumpHoldMs >= 0 && pl.jumpHoldMs < JUMP_HOLD_MAX_MS && pl.vy < 0) {
         pl.vy = pl.vy - JUMP_HOLD_LIFT * dt;
         if (pl.vy < 0 - JUMP_MAX_V) { pl.vy = 0 - JUMP_MAX_V; }
         pl.jumpHoldMs = pl.jumpHoldMs + dt;
       }
     } else {
-      if (pl.jumpHoldMs >= 0 && pl.vy < 0) { pl.vy = pl.vy * JUMP_CUT; }
+      if (pl.jumpHoldMs > 0 && pl.vy < 0) { pl.vy = pl.vy * JUMP_CUT; }
       pl.jumpHoldMs = -1;
     }
+    pl.jumpHeld = jump ? 1 : 0;
 
     const prevFeet = pl.y + PLAYER_H;
     let newY = pl.y + pl.vy * dt;
     const newFeet = newY + PLAYER_H;
     pl.grounded = 0;
+    pl.onMover = -1;
+    // Landing slack matches v1 (prevFeet <= plat.y + 4).
     if (pl.vy >= 0) {
       let i = 0;
       while (i < BASE_PLATFORMS.length) {
         const p = BASE_PLATFORMS[i];
         if (overlapsX(pl.x, PLAYER_W, p)) {
-          if (prevFeet <= p.y + 1 && newFeet >= p.y) {
+          if (prevFeet <= p.y + 4 && newFeet >= p.y) {
             newY = p.y - PLAYER_H;
             pl.vy = 0;
             pl.grounded = 1;
             pl.lastGroundFeet = p.y;
-            if (i == this.goalIndex && pl.reachedGoal == 0) {
-              pl.reachedGoal = 1;
-              this.celebrateSfx.playOneShot();
-              runtime.audio.vocal.play("cheer");
-              runtime.audio.music.play(SUMMIT_MUSIC);
-            }
+            if (i == this.goalIndex) { this.markGoal(pl); }
           }
         }
         i = i + 1;
@@ -222,10 +257,11 @@ class Ylos2Game {
       while (k < this.movingPlats.length) {
         const m = this.movingPlats[k];
         if (overlapsX(pl.x, PLAYER_W, m)) {
-          if (prevFeet <= m.y + 1 && newFeet >= m.y) {
+          if (prevFeet <= m.y + 4 && newFeet >= m.y) {
             newY = m.y - PLAYER_H;
             pl.vy = 0;
             pl.grounded = 1;
+            pl.onMover = k;
             pl.lastGroundFeet = m.y;
           }
         }
@@ -233,6 +269,26 @@ class Ylos2Game {
       }
     }
     pl.y = newY;
+
+    // Ride moving platforms (v1 carryVx).
+    if (pl.grounded == 1 && pl.onMover >= 0) {
+      const m = this.movingPlats[pl.onMover];
+      pl.x = pl.x + m.vx * dt;
+      if (pl.x < 0) { pl.x = 0; }
+      if (pl.x > BASE_W - PLAYER_W) { pl.x = BASE_W - PLAYER_W; }
+      if (!overlapsX(pl.x, PLAYER_W, m)) {
+        pl.grounded = 0;
+        pl.onMover = -1;
+      }
+    }
+
+    // v1 also finishes by proximity (feet near goal), not only by landing.
+    if (pl.reachedGoal == 0) {
+      if (pl.y + PLAYER_H <= BASE_PLATFORMS[this.goalIndex].y + 22) {
+        this.markGoal(pl);
+      }
+    }
+
     if (pl.y > WORLD_H) { pl.y = 1830 - PLAYER_H; pl.vy = 0; }
 
     pl.sprite.setPos(pl.x + PLAYER_W / 2, pl.y + PLAYER_H / 2);
