@@ -144,9 +144,16 @@ class RgTexturedRenderer2D {
             def scx:int ((floor (sxD + 0.5)) + cx)
             def scy:int ((floor (syD + 0.5)) + cy)
 
-            def atlasH:RgHandle (d.spriteAtlasHandle(sh))
-            def at:RgSpriteAtlas (d.atlasResolve(atlasH))
-            def texH:RgHandle at.textureH
+            ; Atlas-backed sprites sample through the atlas texture; texture-
+            ; backed sprites (RTT / SceneSprite3D) sample textureH directly.
+            def texH:RgHandle (new RgHandle)
+            if (d.spriteUsesTexture(sh)) {
+                texH = (d.spriteTextureHandle(sh))
+            } {
+                def atlasH:RgHandle (d.spriteAtlasHandle(sh))
+                def at:RgSpriteAtlas (d.atlasResolve(atlasH))
+                texH = at.textureH
+            }
             def reg:RgSpriteRegion (d.spriteSrcRegion(sh))
             if (reg.w > 0) {
                 if (reg.h > 0) {

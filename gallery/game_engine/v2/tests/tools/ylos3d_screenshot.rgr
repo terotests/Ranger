@@ -1,0 +1,56 @@
+; ==============================================================================
+; ylos3d_screenshot — hybrid frame with spinning 3D diamond sprites.
+; ==============================================================================
+;   node bin/output.js -es6 gallery/game_engine/v2/tests/tools/ylos3d_screenshot.rgr \
+;     -d=out -o=shot.js && node out/shot.js > s.txt
+;   node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js s.txt ylos3d.png 1
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/RgComposePresenter.rgr"
+
+class Ylos3DScreenshot {
+    sfn hex2:string (v:int) {
+        def d:string "0123456789abcdef"
+        def hi:int (idiv v 16)
+        def lo:int (v - (hi * 16))
+        return ((substring d hi (hi + 1)) + (substring d lo (lo + 1)))
+    }
+    sfn hex6:string (rgb:int) {
+        def r:int (idiv rgb 65536)
+        def g:int (idiv (rgb - (r * 65536)) 256)
+        def b:int ((rgb - (r * 65536)) - (g * 256))
+        return (((Ylos3DScreenshot.hex2(r)) + (Ylos3DScreenshot.hex2(g))) + (Ylos3DScreenshot.hex2(b)))
+    }
+
+    sfn m@(main):void () {
+        def host:RgGameHost (new RgGameHost)
+        if ((host.load("gallery/game_engine/v2/games/ylos3d" "index.tsx")) == false) {
+            print "ERROR: ylos3d failed to load"
+            return
+        }
+        def f 0
+        while (f < 12) {
+            host.frame(33.333)
+            f = (f + 1)
+        }
+        def paneW:int 480
+        def paneH:int 270
+        def sky:int (((50 * 65536) + (120 * 256)) + 180)
+        def fb:RgFramebuffer (RgFramebuffer.create(paneW paneH))
+        def drawn:int (RgComposePresenter.presentPane(host.bridge 0 fb sky))
+        print ("DRAWN " + (to_string drawn))
+        print ("RGBSHOT " + ((to_string paneW) + (" " + (to_string paneH))))
+        def y 0
+        while (y < paneH) {
+            def line:string ""
+            def x 0
+            while (x < paneW) {
+                line = (line + (Ylos3DScreenshot.hex6((fb.at(x y)))))
+                x = (x + 1)
+            }
+            print line
+            y = (y + 1)
+        }
+    }
+}

@@ -102,6 +102,19 @@ class RgCodegen {
         return out
     }
 
+    ; Append one more module schema onto an existing command table.
+    sfn tableAppend:[RgCommand] (table:[RgCommand] schema:RgSchema) {
+        def out:[RgCommand] table
+        def more:[RgCommand] (RgCodegen.commands(schema))
+        def n:int (array_length more)
+        def i 0
+        while (i < n) {
+            push out (itemAt more i)
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; Validate a command table: unique ids, unique names, every id inside a
     ; published module range, argSpec alphabet legal, retSpec legal, and a
     ; "create" effect always returns a handle. Returns violation strings.

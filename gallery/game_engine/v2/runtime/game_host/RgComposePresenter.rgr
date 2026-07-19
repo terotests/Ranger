@@ -1,0 +1,32 @@
+; ==============================================================================
+; RgComposePresenter — execute frame.passes[] then present (PLAN H2 / §6.2).
+; ==============================================================================
+; Reads the global ordered pass list recorded during update. 3D RTT passes are
+; already executed at record time on path A (SW→CPU texture); this presenter
+; re-runs any pending 3D passes then presents each requested pane through the
+; textured 2D backend. Keeps RgGameHost backend-agnostic.
+; ==============================================================================
+
+Import "../../interp/engine/RgRegistryBridge.rgr"
+Import "Rg2DPresenter.rgr"
+
+class RgComposePresenter {
+    ; Present one pane after ensuring 3D RTT producers in frame.passes ran.
+    ; Returns sprites drawn (-1 if the pane has no declared view).
+    sfn presentPane:int (bridge:RgRegistryBridge paneIndex:int fb:RgFramebuffer bgRGB:int) {
+        def n:int (array_length bridge.passes)
+        def i 0
+        while (i < n) {
+            def p:RgFramePass (itemAt bridge.passes i)
+            if (p.kind == 1) {
+                bridge.d3.renderToTexture(p.sceneH p.cam3H p.texH p.width p.height bridge.d2)
+            }
+            i = (i + 1)
+        }
+        return (Rg2DPresenter.presentTextured(bridge paneIndex fb bgRGB))
+    }
+
+    sfn passCount:int (bridge:RgRegistryBridge) {
+        return (array_length bridge.passes)
+    }
+}

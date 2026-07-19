@@ -51,6 +51,7 @@ partially sketched but is **not** a green must-pass.
 | `games/invaders` | [`invaders/`](./invaders/) | thin rewrite; bitmap art TODO | sketch |
 | `games/pacman` | [`pacman/`](./pacman/) | thin maze only (not full level pack) | sketch |
 | `games/sprite_char` | [`sprite_char/`](./sprite_char/) | atlas/AnimationPlayer (TS + Rust); not RGSP1 | sketch |
+| `games/ylos3d` | [`ylos3d/`](./ylos3d/) | hybrid 2D + 3D diamond sprites (PLAN_2D_EMBED_3D path A) | live sketch |
 | `games/cube` | [`cube/`](./cube/) | rewrite → `ranger:three` + `runtime.start` | sketch |
 | `games/teapot` | [`teapot/`](./teapot/) | slim lit teapot; GUI/OrbitControls TODO | sketch |
 | `games/cannon_stack` | [`cannon_stack/`](./cannon_stack/) | `ranger:2d` + `ranger:cannon` dual handles | sketch |

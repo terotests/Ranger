@@ -49,6 +49,8 @@ class TwoDSchema {
         sprite.addMethod((RgMethodDef.cmd(2027 "rg2d_sprite_set_cell" "rg2d_sprite_set_cell" "h:i:i" "v" "none")))
         ; split-screen pane ownership (-1 = all panes; >=0 = only that pane)
         sprite.addMethod((RgMethodDef.cmd(2028 "rg2d_sprite_set_pane" "rg2d_sprite_set_pane" "h:i" "v" "none")))
+        ; Texture-backed sprite (PLAN_2D_EMBED_3D D10) — full TextureView2D
+        sprite.addMethod((RgMethodDef.cmd(2029 "rg2d_sprite_create_tex" "rg2d_sprite_create_tex" "h" "h" "create")))
         s.addClass(sprite)
 
         ; ---- Layer2D (23) ----------------------------------------------------

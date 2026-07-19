@@ -1,0 +1,112 @@
+; ==============================================================================
+; RgRangerThree — thin host arena wrapping ThreeSceneHost for ranger:three.
+; ==============================================================================
+; Guest commands mint OwnedHandles whose payloadIndex is the 1-based Three
+; SceneHost handle. Render-to-texture copies the software backend's RGB buffer
+; into an RgTexture2D (PLAN_2D_EMBED_3D path A: SW 3D → CPU Texture2D → SW 2D).
+; ==============================================================================
+
+Import "../../host/RgRegistry.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+Import "../../three/port/src/three_scene_host.rgr"
+Import "../ranger_2d/RgRanger2D.rgr"
+
+class Rg3DType {
+    sfn scene:int () { return 40 }
+    sfn camera:int () { return 41 }
+    sfn geometry:int () { return 42 }
+    sfn material:int () { return 43 }
+    sfn mesh:int () { return 44 }
+}
+
+class RgRangerThree {
+    def registry:RgRegistry (new RgRegistry)
+    def realmId:int 1
+    def host:ThreeSceneHost (new ThreeSceneHost)
+
+    fn threeH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveSlot(h))
+        if (r.ok == false) { return 0 }
+        return r.payloadIndex
+    }
+
+    fn sceneCreate:OwnedHandle () {
+        def th:int (this.host.sceneNew())
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.scene()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn cameraCreate:OwnedHandle () {
+        def th:int (this.host.cameraNew())
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.camera()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn cameraSet:void (camH:RgHandle fov:double aspect:double near:double far:double) {
+        this.host.cameraSet((this.threeH(camH)) fov aspect near far)
+    }
+
+    fn cameraPose:void (camH:RgHandle px:double py:double pz:double ex:double ey:double ez:double) {
+        this.host.cameraPose((this.threeH(camH)) px py pz ex ey ez)
+    }
+
+    fn geometryBox:OwnedHandle (w:double h:double d:double) {
+        def th:int (this.host.geometryBox(w h d))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn geometryOctahedron:OwnedHandle (radius:double) {
+        def th:int (this.host.geometryOctahedron(radius))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn materialBasic:OwnedHandle (colorHex:int) {
+        def th:int (this.host.materialBasic(colorHex 0 false))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn meshCreate:OwnedHandle (sceneH:RgHandle geoH:RgHandle matH:RgHandle) {
+        def th:int (this.host.meshNew((this.threeH(sceneH)) (this.threeH(geoH)) (this.threeH(matH))))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn meshTransform:void (meshH:RgHandle px:double py:double pz:double ex:double ey:double ez:double) {
+        this.host.entityTransform((this.threeH(meshH)) px py pz ex ey ez 1.0 1.0 1.0)
+    }
+
+    ; SW 3D → CPU Texture2D. Clear colour is keyed to alpha 0 so the gem
+    ; composites cleanly over the 2D world (opaque model over transparent clear).
+    fn renderToTexture:void (sceneH:RgHandle camH:RgHandle texH:RgHandle w:int h:int d2:RgRanger2D) {
+        this.host.renderer.setClearColor(0.0 0.0 0.0)
+        this.host.render((this.threeH(sceneH)) (this.threeH(camH)) w h)
+        def raw:buffer (this.host.raw())
+        def n:int (w * h)
+        def rgb:[int]
+        def alpha:[int]
+        def i 0
+        while (i < n) {
+            def o:int (i * 3)
+            def r:int (buffer_get raw o)
+            def g:int (buffer_get raw (o + 1))
+            def b:int (buffer_get raw (o + 2))
+            def c:int (((r * 65536) + (g * 256)) + b)
+            push rgb c
+            if (((r + g) + b) == 0) {
+                push alpha 0
+            } {
+                push alpha 255
+            }
+            i = (i + 1)
+        }
+        d2.textureUpload(texH w h rgb alpha)
+    }
+
+    fn teardownRealm:int (realmId:int) {
+        return (this.registry.teardownRealm(realmId))
+    }
+}

@@ -1,6 +1,8 @@
 # PLAN — 2D mode embedding 3D objects (v2)
 
 **Status:** architecture approved; **H0 not frozen** — spec revision after review  
+**Progress:** thin H1–H4 path A landed (SW 3D → CPU `Texture2D` → SW 2D) with
+`games/ylos3d` diamond sprites — see gates `rtt_sprite` / `ylos3d_e2e`.  
 **Scope:** `gallery/game_engine/v2/` only  
 **Related:** [`QUESTIONS.md`](./QUESTIONS.md) Q1–Q3, [`BRIDGES.md`](./BRIDGES.md) §6,
 [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) D-2D / D-MODULES / frame pipeline,
@@ -586,51 +588,45 @@ game ports is fine. No v1 path deletion.
 
 | Deliverable | Notes |
 |-------------|--------|
-| `RgTexture2D` CPU and/or GPU backing | Q1; residency tagged on the texture |
-| `TextureView2D` (uv + optional sampler) | Atlas regions produce views |
-| `RgRenderTarget` owns attachments | D11 `colorTexture` / retain rules |
-| Façade `runtime.graphics.createRenderTarget` | |
-| Gate | create/resize/release; retained view outlives RT object for sampling; write-after-RT-release fails typed |
+| `RgTexture2D` CPU and/or GPU backing | **Done (CPU)** — pixels already live; RT init clears transparent |
+| `TextureView2D` (uv + optional sampler) | **Thin:** full-texture `{ texture }` view via façade |
+| `RgRenderTarget` owns attachments | **Thin:** `rgcore_graphics_rt_create` returns colour `Texture2D` |
+| Façade `runtime.graphics.createRenderTarget` | **Done** |
+| Gate | create path green via `rtt_sprite`; resize/release/outlive still TODO |
 
 ### H2 — One global `FramePass` list; 2D passes; load/store semantics
 
 | Deliverable | Notes |
 |-------------|--------|
-| Host `frame.passes: FramePass[]` | Cleared each update boundary |
-| `rg2d_render` appends `Render2DPass` | Not “last view wins” |
-| Destinations: surface / pane / (later RT) | D3; omit = surface.target |
-| `AttachmentOps` + sugar | D9 |
-| `RgComposePresenter` executes list | |
-| Gate | two 2D passes, second `load: load` / `clear: none`; `pass_retains_resources`; `new_target_load_rejected_or_initialized` |
+| Host `frame.passes: FramePass[]` | **Done** — cleared each `RgGameHost.frame` |
+| `rg2d_render` appends `Render2DPass` | **Done** (+ pane bind compat) |
+| Destinations: surface / pane / (later RT) | Pane only in this slice; surface.target TODO |
+| `AttachmentOps` + sugar | TODO |
+| `RgComposePresenter` executes list | **Done** — textured present + re-run 3D RTT |
+| Gate | `pass_retains_resources` / load-store sugar still TODO |
 
 Deprecate behavioural reliance on `attachRenderer`.
 
 ### H3 — RTT proof on a **backend-coherent** path
 
-Pick **one** coherent pair for the first green gate (state which in the PR):
-
-* **A (headless-default):** SW 3D → CPU `Texture2D` → SW 2D sampling, **or**
-* **B (if GL is the live 3D intent):** GPU 3D → GPU `Texture2D` with GPU 2D
-  pulled forward (overlaps H5)
+**Chosen: path A** (SW 3D → CPU `Texture2D` → SW 2D sampling).
 
 | Deliverable | Notes |
 |-------------|--------|
-| Minimal `ranger:three` registration in `RgGameHost` | Opt-in import |
-| `Renderer3D.render(..., { target: rt })` | Appends `Render3DPass`; D-SYNC |
-| Hazard validation | Self-sample rejected |
-| Gate | `rtt_sprite`, `rtt_self_sample_rejected`, `backend_residency_transfer` if any transfer is used |
-
-Until this lands, 3D demos stay on separate hosts.
+| Minimal `ranger:three` registration in `RgGameHost` | **Done** |
+| `Renderer3D.render(..., { target: rt })` | **Done** — appends + executes SW RTT |
+| Hazard validation | Self-sample rejected TODO |
+| Gate | **`rtt_sprite` green**; self-sample / transfer TODO |
 
 ### H4 — Texture-backed `Sprite2D` + minimal `SceneSprite3D`
 
 | Deliverable | Notes |
 |-------------|--------|
-| `Sprite2D({ source })` + atlas sugar | D10; ylos2 keeps compiling |
-| SW or GPU 2D **samples** `TextureView2D` | End of marker-only present for this path |
-| `SceneSprite3D` = RT + `Sprite2D` | `update: "everyFrame" \| "manual"` + `invalidate()` |
-| Auto-insert producer pass | D12 |
-| Gate | `rtt_multiple_consumers`, `scene_sprite_manual_invalidate` |
+| `Sprite2D({ source })` + atlas sugar | **Done** — ylos2 atlas path unchanged |
+| SW or GPU 2D **samples** `TextureView2D` | **Done** — `RgTexturedRenderer2D` |
+| `SceneSprite3D` = RT + `Sprite2D` | **Done** — `everyFrame`/`manual` + `invalidate()`; guest `sync()` |
+| Auto-insert producer pass | Partial — guest `sync()` before 2D; host auto-insert TODO |
+| Gate | **`ylos3d_e2e` green**; multi-consumer / manual-only gates TODO |
 
 ### H5 — Shared-device GPU 2D/3D (if GL is the 3D backend)
 

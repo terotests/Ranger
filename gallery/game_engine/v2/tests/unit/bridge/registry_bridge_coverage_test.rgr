@@ -321,6 +321,71 @@ class RegistryBridgeCoverageTest {
         s.callN("rgcore_launch" lnA)
         t.eqStr("launch request recorded" b.launchRequest "games/ylos2")
 
+        ; ---- graphics RT + texture-backed sprite + ranger:three (PLAN H1–H4)
+        def rtA:[EvalValue]
+        push rtA (s.num(16.0))
+        push rtA (s.num(16.0))
+        def rtTex:int (s.callI("rgcore_graphics_rt_create" rtA))
+        t.ok("graphics rt create" (rtTex > 0))
+        def stxA:[EvalValue]
+        push stxA (s.num((to_double rtTex)))
+        def texSprite:int (s.callI("rg2d_sprite_create_tex" stxA))
+        t.ok("texture-backed sprite" (texSprite > 0))
+
+        def empty3:[EvalValue]
+        def scene3:int (s.callI("rg3d_scene_create" empty3))
+        def cam3:int (s.callI("rg3d_camera_create" empty3))
+        def c3s:[EvalValue]
+        push c3s (s.num((to_double cam3)))
+        push c3s (s.num(40.0))
+        push c3s (s.num(1.0))
+        push c3s (s.num(0.1))
+        push c3s (s.num(10.0))
+        s.callN("rg3d_camera_set" c3s)
+        def c3p:[EvalValue]
+        push c3p (s.num((to_double cam3)))
+        push c3p (s.num(0.0))
+        push c3p (s.num(0.0))
+        push c3p (s.num(3.0))
+        push c3p (s.num(0.0))
+        push c3p (s.num(0.0))
+        push c3p (s.num(0.0))
+        s.callN("rg3d_camera_pose" c3p)
+        def boxA:[EvalValue]
+        push boxA (s.num(1.0))
+        push boxA (s.num(1.0))
+        push boxA (s.num(1.0))
+        def boxG:int (s.callI("rg3d_geometry_box" boxA))
+        def octA:[EvalValue]
+        push octA (s.num(0.8))
+        def octG:int (s.callI("rg3d_geometry_octahedron" octA))
+        def mat3A:[EvalValue]
+        push mat3A (s.num(16711680.0))
+        def mat3:int (s.callI("rg3d_material_basic" mat3A))
+        def mesh3A:[EvalValue]
+        push mesh3A (s.num((to_double scene3)))
+        push mesh3A (s.num((to_double octG)))
+        push mesh3A (s.num((to_double mat3)))
+        def mesh3:int (s.callI("rg3d_mesh_create" mesh3A))
+        def xf3:[EvalValue]
+        push xf3 (s.num((to_double mesh3)))
+        push xf3 (s.num(0.0))
+        push xf3 (s.num(0.0))
+        push xf3 (s.num(0.0))
+        push xf3 (s.num(0.2))
+        push xf3 (s.num(0.4))
+        push xf3 (s.num(0.0))
+        s.callN("rg3d_mesh_transform" xf3)
+        def rtt3:[EvalValue]
+        push rtt3 (s.num((to_double scene3)))
+        push rtt3 (s.num((to_double cam3)))
+        push rtt3 (s.num((to_double rtTex)))
+        push rtt3 (s.num(16.0))
+        push rtt3 (s.num(16.0))
+        s.callN("rg3d_render_to" rtt3)
+        t.ok("three box geometry created" (boxG > 0))
+        t.ok("three octahedron + rtt ok" (octG > 0))
+
         ; ================= COVERAGE DIFF =====================================
         def missing 0
         def nrows:int (array_length b.table)

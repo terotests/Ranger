@@ -154,6 +154,13 @@ class ThreeSceneHost {
         push geometries g
         return (array_length geometries)
     }
+    ; Regular octahedron (diamond) — used by hybrid 2D games as an RTT gem.
+    fn geometryOctahedron:int (radius:double) {
+        def g:ThreeOctahedronGeometry (new ThreeOctahedronGeometry)
+        g.build(radius)
+        push geometries g
+        return (array_length geometries)
+    }
 
     ; --- material (resources) -------------------------------------------------
     fn materialBasic:int (colorHex:int side:int wireframe:boolean) {

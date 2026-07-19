@@ -69,6 +69,13 @@ class CoreSchema {
         launch.addMethod((RgMethodDef.cmd(1050 "rgcore_launch" "rgcore_launch" "s" "v" "none")))
         s.addClass(launch)
 
+        ; ---- Graphics (17) — shared Texture2D / RenderTarget (PLAN H1) -------
+        ; createRenderTarget returns the colour Texture2D handle (the RT owns
+        ; that attachment; guest façades wrap it as RenderTarget.colorTexture).
+        def gfx:RgClassDef (RgClassDef.of(17 "Graphics"))
+        gfx.addMethod((RgMethodDef.cmd(1070 "rgcore_graphics_rt_create" "rgcore_graphics_rt_create" "i:i" "h" "create")))
+        s.addClass(gfx)
+
         return s
     }
 }

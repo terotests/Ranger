@@ -57,6 +57,11 @@ class RgGameHost {
         def twoDir:string (this.v2Root + "/modules/ranger_2d")
         def twoSrc:buffer (buffer_read_file twoDir "ranger_2d.tsx")
         this.engine.registerVirtualModule("ranger:2d" (buffer_to_string twoSrc))
+        ; Opt-in 3D package (PLAN H3) — games that do not import ranger:three
+        ; never touch the Three host arena.
+        def threeDir:string (this.v2Root + "/modules/ranger_three")
+        def threeSrc:buffer (buffer_read_file threeDir "ranger_three.tsx")
+        this.engine.registerVirtualModule("ranger:three" (buffer_to_string threeSrc))
         this.bridge.packageDir = dir
         def game:buffer (buffer_read_file dir file)
         this.engine.loadScript((buffer_to_string game))
@@ -68,6 +73,8 @@ class RgGameHost {
 
     ; ---- frame pipeline -----------------------------------------------------
     fn frame:void (dtMs:double) {
+        ; Clear the global pass list at the update boundary (PLAN D2).
+        this.bridge.clearPasses()
         def keys:[string]
         push keys "dtMs"
         def vals:[EvalValue]

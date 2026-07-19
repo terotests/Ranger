@@ -25,7 +25,17 @@ class SpriteAtlas {
 
 class Sprite2D {
   id = 0;
-  constructor(atlas, regionIndex) { this.id = rg2d_sprite_create(atlas.id, regionIndex); }
+  // Atlas sugar: new Sprite2D(atlas, regionIndex)
+  // Texture view: new Sprite2D({ source: texture.view() })  (PLAN D10)
+  constructor(atlasOrOpts, regionIndex) {
+    if (atlasOrOpts != null && atlasOrOpts.source != null) {
+      const src = atlasOrOpts.source;
+      const tex = src.texture != null ? src.texture : src;
+      this.id = rg2d_sprite_create_tex(tex.id);
+    } else {
+      this.id = rg2d_sprite_create(atlasOrOpts.id, regionIndex);
+    }
+  }
   setPos(x, y) { rg2d_sprite_set_pos(this.id, x, y); }
   setRegion(regionIndex) { rg2d_sprite_set_region(this.id, regionIndex); }
   // destination extent in world units (unset = native region size): a platform

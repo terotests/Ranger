@@ -394,3 +394,55 @@ class ThreeTorusKnotGeometry extends ThreeBufferGeometry {
         return this
     }
 }
+
+; ------------------------------------------------------------------ Octahedron
+; Regular octahedron (diamond) centred at the origin. `radius` is the distance
+; from the centre to each vertex — the silhouette used for 3D "gem" sprites.
+class ThreeOctahedronGeometry extends ThreeBufferGeometry {
+    def isOctahedronGeometry:boolean true
+
+    fn pushFace:void (ax:double ay:double az:double bx:double by:double bz:double cx:double cy:double cz:double) {
+        ; face normal = normalize((b-a) × (c-a))
+        def abx:double (bx - ax)
+        def aby:double (by - ay)
+        def abz:double (bz - az)
+        def acx:double (cx - ax)
+        def acy:double (cy - ay)
+        def acz:double (cz - az)
+        def nx:double ((aby * acz) - (abz * acy))
+        def ny:double ((abz * acx) - (abx * acz))
+        def nz:double ((abx * acy) - (aby * acx))
+        def len:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+        if (len < 0.000001) { len = 1.0 }
+        nx = (nx / len)
+        ny = (ny / len)
+        nz = (nz / len)
+        def base:int (this.vertexCount())
+        this.pushVertex(ax ay az nx ny nz 0.0 0.0)
+        this.pushVertex(bx by bz nx ny nz 1.0 0.0)
+        this.pushVertex(cx cy cz nx ny nz 0.5 1.0)
+        this.pushTriangle(base (base + 1) (base + 2))
+    }
+
+    fn build:ThreeOctahedronGeometry (radius:double) {
+        def r:double radius
+        if (r <= 0.0) { r = 1.0 }
+        def px:double r
+        def nx:double (0.0 - r)
+        def py:double r
+        def ny:double (0.0 - r)
+        def pz:double r
+        def nz:double (0.0 - r)
+        ; upper pyramid (toward +Y)
+        this.pushFace(px 0.0 0.0  0.0 py 0.0  0.0 0.0 pz)
+        this.pushFace(0.0 0.0 pz  0.0 py 0.0  nx 0.0 0.0)
+        this.pushFace(nx 0.0 0.0  0.0 py 0.0  0.0 0.0 nz)
+        this.pushFace(0.0 0.0 nz  0.0 py 0.0  px 0.0 0.0)
+        ; lower pyramid (toward -Y)
+        this.pushFace(px 0.0 0.0  0.0 0.0 pz  0.0 ny 0.0)
+        this.pushFace(0.0 0.0 pz  nx 0.0 0.0  0.0 ny 0.0)
+        this.pushFace(nx 0.0 0.0  0.0 0.0 nz  0.0 ny 0.0)
+        this.pushFace(0.0 0.0 nz  px 0.0 0.0  0.0 ny 0.0)
+        return this
+    }
+}
