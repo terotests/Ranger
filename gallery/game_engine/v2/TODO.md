@@ -14,51 +14,74 @@ Mark checklist items `[x]` when they land and stay green.
 
 ## P0 — SDL / native run readiness (not ready)
 
-v1 runs scripted games with SDL via:
+### How headless works today (for contrast)
+
+v2 games **do** run through the TSX interpreter already — just not in an SDL
+process:
+
+1. Compile a Ranger host/driver with `-es6` (e.g. `tests/e2e/ylos2_e2e_test.rgr`,
+   `tests/tools/ylos2_screenshot.rgr`).
+2. **Node.js** executes that ES6 host.
+3. Host constructs `RgGameHost` → `ComponentEngine.loadScript(…)` **parses and
+   evaluates** the guest `index.tsx` (interpreter, not tsc/esbuild).
+4. Frames + software/textured present write an in-memory `RgFramebuffer`;
+   shots dump RGB → PNG. No window, no `gfx_sdl`.
+
+See [`README.md`](./README.md) “How v2 runs today”.
+
+### What v1 SDL does (target shape)
 
 ```bash
 npm run engine:game-sdl:run -- gallery/game_engine/games/pong/index.tsx
-# → scripting/game_sdl_runner.rgr → C++ → tmp/game-sdl/game_sdl + gfx_sdl.rgr
+# → scripting/game_sdl_runner.rgr → C++ binary → gfx_sdl.rgr (window + input)
 ```
 
-v2 has **no equivalent path**. Headless ES6 e2e (`RgGameHost` + software present)
-works; there is no windowed host that binds SDL I/O into the v2 stack.
+v2 has **no equivalent**. Same guest protocol (`RgGameHost` + interpreter)
+must move from “ES6 under Node” to “C++ binary + SDL bindings”.
 
 ### What already exists (usable building blocks)
 
 | Piece | Status | Notes |
 |-------|--------|-------|
-| `RgGameHost` + `Rg2DPresenter` | live | load TSX → frame; software/textured present into `RgFramebuffer` |
-| Software / textured 2D present | live | Phase 11 SW path; used by e2e + `tests/tools/*_screenshot.rgr` |
-| `bridge.input.setAction(slot, action, down)` | live | e2e / `RgAttractDriver` feed this; guest sees logical actions only |
+| `RgGameHost` + `Rg2DPresenter` | live | load TSX via interpreter → frame; SW/textured present |
+| Software / textured 2D present | live | Phase 11; e2e + `tests/tools/*_screenshot.rgr` |
+| `bridge.input.setAction(slot, action, down)` | live | e2e / `RgAttractDriver`; guest sees logical actions only |
 | v1 `gallery/game_engine/gfx_sdl.rgr` | live (v1) | `gfx_open` / `gfx_present` / input poll — **not wired to v2** |
 | `render/backends/gl/` | scaffold only | README: “after software path works” |
 
-### Missing for “run like v1” (minimum bar)
+### Missing for SDL (checklist)
 
-- [ ] **`npm run engine:v2:sdl` / `engine:v2:sdl:run`** — root `package.json` scripts
-      mirroring `engine:game-sdl` / `engine:game-sdl:run` (build + optional `--run`
-      with a default game path, e.g. `v2/games/ylos2/index.tsx`)
-- [ ] **`gallery/game_engine/scripts/build-v2-sdl.sh`** — Ranger→C++→link SDL2
-      (same shape as `scripts/build-game-sdl.sh`, output under e.g. `tmp/v2-sdl/`)
+**Process / build**
+
+- [ ] **`npm run engine:v2:sdl` / `engine:v2:sdl:run`** — root scripts mirroring
+      `engine:game-sdl` / `:run` (default game e.g. `v2/games/ylos2/index.tsx`)
+- [ ] **`scripts/build-v2-sdl.sh`** — Ranger→C++→link SDL2 (like
+      `build-game-sdl.sh`, output under e.g. `tmp/v2-sdl/`)
+- [ ] **Prove `-l=cpp` on the v2 interpreter stack** — today every suite is
+      `-es6` only. SDL needs `ComponentEngine` + `RgRegistryBridge` + modules
+      to compile and link as a native binary (unproven)
+
+**Bindings (the actual SDL glue)**
+
 - [ ] **v2 SDL shell `.rgr`** (host-side, **not** inside a game folder) — generic
       loop over `RgGameHost`:
       1. `gfx_open` / `gfx_open_gpu`
-      2. poll SDL keys/pads → `bridge.input.setAction(…)` (same action names
-         guests already use: `left` / `right` / `jump` / …)
-      3. `host.frame(dtMs)`
+      2. poll SDL keys/pads → `bridge.input.setAction(…)` (`left` / `right` /
+         `jump` / … — same names guests already use)
+      3. `host.frame(dtMs)` — still the **TSX interpreter** inside the binary
       4. `Rg2DPresenter.presentTextured` (or SW) → blit to SDL
-      5. honour `launch()` via `host.loadLaunched()` like the e2e launcher path
-- [ ] **Framebuffer → `gfx_present` binding** — v2 `RgFramebuffer` is `[int]`
-      `0xRRGGBB`; v1 `gfx_present` expects an RGBA8888 `buffer` (`SoftCanvas.raw()`).
-      Need a pack/blit helper (or present into a SoftCanvas-compatible buffer)
-- [ ] **Prove C++ compile of the v2 interpreter stack** — today every v2 suite
-      is `-es6` only (`tests/run.sh`). The SDL binary needs
-      `ComponentEngine` + `RgRegistryBridge` + modules to compile with `-l=cpp`
-      and link; that path is **unproven**
-- [ ] **Wire default game + smoke** — at least
-      `engine:v2:sdl:run:ylos2` and a short-frame
-      `SDL_VIDEODRIVER=dummy` smoke (parity with `engine:game-sdl:smoke:*`)
+      5. honour `launch()` via `host.loadLaunched()`
+- [ ] **Framebuffer → `gfx_present`** — v2 `RgFramebuffer` is `[int]`
+      `0xRRGGBB`; `gfx_present` wants RGBA8888 `buffer` (`SoftCanvas.raw()`).
+      Need a pack/blit helper
+- [ ] **Smoke** — `engine:v2:sdl:run:ylos2` + short
+      `SDL_VIDEODRIVER=dummy` run (parity with `engine:game-sdl:smoke:*`)
+
+**Do not**
+
+- [ ] Reuse v1 `game_sdl_runner.rgr` as the v2 host — wrong protocol
+      (`GameRunner` vs `RgGameHost`). Staged `v2/web/` / `v2/sprites/` imports of
+      `../gfx_sdl.rgr` still point at **v1** layout.
 
 ### Follow-ons (after the first window opens)
 
@@ -66,9 +89,6 @@ works; there is no windowed host that binds SDL I/O into the v2 stack.
 - [ ] Audio: bridge `vocalCues` / `musicScore` / one-shots → SDL audio
       (v1: `game_audio_sdl.rgr`; v2 only records cues in the bridge today)
 - [ ] Real `render/backends/gl` path (GPU present) — optional once SW→SDL works
-- [ ] Do **not** reuse v1 `game_sdl_runner.rgr` as the v2 host — wrong protocol
-      (`GameRunner` vs `RgGameHost`); staged copies under `v2/web/`, `v2/sprites/`
-      that `Import "../gfx_sdl.rgr"` still point at **v1** layout
 
 ### Intentionally out of scope for “first SDL window”
 
