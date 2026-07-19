@@ -4,6 +4,7 @@ Implementation contract for the game-engine cleanup.
 
 | Section | Contents |
 |---------|----------|
+| **Components and actors** | What each name used in the code comments refers to |
 | **Binding decisions** | D-IDENTITY … D-GEO (below) |
 | **Worked examples** | Camera + physics pose; geometry upload / update / read-back |
 | **Implementation gates** | Required order and tests before calling a migration done |
@@ -13,6 +14,31 @@ Archived inventory and exploratory drafts:
 
 Related: [`docs/ADR-0001-three-scene-host-authority.md`](./docs/ADR-0001-three-scene-host-authority.md),
 [`docs/WASM_MEMORY_ABI.md`](./docs/WASM_MEMORY_ABI.md).
+
+---
+
+# Components and actors
+
+The engine runs game scripts against a host-owned scene. The documents in this
+folder keep referring to the same small set of components; the code comments in
+the worked examples name them with the labels in bold.
+
+| Label | Component | Role |
+|-------|-----------|------|
+| **guest** | The game program | TSX/JS source executed by the interpreter, or Rust / AssemblyScript compiled to WASM. Owns game logic and policy (what should happen). Holds handles to host objects; never holds authoritative scene data. |
+| **interp** | The TSX/JS interpreter | `ComponentEngine.rgr` + `EvalValue.rgr` (today under `gallery/pdf_writer/src/jsx/`). Evaluates guest script; every script value is an `EvalValue`. |
+| **adapter** | The native-object adapter | The interpreter's only route to host objects: `construct` / `getProperty` / `setProperty` / `invokeMethod` (D-ADAPTER). Translates script operations into registry commands and enforces residency and sync boundaries. |
+| **host** | The scene host | `ThreeSceneHost` plus the typed arenas (D-TYPE). Owns the authoritative scene state: cameras, scenes, meshes, geometries, materials. Everything is addressed by integer handles (`cameraH`, `meshH`, `geoH`, …), generation- and realm-tagged (D-HANDLE). |
+| **physics** | The physics subsystem | The `PhysicsWorld` implementation (Cannon port or arcade engine). A separate host subsystem with its own arenas and handles (`worldH`, `bodyH`). A physics body and a drawable mesh are different objects with different handles. |
+| **render** | The renderer backend | GL/SDL or the software rasterizer. Reads host scene state each frame and draws it. Rendering never creates objects and is never a sync boundary for script state (D-SYNC). |
+| **wrapper** | The TSX wrapper classes | `three/tsx/three.tsx` — guest-side classes that imitate the Three.js API so existing Three.js-style code runs unchanged. Target model: thin declarations over the adapter. Today they still build a private scene tree consumed by the temporary reconciler (D-SYNC). |
+| **WASM boundary** | The compiled-guest ABI | For compiled guests there is no interpreter or adapter; the guest calls generated imports and only `i32` values and byte ranges cross (D-WASM, D-WASM-MEM). Command names, handles, and timing rules are the same as on the interpreted path. |
+
+Comment convention in the code examples: comments are prefixed with the actor
+that performs the step — `// guest:`, `// interp:`, `// adapter:`, `// host:`,
+`// physics:`, `// render:`. A line of guest code can involve several actors;
+each gets its own comment line. (Earlier drafts used a single `// bg:` prefix
+for the combined host-side effect; the per-actor comments replace it.)
 
 ---
 
@@ -78,7 +104,7 @@ canonical Ranger object
 ```
 
 **Reconciler status:** `three_tsx_bridge.rgr` remains a **temporary compatibility
-adapter** for demos that still build a façade scene tree and call `reconcile()`.
+adapter** for demos that still build a wrapper scene tree and call `reconcile()`.
 It must not be described as the final architecture.
 
 **Deletion milestone (`RETIRE-RECONCILE`):** when the live adapter covers Mesh /
@@ -133,11 +159,25 @@ Host-backed objects expose **two** property stores:
 Semantics:
 
 ```js
-mesh.nonexistent       // undefined
-mesh.nonexistent()     // TypeError-like: not a function
-mesh.customValue = 123 // allowed expando → dynamic overlay
+mesh.nonexistent
+// adapter: name is neither a registered native prop nor an overlay entry
+// interp:  the read evaluates to undefined; no host call is made
+
+mesh.nonexistent()
+// interp: calling a non-callable/undefined member → TypeError-like error;
+//         the error is raised guest-side, the host is never reached
+
+mesh.customValue = 123
+// adapter: unknown name on write → stored in the guest-side dynamic overlay
+// host:    never sees this value; it lives and dies with the interpreter object
+
 mesh.userData.flags = 1
-mesh.position.z = 5    // native prop → residency / sync rules (D-ADAPTER)
+// adapter: userData is overlay storage by definition — always guest-side
+
+mesh.position.z = 5
+// adapter: "position" is a registered native prop → its declared residency and
+//          sync rules apply (D-ADAPTER); this is not an expando
+// host:    receives the write at the declared sync boundary
 ```
 
 - Unknown property **read** → `undefined` (aligned with D-IDENTITY missing-member).
@@ -174,15 +214,36 @@ geometryRelease(geoH)
     -> at zero: free slot, bump generation (handle may go stale)
 ```
 
+Two revision counters exist and must not be merged:
+
+- `contentRevision` — incremented by data writes (`geometryUpdateRange`,
+  `geometrySetAttribute`). Tells the renderer its cached GPU copy of the
+  vertex data is out of date.
+- `resourceRevision` — incremented by `geometryDisposeBackend` /
+  `materialDisposeBackend`. Tells the renderer its backend objects (buffers,
+  programs) were invalidated even though the data did not change.
+
+The renderer keys its caches on both. `geometryRelease` touches neither — it
+ends the object lifetime (lifetime 1), which is a different event.
+
 Legal after dispose-backend:
 
 ```js
-geometry.dispose();              // → geometryDisposeBackend(geoH)
-mesh.geometry = geometry;        // same geoH, still valid
-renderer.render(scene, camera);  // may recreate GPU buffer from CPU arrays
+geometry.dispose();
+// adapter: invokeMethod(geometry, "dispose")
+// host:    geometryDisposeBackend(geoH) — drops backend caches, bumps
+//          resourceRevision; geoH and the CPU vertex arrays stay valid
+
+mesh.geometry = geometry;
+// adapter: setProperty resolves the same script object to the same geoH
+// host:    meshSetGeometry(meshH, geoH) — no create, no new handle
+
+renderer.render(scene, camera);
+// render:  cache lookup for geoH misses (resourceRevision changed) →
+//          recreates the GPU buffer from the still-valid CPU arrays
 ```
 
-The façade already has empty `dispose()` stubs — wiring them to handle
+The wrapper already has empty `dispose()` stubs — wiring them to handle
 destruction would be a **semantic regression**, not filling a stub.
 
 **Most important split:** object identity ≠ scene membership ≠ GPU resource
@@ -350,6 +411,9 @@ setAttribute(name, data…)
 
 attribute.needsUpdate = true
     -> geometryUpdateRange(geoH, name, first, count, data…)
+    ; the adapter derives (first, count) from the writes it buffered since the
+    ; last flush; if no range was tracked, the fallback is a full-attribute
+    ; update (first=0, count=vertexCount) — still one bulk call, same geoH
 ```
 
 **Two rules for vertex data:**
@@ -384,122 +448,176 @@ The demo matters because game logic almost always does two things scripts own:
 2. **Observe or move object / player positions** (here: copy cannon → mesh each
    frame; the same path is “read player pose” or “teleport player”).
 
-Full guest script (reference). `// bg:` comments state the **host / background**
-effect under the target architecture (D-SYNC). Sections below quote lines again
-as they are explained.
+Full guest script (reference). Comments state, actor by actor, what happens
+when each line executes under the target architecture (D-SYNC) — see
+**Components and actors** for the labels. Sections below quote lines again as
+they are explained.
 
 ```js
-// three.js variables — guest bindings; become NativeRefs to host handles after init
+// three.js variables. Guest-side bindings; after init each holds a NativeRef
+// wrapping a host handle. They are not a second scene graph.
 let camera, scene, renderer
 let mesh
 
-// cannon.js variables — separate physics handles (not Three mesh ids)
+// cannon.js variables. Handles into the physics subsystem — separate arenas
+// and separate handles from the Three scene (bodyH ≠ meshH).
 let world
 let body
 
-initThree()   // create cameraH / sceneH / rendererH / meshH (live)
-initCannon()  // create worldH / bodyH (physics arena)
-animate()     // each frame: step body → copy pose to mesh → render
+initThree()   // host objects are created inside, one per `new` — not later
+initCannon()  // physics objects likewise; physics arenas, not Three arenas
+animate()     // guest frame loop: step physics → copy pose to mesh → render
 
 function initThree() {
   // Camera
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 100)
-  // bg: cameraCreatePerspective(fov, aspect, near, far, realmId) → cameraH
-  //     EvalValue { NativeRef cameraH, identityId }; slot in camera arena
+  // interp:  evaluates `new` on the wrapper class PerspectiveCamera
+  // adapter: construct("PerspectiveCamera", [75, aspect, 1, 100]) — once, here
+  // host:    cameraCreatePerspective(fov, aspect, near, far, realmId) → cameraH;
+  //          allocates a camera-arena slot; pose starts at the origin
+  // interp:  `camera` binds EvalValue{ NativeRef cameraH, identityId }
 
   camera.position.z = 5
-  // bg: cameraSetPosition(cameraH, 0, 0, 5) — live host write, same cameraH
-  //     (hybrid: optional guest Vector3 mirror, then sync boundary on assign)
+  // adapter: getProperty(camera, "position") → hybrid Vector3 mirror bound to
+  //          cameraH, initialized from the host value ((0,0,0) for a new camera)
+  // guest:   writes the z component of the mirror
+  // adapter: a component write on a bound mirror is a declared sync boundary
+  // host:    cameraSetPosition(cameraH, 0, 0, 5) — full vector from the mirror;
+  //          x,y are the mirror's current values (still 0 here). Same cameraH;
+  //          no new object; membership unchanged.
 
   // Scene
   scene = new THREE.Scene()
-  // bg: sceneCreate(realmId) → sceneH in scene arena; no meshes yet
+  // adapter: construct("Scene")
+  // host:    sceneCreate(realmId) → sceneH; scene arena, child list empty
 
   // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true })
-  // bg: rendererCreate({ antialias }) → rendererH
-  //     (on Ranger native: often bind existing gfx_sdl / framebuffer surface)
+  // adapter: construct("WebGLRenderer", { antialias })
+  // host:    rendererCreate({ antialias }) → rendererH — on native Ranger
+  //          targets this usually binds the existing gfx_sdl / framebuffer
+  //          surface rather than creating a new one
 
   renderer.setSize(window.innerWidth, window.innerHeight)
-  // bg: rendererSetSize(rendererH, w, h) — viewport / backend size
+  // adapter: invokeMethod(renderer, "setSize", [w, h])
+  // host:    rendererSetSize(rendererH, w, h) — viewport / backend size only
 
   document.body.appendChild(renderer.domElement)
-  // bg: host presents the surface (DOM on web; SDL window on native — no appendChild)
+  // guest:   DOM call — exists on the web target only
+  // host:    presents the surface; on native SDL there is no DOM step, the
+  //          surface is already on screen
 
   window.addEventListener('resize', onWindowResize)
-  // bg: guest-only; handler issues camera/renderer commands below
+  // guest:   guest-only registration; no host call now. The handler issues
+  //          host commands when it runs (see onWindowResize)
 
   // Box
   const geometry = new THREE.BoxBufferGeometry(2, 2, 2)
-  // bg: geometryBox(2, 2, 2) → geoH; CPU vertex arrays in geometry arena (D-GEO)
+  // (BoxBufferGeometry is the pre-r125 Three.js name for BoxGeometry; both
+  //  lower to the same command)
+  // adapter: construct("BoxBufferGeometry", [2, 2, 2])
+  // host:    geometryBox(2, 2, 2) → geoH — computes the box vertices directly
+  //          into the CPU arrays of a geometry-arena slot; that is the one
+  //          authoritative copy (D-GEO)
 
   const material = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
-  // bg: materialBasic(0xff0000, wireframe=true, …) → matH in material arena
+  // adapter: construct("MeshBasicMaterial", opts)
+  // host:    materialBasic(0xff0000, wireframe=true, …) → matH; material arena
 
   mesh = new THREE.Mesh(geometry, material)
-  // bg: meshCreate(geoH, matH) → meshH; retain(geoH), retain(matH); one host mesh now
+  // adapter: construct("Mesh", [geometry, material]) — resolves both arguments
+  //          by interpreter identity to geoH / matH (same script object →
+  //          same handle, D-IDENTITY)
+  // host:    meshCreate(geoH, matH) → meshH; retain(geoH), retain(matH).
+  //          The host mesh exists from this line on — not from scene.add,
+  //          not from the first render.
 
   scene.add(mesh)
-  // bg: entitySetParent(meshH, sceneH) — membership only; same meshH (D-LIFE)
+  // adapter: invokeMethod(scene, "add", [mesh]) — resolves mesh → meshH
+  // host:    entitySetParent(meshH, sceneH) — membership only (lifetime 2,
+  //          D-LIFE); creates nothing, releases nothing
 }
 
 function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight
-  // bg: cameraSetAspect(cameraH, aspect) — mutates same cameraH
+  // adapter: setProperty(camera, "aspect", value) — plain scalar native prop
+  // host:    cameraSetAspect(cameraH, aspect) — mutates the same cameraH
 
   camera.updateProjectionMatrix()
-  // bg: cameraUpdateProjectionMatrix(cameraH) — recompute projection on host
+  // adapter: invokeMethod(camera, "updateProjectionMatrix")
+  // host:    cameraUpdateProjectionMatrix(cameraH) — recomputes the projection
 
   renderer.setSize(window.innerWidth, window.innerHeight)
-  // bg: rendererSetSize(rendererH, w, h)
+  // host:    rendererSetSize(rendererH, w, h) — viewport change, not a camera op
 }
 
 function initCannon() {
   world = new CANNON.World()
-  // bg: physicsWorldCreate() → worldH (PhysicsWorld / Cannon subsystem)
+  // adapter: construct("CANNON.World")
+  // physics: physicsWorldCreate() → worldH — a new world in the physics subsystem
 
   // Box
   const shape = new CANNON.Box(new CANNON.Vec3(1, 1, 1))
-  // bg: half-extents (1,1,1) match Three box size 2; shape data for bodyCreate
+  // guest:   shape parameters are guest-resident data until attached to a body;
+  //          half-extents (1,1,1) match the Three box of size 2
 
   body = new CANNON.Body({
     mass: 1,
   })
-  // bg: bodyCreate(worldH, mass=1) → bodyH in physics body arena (≠ meshH)
+  // adapter: construct("CANNON.Body", { mass: 1 })
+  // physics: bodyCreate(mass=1) → bodyH in the body arena. The body exists
+  //          without a world — world membership is set by world.addBody below.
+  //          (Object lifetime ≠ membership: the same split as D-LIFE.)
 
   body.addShape(shape)
-  // bg: bodyAddBoxShape(bodyH, 1, 1, 1)
+  // adapter: invokeMethod(body, "addShape", [shape]) — lowers the guest-side
+  //          shape data across the boundary
+  // physics: bodyAddBoxShape(bodyH, 1, 1, 1)
 
   body.angularVelocity.set(0, 10, 0)
-  // bg: bodySetAngularVelocity(bodyH, 0, 10, 0)
+  // adapter: hybrid vector bound to bodyH; set() is a declared sync boundary
+  // physics: bodySetAngularVelocity(bodyH, 0, 10, 0)
 
   body.angularDamping = 0.5
-  // bg: bodySetAngularDamping(bodyH, 0.5)
+  // adapter: setProperty — scalar native prop
+  // physics: bodySetAngularDamping(bodyH, 0.5)
 
   world.addBody(body)
-  // bg: physics world membership for bodyH (like scene.add, but for worldH)
+  // adapter: invokeMethod(world, "addBody", [body]) — resolves body → bodyH
+  // physics: worldAddBody(worldH, bodyH) — membership only; the physics
+  //          counterpart of scene.add
 }
 
 function animate() {
   requestAnimationFrame(animate)
-  // bg: host frame tick schedules next guest update (or rAF on web)
+  // guest:   requests the next tick. rAF on the web; on native the host frame
+  //          loop schedules the next guest update
 
   // Step the physics world
   world.fixedStep()
-  // bg: physicsWorldFixedStep(worldH, dt) — advances bodyH pose in physics arena
+  // physics: physicsWorldFixedStep(worldH, dt) — integrates every body in
+  //          worldH. bodyH now holds the authoritative pose for this frame;
+  //          the Three mesh is stale until the copy below runs.
 
   // Copy coordinates from cannon.js to three.js
   mesh.position.copy(body.position)
-  // bg: (x,y,z) = bodyGetPosition(bodyH); meshSetPosition(meshH, x,y,z)
-  //     live write to drawable; does not create/release meshH
+  // adapter: getProperty(body, "position") — read side
+  // physics: bodyGetPosition(bodyH) → (x, y, z)
+  // adapter: copy() into the mesh position mirror is a sync boundary
+  // host:    meshSetPosition(meshH, x, y, z) — live write to the drawable;
+  //          same meshH, no create, no release
 
   mesh.quaternion.copy(body.quaternion)
-  // bg: (qx..qw) = bodyGetQuaternion(bodyH); meshSetQuaternion(meshH, …)
+  // physics: bodyGetQuaternion(bodyH) → (qx, qy, qz, qw)
+  // host:    meshSetQuaternion(meshH, qx, qy, qz, qw)
 
   // Render three.js
   renderer.render(scene, camera)
-  // bg: rendererRender(rendererH, sceneH, cameraH)
-  //     reads current host poses; no reconcile / no second mesh create
+  // adapter: invokeMethod(renderer, "render", [scene, camera])
+  // host:    rendererRender(rendererH, sceneH, cameraH)
+  // render:  draws from current host state — mesh pose from the copy above,
+  //          camera pose from initThree / onWindowResize. Rendering reads;
+  //          it never creates, reconciles, or syncs script state (D-SYNC).
 }
 ```
 
@@ -532,9 +650,9 @@ is an explicit per-frame (or binding) copy in `animate` — the architecture doe
 not magically merge “physics body” and “drawable mesh” into one id.
 
 ```js
-initThree()   // bg: mint cameraH, sceneH, rendererH, geoH, matH, meshH + parent
-initCannon()  // bg: mint worldH, bodyH; physics membership
-animate()     // bg: enter frame loop (step → copy pose → render)
+initThree()   // host: mints cameraH, sceneH, rendererH, geoH, matH, meshH; parents mesh → scene
+initCannon()  // physics: mints worldH, bodyH; adds the body to the world
+animate()     // guest: frame loop — step physics, copy pose to mesh, render
 ```
 
 Order is intentional: create the drawable + camera first, then the physics twin,
@@ -544,8 +662,10 @@ then the loop that copies physics → mesh and renders through the camera.
 
 ```js
 camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 100)
-// bg: cameraCreatePerspective(75, aspect, 1, 100, realmId) → cameraH
-//     NativeRef in EvalValue; camera-arena payload — not a reconcile later
+// adapter: construct("PerspectiveCamera", args) — the only create for this camera
+// host:    cameraCreatePerspective(75, aspect, 1, 100, realmId) → cameraH (camera arena)
+// interp:  camera binds EvalValue{ NativeRef cameraH, identityId } — nothing is
+//          deferred to a reconcile pass
 ```
 
 Live path (D-SYNC), once:
@@ -564,8 +684,11 @@ camera EvalValue { NativeRef cameraH, identityId }
 
 ```js
 camera.position.z = 5
-// bg: cameraSetPosition(cameraH, 0, 0, 5) — immediate (or end-of-turn) host write
-//     stable cameraH; membership unchanged; no new camera object
+// adapter: position resolves to a hybrid Vector3 mirror bound to cameraH;
+//          the component write is a declared sync boundary
+// host:    cameraSetPosition(cameraH, 0, 0, 5) — full vector from the mirror
+//          (x,y are the mirror's current values, still 0 for a fresh camera);
+//          immediate or end-of-turn, never deferred to render(); same cameraH
 ```
 
 This is the common case: **game / script sets the camera.**
@@ -596,10 +719,14 @@ Important properties:
 ```js
 // later, e.g. follow player
 camera.position.x = mesh.position.x
-// bg: meshGetPosition(meshH) → x; cameraSetPosition component or full vec write
+// host:    meshGetPosition(meshH) → (x, y, z) — read side
+// adapter: writes the camera mirror component and commits cameraSetPosition
 camera.position.y = mesh.position.y + 2
 camera.position.z = mesh.position.z + 5
-// bg: still the same cameraH; script policy, host camera pose for render
+// adapter: the three writes may commit one by one or coalesce into a single
+//          cameraSetPosition at the declared boundary — same cameraH either way
+// guest:   owns the policy (where the camera should be); host owns the pose
+//          the renderer will use
 ```
 
 Each line is `cameraSetPosition` / component set after `meshGetPosition` (or a
@@ -612,11 +739,11 @@ camera pose is authoritative for rendering; the script is authoritative for
 ```js
 function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight
-  // bg: cameraSetAspect(cameraH, aspect)
+  // adapter: setProperty(camera, "aspect") → host: cameraSetAspect(cameraH, aspect)
   camera.updateProjectionMatrix()
-  // bg: cameraUpdateProjectionMatrix(cameraH)
+  // adapter: invokeMethod → host: cameraUpdateProjectionMatrix(cameraH)
   renderer.setSize(window.innerWidth, window.innerHeight)
-  // bg: rendererSetSize(rendererH, w, h)
+  // host: rendererSetSize(rendererH, w, h) — viewport only, no camera change
 }
 ```
 
@@ -633,16 +760,18 @@ not a GPU resource `dispose()`.
 
 ```js
 scene = new THREE.Scene()
-// bg: sceneCreate(realmId) → sceneH in scene arena; empty graph
+// adapter: construct("Scene")
+// host:    sceneCreate(realmId) → sceneH — scene arena, empty graph
 ```
 
 ```js
 renderer = new THREE.WebGLRenderer({ antialias: true })
-// bg: rendererCreate({ antialias }) → rendererH (or bind host framebuffer)
+// host: rendererCreate({ antialias }) → rendererH — or bind the existing host surface
 renderer.setSize(window.innerWidth, window.innerHeight)
-// bg: rendererSetSize(rendererH, w, h)
+// host: rendererSetSize(rendererH, w, h)
 document.body.appendChild(renderer.domElement)
-// bg: present surface (web DOM / native SDL — no guest-owned GPU objects)
+// guest: DOM call on the web target only
+// host:  presents the surface; the guest never owns GPU objects on either target
 ```
 
 On Ranger hosts the “canvas” is often the SDL / framebuffer surface already
@@ -656,16 +785,19 @@ rendererSetSize(rendererH, w, h)
 
 ```js
 const geometry = new THREE.BoxBufferGeometry(2, 2, 2)
-// bg: geometryBox(2,2,2) → geoH; CPU arrays in geometry arena
+// adapter: construct → host: geometryBox(2,2,2) → geoH; CPU arrays in the
+//          geometry arena (BoxBufferGeometry = pre-r125 name of BoxGeometry)
 
 const material = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
-// bg: materialBasic(…) → matH
+// host: materialBasic(0xff0000, wireframe, …) → matH — material arena
 
 mesh = new THREE.Mesh(geometry, material)
-// bg: meshCreate(geoH, matH) → meshH; retain geo/mat — mesh is real now
+// adapter: resolves geometry / material by identity → geoH, matH
+// host:    meshCreate(geoH, matH) → meshH; retain(geoH), retain(matH) —
+//          the host mesh exists from this line
 
 scene.add(mesh)
-// bg: entitySetParent(meshH, sceneH) — membership only; same meshH
+// host: entitySetParent(meshH, sceneH) — membership only; same meshH
 ```
 
 Line-by-line (D-GEO + D-SYNC + D-LIFE):
@@ -681,7 +813,7 @@ Not allowed under the target model:
 
 - `new Mesh` creates nothing, then `reconcile()` creates `meshH` later.
 - `scene.add` clones geometry/material into new handles (today’s `buildMeshH`
-  bug — II.E).
+  bug — [`CODE_CLEANUP_OLD.md`](./CODE_CLEANUP_OLD.md) II.E).
 - `scene.add` as the moment the mesh “becomes real.”
 
 Default mesh pose is identity at the origin until physics (or script) writes it.
@@ -691,24 +823,27 @@ Default mesh pose is identity at the origin until physics (or script) writes it.
 ```js
 function initCannon() {
   world = new CANNON.World()
-  // bg: physicsWorldCreate() → worldH
+  // physics: physicsWorldCreate() → worldH
 
   const shape = new CANNON.Box(new CANNON.Vec3(1, 1, 1))
-  // bg: box half-extents for the upcoming body (matches Three size 2)
+  // guest: shape data stays guest-side until addShape; half-extents (1,1,1)
+  //        match the Three box of size 2
 
   body = new CANNON.Body({
     mass: 1,
   })
-  // bg: bodyCreate(worldH, mass=1) → bodyH  (≠ meshH)
+  // physics: bodyCreate(mass=1) → bodyH (≠ meshH). The body exists without a
+  //          world; membership comes from world.addBody below (object ≠
+  //          membership, the D-LIFE split)
 
   body.addShape(shape)
-  // bg: bodyAddBoxShape(bodyH, 1,1,1)
+  // physics: bodyAddBoxShape(bodyH, 1,1,1)
   body.angularVelocity.set(0, 10, 0)
-  // bg: bodySetAngularVelocity(bodyH, 0,10,0)
+  // adapter: hybrid vector; set() commits → physics: bodySetAngularVelocity(bodyH, 0,10,0)
   body.angularDamping = 0.5
-  // bg: bodySetAngularDamping(bodyH, 0.5)
+  // physics: bodySetAngularDamping(bodyH, 0.5)
   world.addBody(body)
-  // bg: add bodyH to worldH membership
+  // physics: worldAddBody(worldH, bodyH) — membership only
 }
 ```
 
@@ -718,12 +853,12 @@ the Three mesh arena:
 | Guest line | Host effect |
 |------------|-------------|
 | `new CANNON.World()` | `physicsWorldCreate() → worldH` |
-| `new CANNON.Box(Vec3(1,1,1))` | half-extents (1,1,1) match the Three box of size 2 |
-| `new CANNON.Body({ mass: 1 })` | `bodyCreate(worldH, mass=1) → bodyH` |
+| `new CANNON.Box(Vec3(1,1,1))` | guest-side shape data; half-extents (1,1,1) match the Three box of size 2 |
+| `new CANNON.Body({ mass: 1 })` | `bodyCreate(mass=1) → bodyH` — created without world membership |
 | `body.addShape(shape)` | `bodyAddBoxShape(bodyH, 1,1,1)` |
 | `body.angularVelocity.set(0,10,0)` | `bodySetAngularVelocity(bodyH, 0,10,0)` |
 | `body.angularDamping = 0.5` | `bodySetAngularDamping(bodyH, 0.5)` |
-| `world.addBody(body)` | membership in the physics world (analogous to `scene.add`, but for `worldH`) |
+| `world.addBody(body)` | `worldAddBody(worldH, bodyH)` — membership only (analogous to `scene.add`, but for `worldH`) |
 
 `bodyH` and `meshH` stay distinct. Game logic that “moves the player” must say
 which side is authoritative this frame (usually physics), then copy.
@@ -733,21 +868,21 @@ which side is authoritative this frame (usually physics), then copy.
 ```js
 function animate() {
   requestAnimationFrame(animate)
-  // bg: schedule next frame / guest update
+  // guest: requests the next tick (rAF on web; host frame loop on native)
 
   // Step the physics world
   world.fixedStep()
-  // bg: physicsWorldFixedStep(worldH, dt) — bodyH pose advances
+  // physics: physicsWorldFixedStep(worldH, dt) — bodyH pose advances
 
   // Copy coordinates from cannon.js to three.js
   mesh.position.copy(body.position)
-  // bg: bodyGetPosition(bodyH) → meshSetPosition(meshH, …)
+  // physics: bodyGetPosition(bodyH) → host: meshSetPosition(meshH, …)
   mesh.quaternion.copy(body.quaternion)
-  // bg: bodyGetQuaternion(bodyH) → meshSetQuaternion(meshH, …)
+  // physics: bodyGetQuaternion(bodyH) → host: meshSetQuaternion(meshH, …)
 
   // Render three.js
   renderer.render(scene, camera)
-  // bg: rendererRender(rendererH, sceneH, cameraH)
+  // host: rendererRender(rendererH, sceneH, cameraH); render: draws host state
 }
 ```
 
@@ -755,7 +890,8 @@ function animate() {
 
 ```js
 world.fixedStep()
-// bg: physicsWorldFixedStep(worldH, dt) — advances bodyH in the physics arena
+// physics: physicsWorldFixedStep(worldH, dt) — integrates every body in worldH;
+//          bodyH now holds the frame's authoritative simulation pose
 ```
 
 After this, **authoritative simulation pose** is on `bodyH`. The Three mesh is
@@ -765,9 +901,11 @@ stale until the copy lines run.
 
 ```js
 mesh.position.copy(body.position)
-// bg: bodyGetPosition(bodyH) → meshSetPosition(meshH, x,y,z)
+// adapter: getProperty(body, "position") → physics: bodyGetPosition(bodyH)
+// adapter: copy() into the mesh position mirror commits the write
+// host:    meshSetPosition(meshH, x, y, z)
 mesh.quaternion.copy(body.quaternion)
-// bg: bodyGetQuaternion(bodyH) → meshSetQuaternion(meshH, qx,qy,qz,qw)
+// physics: bodyGetQuaternion(bodyH) → host: meshSetQuaternion(meshH, qx,qy,qz,qw)
 ```
 
 This is the core “game logic moves / mirrors the object” pattern:
@@ -789,10 +927,12 @@ new `meshH` or a new geometry.
 
 ```js
 // observe player drawable pose
-const p = mesh.position   // meshGetPosition(meshH) → guest Vector3 mirror
+const p = mesh.position
+// adapter: getProperty → host: meshGetPosition(meshH) → guest Vector3 mirror
 
 // or observe simulation pose (preferred for gameplay fairness)
-const bp = body.position  // bodyGetPosition(bodyH)
+const bp = body.position
+// adapter: getProperty → physics: bodyGetPosition(bodyH) → guest mirror
 ```
 
 **Write path (teleport / scripted move):** decide authority, then set both if
@@ -800,15 +940,18 @@ both exist:
 
 ```js
 // script teleports player
-body.position.set(x, y, z)           // bodySetPosition(bodyH, x,y,z)
-body.velocity.set(0, 0, 0)           // clear residual motion if needed
-mesh.position.copy(body.position)    // keep drawable in sync same frame
+body.position.set(x, y, z)
+// physics: bodySetPosition(bodyH, x,y,z) — simulation pose is now authoritative
+body.velocity.set(0, 0, 0)
+// physics: bodySetVelocity(bodyH, 0,0,0) — clear residual motion if needed
+mesh.position.copy(body.position)
+// host: meshSetPosition(meshH, x,y,z) — drawable matches within the same frame
 ```
 
 Never only move `mesh` if the next `fixedStep` will overwrite from `body`
 (unless the body is kinematic and you write the body too).
 
-Lifetime diagram for one frame:**
+**Data flow for one frame:**
 
 ```
 bodyH (physics arena) --fixedStep--> new pose
@@ -830,7 +973,8 @@ renderer.render(sceneH, cameraH)
 
 ```js
 renderer.render(scene, camera)
-// bg: rendererRender(rendererH, sceneH, cameraH) — current host poses only
+// adapter: invokeMethod → host: rendererRender(rendererH, sceneH, cameraH)
+// render:  draws from current host state only — reads, never creates or reconciles
 ```
 
 Uses **current** host poses: mesh from the copy lines, camera from W.2
@@ -841,7 +985,7 @@ Uses **current** host poses: mesh from the copy lines, camera from W.2
 | Incorrect behavior | Why it fails this demo |
 |--------------------|------------------------|
 | Reconcile creates `meshH` on first `render` | `mesh.position.copy` in `animate` would have no stable target; double-create risk |
-| `camera.position.z = 5` only stored on façade | Rendered view ignores script camera policy |
+| `camera.position.z = 5` stored only in the wrapper, never sent to the host | Rendered view ignores script camera policy |
 | `mesh.position.copy` allocates a new mesh/geo | Handle identity breaks; physics pairing lost |
 | `scene.remove(mesh)` disposes geometry | Shared resources + revive patterns break (D-LIFE) |
 | `body` and `mesh` forced to one handle | Physics step and drawable attach have different lifetimes / arenas |
@@ -868,30 +1012,41 @@ bulk upload, mutation + GPU revision, read-back through the same handle.
 
 ```js
 const vertices = new Float32Array([1, 1, 1,  -1, -1, 1,  -1, 1, -1 /* … */])
+// guest: staging array in guest memory; stops being authoritative after upload
+
 const material = new THREE.MeshBasicMaterial({ color: 0xff0000 })
-// bg: materialBasic(…) → matH
+// host: materialBasic(…) → matH
 
 const g = new THREE.BufferGeometry()
-// bg: geometryCreateEmpty() → geoH  (stable from here; no attributes yet)
+// adapter: construct("BufferGeometry")
+// host:    geometryCreateEmpty() → geoH — stable from here; no attributes yet (D-GEO)
 
 g.setAttribute('position', new THREE.BufferAttribute(vertices, 3))
-// bg: geometrySetAttribute(geoH, "position", span<f32>, itemSize=3)
-//     one bulk copy into host geometry arrays (D-WASM-MEM); not a new geoH
+// adapter: invokeMethod — lowers the whole typed array as one span
+// host:    geometrySetAttribute(geoH, "position", span<f32>, itemSize=3)
+//          one bulk copy into the host CPU arrays (D-WASM-MEM); same geoH.
+//          The guest array is now just a stale local copy.
 
 const m = new THREE.Mesh(g, material)
-// bg: meshCreate(geoH, matH) → meshH; retain(geoH)
+// adapter: identity(g) → geoH
+// host:    meshCreate(geoH, matH) → meshH; retain(geoH), retain(matH)
 
 scene.add(m)
-// bg: entitySetParent(meshH, sceneH)
+// host: entitySetParent(meshH, sceneH) — membership only
 
 g.attributes.position.setXYZ(0, 2, 3, 4)
+// adapter: buffers the write against the attribute mirror; no host call yet
 g.attributes.position.needsUpdate = true
-// bg: geometryUpdateRange(geoH, "position", 0, 1, data)
-//     overwrites CPU arrays; bumps contentRevision; same geoH; meshH unchanged
+// adapter: needsUpdate is the declared flush boundary for buffered writes
+// host:    geometryUpdateRange(geoH, "position", first=0, count=1, data)
+//          overwrites the CPU range, bumps contentRevision; geoH and meshH unchanged
+// render:  next frame sees the changed contentRevision and re-uploads the buffer
 
 const x = g.attributes.position.getX(0)
-// bg: geometryReadPositions(geoH, 0, 1, out) → x === 2
-//     same handle that created / rendered the geometry
+// adapter: read through the same handle
+// host:    geometryReadPositions(geoH, first=0, count=1, out) → x === 2
+//          answered from the same arrays the renderer draws — not from the
+//          guest's original staging array
 ```
 
 Required effects (no alternatives):
