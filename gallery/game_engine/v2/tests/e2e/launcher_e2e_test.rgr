@@ -59,8 +59,9 @@ class LauncherE2ETest {
 
         t.ok("host honoured the launch request (fresh realm)" (host.loadLaunched()))
         host.loadFixture("gallery/game_engine/v2/games/ylos2/tests" "probe.tsx")
-        t.eqInt("launched game built its scene (2 players + 12 enemies)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 14)
+        ; Match ylos2_e2e: walk + super per player, twelve skeleton enemies.
+        t.eqInt("launched game built its scene (2+2 players + 12 enemies)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 16)
         def y0:double (host.callSlot("playerY" 0))
         def f 0
         while (f < 90) {
