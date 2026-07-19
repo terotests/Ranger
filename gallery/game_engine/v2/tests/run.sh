@@ -168,6 +168,8 @@ run_suite modules/ranger_core/tests/devices_test
 # headless music: score parse -> beat schedule -> equal-tempered PCM synth
 # (self-contained under v2/audio; the SDL gfx_audio_* sink consumes this PCM)
 run_suite audio/tests/audio_score_test
+# a v1-faithful one-shot: clip synth-spec → bridge → GameAudio → REAL, non-silent PCM
+run_suite tests/unit/audio/one_shot_pcm_test
 
 # ---- BRIDGES.md steps 1–2 — schema rows + generic registry bridge ------------
 run_suite registry/schema/tests/bridge_schema_test

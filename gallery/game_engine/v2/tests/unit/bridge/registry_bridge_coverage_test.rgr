@@ -286,6 +286,10 @@ class RegistryBridgeCoverageTest {
         t.eqInt("asset atlas resolves region by name" (s.callI("rg2d_atlas_region_index" riA2)) 1)
 
         def clipArgs:[EvalValue]
+        push clipArgs (s.num(660.0))
+        push clipArgs (s.num(220.0))
+        push clipArgs (s.num(0.4))
+        push clipArgs (s.num(0.0))
         def clipH:int (s.callI("rgcore_audio_clip_create" clipArgs))
         def srcA:[EvalValue]
         push srcA (s.num((to_double clipH)))

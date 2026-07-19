@@ -30,6 +30,12 @@ class RgAudioType {
 
 class RgAudioClip {
     def resourceRevision:int 0
+    ; synth-spec: a v1-faithful one-shot is a synthesised tone burst, so the clip
+    ; carries the tone parameters the mixer feeds to GameAudio.synthTone.
+    def freqHz:double 440.0
+    def durationMs:int 80
+    def volume:double 0.35
+    def wave:int 0
 }
 
 class RgAudioSource {
@@ -107,12 +113,28 @@ class RgAudio {
     }
 
     ; ---- clip ---------------------------------------------------------------
-    fn clipCreate:OwnedHandle () {
+    fn clipCreate:OwnedHandle (freqHz:double durationMs:int volume:double wave:int) {
         def idx:int (this.allocClip())
         def c:RgAudioClip (itemAt this.clips idx)
         c.resourceRevision = 0
+        c.freqHz = freqHz
+        c.durationMs = durationMs
+        c.volume = volume
+        c.wave = wave
         def h:RgHandle (this.registry.alloc(this.realmId (RgAudioType.clip()) idx))
         return (OwnedHandle.own(h))
+    }
+
+    ; Resolve a source to its retained clip's synth spec (the one-shot PCM path).
+    ; Returns a neutral default clip if either handle fails to resolve — the
+    ; mixer must never crash on a stale source.
+    fn sourceClip:RgAudioClip (sourceH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(sourceH (RgAudioType.source())))
+        if (r.ok == false) { return (new RgAudioClip) }
+        def s:RgAudioSource (itemAt this.sources r.payloadIndex)
+        def rc:RgResolve (this.registry.resolveTyped(s.clipH (RgAudioType.clip())))
+        if (rc.ok == false) { return (new RgAudioClip) }
+        return (itemAt this.clips rc.payloadIndex)
     }
 
     fn clipDisposeBackend:RgResolve (clipH:RgHandle) {

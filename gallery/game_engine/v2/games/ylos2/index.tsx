@@ -178,8 +178,9 @@ class Ylos2Game {
     this.cam2 = new TWO.Camera2D();
     this.renderer = new TWO.Renderer2D();
     runtime.surface.attachRenderer(this.renderer);
-    // clip ≠ source (D-LIFE): the source is created from an explicit clip
-    const clip = runtime.audio.createClip();
+    // clip ≠ source (D-LIFE): the source is created from an explicit clip. The
+    // clip carries a synth spec, so the one-shot is a REAL celebratory ding.
+    const clip = runtime.audio.createClip({ freqHz: 660, durationMs: 220, volume: 0.4 });
     this.celebrateSfx = runtime.audio.createSource(clip);
 
     // moving platforms are immediate-drawn each frame (v1 entities), not sprites
