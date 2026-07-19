@@ -705,12 +705,17 @@ PoseBinding2D { bodyH → spriteH }   // weak, generation-checked (D-OWN)
 Destroying either side invalidates the binding; the binding must not keep body
 or sprite alive.
 
-### What this retires (after parity)
+### What this retires (after parity) — v2-scoped only
 
-Fixed sprite-slot ABIs as the *primary* identity, runner-specific sheet
-manifests, host-only character animation clocks, and incompatible Camera2D
-implementations — tracked as D-2D migration gates in
+Fixed sprite-slot ABIs as the *primary* identity **for new v2 code**,
+runner-specific sheet manifests **staged under v2**, host-only character
+animation clocks **in the v2 path**, and incompatible Camera2D implementations
+— tracked as D-2D migration gates in
 [`CODE_CLEANUP_PLAN.md`](./CODE_CLEANUP_PLAN.md).
+
+**v1 freeze:** retirement does **not** delete `scripting/game_sprite.rgr`, v1
+sheet runners, or other engine paths that still-supported top-level `games/*`
+need. v2 is additive; v1 keeps running until an explicit end-of-v1 milestone.
 
 ---
 
@@ -740,16 +745,22 @@ import {
 ```text
 ranger:core
 ├─ runtime / game loop          runtime.start(game)
-├─ surface and display          runtime.surface.size, attachRenderer
+├─ surface and display
+│  ├─ size / title / cursor / fullscreen
+│  ├─ attachRenderer(…)
+│  └─ viewports / panes         split-screen (see below)
 ├─ input
 │  ├─ keyboard / mouse / touch / gamepads
 │  ├─ action maps               logical actions, not gamepads[0]
 │  ├─ player assignment         runtime.input.player(i)
+│  │                            (may be scoped per viewport / pane)
 │  └─ haptics                   player.rumble(…)
 ├─ audio
 │  ├─ clips / sources / voices  separate identities (below)
 │  ├─ listener                  attachTo(camera)
-│  └─ mixer buses
+│  ├─ mixer buses
+│  ├─ vocal FX                  runtime.audio.vocal.play(cue)
+│  └─ music score               runtime.audio.music.play / stop
 ├─ asset loading                loadAudio / loadModel / loadSpriteAtlas / …
 ├─ timing                       FrameInfo.delta, fixedDelta
 ├─ logging                      runtime.log.*
@@ -957,6 +968,66 @@ Today the interpreter binds every imported top-level name into one shared
   capability roots; a stale namespace object fails like a stale handle
   (epoch bump), it does not half-work.
 
+### Surface viewports / split-screen
+
+Kids’ two-player titles (ylos2 `splitScreen=auto`, pyorretris2p, …) need more
+than one `Camera2D`. The surface owns **panes** (viewports); cameras render
+into them.
+
+```ts
+// Conceptual — exact names land in the registry
+runtime.surface.setLayout("split-horizontal") // or explicit pane rects
+const left = runtime.surface.pane(0)   // { x, y, width, height, player?: 0 }
+const right = runtime.surface.pane(1)
+
+renderer2d.render(scene, cameraP1, { target: left })
+renderer2d.render(scene, cameraP2, { target: right })
+```
+
+Rules:
+
+- Panes are runtime-owned rectangles on the single surface (not separate
+  windows). Layout may be `single`, `split-horizontal`, `split-vertical`, or
+  an explicit list of normalized rects.
+- Each pane may bind a **logical player** for input routing
+  (`runtime.input.player(i)` already exists; pane binding makes
+  pointer/gamepad focus unambiguous in split layouts).
+- `Camera2D.viewport` may default to the full surface; when rendering to a
+  pane, the effective viewport is the pane rect (same camera math — D-2D).
+- Software and GPU backends must honor the same pane → scissor/viewport
+  mapping.
+- Single-player games ignore panes (one full-surface default).
+
+Without this, ylos2-class ports cannot express the gameplay kids already have.
+
+### Audio: vocal FX and music score
+
+Clip / source / voice remain the primitive model. Two **higher-level**
+facades that v1 games already rely on must have a home on `ranger:core`
+(not left as undefined TS-only runners):
+
+```ts
+// Vocal FX — short expressive one-shots (chuckle, gasp, …)
+runtime.audio.vocal.play("chuckle")
+// host: resolves a catalog or generated cue → playOneShot on a voice bus
+//       (implementation may be synth or sample bank; identity is the cue name)
+
+// Music score — start/stop a named procedural or sequenced score
+runtime.audio.music.play(scoreHandleOrName)
+runtime.audio.music.stop()
+```
+
+Rules:
+
+- Vocal FX and music are **not** a second ownership universe: they mint or
+  reuse `AudioSource` / mixer-owned voices under the hood (D-OWN / D-LIFE).
+- Catalog cue names are realm-scoped assets or built-in packs loaded through
+  `runtime.assets` where applicable (D-ASYNC).
+- Ports **may** temporarily map `voiceEvent` / `musicScoreEvent` to plain
+  `playOneShot` clips, but that is a **port-local** choice and must be
+  documented on the game — the contract still requires the facades so
+  ylos2-class titles are not stuck.
+
 ### Frame pipeline (`runtime.start`)
 
 The host owns the tick; physics stepping and rendering are **guest-called
@@ -964,13 +1035,14 @@ inside `update`**. That is the one model — runtime-owned stepping/rendering is
 not a silently supported alternative.
 
 ```
-1. host:  snapshot input                 (stable for the whole update call)
+1. host:  snapshot input                 (stable for the whole update call;
+                                          per-pane / per-player routing applied)
 2. host:  drain async completions        (D-ASYNC — futures/promises resolve here)
-3. host:  deliver resize, if any         (never mid-update)
+3. host:  deliver resize / pane layout, if any   (never mid-update)
 4. host:  call game.update(frame)
 5. guest:   zero or more world.fixedStep calls    (guest policy)
-6. guest:   renderer.render(scene, camera)        (explicit; reads host state)
-7. host:  submit audio + graphics, present the surface
+6. guest:   zero or more renderer.render(scene, camera[, pane])
+7. host:  submit audio (SFX, vocal FX, music) + graphics, present the surface
 8. host:  advance input edges            (wasPressed / wasReleased clear)
 ```
 
@@ -982,8 +1054,8 @@ Rules:
   `shutdown`, then tears the realm down (D-OWN backstop) — it does not retry.
 - Zero render calls in an update → the host re-presents the previous frame's
   output; it never renders implicitly (D-SYNC). Multiple render calls are
-  allowed (offscreen targets); the last render to the presented surface is
-  what step 7 shows.
+  allowed (offscreen targets and **split panes**); presents compose pane
+  results to the surface.
 - Input values are stable across one `update` call; edge states advance only
   at step 8.
 
@@ -2722,7 +2794,8 @@ ranger_wasm::export_game!(SpriteGame);
 9. Migrate demos (2D **and** 3D) to live objects + `runtime.start(Game)` /
    `ranger_wasm::export_game!` (D-SYNC, D-MODULES, D-2D).
 10. Delete structural reconciliation (`RETIRE-RECONCILE`) and retired sprite
-    slot/manifest paths after D-2D parity.
+    slot/manifest paths **under v2** after D-2D parity — **not** v1
+    `scripting/game_sprite` / runners while top-level games remain supported.
 
 **Required test gates:**
 
