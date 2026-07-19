@@ -14,11 +14,16 @@ Cross-cutting gates live under [`tests/`](./tests/) (harness
 `tests/harness/RgTest.rgr`). From the repo root:
 
 ```bash
-bash gallery/game_engine/v2/tests/run.sh
+npm run engine:v2:test
+# same as: bash gallery/game_engine/v2/tests/run.sh
 ```
 
 Compiles every registered suite to ES6, runs it under Node, and prints
 `v2 ALL GREEN — N/N suites passed` (non-zero exit on any failure).
+
+**SDL / native window:** not ready. v1 still uses `npm run engine:game-sdl:run`;
+v2 has headless host + software present only. Gaps and the target
+`engine:v2:sdl` / `engine:v2:sdl:run` scripts are tracked in [`TODO.md`](./TODO.md).
 
 - `tests/unit/*` and `tests/contract/*` are the cross-cutting gates
 - Folder-local `*_test.rgr` suites under interp/host/bridge/… are wired into
