@@ -9,13 +9,30 @@ We are **building the engine again under `gallery/game_engine/v2/`** — not
 patching the reconciler-era tree into shape. That includes a **new `v2/games/`
 folder**.
 
+### Intent: v1 keeps running the whole time
+
+**v2 is additive.** The goal is a parallel, unit-testable stack — not to
+downgrade, break, or strip the runtime that kids’ titles (chess, ylos2, …)
+use today. Until an explicit, later decision retires v1 support:
+
+| Guarantee | Meaning |
+|-----------|---------|
+| **v1 games keep working** | Top-level `games/*` continue to launch on the **v1** engine paths (`scripting/game_sprite.rgr`, TS runners, sheet manifests, etc.). |
+| **v1 engine paths are frozen** | Do **not** delete or “clean up” `scripting/`, v1 sprite runners, or sheet machinery as part of D-2D-7…10 / Phase 12. Those retirements apply only to **v2-staged** copies (e.g. `v2/sprites/*`) and to **v2** call sites after parity. |
+| **No silent runtime removal** | Keeping game *sources* while deleting the v1 runtime they need is treated as destroying the games — forbidden. |
+| **`RETIRE-RECONCILE` scope** | Touches the 3D `three/tsx` reconciler path only — not 2D GameRunner / `game_sprite` used by chess and ylos2. |
+
+v2 ports prove the new API; they do **not** license ripping out v1 until a
+dedicated “end v1 support” milestone says so.
+
 | Rule | Meaning |
 |------|---------|
-| **New tree is authoritative** | Interpreter, host arenas, WASM bridge, modules, runtime, render, and games all land in `v2/`. |
-| **Do not delete the old tree** | Existing `games/`, `three/`, `scripting/`, `physics/`, `wasm/`, etc. stay in place as reference and as the still-running v1 demos. |
-| **Select games, re-implement on the new API** | Pick titles that matter (they are not very large yet). Port each into `v2/games/<name>/` against `ranger:core` / `ranger:three` / `ranger:cannon` (or `ranger_wasm`), not against the old reconciler wrappers. |
+| **New tree is where new work lands** | Interpreter (v2), host arenas, WASM bridge, modules, runtime, render, and **v2** games land in `v2/`. |
+| **Do not delete the old tree** | Existing `games/`, `three/`, `scripting/`, `physics/`, `wasm/`, etc. stay in place — as the **still-running** v1 stack and as reference. |
+| **Select games, re-implement on the new API** | Pick titles that matter. Port each into `v2/games/<name>/` against `ranger:core` / `ranger:2d` / `ranger:three` / `ranger:cannon` (or `ranger_wasm`). **Must-pass ports:** chess, ylos2 (see `v2/games/README.md`). |
 | **Copy or rewrite by maturity** | If an old game is already close to the target API, **copy** it into `v2/games/` and adapt. If it is tangled with the old bridge/reconciler, **rewrite** it small on the new API — do not drag the tangle forward. |
-| **Old code is a reference, not a dependency** | v2 games must compile and run against v2 only. Reading v1 sources for gameplay ideas is fine; importing v1 engine paths is not. |
+| **Old code is a reference for v2, not a dependency** | v2 games must compile and run against v2 only. Reading v1 sources for gameplay ideas is fine; importing v1 engine paths into v2 is not. |
+| **Retirement is v2-scoped** | D-2D-10 / Phase 12 deletions remove obsolete bits from the **v2** tree (and stop *new* v2 code from using them). They do **not** freeze-thaw delete `scripting/game_sprite.rgr` or v1 runners while v1 games remain supported. |
 
 Engine work still starts headless (evaluator + create/free over the bridge)
 before any v2 game needs pixels. Games arrive once the modules they call are
@@ -37,6 +54,9 @@ this plan must follow (merged after the first scaffold draft):
 | **Frame pipeline** (`runtime.start`) | Phase 8–10 — drain async completions between guest turns |
 | **`WASM_MEMORY_ABI.md` span/status rules** | Phase 5/7 — one span convention; status codes ≠ result counts |
 | **D-2D / `ranger:2d`** (P1) | Phase 10b–12 — sibling of Three; retained + DrawList2D; D-2D-1…10 |
+| **Surface panes / split-screen** | Phase 8–10 / 12 — required for ylos2 / 2P titles |
+| **Vocal FX + music score** on `ranger:core` audio | Phase 10 / 12 — facades (ports may map to clips interim) |
+| **v1 path freeze** | All phases — D-2D-10 / Phase 12 retirement is **v2-scoped** only |
 
 Gate order and required tests in CODE_CLEANUP’s **Implementation gates**
 section are authoritative; the phase table below tracks them.
@@ -152,6 +172,8 @@ Selected **2D games** belong in `v2/games/` the same way as 3D titles.
    rewires, registry exposure, and gate tests before games depend on it.
 8. **`ranger:2d` is P1.** Do not ship a “3D-only” cleanup; D-2D gates are
    required alongside Three/Cannon (CODE_CLEANUP D-2D).
+9. **v1 stays up.** Never “finish” a migration by deleting v1 runtime paths
+   that still-supported games need. Retirement is v2-scoped (see Intent).
 
 ---
 
@@ -573,10 +595,10 @@ RGSP1 / LPC are **inputs to migrate**, not the long-term API.
 | **D-2D-4** | Shared `Camera2D` (math first; SW/GPU present in Phase 11) |
 | **D-2D-5** | `AnimationClip2D` + `AnimationPlayer2D` on `runtime.time` |
 | **D-2D-6** | Frame-local `DrawList2D` separate from retained objects |
-| **D-2D-7** | Migrate `game_sprite` users → retained `ranger:2d` |
-| **D-2D-8** | Migrate RGSP1 ready-character games → SpriteAtlas / AnimationPlayer2D |
-| **D-2D-9** | Migrate `.as` `drawSprite` → `DrawList2D` |
-| **D-2D-10** | Delete old sheet manifests, fixed slots, runner animation clocks after parity |
+| **D-2D-7** | Port *v2* `game_sprite` call sites → retained `ranger:2d` (v1 runners stay) |
+| **D-2D-8** | Port *v2* RGSP1 guests → SpriteAtlas / AnimationPlayer2D (v1 RGSP1 host stays) |
+| **D-2D-9** | Port *v2* `.as` `drawSprite` → `DrawList2D` |
+| **D-2D-10** | After parity: delete obsolete copies **under `v2/` only** (staged manifests/slots/clocks). **Frozen:** `scripting/game_sprite.rgr`, v1 sheet runners, and anything top-level `games/*` still need |
 
 **Parity tests (required)** — also listed in CODE_CLEANUP implementation gates:
 
@@ -605,17 +627,24 @@ plus retained `Sprite2D` + atlas smoke on software (and GPU when available).
 
 ---
 
-## Phase 12 — Selected games + D-2D-7…10 + retire reconciler
+## Phase 12 — Selected games + D-2D-7…10 + retire reconciler (v2-scoped)
 
-Re-home gameplay onto the new API; **leave the old games tree untouched**.
+Re-home gameplay onto the new API; **v1 games and v1 engine paths keep
+running** (see **Intent: v1 keeps running** above).
 
-1. **Select** titles spanning **2D and 3D** (cube / teapot / Cannon toy /
-   Pac-Man or Breakout / LPC character — list in `v2/games/README.md`).
+1. **Must-pass ports:** `chess`, `ylos2` (named in `v2/games/README.md`), plus
+   other selected 2D/3D titles (cube / teapot / Cannon / Pac-Man / Breakout /
+   LPC character, …).
 2. Copy or rewrite onto `ranger:2d` / `ranger:three` / `ranger:core` (not
-   RGSP1 slots or reconciler wrappers).
-3. Complete **D-2D-7…D-2D-10** for migrated titles.
-4. `RETIRE-RECONCILE` + delete retired sprite slot/manifest paths when parity
-   is green. Still do not require deleting v1 games.
+   RGSP1 slots or reconciler wrappers) **inside `v2/games/` only**.
+3. Complete **D-2D-7…D-2D-10** for *v2* migrated titles — retirement deletes
+   only `v2/`-staged obsolete paths.
+4. `RETIRE-RECONCILE` removes the 3D reconciler when its criteria are met; it
+   does **not** remove 2D GameRunner / `game_sprite` while v1 2D games remain
+   supported.
+5. **ylos2 port gate** also requires ranger:core split-screen viewports +
+   vocal FX + music score (or an explicit “port maps these to plain clips /
+   single camera” decision documented on that game).
 
 ---
 
@@ -625,11 +654,12 @@ Bring pieces **into v2 only when a phase or a selected game needs them**. Prefer
 copy-then-adapt when the source is mature; rewrite when it is reconciler-era
 tangled. **Never delete the v1 original** as part of a port.
 
-| Keep in v1 (reference; do not delete) | Why |
-|---------------------------------------|-----|
-| Top-level `games/*` | Source of truth for “what the game did”; ports land in `v2/games/` |
-| `three/tsx/*`, `physics/tsx/*` | Reconciler-era bridges — not copied into v2 |
-| Full `scripting/*` | Engine runners stay as reference; pieces staged under `sprites/`, etc. |
+| Keep in v1 (**running** + reference; do not delete) | Why |
+|----------------------------------------------------|-----|
+| Top-level `games/*` | Still launchable; also source of truth for ports into `v2/games/` |
+| `scripting/game_sprite.rgr`, sprite/sheet runners, TS GameRunner | **Frozen runtime** for chess, ylos2, … until v1 support ends |
+| `three/tsx/*`, `physics/tsx/*` | Reconciler-era bridges — not copied into v2; 3D retire is separate |
+| Rest of `scripting/*` | Engine core for v1; pieces may be *staged* under `v2/sprites/` etc. |
 
 | Already staged under `v2/` (rewire next) | Phase |
 |------------------------------------------|-------|
@@ -691,7 +721,7 @@ Authoritative list: CODE_CLEANUP **Implementation gates** (9 steps). Plan map:
 - [ ] **Phase 10** — Audio/input/surface fakes (D-OWN voices, D-ASYNC loads)
 - [ ] **Phase 10b** — D-2D-1…D-2D-6 (`ranger:2d` registry, atlas, Sprite2D, Camera2D math, anim, DrawList2D)
 - [ ] **Phase 11** — SW/GPU present + Camera2D parity (3D + 2D)
-- [ ] **Phase 12** — D-2D-7…10 game migrations + `RETIRE-RECONCILE` (v1 kept)
+- [ ] **Phase 12** — Must-pass chess + ylos2 (+ others); D-2D-7…10 **v2-scoped** retirement; `RETIRE-RECONCILE` (v1 runtime frozen)
 
 ---
 
