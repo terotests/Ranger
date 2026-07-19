@@ -1,0 +1,388 @@
+; RasterBlur - Blur algorithms for shadow and effect rendering
+; Implements box blur (fast) for shadow effects
+
+Import "RasterBuffer.rgr"
+Import "RasterCompositing.rgr"
+
+; Box blur implementation - fast O(n) blur using sliding window
+class RasterBlur {
+    
+    ; Horizontal pass of box blur
+    ; Uses accumulator for O(1) per pixel
+    fn blurHorizontal:RasterBuffer (src:RasterBuffer radius:int) {
+        def dst:RasterBuffer (new RasterBuffer())
+        dst.create(src.width src.height)
+        
+        if (radius < 1) {
+            ; No blur, just copy
+            def i:int 0
+            def size:int (src.width * src.height * 4)
+            while (i < size) {
+                buffer_set dst.pixels i (buffer_get src.pixels i)
+                i = i + 1
+            }
+            return dst
+        }
+        
+        def diameter:int ((radius * 2) + 1)
+        def divisor:double (to_double diameter)
+        
+        def y:int 0
+        while (y < src.height) {
+            ; Initialize accumulators for first pixel
+            def sumR:int 0
+            def sumG:int 0
+            def sumB:int 0
+            def sumA:int 0
+            
+            ; Pre-fill accumulator with left edge pixels (clamped)
+            def i:int (0 - radius)
+            while (i <= radius) {
+                def sampleX:int i
+                if (sampleX < 0) {
+                    sampleX = 0
+                }
+                if (sampleX >= src.width) {
+                    sampleX = src.width - 1
+                }
+                def p:RasterPixel (src.getPixel(sampleX y))
+                sumR = sumR + p.r
+                sumG = sumG + p.g
+                sumB = sumB + p.b
+                sumA = sumA + p.a
+                i = i + 1
+            }
+            
+            ; Process each pixel in the row
+            def x:int 0
+            while (x < src.width) {
+                ; Write current pixel
+                def outR:int (to_int ((to_double sumR) / divisor))
+                def outG:int (to_int ((to_double sumG) / divisor))
+                def outB:int (to_int ((to_double sumB) / divisor))
+                def outA:int (to_int ((to_double sumA) / divisor))
+                dst.setPixel(x y outR outG outB outA)
+                
+                ; Slide the window: remove left pixel, add right pixel
+                def leftX:int (x - radius)
+                def rightX:int (x + radius + 1)
+                
+                ; Clamp indices
+                if (leftX < 0) {
+                    leftX = 0
+                }
+                if (rightX >= src.width) {
+                    rightX = src.width - 1
+                }
+                
+                ; Subtract left pixel
+                def leftP:RasterPixel (src.getPixel(leftX y))
+                sumR = sumR - leftP.r
+                sumG = sumG - leftP.g
+                sumB = sumB - leftP.b
+                sumA = sumA - leftP.a
+                
+                ; Add right pixel
+                def rightP:RasterPixel (src.getPixel(rightX y))
+                sumR = sumR + rightP.r
+                sumG = sumG + rightP.g
+                sumB = sumB + rightP.b
+                sumA = sumA + rightP.a
+                
+                x = x + 1
+            }
+            
+            y = y + 1
+        }
+        
+        return dst
+    }
+    
+    ; Vertical pass of box blur
+    fn blurVertical:RasterBuffer (src:RasterBuffer radius:int) {
+        def dst:RasterBuffer (new RasterBuffer())
+        dst.create(src.width src.height)
+        
+        if (radius < 1) {
+            def i:int 0
+            def size:int (src.width * src.height * 4)
+            while (i < size) {
+                buffer_set dst.pixels i (buffer_get src.pixels i)
+                i = i + 1
+            }
+            return dst
+        }
+        
+        def diameter:int ((radius * 2) + 1)
+        def divisor:double (to_double diameter)
+        
+        def x:int 0
+        while (x < src.width) {
+            ; Initialize accumulators for first pixel
+            def sumR:int 0
+            def sumG:int 0
+            def sumB:int 0
+            def sumA:int 0
+            
+            ; Pre-fill accumulator with top edge pixels (clamped)
+            def i:int (0 - radius)
+            while (i <= radius) {
+                def sampleY:int i
+                if (sampleY < 0) {
+                    sampleY = 0
+                }
+                if (sampleY >= src.height) {
+                    sampleY = src.height - 1
+                }
+                def p:RasterPixel (src.getPixel(x sampleY))
+                sumR = sumR + p.r
+                sumG = sumG + p.g
+                sumB = sumB + p.b
+                sumA = sumA + p.a
+                i = i + 1
+            }
+            
+            ; Process each pixel in the column
+            def y:int 0
+            while (y < src.height) {
+                ; Write current pixel
+                def outR:int (to_int ((to_double sumR) / divisor))
+                def outG:int (to_int ((to_double sumG) / divisor))
+                def outB:int (to_int ((to_double sumB) / divisor))
+                def outA:int (to_int ((to_double sumA) / divisor))
+                dst.setPixel(x y outR outG outB outA)
+                
+                ; Slide the window
+                def topY:int (y - radius)
+                def bottomY:int (y + radius + 1)
+                
+                if (topY < 0) {
+                    topY = 0
+                }
+                if (bottomY >= src.height) {
+                    bottomY = src.height - 1
+                }
+                
+                def topP:RasterPixel (src.getPixel(x topY))
+                sumR = sumR - topP.r
+                sumG = sumG - topP.g
+                sumB = sumB - topP.b
+                sumA = sumA - topP.a
+                
+                def bottomP:RasterPixel (src.getPixel(x bottomY))
+                sumR = sumR + bottomP.r
+                sumG = sumG + bottomP.g
+                sumB = sumB + bottomP.b
+                sumA = sumA + bottomP.a
+                
+                y = y + 1
+            }
+            
+            x = x + 1
+        }
+        
+        return dst
+    }
+    
+    ; Full box blur (separable: horizontal then vertical)
+    ; Multiple passes approximate Gaussian blur
+    fn boxBlur:RasterBuffer (src:RasterBuffer radius:int) {
+        def temp:RasterBuffer (this.blurHorizontal(src radius))
+        return (this.blurVertical(temp radius))
+    }
+    
+    ; Box blur with multiple passes for smoother result
+    ; 3 passes of box blur approximates Gaussian blur
+    fn boxBlurMultiPass:RasterBuffer (src:RasterBuffer radius:int passes:int) {
+        def result:RasterBuffer src
+        def i:int 0
+        while (i < passes) {
+            result = (this.boxBlur(result radius))
+            i = i + 1
+        }
+        return result
+    }
+    
+    ; Gaussian-approximating blur using 3 box blur passes
+    ; Provides smooth shadow effect
+    fn gaussianApproxBlur:RasterBuffer (src:RasterBuffer radius:int) {
+        ; Use 3 passes with adjusted radius for Gaussian-like result
+        ; Each pass uses radius/3 (approximately)
+        def passRadius:int (to_int ((to_double radius) / 3.0))
+        if (passRadius < 1) {
+            passRadius = 1
+        }
+        return (this.boxBlurMultiPass(src passRadius 3))
+    }
+}
+
+; Shadow rendering using blur
+class RasterShadow {
+    def blur:RasterBlur (new RasterBlur())
+    
+    ; Create a shadow buffer from a shape
+    ; The shape is represented as alpha values in the source buffer
+    ; shadowColor: the color of the shadow (with alpha)
+    ; blurRadius: how much to blur the shadow
+    fn createShadow:RasterBuffer (src:RasterBuffer blurRadius:int shadowR:int shadowG:int shadowB:int shadowA:int) {
+        ; Create a buffer with just the shadow shape
+        def shadowShape:RasterBuffer (new RasterBuffer())
+        shadowShape.create(src.width src.height)
+        
+        ; Copy source alpha to shadow buffer with shadow color
+        def y:int 0
+        while (y < src.height) {
+            def x:int 0
+            while (x < src.width) {
+                def srcAlpha:int (src.getA(x y))
+                if (srcAlpha > 0) {
+                    ; Scale shadow alpha by source alpha
+                    def outAlpha:int (to_int ((to_double (srcAlpha * shadowA)) / 255.0))
+                    shadowShape.setPixel(x y shadowR shadowG shadowB outAlpha)
+                }
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        ; Blur the shadow
+        if (blurRadius > 0) {
+            return (blur.gaussianApproxBlur(shadowShape blurRadius))
+        }
+        
+        return shadowShape
+    }
+    
+    ; Create a drop shadow with offset
+    ; Returns a buffer larger than the original to accommodate blur spread
+    fn createDropShadow:RasterBuffer (src:RasterBuffer offsetX:int offsetY:int blurRadius:int shadowR:int shadowG:int shadowB:int shadowA:int) {
+        ; Calculate expanded buffer size to accommodate shadow spread
+        def spread:int (blurRadius * 2)
+        
+        ; Calculate absolute offset values
+        def absOffsetX:int offsetX
+        if (absOffsetX < 0) {
+            absOffsetX = 0 - absOffsetX
+        }
+        def absOffsetY:int offsetY
+        if (absOffsetY < 0) {
+            absOffsetY = 0 - absOffsetY
+        }
+        
+        def newWidth:int (src.width + spread + absOffsetX)
+        def newHeight:int (src.height + spread + absOffsetY)
+        
+        ; Calculate position of source in expanded buffer
+        def srcX:int spread
+        def srcY:int spread
+        if (offsetX < 0) {
+            srcX = srcX - offsetX
+        }
+        if (offsetY < 0) {
+            srcY = srcY - offsetY
+        }
+        
+        ; Create expanded shadow shape
+        def shadowShape:RasterBuffer (new RasterBuffer())
+        shadowShape.create(newWidth newHeight)
+        
+        ; Copy source alpha to shadow position (with offset)
+        def shadowPosX:int (srcX + offsetX)
+        def shadowPosY:int (srcY + offsetY)
+        
+        def y:int 0
+        while (y < src.height) {
+            def x:int 0
+            while (x < src.width) {
+                def srcAlpha:int (src.getA(x y))
+                if (srcAlpha > 0) {
+                    def outAlpha:int (to_int ((to_double (srcAlpha * shadowA)) / 255.0))
+                    shadowShape.setPixel((shadowPosX + x) (shadowPosY + y) shadowR shadowG shadowB outAlpha)
+                }
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        ; Blur the shadow
+        if (blurRadius > 0) {
+            return (blur.gaussianApproxBlur(shadowShape blurRadius))
+        }
+        
+        return shadowShape
+    }
+    
+    ; Render a rectangular shadow (common case - optimized)
+    fn renderRectShadow:RasterBuffer (width:int height:int blurRadius:int shadowR:int shadowG:int shadowB:int shadowA:int) {
+        ; Create a solid rectangle buffer
+        def rect:RasterBuffer (new RasterBuffer())
+        def spreadW:int (width + (blurRadius * 4))
+        def spreadH:int (height + (blurRadius * 4))
+        rect.create(spreadW spreadH)
+        
+        ; Fill the center rectangle with opaque pixels
+        def offsetX:int (blurRadius * 2)
+        def offsetY:int (blurRadius * 2)
+        rect.fillRect(offsetX offsetY width height 255 255 255 255)
+        
+        ; Create shadow from the rectangle
+        return (this.createShadow(rect blurRadius shadowR shadowG shadowB shadowA))
+    }
+    
+    ; Render a rounded rectangle shadow
+    fn renderRoundedRectShadow:RasterBuffer (width:int height:int radius:int blurRadius:int shadowR:int shadowG:int shadowB:int shadowA:int) {
+        ; Create a rounded rectangle buffer
+        def spreadW:int (width + (blurRadius * 4))
+        def spreadH:int (height + (blurRadius * 4))
+        def rect:RasterBuffer (new RasterBuffer())
+        rect.create(spreadW spreadH)
+        
+        def offsetX:int (blurRadius * 2)
+        def offsetY:int (blurRadius * 2)
+        
+        ; Draw rounded rectangle using corner circles
+        ; This is a simplified version - for proper rounded rects, use RasterPrimitives
+        
+        ; Clamp radius to max (half of smaller dimension)
+        def maxR:int (to_int ((to_double width) / 2.0))
+        def halfH:int (to_int ((to_double height) / 2.0))
+        if (halfH < maxR) {
+            maxR = halfH
+        }
+        if (radius > maxR) {
+            radius = maxR
+        }
+        
+        ; Fill main body (cross shape)
+        rect.fillRect((offsetX + radius) offsetY (width - (radius * 2)) height 255 255 255 255)
+        rect.fillRect(offsetX (offsetY + radius) width (height - (radius * 2)) 255 255 255 255)
+        
+        ; Fill corners with circle approximation
+        this.fillCornerCircle(rect (offsetX + radius) (offsetY + radius) radius)
+        this.fillCornerCircle(rect (offsetX + width - radius - 1) (offsetY + radius) radius)
+        this.fillCornerCircle(rect (offsetX + radius) (offsetY + height - radius - 1) radius)
+        this.fillCornerCircle(rect (offsetX + width - radius - 1) (offsetY + height - radius - 1) radius)
+        
+        ; Create shadow
+        return (this.createShadow(rect blurRadius shadowR shadowG shadowB shadowA))
+    }
+    
+    ; Helper: Fill a circular area (for rounded corners)
+    fn fillCornerCircle:void (buf:RasterBuffer cx:int cy:int radius:int) {
+        def r2:int (radius * radius)
+        def y:int (0 - radius)
+        while (y <= radius) {
+            def x:int (0 - radius)
+            while (x <= radius) {
+                def d2:int ((x * x) + (y * y))
+                if (d2 <= r2) {
+                    buf.setPixel((cx + x) (cy + y) 255 255 255 255)
+                }
+                x = x + 1
+            }
+            y = y + 1
+        }
+    }
+}
+
+; Note: Global instances removed - create locally where needed

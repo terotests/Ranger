@@ -13,7 +13,7 @@
 ; Headless smoke (N frames, offscreen): pass a frame count as the first CLI arg.
 ; ==============================================================================
 
-Import "../gfx_sdl.rgr"
+Import "../runtime/sdl/gfx_sdl.rgr"
 Import "./web_teapot_gl_probe.rgr"
 
 class WebTeapotSdlRunner {

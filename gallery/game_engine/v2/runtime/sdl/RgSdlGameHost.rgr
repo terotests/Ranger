@@ -1,0 +1,233 @@
+; ==============================================================================
+; RgSdlGameHost — native SDL2 driver for the generic v2 game host.
+; ==============================================================================
+; The ONLY native platform boundary of the v2 2D stack. It drives the SAME
+; generic RgGameHost + registry bridge + Rg2DPresenter the headless tests use,
+; adding a real window, real input, and real haptics. It contains NO game
+; knowledge (it runs any game folder), and it does NOT touch ranger:core: the
+; guest reaches input/audio/etc. through the capability root exactly as before;
+; this host only feeds the host-side devices (bridge.input) and reads the
+; host-side framebuffer. Game logic never leaks here, and no platform concept
+; leaks into the guest API.
+;
+; Boundary map:
+;   guest (.tsx)      runtime.input.player(i).isDown(...)  — unchanged
+;   ranger:core       lowers to rgcore_input_* commands    — unchanged
+;   bridge devices    RgInput records action/haptic state  — this host feeds
+;                     it from SDL, and reads recorded rumble to forward to SDL
+;   presenter         Rg2DPresenter → RgFramebuffer        — this host packs to
+;                     RGBA and presents via gfx_present_split
+;
+; The gfx_* operators (v2-local gfx_sdl.rgr) have es6 stubs, so this file COMPILES and
+; runs headlessly as a no-op; the real window exists only in the native (C++
+; + SDL2) build. Input map (physical bit -> logical action) is host config, not
+; game logic — a game only ever sees logical actions.
+; ==============================================================================
+
+Import "../game_host/RgGameHost.rgr"
+Import "../game_host/Rg2DPresenter.rgr"
+Import "../../menu/RgLauncherUi.rgr"
+Import "../../audio/game_soundscore.rgr"
+Import "./gfx_sdl.rgr"
+
+; The SDL audio sink: the score synth calls onSynthPlay with a PCM buffer as each
+; note fires; we hand that straight to SDL's queued audio device. Under es6 the
+; gfx_audio_* operators stub to no-ops, so the sink is inert headlessly (the note
+; still "starts" in the player — only the physical output is native).
+class RgSdlAudioSink {
+    Extends(GameAudioSink)
+    fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
+        gfx_audio_queue pcm (sampleCount * 2)   ; 16-bit mono
+    }
+    fn onClearQueue:void () {
+        gfx_audio_clear
+    }
+}
+
+class RgSdlGameHost {
+    def host:RgGameHost (new RgGameHost)
+    def paneW:int 480
+    def paneH:int 270
+    ; base sky colour behind the world-space gradient bands
+    def sky:int 5215951      ; 0x4f96cf
+    ; last observed haptic counts, to forward only NEW rumble commands to SDL
+    def lastRumble0:int 0
+    def lastRumble1:int 0
+    ; host-side music playback: the guest's runtime.audio.music.play(score) is
+    ; recorded on the bridge; the host owns the synth + schedule clock and pushes
+    ; PCM to SDL. (Nothing here is game logic; the guest only ever said "play".)
+    def musicAudio:GameAudio (new GameAudio)
+    def music:SoundScorePlayer (new SoundScorePlayer)
+    def audioReady:boolean false
+    def lastScore:string ""
+
+    ; Map a raw input source bitmask to logical actions for one player and feed
+    ; the host input device. PURE host-input config (no gfx, no game): bits are
+    ; 1 up · 2 down · 4 action · 8 quit · 16 left · 32 right (gfx_sdl mask
+    ; layout). Testable directly with a synthetic mask.
+    fn mapMask:void (player:int m:int) {
+        this.host.bridge.input.setAction(player "left" ((bit_and m 16) != 0))
+        this.host.bridge.input.setAction(player "right" ((bit_and m 32) != 0))
+        this.host.bridge.input.setAction(player "up" ((bit_and m 1) != 0))
+        this.host.bridge.input.setAction(player "down" ((bit_and m 2) != 0))
+        def jump:boolean (((bit_and m 1) != 0) || ((bit_and m 4) != 0))
+        this.host.bridge.input.setAction(player "jump" jump)
+        this.host.bridge.input.setAction(player "action" ((bit_and m 4) != 0))
+    }
+
+    ; Forward newly-recorded haptic commands (bridge.input records what the guest
+    ; requested via runtime.input.player(i).rumble) to the physical pad. Reads
+    ; host device state only; the guest never knows a pad exists.
+    fn forwardRumble:void () {
+        def r0:int (this.host.bridge.input.rumbleCount(0))
+        if (r0 > this.lastRumble0) {
+            gfx_rumble_pad 0 (this.host.bridge.input.lastRumbleStrength(0)) 120
+            this.lastRumble0 = r0
+        }
+        def r1:int (this.host.bridge.input.rumbleCount(1))
+        if (r1 > this.lastRumble1) {
+            gfx_rumble_pad 1 (this.host.bridge.input.lastRumbleStrength(1)) 120
+            this.lastRumble1 = r1
+        }
+    }
+
+    ; Present both panes to the window: each pane rasterises through the generic
+    ; presenter into an RgFramebuffer, packs to RGBA, and blits side-by-side.
+    fn present:void (fbL:RgFramebuffer fbR:RgFramebuffer) {
+        def dL:int (Rg2DPresenter.presentTextured(this.host.bridge 0 fbL this.sky))
+        def dR:int (Rg2DPresenter.presentTextured(this.host.bridge 1 fbR this.sky))
+        gfx_present_split (fbL.toRgbaBuffer()) (fbR.toRgbaBuffer()) this.paneW this.paneH
+    }
+
+    ; Bring up the host synth once: build its frequency tables, open the SDL audio
+    ; device, and route synthesised PCM to it. Idempotent; native device is a
+    ; no-op under es6.
+    fn initAudio:void () {
+        if (this.audioReady) { return }
+        this.musicAudio.init()
+        def sink:RgSdlAudioSink (new RgSdlAudioSink)
+        this.musicAudio.sink = sink
+        this.music.audio = this.musicAudio
+        def _o:int (gfx_audio_open 44100)
+        this.audioReady = true
+    }
+
+    ; Advance host music one frame: pick up a newly play()'d score recorded on the
+    ; bridge (the guest called runtime.audio.music.play), then tick the schedule —
+    ; each due note synthesises and queues PCM through the sink. Returns the
+    ; running note-start count so the wiring is testable without an audio device.
+    fn pumpAudio:int (dtMs:int) {
+        def b:RgRegistryBridge this.host.bridge
+        if (b.musicPlaying) {
+            if (b.musicScore != this.lastScore) {
+                this.music.load(b.musicScore)
+                this.music.play(true)
+                this.lastScore = b.musicScore
+            }
+            this.music.tick(dtMs)
+        } {
+            if (this.music.isPlaying()) { this.music.stop() }
+        }
+        return this.music.noteStarts
+    }
+
+    ; Rising edge of `bit` between the previous and current input mask. PURE host
+    ; input config — used to drive the launcher menu on key-press edges (not held
+    ; state), so a single tap moves the selection once. Testable with two masks.
+    fn edge:boolean (prev:int cur:int bit:int) {
+        def wasSet:boolean ((bit_and prev bit) != 0)
+        def isSet:boolean ((bit_and cur bit) != 0)
+        return (isSet && (wasSet == false))
+    }
+
+    ; Advance the launcher menu one step from an input-mask edge transition:
+    ;   left(16)/right(32) edge -> moveSelection ; down(2) edge -> back ;
+    ;   action(4) edge -> activate. Returns 1 when an ENTRY was activated (the
+    ;   caller reads ui.selectedDir()/selectedFile() and hands off), else 0.
+    ; This is the launcher's whole input contract — no gfx, no game, testable.
+    fn launcherStep:int (prev:int cur:int ui:RgLauncherUi) {
+        if (this.edge(prev cur 16)) { ui.moveSelection(0 - 1) }
+        if (this.edge(prev cur 32)) { ui.moveSelection(1) }
+        if (this.edge(prev cur 2))  { ui.back() }
+        if (this.edge(prev cur 4)) {
+            def r:int (ui.activate())
+            if (r == 1) { return 1 }
+        }
+        return 0
+    }
+
+    ; Open a window on the rich launcher screen (engine chrome), navigate it, and
+    ; hand off to the chosen game through the SAME generic run() the tests use.
+    ; Single-surface present (gfx_present) of the launcher's SoftCanvas RGBA — the
+    ; launcher is not split. Native-only loop (gfx_* stub to no-ops under es6).
+    fn runLauncher:int () {
+        def lw:int (this.paneW * 2)
+        def lh:int this.paneH
+        if ((gfx_open "Ranger" lw lh) == 0) { return 0 }
+        def ui:RgLauncherUi (new RgLauncherUi)
+        ui.init(lw lh)
+        def prev:int 0
+        def go:boolean true
+        while go {
+            gfx_input_poll
+            def m:int (gfx_input_source_mask 0)
+            def launch:int (this.launcherStep(prev m ui))
+            prev = m
+            if (launch == 1) {
+                def d:string (ui.selectedDir())
+                def f:string (ui.selectedFile())
+                gfx_close
+                def _g:int (this.run(d f))
+                ; back from the game: reopen the launcher and resume on categories
+                gfx_clear_should_close
+                if ((gfx_open "Ranger" lw lh) == 0) { return 1 }
+                ui.back()
+                prev = 0
+            } {
+                ui.render()
+                gfx_present (ui.raw()) lw lh
+                gfx_delay 16
+                if (gfx_should_close) { go = false }
+            }
+        }
+        gfx_close
+        return 1
+    }
+
+    ; Open a window and run the game loop until the window closes. Generic: the
+    ; game is a folder of .tsx (dir/file). Honours the guest launch(path) request
+    ; generically (menu -> game) via the same RgGameHost handoff the tests use.
+    fn run:int (dir:string file:string) {
+        def title:string ("Ranger v2 — " + file)
+        if ((gfx_open title (this.paneW * 2) this.paneH) == 0) {
+            return 0
+        }
+        if ((this.host.load(dir file)) == false) {
+            gfx_close
+            return 0
+        }
+        this.initAudio()
+        def fbL:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
+        def fbR:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
+        def go:boolean true
+        while go {
+            gfx_input_poll
+            this.mapMask(0 (gfx_input_source_mask 0))
+            this.mapMask(1 (gfx_input_source_mask 1))
+            this.host.frame(33.333)
+            this.forwardRumble()
+            def _n:int (this.pumpAudio(33))
+            ; generic launcher -> game handoff (no launcher-specific code)
+            if ((strlen (this.host.launchRequest())) > 0) {
+                this.host.loadLaunched()
+                this.lastRumble0 = 0
+                this.lastRumble1 = 0
+            }
+            this.present(fbL fbR)
+            gfx_delay 16
+            if (gfx_should_close) { go = false }
+        }
+        gfx_close
+        return 1
+    }
+}

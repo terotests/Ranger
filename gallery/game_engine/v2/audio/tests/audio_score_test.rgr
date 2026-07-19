@@ -1,0 +1,80 @@
+; ==============================================================================
+; audio_score_test — the headless score engine (parse -> schedule -> synth).
+; ==============================================================================
+; The v2 sound path is self-contained under v2/audio (game_soundscore +
+; game_audio, copied in, no imports outside v2). This drives the WHOLE headless
+; pipeline on ylos2's actual summit score:
+;   * the parser reads tempo / time signature / a @melody track of dur:pitch
+;     tokens into notes and a beat-sorted schedule,
+;   * the synth maps pitches to equal-tempered frequencies and renders PCM,
+;   * the player ticks the schedule in real time and starts every note once.
+; No native audio device is involved — this is the deterministic core the SDL
+; gfx_audio_* sink consumes on a real machine.
+; ==============================================================================
+
+Import "../game_soundscore.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class AudioScoreTest {
+    ; ylos2's SUMMIT_MUSIC, verbatim (tempo 152, one piano melody, 16 beats).
+    sfn score:string () {
+        return ("tempo 152\nbeats 4/4\n\n@melody piano\n0.5:E4 0.5:G4 1:A4 1:G4 1:E4\n0.5:D4 0.5:E4 1:G4 2:E4\n0.5:E4 0.5:G4 1:A4 1:C5 1:B4\n1:A4 1:G4 2:E4\n")
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("audio/score (parse + schedule + synth)"))
+
+        ; ---- parse ----------------------------------------------------------
+        def txt:string (AudioScoreTest.score())
+        def parser:SoundScoreParser (new SoundScoreParser)
+        def sc:SoundScore (parser.parse(txt))
+        t.eqInt("tempo parsed" sc.tempo 152)
+        t.eqInt("time signature numerator" sc.beatsNum 4)
+        t.eqInt("one track" (array_length sc.tracks) 1)
+        def tr:ScoreTrack (itemAt sc.tracks 0)
+        t.eqStr("melody track name" tr.name "melody")
+        t.eqStr("piano instrument" tr.instrument "piano")
+        t.eqInt("17 notes across the phrases" (array_length tr.notes) 17)
+        def tb:int (to_int sc.totalBeats)
+        t.eqInt("16 total beats (4 bars of 4/4)" tb 16)
+
+        ; ---- schedule (beat-sorted) -----------------------------------------
+        def sched:[ScheduledNote] (parser.buildSchedule(sc))
+        t.eqInt("17 scheduled notes" (array_length sched) 17)
+        def first:ScheduledNote (itemAt sched 0)
+        t.ok("first note starts at beat 0" (first.beat == 0.0))
+        def last:ScheduledNote (itemAt sched 16)
+        t.ok("notes are ordered (last starts after first)" (last.beat > first.beat))
+
+        ; ---- synth (pitch -> frequency -> PCM) ------------------------------
+        def ga:GameAudio (new GameAudio)
+        ga.init()
+        def fA:double (ga.pitchToFreq("A4"))
+        t.ok("A4 resolves to ~440 Hz" ((fA > 439.0) && (fA < 441.0)))
+        def fA5:double (ga.pitchToFreq("A5"))
+        t.ok("A5 is one octave up (~880 Hz)" ((fA5 > 878.0) && (fA5 < 882.0)))
+        def rest:double (ga.pitchToFreq("_"))
+        t.ok("a rest ('_') has no pitch" (rest == 0.0))
+        def pcm:buffer (ga.synthMelody("piano" fA 100 0.5))
+        ; 100ms @ 44100Hz, 16-bit mono = 4410 frames * 2 bytes
+        t.eqInt("PCM length matches 100ms @ 44.1kHz 16-bit" (buffer_length pcm) 8820)
+
+        ; ---- player: tick the whole score, every note fires once ------------
+        def player:SoundScorePlayer (new SoundScorePlayer)
+        player.audio = ga
+        player.load(txt)
+        t.ok("player is silent before play()" ((player.isPlaying()) == false))
+        player.play(false)
+        t.ok("player is playing after play()" (player.isPlaying()))
+        ; 16 beats @152bpm ~= 6.3s; step past the end in 50ms ticks.
+        def elapsed 0
+        while (elapsed < 8000) {
+            player.tick(50)
+            elapsed = (elapsed + 50)
+        }
+        t.eqInt("all 17 notes were started exactly once" player.noteStarts 17)
+        t.ok("non-looping playback finished at the end" ((player.isPlaying()) == false))
+
+        t.summary()
+    }
+}

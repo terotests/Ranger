@@ -1,0 +1,290 @@
+; ==============================================================================
+; RgLauncherUi — the rich EVG/UI launcher screen (engine chrome).
+; ==============================================================================
+; Built on the self-contained v2 UI layer (UILayer + UITextRenderer + SoftCanvas
+; + fonts, all under v2): a title, a subtitle, a row of cards with a moving
+; accent highlight, and a footer hint — the v1 launcher screen. It has TWO pages:
+;   page 0  CATEGORIES ("valitse kategoria")  — Games / Tests
+;   page 1  ENTRIES     (the chosen category) — the games/tests in it
+; Renders headlessly into a SoftCanvas whose raw() RGBA the SDL host presents.
+;
+; It is engine chrome, like RgGameHost: NO game logic, and it does not touch
+; ranger:core (GAMES stay TSX-only). Input is logical (moveSelection / activate /
+; back); the SDL host maps physical keys. On activating an entry the host reads
+; selectedDir()/selectedFile() and hands off through the same generic
+; RgGameHost.load the tests use — the launcher never launches anything itself.
+; ==============================================================================
+
+Import "../ui/UILayer.rgr"
+Import "../framebuffer.rgr"
+Import "../evg/EVGColor.rgr"
+
+; one launchable entry inside a category (dir/file is the game folder handoff)
+class RgLauncherEntry {
+    def label:string ""
+    def dir:string ""
+    def file:string ""
+    def card:UIBox (new UIBox)
+}
+
+; one selectable category (route is the logical id; entries are its games)
+class RgLauncherCat {
+    def label:string ""
+    def route:string ""
+    def card:UIBox (new UIBox)
+    def entries:[RgLauncherEntry]
+}
+
+class RgLauncherUi {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def layer:UILayer (new UILayer)
+    def w:int 0
+    def h:int 0
+
+    def page:int 0        ; 0 = categories, 1 = entries
+    def selected:int 0    ; index within the CURRENT page
+    def activeCat:int 0   ; which category's entries page 1 shows
+
+    def cats:[RgLauncherCat]
+    def sub:UILabel (new UILabel)
+    def footer:UILabel (new UILabel)
+
+    ; ---- construction --------------------------------------------------------
+    fn addCategory:RgLauncherCat (label:string route:string) {
+        def c:RgLauncherCat (new RgLauncherCat)
+        c.label = label
+        c.route = route
+        c.card.text = label
+        c.card.fontSize = 20.0
+        push this.cats c
+        return c
+    }
+
+    fn addEntry:void (c:RgLauncherCat label:string dir:string file:string) {
+        def e:RgLauncherEntry (new RgLauncherEntry)
+        e.label = label
+        e.dir = dir
+        e.file = file
+        e.card.text = label
+        e.card.fontSize = 18.0
+        push c.entries e
+    }
+
+    ; lay out `n` cards centred in the card row, calling back is inlined here:
+    ; returns the startX so the caller can position each card by index.
+    fn rowStartX:int (n:int cardW:int gap:int) {
+        def cx:int (idiv this.w 2)
+        def totalW:int ((cardW * n) + (gap * (n - 1)))
+        return (cx - (idiv totalW 2))
+    }
+
+    fn init:void (width:int height:int) {
+        this.w = width
+        this.h = height
+        this.canvas.init(width height)
+        this.layer.attach(this.canvas)
+        ; real TTF if present; UITextRenderer falls back to its 3x5 bitmap font.
+        this.layer.ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+
+        def cx:int (idiv width 2)
+
+        def title:UILabel (new UILabel)
+        title.text = "Ranger"
+        title.fontSize = 40.0
+        title.setBounds((cx - 90) (idiv height 12) 180 48)
+        this.layer.add(title)
+
+        this.sub.text = "valitse kategoria"
+        this.sub.fontSize = 16.0
+        this.sub.setBounds((cx - 90) (idiv height 5) 180 20)
+        this.layer.add(this.sub)
+
+        ; ---- the catalog (engine chrome config, not game logic) -------------
+        def games:RgLauncherCat (this.addCategory("Games" "games"))
+        this.addEntry(games "Pomppija" "gallery/game_engine/v2/games/ylos2" "index.tsx")
+        this.addEntry(games "Chess"    "gallery/game_engine/v2/games/chess"  "index.tsx")
+        this.addEntry(games "Breakout" "gallery/game_engine/v2/games/breakout" "index.tsx")
+
+        def tests:RgLauncherCat (this.addCategory("Tests" "tests"))
+        this.addEntry(tests "Sprites" "gallery/game_engine/v2/tests/sprite_char" "index.tsx")
+
+        ; ---- lay out the category cards (page 0) ----------------------------
+        def cardW:int (idiv width 4)
+        def cardH:int cardW
+        def gap:int 24
+        def cardY:int (idiv height 3)
+        def nCats:int (array_length this.cats)
+        def startX:int (this.rowStartX(nCats cardW gap))
+        def i 0
+        while (i < nCats) {
+            def c:RgLauncherCat (itemAt this.cats i)
+            def cxi:int (startX + (i * (cardW + gap)))
+            c.card.setBounds(cxi cardY cardW cardH)
+            this.layer.add(c.card)
+            ; ---- lay out that category's entry cards (page 1), hidden -------
+            def ents:[RgLauncherEntry] c.entries
+            def ne:int (array_length ents)
+            def eCardW:int (idiv width 5)
+            def eGap:int 20
+            def eStartX:int (this.rowStartX(ne eCardW eGap))
+            def j 0
+            while (j < ne) {
+                def e:RgLauncherEntry (itemAt ents j)
+                def exj:int (eStartX + (j * (eCardW + eGap)))
+                e.card.setBounds(exj cardY eCardW cardH)
+                e.card.visible = false
+                this.layer.add(e.card)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+
+        this.footer.text = "A avaa, nuolet liikkuvat"
+        this.footer.fontSize = 13.0
+        this.footer.setBounds((cx - 110) (height - (idiv height 10)) 220 16)
+        this.layer.add(this.footer)
+
+        this.selected = 0
+        this.applyPage()
+    }
+
+    ; ---- page state ----------------------------------------------------------
+    ; how many cards the current page navigates over
+    fn pageCount:int () {
+        if (this.page == 0) { return (array_length this.cats) }
+        def c:RgLauncherCat (itemAt this.cats this.activeCat)
+        return (array_length c.entries)
+    }
+
+    ; set card visibility for the current page and re-apply the accent highlight
+    fn applyPage:void () {
+        def nCats:int (array_length this.cats)
+        def i 0
+        while (i < nCats) {
+            def c:RgLauncherCat (itemAt this.cats i)
+            def catVisible:boolean (this.page == 0)
+            c.card.visible = catVisible
+            def ents:[RgLauncherEntry] c.entries
+            def ne:int (array_length ents)
+            def j 0
+            while (j < ne) {
+                def e:RgLauncherEntry (itemAt ents j)
+                def show:boolean false
+                if (this.page == 1) {
+                    if (i == this.activeCat) { show = true }
+                }
+                e.card.visible = show
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        if (this.page == 0) {
+            this.sub.text = "valitse kategoria"
+            this.footer.text = "A avaa, nuolet liikkuvat"
+        } {
+            def ac:RgLauncherCat (itemAt this.cats this.activeCat)
+            this.sub.text = ac.label
+            this.footer.text = "A valitsee, B takaisin"
+        }
+        this.highlight()
+    }
+
+    ; the selected card takes the (opaque) accent fill; the rest a muted panel.
+    fn highlight:void () {
+        def accent:EVGColor (EVGColor.rgba(255 190 70 1.0))
+        def muted:EVGColor (EVGColor.rgba(40 48 74 0.9))
+        if (this.page == 0) {
+            def n:int (array_length this.cats)
+            def i 0
+            while (i < n) {
+                def c:RgLauncherCat (itemAt this.cats i)
+                if (i == this.selected) { c.card.setFill(accent) } { c.card.setFill(muted) }
+                i = (i + 1)
+            }
+            return
+        }
+        def ac:RgLauncherCat (itemAt this.cats this.activeCat)
+        def ents:[RgLauncherEntry] ac.entries
+        def ne:int (array_length ents)
+        def k 0
+        while (k < ne) {
+            def e:RgLauncherEntry (itemAt ents k)
+            if (k == this.selected) { e.card.setFill(accent) } { e.card.setFill(muted) }
+            k = (k + 1)
+        }
+    }
+
+    ; ---- logical navigation (host maps physical keys) ------------------------
+    fn moveSelection:void (dir:int) {
+        def n:int (this.pageCount())
+        if (n == 0) { return }
+        def s:int (this.selected + dir)
+        if (s < 0) { s = 0 }
+        if (s >= n) { s = (n - 1) }
+        this.selected = s
+        this.highlight()
+    }
+
+    ; page 0: enter the chosen category (returns 0, nothing to launch).
+    ; page 1: returns 1 — the host reads selectedDir()/selectedFile() to hand off.
+    fn activate:int () {
+        if (this.page == 0) {
+            this.activeCat = this.selected
+            this.page = 1
+            this.selected = 0
+            this.applyPage()
+            return 0
+        }
+        return 1
+    }
+
+    fn back:void () {
+        if (this.page == 1) {
+            this.page = 0
+            this.selected = this.activeCat
+            this.applyPage()
+        }
+    }
+
+    ; ---- queries -------------------------------------------------------------
+    fn categoryCount:int () { return (array_length this.cats) }
+    fn currentPage:int () { return this.page }
+
+    fn selectedLabel:string () {
+        if (this.page == 0) {
+            if ((array_length this.cats) == 0) { return "" }
+            def c:RgLauncherCat (itemAt this.cats this.selected)
+            return c.label
+        }
+        def ac:RgLauncherCat (itemAt this.cats this.activeCat)
+        def e:RgLauncherEntry (itemAt ac.entries this.selected)
+        return e.label
+    }
+
+    fn selectedRoute:string () {
+        if ((array_length this.cats) == 0) { return "" }
+        def c:RgLauncherCat (itemAt this.cats this.selected)
+        return c.route
+    }
+
+    ; the game-folder handoff target of the selected ENTRY (page 1); "" on page 0
+    fn selectedDir:string () {
+        if (this.page == 0) { return "" }
+        def ac:RgLauncherCat (itemAt this.cats this.activeCat)
+        def e:RgLauncherEntry (itemAt ac.entries this.selected)
+        return e.dir
+    }
+    fn selectedFile:string () {
+        if (this.page == 0) { return "" }
+        def ac:RgLauncherCat (itemAt this.cats this.activeCat)
+        def e:RgLauncherEntry (itemAt ac.entries this.selected)
+        return e.file
+    }
+
+    ; ---- present -------------------------------------------------------------
+    fn render:void () {
+        this.canvas.clear(16 18 34)   ; night background (v1 launcher)
+        this.layer.render()
+    }
+    fn raw:buffer () { return (this.canvas.raw()) }
+}

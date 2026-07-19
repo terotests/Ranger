@@ -122,6 +122,7 @@
     "engine:game-sdl": "bash gallery/game_engine/scripts/build-game-sdl.sh",
     "engine:game-sdl:run": "bash gallery/game_engine/scripts/build-game-sdl.sh --run",
     "engine:game-sdl:launcher": "bash gallery/game_engine/scripts/build-game-sdl.sh --run",
+    "engine:game-sdl:launcher:v2": "bash gallery/game_engine/scripts/build-sdl-v2.sh --run",
     "engine:game-sdl:run:pong": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/pong/index.tsx",
     "engine:game-sdl:run:invaders": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/invaders/index.tsx",
     "engine:game-sdl:run:breakout": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/breakout/index.tsx",

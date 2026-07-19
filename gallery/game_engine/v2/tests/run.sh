@@ -108,13 +108,22 @@ run_suite render/tests/software_present2d_test
 # texture pixel store + sampling backend (real texels, sprite size/z/flip)
 run_suite modules/ranger_2d/tests/texture_store_test
 run_suite tests/render/textured_render_test
+# native SDL host — testable seams (framebuffer->RGBA pack, input map); the
+# import also compile-checks the whole native driver against the gfx_* stubs
+run_suite tests/sdl/sdl_host_test
 
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test
+# headless music: score parse -> beat schedule -> equal-tempered PCM synth
+# (self-contained under v2/audio; the SDL gfx_audio_* sink consumes this PCM)
+run_suite audio/tests/audio_score_test
 
 # ---- BRIDGES.md steps 1–2 — schema rows + generic registry bridge ------------
 run_suite registry/schema/tests/bridge_schema_test
 run_suite tests/unit/bridge/registry_bridge_coverage_test
+
+# ---- menu / EVG launcher UI (self-contained ui/ + evg + fonts + framebuffer) -
+run_suite menu/tests/launcher_ui_test
 
 # ---- BRIDGES.md step 3 — real TSX guests on the ONE generic host -------------
 # Games are TSX-only folders (no per-game .rgr); RgGameHost is the single

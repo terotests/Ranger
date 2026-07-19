@@ -21,7 +21,7 @@
 ; ==============================================================================
 
 Import "Model3dScriptBridge.rgr"
-Import "../gfx_sdl.rgr"
+Import "../runtime/sdl/gfx_sdl.rgr"
 
 class Model3dGlUploader extends Mesh3dUploader {
     def glEnabled:boolean true

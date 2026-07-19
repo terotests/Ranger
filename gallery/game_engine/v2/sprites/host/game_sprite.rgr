@@ -26,7 +26,7 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
-Import "../gfx_sdl.rgr"
+Import "../../runtime/sdl/gfx_sdl.rgr"
 Import "./game_image_loader.rgr"
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 

@@ -1,0 +1,1111 @@
+; ==============================================================================
+; game_audio - built-in synthetic sounds + host callback sink.
+; ==============================================================================
+;
+; No file-based resource management yet. Games emit { kind: "playSound", id }
+; events (or call GameAudio.play directly from the host). Built-in ids are
+; synthesised on demand as mono PCM and delivered to an optional sink callback
+; (SDL runner queues them; headless tests count plays).
+;
+; Built-in sound ids:
+;   blip, brick, bounce, wall, lose, win
+;
+; Score instruments (game_soundscore.rgr):
+;   piano   — warm plucked keys (v2 additive synth, saved voice)
+;   violin  — bowed string with vibrato
+;   harp    — bright plucked arpeggios
+;   flute   — soft breathy tone
+;   guitar  — nylon pluck
+;   brass   — mellow horn (odd harmonics)
+;   organ   — sustained drawbar tone
+;   pad     — soft synth pad
+;   bell    — short shimmer
+;   square  — retro bass (band-limited)
+;   triangle, sine — simple waves
+;   drums   — K/S/H hits
+; ==============================================================================
+
+class ScoreVoiceHit {
+    def instrument:string "piano"
+    def pitch:string ""
+}
+
+class ScoreVoiceRender {
+    def pcm:buffer (buffer_alloc 0)
+    def frames:int 0
+}
+
+class NoteNames {
+    def midiByPitch:[string:int]
+
+    fn init:void () {
+        this.fillMap()
+    }
+
+    fn addPitch:void (pitch:string midi:int) {
+        set midiByPitch pitch midi
+    }
+
+    fn fillMap:void () {
+        def names:[string]
+        push names "C"
+        push names "C#"
+        push names "D"
+        push names "D#"
+        push names "E"
+        push names "F"
+        push names "F#"
+        push names "G"
+        push names "G#"
+        push names "A"
+        push names "A#"
+        push names "B"
+        def oct 0
+        while (oct < 9) {
+            def suf:string (to_string oct)
+            def base:int 0
+            base = (oct + 1)
+            base = (base * 12)
+            def i 0
+            while (i < 12) {
+                def nm:string (itemAt names i)
+                def key:string (nm + suf)
+                this.addPitch(key (base + i))
+                i = (i + 1)
+            }
+            oct = (oct + 1)
+        }
+    }
+
+    fn pitchToMidi:int (pitch:string) {
+        def v@(optional):int (get midiByPitch pitch)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return 60
+    }
+
+    fn letterAt:string (index:int) {
+        if (index == 0) {
+            return "C"
+        }
+        if (index == 1) {
+            return "C#"
+        }
+        if (index == 2) {
+            return "D"
+        }
+        if (index == 3) {
+            return "D#"
+        }
+        if (index == 4) {
+            return "E"
+        }
+        if (index == 5) {
+            return "F"
+        }
+        if (index == 6) {
+            return "F#"
+        }
+        if (index == 7) {
+            return "G"
+        }
+        if (index == 8) {
+            return "G#"
+        }
+        if (index == 9) {
+            return "A"
+        }
+        if (index == 10) {
+            return "A#"
+        }
+        return "B"
+    }
+
+    fn midiToPitch:string (midi:int) {
+        if (midi < 0) {
+            midi = 0
+        }
+        if (midi > 127) {
+            midi = 127
+        }
+        def oct:int (to_int (midi / 12))
+        oct = (oct - 1)
+        def rem:int (midi - ((oct + 1) * 12))
+        if (rem < 0) {
+            rem = (rem + 12)
+            oct = (oct - 1)
+        }
+        if (rem >= 12) {
+            rem = (rem - 12)
+            oct = (oct + 1)
+        }
+        def nm:string (this.letterAt(rem))
+        return (nm + (to_string oct))
+    }
+
+    fn transposePitch:string (pitch:string semitones:int) {
+        if (semitones == 0) {
+            return pitch
+        }
+        if (pitch == "_") {
+            return pitch
+        }
+        if (pitch == "K") {
+            return pitch
+        }
+        if (pitch == "S") {
+            return pitch
+        }
+        if (pitch == "H") {
+            return pitch
+        }
+        def midi:int (this.pitchToMidi(pitch))
+        midi = (midi + semitones)
+        return (this.midiToPitch(midi))
+    }
+}
+
+; Waveform selector for the tone generator.
+class SynthWave {
+    sfn sine:int () { return 0 }
+    sfn square:int () { return 1 }
+    sfn triangle:int () { return 2 }
+    sfn noise:int () { return 3 }
+}
+
+; Parameters for a single synthetic tone burst.
+class SynthToneSpec {
+    def freqHz:double 440.0
+    def durationMs:int 80
+    def volume:double 0.35
+    def wave:int 0
+    def slideHz:double 0.0        ; linear freq slide to this value over duration
+}
+
+; Host callback interface. Override onSynthPlay in a subclass (e.g. SDL sink).
+class GameAudioSink {
+    fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
+    }
+
+    fn onClearQueue:void () {
+    }
+}
+
+; ---------------------------------------------------------------------------
+; GameSoundPalette — the sound vocabulary as DATA, not branches (IDEAL.md §4).
+;
+; The engine core owns the synth (SynthToneSpec + the wave sampler in GameAudio);
+; a sound's NAME and tone are game data registered into this table. This replaces
+; the fixed `if (id == "wall") {...}` ladder — core dispatches a sound by table
+; lookup and ships only the synth, so a game adds `registerSound("brick", spec)`
+; with no new branch in game_audio.rgr (IDEAL_API §4 / §6 registries).
+;
+; registerDefaults() installs the engine's built-in palette (identical tones to
+; the former hardcoded set) as a starting point; a game may override a name or
+; register new ones before playing.
+; ---------------------------------------------------------------------------
+class GameSoundPalette {
+    def specs:[string:SynthToneSpec]
+
+    sfn tone:SynthToneSpec (f:double dur:int vol:double wave:int slide:double) {
+        def s:SynthToneSpec (new SynthToneSpec)
+        s.freqHz = f
+        s.durationMs = dur
+        s.volume = vol
+        s.wave = wave
+        s.slideHz = slide
+        return s
+    }
+
+    ; Register or override a sound by name. The game owns the vocabulary.
+    fn register:void (name:string spec:SynthToneSpec) {
+        set specs name spec
+    }
+
+    fn has:boolean (name:string) {
+        return (has specs name)
+    }
+
+    ; The registered spec for a name, or a neutral default tone if unregistered.
+    fn spec:SynthToneSpec (name:string) {
+        def v@(optional):SynthToneSpec (get specs name)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return (GameSoundPalette.tone(440.0 60 0.25 (SynthWave.sine()) 0.0))
+    }
+
+    fn count:int () {
+        return (array_length (keys specs))
+    }
+
+    ; The engine's default palette — data, not branches. Tones match the former
+    ; hardcoded GameAudio.lookupSpec set exactly, so behaviour is preserved.
+    fn registerDefaults:void () {
+        this.register("blip"      (GameSoundPalette.tone(660.0 40  0.30 (SynthWave.square())   0.0)))
+        this.register("brick"     (GameSoundPalette.tone(880.0 55  0.32 (SynthWave.square())   0.0)))
+        this.register("bounce"    (GameSoundPalette.tone(330.0 45  0.28 (SynthWave.triangle()) 0.0)))
+        this.register("wall"      (GameSoundPalette.tone(220.0 25  0.18 (SynthWave.triangle()) 0.0)))
+        this.register("lose"      (GameSoundPalette.tone(420.0 280 0.30 (SynthWave.sine())     160.0)))
+        this.register("win"       (GameSoundPalette.tone(523.0 120 0.30 (SynthWave.sine())     0.0)))
+        this.register("celebrate" (GameSoundPalette.tone(392.0 160 0.32 (SynthWave.sine())     0.0)))
+    }
+}
+
+class GameAudio {
+    def sampleRate:int 44100
+    def sink:GameAudioSink (new GameAudioSink)
+    def playCount:int 0
+    def lastId:string ""
+    ; The registered sound vocabulary (IDEAL.md §4). Defaults installed lazily;
+    ; a game may register/override names via registerSound() before playing.
+    def palette:GameSoundPalette (new GameSoundPalette)
+    def paletteReady:boolean false
+    def verbose:boolean false
+    def sineSteps:int 256
+    def sineTable:[double]
+    def midiFreq:[double]
+    def noteNames:NoteNames (new NoteNames)
+
+    fn init:void () {
+        sineTable = (this.buildSineTable())
+        midiFreq = (this.buildMidiFreqTable())
+        noteNames.init()
+    }
+
+    fn semitoneRatio:double (semitones:int) {
+        def ratios:[double]
+        push ratios 1.0
+        push ratios 1.059463094359
+        push ratios 1.12246204831
+        push ratios 1.189207115
+        push ratios 1.25992105
+        push ratios 1.33483985
+        push ratios 1.41421356
+        push ratios 1.49830708
+        push ratios 1.58740105
+        push ratios 1.68179283
+        push ratios 1.78179744
+        push ratios 1.88774863
+        def octaves:int (to_int (semitones / 12))
+        def rem:int (semitones - (octaves * 12))
+        if (rem < 0) {
+            rem = (rem + 12)
+            octaves = (octaves - 1)
+        }
+        def r:double (itemAt ratios rem)
+        if (octaves > 0) {
+            def i 0
+            while (i < octaves) {
+                r = (r * 2.0)
+                i = (i + 1)
+            }
+        }
+        if (octaves < 0) {
+            def i 0
+            while (i > octaves) {
+                r = (r * 0.5)
+                i = (i - 1)
+            }
+        }
+        return r
+    }
+
+    fn buildMidiFreqTable:[double] () {
+        def table:[double]
+        def m 0
+        while (m < 128) {
+            def ratio:double (this.semitoneRatio((m - 69)))
+            push table (440.0 * ratio)
+            m = (m + 1)
+        }
+        return table
+    }
+
+    fn pitchToFreq:double (pitch:string) {
+        if (pitch == "_") {
+            return 0.0
+        }
+        def midi:int (noteNames.pitchToMidi(pitch))
+        return (itemAt midiFreq midi)
+    }
+
+    fn instrumentWave:int (instrument:string) {
+        if (instrument == "square") {
+            return 1
+        }
+        if (instrument == "triangle") {
+            return 2
+        }
+        if (instrument == "violin") {
+            return 0
+        }
+        if (instrument == "drums") {
+            return 3
+        }
+        return 0
+    }
+
+    fn instrumentVolume:double (instrument:string) {
+        if (instrument == "square") {
+            return 0.30
+        }
+        if (instrument == "violin") {
+            return 0.32
+        }
+        if (instrument == "piano") {
+            return 0.30
+        }
+        if (instrument == "harp") {
+            return 0.30
+        }
+        if (instrument == "flute") {
+            return 0.34
+        }
+        if (instrument == "guitar") {
+            return 0.30
+        }
+        if (instrument == "brass") {
+            return 0.34
+        }
+        if (instrument == "organ") {
+            return 0.32
+        }
+        if (instrument == "pad") {
+            return 0.36
+        }
+        if (instrument == "bell") {
+            return 0.32
+        }
+        if (instrument == "drums") {
+            return 0.38
+        }
+        if (instrument == "sine") {
+            return 0.30
+        }
+        if (instrument == "triangle") {
+            return 0.26
+        }
+        return 0.30
+    }
+
+    fn buildSineTable:[double] () {
+        def table:[double]
+        def steps:int sineSteps
+        def i 0
+        while (i < steps) {
+            def angle:double ((to_double i) / (to_double steps))
+            angle = (angle * 6.283185307)
+            def x:double angle
+            def x3:double (x * x * x)
+            def x5:double (x3 * x * x)
+            def x7:double (x5 * x * x)
+            def s:double (x - (x3 / 6.0) + (x5 / 120.0) - (x7 / 5040.0))
+            push table s
+            i = (i + 1)
+        }
+        return table
+    }
+
+    fn wrapPhase:double (phase:double) {
+        def p:double phase
+        while (p >= 1.0) {
+            p = (p - 1.0)
+        }
+        while (p < 0.0) {
+            p = (p + 1.0)
+        }
+        return p
+    }
+
+    fn harmPhase:double (phase:double harmonic:int) {
+        return (this.wrapPhase(phase * (to_double harmonic)))
+    }
+
+    fn sampleSine:double (phase:double) {
+        def p:double (this.wrapPhase(phase))
+        def idx:int (bit_and (to_int (p * (to_double sineSteps))) (sineSteps - 1))
+        return (itemAt sineTable idx)
+    }
+
+    fn samplePiano:double (phase:double) {
+        ; Warm pluck — few harmonics (5th/6th cause hiss on additive sine).
+        def s:double (this.sampleSine(phase))
+        def p2:double (this.harmPhase(phase 2))
+        def p3:double (this.harmPhase(phase 3))
+        def p4:double (this.harmPhase(phase 4))
+        s = (s + (0.36 * (this.sampleSine(p2))))
+        s = (s + (0.16 * (this.sampleSine(p3))))
+        s = (s + (0.07 * (this.sampleSine(p4))))
+        return (s * 0.50)
+    }
+
+    fn sampleViolin:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        def p2:double (this.harmPhase(phase 2))
+        def p3:double (this.harmPhase(phase 3))
+        s = (s + (0.48 * (this.sampleSine(p2))))
+        s = (s + (0.22 * (this.sampleSine(p3))))
+        return (s * 0.42)
+    }
+
+    fn sampleSquareBass:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        def p3:double (this.harmPhase(phase 3))
+        def p5:double (this.harmPhase(phase 5))
+        def p7:double (this.harmPhase(phase 7))
+        def p9:double (this.harmPhase(phase 9))
+        s = (s + (0.55 * (this.sampleSine(p3))))
+        s = (s + (0.38 * (this.sampleSine(p5))))
+        s = (s + (0.24 * (this.sampleSine(p7))))
+        s = (s + (0.14 * (this.sampleSine(p9))))
+        return (s * 0.40)
+    }
+
+    fn sampleHarp:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        def p2:double (this.harmPhase(phase 2))
+        def p3:double (this.harmPhase(phase 3))
+        def p4:double (this.harmPhase(phase 4))
+        def p5:double (this.harmPhase(phase 5))
+        s = (s + (0.55 * (this.sampleSine(p2))))
+        s = (s + (0.30 * (this.sampleSine(p3))))
+        s = (s + (0.15 * (this.sampleSine(p4))))
+        s = (s + (0.06 * (this.sampleSine(p5))))
+        return (s * 0.38)
+    }
+
+    fn sampleFlute:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        def p2:double (this.harmPhase(phase 2))
+        s = (s + (0.04 * (this.sampleSine(p2))))
+        return (s * 0.62)
+    }
+
+    fn sampleGuitar:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        def p2:double (this.harmPhase(phase 2))
+        def p3:double (this.harmPhase(phase 3))
+        def p4:double (this.harmPhase(phase 4))
+        s = (s + (0.45 * (this.sampleSine(p2))))
+        s = (s + (0.22 * (this.sampleSine(p3))))
+        s = (s + (0.10 * (this.sampleSine(p4))))
+        return (s * 0.40)
+    }
+
+    fn sampleBrass:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        def p3:double (this.harmPhase(phase 3))
+        def p5:double (this.harmPhase(phase 5))
+        def p7:double (this.harmPhase(phase 7))
+        s = (s + (0.55 * (this.sampleSine(p3))))
+        s = (s + (0.28 * (this.sampleSine(p5))))
+        s = (s + (0.14 * (this.sampleSine(p7))))
+        return (s * 0.36)
+    }
+
+    fn sampleOrgan:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        def p2:double (this.harmPhase(phase 2))
+        def p3:double (this.harmPhase(phase 3))
+        def p4:double (this.harmPhase(phase 4))
+        s = (s + (0.48 * (this.sampleSine(p2))))
+        s = (s + (0.24 * (this.sampleSine(p3))))
+        s = (s + (0.12 * (this.sampleSine(p4))))
+        return (s * 0.40)
+    }
+
+    fn samplePad:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        return (s * 0.65)
+    }
+
+    fn sampleBell:double (phase:double) {
+        def s:double (this.sampleSine(phase))
+        def p2:double (this.harmPhase(phase 2))
+        def p3:double (this.harmPhase(phase 3))
+        def p5:double (this.harmPhase(phase 5))
+        def p7:double (this.harmPhase(phase 7))
+        s = (s + (0.40 * (this.sampleSine(p2))))
+        s = (s + (0.28 * (this.sampleSine(p3))))
+        s = (s + (0.16 * (this.sampleSine(p5))))
+        s = (s + (0.10 * (this.sampleSine(p7))))
+        return (s * 0.34)
+    }
+
+    fn instrumentVibrato:boolean (instrument:string) {
+        if (instrument == "violin") {
+            return true
+        }
+        if (instrument == "flute") {
+            return true
+        }
+        return false
+    }
+
+    fn vibratoDepth:double (instrument:string) {
+        if (instrument == "flute") {
+            return 0.0035
+        }
+        if (instrument == "violin") {
+            return 0.0075
+        }
+        return 0.0
+    }
+
+    fn sampleInstrument:double (instrument:string phase:double noiseSeed:int) {
+        if (instrument == "piano") {
+            return (this.samplePiano(phase))
+        }
+        if (instrument == "violin") {
+            return (this.sampleViolin(phase))
+        }
+        if (instrument == "harp") {
+            return (this.sampleHarp(phase))
+        }
+        if (instrument == "flute") {
+            return (this.sampleFlute(phase))
+        }
+        if (instrument == "guitar") {
+            return (this.sampleGuitar(phase))
+        }
+        if (instrument == "brass") {
+            return (this.sampleBrass(phase))
+        }
+        if (instrument == "organ") {
+            return (this.sampleOrgan(phase))
+        }
+        if (instrument == "pad") {
+            return (this.samplePad(phase))
+        }
+        if (instrument == "bell") {
+            return (this.sampleBell(phase))
+        }
+        if (instrument == "square") {
+            return (this.sampleSquareBass(phase))
+        }
+        if (instrument == "sine") {
+            return (this.sampleSine(phase))
+        }
+        if (instrument == "triangle") {
+            if (phase < 0.25) {
+                return (phase * 4.0)
+            }
+            if (phase < 0.75) {
+                return (1.0 - ((phase - 0.25) * 4.0))
+            }
+            return (-1.0 + ((phase - 0.75) * 4.0))
+        }
+        if (instrument == "drums") {
+            def n:int (bit_and ((noiseSeed * 1103515245) + 12345) 255)
+            return ((to_double n) / 127.5) - 1.0
+        }
+        return (this.sampleSine(phase))
+    }
+
+    fn melodyEnvelope:double (instrument:string t:double) {
+        if (instrument == "piano") {
+            def atk:double 0.004
+            if (t < atk) {
+                return (t / atk)
+            }
+            ; Pluck decays quickly; beat duration is spacing, not sustain.
+            def decayEnd:double 0.30
+            if (t > decayEnd) {
+                return 0.0
+            }
+            def d:double ((t - atk) / (decayEnd - atk))
+            def env:double (1.0 - d)
+            env = (env * env)
+            return env
+        }
+        if (instrument == "harp") {
+            def atk:double 0.003
+            if (t < atk) {
+                return (t / atk)
+            }
+            def d:double ((t - atk) / (1.0 - atk))
+            def env:double (1.0 - d)
+            env = (env * env * env * env)
+            return env
+        }
+        if (instrument == "guitar") {
+            def atk:double 0.004
+            if (t < atk) {
+                return (t / atk)
+            }
+            def d:double ((t - atk) / (1.0 - atk))
+            def env:double (1.0 - d)
+            env = (env * env * env)
+            return (env * 0.92)
+        }
+        if (instrument == "violin") {
+            def atk:double 0.04
+            if (t < atk) {
+                return (t / atk)
+            }
+            def d:double ((t - atk) / (1.0 - atk))
+            return (0.22 + (0.78 * (1.0 - (d * d))))
+        }
+        if (instrument == "flute") {
+            def atk:double 0.05
+            if (t < atk) {
+                return (t / atk)
+            }
+            def d:double ((t - atk) / (1.0 - atk))
+            return (0.35 + (0.65 * (1.0 - (d * d))))
+        }
+        if (instrument == "brass") {
+            def atk:double 0.03
+            if (t < atk) {
+                return (t / atk)
+            }
+            def d:double ((t - atk) / (1.0 - atk))
+            return (0.40 + (0.60 * (1.0 - d)))
+        }
+        if (instrument == "organ") {
+            def atk:double 0.02
+            if (t < atk) {
+                return (t / atk)
+            }
+            return 0.95
+        }
+        if (instrument == "pad") {
+            def atk:double 0.12
+            if (t < atk) {
+                return (t / atk)
+            }
+            def rel:double 0.18
+            if (t > (1.0 - rel)) {
+                def u:double ((t - (1.0 - rel)) / rel)
+                return (1.0 - u)
+            }
+            return 0.88
+        }
+        if (instrument == "bell") {
+            def env:double (1.0 - t)
+            env = (env * env)
+            return env
+        }
+        if (instrument == "square") {
+            def env:double (1.0 - (t * 0.08))
+            return env
+        }
+        def env2:double (1.0 - t)
+        env2 = (env2 * env2)
+        return env2
+    }
+
+    fn setSink:void (s:GameAudioSink) {
+        sink = s
+    }
+
+    ; Ensure the default palette is installed before the first lookup. Lazy so an
+    ; existing GameAudio (constructed without an explicit init) still works.
+    fn ensurePalette:void () {
+        if (paletteReady) {
+            return
+        }
+        palette.registerDefaults()
+        paletteReady = true
+    }
+
+    ; Register (or override) a game sound by name — the §4 registry entry point.
+    ; A game calls this at setup; core never grows an `id == "brick"` branch.
+    fn registerSound:void (name:string spec:SynthToneSpec) {
+        this.ensurePalette()
+        palette.register(name spec)
+    }
+
+    fn hasBuiltin:boolean (id:string) {
+        this.ensurePalette()
+        return (palette.has(id))
+    }
+
+    ; Resolve a sound name to its tone through the palette (data-driven, §4).
+    fn lookupSpec:SynthToneSpec (id:string) {
+        this.ensurePalette()
+        return (palette.spec(id))
+    }
+
+    fn sampleWave:double (wave:int phase:double noiseSeed:int) {
+        if (wave == (SynthWave.square())) {
+            return (this.sampleSquareBass(phase))
+        }
+        if (wave == (SynthWave.triangle())) {
+            return (this.sampleInstrument("triangle" phase noiseSeed))
+        }
+        if (wave == (SynthWave.noise())) {
+            return (this.sampleInstrument("drums" phase noiseSeed))
+        }
+        return (this.sampleSine(phase))
+    }
+
+    fn synthMelody:buffer (instrument:string freq:double durationMs:int volume:double) {
+        def frames:int (to_int (((to_double durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def phase:double 0.0
+        def vibrato:boolean (this.instrumentVibrato(instrument))
+        def vibDepth:double (this.vibratoDepth(instrument))
+        def i 0
+        while (i < frames) {
+            def t:double ((to_double i) / (to_double frames))
+            def env:double (this.melodyEnvelope(instrument t))
+            def freqNow:double freq
+            if (vibrato) {
+                def vib:double (1.0 + (vibDepth * (this.sampleSine((to_double i) / 165.0))))
+                freqNow = (freq * vib)
+            }
+            def sample:double (this.sampleInstrument(instrument phase i))
+            def amp:double (sample * volume * env * 32767.0)
+            if (i >= (frames - 8)) {
+                def tail:int (frames - i)
+                amp = (amp * ((to_double tail) / 8.0))
+            }
+            def iv:int (to_int amp)
+            if (iv > 32767) { iv = 32767 }
+            if (iv < -32768) { iv = -32768 }
+            def v:int iv
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            def off:int (i * 2)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
+            phase = (phase + (freqNow / (to_double sampleRate)))
+            phase = (this.wrapPhase(phase))
+            i = (i + 1)
+        }
+        return pcm
+    }
+
+    fn synthDrum:buffer (hit:string durationMs:int) {
+        def spec:SynthToneSpec (new SynthToneSpec)
+        spec.durationMs = durationMs
+        spec.volume = 0.38
+        if (hit == "K") {
+            spec.durationMs = 110
+            spec.volume = 0.46
+        }
+        if (hit == "S") {
+            spec.durationMs = 85
+            spec.volume = 0.34
+        }
+        if (hit == "H") {
+            spec.durationMs = 45
+            spec.volume = 0.18
+        }
+        def frames:int (to_int (((to_double spec.durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def phase:double 0.0
+        def i 0
+        while (i < frames) {
+            def t:double ((to_double i) / (to_double frames))
+            def env:double (1.0 - t)
+            env = (env * env)
+            def sample:double 0.0
+            if (hit == "K") {
+                def kickHz:double (120.0 - (75.0 * t))
+                sample = (this.sampleSine(phase))
+                phase = (phase + (kickHz / (to_double sampleRate)))
+                phase = (this.wrapPhase(phase))
+                env = (env * env)
+            } {
+                if (hit == "S") {
+                    def tonePhase:double (this.harmPhase(phase 4))
+                    def tone:double (this.sampleSine(tonePhase))
+                    def noise:double (this.sampleInstrument("drums" phase i))
+                    sample = ((tone * 0.35) + (noise * 0.65))
+                    phase = (phase + (180.0 / (to_double sampleRate)))
+                    phase = (this.wrapPhase(phase))
+                } {
+                    if (hit == "H") {
+                        sample = (this.sampleInstrument("drums" (phase + ((to_double i) * 0.013)) i))
+                        env = (env * env * env)
+                    } {
+                        sample = (this.sampleInstrument("drums" phase i))
+                    }
+                }
+            }
+            def amp:double (sample * spec.volume * env * 32767.0)
+            def iv:int (to_int amp)
+            if (iv > 32767) { iv = 32767 }
+            if (iv < -32768) { iv = -32768 }
+            def v:int iv
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            def off:int (i * 2)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
+            i = (i + 1)
+        }
+        return pcm
+    }
+
+    fn mixBuffers:buffer (a:buffer b:buffer frames:int) {
+        def bytesA:int (buffer_length a)
+        def bytesB:int (buffer_length b)
+        def framesA:int (to_int (bytesA / 2))
+        def framesB:int (to_int (bytesB / 2))
+        def useFrames:int frames
+        if (useFrames > framesA) {
+            useFrames = framesA
+        }
+        if (useFrames > framesB) {
+            useFrames = framesB
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def i 0
+        while (i < frames) {
+            def off:int (i * 2)
+            def sa:int 0
+            def sb:int 0
+            if (i < useFrames) {
+                def loA:int (buffer_get a off)
+                def hiA:int (buffer_get a (off + 1))
+                sa = (loA + (hiA * 256))
+                if (sa >= 32768) { sa = (sa - 65536) }
+                def loB:int (buffer_get b off)
+                def hiB:int (buffer_get b (off + 1))
+                sb = (loB + (hiB * 256))
+                if (sb >= 32768) { sb = (sb - 65536) }
+            }
+            def mix:int (sa + sb)
+            if (mix > 32767) { mix = 32767 }
+            if (mix < -32768) { mix = -32768 }
+            def v:int mix
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
+            i = (i + 1)
+        }
+        return pcm
+    }
+
+    fn playScoreNote:void (instrument:string pitch:string durationMs:int) {
+        def rendered:ScoreVoiceRender (this.renderScoreNote(instrument pitch durationMs))
+        if (rendered.frames <= 0) {
+            return
+        }
+        playCount = (playCount + 1)
+        lastId = ("score:" + pitch)
+        sink.onSynthPlay(lastId sampleRate rendered.frames rendered.pcm)
+    }
+
+    fn melodySynthMs:int (instrument:string beatMs:int) {
+        if (beatMs < 40) {
+            return 40
+        }
+        if (instrument == "piano") {
+            if (beatMs > 170) {
+                return 170
+            }
+            return beatMs
+        }
+        if (instrument == "guitar") {
+            if (beatMs > 190) {
+                return 190
+            }
+            return beatMs
+        }
+        if (instrument == "harp") {
+            if (beatMs > 150) {
+                return 150
+            }
+            return beatMs
+        }
+        if (instrument == "bell") {
+            if (beatMs > 280) {
+                return 280
+            }
+            return beatMs
+        }
+        return beatMs
+    }
+
+    fn renderScoreNote:ScoreVoiceRender (instrument:string pitch:string durationMs:int) {
+        def out:ScoreVoiceRender (new ScoreVoiceRender)
+        if (durationMs < 40) {
+            durationMs = 40
+        }
+        if (instrument == "drums") {
+            out.pcm = (this.synthDrum(pitch durationMs))
+            out.frames = (to_int (((to_double durationMs) * (to_double sampleRate)) / 1000.0))
+            return out
+        }
+        def freq:double (this.pitchToFreq(pitch))
+        if (freq <= 0.0) {
+            return out
+        }
+        def synthMs:int (this.melodySynthMs(instrument durationMs))
+        def vol:double (this.instrumentVolume(instrument))
+        out.pcm = (this.synthMelody(instrument freq synthMs vol))
+        out.frames = (to_int (((to_double synthMs) * (to_double sampleRate)) / 1000.0))
+        return out
+    }
+
+    fn playScoreChord:void (notes:[ScoreVoiceHit] durationMs:int) {
+        if ((array_length notes) == 0) {
+            return
+        }
+        playCount = (playCount + 1)
+        lastId = "score:chord"
+        def frames:int (to_int (((to_double durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def mixed:buffer (buffer_alloc (frames * 2))
+        def i 0
+        while (i < frames) {
+            buffer_set mixed (i * 2) 0
+            buffer_set mixed ((i * 2) + 1) 0
+            i = (i + 1)
+        }
+        def ni 0
+        while (ni < (array_length notes)) {
+            def ev:ScoreVoiceHit (itemAt notes ni)
+            def hasPart:boolean false
+            def part:buffer (buffer_alloc (frames * 2))
+            def synthMs:int (this.melodySynthMs(ev.instrument durationMs))
+            if (ev.instrument == "drums") {
+                part = (this.synthDrum(ev.pitch synthMs))
+                hasPart = true
+            } {
+                def freq:double (this.pitchToFreq(ev.pitch))
+                if (freq > 0.0) {
+                    def vol:double (this.instrumentVolume(ev.instrument))
+                    part = (this.synthMelody(ev.instrument freq synthMs vol))
+                    hasPart = true
+                }
+            }
+            if (hasPart) {
+                mixed = (this.mixBuffers(mixed part frames))
+            }
+            ni = (ni + 1)
+        }
+        sink.onSynthPlay(lastId sampleRate frames mixed)
+    }
+
+    fn synthTone:buffer (spec:SynthToneSpec) {
+        def frames:int (to_int (((to_double spec.durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def phase:double 0.0
+        def freq:double spec.freqHz
+        def slidePerFrame:double 0.0
+        if (spec.slideHz != 0.0) {
+            slidePerFrame = ((spec.slideHz - spec.freqHz) / (to_double frames))
+        }
+        def i 0
+        while (i < frames) {
+            def t:double ((to_double i) / (to_double frames))
+            def env:double (1.0 - t)
+            env = (env * env)
+            def sample:double (this.sampleWave(spec.wave phase i))
+            def amp:double (sample * spec.volume * env * 32767.0)
+            def iv:int (to_int amp)
+            if (iv > 32767) { iv = 32767 }
+            if (iv < -32768) { iv = -32768 }
+            ; Inline LE int16 write: C++ passes buffer method args by value, so keep
+            ; buffer_set in the same method that owns the local pcm buffer.
+            def v:int iv
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            def off:int (i * 2)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
+            freq = (freq + slidePerFrame)
+            if (freq < 40.0) { freq = 40.0 }
+            phase = (phase + (freq / (to_double sampleRate)))
+            phase = (this.wrapPhase(phase))
+            i = (i + 1)
+        }
+        return pcm
+    }
+
+    fn queueSpec:void (id:string spec:SynthToneSpec) {
+        def pcm:buffer (this.synthTone(spec))
+        def frames:int (to_int (((to_double spec.durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        sink.onSynthPlay(id sampleRate frames pcm)
+    }
+
+    fn play:void (id:string) {
+        playCount = (playCount + 1)
+        lastId = id
+        if verbose {
+            print ("[audio] play " + id)
+        }
+        if (id == "win") {
+            this.playWinArpeggio()
+            return
+        }
+        if (id == "celebrate") {
+            this.playCelebrateFanfare()
+            return
+        }
+        def spec:SynthToneSpec (this.lookupSpec(id))
+        this.queueSpec(id spec)
+    }
+
+    fn playWinArpeggio:void () {
+        def notes:[double]
+        push notes 523.0
+        push notes 659.0
+        push notes 784.0
+        push notes 1046.0
+        def i 0
+        while (i < (array_length notes)) {
+            def spec:SynthToneSpec (new SynthToneSpec)
+            spec.freqHz = (itemAt notes i)
+            spec.durationMs = 90
+            spec.volume = 0.28
+            spec.wave = (SynthWave.sine())
+            this.queueSpec("win" spec)
+            i = (i + 1)
+        }
+    }
+
+    fn playCelebrateFanfare:void () {
+        def notes:[double]
+        push notes 523.0
+        push notes 659.0
+        push notes 784.0
+        push notes 988.0
+        push notes 1174.0
+        push notes 1318.0
+        def i 0
+        while (i < (array_length notes)) {
+            def spec:SynthToneSpec (new SynthToneSpec)
+            spec.freqHz = (itemAt notes i)
+            spec.durationMs = 140
+            spec.volume = 0.30
+            spec.wave = (SynthWave.sine())
+            this.queueSpec("celebrate" spec)
+            i = (i + 1)
+        }
+    }
+}

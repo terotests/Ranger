@@ -18,11 +18,11 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
-Import "../../pdf_writer/src/raster/RasterText.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
-Import "../../pdf_writer/src/fonts/FontManager.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../evg/EVGTextMeasurer.rgr"
+Import "../imaging/raster/RasterText.rgr"
+Import "../imaging/raster/RasterBuffer.rgr"
+Import "../imaging/fonts/FontManager.rgr"
+Import "../imaging/jpeg/ImageBuffer.rgr"
+Import "../evg/EVGTextMeasurer.rgr"
 
 ; One cached, pre-rasterized line of text (color baked in).
 class UICachedLine {

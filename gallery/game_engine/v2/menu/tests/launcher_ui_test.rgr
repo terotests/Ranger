@@ -1,0 +1,141 @@
+; ==============================================================================
+; launcher_ui_test — the rich EVG/UI launcher screen renders + navigates.
+; ==============================================================================
+; Asserts the launcher composes its categories, that selection navigation moves
+; (and clamps), that rendering actually draws pixels into the SoftCanvas, and
+; that the accent highlight follows the selected card (Games -> Tests). Reads
+; the rendered RGBA back out of canvas.raw(), so it exercises the real UI text /
+; panel raster path, not just the model.
+; ==============================================================================
+
+Import "../RgLauncherUi.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class LauncherUiTest {
+    ; count pixels of colour (r,g,b) inside a rect of the launcher's RGBA canvas
+    sfn countColor:int (ui:RgLauncherUi x0:int y0:int x1:int y1:int r:int g:int b:int) {
+        def buf:buffer (ui.raw())
+        def w:int ui.w
+        def n 0
+        def y y0
+        while (y < y1) {
+            def x x0
+            while (x < x1) {
+                def off:int (((y * w) + x) * 4)
+                def pr:int (buffer_get buf off)
+                def pg:int (buffer_get buf (off + 1))
+                def pb:int (buffer_get buf (off + 2))
+                if (pr == r) {
+                    if (pg == g) {
+                        if (pb == b) { n = (n + 1) }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return n
+    }
+
+    ; any pixel not the night background (16,18,34) in the whole canvas
+    sfn nonBackground:int (ui:RgLauncherUi) {
+        def buf:buffer (ui.raw())
+        def total:int (ui.w * ui.h)
+        def n 0
+        def i 0
+        while (i < total) {
+            def off:int (i * 4)
+            def pr:int (buffer_get buf off)
+            def pg:int (buffer_get buf (off + 1))
+            def pb:int (buffer_get buf (off + 2))
+            def bg:boolean false
+            if (pr == 16) {
+                if (pg == 18) {
+                    if (pb == 34) { bg = true }
+                }
+            }
+            if (bg == false) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("menu/launcher_ui (EVG/UI launcher)"))
+        def ui:RgLauncherUi (new RgLauncherUi)
+        ui.init(480 270)
+
+        ; ---- categories + navigation model ---------------------------------
+        t.eqInt("two categories" (ui.categoryCount()) 2)
+        t.eqStr("Games selected first" (ui.selectedLabel()) "Games")
+        t.eqStr("route is games" (ui.selectedRoute()) "games")
+        ui.moveSelection(1)
+        t.eqStr("right selects Tests" (ui.selectedLabel()) "Tests")
+        ui.moveSelection(1)
+        t.eqStr("right clamps at the last category" (ui.selectedLabel()) "Tests")
+        ui.moveSelection(0 - 5)
+        t.eqStr("left clamps back to Games" (ui.selectedLabel()) "Games")
+
+        ; ---- it actually renders pixels ------------------------------------
+        ui.render()
+        t.ok("something was drawn into the canvas" ((LauncherUiTest.nonBackground(ui)) > 0))
+
+        ; ---- accent highlight follows the selection ------------------------
+        ; Games selected: accent (255,190,70) appears in the LEFT half.
+        def leftAccent:int (LauncherUiTest.countColor(ui 0 0 240 270 255 190 70))
+        t.ok("selected (Games) card is accent-filled on the left" (leftAccent > 0))
+        def rightAccentA:int (LauncherUiTest.countColor(ui 240 0 480 270 255 190 70))
+        t.eqInt("the right (Tests) card is NOT accent while Games selected" rightAccentA 0)
+
+        ; select Tests, re-render: accent moves to the RIGHT half.
+        ui.moveSelection(1)
+        ui.render()
+        def rightAccentB:int (LauncherUiTest.countColor(ui 240 0 480 270 255 190 70))
+        t.ok("selecting Tests moves the accent to the right card" (rightAccentB > 0))
+        def leftAccentB:int (LauncherUiTest.countColor(ui 0 0 240 270 255 190 70))
+        t.eqInt("Games card no longer accent" leftAccentB 0)
+
+        ; ---- two-level navigation + game handoff ---------------------------
+        def ui2:RgLauncherUi (new RgLauncherUi)
+        ui2.init(480 270)
+        t.eqInt("starts on the category page" (ui2.currentPage()) 0)
+        t.eqStr("no handoff target on the category page" (ui2.selectedDir()) "")
+
+        ; enter the Games category: activate returns 0 (nothing to launch yet)
+        def a0:int (ui2.activate())
+        t.eqInt("activating a category does not launch" a0 0)
+        t.eqInt("now on the entries page" (ui2.currentPage()) 1)
+        t.eqStr("first Games entry is Pomppija" (ui2.selectedLabel()) "Pomppija")
+        t.eqStr("Pomppija handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/games/ylos2")
+        t.eqStr("Pomppija handoff file" (ui2.selectedFile()) "index.tsx")
+
+        ; navigate the entries and clamp at the end (Games has 3)
+        ui2.moveSelection(1)
+        t.eqStr("second Games entry is Chess" (ui2.selectedLabel()) "Chess")
+        ui2.moveSelection(9)
+        t.eqStr("entries clamp at Breakout" (ui2.selectedLabel()) "Breakout")
+
+        ; activating an entry reports launch (1); the host reads dir/file
+        def a1:int (ui2.activate())
+        t.eqInt("activating an entry hands off" a1 1)
+        t.eqStr("Breakout handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/games/breakout")
+
+        ; back returns to the category page, on the category we came from
+        ui2.back()
+        t.eqInt("back to the category page" (ui2.currentPage()) 0)
+        t.eqStr("restored to the Games category" (ui2.selectedLabel()) "Games")
+
+        ; a different category yields a different entry set
+        ui2.moveSelection(1)
+        def a2:int (ui2.activate())
+        t.eqStr("Tests category entry is Sprites" (ui2.selectedLabel()) "Sprites")
+        t.eqStr("Sprites handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/tests/sprite_char")
+
+        ; page 1 renders the entry cards (accent present somewhere)
+        ui2.render()
+        def entAccent:int (LauncherUiTest.countColor(ui2 0 0 480 270 255 190 70))
+        t.ok("entry page renders an accent card" (entAccent > 0))
+
+        t.summary()
+    }
+}

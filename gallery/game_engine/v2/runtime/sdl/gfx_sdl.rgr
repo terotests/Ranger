@@ -1,0 +1,3206 @@
+; ==============================================================================
+; gfx_sdl - native window / present operators backed by SDL2.
+; ==============================================================================
+;
+; These operators are the ONLY platform boundary of the native PoC. Their `cpp`
+; templates call a tiny C shim (emitted once as an "after_imports" polyfill) that
+; wraps SDL2: create a window + renderer + a streaming RGBA texture, upload the
+; RGBA framebuffer each frame, present it, and pump keyboard/quit events.
+;
+; Because the shim is defined here (a user file), NO change to compiler/Lang.rgr
+; is required - Ranger lets any file declare operators with target templates.
+;
+; The RGBA byte order matches SoftCanvas (SDL_PIXELFORMAT_RGBA32 == R,G,B,A in
+; memory), so `gfx_present (canvas.raw()) w h` blits the frame directly.
+;
+; Build (macOS / Linux): see scripts/build-game-sdl.sh. On the Raspberry Pi the same
+; SDL2 backend drives the HDMI framebuffer via KMS/DRM.
+;
+; Default present path: OpenGL 2.1 / GLES2 via gfx_open_gpu (game_sdl_runner).
+; Pass --software to force the SDL_Renderer texture-upload path instead.
+;
+; es6 templates are harmless stubs so the file still type-checks for the web
+; target; the real window only exists in the native (C++) build.
+; ==============================================================================
+
+operators {
+
+    ; Open a window with an RGBA streaming texture of the given size.
+    ; Returns 1 on success, 0 on failure.
+    gfx_open _:int (title:string w:int h:int) {
+        templates {
+            cpp ( "rgfx_open(" (e 1) ", " (e 2) ", " (e 3) ")"
+                  (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<cstring>") (imp "<unistd.h>")
+
+                )
+            es6 ( "0" )
+        }
+    }
+
+    ; Upload a tightly-packed RGBA (w*h*4 bytes) frame and present it.
+    gfx_present _:void (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_present(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Actual output surface width/height in pixels (0 in es6). Lets a UI render at
+    ; native resolution rather than a small upscaled buffer.
+    gfx_surface_width _:int () {
+        templates {
+            cpp ( "rgfx_surface_dim(1)" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    gfx_surface_height _:int () {
+        templates {
+            cpp ( "rgfx_surface_dim(0)" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Present two full-res panes side-by-side, GPU-scaled into each window half.
+    ; left/right are w*h*4 RGBA buffers; the GPU downscale replaces the CPU blit.
+    gfx_present_split _:void (left:buffer right:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_present_split(" (e 1) ".data(), " (e 2) ".data(), " (e 3) ", " (e 4) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Pump events and return a bitmask of currently-pressed buttons:
+    ;   1 = up, 2 = down, 4 = action, 8 = quit/back (Q or Esc), 16 = left, 32 = right
+    ; Player-1 keyboard only (W/S/A/D/Space/Q/Esc). Use gfx_input_source_mask for
+    ; arrows, gamepads, and multi-player mapping via game_input.rgr.
+    gfx_poll_mask _:int () {
+        templates {
+            cpp ( "rgfx_poll_mask()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Refresh keyboard + up to 8 SDL GameController sources.
+    gfx_input_poll _:void () {
+        templates {
+            cpp ( "rgfx_input_poll()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Raw input source mask. Sources: 0=keyboard P1, 1=keyboard P2 (arrows),
+    ; 2..9 = gamepad 0..7. Bits: 1 up, 2 down, 4 action/A, 8 quit, 16 left,
+    ; 32 right, 64 B, 128 X, 256 Y, 512 start, 1024 select/back.
+    gfx_input_source_mask _:int (source:int) {
+        templates {
+            cpp ( "rgfx_input_source_mask(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Number of connected SDL GameController devices.
+    gfx_input_pad_count _:int () {
+        templates {
+            cpp ( "rgfx_input_pad_count()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; --- mouse pointer (updated by gfx_input_poll / rgfx_pump_events) ----------
+    ; Position is in window pixels; call after gfx_input_poll each frame.
+    gfx_mouse_x _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_x" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    gfx_mouse_y _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_y" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; Button bitmask: 1 = left, 2 = right, 4 = middle.
+    gfx_mouse_buttons _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_btn" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; Accumulated wheel notches since the last read (positive = scroll up); reads
+    ; and clears the accumulator.
+    gfx_mouse_wheel _:int () {
+        templates {
+            cpp ( "([]{ int w = g_rgfx_wheel; g_rgfx_wheel = 0; return w; }())" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Swap the GL back buffer to the window (present a GPU-drawn frame). Use after
+    ; drawing directly with the GL backend (three_gl's rgl_*), not the 2D path.
+    gfx_gl_swap _:void () {
+        templates {
+            cpp ( "rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Rumble connected gamepad(s). pad=-1 all pads; strength 0..65535; duration ms.
+    gfx_rumble_pad _:void (padIdx:int strength:int durationMs:int) {
+        templates {
+            cpp ( "rgfx_pad_rumble(" (e 1) ", (Uint16)" (e 2) ", (Uint16)" (e 2) ", (Uint32)" (e 3) ")"
+                (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; True once the window received a quit / close request.
+    gfx_should_close _:boolean () {
+        templates {
+            cpp ( "(rgfx_should_close() != 0)" (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<cstring>") (imp "<unistd.h>")
+(polyfill "after_imports" "
+static SDL_Window*   g_rgfx_win = nullptr;
+static SDL_Renderer* g_rgfx_ren = nullptr;
+static SDL_Texture*  g_rgfx_tex = nullptr;
+static SDL_AudioDeviceID g_rgfx_audio = 0;
+static int g_rgfx_audio_channels = 1;
+static int g_rgfx_audio_freq = 44100;
+static int g_rgfx_should_close = 0;
+static int g_rgfx_fullscreen = 0;
+
+// Mouse pointer state (SDL has no polling helper for a persistent cursor in this
+// wrapper, so we track it from events). Position is in window pixels; buttons is
+// a bitmask (1=left, 2=right, 4=middle); wheel accumulates notches until read.
+static int g_rgfx_mouse_x = 0;
+static int g_rgfx_mouse_y = 0;
+static int g_rgfx_mouse_btn = 0;
+static int g_rgfx_wheel = 0;
+
+#define RGFX_MAX_PADS 8
+#define RGFX_SRC_KB_P1 0
+#define RGFX_SRC_KB_P2 1
+#define RGFX_SRC_PAD0 2
+#define RGFX_SRC_COUNT 10
+
+#define RGFX_UP    1
+#define RGFX_DOWN  2
+#define RGFX_ACT   4
+#define RGFX_QUIT  8
+#define RGFX_LEFT  16
+#define RGFX_RIGHT 32
+#define RGFX_B     64
+#define RGFX_X     128
+#define RGFX_Y     256
+#define RGFX_START 512
+#define RGFX_SELECT 1024
+
+static SDL_GameController* g_pads[RGFX_MAX_PADS];
+static SDL_Joystick* g_joys[RGFX_MAX_PADS];
+static int g_pad_gc[RGFX_MAX_PADS];
+static int g_pad_count = 0;
+static int g_src_mask[RGFX_SRC_COUNT];
+
+static void rgfx_close_pad_slot(int idx) {
+    if (idx < 0 || idx >= g_pad_count) { return; }
+    if (g_pad_gc[idx]) {
+        if (g_pads[idx] != nullptr) { SDL_GameControllerClose(g_pads[idx]); }
+    } else {
+        if (g_joys[idx] != nullptr) { SDL_JoystickClose(g_joys[idx]); }
+    }
+    g_pads[idx] = nullptr;
+    g_joys[idx] = nullptr;
+    g_pad_gc[idx] = 0;
+    for (int j = idx + 1; j < g_pad_count; ++j) {
+        g_pads[j - 1] = g_pads[j];
+        g_joys[j - 1] = g_joys[j];
+        g_pad_gc[j - 1] = g_pad_gc[j];
+    }
+    if (g_pad_count > 0) {
+        g_pads[g_pad_count - 1] = nullptr;
+        g_joys[g_pad_count - 1] = nullptr;
+        g_pad_gc[g_pad_count - 1] = 0;
+        --g_pad_count;
+    }
+}
+
+static void rgfx_remove_pad_by_joystick_id(SDL_JoystickID jid) {
+    for (int i = 0; i < g_pad_count; ++i) {
+        SDL_Joystick* js = nullptr;
+        if (g_pad_gc[i] && g_pads[i] != nullptr) {
+            js = SDL_GameControllerGetJoystick(g_pads[i]);
+        } else if (!g_pad_gc[i]) {
+            js = g_joys[i];
+        }
+        if (js != nullptr && SDL_JoystickInstanceID(js) == jid) {
+            rgfx_close_pad_slot(i);
+            break;
+        }
+    }
+}
+
+static void rgfx_open_pad_index(int jsIndex) {
+    if (g_pad_count >= RGFX_MAX_PADS) { return; }
+    const SDL_JoystickID devId = SDL_JoystickGetDeviceInstanceID(jsIndex);
+    for (int i = 0; i < g_pad_count; ++i) {
+        SDL_Joystick* js = nullptr;
+        if (g_pad_gc[i] && g_pads[i] != nullptr) {
+            js = SDL_GameControllerGetJoystick(g_pads[i]);
+        } else {
+            js = g_joys[i];
+        }
+        if (js != nullptr && SDL_JoystickInstanceID(js) == devId) { return; }
+    }
+    if (SDL_IsGameController(jsIndex)) {
+        SDL_GameController* c = SDL_GameControllerOpen(jsIndex);
+        if (c == nullptr) { return; }
+        g_pads[g_pad_count] = c;
+        g_joys[g_pad_count] = nullptr;
+        g_pad_gc[g_pad_count] = 1;
+        ++g_pad_count;
+        return;
+    }
+    SDL_Joystick* j = SDL_JoystickOpen(jsIndex);
+    if (j == nullptr) { return; }
+    g_pads[g_pad_count] = nullptr;
+    g_joys[g_pad_count] = j;
+    g_pad_gc[g_pad_count] = 0;
+    ++g_pad_count;
+}
+
+static void rgfx_scan_pads() {
+    for (int i = g_pad_count - 1; i >= 0; --i) {
+        rgfx_close_pad_slot(i);
+    }
+    g_pad_count = 0;
+    const int n = SDL_NumJoysticks();
+    for (int i = 0; i < n && g_pad_count < RGFX_MAX_PADS; ++i) {
+        rgfx_open_pad_index(i);
+    }
+    fprintf(stderr, \"[rgfx] gamepads: %d / joysticks: %d\\n\", g_pad_count, n);
+}
+
+static int rgfx_map_joy(SDL_Joystick* joy) {
+    if (joy == nullptr) { return 0; }
+    int m = 0;
+    if (SDL_JoystickNumAxes(joy) > 0) {
+        const Sint16 lx = SDL_JoystickGetAxis(joy, 0);
+        if (lx < -8000) { m |= RGFX_LEFT; }
+        if (lx > 8000) { m |= RGFX_RIGHT; }
+    }
+    if (SDL_JoystickNumAxes(joy) > 1) {
+        const Sint16 ly = SDL_JoystickGetAxis(joy, 1);
+        if (ly < -8000) { m |= RGFX_UP; }
+        if (ly > 8000) { m |= RGFX_DOWN; }
+    }
+    if (SDL_JoystickNumHats(joy) > 0) {
+        const Uint8 hat = SDL_JoystickGetHat(joy, 0);
+        if ((hat & SDL_HAT_UP) != 0) { m |= RGFX_UP; }
+        if ((hat & SDL_HAT_DOWN) != 0) { m |= RGFX_DOWN; }
+        if ((hat & SDL_HAT_LEFT) != 0) { m |= RGFX_LEFT; }
+        if ((hat & SDL_HAT_RIGHT) != 0) { m |= RGFX_RIGHT; }
+    }
+    const int btnCount = SDL_JoystickNumButtons(joy);
+    if (btnCount > 0 && SDL_JoystickGetButton(joy, 0)) { m |= RGFX_ACT; }
+    if (btnCount > 1 && SDL_JoystickGetButton(joy, 1)) { m |= RGFX_B; }
+    if (btnCount > 2 && SDL_JoystickGetButton(joy, 2)) { m |= RGFX_X; }
+    if (btnCount > 3 && SDL_JoystickGetButton(joy, 3)) { m |= RGFX_Y; }
+    if (btnCount > 6 && SDL_JoystickGetButton(joy, 6)) { m |= RGFX_START; }
+    if (btnCount > 7 && SDL_JoystickGetButton(joy, 7)) { m |= RGFX_SELECT; }
+    return m;
+}
+
+static int rgfx_map_pad(SDL_GameController* pad) {
+    if (pad == nullptr) { return 0; }
+    int m = 0;
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) { m |= RGFX_UP; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) { m |= RGFX_DOWN; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) { m |= RGFX_LEFT; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) { m |= RGFX_RIGHT; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A)) { m |= RGFX_ACT; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B)) { m |= RGFX_B; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_X)) { m |= RGFX_X; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_Y)) { m |= RGFX_Y; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START)) { m |= RGFX_START; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK)) { m |= RGFX_SELECT; }
+    const Sint16 ly = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
+    const Sint16 lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
+    if (ly < -8000) { m |= RGFX_UP; }
+    if (ly > 8000) { m |= RGFX_DOWN; }
+    if (lx < -8000) { m |= RGFX_LEFT; }
+    if (lx > 8000) { m |= RGFX_RIGHT; }
+    return m;
+}
+
+static void rgfx_set_fullscreen(int on) {
+    if (g_rgfx_win == nullptr) { return; }
+    Uint32 flags = on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
+    SDL_SetWindowFullscreen(g_rgfx_win, flags);
+    g_rgfx_fullscreen = on ? 1 : 0;
+}
+static int rgfx_toggle_fullscreen() {
+    rgfx_set_fullscreen(g_rgfx_fullscreen ? 0 : 1);
+    return g_rgfx_fullscreen;
+}
+static int rgfx_is_fullscreen() { return g_rgfx_fullscreen; }
+
+static void rgfx_pump_events() {
+    SDL_Event ev;
+    while (SDL_PollEvent(&ev)) {
+        if (ev.type == SDL_QUIT) { g_rgfx_should_close = 1; }
+        if (ev.type == SDL_MOUSEMOTION) {
+            g_rgfx_mouse_x = ev.motion.x;
+            g_rgfx_mouse_y = ev.motion.y;
+        }
+        if (ev.type == SDL_MOUSEBUTTONDOWN) {
+            g_rgfx_mouse_x = ev.button.x;
+            g_rgfx_mouse_y = ev.button.y;
+            if (ev.button.button == SDL_BUTTON_LEFT) { g_rgfx_mouse_btn |= 1; }
+            if (ev.button.button == SDL_BUTTON_RIGHT) { g_rgfx_mouse_btn |= 2; }
+            if (ev.button.button == SDL_BUTTON_MIDDLE) { g_rgfx_mouse_btn |= 4; }
+        }
+        if (ev.type == SDL_MOUSEBUTTONUP) {
+            if (ev.button.button == SDL_BUTTON_LEFT) { g_rgfx_mouse_btn &= ~1; }
+            if (ev.button.button == SDL_BUTTON_RIGHT) { g_rgfx_mouse_btn &= ~2; }
+            if (ev.button.button == SDL_BUTTON_MIDDLE) { g_rgfx_mouse_btn &= ~4; }
+        }
+        if (ev.type == SDL_MOUSEWHEEL) {
+            int wy = ev.wheel.y;
+            if (ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) { wy = -wy; }
+            g_rgfx_wheel += wy;
+        }
+        if (ev.type == SDL_CONTROLLERDEVICEADDED) {
+            rgfx_open_pad_index((int) ev.cdevice.which);
+        }
+        if (ev.type == SDL_JOYDEVICEADDED) {
+            rgfx_open_pad_index((int) ev.jdevice.which);
+        }
+        if (ev.type == SDL_CONTROLLERDEVICEREMOVED) {
+            rgfx_remove_pad_by_joystick_id(ev.cdevice.which);
+        }
+        if (ev.type == SDL_JOYDEVICEREMOVED) {
+            rgfx_remove_pad_by_joystick_id(ev.jdevice.which);
+        }
+        if (ev.type == SDL_KEYDOWN) {
+            if (ev.key.keysym.sym == SDLK_F11) {
+                rgfx_toggle_fullscreen();
+            }
+            if (ev.key.keysym.sym == SDLK_RETURN) {
+                if ((ev.key.keysym.mod & KMOD_ALT) || (ev.key.keysym.mod & KMOD_GUI)) {
+                    rgfx_toggle_fullscreen();
+                }
+            }
+            if (ev.key.keysym.sym == SDLK_ESCAPE) {
+                if (g_rgfx_fullscreen) {
+                    rgfx_set_fullscreen(0);
+                }
+            }
+        }
+    }
+}
+
+static void rgfx_input_recompute() {
+    for (int i = 0; i < RGFX_SRC_COUNT; ++i) { g_src_mask[i] = 0; }
+    const Uint8* ks = SDL_GetKeyboardState(nullptr);
+    int kb1 = 0;
+    if (ks[SDL_SCANCODE_W]) { kb1 |= RGFX_UP; }
+    if (ks[SDL_SCANCODE_S]) { kb1 |= RGFX_DOWN; }
+    if (ks[SDL_SCANCODE_A]) { kb1 |= RGFX_LEFT; }
+    if (ks[SDL_SCANCODE_D]) { kb1 |= RGFX_RIGHT; }
+    if (ks[SDL_SCANCODE_SPACE]) { kb1 |= RGFX_ACT; }
+    if (ks[SDL_SCANCODE_Q]) { kb1 |= RGFX_QUIT; }
+    if (ks[SDL_SCANCODE_ESCAPE]) { kb1 |= RGFX_QUIT; }
+    g_src_mask[RGFX_SRC_KB_P1] = kb1;
+
+    int kb2 = 0;
+    if (ks[SDL_SCANCODE_UP]) { kb2 |= RGFX_UP; }
+    if (ks[SDL_SCANCODE_DOWN]) { kb2 |= RGFX_DOWN; }
+    if (ks[SDL_SCANCODE_LEFT]) { kb2 |= RGFX_LEFT; }
+    if (ks[SDL_SCANCODE_RIGHT]) { kb2 |= RGFX_RIGHT; }
+    if (ks[SDL_SCANCODE_RETURN]) { kb2 |= RGFX_ACT; }
+    g_src_mask[RGFX_SRC_KB_P2] = kb2;
+
+    for (int i = 0; i < g_pad_count && i < RGFX_MAX_PADS; ++i) {
+        if (g_pad_gc[i]) {
+            g_src_mask[RGFX_SRC_PAD0 + i] = rgfx_map_pad(g_pads[i]);
+        } else {
+            g_src_mask[RGFX_SRC_PAD0 + i] = rgfx_map_joy(g_joys[i]);
+        }
+    }
+}
+
+static void rgfx_pad_rumble(int padIdx, Uint16 low, Uint16 high, Uint32 durationMs) {
+    if (padIdx < 0) {
+        for (int i = 0; i < g_pad_count && i < RGFX_MAX_PADS; ++i) {
+            if (g_pad_gc[i] && g_pads[i] != nullptr) {
+                SDL_GameControllerRumble(g_pads[i], low, high, durationMs);
+            }
+        }
+        return;
+    }
+    if (padIdx >= 0 && padIdx < g_pad_count && padIdx < RGFX_MAX_PADS) {
+        if (g_pad_gc[padIdx] && g_pads[padIdx] != nullptr) {
+            SDL_GameControllerRumble(g_pads[padIdx], low, high, durationMs);
+        }
+    }
+}
+
+static void rgfx_input_poll() {
+    rgfx_pump_events();
+    rgfx_input_recompute();
+}
+
+static int rgfx_str_icontains(const char* hay, const char* needle) {
+    if (hay == nullptr || needle == nullptr) { return 0; }
+    const int nlen = (int) strlen(needle);
+    if (nlen <= 0) { return 0; }
+    for (const char* p = hay; *p != '\\0'; ++p) {
+        int ok = 1;
+        for (int i = 0; i < nlen; ++i) {
+            char a = p[i];
+            char b = needle[i];
+            if (a >= 'A' && a <= 'Z') { a = (char) (a + 32); }
+            if (b >= 'A' && b <= 'Z') { b = (char) (b + 32); }
+            if (a != b) { ok = 0; break; }
+        }
+        if (ok) { return 1; }
+    }
+    return 0;
+}
+
+static int rgfx_using_pulse_driver() {
+    const char* drv = getenv(\"SDL_AUDIODRIVER\");
+    if (drv == nullptr || drv[0] == '\\0') { return 0; }
+    if (rgfx_str_icontains(drv, \"pulse\")) { return 1; }
+    if (rgfx_str_icontains(drv, \"pipewire\")) { return 1; }
+    return 0;
+}
+
+static void rgfx_prepare_audio_env() {
+    // PipeWire/Pulse socket lives at $XDG_RUNTIME_DIR/pulse/native; when launched
+    // over SSH this is often unset, so the pulse driver falls back to dummy.
+    const char* xrd = getenv(\"XDG_RUNTIME_DIR\");
+    if (xrd == nullptr || xrd[0] == '\\0') {
+        char buf[64];
+        snprintf(buf, sizeof(buf), \"/run/user/%d\", (int) getuid());
+        SDL_setenv(\"XDG_RUNTIME_DIR\", buf, 1);
+        fprintf(stderr, \"[rgfx] XDG_RUNTIME_DIR=%s (auto)\\n\", buf);
+    }
+    const char* dev = getenv(\"RANGER_AUDIO_DEVICE\");
+    if (dev != nullptr && dev[0] != '\\0') {
+        SDL_setenv(\"SDL_AUDIODRIVER\", \"alsa\", 1);
+        fprintf(stderr, \"[rgfx] RANGER_AUDIO_DEVICE=%s → SDL_AUDIODRIVER=alsa\\n\", dev);
+        return;
+    }
+    const char* existing = getenv(\"SDL_AUDIODRIVER\");
+    if (existing != nullptr && existing[0] != '\\0') {
+        fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=%s (from env)\\n\", existing);
+        return;
+    }
+    const char* ranger = getenv(\"RANGER_SDL_AUDIO_DRIVER\");
+    if (ranger != nullptr && ranger[0] != '\\0') {
+        SDL_setenv(\"SDL_AUDIODRIVER\", ranger, 1);
+        fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=%s (RANGER_SDL_AUDIO_DRIVER)\\n\", ranger);
+        return;
+    }
+#if defined(__linux__)
+    // Prefer pulse (PipeWire-Pulse); SDL2 falls through the list if the first
+    // driver cannot connect, so alsa still works on setups without PipeWire.
+    SDL_setenv(\"SDL_AUDIODRIVER\", \"pulse,pipewire,alsa\", 1);
+    fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=pulse,pipewire,alsa (linux default)\\n\");
+#endif
+}
+
+static void rgfx_log_audio_devices() {
+    const int n = SDL_GetNumAudioDevices(0);
+    fprintf(stderr, \"[rgfx] SDL playback devices: %d\\n\", n);
+    int i = 0;
+    while (i < n) {
+        const char* name = SDL_GetAudioDeviceName(i, 0);
+        if (name != nullptr) {
+            fprintf(stderr, \"[rgfx]   [%d] %s\\n\", i, name);
+        }
+        i = (i + 1);
+    }
+    if (n <= 0) {
+        fprintf(stderr, \"[rgfx]   (none — try: SDL_AUDIODRIVER=pulse or apt install libsdl2-2.0-0)\\n\");
+    }
+}
+
+static int rgfx_audio_dummy_only() {
+    const int n = SDL_GetNumAudioDevices(0);
+    if (n <= 0) { return 1; }
+    int i = 0;
+    while (i < n) {
+        const char* name = SDL_GetAudioDeviceName(i, 0);
+        if (name != nullptr) {
+            if (!rgfx_str_icontains(name, \"dummy\")) { return 0; }
+        }
+        i = (i + 1);
+    }
+    return 1;
+}
+
+static void rgfx_audio_reinit_driver(const char* driver) {
+    if (g_rgfx_audio != 0) {
+        SDL_CloseAudioDevice(g_rgfx_audio);
+        g_rgfx_audio = 0;
+    }
+    SDL_AudioQuit();
+    SDL_setenv(\"SDL_AUDIODRIVER\", driver, 1);
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+        fprintf(stderr, \"[rgfx] SDL_InitSubSystem(AUDIO) failed: %s\\n\", SDL_GetError());
+    } {
+        fprintf(stderr, \"[rgfx] audio driver: %s\\n\", driver);
+    }
+}
+
+static int rgfx_try_alsa_audidev(int sampleRate, const char* audidev);
+
+static const char* rgfx_pick_audio_device() {
+    // Pulse/PipeWire: use system default sink (wpctl / taskbar HDMI selection).
+    if (rgfx_using_pulse_driver()) { return nullptr; }
+    const int n = SDL_GetNumAudioDevices(0);
+    int i = 0;
+    while (i < n) {
+        const char* name = SDL_GetAudioDeviceName(i, 0);
+        if (name != nullptr) {
+            if (rgfx_str_icontains(name, \"hdmi\")) { return name; }
+            if (rgfx_str_icontains(name, \"vc4\")) { return name; }
+        }
+        i = (i + 1);
+    }
+    return nullptr;
+}
+
+static int rgfx_try_open_audio_device(int sampleRate, const char* dev, int channels) {
+    SDL_AudioSpec want, have;
+    SDL_zero(want);
+    want.freq = sampleRate > 0 ? sampleRate : 22050;
+    want.format = AUDIO_S16SYS;
+    want.channels = (Uint8) channels;
+    want.samples = 512;
+    want.callback = nullptr;
+    want.userdata = nullptr;
+    SDL_AudioDeviceID id = SDL_OpenAudioDevice(dev, 0, &want, &have, 0);
+    if (id == 0) {
+        fprintf(stderr, \"[rgfx] audio open failed (%s, %d ch): %s\\n\",
+            dev != nullptr ? dev : \"default\", channels, SDL_GetError());
+        return 0;
+    }
+    g_rgfx_audio = id;
+    g_rgfx_audio_channels = have.channels > 0 ? have.channels : 1;
+    g_rgfx_audio_freq = have.freq > 0 ? have.freq : want.freq;
+    const char* label = dev;
+    if (label == nullptr) {
+        const char* ad = getenv(\"AUDIODEV\");
+        if (ad != nullptr && ad[0] != '\\0') { label = ad; }
+    }
+    if (label == nullptr) { label = \"(default)\"; }
+    fprintf(stderr, \"[rgfx] audio opened: %s @ %d Hz, %d ch\\n\",
+        label, have.freq, have.channels);
+    SDL_PauseAudioDevice(g_rgfx_audio, 0);
+    return 1;
+}
+
+static void rgfx_close_audio_device() {
+    if (g_rgfx_audio != 0) {
+        SDL_CloseAudioDevice(g_rgfx_audio);
+        g_rgfx_audio = 0;
+    }
+    g_rgfx_audio_channels = 1;
+    g_rgfx_audio_freq = 44100;
+}
+
+static int rgfx_try_alsa_audidev(int sampleRate, const char* audidev) {
+    rgfx_close_audio_device();
+    SDL_setenv(\"AUDIODEV\", audidev, 1);
+    fprintf(stderr, \"[rgfx] trying AUDIODEV=%s\\n\", audidev);
+    if (rgfx_try_open_audio_device(sampleRate, nullptr, 2)) { return 1; }
+    rgfx_close_audio_device();
+    SDL_setenv(\"AUDIODEV\", audidev, 1);
+    return rgfx_try_open_audio_device(sampleRate, nullptr, 1);
+}
+
+static int rgfx_audio_open(int sampleRate) {
+    if (g_rgfx_audio != 0) { return 1; }
+
+    const char* envDev = getenv(\"RANGER_AUDIO_DEVICE\");
+    if (envDev != nullptr && envDev[0] != '\\0') {
+        if (rgfx_using_pulse_driver()) {
+            rgfx_audio_reinit_driver(\"alsa\");
+        }
+        rgfx_log_audio_devices();
+        if (rgfx_try_alsa_audidev(sampleRate, envDev)) { return 1; }
+        fprintf(stderr, \"[rgfx] audio: RANGER_AUDIO_DEVICE failed: %s\\n\", envDev);
+        return 0;
+    }
+
+    rgfx_log_audio_devices();
+
+    if (rgfx_audio_dummy_only()) {
+        fprintf(stderr, \"[rgfx] Pulse/PipeWire unavailable (Dummy Output)\\n\");
+        fprintf(stderr, \"[rgfx] set RANGER_AUDIO_DEVICE=plughw:N,0 (see: aplay -l)\\n\");
+        return 0;
+    }
+
+    const char* dev = rgfx_pick_audio_device();
+    if (rgfx_try_open_audio_device(sampleRate, dev, 2)) { return 1; }
+    if (rgfx_try_open_audio_device(sampleRate, dev, 1)) { return 1; }
+    if (dev != nullptr) {
+        if (rgfx_try_open_audio_device(sampleRate, nullptr, 2)) { return 1; }
+        if (rgfx_try_open_audio_device(sampleRate, nullptr, 1)) { return 1; }
+    }
+
+    fprintf(stderr, \"[rgfx] audio: no device — set RANGER_AUDIO_DEVICE=plughw:N,0 (aplay -l)\\n\");
+    return 0;
+}
+#include <vector>
+static void rgfx_audio_queue(const uint8_t* pcm, int byteCount) {
+    if (g_rgfx_audio == 0) { return; }
+    if (pcm == nullptr || byteCount <= 0) { return; }
+    if (g_rgfx_audio_channels <= 1) {
+        SDL_QueueAudio(g_rgfx_audio, pcm, (Uint32) byteCount);
+        return;
+    }
+    int monoSamples = byteCount / 2;
+    if (monoSamples <= 0) { return; }
+    std::vector<uint8_t> stereo((size_t)monoSamples * 4u);
+    int i = 0;
+    while (i < monoSamples) {
+        int off = i * 2;
+        stereo[(size_t)i * 4u] = pcm[off];
+        stereo[(size_t)i * 4u + 1u] = pcm[off + 1];
+        stereo[(size_t)i * 4u + 2u] = pcm[off];
+        stereo[(size_t)i * 4u + 3u] = pcm[off + 1];
+        i = i + 1;
+    }
+    SDL_QueueAudio(g_rgfx_audio, stereo.data(), (Uint32)((size_t)monoSamples * 4u));
+}
+static void rgfx_audio_clear() {
+    if (g_rgfx_audio != 0) { SDL_ClearQueuedAudio(g_rgfx_audio); }
+}
+static int rgfx_audio_sample_rate() {
+    return g_rgfx_audio_freq;
+}
+#include <vector>
+#include <cmath>
+#include <map>
+#include <string>
+#if defined(__APPLE__)
+#include <OpenGL/gl3.h>
+#elif defined(__arm__) || defined(__aarch64__)
+// Raspberry Pi / embedded: OpenGL ES 2.0 (prototypes are exported directly).
+#include <GLES2/gl2.h>
+#else
+// Desktop Linux (Mesa): GL 2.0 entry points live in glext; ask for prototypes
+// so glCreateShader/glBufferData/glVertexAttribPointer resolve at link time.
+#define GL_GLEXT_PROTOTYPES 1
+#include <GL/gl.h>
+#include <GL/glext.h>
+#endif
+
+static int g_rgfx_gpu_mode = 0;
+static SDL_GLContext g_rgfx_glctx = nullptr;
+
+static void rgfx_gl_ensure_current() {
+    if (g_rgfx_gpu_mode && g_rgfx_win != nullptr && g_rgfx_glctx != nullptr) {
+        SDL_GL_MakeCurrent(g_rgfx_win, g_rgfx_glctx);
+    }
+}
+
+static GLuint g_rgfx_gl_program = 0;
+static GLint g_rgfx_gl_pos_attr = 0;
+static GLint g_rgfx_gl_uv_attr = 0;
+static GLint g_rgfx_gl_tex_uniform = 0;
+static GLuint g_rgfx_gl_vbo = 0;
+static GLuint g_rgfx_base_tex = 0;
+static GLuint g_rgfx_base_tex_r = 0;
+static int g_rgfx_base_tex_w = 0;
+static int g_rgfx_base_tex_h = 0;
+static int g_rgfx_base_tex_r_w = 0;
+static int g_rgfx_base_tex_r_h = 0;
+static int g_rgfx_fb_w = 0;
+static int g_rgfx_fb_h = 0;
+static std::vector<GLuint> g_rgfx_gl_textures;
+
+// GPU-side phase profiler (enable with RANGER_GFX_PROFILE=1). Splits the present
+// path into base-texture upload, sprite overlay, particle overlay, and buffer
+// swap (vsync/GPU wait) so ARM bottlenecks can be told apart from CPU update.
+static int g_rgfx_prof_enabled = -1;
+static Uint64 g_rgfx_prof_freq = 0;
+static double g_rgfx_prof_upload_ms = 0.0;
+static double g_rgfx_prof_sprite_ms = 0.0;
+static double g_rgfx_prof_particle_ms = 0.0;
+static double g_rgfx_prof_swap_ms = 0.0;
+static int g_rgfx_prof_frames = 0;
+
+static bool rgfx_prof_on() {
+    if (g_rgfx_prof_enabled < 0) {
+        const char* e = getenv(\"RANGER_GFX_PROFILE\");
+        g_rgfx_prof_enabled = (e != nullptr && e[0] != '\\0' && e[0] != '0') ? 1 : 0;
+        g_rgfx_prof_freq = SDL_GetPerformanceFrequency();
+    }
+    return g_rgfx_prof_enabled == 1;
+}
+
+static Uint64 rgfx_prof_now() {
+    return rgfx_prof_on() ? SDL_GetPerformanceCounter() : 0;
+}
+
+static double rgfx_prof_ms(Uint64 a, Uint64 b) {
+    if (g_rgfx_prof_freq == 0) { return 0.0; }
+    return (double) (b - a) * 1000.0 / (double) g_rgfx_prof_freq;
+}
+
+// Upload a full-frame RGBA image into a reused texture. Uses glTexSubImage2D once
+// the storage is allocated (avoids a per-frame realloc) and always sets
+// CLAMP_TO_EDGE, which GLES2 requires for NPOT textures like 480x270 panes
+// (default GL_REPEAT leaves the texture incomplete → black on the Pi).
+static void rgfx_upload_frame_tex(GLuint tex, int* allocW, int* allocH,
+    const uint8_t* pixels, int w, int h, GLint filter) {
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    if (*allocW == w && *allocH == h) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    } else {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        *allocW = w;
+        *allocH = h;
+    }
+}
+
+struct RgfxGpuParticle {
+    float x, y, size;
+    uint8_t r, g, b, a;
+};
+struct RgfxGpuParticleQueue {
+    std::vector<RgfxGpuParticle> items;
+    int fbW = 0;
+    int fbH = 0;
+};
+static RgfxGpuParticleQueue g_rgfx_particle_queues[3];
+static int g_rgfx_active_particle_queue = 0;
+
+struct RgfxGpuSprite {
+    int texId;
+    int atlasW, atlasH;
+    int sx, sy, sw, sh;
+    float px, py;
+    float dw, dh;
+    float angleDeg;
+    int usePivot;
+};
+struct RgfxGpuSpriteQueue {
+    std::vector<RgfxGpuSprite> items;
+    int fbW = 0;
+    int fbH = 0;
+};
+// Queue 0 = normal/solo, queue 1 = split left, queue 2 = split right.
+static RgfxGpuSpriteQueue g_rgfx_sprite_queues[3];
+static int g_rgfx_active_sprite_queue = 0;
+static GLuint g_rgfx_part_program = 0;
+static GLint g_rgfx_part_corner_attr = 0;
+static GLint g_rgfx_part_center_attr = 0;
+static GLint g_rgfx_part_size_attr = 0;
+static GLint g_rgfx_part_color_attr = 0;
+static GLint g_rgfx_part_res_uniform = 0;
+static GLuint g_rgfx_part_vbo = 0;
+
+// GPU UI-effect overlay (glow on a node rect + whole-screen pulse). Each item is
+// a rectangle drawn as an additive soft blob: aCorner spans [-1,1], the fragment
+// applies a radial feather so a node glow reads as a soft halo and a fullscreen
+// item reads as a colour wash brightest at centre. Driven by the host UIAnimator
+// via gfx_fx_push_glow / gfx_fx_push_screen; composited in rgfx_present().
+struct RgfxFxItem {
+    float cx, cy;      // centre, pixels
+    float hx, hy;      // half-extent, pixels
+    uint8_t r, g, b, a;
+    float feather;     // 0..1 edge softness (small = crisp, large = soft blob)
+};
+static std::vector<RgfxFxItem> g_rgfx_fx_items;
+static int g_rgfx_fx_fbW = 0;
+static int g_rgfx_fx_fbH = 0;
+static GLuint g_rgfx_fx_program = 0;
+static GLint g_rgfx_fx_corner_attr = 0;
+static GLint g_rgfx_fx_center_attr = 0;
+static GLint g_rgfx_fx_half_attr = 0;
+static GLint g_rgfx_fx_color_attr = 0;
+static GLint g_rgfx_fx_feather_attr = 0;
+static GLint g_rgfx_fx_res_uniform = 0;
+static GLuint g_rgfx_fx_vbo = 0;
+
+static int rgfx_gpu_queue_index(int pane) {
+    if (pane == 0) { return 1; }
+    if (pane == 1) { return 2; }
+    return 0;
+}
+
+// --- R1b: 2D ortho camera per sprite queue (pan / zoom / rotation) ----------
+// Applied on the GPU as a 4x4 view-projection uniform (rgfx_cam_gl_init)
+// instead of baking NDC coordinates on the CPU. Pan follows the game_camera
+// convention (screen = world - cam); zoom/rotation act about the pane centre.
+// Defaults are the identity, so games that never touch the camera keep the
+// exact framing they had before. The bisect fallbacks (RANGER_GFX_SPRITE_BATCH=0,
+// RANGER_GFX_SPRITE_CAMERA=0) ignore the camera by design.
+struct RgfxGpuCamera2D {
+    float x = 0.f;
+    float y = 0.f;
+    float zoom = 1.f;
+    float rotDeg = 0.f;
+    int enabled = 0;
+};
+static RgfxGpuCamera2D g_rgfx_cameras[3];
+static GLuint g_rgfx_cam_program = 0;
+static GLint g_rgfx_cam_pos_attr = 0;
+static GLint g_rgfx_cam_uv_attr = 0;
+static GLint g_rgfx_cam_tex_uniform = 0;
+static GLint g_rgfx_cam_vp_uniform = 0;
+
+static void rgfx_gpu_camera_set(int pane, float x, float y, float zoom, float rotDeg) {
+    RgfxGpuCamera2D& c = g_rgfx_cameras[rgfx_gpu_queue_index(pane)];
+    c.x = x;
+    c.y = y;
+    c.zoom = (zoom > 0.f) ? zoom : 1.f;
+    c.rotDeg = rotDeg;
+    c.enabled = 1;
+}
+
+static void rgfx_gpu_camera_reset(int pane) {
+    g_rgfx_cameras[rgfx_gpu_queue_index(pane)] = RgfxGpuCamera2D();
+}
+
+static GLuint rgfx_gl_compile(GLenum type, const char* src) {
+    GLuint s = glCreateShader(type);
+    glShaderSource(s, 1, &src, nullptr);
+    glCompileShader(s);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (ok != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetShaderInfoLog(s, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] GL shader compile failed: %.*s\", (int) len, log);
+        glDeleteShader(s);
+        return 0;
+    }
+    return s;
+}
+
+static int rgfx_gl_init() {
+    if (g_rgfx_gl_program != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec2 aPos;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUv = aUv; }\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec2 aPos;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUv = aUv; }\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+#endif
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) {
+        if (vsId != 0) { glDeleteShader(vsId); }
+        if (fsId != 0) { glDeleteShader(fsId); }
+        return 0;
+    }
+    g_rgfx_gl_program = glCreateProgram();
+    glAttachShader(g_rgfx_gl_program, vsId);
+    glAttachShader(g_rgfx_gl_program, fsId);
+    glLinkProgram(g_rgfx_gl_program);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_rgfx_gl_program, GL_LINK_STATUS, &linked);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    if (linked != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_gl_program, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] GL program link failed: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_gl_program);
+        g_rgfx_gl_program = 0;
+        return 0;
+    }
+    g_rgfx_gl_pos_attr = glGetAttribLocation(g_rgfx_gl_program, \"aPos\");
+    g_rgfx_gl_uv_attr = glGetAttribLocation(g_rgfx_gl_program, \"aUv\");
+    g_rgfx_gl_tex_uniform = glGetUniformLocation(g_rgfx_gl_program, \"uTex\");
+    glGenBuffers(1, &g_rgfx_gl_vbo);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    return 1;
+}
+
+static int rgfx_open_gpu(const std::string& title, int w, int h) {
+    rgfx_prepare_audio_env();
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) { return 0; }
+    rgfx_scan_pads();
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+#endif
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    // Depth buffer for the 3D mesh path (render=3d / Wasm3dRunner). Harmless for
+    // the 2D sprite path, which leaves GL_DEPTH_TEST disabled.
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    g_rgfx_win = SDL_CreateWindow(title.c_str(),
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h,
+        SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
+    if (g_rgfx_win == nullptr) {
+        // Leave the GL request state clean so the software fallback can open a
+        // plain window + SDL_Renderer instead.
+        SDL_GL_ResetAttributes();
+        return 0;
+    }
+    g_rgfx_glctx = SDL_GL_CreateContext(g_rgfx_win);
+    if (g_rgfx_glctx == nullptr) {
+        // Destroy the OpenGL window before falling back; otherwise it lingers as
+        // an unfocusable ghost while the software path opens a second window.
+        SDL_DestroyWindow(g_rgfx_win);
+        g_rgfx_win = nullptr;
+        SDL_GL_ResetAttributes();
+        return 0;
+    }
+    SDL_GL_SetSwapInterval(1);
+    g_rgfx_gpu_mode = 1;
+    g_rgfx_fb_w = w;
+    g_rgfx_fb_h = h;
+    if (rgfx_gl_init()) { return 1; }
+    SDL_GL_DeleteContext(g_rgfx_glctx);
+    g_rgfx_glctx = nullptr;
+    SDL_DestroyWindow(g_rgfx_win);
+    g_rgfx_win = nullptr;
+    g_rgfx_gpu_mode = 0;
+    SDL_GL_ResetAttributes();
+    return 0;
+}
+
+static GLuint rgfx_gl_make_tex(const uint8_t* pixels, int w, int h) {
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    return tex;
+}
+
+static int rgfx_gpu_upload_texture(const uint8_t* pixels, int w, int h) {
+    if (!g_rgfx_gpu_mode || pixels == nullptr || w <= 0 || h <= 0) { return 0; }
+    rgfx_gl_ensure_current();
+    GLuint tex = rgfx_gl_make_tex(pixels, w, h);
+    g_rgfx_gl_textures.push_back(tex);
+    return (int) g_rgfx_gl_textures.size();
+}
+
+static int rgfx_particles_gl_init() {
+    if (g_rgfx_part_program != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec2 aCorner;\\n\"
+        \"attribute vec2 aCenter;\\n\"
+        \"attribute float aSize;\\n\"
+        \"attribute vec4 aColor;\\n\"
+        \"uniform vec2 uResolution;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"void main() {\\n\"
+        \"  vec2 pix = aCenter + aCorner * aSize;\\n\"
+        \"  vec2 ndc;\\n\"
+        \"  ndc.x = (pix.x / uResolution.x) * 2.0 - 1.0;\\n\"
+        \"  ndc.y = 1.0 - (pix.y / uResolution.y) * 2.0;\\n\"
+        \"  gl_Position = vec4(ndc, 0.0, 1.0);\\n\"
+        \"  vCorner = aCorner;\\n\"
+        \"  vColor = aColor;\\n\"
+        \"}\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"void main() {\\n\"
+        \"  float d = dot(vCorner, vCorner);\\n\"
+        \"  if (d > 1.0) discard;\\n\"
+        \"  float soft = 1.0 - d;\\n\"
+        \"  float core = 1.0 - smoothstep(0.0, 0.22, d);\\n\"
+        \"  float alpha = vColor.a * soft * soft;\\n\"
+        \"  vec3 rgb = vColor.rgb * (1.0 + core * 0.7);\\n\"
+        \"  gl_FragColor = vec4(rgb, alpha);\\n\"
+        \"}\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec2 aCorner;\\n\"
+        \"attribute vec2 aCenter;\\n\"
+        \"attribute float aSize;\\n\"
+        \"attribute vec4 aColor;\\n\"
+        \"uniform vec2 uResolution;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"void main() {\\n\"
+        \"  vec2 pix = aCenter + aCorner * aSize;\\n\"
+        \"  vec2 ndc;\\n\"
+        \"  ndc.x = (pix.x / uResolution.x) * 2.0 - 1.0;\\n\"
+        \"  ndc.y = 1.0 - (pix.y / uResolution.y) * 2.0;\\n\"
+        \"  gl_Position = vec4(ndc, 0.0, 1.0);\\n\"
+        \"  vCorner = aCorner;\\n\"
+        \"  vColor = aColor;\\n\"
+        \"}\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"void main() {\\n\"
+        \"  float d = dot(vCorner, vCorner);\\n\"
+        \"  if (d > 1.0) discard;\\n\"
+        \"  float soft = 1.0 - d;\\n\"
+        \"  float core = 1.0 - smoothstep(0.0, 0.22, d);\\n\"
+        \"  float alpha = vColor.a * soft * soft;\\n\"
+        \"  vec3 rgb = vColor.rgb * (1.0 + core * 0.7);\\n\"
+        \"  gl_FragColor = vec4(rgb, alpha);\\n\"
+        \"}\\n\";
+#endif
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) {
+        if (vsId != 0) { glDeleteShader(vsId); }
+        if (fsId != 0) { glDeleteShader(fsId); }
+        return 0;
+    }
+    g_rgfx_part_program = glCreateProgram();
+    glAttachShader(g_rgfx_part_program, vsId);
+    glAttachShader(g_rgfx_part_program, fsId);
+    glLinkProgram(g_rgfx_part_program);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_rgfx_part_program, GL_LINK_STATUS, &linked);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    if (linked != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_part_program, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] particle program link failed: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_part_program);
+        g_rgfx_part_program = 0;
+        return 0;
+    }
+    g_rgfx_part_corner_attr = glGetAttribLocation(g_rgfx_part_program, \"aCorner\");
+    g_rgfx_part_center_attr = glGetAttribLocation(g_rgfx_part_program, \"aCenter\");
+    g_rgfx_part_size_attr = glGetAttribLocation(g_rgfx_part_program, \"aSize\");
+    g_rgfx_part_color_attr = glGetAttribLocation(g_rgfx_part_program, \"aColor\");
+    g_rgfx_part_res_uniform = glGetUniformLocation(g_rgfx_part_program, \"uResolution\");
+    glGenBuffers(1, &g_rgfx_part_vbo);
+    return 1;
+}
+
+static void rgfx_particles_begin(int w, int h, int pane) {
+    g_rgfx_active_particle_queue = rgfx_gpu_queue_index(pane);
+    RgfxGpuParticleQueue& q = g_rgfx_particle_queues[g_rgfx_active_particle_queue];
+    q.items.clear();
+    q.fbW = w;
+    q.fbH = h;
+}
+
+static void rgfx_particles_push(float x, float y, float size, int r, int g, int b, int a) {
+    if (a <= 0 || size <= 0.f) { return; }
+    RgfxGpuParticle p;
+    p.x = x; p.y = y; p.size = size;
+    p.r = (uint8_t) r; p.g = (uint8_t) g; p.b = (uint8_t) b; p.a = (uint8_t) a;
+    g_rgfx_particle_queues[g_rgfx_active_particle_queue].items.push_back(p);
+}
+
+static void rgfx_particles_draw_queue(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    RgfxGpuParticleQueue& q = g_rgfx_particle_queues[queueIndex];
+    if (q.items.empty() || q.fbW <= 0 || q.fbH <= 0 || viewportW <= 0 || viewportH <= 0) { return; }
+    if (!g_rgfx_gpu_mode) { return; }
+    if (!rgfx_particles_gl_init()) { return; }
+    glViewport(viewportX, 0, viewportW, viewportH);
+    static const float corners[6][2] = {
+        {-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f},
+        {-1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}
+    };
+    std::vector<float> verts;
+    verts.reserve(q.items.size() * 6u * 9u);
+    for (const RgfxGpuParticle& p : q.items) {
+        float cr = p.r / 255.f, cg = p.g / 255.f, cb = p.b / 255.f, ca = p.a / 255.f;
+        for (int i = 0; i < 6; ++i) {
+            verts.push_back(corners[i][0]);
+            verts.push_back(corners[i][1]);
+            verts.push_back(p.x);
+            verts.push_back(p.y);
+            verts.push_back(p.size);
+            verts.push_back(cr);
+            verts.push_back(cg);
+            verts.push_back(cb);
+            verts.push_back(ca);
+        }
+    }
+    glUseProgram(g_rgfx_part_program);
+    glUniform2f((GLint) g_rgfx_part_res_uniform, (float) q.fbW, (float) q.fbH);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_part_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+    const GLsizei stride = (GLsizei) (9 * sizeof(float));
+    glEnableVertexAttribArray((GLuint) g_rgfx_part_corner_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_part_corner_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_part_center_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_part_center_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (2 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_part_size_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_part_size_attr, 1, GL_FLOAT, GL_FALSE, stride, (void*) (4 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_part_color_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_part_color_attr, 4, GL_FLOAT, GL_FALSE, stride, (void*) (5 * sizeof(float)));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (q.items.size() * 6));
+    q.items.clear();
+}
+
+static void rgfx_particles_draw_overlay() {
+    rgfx_particles_draw_queue(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
+}
+
+// ---- GPU UI-effect overlay (glow / pulse) ---------------------------------
+static int rgfx_fx_gl_init() {
+    if (g_rgfx_fx_program != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec2 aCorner;\\n\"
+        \"attribute vec2 aCenter;\\n\"
+        \"attribute vec2 aHalf;\\n\"
+        \"attribute vec4 aColor;\\n\"
+        \"attribute float aFeather;\\n\"
+        \"uniform vec2 uResolution;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"varying float vFeather;\\n\"
+        \"void main() {\\n\"
+        \"  vec2 pix = aCenter + aCorner * aHalf;\\n\"
+        \"  vec2 ndc;\\n\"
+        \"  ndc.x = (pix.x / uResolution.x) * 2.0 - 1.0;\\n\"
+        \"  ndc.y = 1.0 - (pix.y / uResolution.y) * 2.0;\\n\"
+        \"  gl_Position = vec4(ndc, 0.0, 1.0);\\n\"
+        \"  vCorner = aCorner;\\n\"
+        \"  vColor = aColor;\\n\"
+        \"  vFeather = aFeather;\\n\"
+        \"}\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"varying float vFeather;\\n\"
+        \"void main() {\\n\"
+        \"  float d = length(vCorner);\\n\"
+        \"  float edge = 1.0 - vFeather;\\n\"
+        \"  float m = 1.0 - smoothstep(edge, 1.0, d);\\n\"
+        \"  if (m <= 0.0) discard;\\n\"
+        \"  gl_FragColor = vec4(vColor.rgb, vColor.a * m);\\n\"
+        \"}\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec2 aCorner;\\n\"
+        \"attribute vec2 aCenter;\\n\"
+        \"attribute vec2 aHalf;\\n\"
+        \"attribute vec4 aColor;\\n\"
+        \"attribute float aFeather;\\n\"
+        \"uniform vec2 uResolution;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"varying float vFeather;\\n\"
+        \"void main() {\\n\"
+        \"  vec2 pix = aCenter + aCorner * aHalf;\\n\"
+        \"  vec2 ndc;\\n\"
+        \"  ndc.x = (pix.x / uResolution.x) * 2.0 - 1.0;\\n\"
+        \"  ndc.y = 1.0 - (pix.y / uResolution.y) * 2.0;\\n\"
+        \"  gl_Position = vec4(ndc, 0.0, 1.0);\\n\"
+        \"  vCorner = aCorner;\\n\"
+        \"  vColor = aColor;\\n\"
+        \"  vFeather = aFeather;\\n\"
+        \"}\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"varying float vFeather;\\n\"
+        \"void main() {\\n\"
+        \"  float d = length(vCorner);\\n\"
+        \"  float edge = 1.0 - vFeather;\\n\"
+        \"  float m = 1.0 - smoothstep(edge, 1.0, d);\\n\"
+        \"  if (m <= 0.0) discard;\\n\"
+        \"  gl_FragColor = vec4(vColor.rgb, vColor.a * m);\\n\"
+        \"}\\n\";
+#endif
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) {
+        if (vsId != 0) { glDeleteShader(vsId); }
+        if (fsId != 0) { glDeleteShader(fsId); }
+        return 0;
+    }
+    g_rgfx_fx_program = glCreateProgram();
+    glAttachShader(g_rgfx_fx_program, vsId);
+    glAttachShader(g_rgfx_fx_program, fsId);
+    glLinkProgram(g_rgfx_fx_program);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_rgfx_fx_program, GL_LINK_STATUS, &linked);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    if (linked != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_fx_program, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] fx program link failed: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_fx_program);
+        g_rgfx_fx_program = 0;
+        return 0;
+    }
+    g_rgfx_fx_corner_attr = glGetAttribLocation(g_rgfx_fx_program, \"aCorner\");
+    g_rgfx_fx_center_attr = glGetAttribLocation(g_rgfx_fx_program, \"aCenter\");
+    g_rgfx_fx_half_attr = glGetAttribLocation(g_rgfx_fx_program, \"aHalf\");
+    g_rgfx_fx_color_attr = glGetAttribLocation(g_rgfx_fx_program, \"aColor\");
+    g_rgfx_fx_feather_attr = glGetAttribLocation(g_rgfx_fx_program, \"aFeather\");
+    g_rgfx_fx_res_uniform = glGetUniformLocation(g_rgfx_fx_program, \"uResolution\");
+    glGenBuffers(1, &g_rgfx_fx_vbo);
+    return 1;
+}
+
+static void rgfx_fx_begin(int w, int h) {
+    g_rgfx_fx_items.clear();
+    g_rgfx_fx_fbW = w;
+    g_rgfx_fx_fbH = h;
+}
+
+static void rgfx_fx_push(float cx, float cy, float hx, float hy,
+                         int r, int g, int b, int a, float feather) {
+    if (a <= 0 || hx <= 0.f || hy <= 0.f) { return; }
+    RgfxFxItem it;
+    it.cx = cx; it.cy = cy; it.hx = hx; it.hy = hy;
+    it.r = (uint8_t) r; it.g = (uint8_t) g; it.b = (uint8_t) b; it.a = (uint8_t) a;
+    it.feather = feather;
+    g_rgfx_fx_items.push_back(it);
+}
+
+// A node glow: soft halo over the (already-expanded) node rect.
+static void rgfx_fx_push_glow(float x, float y, float w, float h,
+                              int r, int g, int b, int a) {
+    rgfx_fx_push(x + w * 0.5f, y + h * 0.5f, w * 0.5f, h * 0.5f, r, g, b, a, 0.85f);
+}
+
+// A whole-screen pulse: colour wash across the frame, brightest at centre.
+static void rgfx_fx_push_screen(int r, int g, int b, int a) {
+    if (g_rgfx_fx_fbW <= 0 || g_rgfx_fx_fbH <= 0) { return; }
+    float hw = g_rgfx_fx_fbW * 0.5f;
+    float hh = g_rgfx_fx_fbH * 0.5f;
+    rgfx_fx_push(hw, hh, hw, hh, r, g, b, a, 0.9f);
+}
+
+static void rgfx_fx_draw_overlay() {
+    if (g_rgfx_fx_items.empty() || g_rgfx_fx_fbW <= 0 || g_rgfx_fx_fbH <= 0) { return; }
+    if (!g_rgfx_gpu_mode) { g_rgfx_fx_items.clear(); return; }
+    if (!rgfx_fx_gl_init()) { g_rgfx_fx_items.clear(); return; }
+    glViewport(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
+    static const float corners[6][2] = {
+        {-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f},
+        {-1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}
+    };
+    std::vector<float> verts;
+    verts.reserve(g_rgfx_fx_items.size() * 6u * 11u);
+    for (const RgfxFxItem& it : g_rgfx_fx_items) {
+        float cr = it.r / 255.f, cg = it.g / 255.f, cb = it.b / 255.f, ca = it.a / 255.f;
+        for (int i = 0; i < 6; ++i) {
+            verts.push_back(corners[i][0]);
+            verts.push_back(corners[i][1]);
+            verts.push_back(it.cx);
+            verts.push_back(it.cy);
+            verts.push_back(it.hx);
+            verts.push_back(it.hy);
+            verts.push_back(cr);
+            verts.push_back(cg);
+            verts.push_back(cb);
+            verts.push_back(ca);
+            verts.push_back(it.feather);
+        }
+    }
+    glUseProgram(g_rgfx_fx_program);
+    glUniform2f((GLint) g_rgfx_fx_res_uniform, (float) g_rgfx_fx_fbW, (float) g_rgfx_fx_fbH);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_fx_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+    const GLsizei stride = (GLsizei) (11 * sizeof(float));
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_corner_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_corner_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_center_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_center_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (2 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_half_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_half_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (4 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_color_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_color_attr, 4, GL_FLOAT, GL_FALSE, stride, (void*) (6 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_feather_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_feather_attr, 1, GL_FLOAT, GL_FALSE, stride, (void*) (10 * sizeof(float)));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (g_rgfx_fx_items.size() * 6));
+    g_rgfx_fx_items.clear();
+}
+
+static void rgfx_gpu_sprites_begin(int w, int h, int pane) {
+    g_rgfx_active_sprite_queue = rgfx_gpu_queue_index(pane);
+    RgfxGpuSpriteQueue& q = g_rgfx_sprite_queues[g_rgfx_active_sprite_queue];
+    q.items.clear();
+    q.fbW = w;
+    q.fbH = h;
+}
+
+static void rgfx_px_to_ndc(float px, float py, int fbW, int fbH, float* nx, float* ny) {
+    *nx = (px / (float) fbW) * 2.f - 1.f;
+    *ny = 1.f - (py / (float) fbH) * 2.f;
+}
+
+static void rgfx_gpu_draw_textured_quad_corners(
+    GLuint tex, float u0, float v0, float u1, float v1,
+    float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3,
+    int fbW, int fbH) {
+    float nx0, ny0, nx1, ny1, nx2, ny2, nx3, ny3;
+    rgfx_px_to_ndc(x0, y0, fbW, fbH, &nx0, &ny0);
+    rgfx_px_to_ndc(x1, y1, fbW, fbH, &nx1, &ny1);
+    rgfx_px_to_ndc(x2, y2, fbW, fbH, &nx2, &ny2);
+    rgfx_px_to_ndc(x3, y3, fbW, fbH, &nx3, &ny3);
+    float verts[] = {
+        nx0, ny0, u0, v0,
+        nx1, ny1, u1, v0,
+        nx2, ny2, u1, v1,
+        nx0, ny0, u0, v0,
+        nx2, ny2, u1, v1,
+        nx3, ny3, u0, v1,
+    };
+    glUseProgram(g_rgfx_gl_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(g_rgfx_gl_tex_uniform, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_gl_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) sizeof(verts), verts, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_pos_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei) sizeof(float), (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_uv_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei) sizeof(float), (void*) (2 * sizeof(float)));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+}
+
+static void rgfx_gpu_sprites_push(int texId, int atlasW, int atlasH,
+    int sx, int sy, int sw, int sh,
+    float px, float py, float dw, float dh, float angleDeg, int usePivot) {
+    if (!g_rgfx_gpu_mode || texId <= 0 || sw <= 0 || sh <= 0 || dw <= 0.f || dh <= 0.f) { return; }
+    RgfxGpuSprite s;
+    s.texId = texId;
+    s.atlasW = atlasW;
+    s.atlasH = atlasH;
+    s.sx = sx;
+    s.sy = sy;
+    s.sw = sw;
+    s.sh = sh;
+    s.px = px;
+    s.py = py;
+    s.dw = dw;
+    s.dh = dh;
+    s.angleDeg = angleDeg;
+    s.usePivot = usePivot;
+    g_rgfx_sprite_queues[g_rgfx_active_sprite_queue].items.push_back(s);
+}
+
+// Append one sprite quad (6 verts of nx,ny,u,v) to a batch buffer. Vertex
+// order and UV assignment match rgfx_gpu_draw_textured_quad_corners exactly, so
+// the batched path is pixel-identical to the per-sprite path.
+static void rgfx_gpu_sprites_append_quad(std::vector<float>& verts, const RgfxGpuSprite& s, int fbW, int fbH) {
+    float u0 = (float) s.sx / (float) s.atlasW;
+    float v0 = (float) s.sy / (float) s.atlasH;
+    float u1 = (float) (s.sx + s.sw) / (float) s.atlasW;
+    float v1 = (float) (s.sy + s.sh) / (float) s.atlasH;
+    float x[4], y[4];
+    if (s.usePivot == 0) {
+        x[0] = s.px;        y[0] = s.py;
+        x[1] = s.px + s.dw; y[1] = s.py;
+        x[2] = s.px + s.dw; y[2] = s.py + s.dh;
+        x[3] = s.px;        y[3] = s.py + s.dh;
+    } else {
+        float rad = s.angleDeg * 3.14159265f / 180.f;
+        float ca = cosf(rad), sa = sinf(rad);
+        float hw = s.dw * 0.5f, hh = s.dh * 0.5f;
+        float lx[4] = {-hw, hw, hw, -hw};
+        float ly[4] = {-hh, -hh, hh, hh};
+        for (int i = 0; i < 4; ++i) {
+            x[i] = s.px + (lx[i] * ca - ly[i] * sa);
+            y[i] = s.py + (lx[i] * sa + ly[i] * ca);
+        }
+    }
+    float nx[4], ny[4];
+    for (int i = 0; i < 4; ++i) { rgfx_px_to_ndc(x[i], y[i], fbW, fbH, &nx[i], &ny[i]); }
+    float uvx[4] = { u0, u1, u1, u0 };
+    float uvy[4] = { v0, v0, v1, v1 };
+    static const int tri[6] = { 0, 1, 2, 0, 2, 3 };
+    for (int t = 0; t < 6; ++t) {
+        int c = tri[t];
+        verts.push_back(nx[c]);
+        verts.push_back(ny[c]);
+        verts.push_back(uvx[c]);
+        verts.push_back(uvy[c]);
+    }
+}
+
+// Draw one accumulated run (all quads share a single texture) in one draw call.
+static void rgfx_gpu_sprites_flush_run(GLuint tex, std::vector<float>& verts) {
+    if (verts.empty()) { return; }
+    glUseProgram(g_rgfx_gl_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(g_rgfx_gl_tex_uniform, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_gl_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+    const GLsizei stride = 4 * (GLsizei) sizeof(float);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_pos_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_pos_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_uv_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_uv_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (2 * sizeof(float)));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (verts.size() / 4));
+    verts.clear();
+}
+
+// --- R1b: 4x4 matrix helpers (column-major, OpenGL convention) --------------
+// Seed of the Ranger Render Core matrix path (PLAN_RANGER2D.md §6): the camera
+// path draws with gl_Position = uViewProj * vec4(pos, 0, 1). A later
+// perspective camera or per-item world matrix slots into the same contract
+// without touching the vertex format.
+static void rgfx_mat4_identity(float* m) {
+    for (int i = 0; i < 16; ++i) { m[i] = 0.f; }
+    m[0] = 1.f;
+    m[5] = 1.f;
+    m[10] = 1.f;
+    m[15] = 1.f;
+}
+
+static void rgfx_mat4_mul(float* out, const float* a, const float* b) {
+    float r[16];
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            float acc = 0.f;
+            for (int k = 0; k < 4; ++k) { acc += a[k * 4 + row] * b[col * 4 + k]; }
+            r[col * 4 + row] = acc;
+        }
+    }
+    for (int i = 0; i < 16; ++i) { out[i] = r[i]; }
+}
+
+// Pixel-space ortho projection: x' = 2x/fbW - 1, y' = 1 - 2y/fbH — the same
+// mapping as rgfx_px_to_ndc, evaluated on the GPU.
+static void rgfx_mat4_ortho2d(float* m, float fbW, float fbH) {
+    rgfx_mat4_identity(m);
+    m[0] = 2.f / fbW;
+    m[5] = -2.f / fbH;
+    m[12] = -1.f;
+    m[13] = 1.f;
+}
+
+// View: p' = C + zoom * R(rot) * (p - cam - C) with C = pane centre, so cam
+// pans like the existing world->screen offset and zoom/rotation pivot on the
+// centre of the pane. cam=(0,0), zoom=1, rot=0 is exactly the identity.
+static void rgfx_mat4_view2d(float* m, const RgfxGpuCamera2D& cam, float fbW, float fbH) {
+    float rad = cam.rotDeg * 3.14159265f / 180.f;
+    float ca = cosf(rad);
+    float sa = sinf(rad);
+    float l00 = cam.zoom * ca;
+    float l01 = -cam.zoom * sa;
+    float l10 = cam.zoom * sa;
+    float l11 = cam.zoom * ca;
+    float cx = fbW * 0.5f;
+    float cy = fbH * 0.5f;
+    float ox = cam.x + cx;
+    float oy = cam.y + cy;
+    rgfx_mat4_identity(m);
+    m[0] = l00;
+    m[1] = l10;
+    m[4] = l01;
+    m[5] = l11;
+    m[12] = cx - (l00 * ox + l01 * oy);
+    m[13] = cy - (l10 * ox + l11 * oy);
+}
+
+// Sprite program with a 4x4 view-projection uniform; aPos is in framebuffer
+// pixels (the pixel->NDC ortho lives inside uViewProj). Separate program from
+// the base full-frame present so the shared path stays untouched (regression
+// vector B in PLAN_RANGER2D.md §11b).
+static int rgfx_cam_gl_init() {
+    if (g_rgfx_cam_program != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec2 aPos;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"uniform mat4 uViewProj;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"void main() { gl_Position = uViewProj * vec4(aPos, 0.0, 1.0); vUv = aUv; }\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec2 aPos;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"uniform mat4 uViewProj;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"void main() { gl_Position = uViewProj * vec4(aPos, 0.0, 1.0); vUv = aUv; }\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+#endif
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) {
+        if (vsId != 0) { glDeleteShader(vsId); }
+        if (fsId != 0) { glDeleteShader(fsId); }
+        return 0;
+    }
+    g_rgfx_cam_program = glCreateProgram();
+    glAttachShader(g_rgfx_cam_program, vsId);
+    glAttachShader(g_rgfx_cam_program, fsId);
+    glLinkProgram(g_rgfx_cam_program);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_rgfx_cam_program, GL_LINK_STATUS, &linked);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    if (linked != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_cam_program, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] camera GL program link failed: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_cam_program);
+        g_rgfx_cam_program = 0;
+        return 0;
+    }
+    g_rgfx_cam_pos_attr = glGetAttribLocation(g_rgfx_cam_program, \"aPos\");
+    g_rgfx_cam_uv_attr = glGetAttribLocation(g_rgfx_cam_program, \"aUv\");
+    g_rgfx_cam_tex_uniform = glGetUniformLocation(g_rgfx_cam_program, \"uTex\");
+    g_rgfx_cam_vp_uniform = glGetUniformLocation(g_rgfx_cam_program, \"uViewProj\");
+    return 1;
+}
+
+// Append one sprite quad in framebuffer pixel space (6 verts of px,py,u,v) for
+// the camera path. Corner and UV math must stay in lockstep with
+// rgfx_gpu_sprites_append_quad — the only difference is that the pixel->NDC
+// mapping happens on the GPU via uViewProj.
+static void rgfx_gpu_sprites_append_quad_px(std::vector<float>& verts, const RgfxGpuSprite& s) {
+    float u0 = (float) s.sx / (float) s.atlasW;
+    float v0 = (float) s.sy / (float) s.atlasH;
+    float u1 = (float) (s.sx + s.sw) / (float) s.atlasW;
+    float v1 = (float) (s.sy + s.sh) / (float) s.atlasH;
+    float x[4], y[4];
+    if (s.usePivot == 0) {
+        x[0] = s.px;        y[0] = s.py;
+        x[1] = s.px + s.dw; y[1] = s.py;
+        x[2] = s.px + s.dw; y[2] = s.py + s.dh;
+        x[3] = s.px;        y[3] = s.py + s.dh;
+    } else {
+        float rad = s.angleDeg * 3.14159265f / 180.f;
+        float ca = cosf(rad), sa = sinf(rad);
+        float hw = s.dw * 0.5f, hh = s.dh * 0.5f;
+        float lx[4] = {-hw, hw, hw, -hw};
+        float ly[4] = {-hh, -hh, hh, hh};
+        for (int i = 0; i < 4; ++i) {
+            x[i] = s.px + (lx[i] * ca - ly[i] * sa);
+            y[i] = s.py + (lx[i] * sa + ly[i] * ca);
+        }
+    }
+    float uvx[4] = { u0, u1, u1, u0 };
+    float uvy[4] = { v0, v0, v1, v1 };
+    static const int tri[6] = { 0, 1, 2, 0, 2, 3 };
+    for (int t = 0; t < 6; ++t) {
+        int c = tri[t];
+        verts.push_back(x[c]);
+        verts.push_back(y[c]);
+        verts.push_back(uvx[c]);
+        verts.push_back(uvy[c]);
+    }
+}
+
+// Draw one accumulated pixel-space run with the camera program (one draw call).
+static void rgfx_gpu_sprites_flush_run_cam(GLuint tex, std::vector<float>& verts, const float* viewProj) {
+    if (verts.empty()) { return; }
+    glUseProgram(g_rgfx_cam_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(g_rgfx_cam_tex_uniform, 0);
+    glUniformMatrix4fv(g_rgfx_cam_vp_uniform, 1, GL_FALSE, viewProj);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_gl_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+    const GLsizei stride = 4 * (GLsizei) sizeof(float);
+    glEnableVertexAttribArray((GLuint) g_rgfx_cam_pos_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_cam_pos_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_cam_uv_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_cam_uv_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (2 * sizeof(float)));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (verts.size() / 4));
+    verts.clear();
+}
+
+static void rgfx_gpu_sprites_draw_queue_batched(int queueIndex, int viewportX, int viewportW, int viewportH);
+
+// Batched sprite draw through the 4x4 camera path: same texture-run coalescing
+// and queue order as rgfx_gpu_sprites_draw_queue_batched, but vertices stay in
+// framebuffer pixels and the ortho * view matrix is applied in the vertex
+// shader. With the default (identity) camera this renders the same frame as
+// the CPU-NDC batched path.
+static void rgfx_gpu_sprites_draw_queue_camera(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    RgfxGpuSpriteQueue& q = g_rgfx_sprite_queues[queueIndex];
+    if (q.items.empty() || q.fbW <= 0 || q.fbH <= 0 || viewportW <= 0 || viewportH <= 0) { return; }
+    if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gl_ensure_current();
+    if (!rgfx_gl_init()) { return; }
+    if (!rgfx_cam_gl_init()) {
+        // Camera shader unavailable: degrade to the proven CPU-NDC batch.
+        rgfx_gpu_sprites_draw_queue_batched(queueIndex, viewportX, viewportW, viewportH);
+        return;
+    }
+    glViewport(viewportX, 0, viewportW, viewportH);
+    float ortho[16];
+    float view[16];
+    float viewProj[16];
+    rgfx_mat4_ortho2d(ortho, (float) q.fbW, (float) q.fbH);
+    const RgfxGpuCamera2D& cam = g_rgfx_cameras[queueIndex];
+    if (cam.enabled) {
+        rgfx_mat4_view2d(view, cam, (float) q.fbW, (float) q.fbH);
+    } else {
+        rgfx_mat4_identity(view);
+    }
+    rgfx_mat4_mul(viewProj, ortho, view);
+    std::vector<float> verts;
+    verts.reserve(q.items.size() * 6u * 4u);
+    int runTex = -1;
+    GLuint runGlTex = 0;
+    for (const RgfxGpuSprite& s : q.items) {
+        if (s.texId <= 0 || s.texId > (int) g_rgfx_gl_textures.size()) { continue; }
+        GLuint tex = g_rgfx_gl_textures[(size_t) (s.texId - 1)];
+        if (s.texId != runTex && !verts.empty()) {
+            rgfx_gpu_sprites_flush_run_cam(runGlTex, verts, viewProj);
+        }
+        runTex = s.texId;
+        runGlTex = tex;
+        rgfx_gpu_sprites_append_quad_px(verts, s);
+    }
+    rgfx_gpu_sprites_flush_run_cam(runGlTex, verts, viewProj);
+    q.items.clear();
+}
+
+// Batched sprite draw: coalesce contiguous same-texture sprites into one draw
+// call each. Queue order is preserved (a run only flushes when the texture
+// changes), so alpha blending is identical to the per-sprite path — but an
+// atlas-based scene of N sprites collapses from N draw calls to ~one per sheet.
+static void rgfx_gpu_sprites_draw_queue_batched(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    RgfxGpuSpriteQueue& q = g_rgfx_sprite_queues[queueIndex];
+    if (q.items.empty() || q.fbW <= 0 || q.fbH <= 0 || viewportW <= 0 || viewportH <= 0) { return; }
+    if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gl_ensure_current();
+    if (!rgfx_gl_init()) { return; }
+    glViewport(viewportX, 0, viewportW, viewportH);
+    std::vector<float> verts;
+    verts.reserve(q.items.size() * 6u * 4u);
+    int runTex = -1;
+    GLuint runGlTex = 0;
+    for (const RgfxGpuSprite& s : q.items) {
+        if (s.texId <= 0 || s.texId > (int) g_rgfx_gl_textures.size()) { continue; }
+        GLuint tex = g_rgfx_gl_textures[(size_t) (s.texId - 1)];
+        if (s.texId != runTex && !verts.empty()) {
+            rgfx_gpu_sprites_flush_run(runGlTex, verts);
+        }
+        runTex = s.texId;
+        runGlTex = tex;
+        rgfx_gpu_sprites_append_quad(verts, s, q.fbW, q.fbH);
+    }
+    rgfx_gpu_sprites_flush_run(runGlTex, verts);
+    q.items.clear();
+}
+
+// Original one-draw-call-per-sprite path, kept as an env-selectable fallback
+// (RANGER_GFX_SPRITE_BATCH=0) so a GPU regression on real hardware can be
+// bisected without a rebuild.
+static void rgfx_gpu_sprites_draw_queue_perquad(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    RgfxGpuSpriteQueue& q = g_rgfx_sprite_queues[queueIndex];
+    if (q.items.empty() || q.fbW <= 0 || q.fbH <= 0 || viewportW <= 0 || viewportH <= 0) { return; }
+    if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gl_ensure_current();
+    if (!rgfx_gl_init()) { return; }
+    glViewport(viewportX, 0, viewportW, viewportH);
+    for (const RgfxGpuSprite& s : q.items) {
+        if (s.texId <= 0 || s.texId > (int) g_rgfx_gl_textures.size()) { continue; }
+        GLuint tex = g_rgfx_gl_textures[(size_t) (s.texId - 1)];
+        float u0 = (float) s.sx / (float) s.atlasW;
+        float v0 = (float) s.sy / (float) s.atlasH;
+        float u1 = (float) (s.sx + s.sw) / (float) s.atlasW;
+        float v1 = (float) (s.sy + s.sh) / (float) s.atlasH;
+        if (s.usePivot == 0) {
+            float x0 = s.px, y0 = s.py;
+            float x1 = s.px + s.dw, y1 = s.py;
+            float x2 = s.px + s.dw, y2 = s.py + s.dh;
+            float x3 = s.px, y3 = s.py + s.dh;
+            rgfx_gpu_draw_textured_quad_corners(tex, u0, v0, u1, v1,
+                x0, y0, x1, y1, x2, y2, x3, y3, q.fbW, q.fbH);
+        } else {
+            float rad = s.angleDeg * 3.14159265f / 180.f;
+            float ca = cosf(rad), sa = sinf(rad);
+            float hw = s.dw * 0.5f, hh = s.dh * 0.5f;
+            float lx[4] = {-hw, hw, hw, -hw};
+            float ly[4] = {-hh, -hh, hh, hh};
+            float wx[4], wy[4];
+            for (int i = 0; i < 4; ++i) {
+                wx[i] = s.px + (lx[i] * ca - ly[i] * sa);
+                wy[i] = s.py + (lx[i] * sa + ly[i] * ca);
+            }
+            rgfx_gpu_draw_textured_quad_corners(tex, u0, v0, u1, v1,
+                wx[0], wy[0], wx[1], wy[1], wx[2], wy[2], wx[3], wy[3], q.fbW, q.fbH);
+        }
+    }
+    q.items.clear();
+}
+
+static bool rgfx_sprite_batch_on() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char* e = getenv(\"RANGER_GFX_SPRITE_BATCH\");
+        cached = (e != nullptr && e[0] == '0') ? 0 : 1;
+    }
+    return cached == 1;
+}
+
+static bool rgfx_sprite_camera_on() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char* e = getenv(\"RANGER_GFX_SPRITE_CAMERA\");
+        cached = (e != nullptr && e[0] == '0') ? 0 : 1;
+    }
+    return cached == 1;
+}
+
+// Dispatcher: batched 4x4-camera path by default. RANGER_GFX_SPRITE_CAMERA=0
+// falls back to the CPU-NDC batched path and RANGER_GFX_SPRITE_BATCH=0 to the
+// original per-sprite path, so a GPU regression on real hardware can be
+// bisected without a rebuild. Both fallbacks ignore gfx_gpu_camera_set.
+static void rgfx_gpu_sprites_draw_queue(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    if (!rgfx_sprite_batch_on()) {
+        rgfx_gpu_sprites_draw_queue_perquad(queueIndex, viewportX, viewportW, viewportH);
+    } else if (rgfx_sprite_camera_on()) {
+        rgfx_gpu_sprites_draw_queue_camera(queueIndex, viewportX, viewportW, viewportH);
+    } else {
+        rgfx_gpu_sprites_draw_queue_batched(queueIndex, viewportX, viewportW, viewportH);
+    }
+}
+
+static void rgfx_gpu_sprites_draw_overlay() {
+    rgfx_gpu_sprites_draw_queue(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
+}
+
+static void rgfx_gpu_draw_quad_tex(GLuint tex, float x, float y, float qw, float qh) {
+    if (g_rgfx_fb_w <= 0 || g_rgfx_fb_h <= 0) { return; }
+    float x0 = (x / (float) g_rgfx_fb_w) * 2.0f - 1.0f;
+    float y0 = 1.0f - (y / (float) g_rgfx_fb_h) * 2.0f;
+    float x1 = ((x + qw) / (float) g_rgfx_fb_w) * 2.0f - 1.0f;
+    float y1 = 1.0f - ((y + qh) / (float) g_rgfx_fb_h) * 2.0f;
+    float verts[] = {
+        x0, y0, 0.f, 0.f,
+        x1, y0, 1.f, 0.f,
+        x1, y1, 1.f, 1.f,
+        x0, y0, 0.f, 0.f,
+        x1, y1, 1.f, 1.f,
+        x0, y1, 0.f, 1.f,
+    };
+    glUseProgram(g_rgfx_gl_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(g_rgfx_gl_tex_uniform, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_gl_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) sizeof(verts), verts, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_pos_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei) sizeof(float), (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_uv_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei) sizeof(float), (void*) (2 * sizeof(float)));
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+}
+
+static void rgfx_gpu_start_frame(int w, int h) {
+    if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gl_ensure_current();
+    int drawW = w;
+    int drawH = h;
+    if (g_rgfx_win != nullptr) {
+        SDL_GL_GetDrawableSize(g_rgfx_win, &drawW, &drawH);
+    }
+    g_rgfx_fb_w = drawW;
+    g_rgfx_fb_h = drawH;
+    glViewport(0, 0, drawW, drawH);
+    // Reset the 3D state a three_gl game (teapot/Sponza/tsx) may have left enabled,
+    // so the 2D present's quads are not back-face-culled or depth-rejected -> the
+    // menu would otherwise come back black after exiting a GL game.
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+static void rgfx_gpu_blit_base(const uint8_t* pixels, int w, int h) {
+    if (!g_rgfx_gpu_mode || pixels == nullptr || w <= 0 || h <= 0) { return; }
+    if (g_rgfx_base_tex == 0) {
+        glGenTextures(1, &g_rgfx_base_tex);
+        g_rgfx_base_tex_w = 0;
+        g_rgfx_base_tex_h = 0;
+    }
+    rgfx_upload_frame_tex(g_rgfx_base_tex, &g_rgfx_base_tex_w, &g_rgfx_base_tex_h,
+        pixels, w, h, GL_NEAREST);
+    rgfx_gpu_draw_quad_tex(g_rgfx_base_tex, 0.f, 0.f, (float) g_rgfx_fb_w, (float) g_rgfx_fb_h);
+}
+
+static void rgfx_gpu_draw_texture(int texId, int x, int y, int tw, int th) {
+    if (!g_rgfx_gpu_mode || texId <= 0) { return; }
+    if (texId > (int) g_rgfx_gl_textures.size()) { return; }
+    GLuint tex = g_rgfx_gl_textures[(size_t) (texId - 1)];
+    rgfx_gpu_draw_quad_tex(tex, (float) x, (float) y, (float) tw, (float) th);
+}
+
+// Composite a CPU RGBA image (the rasterised RGU1 HUD) over the frame the 3D
+// path just rendered, as a full-screen alpha-blended quad. The HUD keeps its own
+// texture rather than going through rgfx_3d_upload_texture, which glGenTextures
+// on every call and would leak one texture per HUD update; here the storage is
+// reused and only its pixels are re-uploaded.
+static GLuint g_rgfx_hud_tex = 0;
+static int g_rgfx_hud_tex_w = 0;
+static int g_rgfx_hud_tex_h = 0;
+extern \"C\" void rgfx_hud_overlay_draw(const uint8_t* px, int w, int h) {
+    if (!g_rgfx_gpu_mode || px == nullptr || w <= 0 || h <= 0) { return; }
+    rgfx_gl_ensure_current();
+    if (g_rgfx_hud_tex == 0) {
+        glGenTextures(1, &g_rgfx_hud_tex);
+        g_rgfx_hud_tex_w = 0;
+        g_rgfx_hud_tex_h = 0;
+    }
+    // GL_NEAREST: the HUD is a pixel-exact raster, so keep the glyphs crisp.
+    rgfx_upload_frame_tex(g_rgfx_hud_tex, &g_rgfx_hud_tex_w, &g_rgfx_hud_tex_h, px, w, h, GL_NEAREST);
+    // The scene render already left depth testing off; blend the HUD straight
+    // over it and hand the state back as we found it.
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    rgfx_gpu_draw_quad_tex(g_rgfx_hud_tex, 0.0f, 0.0f, (float) g_rgfx_fb_w, (float) g_rgfx_fb_h);
+    glDisable(GL_BLEND);
+}
+
+static void rgfx_gpu_prof_report() {
+    if (!rgfx_prof_on()) { return; }
+    g_rgfx_prof_frames++;
+    if (g_rgfx_prof_frames < 180) { return; }
+    double f = (double) g_rgfx_prof_frames;
+    SDL_Log(\"[rgfx-prof] frames=%d | upload=%.2fms sprites=%.2fms particles=%.2fms swap=%.2fms /frame\",
+        g_rgfx_prof_frames,
+        g_rgfx_prof_upload_ms / f,
+        g_rgfx_prof_sprite_ms / f,
+        g_rgfx_prof_particle_ms / f,
+        g_rgfx_prof_swap_ms / f);
+    g_rgfx_prof_upload_ms = 0.0;
+    g_rgfx_prof_sprite_ms = 0.0;
+    g_rgfx_prof_particle_ms = 0.0;
+    g_rgfx_prof_swap_ms = 0.0;
+    g_rgfx_prof_frames = 0;
+}
+
+static void rgfx_gpu_finish_frame() {
+    if (!g_rgfx_gpu_mode || g_rgfx_win == nullptr) { return; }
+    Uint64 t0 = rgfx_prof_now();
+    SDL_GL_SwapWindow(g_rgfx_win);
+    if (rgfx_prof_on()) { g_rgfx_prof_swap_ms += rgfx_prof_ms(t0, SDL_GetPerformanceCounter()); }
+    rgfx_gpu_prof_report();
+}
+
+// GPU split present: upload each full-res pane to its own texture and scale it
+// into a window half via a textured quad (the GPU downscale replaces the CPU
+// blit, matching rgfx_present_split's SDL_Renderer path).
+static void rgfx_gpu_present_split(const uint8_t* left, const uint8_t* right, int w, int h) {
+    if (!g_rgfx_gpu_mode || left == nullptr || right == nullptr || w <= 0 || h <= 0) { return; }
+    rgfx_gpu_start_frame(w, h);
+    const int halfW = g_rgfx_fb_w / 2;
+    Uint64 tUp0 = rgfx_prof_now();
+    if (g_rgfx_base_tex == 0) { glGenTextures(1, &g_rgfx_base_tex); g_rgfx_base_tex_w = 0; g_rgfx_base_tex_h = 0; }
+    rgfx_upload_frame_tex(g_rgfx_base_tex, &g_rgfx_base_tex_w, &g_rgfx_base_tex_h, left, w, h, GL_LINEAR);
+    rgfx_gpu_draw_quad_tex(g_rgfx_base_tex, 0.f, 0.f, (float) halfW, (float) g_rgfx_fb_h);
+    if (g_rgfx_base_tex_r == 0) { glGenTextures(1, &g_rgfx_base_tex_r); g_rgfx_base_tex_r_w = 0; g_rgfx_base_tex_r_h = 0; }
+    rgfx_upload_frame_tex(g_rgfx_base_tex_r, &g_rgfx_base_tex_r_w, &g_rgfx_base_tex_r_h, right, w, h, GL_LINEAR);
+    rgfx_gpu_draw_quad_tex(g_rgfx_base_tex_r, (float) halfW, 0.f, (float) (g_rgfx_fb_w - halfW), (float) g_rgfx_fb_h);
+    if (rgfx_prof_on()) { g_rgfx_prof_upload_ms += rgfx_prof_ms(tUp0, SDL_GetPerformanceCounter()); }
+    Uint64 tSpr0 = rgfx_prof_now();
+    rgfx_gpu_sprites_draw_queue(1, 0, halfW, g_rgfx_fb_h);
+    rgfx_gpu_sprites_draw_queue(2, halfW, g_rgfx_fb_w - halfW, g_rgfx_fb_h);
+    if (rgfx_prof_on()) { g_rgfx_prof_sprite_ms += rgfx_prof_ms(tSpr0, SDL_GetPerformanceCounter()); }
+    Uint64 tPart0 = rgfx_prof_now();
+    rgfx_particles_draw_queue(1, 0, halfW, g_rgfx_fb_h);
+    rgfx_particles_draw_queue(2, halfW, g_rgfx_fb_w - halfW, g_rgfx_fb_h);
+    if (rgfx_prof_on()) { g_rgfx_prof_particle_ms += rgfx_prof_ms(tPart0, SDL_GetPerformanceCounter()); }
+    glViewport(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
+    rgfx_gpu_finish_frame();
+}
+
+static void rgfx_gl_cleanup() {
+    for (GLuint t : g_rgfx_gl_textures) {
+        glDeleteTextures(1, &t);
+    }
+    g_rgfx_gl_textures.clear();
+    if (g_rgfx_base_tex != 0) {
+        glDeleteTextures(1, &g_rgfx_base_tex);
+        g_rgfx_base_tex = 0;
+        g_rgfx_base_tex_w = 0;
+        g_rgfx_base_tex_h = 0;
+    }
+    if (g_rgfx_base_tex_r != 0) {
+        glDeleteTextures(1, &g_rgfx_base_tex_r);
+        g_rgfx_base_tex_r = 0;
+        g_rgfx_base_tex_r_w = 0;
+        g_rgfx_base_tex_r_h = 0;
+    }
+    if (g_rgfx_gl_vbo != 0) {
+        glDeleteBuffers(1, &g_rgfx_gl_vbo);
+        g_rgfx_gl_vbo = 0;
+    }
+    if (g_rgfx_gl_program != 0) {
+        glDeleteProgram(g_rgfx_gl_program);
+        g_rgfx_gl_program = 0;
+    }
+    if (g_rgfx_part_vbo != 0) {
+        glDeleteBuffers(1, &g_rgfx_part_vbo);
+        g_rgfx_part_vbo = 0;
+    }
+    if (g_rgfx_part_program != 0) {
+        glDeleteProgram(g_rgfx_part_program);
+        g_rgfx_part_program = 0;
+    }
+    for (int i = 0; i < 3; ++i) {
+        g_rgfx_particle_queues[i].items.clear();
+        g_rgfx_sprite_queues[i].items.clear();
+    }
+    if (g_rgfx_glctx != nullptr) {
+        SDL_GL_DeleteContext(g_rgfx_glctx);
+        g_rgfx_glctx = nullptr;
+    }
+    g_rgfx_gpu_mode = 0;
+}
+
+static int rgfx_open(const std::string& title, int w, int h) {
+    rgfx_prepare_audio_env();
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) { return 0; }
+    rgfx_scan_pads();
+    g_rgfx_win = SDL_CreateWindow(title.c_str(),
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, SDL_WINDOW_SHOWN);
+    if (g_rgfx_win == nullptr) { return 0; }
+    g_rgfx_ren = SDL_CreateRenderer(g_rgfx_win, -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (g_rgfx_ren == nullptr) { g_rgfx_ren = SDL_CreateRenderer(g_rgfx_win, -1, 0); }
+    if (g_rgfx_ren == nullptr) { return 0; }
+    g_rgfx_tex = SDL_CreateTexture(g_rgfx_ren, SDL_PIXELFORMAT_RGBA32,
+        SDL_TEXTUREACCESS_STREAMING, w, h);
+    if (g_rgfx_tex == nullptr) { return 0; }
+    return 1;
+}
+// Actual output surface size in pixels (drawable / window), so UI can be
+// rendered at native resolution instead of a low internal buffer that gets
+// upscaled (blocky text). Falls back to the logical window size.
+static int rgfx_surface_dim(int wantWidth) {
+    if (g_rgfx_win == nullptr) { return 0; }
+    int w = 0; int h = 0;
+    SDL_GL_GetDrawableSize(g_rgfx_win, &w, &h);
+    if (w <= 0 || h <= 0) { SDL_GetWindowSize(g_rgfx_win, &w, &h); }
+    return wantWidth ? w : h;
+}
+
+static void rgfx_present(const uint8_t* pixels, int w, int h) {
+    if (g_rgfx_gpu_mode) {
+        rgfx_gpu_start_frame(w, h);
+        Uint64 tUp0 = rgfx_prof_now();
+        rgfx_gpu_blit_base(pixels, w, h);
+        if (rgfx_prof_on()) { g_rgfx_prof_upload_ms += rgfx_prof_ms(tUp0, SDL_GetPerformanceCounter()); }
+        Uint64 tSpr0 = rgfx_prof_now();
+        rgfx_gpu_sprites_draw_overlay();
+        if (rgfx_prof_on()) { g_rgfx_prof_sprite_ms += rgfx_prof_ms(tSpr0, SDL_GetPerformanceCounter()); }
+        Uint64 tPart0 = rgfx_prof_now();
+        rgfx_particles_draw_overlay();
+        if (rgfx_prof_on()) { g_rgfx_prof_particle_ms += rgfx_prof_ms(tPart0, SDL_GetPerformanceCounter()); }
+        // UI effect overlay (glow/pulse) composites on top of everything else.
+        rgfx_fx_draw_overlay();
+        rgfx_gpu_finish_frame();
+        return;
+    }
+    if (g_rgfx_tex == nullptr) { return; }
+    SDL_UpdateTexture(g_rgfx_tex, nullptr, pixels, w * 4);
+    SDL_RenderClear(g_rgfx_ren);
+    SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, nullptr);
+    SDL_RenderPresent(g_rgfx_ren);
+}
+// Split-screen present: upload each full-res pane once and let the GPU scale it
+// into its half of the window. Avoids the CPU 480→240 downscale blit entirely —
+// the scale is free on the GPU during SDL_RenderCopy.
+static void rgfx_present_split(const uint8_t* left, const uint8_t* right, int w, int h) {
+    if (g_rgfx_gpu_mode) {
+        rgfx_gpu_present_split(left, right, w, h);
+        return;
+    }
+    if (g_rgfx_tex == nullptr) { return; }
+    int outW = w;
+    int outH = h;
+    SDL_GetRendererOutputSize(g_rgfx_ren, &outW, &outH);
+    const int halfW = outW / 2;
+    SDL_Rect dstL; dstL.x = 0;     dstL.y = 0; dstL.w = halfW;        dstL.h = outH;
+    SDL_Rect dstR; dstR.x = halfW; dstR.y = 0; dstR.w = outW - halfW; dstR.h = outH;
+    SDL_RenderClear(g_rgfx_ren);
+    SDL_UpdateTexture(g_rgfx_tex, nullptr, left, w * 4);
+    SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, &dstL);
+    SDL_UpdateTexture(g_rgfx_tex, nullptr, right, w * 4);
+    SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, &dstR);
+    SDL_SetRenderDrawColor(g_rgfx_ren, 50, 65, 110, 255);
+    SDL_Rect divider; divider.x = halfW - 1; divider.y = 0; divider.w = 2; divider.h = outH;
+    SDL_RenderFillRect(g_rgfx_ren, &divider);
+    SDL_RenderPresent(g_rgfx_ren);
+}
+static int rgfx_poll_mask() {
+    rgfx_input_poll();
+    return g_src_mask[RGFX_SRC_KB_P1];
+}
+static int rgfx_input_source_mask(int source) {
+    rgfx_input_poll();
+    if (source < 0 || source >= RGFX_SRC_COUNT) { return 0; }
+    return g_src_mask[source];
+}
+static int rgfx_input_pad_count() {
+    rgfx_input_poll();
+    return g_pad_count;
+}
+static int rgfx_should_close() { return g_rgfx_should_close; }
+static void rgfx_clear_should_close() { g_rgfx_should_close = 0; }
+static void rgfx_delay(int ms) { SDL_Delay((Uint32) ms); }
+static uint32_t rgfx_ticks_ms() { return SDL_GetTicks(); }
+static void rgfx_set_title(const std::string& title) {
+    if (g_rgfx_win != nullptr) { SDL_SetWindowTitle(g_rgfx_win, title.c_str()); }
+}
+static void rgfx_close() {
+    rgfx_gl_cleanup();
+    if (g_rgfx_audio) { SDL_CloseAudioDevice(g_rgfx_audio); g_rgfx_audio = 0; }
+    for (int i = g_pad_count - 1; i >= 0; --i) {
+        rgfx_close_pad_slot(i);
+    }
+    g_pad_count = 0;
+    if (g_rgfx_tex) { SDL_DestroyTexture(g_rgfx_tex); g_rgfx_tex = nullptr; }
+    if (g_rgfx_ren) { SDL_DestroyRenderer(g_rgfx_ren); g_rgfx_ren = nullptr; }
+    if (g_rgfx_win) { SDL_DestroyWindow(g_rgfx_win); g_rgfx_win = nullptr; }
+    SDL_Quit();
+}
+
+// ======================= 3D mesh pipeline (render=3d) =======================
+// A minimal GLES2 forward renderer: one textured, Gouraud-ish per-pixel lit
+// program (ambient + one directional sun), depth-tested. Geometry arrives as the
+// guest's raw MESH vertex bytes (32 B/vertex fixed-point) + u16 indices; the
+// camera / model / light arrive as scalars and matrices are built here.
+struct RgfxMesh3D { GLuint vbo; GLuint ebo; int icount; };
+static std::vector<RgfxMesh3D> g_rgfx_meshes;
+static GLuint g_rgfx_3d_prog = 0;
+static GLint g_rgfx_3d_aPos = -1;
+static GLint g_rgfx_3d_aNormal = -1;
+static GLint g_rgfx_3d_aUv = -1;
+static GLint g_rgfx_3d_uMVP = -1;
+static GLint g_rgfx_3d_uNormal = -1;
+static GLint g_rgfx_3d_uTex = -1;
+static GLint g_rgfx_3d_uAmb = -1;
+static GLint g_rgfx_3d_uSunDir = -1;
+static GLint g_rgfx_3d_uSun = -1;
+static float g_rgfx_3d_vp[16];
+static float g_rgfx_3d_amb[3] = {0.f, 0.f, 0.f};
+static float g_rgfx_3d_sundir[3] = {0.f, 1.f, 0.f};
+static float g_rgfx_3d_sun[3] = {0.f, 0.f, 0.f};
+
+#define RGM4(m,r,c) (m)[(c)*4+(r)]
+#define RGM3(m,r,c) (m)[(c)*3+(r)]
+
+static void rgfx_m4_identity(float* m) { for (int i = 0; i < 16; ++i) m[i] = 0.f; m[0] = m[5] = m[10] = m[15] = 1.f; }
+static void rgfx_m4_mul(const float* a, const float* b, float* out) {
+    float t[16];
+    for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) {
+        float s = 0.f; for (int k = 0; k < 4; ++k) s += RGM4(a, r, k) * RGM4(b, k, c);
+        t[c * 4 + r] = s;
+    }
+    for (int i = 0; i < 16; ++i) out[i] = t[i];
+}
+static void rgfx_m4_perspective(float fovy, float aspect, float np, float fp, float* m) {
+    for (int i = 0; i < 16; ++i) m[i] = 0.f;
+    float f = 1.f / tanf(fovy * 0.5f);
+    RGM4(m, 0, 0) = f / aspect; RGM4(m, 1, 1) = f;
+    RGM4(m, 2, 2) = (fp + np) / (np - fp);
+    RGM4(m, 2, 3) = (2.f * fp * np) / (np - fp);
+    RGM4(m, 3, 2) = -1.f;
+}
+static void rgfx_m4_lookat(float ex, float ey, float ez, float cx, float cy, float cz, float ux, float uy, float uz, float* m) {
+    float fx = cx - ex, fy = cy - ey, fz = cz - ez;
+    float fl = sqrtf(fx * fx + fy * fy + fz * fz); if (fl > 0.f) { fx /= fl; fy /= fl; fz /= fl; }
+    float sx = fy * uz - fz * uy, sy = fz * ux - fx * uz, sz = fx * uy - fy * ux;
+    float sl = sqrtf(sx * sx + sy * sy + sz * sz); if (sl > 0.f) { sx /= sl; sy /= sl; sz /= sl; }
+    float uxn = sy * fz - sz * fy, uyn = sz * fx - sx * fz, uzn = sx * fy - sy * fx;
+    for (int i = 0; i < 16; ++i) m[i] = 0.f;
+    RGM4(m, 0, 0) = sx; RGM4(m, 0, 1) = sy; RGM4(m, 0, 2) = sz; RGM4(m, 0, 3) = -(sx * ex + sy * ey + sz * ez);
+    RGM4(m, 1, 0) = uxn; RGM4(m, 1, 1) = uyn; RGM4(m, 1, 2) = uzn; RGM4(m, 1, 3) = -(uxn * ex + uyn * ey + uzn * ez);
+    RGM4(m, 2, 0) = -fx; RGM4(m, 2, 1) = -fy; RGM4(m, 2, 2) = -fz; RGM4(m, 2, 3) = (fx * ex + fy * ey + fz * ez);
+    RGM4(m, 3, 3) = 1.f;
+}
+static int rgfx_3d_gl_init() {
+    if (g_rgfx_3d_prog != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec3 aPos;\\n\"
+        \"attribute vec3 aNormal;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"uniform mat4 uMVP;\\n\"
+        \"uniform mat3 uNormal;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"varying vec3 vN;\\n\"
+        \"void main() { gl_Position = uMVP * vec4(aPos, 1.0); vUv = aUv; vN = uNormal * aNormal; }\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"varying vec3 vN;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"uniform vec3 uAmb;\\n\"
+        \"uniform vec3 uSunDir;\\n\"
+        \"uniform vec3 uSun;\\n\"
+        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(t.rgb * L, t.a); }\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec3 aPos;\\n\"
+        \"attribute vec3 aNormal;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"uniform mat4 uMVP;\\n\"
+        \"uniform mat3 uNormal;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"varying vec3 vN;\\n\"
+        \"void main() { gl_Position = uMVP * vec4(aPos, 1.0); vUv = aUv; vN = uNormal * aNormal; }\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"varying vec3 vN;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"uniform vec3 uAmb;\\n\"
+        \"uniform vec3 uSunDir;\\n\"
+        \"uniform vec3 uSun;\\n\"
+        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(t.rgb * L, t.a); }\\n\";
+#endif
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) { if (vsId) glDeleteShader(vsId); if (fsId) glDeleteShader(fsId); return 0; }
+    g_rgfx_3d_prog = glCreateProgram();
+    glAttachShader(g_rgfx_3d_prog, vsId);
+    glAttachShader(g_rgfx_3d_prog, fsId);
+    glLinkProgram(g_rgfx_3d_prog);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_rgfx_3d_prog, GL_LINK_STATUS, &linked);
+    if (linked != GL_TRUE) {
+        char log[1024]; GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_3d_prog, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[wasm3d] 3d program LINK FAILED: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_3d_prog); g_rgfx_3d_prog = 0; return 0;
+    }
+    g_rgfx_3d_aPos = glGetAttribLocation(g_rgfx_3d_prog, \"aPos\");
+    g_rgfx_3d_aNormal = glGetAttribLocation(g_rgfx_3d_prog, \"aNormal\");
+    g_rgfx_3d_aUv = glGetAttribLocation(g_rgfx_3d_prog, \"aUv\");
+    g_rgfx_3d_uMVP = glGetUniformLocation(g_rgfx_3d_prog, \"uMVP\");
+    g_rgfx_3d_uNormal = glGetUniformLocation(g_rgfx_3d_prog, \"uNormal\");
+    g_rgfx_3d_uTex = glGetUniformLocation(g_rgfx_3d_prog, \"uTex\");
+    g_rgfx_3d_uAmb = glGetUniformLocation(g_rgfx_3d_prog, \"uAmb\");
+    g_rgfx_3d_uSunDir = glGetUniformLocation(g_rgfx_3d_prog, \"uSunDir\");
+    g_rgfx_3d_uSun = glGetUniformLocation(g_rgfx_3d_prog, \"uSun\");
+    SDL_Log(\"[wasm3d] 3d program ok prog=%u aPos=%d aNormal=%d aUv=%d uMVP=%d uNormal=%d uTex=%d uAmb=%d uSunDir=%d uSun=%d\", (unsigned) g_rgfx_3d_prog, g_rgfx_3d_aPos, g_rgfx_3d_aNormal, g_rgfx_3d_aUv, g_rgfx_3d_uMVP, g_rgfx_3d_uNormal, g_rgfx_3d_uTex, g_rgfx_3d_uAmb, g_rgfx_3d_uSunDir, g_rgfx_3d_uSun);
+    return 1;
+}
+static int rgfx_3d_upload_texture(const uint8_t* px, int w, int h) {
+    if (!g_rgfx_gpu_mode || px == nullptr || w <= 0 || h <= 0) { return 0; }
+    rgfx_gl_ensure_current();
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    // GL_LINEAR (not mipmap): a mipmap min-filter without generated mipmaps makes
+    // the texture incomplete -> samples black on GL 2.1 / macOS.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    g_rgfx_gl_textures.push_back(tex);
+    SDL_Log(\"[wasm3d] tex upload %dx%d -> id %u glErr=%d\", w, h, (unsigned) g_rgfx_gl_textures.size(), (int) glGetError());
+    return (int) g_rgfx_gl_textures.size();
+}
+// vw holds vcount*8 int words (the guest's 32-byte vertex as 8 int32s, widened
+// to int64 by the int_buffer type); iv holds icount index values.
+static int rgfx_mesh_upload(const int64_t* vw, int vcount, const int64_t* iv, int icount) {
+    if (!g_rgfx_gpu_mode || vw == nullptr || iv == nullptr || vcount <= 0 || icount <= 0) { return 0; }
+    rgfx_gl_ensure_current();
+    std::vector<float> verts;
+    verts.reserve((size_t) vcount * 8);
+    for (int i = 0; i < vcount; ++i) {
+        const int64_t* p = vw + (size_t) i * 8;
+        int32_t xi = (int32_t) p[0], yi = (int32_t) p[1], zi = (int32_t) p[2];
+        int32_t nxi = (int32_t) p[3], nyi = (int32_t) p[4], nzi = (int32_t) p[5];
+        uint32_t uvw = (uint32_t) p[7];
+        verts.push_back((float) xi / 256.f); verts.push_back((float) yi / 256.f); verts.push_back((float) zi / 256.f);
+        verts.push_back((float) nxi / 65536.f); verts.push_back((float) nyi / 65536.f); verts.push_back((float) nzi / 65536.f);
+        verts.push_back((float) (uvw & 0xffffu) / 4096.f);
+        verts.push_back((float) ((uvw >> 16) & 0xffffu) / 4096.f);
+    }
+    // 32-bit indices: real GLB meshes routinely exceed 65535 vertices (a u16
+    // element buffer would wrap the indices and scramble the geometry).
+    std::vector<uint32_t> idx;
+    idx.reserve((size_t) icount);
+    for (int i = 0; i < icount; ++i) { idx.push_back((uint32_t) iv[i]); }
+    RgfxMesh3D m; m.vbo = 0; m.ebo = 0; m.icount = icount;
+    glGenBuffers(1, &m.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * 4), verts.data(), GL_STATIC_DRAW);
+    glGenBuffers(1, &m.ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) (idx.size() * 4), idx.data(), GL_STATIC_DRAW);
+    g_rgfx_meshes.push_back(m);
+    SDL_Log(\"[wasm3d] mesh upload vbo=%u ebo=%u v=%d i=%d glErr=%d\", m.vbo, m.ebo, vcount, icount, (int) glGetError());
+    return (int) g_rgfx_meshes.size();
+}
+// High-precision variant: positions are Q16.16 (x65536) instead of the guest
+// ABI's x256, so detailed GLB models authored at unit scale (e.g. 200k+ verts
+// packed into a ~1-unit box) don't collapse nearby vertices into degenerate
+// (zero-area) triangles. Used by the model3d loader path; the guest RGMB path
+// keeps the x256 rgfx_mesh_upload above.
+static int rgfx_mesh_upload_hp(const int64_t* vw, int vcount, const int64_t* iv, int icount) {
+    if (!g_rgfx_gpu_mode || vw == nullptr || iv == nullptr || vcount <= 0 || icount <= 0) { return 0; }
+    rgfx_gl_ensure_current();
+    std::vector<float> verts;
+    verts.reserve((size_t) vcount * 8);
+    for (int i = 0; i < vcount; ++i) {
+        const int64_t* p = vw + (size_t) i * 8;
+        int32_t xi = (int32_t) p[0], yi = (int32_t) p[1], zi = (int32_t) p[2];
+        int32_t nxi = (int32_t) p[3], nyi = (int32_t) p[4], nzi = (int32_t) p[5];
+        uint32_t uvw = (uint32_t) p[7];
+        verts.push_back((float) xi / 65536.f); verts.push_back((float) yi / 65536.f); verts.push_back((float) zi / 65536.f);
+        verts.push_back((float) nxi / 65536.f); verts.push_back((float) nyi / 65536.f); verts.push_back((float) nzi / 65536.f);
+        verts.push_back((float) (uvw & 0xffffu) / 4096.f);
+        verts.push_back((float) ((uvw >> 16) & 0xffffu) / 4096.f);
+    }
+    std::vector<uint32_t> idx;
+    idx.reserve((size_t) icount);
+    for (int i = 0; i < icount; ++i) { idx.push_back((uint32_t) iv[i]); }
+    RgfxMesh3D m; m.vbo = 0; m.ebo = 0; m.icount = icount;
+    glGenBuffers(1, &m.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * 4), verts.data(), GL_STATIC_DRAW);
+    glGenBuffers(1, &m.ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) (idx.size() * 4), idx.data(), GL_STATIC_DRAW);
+    g_rgfx_meshes.push_back(m);
+    SDL_Log(\"[wasm3d] mesh upload(hp) vbo=%u ebo=%u v=%d i=%d glErr=%d\", m.vbo, m.ebo, vcount, icount, (int) glGetError());
+    return (int) g_rgfx_meshes.size();
+}
+static void rgfx_3d_begin(int w, int h) {
+    if (!g_rgfx_gpu_mode) { SDL_Log(\"[wasm3d] begin: NOT gpu_mode\"); return; }
+    rgfx_gpu_start_frame(w, h);
+    if (!rgfx_3d_gl_init()) { SDL_Log(\"[wasm3d] begin: gl_init FAILED\"); return; }
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glUseProgram(g_rgfx_3d_prog);
+    static int begin_logged = 0;
+    if (begin_logged < 1) {
+        int ds = 0; SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &ds);
+        SDL_Log(\"[wasm3d] begin fb=%dx%d prog=%u depthSize=%d glErr=%d\", g_rgfx_fb_w, g_rgfx_fb_h, (unsigned) g_rgfx_3d_prog, ds, (int) glGetError());
+        begin_logged = 1;
+    }
+}
+static void rgfx_3d_set_camera(float ex, float ey, float ez, float cx, float cy, float cz, float ux, float uy, float uz, float fovy, float np, float fp, float aspect) {
+    float view[16], proj[16];
+    rgfx_m4_lookat(ex, ey, ez, cx, cy, cz, ux, uy, uz, view);
+    rgfx_m4_perspective(fovy, aspect, np, fp, proj);
+    rgfx_m4_mul(proj, view, g_rgfx_3d_vp);
+}
+// Colours arrive as packed RGBA8888 ints (the guest's rgba(); the top byte is R).
+// Cast to uint32_t so a high red/alpha byte does not read as a negative int.
+static void rgfx_3d_set_light(int ambColor, float ai, float dx, float dy, float dz, int sunColor, float si) {
+    uint32_t ac = (uint32_t) ambColor;
+    float ar = (float) ((ac >> 24) & 255u) / 255.f;
+    float ag = (float) ((ac >> 16) & 255u) / 255.f;
+    float ab = (float) ((ac >> 8) & 255u) / 255.f;
+    g_rgfx_3d_amb[0] = ar * ai; g_rgfx_3d_amb[1] = ag * ai; g_rgfx_3d_amb[2] = ab * ai;
+    float dl = sqrtf(dx * dx + dy * dy + dz * dz); if (dl > 0.f) { dx /= dl; dy /= dl; dz /= dl; }
+    g_rgfx_3d_sundir[0] = dx; g_rgfx_3d_sundir[1] = dy; g_rgfx_3d_sundir[2] = dz;
+    uint32_t sc = (uint32_t) sunColor;
+    float sr = (float) ((sc >> 24) & 255u) / 255.f;
+    float sg = (float) ((sc >> 16) & 255u) / 255.f;
+    float sb = (float) ((sc >> 8) & 255u) / 255.f;
+    g_rgfx_3d_sun[0] = sr * si; g_rgfx_3d_sun[1] = sg * si; g_rgfx_3d_sun[2] = sb * si;
+}
+static void rgfx_3d_draw(int meshId, int first, int count, int texId, float rx, float ry, float rz, float px, float py, float pz) {
+    if (!g_rgfx_gpu_mode || g_rgfx_3d_prog == 0) { return; }
+    if (meshId <= 0 || meshId > (int) g_rgfx_meshes.size()) { return; }
+    RgfxMesh3D& m = g_rgfx_meshes[(size_t) (meshId - 1)];
+    float mrx[16], mry[16], rot[16], model[16];
+    { for (int i = 0; i < 16; ++i) mrx[i] = 0.f; float c = cosf(rx), s = sinf(rx); RGM4(mrx,0,0)=1.f; RGM4(mrx,1,1)=c; RGM4(mrx,1,2)=-s; RGM4(mrx,2,1)=s; RGM4(mrx,2,2)=c; RGM4(mrx,3,3)=1.f; }
+    { for (int i = 0; i < 16; ++i) mry[i] = 0.f; float c = cosf(ry), s = sinf(ry); RGM4(mry,0,0)=c; RGM4(mry,0,2)=s; RGM4(mry,1,1)=1.f; RGM4(mry,2,0)=-s; RGM4(mry,2,2)=c; RGM4(mry,3,3)=1.f; }
+    rgfx_m4_mul(mrx, mry, rot);
+    for (int i = 0; i < 16; ++i) model[i] = rot[i];
+    RGM4(model,0,3) = px; RGM4(model,1,3) = py; RGM4(model,2,3) = pz;
+    float mvp[16]; rgfx_m4_mul(g_rgfx_3d_vp, model, mvp);
+    float nrm[9];
+    RGM3(nrm,0,0)=RGM4(rot,0,0); RGM3(nrm,0,1)=RGM4(rot,0,1); RGM3(nrm,0,2)=RGM4(rot,0,2);
+    RGM3(nrm,1,0)=RGM4(rot,1,0); RGM3(nrm,1,1)=RGM4(rot,1,1); RGM3(nrm,1,2)=RGM4(rot,1,2);
+    RGM3(nrm,2,0)=RGM4(rot,2,0); RGM3(nrm,2,1)=RGM4(rot,2,1); RGM3(nrm,2,2)=RGM4(rot,2,2);
+    glUniformMatrix4fv(g_rgfx_3d_uMVP, 1, GL_FALSE, mvp);
+    glUniformMatrix3fv(g_rgfx_3d_uNormal, 1, GL_FALSE, nrm);
+    glUniform3fv(g_rgfx_3d_uAmb, 1, g_rgfx_3d_amb);
+    glUniform3fv(g_rgfx_3d_uSunDir, 1, g_rgfx_3d_sundir);
+    glUniform3fv(g_rgfx_3d_uSun, 1, g_rgfx_3d_sun);
+    glActiveTexture(GL_TEXTURE0);
+    if (texId > 0 && texId <= (int) g_rgfx_gl_textures.size()) { glBindTexture(GL_TEXTURE_2D, g_rgfx_gl_textures[(size_t) (texId - 1)]); }
+    glUniform1i(g_rgfx_3d_uTex, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
+    if (g_rgfx_3d_aPos >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aPos); glVertexAttribPointer(g_rgfx_3d_aPos, 3, GL_FLOAT, GL_FALSE, 32, (void*) 0); }
+    if (g_rgfx_3d_aNormal >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aNormal); glVertexAttribPointer(g_rgfx_3d_aNormal, 3, GL_FLOAT, GL_FALSE, 32, (void*) 12); }
+    if (g_rgfx_3d_aUv >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aUv); glVertexAttribPointer(g_rgfx_3d_aUv, 2, GL_FLOAT, GL_FALSE, 32, (void*) 24); }
+    glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, (void*) (size_t) (first * 4));
+    static int draw_logged = 0;
+    if (draw_logged < 2) {
+        // project a real cube corner (1,1,1,1) to check the matrix spreads
+        // vertices (the origin only exercises the translation column).
+        float kx = RGM4(mvp,0,0) + RGM4(mvp,0,1) + RGM4(mvp,0,2) + RGM4(mvp,0,3);
+        float ky = RGM4(mvp,1,0) + RGM4(mvp,1,1) + RGM4(mvp,1,2) + RGM4(mvp,1,3);
+        float kz = RGM4(mvp,2,0) + RGM4(mvp,2,1) + RGM4(mvp,2,2) + RGM4(mvp,2,3);
+        float kw = RGM4(mvp,3,0) + RGM4(mvp,3,1) + RGM4(mvp,3,2) + RGM4(mvp,3,3);
+        float nx = (kw != 0.f) ? kx / kw : 0.f;
+        float ny = (kw != 0.f) ? ky / kw : 0.f;
+        SDL_Log(\"[wasm3d] draw mesh=%d count=%d tex=%d corner(1,1,1)_clipw=%.3f ndc=(%.3f,%.3f) amb=(%.2f,%.2f,%.2f) sun=(%.2f,%.2f,%.2f) glErr=%d\", meshId, count, texId, kw, nx, ny, g_rgfx_3d_amb[0], g_rgfx_3d_amb[1], g_rgfx_3d_amb[2], g_rgfx_3d_sun[0], g_rgfx_3d_sun[1], g_rgfx_3d_sun[2], (int) glGetError());
+        draw_logged++;
+    }
+}
+static void rgfx_3d_end() {
+    if (!g_rgfx_gpu_mode) { return; }
+    glDisable(GL_DEPTH_TEST);
+}
+
+// ==================== host-managed scene (IDEAL_3D Phase H) ==================
+// The host owns the entity registry, transforms, resources, lights and camera.
+// The guest sends commands via host imports (rg_wasm_bridge.c) that call these
+// extern \"C\" functions and hold only opaque EntityIds. rgfx_scene_render walks
+// the registry and drives the same gfx_3d_* GLES2 pipeline (forward, multi-light).
+#define RGE_MESH   1
+#define RGE_CAMERA 2
+#define RGE_AMBIENT 3
+#define RGE_DIR    4
+#define RGE_POINT  5
+#define RGE_SPRITE 6
+#define RGSCENE_MAXDIR 4
+#define RGSCENE_MAXPT  8
+struct RgfxSceneEntity {
+    int type; int alive; int gen; int visible; int enabled;
+    float pos[3]; float rot[4]; float scale[3];   // rot = quaternion (x,y,z,w)
+    int meshId; int texId;                         // RGE_MESH
+    float matColor[4]; float matEmissive[3]; int matBlend; // material (from GLB)
+    int spCols, spRows, spCol, spRow; float spW, spH; // RGE_SPRITE (billboard sheet)
+    float fovy, nearp, farp; float target[3]; float up[3]; int useTarget; // RGE_CAMERA
+    float color[3]; float intensity; float range;  // lights (dir uses pos as dir-to-light)
+};
+// per-mesh material (base colour tint incl. alpha, emissive glow, blend flag),
+// applied to entities created from that mesh via rg_create_mesh_entity.
+struct RgfxMeshMat { float color[4]; float emissive[3]; int blend; };
+static std::vector<RgfxSceneEntity> g_scene;
+static int g_scene_active_cam = 0;
+static GLuint g_scene_prog = 0;
+static GLint g_scn_aPos=-1, g_scn_aNormal=-1, g_scn_aUv=-1;
+static GLint g_scn_uMVP=-1, g_scn_uModel=-1, g_scn_uNormalMat=-1, g_scn_uTex=-1;
+static GLint g_scn_uAmbient=-1, g_scn_uNumDir=-1, g_scn_uDirDir=-1, g_scn_uDirCol=-1;
+static GLint g_scn_uNumPt=-1, g_scn_uPtPos=-1, g_scn_uPtCol=-1, g_scn_uPtRange=-1;
+static GLint g_scn_uBaseColor=-1, g_scn_uEmissive=-1;
+static GLint g_scn_uUvOffset=-1, g_scn_uUvScale=-1, g_scn_uUnlit=-1, g_scn_uAlphaCut=-1;
+// 1x1 opaque-white texture bound for meshes that have no texture, so the
+// shader's texture2D(uTex)*uBaseColor yields the material's base colour instead
+// of black (an unbound sampler reads as 0 -> the mesh renders invisible).
+static GLuint g_scn_white_tex = 0;
+static GLuint rgfx_scene_ensure_white() {
+    if (g_scn_white_tex == 0) {
+        const unsigned char px[4] = {255, 255, 255, 255};
+        glGenTextures(1, &g_scn_white_tex);
+        glBindTexture(GL_TEXTURE_2D, g_scn_white_tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    return g_scn_white_tex;
+}
+
+static int rgfx_scene_valid(int id) { return id > 0 && id <= (int) g_scene.size() && g_scene[(size_t)(id-1)].alive; }
+
+// Named GLB-model registry: the runner preloads <game>/models/*.glb, uploads
+// each mesh + its base texture into the mesh/texture pools, and registers the
+// (meshId, default texId) here under the file's basename. The guest's
+// rg_load_model(name) import then resolves a name to a meshId.
+static std::map<std::string,int> g_scene_model_mesh;
+static std::map<int,int> g_scene_mesh_deftex;
+static std::map<int,RgfxMeshMat> g_scene_mesh_mat;
+// colorRgba/emissiveRgb are packed 0xRRGGBBAA / 0xRRGGBB00; blend != 0 => alpha blend.
+extern \"C\" void rgfx_scene_register_model(const char* name, int meshId, int texId,
+                                          int colorRgba, int emissiveRgb, int blend) {
+    if (name && name[0]) { g_scene_model_mesh[std::string(name)] = meshId; }
+    if (meshId > 0) {
+        g_scene_mesh_deftex[meshId] = texId;
+        uint32_t c = (uint32_t) colorRgba, e = (uint32_t) emissiveRgb;
+        RgfxMeshMat m;
+        m.color[0] = (float)((c>>24)&255)/255.f; m.color[1] = (float)((c>>16)&255)/255.f;
+        m.color[2] = (float)((c>>8)&255)/255.f;  m.color[3] = (float)(c&255)/255.f;
+        m.emissive[0] = (float)((e>>24)&255)/255.f; m.emissive[1] = (float)((e>>16)&255)/255.f;
+        m.emissive[2] = (float)((e>>8)&255)/255.f;
+        m.blend = blend;
+        g_scene_mesh_mat[meshId] = m;
+    }
+}
+extern \"C\" int rgfx_scene_model_mesh(const char* name) {
+    if (!name) { return 0; }
+    std::map<std::string,int>::iterator it = g_scene_model_mesh.find(std::string(name));
+    return it == g_scene_model_mesh.end() ? 0 : it->second;
+}
+// Named sprite-sheet registry: the runner preloads <game>/sprites/*.png (RGBA,
+// with alpha), uploads each to the texture pool and registers texId by basename.
+static std::map<std::string,int> g_scene_sprite_tex;
+extern \"C\" void rgfx_scene_register_sprite(const char* name, int texId) {
+    if (name && name[0]) { g_scene_sprite_tex[std::string(name)] = texId; }
+}
+extern \"C\" int rgfx_scene_sprite_tex(const char* name) {
+    if (!name) { return 0; }
+    std::map<std::string,int>::iterator it = g_scene_sprite_tex.find(std::string(name));
+    return it == g_scene_sprite_tex.end() ? 0 : it->second;
+}
+// Enumerates the basenames registered above, so a guest can discover what the
+// runner preloaded instead of hardcoding a list. Writes NUL-separated names
+// into out (map order => alphabetical) and returns the byte size the whole list
+// needs; names that do not fit whole are skipped, so out always holds complete
+// entries and a guest can retry once it sees a return value above its capacity.
+extern \"C\" int rgfx_scene_resource_names(const char* kind, char* out, int cap) {
+    std::map<std::string,int>* m = 0;
+    std::string k(kind ? kind : \"\");
+    if (k == \"models\") { m = &g_scene_model_mesh; }
+    else if (k == \"sprites\") { m = &g_scene_sprite_tex; }
+    if (!m) { return 0; }
+    int need = 0;
+    int off = 0;
+    std::map<std::string,int>::iterator it;
+    for (it = m->begin(); it != m->end(); ++it) {
+        int n = (int) it->first.size() + 1;
+        need += n;
+        if (out && cap > 0 && off + n <= cap) {
+            it->first.copy(out + off, it->first.size());
+            out[off + (int) it->first.size()] = 0;
+            off += n;
+        }
+    }
+    // Terminate the written region with an empty name, so a guest reading a
+    // truncated list stops at the last whole name instead of running on into
+    // whatever its buffer happened to hold.
+    if (out && off < cap) { out[off] = 0; }
+    return need;
+}
+
+// Free the GPU resources the previous scene owned before it is torn down.
+// setupScene() calls this on every 3D-guest load, then preloadModels/preload-
+// Sprites re-uploads fresh meshes and textures. Without freeing here, each
+// re-entry leaked every model VBO/EBO and every model/sprite texture (the
+// model_viewer alone preloads dozens of GLBs, incl. a 34 MB Chair). On a
+// memory-rich desktop the leak is invisible, but on a Raspberry Pi's small
+// shared GL memory it exhausts the GPU after a few entries; the next upload
+// then fails, the guest loads with an empty/half scene, and the runner drops
+// back to the menu — the intermittent \"works, then stops working\" seen on the
+// Pi. Only scene-owned handles are freed: the texture pool is shared with 2D
+// uploads, so we free exactly the meshes/textures recorded in the scene
+// registries and leave their now-stale slots in place (handles are 1-based
+// indices into the pools; compacting would break every other live index). The
+// billboard quad (g_scene_quad) is never registered, so it survives and stays
+// reusable across scenes.
+static void rgfx_scene_free_mesh(int meshId) {
+    if (meshId <= 0 || meshId > (int) g_rgfx_meshes.size()) { return; }
+    RgfxMesh3D& m = g_rgfx_meshes[(size_t)(meshId - 1)];
+    if (m.vbo) { glDeleteBuffers(1, &m.vbo); m.vbo = 0; }
+    if (m.ebo) { glDeleteBuffers(1, &m.ebo); m.ebo = 0; }
+    m.icount = 0;
+}
+static void rgfx_scene_free_texture(int texId) {
+    if (texId <= 0 || texId > (int) g_rgfx_gl_textures.size()) { return; }
+    GLuint& t = g_rgfx_gl_textures[(size_t)(texId - 1)];
+    if (t) { glDeleteTextures(1, &t); t = 0; }
+}
+extern \"C\" int rgfx_scene_reset() {
+    if (g_rgfx_gpu_mode) {
+        rgfx_gl_ensure_current();
+        for (std::map<int,int>::iterator it = g_scene_mesh_deftex.begin(); it != g_scene_mesh_deftex.end(); ++it) {
+            rgfx_scene_free_mesh(it->first);   // model mesh VBO/EBO
+            rgfx_scene_free_texture(it->second); // its base texture (0 = none)
+        }
+        for (std::map<std::string,int>::iterator it = g_scene_sprite_tex.begin(); it != g_scene_sprite_tex.end(); ++it) {
+            rgfx_scene_free_texture(it->second); // preloaded sprite sheet
+        }
+    }
+    g_scene_model_mesh.clear();
+    g_scene_mesh_deftex.clear();
+    g_scene_mesh_mat.clear();
+    g_scene_sprite_tex.clear();
+    g_scene.clear();
+    g_scene_active_cam = 0;
+    return 0;
+}
+
+static int rgfx_scene_alloc(int type) {
+    RgfxSceneEntity e; memset(&e, 0, sizeof(e));
+    e.type = type; e.alive = 1; e.visible = 1; e.enabled = 1;
+    e.rot[3] = 1.f; e.scale[0] = e.scale[1] = e.scale[2] = 1.f; e.up[1] = 1.f;
+    e.color[0] = e.color[1] = e.color[2] = 1.f; e.intensity = 1.f; e.range = 10.f;
+    e.matColor[0] = e.matColor[1] = e.matColor[2] = e.matColor[3] = 1.f; // opaque white default
+    g_scene.push_back(e);
+    return (int) g_scene.size();
+}
+// upload interleaved float verts (8 floats: pos3,normal3,uv2) + u16 indices -> meshId
+static int rgfx_mesh_make(const float* v8, int vcount, const uint32_t* idx, int icount) {
+    if (!g_rgfx_gpu_mode) { return 0; }
+    rgfx_gl_ensure_current();
+    RgfxMesh3D m; m.vbo = 0; m.ebo = 0; m.icount = icount;
+    glGenBuffers(1, &m.vbo); glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) ((size_t) vcount * 8 * 4), v8, GL_STATIC_DRAW);
+    glGenBuffers(1, &m.ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) ((size_t) icount * 4), idx, GL_STATIC_DRAW);
+    g_rgfx_meshes.push_back(m);
+    return (int) g_rgfx_meshes.size();
+}
+extern \"C\" int rgfx_scene_load_texture(const char* dir, const char* name) {
+    char path[1024]; snprintf(path, sizeof(path), \"%s/%s.ppm\", dir, name);
+    FILE* f = fopen(path, \"rb\"); if (!f) { SDL_Log(\"[scene] texture not found: %s\", path); return 0; }
+    char magic[3] = {0,0,0}; int w = 0, h = 0, mx = 0;
+    if (fscanf(f, \"%2s %d %d %d\", magic, &w, &h, &mx) != 4 || magic[0] != 'P' || magic[1] != '6' || w <= 0 || h <= 0) { fclose(f); return 0; }
+    fgetc(f); // single whitespace after maxval
+    std::vector<uint8_t> rgb((size_t) w * h * 3);
+    if (fread(rgb.data(), 1, rgb.size(), f) != rgb.size()) { fclose(f); return 0; }
+    fclose(f);
+    std::vector<uint8_t> rgba((size_t) w * h * 4);
+    for (int i = 0; i < w * h; ++i) { rgba[i*4]=rgb[i*3]; rgba[i*4+1]=rgb[i*3+1]; rgba[i*4+2]=rgb[i*3+2]; rgba[i*4+3]=255; }
+    return rgfx_3d_upload_texture(rgba.data(), w, h);
+}
+// axis-aligned box, per-face normals, uv tiled by size/2; returns a mesh entity id
+extern \"C\" int rgfx_scene_create_box(float x0, float y0, float z0, float x1, float y1, float z1, int texId) {
+    float dx = (x1 - x0) * 0.5f, dy = (y1 - y0) * 0.5f, dz = (z1 - z0) * 0.5f;
+    // 6 faces * 4 verts; each vert = pos(3) normal(3) uv(2)
+    struct Q { float c[4][3]; float n[3]; float uw, uh; };
+    Q faces[6] = {
+        {{{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}}, {0,0,1}, dx, dy},   // +Z
+        {{{x1,y0,z0},{x0,y0,z0},{x0,y1,z0},{x1,y1,z0}}, {0,0,-1}, dx, dy},  // -Z
+        {{{x1,y0,z1},{x1,y0,z0},{x1,y1,z0},{x1,y1,z1}}, {1,0,0}, dz, dy},   // +X
+        {{{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}}, {-1,0,0}, dz, dy},  // -X
+        {{{x0,y1,z1},{x1,y1,z1},{x1,y1,z0},{x0,y1,z0}}, {0,1,0}, dx, dz},   // +Y
+        {{{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}}, {0,-1,0}, dx, dz},  // -Y
+    };
+    float uvc[4][2] = {{0,0},{1,0},{1,1},{0,1}};
+    std::vector<float> vv; std::vector<uint32_t> ii;
+    for (int fi = 0; fi < 6; ++fi) {
+        uint32_t base = (uint32_t) (vv.size() / 8);
+        for (int k = 0; k < 4; ++k) {
+            vv.push_back(faces[fi].c[k][0]); vv.push_back(faces[fi].c[k][1]); vv.push_back(faces[fi].c[k][2]);
+            vv.push_back(faces[fi].n[0]); vv.push_back(faces[fi].n[1]); vv.push_back(faces[fi].n[2]);
+            vv.push_back(uvc[k][0] * faces[fi].uw); vv.push_back(uvc[k][1] * faces[fi].uh);
+        }
+        uint32_t tri[6] = {0,1,2,0,2,3};
+        for (int t = 0; t < 6; ++t) ii.push_back(base + tri[t]);
+    }
+    int meshId = rgfx_mesh_make(vv.data(), (int) (vv.size() / 8), ii.data(), (int) ii.size());
+    int id = rgfx_scene_alloc(RGE_MESH); g_scene[(size_t)(id-1)].meshId = meshId; g_scene[(size_t)(id-1)].texId = texId;
+    return id;
+}
+extern \"C\" int rgfx_scene_create_mesh_entity(int meshId, int texId) {
+    if (texId <= 0) { std::map<int,int>::iterator it = g_scene_mesh_deftex.find(meshId); if (it != g_scene_mesh_deftex.end()) { texId = it->second; } }
+    int id = rgfx_scene_alloc(RGE_MESH); RgfxSceneEntity& e = g_scene[(size_t)(id-1)];
+    e.meshId = meshId; e.texId = texId;
+    std::map<int,RgfxMeshMat>::iterator mit = g_scene_mesh_mat.find(meshId);
+    if (mit != g_scene_mesh_mat.end()) {
+        e.matColor[0]=mit->second.color[0]; e.matColor[1]=mit->second.color[1];
+        e.matColor[2]=mit->second.color[2]; e.matColor[3]=mit->second.color[3];
+        e.matEmissive[0]=mit->second.emissive[0]; e.matEmissive[1]=mit->second.emissive[1];
+        e.matEmissive[2]=mit->second.emissive[2]; e.matBlend=mit->second.blend;
+    }
+    return id;
+}
+// shared unit quad (XY plane, centred, UV 0..1, normal +Z) for billboards
+static int g_scene_quad = 0;
+static int rgfx_scene_ensure_quad() {
+    if (g_scene_quad > 0) { return g_scene_quad; }
+    // 4 verts: pos(3) normal(3) uv(2). +Z facing, uv y flipped so row 0 is top.
+    float v[32] = {
+        -0.5f,-0.5f,0.f, 0.f,0.f,1.f, 0.f,1.f,
+         0.5f,-0.5f,0.f, 0.f,0.f,1.f, 1.f,1.f,
+         0.5f, 0.5f,0.f, 0.f,0.f,1.f, 1.f,0.f,
+        -0.5f, 0.5f,0.f, 0.f,0.f,1.f, 0.f,0.f,
+    };
+    uint32_t idx[6] = {0,1,2,0,2,3};
+    g_scene_quad = rgfx_mesh_make(v, 4, idx, 6);
+    SDL_Log(\"[scene] billboard quad mesh=%d\", g_scene_quad);
+    return g_scene_quad;
+}
+// billboard sprite: a camera-facing quad showing cell (0,0) of a cols x rows
+// sheet; w,h are its world size. texId is the sheet (with alpha).
+extern \"C\" int rgfx_scene_create_sprite(int texId, int cols, int rows, float w, float h) {
+    int id = rgfx_scene_alloc(RGE_SPRITE); RgfxSceneEntity& e = g_scene[(size_t)(id-1)];
+    e.texId = texId; e.spCols = cols>0?cols:1; e.spRows = rows>0?rows:1;
+    e.spCol = 0; e.spRow = 0; e.spW = w>0.f?w:1.f; e.spH = h>0.f?h:1.f;
+    return id;
+}
+extern \"C\" void rgfx_scene_set_sprite_cell(int id, int col, int row) {
+    if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].spCol = col; g_scene[(size_t)(id-1)].spRow = row; }
+}
+extern \"C\" int rgfx_scene_create_camera(float fovy, float nearp, float farp) {
+    int id = rgfx_scene_alloc(RGE_CAMERA);
+    g_scene[(size_t)(id-1)].fovy = fovy; g_scene[(size_t)(id-1)].nearp = nearp; g_scene[(size_t)(id-1)].farp = farp;
+    if (g_scene_active_cam == 0) g_scene_active_cam = id;
+    return id;
+}
+extern \"C\" int rgfx_scene_create_light(int type, int color, float intensity) {
+    int id = rgfx_scene_alloc(type);
+    uint32_t c = (uint32_t) color;
+    g_scene[(size_t)(id-1)].color[0] = (float)((c>>24)&255)/255.f;
+    g_scene[(size_t)(id-1)].color[1] = (float)((c>>16)&255)/255.f;
+    g_scene[(size_t)(id-1)].color[2] = (float)((c>>8)&255)/255.f;
+    g_scene[(size_t)(id-1)].intensity = intensity;
+    return id;
+}
+extern \"C\" void rgfx_scene_set_position(int id, float x, float y, float z) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].pos[0]=x; g_scene[(size_t)(id-1)].pos[1]=y; g_scene[(size_t)(id-1)].pos[2]=z; } }
+extern \"C\" void rgfx_scene_set_rotation(int id, float qx, float qy, float qz, float qw) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].rot[0]=qx; g_scene[(size_t)(id-1)].rot[1]=qy; g_scene[(size_t)(id-1)].rot[2]=qz; g_scene[(size_t)(id-1)].rot[3]=qw; } }
+extern \"C\" void rgfx_scene_set_scale(int id, float sx, float sy, float sz) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].scale[0]=sx; g_scene[(size_t)(id-1)].scale[1]=sy; g_scene[(size_t)(id-1)].scale[2]=sz; } }
+extern \"C\" void rgfx_scene_set_target(int id, float x, float y, float z) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].target[0]=x; g_scene[(size_t)(id-1)].target[1]=y; g_scene[(size_t)(id-1)].target[2]=z; g_scene[(size_t)(id-1)].useTarget=1; } }
+extern \"C\" void rgfx_scene_set_range(int id, float r) { if (rgfx_scene_valid(id)) g_scene[(size_t)(id-1)].range = r; }
+extern \"C\" void rgfx_scene_set_enabled(int id, int on) { if (rgfx_scene_valid(id)) g_scene[(size_t)(id-1)].enabled = on; }
+extern \"C\" void rgfx_scene_set_visible(int id, int on) { if (rgfx_scene_valid(id)) g_scene[(size_t)(id-1)].visible = on; }
+extern \"C\" void rgfx_scene_set_active_camera(int id) { if (rgfx_scene_valid(id)) g_scene_active_cam = id; }
+extern \"C\" void rgfx_scene_destroy(int id) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].alive = 0; g_scene[(size_t)(id-1)].gen++; } }
+
+static void rgfx_quat_m3(const float* q, float* m3) { // column-major 3x3
+    float x=q[0],y=q[1],z=q[2],w=q[3];
+    float n = sqrtf(x*x+y*y+z*z+w*w); if (n>0.f){x/=n;y/=n;z/=n;w/=n;}
+    RGM3(m3,0,0)=1-2*(y*y+z*z); RGM3(m3,0,1)=2*(x*y-z*w);   RGM3(m3,0,2)=2*(x*z+y*w);
+    RGM3(m3,1,0)=2*(x*y+z*w);   RGM3(m3,1,1)=1-2*(x*x+z*z); RGM3(m3,1,2)=2*(y*z-x*w);
+    RGM3(m3,2,0)=2*(x*z-y*w);   RGM3(m3,2,1)=2*(y*z+x*w);   RGM3(m3,2,2)=1-2*(x*x+y*y);
+}
+static int rgfx_scene_gl_init() {
+    if (g_scene_prog != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec3 aPos; attribute vec3 aNormal; attribute vec2 aUv;\\n\"
+        \"uniform mat4 uMVP; uniform mat4 uModel; uniform mat3 uNormalMat;\\n\"
+        \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
+        \"void main(){ gl_Position=uMVP*vec4(aPos,1.0); vUv=aUv; vN=uNormalMat*aNormal; vWorld=(uModel*vec4(aPos,1.0)).xyz; }\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
+        \"uniform sampler2D uTex; uniform vec3 uAmbient; uniform vec4 uBaseColor; uniform vec3 uEmissive;\\n\"
+        \"uniform vec2 uUvOffset; uniform vec2 uUvScale; uniform float uUnlit; uniform float uAlphaCut;\\n\"
+        \"uniform int uNumDir; uniform vec3 uDirDir[4]; uniform vec3 uDirCol[4];\\n\"
+        \"uniform int uNumPt; uniform vec3 uPtPos[8]; uniform vec3 uPtCol[8]; uniform float uPtRange[8];\\n\"
+        \"void main(){ vec3 N=normalize(vN); vec3 L=uAmbient;\\n\"
+        \"  for(int i=0;i<4;i++){ if(i>=uNumDir) break; L+=uDirCol[i]*max(0.0,dot(N,uDirDir[i])); }\\n\"
+        \"  for(int i=0;i<8;i++){ if(i>=uNumPt) break; vec3 d=uPtPos[i]-vWorld; float dist=length(d); vec3 Ld=d/max(dist,0.001); float a=max(0.0,1.0-dist/uPtRange[i]); L+=uPtCol[i]*max(0.0,dot(N,Ld))*a*a; }\\n\"
+        \"  vec2 uv=uUvOffset+vUv*uUvScale; vec4 t=texture2D(uTex,uv)*uBaseColor; if(t.a<uAlphaCut) discard;\\n\"
+        \"  vec3 lit=mix(t.rgb*L + uEmissive, t.rgb, uUnlit); gl_FragColor=vec4(lit, t.a); }\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec3 aPos; attribute vec3 aNormal; attribute vec2 aUv;\\n\"
+        \"uniform mat4 uMVP; uniform mat4 uModel; uniform mat3 uNormalMat;\\n\"
+        \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
+        \"void main(){ gl_Position=uMVP*vec4(aPos,1.0); vUv=aUv; vN=uNormalMat*aNormal; vWorld=(uModel*vec4(aPos,1.0)).xyz; }\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
+        \"uniform sampler2D uTex; uniform vec3 uAmbient; uniform vec4 uBaseColor; uniform vec3 uEmissive;\\n\"
+        \"uniform vec2 uUvOffset; uniform vec2 uUvScale; uniform float uUnlit; uniform float uAlphaCut;\\n\"
+        \"uniform int uNumDir; uniform vec3 uDirDir[4]; uniform vec3 uDirCol[4];\\n\"
+        \"uniform int uNumPt; uniform vec3 uPtPos[8]; uniform vec3 uPtCol[8]; uniform float uPtRange[8];\\n\"
+        \"void main(){ vec3 N=normalize(vN); vec3 L=uAmbient;\\n\"
+        \"  for(int i=0;i<4;i++){ if(i>=uNumDir) break; L+=uDirCol[i]*max(0.0,dot(N,uDirDir[i])); }\\n\"
+        \"  for(int i=0;i<8;i++){ if(i>=uNumPt) break; vec3 d=uPtPos[i]-vWorld; float dist=length(d); vec3 Ld=d/max(dist,0.001); float a=max(0.0,1.0-dist/uPtRange[i]); L+=uPtCol[i]*max(0.0,dot(N,Ld))*a*a; }\\n\"
+        \"  vec2 uv=uUvOffset+vUv*uUvScale; vec4 t=texture2D(uTex,uv)*uBaseColor; if(t.a<uAlphaCut) discard;\\n\"
+        \"  vec3 lit=mix(t.rgb*L + uEmissive, t.rgb, uUnlit); gl_FragColor=vec4(lit, t.a); }\\n\";
+#endif
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) { if (vsId) glDeleteShader(vsId); if (fsId) glDeleteShader(fsId); return 0; }
+    g_scene_prog = glCreateProgram();
+    glAttachShader(g_scene_prog, vsId); glAttachShader(g_scene_prog, fsId); glLinkProgram(g_scene_prog);
+    glDeleteShader(vsId); glDeleteShader(fsId);
+    GLint linked = GL_FALSE; glGetProgramiv(g_scene_prog, GL_LINK_STATUS, &linked);
+    if (linked != GL_TRUE) { char log[1024]; GLsizei len=0; glGetProgramInfoLog(g_scene_prog,(GLsizei)sizeof(log),&len,log); SDL_Log(\"[scene] program LINK FAILED: %.*s\", (int)len, log); glDeleteProgram(g_scene_prog); g_scene_prog=0; return 0; }
+    g_scn_aPos=glGetAttribLocation(g_scene_prog,\"aPos\"); g_scn_aNormal=glGetAttribLocation(g_scene_prog,\"aNormal\"); g_scn_aUv=glGetAttribLocation(g_scene_prog,\"aUv\");
+    g_scn_uMVP=glGetUniformLocation(g_scene_prog,\"uMVP\"); g_scn_uModel=glGetUniformLocation(g_scene_prog,\"uModel\"); g_scn_uNormalMat=glGetUniformLocation(g_scene_prog,\"uNormalMat\"); g_scn_uTex=glGetUniformLocation(g_scene_prog,\"uTex\");
+    g_scn_uAmbient=glGetUniformLocation(g_scene_prog,\"uAmbient\");
+    g_scn_uBaseColor=glGetUniformLocation(g_scene_prog,\"uBaseColor\"); g_scn_uEmissive=glGetUniformLocation(g_scene_prog,\"uEmissive\");
+    g_scn_uUvOffset=glGetUniformLocation(g_scene_prog,\"uUvOffset\"); g_scn_uUvScale=glGetUniformLocation(g_scene_prog,\"uUvScale\");
+    g_scn_uUnlit=glGetUniformLocation(g_scene_prog,\"uUnlit\"); g_scn_uAlphaCut=glGetUniformLocation(g_scene_prog,\"uAlphaCut\");
+    g_scn_uNumDir=glGetUniformLocation(g_scene_prog,\"uNumDir\"); g_scn_uDirDir=glGetUniformLocation(g_scene_prog,\"uDirDir\"); g_scn_uDirCol=glGetUniformLocation(g_scene_prog,\"uDirCol\");
+    g_scn_uNumPt=glGetUniformLocation(g_scene_prog,\"uNumPt\"); g_scn_uPtPos=glGetUniformLocation(g_scene_prog,\"uPtPos\"); g_scn_uPtCol=glGetUniformLocation(g_scene_prog,\"uPtCol\"); g_scn_uPtRange=glGetUniformLocation(g_scene_prog,\"uPtRange\");
+    SDL_Log(\"[scene] program ok prog=%u\", (unsigned) g_scene_prog);
+    return 1;
+}
+extern \"C\" void rgfx_scene_render(int w, int h) {
+    if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gpu_start_frame(w, h);
+    if (!rgfx_scene_gl_init()) { return; }
+    if (!rgfx_scene_valid(g_scene_active_cam)) { return; }
+    RgfxSceneEntity& cam = g_scene[(size_t)(g_scene_active_cam-1)];
+    float view[16], proj[16], vp[16];
+    float tx = cam.useTarget ? cam.target[0] : cam.pos[0];
+    float ty = cam.useTarget ? cam.target[1] : cam.pos[1];
+    float tz = cam.useTarget ? cam.target[2] : (cam.pos[2] + 1.f);
+    rgfx_m4_lookat(cam.pos[0],cam.pos[1],cam.pos[2], tx,ty,tz, cam.up[0],cam.up[1],cam.up[2], view);
+    rgfx_m4_perspective(cam.fovy, (float)w/(float)h, cam.nearp>0.f?cam.nearp:0.1f, cam.farp>0.f?cam.farp:100.f, proj);
+    rgfx_m4_mul(proj, view, vp);
+    // gather lights
+    float ambient[3] = {0,0,0};
+    float dirDir[RGSCENE_MAXDIR*3], dirCol[RGSCENE_MAXDIR*3]; int ndir=0;
+    float ptPos[RGSCENE_MAXPT*3], ptCol[RGSCENE_MAXPT*3], ptRange[RGSCENE_MAXPT]; int npt=0;
+    for (size_t i=0;i<g_scene.size();++i) {
+        RgfxSceneEntity& e = g_scene[i]; if (!e.alive || !e.enabled) continue;
+        if (e.type==RGE_AMBIENT) { ambient[0]+=e.color[0]*e.intensity; ambient[1]+=e.color[1]*e.intensity; ambient[2]+=e.color[2]*e.intensity; }
+        else if (e.type==RGE_DIR && ndir<RGSCENE_MAXDIR) { float dx=e.pos[0],dy=e.pos[1],dz=e.pos[2]; float l=sqrtf(dx*dx+dy*dy+dz*dz); if(l>0.f){dx/=l;dy/=l;dz/=l;} dirDir[ndir*3]=dx;dirDir[ndir*3+1]=dy;dirDir[ndir*3+2]=dz; dirCol[ndir*3]=e.color[0]*e.intensity;dirCol[ndir*3+1]=e.color[1]*e.intensity;dirCol[ndir*3+2]=e.color[2]*e.intensity; ndir++; }
+        else if (e.type==RGE_POINT && npt<RGSCENE_MAXPT) { ptPos[npt*3]=e.pos[0];ptPos[npt*3+1]=e.pos[1];ptPos[npt*3+2]=e.pos[2]; ptCol[npt*3]=e.color[0]*e.intensity;ptCol[npt*3+1]=e.color[1]*e.intensity;ptCol[npt*3+2]=e.color[2]*e.intensity; ptRange[npt]=e.range>0.f?e.range:10.f; npt++; }
+    }
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glClear(GL_DEPTH_BUFFER_BIT);
+    glUseProgram(g_scene_prog);
+    glUniform3fv(g_scn_uAmbient,1,ambient);
+    glUniform1i(g_scn_uNumDir,ndir); if(ndir>0){ glUniform3fv(g_scn_uDirDir,ndir,dirDir); glUniform3fv(g_scn_uDirCol,ndir,dirCol);}
+    glUniform1i(g_scn_uNumPt,npt); if(npt>0){ glUniform3fv(g_scn_uPtPos,npt,ptPos); glUniform3fv(g_scn_uPtCol,npt,ptCol); glUniform1fv(g_scn_uPtRange,npt,ptRange);}
+    glActiveTexture(GL_TEXTURE0); glUniform1i(g_scn_uTex,0);
+    // two passes: opaque first (depth write on), then alpha-blended materials
+    // (depth test on, depth write off) so transparent gems read correctly.
+    for (int pass=0; pass<2; ++pass) {
+      if (pass==1) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); glDepthMask(GL_FALSE); }
+      for (size_t i=0;i<g_scene.size();++i) {
+        RgfxSceneEntity& e = g_scene[i];
+        if (!e.alive || !e.enabled || !e.visible) continue;
+        if (e.type==RGE_SPRITE) {
+            if (pass!=0) continue; // sprites: opaque pass with alpha discard
+            int q = rgfx_scene_ensure_quad(); // lazily build the billboard quad (GL is current here)
+            if (q<=0 || q>(int)g_rgfx_meshes.size()) continue;
+            RgfxMesh3D& m = g_rgfx_meshes[(size_t)(q-1)];
+            // cylindrical (Y-up) billboard: face the camera horizontally
+            float fxc=cam.pos[0]-e.pos[0], fzc=cam.pos[2]-e.pos[2];
+            float fl=sqrtf(fxc*fxc+fzc*fzc); if(fl>0.f){fxc/=fl;fzc/=fl;} else {fxc=0.f;fzc=1.f;}
+            float rx=fzc, rz=-fxc; // right = up(0,1,0) x forward(fxc,0,fzc)
+            float model[16]; for(int k=0;k<16;k++) model[k]=0.f;
+            RGM4(model,0,0)=rx*e.spW; RGM4(model,2,0)=rz*e.spW;   // X = right*w
+            RGM4(model,1,1)=e.spH;                                 // Y = up*h
+            RGM4(model,0,2)=fxc; RGM4(model,2,2)=fzc;              // Z = forward
+            RGM4(model,0,3)=e.pos[0]; RGM4(model,1,3)=e.pos[1]; RGM4(model,2,3)=e.pos[2]; RGM4(model,3,3)=1.f;
+            float mvp[16]; rgfx_m4_mul(vp, model, mvp);
+            float nm[9]={1,0,0,0,1,0,0,0,1};
+            glUniformMatrix4fv(g_scn_uMVP,1,GL_FALSE,mvp); glUniformMatrix4fv(g_scn_uModel,1,GL_FALSE,model); glUniformMatrix3fv(g_scn_uNormalMat,1,GL_FALSE,nm);
+            float white[4]={1,1,1,1}, noE[3]={0,0,0};
+            glUniform4fv(g_scn_uBaseColor,1,white); glUniform3fv(g_scn_uEmissive,1,noE);
+            float us[2]={ 1.f/(float)e.spCols, 1.f/(float)e.spRows };
+            float uo[2]={ (float)e.spCol/(float)e.spCols, (float)e.spRow/(float)e.spRows };
+            // inset ~1.2% of a cell so linear filtering doesn't bleed neighbour frames
+            float insx=us[0]*0.012f, insy=us[1]*0.012f;
+            uo[0]+=insx; uo[1]+=insy; us[0]-=2.f*insx; us[1]-=2.f*insy;
+            glUniform2fv(g_scn_uUvOffset,1,uo); glUniform2fv(g_scn_uUvScale,1,us);
+            glUniform1f(g_scn_uUnlit,1.f); glUniform1f(g_scn_uAlphaCut,0.35f);
+            if (e.texId>0 && e.texId<=(int)g_rgfx_gl_textures.size()) glBindTexture(GL_TEXTURE_2D, g_rgfx_gl_textures[(size_t)(e.texId-1)]);
+            glBindBuffer(GL_ARRAY_BUFFER,m.vbo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo);
+            if(g_scn_aPos>=0){glEnableVertexAttribArray(g_scn_aPos); glVertexAttribPointer(g_scn_aPos,3,GL_FLOAT,GL_FALSE,32,(void*)0);}
+            if(g_scn_aNormal>=0){glEnableVertexAttribArray(g_scn_aNormal); glVertexAttribPointer(g_scn_aNormal,3,GL_FLOAT,GL_FALSE,32,(void*)12);}
+            if(g_scn_aUv>=0){glEnableVertexAttribArray(g_scn_aUv); glVertexAttribPointer(g_scn_aUv,2,GL_FLOAT,GL_FALSE,32,(void*)24);}
+            glDrawElements(GL_TRIANGLES,m.icount,GL_UNSIGNED_INT,(void*)0);
+            continue;
+        }
+        if (e.type!=RGE_MESH) continue;
+        if (e.meshId<=0 || e.meshId>(int)g_rgfx_meshes.size()) continue;
+        int wantBlend = (pass==1) ? 1 : 0; if (e.matBlend != wantBlend) continue;
+        glUniform4fv(g_scn_uBaseColor,1,e.matColor); glUniform3fv(g_scn_uEmissive,1,e.matEmissive);
+        { float z2[2]={0.f,0.f}, o2[2]={1.f,1.f}; glUniform2fv(g_scn_uUvOffset,1,z2); glUniform2fv(g_scn_uUvScale,1,o2); glUniform1f(g_scn_uUnlit,0.f); glUniform1f(g_scn_uAlphaCut,0.f); }
+        RgfxMesh3D& m = g_rgfx_meshes[(size_t)(e.meshId-1)];
+        float r3[9]; rgfx_quat_m3(e.rot, r3);
+        float model[16]; for(int k=0;k<16;k++) model[k]=0.f;
+        // model = T * R * S (column-major)
+        RGM4(model,0,0)=r3[0]*e.scale[0]; RGM4(model,1,0)=r3[1]*e.scale[0]; RGM4(model,2,0)=r3[2]*e.scale[0];
+        RGM4(model,0,1)=r3[3]*e.scale[1]; RGM4(model,1,1)=r3[4]*e.scale[1]; RGM4(model,2,1)=r3[5]*e.scale[1];
+        RGM4(model,0,2)=r3[6]*e.scale[2]; RGM4(model,1,2)=r3[7]*e.scale[2]; RGM4(model,2,2)=r3[8]*e.scale[2];
+        RGM4(model,0,3)=e.pos[0]; RGM4(model,1,3)=e.pos[1]; RGM4(model,2,3)=e.pos[2]; RGM4(model,3,3)=1.f;
+        float mvp[16]; rgfx_m4_mul(vp, model, mvp);
+        float nm[9]; nm[0]=r3[0];nm[1]=r3[1];nm[2]=r3[2];nm[3]=r3[3];nm[4]=r3[4];nm[5]=r3[5];nm[6]=r3[6];nm[7]=r3[7];nm[8]=r3[8];
+        glUniformMatrix4fv(g_scn_uMVP,1,GL_FALSE,mvp); glUniformMatrix4fv(g_scn_uModel,1,GL_FALSE,model); glUniformMatrix3fv(g_scn_uNormalMat,1,GL_FALSE,nm);
+        if (e.texId>0 && e.texId<=(int)g_rgfx_gl_textures.size()) { glBindTexture(GL_TEXTURE_2D, g_rgfx_gl_textures[(size_t)(e.texId-1)]); }
+        else { glBindTexture(GL_TEXTURE_2D, rgfx_scene_ensure_white()); }
+        glBindBuffer(GL_ARRAY_BUFFER,m.vbo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo);
+        if(g_scn_aPos>=0){glEnableVertexAttribArray(g_scn_aPos); glVertexAttribPointer(g_scn_aPos,3,GL_FLOAT,GL_FALSE,32,(void*)0);}
+        if(g_scn_aNormal>=0){glEnableVertexAttribArray(g_scn_aNormal); glVertexAttribPointer(g_scn_aNormal,3,GL_FLOAT,GL_FALSE,32,(void*)12);}
+        if(g_scn_aUv>=0){glEnableVertexAttribArray(g_scn_aUv); glVertexAttribPointer(g_scn_aUv,2,GL_FLOAT,GL_FALSE,32,(void*)24);}
+        glDrawElements(GL_TRIANGLES,m.icount,GL_UNSIGNED_INT,(void*)0);
+      }
+    }
+    glDepthMask(GL_TRUE); glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST);
+}
+") )
+            es6 ( "true" )
+        }
+    }
+
+    ; Clear a prior window-close request (e.g. after returning to the launcher menu).
+    gfx_clear_should_close _:void () {
+        templates {
+            cpp ( "rgfx_clear_should_close()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Sleep for `ms` milliseconds (frame pacing).
+    gfx_delay _:void (ms:int) {
+        templates {
+            cpp ( "rgfx_delay(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Milliseconds since SDL_Init (wall clock for FPS).
+    gfx_ticks_ms _:int () {
+        templates {
+            cpp ( "(int) rgfx_ticks_ms()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Update the window title (e.g. append live FPS).
+    gfx_set_title _:void (title:string) {
+        templates {
+            cpp ( "rgfx_set_title(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Tear down the window and quit SDL.
+    gfx_close _:void () {
+        templates {
+            cpp ( "rgfx_close()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Set desktop fullscreen on/off (1 = fullscreen, 0 = windowed).
+    gfx_set_fullscreen _:void (on:int) {
+        templates {
+            cpp ( "rgfx_set_fullscreen(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Toggle desktop fullscreen (scaled). Returns 1 when fullscreen, 0 windowed.
+    gfx_toggle_fullscreen _:int () {
+        templates {
+            cpp ( "rgfx_toggle_fullscreen()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; True when the SDL window is in fullscreen desktop mode.
+    gfx_is_fullscreen _:boolean () {
+        templates {
+            cpp ( "(rgfx_is_fullscreen() != 0)" (imp "<SDL2/SDL.h>") )
+            es6 ( "false" )
+        }
+    }
+
+    ; Open a mono S16 audio output device (call once after gfx_open).
+    gfx_audio_open _:int (sampleRate:int) {
+        templates {
+            cpp ( "rgfx_audio_open(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Queue raw PCM bytes (mono int16 little-endian) for playback.
+    gfx_audio_queue _:void (pcm:buffer byteCount:int) {
+        templates {
+            cpp ( "rgfx_audio_queue(" (e 1) ".data(), " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<cstdint>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Drop queued PCM (e.g. when returning from a sub-game to the launcher menu).
+    gfx_audio_clear _:void () {
+        templates {
+            cpp ( "rgfx_audio_clear()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    gfx_audio_sample_rate _:int () {
+        templates {
+            cpp ( "rgfx_audio_sample_rate()" (imp "<SDL2/SDL.h>") )
+            es6 ( "44100" )
+        }
+    }
+
+    ; Open an SDL window with an OpenGL 2.1 context for hybrid GPU sprite present.
+    ; Returns 1 on success, 0 on failure (caller may fall back to gfx_open).
+    gfx_open_gpu _:int (title:string w:int h:int) {
+        templates {
+            cpp ( "rgfx_open_gpu(" (e 1) ", " (e 2) ", " (e 3) ")"
+                  (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Upload an RGBA buffer as a persistent GL texture (1-based id, 0 on failure).
+    gfx_gpu_upload_texture _:int (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_gpu_upload_texture(" (e 1) ".data(), " (e 2) ", " (e 3) ")"
+                  (imp "<SDL2/SDL.h>") (imp "<cstdint>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Begin collecting GPU particles for the next present (OpenGL path only).
+    gfx_particles_begin _:void (fbW:int fbH:int pane:int) {
+        templates {
+            cpp ( "rgfx_particles_begin(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Queue one soft-circle particle (screen pixels, 0..255 colour/alpha).
+    gfx_particles_push _:void (x:double y:double size:double r:int g:int b:int alpha:int) {
+        templates {
+            cpp ( "rgfx_particles_push((float)" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", "
+                  (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Finish particle collection (draw happens during gfx_present on GPU path).
+    gfx_particles_end _:void () {
+        templates {
+            cpp ( "/* particles collected */" )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Begin collecting GPU UI-effect overlay quads for the next present. Clears the
+    ; queue and records the framebuffer size (needed for whole-screen pulses).
+    gfx_fx_begin _:void (fbW:int fbH:int) {
+        templates {
+            cpp ( "rgfx_fx_begin(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Queue a soft glow halo over a node rect (screen px, 0..255 colour/alpha).
+    gfx_fx_push_glow _:void (x:double y:double w:double h:double r:int g:int b:int alpha:int) {
+        templates {
+            cpp ( "rgfx_fx_push_glow((float)" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", (float)"
+                  (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", " (e 8) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Queue a whole-screen colour pulse (0..255 colour/alpha), brightest at centre.
+    gfx_fx_push_screen _:void (r:int g:int b:int alpha:int) {
+        templates {
+            cpp ( "rgfx_fx_push_screen(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Begin collecting GPU sheet sprites for the next present (OpenGL path only).
+    gfx_gpu_sprites_begin _:void (fbW:int fbH:int pane:int) {
+        templates {
+            cpp ( "rgfx_gpu_sprites_begin(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") (imp "<cmath>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Queue one spritesheet sub-rect. usePivot=0: px/py = top-left; usePivot=1: pivot + angleDeg.
+    gfx_gpu_sprites_push _:void (texId:int atlasW:int atlasH:int sx:int sy:int sw:int sh:int px:double py:double dw:double dh:double angleDeg:double usePivot:int) {
+        templates {
+            cpp ( "rgfx_gpu_sprites_push(" (e 1) ", " (e 2) ", " (e 3) ", "
+                  (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", (float)" (e 8) ", (float)" (e 9) ", "
+                  "(float)" (e 10) ", (float)" (e 11) ", (float)" (e 12) ", " (e 13) ")"
+                  (imp "<SDL2/SDL.h>") (imp "<cmath>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; R1b: set the 2D ortho camera for a pane's GPU sprite overlay. x/y pan in
+    ; framebuffer pixels (screen = world - cam, like game_camera); zoom and
+    ; angleDeg rotate/scale about the pane centre. Applied at draw time as a
+    ; 4x4 view-projection uniform. Defaults (0,0,1,0) are the identity; the
+    ; bisect fallback paths (RANGER_GFX_SPRITE_BATCH=0 / RANGER_GFX_SPRITE_CAMERA=0)
+    ; ignore the camera by design.
+    gfx_gpu_camera_set _:void (pane:int x:double y:double zoom:double angleDeg:double) {
+        templates {
+            cpp ( "rgfx_gpu_camera_set(" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", "
+                  "(float)" (e 4) ", (float)" (e 5) ")"
+                  (imp "<SDL2/SDL.h>") (imp "<cmath>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; R1b: reset a pane's GPU sprite camera to the identity (no pan/zoom/rotation).
+    gfx_gpu_camera_reset _:void (pane:int) {
+        templates {
+            cpp ( "rgfx_gpu_camera_reset(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; ---- 3D mesh pipeline (render=3d / Wasm3dRunner) ----------------------
+    ; Upload a texture for the 3D path (GL_REPEAT + mipmaps). Returns a texId
+    ; into the shared GL texture table (same space as gfx_gpu_upload_texture).
+    gfx_3d_upload_texture _:int (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_3d_upload_texture(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; Upload a mesh: raw guest vertex bytes (32 B/vertex fixed-point) + u16
+    ; indices. Returns a mesh handle (1-based).
+    gfx_3d_mesh_upload _:int (verts:int_buffer vcount:int idx:int_buffer icount:int) {
+        templates {
+            cpp ( "rgfx_mesh_upload(" (e 1) ".data(), " (e 2) ", " (e 3) ".data(), " (e 4) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; High-precision upload: positions are Q16.16 (x65536) not x256, so dense GLB
+    ; meshes don't quantise nearby vertices into degenerate triangles.
+    gfx_3d_mesh_upload_hp _:int (verts:int_buffer vcount:int idx:int_buffer icount:int) {
+        templates {
+            cpp ( "rgfx_mesh_upload_hp(" (e 1) ".data(), " (e 2) ", " (e 3) ".data(), " (e 4) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; Begin a 3D pass: enable depth test, clear depth, bind the 3D program.
+    gfx_3d_begin _:void (w:int h:int) {
+        templates {
+            cpp ( "rgfx_3d_begin(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Set the camera (eye, target, up, fovy radians, near, far, aspect); the
+    ; host builds view*projection.
+    gfx_3d_set_camera _:void (ex:double ey:double ez:double tx:double ty:double tz:double ux:double uy:double uz:double fovy:double near:double far:double aspect:double) {
+        templates {
+            cpp ( "rgfx_3d_set_camera((float)" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", (float)" (e 4) ", (float)" (e 5) ", (float)" (e 6) ", (float)" (e 7) ", (float)" (e 8) ", (float)" (e 9) ", (float)" (e 10) ", (float)" (e 11) ", (float)" (e 12) ", (float)" (e 13) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Set the scene light: ambient rgb+intensity, sun direction, sun rgb+intensity.
+    gfx_3d_set_light _:void (ambColor:int ambI:double dx:double dy:double dz:double sunColor:int sunI:double) {
+        templates {
+            cpp ( "rgfx_3d_set_light(" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", (float)" (e 4) ", (float)" (e 5) ", " (e 6) ", (float)" (e 7) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Draw an index range of a mesh with a texture and a model (euler rot + pos).
+    gfx_3d_draw _:void (meshId:int first:int count:int texId:int rx:double ry:double rz:double px:double py:double pz:double) {
+        templates {
+            cpp ( "rgfx_3d_draw(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", (float)" (e 5) ", (float)" (e 6) ", (float)" (e 7) ", (float)" (e 8) ", (float)" (e 9) ", (float)" (e 10) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; End the 3D pass (disable depth test so the 2D overlay draws on top).
+    gfx_3d_end _:void () {
+        templates {
+            cpp ( "rgfx_3d_end()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Present the GL frame (swap buffers).
+    gfx_3d_present _:void () {
+        templates {
+            cpp ( "rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; ---- host-managed scene (IDEAL_3D Phase H) ---------------------------
+    ; Clear the retained scene (call when a new 3D guest loads).
+    gfx_scene_reset _:void () {
+        templates {
+            cpp ( "rgfx_scene_reset()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Render the whole retained scene (camera + lights + mesh entities). Does NOT
+    ; swap: the caller presents with gfx_3d_present, so a HUD can be composited
+    ; in between with gfx_hud_overlay (same shape as the legacy gfx_3d_end +
+    ; gfx_3d_present path).
+    gfx_scene_render _:void (w:int h:int) {
+        templates {
+            cpp ( "rgfx_scene_render(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Blend a CPU RGBA image over the rendered 3D frame, stretched to the window.
+    ; Call after gfx_scene_render / gfx_3d_end and before gfx_3d_present.
+    gfx_hud_overlay _:void (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_hud_overlay_draw(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Register a preloaded GLB mesh (+ its base texture) under a name so the
+    ; guest's rg_load_model(name) import can resolve it to this meshId.
+    gfx_scene_register_model _:void (name:string meshId:int texId:int colorRgba:int emissiveRgb:int blend:int) {
+        templates {
+            cpp ( "rgfx_scene_register_model(" (e 1) ".c_str(), " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ")" (imp "<SDL2/SDL.h>") (imp "<string>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Register a preloaded sprite sheet (uploaded RGBA texture) under a name so
+    ; the guest's rg_load_sprite(name) import can resolve it to this texId.
+    gfx_scene_register_sprite _:void (name:string texId:int) {
+        templates {
+            cpp ( "rgfx_scene_register_sprite(" (e 1) ".c_str(), " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<string>") )
+            es6 ( "undefined" )
+        }
+    }
+}
