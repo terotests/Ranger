@@ -574,12 +574,13 @@ path: same host protocol compiled with `-l=cpp` + `gfx_sdl`.
 - [ ] Audio: `vocalCues` / one-shots → SDL
 - [ ] Cross-platform SW screenshot hashes (Node / macOS / Pi)
 
-### Intentionally out of scope until A+B are credible
+### Intentionally out of scope until W+A+B are credible
 
-- Full v1 catalog port
-- WASM guests on the SDL binary
+- Full v1 catalog port (Chess and friends — after WASM PoC)
 - Replacing v1 `engine:game-sdl:*` (v1 stays runnable)
 - Deep SW 3D / GPU backends as the mainline
+- Native SDL hosting of the Rust wasm guest can follow headless
+  TSX↔Rust parity; do not block Milestone W on Pi GLES
 
 ---
 
