@@ -525,7 +525,7 @@ renderer → and (ideally) back to the guest. This chapter walks one vertex —
 the cube corner at `(+1, +1, +1)` — through all four stages, with the real code
 at each step. Where a stage works differently on the TSX path and the WASM
 path, both are shown; where a stage does not exist yet, that is stated and tied
-to the Part that adds it.
+to the chapter that adds it.
 
 ## Stage 1 — construction in guest code
 
