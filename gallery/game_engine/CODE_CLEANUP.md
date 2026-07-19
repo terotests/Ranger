@@ -5,8 +5,8 @@ Implementation contract for the game-engine cleanup.
 | Section | Contents |
 |---------|----------|
 | **Components and actors** | What each name used in the code comments refers to |
-| **Binding decisions** | D-IDENTITY … D-GEO (below) |
-| **Worked examples** | Camera + physics pose; geometry upload / update / read-back |
+| **Binding decisions** | D-IDENTITY … D-GEO + D-MODULES |
+| **Worked examples** | Camera + physics pose; geometry upload; TS `ranger:core` game; Rust/WASM `ranger_wasm` game + ABI |
 | **Implementation gates** | Required order and tests before calling a migration done |
 
 Archived inventory and exploratory drafts:
@@ -33,12 +33,17 @@ the worked examples name them with the labels in bold.
 | **render** | The renderer backend | GL/SDL or the software rasterizer. Reads host scene state each frame and draws it. Rendering never creates objects and is never a sync boundary for script state (D-SYNC). |
 | **wrapper** | The TSX wrapper classes | `three/tsx/three.tsx` — guest-side classes that imitate the Three.js API so existing Three.js-style code runs unchanged. Target model: thin declarations over the adapter. Today they still build a private scene tree consumed by the temporary reconciler (D-SYNC). |
 | **WASM boundary** | The compiled-guest ABI | For compiled guests there is no interpreter or adapter; the guest calls generated imports and only `i32` values and byte ranges cross (D-WASM, D-WASM-MEM). Command names, handles, and timing rules are the same as on the interpreted path. |
+| **runtime** | `ranger:core` capability root | Realm-scoped host services: surface, input, audio, assets, time, log, platform (D-MODULES). Not a browser global and not a cross-guest singleton. |
+| **modules** | Virtual import packages | `ranger:three`, `ranger:cannon`, `ranger:core` — injected by the Ranger runtime for the current `realmId` (D-MODULES). Compiled guests use the same split as `ranger_wasm::{three,cannon,core}`. |
+| **abi** | Generated WASM import surface | Direct host commands for compiled guests (`rg_*` / registry exports). Same commands as the adapter path; only `i32` / byte spans cross (D-WASM, D-HANDLE). The `ranger_wasm` helper crate wraps validation, ownership, strings, spans, and error codes. |
 
 Comment convention in the code examples: comments are prefixed with the actor
 that performs the step — `// guest:`, `// interp:`, `// adapter:`, `// host:`,
-`// physics:`, `// render:`. A line of guest code can involve several actors;
-each gets its own comment line. (Earlier drafts used a single `// bg:` prefix
-for the combined host-side effect; the per-actor comments replace it.)
+`// physics:`, `// render:`, `// runtime:`, `// abi:`. Use **`// abi:`** when the
+guest (or helper) crosses the WASM import boundary. A line of guest code can
+involve several actors; each gets its own comment line. (Earlier drafts used a
+single `// bg:` prefix for the combined host-side effect; the per-actor comments
+replace it.)
 
 ---
 
@@ -433,6 +438,224 @@ Read-back uses the **same** `geoH`:
 ```
 geometryReadPositions(geoH, first, count, outSpan) -> n
 ```
+
+
+## D-MODULES — Importable packages: `ranger:core`, `ranger:three`, `ranger:cannon`
+
+TypeScript (and the TSX interpreter) import **virtual modules** injected by the
+Ranger runtime for the current `realmId`. They are not ordinary globals and not
+shared across guests.
+
+```ts
+import * as THREE from "ranger:three"
+import * as CANNON from "ranger:cannon"
+
+import {
+  runtime,
+  type Game,
+  type FrameInfo,
+  type ActionMap,
+  type AudioClip,
+  type AudioSource,
+} from "ranger:core"
+```
+
+### Package responsibilities
+
+```text
+ranger:core
+├─ runtime / game loop          runtime.start(game)
+├─ surface and display          runtime.surface.size, attachRenderer
+├─ input
+│  ├─ keyboard / mouse / touch / gamepads
+│  ├─ action maps               logical actions, not gamepads[0]
+│  ├─ player assignment         runtime.input.player(i)
+│  └─ haptics                   player.rumble(…)
+├─ audio
+│  ├─ clips / sources / voices  separate identities (below)
+│  ├─ listener                  attachTo(camera)
+│  └─ mixer buses
+├─ asset loading                runtime.assets.loadAudio / loadModel / …
+├─ timing                       FrameInfo.delta, fixedDelta
+├─ logging                      runtime.log.*
+└─ platform capabilities        runtime.platform.*
+
+ranger:three
+├─ scenes, cameras, meshes, geometry, materials
+└─ renderer façade              (live NativeRefs — D-SYNC)
+
+ranger:cannon
+├─ worlds, bodies, shapes, constraints
+└─ physics arenas               (separate from Three handles — D-TYPE)
+```
+
+`ranger:three` and `ranger:cannon` provide **domain object APIs** (`new Mesh`,
+`new Body`). `ranger:core` provides the **host environment and services**.
+
+Today’s `ranger-game` / `scripting/engine.d.ts` surface migrates toward
+`ranger:core`; new examples must not invent `window` / `document` /
+`requestAnimationFrame` as the native Ranger API (web-compat shims may still
+exist, but they resolve to the same runtime services).
+
+### What uses `new` vs what the runtime owns
+
+| Type | Creation |
+|------|----------|
+| `THREE.Mesh`, `THREE.Scene`, `CANNON.Body` | `new` → host handle (D-SYNC) |
+| User-defined `PlayerController` / `PhysicsVisual` | `new` — **guest-only** class; holds NativeRefs, no host handle of its own |
+| `AudioSource` | `runtime.audio.createSource(…)` (or registered `new AudioSource` if in D-REGISTRY) |
+| `AudioClip` | returned by `runtime.assets.loadAudio` — not `new` |
+| `Gamepad` | discovered by input; **not** constructed |
+| Audio output device / display / window / frame clock | owned by runtime; **not** constructed |
+
+Undesirable:
+
+```ts
+const pad = new Gamepad()
+const audioDevice = new AudioDevice()
+const window = new Window()
+```
+
+Those represent platform-owned capabilities. Guests receive controlled
+references scoped to their realm.
+
+### Input: action maps over `gamepads[0]`
+
+Raw enumeration may exist for diagnostics:
+
+```ts
+for (const pad of runtime.input.gamepads()) {
+  runtime.log.info(`${pad.name}: ${pad.connected}`)
+}
+```
+
+Game logic should use **logical actions**:
+
+```ts
+controls.axis1D("rotate")
+controls.wasPressed("jump")
+```
+
+A gamepad’s array index is not stable identity (disconnect / reconnect / reorder /
+reassign / layout differences). Distinguish:
+
+```text
+Device identity     physical connection + generation (D-HANDLE-style)
+Player assignment   logical player 0, player 1, …
+Action              jump, rotate, accelerate, pause, …
+```
+
+```text
+GamepadHandle { slot, generation, realmId }
+PlayerInput   { playerIndex, assignedDeviceHandles[], actionMap }
+```
+
+`runtime.input.player(0)` remains “player one” even if their controller
+reconnects under a different device handle.
+
+### Audio: clip ≠ source ≠ voice (and D-LIFE applies)
+
+```text
+AudioClip    decoded / shared resource          clipH
+AudioSource  persistent emitter (pose, bus, …)  sourceH
+AudioVoice   one active playback instance       voiceH
+```
+
+```ts
+const clip = await runtime.assets.loadAudio("explosion.ogg")
+// host: assetsLoadAudio → clipH (refcount resource)
+
+const source = runtime.audio.createSource(clip, { spatial: true })
+// host: audioSourceCreate(clipH, …) → sourceH; retain(clipH)
+
+source.attachTo(mesh)
+// host: audioSourceAttachEntity(sourceH, meshH) — borrowed entity ref
+
+const voice1 = source.play()
+const voice2 = source.play()
+// host: audioSourcePlay(sourceH) → voice1H, voice2H
+//       does not clone clipH or sourceH
+```
+
+Lifetimes follow D-LIFE:
+
+- `clip.disposeBackend()` / device-buffer release — backend only; `clipH` stays valid.
+- `clip.release()` — object ownership (refcount); may invalidate the handle.
+- Removing a mesh does not release attached sources; `source.release()` does.
+
+### Guest classes vs native classes
+
+```ts
+class PhysicsVisual {
+  constructor(
+    readonly body: CANNON.Body,
+    readonly mesh: THREE.Mesh,
+  ) {}
+}
+```
+
+Remains a **pure guest** object: it composes NativeRefs and needs no host
+handle. Register a class in D-REGISTRY only when its state/ops must live in
+Ranger (e.g. `AudioSource` with host pose attachment and voice allocation).
+
+Registry entries carry `module: ranger:core | ranger:three | ranger:cannon`
+so codegen emits the correct import package, interpreter registration, WASM
+surface, and TypeScript declarations (D-REGISTRY).
+
+### Capability root (not unrelated globals)
+
+Expose one root on `runtime`:
+
+```ts
+runtime.surface
+runtime.input
+runtime.audio
+runtime.assets
+runtime.time
+runtime.log
+runtime.platform
+```
+
+rather than bare `GamePads` / `Audio` / `Window` / `Assets` / `Clock` globals.
+The root carries realm, permissions, backend, and lifecycle.
+
+Compatibility vs native style:
+
+```ts
+// web-compat shim (optional)          // Ranger-native (preferred in new demos)
+window.innerWidth                      runtime.surface.size.width
+requestAnimationFrame(...)             runtime.start(game)  // host owns the tick
+document.body.appendChild(...)         runtime.surface.attachRenderer(renderer)
+```
+
+Both may resolve to the same host services; new examples use `ranger:core`
+explicitly.
+
+
+### Rust / WASM package layout (`ranger_wasm`)
+
+Compiled guests use the **same** registry commands and host objects as
+TypeScript. A helper crate wraps the generated ABI:
+
+```rust
+use ranger_wasm::{
+    core::{self, ActionMap, FrameInfo, Game, GameContext, Result},
+    three,
+    cannon,
+};
+```
+
+```text
+ranger_wasm::core     ↔  ranger:core      (runtime, input, audio, assets, …)
+ranger_wasm::three    ↔  ranger:three
+ranger_wasm::cannon   ↔  ranger:cannon
+```
+
+The helper owns: handle validation, retain/release on `Clone`/`Drop`, string /
+span lowering (D-WASM-MEM), async asset futures, and mapping ABI error codes to
+`Result`. It does **not** replace host checks — realm / generation / type are
+still enforced on every import (D-HANDLE).
+
 
 ---
 
@@ -993,15 +1216,16 @@ Uses **current** host poses: mesh from the copy lines, camera from W.2
 
 ## W.7 Mapping onto Ranger packages
 
-| Concern | Target home |
-|---------|-------------|
-| `cameraH` / `meshH` / `sceneH` / materials / geometries | `ThreeSceneHost` + typed arenas (`three/`) |
-| `worldH` / `bodyH` | `PhysicsWorld` implementation (`physics/`), wired through the guest ABI / `ranger-game` |
-| Script loop `animate` | Guest TSX / WASM `update`; host calls fixed step then guest, or guest calls step via import |
-| `renderer.render` | Host frame end (`gfx_sdl` / WebGL backend) reading host camera + scene |
+| Concern | Import / home |
+|---------|----------------|
+| `cameraH` / `meshH` / `sceneH` / materials / geometries | `ranger:three` → `ThreeSceneHost` + typed arenas |
+| `worldH` / `bodyH` | `ranger:cannon` → `PhysicsWorld` arenas |
+| Frame tick, surface, input, audio, assets | `ranger:core` → `runtime.*` (D-MODULES) |
+| `renderer.render` | Host frame end (`gfx_sdl` / WebGL); on native, surface from `runtime.surface` |
 
 The ABI may expose fewer sugar names (`rg_set_translation(meshH,x,y,z)`), but
-the **identity and timing rules** are the same as the Three lines above.
+the **identity and timing rules** are the same as the Three lines above. Prefer
+the `ranger:*` imports in new demos (worked example 3).
 
 ---
 
@@ -1066,6 +1290,863 @@ authoritative vertex array on the guest after upload.
 
 ---
 
+---
+
+# Worked example — `ranger:core` game with input and audio
+
+Target API for a small game: custom guest classes, action-map input, spatial
+audio, and the D-LIFE split on shutdown. Not a claim that every symbol already
+exists — this is the contract demos migrate toward (D-MODULES).
+
+```ts
+import * as THREE from "ranger:three"
+import * as CANNON from "ranger:cannon"
+
+import {
+  runtime,
+  type Game,
+  type FrameInfo,
+  type ActionMap,
+  type AudioClip,
+  type AudioSource,
+} from "ranger:core"
+
+/**
+ * Guest-only class: no host handle of its own.
+ * Composes a Cannon body + Three mesh (two NativeRefs).
+ */
+class PhysicsVisual {
+  constructor(
+    readonly body: CANNON.Body,
+    readonly mesh: THREE.Mesh,
+  ) {}
+
+  syncFromPhysics(): void {
+    this.mesh.position.copy(this.body.position)
+    // physics: bodyGetPosition(bodyH)
+    // host:    meshSetPosition(meshH, …) — live drawable write (D-SYNC)
+    this.mesh.quaternion.copy(this.body.quaternion)
+    // physics: bodyGetQuaternion → host: meshSetQuaternion
+  }
+
+  teleport(x: number, y: number, z: number): void {
+    // guest: physics remains authoritative for simulation pose
+    this.body.position.set(x, y, z)
+    // physics: bodySetPosition(bodyH, x,y,z)
+    this.body.velocity.set(0, 0, 0)
+    this.body.angularVelocity.set(0, 0, 0)
+    // physics: clear residual motion
+    this.syncFromPhysics()
+    // host: drawable matches within the same frame
+  }
+}
+
+class BoxGame implements Game {
+  private camera!: THREE.PerspectiveCamera
+  private scene!: THREE.Scene
+  private renderer!: THREE.WebGLRenderer
+
+  private world!: CANNON.World
+  private box!: PhysicsVisual
+
+  private controls!: ActionMap
+
+  private collisionClip!: AudioClip
+  private collisionSound!: AudioSource
+
+  async init(): Promise<void> {
+    const size = runtime.surface.size
+    // runtime: realm-scoped surface metrics (not window.innerWidth)
+
+    // --- Three (ranger:three) -------------------------------------------
+
+    this.camera = new THREE.PerspectiveCamera(
+      75,
+      size.width / size.height,
+      0.1,
+      100,
+    )
+    // adapter: construct("PerspectiveCamera", …)
+    // host:    cameraCreatePerspective(…) → cameraH
+
+    this.camera.position.set(0, 2, 6)
+    // host: cameraSetPosition(cameraH, 0, 2, 6) — script policy (D-SYNC)
+
+    this.scene = new THREE.Scene()
+    // host: sceneCreate(realmId) → sceneH
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true })
+    // host: rendererCreate({ antialias }) → rendererH
+    //       (native: often bind existing gfx_sdl / framebuffer)
+
+    runtime.surface.attachRenderer(this.renderer)
+    // runtime: attach rendererH to the runtime-owned surface — no DOM
+    this.renderer.setSize(size.width, size.height)
+    // host: rendererSetSize(rendererH, w, h)
+
+    const geometry = new THREE.BoxGeometry(2, 2, 2)
+    // host: geometryBox(2,2,2) → geoH
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      wireframe: true,
+    })
+    // host: materialBasic(…) → matH
+
+    const mesh = new THREE.Mesh(geometry, material)
+    // host: meshCreate(geoH, matH) → meshH; retain geo/mat
+    this.scene.add(mesh)
+    // host: entitySetParent(meshH, sceneH) — membership only
+
+    // --- Cannon (ranger:cannon) -----------------------------------------
+
+    this.world = new CANNON.World()
+    // physics: physicsWorldCreate() → worldH
+
+    const body = new CANNON.Body({ mass: 1 })
+    // physics: bodyCreate(mass=1) → bodyH  (no world membership yet)
+    body.addShape(new CANNON.Box(new CANNON.Vec3(1, 1, 1)))
+    // physics: bodyAddBoxShape(bodyH, 1,1,1)
+    body.angularDamping = 0.5
+    // physics: bodySetAngularDamping(bodyH, 0.5)
+    this.world.addBody(body)
+    // physics: worldAddBody(worldH, bodyH) — membership only
+
+    this.box = new PhysicsVisual(body, mesh)
+    // guest: pure guest object; no new host handle
+
+    // --- Input (ranger:core) — action map, not gamepads[0] --------------
+
+    this.controls = runtime.input.createActionMap({
+      rotate: {
+        type: "axis1d",
+        keyboard: { negative: "ArrowLeft", positive: "ArrowRight" },
+        gamepad: { axis: "leftX" },
+      },
+      jump: {
+        type: "button",
+        keyboard: ["Space"],
+        gamepad: { button: "south" },
+      },
+      reset: {
+        type: "button",
+        keyboard: ["KeyR"],
+        gamepad: { button: "west" },
+      },
+    })
+    // runtime: actionMapCreate(…) → mapH in this realm
+    //          binds logical actions → current player device assignment
+    //          (device handle may change; player index does not)
+
+    // --- Audio (ranger:core) — clip ≠ source ≠ voice --------------------
+
+    this.collisionClip = await runtime.assets.loadAudio(
+      "audio/box-impact.ogg",
+    )
+    // runtime/host: assetsLoadAudio → clipH (shared decoded resource)
+
+    this.collisionSound = runtime.audio.createSource(
+      this.collisionClip,
+      { bus: "sfx", spatial: true, volume: 0.8 },
+    )
+    // host: audioSourceCreate(clipH, …) → sourceH; retain(clipH)
+
+    this.collisionSound.attachTo(this.box.mesh)
+    // host: audioSourceAttachEntity(sourceH, meshH)
+    //       spatial pose follows the Three entity on the host
+
+    runtime.audio.listener.attachTo(this.camera)
+    // host: audioListenerAttachEntity(listenerH, cameraH)
+  }
+
+  resize(width: number, height: number): void {
+    this.camera.aspect = width / height
+    // host: cameraSetAspect(cameraH, aspect)
+    this.camera.updateProjectionMatrix()
+    // host: cameraUpdateProjectionMatrix(cameraH)
+    this.renderer.setSize(width, height)
+    // host: rendererSetSize(rendererH, w, h)
+  }
+
+  update(frame: FrameInfo): void {
+    // runtime: host tick calls update — no guest requestAnimationFrame required
+
+    const rotate = this.controls.axis1D("rotate")
+    // runtime: read logical action (keyboard and/or assigned gamepad)
+
+    this.box.body.angularVelocity.y += rotate * 12 * frame.delta
+    // physics: bodyGet/SetAngularVelocity — simulation authority
+
+    if (this.controls.wasPressed("jump")) {
+      this.box.body.applyImpulse(new CANNON.Vec3(0, 5, 0))
+      // physics: bodyApplyImpulse(bodyH, …)
+
+      this.collisionSound.play()
+      // host: audioSourcePlay(sourceH) → voiceH
+      //       new voice instance; does not clone clipH / sourceH
+
+      // player 0 = logical assignment, not gamepads[0]
+      runtime.input.player(0)?.rumble({
+        lowFrequency: 0.3,
+        highFrequency: 0.8,
+        durationMs: 120,
+      })
+      // runtime: haptics on the device(s) currently assigned to player 0
+    }
+
+    if (this.controls.wasPressed("reset")) {
+      this.box.teleport(0, 3, 0)
+    }
+
+    this.world.fixedStep(frame.fixedDelta, frame.delta)
+    // physics: zero, one, or several steps; bodyH pose advances
+
+    this.box.syncFromPhysics()
+    // host: mesh pose ← body pose (same frame)
+
+    this.renderer.render(this.scene, this.camera)
+    // host/render: rendererRender(rendererH, sceneH, cameraH)
+  }
+
+  shutdown(): void {
+    this.collisionSound.stop()
+    // host: audioSourceStop(sourceH) — stop voices; sourceH still valid
+
+    this.collisionSound.release()
+    this.collisionClip.release()
+    // host: release(sourceH), release(clipH) — object lifetime (D-LIFE)
+    //       not the same as disposeBackend
+
+    this.box.mesh.geometry.dispose()
+    this.box.mesh.material.dispose()
+    // host: geometryDisposeBackend(geoH), materialDisposeBackend(matH)
+    //       GPU/backend only; handles remain until release
+
+    this.scene.remove(this.box.mesh)
+    // host: entityDetach(meshH) — membership only; does not release meshH
+  }
+}
+
+runtime.start(new BoxGame())
+// runtime: register Game with this realm; host owns the frame loop and
+//          calls init → (resize)* → update* → shutdown
+```
+
+### What this example adds beyond W.1–W.5
+
+| Concern | Contract |
+|---------|----------|
+| Imports | `ranger:three` / `ranger:cannon` / `ranger:core` — realm-scoped virtual modules |
+| Frame loop | `runtime.start(game)` — host tick; not `requestAnimationFrame` as the native API |
+| Surface | `runtime.surface` — no `document.body.appendChild` |
+| Input | Action map + logical player; device handle ≠ player index |
+| Audio | `clipH` / `sourceH` / `voiceH` distinct; `play()` mints voices |
+| Custom class | `PhysicsVisual` stays guest-only |
+| Shutdown | `dispose()` = backend; `release()` = object; `remove` = membership |
+
+
+
+---
+
+# Worked example — Rust/WASM via `ranger_wasm` (same host objects)
+
+Mirrors the TypeScript `BoxGame` example. Comments marked **`// abi:`** are the
+moments the helper (or generated code) crosses the WASM import boundary into the
+host. TS and Rust map to the **same** registry commands (D-MODULES, D-REGISTRY).
+
+## R.1 Complete game
+
+```rust
+use ranger_wasm::{
+    cannon,
+    core::{
+        ActionMap, FrameInfo, Game, GameContext, GamepadAxis, GamepadButton,
+        InitContext, Key, Result, RumbleEffect,
+    },
+    three,
+};
+
+/// Guest-only Rust type: holds NativeRef wrappers, no host handle of its own.
+struct PhysicsVisual {
+    body: cannon::Body,
+    mesh: three::Mesh,
+}
+
+impl PhysicsVisual {
+    fn new(body: cannon::Body, mesh: three::Mesh) -> Self {
+        Self { body, mesh }
+    }
+
+    fn sync_from_physics(&self) -> Result<()> {
+        let position = self.body.position()?;
+        // abi: rg_body_get_position(body_lo, body_hi, out…) → physics arena
+        let quaternion = self.body.quaternion()?;
+        // abi: rg_body_get_quaternion(…)
+
+        self.mesh.position()?.copy_from(&position)?;
+        // abi: rg_entity_set_position(mesh_lo, mesh_hi, x, y, z)
+        self.mesh.quaternion()?.copy_from(&quaternion)?;
+        // abi: rg_entity_set_quaternion(…)
+
+        Ok(())
+    }
+
+    fn teleport(&self, x: f32, y: f32, z: f32) -> Result<()> {
+        self.body.set_position(x, y, z)?;
+        // abi: rg_body_set_position(…)
+        self.body.set_velocity(0.0, 0.0, 0.0)?;
+        self.body.set_angular_velocity(0.0, 0.0, 0.0)?;
+        // abi: rg_body_set_velocity / rg_body_set_angular_velocity
+        self.sync_from_physics()
+    }
+}
+
+struct BoxGame {
+    camera: three::PerspectiveCamera,
+    scene: three::Scene,
+    renderer: three::WebGlRenderer,
+    world: cannon::World,
+    cube: PhysicsVisual,
+    controls: ActionMap,
+    impact_clip: ranger_wasm::core::AudioClip,
+    impact_source: ranger_wasm::core::AudioSource,
+}
+
+impl Game for BoxGame {
+    async fn init(ctx: &mut InitContext) -> Result<Self> {
+        let surface_size = ctx.surface().size()?;
+        // abi: rg_surface_get_size(out_w, out_h) — runtime-owned surface
+
+        // --- Three --------------------------------------------------------
+
+        let camera = three::PerspectiveCamera::new(
+            75.0,
+            surface_size.width as f32 / surface_size.height as f32,
+            0.1,
+            100.0,
+        )?;
+        // abi: rg_camera_create_perspective(fov, aspect, near, far, out_handle)
+        // host: camera arena → cameraH
+
+        camera.position()?.set(0.0, 2.0, 6.0)?;
+        // abi: rg_entity_set_position(cameraH, 0, 2, 6)
+
+        let scene = three::Scene::new()?;
+        // abi: rg_scene_create(out_handle)
+
+        let renderer = three::WebGlRenderer::new(
+            three::RendererOptions { antialias: true, ..Default::default() },
+        )?;
+        // abi: rg_renderer_create(flags, out_handle)
+
+        // Native Ranger: no browser DOM.
+        ctx.surface().attach_renderer(&renderer)?;
+        // abi: rg_surface_attach_renderer(renderer_lo, renderer_hi)
+
+        renderer.set_size(surface_size.width, surface_size.height)?;
+        // abi: rg_renderer_set_size(…)
+
+        let geometry = three::BoxGeometry::new(2.0, 2.0, 2.0)?;
+        // abi: rg_geometry_box(2,2,2, out_geoH)
+        let material = three::MeshBasicMaterial::new(
+            three::MeshBasicMaterialOptions {
+                color: 0xff0000,
+                wireframe: true,
+                ..Default::default()
+            },
+        )?;
+        // abi: rg_material_basic(color, flags, out_matH)
+
+        let mesh = three::Mesh::new(&geometry, &material)?;
+        // abi: rg_mesh_create(geo_lo, geo_hi, mat_lo, mat_hi, out_meshH)
+        // host: retain(geoH), retain(matH)
+
+        scene.add(&mesh)?;
+        // abi: rg_entity_set_parent(meshH, sceneH) — membership only
+
+        // Host retains geo/mat via the mesh; dropping temporary wrappers is safe.
+        drop(geometry);
+        drop(material);
+        // abi (on Drop): rg_handle_release for each OwnedHandle
+        // host: refcount--; object stays alive while mesh retains it
+
+        // --- Cannon -------------------------------------------------------
+
+        let world = cannon::World::new()?;
+        // abi: rg_physics_world_create(out_worldH)
+
+        let shape = cannon::BoxShape::new(cannon::Vec3::new(1.0, 1.0, 1.0))?;
+        // guest: shape descriptor; may be host-backed or value data per registry
+
+        let body = cannon::Body::new(cannon::BodyOptions {
+            mass: 1.0,
+            ..Default::default()
+        })?;
+        // abi: rg_body_create(mass, out_bodyH) — no world membership yet
+
+        body.add_shape(&shape)?;
+        // abi: rg_body_add_box_shape(bodyH, 1,1,1)
+        body.set_angular_damping(0.5)?;
+        // abi: rg_body_set_angular_damping(bodyH, 0.5)
+        world.add_body(&body)?;
+        // abi: rg_world_add_body(worldH, bodyH) — membership only
+
+        let cube = PhysicsVisual::new(body, mesh);
+        // guest: no abi — pure Rust struct
+
+        // --- Input --------------------------------------------------------
+
+        let controls = ctx.input().create_action_map(
+            ActionMap::builder()
+                .axis_1d("rotate")
+                    .keyboard(Key::ArrowLeft, Key::ArrowRight)
+                    .gamepad_axis(GamepadAxis::LeftStickX)
+                    .dead_zone(0.15)
+                    .finish()
+                .button("jump")
+                    .key(Key::Space)
+                    .gamepad_button(GamepadButton::South)
+                    .finish()
+                .button("reset")
+                    .key(Key::KeyR)
+                    .gamepad_button(GamepadButton::West)
+                    .finish()
+                .build(),
+        )?;
+        // abi: rg_input_action_map_create(desc_ptr, desc_len, out_mapH)
+        //      (descriptor bytes / string table lowered per D-WASM-MEM)
+
+        // --- Audio --------------------------------------------------------
+
+        let impact_clip = ctx.assets().load_audio("audio/box-impact.ogg").await?;
+        // abi: rg_assets_load_audio_begin(path_ptr, path_len, out_job)
+        // abi: rg_assets_load_audio_poll(job) → clipH when ready
+        // host: shared decoded resource
+
+        let impact_source = ctx.audio().create_source(
+            &impact_clip,
+            ranger_wasm::core::AudioSourceOptions {
+                bus: "sfx".into(),
+                spatial: true,
+                volume: 0.8,
+                ..Default::default()
+            },
+        )?;
+        // abi: rg_audio_source_create(clipH, opts…, out_sourceH)
+        // host: retain(clipH)
+
+        impact_source.attach_to_entity(&cube.mesh)?;
+        // abi: rg_audio_source_attach_entity(sourceH, meshH)
+        // host: AudioSource → Three entity relation stays on the host
+
+        ctx.audio().listener().attach_to_entity(&camera)?;
+        // abi: rg_audio_listener_attach_entity(listenerH, cameraH)
+
+        Ok(Self {
+            camera, scene, renderer, world, cube, controls,
+            impact_clip, impact_source,
+        })
+    }
+
+    fn update(
+        &mut self,
+        ctx: &mut GameContext,
+        frame: FrameInfo,
+    ) -> Result<()> {
+        // host: ranger_game_update export called from the frame tick — no rAF
+
+        let rotate = self.controls.axis_1d("rotate")?;
+        // abi: rg_action_map_axis1d(mapH, name_ptr, name_len, out_f32)
+
+        let current = self.cube.body.angular_velocity()?;
+        // abi: rg_body_get_angular_velocity(…)
+        self.cube.body.set_angular_velocity(
+            current.x,
+            current.y + rotate * 12.0 * frame.delta_seconds,
+            current.z,
+        )?;
+        // abi: rg_body_set_angular_velocity(…)
+
+        if self.controls.was_pressed("jump")? {
+            // abi: rg_action_map_was_pressed(mapH, "jump")
+            self.cube.body.apply_impulse(cannon::Vec3::new(0.0, 5.0, 0.0))?;
+            // abi: rg_body_apply_impulse(…)
+
+            let _voice = self.impact_source.play()?;
+            // abi: rg_audio_source_play(sourceH, out_voiceH)
+            // host: new voice; does not clone clipH / sourceH
+
+            if let Some(player) = ctx.input().player(0)? {
+                // abi: rg_input_player(player_index, out_playerH) — logical player
+                player.rumble(RumbleEffect {
+                    low_frequency: 0.3,
+                    high_frequency: 0.8,
+                    duration_ms: 120,
+                })?;
+                // abi: rg_player_rumble(playerH, lo, hi, ms)
+            }
+        }
+
+        if self.controls.was_pressed("reset")? {
+            self.cube.teleport(0.0, 3.0, 0.0)?;
+        }
+
+        self.world.fixed_step(
+            frame.fixed_delta_seconds,
+            frame.delta_seconds,
+        )?;
+        // abi: rg_physics_world_fixed_step(worldH, fixed_dt, frame_dt)
+
+        self.cube.sync_from_physics()?;
+        // abi: body get + entity set (see sync_from_physics)
+
+        self.renderer.render(&self.scene, &self.camera)?;
+        // abi: rg_renderer_render(rendererH, sceneH, cameraH)
+
+        Ok(())
+    }
+
+    fn resize(
+        &mut self,
+        _ctx: &mut GameContext,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        if height == 0 {
+            return Ok(());
+        }
+        self.camera.set_aspect(width as f32 / height as f32)?;
+        // abi: rg_camera_set_aspect(cameraH, aspect)
+        self.camera.update_projection_matrix()?;
+        // abi: rg_camera_update_projection_matrix(cameraH)
+        self.renderer.set_size(width, height)?;
+        // abi: rg_renderer_set_size(…)
+        Ok(())
+    }
+
+    fn shutdown(&mut self, _ctx: &mut GameContext) -> Result<()> {
+        self.impact_source.stop_all()?;
+        // abi: rg_audio_source_stop_all(sourceH)
+
+        self.scene.remove(&self.cube.mesh)?;
+        // abi: rg_entity_detach(meshH) / rg_entity_set_parent(meshH, 0)
+        //      membership only — not release
+
+        self.cube.mesh.geometry()?.dispose_backend()?;
+        self.cube.mesh.material()?.dispose_backend()?;
+        // abi: rg_geometry_dispose_backend(geoH)
+        // abi: rg_material_dispose_backend(matH)
+        // host: GPU/backend only; handles remain (D-LIFE)
+
+        Ok(())
+        // Drop of Self later → abi: rg_handle_release for each OwnedHandle field
+    }
+}
+
+// Generates exported WASM lifecycle entry points:
+//   ranger_game_create / ranger_game_init_poll / ranger_game_update /
+//   ranger_game_resize / ranger_game_shutdown
+ranger_wasm::export_game!(BoxGame);
+// abi: host links these exports; frame tick → ranger_game_update(game, frameInfo)
+```
+
+### Game loop mapping
+
+```text
+Host frame tick
+    ↓
+ranger_game_update(game, frameInfo)          // abi export
+    ↓
+BoxGame::update(...)
+```
+
+```rust
+pub trait Game: Sized {
+    async fn init(ctx: &mut InitContext) -> Result<Self>;
+    fn update(&mut self, ctx: &mut GameContext, frame: FrameInfo) -> Result<()>;
+    fn resize(&mut self, ctx: &mut GameContext, width: u32, height: u32) -> Result<()>;
+    fn shutdown(&mut self, ctx: &mut GameContext) -> Result<()>;
+}
+```
+
+New Rust games use this host-driven `Game` interface. A
+`request_animation_frame` compatibility shim may exist for ported browser code,
+but it is not the native Ranger path.
+
+## R.2 Gamepad — action map, raw devices, rumble
+
+```rust
+fn update_player(controls: &ActionMap, body: &cannon::Body) -> Result<()> {
+    let horizontal = controls.axis_1d("move_x")?;
+    let vertical = controls.axis_1d("move_y")?;
+    // abi: rg_action_map_axis1d(mapH, name…) for each
+
+    body.apply_force(cannon::Vec3::new(horizontal * 20.0, 0.0, vertical * 20.0))?;
+    // abi: rg_body_apply_force(bodyH, fx, fy, fz)
+
+    if controls.was_pressed("jump")? {
+        // abi: rg_action_map_was_pressed(mapH, "jump")
+        body.apply_impulse(cannon::Vec3::new(0.0, 5.0, 0.0))?;
+        // abi: rg_body_apply_impulse(…)
+    }
+    Ok(())
+}
+
+fn log_connected_gamepads(ctx: &GameContext) -> Result<()> {
+    for gamepad in ctx.input().gamepads()? {
+        // abi: rg_input_gamepads_iter / rg_gamepad_get_* per device handle
+        //      device handle is generation-tagged — not array index identity
+        ctx.log().info(&format!(
+            "Gamepad: name={}, connected={}, buttons={}, axes={}",
+            gamepad.name()?,
+            gamepad.is_connected()?,
+            gamepad.button_count()?,
+            gamepad.axis_count()?,
+        ))?;
+        // abi: rg_log_info(ptr, len) — string bytes in guest memory (D-WASM-MEM)
+    }
+    Ok(())
+}
+
+fn inspect_first_gamepad(ctx: &GameContext) -> Result<()> {
+    let Some(gamepad) = ctx.input().gamepads()?.next() else {
+        return Ok(());
+    };
+    let left_x = gamepad.axis(GamepadAxis::LeftStickX)?;
+    // abi: rg_gamepad_axis(padH, axis_id, out_f32)
+    let jump = gamepad.button(GamepadButton::South)?;
+    // abi: rg_gamepad_button(padH, button_id, out_state)
+    if jump.was_pressed {
+        ctx.log().info("South button pressed")?;
+    }
+    Ok(())
+}
+
+// Rumble on logical player 0 (survives device reconnect):
+if let Some(player) = ctx.input().player(0)? {
+    // abi: rg_input_player(0, out_playerH)
+    player.rumble(RumbleEffect {
+        low_frequency: 0.2,
+        high_frequency: 1.0,
+        duration_ms: 180,
+    })?;
+    // abi: rg_player_rumble(playerH, …)
+}
+```
+
+## R.3 Audio — clip / source / voice
+
+```rust
+// Non-spatial UI blip
+let clip = ctx.assets().load_audio("audio/menu-confirm.ogg").await?;
+// abi: rg_assets_load_audio_* → clipH
+
+let source = ctx.audio().create_source(
+    &clip,
+    ranger_wasm::core::AudioSourceOptions {
+        bus: "ui".into(),
+        spatial: false,
+        volume: 0.7,
+        ..Default::default()
+    },
+)?;
+// abi: rg_audio_source_create(clipH, …) → sourceH
+
+let voice = source.play()?;
+// abi: rg_audio_source_play(sourceH) → voiceH  (playback instance)
+voice.set_pitch(1.05)?;
+// abi: rg_audio_voice_set_pitch(voiceH, 1.05)
+
+// Spatial engine loop attached to a mesh — relation stays on the host
+let engine_source = ctx.audio().create_source(
+    &engine_clip,
+    ranger_wasm::core::AudioSourceOptions {
+        spatial: true,
+        looping: true,
+        bus: "vehicles".into(),
+        volume: 0.6,
+        ..Default::default()
+    },
+)?;
+// abi: rg_audio_source_create(…)
+engine_source.attach_to_entity(&vehicle_mesh)?;
+// abi: rg_audio_source_attach_entity(sourceH, meshH)
+let engine_voice = engine_source.play()?;
+// abi: rg_audio_source_play → voiceH
+
+let speed = vehicle_body.velocity()?.length();
+// abi: rg_body_get_velocity(…)
+engine_voice.set_pitch(0.8 + speed * 0.015)?;
+// abi: rg_audio_voice_set_pitch
+engine_source.set_volume((0.3 + speed * 0.02).min(1.0))?;
+// abi: rg_audio_source_set_volume
+
+ctx.audio().listener().attach_to_entity(&camera)?;
+// abi: rg_audio_listener_attach_entity(listenerH, cameraH)
+// host: no per-frame guest copy of camera transform required
+```
+
+Identities: `clipH` (shared resource) ≠ `sourceH` (emitter) ≠ `voiceH` (playback).
+
+## R.4 Surface, assets, logging, platform
+
+```rust
+let size = ctx.surface().size()?;
+// abi: rg_surface_get_size
+renderer.set_size(size.width, size.height)?;
+// abi: rg_renderer_set_size
+ctx.surface().set_title("Ranger WASM game")?;
+// abi: rg_surface_set_title(ptr, len)
+ctx.surface().set_cursor_mode(ranger_wasm::core::CursorMode::Captured)?;
+// abi: rg_surface_set_cursor_mode(mode)
+
+// Not allowed — surface is runtime-owned:
+// let surface = Surface::new();
+
+let texture = ctx.assets().load_texture("textures/crate.png").await?;
+// abi: rg_assets_load_texture_* → textureH
+let bytes = ctx.assets().load_bytes("levels/level-01.bin").await?;
+// abi: rg_assets_load_bytes_* → guest buffer (helper frees on Drop; D-WASM-MEM)
+
+ctx.log().info("Game initialized")?;
+// abi: rg_log_info(ptr, len)
+let capabilities = ctx.platform().capabilities()?;
+// abi: rg_platform_capabilities(out_flags)
+```
+
+## R.5 Handles, generated wrappers, and raw ABI
+
+Public Rust API uses typed `OwnedHandle<T>` (fat two-`u32` / D-HANDLE) — not raw
+array indices. `Clone` → retain, `Drop` → release:
+
+```rust
+// Conceptual helper (generated / in ranger_wasm):
+impl<T> Clone for OwnedHandle<T> {
+    fn clone(&self) -> Self {
+        // abi: rg_handle_retain(low, high)
+        …
+    }
+}
+impl<T> Drop for OwnedHandle<T> {
+    fn drop(&mut self) {
+        // abi: rg_handle_release(low, high)
+    }
+}
+```
+
+Host still checks realm / slot / generation / type / ownership on every call.
+Rust types are an extra guest-side guard; malicious WASM can bypass the helper,
+so the host must not trust static types alone.
+
+Example generated Three wrapper call:
+
+```rust
+impl Mesh {
+    pub fn new<G, M>(geometry: &G, material: &M) -> Result<Self> { … }
+    // abi: rg_mesh_create(geo_lo, geo_hi, mat_lo, mat_hi, out_lo, out_hi) -> status
+}
+```
+
+Raw import shape (two `i32`/`u32` words per logical handle — D-HANDLE, D-WASM):
+
+```rust
+#[link(wasm_import_module = "ranger")]
+unsafe extern "C" {
+    fn rg_mesh_create(
+        geometry_low: u32, geometry_high: u32,
+        material_low: u32, material_high: u32,
+        result_low: *mut u32, result_high: *mut u32,
+    ) -> i32;
+
+    fn rg_entity_set_position(
+        entity_low: u32, entity_high: u32,
+        x: f32, y: f32, z: f32,
+    ) -> i32;
+
+    fn rg_entity_set_parent(
+        child_low: u32, child_high: u32,
+        parent_low: u32, parent_high: u32,
+    ) -> i32;
+}
+// Every non-zero status → ranger_wasm::Error::from_code (no silent success)
+```
+
+## R.6 Bulk geometry from Rust (stable `geoH`)
+
+```rust
+let positions: Vec<f32> = vec![
+    -1.0, -1.0, 0.0,  1.0, -1.0, 0.0,  0.0, 1.0, 0.0,
+];
+let indices: Vec<u32> = vec![0, 1, 2];
+
+let geometry = three::BufferGeometry::new()?;
+// abi: rg_geometry_create_empty(out_geoH)
+
+geometry.set_attribute_f32("position", &positions, 3)?;
+// abi: rg_geometry_set_attribute_f32(
+//        geoH, name_ptr, name_len, data_ptr, element_count, item_size)
+//      host bounds-checks ptr+len (D-WASM-MEM); same geoH
+
+geometry.set_index_u32(&indices)?;
+// abi: rg_geometry_set_index_u32(geoH, data_ptr, count)
+
+geometry.update_attribute_range_f32("position", 0, &[-2.0, -1.0, 0.0])?;
+// abi: rg_geometry_update_attribute_range_f32(geoH, …) — same geoH
+geometry.mark_attribute_needs_update("position")?;
+// abi: rg_geometry_mark_needs_update / bumps contentRevision
+```
+
+## R.7 `dispose_backend` versus Rust `Drop`
+
+```rust
+geometry.dispose_backend()?;
+// abi: rg_geometry_dispose_backend(geoH) — GPU/backend only (D-LIFE)
+
+mesh.set_geometry(&geometry)?;
+// abi: rg_mesh_set_geometry(meshH, geoH) — still valid after dispose_backend
+renderer.render(&scene, &camera)?;
+// abi: rg_renderer_render — may recreate GPU buffer from CPU arrays
+
+drop(geometry);
+// abi: rg_handle_release(geoH)
+// host: object remains if mesh (or another wrapper) still retains it
+```
+
+Realm teardown is the final safety net for handles left after traps, panics, or
+abandoned futures.
+
+## R.8 Guest-only vs registry-native classes
+
+Most gameplay types stay ordinary Rust structs (`PlayerController`,
+`PhysicsVisual`) — fields hold handles; the struct itself has **no** host
+handle and generates **no** abi construct.
+
+A class is host-backed only when Ranger must own state (example registry sketch):
+
+```yaml
+class: ParticleEmitter
+module: ranger:core   # → ranger_wasm::core
+arena: particle_emitter
+lifetime: refcounted
+construct:
+  command: particleEmitterCreate
+methods:
+  attach_to: { command: particleEmitterAttachEntity, … }
+  burst: { command: particleEmitterBurst, … }
+```
+
+```rust
+let emitter = ranger_wasm::core::ParticleEmitter::new(2_000)?;
+// abi: rg_particle_emitter_create(max, out_handle)
+emitter.set_emission_rate(40.0)?;
+// abi: rg_particle_emitter_set_emission_rate
+emitter.attach_to(&mesh)?;
+// abi: rg_particle_emitter_attach_entity(emitterH, meshH)
+emitter.burst(100)?;
+// abi: rg_particle_emitter_burst(emitterH, 100)
+```
+
+
+
 # Implementation gates
 
 **Required order:**
@@ -1075,8 +2156,12 @@ authoritative vertex array on the guest after upload.
 3. Typed registry and arenas (D-REGISTRY, D-TYPE, D-HANDLE).
 4. Shared resource identity and lifetime (D-SYNC, D-LIFE, D-GEO).
 5. Generated bridge and WASM surfaces (D-REGISTRY, D-WASM, D-WASM-MEM).
-6. Migrate demos to live objects (D-SYNC).
-7. Delete structural reconciliation (`RETIRE-RECONCILE`).
+6. Virtual modules + runtime capability root (D-MODULES): `ranger:core` /
+   `ranger:three` / `ranger:cannon`, and the `ranger_wasm::{core,three,cannon}`
+   helper surfaces — same registry commands.
+7. Migrate demos to live objects + `runtime.start(Game)` /
+   `ranger_wasm::export_game!` (D-SYNC, D-MODULES).
+8. Delete structural reconciliation (`RETIRE-RECONCILE`).
 
 **Required test gates:**
 
@@ -1086,11 +2171,22 @@ authoritative vertex array on the guest after upload.
 - Shared geometry/material identity (two meshes, one `geoH` / `matH`).
 - Scene removal ≠ release.
 - `DisposeBackend` ≠ release.
-- Stale and cross-realm handle rejection.
-- Generated-surface parity (host / native bridge / WASM / wrappers).
+- Stale and cross-realm handle rejection (including cross-realm `runtime` /
+  gamepad / audio access).
+- Generated-surface parity (host / native bridge / WASM / wrappers /
+  `ranger:*` TypeScript declarations).
 - Existing WASM import signature compatibility (D-WASM).
 - Reordering and reparenting never change identity.
 - Geometry upload → update → read-back on one `geoH` (worked example 2).
+- Action-map input survives gamepad reconnect under a new device handle
+  (same logical player).
+- `AudioSource.play()` twice → two voices, one `clipH` / `sourceH`.
+- Guest-only class (`PhysicsVisual`) never appears in a host arena.
+- TS and Rust `BoxGame` paths issue the same registry commands (surface parity).
+- Fat-handle retain/release on Rust `Clone`/`Drop` matches host refcounts.
+- `dispose_backend` then render still works; `Drop` of a shared `geoH` wrapper
+  does not free while a mesh retains it.
+- Bulk `set_attribute_f32` rejects OOB ptr/len (D-WASM-MEM) without trapping.
 
 A migration is complete only when its replaced path is removed in the same
 change, or is covered by an explicitly tracked retirement item

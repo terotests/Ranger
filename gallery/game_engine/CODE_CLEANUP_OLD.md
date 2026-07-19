@@ -7,7 +7,8 @@ implementation contract.
 **Promoted into the binding contract** (do not treat the copies below as
 authoritative if they disagree): all binding decisions — D-IDENTITY, D-SYNC,
 D-ADAPTER, D-PROP, D-LIFE, D-TYPE, D-HANDLE, D-REGISTRY, D-WASM, D-WASM-MEM,
-D-GEO — plus the implementation gates, the geometry upload example, and
+D-GEO, D-MODULES (`ranger:core` / `ranger:three` / `ranger:cannon`) — plus the
+implementation gates, worked examples, and
 [`docs/WASM_MEMORY_ABI.md`](./docs/WASM_MEMORY_ABI.md) (from the old linear-memory
 chapter).
 
