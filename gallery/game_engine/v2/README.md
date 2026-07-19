@@ -140,7 +140,15 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   keeps a guest-aliased staging array; a write without `needsUpdate` never
   renders, and a flush makes the host range byte-equal. Gate: `tests/contract/d_geo`.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (24 suites, 372
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 24/24 suites passed`.
+- **Phase 8a — Module isolation + runtime root (D-MODULES): ✅ green.**
+  `interp/module_isolation/RgModuleSystem.rgr` (per-import namespace objects, no
+  clobber, cached same-module import, per-realm instances, failed-init caching,
+  circular = hard error) and `modules/ranger_core/RgRuntime.rgr` (per-realm
+  capability root with `runtime.time` / `runtime.assets` / `runtime.log`,
+  cross-realm rejection, teardown). Gates: `interp/module_isolation/tests`,
+  `tests/contract/d_modules`.
 
-*Later phases (8+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (26 suites, 409
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 26/26 suites passed`.
+
+*Later phases (8b/9+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

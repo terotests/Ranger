@@ -135,6 +135,9 @@ class RgValue {
     sfn tripleEquals:boolean (a:RgValue b:RgValue) {
         if (a.isReference()) {
             if (b.isReference() == false) { return false }
+            ; identity is realm-scoped (D-IDENTITY): a reference is === only to a
+            ; reference from the same realm with the same identityId.
+            if (a.realmId != b.realmId) { return false }
             return (a.identityId == b.identityId)
         }
         if (b.isReference()) { return false }

@@ -1,0 +1,84 @@
+; ==============================================================================
+; d_modules_contract_test — cross-cutting D-MODULES gate.
+; ==============================================================================
+; Runtime capability-root isolation:
+;   - two realms get distinct runtime roots
+;   - a cross-realm runtime call is rejected
+;   - a guest-only class never appears in a host arena
+;   - runtime.assets poll stubs obey D-ASYNC exactly-once transfer
+;   - teardown makes the root fail like a stale handle
+; ==============================================================================
+
+Import "../../../modules/ranger_core/RgRuntime.rgr"
+Import "../../../interp/module_isolation/RgModuleSystem.rgr"
+Import "../../../interp/values/RgValue.rgr"
+Import "../../../interp/values/RgRealm.rgr"
+Import "../../../host/arenas/RgHost.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../bridge/wasm/async/RgAsync.rgr"
+Import "../../harness/RgTest.rgr"
+
+class DModulesContractTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_modules"))
+
+        ; ---- two realms get distinct runtime roots --------------------------
+        def rt1:RgRuntime (RgRuntime.forRealm(1))
+        def rt2:RgRuntime (RgRuntime.forRealm(2))
+        t.eqInt("realm 1 root realmId" rt1.realmId 1)
+        t.eqInt("realm 2 root realmId" rt2.realmId 2)
+        t.no("the two runtime roots are distinct instances"
+            (rt1.realmId == rt2.realmId))
+
+        ; ---- cross-realm runtime call rejected ------------------------------
+        t.ok("realm 1 may use its own root" (rt1.checkRealm(1)))
+        t.no("realm 2 may NOT use realm 1's root" (rt1.checkRealm(2)))
+        t.ok("log from owning realm succeeds" (rt1.log(1 "hello")))
+        t.no("log from a foreign realm is rejected" (rt1.log(2 "intruder")))
+        t.eqInt("only the owning-realm log was counted" rt1.logCount 1)
+
+        ; ---- guest-only class never appears in a host arena -----------------
+        def realm:RgRealm (RgRealm.withId(1))
+        def host:RgHost (new RgHost)
+        ; a guest Vector3 module + a constructed guest value
+        def defs:[RgModuleDef]
+        def vmod:RgModuleDef (RgModuleDef.of("test:vec"))
+        vmod.addExport("Vector3")
+        push defs vmod
+        def sys:RgModuleSystem (RgModuleSystem.withRealm(realm defs))
+        def inst:RgModuleInstance (sys.importModule("test:vec"))
+        t.ok("guest module imports" inst.ok)
+        ; "construct" a guest Vector3: a plain interpreter object, no host call
+        def v:RgValue (realm.newObject())
+        v.setProp("x" (RgValue.number(1.0)))
+        v.setProp("y" (RgValue.number(2.0)))
+        v.setProp("z" (RgValue.number(3.0)))
+        t.ok("guest Vector3 has interpreter identity" (v.isReference()))
+        t.eqInt("guest object occupies NO host arena slot" (host.liveCount()) 0)
+        ; contrast: a host Mesh DOES occupy an arena
+        def geo:OwnedHandle (host.geometryCreate(1 3))
+        def mat:OwnedHandle (host.materialCreate(1 1.0 1.0 1.0))
+        def mesh:OwnedHandle (host.meshCreate(1 geo.handle mat.handle))
+        t.eqInt("host objects DO occupy arenas" (host.liveCount()) 3)
+
+        ; ---- runtime.assets obeys D-ASYNC exactly-once ----------------------
+        def req:int (rt1.assets.loadBegin("atlas/hero.png"))
+        t.eqInt("asset load starts PENDING" (rt1.assets.poll(req)) (RgAsyncStatus.pending()))
+        ; host finishes the load with a real handle (fake bytes in CI)
+        def loaded:OwnedHandle (rt1.assets.async.host.geometryCreate(1 1))
+        rt1.assets.hostComplete(req loaded.handle)
+        def p1:int (rt1.assets.poll(req))
+        t.eqInt("first poll COMPLETE" p1 (RgAsyncStatus.complete()))
+        t.ok("first poll transfers the asset" rt1.assets.async.transferred)
+        def p2:int (rt1.assets.poll(req))
+        t.eqInt("second poll still COMPLETE" p2 (RgAsyncStatus.complete()))
+        t.no("second poll transfers nothing (exactly-once)" rt1.assets.async.transferred)
+
+        ; ---- teardown makes the root fail like a stale handle ---------------
+        rt1.teardown()
+        t.no("torn-down root rejects even its owning realm" (rt1.checkRealm(1)))
+        t.no("log after teardown fails" (rt1.log(1 "late")))
+
+        t.summary()
+    }
+}

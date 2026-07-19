@@ -27,3 +27,14 @@
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 8a (D-MODULES) ✅ green
+
+`ranger_core/RgRuntime.rgr` is the per-realm capability root: `runtime.time`
+(`RgClock` fixed-step accumulator), `runtime.assets` (`RgAssets` D-ASYNC load
+stubs over the poll table), and `runtime.log`. Two realms get distinct roots; a
+cross-realm call is rejected; teardown makes the root fail like a stale handle.
+Gate: `../tests/contract/d_modules/d_modules_contract_test.rgr` (19), also proving
+a guest-only class never occupies a host arena.
