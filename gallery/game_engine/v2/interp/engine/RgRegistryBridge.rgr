@@ -840,6 +840,13 @@ class RgRegistryBridge extends EvalNativeBridge {
             }
             return (EvalValue.null())
         }
+        if (row.name == "rg3d_entity_set_parent") {
+            this.d3.clearErr()
+            if ((this.d3.entitySetParent((a.handleAt(0)) (a.handleAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
         if (row.name == "rg3d_model_load") {
             def mid:int (this.loadModelAsset((a.handleAt(0)) (a.strAt(1))))
             if (mid < 1) {

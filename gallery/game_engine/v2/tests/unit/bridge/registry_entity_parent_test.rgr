@@ -1,0 +1,98 @@
+; ==============================================================================
+; registry_entity_parent_test — D-SYNC increment 1: standalone membership.
+; ==============================================================================
+; Exercises `rg3d_entity_set_parent` through the REAL generic bridge exactly as
+; a guest would (invoke with EvalValue args). It asserts the D-SYNC primitive
+; that the live path was missing: membership decoupled from creation. A mesh is
+; created into scene A, then reparented to scene B via a STANDALONE command:
+;   (i)   the invoke is a clean, typed success (errorCount == 0);
+;   (ii)  membership actually moved on the live Three tree — scene A no longer
+;         counts the mesh as a child, scene B now does;
+;   (iii) the mesh handle/id is UNCHANGED — no second create, no release; the
+;         host entity count is identical before and after (pure reparent).
+; ==============================================================================
+
+Import "../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../../three/port/src/three_scene.rgr"
+Import "../../harness/RgTest.rgr"
+
+class RegistryEntityParentTest {
+    def b:RgRegistryBridge (RgRegistryBridge.create())
+    def invoked:[string]
+
+    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+
+    fn callI:int (name:string args:[EvalValue]) {
+        def r:EvalValue (this.b.invoke(name args))
+        return (to_int r.numberValue)
+    }
+    fn callN:EvalValue (name:string args:[EvalValue]) {
+        return (this.b.invoke(name args))
+    }
+
+    ; live child count of the scene behind guest id `sid` (existing introspection:
+    ; guest id -> RgHandle -> host scene index -> ThreeScene.childCount()).
+    fn sceneChildCount:int (sid:int) {
+        def idx:int (this.b.d3.sceneH((this.b.resolveGuestId(sid))))
+        def sc:ThreeScene (this.b.d3.host.sceneAt(idx))
+        return (sc.childCount())
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/unit/bridge/registry_entity_parent"))
+        def s:RegistryEntityParentTest (new RegistryEntityParentTest)
+        def b:RgRegistryBridge s.b
+
+        ; --- build: two scenes, a geometry, a material, a mesh into scene A ----
+        def empty:[EvalValue]
+        def sceneA:int (s.callI("rg3d_scene_create" empty))
+        def sceneB:int (s.callI("rg3d_scene_create" empty))
+        t.ok("scene A minted" (sceneA > 0))
+        t.ok("scene B minted" (sceneB > 0))
+
+        def boxA:[EvalValue]
+        push boxA (s.num(1.0))
+        push boxA (s.num(1.0))
+        push boxA (s.num(1.0))
+        def boxG:int (s.callI("rg3d_geometry_box" boxA))
+
+        def matA:[EvalValue]
+        push matA (s.num(16711680.0))
+        def mat:int (s.callI("rg3d_material_basic" matA))
+
+        def meshA:[EvalValue]
+        push meshA (s.num((to_double sceneA)))
+        push meshA (s.num((to_double boxG)))
+        push meshA (s.num((to_double mat)))
+        def mesh:int (s.callI("rg3d_mesh_create" meshA))
+        t.ok("mesh minted into scene A" (mesh > 0))
+
+        ; membership + identity BEFORE the reparent
+        t.eqInt("scene A has the mesh as its child" (s.sceneChildCount(sceneA)) 1)
+        t.eqInt("scene B has no children yet" (s.sceneChildCount(sceneB)) 0)
+        def entitiesBefore:int (b.d3.host.entityCount())
+        def errBefore:int b.errorCount
+
+        ; --- the STANDALONE membership command: reparent mesh A -> scene B -----
+        def repA:[EvalValue]
+        push repA (s.num((to_double mesh)))
+        push repA (s.num((to_double sceneB)))
+        s.callN("rg3d_entity_set_parent" repA)
+
+        ; (i) clean typed success — the command dispatched without error
+        t.eqInt("reparent is a clean typed success (no bridge error)"
+            b.errorCount errBefore)
+
+        ; (ii) membership moved on the live tree
+        t.eqInt("scene A no longer counts the mesh" (s.sceneChildCount(sceneA)) 0)
+        t.eqInt("scene B now counts the mesh" (s.sceneChildCount(sceneB)) 1)
+
+        ; (iii) pure reparent — no second create, no release
+        t.eqInt("host entity count unchanged (no alloc/release)"
+            (b.d3.host.entityCount()) entitiesBefore)
+        t.ok("mesh guest id still live after reparent"
+            ((b.resolveGuestId(mesh)).isValid()))
+
+        t.summary()
+    }
+}

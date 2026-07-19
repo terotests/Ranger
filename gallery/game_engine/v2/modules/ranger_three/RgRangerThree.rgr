@@ -189,6 +189,31 @@ class RgRangerThree {
         return true
     }
 
+    ; D-SYNC: reparent an ALREADY-created entity (membership decoupled from
+    ; creation). The child is a mesh entity; the parent may be a scene root or
+    ; another mesh entity — resolved by trying the scene type first, then mesh.
+    ; Membership only: allocates nothing, releases nothing. Returns false (typed
+    ; bad-handle in lastErr) on any unresolved handle, mirroring meshTransform's
+    ; guard so the bridge turns it into a typed error.
+    fn entitySetParent:boolean (childH:RgHandle parentH:RgHandle) {
+        def child:int (this.meshH(childH))
+        if (child == 0) { return false }
+        def ps:int (this.sceneH(parentH))
+        if (ps != 0) {
+            this.lastErr = ""
+            this.host.entitySetParent(child ps 0)
+            return true
+        }
+        def pe:int (this.meshH(parentH))
+        if (pe != 0) {
+            this.lastErr = ""
+            this.host.entitySetParent(child 0 pe)
+            return true
+        }
+        this.lastErr = "wrong-type:parent"
+        return false
+    }
+
     ; Attach a host-decoded Object3D subtree (e.g. from ThreeGLTFFile.loadGLB).
     ; Package I/O and image decode stay in the bridge — this arena is game-agnostic.
     fn modelAttachRoot:OwnedHandle (sceneH:RgHandle root:ThreeObject3D) {

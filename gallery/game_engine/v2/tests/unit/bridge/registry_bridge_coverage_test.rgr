@@ -402,6 +402,12 @@ class RegistryBridgeCoverageTest {
         push scA (s.num(1.25))
         push scA (s.num(1.25))
         s.callN("rg3d_mesh_set_scale" scA)
+        ; D-SYNC standalone membership: reparent the mesh under the scene (root).
+        ; Membership only — same guest id, no create/release; row-coverage + clean.
+        def repA:[EvalValue]
+        push repA (s.num((to_double mesh3)))
+        push repA (s.num((to_double scene3)))
+        s.callN("rg3d_entity_set_parent" repA)
         ; Generic package .glb load (fixture under climber sample; not game-specific API)
         def mdlA:[EvalValue]
         push mdlA (s.num((to_double scene3)))

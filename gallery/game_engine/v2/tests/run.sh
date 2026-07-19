@@ -170,6 +170,8 @@ run_suite audio/tests/audio_score_test
 # ---- BRIDGES.md steps 1–2 — schema rows + generic registry bridge ------------
 run_suite registry/schema/tests/bridge_schema_test
 run_suite tests/unit/bridge/registry_bridge_coverage_test
+# D-SYNC: standalone entity membership (scene.add/reparent decoupled from create)
+run_suite tests/unit/bridge/registry_entity_parent_test
 
 # ---- menu / EVG launcher UI (self-contained ui/ + evg + fonts + framebuffer) -
 run_suite menu/tests/launcher_ui_test
