@@ -1,0 +1,77 @@
+; ==============================================================================
+; TextureDecodeTest.rgr — end-to-end load + embedded PNG decode via ModelLoader.
+; ==============================================================================
+; Loads the in-memory GLB fixture through the full public ModelLoader path and
+; verifies its embedded 2x2 PNG is actually decoded to RGBA pixels (red, green /
+; blue, white). This exercises the decode-from-buffer refactor of the reused
+; native PNG decoder, wired into the loader. Prints "ALL PASS" on success.
+; ==============================================================================
+
+Import "../ModelLoader.rgr"
+Import "GlbFixture.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn eqInt:void (name:string got:int want:int) {
+        def c:boolean (got == want)
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") c)
+    }
+}
+
+class TextureDecodeTest {
+    sfn m@(main):void () {
+        def ck:Checker (new Checker)
+        print "== load + decode embedded PNG =="
+        def glb:buffer (GlbFixture.build())
+        def loader:ModelLoader (new ModelLoader)
+        def modelId:int (loader.loadFromBuffer(glb))
+        ck.ok("load ok" loader.ok)
+        ck.ok("model id valid" (modelId >= 0))
+        def model:ModelAsset (loader.getModel(modelId))
+        def tex:TextureAsset (model.getTexture(0))
+        ck.ok("texture decoded" tex.decoded)
+        ck.eqInt("texture width" tex.width 2)
+        ck.eqInt("texture height" tex.height 2)
+        ck.eqInt("rgba length" (buffer_length tex.rgba) 16)
+        ; pixel (0,0) red
+        ck.eqInt("px00 R" (buffer_get tex.rgba 0) 255)
+        ck.eqInt("px00 G" (buffer_get tex.rgba 1) 0)
+        ck.eqInt("px00 B" (buffer_get tex.rgba 2) 0)
+        ck.eqInt("px00 A" (buffer_get tex.rgba 3) 255)
+        ; pixel (1,0) green
+        ck.eqInt("px10 R" (buffer_get tex.rgba 4) 0)
+        ck.eqInt("px10 G" (buffer_get tex.rgba 5) 255)
+        ck.eqInt("px10 B" (buffer_get tex.rgba 6) 0)
+        ; pixel (0,1) blue
+        ck.eqInt("px01 R" (buffer_get tex.rgba 8) 0)
+        ck.eqInt("px01 G" (buffer_get tex.rgba 9) 0)
+        ck.eqInt("px01 B" (buffer_get tex.rgba 10) 255)
+        ; pixel (1,1) white
+        ck.eqInt("px11 R" (buffer_get tex.rgba 12) 255)
+        ck.eqInt("px11 G" (buffer_get tex.rgba 13) 255)
+        ck.eqInt("px11 B" (buffer_get tex.rgba 14) 255)
+
+        print "== instantiate via loader =="
+        def robot:int (loader.instantiate(modelId))
+        def hand:int (loader.findChild(robot "Hand"))
+        ck.ok("find Hand via loader" (hand >= 0))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

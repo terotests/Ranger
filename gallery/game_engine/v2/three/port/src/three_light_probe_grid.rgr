@@ -1,0 +1,422 @@
+; ==============================================================================
+; three_light_probe_grid — a volume of SH light probes for diffuse GI (Three.js
+; addons lighting/LightProbeGrid). Sponza slice 7.
+; ==============================================================================
+; A regular 3D grid of probes covering a box of size (sizeX,sizeY,sizeZ) with
+; count (cx,cy,cz) probes per axis, each an order-2 SphericalHarmonics3. The real
+; bake renders the scene into each probe as a cubemap and projects the faces into
+; SH (a GPU step, with optional bounce passes); this file is the portable model +
+; the analytic bakes + the trilinear irradiance lookup shading uses, all testable.
+;
+; Extends Object3D so probes.position.set(...) and scene.add(probes) work, matching
+; `new LightProbeGrid(sizeX,sizeY,sizeZ, cx,cy,cz)` in the example.
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_vector3.rgr"
+Import "three_spherical_harmonics3.rgr"
+Import "../../model3d/ByteReader.rgr"
+
+class ThreeLightProbeGrid extends ThreeObject3D {
+    def isLightProbeGrid:boolean true
+    def sizeX:double 1.0
+    def sizeY:double 1.0
+    def sizeZ:double 1.0
+    def countX:int 2
+    def countY:int 2
+    def countZ:int 2
+    def probes:[ThreeSphericalHarmonics3]
+    ; representative irradiance the last bake wrote (uniform-ambient level), exposed
+    ; to the renderer as a scene-wide GI fill via lightKind()==3.
+    def bakedR:double 0.0
+    def bakedG:double 0.0
+    def bakedB:double 0.0
+    ; bumped on every bake so a GPU backend re-uploads the SH texture only on change.
+    def bakeVersion:int 0
+    ; per-probe sun visibility (0 shadowed .. 1 lit), flat-indexed; empty = all lit.
+    ; Filled by computeSunVisibility from the shadow map; scales the bake's sun lobe.
+    def sunVis:[double]
+
+    sfn create:ThreeLightProbeGrid (sizeX:double sizeY:double sizeZ:double cx:int cy:int cz:int) {
+        def g:ThreeLightProbeGrid (new ThreeLightProbeGrid)
+        g.sizeX = sizeX
+        g.sizeY = sizeY
+        g.sizeZ = sizeZ
+        ; clamp counts to >= 1 so the grid is never empty — a hot-reload hook can
+        ; set a count to 0, and an empty probe array would make getProbe index a
+        ; size-0 list (out of range).
+        def ccx:int cx
+        if (ccx < 1) { ccx = 1 }
+        def ccy:int cy
+        if (ccy < 1) { ccy = 1 }
+        def ccz:int cz
+        if (ccz < 1) { ccz = 1 }
+        g.countX = ccx
+        g.countY = ccy
+        g.countZ = ccz
+        def n:int ((ccx * ccy) * ccz)
+        def i:int 0
+        while (i < n) {
+            push g.probes (ThreeSphericalHarmonics3.create())
+            i = (i + 1)
+        }
+        return g
+    }
+
+    fn probeCount:int () {
+        return (array_length this.probes)
+    }
+    ; flat index of the probe at grid cell (ix,iy,iz).
+    fn probeIndex:int (ix:int iy:int iz:int) {
+        return (((iz * this.countY) * this.countX) + ((iy * this.countX) + ix))
+    }
+    ; the WORLD position of probe cell (ix,iy,iz) — the inverse of axisCoord, so a
+    ; cubemap capture can be taken exactly where sampleIrradiance later reads. The
+    ; grid is centred on this.position with extent size along each axis.
+    sfn axisWorld:double (origin:double size:double count:int i:int) {
+        if (count < 2) {
+            return origin
+        }
+        def lo:double (origin - (0.5 * size))
+        def t:double ((to_double i) / (to_double (count - 1)))
+        return (lo + (t * size))
+    }
+    fn probeWorldPos:ThreeVector3 (ix:int iy:int iz:int target:ThreeVector3) {
+        return (target.set(
+            (ThreeLightProbeGrid.axisWorld(this.position.x this.sizeX this.countX ix))
+            (ThreeLightProbeGrid.axisWorld(this.position.y this.sizeY this.countY iy))
+            (ThreeLightProbeGrid.axisWorld(this.position.z this.sizeZ this.countZ iz))))
+    }
+
+    fn getProbe:ThreeSphericalHarmonics3 (ix:int iy:int iz:int) {
+        ; clamp the flat index into range (defense-in-depth: never itemAt past the
+        ; end even if a caller passes an out-of-range cell).
+        def idx:int (this.probeIndex(ix iy iz))
+        def last:int ((array_length this.probes) - 1)
+        if (idx < 0) { idx = 0 }
+        if (idx > last) { idx = last }
+        return (itemAt this.probes idx)
+    }
+
+    ; analytic bake: every probe receives a uniform ambient radiance (the trivial
+    ; case a uniform sky produces). The GPU bake replaces this with per-probe
+    ; cubemap capture + SH projection.
+    fn bakeAmbient:ThreeLightProbeGrid (r:double g:double b:double) {
+        this.bakedR = r
+        this.bakedG = g
+        this.bakedB = b
+        this.bakeVersion = (this.bakeVersion + 1)
+        def n:int (array_length this.probes)
+        def i:int 0
+        while (i < n) {
+            def p:ThreeSphericalHarmonics3 (itemAt this.probes i)
+            p.zero()
+            p.addAmbient(r g b)
+            i = (i + 1)
+        }
+        return this
+    }
+
+    ; directional bake: each probe stores an SH irradiance environment built from
+    ; the sky (from above), a ground bounce (from below) and the sun (a directional
+    ; lobe). An "openness" factor rising with height dims probes low/enclosed in the
+    ; volume and brightens those near the open top — a cheap analytic stand-in for
+    ; the cubemap capture, but directional + spatially varying, so surfaces the sun
+    ; misses are filled by warm bounce + cool sky instead of going black.
+    fn bakeDirectional:ThreeLightProbeGrid (sunX:double sunY:double sunZ:double sunR:double sunG:double sunB:double skyR:double skyG:double skyB:double gndR:double gndG:double gndB:double) {
+        def sl:double (sqrt(((sunX * sunX) + (sunY * sunY)) + (sunZ * sunZ)))
+        if (sl < 0.000001) { sl = 1.0 }
+        def sx:double (sunX / sl)
+        def sy:double (sunY / sl)
+        def sz:double (sunZ / sl)
+        def accR:double 0.0
+        def accG:double 0.0
+        def accB:double 0.0
+        def tmp:ThreeVector3 (new ThreeVector3)
+        def haveVis:boolean ((array_length this.sunVis) == (this.probeCount()))
+        def k:int 0
+        def iz:int 0
+        while (iz < this.countZ) {
+            def iy:int 0
+            while (iy < this.countY) {
+                def ix:int 0
+                while (ix < this.countX) {
+                    def t:double 0.5
+                    if (this.countY > 1) {
+                        t = ((to_double iy) / (to_double (this.countY - 1)))
+                    }
+                    def openness:double (0.2 + (0.8 * t))
+                    ; per-probe sun visibility from the shadow map (1 if not computed):
+                    ; a shadowed probe drops most of its direct-sun lobe, keeping the
+                    ; sky + ground fill, so occluded areas go cool/dim, not sunlit.
+                    def vis:double 1.0
+                    if haveVis {
+                        vis = (itemAt this.sunVis k)
+                    }
+                    def sunW:double ((openness * 1.2) * vis)
+                    def p:ThreeSphericalHarmonics3 (this.getProbe(ix iy iz))
+                    p.zero()
+                    ; ambient floor so nothing is ever pure black
+                    p.addAmbient((skyR * 0.15) (skyG * 0.15) (skyB * 0.15))
+                    ; sky from above (cool), stronger for open probes
+                    p.projectRadiance(0.0 1.0 0.0 skyR skyG skyB (openness * 0.9))
+                    ; ground bounce from below (warm)
+                    p.projectRadiance(0.0 (0.0 - 1.0) 0.0 gndR gndG gndB 0.7)
+                    ; sun as a directional lobe, only reaching lit, open probes
+                    p.projectRadiance(sx sy sz sunR sunG sunB sunW)
+                    p.getIrradianceAt(0.0 1.0 0.0 tmp)
+                    k = (k + 1)
+                    accR = (accR + tmp.x)
+                    accG = (accG + tmp.y)
+                    accB = (accB + tmp.z)
+                    ix = (ix + 1)
+                }
+                iy = (iy + 1)
+            }
+            iz = (iz + 1)
+        }
+        ; representative up-facing irradiance (average), for the flat-ambient fallback
+        def n:int (this.probeCount())
+        if (n < 1) { n = 1 }
+        this.bakedR = (accR / (to_double n))
+        this.bakedG = (accG / (to_double n))
+        this.bakedB = (accB / (to_double n))
+        this.bakeVersion = (this.bakeVersion + 1)
+        return this
+    }
+
+    ; compute each probe's sun visibility from the shadow map's packed-depth colour
+    ; (RGBA bytes, size*size). A probe is projected into the light's clip space; if
+    ; its depth is past the nearest occluder there, it's shadowed. Fills sunVis in
+    ; flat-index order (matching bakeDirectional's loop). Empty depth => leave all lit.
+    ; the packed depth stored at texel (px,py) of the shadow map (clamped to range).
+    sfn storedDepthAt:double (depthBytes:buffer size:int px:int py:int) {
+        def cx:int px
+        def cy:int py
+        if (cx < 0) { cx = 0 }
+        if (cx > (size - 1)) { cx = (size - 1) }
+        if (cy < 0) { cy = 0 }
+        if (cy > (size - 1)) { cy = (size - 1) }
+        def off:int (((cy * size) + cx) * 4)
+        def r:int (buffer_get depthBytes off)
+        def g:int (buffer_get depthBytes (off + 1))
+        def b:int (buffer_get depthBytes (off + 2))
+        return ((to_double (((r * 65536) + (g * 256)) + b)) / 16777216.0)
+    }
+
+    fn computeSunVisibility:void (depthBytes:buffer size:int lvp:ThreeMatrix4) {
+        def empty:[double]
+        this.sunVis = empty
+        def total:int (buffer_length depthBytes)
+        if (total < 4) {
+            return
+        }
+        def sizeD:double (to_double size)
+        ; PCF kernel: average sun visibility over a small region so a probe straddling
+        ; a shadow edge gets fractional (soft) visibility, not a hard 0/1 flip. The
+        ; radius is a fraction of the map (~2% => ~probe-spacing scale) with a 5x5 tap.
+        def radius:int (to_int (sizeD * 0.02))
+        if (radius < 1) { radius = 1 }
+        def step:int (idiv radius 2)
+        if (step < 1) { step = 1 }
+        def wp:ThreeVector3 (new ThreeVector3)
+        def iz:int 0
+        while (iz < this.countZ) {
+            def iy:int 0
+            while (iy < this.countY) {
+                def ix:int 0
+                while (ix < this.countX) {
+                    def wx:double (this.position.x + (this.cellLocalX(ix)))
+                    def wy:double (this.position.y + (this.cellLocalY(iy)))
+                    def wz:double (this.position.z + (this.cellLocalZ(iz)))
+                    wp.set(wx wy wz)
+                    def ndc:ThreeVector3 (lvp.transformPoint(wp))
+                    def u:double ((ndc.x * 0.5) + 0.5)
+                    def v:double ((ndc.y * 0.5) + 0.5)
+                    def pd:double ((ndc.z * 0.5) + 0.5)
+                    def vis:double 1.0
+                    if ((((u >= 0.0) && (u <= 1.0)) && (v >= 0.0)) && (v <= 1.0)) {
+                        def cx:int (to_int (u * sizeD))
+                        def cy:int (to_int (v * sizeD))
+                        def lit:double 0.0
+                        def taps:double 0.0
+                        def dy:int (0 - radius)
+                        while (dy <= radius) {
+                            def dx:int (0 - radius)
+                            while (dx <= radius) {
+                                def sd:double (ThreeLightProbeGrid.storedDepthAt(depthBytes size (cx + dx) (cy + dy)))
+                                if ((pd - 0.003) > sd) {
+                                    lit = (lit + 0.0)
+                                } {
+                                    lit = (lit + 1.0)
+                                }
+                                taps = (taps + 1.0)
+                                dx = (dx + step)
+                            }
+                            dy = (dy + step)
+                        }
+                        def frac:double 1.0
+                        if (taps > 0.0) {
+                            frac = (lit / taps)
+                        }
+                        ; fully shadowed keeps 15% sun; blends up to full in the light.
+                        vis = (0.15 + (0.85 * frac))
+                    }
+                    push this.sunVis vis
+                    ix = (ix + 1)
+                }
+                iy = (iy + 1)
+            }
+            iz = (iz + 1)
+        }
+    }
+
+    ; GI pass: hand the backend this volume's SH texture + grid metadata so the lit
+    ; pass samples per-fragment irradiance from it (no-op backend => ignored).
+    fn renderGIInto:void (backend:ThreeRenderBackend) {
+        def data:buffer (this.packSH())
+        backend.setProbeVolume(data (this.probeCount()) this.countX this.countY this.countZ this.position.x this.position.y this.position.z this.sizeX this.sizeY this.sizeZ this.bakeVersion this.visible)
+    }
+
+    ; pack every probe's 9 SH RGB coefficients into a float32 texture payload for
+    ; the GPU: one texel row per probe (width 9), texel j = (coeff.x, coeff.y,
+    ; coeff.z, 0). Row index is the probe's flat index (matches the shader's lookup).
+    fn packSH:buffer () {
+        def n:int (this.probeCount())
+        def out:buffer (buffer_alloc (((n * 9) * 4) * 4))
+        def pi:int 0
+        while (pi < n) {
+            def sh:ThreeSphericalHarmonics3 (itemAt this.probes pi)
+            def j:int 0
+            while (j < 9) {
+                def c:ThreeVector3 (itemAt sh.coefficients j)
+                def o:int (((pi * 9) + j) * 16)
+                ByteReader.encodeF32(out o c.x)
+                ByteReader.encodeF32(out (o + 4) c.y)
+                ByteReader.encodeF32(out (o + 8) c.z)
+                ByteReader.encodeF32(out (o + 12) 0.0)
+                j = (j + 1)
+            }
+            pi = (pi + 1)
+        }
+        return out
+    }
+
+    ; the renderer treats a visible probe volume as a scene-wide ambient (GI) fill:
+    ; lightKind()==3, colour = the baked irradiance level. Contributes nothing when
+    ; the volume is hidden (visible=false), matching the demo's enabled toggle.
+    fn lightKind:int () {
+        if (this.visible == false) {
+            return 0
+        }
+        return 3
+    }
+    fn lightR:double () {
+        return this.bakedR
+    }
+    fn lightG:double () {
+        return this.bakedG
+    }
+    fn lightB:double () {
+        return this.bakedB
+    }
+
+    ; local position (relative to this.position) of grid cell (ix,iy,iz): probes
+    ; span [-size/2, +size/2] on each axis, evenly spaced.
+    fn cellLocalX:double (ix:int) {
+        if (this.countX < 2) {
+            return 0.0
+        }
+        def t:double ((to_double ix) / (to_double (this.countX - 1)))
+        return (((0.0 - 0.5) * this.sizeX) + (t * this.sizeX))
+    }
+    fn cellLocalY:double (iy:int) {
+        if (this.countY < 2) {
+            return 0.0
+        }
+        def t:double ((to_double iy) / (to_double (this.countY - 1)))
+        return (((0.0 - 0.5) * this.sizeY) + (t * this.sizeY))
+    }
+    fn cellLocalZ:double (iz:int) {
+        if (this.countZ < 2) {
+            return 0.0
+        }
+        def t:double ((to_double iz) / (to_double (this.countZ - 1)))
+        return (((0.0 - 0.5) * this.sizeZ) + (t * this.sizeZ))
+    }
+
+    ; continuous grid coordinate (0..count-1) of a world position on one axis.
+    sfn axisCoord:double (world:double origin:double size:double count:int) {
+        if (count < 2) {
+            return 0.0
+        }
+        def half:double (0.5 * size)
+        def lo:double (origin - half)
+        def t:double ((world - lo) / size)
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        return (t * (to_double (count - 1)))
+    }
+
+    ; trilinearly-blended diffuse irradiance at a world point for a surface normal.
+    ; Uniform-ambient bakes return the ambient colour everywhere; the shader does
+    ; the same lookup per fragment for GI.
+    fn sampleIrradiance:ThreeVector3 (wx:double wy:double wz:double nx:double ny:double nz:double target:ThreeVector3) {
+        def fx:double (ThreeLightProbeGrid.axisCoord(wx this.position.x this.sizeX this.countX))
+        def fy:double (ThreeLightProbeGrid.axisCoord(wy this.position.y this.sizeY this.countY))
+        def fz:double (ThreeLightProbeGrid.axisCoord(wz this.position.z this.sizeZ this.countZ))
+        def ix0:int (to_int fx)
+        def iy0:int (to_int fy)
+        def iz0:int (to_int fz)
+        def ix1:int ix0
+        if (ix1 < (this.countX - 1)) { ix1 = (ix0 + 1) }
+        def iy1:int iy0
+        if (iy1 < (this.countY - 1)) { iy1 = (iy0 + 1) }
+        def iz1:int iz0
+        if (iz1 < (this.countZ - 1)) { iz1 = (iz0 + 1) }
+        def tx:double (fx - (to_double ix0))
+        def ty:double (fy - (to_double iy0))
+        def tz:double (fz - (to_double iz0))
+
+        def rr:double 0.0
+        def gg:double 0.0
+        def bb:double 0.0
+        def tmp:ThreeVector3 (new ThreeVector3)
+        ; 8 corners of the cell, trilinear weights.
+        def dz:int 0
+        while (dz < 2) {
+            def iz:int iz0
+            def wz2:double (1.0 - tz)
+            if (dz == 1) { iz = iz1
+                wz2 = tz }
+            def dy:int 0
+            while (dy < 2) {
+                def iy:int iy0
+                def wy2:double (1.0 - ty)
+                if (dy == 1) { iy = iy1
+                    wy2 = ty }
+                def dx:int 0
+                while (dx < 2) {
+                    def ix:int ix0
+                    def wx2:double (1.0 - tx)
+                    if (dx == 1) { ix = ix1
+                        wx2 = tx }
+                    def wgt:double ((wx2 * wy2) * wz2)
+                    def p:ThreeSphericalHarmonics3 (this.getProbe(ix iy iz))
+                    p.getIrradianceAt(nx ny nz tmp)
+                    rr = (rr + (tmp.x * wgt))
+                    gg = (gg + (tmp.y * wgt))
+                    bb = (bb + (tmp.z * wgt))
+                    dx = (dx + 1)
+                }
+                dy = (dy + 1)
+            }
+            dz = (dz + 1)
+        }
+        return (target.set(rr gg bb))
+    }
+}

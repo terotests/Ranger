@@ -1,0 +1,125 @@
+; ==============================================================================
+; three_hierarchy_test — nested world transforms, DRIVEN THROUGH THE INTERPRETER.
+; ==============================================================================
+; Interprets hierarchy_scene.tsx (a Group > mesh / sub-Group > mesh tree) against
+; the façade, reconciles it into the Ranger host with real PARENTING, and checks
+; each node's world matrix + the tree structure against real three.js
+; (../../reference/hierarchy_goldens.json). No rendering — pure scene-graph math.
+;
+; This closes the "object hierarchy" gap: the façade Group/Mesh.add now carry a
+; children array, the bridge recurses building each child as a host entity under
+; its parent, and the core's updateMatrixWorld composes parent -> child.
+; ==============================================================================
+
+Import "../../tsx/three_tsx_bridge.rgr"
+Import "../../src/three_json.rgr"
+Import "../../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class HierCheck {
+    def passed:int 0
+    def failed:int 0
+    def golds:ThreeJsonValue (new ThreeJsonValue)
+
+    fn boot:void () {
+        def gbuf:buffer (buffer_read_file "gallery/game_engine/three/reference" "hierarchy_goldens.json")
+        def parser:ThreeJsonParser (new ThreeJsonParser)
+        golds = (parser.parse((buffer_to_string gbuf)))
+    }
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.001)
+    }
+
+    ; check one node's full world matrix (16 elements) against its golden.
+    fn worldMatrix:void (bridge:ThreeTsxBridge key:string) {
+        def node:ThreeJsonValue ((golds.get("nodes")).get(key))
+        def h:int (node.intOr("handle" 0))
+        def wm:ThreeJsonValue (node.get("world"))
+        def e:ThreeObject3D (bridge.host.entityAt(h))
+        def m:ThreeMatrix4 (e.matrixWorld)
+        def okAll:boolean true
+        def i:int 0
+        while (i < 16) {
+            if (false == (HierCheck.near((m.eGet(i)) ((wm.at(i)).asNumber())))) { okAll = false }
+            i = (i + 1)
+        }
+        this.ok((key + " world matrix (handle " + (to_string h) + ")") okAll)
+        ; world position = translation column of the world matrix
+        def wp:ThreeJsonValue (node.get("worldPos"))
+        this.ok((key + " world pos") (
+            (HierCheck.near((m.eGet(12)) ((wp.at(0)).asNumber())))
+            && (HierCheck.near((m.eGet(13)) ((wp.at(1)).asNumber())))
+            && (HierCheck.near((m.eGet(14)) ((wp.at(2)).asNumber())))))
+    }
+}
+
+class ThreeHierarchyTest {
+    sfn m@(main):void () {
+        def ck:HierCheck (new HierCheck)
+        ck.boot()
+
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(300.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(200.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/three/tests/object_hierarchy" "hierarchy_scene.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def bridge (new ThreeTsxBridge)
+        bridge.setEngine(engine)
+        bridge.renderFrame(300 200)
+
+        print "== object hierarchy: nested world transforms via the interpreter =="
+        print ("  host built entities: " + (to_string (bridge.host.entityCount())))
+
+        ck.worldMatrix(bridge "group")
+        ck.worldMatrix(bridge "meshA")
+        ck.worldMatrix(bridge "subgroup")
+        ck.worldMatrix(bridge "meshB")
+        ck.worldMatrix(bridge "loneMesh")
+
+        print "== tree structure (child counts) =="
+        def cc:ThreeJsonValue (ck.golds.get("childCounts"))
+        def sc:ThreeScene (bridge.host.sceneAt(bridge.sceneH))
+        ck.ok("scene child count" ((sc.childCount()) == (cc.intOr("scene" (0 - 1)))))
+        def grp:ThreeObject3D (bridge.host.entityAt(1))
+        ck.ok("group child count" ((grp.childCount()) == (cc.intOr("group" (0 - 1)))))
+        def sub:ThreeObject3D (bridge.host.entityAt(3))
+        ck.ok("subgroup child count" ((sub.childCount()) == (cc.intOr("subgroup" (0 - 1)))))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

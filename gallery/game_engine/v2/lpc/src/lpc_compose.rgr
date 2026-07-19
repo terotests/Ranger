@@ -1,0 +1,176 @@
+; ==============================================================================
+; lpc_compose — layer load + blit into output buffer (draft).
+; ==============================================================================
+
+Import "lpc_anim.rgr"
+Import "lpc_blit.rgr"
+Import "lpc_draw.rgr"
+Import "lpc_char_catalog.rgr"
+Import "lpc_layer_cache.rgr"
+Import "lpc_palette.rgr"
+Import "png_decoder.rgr"
+Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class LpcComposeResult {
+    def width:int 0
+    def height:int 0
+    def buffer:RasterBuffer (new RasterBuffer())
+    def ok:boolean false
+}
+
+class LpcCompositor {
+    def anim:LpcAnim (new LpcAnim())
+    def draw:LpcDraw (new LpcDraw())
+    def blit:LpcBlit (new LpcBlit())
+    def palette:LpcPalette (new LpcPalette())
+    def catalog:LpcCharCatalog (new LpcCharCatalog())
+    def png:PNGDecoder (new PNGDecoder())
+    def spritesheetsRoot:string "spritesheets/"
+
+    ; One draw call for a character layer, tagged with its palette group id.
+    fn addCharCall:void (list:[LpcDrawCall] group:string path:string z:int) {
+        def call:LpcDrawCall (new LpcDrawCall())
+        call.itemId = group
+        call.spritePath = path
+        call.zPos = z
+        call.animY = 0
+        push list call
+    }
+
+    ; Layer stack for the embedded demo-male-walk pack. The palette profile (set
+    ; by composeCharacter) is what turns this single stack into distinct looks.
+    fn buildCharCalls:[LpcDrawCall] () {
+        def list:[LpcDrawCall]
+        this.addCharCall(list "body" "body/bodies/male/walk.png" 10)
+        this.addCharCall(list "legs" "legs/pants/male/walk.png" 20)
+        this.addCharCall(list "feet" "feet/boots/basic/male/walk.png" 25)
+        this.addCharCall(list "head" "head/heads/human/male/walk.png" 100)
+        this.addCharCall(list "hair" "hair/natural/adult/walk.png" 120)
+        return list
+    }
+
+    ; Rich per-character stacks for the FULL Universal-LPC art (LPC_ROOT / a
+    ; full pack). Same ids and z-order convention as the LPC generator: body 10,
+    ; torso 15, legs 20, feet 25, head 100, hair 120, hat 130. Garments use the
+    ; generator's pre-coloured walk/<color>.png variants where they exist; only
+    ; hair (and the rogue hood) are tinted — see LpcCharCatalog.applyFullProfile.
+    fn buildFullCharCalls:[LpcDrawCall] (charId:int) {
+        def list:[LpcDrawCall]
+        this.addCharCall(list "body" "body/bodies/male/walk.png" 10)
+        this.addCharCall(list "head" "head/heads/human/male/walk.png" 100)
+
+        if (charId == 1) {
+            ; Hero (Ranger): green tunic, brown pants, leather boots, chestnut hair
+            this.addCharCall(list "torso" "torso/clothes/longsleeve/longsleeve/male/walk.png" 15)
+            this.addCharCall(list "legs" "legs/pants/male/walk/brown.png" 20)
+            this.addCharCall(list "feet" "feet/boots/basic/male/walk/leather.png" 25)
+            this.addCharCall(list "hair" "hair/natural/adult/walk.png" 120)
+            return list
+        }
+        if (charId == 2) {
+            ; Knight: full steel plate + great helm (no hair under the helm)
+            this.addCharCall(list "torso" "torso/armour/plate/male/walk.png" 15)
+            this.addCharCall(list "legs" "legs/armour/plate/male/walk.png" 20)
+            this.addCharCall(list "feet" "feet/boots/basic/male/walk/steel.png" 25)
+            this.addCharCall(list "arms" "arms/armour/plate/male/walk.png" 30)
+            this.addCharCall(list "gloves" "arms/hands/gloves/male/walk.png" 35)
+            this.addCharCall(list "hat" "hat/helmet/greathelm/male/walk.png" 130)
+            return list
+        }
+        if (charId == 3) {
+            ; Mage: purple frock robe + pantaloons + wizard hat, white hair
+            this.addCharCall(list "torso" "torso/jacket/frock/male/walk/purple.png" 15)
+            this.addCharCall(list "legs" "legs/pantaloons/male/walk/purple.png" 20)
+            this.addCharCall(list "feet" "feet/shoes/basic/male/walk/black.png" 25)
+            this.addCharCall(list "hair" "hair/natural/adult/walk.png" 120)
+            this.addCharCall(list "hat" "hat/magic/wizard/base/adult/walk/purple.png" 130)
+            return list
+        }
+        if (charId == 4) {
+            ; Rogue: crimson-leather armour, black pants/boots, dark hood
+            this.addCharCall(list "torso" "torso/armour/leather/male/walk.png" 15)
+            this.addCharCall(list "legs" "legs/pants/male/walk/black.png" 20)
+            this.addCharCall(list "feet" "feet/boots/basic/male/walk/black.png" 25)
+            this.addCharCall(list "hair" "hair/natural/adult/walk.png" 120)
+            this.addCharCall(list "hat" "hat/cloth/hood/adult/walk.png" 130)
+            return list
+        }
+        return list
+    }
+
+    ; True when spritesheetsRoot holds the full Universal-LPC art (the probe
+    ; layer exists on disk); the embedded demo-male-walk pack does not have it.
+    fn hasFullArt:boolean () {
+        def probe:string (this.catalog.fullArtProbePath())
+        def slash:int (lastIndexOf probe "/")
+        def dir:string spritesheetsRoot
+        def file:string probe
+        if (slash >= 0) {
+            dir = (spritesheetsRoot + (substring probe 0 (slash + 1)))
+            file = (substring probe (slash + 1) (strlen probe))
+        }
+        return (file_exists dir file)
+    }
+
+    ; Compose one catalog character's walk strip. With the full Universal-LPC
+    ; art present the character gets its rich stack (real garments, hats); with
+    ; only the embedded demo pack it falls back to the recoloured shared stack.
+    ; Same output shape as composeWalkStrip.
+    fn composeCharacter:LpcComposeResult (charId:int) {
+        if (this.hasFullArt()) {
+            print ("[lpc_compose] full LPC art: rich stack for charId=" + (to_string charId))
+            this.catalog.applyFullProfile(this.palette charId)
+            def fullCalls:[LpcDrawCall] (this.buildFullCharCalls(charId))
+            return (this.composeCalls(fullCalls))
+        }
+        this.catalog.applyProfile(this.palette charId)
+        def calls:[LpcDrawCall] (this.buildCharCalls())
+        return (this.composeCalls(calls))
+    }
+
+    fn composeWalkStrip:LpcComposeResult (bodyType:string) {
+        def calls:[LpcDrawCall] (this.draw.buildCalls(bodyType))
+        return (this.composeCalls(calls))
+    }
+
+    ; Blit a (possibly unsorted) draw-call list into a fresh walk-strip buffer.
+    fn composeCalls:LpcComposeResult (calls:[LpcDrawCall]) {
+        def result:LpcComposeResult (new LpcComposeResult())
+        def w:int (this.anim.walkStripWidth())
+        def h:int (this.anim.walkStripHeight())
+        result.buffer.create(w h)
+        result.width = w
+        result.height = h
+
+        this.draw.sortByZPos(calls)
+
+        if ((array_length calls) == 0) {
+            print "[lpc_compose] no draw calls"
+            return result
+        }
+
+        def layerCache:LpcLayerCache (LpcLayerCache.__singleton())
+        layerCache.clearIfRootChanged(spritesheetsRoot)
+
+        def i 0
+        while (i < (array_length calls)) {
+            def call:LpcDrawCall (itemAt calls i)
+            def img:ImageBuffer (layerCache.getOrDecode(this.png spritesheetsRoot call.spritePath))
+            if ((img.width <= 1) && (img.height <= 1)) {
+                print ("[lpc_compose] failed: " + call.spritePath)
+            } {
+                def tinted:ImageBuffer (this.palette.apply(img call.itemId))
+                if (i == 0) {
+                    this.blit.blitFirstLayer(result.buffer tinted 0 call.animY)
+                } {
+                    this.blit.blitImage(result.buffer tinted 0 call.animY)
+                }
+            }
+            i = (i + 1)
+        }
+
+        result.ok = true
+        return result
+    }
+}

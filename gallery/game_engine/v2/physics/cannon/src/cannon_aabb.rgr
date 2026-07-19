@@ -1,0 +1,239 @@
+; ==============================================================================
+; cannon_aabb — axis-aligned bounding box (Cannon.js port).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_transform.rgr"
+
+class CannonAABB {
+    def lowerBound:CannonVec3 (new CannonVec3)
+    def upperBound:CannonVec3 (new CannonVec3)
+    def tmpCorner:CannonVec3 (new CannonVec3)
+
+    fn copy:void (source:CannonAABB) {
+        this.lowerBound.copy(source.lowerBound)
+        this.upperBound.copy(source.upperBound)
+    }
+
+    fn cloneNew:CannonAABB () {
+        def out:CannonAABB (new CannonAABB)
+        out.copy(this)
+        return out
+    }
+
+    fn extend:void (other:CannonAABB) {
+        if (other.lowerBound.x < this.lowerBound.x) {
+            this.lowerBound.x = other.lowerBound.x
+        }
+        if (other.upperBound.x > this.upperBound.x) {
+            this.upperBound.x = other.upperBound.x
+        }
+        if (other.lowerBound.y < this.lowerBound.y) {
+            this.lowerBound.y = other.lowerBound.y
+        }
+        if (other.upperBound.y > this.upperBound.y) {
+            this.upperBound.y = other.upperBound.y
+        }
+        if (other.lowerBound.z < this.lowerBound.z) {
+            this.lowerBound.z = other.lowerBound.z
+        }
+        if (other.upperBound.z > this.upperBound.z) {
+            this.upperBound.z = other.upperBound.z
+        }
+    }
+
+    fn overlaps:boolean (other:CannonAABB) {
+        def l1:CannonVec3 this.lowerBound
+        def u1:CannonVec3 this.upperBound
+        def l2:CannonVec3 other.lowerBound
+        def u2:CannonVec3 other.upperBound
+
+        def overlapsX:boolean false
+        if (l2.x <= u1.x) {
+            if (u1.x <= u2.x) {
+                overlapsX = true
+            }
+        }
+        if (overlapsX == false) {
+            if (l1.x <= u2.x) {
+                if (u2.x <= u1.x) {
+                    overlapsX = true
+                }
+            }
+        }
+
+        def overlapsY:boolean false
+        if (l2.y <= u1.y) {
+            if (u1.y <= u2.y) {
+                overlapsY = true
+            }
+        }
+        if (overlapsY == false) {
+            if (l1.y <= u2.y) {
+                if (u2.y <= u1.y) {
+                    overlapsY = true
+                }
+            }
+        }
+
+        def overlapsZ:boolean false
+        if (l2.z <= u1.z) {
+            if (u1.z <= u2.z) {
+                overlapsZ = true
+            }
+        }
+        if (overlapsZ == false) {
+            if (l1.z <= u2.z) {
+                if (u2.z <= u1.z) {
+                    overlapsZ = true
+                }
+            }
+        }
+
+        if (overlapsX) {
+            if (overlapsY) {
+                if (overlapsZ) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fn contains:boolean (other:CannonAABB) {
+        def l1:CannonVec3 this.lowerBound
+        def u1:CannonVec3 this.upperBound
+        def l2:CannonVec3 other.lowerBound
+        def u2:CannonVec3 other.upperBound
+        if (l1.x > l2.x) {
+            return false
+        }
+        if (u1.x < u2.x) {
+            return false
+        }
+        if (l1.y > l2.y) {
+            return false
+        }
+        if (u1.y < u2.y) {
+            return false
+        }
+        if (l1.z > l2.z) {
+            return false
+        }
+        if (u1.z < u2.z) {
+            return false
+        }
+        return true
+    }
+
+    fn almostEquals:boolean (other:CannonAABB precision:double) {
+        def lowerOk:boolean (this.lowerBound.almostEquals(other.lowerBound precision))
+        def upperOk:boolean (this.upperBound.almostEquals(other.upperBound precision))
+        if (lowerOk) {
+            return upperOk
+        }
+        return false
+    }
+
+    fn setFromPoints:void (points:[CannonVec3]) {
+        def count:int (array_length points)
+        if (count == 0) {
+            return
+        }
+        def first:CannonVec3 (itemAt points 0)
+        this.lowerBound.copy(first)
+        this.upperBound.copy(first)
+        def i 1
+        while (i < count) {
+            def p:CannonVec3 (itemAt points i)
+            if (p.x > this.upperBound.x) {
+                this.upperBound.x = p.x
+            }
+            if (p.x < this.lowerBound.x) {
+                this.lowerBound.x = p.x
+            }
+            if (p.y > this.upperBound.y) {
+                this.upperBound.y = p.y
+            }
+            if (p.y < this.lowerBound.y) {
+                this.lowerBound.y = p.y
+            }
+            if (p.z > this.upperBound.z) {
+                this.upperBound.z = p.z
+            }
+            if (p.z < this.lowerBound.z) {
+                this.lowerBound.z = p.z
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn getCorners:void (a:CannonVec3 b:CannonVec3 c:CannonVec3 d:CannonVec3 e:CannonVec3 f:CannonVec3 g:CannonVec3 h:CannonVec3) {
+        def l:CannonVec3 this.lowerBound
+        def u:CannonVec3 this.upperBound
+        a.copy(l)
+        b.set(u.x l.y l.z)
+        c.set(u.x u.y l.z)
+        d.set(l.x u.y u.z)
+        e.set(u.x l.y l.z)
+        f.set(l.x u.y l.z)
+        g.set(l.x l.y u.z)
+        h.copy(u)
+    }
+
+    fn toLocalFrame:void (frame:CannonTransform target:CannonAABB) {
+        def a:CannonVec3 (new CannonVec3)
+        def b:CannonVec3 (new CannonVec3)
+        def c:CannonVec3 (new CannonVec3)
+        def d:CannonVec3 (new CannonVec3)
+        def e:CannonVec3 (new CannonVec3)
+        def f:CannonVec3 (new CannonVec3)
+        def g:CannonVec3 (new CannonVec3)
+        def h:CannonVec3 (new CannonVec3)
+        this.getCorners(a b c d e f g h)
+        def corners:[CannonVec3]
+        push corners a
+        push corners b
+        push corners c
+        push corners d
+        push corners e
+        push corners f
+        push corners g
+        push corners h
+        def i 0
+        while (i < 8) {
+            def corner:CannonVec3 (itemAt corners i)
+            frame.pointToLocal(corner corner)
+            i = (i + 1)
+        }
+        target.setFromPoints(corners)
+    }
+
+    fn toWorldFrame:void (frame:CannonTransform target:CannonAABB) {
+        def a:CannonVec3 (new CannonVec3)
+        def b:CannonVec3 (new CannonVec3)
+        def c:CannonVec3 (new CannonVec3)
+        def d:CannonVec3 (new CannonVec3)
+        def e:CannonVec3 (new CannonVec3)
+        def f:CannonVec3 (new CannonVec3)
+        def g:CannonVec3 (new CannonVec3)
+        def h:CannonVec3 (new CannonVec3)
+        this.getCorners(a b c d e f g h)
+        def corners:[CannonVec3]
+        push corners a
+        push corners b
+        push corners c
+        push corners d
+        push corners e
+        push corners f
+        push corners g
+        push corners h
+        def i 0
+        while (i < 8) {
+            def corner:CannonVec3 (itemAt corners i)
+            frame.pointToWorld(corner corner)
+            i = (i + 1)
+        }
+        target.setFromPoints(corners)
+    }
+}

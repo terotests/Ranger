@@ -1,0 +1,34 @@
+; ==============================================================================
+; three_http_test — http_get_bytes deterministic contract check.
+; ==============================================================================
+; Verifies the operator compiles and honours the empty-on-failure contract: a GET
+; of an unresolvable host returns a zero-length buffer (curl fails, or curl is
+; absent and the es6 catch returns an empty ArrayBuffer) — so the check is
+; deterministic and needs no network. A live fetch of a real URL is verified
+; manually (Node + libcurl); it is not in run.sh to keep the suite offline-safe.
+; ==============================================================================
+
+Import "three_http.rgr"
+
+class ThreeHttpTest {
+    sfn m@(main):void () {
+        print "== http_get_bytes =="
+        def buf:buffer (http_get_bytes "https://nonexistent.invalid.example.invalid/none")
+        def n:int (buffer_length buf)
+        def passed:int 0
+        def failed:int 0
+        if (n == 0) {
+            passed = (passed + 1)
+            print "  PASS empty buffer on failed GET"
+        } {
+            failed = (failed + 1)
+            print ("  FAIL expected empty buffer, got " + (to_string n) + " bytes")
+        }
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

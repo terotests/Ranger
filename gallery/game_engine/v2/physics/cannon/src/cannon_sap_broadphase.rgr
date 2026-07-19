@@ -1,0 +1,82 @@
+; ==============================================================================
+; cannon_sap_broadphase — sweep-and-prune broadphase (cannon-es SAPBroadphase).
+;   Sort bodies by their AABB minimum along x, then sweep: a pair can only
+;   collide while the later body's min-x is within the earlier body's max-x, so
+;   most O(n^2) candidate pairs are pruned. Produces the same pairs as the naive
+;   broadphase, faster for many bodies.
+; ==============================================================================
+
+Import "cannon_broadphase.rgr"
+Import "cannon_body.rgr"
+
+class CannonSAPBroadphase extends CannonBroadphase {
+    def order:[int]
+
+    fn minX:double (bodies:[CannonBody] idx:int) {
+        def b:CannonBody (itemAt bodies idx)
+        return (b.position.x - b.boundingRadius)
+    }
+
+    fn collisionPairs:void (bodies:[CannonBody]) {
+        clear this.outPairs1
+        clear this.outPairs2
+        def n:int (array_length bodies)
+        clear this.order
+        def i 0
+        while (i < n) {
+            push this.order i
+            i = (i + 1)
+        }
+
+        ; insertion sort `order` by ascending min-x
+        def a 1
+        while (a < n) {
+            def keyIdx:int (itemAt this.order a)
+            def keyVal:double (this.minX(bodies keyIdx))
+            def b:int (a - 1)
+            def cont:boolean true
+            while (cont) {
+                if (b < 0) {
+                    cont = false
+                } {
+                    def bIdx:int (itemAt this.order b)
+                    def bVal:double (this.minX(bodies bIdx))
+                    if (bVal > keyVal) {
+                        set this.order (b + 1) bIdx
+                        b = (b - 1)
+                    } {
+                        cont = false
+                    }
+                }
+            }
+            set this.order (b + 1) keyIdx
+            a = (a + 1)
+        }
+
+        ; sweep
+        def p 0
+        while (p < n) {
+            def bi:CannonBody (itemAt bodies (itemAt this.order p))
+            def maxXi:double (bi.position.x + bi.boundingRadius)
+            def q:int (p + 1)
+            def sweeping:boolean true
+            while (sweeping) {
+                if (q >= n) {
+                    sweeping = false
+                } {
+                    def bj:CannonBody (itemAt bodies (itemAt this.order q))
+                    def minXj:double (bj.position.x - bj.boundingRadius)
+                    if (minXj > maxXi) {
+                        sweeping = false
+                    } {
+                        if (this.needBroadphaseCollision(bi bj)) {
+                            this.intersectionTest(bi bj)
+                        }
+                        q = (q + 1)
+                    }
+                }
+            }
+            p = (p + 1)
+        }
+    }
+}

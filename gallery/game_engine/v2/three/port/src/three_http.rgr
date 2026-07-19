@@ -1,0 +1,58 @@
+; ==============================================================================
+; three_http — a blocking HTTP(S) GET operator: ONE Ranger source, native + Node.
+; ==============================================================================
+;
+; The platform boundary for host-side asset loading. http_get_bytes(url) does a
+; synchronous GET and returns the body as a `buffer` (std::vector<uint8_t> in cpp,
+; an ArrayBuffer in es6 — the same representation buffer_read_file returns), so the
+; native host can pull a glTF model at load time and hand it to the loader. This is
+; the "the host owns loading" path: the fetch is here, not in the interpreter, so
+; no interpreter async is needed.
+;
+;   cpp  : libcurl (link with -lcurl). Follows redirects; empty buffer on error.
+;   es6  : Node's curl via child_process (respects HTTPS_PROXY). Node/native
+;          tooling + tests only — a browser host uses its own async fetch path.
+;
+; Returns an EMPTY buffer on any failure (network down, non-2xx, no curl); callers
+; check the length before parsing.
+; ==============================================================================
+
+operators {
+
+    ; GET url, return the response body bytes (empty buffer on failure).
+    http_get_bytes _:buffer (url:string) {
+        templates {
+            es6 ( "(function(u){ try { var b = require('child_process').execFileSync('curl', ['-sSL','--fail','--max-time','60', u], { maxBuffer: 268435456 }); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for (var i = 0; i < b.length; i++) v[i] = b[i]; ab._view = new DataView(ab); return ab; } catch (e) { var z = new ArrayBuffer(0); z._view = new DataView(z); return z; } })(" (e 1) ")" )
+            cpp ( "rhttp_get(" (e 1) ")"
+                  (imp "<curl/curl.h>") (imp "<vector>") (imp "<string>") (imp "<cstdint>")
+(create_polyfill "
+static size_t rhttp_write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    std::vector<uint8_t>* buf = (std::vector<uint8_t>*)userdata;
+    size_t n = size * nmemb;
+    buf->insert(buf->end(), (uint8_t*)ptr, (uint8_t*)ptr + n);
+    return n;
+}
+std::vector<uint8_t> rhttp_get(const std::string& url) {
+    std::vector<uint8_t> out;
+    static bool inited = false;
+    if (!inited) { curl_global_init(CURL_GLOBAL_DEFAULT); inited = true; }
+    CURL* curl = curl_easy_init();
+    if (!curl) return out;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, rhttp_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, \"ranger-three/1.0\");
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) { out.clear(); }
+    curl_easy_cleanup(curl);
+    return out;
+}
+")
+            )
+        }
+    }
+
+}

@@ -1,0 +1,13 @@
+{
+  "id": "demo-male-walk",
+  "description": "Minimal embedded LPC layers for male walk compositor demo (~28 KB).",
+  "bodyTypes": ["male"],
+  "animations": ["walk"],
+  "layers": [
+  { "path": "body/bodies/male/walk.png", "zPos": 10 },
+  { "path": "legs/pants/male/walk.png", "zPos": 20 },
+  { "path": "feet/boots/basic/male/walk.png", "zPos": 25 },
+  { "path": "head/heads/human/male/walk.png", "zPos": 100 },
+  { "path": "hair/natural/adult/walk.png", "zPos": 120 }
+  ]
+}

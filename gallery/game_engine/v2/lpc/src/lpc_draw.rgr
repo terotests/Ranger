@@ -1,0 +1,64 @@
+; ==============================================================================
+; lpc_draw — build sorted draw call list from selections (draft).
+; ==============================================================================
+; Port target: LPC renderer.ts drawCalls loop (zPos sort).
+
+Import "lpc_demo_male.rgr"
+Import "lpc_demo_female.rgr"
+Import "lpc_demo_super.rgr"
+Import "lpc_demo_super_female.rgr"
+Import "lpc_demo_skeleton.rgr"
+
+class LpcDrawCall {
+    def itemId:string ""
+    def spritePath:string ""
+    def zPos:int 0
+    def animY:int 0
+    def layerNum:int 0
+}
+
+class LpcDraw {
+    fn buildCalls:[LpcDrawCall] (bodyType:string) {
+        if (bodyType == "male") {
+            def demo:LpcDemoMale (new LpcDemoMale())
+            return (demo.buildCalls())
+        }
+        if (bodyType == "female") {
+            def demo:LpcDemoFemale (new LpcDemoFemale())
+            return (demo.buildCalls())
+        }
+        if (bodyType == "super") {
+            def hero:LpcDemoSuper (new LpcDemoSuper())
+            return (hero.buildCalls())
+        }
+        if (bodyType == "super_female") {
+            def hero:LpcDemoSuperFemale (new LpcDemoSuperFemale())
+            return (hero.buildCalls())
+        }
+        if (bodyType == "skeleton") {
+            def skel:LpcDemoSkeleton (new LpcDemoSkeleton())
+            return (skel.buildCalls())
+        }
+        def list:[LpcDrawCall]
+        print ("[lpc_draw] no preset for bodyType=" + bodyType)
+        return list
+    }
+
+    fn sortByZPos:void (calls:[LpcDrawCall]) {
+        def n:int (array_length calls)
+        def i 0
+        while (i < n) {
+            def j (i + 1)
+            while (j < n) {
+                def a:LpcDrawCall (itemAt calls i)
+                def b:LpcDrawCall (itemAt calls j)
+                if (b.zPos < a.zPos) {
+                    set calls i b
+                    set calls j a
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+}

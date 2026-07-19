@@ -1,0 +1,177 @@
+; ==============================================================================
+; Scene3dBridge.rgr — a minimal, host-owned 3D scene the TSX script only declares.
+; ==============================================================================
+; Design rule: ALL heavy lifting is host-side. The .tsx script stays short — it
+; issues a few one-time declarative calls in init() and never runs per-frame
+; render logic. The host runner (tsx3d_sdl_runner.rgr) owns the loop, camera,
+; lighting and animation, and reads the scene this bridge holds.
+;
+; Script-callable (all one-shot, called from init()):
+;   addModel(file)        -> number   ; load <assetDir>/file, build GL buffers,
+;                                      ; place at origin; returns instance index
+;   place(i, x, y, z)     -> void      ; position an instance
+;   spin(i, radiansPerSec)-> void      ; host auto-rotates it about Y each frame
+;
+; Everything else (GLB parse, GL upload, transform integration, camera, light,
+; the frame loop) is host code. The script does not compute geometry, cameras,
+; or matrices — it just says *what* is in the scene.
+; ==============================================================================
+
+Import "Model3dScriptBridge.rgr"
+
+; One placed, drawable instance. Geometry/GL handles are host-owned; the script
+; only ever sees the opaque index into `instances`.
+class SceneInstance {
+    def glMesh:int 0
+    def glTex:int 0
+    def count:int 0
+    def px:double 0.0
+    def py:double 0.0
+    def pz:double 0.0
+    def rx:double 0.0
+    def ry:double 0.0
+    def rz:double 0.0
+    def spin:double 0.0
+}
+
+class Scene3dBridge extends EvalNativeBridge {
+    def loader:ModelLoader (new ModelLoader)
+    def meshBridge:MeshBridge (new MeshBridge)
+    def uploader:Mesh3dUploader (new Mesh3dUploader)
+    def instances:[SceneInstance]
+    def assetDir:string ""
+    def radius:double 1.0
+    def lastError:string ""
+
+    fn setUploader:void (u:Mesh3dUploader) {
+        uploader = u
+    }
+    fn setAssetDir:void (d:string) {
+        assetDir = d
+    }
+    fn setRadius:void (r:double) {
+        radius = r
+    }
+
+    fn argStr:string (args:[EvalValue] i:int) {
+        if ((array_length args) <= i) {
+            return ""
+        }
+        def v:EvalValue (itemAt args i)
+        return (v.toString())
+    }
+    fn argNum:double (args:[EvalValue] i:int) {
+        if ((array_length args) <= i) {
+            return 0.0
+        }
+        def v:EvalValue (itemAt args i)
+        return (v.toNumber())
+    }
+    fn argInt:int (args:[EvalValue] i:int) {
+        return (to_int (this.argNum(args i)))
+    }
+
+    fn has:boolean (name:string) {
+        if (name == "addModel") {
+            return true
+        }
+        if (name == "place") {
+            return true
+        }
+        if (name == "spin") {
+            return true
+        }
+        if (name == "sceneError") {
+            return true
+        }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        if (name == "addModel") {
+            return (this.doAdd(args))
+        }
+        if (name == "place") {
+            return (this.doPlace(args))
+        }
+        if (name == "spin") {
+            return (this.doSpin(args))
+        }
+        if (name == "sceneError") {
+            return (EvalValue.string(lastError))
+        }
+        return (EvalValue.null())
+    }
+
+    ; addModel(file) — the whole load + GL-upload pipeline, host-side.
+    fn doAdd:EvalValue (args:[EvalValue]) {
+        def file:string (this.argStr(args 0))
+        def id:int 0
+        if (radius > 0.0) {
+            id = (loader.loadFromFileRadius(assetDir file radius))
+        } {
+            id = (loader.loadFromFile(assetDir file))
+        }
+        if (loader.ok == false) {
+            lastError = loader.lastError
+            return (EvalValue.fromInt(0 - 1))
+        }
+        def model:ModelAsset (loader.getModel(id))
+        def em:EngineMeshData (meshBridge.fromModel(model))
+        if (em.ok == false) {
+            lastError = em.error
+            return (EvalValue.fromInt(0 - 1))
+        }
+        def glMesh:int (uploader.uploadMesh(em.vertsHp em.vertexCount em.indices em.indexCount))
+        def glTex:int 0
+        if (em.hasTexture) {
+            glTex = (uploader.uploadTexture(em.texRgba em.texWidth em.texHeight))
+        }
+        def inst:SceneInstance (new SceneInstance)
+        inst.glMesh = glMesh
+        inst.glTex = glTex
+        inst.count = em.indexCount
+        push instances inst
+        lastError = ""
+        def idx:int ((array_length instances) - 1)
+        return (EvalValue.fromInt(idx))
+    }
+
+    fn doPlace:EvalValue (args:[EvalValue]) {
+        def i:int (this.argInt(args 0))
+        if ((i >= 0) && (i < (array_length instances))) {
+            def inst:SceneInstance (itemAt instances i)
+            inst.px = (this.argNum(args 1))
+            inst.py = (this.argNum(args 2))
+            inst.pz = (this.argNum(args 3))
+        }
+        return (EvalValue.null())
+    }
+
+    fn doSpin:EvalValue (args:[EvalValue]) {
+        def i:int (this.argInt(args 0))
+        if ((i >= 0) && (i < (array_length instances))) {
+            def inst:SceneInstance (itemAt instances i)
+            inst.spin = (this.argNum(args 1))
+        }
+        return (EvalValue.null())
+    }
+
+    ; ---- runner-facing (host) -----------------------------------------------
+    fn count:int () {
+        return (array_length instances)
+    }
+    fn instAt:SceneInstance (i:int) {
+        return (itemAt instances i)
+    }
+    ; Advance host-owned animation by dtMs (applies each instance's Y spin).
+    fn advance:void (dtMs:int) {
+        def dt:double ((to_double dtMs) / 1000.0)
+        def i:int 0
+        while (i < (array_length instances)) {
+            def inst:SceneInstance (itemAt instances i)
+            inst.ry = (inst.ry + (inst.spin * dt))
+            i = (i + 1)
+        }
+    }
+}

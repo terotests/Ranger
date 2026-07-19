@@ -1,0 +1,396 @@
+; ==============================================================================
+; three_primitive_geometries — Three.js geometry generators ported 1:1.
+; ==============================================================================
+; Faithful ports of src/geometries/{Plane,Circle,Ring,Sphere,Cylinder,Cone,
+; Torus,TorusKnot}Geometry.js. Vertex ORDER matches three.js exactly (same loop
+; nesting), so vertex i equals three.js's vertex i — that is what makes the
+; goldens in reference/geom_goldens.json an exact-parity check, no rendering
+; needed. Pure object model: compiles to ES6 + C++ like the rest of three/src.
+;
+; Each class has a `build(...)` that fills the inherited ThreeBufferGeometry and
+; returns `this` (the `new X` + `build` pattern, like ThreeBoxGeometry.setSize).
+; Segment params are ints (already floored by the caller); dimensions are doubles.
+; ==============================================================================
+
+Import "three_buffer_geometry.rgr"
+
+; PI / 2PI as literals (no M_PI constant in the object-model dialect).
+; ------------------------------------------------------------------ Plane
+class ThreePlaneGeometry extends ThreeBufferGeometry {
+    def isPlaneGeometry:boolean true
+
+    fn build:ThreePlaneGeometry (width:double height:double wSeg:int hSeg:int) {
+        def wHalf:double (width * 0.5)
+        def hHalf:double (height * 0.5)
+        def gx1:int (wSeg + 1)
+        def gy1:int (hSeg + 1)
+        def segW:double (width / (to_double wSeg))
+        def segH:double (height / (to_double hSeg))
+        def iy:int 0
+        while (iy < gy1) {
+            def y:double ((to_double iy) * segH - hHalf)
+            def ix:int 0
+            while (ix < gx1) {
+                def x:double ((to_double ix) * segW - wHalf)
+                this.pushVertex(x (0.0 - y) 0.0  0.0 0.0 1.0  ((to_double ix) / (to_double wSeg)) (1.0 - ((to_double iy) / (to_double hSeg))))
+                ix = (ix + 1)
+            }
+            iy = (iy + 1)
+        }
+        def jy:int 0
+        while (jy < hSeg) {
+            def jx:int 0
+            while (jx < wSeg) {
+                def a:int (jx + (gx1 * jy))
+                def b:int (jx + (gx1 * (jy + 1)))
+                def c:int ((jx + 1) + (gx1 * (jy + 1)))
+                def d:int ((jx + 1) + (gx1 * jy))
+                this.pushTriangle(a b d)
+                this.pushTriangle(b c d)
+                jx = (jx + 1)
+            }
+            jy = (jy + 1)
+        }
+        return this
+    }
+}
+
+; ------------------------------------------------------------------ Circle
+class ThreeCircleGeometry extends ThreeBufferGeometry {
+    def isCircleGeometry:boolean true
+
+    fn build:ThreeCircleGeometry (radius:double segments:int thetaStart:double thetaLength:double) {
+        ; center vertex
+        this.pushVertex(0.0 0.0 0.0  0.0 0.0 1.0  0.5 0.5)
+        def s:int 0
+        while (s <= segments) {
+            def seg:double (thetaStart + (((to_double s) / (to_double segments)) * thetaLength))
+            def vx:double (radius * (cos(seg)))
+            def vy:double (radius * (sin(seg)))
+            this.pushVertex(vx vy 0.0  0.0 0.0 1.0  (((vx / radius) + 1.0) * 0.5) (((vy / radius) + 1.0) * 0.5))
+            s = (s + 1)
+        }
+        def i:int 1
+        while (i <= segments) {
+            this.pushTriangle(i (i + 1) 0)
+            i = (i + 1)
+        }
+        return this
+    }
+}
+
+; ------------------------------------------------------------------ Ring
+class ThreeRingGeometry extends ThreeBufferGeometry {
+    def isRingGeometry:boolean true
+
+    fn build:ThreeRingGeometry (innerRadius:double outerRadius:double thetaSeg:int phiSeg:int thetaStart:double thetaLength:double) {
+        def radius:double innerRadius
+        def radiusStep:double ((outerRadius - innerRadius) / (to_double phiSeg))
+        def j:int 0
+        while (j <= phiSeg) {
+            def i:int 0
+            while (i <= thetaSeg) {
+                def seg:double (thetaStart + (((to_double i) / (to_double thetaSeg)) * thetaLength))
+                def vx:double (radius * (cos(seg)))
+                def vy:double (radius * (sin(seg)))
+                this.pushVertex(vx vy 0.0  0.0 0.0 1.0  (((vx / outerRadius) + 1.0) * 0.5) (((vy / outerRadius) + 1.0) * 0.5))
+                i = (i + 1)
+            }
+            radius = (radius + radiusStep)
+            j = (j + 1)
+        }
+        def jj:int 0
+        while (jj < phiSeg) {
+            def level:int (jj * (thetaSeg + 1))
+            def ii:int 0
+            while (ii < thetaSeg) {
+                def seg:int (ii + level)
+                def a:int seg
+                def b:int (seg + thetaSeg + 1)
+                def c:int (seg + thetaSeg + 2)
+                def d:int (seg + 1)
+                this.pushTriangle(a b d)
+                this.pushTriangle(b c d)
+                ii = (ii + 1)
+            }
+            jj = (jj + 1)
+        }
+        return this
+    }
+}
+
+; ------------------------------------------------------------------ Sphere
+class ThreeSphereGeometry extends ThreeBufferGeometry {
+    def isSphereGeometry:boolean true
+
+    fn build:ThreeSphereGeometry (radius:double wSeg:int hSeg:int phiStart:double phiLength:double thetaStart:double thetaLength:double) {
+        def pi:double 3.141592653589793
+        def thetaEnd:double (thetaStart + thetaLength)
+        if (thetaEnd > pi) { thetaEnd = pi }
+        def iy:int 0
+        while (iy <= hSeg) {
+            def v:double ((to_double iy) / (to_double hSeg))
+            def theta:double (thetaStart + (v * thetaLength))
+            def y:double (radius * (cos(theta)))
+            def ring2:double ((radius * radius) - (y * y))
+            def ringRadius:double 0.0
+            if (ring2 > 0.0) { ringRadius = (sqrt(ring2)) }
+            def uOffset:double 0.0
+            if ((iy == 0) && (thetaStart == 0.0)) { uOffset = (0.5 / (to_double wSeg)) }
+            if ((iy == hSeg) && (thetaEnd >= pi)) { uOffset = (0.0 - (0.5 / (to_double wSeg))) }
+            def ix:int 0
+            while (ix <= wSeg) {
+                def u:double ((to_double ix) / (to_double wSeg))
+                def phi:double (phiStart + (u * phiLength))
+                def vx:double (0.0 - (ringRadius * (cos(phi))))
+                def vy:double y
+                def vz:double (ringRadius * (sin(phi)))
+                def nl:double (sqrt(((vx * vx) + (vy * vy)) + (vz * vz)))
+                if (nl < 0.000000001) { nl = 1.0 }
+                this.pushVertex(vx vy vz  (vx / nl) (vy / nl) (vz / nl)  (u + uOffset) (1.0 - v))
+                ix = (ix + 1)
+            }
+            iy = (iy + 1)
+        }
+        def gx1:int (wSeg + 1)
+        def ry:int 0
+        while (ry < hSeg) {
+            def rx:int 0
+            while (rx < wSeg) {
+                def a:int ((ry * gx1) + rx + 1)
+                def b:int ((ry * gx1) + rx)
+                def c:int (((ry + 1) * gx1) + rx)
+                def d:int (((ry + 1) * gx1) + rx + 1)
+                if ((ry != 0) || (thetaStart > 0.0)) { this.pushTriangle(a b d) }
+                if ((ry != (hSeg - 1)) || (thetaEnd < pi)) { this.pushTriangle(b c d) }
+                rx = (rx + 1)
+            }
+            ry = (ry + 1)
+        }
+        return this
+    }
+}
+
+; ------------------------------------------------------------------ Cylinder / Cone
+; ConeGeometry(radius, height, radialSegments) == Cylinder(radiusTop=0, radius, ...).
+class ThreeCylinderGeometry extends ThreeBufferGeometry {
+    def isCylinderGeometry:boolean true
+
+    fn build:ThreeCylinderGeometry (radiusTop:double radiusBottom:double height:double radialSeg:int heightSeg:int openEnded:boolean thetaStart:double thetaLength:double) {
+        def halfHeight:double (height * 0.5)
+        def slope:double ((radiusBottom - radiusTop) / height)
+        ; --- torso ---
+        def y:int 0
+        while (y <= heightSeg) {
+            def v:double ((to_double y) / (to_double heightSeg))
+            def radius:double ((v * (radiusBottom - radiusTop)) + radiusTop)
+            def x:int 0
+            while (x <= radialSeg) {
+                def u:double ((to_double x) / (to_double radialSeg))
+                def theta:double ((u * thetaLength) + thetaStart)
+                def st:double (sin(theta))
+                def ct:double (cos(theta))
+                def nl:double (sqrt(((st * st) + (slope * slope)) + (ct * ct)))
+                if (nl < 0.000000001) { nl = 1.0 }
+                this.pushVertex((radius * st) ((0.0 - (v * height)) + halfHeight) (radius * ct)  (st / nl) (slope / nl) (ct / nl)  u (1.0 - v))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        def gx1:int (radialSeg + 1)
+        def tx:int 0
+        while (tx < radialSeg) {
+            def ty:int 0
+            while (ty < heightSeg) {
+                def a:int ((ty * gx1) + tx)
+                def b:int (((ty + 1) * gx1) + tx)
+                def c:int (((ty + 1) * gx1) + tx + 1)
+                def d:int ((ty * gx1) + tx + 1)
+                if ((radiusTop > 0.0) || (ty != 0)) { this.pushTriangle(a b d) }
+                if ((radiusBottom > 0.0) || (ty != (heightSeg - 1))) { this.pushTriangle(b c d) }
+                ty = (ty + 1)
+            }
+            tx = (tx + 1)
+        }
+        ; --- caps ---
+        if (openEnded == false) {
+            if (radiusTop > 0.0) { this.generateCap(true radiusTop halfHeight radialSeg thetaStart thetaLength) }
+            if (radiusBottom > 0.0) { this.generateCap(false radiusBottom halfHeight radialSeg thetaStart thetaLength) }
+        }
+        return this
+    }
+
+    fn generateCap:void (top:boolean radius:double halfHeight:double radialSeg:int thetaStart:double thetaLength:double) {
+        def sign:double 1.0
+        if (top == false) { sign = (0.0 - 1.0) }
+        def centerStart:int (this.vertexCount())
+        def x1:int 1
+        while (x1 <= radialSeg) {
+            this.pushVertex(0.0 (halfHeight * sign) 0.0  0.0 sign 0.0  0.5 0.5)
+            x1 = (x1 + 1)
+        }
+        def centerEnd:int (this.vertexCount())
+        def x2:int 0
+        while (x2 <= radialSeg) {
+            def u:double ((to_double x2) / (to_double radialSeg))
+            def theta:double ((u * thetaLength) + thetaStart)
+            def ct:double (cos(theta))
+            def stt:double (sin(theta))
+            this.pushVertex((radius * stt) (halfHeight * sign) (radius * ct)  0.0 sign 0.0  ((ct * 0.5) + 0.5) (((stt * 0.5) * sign) + 0.5))
+            x2 = (x2 + 1)
+        }
+        def x3:int 0
+        while (x3 < radialSeg) {
+            def c:int (centerStart + x3)
+            def i:int (centerEnd + x3)
+            if (top == true) {
+                this.pushTriangle(i (i + 1) c)
+            } {
+                this.pushTriangle((i + 1) i c)
+            }
+            x3 = (x3 + 1)
+        }
+    }
+}
+
+class ThreeConeGeometry extends ThreeBufferGeometry {
+    def isConeGeometry:boolean true
+    ; Cone is a cylinder with a zero-radius top; delegate so the torso/cap parity
+    ; (degenerate-apex triangle skip) is identical to three.js's subclassing.
+    fn build:ThreeCylinderGeometry (radius:double height:double radialSeg:int heightSeg:int openEnded:boolean thetaStart:double thetaLength:double) {
+        def cyl:ThreeCylinderGeometry (new ThreeCylinderGeometry)
+        return (cyl.build(0.0 radius height radialSeg heightSeg openEnded thetaStart thetaLength))
+    }
+}
+
+; ------------------------------------------------------------------ Torus
+class ThreeTorusGeometry extends ThreeBufferGeometry {
+    def isTorusGeometry:boolean true
+
+    fn build:ThreeTorusGeometry (radius:double tube:double radialSeg:int tubularSeg:int arc:double) {
+        def j:int 0
+        while (j <= radialSeg) {
+            def vv:double (((to_double j) / (to_double radialSeg)) * 6.283185307179586)
+            def i:int 0
+            while (i <= tubularSeg) {
+                def u:double ((((to_double i) / (to_double tubularSeg))) * arc)
+                def cu:double (cos(u))
+                def su:double (sin(u))
+                def cv:double (cos(vv))
+                def sv:double (sin(vv))
+                def vx:double ((radius + (tube * cv)) * cu)
+                def vy:double ((radius + (tube * cv)) * su)
+                def vz:double (tube * sv)
+                ; normal = normalize(vertex - center), center = (radius*cu, radius*su, 0)
+                def nx:double (vx - (radius * cu))
+                def ny:double (vy - (radius * su))
+                def nz:double vz
+                def nl:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+                if (nl < 0.000000001) { nl = 1.0 }
+                this.pushVertex(vx vy vz  (nx / nl) (ny / nl) (nz / nl)  ((to_double i) / (to_double tubularSeg)) ((to_double j) / (to_double radialSeg)))
+                i = (i + 1)
+            }
+            j = (j + 1)
+        }
+        def t1:int (tubularSeg + 1)
+        def jj:int 1
+        while (jj <= radialSeg) {
+            def ii:int 1
+            while (ii <= tubularSeg) {
+                def a:int (((t1 * jj) + ii) - 1)
+                def b:int (((t1 * (jj - 1)) + ii) - 1)
+                def c:int ((t1 * (jj - 1)) + ii)
+                def d:int ((t1 * jj) + ii)
+                this.pushTriangle(a b d)
+                this.pushTriangle(b c d)
+                ii = (ii + 1)
+            }
+            jj = (jj + 1)
+        }
+        return this
+    }
+}
+
+; ------------------------------------------------------------------ TorusKnot (complex)
+class ThreeTorusKnotGeometry extends ThreeBufferGeometry {
+    def isTorusKnotGeometry:boolean true
+
+    fn build:ThreeTorusKnotGeometry (radius:double tube:double tubularSeg:int radialSeg:int p:int q:int) {
+        def twoPi:double 6.283185307179586
+        def qp:double ((to_double q) / (to_double p))
+        def i:int 0
+        while (i <= tubularSeg) {
+            def u:double ((((to_double i) / (to_double tubularSeg)) * (to_double p)) * twoPi)
+            ; P1 = curve(u), P2 = curve(u + 0.01)
+            def cu1:double (cos(u))
+            def su1:double (sin(u))
+            def cs1:double (cos(qp * u))
+            def p1x:double (((radius * (2.0 + cs1)) * 0.5) * cu1)
+            def p1y:double (((radius * (2.0 + cs1)) * su1) * 0.5)
+            def p1z:double ((radius * (sin(qp * u))) * 0.5)
+            def u2:double (u + 0.01)
+            def cu2:double (cos(u2))
+            def su2:double (sin(u2))
+            def cs2:double (cos(qp * u2))
+            def p2x:double (((radius * (2.0 + cs2)) * 0.5) * cu2)
+            def p2y:double (((radius * (2.0 + cs2)) * su2) * 0.5)
+            def p2z:double ((radius * (sin(qp * u2))) * 0.5)
+            ; T = P2-P1 ; N = P2+P1 ; B = T×N ; N = B×T ; normalize B,N
+            def tx:double (p2x - p1x)
+            def ty:double (p2y - p1y)
+            def tz:double (p2z - p1z)
+            def nxv:double (p2x + p1x)
+            def nyv:double (p2y + p1y)
+            def nzv:double (p2z + p1z)
+            def bx:double ((ty * nzv) - (tz * nyv))
+            def by:double ((tz * nxv) - (tx * nzv))
+            def bz:double ((tx * nyv) - (ty * nxv))
+            def n2x:double ((by * tz) - (bz * ty))
+            def n2y:double ((bz * tx) - (bx * tz))
+            def n2z:double ((bx * ty) - (by * tx))
+            def bl:double (sqrt(((bx * bx) + (by * by)) + (bz * bz)))
+            if (bl < 0.000000001) { bl = 1.0 }
+            bx = (bx / bl)
+            by = (by / bl)
+            bz = (bz / bl)
+            def n2l:double (sqrt(((n2x * n2x) + (n2y * n2y)) + (n2z * n2z)))
+            if (n2l < 0.000000001) { n2l = 1.0 }
+            n2x = (n2x / n2l)
+            n2y = (n2y / n2l)
+            n2z = (n2z / n2l)
+            def j:int 0
+            while (j <= radialSeg) {
+                def v:double (((to_double j) / (to_double radialSeg)) * twoPi)
+                def cx:double (0.0 - (tube * (cos(v))))
+                def cy:double (tube * (sin(v)))
+                def vx:double (p1x + ((cx * n2x) + (cy * bx)))
+                def vy:double (p1y + ((cx * n2y) + (cy * by)))
+                def vz:double (p1z + ((cx * n2z) + (cy * bz)))
+                def dnx:double (vx - p1x)
+                def dny:double (vy - p1y)
+                def dnz:double (vz - p1z)
+                def dnl:double (sqrt(((dnx * dnx) + (dny * dny)) + (dnz * dnz)))
+                if (dnl < 0.000000001) { dnl = 1.0 }
+                this.pushVertex(vx vy vz  (dnx / dnl) (dny / dnl) (dnz / dnl)  ((to_double i) / (to_double tubularSeg)) ((to_double j) / (to_double radialSeg)))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        def r1:int (radialSeg + 1)
+        def jj:int 1
+        while (jj <= tubularSeg) {
+            def ii:int 1
+            while (ii <= radialSeg) {
+                def a:int ((r1 * (jj - 1)) + (ii - 1))
+                def b:int ((r1 * jj) + (ii - 1))
+                def c:int ((r1 * jj) + ii)
+                def d:int ((r1 * (jj - 1)) + ii)
+                this.pushTriangle(a b d)
+                this.pushTriangle(b c d)
+                ii = (ii + 1)
+            }
+            jj = (jj + 1)
+        }
+        return this
+    }
+}

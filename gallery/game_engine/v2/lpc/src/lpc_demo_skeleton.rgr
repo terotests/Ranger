@@ -1,0 +1,21 @@
+; ==============================================================================
+; lpc_demo_skeleton — skeleton enemy walk strip (body + skull head).
+; ==============================================================================
+; Bake: npm run engine:lpc:run -- skeleton gallery/game_engine/games/ylos2/assets/enemy_walk.png
+
+class LpcDemoSkeleton {
+    fn addCall:void (list:[LpcDrawCall] path:string z:int) {
+        def call:LpcDrawCall (new LpcDrawCall())
+        call.spritePath = path
+        call.zPos = z
+        call.animY = 0
+        push list call
+    }
+
+    fn buildCalls:[LpcDrawCall] () {
+        def list:[LpcDrawCall]
+        this.addCall(list "body/bodies/skeleton/walk/skeleton.png" 10)
+        this.addCall(list "head/heads/skeleton/walk/skeleton.png" 100)
+        return list
+    }
+}

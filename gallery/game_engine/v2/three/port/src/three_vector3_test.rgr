@@ -1,0 +1,137 @@
+; ==============================================================================
+; three_vector3_test — Three.js test/unit/src/math/Vector3.tests.js (ported).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and a grep-able
+; "ALL PASS". Mirrors the physics/ Cannon port's per-class tests.
+; ==============================================================================
+
+Import "three_vector3.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.000001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeVector3Test {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeVector3 (Three.js Vector3 port) =="
+
+        ; set / accessors
+        def a:ThreeVector3 (new ThreeVector3)
+        ck.near("default x" a.x 0.0)
+        a.set(1.0 2.0 3.0)
+        ck.near("set x" a.x 1.0)
+        ck.near("set y" a.y 2.0)
+        ck.near("set z" a.z 3.0)
+
+        ; copy / clone
+        def b:ThreeVector3 (a.clone())
+        ck.ok("clone equals" (b.equals(a)))
+        b.set(4.0 5.0 6.0)
+        ck.ok("clone is independent" ((a.x == 1.0) && (b.x == 4.0)))
+        def c:ThreeVector3 (new ThreeVector3)
+        c.copy(a)
+        ck.near("copy x" c.x 1.0)
+
+        ; add / sub / addVectors / subVectors
+        def s:ThreeVector3 (new ThreeVector3)
+        s.addVectors(a b)
+        ck.near("addVectors x" s.x 5.0)
+        ck.near("addVectors y" s.y 7.0)
+        ck.near("addVectors z" s.z 9.0)
+        def d2:ThreeVector3 (new ThreeVector3)
+        d2.subVectors(b a)
+        ck.near("subVectors x" d2.x 3.0)
+
+        ; multiplyScalar / divideScalar
+        def m:ThreeVector3 (ThreeVector3.of(1.0 2.0 3.0))
+        m.multiplyScalar(2.0)
+        ck.near("multiplyScalar x" m.x 2.0)
+        ck.near("multiplyScalar z" m.z 6.0)
+        m.divideScalar(2.0)
+        ck.near("divideScalar x" m.x 1.0)
+
+        ; dot
+        def u:ThreeVector3 (ThreeVector3.of(1.0 2.0 3.0))
+        def w:ThreeVector3 (ThreeVector3.of(4.0 5.0 6.0))
+        ck.near("dot" (u.dot(w)) 32.0)
+
+        ; length / normalize
+        def L:ThreeVector3 (ThreeVector3.of(3.0 4.0 0.0))
+        ck.near("length" (L.length()) 5.0)
+        ck.near("lengthSq" (L.lengthSq()) 25.0)
+        L.normalize()
+        ck.near("normalized length" (L.length()) 1.0)
+        ck.near("normalized x" L.x 0.6)
+
+        ; cross (right-handed): x cross y = z
+        def cx:ThreeVector3 (ThreeVector3.of(1.0 0.0 0.0))
+        def cy:ThreeVector3 (ThreeVector3.of(0.0 1.0 0.0))
+        def cr:ThreeVector3 (new ThreeVector3)
+        cr.crossVectors(cx cy)
+        ck.near("cross z" cr.z 1.0)
+        ck.near("cross x" cr.x 0.0)
+
+        ; distanceTo
+        def p:ThreeVector3 (ThreeVector3.of(0.0 0.0 0.0))
+        def q:ThreeVector3 (ThreeVector3.of(0.0 3.0 4.0))
+        ck.near("distanceTo" (p.distanceTo(q)) 5.0)
+
+        ; lerp midpoint
+        def l0:ThreeVector3 (ThreeVector3.of(0.0 0.0 0.0))
+        def l1:ThreeVector3 (ThreeVector3.of(10.0 0.0 0.0))
+        l0.lerp(l1 0.5)
+        ck.near("lerp x" l0.x 5.0)
+
+        ; setFromSphericalCoords: (r, phi from +Y, theta azimuth in XZ)
+        def sc:ThreeVector3 (new ThreeVector3)
+        def halfPi:double 1.5707963267948966
+        sc.setFromSphericalCoords(1.0 halfPi 0.0)
+        ck.near("spherical (r,PI/2,0) -> z" sc.z 1.0)
+        ck.near("spherical (r,PI/2,0) -> x" sc.x 0.0)
+        ck.near("spherical (r,PI/2,0) -> y" sc.y 0.0)
+        sc.setFromSphericalCoords(1.0 halfPi halfPi)
+        ck.near("spherical (r,PI/2,PI/2) -> x" sc.x 1.0)
+        ck.near("spherical (r,PI/2,PI/2) -> z" sc.z 0.0)
+        sc.setFromSphericalCoords(2.0 0.0 0.0)
+        ck.near("spherical (2,0,0) -> y (up)" sc.y 2.0)
+
+        ; fluent chaining (Three.js style)
+        def chain:ThreeVector3 (new ThreeVector3)
+        chain.set(1.0 1.0 1.0).multiplyScalar(3.0).addScalar(1.0)
+        ck.near("chain x" chain.x 4.0)
+        ck.near("chain z" chain.z 4.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

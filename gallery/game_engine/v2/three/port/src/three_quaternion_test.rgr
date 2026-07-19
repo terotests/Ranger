@@ -1,0 +1,94 @@
+; ==============================================================================
+; three_quaternion_test — Three.js Quaternion tests (ported subset).
+; ==============================================================================
+
+Import "three_quaternion.rgr"
+Import "three_euler.rgr"
+Import "three_vector3.rgr"
+
+class ThreeQuatCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeQuaternionTest {
+    sfn m@(main):void () {
+        def ck:ThreeQuatCheck (new ThreeQuatCheck)
+        def pi:double 3.141592653589793
+        print "== ThreeQuaternion (Three.js Quaternion port) =="
+
+        ; identity
+        def q:ThreeQuaternion (new ThreeQuaternion)
+        ck.near("identity w" q.w 1.0)
+        ck.near("identity x" q.x 0.0)
+
+        ; setFromAxisAngle(x, 90deg) -> (sin45,0,0,cos45)
+        def ax:ThreeVector3 (ThreeVector3.of(1.0 0.0 0.0))
+        def qa:ThreeQuaternion (new ThreeQuaternion)
+        qa.setFromAxisAngle(ax (pi / 2.0))
+        ck.near("axisAngle x" qa.x 0.7071067811865476)
+        ck.near("axisAngle w" qa.w 0.7071067811865476)
+        ck.near("axisAngle unit" (qa.length()) 1.0)
+
+        ; setFromEuler(90deg about X, XYZ) matches axis-angle
+        def e:ThreeEuler (new ThreeEuler)
+        e.set((pi / 2.0) 0.0 0.0)
+        def qe:ThreeQuaternion (new ThreeQuaternion)
+        qe.setFromEuler(e)
+        ck.near("euler->quat x" qe.x 0.7071067811865476)
+        ck.near("euler->quat w" qe.w 0.7071067811865476)
+        ck.near("euler->quat y" qe.y 0.0)
+
+        ; setFromEuler(90deg about Y) -> (0, sin45, 0, cos45)
+        def ey:ThreeEuler (new ThreeEuler)
+        ey.set(0.0 (pi / 2.0) 0.0)
+        def qy:ThreeQuaternion (new ThreeQuaternion)
+        qy.setFromEuler(ey)
+        ck.near("euler Y ->quat y" qy.y 0.7071067811865476)
+        ck.near("euler Y ->quat w" qy.w 0.7071067811865476)
+
+        ; multiply by identity is a no-op
+        def id:ThreeQuaternion (new ThreeQuaternion)
+        def qm:ThreeQuaternion (qe.clone())
+        qm.multiply(id)
+        ck.near("q*identity x" qm.x qe.x)
+        ck.near("q*identity w" qm.w qe.w)
+
+        ; normalize
+        def qn:ThreeQuaternion (new ThreeQuaternion)
+        qn.set(1.0 1.0 1.0 1.0)
+        qn.normalize()
+        ck.near("normalized x" qn.x 0.5)
+        ck.near("normalized length" (qn.length()) 1.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

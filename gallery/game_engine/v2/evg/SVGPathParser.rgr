@@ -1,0 +1,494 @@
+; SVGPathParser.rgr - Parse SVG path data and calculate bounding boxes
+;
+; This module parses SVG path commands (M, L, C, Q, A, Z) and provides:
+; 1. Bounding box calculation for scaling
+; 2. PDF path command generation
+
+; Path command types
+class PathCommand {
+    def type:string ""  ; "M", "L", "C", "Q", "A", "Z"
+    def x:double 0.0
+    def y:double 0.0
+    def x1:double 0.0
+    def y1:double 0.0
+    def x2:double 0.0
+    def y2:double 0.0
+    def rx:double 0.0
+    def ry:double 0.0
+    def rotation:double 0.0
+    def largeArc:boolean false
+    def sweep:boolean false
+}
+
+class PathBounds {
+    def minX:double 0.0
+    def minY:double 0.0
+    def maxX:double 0.0
+    def maxY:double 0.0
+    def width:double 0.0
+    def height:double 0.0
+}
+
+class SVGPathParser {
+    def pathData:string ""
+    def i:int 0
+    def len:int 0
+    def currentX:double 0.0
+    def currentY:double 0.0
+    def startX:double 0.0
+    def startY:double 0.0
+    def commands:[PathCommand]
+    def bounds:PathBounds
+    
+    Constructor () {
+        def emptyCommands:[PathCommand]
+        commands = emptyCommands
+        bounds = (new PathBounds())
+    }
+    
+    ; Parse SVG path data string
+    fn parse:void (data:string) {
+        pathData = data
+        i = 0
+        len = (strlen data)
+        currentX = 0.0
+        currentY = 0.0
+        startX = 0.0
+        startY = 0.0
+        
+        ; Reset commands array
+        def emptyCommands:[PathCommand]
+        commands = emptyCommands
+        
+        ; Parse path commands
+        while (i < len) {
+            this.skipWhitespace()
+            if (i >= len) {
+                break
+            }
+            
+            def ch:char (charAt pathData i)
+            def chInt:int ch
+            
+            ; Command letters
+            if (((chInt >= 65) && (chInt <= 90)) || ((chInt >= 97) && (chInt <= 122))) {
+                this.parseCommand(ch)
+            } {
+                i = i + 1
+            }
+        }
+        
+        ; Calculate bounding box
+        this.calculateBounds()
+    }
+    
+    fn skipWhitespace:void () {
+        while (i < len) {
+            def ch:char (charAt pathData i)
+            def chInt:int ch
+            ; Space, tab, newline, carriage return, comma
+            if ((chInt == 32) || (chInt == 9) || (chInt == 10) || (chInt == 13) || (chInt == 44)) {
+                i = i + 1
+            } {
+                break
+            }
+        }
+    }
+    
+    fn parseNumber:double () {
+        this.skipWhitespace()
+        def start:int i
+        def ch:char (charAt pathData i)
+        def chInt:int ch
+        
+        ; Handle optional sign
+        if ((chInt == 45) || (chInt == 43)) {
+            i = i + 1
+        }
+        
+        ; Parse integer part
+        while (i < len) {
+            def ch2:char (charAt pathData i)
+            def chInt2:int ch2
+            if ((chInt2 >= 48) && (chInt2 <= 57)) {
+                i = i + 1
+            } {
+                break
+            }
+        }
+        
+        ; Parse decimal part
+        if (i < len) {
+            def ch3:char (charAt pathData i)
+            def chInt3:int ch3
+            if (chInt3 == 46) {
+                i = i + 1
+                while (i < len) {
+                    def ch4:char (charAt pathData i)
+                    def chInt4:int ch4
+                    if ((chInt4 >= 48) && (chInt4 <= 57)) {
+                        i = i + 1
+                    } {
+                        break
+                    }
+                }
+            }
+        }
+        
+        ; Parse exponent
+        if (i < len) {
+            def ch5:char (charAt pathData i)
+            def chInt5:int ch5
+            if ((chInt5 == 101) || (chInt5 == 69)) {
+                i = i + 1
+                if (i < len) {
+                    def ch6:char (charAt pathData i)
+                    def chInt6:int ch6
+                    if ((chInt6 == 45) || (chInt6 == 43)) {
+                        i = i + 1
+                    }
+                }
+                while (i < len) {
+                    def ch7:char (charAt pathData i)
+                    def chInt7:int ch7
+                    if ((chInt7 >= 48) && (chInt7 <= 57)) {
+                        i = i + 1
+                    } {
+                        break
+                    }
+                }
+            }
+        }
+        
+        def numStr:string (substring pathData start i)
+        def result:double (unwrap (str2double numStr))
+        return result
+    }
+    
+    fn parseCommand:void (cmd:char) {
+        def cmdInt:int cmd
+        def cmdStr:string (strfromcode cmdInt)
+        i = i + 1
+        
+        ; Move to
+        if ((cmdInt == 77) || (cmdInt == 109)) {
+            def x:double (this.parseNumber())
+            def y:double (this.parseNumber())
+            
+            if (cmdInt == 109) {
+                ; Relative
+                x = currentX + x
+                y = currentY + y
+            }
+            
+            def pathCmd (new PathCommand())
+            pathCmd.type = "M"
+            pathCmd.x = x
+            pathCmd.y = y
+            push commands pathCmd
+            
+            currentX = x
+            currentY = y
+            startX = x
+            startY = y
+            return
+        }
+        
+        ; Line to
+        if ((cmdInt == 76) || (cmdInt == 108)) {
+            def x:double (this.parseNumber())
+            def y:double (this.parseNumber())
+            
+            if (cmdInt == 108) {
+                ; Relative
+                x = currentX + x
+                y = currentY + y
+            }
+            
+            def pathCmd (new PathCommand())
+            pathCmd.type = "L"
+            pathCmd.x = x
+            pathCmd.y = y
+            push commands pathCmd
+            
+            currentX = x
+            currentY = y
+            return
+        }
+        
+        ; Horizontal line
+        if ((cmdInt == 72) || (cmdInt == 104)) {
+            def x:double (this.parseNumber())
+            
+            if (cmdInt == 104) {
+                ; Relative
+                x = currentX + x
+            }
+            
+            def pathCmd (new PathCommand())
+            pathCmd.type = "L"
+            pathCmd.x = x
+            pathCmd.y = currentY
+            push commands pathCmd
+            
+            currentX = x
+            return
+        }
+        
+        ; Vertical line
+        if ((cmdInt == 86) || (cmdInt == 118)) {
+            def y:double (this.parseNumber())
+            
+            if (cmdInt == 118) {
+                ; Relative
+                y = currentY + y
+            }
+            
+            def pathCmd (new PathCommand())
+            pathCmd.type = "L"
+            pathCmd.x = currentX
+            pathCmd.y = y
+            push commands pathCmd
+            
+            currentY = y
+            return
+        }
+        
+        ; Cubic Bezier curve
+        if ((cmdInt == 67) || (cmdInt == 99)) {
+            def x1:double (this.parseNumber())
+            def y1:double (this.parseNumber())
+            def x2:double (this.parseNumber())
+            def y2:double (this.parseNumber())
+            def x:double (this.parseNumber())
+            def y:double (this.parseNumber())
+            
+            if (cmdInt == 99) {
+                ; Relative
+                x1 = currentX + x1
+                y1 = currentY + y1
+                x2 = currentX + x2
+                y2 = currentY + y2
+                x = currentX + x
+                y = currentY + y
+            }
+            
+            def pathCmd (new PathCommand())
+            pathCmd.type = "C"
+            pathCmd.x1 = x1
+            pathCmd.y1 = y1
+            pathCmd.x2 = x2
+            pathCmd.y2 = y2
+            pathCmd.x = x
+            pathCmd.y = y
+            push commands pathCmd
+            
+            currentX = x
+            currentY = y
+            return
+        }
+        
+        ; Quadratic Bezier curve
+        if ((cmdInt == 81) || (cmdInt == 113)) {
+            def x1:double (this.parseNumber())
+            def y1:double (this.parseNumber())
+            def x:double (this.parseNumber())
+            def y:double (this.parseNumber())
+            
+            if (cmdInt == 113) {
+                ; Relative
+                x1 = currentX + x1
+                y1 = currentY + y1
+                x = currentX + x
+                y = currentY + y
+            }
+            
+            def pathCmd (new PathCommand())
+            pathCmd.type = "Q"
+            pathCmd.x1 = x1
+            pathCmd.y1 = y1
+            pathCmd.x = x
+            pathCmd.y = y
+            push commands pathCmd
+            
+            currentX = x
+            currentY = y
+            return
+        }
+        
+        ; Close path
+        if ((cmdInt == 90) || (cmdInt == 122)) {
+            def pathCmd (new PathCommand())
+            pathCmd.type = "Z"
+            push commands pathCmd
+            
+            currentX = startX
+            currentY = startY
+            return
+        }
+    }
+    
+    fn calculateBounds:void () {
+        if ((array_length commands) == 0) {
+            return
+        }
+        
+        def minX:double 999999.0
+        def minY:double 999999.0
+        def maxX:double -999999.0
+        def maxY:double -999999.0
+        
+        def i:int 0
+        while (i < (array_length commands)) {
+            def cmd:PathCommand (itemAt commands i)
+            
+            if ((cmd.type == "M") || (cmd.type == "L")) {
+                if (cmd.x < minX) {
+                    minX = cmd.x
+                }
+                if (cmd.x > maxX) {
+                    maxX = cmd.x
+                }
+                if (cmd.y < minY) {
+                    minY = cmd.y
+                }
+                if (cmd.y > maxY) {
+                    maxY = cmd.y
+                }
+            }
+            
+            if (cmd.type == "C") {
+                ; Include control points for better bounds
+                if (cmd.x1 < minX) {
+                    minX = cmd.x1
+                }
+                if (cmd.x1 > maxX) {
+                    maxX = cmd.x1
+                }
+                if (cmd.y1 < minY) {
+                    minY = cmd.y1
+                }
+                if (cmd.y1 > maxY) {
+                    maxY = cmd.y1
+                }
+                if (cmd.x2 < minX) {
+                    minX = cmd.x2
+                }
+                if (cmd.x2 > maxX) {
+                    maxX = cmd.x2
+                }
+                if (cmd.y2 < minY) {
+                    minY = cmd.y2
+                }
+                if (cmd.y2 > maxY) {
+                    maxY = cmd.y2
+                }
+                if (cmd.x < minX) {
+                    minX = cmd.x
+                }
+                if (cmd.x > maxX) {
+                    maxX = cmd.x
+                }
+                if (cmd.y < minY) {
+                    minY = cmd.y
+                }
+                if (cmd.y > maxY) {
+                    maxY = cmd.y
+                }
+            }
+            
+            if (cmd.type == "Q") {
+                ; Include control point
+                if (cmd.x1 < minX) {
+                    minX = cmd.x1
+                }
+                if (cmd.x1 > maxX) {
+                    maxX = cmd.x1
+                }
+                if (cmd.y1 < minY) {
+                    minY = cmd.y1
+                }
+                if (cmd.y1 > maxY) {
+                    maxY = cmd.y1
+                }
+                if (cmd.x < minX) {
+                    minX = cmd.x
+                }
+                if (cmd.x > maxX) {
+                    maxX = cmd.x
+                }
+                if (cmd.y < minY) {
+                    minY = cmd.y
+                }
+                if (cmd.y > maxY) {
+                    maxY = cmd.y
+                }
+            }
+            
+            i = i + 1
+        }
+        
+        bounds.minX = minX
+        bounds.minY = minY
+        bounds.maxX = maxX
+        bounds.maxY = maxY
+        bounds.width = maxX - minX
+        bounds.height = maxY - minY
+    }
+    
+    fn getBounds:PathBounds () {
+        def result:PathBounds (unwrap bounds)
+        return result
+    }
+    
+    fn getCommands:[PathCommand] () {
+        return commands
+    }
+    
+    ; Scale path commands to fit target dimensions
+    fn getScaledCommands:[PathCommand] (targetWidth:double targetHeight:double) {
+        def scaleX:double 1.0
+        def scaleY:double 1.0
+        
+        if (bounds.width > 0.0) {
+            scaleX = targetWidth / bounds.width
+        }
+        if (bounds.height > 0.0) {
+            scaleY = targetHeight / bounds.height
+        }
+        
+        def scaled:[PathCommand]
+        def i:int 0
+        while (i < (array_length commands)) {
+            def cmd:PathCommand (itemAt commands i)
+            def newCmd (new PathCommand())
+            newCmd.type = cmd.type
+            
+            if ((cmd.type == "M") || (cmd.type == "L")) {
+                newCmd.x = (cmd.x - bounds.minX) * scaleX
+                newCmd.y = (cmd.y - bounds.minY) * scaleY
+            }
+            
+            if (cmd.type == "C") {
+                newCmd.x1 = (cmd.x1 - bounds.minX) * scaleX
+                newCmd.y1 = (cmd.y1 - bounds.minY) * scaleY
+                newCmd.x2 = (cmd.x2 - bounds.minX) * scaleX
+                newCmd.y2 = (cmd.y2 - bounds.minY) * scaleY
+                newCmd.x = (cmd.x - bounds.minX) * scaleX
+                newCmd.y = (cmd.y - bounds.minY) * scaleY
+            }
+            
+            if (cmd.type == "Q") {
+                newCmd.x1 = (cmd.x1 - bounds.minX) * scaleX
+                newCmd.y1 = (cmd.y1 - bounds.minY) * scaleY
+                newCmd.x = (cmd.x - bounds.minX) * scaleX
+                newCmd.y = (cmd.y - bounds.minY) * scaleY
+            }
+            
+            push scaled newCmd
+            i = i + 1
+        }
+        
+        return scaled
+    }
+}

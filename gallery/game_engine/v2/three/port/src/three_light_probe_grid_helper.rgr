@@ -1,0 +1,51 @@
+; ==============================================================================
+; three_light_probe_grid_helper — probe gizmos (Three.js addons helpers/
+; LightProbeGridHelper). Sponza slice 8.
+; ==============================================================================
+; A debugging visual: one small sphere at each probe, tinted by that probe's
+; reconstructed irradiance, so "Show Probes" in the GUI reveals the baked GI. The
+; portable core computes each probe's world position (grid.position + cell offset)
+; and colour (getIrradianceAt toward +Y); the GPU side builds the actual sphere
+; meshes at those positions with those colours. Testable without a GPU.
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_vector3.rgr"
+Import "three_light_probe_grid.rgr"
+Import "three_spherical_harmonics3.rgr"
+
+class ThreeLightProbeGridHelper extends ThreeObject3D {
+    def isLightProbeGridHelper:boolean true
+    def grid:ThreeLightProbeGrid (new ThreeLightProbeGrid)
+    def size:double 0.2
+
+    sfn create:ThreeLightProbeGridHelper (grid:ThreeLightProbeGrid size:double) {
+        def h:ThreeLightProbeGridHelper (new ThreeLightProbeGridHelper)
+        h.grid = grid
+        h.size = size
+        return h
+    }
+
+    fn probeCount:int () {
+        return (this.grid.probeCount())
+    }
+
+    ; world position of probe cell (ix,iy,iz): grid origin + cell local offset.
+    fn probeWorldPosition:ThreeVector3 (ix:int iy:int iz:int target:ThreeVector3) {
+        def lx:double (this.grid.cellLocalX(ix))
+        def ly:double (this.grid.cellLocalY(iy))
+        def lz:double (this.grid.cellLocalZ(iz))
+        return (target.set((this.grid.position.x + lx) (this.grid.position.y + ly) (this.grid.position.z + lz)))
+    }
+
+    ; the colour to tint the gizmo: the probe's diffuse irradiance toward +Y.
+    fn probeColor:ThreeVector3 (ix:int iy:int iz:int target:ThreeVector3) {
+        def p:ThreeSphericalHarmonics3 (this.grid.getProbe(ix iy iz))
+        return (p.getIrradianceAt(0.0 1.0 0.0 target))
+    }
+
+    fn setSize:ThreeLightProbeGridHelper (s:double) {
+        this.size = s
+        return this
+    }
+}

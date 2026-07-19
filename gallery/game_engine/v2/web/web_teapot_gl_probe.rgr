@@ -1,0 +1,210 @@
+; ==============================================================================
+; web_teapot_gl_probe — M1 verification: a LIT Utah teapot rendered with WebGL.
+; ==============================================================================
+; A native Ranger scene (no interpreter): ambient + directional lights, a Phong
+; ("glossy") material, and the TeapotGeometry, drawn through ThreeGLBackend. Used
+; to verify the lighting + teapot pipeline in the browser before wiring the
+; interpreter façade. Flat API for a canvas harness: setupGL / frame / spin.
+; ==============================================================================
+
+Import "../three/src/three_webgl_renderer.rgr"
+Import "../three/src/three_gl_backend.rgr"
+Import "../three/src/three_scene.rgr"
+Import "../three/src/three_perspective_camera.rgr"
+Import "../three/src/three_mesh.rgr"
+Import "../three/src/three_material.rgr"
+Import "../three/src/three_mesh_basic_material.rgr"
+Import "../three/src/three_mesh_lambert_material.rgr"
+Import "../three/src/three_mesh_phong_material.rgr"
+Import "../three/src/three_light.rgr"
+Import "../three/src/three_teapot_geometry.rgr"
+Import "../three/src/three_orbit_controls.rgr"
+Import "../three/tsx/three_gui_overlay.rgr"
+Import "../three/src/three_texture.rgr"
+Import "../three/src/three_cube_texture.rgr"
+
+class WebTeapotProbe {
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    def gl:ThreeGLBackend (new ThreeGLBackend)
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    def mesh:ThreeMesh (new ThreeMesh)
+    def controls:ThreeOrbitControls (new ThreeOrbitControls)
+    def gui:ThreeGuiOverlay (new ThreeGuiOverlay)
+    def uvTex:ThreeTexture (new ThreeTexture)
+    def w:int 600
+    def h:int 600
+    def spinY:double 0.6
+    def ready:boolean false
+    def sceneDirty:boolean true
+
+    fn build:void () {
+        camera.setPerspective(45.0 1.0 1.0 80000.0)
+        camera.position.set(0.0 0.0 1200.0)
+        controls.setViewport(w h)
+        controls.setDistanceRange(200.0 8000.0)
+        controls.setCamera(camera)
+        controls.setTarget(0.0 0.0 0.0)
+
+        scene.setBackground(0.667 0.667 0.667)
+
+        def amb:ThreeAmbientLight (new ThreeAmbientLight)
+        amb.setColorHex(8158332)
+        amb.setIntensity(0.6)
+        scene.add(amb)
+
+        def dir:ThreeDirectionalLight (new ThreeDirectionalLight)
+        dir.setColorHex(16777215)
+        dir.setIntensity(1.4)
+        dir.setDirection(0.32 0.39 0.7)
+        scene.add(dir)
+
+        ; environment cube map (skybox + reflections) and a UV texture for
+        ; the "textured" material — both procedural, so no external assets.
+        def env:ThreeCubeTexture (ThreeCubeTexture.proceduralSky(64))
+        scene.setEnvironmentMap(env)
+        uvTex = (ThreeTexture.uvGrid(256 8))
+
+        this.createNewTeapot()
+        mesh.rotation.set((0.0 - 0.2) 0.5 0.0)
+        scene.add(mesh)
+    }
+
+    ; build the material for the current GUI shading mode.
+    fn makeMaterial:ThreeMaterial () {
+        if (gui.shadingIndex == 0) {
+            def mw:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+            mw.setColorHex(6737151)
+            mw.setWireframe(true)
+            return mw
+        }
+        if (gui.shadingIndex == 1) {
+            def mf:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+            mf.setColorHex(12632256)
+            mf.setSpecularHex(4210752)
+            mf.setShininess(300.0)
+            mf.setSide(2)
+            mf.setFlatShading(true)
+            return mf
+        }
+        if (gui.shadingIndex == 2) {
+            def ml:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+            ml.setColorHex(12632256)
+            ml.setSide(2)
+            return ml
+        }
+        if (gui.shadingIndex == 4) {
+            def mt:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+            mt.setColorHex(16777215)
+            mt.setSpecularHex(2236962)
+            mt.setShininess(120.0)
+            mt.setSide(2)
+            mt.setMap(uvTex)
+            return mt
+        }
+        if (gui.shadingIndex == 5) {
+            def mr:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+            mr.setColorHex(16777215)
+            mr.setSpecularHex(4210752)
+            mr.setShininess(300.0)
+            mr.setSide(2)
+            mr.setReflective(true)
+            mr.setReflectivity(0.85)
+            return mr
+        }
+        def mg:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+        mg.setColorHex(12632256)
+        mg.setSpecularHex(4210752)
+        mg.setShininess(300.0)
+        mg.setSide(2)
+        return mg
+    }
+
+    ; rebuild teapot geometry + material from the current GUI state.
+    fn createNewTeapot:void () {
+        def geo:ThreeTeapotGeometry (new ThreeTeapotGeometry)
+        geo.setTeapot(300.0 gui.tess gui.dispBottom gui.dispLid gui.dispBody gui.fitLid gui.blinn)
+        mesh.setGeometry(geo)
+        def m:ThreeMaterial (this.makeMaterial())
+        mesh.setMaterial(m)
+    }
+
+    fn setupGL:boolean (canvasId:string) {
+        def ok:boolean (gl.init(canvasId))
+        if (ok == false) {
+            return false
+        }
+        renderer.setBackend(gl)
+        this.build()
+        ready = true
+        return true
+    }
+
+    fn setSize:void (winW:int winH:int) {
+        w = winW
+        h = winH
+        def aspect:double ((to_double winW) / (to_double winH))
+        camera.setPerspective(45.0 aspect 1.0 80000.0)
+        controls.setViewport(winW winH)
+    }
+
+    fn frame:void () {
+        if (ready == false) {
+            return
+        }
+        renderer.setSize(w h)
+        renderer.render(scene camera)
+    }
+
+    ; --- pointer input (forwarded from the host) drives the orbit camera -------
+    fn onPointerDown:void (x:double y:double button:int) {
+        controls.pointerDown(x y button)
+    }
+    fn onPointerMove:void (x:double y:double) {
+        controls.pointerMove(x y)
+    }
+    fn onPointerUp:void () {
+        controls.pointerUp()
+    }
+    fn onWheel:void (delta:double) {
+        controls.wheel(delta)
+    }
+
+    ; --- GUI overlay (top-right panel) ----------------------------------------
+    ; The host composites this RGBA panel over the frame and routes clicks that
+    ; land inside it here (in panel-local coords) instead of to the orbit camera.
+    fn guiRGBA:buffer () {
+        return (gui.render())
+    }
+    fn guiW:int () {
+        return (gui.width())
+    }
+    fn guiH:int () {
+        return (gui.height())
+    }
+    ; returns true if the click hit a control (host should NOT orbit then).
+    fn guiPointerDown:boolean (x:double y:double) {
+        def changed:boolean (gui.pointerDown(x y))
+        if changed {
+            this.createNewTeapot()
+            sceneDirty = true
+        }
+        return changed
+    }
+
+    ; on-demand render: the host renders a frame only when this returns true.
+    fn needsRender:boolean () {
+        def a:boolean (controls.consumeDirty())
+        def b:boolean sceneDirty
+        sceneDirty = false
+        return (a || b)
+    }
+
+    fn spin:void (dy:double) {
+        mesh.rotation.y = (mesh.rotation.y + dy)
+    }
+
+    fn isReady:boolean () {
+        return ready
+    }
+}

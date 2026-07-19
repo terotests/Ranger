@@ -1,0 +1,204 @@
+; EVGTextMeasurer.rgr - Abstract text measurement interface for EVG layout
+
+class EVGTextMetrics {
+    def width:double 0.0
+    def height:double 0.0
+    def ascent:double 0.0
+    def descent:double 0.0
+    def lineHeight:double 0.0
+    
+    Constructor () {
+        width = 0.0
+        height = 0.0
+        ascent = 0.0
+        descent = 0.0
+        lineHeight = 0.0
+    }
+    
+    sfn create:EVGTextMetrics (w:double h:double) {
+        def m (new EVGTextMetrics())
+        m.width = w
+        m.height = h
+        return m
+    }
+}
+
+; Abstract interface - implementations must override
+class EVGTextMeasurer {
+    
+    fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        ; Default implementation - estimate based on font size
+        ; Average character width is approximately 0.5-0.6 of font size
+        def avgCharWidth:double (fontSize * 0.55)
+        def textLen:int (strlen text)
+        def width:double ((to_double textLen) * avgCharWidth)
+        def lineHeight:double (fontSize * 1.2)
+        
+        def metrics (new EVGTextMetrics())
+        metrics.width = width
+        metrics.height = lineHeight
+        metrics.ascent = (fontSize * 0.8)
+        metrics.descent = (fontSize * 0.2)
+        metrics.lineHeight = lineHeight
+        return metrics
+    }
+    
+    fn measureTextWidth:double (text:string fontFamily:string fontSize:double) {
+        def metrics:EVGTextMetrics (this.measureText(text fontFamily fontSize))
+        return metrics.width
+    }
+    
+    fn getLineHeight:double (fontFamily:string fontSize:double) {
+        return (fontSize * 1.2)
+    }
+    
+    fn measureChar:double (ch:int fontFamily:string fontSize:double) {
+        ; Estimate width of a single character
+        ; Proportional fonts have varying widths
+        ; This is a rough approximation
+        
+        ; Space (32) - narrower
+        if (ch == 32) {
+            return (fontSize * 0.3)
+        }
+        
+        ; i, l, j, t, f - narrow characters
+        if ((ch == 105) || (ch == 108) || (ch == 106) || (ch == 116) || (ch == 102)) {
+            return (fontSize * 0.3)
+        }
+        
+        ; m, w - wide characters
+        if ((ch == 109) || (ch == 119)) {
+            return (fontSize * 0.8)
+        }
+        
+        ; M, W - uppercase wide
+        if ((ch == 77) || (ch == 87)) {
+            return (fontSize * 0.9)
+        }
+        
+        ; I - narrow uppercase
+        if (ch == 73) {
+            return (fontSize * 0.35)
+        }
+        
+        ; Default for most characters
+        return (fontSize * 0.55)
+    }
+    
+    fn wrapText:[string] (text:string fontFamily:string fontSize:double maxWidth:double) {
+        ; Wrap text to fit within maxWidth
+        ; Returns array of lines
+        def lines:[string]
+        def currentLine:string ""
+        def currentWidth:double 0.0
+        def wordStart:int 0
+        def textLen:int (strlen text)
+        def i:int 0
+        
+        while (i <= textLen) {
+            def ch:int 0
+            def isEnd:boolean (i == textLen)
+            if (isEnd == false) {
+                ch = (charAt text i)
+            }
+            
+            ; Check for word boundary (space, newline, or end)
+            def isWordEnd:boolean false
+            if isEnd {
+                isWordEnd = true
+            }
+            if (ch == 32) {  ; space
+                isWordEnd = true
+            }
+            if (ch == 10) {  ; newline
+                isWordEnd = true
+            }
+            
+            if isWordEnd {
+                ; Extract word
+                def word:string ""
+                if (i > wordStart) {
+                    word = (substring text wordStart i)
+                }
+                def wordWidth:double (this.measureTextWidth(word fontFamily fontSize))
+                
+                ; Check if word fits on current line
+                def spaceWidth:double 0.0
+                if ((strlen currentLine) > 0) {
+                    spaceWidth = (this.measureTextWidth(" " fontFamily fontSize))
+                }
+                
+                if ((currentWidth + spaceWidth + wordWidth) <= maxWidth) {
+                    ; Word fits
+                    if ((strlen currentLine) > 0) {
+                        currentLine = (currentLine + " ")
+                        currentWidth = currentWidth + spaceWidth
+                    }
+                    currentLine = (currentLine + word)
+                    currentWidth = currentWidth + wordWidth
+                } {
+                    ; Word doesn't fit - start new line
+                    if ((strlen currentLine) > 0) {
+                        push lines currentLine
+                    }
+                    currentLine = word
+                    currentWidth = wordWidth
+                }
+                
+                ; Handle explicit newline
+                if (ch == 10) {
+                    push lines currentLine
+                    currentLine = ""
+                    currentWidth = 0.0
+                }
+                
+                wordStart = i + 1
+            }
+            
+            i = i + 1
+        }
+        
+        ; Add final line
+        if ((strlen currentLine) > 0) {
+            push lines currentLine
+        }
+        
+        return lines
+    }
+}
+
+; Simple measurer that uses fixed-width approximation
+class SimpleTextMeasurer {
+    Extends(EVGTextMeasurer)
+    
+    ; Character width ratios for common fonts
+    def charWidthRatio:double 0.55
+    
+    fn setCharWidthRatio:void (ratio:double) {
+        charWidthRatio = ratio
+    }
+    
+    fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        def textLen:int (strlen text)
+        def width:double 0.0
+        
+        ; Sum up character widths
+        def i:int 0
+        while (i < textLen) {
+            def ch:int (charAt text i)
+            width = width + (this.measureChar(ch fontFamily fontSize))
+            i = i + 1
+        }
+        
+        def lineHeight:double (fontSize * 1.2)
+        
+        def metrics (new EVGTextMetrics())
+        metrics.width = width
+        metrics.height = lineHeight
+        metrics.ascent = (fontSize * 0.8)
+        metrics.descent = (fontSize * 0.2)
+        metrics.lineHeight = lineHeight
+        return metrics
+    }
+}

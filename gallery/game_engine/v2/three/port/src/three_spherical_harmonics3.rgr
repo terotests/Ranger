@@ -1,0 +1,168 @@
+; ==============================================================================
+; three_spherical_harmonics3 — order-2 SH (9 RGB coefficients). Three.js port of
+; src/math/SphericalHarmonics3.js. Sponza slice 7 (light-probe GI).
+; ==============================================================================
+; Each light probe stores incoming radiance as 9 spherical-harmonic coefficients
+; per channel (RGB packed in a Vector3). The bake projects captured radiance into
+; these coefficients; shading reconstructs diffuse irradiance for a surface normal
+; with the cosine-lobe band factors (getIrradianceAt). This is the portable,
+; unit-tested maths heart of the probe volume — the cubemap capture that feeds it
+; is the GPU bake step. Basis + reconstruction constants are Three's.
+; ==============================================================================
+
+Import "three_vector3.rgr"
+
+class ThreeSphericalHarmonics3 {
+    def isSphericalHarmonics3:boolean true
+    def coefficients:[ThreeVector3]
+
+    ; build a zeroed SH (9 RGB coefficients). Use instead of a bare `new`.
+    sfn create:ThreeSphericalHarmonics3 () {
+        def sh:ThreeSphericalHarmonics3 (new ThreeSphericalHarmonics3)
+        def i:int 0
+        while (i < 9) {
+            push sh.coefficients (new ThreeVector3)
+            i = (i + 1)
+        }
+        return sh
+    }
+
+    fn zero:ThreeSphericalHarmonics3 () {
+        def i:int 0
+        while (i < 9) {
+            def c:ThreeVector3 (itemAt this.coefficients i)
+            c.set(0.0 0.0 0.0)
+            i = (i + 1)
+        }
+        return this
+    }
+
+    ; the 9 real SH basis values for a (unit) direction — Three's getBasisAt.
+    sfn basis:[double] (x:double y:double z:double) {
+        def b:[double]
+        push b 0.282095
+        push b (0.488603 * y)
+        push b (0.488603 * z)
+        push b (0.488603 * x)
+        push b ((1.092548 * x) * y)
+        push b ((1.092548 * y) * z)
+        push b (0.315392 * (((3.0 * z) * z) - 1.0))
+        push b ((1.092548 * x) * z)
+        push b (0.546274 * ((x * x) - (y * y)))
+        return b
+    }
+
+    ; project a radiance sample of colour (r,g,b) coming from direction (x,y,z),
+    ; weighted by `weight` (solid-angle * basis accumulation): coeff_i += basis_i*color*weight.
+    fn projectRadiance:ThreeSphericalHarmonics3 (x:double y:double z:double r:double g:double b:double weight:double) {
+        def bs:[double] (ThreeSphericalHarmonics3.basis(x y z))
+        def i:int 0
+        while (i < 9) {
+            def bi:double (itemAt bs i)
+            def w:double (bi * weight)
+            def c:ThreeVector3 (itemAt this.coefficients i)
+            c.x = (c.x + (r * w))
+            c.y = (c.y + (g * w))
+            c.z = (c.z + (b * w))
+            i = (i + 1)
+        }
+        return this
+    }
+
+    ; add a uniform ambient radiance so getIrradianceAt returns exactly (r,g,b):
+    ; only the DC band, scaled so the 0.886227 reconstruction factor cancels.
+    fn addAmbient:ThreeSphericalHarmonics3 (r:double g:double b:double) {
+        def c0:ThreeVector3 (itemAt this.coefficients 0)
+        def inv:double (1.0 / 0.886227)
+        c0.x = (c0.x + (r * inv))
+        c0.y = (c0.y + (g * inv))
+        c0.z = (c0.z + (b * inv))
+        return this
+    }
+
+    fn scale:ThreeSphericalHarmonics3 (s:double) {
+        def i:int 0
+        while (i < 9) {
+            def c:ThreeVector3 (itemAt this.coefficients i)
+            c.multiplyScalar(s)
+            i = (i + 1)
+        }
+        return this
+    }
+
+    ; copy another SH's coefficients into this one (e.g. store a freshly-projected
+    ; probe capture into the grid's probe).
+    fn copyFrom:ThreeSphericalHarmonics3 (other:ThreeSphericalHarmonics3) {
+        def i:int 0
+        while (i < 9) {
+            def c:ThreeVector3 (itemAt this.coefficients i)
+            def o:ThreeVector3 (itemAt other.coefficients i)
+            c.set(o.x o.y o.z)
+            i = (i + 1)
+        }
+        return this
+    }
+
+    ; accumulate another SH scaled by s (used to blend / bounce probes).
+    fn addScaledSH:ThreeSphericalHarmonics3 (other:ThreeSphericalHarmonics3 s:double) {
+        def i:int 0
+        while (i < 9) {
+            def c:ThreeVector3 (itemAt this.coefficients i)
+            def o:ThreeVector3 (itemAt other.coefficients i)
+            c.x = (c.x + (o.x * s))
+            c.y = (c.y + (o.y * s))
+            c.z = (c.z + (o.z * s))
+            i = (i + 1)
+        }
+        return this
+    }
+
+    ; reconstruct radiance (no cosine convolution) for a direction — Three getAt.
+    fn getRadianceAt:ThreeVector3 (x:double y:double z:double target:ThreeVector3) {
+        def bs:[double] (ThreeSphericalHarmonics3.basis(x y z))
+        def rr:double 0.0
+        def gg:double 0.0
+        def bb:double 0.0
+        def i:int 0
+        while (i < 9) {
+            def bi:double (itemAt bs i)
+            def c:ThreeVector3 (itemAt this.coefficients i)
+            rr = (rr + (c.x * bi))
+            gg = (gg + (c.y * bi))
+            bb = (bb + (c.z * bi))
+            i = (i + 1)
+        }
+        return (target.set(rr gg bb))
+    }
+
+    ; reconstruct diffuse irradiance for a surface normal — Three getIrradianceAt
+    ; (the same basis with the cosine-lobe band factors A_l baked into the weights).
+    fn getIrradianceAt:ThreeVector3 (x:double y:double z:double target:ThreeVector3) {
+        def w0:double 0.886227
+        def w1:double (2.0 * 0.511664)
+        def w2a:double (2.0 * 0.429043)
+        def bs:[double]
+        push bs w0
+        push bs (w1 * y)
+        push bs (w1 * z)
+        push bs (w1 * x)
+        push bs ((w2a * x) * y)
+        push bs ((w2a * y) * z)
+        push bs (((0.743125 * z) * z) - 0.247708)
+        push bs ((w2a * x) * z)
+        push bs (0.429043 * ((x * x) - (y * y)))
+        def rr:double 0.0
+        def gg:double 0.0
+        def bb:double 0.0
+        def i:int 0
+        while (i < 9) {
+            def bi:double (itemAt bs i)
+            def c:ThreeVector3 (itemAt this.coefficients i)
+            rr = (rr + (c.x * bi))
+            gg = (gg + (c.y * bi))
+            bb = (bb + (c.z * bi))
+            i = (i + 1)
+        }
+        return (target.set(rr gg bb))
+    }
+}

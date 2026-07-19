@@ -1,0 +1,71 @@
+; ==============================================================================
+; three_math_utils_test — Three.js MathUtils.tests.js (relevant subset, ported).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and a grep-able
+; "ALL PASS".
+; ==============================================================================
+
+Import "three_math_utils.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.000001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeMathUtilsTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeMathUtils (Three.js MathUtils port) =="
+
+        ; degToRad / radToDeg
+        ck.near("degToRad 0" (ThreeMathUtils.degToRad(0.0)) 0.0)
+        ck.near("degToRad 180" (ThreeMathUtils.degToRad(180.0)) 3.141592653589793)
+        ck.near("degToRad 90" (ThreeMathUtils.degToRad(90.0)) 1.5707963267948966)
+        ck.near("radToDeg PI" (ThreeMathUtils.radToDeg(3.141592653589793)) 180.0)
+        def rad55:double (ThreeMathUtils.degToRad(55.0))
+        ck.near("round trip 55" (ThreeMathUtils.radToDeg(rad55)) 55.0)
+
+        ; clamp
+        ck.near("clamp below" (ThreeMathUtils.clamp((0.0 - 5.0) 0.0 10.0)) 0.0)
+        ck.near("clamp above" (ThreeMathUtils.clamp(15.0 0.0 10.0)) 10.0)
+        ck.near("clamp inside" (ThreeMathUtils.clamp(5.0 0.0 10.0)) 5.0)
+
+        ; lerp / inverseLerp
+        ck.near("lerp mid" (ThreeMathUtils.lerp(0.0 10.0 0.5)) 5.0)
+        ck.near("lerp 0" (ThreeMathUtils.lerp(2.0 8.0 0.0)) 2.0)
+        ck.near("lerp 1" (ThreeMathUtils.lerp(2.0 8.0 1.0)) 8.0)
+        ck.near("inverseLerp" (ThreeMathUtils.inverseLerp(0.0 10.0 2.5)) 0.25)
+        ck.near("inverseLerp degenerate" (ThreeMathUtils.inverseLerp(5.0 5.0 5.0)) 0.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -1,0 +1,219 @@
+; ==============================================================================
+; Model3dTest.rgr — self-checking tests for the native 3D asset loader.
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and a final
+; "ALL PASS" line (grep-able for CI). Covers, against an in-memory GLB fixture:
+; container/header parse, glTF document counts, accessor geometry (positions,
+; normals, uv, u16 indices), PBR material (base colour factor + texture),
+; embedded PNG bytes, node hierarchy + transforms, model instantiation into a
+; host entity graph (find_child, world transforms, mesh renderers), and the
+; support gate rejecting unsupported features with a clear message.
+; ==============================================================================
+
+Import "../GlbImporter.rgr"
+Import "../EntityModel.rgr"
+Import "GlbFixture.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn eqInt:void (name:string got:int want:int) {
+        def c:boolean (got == want)
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") c)
+    }
+    fn eqStr:void (name:string got:string want:string) {
+        def c:boolean (got == want)
+        this.ok((name + " (got '" + got + "' want '" + want + "')") c)
+    }
+    fn eqD:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def c:boolean (d < 0.0001)
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") c)
+    }
+}
+
+class Model3dTest {
+    sfn checkReject:void (ck:Checker label:string json:string wantErr:string) {
+        def glb:buffer (GlbFixture.glbFromJson(json))
+        def imp:GlbImporter (new GlbImporter)
+        def model:ModelAsset (imp.importModel(glb))
+        ck.ok((label + " rejected") (imp.ok == false))
+        ck.eqStr((label + " message") imp.error wantErr)
+    }
+
+    sfn m@(main):void () {
+        def ck:Checker (new Checker)
+        print "== container + document =="
+        def glb:buffer (GlbFixture.build())
+        def imp:GlbImporter (new GlbImporter)
+        def model:ModelAsset (imp.importModel(glb))
+        ck.ok("import ok" imp.ok)
+        ck.eqStr("no error" imp.error "")
+        ck.eqStr("glTF version" imp.doc.version "2.0")
+        ck.eqInt("node count" (model.nodeCount()) 4)
+        ck.eqInt("mesh count" (model.meshCount()) 1)
+        ck.eqInt("material count" (model.materialCount()) 1)
+        ck.eqInt("texture count" (model.textureCount()) 1)
+        ck.eqInt("root node count" (array_length model.rootNodes) 1)
+        ck.eqInt("root node index" (itemAt model.rootNodes 0) 0)
+
+        print "== mesh geometry =="
+        def mesh:MeshAsset (model.getMesh(0))
+        ck.eqStr("mesh name" mesh.name "Tri")
+        ck.eqInt("primitive count" (mesh.primitiveCount()) 1)
+        def prim:MeshPrimitiveAsset (itemAt mesh.primitives 0)
+        ck.eqInt("vertex count" (prim.vertexCount()) 3)
+        ck.eqInt("index count" (prim.indexCount()) 3)
+        ck.ok("has normals" (prim.hasNormals()))
+        ck.ok("has uvs" (prim.hasUvs()))
+        ck.eqInt("primitive material" prim.material 0)
+        ck.eqInt("primitive mode" prim.mode 4)
+        def p1:Vec3 (itemAt prim.positions 1)
+        ck.eqD("pos[1].x" p1.x 1.0)
+        ck.eqD("pos[1].y" p1.y 0.0)
+        def p2:Vec3 (itemAt prim.positions 2)
+        ck.eqD("pos[2].y" p2.y 1.0)
+        def nrm0:Vec3 (itemAt prim.normals 0)
+        ck.eqD("normal[0].z" nrm0.z 1.0)
+        def uv1:Vec2 (itemAt prim.uvs 1)
+        ck.eqD("uv[1].u" uv1.x 1.0)
+        ck.eqD("uv[1].v" uv1.y 0.0)
+        ck.eqInt("index[0]" (itemAt prim.indices 0) 0)
+        ck.eqInt("index[1]" (itemAt prim.indices 1) 1)
+        ck.eqInt("index[2]" (itemAt prim.indices 2) 2)
+
+        print "== material + texture =="
+        def mat:MaterialAsset (model.getMaterial(0))
+        ck.eqStr("material name" mat.name "Mat")
+        ck.eqD("baseColor R" mat.baseColorR 0.8)
+        ck.eqD("baseColor G" mat.baseColorG 0.4)
+        ck.eqD("baseColor B" mat.baseColorB 0.2)
+        ck.eqD("baseColor A" mat.baseColorA 1.0)
+        ck.eqInt("baseColorTexture" mat.baseColorTexture 0)
+        ck.eqD("roughness" mat.roughness 0.5)
+        ck.eqD("metallic" mat.metallic 0.0)
+        ck.ok("doubleSided" mat.doubleSided)
+        def tex:TextureAsset (model.getTexture(0))
+        ck.eqStr("texture mime" tex.mimeType "image/png")
+        ck.eqInt("texture bytes length" (buffer_length tex.sourceBytes) 76)
+        ck.eqInt("PNG signature byte0" (buffer_get tex.sourceBytes 0) 137)
+        ck.eqInt("PNG signature byte1" (buffer_get tex.sourceBytes 1) 80)
+
+        print "== node hierarchy =="
+        def n0:NodeAsset (model.getNode(0))
+        ck.eqStr("node0 name" n0.name "Root")
+        ck.eqInt("node0 child count" (array_length n0.children) 2)
+        ck.eqInt("node0 mesh" n0.mesh (0 - 1))
+        ck.eqD("node0 tz" n0.translation.z 5.0)
+        def n1:NodeAsset (model.getNode(1))
+        ck.eqStr("node1 name" n1.name "Body")
+        ck.eqInt("node1 mesh" n1.mesh 0)
+        ck.eqD("node1 tx" n1.translation.x 1.0)
+        def n3:NodeAsset (model.getNode(3))
+        ck.eqStr("node3 name" n3.name "Hand")
+
+        print "== instantiation =="
+        def reg:EntityRegistry (new EntityRegistry)
+        def rootE:int (ModelInstancer.instantiate(reg model))
+        def rootEnt:Entity (reg.get(rootE))
+        ck.eqStr("root entity name" rootEnt.name "")
+        ck.eqInt("root entity parent" rootEnt.parent (0 - 1))
+        ck.eqInt("root child count" (rootEnt.childCount()) 1)
+        def handId:int (reg.findChild(rootE "Hand"))
+        ck.ok("found Hand" (handId >= 0))
+        def bodyId:int (reg.findChild(rootE "Body"))
+        ck.ok("found Body" (bodyId >= 0))
+        def body:Entity (reg.get(bodyId))
+        ck.ok("Body has renderer" body.hasRenderer)
+        ck.eqInt("Body mesh asset" body.renderer.meshAsset 0)
+        ck.eqStr("Body mesh name" body.renderer.meshName "Tri")
+        def hand:Entity (reg.get(handId))
+        ck.ok("Hand has no renderer" (hand.hasRenderer == false))
+        ; world position of Hand: Root(0,0,5) * Arm(0,2,0) * Hand(0,1,0) = (0,3,5)
+        def wx:double (hand.transform.worldMatrix.at(0 3))
+        def wy:double (hand.transform.worldMatrix.at(1 3))
+        def wz:double (hand.transform.worldMatrix.at(2 3))
+        ck.eqD("Hand world x" wx 0.0)
+        ck.eqD("Hand world y" wy 3.0)
+        ck.eqD("Hand world z" wz 5.0)
+        ; Body world position: Root(0,0,5) * Body(1,0,0) = (1,0,5)
+        def bx:double (body.transform.worldMatrix.at(0 3))
+        def bz:double (body.transform.worldMatrix.at(2 3))
+        ck.eqD("Body world x" bx 1.0)
+        ck.eqD("Body world z" bz 5.0)
+
+        print "== support gate =="
+        Model3dTest.checkReject(ck "meshopt" "{\"asset\":{\"version\":\"2.0\"},\"extensionsRequired\":[\"EXT_meshopt_compression\"]}" "unsupported feature EXT_meshopt_compression")
+        Model3dTest.checkReject(ck "animation" "{\"asset\":{\"version\":\"2.0\"},\"animations\":[{\"channels\":[]}]}" "unsupported feature: animations")
+        Model3dTest.checkReject(ck "skins" "{\"asset\":{\"version\":\"2.0\"},\"skins\":[{\"joints\":[0]}]}" "unsupported feature: skins")
+        Model3dTest.checkReject(ck "version" "{\"asset\":{\"version\":\"1.0\"}}" "unsupported glTF version '1.0' (need 2.x)")
+
+        print "== vertex colors + non-indexed + generated normals =="
+        def glb2:buffer (GlbFixture.buildColorNoIndex())
+        def imp2:GlbImporter (new GlbImporter)
+        def model2:ModelAsset (imp2.importModel(glb2))
+        ck.ok("cni import ok" imp2.ok)
+        def mesh2:MeshAsset (model2.getMesh(0))
+        def prim2:MeshPrimitiveAsset (itemAt mesh2.primitives 0)
+        ck.eqInt("cni vertex count" (prim2.vertexCount()) 3)
+        ck.ok("cni has colors" (prim2.hasColors()))
+        def col0:Vec4 (itemAt prim2.colors 0)
+        ck.eqD("color0 r" col0.x 1.0)
+        ck.eqD("color0 g" col0.y 0.0)
+        ck.eqD("color0 a" col0.w 1.0)
+        def col1:Vec4 (itemAt prim2.colors 1)
+        ck.eqD("color1 g" col1.y 1.0)
+        def col2:Vec4 (itemAt prim2.colors 2)
+        ck.eqD("color2 b" col2.z 1.0)
+        ; indices synthesised for the non-indexed primitive
+        ck.eqInt("cni index count" (prim2.indexCount()) 3)
+        ck.eqInt("cni index0" (itemAt prim2.indices 0) 0)
+        ck.eqInt("cni index1" (itemAt prim2.indices 1) 1)
+        ck.eqInt("cni index2" (itemAt prim2.indices 2) 2)
+        ; normals generated (CCW triangle in XY -> +Z)
+        ck.ok("cni has normals" (prim2.hasNormals()))
+        def nrm2:Vec3 (itemAt prim2.normals 0)
+        ck.eqD("gen normal x" nrm2.x 0.0)
+        ck.eqD("gen normal y" nrm2.y 0.0)
+        ck.eqD("gen normal z" nrm2.z 1.0)
+
+        print "== scaleToRadius =="
+        def glb3:buffer (GlbFixture.build())
+        def imp3:GlbImporter (new GlbImporter)
+        def model3:ModelAsset (imp3.importModel(glb3))
+        ; fixture triangle (0,0,0)(1,0,0)(0,1,0): farthest vertex is 1.0 from origin
+        ck.eqD("bounding radius before" (model3.boundingRadius()) 1.0)
+        model3.scaleToRadius(4.0)
+        ck.eqD("bounding radius after scale" (model3.boundingRadius()) 4.0)
+        def mesh3:MeshAsset (model3.getMesh(0))
+        def prim3:MeshPrimitiveAsset (itemAt mesh3.primitives 0)
+        def sp1:Vec3 (itemAt prim3.positions 1)
+        ck.eqD("scaled pos1.x" sp1.x 4.0)
+        def sp2:Vec3 (itemAt prim3.positions 2)
+        ck.eqD("scaled pos2.y" sp2.y 4.0)
+        ; radius <= 0 is a no-op
+        model3.scaleToRadius(0.0)
+        ck.eqD("radius 0 is no-op" (model3.boundingRadius()) 4.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -1,0 +1,34 @@
+; ==============================================================================
+; lpc_demo_super_female — fairy princess knight: wings + tiara + plate + shield.
+; ==============================================================================
+; Bake: npm run engine:lpc:run -- super_female gallery/game_engine/lpc/output/compose_super_female.png
+
+class LpcDemoSuperFemale {
+    fn addCall:void (list:[LpcDrawCall] path:string z:int) {
+        def call:LpcDrawCall (new LpcDrawCall())
+        call.spritePath = path
+        call.zPos = z
+        call.animY = 0
+        push list call
+    }
+
+    fn buildCalls:[LpcDrawCall] () {
+        def list:[LpcDrawCall]
+        ; shield back (LPC z: shield bg = 2)
+        this.addCall(list "shield/crusader/bg/walk.png" 2)
+        ; pixie wings back (LPC z: wings bg = 5)
+        this.addCall(list "body/wings/pixie/transparent/bg/walk/rose.png" 5)
+        this.addCall(list "body/bodies/female/walk.png" 10)
+        this.addCall(list "hair/long_tied/adult/bg/walk.png" 9)
+        this.addCall(list "torso/armour/plate/female/walk.png" 15)
+        this.addCall(list "legs/pants/female/walk/blue.png" 20)
+        this.addCall(list "feet/boots/basic/thin/walk.png" 25)
+        this.addCall(list "head/heads/human/female/walk.png" 100)
+        this.addCall(list "shield/crusader/fg/walk.png" 110)
+        this.addCall(list "hair/long_tied/adult/fg/walk.png" 120)
+        this.addCall(list "hat/formal/tiara/adult/walk/gold.png" 130)
+        ; pixie wings front (LPC z: wings fg = 140)
+        this.addCall(list "body/wings/pixie/transparent/fg/walk/rose.png" 140)
+        return list
+    }
+}

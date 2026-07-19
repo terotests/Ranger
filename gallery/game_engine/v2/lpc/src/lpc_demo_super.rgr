@@ -1,0 +1,31 @@
+; ==============================================================================
+; lpc_demo_super — crusader knight: plate + shield + horned helm (no wings).
+; ==============================================================================
+; Requires full Universal-LPC spritesheets (LPC_ROOT). Bake with:
+;   npm run engine:lpc:run -- super gallery/game_engine/lpc/output/compose_super.png
+
+class LpcDemoSuper {
+    fn addCall:void (list:[LpcDrawCall] path:string z:int) {
+        def call:LpcDrawCall (new LpcDrawCall())
+        call.spritePath = path
+        call.zPos = z
+        call.animY = 0
+        push list call
+    }
+
+    fn buildCalls:[LpcDrawCall] () {
+        def list:[LpcDrawCall]
+        ; shield back (LPC z: shield bg = 2)
+        this.addCall(list "shield/crusader/bg/walk.png" 2)
+        this.addCall(list "cape/solid/bg/walk.png" 5)
+        this.addCall(list "body/bodies/male/walk.png" 10)
+        this.addCall(list "torso/armour/plate/male/walk.png" 15)
+        this.addCall(list "legs/pants/male/walk.png" 20)
+        this.addCall(list "feet/boots/basic/male/walk.png" 25)
+        this.addCall(list "cape/solid/fg/walk.png" 85)
+        this.addCall(list "head/heads/human/male/walk.png" 100)
+        this.addCall(list "shield/crusader/fg/walk.png" 110)
+        this.addCall(list "hat/helmet/horned/adult/walk.png" 130)
+        return list
+    }
+}

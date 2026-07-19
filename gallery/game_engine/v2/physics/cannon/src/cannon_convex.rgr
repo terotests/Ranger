@@ -1,0 +1,117 @@
+; ==============================================================================
+; cannon_convex — general convex polyhedron (cannon-es ConvexPolyhedron, subset).
+;   Stored as vertices + face normals (with one vertex index per face for a face
+;   plane point). Collision (see cannon_narrowphase): convex-plane iterates the
+;   vertices; sphere-convex uses the face planes. A helper builds a box hull.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_shape.rgr"
+
+class CannonConvexPolyhedron extends CannonShape {
+    def vertices:[CannonVec3]
+    def faceNormals:[CannonVec3]
+    def faceVertex:[int]
+
+    fn initConvex:void () {
+        this.initShape(6)
+    }
+
+    fn addVertex:void (x:double y:double z:double) {
+        def v:CannonVec3 (new CannonVec3)
+        v.set(x y z)
+        push this.vertices v
+    }
+
+    fn addFace:void (nx:double ny:double nz:double vertexIndex:int) {
+        def n:CannonVec3 (new CannonVec3)
+        n.set(nx ny nz)
+        n.normalizeSelf()
+        push this.faceNormals n
+        push this.faceVertex vertexIndex
+    }
+
+    fn updateBoundingSphereRadius:void () {
+        def n:int (array_length this.vertices)
+        def maxR:double 0.0
+        def i 0
+        while (i < n) {
+            def v:CannonVec3 (itemAt this.vertices i)
+            def r:double (v.norm())
+            if (r > maxR) {
+                maxR = r
+            }
+            i = (i + 1)
+        }
+        this.boundingSphereRadius = maxR
+    }
+
+    fn convexVertexCount:int () {
+        return (array_length this.vertices)
+    }
+
+    fn convexVertexAt:void (i:int out:CannonVec3) {
+        out.copy((itemAt this.vertices i))
+    }
+
+    fn convexFaceCount:int () {
+        return (array_length this.faceNormals)
+    }
+
+    fn convexFaceNormalAt:void (i:int out:CannonVec3) {
+        out.copy((itemAt this.faceNormals i))
+    }
+
+    fn convexFaceVertexIndex:int (i:int) {
+        return (itemAt this.faceVertex i)
+    }
+
+    ; Build a cylinder as an N-sided convex prism about the local Z axis
+    ; (cannon-es models Cylinder as a ConvexPolyhedron). Reuses the convex
+    ; collision paths — no cylinder-specific code needed.
+    fn initCylinderHull:void (radius:double halfHeight:double segments:int) {
+        this.initConvex()
+        def twoPi:double 6.283185307179586
+        def seg:double (to_double segments)
+        def k 0
+        while (k < segments) {
+            def ang:double ((twoPi * (to_double k)) / seg)
+            def cx:double (radius * (cos(ang)))
+            def cy:double (radius * (sin(ang)))
+            this.addVertex(cx cy halfHeight)
+            this.addVertex(cx cy (0.0 - halfHeight))
+            k = (k + 1)
+        }
+        this.addFace(0.0 0.0 1.0 0)
+        this.addFace(0.0 0.0 (0.0 - 1.0) 1)
+        k = 0
+        while (k < segments) {
+            def midAng:double ((twoPi * ((to_double k) + 0.5)) / seg)
+            this.addFace((cos(midAng)) (sin(midAng)) 0.0 (2 * k))
+            k = (k + 1)
+        }
+        this.updateBoundingSphereRadius()
+    }
+
+    ; Build an axis-aligned box hull (8 vertices, 6 faces) — a general convex that
+    ; happens to be a box, exercising the convex collision path (not the OBB SAT).
+    fn initBoxHull:void (hx:double hy:double hz:double) {
+        this.initConvex()
+        this.addVertex(hx hy hz)
+        this.addVertex(hx hy (0.0 - hz))
+        this.addVertex(hx (0.0 - hy) hz)
+        this.addVertex(hx (0.0 - hy) (0.0 - hz))
+        this.addVertex((0.0 - hx) hy hz)
+        this.addVertex((0.0 - hx) hy (0.0 - hz))
+        this.addVertex((0.0 - hx) (0.0 - hy) hz)
+        this.addVertex((0.0 - hx) (0.0 - hy) (0.0 - hz))
+        this.addFace(1.0 0.0 0.0 0)
+        this.addFace((0.0 - 1.0) 0.0 0.0 4)
+        this.addFace(0.0 1.0 0.0 0)
+        this.addFace(0.0 (0.0 - 1.0) 0.0 2)
+        this.addFace(0.0 0.0 1.0 0)
+        this.addFace(0.0 0.0 (0.0 - 1.0) 1)
+        this.updateBoundingSphereRadius()
+    }
+}

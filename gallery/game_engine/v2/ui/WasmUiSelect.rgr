@@ -1,0 +1,854 @@
+; ==============================================================================
+; WasmUiSelect - render a WASM-authored EVG UI tree + gamepad/keyboard selection.
+; ==============================================================================
+;
+; This is the interactive half of the RGU1 bridge. A WASM (AssemblyScript/Rust)
+; guest builds a flat UI document; the host reads it into an EVGElement tree
+; (see ../scripting/wasm_ui_io.rgr) where each element carries its stable node
+; id. This file:
+;
+;   * WasmUiRenderer   - lays the tree out (EVGLayout + the loaded TTF measurer)
+;                        and draws backgrounds + text onto a SoftCanvas via a
+;                        UIContext (crisp, cached TrueType text).
+;   * UiSelectController- reads which nodes the guest tagged SELECTABLE, tracks a
+;                        selection cursor over them, moves it with the D-pad /
+;                        arrow keys (spatial: nearest selectable node in the
+;                        pressed direction), draws a highlight border around the
+;                        selected node, and reports the action button as an
+;                        activation the host forwards to the guest (rg_ui_event).
+;
+; Pointer-free by design: the whole thing is driven by directional + action
+; button edges (UiNavInput), so it works on a gamepad or keyboard with the
+; engine's existing input - no mouse operator required.
+; ==============================================================================
+
+Import "UIContext.rgr"
+Import "UIAnimator.rgr"
+Import "../scripting/wasm_ui_io.rgr"
+Import "../scripting/game_image_loader.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGElement.rgr"
+
+; -----------------------------------------------------------------------------
+; Guest-driven effects: the WASM UI guest fires env.rg_ui_glow(node,dur,delay,tag)
+; from its rg_ui_event handler; the host owns the timeline (UIAnimator) and calls
+; the guest back on completion. This is the effect bridge — the guest triggers,
+; the host animates, exactly like the Pixi.js-style UIAnimator API but driven from
+; WASM instead of host code.
+; -----------------------------------------------------------------------------
+
+; Completion binding for one guest-requested effect. When the effect finishes the
+; host calls the guest's rg_ui_effect_done(node, tag) export so it can react
+; (navigate, bump a counter). WasmUiEffects.tick() polls `anim.done` and fires
+; this once — deliberately NOT via UIAnim's `after` hook: that path compiles to a
+; capture-by-reference lambda that escapes startEffect() and use-after-frees its
+; local binding in the native build (segfault). Polling holds the binding in a
+; field for its whole lifetime, so nothing dangles.
+class WasmFxDone {
+    def handle:int 0
+    def node:int 0
+    def tag:int 0
+    def anim:UIAnim            ; the effect this binding completes with
+    def fired:boolean false    ; rg_ui_effect_done called exactly once
+
+    Constructor () {
+    }
+
+    fn fire:void () {
+        wasm_call_void handle "rg_ui_effect_done" 2 node tag 0 0 0
+    }
+}
+
+; Owns the host-side effect timeline for a WASM UI guest. Per frame the host:
+;   1. calls the guest (init / rg_ui_event), which may fire env.rg_ui_glow
+;   2. drain(handle)  — turns this frame's queued requests into glow animations
+;   3. tick(dtMs)     — advances them; a completing effect calls rg_ui_effect_done
+; The renderer samples glowFor(id) to draw the animated halo.
+class WasmUiEffects {
+    def animator:UIAnimator (new UIAnimator)
+    ; Strong-holds the per-effect completion bindings for the lifetime of their
+    ; animations. UIAnim already retains its callback strongly; this is a second,
+    ; explicit owner so the binding can never be freed while its effect is live
+    ; (the callback would otherwise use-after-free natively -> segfault).
+    def binds:[WasmFxDone]
+
+    Constructor () {
+    }
+
+    ; Start one effect and bind its completion back to the guest. kind: 1 glow,
+    ; 2 pulse. target: 0 node (node id -> stringified to match el.id), 1 screen.
+    ; Split out of drain() so it is drivable from a host test without a wasm engine.
+    fn startEffect:void (kind:int target:int node:int durMs:int delayMs:int r:int g:int b:int handle:int tag:int) {
+        def durSec:double ((to_double durMs) / 1000.0)
+        def delaySec:double ((to_double delayMs) / 1000.0)
+        def a:UIAnim (animator.animation())
+        if (target == 1) {
+            ; whole-screen effect (pulse); glow-on-screen also renders as a pulse
+            a.pulseScreen()
+        } {
+            def key:string (to_string node)
+            if (kind == 2) {
+                a.pulse(key)
+            } {
+                a.glow(key)
+            }
+        }
+        a.color(r g b).duration(durSec).delay(delaySec).start()
+        ; Route completion by polling this binding in tick() (not a.after(): that
+        ; escaping closure use-after-frees natively). The binding strong-holds the
+        ; anim, so a.done stays readable after the animator drops the finished anim.
+        def bind:WasmFxDone (new WasmFxDone)
+        bind.handle = handle
+        bind.node = node
+        bind.tag = tag
+        bind.anim = a
+        push binds bind
+    }
+
+    ; Convenience used by the host self-test: a white node glow.
+    fn startGlow:void (node:int durMs:int delayMs:int handle:int tag:int) {
+        this.startEffect(1 0 node durMs delayMs 255 255 255 handle tag)
+    }
+
+    ; Turn this frame's queued guest requests into running animations, then clear
+    ; the queue so it only ever holds the current frame's requests.
+    fn drain:void (handle:int) {
+        def n:int (wasm_fx_count handle)
+        def i 0
+        while (i < n) {
+            def kind:int (wasm_fx_ival handle i 0)
+            def target:int (wasm_fx_ival handle i 1)
+            def node:int (wasm_fx_ival handle i 2)
+            def durMs:int (wasm_fx_ival handle i 3)
+            def delayMs:int (wasm_fx_ival handle i 4)
+            def tag:int (wasm_fx_ival handle i 5)
+            def r:int (wasm_fx_ival handle i 6)
+            def g:int (wasm_fx_ival handle i 7)
+            def b:int (wasm_fx_ival handle i 8)
+            this.startEffect(kind target node durMs delayMs r g b handle tag)
+            i = (i + 1)
+        }
+        wasm_fx_reset handle
+    }
+
+    fn tick:void (dtMs:int) {
+        animator.tick(dtMs)
+        ; Poll each binding: when its effect has finished, notify the guest once
+        ; (rg_ui_effect_done) and drop the binding; keep the rest for next frame.
+        def kept:[WasmFxDone]
+        def i 0
+        def n (array_length binds)
+        while (i < n) {
+            def bind:WasmFxDone (itemAt binds i)
+            if (bind.anim.done) {
+                if (bind.fired == false) {
+                    bind.fired = true
+                    bind.fire()
+                }
+            } {
+                push kept bind
+            }
+            i = (i + 1)
+        }
+        binds = kept
+    }
+
+    ; Drop all in-flight effects + their completion bindings. Call this when the
+    ; guest is (re)loaded so no binding outlives its guest — otherwise a late
+    ; completion could fire rg_ui_effect_done into a closed or slot-reused guest.
+    fn reset:void () {
+        def empty:[WasmFxDone]
+        binds = empty
+        animator.reset()
+    }
+
+    ; --- render-side queries ---
+    ; Current 0..1 node effect strength for an element id (its stringified node id).
+    ; After this call nodeR/G/B hold the winning effect's tint.
+    fn glowFor:double (id:string) {
+        return (animator.intensityFor(id))
+    }
+    fn nodeR:int () { return animator.nodeR }
+    fn nodeG:int () { return animator.nodeG }
+    fn nodeB:int () { return animator.nodeB }
+
+    ; Current 0..1 whole-screen pulse strength; screenR/G/B hold its tint.
+    fn screenPulse:double () {
+        return (animator.screenIntensity())
+    }
+    fn screenR:int () { return animator.scrR }
+    fn screenG:int () { return animator.scrG }
+    fn screenB:int () { return animator.scrB }
+
+    ; Distinct node ids with an active node-target effect (for the GPU flush).
+    fn activeIds:[string] () {
+        return (animator.activeIds())
+    }
+
+    fn activeCount:int () {
+        return (animator.activeCount())
+    }
+}
+
+; Directional + action edges for one frame (pressed-this-frame booleans). A
+; platform maps PlayerButtons / keyboard edges onto this - see UI_LAYER.md.
+class UiNavInput {
+    def up:boolean false
+    def down:boolean false
+    def left:boolean false
+    def right:boolean false
+    def action:boolean false
+
+    fn clear:void () {
+        up = false
+        down = false
+        left = false
+        right = false
+        action = false
+    }
+}
+
+; Result of locating a node's laid-out rectangle in the tree.
+class RectHit {
+    def found:boolean false
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    def rad:int 0
+}
+
+; -----------------------------------------------------------------------------
+; Renderer: EVGElement tree -> SoftCanvas (via UIContext / TTF).
+; -----------------------------------------------------------------------------
+class WasmUiRenderer {
+    def layout:EVGLayout (new EVGLayout)
+
+    ; Background-image cache: a guest may declare a BG_IMAGE (path) on a node and
+    ; the tree is rebuilt every frame, so decode each PNG once and reuse it. Keyed
+    ; by path; an invalid decode is cached too (so a bad path doesn't reload).
+    def imgLoader:GameImageLoader (new GameImageLoader)
+    def imgCache:[string:ImageBuffer]
+
+    ; Decoded image for a guest-declared background path (cached across frames).
+    fn bgImageFor:ImageBuffer (path:string) {
+        if (has imgCache path) {
+            def hit@(optional):ImageBuffer (get imgCache path)
+            if (null? hit) {
+                return (imgLoader.load(path))
+            }
+            return (unwrap hit)
+        }
+        def img:ImageBuffer (imgLoader.load(path))
+        set imgCache path img
+        return img
+    }
+
+    ; Optional host effect timeline. When set, drawElement overlays the animated
+    ; glow from guest-requested effects on top of any doc-declared glow.
+    def fx:WasmUiEffects
+    def hasFx:boolean false
+    ; When true the live effects are drawn on the GPU (gfx_fx overlay), so the
+    ; software renderer skips them here to avoid drawing them twice. Doc-declared
+    ; static glowIntensity is still drawn (it is part of the UI, not an effect).
+    def gpuEffects:boolean false
+
+    fn setEffects:void (e:WasmUiEffects) {
+        fx = e
+        hasFx = true
+    }
+    fn setGpuEffects:void (on:boolean) {
+        gpuEffects = on
+    }
+
+    ; Uniform draw-time viewport transform (scale about the origin, then translate)
+    ; applied to every element's laid-out pixel box + font in drawElement. Identity
+    ; by default, so the RGU1/.as path (which pre-scales via WasmUiEvgBuilder) is
+    ; untouched; the .tsx menu sets it to fit + centre its fixed-px tree in the
+    ; window without re-authoring the JSX.
+    def vScale:double 1.0
+    def vOffX:double 0.0
+    def vOffY:double 0.0
+    fn setViewport:void (s:double ox:double oy:double) {
+        vScale = s
+        vOffX = ox
+        vOffY = oy
+    }
+
+    ; All presentation (centring, radius, colours, sizes) is declared by the
+    ; guest as RGU1 properties and resolved by EVGLayout here - the host renderer
+    ; carries no per-menu styling of its own.
+    fn layoutTree:void (ctx:UIContext root:EVGElement w:int h:int) {
+        def fw:double (to_double w)
+        def fh:double (to_double h)
+        layout.setPageSize(fw fh)
+        ; use the same TTF metrics for layout and drawing, so wrapping matches
+        layout.setMeasurer(ctx.tr.measurer)
+        root.calculatedX = 0.0
+        root.calculatedY = 0.0
+        if (root.width.isSet == false) {
+            root.width = (EVGUnit.px(fw))
+            root.width.isSet = true
+        }
+        if (root.height.isSet == false) {
+            root.height = (EVGUnit.px(fh))
+            root.height.isSet = true
+        }
+        layout.layoutElement(root 0.0 0.0 fw fh)
+        ; place coord-reported overlay effects: absolute elements sit at their
+        ; declared page pixel (absX,absY) instead of in flex flow.
+        this.placeAbsolute(root)
+    }
+
+    ; Position absolute (ABS_X/ABS_Y) elements at their page coordinates; the
+    ; flex layout skips them, so size them from their width/height here too.
+    fn placeAbsolute:void (el:EVGElement) {
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            if c.absPosSet {
+                c.calculatedX = c.absX
+                c.calculatedY = c.absY
+                if (c.calculatedWidth <= 0.0) {
+                    if c.width.isSet { c.calculatedWidth = c.width.pixels }
+                }
+                if (c.calculatedHeight <= 0.0) {
+                    if c.height.isSet { c.calculatedHeight = c.height.pixels }
+                }
+            }
+            this.placeAbsolute(c)
+            i = (i + 1)
+        }
+    }
+
+    ; Deepest laid-out bottom edge (calculatedY + calculatedHeight) among the
+    ; root's descendants, excluding the full-page root itself. This is the true
+    ; content height used to decide autoscale-to-fit.
+    fn contentBottom:double (root:EVGElement) {
+        def m:double 0.0
+        def i 0
+        def n (array_length root.children)
+        while (i < n) {
+            def c:EVGElement (itemAt root.children i)
+            if (c.absPosSet == false) {
+                def b:double (this.maxBottom(c))
+                if (b > m) { m = b }
+            }
+            i = (i + 1)
+        }
+        return m
+    }
+    ; Absolute overlays (coord-reported effects) are excluded so they never feed
+    ; back into the autoscale fit.
+    fn maxBottom:double (el:EVGElement) {
+        def b:double (el.calculatedY + el.calculatedHeight)
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            if (c.absPosSet == false) {
+                def cb:double (this.maxBottom(c))
+                if (cb > b) { b = cb }
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+    ; Right-most laid-out edge among the root's descendants (content width).
+    fn contentRight:double (root:EVGElement) {
+        def m:double 0.0
+        def i 0
+        def n (array_length root.children)
+        while (i < n) {
+            def c:EVGElement (itemAt root.children i)
+            if (c.absPosSet == false) {
+                def b:double (this.maxRight(c))
+                if (b > m) { m = b }
+            }
+            i = (i + 1)
+        }
+        return m
+    }
+    ; Top-most / left-most laid-out edges (min), so callers can measure content
+    ; SPANS (bottom-top, right-left) rather than absolute edges — the intrinsic
+    ; content size, independent of any centring offset. Absolute overlays excluded.
+    fn contentTop:double (root:EVGElement) {
+        def m:double 1000000000.0
+        def i 0
+        def n (array_length root.children)
+        while (i < n) {
+            def c:EVGElement (itemAt root.children i)
+            if (c.absPosSet == false) {
+                def t:double (this.minTop(c))
+                if (t < m) { m = t }
+            }
+            i = (i + 1)
+        }
+        if (m > 999999999.0) { m = 0.0 }
+        return m
+    }
+    fn minTop:double (el:EVGElement) {
+        def b:double el.calculatedY
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            if (c.absPosSet == false) {
+                def cb:double (this.minTop(c))
+                if (cb < b) { b = cb }
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+    fn contentLeft:double (root:EVGElement) {
+        def m:double 1000000000.0
+        def i 0
+        def n (array_length root.children)
+        while (i < n) {
+            def c:EVGElement (itemAt root.children i)
+            if (c.absPosSet == false) {
+                def t:double (this.minLeft(c))
+                if (t < m) { m = t }
+            }
+            i = (i + 1)
+        }
+        if (m > 999999999.0) { m = 0.0 }
+        return m
+    }
+    fn minLeft:double (el:EVGElement) {
+        def b:double el.calculatedX
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            if (c.absPosSet == false) {
+                def cb:double (this.minLeft(c))
+                if (cb < b) { b = cb }
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+    fn maxRight:double (el:EVGElement) {
+        def b:double (el.calculatedX + el.calculatedWidth)
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            if (c.absPosSet == false) {
+                def cb:double (this.maxRight(c))
+                if (cb > b) { b = cb }
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+
+    ; Resolved border radius (px) declared on the element by the guest, or 0.
+    fn radiusOf:int (el:EVGElement) {
+        if el.box.borderRadius.isSet {
+            return (to_int el.box.borderRadius.pixels)
+        }
+        return 0
+    }
+
+    fn draw:void (ctx:UIContext root:EVGElement) {
+        this.drawElement(ctx root)
+        ; whole-screen pulse (software fallback; GPU path draws this via gfx_fx).
+        if hasFx {
+            if (gpuEffects == false) {
+                def sp:double (fx.screenPulse())
+                if (sp > 0.0) {
+                    if (sp > 1.0) { sp = 1.0 }
+                    def sa:int (to_int (sp * 130.0))
+                    def cw:int (ctx.canvas.getWidth())
+                    def ch:int (ctx.canvas.getHeight())
+                    ctx.fillRectA(0 0 cw ch (fx.screenR()) (fx.screenG()) (fx.screenB()) sa)
+                }
+            }
+        }
+    }
+
+    fn drawElement:void (ctx:UIContext el:EVGElement) {
+        ; apply the uniform viewport transform (identity for the .as/wasm path)
+        def x:int (to_int ((el.calculatedX * vScale) + vOffX))
+        def y:int (to_int ((el.calculatedY * vScale) + vOffY))
+        def rw:int (to_int (el.calculatedWidth * vScale))
+        def rh:int (to_int (el.calculatedHeight * vScale))
+
+        def rad:int (to_int ((to_double (this.radiusOf(el))) * vScale))
+
+        ; guest-driven animated glow halo (drawn behind the element's own fill).
+        ; Two sources combined by max: a static intensity declared on the node in
+        ; the RGU1 doc, and the live host-run UIAnimator effect (glow/pulse). When
+        ; gpuEffects is on the live effect is drawn on the GPU, so only the static
+        ; doc glow is drawn here (white). The live effect carries its own tint.
+        def gi:double el.glowIntensity
+        def cr:int 255
+        def cg:int 255
+        def cb:int 255
+        if hasFx {
+            if (gpuEffects == false) {
+                def av:double (fx.glowFor(el.id))
+                if (av > gi) {
+                    gi = av
+                    cr = (fx.nodeR())
+                    cg = (fx.nodeG())
+                    cb = (fx.nodeB())
+                }
+            }
+        }
+        if (gi > 0.0) {
+            if (gi > 1.0) { gi = 1.0 }
+            def spread:int (to_int (4.0 + (gi * 18.0)))
+            def galpha:int (to_int (gi * 230.0))
+            ctx.glowRoundRect((x - 3) (y - 3) (rw + 6) (rh + 6) (rad + 3) cr cg cb spread galpha)
+        }
+
+        ; fill priority: guest-declared background image (clipped to the rounded
+        ; box) > 2-stop linear gradient > solid backgroundColor. A missing/invalid
+        ; image falls through so the panel still draws.
+        def bgDrawn:boolean false
+        if el.bgImageSet {
+            def img:ImageBuffer (this.bgImageFor(el.bgImagePath))
+            if (imgLoader.isValidImage(img)) {
+                ctx.fillRoundRectImage(x y rw rh rad img)
+                bgDrawn = true
+            }
+        }
+        if (bgDrawn == false) {
+            if el.gradientSet {
+                ; guest-declared 2-stop linear gradient background (real EVG fill)
+                def fa:int (to_int ((el.gradientFrom.alpha()) * 255.0))
+                def ta:int (to_int ((el.gradientTo.alpha()) * 255.0))
+                ctx.fillRoundRectGrad(x y rw rh rad el.gradientDir
+                    (el.gradientFrom.red()) (el.gradientFrom.green()) (el.gradientFrom.blue()) fa
+                    (el.gradientTo.red()) (el.gradientTo.green()) (el.gradientTo.blue()) ta)
+            } {
+                if el.backgroundColor.isSet {
+                    def ba:double (el.backgroundColor.alpha())
+                    if (ba > 0.0) {
+                        def ai:int (to_int (ba * 255.0))
+                        ctx.fillRoundRectA(x y rw rh rad (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
+                    }
+                }
+            }
+        }
+
+        ; guest-declared border (colour + width), rounded to the element radius
+        def bpx:int (to_int (el.box.borderWidthPx * vScale))
+        if (bpx > 0) {
+            if el.box.borderColor.isSet {
+                ctx.strokeRoundRectA(x y rw rh rad bpx (el.box.borderColor.red()) (el.box.borderColor.green()) (el.box.borderColor.blue()) (to_int ((el.box.borderColor.alpha()) * 255.0)))
+            }
+        }
+
+        def txt:string el.textContent
+        if ((strlen txt) > 0) {
+            def fs:double el.inheritedFontSize
+            if el.fontSize.isSet {
+                fs = el.fontSize.pixels
+            }
+            if (fs <= 0.0) {
+                fs = 14.0
+            }
+            fs = (fs * vScale)
+            def col:EVGColor (EVGColor.rgba((el.color.red()) (el.color.green()) (el.color.blue()) (el.color.alpha())))
+            ; place text inside the content box (respect border + padding) and
+            ; honour textAlign so a fixed-width button centres its label.
+            def padL:int (to_int (el.box.paddingLeftPx * vScale))
+            def padT:int (to_int (el.box.paddingTopPx * vScale))
+            def padR:int (to_int (el.box.paddingRightPx * vScale))
+            def padB:int (to_int (el.box.paddingBottomPx * vScale))
+            def contentX:int (x + bpx + padL)
+            def contentY:int (y + bpx + padT)
+            def contentW:int (rw - (bpx * 2) - padL - padR)
+            def contentH:int (rh - (bpx * 2) - padT - padB)
+            def tw:int (to_int (ctx.measureWidth(txt fs)))
+            def lh:int (to_int (ctx.lineHeight(fs)))
+            def tx:int contentX
+            if (el.textAlign == "center") {
+                tx = (contentX + (to_int ((contentW - tw) / 2)))
+            }
+            if (el.textAlign == "right") {
+                tx = (contentX + (contentW - tw))
+            }
+            def ty:int (contentY + (to_int ((contentH - lh) / 2)))
+            ctx.text(txt tx ty fs col)
+        }
+
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def child:EVGElement (itemAt el.children i)
+            this.drawElement(ctx child)
+            i = (i + 1)
+        }
+    }
+
+    ; Locate a node's laid-out rectangle by its stamped id (string of node id).
+    fn findRect:RectHit (root:EVGElement id:string) {
+        def hit:RectHit (new RectHit)
+        this.findRectInto(root id hit)
+        return hit
+    }
+
+    fn findRectInto:void (el:EVGElement id:string hit:RectHit) {
+        if hit.found { return }
+        if (el.id == id) {
+            hit.found = true
+            hit.x = (to_int el.calculatedX)
+            hit.y = (to_int el.calculatedY)
+            hit.w = (to_int el.calculatedWidth)
+            hit.h = (to_int el.calculatedHeight)
+            hit.rad = (this.radiusOf(el))
+            return
+        }
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def child:EVGElement (itemAt el.children i)
+            this.findRectInto(child id hit)
+            if hit.found { return }
+            i = (i + 1)
+        }
+    }
+}
+
+; -----------------------------------------------------------------------------
+; Selection controller: which nodes are selectable, cursor navigation, highlight.
+; -----------------------------------------------------------------------------
+class UiSelectController {
+    def renderer:WasmUiRenderer (new WasmUiRenderer)
+
+    ; selectable set (parallel arrays), rebuilt from the doc + laid-out tree
+    def ids:[int]
+    def rx:[int]
+    def ry:[int]
+    def rw:[int]
+    def rh:[int]
+    def rrad:[int]               ; per-node border radius (guest-declared, px)
+
+    def selectedId:int 0
+    def selIndex:int 0
+    def borderWidth:int 2
+    def highlightPad:int 3       ; how far the border sits outside the node
+    ; soft-glow highlight (white drop-shadow style). Set glowSpread=0 for the
+    ; plain hard border.
+    def glowSpread:int 6
+    def glowAlpha:int 200
+    def glowR:int 255
+    def glowG:int 255
+    def glowB:int 255
+
+    ; last activation (node id) or -1; set by update() on the action button
+    def lastActivatedId:int 0
+    def didActivate:boolean false
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length ids)
+    }
+
+    ; Rebuild the selectable set after (re)building + laying out the tree.
+    ; Keeps the current selection if that node is still selectable; otherwise
+    ; honours the guest's DEFAULT flag; otherwise selects the first one.
+    fn rebuild:void (doc:WasmUiDoc root:EVGElement) {
+        clear ids
+        clear rx
+        clear ry
+        clear rw
+        clear rh
+        clear rrad
+        def defaultId 0
+        def i 0
+        while (i < doc.nodeCount) {
+            def sel:boolean (doc.nodeIsSelectable(i))
+            def dis:boolean (doc.nodeIsDisabled(i))
+            if sel {
+                if (dis == false) {
+                    def nid (doc.nodeId(i))
+                    def hit:RectHit (renderer.findRect(root (to_string nid)))
+                    if hit.found {
+                        push ids nid
+                        push rx hit.x
+                        push ry hit.y
+                        push rw hit.w
+                        push rh hit.h
+                        push rrad hit.rad
+                        if (doc.nodeIsDefault(i)) {
+                            if (defaultId == 0) {
+                                defaultId = nid
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; resolve selection
+        def keepIdx (this.indexOfId(selectedId))
+        if (keepIdx >= 0) {
+            selIndex = keepIdx
+            selectedId = (itemAt ids keepIdx)
+            return
+        }
+        if (defaultId != 0) {
+            def di (this.indexOfId(defaultId))
+            if (di >= 0) {
+                selIndex = di
+                selectedId = defaultId
+                return
+            }
+        }
+        if ((array_length ids) > 0) {
+            selIndex = 0
+            selectedId = (itemAt ids 0)
+        } {
+            selIndex = 0
+            selectedId = 0
+        }
+    }
+
+    fn indexOfId:int (id:int) {
+        def i 0
+        def n (array_length ids)
+        while (i < n) {
+            if ((itemAt ids i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn iabs:int (v:int) {
+        if (v < 0) { return (0 - v) }
+        return v
+    }
+
+    fn cx:int (i:int) {
+        return ((itemAt rx i) + (to_int ((itemAt rw i) / 2)))
+    }
+    fn cy:int (i:int) {
+        return ((itemAt ry i) + (to_int ((itemAt rh i) / 2)))
+    }
+
+    ; Move the cursor: dir 0=up 1=down 2=left 3=right. Picks the nearest
+    ; selectable node whose centre lies in the pressed direction; if none, wraps
+    ; to the next/previous by list order.
+    fn navigate:void (dir:int) {
+        def n (array_length ids)
+        if (n <= 1) { return }
+        def curIdx selIndex
+        def ccx (this.cx(curIdx))
+        def ccy (this.cy(curIdx))
+
+        def best -1
+        def bestScore 1000000000
+        def i 0
+        while (i < n) {
+            if (i != curIdx) {
+                def ox (this.cx(i))
+                def oy (this.cy(i))
+                def dx (ox - ccx)
+                def dy (oy - ccy)
+                def inDir false
+                def primary 0
+                def secondary 0
+                if (dir == 0) {
+                    if (dy < 0) { inDir = true }
+                    primary = (this.iabs(dy))
+                    secondary = (this.iabs(dx))
+                }
+                if (dir == 1) {
+                    if (dy > 0) { inDir = true }
+                    primary = (this.iabs(dy))
+                    secondary = (this.iabs(dx))
+                }
+                if (dir == 2) {
+                    if (dx < 0) { inDir = true }
+                    primary = (this.iabs(dx))
+                    secondary = (this.iabs(dy))
+                }
+                if (dir == 3) {
+                    if (dx > 0) { inDir = true }
+                    primary = (this.iabs(dx))
+                    secondary = (this.iabs(dy))
+                }
+                if inDir {
+                    def score (primary + (secondary * 3))
+                    if (score < bestScore) {
+                        bestScore = score
+                        best = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+
+        if (best >= 0) {
+            selIndex = best
+            selectedId = (itemAt ids best)
+            return
+        }
+        ; no candidate in that direction -> wrap by order along the axis
+        def step 1
+        if (dir == 0) { step = (0 - 1) }
+        if (dir == 2) { step = (0 - 1) }
+        def ni (selIndex + step)
+        while (ni < 0) { ni = (ni + n) }
+        while (ni >= n) { ni = (ni - n) }
+        selIndex = ni
+        selectedId = (itemAt ids ni)
+    }
+
+    ; Consume one frame of nav input. Returns the activated node id, or -1.
+    fn update:int (nav:UiNavInput) {
+        didActivate = false
+        lastActivatedId = -1
+        if nav.up { this.navigate(0) }
+        if nav.down { this.navigate(1) }
+        if nav.left { this.navigate(2) }
+        if nav.right { this.navigate(3) }
+        if nav.action {
+            if ((array_length ids) > 0) {
+                didActivate = true
+                lastActivatedId = selectedId
+                return selectedId
+            }
+        }
+        return -1
+    }
+
+    ; Draw the highlight border around the selected node.
+    fn renderHighlight:void (ctx:UIContext) {
+        if ((array_length ids) == 0) { return }
+        if (selIndex < 0) { return }
+        if (selIndex >= (array_length ids)) { return }
+        def x (itemAt rx selIndex)
+        def y (itemAt ry selIndex)
+        def wdt (itemAt rw selIndex)
+        def hgt (itemAt rh selIndex)
+        def pad highlightPad
+        def bx (x - pad)
+        def by (y - pad)
+        def bw (wdt + (pad * 2))
+        def bh (hgt + (pad * 2))
+        ; radius follows the guest-declared radius of the selected node (+pad)
+        def nodeRad (itemAt rrad selIndex)
+        def rad (nodeRad + pad)
+        if (rad < 0) { rad = 0 }
+        if (glowSpread > 0) {
+            ; soft white glow (drop-shadow style): the brightest ring sits on the
+            ; node edge and fades outward into a smooth halo.
+            ctx.glowRoundRect(bx by bw bh rad glowR glowG glowB glowSpread glowAlpha)
+        } {
+            ctx.strokeRoundRect(bx by bw bh rad borderWidth ctx.theme.accent)
+        }
+    }
+}

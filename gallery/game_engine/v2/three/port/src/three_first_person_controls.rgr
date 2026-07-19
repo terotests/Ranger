@@ -1,0 +1,201 @@
+; ==============================================================================
+; three_first_person_controls — WASD + mouse-look (Three.js addons
+; FirstPersonControls). Sponza slice 2.
+; ==============================================================================
+; A fly/walk camera: the HOST feeds key state (setMoveState / keyDown / keyUp)
+; and look deltas (handleLook), then calls update(delta) each frame. The
+; controller integrates movement along the look direction and writes the camera's
+; position + look-at target (via Object3D.lookAt). Pure Ranger, no DOM — compiles
+; native too. Look angles use Three's FirstPersonControls convention: lon/lat in
+; degrees, phi = degToRad(90 - lat) (polar from +Y), theta = degToRad(lon).
+; ==============================================================================
+
+Import "three_perspective_camera.rgr"
+Import "three_vector3.rgr"
+
+class ThreeFirstPersonControls {
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    def hasCamera:boolean false
+
+    def movementSpeed:double 1.0
+    def lookSpeed:double 0.005
+
+    ; look angles (degrees) — lon = yaw about +Y, lat = pitch (clamped +/-85).
+    def lon:double 0.0
+    def lat:double 0.0
+
+    ; movement intents (host sets these from key events).
+    def moveForward:boolean false
+    def moveBackward:boolean false
+    def moveLeft:boolean false
+    def moveRight:boolean false
+    def moveUp:boolean false
+    def moveDown:boolean false
+
+    ; analog movement/look intents (host sets these each frame from a gamepad's
+    ; sticks — range −1..1). They ADD to the digital key intents above, so
+    ; keyboard + controller drive the same camera; both default 0 (a scene with no
+    ; pad, or the native SDL runner that only sets the booleans, is unaffected).
+    ; forward = along the look dir, right = strafe, up = world +Y.
+    def axisForward:double 0.0
+    def axisRight:double 0.0
+    def axisUp:double 0.0
+    ; look-stick rate (−1..1); integrated as degrees/sec so it is frame-rate
+    ; independent, unlike handleLook's per-pixel pointer deltas.
+    def lookAxisX:double 0.0
+    def lookAxisY:double 0.0
+    def lookRateDeg:double 120.0
+
+    ; reusable scratch so update allocates nothing per frame.
+    def _dir:ThreeVector3 (new ThreeVector3)
+    def _right:ThreeVector3 (new ThreeVector3)
+    def _worldUp:ThreeVector3 (ThreeVector3.of(0.0 1.0 0.0))
+
+    fn setCamera:ThreeFirstPersonControls (cam:ThreePerspectiveCamera) {
+        camera = cam
+        hasCamera = true
+        return this
+    }
+    fn setMovementSpeed:ThreeFirstPersonControls (s:double) {
+        movementSpeed = s
+        return this
+    }
+    fn setLookSpeed:ThreeFirstPersonControls (s:double) {
+        lookSpeed = s
+        return this
+    }
+    fn setLook:ThreeFirstPersonControls (lonDeg:double latDeg:double) {
+        lon = lonDeg
+        lat = latDeg
+        this.clampLat()
+        return this
+    }
+    ; host: set the per-frame analog movement axes (gamepad sticks, −1..1).
+    fn setMoveAxes:ThreeFirstPersonControls (fwd:double right:double up:double) {
+        axisForward = fwd
+        axisRight = right
+        axisUp = up
+        return this
+    }
+    ; host: set the per-frame analog look axes (right stick, −1..1).
+    fn setLookAxes:ThreeFirstPersonControls (x:double y:double) {
+        lookAxisX = x
+        lookAxisY = y
+        return this
+    }
+    ; host: clear the analog axes (called each frame before re-applying the pad, so
+    ; a released stick stops the camera instead of coasting on last frame's value).
+    fn clearAxes:ThreeFirstPersonControls () {
+        axisForward = 0.0
+        axisRight = 0.0
+        axisUp = 0.0
+        lookAxisX = 0.0
+        lookAxisY = 0.0
+        return this
+    }
+
+    fn clampLat:void () {
+        if (lat > 85.0) {
+            lat = 85.0
+        }
+        if (lat < (0.0 - 85.0)) {
+            lat = (0.0 - 85.0)
+        }
+    }
+
+    ; the unit look direction from the current lon/lat (writes _dir, returns it).
+    fn lookDirection:ThreeVector3 () {
+        def deg2rad:double 0.017453292519943295
+        def phi:double ((90.0 - lat) * deg2rad)
+        def theta:double (lon * deg2rad)
+        _dir.setFromSphericalCoords(1.0 phi theta)
+        return _dir
+    }
+
+    ; host: apply a pointer look delta (pixels). Rotates lon/lat by lookSpeed.
+    fn handleLook:void (dx:double dy:double) {
+        lon = (lon - (dx * lookSpeed))
+        lat = (lat - (dy * lookSpeed))
+        this.clampLat()
+    }
+
+    ; host: map a key to a movement intent. Codes follow the example's WASD.
+    fn keyDown:void (key:string) {
+        this.setKey(key true)
+    }
+    fn keyUp:void (key:string) {
+        this.setKey(key false)
+    }
+    fn setKey:void (key:string on:boolean) {
+        if (key == "w") { moveForward = on }
+        if (key == "W") { moveForward = on }
+        if (key == "ArrowUp") { moveForward = on }
+        if (key == "s") { moveBackward = on }
+        if (key == "S") { moveBackward = on }
+        if (key == "ArrowDown") { moveBackward = on }
+        if (key == "a") { moveLeft = on }
+        if (key == "A") { moveLeft = on }
+        if (key == "ArrowLeft") { moveLeft = on }
+        if (key == "d") { moveRight = on }
+        if (key == "D") { moveRight = on }
+        if (key == "ArrowRight") { moveRight = on }
+        if (key == "r") { moveUp = on }
+        if (key == "R") { moveUp = on }
+        if (key == "f") { moveDown = on }
+        if (key == "F") { moveDown = on }
+    }
+
+    ; integrate one frame: apply the look-stick, move along look/right/up by
+    ; speed*delta, then re-aim.
+    fn update:void (delta:double) {
+        if (hasCamera == false) {
+            return
+        }
+        ; look stick: rotate lon/lat at lookRateDeg degrees/sec (frame-rate safe),
+        ; before deriving the look direction so this frame's move uses the new aim.
+        if (lookAxisX != 0.0) {
+            lon = (lon - ((lookAxisX * lookRateDeg) * delta))
+        }
+        if (lookAxisY != 0.0) {
+            lat = (lat - ((lookAxisY * lookRateDeg) * delta))
+            this.clampLat()
+        }
+
+        def step:double (movementSpeed * delta)
+        this.lookDirection()
+        ; right = worldUp x dir  (+X when looking +Z)
+        _right.crossVectors(_worldUp _dir)
+        _right.normalize()
+
+        ; combine digital keys (±1) and analog sticks into one scalar per axis, so
+        ; keyboard and controller drive the same camera. Opposed keys cancel, as
+        ; before (a held w+s nets 0).
+        def fwd:double axisForward
+        if moveForward { fwd = (fwd + 1.0) }
+        if moveBackward { fwd = (fwd - 1.0) }
+        def rgt:double axisRight
+        if moveRight { rgt = (rgt + 1.0) }
+        if moveLeft { rgt = (rgt - 1.0) }
+        def upv:double axisUp
+        if moveUp { upv = (upv + 1.0) }
+        if moveDown { upv = (upv - 1.0) }
+
+        def px:double camera.position.x
+        def py:double camera.position.y
+        def pz:double camera.position.z
+
+        px = (px + ((_dir.x * step) * fwd))
+        py = (py + ((_dir.y * step) * fwd))
+        pz = (pz + ((_dir.z * step) * fwd))
+
+        px = (px + ((_right.x * step) * rgt))
+        py = (py + ((_right.y * step) * rgt))
+        pz = (pz + ((_right.z * step) * rgt))
+
+        py = (py + (step * upv))
+
+        camera.position.set(px py pz)
+        ; re-aim at position + look direction.
+        camera.lookAt((px + _dir.x) (py + _dir.y) (pz + _dir.z))
+    }
+}

@@ -1,0 +1,398 @@
+; ==============================================================================
+; three_gl_backend — GPU render backend for ThreeWebGLRenderer (WebGL + GL/GLES).
+; ==============================================================================
+;
+; A ThreeRenderBackend that draws through the three_gl operator layer (which
+; carries both WebGL es6 and OpenGL/GLES cpp bodies), so this ONE Ranger backend
+; compiles to the browser AND to native. Lit via the übershader: setLights +
+; setView once per frame, then drawMesh per mesh with its model/MVP + material.
+;
+; Wire it in:  renderer.setBackend(glBackend)  (after glBackend.init).
+; ==============================================================================
+
+Import "three_render_backend.rgr"
+Import "three_gl.rgr"
+Import "three_gl_shaders.rgr"
+Import "three_buffer_geometry.rgr"
+Import "three_box_geometry.rgr"
+Import "three_cube_texture.rgr"
+Import "three_matrix4.rgr"
+Import "three_texture.rgr"
+Import "three_material.rgr"
+Import "../../model3d/ByteReader.rgr"
+
+class ThreeGLBackend extends ThreeRenderBackend {
+    def prog:int 0
+    def ready:boolean false
+    def skyProg:int 0
+    def skyMesh:int 0
+    def skyReady:boolean false
+    ; Preetham atmosphere: its program + a huge sky box, built lazily.
+    def atmoProg:int 0
+    def atmoMesh:int 0
+    def atmoReady:boolean false
+    ; shadow map: an off-screen depth target + a depth-only program, built lazily.
+    ; The map is 2048² to match the übershader's PCF texel offset (1.0/2048.0).
+    def shadowTarget:int 0
+    def shadowProg:int 0
+    def shadowSize:int 2048
+    def shadowReady:boolean false
+    ; light-probe SH texture (uploaded once, re-uploaded when the bake version changes)
+    def probeTex:int 0
+    def probeVersion:int (0 - 1)
+
+    fn init:boolean (canvasId:string) {
+        def ok:int (gpu_init canvasId)
+        if (ok == 0) {
+            return false
+        }
+        def vs:string (ThreeGLShaders.vertexSrc())
+        def fs:string (ThreeGLShaders.fragmentSrc())
+        prog = (gpu_program vs fs)
+        ready = true
+        return true
+    }
+
+    fn beginFrame:void (w:int h:int r:double g:double b:double) {
+        gpu_begin w h r g b
+    }
+
+    ; ambient rgb + up to 4 directional lights, packed into float32 buffers.
+    fn setLights:void (ambR:double ambG:double ambB:double dirCount:int dirs:[double] cols:[double]) {
+        def ambBuf:buffer (buffer_alloc 12)
+        ByteReader.encodeF32(ambBuf 0 ambR)
+        ByteReader.encodeF32(ambBuf 4 ambG)
+        ByteReader.encodeF32(ambBuf 8 ambB)
+        def dbuf:buffer (buffer_alloc 48)
+        def cbuf:buffer (buffer_alloc 48)
+        def n:int (dirCount * 3)
+        def i:int 0
+        while (i < 12) {
+            def dv:double 0.0
+            def cv:double 0.0
+            if (i < n) {
+                dv = (itemAt dirs i)
+                cv = (itemAt cols i)
+            }
+            ByteReader.encodeF32(dbuf (i * 4) dv)
+            ByteReader.encodeF32(cbuf (i * 4) cv)
+            i = (i + 1)
+        }
+        def c4:int dirCount
+        if (c4 > 4) {
+            c4 = 4
+        }
+        gpu_set_lights ambBuf dbuf cbuf c4
+    }
+
+    fn setView:void (camX:double camY:double camZ:double) {
+        gpu_set_view camX camY camZ
+    }
+
+    ; feed the HDR tone-mapping mode + exposure to the übershader epilogue.
+    fn setToneMapping:void (mode:int exposure:double) {
+        gpu_set_tonemap (to_double mode) exposure
+    }
+
+    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
+        if (ready == false) {
+            return
+        }
+        ; pick the GPU mesh for the material's render mode (smooth / flat / wire),
+        ; uploading + caching that variant on first use.
+        def handle:int 0
+        def lines:boolean false
+        if mat.wireframe {
+            if (geometry.wireHandle < 0) {
+                geometry.wireHandle = (this.uploadWire(geometry))
+            }
+            handle = geometry.wireHandle
+            lines = true
+        } {
+            if mat.flatShading {
+                if (geometry.flatHandle < 0) {
+                    def flat:ThreeBufferGeometry (geometry.buildFlat())
+                    geometry.flatHandle = (this.uploadGeometryData(flat))
+                }
+                handle = geometry.flatHandle
+            } {
+                if (geometry.glHandle < 0) {
+                    geometry.glHandle = (this.uploadGeometryData(geometry))
+                }
+                handle = geometry.glHandle
+            }
+        }
+        def th:int 0
+        if mat.hasMap {
+            if (mat.map.glHandle < 0) {
+                mat.map.glHandle = (gpu_make_texture mat.map.rgba mat.map.width mat.map.height)
+            }
+            th = mat.map.glHandle
+        }
+        ; tangent-space normal map (0 = none): uploaded + cached like the base map.
+        def nth:int 0
+        if mat.hasNormalMap {
+            if (mat.normalMap.glHandle < 0) {
+                mat.normalMap.glHandle = (gpu_make_texture mat.normalMap.rgba mat.normalMap.width mat.normalMap.height)
+            }
+            nth = mat.normalMap.glHandle
+        }
+        gpu_set_normal nth
+        def mvpBuf:buffer (this.matrixBytes(mvp))
+        def modelBuf:buffer (this.matrixBytes(model))
+        def matBuf:buffer (this.materialBytes(mat th))
+        if lines {
+            gpu_draw_lines prog handle th mvpBuf modelBuf matBuf
+        } {
+            gpu_draw prog handle th mvpBuf modelBuf matBuf
+        }
+    }
+
+    ; upload the environment cube map once; cache the handle on the texture.
+    fn ensureEnvironment:int (cube:ThreeCubeTexture) {
+        if (cube.glHandle < 0) {
+            if ((cube.faceCount()) == 6) {
+                def f0:buffer (cube.face(0))
+                def f1:buffer (cube.face(1))
+                def f2:buffer (cube.face(2))
+                def f3:buffer (cube.face(3))
+                def f4:buffer (cube.face(4))
+                def f5:buffer (cube.face(5))
+                cube.glHandle = (gpu_make_cubemap f0 f1 f2 f3 f4 f5 cube.size)
+            }
+        }
+        return cube.glHandle
+    }
+    fn setEnvironment:void (handle:int) {
+        gpu_set_env handle
+    }
+
+    ; build the skybox program + a unit cube mesh (lazily) and draw the cube map.
+    fn ensureSky:void () {
+        if skyReady {
+            return
+        }
+        def vs:string (ThreeGLShaders.skyVertexSrc())
+        def fs:string (ThreeGLShaders.skyFragmentSrc())
+        skyProg = (gpu_program vs fs)
+        def box:ThreeBoxGeometry (new ThreeBoxGeometry)
+        box.setSize(2.0 2.0 2.0)
+        skyMesh = (this.uploadGeometryData(box))
+        skyReady = true
+    }
+    fn drawSkybox:void (handle:int mvp:ThreeMatrix4) {
+        if (ready == false) {
+            return
+        }
+        if (handle < 1) {
+            return
+        }
+        this.ensureSky()
+        def mvpBuf:buffer (this.matrixBytes(mvp))
+        gpu_draw_sky skyProg skyMesh handle mvpBuf
+    }
+
+    ; --- shadow map (two-pass) ------------------------------------------------
+    fn ensureShadow:void () {
+        if shadowReady {
+            return
+        }
+        shadowTarget = (gpu_make_depth_target shadowSize)
+        def vs:string (ThreeGLShaders.depthVertexSrc())
+        def fs:string (ThreeGLShaders.depthFragmentSrc())
+        shadowProg = (gpu_program vs fs)
+        shadowReady = true
+    }
+
+    ; pass 1: bind the depth target; drawDepth each caster from the light.
+    fn beginShadowPass:void () {
+        if (ready == false) {
+            return
+        }
+        this.ensureShadow()
+        gpu_bind_target shadowTarget
+    }
+    fn drawDepth:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4) {
+        if (shadowReady == false) {
+            return
+        }
+        if (geometry.glHandle < 0) {
+            geometry.glHandle = (this.uploadGeometryData(geometry))
+        }
+        def mvpBuf:buffer (this.matrixBytes(mvp))
+        gpu_draw_depth shadowProg geometry.glHandle mvpBuf
+    }
+    fn endShadowPass:void (w:int h:int) {
+        gpu_bind_screen w h
+    }
+    ; the shadow map's size, and its packed-depth colour read back to CPU (RGBA
+    ; bytes, size*size*4) — used to compute per-probe sun visibility for the GI bake.
+    fn shadowMapSize:int () {
+        return shadowSize
+    }
+    fn readShadowDepth:buffer () {
+        if (shadowReady == false) {
+            return (buffer_alloc 0)
+        }
+        return (gpu_read_target shadowTarget shadowSize)
+    }
+
+    ; feed the depth map + light view-projection to the lit pass (or disable it).
+    fn setShadow:void (lightViewProj:ThreeMatrix4 enabled:boolean) {
+        def mb:buffer (this.matrixBytes(lightViewProj))
+        if (enabled && shadowReady) {
+            def tex:int (gpu_target_depth_tex shadowTarget)
+            gpu_set_shadow tex mb 1
+        } {
+            gpu_set_shadow 0 mb 0
+        }
+    }
+
+    ; --- Preetham atmosphere sky ---------------------------------------------
+    fn ensureAtmosphere:void () {
+        if atmoReady {
+            return
+        }
+        def vs:string (ThreeGLShaders.atmosphereVertexSrc())
+        def fs:string (ThreeGLShaders.atmosphereFragmentSrc())
+        atmoProg = (gpu_program vs fs)
+        def box:ThreeBoxGeometry (new ThreeBoxGeometry)
+        box.setSize(2.0 2.0 2.0)
+        atmoMesh = (this.uploadGeometryData(box))
+        atmoReady = true
+    }
+    fn drawAtmosphere:void (mvp:ThreeMatrix4 model:ThreeMatrix4 sunX:double sunY:double sunZ:double rayleigh:double turbidity:double mieCoefficient:double mieDirectionalG:double) {
+        if (ready == false) {
+            return
+        }
+        this.ensureAtmosphere()
+        def mvpBuf:buffer (this.matrixBytes(mvp))
+        def modelBuf:buffer (this.matrixBytes(model))
+        def params:buffer (buffer_alloc 28)
+        ByteReader.encodeF32(params 0 sunX)
+        ByteReader.encodeF32(params 4 sunY)
+        ByteReader.encodeF32(params 8 sunZ)
+        ByteReader.encodeF32(params 12 rayleigh)
+        ByteReader.encodeF32(params 16 turbidity)
+        ByteReader.encodeF32(params 20 mieCoefficient)
+        ByteReader.encodeF32(params 24 mieDirectionalG)
+        gpu_draw_atmosphere atmoProg atmoMesh mvpBuf modelBuf params
+    }
+
+    ; --- light-probe volume (per-fragment GI) --------------------------------
+    fn setProbeVolume:void (shData:buffer probeCount:int cx:int cy:int cz:int ox:double oy:double oz:double sx:double sy:double sz:double version:int enabled:boolean) {
+        if ((enabled == false) || (probeCount < 1)) {
+            gpu_set_probes 0 1.0 1.0 1.0 1.0 0.0 0.0 0.0 1.0 1.0 1.0 0
+            return
+        }
+        ; upload the SH texture (9 texels wide, one row per probe) on first use, and
+        ; re-upload only when the bake changed.
+        if (probeTex < 1) {
+            probeTex = (gpu_make_float_tex shData 9 probeCount)
+            probeVersion = version
+        } {
+            if (version != probeVersion) {
+                gpu_update_float_tex probeTex shData 9 probeCount
+                probeVersion = version
+            }
+        }
+        gpu_set_probes probeTex (to_double probeCount) (to_double cx) (to_double cy) (to_double cz) ox oy oz sx sy sz 1
+    }
+
+    fn endFrame:void () {
+        gpu_end
+    }
+
+    ; interleaved float32 [px,py,pz, nx,ny,nz, u,v, tx,ty,tz,tw] (48-byte stride).
+    ; The tangent (offset 32) drives normal mapping; a default is packed when the
+    ; geometry has none, so the vertex layout is uniform for every mesh.
+    fn packVerts:buffer (g:ThreeBufferGeometry) {
+        def vc:int (g.vertexCount())
+        def vbuf:buffer (buffer_alloc (vc * 48))
+        def i:int 0
+        while (i < vc) {
+            def o:int (i * 48)
+            ByteReader.encodeF32(vbuf o (g.getPosition(i 0)))
+            ByteReader.encodeF32(vbuf (o + 4) (g.getPosition(i 1)))
+            ByteReader.encodeF32(vbuf (o + 8) (g.getPosition(i 2)))
+            ByteReader.encodeF32(vbuf (o + 12) (g.getNormal(i 0)))
+            ByteReader.encodeF32(vbuf (o + 16) (g.getNormal(i 1)))
+            ByteReader.encodeF32(vbuf (o + 20) (g.getNormal(i 2)))
+            ByteReader.encodeF32(vbuf (o + 24) (g.getUv(i 0)))
+            ByteReader.encodeF32(vbuf (o + 28) (g.getUv(i 1)))
+            ByteReader.encodeF32(vbuf (o + 32) (g.getTangent(i 0)))
+            ByteReader.encodeF32(vbuf (o + 36) (g.getTangent(i 1)))
+            ByteReader.encodeF32(vbuf (o + 40) (g.getTangent(i 2)))
+            ByteReader.encodeF32(vbuf (o + 44) (g.getTangent(i 3)))
+            i = (i + 1)
+        }
+        return vbuf
+    }
+
+    ; upload a geometry as a triangle mesh (interleaved verts + uint32 index).
+    fn uploadGeometryData:int (g:ThreeBufferGeometry) {
+        def vc:int (g.vertexCount())
+        def vbuf:buffer (this.packVerts(g))
+        def ic:int (g.indexCount())
+        def ibuf:buffer (buffer_alloc (ic * 4))
+        def k:int 0
+        while (k < ic) {
+            ByteReader.encodeU32(ibuf (k * 4) (g.getIndex(k)))
+            k = (k + 1)
+        }
+        return (gpu_make_mesh vbuf vc ibuf ic)
+    }
+
+    ; upload the same verts but with a line-edge index for wireframe drawing.
+    fn uploadWire:int (g:ThreeBufferGeometry) {
+        def vc:int (g.vertexCount())
+        def vbuf:buffer (this.packVerts(g))
+        def wi:[int] (g.buildWireIndex())
+        def ic:int (array_length wi)
+        def ibuf:buffer (buffer_alloc (ic * 4))
+        def k:int 0
+        while (k < ic) {
+            ByteReader.encodeU32(ibuf (k * 4) (itemAt wi k))
+            k = (k + 1)
+        }
+        return (gpu_make_mesh vbuf vc ibuf ic)
+    }
+
+    ; 16 float32 (column-major), as the GL uniform expects.
+    fn matrixBytes:buffer (m:ThreeMatrix4) {
+        def out:buffer (buffer_alloc 64)
+        def i:int 0
+        while (i < 16) {
+            ByteReader.encodeF32(out (i * 4) (m.eGet(i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; 12 float32: colRGB, specRGB, shininess, shadingMode, side, hasTex,
+    ; reflectivity, hasEnv.
+    fn materialBytes:buffer (mat:ThreeMaterial th:int) {
+        def out:buffer (buffer_alloc 48)
+        ByteReader.encodeF32(out 0 mat.colorR)
+        ByteReader.encodeF32(out 4 mat.colorG)
+        ByteReader.encodeF32(out 8 mat.colorB)
+        ByteReader.encodeF32(out 12 mat.specularR)
+        ByteReader.encodeF32(out 16 mat.specularG)
+        ByteReader.encodeF32(out 20 mat.specularB)
+        ByteReader.encodeF32(out 24 mat.shininess)
+        ByteReader.encodeF32(out 28 (to_double (mat.shadingMode())))
+        ByteReader.encodeF32(out 32 (to_double mat.side))
+        def hasTexF:double 0.0
+        if (th > 0) {
+            hasTexF = 1.0
+        }
+        ByteReader.encodeF32(out 36 hasTexF)
+        ByteReader.encodeF32(out 40 mat.reflectivity)
+        def hasEnvF:double 0.0
+        if mat.reflective {
+            hasEnvF = 1.0
+        }
+        ByteReader.encodeF32(out 44 hasEnvF)
+        return out
+    }
+}

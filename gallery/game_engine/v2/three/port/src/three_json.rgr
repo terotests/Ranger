@@ -1,0 +1,274 @@
+; ==============================================================================
+; three_json — a small recursive-descent JSON parser (pure Ranger, cpp + es6).
+; ==============================================================================
+; Needed for the native glTF loader: lib/JSON is ES6-only (backed by JSON.parse),
+; so it can't compile to C++. This parser is pure Ranger — it scans the source as
+; a byte buffer (O(1) indexing) and builds a ThreeJsonValue tree, so the SDL/native host
+; can read a .gltf/.glb JSON chunk on-device.
+;
+; Scope: objects, arrays, strings, numbers, true/false/null. String values are
+; returned as their raw slice (glTF structural strings — keys, "VEC3", attribute
+; names, buffer URIs — contain no escapes); \-escapes are not decoded. Assumes the
+; structural JSON is ASCII (byte index == char index), which glTF is.
+; ==============================================================================
+
+Import "three_vector3.rgr"
+
+; kind: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object
+class ThreeJsonValue {
+    def kind:int 0
+    def numberValue:double 0.0
+    def boolValue:boolean false
+    def stringValue:string ""
+    def items:[ThreeJsonValue]
+    def keys:[string]
+    def vals:[ThreeJsonValue]
+
+    fn isNull:boolean () { return (this.kind == 0) }
+    fn isBool:boolean () { return (this.kind == 1) }
+    fn isNumber:boolean () { return (this.kind == 2) }
+    fn isString:boolean () { return (this.kind == 3) }
+    fn isArray:boolean () { return (this.kind == 4) }
+    fn isObject:boolean () { return (this.kind == 5) }
+
+    fn asNumber:double () { return this.numberValue }
+    fn asInt:int () { return (to_int this.numberValue) }
+    fn asString:string () { return this.stringValue }
+    fn asBool:boolean () { return this.boolValue }
+
+    fn length:int () {
+        if (this.kind == 4) { return (array_length this.items) }
+        if (this.kind == 5) { return (array_length this.keys) }
+        return 0
+    }
+    fn at:ThreeJsonValue (i:int) {
+        return (itemAt this.items i)
+    }
+    fn has:boolean (key:string) {
+        def n:int (array_length this.keys)
+        def i:int 0
+        while (i < n) {
+            def k:string (itemAt this.keys i)
+            if (k == key) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+    ; returns the value for key, or a null ThreeJsonValue if absent.
+    fn get:ThreeJsonValue (key:string) {
+        def n:int (array_length this.keys)
+        def i:int 0
+        while (i < n) {
+            def k:string (itemAt this.keys i)
+            if (k == key) {
+                return (itemAt this.vals i)
+            }
+            i = (i + 1)
+        }
+        return (new ThreeJsonValue)
+    }
+    ; number for key with a default when absent / not a number.
+    fn numOr:double (key:string dflt:double) {
+        def v:ThreeJsonValue (this.get(key))
+        if (v.isNumber()) { return v.numberValue }
+        return dflt
+    }
+    fn intOr:int (key:string dflt:int) {
+        def v:ThreeJsonValue (this.get(key))
+        if (v.isNumber()) { return (to_int v.numberValue) }
+        return dflt
+    }
+    fn strOr:string (key:string dflt:string) {
+        def v:ThreeJsonValue (this.get(key))
+        if (v.isString()) { return v.stringValue }
+        return dflt
+    }
+}
+
+class ThreeJsonParser {
+    def bytes:buffer (buffer_alloc 0)
+    def pos:int 0
+    def len:int 0
+
+    fn parse:ThreeJsonValue (text:string) {
+        def b:buffer (buffer_from_string text)
+        return (this.parseBytes(b))
+    }
+    ; parse straight from a byte buffer — avoids stringifying the whole document
+    ; (buffer_to_string on a large buffer overflows the es6 String.fromCharCode).
+    fn parseBytes:ThreeJsonValue (b:buffer) {
+        this.bytes = b
+        this.len = (buffer_length b)
+        this.pos = 0
+        this.skipWs()
+        return (this.parseValue())
+    }
+
+    fn byteAt:int (i:int) {
+        return (buffer_get this.bytes i)
+    }
+    ; small slice [start,end) as a string (numbers, keys — never the whole doc).
+    fn sliceStr:string (start:int end:int) {
+        def n:int (end - start)
+        def sub:buffer (buffer_alloc n)
+        buffer_copy sub 0 this.bytes start n
+        return (buffer_to_string sub)
+    }
+    fn skipWs:void () {
+        while (this.pos < this.len) {
+            def b:int (this.byteAt(this.pos))
+            ; space 32, tab 9, newline 10, cr 13
+            if (((b == 32) || (b == 9)) || ((b == 10) || (b == 13))) {
+                this.pos = (this.pos + 1)
+            } {
+                return
+            }
+        }
+    }
+
+    fn parseValue:ThreeJsonValue () {
+        this.skipWs()
+        if (this.pos >= this.len) {
+            return (new ThreeJsonValue)
+        }
+        def b:int (this.byteAt(this.pos))
+        if (b == 123) { return (this.parseObject()) }
+        if (b == 91) { return (this.parseArray()) }
+        if (b == 34) { return (this.parseString()) }
+        if (b == 116) { return (this.parseLiteral("true" 1)) }
+        if (b == 102) { return (this.parseLiteral("false" 1)) }
+        if (b == 110) { return (this.parseLiteral("null" 0)) }
+        return (this.parseNumber())
+    }
+
+    ; consume `word` and return a bool/null ThreeJsonValue (kind 1 with boolValue, or 0).
+    fn parseLiteral:ThreeJsonValue (word:string kind:int) {
+        this.pos = (this.pos + (strlen word))
+        def v:ThreeJsonValue (new ThreeJsonValue)
+        v.kind = kind
+        if (kind == 1) {
+            v.boolValue = (word == "true")
+        }
+        return v
+    }
+
+    fn isNumberByte:boolean (b:int) {
+        if ((b >= 48) && (b <= 57)) { return true }
+        if (b == 45) { return true }
+        if (b == 43) { return true }
+        if (b == 46) { return true }
+        if (b == 101) { return true }
+        if (b == 69) { return true }
+        return false
+    }
+    fn parseNumber:ThreeJsonValue () {
+        def start:int this.pos
+        def scanning:boolean true
+        while scanning {
+            if (this.pos >= this.len) {
+                scanning = false
+            } {
+                def b:int (this.byteAt(this.pos))
+                if (this.isNumberByte(b)) {
+                    this.pos = (this.pos + 1)
+                } {
+                    scanning = false
+                }
+            }
+        }
+        def slice:string (this.sliceStr(start this.pos))
+        def v:ThreeJsonValue (new ThreeJsonValue)
+        v.kind = 2
+        v.numberValue = (unwrap (str2double slice))
+        return v
+    }
+
+    ; raw string slice between quotes (escapes not decoded — see header).
+    fn parseString:ThreeJsonValue () {
+        this.pos = (this.pos + 1)
+        def start:int this.pos
+        while (this.pos < this.len) {
+            def b:int (this.byteAt(this.pos))
+            if (b == 34) {
+                def s:string (this.sliceStr(start this.pos))
+                this.pos = (this.pos + 1)
+                def v:ThreeJsonValue (new ThreeJsonValue)
+                v.kind = 3
+                v.stringValue = s
+                return v
+            }
+            if (b == 92) {
+                this.pos = (this.pos + 2)
+            } {
+                this.pos = (this.pos + 1)
+            }
+        }
+        def v2:ThreeJsonValue (new ThreeJsonValue)
+        v2.kind = 3
+        return v2
+    }
+
+    fn parseArray:ThreeJsonValue () {
+        def v:ThreeJsonValue (new ThreeJsonValue)
+        v.kind = 4
+        this.pos = (this.pos + 1)
+        this.skipWs()
+        if (this.pos < this.len) {
+            if ((this.byteAt(this.pos)) == 93) {
+                this.pos = (this.pos + 1)
+                return v
+            }
+        }
+        def running:boolean true
+        while running {
+            this.skipWs()
+            def item:ThreeJsonValue (this.parseValue())
+            push v.items item
+            this.skipWs()
+            def b:int 0
+            if (this.pos < this.len) { b = (this.byteAt(this.pos)) }
+            if (b == 44) {
+                this.pos = (this.pos + 1)
+            } {
+                this.pos = (this.pos + 1)
+                running = false
+            }
+        }
+        return v
+    }
+
+    fn parseObject:ThreeJsonValue () {
+        def v:ThreeJsonValue (new ThreeJsonValue)
+        v.kind = 5
+        this.pos = (this.pos + 1)
+        this.skipWs()
+        if (this.pos < this.len) {
+            if ((this.byteAt(this.pos)) == 125) {
+                this.pos = (this.pos + 1)
+                return v
+            }
+        }
+        def running:boolean true
+        while running {
+            this.skipWs()
+            def keyVal:ThreeJsonValue (this.parseString())
+            this.skipWs()
+            ; skip ':'
+            this.pos = (this.pos + 1)
+            this.skipWs()
+            def valVal:ThreeJsonValue (this.parseValue())
+            push v.keys keyVal.stringValue
+            push v.vals valVal
+            this.skipWs()
+            def b:int 0
+            if (this.pos < this.len) { b = (this.byteAt(this.pos)) }
+            if (b == 44) {
+                this.pos = (this.pos + 1)
+            } {
+                this.pos = (this.pos + 1)
+                running = false
+            }
+        }
+        return v
+    }
+}

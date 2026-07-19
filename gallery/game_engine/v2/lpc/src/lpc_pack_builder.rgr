@@ -1,0 +1,18 @@
+; ==============================================================================
+; lpc_pack_builder — curated LPC zip pack (draft, Ranger only).
+; ==============================================================================
+; TODO: suodata metadata, kopioi vain tarvittavat spritesheets/, kirjoita zip.
+
+Import "lpc_config.rgr"
+Import "../../../zip/ZipWriter.rgr"
+
+class LpcPackBuilder {
+    def cfg:LpcConfig (new LpcConfig())
+
+    fn build:void (outDir:string outFile:string) {
+        this.cfg.applyDefault()
+        print "[lpc_pack_builder] TODO: build pack from "
+        print (this.cfg.lpcRoot)
+        print ("  -> " + outDir + "/" + outFile)
+    }
+}

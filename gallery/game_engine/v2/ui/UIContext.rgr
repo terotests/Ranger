@@ -1,0 +1,364 @@
+; ==============================================================================
+; UIContext - theme + paint helpers shared by every widget.
+; ==============================================================================
+;
+; Widgets never touch the SoftCanvas directly; they draw through a UIContext,
+; which owns the framebuffer, the text renderer and the colour theme. This keeps
+; alpha-compositing (HUD panels over the game world) and text in one place and
+; makes the widgets pure geometry + state.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "UITextRenderer.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+; Named colour roles. Dark, translucent-panel theme by default (reads well as an
+; overlay on top of a bright game world). Swap fields for a light theme.
+class UITheme {
+    def panelBg:EVGColor    (EVGColor.rgba(20 24 38 0.85))
+    def panelBorder:EVGColor (EVGColor.rgba(90 110 150 0.9))
+    def label:EVGColor      (EVGColor.rgb(226 232 245))
+    def mutedLabel:EVGColor  (EVGColor.rgb(150 165 190))
+
+    def buttonBg:EVGColor    (EVGColor.rgba(46 54 82 0.95))
+    def buttonHover:EVGColor  (EVGColor.rgba(64 76 116 0.95))
+    def buttonPressed:EVGColor (EVGColor.rgba(30 36 58 0.95))
+    def buttonText:EVGColor  (EVGColor.rgb(232 238 250))
+    def buttonBorder:EVGColor (EVGColor.rgba(110 130 175 0.9))
+
+    def inputBg:EVGColor     (EVGColor.rgba(14 17 28 0.95))
+    def inputText:EVGColor   (EVGColor.rgb(236 240 250))
+    def inputBorder:EVGColor  (EVGColor.rgba(80 96 130 0.9))
+    def placeholder:EVGColor  (EVGColor.rgb(110 122 145))
+    def caret:EVGColor       (EVGColor.rgb(120 200 255))
+
+    def boxFill:EVGColor     (EVGColor.rgba(70 120 190 0.9))
+    def boxBorder:EVGColor    (EVGColor.rgba(120 170 230 0.95))
+
+    ; Selection / focus accent used for the "highlight selected element" outline.
+    def accent:EVGColor      (EVGColor.rgb(255 190 70))
+    def focusRing:EVGColor    (EVGColor.rgb(120 200 255))
+
+    def keyBg:EVGColor       (EVGColor.rgba(40 48 72 0.97))
+    def keyText:EVGColor     (EVGColor.rgb(230 236 248))
+
+    Constructor () {
+    }
+}
+
+class UIContext {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def tr:UITextRenderer (new UITextRenderer)
+    def theme:UITheme (new UITheme)
+    def frame:int 0        ; frame counter, drives caret blink etc.
+
+    Constructor () {
+    }
+
+    fn attach:void (c:SoftCanvas) {
+        canvas = c
+    }
+
+    ; --- low-level fills -------------------------------------------------------
+    fn blendPixel:void (x:int y:int r:int g:int b:int a:int) {
+        if (a <= 0) { return }
+        def cw:int (canvas.getWidth())
+        def ch:int (canvas.getHeight())
+        if (x < 0) { return }
+        if (y < 0) { return }
+        if (x >= cw) { return }
+        if (y >= ch) { return }
+        if (a >= 255) {
+            canvas.setPixel(x y r g b)
+            return
+        }
+        def oldR:int (canvas.pixelR(x y))
+        def oldG:int (canvas.pixelG(x y))
+        def oldB:int (canvas.pixelB(x y))
+        def inv (255 - a)
+        def nr (to_int (((r * a) + (oldR * inv)) / 255))
+        def ng (to_int (((g * a) + (oldG * inv)) / 255))
+        def nb (to_int (((b * a) + (oldB * inv)) / 255))
+        canvas.setPixel(x y nr ng nb)
+    }
+
+    fn fillRectA:void (x:int y:int rw:int rh:int r:int g:int b:int a:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (a >= 255) {
+            canvas.fillRect(x y rw rh r g b)
+            return
+        }
+        def yy y
+        def yEnd (y + rh)
+        def xEnd (x + rw)
+        while (yy < yEnd) {
+            def xx x
+            while (xx < xEnd) {
+                this.blendPixel(xx yy r g b a)
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn fillRect:void (x:int y:int rw:int rh:int col:EVGColor) {
+        def a:int (to_int ((col.alpha()) * 255.0))
+        this.fillRectA(x y rw rh (col.red()) (col.green()) (col.blue()) a)
+    }
+
+    ; Stroke an outline of `t` px, inset inside the rect bounds.
+    fn strokeRect:void (x:int y:int rw:int rh:int t:int col:EVGColor) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        this.fillRect(x y rw t col)                     ; top
+        this.fillRect(x (y + rh - t) rw t col)          ; bottom
+        this.fillRect(x y t rh col)                     ; left
+        this.fillRect((x + rw - t) y t rh col)          ; right
+    }
+
+    ; --- rounded rectangles ----------------------------------------------------
+    fn clampi:int (v:int lo:int hi:int) {
+        if (v < lo) { return lo }
+        if (v > hi) { return hi }
+        return v
+    }
+
+    ; True if (px,py) is inside the rounded rect [x,y,w,h] with corner radius rad.
+    ; The clamp-to-inner-rect + radius test also clips to the rect bounds.
+    fn roundedInside:boolean (px:int py:int x:int y:int w:int h:int rad:int) {
+        if (w <= 0) { return false }
+        if (h <= 0) { return false }
+        def r rad
+        def hw (to_int (w / 2))
+        def hh (to_int (h / 2))
+        if (r > hw) { r = hw }
+        if (r > hh) { r = hh }
+        if (r < 0) { r = 0 }
+        if (r == 0) {
+            if (px < x) { return false }
+            if (py < y) { return false }
+            if (px >= (x + w)) { return false }
+            if (py >= (y + h)) { return false }
+            return true
+        }
+        def qx (this.clampi(px (x + r) ((x + w - 1) - r)))
+        def qy (this.clampi(py (y + r) ((y + h - 1) - r)))
+        def dx (px - qx)
+        def dy (py - qy)
+        return (((dx * dx) + (dy * dy)) <= (r * r))
+    }
+
+    fn fillRoundRectA:void (x:int y:int rw:int rh:int rad:int r:int g:int b:int a:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (rad <= 0) {
+            this.fillRectA(x y rw rh r g b a)
+            return
+        }
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                if (this.roundedInside(xx yy x y rw rh rad)) {
+                    this.blendPixel(xx yy r g b a)
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn fillRoundRect:void (x:int y:int rw:int rh:int rad:int col:EVGColor) {
+        def a:int (to_int ((col.alpha()) * 255.0))
+        this.fillRoundRectA(x y rw rh rad (col.red()) (col.green()) (col.blue()) a)
+    }
+
+    ; Draw an image stretched to fill the rect, CLIPPED to the rounded path — the
+    ; source is sampled (nearest) so any pixel outside the rounded corners is
+    ; skipped. Honors the image's own per-pixel alpha.
+    fn fillRoundRectImage:void (x:int y:int rw:int rh:int rad:int img:ImageBuffer) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        def iw:int (img.width)
+        def ih:int (img.height)
+        if (iw <= 0) { return }
+        if (ih <= 0) { return }
+        def src:buffer (img.getRawBuffer())
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                def draw:boolean true
+                if (rad > 0) {
+                    draw = (this.roundedInside(xx yy x y rw rh rad))
+                }
+                if draw {
+                    def u:int (to_int ((to_double ((xx - x) * iw)) / (to_double rw)))
+                    def v:int (to_int ((to_double ((yy - y) * ih)) / (to_double rh)))
+                    if (u < 0) { u = 0 }
+                    if (v < 0) { v = 0 }
+                    if (u >= iw) { u = (iw - 1) }
+                    if (v >= ih) { v = (ih - 1) }
+                    def off:int (((v * iw) + u) * 4)
+                    def r:int (buffer_get src off)
+                    def g:int (buffer_get src (off + 1))
+                    def b:int (buffer_get src (off + 2))
+                    def a:int (buffer_get src (off + 3))
+                    this.blendPixel(xx yy r g b a)
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn lerpChan:int (a:int b:int t:double) {
+        def av:double (to_double a)
+        def bv:double (to_double b)
+        return (to_int (av + ((bv - av) * t)))
+    }
+
+    ; Fill a (rounded) rect with a 2-stop linear gradient. dir 0 = vertical
+    ; (top->bottom), 1 = horizontal (left->right). Composites per pixel so it
+    ; respects the corner radius and any alpha in the stops.
+    fn fillRoundRectGrad:void (x:int y:int rw:int rh:int rad:int dir:int r1:int g1:int b1:int a1:int r2:int g2:int b2:int a2:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        def denomV:int (rh - 1)
+        if (denomV < 1) { denomV = 1 }
+        def denomH:int (rw - 1)
+        if (denomH < 1) { denomH = 1 }
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                def draw:boolean true
+                if (rad > 0) {
+                    draw = (this.roundedInside(xx yy x y rw rh rad))
+                }
+                if draw {
+                    def t:double 0.0
+                    if (dir == 1) {
+                        t = ((to_double (xx - x)) / (to_double denomH))
+                    } {
+                        t = ((to_double (yy - y)) / (to_double denomV))
+                    }
+                    def r:int (this.lerpChan(r1 r2 t))
+                    def g:int (this.lerpChan(g1 g2 t))
+                    def b:int (this.lerpChan(b1 b2 t))
+                    def a:int (this.lerpChan(a1 a2 t))
+                    this.blendPixel(xx yy r g b a)
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    ; Stroke a rounded outline of `t` px (the ring between the outer rounded rect
+    ; and an inner one inset by t). Composites over existing content.
+    fn strokeRoundRect:void (x:int y:int rw:int rh:int rad:int t:int col:EVGColor) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (rad <= 0) {
+            this.strokeRect(x y rw rh t col)
+            return
+        }
+        def cr:int (col.red())
+        def cg:int (col.green())
+        def cb:int (col.blue())
+        def ca:int (to_int ((col.alpha()) * 255.0))
+        def innerRad (rad - t)
+        if (innerRad < 0) { innerRad = 0 }
+        def ix (x + t)
+        def iy (y + t)
+        def iw (rw - (t * 2))
+        def ih (rh - (t * 2))
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                if (this.roundedInside(xx yy x y rw rh rad)) {
+                    if ((this.roundedInside(xx yy ix iy iw ih innerRad)) == false) {
+                        this.blendPixel(xx yy cr cg cb ca)
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    ; Rounded ring with explicit RGBA (the alpha-parameterised core of a glow).
+    fn strokeRoundRectA:void (x:int y:int rw:int rh:int rad:int t:int r:int g:int b:int a:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (a <= 0) { return }
+        def innerRad (rad - t)
+        if (innerRad < 0) { innerRad = 0 }
+        def ix (x + t)
+        def iy (y + t)
+        def iw (rw - (t * 2))
+        def ih (rh - (t * 2))
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                if (this.roundedInside(xx yy x y rw rh rad)) {
+                    if ((this.roundedInside(xx yy ix iy iw ih innerRad)) == false) {
+                        this.blendPixel(xx yy r g b a)
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    ; Soft glow / drop-shadow-style outline: concentric 1px rounded rings growing
+    ; outward from the rect edge, alpha fading with a quadratic falloff. Reads as
+    ; a smooth halo rather than a hard border. `spread` = glow width in px.
+    fn glowRoundRect:void (x:int y:int rw:int rh:int rad:int r:int g:int b:int spread:int maxAlpha:int) {
+        if (spread <= 0) { return }
+        def i 0
+        while (i < spread) {
+            def num (spread - i)
+            ; quadratic falloff: brightest ring at the edge (i=0), fading softly
+            ; outward (num^2) so the halo reads as a smooth drop shadow, not a
+            ; stack of hard rings. Draw a 2px-wide ring so neighbouring rings
+            ; overlap and there is no 1px gap banding at higher resolutions.
+            def a (to_int (((maxAlpha * num) * num) / (spread * spread)))
+            this.strokeRoundRectA((x - i) (y - i) (rw + (i * 2)) (rh + (i * 2)) (rad + i) 2 r g b a)
+            i = (i + 1)
+        }
+    }
+
+    ; --- text ------------------------------------------------------------------
+    fn text:void (s:string x:int y:int size:double col:EVGColor) {
+        tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))
+    }
+
+    fn textWrapped:int (s:string x:int y:int size:double maxWidth:double col:EVGColor) {
+        return (tr.drawText(canvas s x y size maxWidth (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0))))
+    }
+
+    fn measureWidth:double (s:string size:double) {
+        return (tr.measureWidth(s size))
+    }
+
+    fn lineHeight:double (size:double) {
+        return (tr.lineHeight(size))
+    }
+}

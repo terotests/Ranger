@@ -1,0 +1,98 @@
+; ==============================================================================
+; three_matrix4_test — Three.js Matrix4 tests (ported subset).
+; ==============================================================================
+
+Import "three_matrix4.rgr"
+Import "three_vector3.rgr"
+Import "three_quaternion.rgr"
+
+class ThreeM4Check {
+    def passed:int 0
+    def failed:int 0
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeMatrix4Test {
+    sfn m@(main):void () {
+        def ck:ThreeM4Check (new ThreeM4Check)
+        def pi:double 3.141592653589793
+        print "== ThreeMatrix4 (Three.js Matrix4 port) =="
+
+        ; fresh matrix reads as identity
+        def I:ThreeMatrix4 (new ThreeMatrix4)
+        ck.near("identity[0]" (I.eGet(0)) 1.0)
+        ck.near("identity[5]" (I.eGet(5)) 1.0)
+        ck.near("identity[15]" (I.eGet(15)) 1.0)
+        ck.near("identity[1]" (I.eGet(1)) 0.0)
+
+        ; translation
+        def T:ThreeMatrix4 (new ThreeMatrix4)
+        T.makeTranslation(1.0 2.0 3.0)
+        def p0:ThreeVector3 (ThreeVector3.of(0.0 0.0 0.0))
+        def tp:ThreeVector3 (T.transformPoint(p0))
+        ck.near("translate x" tp.x 1.0)
+        ck.near("translate y" tp.y 2.0)
+        ck.near("translate z" tp.z 3.0)
+
+        ; compose(position, identity, unit scale) == translation
+        def C:ThreeMatrix4 (new ThreeMatrix4)
+        def pos:ThreeVector3 (ThreeVector3.of(1.0 2.0 3.0))
+        def qid:ThreeQuaternion (new ThreeQuaternion)
+        def one:ThreeVector3 (ThreeVector3.of(1.0 1.0 1.0))
+        C.compose(pos qid one)
+        def cp:ThreeVector3 (C.transformPoint((ThreeVector3.of(1.0 0.0 0.0))))
+        ck.near("compose x" cp.x 2.0)
+        ck.near("compose y" cp.y 2.0)
+
+        ; rotation 90deg about Z: (1,0,0) -> (0,1,0)
+        def qz:ThreeQuaternion (new ThreeQuaternion)
+        qz.setFromAxisAngle((ThreeVector3.of(0.0 0.0 1.0)) (pi / 2.0))
+        def R:ThreeMatrix4 (new ThreeMatrix4)
+        R.makeRotationFromQuaternion(qz)
+        def rp:ThreeVector3 (R.transformPoint((ThreeVector3.of(1.0 0.0 0.0))))
+        ck.near("rotZ x" rp.x 0.0)
+        ck.near("rotZ y" rp.y 1.0)
+        ck.near("rotZ z" rp.z 0.0)
+
+        ; invert(translation) undoes it
+        def Ti:ThreeMatrix4 (T.clone())
+        Ti.invert()
+        def ip:ThreeVector3 (Ti.transformPoint(p0))
+        ck.near("invert x" ip.x (0.0 - 1.0))
+        ck.near("invert z" ip.z (0.0 - 3.0))
+
+        ; A * A^-1 == identity
+        def AinvA:ThreeMatrix4 (new ThreeMatrix4)
+        AinvA.multiplyMatrices(T Ti)
+        ck.near("A*Ainv [0]" (AinvA.eGet(0)) 1.0)
+        ck.near("A*Ainv [12]" (AinvA.eGet(12)) 0.0)
+        ck.near("A*Ainv [5]" (AinvA.eGet(5)) 1.0)
+
+        ; makePerspective sanity (WebGL: elements[11] = -1)
+        def P:ThreeMatrix4 (new ThreeMatrix4)
+        P.makePerspective((0.0 - 1.0) 1.0 1.0 (0.0 - 1.0) 1.0 100.0)
+        ck.near("persp[0]" (P.eGet(0)) 1.0)
+        ck.near("persp[11]" (P.eGet(11)) (0.0 - 1.0))
+        ck.near("persp[15]" (P.eGet(15)) 0.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

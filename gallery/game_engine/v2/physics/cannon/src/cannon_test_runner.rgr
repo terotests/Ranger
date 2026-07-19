@@ -1,0 +1,111 @@
+; ==============================================================================
+; cannon_test_runner — headless Cannon.js parity tests (Ranger port).
+; Pass shell_arg(0) to run a single test id (e.g. Vec3.cross).
+; ==============================================================================
+
+Import "cannon_test_harness.rgr"
+Import "cannon_vec3_test.rgr"
+Import "cannon_quaternion_test.rgr"
+Import "cannon_sphere_test.rgr"
+Import "cannon_box_test.rgr"
+Import "cannon_body_test.rgr"
+Import "cannon_world_test.rgr"
+Import "cannon_aabb_test.rgr"
+Import "cannon_mat3_test.rgr"
+Import "cannon_tuple_dictionary_test.rgr"
+Import "cannon_overlap_keeper_test.rgr"
+Import "cannon_contact_equation_test.rgr"
+Import "cannon_narrowphase_test.rgr"
+Import "cannon_solver_test.rgr"
+Import "cannon_constraint_test.rgr"
+Import "cannon_ray_test.rgr"
+Import "cannon_boxcollision_test.rgr"
+Import "cannon_vehicle_test.rgr"
+Import "cannon_sleep_test.rgr"
+Import "cannon_sap_test.rgr"
+Import "cannon_heightfield_test.rgr"
+Import "cannon_convex_test.rgr"
+Import "physics_world_test.rgr"
+Import "cannon_extra_shapes_test.rgr"
+
+class CannonTestRunner {
+    sfn m@(main):void () {
+        def filter:string ""
+        if ((shell_arg_cnt) > 0) {
+            filter = (shell_arg 0)
+        }
+
+        def harness:CannonTestHarness (new CannonTestHarness)
+        def vec3Test:CannonVec3Test (new CannonVec3Test)
+        def quatTest:CannonQuaternionTest (new CannonQuaternionTest)
+        def sphereTest:CannonSphereTest (new CannonSphereTest)
+        def boxTest:CannonBoxTest (new CannonBoxTest)
+        def bodyTest:CannonBodyTest (new CannonBodyTest)
+        def worldTest:CannonWorldTest (new CannonWorldTest)
+        def aabbTest:CannonAABBTest (new CannonAABBTest)
+        def mat3Test:CannonMat3Test (new CannonMat3Test)
+        def tupleTest:CannonTupleDictionaryTest (new CannonTupleDictionaryTest)
+        def overlapTest:CannonOverlapKeeperTest (new CannonOverlapKeeperTest)
+        def contactTest:CannonContactEquationTest (new CannonContactEquationTest)
+        def narrowphaseTest:CannonNarrowphaseTest (new CannonNarrowphaseTest)
+        def solverTest:CannonSolverTest (new CannonSolverTest)
+        def constraintTest:CannonConstraintTest (new CannonConstraintTest)
+        def rayTest:CannonRayTest (new CannonRayTest)
+        def boxCollisionTest:CannonBoxCollisionTest (new CannonBoxCollisionTest)
+        def vehicleTest:CannonVehicleTest (new CannonVehicleTest)
+        def sleepTest:CannonSleepTest (new CannonSleepTest)
+        def sapTest:CannonSapTest (new CannonSapTest)
+        def heightfieldTest:CannonHeightfieldTest (new CannonHeightfieldTest)
+        def convexTest:CannonConvexTest (new CannonConvexTest)
+        def physicsWorldTest:PhysicsWorldTest (new PhysicsWorldTest)
+        def extraShapesTest:CannonExtraShapesTest (new CannonExtraShapesTest)
+
+        vec3Test.runFiltered(harness filter)
+        quatTest.runFiltered(harness filter)
+        sphereTest.runFiltered(harness filter)
+        boxTest.runFiltered(harness filter)
+        bodyTest.runFiltered(harness filter)
+        worldTest.runFiltered(harness filter)
+        aabbTest.runFiltered(harness filter)
+        mat3Test.runFiltered(harness filter)
+        tupleTest.runFiltered(harness filter)
+        overlapTest.runFiltered(harness filter)
+        contactTest.runFiltered(harness filter)
+        narrowphaseTest.runFiltered(harness filter)
+        solverTest.runFiltered(harness filter)
+        constraintTest.runFiltered(harness filter)
+        rayTest.runFiltered(harness filter)
+        boxCollisionTest.runFiltered(harness filter)
+        vehicleTest.runFiltered(harness filter)
+        sleepTest.runFiltered(harness filter)
+        sapTest.runFiltered(harness filter)
+        heightfieldTest.runFiltered(harness filter)
+        convexTest.runFiltered(harness filter)
+        physicsWorldTest.runFiltered(harness filter)
+        extraShapesTest.runFiltered(harness filter)
+
+        if (filter == "") {
+            print ("pass=" + (to_string harness.passCount))
+            print ("fail=" + (to_string harness.failCount))
+            if (harness.failCount > 0) {
+                print "cannon-tests FAIL"
+                return
+            }
+            print "cannon-tests done"
+            return
+        }
+
+        if (harness.passCount == 0) {
+            if (harness.failCount == 0) {
+                print ("UNKNOWN " + filter)
+            }
+            print "SINGLE=FAIL"
+            return
+        }
+        if (harness.failCount > 0) {
+            print "SINGLE=FAIL"
+            return
+        }
+        print "SINGLE=PASS"
+    }
+}

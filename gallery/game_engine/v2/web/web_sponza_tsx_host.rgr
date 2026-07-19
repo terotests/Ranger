@@ -1,0 +1,468 @@
+; ==============================================================================
+; web_sponza_tsx_host — run the light-probe-volume (Sponza) scene on the GPU, edited.
+; ==============================================================================
+;
+; The Sponza counterpart to web_teapot_tsx_host. sponza.tsx (the editable scene
+; code) runs in ComponentEngine against the three.tsx façade; the generic
+; ThreeTsxBridge reconciles it AND builds + bakes the diffuse-GI probe volume via
+; the capture bake (probes.bake -> bakeFromScene, no recipe); ThreeGLBackend +
+; ThreeWebGLRenderer draw it with real WebGL. FirstPersonControls are host plumbing
+; (WASD keys + pointer look routed in from the viewer).
+;
+; The browser cannot run the host-side glTF download (no child_process), so the
+; model is a procedural TEST scene here — a ground plane + boxes — enough to make
+; the whole interpret -> reconcile -> GPU path verifiable in a real (headless)
+; browser, and to debug the shadow pass against clean geometry. The native SDL
+; host (sponza_sdl_runner) loads the real Sponza .gltf over the network instead.
+;
+; No JavaScript in the engine — compiles to C++ too. Exposes a flat API the JS
+; viewer drives (setupGL / load / frame / key + look input / setSize).
+; ==============================================================================
+
+Import "../three/tsx/three_tsx_bridge.rgr"
+Import "../three/src/three_webgl_renderer.rgr"
+Import "../three/src/three_gl_backend.rgr"
+Import "../three/src/three_perspective_camera.rgr"
+Import "../three/src/three_first_person_controls.rgr"
+Import "../three/src/three_light_probe_volume.rgr"
+Import "../three/src/three_box3.rgr"
+Import "../three/src/three_vector3.rgr"
+Import "../three/src/three_mesh.rgr"
+Import "../three/src/three_mesh_lambert_material.rgr"
+Import "../three/src/three_box_geometry.rgr"
+Import "../three/src/three_gltf_file.rgr"
+
+; The Sponza scene reconciles ENTIRELY through the ONE generic ThreeTsxBridge (sky,
+; bounds-derived shadow-casting sun, host-attached model, camera, and the diffuse-GI
+; probe volume). probes.bake() runs the generic capture bake (bakeFromScene) — the
+; shadowing falls out of the capture, so there is no per-probe shadow-readback pass
+; and no model-named recipe. First-person controls are host plumbing. There is no
+; ThreeSponzaTsxBridge and no ThreeSponzaScene.
+class WebSponzaTsxHost {
+    def engine:ComponentEngine (new ComponentEngine())
+    def gbridge:ThreeTsxBridge (new ThreeTsxBridge)
+    def fpc:ThreeFirstPersonControls (new ThreeFirstPersonControls)
+    def gl:ThreeGLBackend (new ThreeGLBackend)
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    ; the glTF loader kept from loadWithModel so a viewer can push decoded texture
+    ; pixels into the model's materials after the geometry has been built.
+    def modelLoader:ThreeGLTFFile (new ThreeGLTFFile)
+    def ready:boolean false
+    def w:int 800
+    def h:int 500
+    def dt:double 0.033
+    ; model bounds snapshot for the verification harness (info* accessors).
+    def modelMeshes:int 0
+    def bCX:double 0.0
+    def bCY:double 0.0
+    def bCZ:double 0.0
+    def bSX:double 0.0
+    def bSY:double 0.0
+    def bSZ:double 0.0
+
+    ; --- gamepad snapshot -----------------------------------------------------
+    ; The viewer polls the browser's navigator.getGamepads() each frame and hands
+    ; the first connected pad here. The host then (a) fills the interpreted scene's
+    ; navigator.getGamepads() from it (so scene code reads the STANDARD Web Gamepad
+    ; API, no engine-specific name), and (b) drives the first-person camera from it.
+    ; buttons is a bitmask keyed by the standard Gamepad button indices
+    ; (0=A,1=B,2=X,3=Y,4=LB,5=RB,8=Back,9=Start,12=up,13=down,14=left,15=right).
+    def padConnected:boolean false
+    def padLX:double 0.0
+    def padLY:double 0.0
+    def padRX:double 0.0
+    def padRY:double 0.0
+    def padButtons:int 0
+
+    ; interpreter globals the scene reads (THREE constants + window size).
+    fn registerGlobals:void (winW:int winH:int dpr:double) {
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        push tk "DoubleSide"
+        push tv (EvalValue.number(2.0))
+        push tk "FrontSide"
+        push tv (EvalValue.number(0.0))
+        push tk "BackSide"
+        push tv (EvalValue.number(1.0))
+        push tk "RepeatWrapping"
+        push tv (EvalValue.number(1000.0))
+        push tk "ACESFilmicToneMapping"
+        push tv (EvalValue.number(4.0))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number((to_double winW)))
+        push wk "innerHeight"
+        push wv (EvalValue.number((to_double winH)))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(dpr))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        ; live gamepad state behind the standard navigator.getGamepads() (see the
+        ; navigator prelude in loadScene). Registered empty so navigator.getGamepads()
+        ; returns [] before the first pad frame instead of an undefined global.
+        def emptyPads:[EvalValue]
+        engine.registerGlobal("__gamepadState" (EvalValue.array(emptyPads)))
+    }
+
+    fn setupGL:boolean (canvasId:string) {
+        def ok:boolean (gl.init(canvasId))
+        if (ok == false) {
+            return false
+        }
+        renderer.setBackend(gl)
+        return true
+    }
+
+    ; a Lambert-shaded box mesh at a position (lit by the directional + ambient light).
+    fn makeBox:ThreeMesh (sx:double sy:double sz:double px:double py:double pz:double hex:int) {
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(sx sy sz)
+        def mat:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+        mat.setColorHex(hex)
+        mat.setSide(2)
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry(geo)
+        m.setMaterial(mat)
+        m.position.set(px py pz)
+        m.castShadow = true
+        m.receiveShadow = true
+        return m
+    }
+
+    ; procedural stand-in for the Sponza model: a wide ground slab + a few boxes.
+    ; Casts clean shadows (once the shadow pass is wired) and exercises the lit path.
+    fn buildTestModel:ThreeObject3D () {
+        def root:ThreeObject3D (new ThreeObject3D)
+        def ground:ThreeMesh (this.makeBox(48.0 1.0 48.0 0.0 (0.0 - 0.5) 0.0 12303291))
+        root.add(ground)
+        def a:ThreeMesh (this.makeBox(5.0 8.0 5.0 (0.0 - 6.0) 4.0 (0.0 - 4.0) 13458524))
+        root.add(a)
+        def b:ThreeMesh (this.makeBox(4.0 12.0 4.0 6.0 6.0 3.0 5025616))
+        root.add(b)
+        def c:ThreeMesh (this.makeBox(3.0 5.0 3.0 2.0 2.5 (0.0 - 9.0) 15844367))
+        root.add(c)
+        return root
+    }
+
+    ; Build the scene (façade + sponza.tsx, reconciled around `model`) and configure
+    ; the renderer. The camera framing is left to the caller (it differs for the test
+    ; scene vs. the real model). Shared by load() and loadWithModel().
+    fn loadScene:string (facadeSrc:string sponzaSrc:string model:ThreeObject3D winW:int winH:int dpr:double) {
+        w = winW
+        h = winH
+        engine.quiet = true
+        this.registerGlobals(winW winH dpr)
+
+        ; snapshot the model bounds for the verification harness (info* accessors).
+        this.snapshotBounds(model)
+
+        ; Standard-runtime prelude: expose navigator.getGamepads() to the scene,
+        ; reading the host-filled __gamepadState. The engine holds no gamepad-
+        ; specific name — the scene uses the same Web Gamepad API a browser three.js
+        ; example does, and the host just supplies the live values (as it does window).
+        def navPrelude:string "const navigator = { getGamepads: () => __gamepadState };\n"
+        def src:string (((navPrelude + facadeSrc) + "\n") + sponzaSrc)
+        engine.loadScript(src)
+        ; publish the decoded model's bounds so sponza.tsx's Box3.setFromObject reads
+        ; real numbers when init() derives the light / shadow / probe placement.
+        ThreeTsxBridge.publishBounds(engine model)
+        engine.callFunction("init" (EvalValue.null()))
+
+        ; the ONE generic bridge owns the host registry + renderer; give that renderer
+        ; the GL backend so the capture bake (bakeFromScene) renders the real scene.
+        gbridge.setEngine(engine)
+        gbridge.setHostModel(model)
+        renderer = gbridge.renderer
+        renderer.setBackend(gl)
+        renderer.setSize(winW winH)
+        renderer.setToneMapping(4)
+        ; the demo's directional intensity (100) is a physically-based value; this
+        ; clone's Lambert is not PBR, so expose down to keep the sunlit ground out of
+        ; full saturation (and the cast shadows readable) under ACES.
+        renderer.setToneMappingExposure(0.09)
+        renderer.setShadowMapEnabled(true)
+
+        ; reconcile the declared scene (sky, sun+shadow, model, camera) AND build +
+        ; bake the diffuse-GI probe volume (probes.bake -> capture bake) — no recipe.
+        gbridge.reconcile(winW winH)
+
+        ; host-owned first-person controls on the reconciled camera.
+        fpc.setCamera(gbridge.camera)
+        this.setViewportCam(winW winH)
+        ready = true
+        return "ok"
+    }
+
+    ; snapshot the model's world bounds (size + centre) for the info* diagnostics.
+    fn snapshotBounds:void (model:ThreeObject3D) {
+        modelMeshes = (model.childCount())
+        def box:ThreeBox3 (model.boundingBox())
+        def sz:ThreeVector3 (new ThreeVector3)
+        box.getSize(sz)
+        def ct:ThreeVector3 (new ThreeVector3)
+        box.getCenter(ct)
+        bSX = sz.x
+        bSY = sz.y
+        bSZ = sz.z
+        bCX = ct.x
+        bCY = ct.y
+        bCZ = ct.z
+    }
+
+    ; update the reconciled camera's aspect (host-owned plumbing).
+    fn setViewportCam:void (winW:int winH:int) {
+        gbridge.camera.aspect = ((to_double winW) / (to_double winH))
+        gbridge.camera.updateProjectionMatrix()
+    }
+
+    ; frame the procedural test scene (~40 units): a fixed vantage looking at it.
+    fn frameTestCamera:void () {
+        fpc.setMovementSpeed(18.0)
+        fpc.setLook(180.0 (0.0 - 8.0))
+        gbridge.camera.position.set(0.0 9.0 34.0)
+        fpc.update(0.0)
+    }
+    ; frame the real Sponza model: keep the interpreted camera position (sponza.tsx
+    ; places it inside the hall) and aim the first-person view down the long axis.
+    fn frameModelCamera:void () {
+        fpc.setMovementSpeed(6.0)
+        fpc.setLook(90.0 0.0)
+        fpc.update(0.0)
+    }
+
+    ; Load with the procedural test scene (the browser can't fetch the real model).
+    ; The capture bake integrates the real scene (shadows/occlusion fall out of it),
+    ; so there is no separate shadow-readback pass.
+    fn load:string (facadeSrc:string sponzaSrc:string winW:int winH:int dpr:double) {
+        def r:string (this.loadScene(facadeSrc sponzaSrc (this.buildTestModel()) winW winH dpr))
+        this.frameTestCamera()
+        return r
+    }
+
+    ; Load with the real model decoded from the VFS (a viewer fetched Sponza.gltf +
+    ; its buffers and wrote them under modelDir). Falls back to the test scene if the
+    ; model is absent/empty so the host still renders.
+    fn loadWithModel:string (facadeSrc:string sponzaSrc:string modelDir:string modelFile:string winW:int winH:int dpr:double) {
+        modelLoader = (new ThreeGLTFFile)
+        def m:ThreeObject3D (modelLoader.loadGLTFFromVfs(modelDir modelFile))
+        def isReal:boolean ((m.childCount()) > 0)
+        def model:ThreeObject3D m
+        if (isReal == false) {
+            model = (this.buildTestModel())
+        }
+        def r:string (this.loadScene(facadeSrc sponzaSrc model winW winH dpr))
+        if isReal {
+            this.frameModelCamera()
+        } {
+            this.frameTestCamera()
+        }
+        return r
+    }
+
+    ; Load with a model the caller already built + textured (the native launcher
+    ; decodes it over HTTP; the decoders stay out of this browser bundle).
+    fn loadModel3D:string (facadeSrc:string sponzaSrc:string model:ThreeObject3D winW:int winH:int dpr:double) {
+        def r:string (this.loadScene(facadeSrc sponzaSrc model winW winH dpr))
+        this.frameModelCamera()
+        return r
+    }
+
+    fn loadFromVfs:string (dir:string facadeFile:string sponzaFile:string winW:int winH:int dpr:double) {
+        def f:buffer (buffer_read_file dir facadeFile)
+        def c:buffer (buffer_read_file dir sponzaFile)
+        return (this.load((buffer_to_string f) (buffer_to_string c) winW winH dpr))
+    }
+
+    fn frame:void () {
+        if (ready == false) {
+            return
+        }
+        ; refresh the scene-visible navigator.getGamepads(), then let the pad drive
+        ; the camera, then integrate the controls (keyboard/mouse + analog pad).
+        this.refreshGamepadGlobal()
+        this.applyPadToControls()
+        fpc.update(dt)
+        renderer.render(gbridge.scene gbridge.camera)
+    }
+
+    fn setSize:void (winW:int winH:int) {
+        w = winW
+        h = winH
+        renderer.setSize(winW winH)
+        this.setViewportCam(winW winH)
+    }
+
+    ; --- first-person input (routed from the viewer) --------------------------
+    fn keyDown:void (key:string) {
+        fpc.keyDown(key)
+    }
+    fn keyUp:void (key:string) {
+        fpc.keyUp(key)
+    }
+    fn look:void (dx:double dy:double) {
+        fpc.handleLook(dx dy)
+    }
+
+    ; --- gamepad input (routed from the viewer; standard Gamepad API layout) ----
+    ; connected!=0 with the left/right stick axes (−1..1) and a standard-index
+    ; button bitmask. Called once per frame before frame().
+    fn setPad:void (connected:int lx:double ly:double rx:double ry:double buttons:int) {
+        padConnected = (connected != 0)
+        padLX = lx
+        padLY = ly
+        padRX = rx
+        padRY = ry
+        padButtons = buttons
+    }
+
+    ; is the standard Gamepad button at index `idx` (0-based) set in the mask?
+    fn padBit:boolean (idx:int) {
+        def bit:int 1
+        def i:int 0
+        while (i < idx) {
+            bit = (bit * 2)
+            i = (i + 1)
+        }
+        return ((bit_and padButtons bit) != 0)
+    }
+
+    ; does the interpreted scene export a function of this name?
+    fn scriptHasFunction:boolean (name:string) {
+        def f:EvalValue (engine.getGlobal(name))
+        return (f.isFunction())
+    }
+    fn numOr:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNumber()) {
+            return (v.toNumber())
+        }
+        return dflt
+    }
+
+    ; Build the standard-shaped array navigator.getGamepads() returns for the scene:
+    ; [{connected,index,id,mapping,axes:[lx,ly,rx,ry],buttons:[{pressed,value}×16]}]
+    ; when a pad is connected, else [] — exactly what a browser three.js scene reads.
+    fn buildGamepadState:EvalValue () {
+        def pads:[EvalValue]
+        if padConnected {
+            def axes:[EvalValue]
+            push axes (EvalValue.number(padLX))
+            push axes (EvalValue.number(padLY))
+            push axes (EvalValue.number(padRX))
+            push axes (EvalValue.number(padRY))
+            def buttons:[EvalValue]
+            def i:int 0
+            while (i < 16) {
+                def pressed:boolean (this.padBit(i))
+                def val:double 0.0
+                if pressed { val = 1.0 }
+                def bk:[string]
+                def bv:[EvalValue]
+                push bk "pressed"
+                push bv (EvalValue.boolean(pressed))
+                push bk "value"
+                push bv (EvalValue.number(val))
+                push buttons (EvalValue.object(bk bv))
+                i = (i + 1)
+            }
+            def k:[string]
+            def v:[EvalValue]
+            push k "connected"
+            push v (EvalValue.boolean(true))
+            push k "index"
+            push v (EvalValue.fromInt(0))
+            push k "id"
+            push v (EvalValue.string("gamepad"))
+            push k "mapping"
+            push v (EvalValue.string("standard"))
+            push k "axes"
+            push v (EvalValue.array(axes))
+            push k "buttons"
+            push v (EvalValue.array(buttons))
+            push pads (EvalValue.object(k v))
+        }
+        return (EvalValue.array(pads))
+    }
+    fn refreshGamepadGlobal:void () {
+        engine.registerGlobal("__gamepadState" (this.buildGamepadState()))
+    }
+
+    ; Per frame: let the scene read the pad (navigator.getGamepads()) and return a
+    ; nav intent {moveX,moveZ,moveY,lookX,lookY}, applied to the first-person
+    ; controls (the analog axes ADD to keyboard/mouse). If the scene exports no
+    ; update(), map the raw pad here so a controller navigates any Sponza scene.
+    fn applyPadToControls:void () {
+        fpc.clearAxes()
+        if (this.scriptHasFunction("update")) {
+            def intent:EvalValue (engine.callFunction("update" (EvalValue.number(dt))))
+            if (intent.isObject()) {
+                fpc.setMoveAxes((this.numOr(intent "moveZ" 0.0)) (this.numOr(intent "moveX" 0.0)) (this.numOr(intent "moveY" 0.0)))
+                fpc.setLookAxes((this.numOr(intent "lookX" 0.0)) (this.numOr(intent "lookY" 0.0)))
+                return
+            }
+        }
+        if (padConnected == false) {
+            return
+        }
+        def fwd:double (0.0 - padLY)
+        def rgt:double padLX
+        if (this.padBit(12)) { fwd = 1.0 }
+        if (this.padBit(13)) { fwd = (0.0 - 1.0) }
+        if (this.padBit(14)) { rgt = (0.0 - 1.0) }
+        if (this.padBit(15)) { rgt = 1.0 }
+        def up:double 0.0
+        if (this.padBit(4)) { up = (0.0 - 1.0) }
+        if (this.padBit(5)) { up = 1.0 }
+        fpc.setMoveAxes(fwd rgt up)
+        fpc.setLookAxes(padRX padRY)
+    }
+
+    ; the scene is first-person animated, so every frame may differ.
+    fn needsRender:boolean () {
+        return true
+    }
+    ; --- model textures (the viewer decodes JPEG/PNG; the host can't) ----------
+    ; how many baseColorTexture images the loaded model references, and each one's
+    ; uri (the file the viewer fetches + decodes to RGBA).
+    fn modelImageCount:int () {
+        return (modelLoader.imageCount())
+    }
+    fn modelImageUri:string (i:int) {
+        return (modelLoader.imageUri(i))
+    }
+    ; attach decoded RGBA pixels for image `index` to every material that uses it.
+    ; Call after loadWithModel; the next frame uploads + samples the texture.
+    fn setModelImage:void (index:int rgba:buffer w:int h:int) {
+        modelLoader.setImage(index rgba w h)
+    }
+
+    ; --- diagnostics / tuning (used by the verification harness) --------------
+    fn setExposure:void (e:double) {
+        renderer.setToneMappingExposure(e)
+    }
+    fn infoCX:double () { return bCX }
+    fn infoCY:double () { return bCY }
+    fn infoCZ:double () { return bCZ }
+    fn infoSX:double () { return bSX }
+    fn infoSY:double () { return bSY }
+    fn infoSZ:double () { return bSZ }
+    fn infoMeshes:int () { return modelMeshes }
+    ; place the camera outside + above the model, aimed at its centre (overview).
+    fn setCameraLook:void (px:double py:double pz:double lon:double lat:double) {
+        gbridge.camera.position.set(px py pz)
+        fpc.setLook(lon lat)
+        fpc.update(0.0)
+    }
+
+    fn isReady:boolean () {
+        return ready
+    }
+    fn getSource:string () {
+        return ""
+    }
+}

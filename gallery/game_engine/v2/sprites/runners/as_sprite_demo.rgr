@@ -1,0 +1,122 @@
+; ==============================================================================
+; as_sprite_demo — headless proof of guest-driven, rotatable sprites over the ABI.
+; ==============================================================================
+;
+; Interprets games/pyorretris/game.as through AsSpriteScene (no physics), feeds
+; input edges + a clock through the shared RGW1 header, reads the guest-authored
+; sprite draw list back and renders it (rotated) to PNGs. It self-checks that:
+;   * the guest declared its block templates,
+;   * it emits a sprite scene every frame,
+;   * a ROTATE input makes the guest drive a non-zero sprite angle (the whole
+;     point — rotation authored by the guest and rendered by the host),
+;   * the angle eases back to 0 when the spin settles,
+;   * hard drops accumulate score and eventually top the well out, and a restart
+;     clears the game-over state.
+; ==============================================================================
+
+Import "./as_sprite_runner.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class AsSpriteCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class AsSpriteDemo {
+    def IN_UP:int 1
+    def IN_DOWN:int 2
+    def IN_LEFT:int 4
+    def IN_RIGHT:int 8
+    def IN_ACT:int 16
+    def OFF_SCORE:int 40
+    def OFF_LINES:int 44
+    def OFF_STATE:int 48
+
+    fn snap:void (scene:AsSpriteScene file:string) {
+        scene.draw()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = scene.pw
+        rb.height = scene.ph
+        rb.pixels = (scene.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/scripting" file)
+    }
+
+    sfn m@(main):void () {
+        def d:AsSpriteDemo (new AsSpriteDemo)
+        def c:AsSpriteCheck (new AsSpriteCheck)
+        def scene:AsSpriteScene (new AsSpriteScene)
+        scene.init(480 270)
+
+        def dir:string "gallery/game_engine/games/pyorretris"
+        if ((scene.loadGame(dir)) == false) {
+            print "load failed"
+            return
+        }
+
+        ; ---- frame 0: fresh well + spawned piece ----
+        c.ok(("declared 9 block templates (got " + (to_string (scene.templateCount())) + ")") ((scene.templateCount()) == 9))
+        c.ok(("emits a sprite scene (got " + (to_string (scene.spriteCount())) + ")") ((scene.spriteCount()) > 20))
+        c.ok(("no rotation at rest (got " + (to_string (scene.maxAbsAngle())) + ")") ((scene.maxAbsAngle()) < 3))
+        d.snap(scene "pyorretris_1_start.png")
+
+        ; ---- rotate: the guest must drive a non-zero sprite angle over the ABI ----
+        scene.frameMask(16 d.IN_UP)
+        def spun:int (scene.maxAbsAngle())
+        c.ok(("rotate -> guest-driven sprite angle > 30 (got " + (to_string spun) + ")") (spun > 30))
+        d.snap(scene "pyorretris_2_spin.png")
+
+        ; ---- the spin eases back to upright over a few idle frames ----
+        def k 0
+        while (k < 12) {
+            scene.frameMask(16 0)
+            k = (k + 1)
+        }
+        c.ok(("spin settles back to 0 (got " + (to_string (scene.maxAbsAngle())) + ")") ((scene.maxAbsAngle()) < 3))
+
+        ; ---- pile pieces hard-left so rows never complete and the well tops out
+        ; (proves lock / stack / game-over without relying on line clears) ----
+        def over:int 0
+        def drops 0
+        while (drops < 80) {
+            if (over == 0) {
+                def j 0
+                while (j < 6) {
+                    scene.frameMask(16 d.IN_LEFT)
+                    j = (j + 1)
+                }
+                scene.frameMask(16 d.IN_ACT)     ; hard drop this frame's piece
+                scene.frameMask(16 0)            ; let the next piece spawn/settle
+                over = (scene.abiRead(d.OFF_STATE))
+            }
+            drops = (drops + 1)
+        }
+        def score:int (scene.abiRead(d.OFF_SCORE))
+        c.ok(("hard drops scored points (got " + (to_string score) + ")") (score > 0))
+        c.ok(("well tops out when piled to one side (state=" + (to_string over) + ")") (over == 1))
+        d.snap(scene "pyorretris_3_stack.png")
+
+        ; ---- restart clears the game-over state ----
+        scene.frameMask(16 d.IN_ACT)
+        c.ok(("action restarts after top-out (state=" + (to_string (scene.abiRead(d.OFF_STATE))) + ")") ((scene.abiRead(d.OFF_STATE)) == 0))
+        d.snap(scene "pyorretris_4_restart.png")
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

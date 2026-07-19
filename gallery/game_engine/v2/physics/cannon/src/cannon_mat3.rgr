@@ -1,0 +1,472 @@
+; ==============================================================================
+; cannon_mat3 — 3x3 matrix (Cannon.js port).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+
+class CannonMat3 {
+    def elements:[double]
+
+    fn initZero:void () {
+        def i 0
+        while (i < 9) {
+            push this.elements 0.0
+            i = (i + 1)
+        }
+    }
+
+    fn initFromElements:void (e0:double e1:double e2:double e3:double e4:double e5:double e6:double e7:double e8:double) {
+        push this.elements e0
+        push this.elements e1
+        push this.elements e2
+        push this.elements e3
+        push this.elements e4
+        push this.elements e5
+        push this.elements e6
+        push this.elements e7
+        push this.elements e8
+    }
+
+    fn eGet:double (row:int column:int) {
+        def idx:int (column + (3 * row))
+        return (itemAt this.elements idx)
+    }
+
+    fn eSet:void (row:int column:int value:double) {
+        def idx:int (column + (3 * row))
+        set this.elements idx value
+    }
+
+    fn identity:void () {
+        this.eSet(0 0 1.0)
+        this.eSet(0 1 0.0)
+        this.eSet(0 2 0.0)
+        this.eSet(1 0 0.0)
+        this.eSet(1 1 1.0)
+        this.eSet(1 2 0.0)
+        this.eSet(2 0 0.0)
+        this.eSet(2 1 0.0)
+        this.eSet(2 2 1.0)
+    }
+
+    fn copyFrom:void (source:CannonMat3) {
+        def i 0
+        while (i < 9) {
+            set this.elements i (itemAt source.elements i)
+            i = (i + 1)
+        }
+    }
+
+    fn setZero:void () {
+        def i 0
+        while (i < 9) {
+            set this.elements i 0.0
+            i = (i + 1)
+        }
+    }
+
+    fn vmultInto:void (v:CannonVec3 target:CannonVec3) {
+        def x:double v.x
+        def y:double v.y
+        def z:double v.z
+        def e0:double (itemAt this.elements 0)
+        def e1:double (itemAt this.elements 1)
+        def e2:double (itemAt this.elements 2)
+        def e3:double (itemAt this.elements 3)
+        def e4:double (itemAt this.elements 4)
+        def e5:double (itemAt this.elements 5)
+        def e6:double (itemAt this.elements 6)
+        def e7:double (itemAt this.elements 7)
+        def e8:double (itemAt this.elements 8)
+        target.x = ((e0 * x) + (e1 * y)) + (e2 * z)
+        target.y = ((e3 * x) + (e4 * y)) + (e5 * z)
+        target.z = ((e6 * x) + (e7 * y)) + (e8 * z)
+    }
+
+    fn vmultNew:CannonVec3 (v:CannonVec3) {
+        def out:CannonVec3 (new CannonVec3)
+        this.vmultInto(v out)
+        return out
+    }
+
+    fn mmultInto:void (m:CannonMat3 target:CannonMat3) {
+        def i 0
+        while (i < 3) {
+            def j 0
+            while (j < 3) {
+                def sum:double 0.0
+                def k 0
+                while (k < 3) {
+                    def mIdx:int (i + (k * 3))
+                    def tIdx:int (k + (j * 3))
+                    def mk:double (itemAt m.elements mIdx)
+                    def ke:double (itemAt this.elements tIdx)
+                    sum = sum + (mk * ke)
+                    k = (k + 1)
+                }
+                def outIdx:int (i + (j * 3))
+                set target.elements outIdx sum
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn mmultNew:CannonMat3 (m:CannonMat3) {
+        def out:CannonMat3 (new CannonMat3)
+        out.initZero()
+        this.mmultInto(m out)
+        return out
+    }
+
+    fn scaleInto:void (v:CannonVec3 target:CannonMat3) {
+        def i 0
+        while (i < 3) {
+            def idx0:int (0 + (3 * i))
+            def idx1:int (1 + (3 * i))
+            def idx2:int (2 + (3 * i))
+            def s0:double (v.x * (itemAt this.elements idx0))
+            def s1:double (v.y * (itemAt this.elements idx1))
+            def s2:double (v.z * (itemAt this.elements idx2))
+            set target.elements idx0 s0
+            set target.elements idx1 s1
+            set target.elements idx2 s2
+            i = (i + 1)
+        }
+    }
+
+    fn scaleNew:CannonMat3 (v:CannonVec3) {
+        def out:CannonMat3 (new CannonMat3)
+        out.initZero()
+        this.scaleInto(v out)
+        return out
+    }
+
+    fn transposeInto:void (target:CannonMat3) {
+        def i 0
+        while (i < 3) {
+            def j 0
+            while (j < 3) {
+                target.eSet(i j (this.eGet(j i)))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn transposeNew:CannonMat3 () {
+        def out:CannonMat3 (new CannonMat3)
+        out.initZero()
+        this.transposeInto(out)
+        return out
+    }
+
+    fn isBadDouble:boolean (v:double) {
+        def big:double 1000000000000000.0
+        if (v > big) {
+            return true
+        }
+        if (v < (0.0 - big)) {
+            return true
+        }
+        return false
+    }
+
+    fn solveInto:boolean (b:CannonVec3 target:CannonVec3) {
+        def nc:int 4
+        def eqns:[double]
+        def fill 0
+        while (fill < 12) {
+            push eqns 0.0
+            fill = (fill + 1)
+        }
+        def i 0
+        while (i < 3) {
+            def j 0
+            while (j < 3) {
+                def idx:int (i + (nc * j))
+                def srcIdx:int (i + (j * 3))
+                set eqns idx (itemAt this.elements srcIdx)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        set eqns 3 (b.x)
+        set eqns 7 (b.y)
+        set eqns 11 (b.z)
+
+        def n:int 3
+        def k:int 3
+        while (k > 0) {
+            i = (n - k)
+            def pivot:double (itemAt eqns (i + (nc * i)))
+            if (pivot == 0.0) {
+                def j:int (i + 1)
+                while (j < n) {
+                    def pj:double (itemAt eqns (i + (nc * j)))
+                    if (pj != 0.0) {
+                        def np:int 4
+                        def p:int 0
+                        while (p < np) {
+                            def pi:int (np - p)
+                            pi = (pi - 1)
+                            def aidx:int (pi + (nc * i))
+                            def bidx:int (pi + (nc * j))
+                            def av:double (itemAt eqns aidx)
+                            def bv:double (itemAt eqns bidx)
+                            set eqns aidx (av + bv)
+                            p = (p + 1)
+                        }
+                        pivot = (itemAt eqns (i + (nc * i)))
+                    }
+                    j = (j + 1)
+                }
+            }
+            pivot = (itemAt eqns (i + (nc * i)))
+            if (pivot != 0.0) {
+                def j2:int (i + 1)
+                while (j2 < n) {
+                    def mult:double (itemAt eqns (i + (nc * j2)))
+                    mult = mult / pivot
+                    def np2:int 4
+                    def p2:int 0
+                    while (p2 < np2) {
+                        def pi2:int (np2 - p2)
+                        pi2 = (pi2 - 1)
+                        if (pi2 <= i) {
+                            set eqns (pi2 + (nc * j2)) 0.0
+                        } {
+                            def aidx2:int (pi2 + (nc * j2))
+                            def bidx2:int (pi2 + (nc * i))
+                            def av2:double (itemAt eqns aidx2)
+                            def bv2:double (itemAt eqns bidx2)
+                            set eqns aidx2 (av2 - (bv2 * mult))
+                        }
+                        p2 = (p2 + 1)
+                    }
+                    j2 = (j2 + 1)
+                }
+            }
+            k = (k - 1)
+        }
+
+        def diag 0
+        while (diag < 3) {
+            def piv:double (itemAt eqns (diag + (nc * diag)))
+            if (piv == 0.0) {
+                return false
+            }
+            diag = (diag + 1)
+        }
+
+        def zDen:double (itemAt eqns 10)
+        if (zDen == 0.0) {
+            return false
+        }
+        target.z = (itemAt eqns 11) / zDen
+        def yDen:double (itemAt eqns 5)
+        if (yDen == 0.0) {
+            return false
+        }
+        def yNum:double (itemAt eqns 7)
+        def yz:double (itemAt eqns 6)
+        target.y = (yNum - (yz * target.z)) / yDen
+        def xDen:double (itemAt eqns 0)
+        if (xDen == 0.0) {
+            return false
+        }
+        def xNum:double (itemAt eqns 3)
+        def xz:double (itemAt eqns 2)
+        def xy:double (itemAt eqns 1)
+        target.x = (xNum - (xz * target.z) - (xy * target.y)) / xDen
+
+        if (this.isBadDouble(target.x)) {
+            return false
+        }
+        if (this.isBadDouble(target.y)) {
+            return false
+        }
+        if (this.isBadDouble(target.z)) {
+            return false
+        }
+        def check:CannonVec3 (this.vmultNew(target))
+        if (check.almostEquals(b 0.00001) == false) {
+            return false
+        }
+        return true
+    }
+
+    fn reverseInto:boolean (target:CannonMat3) {
+        def nc:int 6
+        def eqns:[double]
+        def fill 0
+        while (fill < 18) {
+            push eqns 0.0
+            fill = (fill + 1)
+        }
+        def i 0
+        while (i < 3) {
+            def j 0
+            while (j < 3) {
+                def srcIdx:int (i + (j * 3))
+                set eqns (i + (nc * j)) (itemAt this.elements srcIdx)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        set eqns 3 1.0
+        set eqns 4 0.0
+        set eqns 5 0.0
+        set eqns 9 0.0
+        set eqns 10 1.0
+        set eqns 11 0.0
+        set eqns 15 0.0
+        set eqns 16 0.0
+        set eqns 17 1.0
+
+        def n:int 3
+        def k:int 3
+        while (k > 0) {
+            i = (n - k)
+            def pivot:double (itemAt eqns (i + (nc * i)))
+            if (pivot == 0.0) {
+                def j:int (i + 1)
+                while (j < n) {
+                    def pj:double (itemAt eqns (i + (nc * j)))
+                    if (pj != 0.0) {
+                        def np:int 6
+                        def p:int 0
+                        while (p < np) {
+                            def pi:int (np - p)
+                            pi = (pi - 1)
+                            def aidx:int (pi + (nc * i))
+                            def bidx:int (pi + (nc * j))
+                            set eqns aidx ((itemAt eqns aidx) + (itemAt eqns bidx))
+                            p = (p + 1)
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            pivot = (itemAt eqns (i + (nc * i)))
+            if (pivot != 0.0) {
+                def j2:int (i + 1)
+                while (j2 < n) {
+                    def mult:double (itemAt eqns (i + (nc * j2)))
+                    mult = mult / pivot
+                    def np2:int 6
+                    def p2:int 0
+                    while (p2 < np2) {
+                        def pi2:int (np2 - p2)
+                        pi2 = (pi2 - 1)
+                        if (pi2 <= i) {
+                            set eqns (pi2 + (nc * j2)) 0.0
+                        } {
+                            def aidx2:int (pi2 + (nc * j2))
+                            def bidx2:int (pi2 + (nc * i))
+                            set eqns aidx2 ((itemAt eqns aidx2) - ((itemAt eqns bidx2) * mult))
+                        }
+                        p2 = (p2 + 1)
+                    }
+                    j2 = (j2 + 1)
+                }
+            }
+            k = (k - 1)
+        }
+
+        def diag2 0
+        while (diag2 < 3) {
+            def piv2:double (itemAt eqns (diag2 + (nc * diag2)))
+            if (piv2 == 0.0) {
+                return false
+            }
+            diag2 = (diag2 + 1)
+        }
+
+        i = 2
+        while (i > 0) {
+            def j:int (i - 1)
+            while (j >= 0) {
+                def mult2:double (itemAt eqns (i + (nc * j)))
+                mult2 = mult2 / (itemAt eqns (i + (nc * i)))
+                def p3:int 0
+                while (p3 < nc) {
+                    def pi3:int (nc - p3)
+                    pi3 = (pi3 - 1)
+                    def aidx3:int (pi3 + (nc * j))
+                    def bidx3:int (pi3 + (nc * i))
+                    set eqns aidx3 ((itemAt eqns aidx3) - ((itemAt eqns bidx3) * mult2))
+                    p3 = (p3 + 1)
+                }
+                j = (j - 1)
+            }
+            i = (i - 1)
+        }
+
+        i = 2
+        while (i >= 0) {
+            def mult3:double (1.0 / (itemAt eqns (i + (nc * i))))
+            def p4:int 0
+            while (p4 < nc) {
+                def pi4:int (nc - p4)
+                pi4 = (pi4 - 1)
+                def aidx4:int (pi4 + (nc * i))
+                set eqns aidx4 ((itemAt eqns aidx4) * mult3)
+                p4 = (p4 + 1)
+            }
+            i = (i - 1)
+        }
+
+        i = 2
+        while (i >= 0) {
+            def j3:int 2
+            while (j3 >= 0) {
+                def pval:double (itemAt eqns ((3 + j3) + (nc * i)))
+                if (this.isBadDouble(pval)) {
+                    return false
+                }
+                def dstIdx:int (j3 + (i * 3))
+                set target.elements dstIdx pval
+                j3 = (j3 - 1)
+            }
+            i = (i - 1)
+        }
+        return true
+    }
+
+    fn reverseNew:CannonMat3 () {
+        def out:CannonMat3 (new CannonMat3)
+        out.initZero()
+        this.reverseInto(out)
+        return out
+    }
+
+    fn setRotationFromQuaternion:void (q:CannonQuaternion) {
+        def x:double q.x
+        def y:double q.y
+        def z:double q.z
+        def w:double q.w
+        def x2:double (x + x)
+        def y2:double (y + y)
+        def z2:double (z + z)
+        def xx:double (x * x2)
+        def xy:double (x * y2)
+        def xz:double (x * z2)
+        def yy:double (y * y2)
+        def yz:double (y * z2)
+        def zz:double (z * z2)
+        def wx:double (w * x2)
+        def wy:double (w * y2)
+        def wz:double (w * z2)
+        this.eSet(0 0 (1.0 - (yy + zz)))
+        this.eSet(0 1 (xy - wz))
+        this.eSet(0 2 (xz + wy))
+        this.eSet(1 0 (xy + wz))
+        this.eSet(1 1 (1.0 - (xx + zz)))
+        this.eSet(1 2 (yz - wx))
+        this.eSet(2 0 (xz - wy))
+        this.eSet(2 1 (yz + wx))
+        this.eSet(2 2 (1.0 - (xx + yy)))
+    }
+}

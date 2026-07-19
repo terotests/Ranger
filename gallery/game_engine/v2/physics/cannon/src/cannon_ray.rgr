@@ -1,0 +1,212 @@
+; ==============================================================================
+; cannon_ray — raycasting (cannon-es src/collision/Ray + RaycastResult).
+;   Focused port: ray vs sphere and ray vs plane, with CLOSEST / ANY / ALL modes.
+;   World.raycastClosest / raycastAny (see cannon_world.rgr) drive it over bodies.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_shape.rgr"
+Import "cannon_body.rgr"
+
+class CannonRaycastResult {
+    def rayFromWorld:CannonVec3 (new CannonVec3)
+    def rayToWorld:CannonVec3 (new CannonVec3)
+    def hitNormalWorld:CannonVec3 (new CannonVec3)
+    def hitPointWorld:CannonVec3 (new CannonVec3)
+    def hasHit:boolean false
+    def shape:CannonShape
+    def body:CannonBody
+    def distance:double -1.0
+    def shouldStop:boolean false
+
+    fn reset:void () {
+        this.rayFromWorld.setZero()
+        this.rayToWorld.setZero()
+        this.hitNormalWorld.setZero()
+        this.hitPointWorld.setZero()
+        this.hasHit = false
+        this.distance = -1.0
+        this.shouldStop = false
+    }
+
+    fn set:void (rayFromWorld:CannonVec3 rayToWorld:CannonVec3 hitNormalWorld:CannonVec3 hitPointWorld:CannonVec3 shape:CannonShape body:CannonBody distance:double) {
+        this.rayFromWorld.copy(rayFromWorld)
+        this.rayToWorld.copy(rayToWorld)
+        this.hitNormalWorld.copy(hitNormalWorld)
+        this.hitPointWorld.copy(hitPointWorld)
+        this.shape = shape
+        this.body = body
+        this.distance = distance
+    }
+}
+
+class CannonRay {
+    sdef MODE_CLOSEST:int 1
+    sdef MODE_ANY:int 2
+    sdef MODE_ALL:int 4
+
+    def from:CannonVec3 (new CannonVec3)
+    def to:CannonVec3 (new CannonVec3)
+    def direction:CannonVec3 (new CannonVec3)
+    def precision:double 0.0001
+    def skipBackfaces:boolean false
+    def mode:int 1
+    def result:CannonRaycastResult (new CannonRaycastResult)
+    def hasHit:boolean false
+    ; scratch
+    def ip:CannonVec3 (new CannonVec3)
+    def nrm:CannonVec3 (new CannonVec3)
+    def worldNormal:CannonVec3 (new CannonVec3)
+    def lenv:CannonVec3 (new CannonVec3)
+    def planePointToFrom:CannonVec3 (new CannonVec3)
+    def dirScaled:CannonVec3 (new CannonVec3)
+    def hitPoint:CannonVec3 (new CannonVec3)
+    def xi:CannonVec3 (new CannonVec3)
+    def qi:CannonQuaternion (new CannonQuaternion)
+
+    fn initRay:void (from:CannonVec3 to:CannonVec3) {
+        this.from.copy(from)
+        this.to.copy(to)
+    }
+
+    fn updateDirection:void () {
+        this.to.vsub(this.from this.direction)
+        this.direction.normalizeSelf()
+    }
+
+    fn reportIntersection:void (normal:CannonVec3 hitPointWorld:CannonVec3 shape:CannonShape body:CannonBody) {
+        if (this.skipBackfaces) {
+            if ((normal.dot(this.direction)) > 0.0) {
+                return
+            }
+        }
+        def distance:double (this.from.distanceTo(hitPointWorld))
+        def result:CannonRaycastResult this.result
+        if (this.mode == 4) {
+            this.hasHit = true
+            result.set(this.from this.to normal hitPointWorld shape body distance)
+            result.hasHit = true
+            return
+        }
+        if (this.mode == 2) {
+            this.hasHit = true
+            result.hasHit = true
+            result.set(this.from this.to normal hitPointWorld shape body distance)
+            result.shouldStop = true
+            return
+        }
+        ; CLOSEST
+        if ((distance < result.distance) || (result.hasHit == false)) {
+            this.hasHit = true
+            result.hasHit = true
+            result.set(this.from this.to normal hitPointWorld shape body distance)
+        }
+    }
+
+    fn intersectSphere:void (shape:CannonShape position:CannonVec3 body:CannonBody) {
+        def from:CannonVec3 this.from
+        def to:CannonVec3 this.to
+        def r:double shape.radius
+        def dx:double (to.x - from.x)
+        def dy:double (to.y - from.y)
+        def dz:double (to.z - from.z)
+        def fx:double (from.x - position.x)
+        def fy:double (from.y - position.y)
+        def fz:double (from.z - position.z)
+        def a:double (((dx * dx) + (dy * dy)) + (dz * dz))
+        def b:double (2.0 * (((dx * fx) + (dy * fy)) + (dz * fz)))
+        def c:double ((((fx * fx) + (fy * fy)) + (fz * fz)) - (r * r))
+        def delta:double ((b * b) - ((4.0 * a) * c))
+        if (delta < 0.0) {
+            return
+        }
+        def sq:double (sqrt(delta))
+        def d1:double (((0.0 - b) - sq) / (2.0 * a))
+        if (d1 >= 0.0) {
+            if (d1 <= 1.0) {
+                from.lerp(to d1 this.ip)
+                this.ip.vsub(position this.nrm)
+                this.nrm.normalizeSelf()
+                this.reportIntersection(this.nrm this.ip shape body)
+            }
+        }
+        if (this.result.shouldStop) {
+            return
+        }
+        def d2:double (((0.0 - b) + sq) / (2.0 * a))
+        if (d2 >= 0.0) {
+            if (d2 <= 1.0) {
+                from.lerp(to d2 this.ip)
+                this.ip.vsub(position this.nrm)
+                this.nrm.normalizeSelf()
+                this.reportIntersection(this.nrm this.ip shape body)
+            }
+        }
+    }
+
+    fn intersectPlane:void (shape:CannonShape quat:CannonQuaternion position:CannonVec3 body:CannonBody) {
+        def from:CannonVec3 this.from
+        def to:CannonVec3 this.to
+        def worldNormal:CannonVec3 this.worldNormal
+        worldNormal.set(0.0 0.0 1.0)
+        quat.vmult(worldNormal worldNormal)
+        def len:CannonVec3 this.lenv
+        from.vsub(position len)
+        def planeToFrom:double (len.dot(worldNormal))
+        to.vsub(position len)
+        def planeToTo:double (len.dot(worldNormal))
+        if ((planeToFrom * planeToTo) > 0.0) {
+            return
+        }
+        if ((from.distanceTo(to)) < planeToFrom) {
+            return
+        }
+        def nDotDir:double (worldNormal.dot(this.direction))
+        def absN:double nDotDir
+        if (absN < 0.0) {
+            absN = (0.0 - absN)
+        }
+        if (absN < this.precision) {
+            return
+        }
+        from.vsub(position this.planePointToFrom)
+        def t:double ((0.0 - (worldNormal.dot(this.planePointToFrom))) / nDotDir)
+        this.direction.scaleInto(t this.dirScaled)
+        from.vadd(this.dirScaled this.hitPoint)
+        this.reportIntersection(worldNormal this.hitPoint shape body)
+    }
+
+    fn intersectShape:void (shape:CannonShape quat:CannonQuaternion position:CannonVec3 body:CannonBody) {
+        if (shape.collisionResponse == false) {
+            return
+        }
+        if (shape.type == 1) {
+            this.intersectSphere(shape position body)
+        }
+        if (shape.type == 2) {
+            this.intersectPlane(shape quat position body)
+        }
+    }
+
+    fn intersectBody:void (body:CannonBody) {
+        if (body.collisionResponse == false) {
+            return
+        }
+        def n:int (array_length body.shapes)
+        def i 0
+        while (i < n) {
+            def shape:CannonShape (itemAt body.shapes i)
+            def orn:CannonQuaternion (itemAt body.shapeOrientations i)
+            body.quaternion.multInto(orn this.qi)
+            def off:CannonVec3 (itemAt body.shapeOffsets i)
+            body.quaternion.vmult(off this.xi)
+            this.xi.vadd(body.position this.xi)
+            this.intersectShape(shape this.qi this.xi body)
+            if (this.result.shouldStop) {
+                return
+            }
+            i = (i + 1)
+        }
+    }
+}

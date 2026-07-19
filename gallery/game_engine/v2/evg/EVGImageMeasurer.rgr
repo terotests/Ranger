@@ -1,0 +1,84 @@
+; EVGImageMeasurer.rgr - Abstract image measurement interface for EVG layout
+
+class EVGImageDimensions {
+    def width:int 0
+    def height:int 0
+    def aspectRatio:double 1.0
+    def isValid:boolean false
+    
+    Constructor () {
+        width = 0
+        height = 0
+        aspectRatio = 1.0
+        isValid = false
+    }
+    
+    sfn create:EVGImageDimensions (w:int h:int) {
+        def d (new EVGImageDimensions())
+        d.width = w
+        d.height = h
+        if (h > 0) {
+            d.aspectRatio = ((to_double w) / (to_double h))
+        }
+        d.isValid = true
+        return d
+    }
+}
+
+; Abstract interface - implementations must override
+class EVGImageMeasurer {
+    
+    fn getImageDimensions:EVGImageDimensions (src:string) {
+        ; Default implementation - returns invalid dimensions
+        ; Subclasses should override to provide actual image dimensions
+        def dims (new EVGImageDimensions())
+        return dims
+    }
+    
+    fn calculateHeightForWidth:double (src:string targetWidth:double) {
+        ; Calculate height to maintain aspect ratio for given width
+        def dims:EVGImageDimensions (this.getImageDimensions(src))
+        if dims.isValid {
+            return (targetWidth / dims.aspectRatio)
+        }
+        ; Default to square if we can't determine aspect ratio
+        return targetWidth
+    }
+    
+    fn calculateWidthForHeight:double (src:string targetHeight:double) {
+        ; Calculate width to maintain aspect ratio for given height
+        def dims:EVGImageDimensions (this.getImageDimensions(src))
+        if dims.isValid {
+            return (targetHeight * dims.aspectRatio)
+        }
+        ; Default to square if we can't determine aspect ratio
+        return targetHeight
+    }
+    
+    fn calculateFitDimensions:EVGImageDimensions (src:string maxWidth:double maxHeight:double) {
+        ; Calculate dimensions to fit within box while maintaining aspect ratio
+        def dims:EVGImageDimensions (this.getImageDimensions(src))
+        if (dims.isValid == false) {
+            ; Default to max size if we can't determine aspect ratio
+            return (EVGImageDimensions.create((to_int maxWidth) (to_int maxHeight)))
+        }
+        
+        def scaleW:double (maxWidth / (to_double dims.width))
+        def scaleH:double (maxHeight / (to_double dims.height))
+        def scale:double scaleW
+        if (scaleH < scaleW) {
+            scale = scaleH
+        }
+        
+        def newW:int (to_int ((to_double dims.width) * scale))
+        def newH:int (to_int ((to_double dims.height) * scale))
+        
+        return (EVGImageDimensions.create(newW newH))
+    }
+}
+
+; Simple implementation that always returns invalid (for testing without images)
+class SimpleImageMeasurer {
+    Extends(EVGImageMeasurer)
+    ; Uses default implementation - returns invalid dimensions
+}

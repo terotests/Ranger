@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "bodyType": "female",
+  "selections": {
+    "body": {
+      "itemId": "body",
+      "variant": "",
+      "recolor": "olive",
+      "name": "Body (olive)"
+    },
+    "head": {
+      "itemId": "heads_human_female",
+      "variant": "",
+      "recolor": "olive",
+      "name": "Human Female (olive)"
+    },
+    "hair": {
+      "itemId": "hair_long",
+      "variant": "red",
+      "recolor": "",
+      "name": "Long hair (red)"
+    },
+    "torso": {
+      "itemId": "torso_chainmail",
+      "variant": "steel",
+      "recolor": "",
+      "name": "Chainmail (steel)"
+    },
+    "legs": {
+      "itemId": "legs_pants2",
+      "variant": "",
+      "recolor": "leather",
+      "name": "Long pants (leather)"
+    },
+    "feet": {
+      "itemId": "feet_boots_basic",
+      "variant": "brown",
+      "recolor": "",
+      "name": "Boots (brown)"
+    }
+  },
+  "selectedAnimation": "walk",
+  "matchBodyColorEnabled": true,
+  "enabledLicenses": {
+    "CC0": true,
+    "CC-BY": true,
+    "CC-BY-SA": true,
+    "OGA-BY": true,
+    "GPL": true
+  }
+}

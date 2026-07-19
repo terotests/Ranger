@@ -1,0 +1,57 @@
+; ==============================================================================
+; three_timer — frame clock (Three.js port of src/misc/Timer.js).
+; ==============================================================================
+;
+; The Sponza example drives its animation loop with a THREE.Timer: each frame it
+; calls timer.update(timestamp) then controls.update(timer.getDelta()). Timer
+; tracks the delta between updates (seconds) and the elapsed total, with an
+; optional timescale. Timestamps come from the host (performance.now, ms) and are
+; converted to seconds. See IDEAL_SPONZA.md slice 1.
+; ==============================================================================
+
+class ThreeTimer {
+    def previousTime:double 0.0
+    def currentTime:double 0.0
+    def startTime:double 0.0
+    def delta:double 0.0
+    def elapsed:double 0.0
+    def timescale:double 1.0
+    def started:boolean false
+
+    ; timestamp is in milliseconds (host performance.now); Three divides by 1000.
+    fn update:ThreeTimer (timestamp:double) {
+        this.previousTime = this.currentTime
+        this.currentTime = (timestamp / 1000.0)
+
+        if (this.started == false) {
+            this.started = true
+            this.startTime = this.currentTime
+            this.previousTime = this.currentTime
+        }
+
+        this.delta = ((this.currentTime - this.previousTime) * this.timescale)
+        this.elapsed = (this.elapsed + this.delta)
+        return this
+    }
+
+    fn getDelta:double () {
+        return this.delta
+    }
+    fn getElapsed:double () {
+        return this.elapsed
+    }
+    fn setTimescale:ThreeTimer (value:double) {
+        this.timescale = value
+        return this
+    }
+
+    fn reset:ThreeTimer () {
+        this.currentTime = 0.0
+        this.previousTime = 0.0
+        this.startTime = 0.0
+        this.delta = 0.0
+        this.elapsed = 0.0
+        this.started = false
+        return this
+    }
+}

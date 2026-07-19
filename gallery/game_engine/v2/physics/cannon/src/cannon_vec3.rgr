@@ -1,0 +1,213 @@
+; ==============================================================================
+; cannon_vec3 — 3D vector (Cannon.js port).
+; ==============================================================================
+
+class CannonVec3 {
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+
+    fn set:void (x:double y:double z:double) {
+        this.x = x
+        this.y = y
+        this.z = z
+    }
+
+    fn setZero:void () {
+        this.x = 0.0
+        this.y = 0.0
+        this.z = 0.0
+    }
+
+    fn vadd:void (v:CannonVec3 target:CannonVec3) {
+        target.x = v.x + this.x
+        target.y = v.y + this.y
+        target.z = v.z + this.z
+    }
+
+    fn vaddNew:CannonVec3 (v:CannonVec3) {
+        def out:CannonVec3 (new CannonVec3)
+        out.x = v.x + this.x
+        out.y = v.y + this.y
+        out.z = v.z + this.z
+        return out
+    }
+
+    fn vsub:void (v:CannonVec3 target:CannonVec3) {
+        target.x = this.x - v.x
+        target.y = this.y - v.y
+        target.z = this.z - v.z
+    }
+
+    fn vsubNew:CannonVec3 (v:CannonVec3) {
+        def out:CannonVec3 (new CannonVec3)
+        out.x = this.x - v.x
+        out.y = this.y - v.y
+        out.z = this.z - v.z
+        return out
+    }
+
+    fn scaleInto:void (scalar:double target:CannonVec3) {
+        target.x = this.x * scalar
+        target.y = this.y * scalar
+        target.z = this.z * scalar
+    }
+
+    fn crossInto:void (v:CannonVec3 target:CannonVec3) {
+        def vx:double v.x
+        def vy:double v.y
+        def vz:double v.z
+        def x:double this.x
+        def y:double this.y
+        def z:double this.z
+        target.x = (y * vz) - (z * vy)
+        target.y = (z * vx) - (x * vz)
+        target.z = (x * vy) - (y * vx)
+    }
+
+    fn crossNew:CannonVec3 (v:CannonVec3) {
+        def out:CannonVec3 (new CannonVec3)
+        this.crossInto(v out)
+        return out
+    }
+
+    ; target = this + scalar * v   (cannon-es Vec3.addScaledVector)
+    fn addScaledVector:void (scalar:double v:CannonVec3 target:CannonVec3) {
+        target.x = (this.x + (scalar * v.x))
+        target.y = (this.y + (scalar * v.y))
+        target.z = (this.z + (scalar * v.z))
+    }
+
+    ; target = this .* v   (component-wise multiply, cannon-es Vec3.vmul)
+    fn vmulInto:void (v:CannonVec3 target:CannonVec3) {
+        target.x = (this.x * v.x)
+        target.y = (this.y * v.y)
+        target.z = (this.z * v.z)
+    }
+
+    ; Two orthonormal tangents to this (normal) vector (cannon-es Vec3.tangents).
+    fn tangents:void (t1:CannonVec3 t2:CannonVec3) {
+        def norm:double (this.norm())
+        if (norm > 0.0) {
+            def inorm:double (1.0 / norm)
+            def n:CannonVec3 (new CannonVec3)
+            n.set((this.x * inorm) (this.y * inorm) (this.z * inorm))
+            def randVec:CannonVec3 (new CannonVec3)
+            def ax:double n.x
+            if (ax < 0.0) {
+                ax = (0.0 - ax)
+            }
+            if (ax < 0.9) {
+                randVec.set(1.0 0.0 0.0)
+            } {
+                randVec.set(0.0 1.0 0.0)
+            }
+            n.crossInto(randVec t1)
+            t1.normalizeSelf()
+            n.crossInto(t1 t2)
+        } {
+            t1.set(1.0 0.0 0.0)
+            t2.set(0.0 1.0 0.0)
+        }
+    }
+
+    fn dot:double (v:CannonVec3) {
+        return ((this.x * v.x) + (this.y * v.y)) + (this.z * v.z)
+    }
+
+    fn copy:void (source:CannonVec3) {
+        this.x = source.x
+        this.y = source.y
+        this.z = source.z
+    }
+
+    ; target = this + (v - this) * t   (linear interpolation, cannon-es Vec3.lerp)
+    fn lerp:void (v:CannonVec3 t:double target:CannonVec3) {
+        target.x = (this.x + ((v.x - this.x) * t))
+        target.y = (this.y + ((v.y - this.y) * t))
+        target.z = (this.z + ((v.z - this.z) * t))
+    }
+
+    fn negateInto:void (target:CannonVec3) {
+        target.x = (0.0 - this.x)
+        target.y = (0.0 - this.y)
+        target.z = (0.0 - this.z)
+    }
+
+    fn norm:double () {
+        def x:double this.x
+        def y:double this.y
+        def z:double this.z
+        return (sqrt((x * x) + (y * y) + (z * z)))
+    }
+
+    fn norm2:double () {
+        def d:double (this.dot(this))
+        return d
+    }
+
+    fn distanceSquared:double (v:CannonVec3) {
+        def dx:double (this.x - v.x)
+        def dy:double (this.y - v.y)
+        def dz:double (this.z - v.z)
+        return ((dx * dx) + (dy * dy)) + (dz * dz)
+    }
+
+    fn distanceTo:double (v:CannonVec3) {
+        return (sqrt(this.distanceSquared(v)))
+    }
+
+    fn normalizeInto:void (target:CannonVec3) {
+        def l:double this.norm()
+        if (l == 0.0) {
+            target.setZero()
+            return
+        }
+        def inv:double (1.0 / l)
+        target.x = this.x * inv
+        target.y = this.y * inv
+        target.z = this.z * inv
+    }
+
+    fn normalizeSelf:void () {
+        def l:double this.norm()
+        if (l == 0.0) {
+            this.setZero()
+            return
+        }
+        def inv:double (1.0 / l)
+        this.x = this.x * inv
+        this.y = this.y * inv
+        this.z = this.z * inv
+    }
+
+    fn absDiff:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    fn almostEquals:boolean (v:CannonVec3 precision:double) {
+        if (this.absDiff(this.x - v.x) > precision) {
+            return false
+        }
+        if (this.absDiff(this.y - v.y) > precision) {
+            return false
+        }
+        if (this.absDiff(this.z - v.z) > precision) {
+            return false
+        }
+        return true
+    }
+
+    fn isAntiparallelTo:boolean (v:CannonVec3 precision:double) {
+        def neg:CannonVec3 (new CannonVec3)
+        this.negateInto(neg)
+        return (neg.almostEquals(v precision))
+    }
+
+    fn toString:string () {
+        return ((to_string this.x) + "," + (to_string this.y)) + ("," + (to_string this.z))
+    }
+}

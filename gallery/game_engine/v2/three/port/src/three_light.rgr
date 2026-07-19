@@ -1,0 +1,80 @@
+; ==============================================================================
+; three_light — lights (Three.js port of src/lights/*, core subset).
+; ==============================================================================
+; ThreeLight is an Object3D with a colour + intensity. AmbientLight lights every
+; surface uniformly; DirectionalLight lights from a direction (its position, used
+; as the direction toward the light, as in the teapot example). The lightKind /
+; lightR/G/B overrides let the renderer collect lights while walking the tree.
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_color.rgr"
+Import "three_matrix4.rgr"
+Import "three_directional_light_shadow.rgr"
+
+class ThreeLight extends ThreeObject3D {
+    def isLight:boolean true
+    def color:ThreeColor (ThreeColor.of(16777215))
+    def intensity:double 1.0
+
+    fn setColorHex:ThreeLight (hex:int) {
+        this.color.setHex(hex)
+        return this
+    }
+    fn setIntensity:ThreeLight (v:double) {
+        this.intensity = v
+        return this
+    }
+    fn lightR:double () {
+        return (this.color.r * this.intensity)
+    }
+    fn lightG:double () {
+        return (this.color.g * this.intensity)
+    }
+    fn lightB:double () {
+        return (this.color.b * this.intensity)
+    }
+}
+
+class ThreeAmbientLight extends ThreeLight {
+    def isAmbientLight:boolean true
+    fn lightKind:int () {
+        return 1
+    }
+}
+
+class ThreeDirectionalLight extends ThreeLight {
+    def isDirectionalLight:boolean true
+    def castShadow:boolean false
+    ; where the light aims; the example moves it around the model centre.
+    def target:ThreeObject3D (new ThreeObject3D)
+    def shadow:ThreeDirectionalLightShadow (new ThreeDirectionalLightShadow)
+    fn lightKind:int () {
+        return 2
+    }
+    ; The light direction is taken from position (toward the origin), matching
+    ; `light.position.set(x, y, z)` in the examples.
+    fn setDirection:ThreeDirectionalLight (x:double y:double z:double) {
+        this.position.set(x y z)
+        return this
+    }
+    fn setCastShadow:ThreeDirectionalLight (on:boolean) {
+        castShadow = on
+        return this
+    }
+    ; the light-space view-projection for this light aiming at its target.
+    fn shadowViewProjection:ThreeMatrix4 () {
+        return (this.shadow.computeViewProjection(this.position this.target.position))
+    }
+
+    ; shadow interrogation for the renderer (no downcast while walking the tree).
+    fn castsShadow:boolean () {
+        return this.castShadow
+    }
+    fn lightViewProjection:ThreeMatrix4 () {
+        return (this.shadowViewProjection())
+    }
+    fn setShadowExtent:void (l:double r:double t:double b:double n:double f:double) {
+        this.shadow.setExtent(l r t b n f)
+    }
+}

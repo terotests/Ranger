@@ -1,0 +1,95 @@
+; ==============================================================================
+; MeshBridgeTest.rgr — verify GLB → engine GPU-mesh conversion (MeshBridge).
+; ==============================================================================
+; Loads the in-memory GLB fixture (a single triangle with known positions,
+; normals, uvs, indices and a 2x2 RGBA texture) through ModelLoader, converts it
+; with MeshBridge, and asserts the fixed-point interleaved buffer + resolved
+; texture exactly. Compile to ES6 and run under Node; prints "ALL PASS".
+; ==============================================================================
+
+Import "../ModelLoader.rgr"
+Import "../MeshBridge.rgr"
+Import "GlbFixture.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class MeshBridgeTest {
+    sfn m@(main):void () {
+        def ck:Checker (new Checker)
+        print "== MeshBridge: GLB -> engine mesh =="
+
+        def glb:buffer (GlbFixture.build())
+        def loader:ModelLoader (new ModelLoader)
+        def id:int (loader.loadFromBuffer(glb))
+        ck.ok("model loaded" (id >= 0))
+        ck.ok(("loader ok (" + loader.lastError + ")") loader.ok)
+
+        def model:ModelAsset (loader.getModel(id))
+        def bridge:MeshBridge (new MeshBridge)
+        def em:EngineMeshData (bridge.fromModel(model))
+        ck.ok("conversion ok" em.ok)
+        ck.eqInt("vertexCount" em.vertexCount 3)
+        ck.eqInt("indexCount" em.indexCount 3)
+
+        ; word layout: 8 per vertex. positions*256, normals*65536, word6=0,
+        ; word7 = uv packed (u*4096 low16 | v*4096<<16).
+        ; v0 pos (0,0,0)
+        ck.eqInt("v0.px" (int_buffer_get em.verts 0) 0)
+        ck.eqInt("v0.py" (int_buffer_get em.verts 1) 0)
+        ck.eqInt("v0.pz" (int_buffer_get em.verts 2) 0)
+        ck.eqInt("v0.nz" (int_buffer_get em.verts 5) 65536)
+        ck.eqInt("v0.uv" (int_buffer_get em.verts 7) 0)
+        ; v1 pos (1,0,0), uv (1,0) -> u=4096
+        ck.eqInt("v1.px" (int_buffer_get em.verts 8) 256)
+        ck.eqInt("v1.py" (int_buffer_get em.verts 9) 0)
+        ck.eqInt("v1.nz" (int_buffer_get em.verts 13) 65536)
+        ck.eqInt("v1.uv" (int_buffer_get em.verts 15) 4096)
+        ; v2 pos (0,1,0), uv (0,1) -> v=4096 -> 4096<<16
+        ck.eqInt("v2.px" (int_buffer_get em.verts 16) 0)
+        ck.eqInt("v2.py" (int_buffer_get em.verts 17) 256)
+        ck.eqInt("v2.uv" (int_buffer_get em.verts 23) 268435456)
+        ; high-precision verts: positions are Q16.16 (x65536), rest unchanged
+        ck.eqInt("hp v0.px" (int_buffer_get em.vertsHp 0) 0)
+        ck.eqInt("hp v1.px" (int_buffer_get em.vertsHp 8) 65536)
+        ck.eqInt("hp v1.nz" (int_buffer_get em.vertsHp 13) 65536)
+        ck.eqInt("hp v2.py" (int_buffer_get em.vertsHp 17) 65536)
+        ck.eqInt("hp v1.uv" (int_buffer_get em.vertsHp 15) 4096)
+        ; indices 0,1,2
+        ck.eqInt("idx0" (int_buffer_get em.indices 0) 0)
+        ck.eqInt("idx1" (int_buffer_get em.indices 1) 1)
+        ck.eqInt("idx2" (int_buffer_get em.indices 2) 2)
+
+        ; base-colour texture resolved (fixture is a 2x2 RGBA PNG)
+        ck.ok("hasTexture" em.hasTexture)
+        ck.eqInt("texWidth" em.texWidth 2)
+        ck.eqInt("texHeight" em.texHeight 2)
+
+        ; material: fixture baseColorFactor [0.8,0.4,0.2,1.0], opaque, no emissive
+        ck.ok("baseColorA is 1" (em.baseColorA > 0.99))
+        ck.ok("baseColorR ~0.8" (em.baseColorR > 0.79))
+        ck.ok("opaque (no blend)" (em.blend == false))
+        ck.ok("no emissive" (em.emissiveG == 0.0))
+
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

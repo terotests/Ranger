@@ -1,0 +1,272 @@
+; ==============================================================================
+; UIAnimator — a tiny Pixi.js-style effect/animation system for EVG UI elements.
+; ==============================================================================
+;
+; Fluent, object-and-chaining API, applied to a UI element (by its stable node
+; id) usually from an event, with delay + duration timing and an `after` hook so
+; you only react once the effect has finished:
+;
+;     animator.animation().glow(elementId)
+;         .duration(0.5)          ; seconds the effect runs
+;         .delay(0.2)             ; seconds to wait before it starts
+;         .after(onDoneCallback)  ; called once, when the effect completes
+;         .start();
+;
+; The host advances animations each frame (tick(dtMs)) and the renderer asks
+; intensityFor(id) for the current 0..1 effect strength (a 0->1->0 flash) to draw
+; an animated glow. Effects are host-rendered (the EVG soft glow) — a GPU shader
+; back-end can later replace intensityFor()'s consumer without touching this API.
+; ==============================================================================
+
+; A single running effect on one element. Built fluently; registered on start().
+class UIAnim {
+    def owner@(weak):UIAnimator
+    def targetId:string ""
+    def kind:int 0            ; 1 = glow (single flash), 2 = pulse (repeated beats)
+    def targetKind:int 0      ; 0 = a UI node (targetId), 1 = the whole screen
+    def colR:int 255          ; effect tint (glow/pulse); white by default
+    def colG:int 255
+    def colB:int 255
+    def durationMs:int 300
+    def delayMs:int 0
+    def elapsedMs:int 0
+    def done:boolean false
+    def hasAfter:boolean false
+    def afterCb@(weak):(_:void ())
+
+    Constructor () {
+    }
+
+    ; ---- fluent builders (each returns this) ----
+    ; glow: a single 0->1->0 flash on a node. pulse: several beats (distinct look).
+    ; *Screen builders target the whole frame instead of one node.
+    fn glow:UIAnim (id:string) {
+        kind = 1
+        targetKind = 0
+        targetId = id
+        return this
+    }
+    fn pulse:UIAnim (id:string) {
+        kind = 2
+        targetKind = 0
+        targetId = id
+        return this
+    }
+    fn pulseScreen:UIAnim () {
+        kind = 2
+        targetKind = 1
+        targetId = "@screen"
+        return this
+    }
+    ; Tint the effect (e.g. a red damage pulse, a green heal pulse).
+    fn color:UIAnim (r:int g:int b:int) {
+        colR = r
+        colG = g
+        colB = b
+        return this
+    }
+    fn duration:UIAnim (sec:double) {
+        durationMs = (to_int (sec * 1000.0))
+        if (durationMs < 1) { durationMs = 1 }
+        return this
+    }
+    fn delay:UIAnim (sec:double) {
+        delayMs = (to_int (sec * 1000.0))
+        if (delayMs < 0) { delayMs = 0 }
+        return this
+    }
+    fn after:UIAnim (f:(_:void ())) {
+        afterCb = f
+        hasAfter = true
+        return this
+    }
+    ; Register with the owning animator so tick() advances it.
+    fn start:UIAnim () {
+        elapsedMs = 0
+        done = false
+        if (!null? owner) {
+            def o:UIAnimator (unwrap owner)
+            o.add(this)
+        }
+        return this
+    }
+
+    ; 0..1 progress through the active (post-delay) portion of the effect.
+    fn progress:double () {
+        def afterDelay:int (elapsedMs - delayMs)
+        if (afterDelay <= 0) { return 0.0 }
+        if (durationMs <= 0) { return 1.0 }
+        def p:double ((to_double afterDelay) / (to_double durationMs))
+        if (p > 1.0) { p = 1.0 }
+        return p
+    }
+
+    ; Effect strength 0..1 over the active window (no trig dependency: triangular).
+    ; glow  = one symmetric 0->1->0 flash. pulse = several such beats, so it reads
+    ; as a repeating throb rather than a single flash. Both start and end at 0.
+    fn intensity:double () {
+        if done { return 0.0 }
+        def p:double (this.progress())
+        if (p <= 0.0) { return 0.0 }
+        if (kind == 2) {
+            return (this.pulseShape(p))
+        }
+        if (p < 0.5) { return (p * 2.0) }
+        return ((1.0 - p) * 2.0)
+    }
+
+    ; Repeated triangular beats across the duration. 3 beats: rises and falls to 0
+    ; three times, ending cleanly at 0 (p=1 -> beat boundary). to_int truncates
+    ; toward zero, so for p in [0,1] it acts as floor (no floor op needed).
+    fn pulseShape:double (p:double) {
+        def beats:double 3.0
+        def ph:double (p * beats)
+        def bi:int (to_int ph)
+        def frac:double (ph - (to_double bi))
+        if (frac < 0.5) { return (frac * 2.0) }
+        return ((1.0 - frac) * 2.0)
+    }
+
+    fn isFinished:boolean () {
+        return (elapsedMs >= (delayMs + durationMs))
+    }
+}
+
+; Owns + advances the active animations and answers effect strength per element.
+class UIAnimator {
+    def anims:[UIAnim]
+
+    ; Colour of the winning effect from the most recent intensityFor()/screen*()
+    ; query, so a consumer can read strength then tint (node halo / screen wash).
+    def nodeR:int 255
+    def nodeG:int 255
+    def nodeB:int 255
+    def scrR:int 255
+    def scrG:int 255
+    def scrB:int 255
+
+    Constructor () {
+    }
+
+    ; Start a new fluent animation bound to this animator.
+    fn animation:UIAnim () {
+        def a:UIAnim (new UIAnim)
+        a.owner = this
+        return a
+    }
+
+    fn add:void (a:UIAnim) {
+        push anims a
+    }
+
+    ; Drop all active animations (e.g. when the UI they animate is torn down).
+    fn reset:void () {
+        def empty:[UIAnim]
+        anims = empty
+    }
+
+    fn activeCount:int () {
+        return (array_length anims)
+    }
+
+    ; Advance every animation by dtMs; fire each `after` callback exactly once as
+    ; it completes, then drop finished animations.
+    fn tick:void (dtMs:int) {
+        def kept:[UIAnim]
+        def i 0
+        def n (array_length anims)
+        while (i < n) {
+            def a:UIAnim (itemAt anims i)
+            a.elapsedMs = (a.elapsedMs + dtMs)
+            if (a.isFinished()) {
+                if (a.done == false) {
+                    a.done = true
+                    if a.hasAfter {
+                        def f:(_:void ()) (unwrap a.afterCb)
+                        f()
+                    }
+                }
+            } {
+                push kept a
+            }
+            i = (i + 1)
+        }
+        anims = kept
+    }
+
+    ; Current effect strength (0..1) for a node id — the max over active node-target
+    ; effects (glow or pulse). Records the winning effect's colour in nodeR/G/B.
+    fn intensityFor:double (id:string) {
+        def m:double 0.0
+        def i 0
+        def n (array_length anims)
+        while (i < n) {
+            def a:UIAnim (itemAt anims i)
+            if (a.targetKind == 0) {
+                if (a.targetId == id) {
+                    def v:double (a.intensity())
+                    if (v > m) {
+                        m = v
+                        nodeR = a.colR
+                        nodeG = a.colG
+                        nodeB = a.colB
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return m
+    }
+
+    ; Current whole-screen effect strength (0..1) — the max over active screen-target
+    ; effects (pulse). Records the winning effect's colour in scrR/G/B so the
+    ; renderer can wash the whole frame with the right tint.
+    fn screenIntensity:double () {
+        def m:double 0.0
+        def i 0
+        def n (array_length anims)
+        while (i < n) {
+            def a:UIAnim (itemAt anims i)
+            if (a.targetKind == 1) {
+                def v:double (a.intensity())
+                if (v > m) {
+                    m = v
+                    scrR = a.colR
+                    scrG = a.colG
+                    scrB = a.colB
+                }
+            }
+            i = (i + 1)
+        }
+        return m
+    }
+
+    fn hasActive:boolean (id:string) {
+        return ((this.intensityFor(id)) > 0.0)
+    }
+
+    ; Distinct target ids of currently-active glow animations — the renderer walks
+    ; these to overlay the effect on each element.
+    fn activeIds:[string] () {
+        def out:[string]
+        def i 0
+        def n (array_length anims)
+        while (i < n) {
+            def a:UIAnim (itemAt anims i)
+            if (a.kind == 1) {
+                def id:string a.targetId
+                def seen:boolean false
+                def j 0
+                while (j < (array_length out)) {
+                    if ((itemAt out j) == id) { seen = true }
+                    j = (j + 1)
+                }
+                if (seen == false) {
+                    push out id
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

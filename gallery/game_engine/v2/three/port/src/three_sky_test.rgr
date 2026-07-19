@@ -1,0 +1,87 @@
+; ==============================================================================
+; three_sky_test — ThreeSky uniform holder + Object3D scale (Sponza slice 5).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; (The Preetham scattering itself is GLSL — three_gl_shaders.atmosphere*Src — and
+; runs on the GPU; here we verify the portable uniform state the bridge feeds it.)
+; ==============================================================================
+
+Import "three_sky.rgr"
+Import "three_gl_shaders.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeSkyTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeSky =="
+
+        def sky:ThreeSky (new ThreeSky)
+        ; Three's Sky defaults
+        ck.near("default turbidity" sky.turbidity 10.0)
+        ck.near("default rayleigh" sky.rayleigh 3.0)
+        ck.near("default mieCoefficient" sky.mieCoefficient 0.005)
+        ck.near("default mieDirectionalG" sky.mieDirectionalG 0.7)
+
+        ; scale.setScalar works (Sky is an Object3D) -> sky.scale.setScalar(450000)
+        sky.scale.setScalar(450000.0)
+        ck.near("scale x set" sky.scale.x 450000.0)
+        ck.near("scale y set" sky.scale.y 450000.0)
+
+        ; the example's uniform tweaks
+        sky.setTurbidity(10.0)
+        sky.setRayleigh(2.0)
+        sky.setMieCoefficient(0.005)
+        sky.setMieDirectionalG(0.8)
+        ck.near("rayleigh 2" sky.rayleigh 2.0)
+        ck.near("mieDirectionalG 0.8" sky.mieDirectionalG 0.8)
+
+        ; sun direction copied from a spherical direction (as the example does)
+        def dir:ThreeVector3 (new ThreeVector3)
+        def halfPi:double 1.5707963267948966
+        dir.setFromSphericalCoords(1.0 halfPi 0.0)
+        sky.copySunPosition(dir)
+        ck.near("sunPosition z" sky.sunPosition.z 1.0)
+        ck.near("sunPosition y" sky.sunPosition.y 0.0)
+
+        ; the GLSL programs are present (non-empty), so the GPU path can compile them
+        def vs:string (ThreeGLShaders.atmosphereVertexSrc())
+        def fs:string (ThreeGLShaders.atmosphereFragmentSrc())
+        ck.ok("atmosphere vertex src non-empty" (vs != ""))
+        ck.ok("atmosphere fragment src non-empty" (fs != ""))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -1,0 +1,15 @@
+; ==============================================================================
+; cannon_test_filter — run Cannon parity tests by id (for Vitest / shell_arg).
+; ==============================================================================
+
+class CannonTestFilter {
+    fn matches:boolean (filter:string testId:string) {
+        if (filter == "") {
+            return true
+        }
+        if (filter == testId) {
+            return true
+        }
+        return false
+    }
+}

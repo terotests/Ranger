@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "bodyType": "male",
+  "note": "Full-generator recipe for catalog character 'hero'. Implemented by lpc_compose.rgr buildFullCharCalls (baked when the Universal-LPC art is present, LPC_ROOT).",
+  "selections": {
+    "body": {
+      "itemId": "body",
+      "name": "Male body"
+    },
+    "torso": {
+      "itemId": "torso_clothes_longsleeve",
+      "recolor": "forest",
+      "name": "Green tunic"
+    },
+    "legs": {
+      "itemId": "legs_pants",
+      "recolor": "brown",
+      "name": "Brown pants"
+    },
+    "feet": {
+      "itemId": "feet_boots_basic",
+      "recolor": "leather",
+      "name": "Leather boots"
+    },
+    "head": {
+      "itemId": "heads_human_male",
+      "name": "Human male head"
+    },
+    "hair": {
+      "itemId": "hair_natural",
+      "recolor": "chestnut",
+      "name": "Chestnut hair"
+    }
+  },
+  "selectedAnimation": "walk"
+}

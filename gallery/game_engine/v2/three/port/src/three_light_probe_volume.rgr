@@ -1,0 +1,142 @@
+; ==============================================================================
+; three_light_probe_volume — a REUSABLE diffuse-GI light-probe volume rig.
+; ==============================================================================
+; Owns a ThreeLightProbeGrid (+ its helper) and the structural work around it:
+; (re)build the grid at the current knobs, add/remove it from a scene without
+; leaking children on hot-reload, run the per-probe sun-visibility pass, and
+; sample the baked irradiance. The BAKE itself takes explicit radiance levels
+; (the caller supplies the art direction — sun/sky/ground tints), so the volume
+; is a generic technique unit: point it at any scene, feed any look.
+;
+; It never owns the scene — the caller passes the reconciled scene, so the volume
+; adds its grid to the host-owned registry. A composition wires this rig + a
+; sun/shadow rig + controls; a different GI look is different bake args, and a
+; different technique is a different rig — never a fork of this one.
+; Pure Ranger (compiles to ES6 and C++).
+; ==============================================================================
+
+Import "three_scene.rgr"
+Import "three_vector3.rgr"
+Import "three_matrix4.rgr"
+Import "three_light_probe_grid.rgr"
+Import "three_light_probe_grid_helper.rgr"
+Import "three_spherical_harmonics3.rgr"
+Import "three_cube_map.rgr"
+Import "three_cube_camera.rgr"
+Import "three_light_probe_generator.rgr"
+Import "three_webgl_renderer.rgr"
+
+class ThreeLightProbeVolume {
+    ; --- knobs (the caller sets these from the scene's params) ---
+    def gridSizeX:double 1.0
+    def gridSizeY:double 1.0
+    def gridSizeZ:double 1.0
+    def countX:int 2
+    def countY:int 2
+    def countZ:int 2
+    def boundsX:double 0.0
+    def boundsY:double 0.0
+    def boundsZ:double 0.0
+    def probeSize:double 0.2
+    def enabled:boolean true
+    def showProbes:boolean false
+
+    ; --- the owned volume + its debug helper ---
+    def probes:ThreeLightProbeGrid (new ThreeLightProbeGrid)
+    def probesHelper:ThreeLightProbeGridHelper (new ThreeLightProbeGridHelper)
+
+    ; hot-reload signature: rebuild only when the probe counts change.
+    def sigCountX:int (0 - 1)
+    def sigCountY:int (0 - 1)
+    def sigCountZ:int (0 - 1)
+
+    ; cube-face resolution for the scene-capture bake (per probe, per face).
+    def captureFaceSize:int 16
+
+    ; (re)create the grid at the current settings; removes the previous volume +
+    ; helper first so hot-reloads don't leak scene children. Does NOT bake — the
+    ; caller bakes right after (the bake is art direction, supplied by the caller).
+    fn rebuild:void (scene:ThreeScene) {
+        scene.remove(this.probes)
+        scene.remove(this.probesHelper)
+        this.probes = (ThreeLightProbeGrid.create(this.gridSizeX this.gridSizeY this.gridSizeZ this.countX this.countY this.countZ))
+        this.probes.position.set(this.boundsX this.boundsY this.boundsZ)
+        this.probes.visible = this.enabled
+        scene.add(this.probes)
+        this.probesHelper = (ThreeLightProbeGridHelper.create(this.probes this.probeSize))
+        this.probesHelper.visible = this.showProbes
+        scene.add(this.probesHelper)
+    }
+
+    ; GENERIC diffuse-GI bake (Three.js LightProbeGenerator path): capture a cube at
+    ; each probe's world position with `renderer`, project it to SH, and store it.
+    ; This integrates the ACTUAL scene (lit surfaces, sky, occlusion), so it needs no
+    ; sun/sky/ground model and no single-sun shadow-readback pass — shadowing falls
+    ; out of the capture. Cost is 6 renders per probe: keep the grid modest or
+    ; captureFaceSize small (it is a one-time bake / hot-reload step).
+    fn bakeFromScene:void (scene:ThreeScene renderer:ThreeWebGLRenderer) {
+        def wp:ThreeVector3 (new ThreeVector3)
+        def iz:int 0
+        while (iz < this.probes.countZ) {
+            def iy:int 0
+            while (iy < this.probes.countY) {
+                def ix:int 0
+                while (ix < this.probes.countX) {
+                    this.probes.probeWorldPos(ix iy iz wp)
+                    def cube:ThreeCubeMap (ThreeCubeCamera.capture(renderer scene wp.x wp.y wp.z this.captureFaceSize))
+                    def sh:ThreeSphericalHarmonics3 (ThreeLightProbeGenerator.fromCubeTexture(cube))
+                    def p:ThreeSphericalHarmonics3 (this.probes.getProbe(ix iy iz))
+                    p.copyFrom(sh)
+                    ix = (ix + 1)
+                }
+                iy = (iy + 1)
+            }
+            iz = (iz + 1)
+        }
+        this.probes.bakeVersion = (this.probes.bakeVersion + 1)
+    }
+
+    ; bake the volume as a directional SH environment from explicit radiance: a sun
+    ; lobe along `sun`, a sky term (from above), a ground bounce (from below). The
+    ; caller computes the levels/tints (its look); the volume just stores them.
+    ; (The analytic stand-in, kept until the capture bake is wired into the recipe.)
+    fn bake:void (sunX:double sunY:double sunZ:double sunR:double sunG:double sunB:double skyR:double skyG:double skyB:double gndR:double gndG:double gndB:double) {
+        this.probes.bakeDirectional(sunX sunY sunZ sunR sunG sunB skyR skyG skyB gndR gndG gndB)
+    }
+
+    ; per-probe sun visibility from a shadow-map depth read back to CPU, so shadowed
+    ; probes lose their direct-sun lobe on the next bake.
+    fn computeVisibility:void (shadowDepth:buffer size:int sunViewProj:ThreeMatrix4) {
+        this.probes.computeSunVisibility(shadowDepth size sunViewProj)
+    }
+
+    ; sample the baked irradiance at a world point for a surface normal.
+    fn sample:ThreeVector3 (wx:double wy:double wz:double nx:double ny:double nz:double target:ThreeVector3) {
+        return (this.probes.sampleIrradiance(wx wy wz nx ny nz target))
+    }
+
+    fn setEnabled:void (on:boolean) {
+        this.enabled = on
+        this.probes.visible = on
+    }
+    fn setHelperVisible:void (on:boolean) {
+        this.showProbes = on
+        this.probesHelper.visible = on
+    }
+
+    fn countsChanged:boolean () {
+        if (this.countX != sigCountX) { return true }
+        if (this.countY != sigCountY) { return true }
+        if (this.countZ != sigCountZ) { return true }
+        return false
+    }
+    fn captureCounts:void () {
+        sigCountX = this.countX
+        sigCountY = this.countY
+        sigCountZ = this.countZ
+    }
+
+    fn probeCount:int () {
+        return (this.probes.probeCount())
+    }
+}

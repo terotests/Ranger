@@ -1,0 +1,394 @@
+; ==============================================================================
+; three_scene_host — the ONE host-owned Three registry (single source of truth).
+; ==============================================================================
+; THREE_BRIDGE.md Phase 1. Every front-end (the interpreter reconciler, a future
+; WASM/Rust guest, native Ranger) issues the same integer-handle *commands* against
+; this one registry; nobody owns Three objects privately. Handles are 1-based
+; indices into the registry arrays (0 = null). The command methods build/update the
+; real three/src objects — this is the direct analog of physics'
+; CannonNativeBridge registry, but split out so the interpreter bridge
+; (ThreeNativeBridge) and a WASM front-end both drive the SAME instance and
+; converge on one scene.
+;
+; Resource / instance separation (IDEAL_3D §1 #5): geometry + material are
+; `*_new -> handle` resources; a mesh references them by handle. The host owns the
+; renderer + every GPU resource; front-ends hold opaque handles only.
+; Pure Ranger — compiles to ES6 and C++ (and, target, WASM).
+; ==============================================================================
+
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_object3d.rgr"
+Import "three_box_geometry.rgr"
+Import "three_teapot_geometry.rgr"
+Import "three_primitive_geometries.rgr"
+Import "three_buffer_geometry.rgr"
+Import "three_mesh.rgr"
+Import "three_material.rgr"
+Import "three_mesh_basic_material.rgr"
+Import "three_mesh_lambert_material.rgr"
+Import "three_mesh_phong_material.rgr"
+Import "three_light.rgr"
+Import "three_sky.rgr"
+Import "three_texture.rgr"
+Import "three_webgl_renderer.rgr"
+Import "three_render_backend.rgr"
+
+class ThreeSceneHost {
+    def scenes:[ThreeScene]
+    def cameras:[ThreePerspectiveCamera]
+    def geometries:[ThreeBufferGeometry]
+    def materials:[ThreeMaterial]
+    def entities:[ThreeObject3D]
+    ; the host owns the renderer (front-ends never own GPU resources).
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    ; HOST-supplied texture pixels by path, + per-request provenance so a missing
+    ; asset is counted + warned (never a silent fake).
+    def texPaths:[string]
+    def texObjs:[ThreeTexture]
+    def reqPaths:[string]
+    def reqTex:[ThreeTexture]
+    def nHostTex:int 0
+    def nFallbackTex:int 0
+    def warnedFallback:boolean false
+
+    ; --- registry accessors (1-based handles) ---------------------------------
+    fn sceneAt:ThreeScene (h:int) { return (itemAt scenes (h - 1)) }
+    fn cameraAt:ThreePerspectiveCamera (h:int) { return (itemAt cameras (h - 1)) }
+    fn geometryAt:ThreeBufferGeometry (h:int) { return (itemAt geometries (h - 1)) }
+    fn materialAt:ThreeMaterial (h:int) { return (itemAt materials (h - 1)) }
+    fn entityAt:ThreeObject3D (h:int) { return (itemAt entities (h - 1)) }
+
+    ; --- scene ----------------------------------------------------------------
+    fn sceneNew:int () {
+        push scenes (new ThreeScene)
+        return (array_length scenes)
+    }
+    fn sceneBackground:void (sceneH:int r:double g:double b:double) {
+        (this.sceneAt(sceneH)).setBackground(r g b)
+    }
+    fn sceneEnvironment:void (sceneH:int on:boolean) {
+        if (on == false) {
+            def sc:ThreeScene (this.sceneAt(sceneH))
+            sc.hasEnvCube = false
+        }
+    }
+
+    ; --- camera ---------------------------------------------------------------
+    fn cameraNew:int () {
+        push cameras (new ThreePerspectiveCamera)
+        return (array_length cameras)
+    }
+    fn cameraSet:void (camH:int fov:double aspect:double near:double far:double) {
+        (this.cameraAt(camH)).setPerspective(fov aspect near far)
+    }
+    ; position AND orientation (Euler), so the interpreted camera actually aims.
+    fn cameraPose:void (camH:int px:double py:double pz:double ex:double ey:double ez:double) {
+        def c:ThreePerspectiveCamera (this.cameraAt(camH))
+        c.position.set(px py pz)
+        c.rotation.set(ex ey ez)
+    }
+
+    ; --- geometry (resources) -------------------------------------------------
+    fn geometryBox:int (w:double h:double d:double) {
+        def g:ThreeBoxGeometry (new ThreeBoxGeometry)
+        g.setSize(w h d)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryTeapot:int (size:double seg:int bottom:boolean lid:boolean body:boolean fitLid:boolean blinn:boolean) {
+        def g:ThreeTeapotGeometry (new ThreeTeapotGeometry)
+        g.setTeapot(size seg bottom lid body fitLid blinn)
+        push geometries g
+        return (array_length geometries)
+    }
+    ; Primitive + complex geometries — the REAL vertex data is built here in the
+    ; Ranger host from the interpreter-supplied args (three_primitive_geometries).
+    fn geometryPlane:int (width:double height:double wSeg:int hSeg:int) {
+        def g:ThreePlaneGeometry (new ThreePlaneGeometry)
+        g.build(width height wSeg hSeg)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryCircle:int (radius:double segments:int thetaStart:double thetaLength:double) {
+        def g:ThreeCircleGeometry (new ThreeCircleGeometry)
+        g.build(radius segments thetaStart thetaLength)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryRing:int (innerRadius:double outerRadius:double thetaSeg:int phiSeg:int thetaStart:double thetaLength:double) {
+        def g:ThreeRingGeometry (new ThreeRingGeometry)
+        g.build(innerRadius outerRadius thetaSeg phiSeg thetaStart thetaLength)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometrySphere:int (radius:double wSeg:int hSeg:int phiStart:double phiLength:double thetaStart:double thetaLength:double) {
+        def g:ThreeSphereGeometry (new ThreeSphereGeometry)
+        g.build(radius wSeg hSeg phiStart phiLength thetaStart thetaLength)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryCylinder:int (radiusTop:double radiusBottom:double height:double radialSeg:int heightSeg:int openEnded:boolean thetaStart:double thetaLength:double) {
+        def g:ThreeCylinderGeometry (new ThreeCylinderGeometry)
+        g.build(radiusTop radiusBottom height radialSeg heightSeg openEnded thetaStart thetaLength)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryCone:int (radius:double height:double radialSeg:int heightSeg:int openEnded:boolean thetaStart:double thetaLength:double) {
+        ; Cone.build delegates to a Cylinder(radiusTop=0) and returns THAT populated
+        ; geometry (the wrapper itself stays empty) — register the returned one.
+        def cone:ThreeConeGeometry (new ThreeConeGeometry)
+        def g:ThreeCylinderGeometry (cone.build(radius height radialSeg heightSeg openEnded thetaStart thetaLength))
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryTorus:int (radius:double tube:double radialSeg:int tubularSeg:int arc:double) {
+        def g:ThreeTorusGeometry (new ThreeTorusGeometry)
+        g.build(radius tube radialSeg tubularSeg arc)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryTorusKnot:int (radius:double tube:double tubularSeg:int radialSeg:int p:int q:int) {
+        def g:ThreeTorusKnotGeometry (new ThreeTorusKnotGeometry)
+        g.build(radius tube tubularSeg radialSeg p q)
+        push geometries g
+        return (array_length geometries)
+    }
+
+    ; --- material (resources) -------------------------------------------------
+    fn materialBasic:int (colorHex:int side:int wireframe:boolean) {
+        def m:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        m.setColorHex(colorHex)
+        m.setSide(side)
+        m.setWireframe(wireframe)
+        push materials m
+        return (array_length materials)
+    }
+    fn materialLambert:int (colorHex:int side:int) {
+        def m:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+        m.setColorHex(colorHex)
+        m.setSide(side)
+        push materials m
+        return (array_length materials)
+    }
+    fn materialPhong:int (colorHex:int specularHex:int shininess:double flat:boolean side:int) {
+        def m:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+        m.setColorHex(colorHex)
+        m.setSide(side)
+        m.setShininess(shininess)
+        m.setSpecularHex(specularHex)
+        if flat {
+            m.setFlatShading(true)
+        }
+        push materials m
+        return (array_length materials)
+    }
+    fn materialMap:void (matH:int path:string) {
+        (this.materialAt(matH)).setMap((this.textureForPath(path)))
+    }
+    fn materialReflective:void (matH:int reflectivity:double) {
+        def m:ThreeMaterial (this.materialAt(matH))
+        m.setReflective(true)
+        m.setReflectivity(reflectivity)
+    }
+
+    ; --- mesh (instance references resources) ---------------------------------
+    fn meshNew:int (sceneH:int geoH:int matH:int) {
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry((this.geometryAt(geoH)))
+        m.setMaterial((this.materialAt(matH)))
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        sc.add(m)
+        push entities m
+        return (array_length entities)
+    }
+    ; --- hierarchy: nodes parented under another entity (not the scene) --------
+    ; A transform-only node (THREE.Group / Object3D). parentH==0 => under the scene.
+    fn groupNew:int (sceneH:int parentH:int) {
+        def g:ThreeObject3D (new ThreeObject3D)
+        if (parentH == 0) {
+            def sc:ThreeScene (this.sceneAt(sceneH))
+            sc.add(g)
+        } {
+            def par:ThreeObject3D (this.entityAt(parentH))
+            par.add(g)
+        }
+        push entities g
+        return (array_length entities)
+    }
+    ; A mesh parented under another entity, so its world matrix composes with the
+    ; parent's (the core's updateMatrixWorld walks parent -> child).
+    fn meshNewUnder:int (parentH:int geoH:int matH:int) {
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry((this.geometryAt(geoH)))
+        m.setMaterial((this.materialAt(matH)))
+        def par:ThreeObject3D (this.entityAt(parentH))
+        par.add(m)
+        push entities m
+        return (array_length entities)
+    }
+    ; force-compose all world matrices (the renderer also does this each frame).
+    fn updateWorldMatrices:void (sceneH:int) {
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        sc.updateMatrixWorld()
+    }
+    ; a host-decoded model subtree (glTF) added as one entity.
+    fn modelAttach:int (sceneH:int model:ThreeObject3D) {
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        sc.add(model)
+        push entities model
+        return (array_length entities)
+    }
+    fn entityTransform:void (entH:int px:double py:double pz:double ex:double ey:double ez:double sx:double sy:double sz:double) {
+        def e:ThreeObject3D (this.entityAt(entH))
+        e.position.set(px py pz)
+        e.rotation.set(ex ey ez)
+        if (sx == 0.0) { sx = 1.0 }
+        if (sy == 0.0) { sy = 1.0 }
+        if (sz == 0.0) { sz = 1.0 }
+        e.scale.set(sx sy sz)
+    }
+    fn entityVisible:void (entH:int on:boolean) {
+        def e:ThreeObject3D (this.entityAt(entH))
+        e.visible = on
+    }
+    fn entityRemove:void (sceneH:int entH:int) {
+        (this.sceneAt(sceneH)).remove((this.entityAt(entH)))
+    }
+
+    ; --- lights ---------------------------------------------------------------
+    fn lightAmbient:int (sceneH:int colorHex:int intensity:double) {
+        def a:ThreeAmbientLight (new ThreeAmbientLight)
+        a.setColorHex(colorHex)
+        a.setIntensity(intensity)
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        sc.add(a)
+        push entities a
+        return (array_length entities)
+    }
+    fn lightDirectional:int (sceneH:int colorHex:int intensity:double dx:double dy:double dz:double castShadow:boolean mapSize:int) {
+        def d:ThreeDirectionalLight (new ThreeDirectionalLight)
+        d.setColorHex(colorHex)
+        d.setIntensity(intensity)
+        d.setDirection(dx dy dz)
+        d.setCastShadow(castShadow)
+        if (mapSize > 0) {
+            d.shadow.setMapSize(mapSize)
+        }
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        sc.add(d)
+        push entities d
+        return (array_length entities)
+    }
+    fn lightShadowExtent:void (entH:int left:double right:double top:double bottom:double near:double far:double) {
+        def e:ThreeObject3D (this.entityAt(entH))
+        ; the directional light's shadow extent; a no-op for non-directional entities.
+        e.setShadowExtent(left right top bottom near far)
+    }
+
+    ; --- sky ------------------------------------------------------------------
+    fn skyNew:int (sceneH:int turbidity:double rayleigh:double mieC:double mieG:double sunX:double sunY:double sunZ:double) {
+        def s:ThreeSky (new ThreeSky)
+        s.setTurbidity(turbidity)
+        s.setRayleigh(rayleigh)
+        s.setMieCoefficient(mieC)
+        s.setMieDirectionalG(mieG)
+        s.setSunPosition(sunX sunY sunZ)
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        sc.add(s)
+        push entities s
+        return (array_length entities)
+    }
+
+    ; --- renderer policy + draw ----------------------------------------------
+    fn rendererSet:void (toneMapping:int exposure:double shadowOn:boolean) {
+        renderer.setToneMapping(toneMapping)
+        renderer.setToneMappingExposure(exposure)
+        renderer.setShadowMapEnabled(shadowOn)
+    }
+    fn useBackend:void (b:ThreeRenderBackend) {
+        renderer.setBackend(b)
+    }
+    fn render:void (sceneH:int camH:int w:int h:int) {
+        renderer.setSize(w h)
+        renderer.render((this.sceneAt(sceneH)) (this.cameraAt(camH)))
+    }
+    fn raw:buffer () {
+        return (renderer.raw())
+    }
+
+    ; --- textures (host-supplied, with provenance) ----------------------------
+    fn setTexture:void (path:string rgba:buffer w:int h:int) {
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(rgba w h)
+        def i:int 0
+        while (i < (array_length texPaths)) {
+            if ((itemAt texPaths i) == path) {
+                set texObjs i tex
+                return
+            }
+            i = (i + 1)
+        }
+        push texPaths path
+        push texObjs tex
+    }
+    fn textureForPath:ThreeTexture (path:string) {
+        def r:int 0
+        while (r < (array_length reqPaths)) {
+            if ((itemAt reqPaths r) == path) {
+                return (itemAt reqTex r)
+            }
+            r = (r + 1)
+        }
+        def i:int 0
+        while (i < (array_length texPaths)) {
+            if ((itemAt texPaths i) == path) {
+                def ht:ThreeTexture (itemAt texObjs i)
+                push reqPaths path
+                push reqTex ht
+                nHostTex = (nHostTex + 1)
+                return ht
+            }
+            i = (i + 1)
+        }
+        if (warnedFallback == false) {
+            print ("[three-host] WARNING: no host pixels for texture '" + path + "' — using placeholder (not the specified asset)")
+            warnedFallback = true
+        }
+        def tex:ThreeTexture (this.checkerTexture())
+        push reqPaths path
+        push reqTex tex
+        nFallbackTex = (nFallbackTex + 1)
+        return tex
+    }
+    fn hostTextureCount:int () { return nHostTex }
+    fn fallbackTextureCount:int () { return nFallbackTex }
+
+    fn checkerTexture:ThreeTexture () {
+        def px:buffer (buffer_alloc 16)
+        buffer_set px 0 220
+        buffer_set px 1 60
+        buffer_set px 2 60
+        buffer_set px 3 255
+        buffer_set px 4 60
+        buffer_set px 5 200
+        buffer_set px 6 90
+        buffer_set px 7 255
+        buffer_set px 8 70
+        buffer_set px 9 120
+        buffer_set px 10 230
+        buffer_set px 11 255
+        buffer_set px 12 230
+        buffer_set px 13 220
+        buffer_set px 14 180
+        buffer_set px 15 255
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(px 2 2)
+        return tex
+    }
+
+    ; registry sizes (for tests / convergence snapshots).
+    fn entityCount:int () { return (array_length entities) }
+    fn geometryCount:int () { return (array_length geometries) }
+    fn materialCount:int () { return (array_length materials) }
+}
