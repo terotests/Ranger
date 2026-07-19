@@ -9,7 +9,7 @@ driver and the roadmap below over that checklist.
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
 | Headless gate | `npm run engine:v2:test` → 88 suites + boundary gate | — |
-| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity + Map/Set/`indexOf` on the **real** interpreter; live 3D path splits object lifetime from scene membership (`new Mesh(g,m)` detached, `scene.add`/`remove`) | migrate fused light/GLTF ctors; then `RETIRE-RECONCILE` |
+| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity + Map/Set/`indexOf` on the **real** interpreter; live 3D path splits object lifetime from scene membership for Mesh **and** lights/GLTFModel (`new X(...)` detached, `scene.add`/`remove`, O(1) detach) | `RETIRE-RECONCILE` (blocked on migrate-vs-drop of the staged reconcile demos) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
@@ -44,13 +44,27 @@ handle → separate object / membership / GPU lifetimes) is now advancing on the
       DETACHED create; `scene.add(mesh)` / `scene.remove(mesh)` establish/detach
       membership as separate ops (`modules/ranger_three/ranger_three.tsx`).
       `rg3d_mesh_create` lowered to `(geo, mat)`.
-- [ ] **Migrate the still-fused live ctors** — `AmbientLight` /
-      `DirectionalLight` / `GLTFModel` still take a `scene` arg; move them onto
-      the same detached-create + `scene.add` shape (this one legitimately edits
-      `games/ylos3d/index.tsx`; guard with `ylos3d_e2e`).
-- [ ] **`RETIRE-RECONCILE`** — migrate the teapot/sponza/cube THREE-port façade
-      demos (the only `ThreeTsxBridge.reconcile` callers, a **separate** guest
-      surface) onto the live path, then delete the index/DFS reconcile path.
+- [x] **Unfused live lights + GLTFModel** — `AmbientLight(color,intensity)`,
+      `DirectionalLight(color,intensity,dx,dy,dz)`, `GLTFModel(uri)` now create
+      DETACHED; membership is `scene.add(x)`. Lights are plain scene children, so
+      `entitySetParent` registers them for rendering. `games/ylos3d/index.tsx`
+      migrated faithfully; `ylos3d_e2e` green.
+- [x] **O(1) membership detach** — `ThreeObject3D` gained a parent
+      back-reference; `detachEntity` drops via the parent instead of scanning all
+      scenes+entities. Handle resolution was already O(1)/generation-safe
+      (`RgRegistry` slot table) — no index-based guest IDs.
+- [ ] **`RETIRE-RECONCILE`** — **blocked on a scope decision, not a bounded
+      increment.** The reconciler (`three/port/tsx/three_tsx_bridge.rgr`) is used
+      ONLY by ungated, staged, GL-dependent demos (`web/web_{teapot,sponza,tsx3d_gl}_*`)
+      and 5 unwired `three/port/tests/*` value-parity suites — **no wired suite
+      touches it**. Deleting it per the contract requires the teapot/sponza demos
+      to stop calling `reconcile`, which means either (a) porting the full THREE
+      demo surface they use (teapot geometry, orbit controls, GUI overlay — none
+      of which the live `ranger:three` registry has yet) onto the live path — a
+      large feature-port — or (b) a product decision to drop the staged GL demos.
+      A live-path `Group` façade (contract lists Mesh/**Group**/Scene/Light/Camera)
+      is also still missing but would be unused until (a). Not started —
+      needs the migrate-vs-drop call.
 
 See [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) D-IDENTITY / D-SYNC for the contract.
 
