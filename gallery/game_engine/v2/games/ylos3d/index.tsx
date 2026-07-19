@@ -115,12 +115,12 @@ function overlapsX(px, pw, plat) {
 function makeDiamondSprite(renderer3d) {
   const scene = new THREE.Scene();
   // Bind lights to locals — the TSX evaluator may skip unused `new` expressions.
-  // Strong ambient + rim + under-light so the pavilion facets stay readable.
-  const amb = new THREE.AmbientLight(scene, 16777215, 0.62);
-  const key = new THREE.DirectionalLight(scene, 16777215, 1.75, 0.35, 1.35, 0.55);
-  const fill = new THREE.DirectionalLight(scene, 14745599, 0.7, -0.9, 0.35, -0.45);
-  const rim = new THREE.DirectionalLight(scene, 16777215, 1.05, -0.25, 0.55, -1.0);
-  const under = new THREE.DirectionalLight(scene, 12648447, 0.95, 0.15, -1.0, 0.35);
+  // Slightly cooler/dimmer key so facets shade instead of blowing to white.
+  const amb = new THREE.AmbientLight(scene, 16777215, 0.38);
+  const key = new THREE.DirectionalLight(scene, 16777215, 1.25, 0.4, 1.2, 0.5);
+  const fill = new THREE.DirectionalLight(scene, 12648447, 0.55, -0.85, 0.3, -0.5);
+  const rim = new THREE.DirectionalLight(scene, 14745599, 0.7, -0.3, 0.4, -1.0);
+  const under = new THREE.DirectionalLight(scene, 10526880, 0.55, 0.2, -1.0, 0.3);
   // Keep the gem clear of the near plane while spinning.
   const camera = new THREE.PerspectiveCamera(32, 0.55, 0.5, 40);
   camera.setPose(0.0, -0.12, 3.8, 0.0, 0.0, 0.0);
