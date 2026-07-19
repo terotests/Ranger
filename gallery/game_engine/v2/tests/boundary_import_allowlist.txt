@@ -13,7 +13,3 @@ interp/migrate/src/ComponentEngine.rgr:../../../../../ts_parser/ts_parser_simple
 interp/migrate/src/EvalValue.rgr:../../../../../ts_parser/ts_parser_simple.rgr
 interp/migrate/src/JSXToEVG.rgr:../../../../../ts_parser/ts_lexer.rgr
 interp/migrate/src/JSXToEVG.rgr:../../../../../ts_parser/ts_parser_simple.rgr
-
-# ---- staged web (retarget to migrate + imaging; Wave 3) ----
-web/web_tsx3d_host.rgr:../../pdf_writer/src/jsx/ComponentEngine.rgr
-web/web_tsx3d_host.rgr:../../pdf_writer/src/jsx/EvalValue.rgr

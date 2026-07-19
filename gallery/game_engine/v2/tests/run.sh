@@ -179,6 +179,8 @@ run_suite ui/tests/UITest
 run_suite lpc/tests/png_decoder_test
 # sprites — headless SoftCanvas + RgbaFastBlit compositing
 run_suite sprites/tests/sprite_blit_test
+# web — TSX3D host soft-render path (headless smoke over the native bridge seam)
+run_suite web/tests/web_smoke_test
 
 # ---- BRIDGES.md step 3 — real TSX guests on the ONE generic host -------------
 # Games are TSX-only folders (no per-game .rgr); RgGameHost is the single
