@@ -14,8 +14,8 @@
 Import "wasm_sprite_runner.rgr"
 Import "../lpc/src/png_decoder.rgr"
 Import "../rgba_fast_blit.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../imaging/raster/RasterBuffer.rgr"
+Import "../../imaging/raster/PNGEncoder.rgr"
 
 class SpriteDemo {
     def failures:int 0

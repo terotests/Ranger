@@ -19,7 +19,7 @@ Import "../framebuffer.rgr"
 Import "./wasm_sprite_runner.rgr"
 Import "../lpc/src/lpc_char_catalog.rgr"
 Import "../lpc/src/png_decoder.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
 
 class SpriteCharApp {
     def pw:int 320
