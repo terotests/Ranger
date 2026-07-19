@@ -31,21 +31,35 @@ class RgType {
     sfn geometry:int () { return 10 }
     sfn material:int () { return 11 }
     sfn mesh:int () { return 12 }
+    sfn scene:int () { return 13 }
 }
 
 class RgGeometry {
     def vertexCount:int 0
+    ; D-LIFE revision counters — must NOT be merged:
+    ;   contentRevision  bumped by data writes (renderer's GPU copy stale)
+    ;   resourceRevision bumped by disposeBackend (backend objects invalidated)
+    def contentRevision:int 0
+    def resourceRevision:int 0
 }
 
 class RgMaterial {
     def r:double 1.0
     def g:double 1.0
     def b:double 1.0
+    def resourceRevision:int 0
 }
 
 class RgMesh {
     def geo:RgHandle (new RgHandle)
     def mat:RgHandle (new RgHandle)
+    ; scene membership (D-LIFE lifetime 2) — a parent slot, 0 = detached. This is
+    ; NOT ownership: setting/clearing it never touches refcounts.
+    def parentSlot:int 0
+}
+
+class RgScene {
+    def childCount:int 0
 }
 
 class RgHost {
@@ -58,6 +72,8 @@ class RgHost {
     def matFree:[int]
     def meshes:[RgMesh]
     def meshFree:[int]
+    def scenes:[RgScene]
+    def sceneFree:[int]
 
     ; weak attachment table (source → target), parallel arrays
     def attSrc:[RgHandle]
@@ -229,6 +245,130 @@ class RgHost {
             owned.released = true
         }
         return r
+    }
+
+    ; ---- scene arena + membership (D-LIFE lifetime 2) ----------------------
+    fn allocSceneIndex:int () {
+        def nf:int (array_length this.sceneFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.sceneFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.sceneFree i)
+                i = (i + 1)
+            }
+            this.sceneFree = kept
+            return idx
+        }
+        def n:int (array_length this.scenes)
+        push this.scenes (new RgScene)
+        return n
+    }
+
+    fn sceneCreate:OwnedHandle (realmId:int) {
+        def idx:int (this.allocSceneIndex())
+        def sc:RgScene (itemAt this.scenes idx)
+        sc.childCount = 0
+        def h:RgHandle (this.registry.alloc(realmId (RgType.scene()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    ; scene.add(mesh) → set parent. Membership only: never retains/releases.
+    fn entitySetParent:RgResolve (childH:RgHandle parentH:RgHandle) {
+        def rc:RgResolve (this.registry.resolveTyped(childH (RgType.mesh())))
+        if (rc.ok == false) { return rc }
+        def rp:RgResolve (this.registry.resolveTyped(parentH (RgType.scene())))
+        if (rp.ok == false) { return rp }
+        def mesh:RgMesh (itemAt this.meshes rc.payloadIndex)
+        ; if already parented elsewhere, drop the old membership first
+        if (mesh.parentSlot != 0) {
+            if (mesh.parentSlot != parentH.slot) {
+                this.decChild(mesh.parentSlot)
+            }
+        }
+        if (mesh.parentSlot != parentH.slot) {
+            mesh.parentSlot = parentH.slot
+            def sc:RgScene (itemAt this.scenes rp.payloadIndex)
+            sc.childCount = (sc.childCount + 1)
+        }
+        return rc
+    }
+
+    fn decChild:void (parentSlot:int) {
+        ; the parent scene's payload index is registry.payload[slot-1]
+        def idx:int (parentSlot - 1)
+        if (idx >= 0) {
+            def payIdx:int (itemAt this.registry.payload idx)
+            if (payIdx >= 0) {
+                if (payIdx < (array_length this.scenes)) {
+                    def sc:RgScene (itemAt this.scenes payIdx)
+                    if (sc.childCount > 0) {
+                        sc.childCount = (sc.childCount - 1)
+                    }
+                }
+            }
+        }
+    }
+
+    ; scene.remove(mesh) → detach membership. The mesh handle stays live.
+    fn entityDetach:RgResolve (childH:RgHandle) {
+        def rc:RgResolve (this.registry.resolveTyped(childH (RgType.mesh())))
+        if (rc.ok == false) { return rc }
+        def mesh:RgMesh (itemAt this.meshes rc.payloadIndex)
+        if (mesh.parentSlot != 0) {
+            this.decChild(mesh.parentSlot)
+            mesh.parentSlot = 0
+        }
+        return rc
+    }
+
+    fn parentSlotOf:int (childH:RgHandle) {
+        def rc:RgResolve (this.registry.resolveTyped(childH (RgType.mesh())))
+        if (rc.ok == false) { return (0 - 1) }
+        def mesh:RgMesh (itemAt this.meshes rc.payloadIndex)
+        return mesh.parentSlot
+    }
+
+    fn sceneChildCount:int (sceneH:RgHandle) {
+        def rp:RgResolve (this.registry.resolveTyped(sceneH (RgType.scene())))
+        if (rp.ok == false) { return (0 - 1) }
+        def sc:RgScene (itemAt this.scenes rp.payloadIndex)
+        return sc.childCount
+    }
+
+    ; ---- backend resource lifetime (D-LIFE lifetime 3) ---------------------
+    ; geometry.dispose() → invalidate backend caches; bump resourceRevision;
+    ; geoH and the CPU vertex data stay valid. This is NOT release.
+    fn geometryDisposeBackend:RgResolve (geoH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return r }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        g.resourceRevision = (g.resourceRevision + 1)
+        return r
+    }
+
+    ; data write → bump contentRevision (renderer's cached GPU copy is stale).
+    fn geometryUpdateContent:RgResolve (geoH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return r }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        g.contentRevision = (g.contentRevision + 1)
+        return r
+    }
+
+    fn geometryResourceRevision:int (geoH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return (0 - 1) }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        return g.resourceRevision
+    }
+
+    fn geometryContentRevision:int (geoH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return (0 - 1) }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        return g.contentRevision
     }
 
     ; ---- weak attachments (D-OWN) ------------------------------------------

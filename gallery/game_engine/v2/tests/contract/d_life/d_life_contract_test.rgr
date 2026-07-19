@@ -1,0 +1,65 @@
+; ==============================================================================
+; d_life_contract_test — cross-cutting D-LIFE gate.
+; ==============================================================================
+; Object lifetime ≠ scene membership ≠ backend resource lifetime. Headline case:
+; a shared geometry backing two meshes — one geoH, retained by both. Releasing
+; one mesh (or removing it from a scene, or disposing its backend) must NOT free
+; the shared geometry the other mesh still owns.
+; ==============================================================================
+
+Import "../../../host/arenas/RgHost.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../host/ownership/OwnedHandle.rgr"
+Import "../../harness/RgTest.rgr"
+
+class DLifeContractTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_life"))
+        def host:RgHost (new RgHost)
+        def realm:int 1
+
+        ; one geometry, shared by two meshes
+        def geo:OwnedHandle (host.geometryCreate(realm 8))
+        def matA:OwnedHandle (host.materialCreate(realm 1.0 0.0 0.0))
+        def matB:OwnedHandle (host.materialCreate(realm 0.0 1.0 0.0))
+        def meshA:OwnedHandle (host.meshCreate(realm geo.handle matA.handle))
+        def meshB:OwnedHandle (host.meshCreate(realm geo.handle matB.handle))
+
+        ; caller drops its own geo ownership; both meshes still retain it
+        host.releaseOwned(geo)
+        t.eqInt("shared geo retained by two meshes (refcount 2)"
+            (host.refcount(geo.handle)) 2)
+        def gA:RgHandle (host.meshGeometry(meshA.handle))
+        def gB:RgHandle (host.meshGeometry(meshB.handle))
+        t.eqInt("both meshes point at the same geometry slot" gA.slot gB.slot)
+
+        ; ---- membership change on A does not touch shared geo --------------
+        def scene:OwnedHandle (host.sceneCreate(realm))
+        host.entitySetParent(meshA.handle scene.handle)
+        host.entityDetach(meshA.handle)
+        t.eqInt("scene remove did not free shared geo" (host.refcount(geo.handle)) 2)
+        t.ok("shared geo still live after membership churn" (host.isLive(geo.handle)))
+
+        ; ---- dispose backend on the shared geo keeps it alive ---------------
+        host.geometryDisposeBackend(geo.handle)
+        t.ok("shared geo still live after disposeBackend" (host.isLive(geo.handle)))
+        t.eqInt("disposeBackend did not change refcount" (host.refcount(geo.handle)) 2)
+
+        ; ---- releasing ONE mesh does not free the shared geometry -----------
+        host.releaseOwned(meshA)
+        t.no("mesh A is gone" (host.isLive(meshA.handle)))
+        t.ok("shared geometry survives mesh A release" (host.isLive(geo.handle)))
+        t.eqInt("shared geo refcount now 1 (mesh B still holds it)"
+            (host.refcount(geo.handle)) 1)
+        t.ok("mesh B still live and usable" (host.isLive(meshB.handle)))
+        def gB2:RgHandle (host.meshGeometry(meshB.handle))
+        t.eqInt("mesh B still points at the shared geo" gB2.slot geo.handle.slot)
+
+        ; ---- releasing the LAST mesh finally frees the geometry -------------
+        host.releaseOwned(meshB)
+        t.no("shared geometry freed only after the last owner releases"
+            (host.isLive(geo.handle)))
+
+        t.summary()
+    }
+}

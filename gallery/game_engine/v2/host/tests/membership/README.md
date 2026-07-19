@@ -17,3 +17,12 @@ Scene graph membership vs object lifetime.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 6 ✅ green
+
+`membership_test.rgr` (15 checks): a scene arena + `entitySetParent` /
+`entityDetach` model scene membership as pure edges. `scene.add` / `scene.remove`
+never change refcounts; removing a mesh leaves the mesh + geometry + material
+handles fully live and re-addable.

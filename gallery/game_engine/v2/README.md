@@ -126,7 +126,14 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   transfer), `bridge/wasm/memory/` (checked span bounds), and `bridge/parity/`
   (adapter and WASM paths produce identical arena traces).
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (20 suites, 299
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 20/20 suites passed`.
+- **Phase 6 — Lifetimes (D-LIFE): ✅ green.** Object ≠ scene membership ≠ backend
+  resource lifetime, each with its own commands + tests: `host/tests/membership`
+  (scene add/remove are pure edges — handles stay live), `host/tests/dispose_backend`
+  (`disposeBackend` bumps `resourceRevision`, keeps the handle + CPU data; separate
+  from `contentRevision` and from release), and `tests/contract/d_life` (a shared
+  geometry survives until its last owner releases).
 
-*Later phases (6+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (23 suites, 342
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 23/23 suites passed`.
+
+*Later phases (7+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

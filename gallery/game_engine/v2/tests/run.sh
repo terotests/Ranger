@@ -77,6 +77,11 @@ run_suite bridge/wasm/tests/async_poll/async_poll_test
 run_suite bridge/wasm/tests/span_bounds/span_bounds_test
 run_suite bridge/parity/tests/parity_test
 
+# ---- Phase 6 — lifetimes (D-LIFE) --------------------------------------------
+run_suite host/tests/membership/membership_test
+run_suite host/tests/dispose_backend/dispose_backend_test
+run_suite tests/contract/d_life/d_life_contract_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"
