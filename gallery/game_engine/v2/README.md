@@ -187,6 +187,16 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
 Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (33 suites, 553
 checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
 
+- **Real TSX guest end-to-end (BRIDGES.md steps 1–3): ✅ green.** The ylos2
+  must-pass runs as an ordinary TSX guest: `games/ranger2d.tsx` (façade) +
+  `games/ylos2/index.tsx` (the v1 level tables + jump physics) evaluated by the
+  staged `ComponentEngine`, issuing commands through the table-driven
+  `RgRegistryBridge` into the ranger:2d / ranger:core arenas, presented
+  split-screen by the software backend. Both players climb the original tower
+  and reach the goal; celebration fires through the audio/vocal/music facades.
+  Gate: `games/ylos2/ylos2_v2_runner` (24 checks). Bridge design: `BRIDGES.md`
+  (rev 2 — semantic IDL + per-target ABI profiles, after design review).
+
 Phases 1–11 of `../CODE_CLEANUP_PLAN.md` are validated headlessly (identity →
 handles/arenas → registry → adapter → WASM bridge → lifetimes → geometry →
 modules/frame → physics → 2D → software present → devices). Phase 12 (selected

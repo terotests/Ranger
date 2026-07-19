@@ -110,6 +110,11 @@ run_suite modules/ranger_core/tests/devices_test
 run_suite registry/schema/tests/bridge_schema_test
 run_suite tests/unit/bridge/registry_bridge_coverage_test
 
+# ---- BRIDGES.md step 3 — real TSX guest end-to-end (ylos2 must-pass) ---------
+# games/ranger2d.tsx + games/ylos2/index.tsx through ComponentEngine ->
+# RgRegistryBridge -> ranger:2d/core arenas -> split-screen software present.
+run_suite games/ylos2/ylos2_v2_runner
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"

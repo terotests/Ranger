@@ -83,6 +83,7 @@ function makePlayer(slot, startX) {
     x: startX, y: 1830 - PLAYER_H, vx: 0, vy: 0,
     grounded: 1, facing: 1,
     jumpHoldMs: -1,        // -1 = not in a hold; >=0 = ms of boost used
+    lastGroundFeet: 1830,  // feet height at last grounded frame (autopilot target lock)
     reachedGoal: 0,
     sprite: null, anim: null
   };
@@ -206,6 +207,7 @@ function updatePlayer(pl, dt) {
           newY = p.y - PLAYER_H;
           pl.vy = 0;
           pl.grounded = 1;
+          pl.lastGroundFeet = p.y;
           if (i == goalIndex && pl.reachedGoal == 0) {
             pl.reachedGoal = 1;
             celebrateSfx.playOneShot();
@@ -224,6 +226,7 @@ function updatePlayer(pl, dt) {
           newY = m.y - PLAYER_H;
           pl.vy = 0;
           pl.grounded = 1;
+          pl.lastGroundFeet = m.y;
         }
       }
       k = k + 1;
@@ -263,7 +266,10 @@ function update(props) {
 // the suggestion back through the real ranger:core input path; the game itself
 // still only reads logical actions in updatePlayer.
 function nextTargetAbove(pl) {
-  const feet = pl.y + PLAYER_H;
+  // Target is LOCKED to the last grounded height: re-picking from live altitude
+  // mid-flight flips the target upward and steers the player off the platform
+  // it was about to land on (observed limit-cycle bug).
+  const feet = pl.lastGroundFeet;
   let best = null;
   let bestY = -100000;
   let i = 0;
@@ -285,17 +291,12 @@ function autopilotBits(slot) {
   const pl = players[slot];
   const target = nextTargetAbove(pl);
   if (target == null) { return 0; }
-  let bits = 0;
+  let bits = 4;  // jump is always held: grounded → launch (players jump WHILE
+                 // moving, covering horizontal gaps); airborne → hold boost
   const cx = pl.x + PLAYER_W / 2;
   const inSpan = cx > target.x + 6 && cx < target.x + target.w - 6;
   if (!inSpan) {
     if (cx < target.x + target.w / 2) { bits = bits + 2; } else { bits = bits + 1; }
-  }
-  if (pl.grounded == 1) {
-    if (inSpan) { bits = bits + 4; }
-  } else {
-    bits = bits + 4;  // keep holding for the variable-height boost
-    // steer to stay over the target while airborne
   }
   return bits;
 }

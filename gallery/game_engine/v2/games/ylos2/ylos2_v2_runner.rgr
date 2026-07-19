@@ -149,8 +149,10 @@ class Ylos2V2Runner {
         t.eqInt("goal state readable from the guest" (to_int (r.callSlot("reachedGoal" 0))) 1)
 
         ; ---- the celebration went through ranger:core -----------------------
-        t.eqInt("celebrate one-shot fired via audio facade" r.bridge.oneShotCount 1)
-        t.eqInt("vocal cue fired" (array_length r.bridge.vocalCues) 1)
+        ; both players reach the goal in attract mode -> one celebration each
+        t.eqInt("celebrate one-shots fired via audio facade (both players)"
+            r.bridge.oneShotCount 2)
+        t.eqInt("vocal cues fired (both players)" (array_length r.bridge.vocalCues) 2)
         t.eqStr("vocal cue is the cheer" (itemAt r.bridge.vocalCues 0) "cheer")
         t.ok("summit music playing" r.bridge.musicPlaying)
 
