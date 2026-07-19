@@ -1,0 +1,8 @@
+texture 48 16
+image scene.rgtx
+region ground 0 0 8 8
+region plat 8 0 8 8
+region gem 16 0 8 8
+region idle 24 0 12 16
+region walk 36 0 12 16
+clip walk idle,walk 200,200

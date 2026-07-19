@@ -1,0 +1,205 @@
+; ==============================================================================
+; RgTexturedRenderer2D — sampling software 2D backend (D-SYNC).
+; ==============================================================================
+; The first backend that produces a REAL image: it samples each sprite's atlas
+; region texels (RgRanger2D texture pixel store) into an RGBA-24 framebuffer,
+; honouring the sprite's destination size, painter z-order, facing flip, and the
+; same Camera2D transform the marker renderer uses. Like every backend it READS
+; host state only — never mutates the scene, never allocates a handle, and
+; re-presents identically for identical state (D-SYNC).
+;
+; Sibling of RgSoftwareRenderer2D (the marker rasteriser used by the count-based
+; contract tests): that one plots one pixel per sprite for cheap headless
+; assertions; THIS one blits full region rects so a frame is a picture. Both
+; are backends over the same pane/camera/sprite state; neither is privileged.
+;
+; Framebuffer ints are 0xRRGGBB (i32-safe, no alpha sign bit). The scene is
+; cleared to a background colour first, then sprites composite src-over by their
+; texel alpha. Camera rotation is not applied by this backend yet (the parity
+; target uses none); translation + zoom are.
+; ==============================================================================
+
+Import "RgSoftwareRenderer2D.rgr"
+Import "../../../modules/ranger_2d/RgRanger2D.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+
+class RgTexturedRenderer2D {
+
+    ; src-over composite of two 0xRRGGBB colours by src alpha (0..255).
+    sfn blend:int (src:int dst:int a:int) {
+        def sr:int (idiv src 65536)
+        def sg:int (idiv (src - (sr * 65536)) 256)
+        def sb:int ((src - (sr * 65536)) - (sg * 256))
+        def dr:int (idiv dst 65536)
+        def dg:int (idiv (dst - (dr * 65536)) 256)
+        def db:int ((dst - (dr * 65536)) - (dg * 256))
+        def ia:int (255 - a)
+        def orr:int (idiv ((sr * a) + (dr * ia)) 255)
+        def og:int (idiv ((sg * a) + (dg * ia)) 255)
+        def ob:int (idiv ((sb * a) + (db * ia)) 255)
+        return (((orr * 65536) + (og * 256)) + ob)
+    }
+
+    ; Rasterise the world-space background draw list through a pane camera,
+    ; painting under the sprites. Rect corner + circle centre transform like a
+    ; sprite position; extents scale by camera zoom. (Rotation unhandled — the
+    ; parity target uses none.) Mirrors v1's scrolled createStaticBg output.
+    sfn rasterBg:void (d:RgRanger2D fb:RgFramebuffer camH:RgHandle cx:int cy:int zoom:double) {
+        def cmds:[RgBgCmd2D] d.bgCmds
+        def n:int (array_length cmds)
+        def i 0
+        while (i < n) {
+            def c:RgBgCmd2D (itemAt cmds i)
+            def color:int (((c.r * 65536) + (c.g * 256)) + c.b)
+            if (c.kind == 0) {
+                def sxD:double (d.worldToScreenSwX(camH c.x c.y))
+                def syD:double (d.worldToScreenSwY(camH c.x c.y))
+                def px:int ((floor (sxD + 0.5)) + cx)
+                def py:int ((floor (syD + 0.5)) + cy)
+                def rw:int (floor ((c.w * zoom) + 0.5))
+                def rh:int (floor ((c.h * zoom) + 0.5))
+                fb.fillRectRGB(px py rw rh color)
+            } {
+                def sxD:double (d.worldToScreenSwX(camH c.x c.y))
+                def syD:double (d.worldToScreenSwY(camH c.x c.y))
+                def px:int ((floor (sxD + 0.5)) + cx)
+                def py:int ((floor (syD + 0.5)) + cy)
+                def rad:int (floor ((c.rad * zoom) + 0.5))
+                fb.fillCircleRGB(px py rad color)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Live sprites in `layerH`, sorted ascending by (z, creation slot) so the
+    ; painter draws background first and players last. Selection sort — sprite
+    ; counts are small (tens), and it keeps the ordering total + deterministic.
+    sfn sortedSprites:[RgHandle] (d:RgRanger2D layerH:RgHandle) {
+        def all:[RgHandle] (d.liveSpriteHandles())
+        def inLayer:[RgHandle]
+        def i 0
+        while (i < (array_length all)) {
+            def h:RgHandle (itemAt all i)
+            if ((d.spriteLayerSlot(h)) == layerH.slot) {
+                push inLayer h
+            }
+            i = (i + 1)
+        }
+        def n:int (array_length inLayer)
+        def a 0
+        while (a < n) {
+            def minJ:int a
+            def j:int (a + 1)
+            while (j < n) {
+                def hj:RgHandle (itemAt inLayer j)
+                def hm:RgHandle (itemAt inLayer minJ)
+                def zj:int (d.spriteZ(hj))
+                def zm:int (d.spriteZ(hm))
+                def less:boolean false
+                if (zj < zm) { less = true }
+                if (zj == zm) {
+                    if (hj.slot < hm.slot) { less = true }
+                }
+                if less { minJ = j }
+                j = (j + 1)
+            }
+            def tmp:RgHandle (itemAt inLayer a)
+            set inLayer a (itemAt inLayer minJ)
+            set inLayer minJ tmp
+            a = (a + 1)
+        }
+        return inLayer
+    }
+
+    ; Present one layer through one camera into fb (cleared to bgRGB first).
+    ; Screen origin is the framebuffer centre (same convention as present2D).
+    ; Returns the number of sprites blitted.
+    sfn present:int (d:RgRanger2D fb:RgFramebuffer layerH:RgHandle camH:RgHandle bgRGB:int paneIndex:int) {
+        fb.fill(bgRGB)
+        def cx:int (idiv fb.width 2)
+        def cy:int (idiv fb.height 2)
+        def cam:RgCamera2D (d.cameraResolve(camH))
+        ; static environment first (v1 createStaticBg model): world-space
+        ; immediate primitives rasterised through this pane's camera, under the
+        ; retained sprites.
+        RgTexturedRenderer2D.rasterBg(d fb camH cx cy cam.zoom)
+        def order:[RgHandle] (RgTexturedRenderer2D.sortedSprites(d layerH))
+        def n:int (array_length order)
+        def drawn 0
+        def i 0
+        while (i < n) {
+            def sh:RgHandle (itemAt order i)
+            ; split-screen: skip a sprite owned by a different pane
+            def owner:int (d.spritePaneOwner(sh))
+            if (owner >= 0) {
+                if (owner != paneIndex) {
+                    i = (i + 1)
+                    continue
+                }
+            }
+            def wx:double (d.spriteX(sh))
+            def wy:double (d.spriteY(sh))
+            def sxD:double (d.worldToScreenSwX(camH wx wy))
+            def syD:double (d.worldToScreenSwY(camH wx wy))
+            def scx:int ((floor (sxD + 0.5)) + cx)
+            def scy:int ((floor (syD + 0.5)) + cy)
+
+            def atlasH:RgHandle (d.spriteAtlasHandle(sh))
+            def at:RgSpriteAtlas (d.atlasResolve(atlasH))
+            def texH:RgHandle at.textureH
+            def reg:RgSpriteRegion (d.spriteSrcRegion(sh))
+            if (reg.w > 0) {
+                if (reg.h > 0) {
+                    ; destination size in world units (native region if unset)
+                    def dwW:double (d.spriteW(sh))
+                    def dhW:double (d.spriteH(sh))
+                    if (dwW <= 0.0) { dwW = (to_double reg.w) }
+                    if (dhW <= 0.0) { dhW = (to_double reg.h) }
+                    def swS:double (dwW * cam.zoom)
+                    def shS:double (dhW * cam.zoom)
+                    def Ws:int (floor (swS + 0.5))
+                    def Hs:int (floor (shS + 0.5))
+                    if (Ws < 1) { Ws = 1 }
+                    if (Hs < 1) { Hs = 1 }
+                    def x0:int (scx - (idiv Ws 2))
+                    def y0:int (scy - (idiv Hs 2))
+                    def flip:boolean (d.spriteFlipX(sh))
+                    def py 0
+                    while (py < Hs) {
+                        def v:double (((to_double py) + 0.5) / (to_double Hs))
+                        def ly:int (floor (v * (to_double reg.h)))
+                        if (ly < 0) { ly = 0 }
+                        if (ly >= reg.h) { ly = (reg.h - 1) }
+                        def ty:int (reg.y + ly)
+                        def dy:int (y0 + py)
+                        def px 0
+                        while (px < Ws) {
+                            def u:double (((to_double px) + 0.5) / (to_double Ws))
+                            def lx:int (floor (u * (to_double reg.w)))
+                            if (lx < 0) { lx = 0 }
+                            if (lx >= reg.w) { lx = (reg.w - 1) }
+                            if flip { lx = ((reg.w - 1) - lx) }
+                            def tx:int (reg.x + lx)
+                            def a:int (d.texelA(texH tx ty))
+                            if (a > 0) {
+                                def dx:int (x0 + px)
+                                def srgb:int (d.texelRGB(texH tx ty))
+                                if (a >= 255) {
+                                    fb.plot(dx dy srgb)
+                                } {
+                                    def dstc:int (fb.at(dx dy))
+                                    fb.plot(dx dy (RgTexturedRenderer2D.blend(srgb dstc a)))
+                                }
+                            }
+                            px = (px + 1)
+                        }
+                        py = (py + 1)
+                    }
+                    drawn = (drawn + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return drawn
+    }
+}

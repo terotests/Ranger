@@ -1,0 +1,149 @@
+; ==============================================================================
+; module_scope_isolation_test — tests/unit/interp gate (D-MODULES scope
+; isolation, engine-level).
+; ==============================================================================
+; The RgModuleSystem suite pins the module RULES on a model; THIS suite proves
+; the real ComponentEngine enforces them for virtual `ranger:*` packages:
+;
+;   - each module evaluates in its OWN scope (parented on the host scope only)
+;   - an import clause is the ONLY door: named imports (with alias) and
+;     `import * as NS` namespaces bind into the importer's scope; nothing else
+;   - two modules exporting the same names (class Thing, fn whoami, const tag)
+;     do NOT clobber each other — member-new resolves through the namespace's
+;     home-module class table
+;   - un-imported names stay invisible: bare `new Thing()` / bare `whoami` fail
+;     in the entry script even though two loaded modules define them
+;   - module code cannot see entry bindings (and vice versa); module-level
+;     state is private and mutated only through the module's own functions
+;   - one evaluation per engine: named and namespace imports of the same module
+;     share one module instance (shared mutable state proves it)
+;   - calls crossing the boundary root lexically: an entry method invoked FROM
+;     module code sees entry module bindings, not the module's chain
+;   - live objects cross the boundary by reference (D-IDENTITY, no marshalling)
+;   - the fixture door (loadAdditionalScript) still shares the ENTRY scope
+; ==============================================================================
+
+Import "../../../interp/migrate/src/ComponentEngine.rgr"
+Import "../../harness/RgTest.rgr"
+
+class ModuleScopeIsolationTest {
+
+    sfn alphaSrc:string () {
+        def s:string ""
+        s = (s + "const tag = 'alpha';\n")
+        s = (s + "let counter = 0;\n")
+        s = (s + "function whoami() { return tag; }\n")
+        s = (s + "function bump() { counter = counter + 1; return counter; }\n")
+        s = (s + "function readEntrySecret() { return entrySecret; }\n")
+        s = (s + "function callBack(obj) { return obj.ping(); }\n")
+        s = (s + "function readThing(x) { return x.val; }\n")
+        s = (s + "class Thing {\n")
+        s = (s + "  val = 0;\n")
+        s = (s + "  name() { return tag; }\n")
+        s = (s + "  setVal(v) { this.val = v; }\n")
+        s = (s + "}\n")
+        return s
+    }
+
+    sfn betaSrc:string () {
+        def s:string ""
+        s = (s + "const tag = 'beta';\n")
+        s = (s + "function whoami() { return tag; }\n")
+        s = (s + "class Thing {\n")
+        s = (s + "  name() { return tag; }\n")
+        s = (s + "}\n")
+        return s
+    }
+
+    sfn entrySrc:string () {
+        def s:string ""
+        s = (s + "import { tag as atag, bump } from 'ranger:alpha';\n")
+        s = (s + "import * as A from 'ranger:alpha';\n")
+        s = (s + "import * as B from 'ranger:beta';\n")
+        s = (s + "const entrySecret = 42;\n")
+        s = (s + "const ENTRY_CONST = 5;\n")
+        s = (s + "class EntryProbe {\n")
+        s = (s + "  ping() { return ENTRY_CONST; }\n")
+        s = (s + "}\n")
+        s = (s + "function aTag() { return atag; }\n")
+        s = (s + "function aWho() { return A.whoami(); }\n")
+        s = (s + "function bWho() { return B.whoami(); }\n")
+        s = (s + "function aThingName() { const t = new A.Thing(); return t.name(); }\n")
+        s = (s + "function bThingName() { const t = new B.Thing(); return t.name(); }\n")
+        s = (s + "function bareThingFails() { const t = new Thing(); if (t == null) { return 1; } return 0; }\n")
+        s = (s + "function bareWhoamiFails() { const w = whoami; if (w == null) { return 1; } return 0; }\n")
+        s = (s + "function moduleSeesSecret() { const v = A.readEntrySecret(); if (v == null) { return 0; } return 1; }\n")
+        s = (s + "function bumpViaBoth() { A.bump(); return bump(); }\n")
+        s = (s + "function crossCallback() { const p = new EntryProbe(); return A.callBack(p); }\n")
+        s = (s + "function liveObject() { const t = new A.Thing(); t.setVal(7); return A.readThing(t); }\n")
+        return s
+    }
+
+    sfn callNum:double (engine:ComponentEngine name:string) {
+        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        return r.numberValue
+    }
+
+    sfn callStr:string (engine:ComponentEngine name:string) {
+        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        return r.stringValue
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/unit/interp/module_scope_isolation"))
+        def engine:ComponentEngine (new ComponentEngine())
+        engine.quiet = true
+        def aSrc:string (ModuleScopeIsolationTest.alphaSrc())
+        def bSrc:string (ModuleScopeIsolationTest.betaSrc())
+        engine.registerVirtualModule("ranger:alpha" aSrc)
+        engine.registerVirtualModule("ranger:beta" bSrc)
+        def eSrc:string (ModuleScopeIsolationTest.entrySrc())
+        engine.loadScript(eSrc)
+
+        ; ---- import clause binds: named (aliased) + namespace ---------------
+        t.eqStr("named import with alias binds the module const"
+            (ModuleScopeIsolationTest.callStr(engine "aTag")) "alpha")
+        t.eqStr("namespace call reaches alpha's function"
+            (ModuleScopeIsolationTest.callStr(engine "aWho")) "alpha")
+        t.eqStr("namespace call reaches beta's function"
+            (ModuleScopeIsolationTest.callStr(engine "bWho")) "beta")
+
+        ; ---- same exported names, no clobber (classes via member-new) -------
+        t.eqStr("new A.Thing() constructs ALPHA's Thing"
+            (ModuleScopeIsolationTest.callStr(engine "aThingName")) "alpha")
+        t.eqStr("new B.Thing() constructs BETA's Thing (no clobber)"
+            (ModuleScopeIsolationTest.callStr(engine "bThingName")) "beta")
+
+        ; ---- un-imported names are INVISIBLE in the entry scope -------------
+        t.eqInt("bare `new Thing()` fails in the entry script"
+            (to_int (ModuleScopeIsolationTest.callNum(engine "bareThingFails"))) 1)
+        t.eqInt("bare `whoami` is not bound in the entry script"
+            (to_int (ModuleScopeIsolationTest.callNum(engine "bareWhoamiFails"))) 1)
+
+        ; ---- entry bindings are invisible to module code --------------------
+        t.eqInt("module code cannot read the entry script's const"
+            (to_int (ModuleScopeIsolationTest.callNum(engine "moduleSeesSecret"))) 0)
+
+        ; ---- one evaluation per engine: shared module instance --------------
+        ; named `bump` and namespace `A.bump` mutate the SAME private counter;
+        ; a re-evaluated module would reset it (and 2 proves privacy: the entry
+        ; scope holds no `counter` these calls could have touched)
+        t.eqInt("named + namespace imports share one module instance"
+            (to_int (ModuleScopeIsolationTest.callNum(engine "bumpViaBoth"))) 2)
+
+        ; ---- boundary calls root lexically ----------------------------------
+        t.eqInt("entry method invoked FROM module code sees entry bindings"
+            (to_int (ModuleScopeIsolationTest.callNum(engine "crossCallback"))) 5)
+
+        ; ---- live objects cross the boundary by reference (D-IDENTITY) ------
+        t.eqInt("instance passed to a module function is the same live object"
+            (to_int (ModuleScopeIsolationTest.callNum(engine "liveObject"))) 7)
+
+        ; ---- fixture door still shares the ENTRY scope ----------------------
+        engine.loadAdditionalScript("function fixtureSecret() { return entrySecret; }")
+        t.eqInt("a loaded fixture reads entry bindings (rule-5 door intact)"
+            (to_int (ModuleScopeIsolationTest.callNum(engine "fixtureSecret"))) 42)
+
+        t.summary()
+    }
+}

@@ -1,0 +1,73 @@
+; ==============================================================================
+; ylos2_screenshot — render the real ylos2 game through the SAMPLING backend.
+; ==============================================================================
+; Boots games/ylos2 on the generic host and presents both panes through
+; RgTexturedRenderer2D: the real LPC walk sheets (assets/p1_walk.png,
+; p2_walk.png) decoded into the texture store and sampled as sheet cells, over
+; the immediate static environment (3-tone platforms, sky gradient, clouds,
+; flag, diamond glyph) — v1's rendering model on the v2 architecture. Emits an
+; RGBSHOT dump; dump_rgb_to_png.js turns it into a PNG. Diagnostic only.
+;
+;   node bin/output.js -es6 gallery/game_engine/v2/tests/tools/ylos2_screenshot.rgr \
+;     -d=out -o=shot.js && node out/shot.js > s.txt
+;   node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js s.txt ylos2.png 3
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+
+class Ylos2Screenshot {
+    sfn hex2:string (v:int) {
+        def d:string "0123456789abcdef"
+        def hi:int (idiv v 16)
+        def lo:int (v - (hi * 16))
+        return ((substring d hi (hi + 1)) + (substring d lo (lo + 1)))
+    }
+    sfn hex6:string (rgb:int) {
+        def r:int (idiv rgb 65536)
+        def g:int (idiv (rgb - (r * 65536)) 256)
+        def b:int ((rgb - (r * 65536)) - (g * 256))
+        return (((Ylos2Screenshot.hex2(r)) + (Ylos2Screenshot.hex2(g))) + (Ylos2Screenshot.hex2(b)))
+    }
+
+    sfn m@(main):void () {
+        def host:RgGameHost (new RgGameHost)
+        if ((host.load("gallery/game_engine/v2/games/ylos2" "index.tsx")) == false) {
+            print "ERROR: ylos2 failed to load"
+            return
+        }
+        def f 0
+        while (f < 4) {
+            host.frame(33.333)
+            f = (f + 1)
+        }
+        def paneW:int 480
+        def paneH:int 270
+        def sky:int 5215951      ; 0x4f96cf, base sky under the gradient bands
+        def divider:int 3421742
+        def fb0:RgFramebuffer (RgFramebuffer.create(paneW paneH))
+        def fb1:RgFramebuffer (RgFramebuffer.create(paneW paneH))
+        def d0:int (Rg2DPresenter.presentTextured(host.bridge 0 fb0 sky))
+        def d1:int (Rg2DPresenter.presentTextured(host.bridge 1 fb1 sky))
+        print ("DRAWN " + ((to_string d0) + (" " + (to_string d1))))
+        def totalW:int ((paneW * 2) + 1)
+        print ("RGBSHOT " + ((to_string totalW) + (" " + (to_string paneH))))
+        def y 0
+        while (y < paneH) {
+            def line:string ""
+            def x 0
+            while (x < paneW) {
+                line = (line + (Ylos2Screenshot.hex6((fb0.at(x y)))))
+                x = (x + 1)
+            }
+            line = (line + (Ylos2Screenshot.hex6(divider)))
+            def x2 0
+            while (x2 < paneW) {
+                line = (line + (Ylos2Screenshot.hex6((fb1.at(x2 y)))))
+                x2 = (x2 + 1)
+            }
+            print line
+            y = (y + 1)
+        }
+    }
+}

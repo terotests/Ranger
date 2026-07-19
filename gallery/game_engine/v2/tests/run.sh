@@ -88,6 +88,9 @@ run_suite tests/contract/d_geo/d_geo_contract_test
 # ---- Phase 8a — module isolation + runtime root (D-MODULES) ------------------
 run_suite interp/module_isolation/tests/module_isolation_test
 run_suite tests/contract/d_modules/d_modules_contract_test
+# engine-level scope isolation: the real ComponentEngine enforces the rules the
+# RgModuleSystem model pins (per-module scopes, import-clause-only visibility)
+run_suite tests/unit/interp/module_scope_isolation_test
 
 # ---- Phase 8b — frame pipeline + runtime.time (D-MODULES) --------------------
 run_suite runtime/frame/tests/frame_pipeline_test
@@ -102,6 +105,9 @@ run_suite tests/contract/d_2d/d_2d_contract_test
 
 # ---- Phase 11 — render (software 2D present, D-SYNC) -------------------------
 run_suite render/tests/software_present2d_test
+# texture pixel store + sampling backend (real texels, sprite size/z/flip)
+run_suite modules/ranger_2d/tests/texture_store_test
+run_suite tests/render/textured_render_test
 
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test

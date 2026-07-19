@@ -39,6 +39,16 @@ class TwoDSchema {
         sprite.addMethod((RgMethodDef.cmd(2021 "rg2d_sprite_set_pos" "rg2d_sprite_set_pos" "h:d:d" "v" "none")))
         sprite.addMethod((RgMethodDef.cmd(2022 "rg2d_sprite_set_region" "rg2d_sprite_set_region" "h:i" "v" "none")))
         sprite.addMethod((RgMethodDef.cmd(2023 "rg2d_sprite_release" "rg2d_sprite_release" "h" "i" "release")))
+        ; destination extent / draw order / facing — the transform state a
+        ; sampling backend needs beyond position (platform width, backgrounds,
+        ; painter order, mirror). Native-region size when unset (w=h=0).
+        sprite.addMethod((RgMethodDef.cmd(2024 "rg2d_sprite_set_size" "rg2d_sprite_set_size" "h:d:d" "v" "none")))
+        sprite.addMethod((RgMethodDef.cmd(2025 "rg2d_sprite_set_z" "rg2d_sprite_set_z" "h:i" "v" "none")))
+        sprite.addMethod((RgMethodDef.cmd(2026 "rg2d_sprite_set_flip" "rg2d_sprite_set_flip" "h:i" "v" "none")))
+        ; spritesheet cell (col,row) — samples the atlas frame grid (v1 "sheet")
+        sprite.addMethod((RgMethodDef.cmd(2027 "rg2d_sprite_set_cell" "rg2d_sprite_set_cell" "h:i:i" "v" "none")))
+        ; split-screen pane ownership (-1 = all panes; >=0 = only that pane)
+        sprite.addMethod((RgMethodDef.cmd(2028 "rg2d_sprite_set_pane" "rg2d_sprite_set_pane" "h:i" "v" "none")))
         s.addClass(sprite)
 
         ; ---- Layer2D (23) ----------------------------------------------------
@@ -60,6 +70,17 @@ class TwoDSchema {
         player.addMethod((RgMethodDef.cmd(2050 "rg2d_player_create" "rg2d_player_create" "h:i" "h" "create")))
         player.addMethod((RgMethodDef.cmd(2051 "rg2d_player_frame_at" "rg2d_player_frame_at" "h:d" "i" "none")))
         s.addClass(player)
+
+        ; ---- DrawList2D (26) — immediate world-space background primitives ---
+        ; The static environment (sky gradient, 3-tone platforms, clouds, flag,
+        ; bitmap glyphs) is painted every frame in world coords, rasterised by a
+        ; backend through each pane's camera BEFORE the retained sprites. No
+        ; persistent identity — the v1 createStaticBg / bgFillRect model.
+        def draw:RgClassDef (RgClassDef.of(26 "DrawList2D"))
+        draw.addMethod((RgMethodDef.cmd(2070 "rg2d_bg_begin" "rg2d_bg_begin" "" "v" "none")))
+        draw.addMethod((RgMethodDef.cmd(2071 "rg2d_bg_rect" "rg2d_bg_rect" "d:d:d:d:i:i:i" "v" "none")))
+        draw.addMethod((RgMethodDef.cmd(2072 "rg2d_bg_circle" "rg2d_bg_circle" "d:d:d:i:i:i" "v" "none")))
+        s.addClass(draw)
 
         return s
     }

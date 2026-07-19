@@ -26,10 +26,14 @@ class Ylos2E2ETest {
         t.ok("test fixture loaded"
             (host.loadFixture("gallery/game_engine/v2/games/ylos2/tests" "probe.tsx")))
 
-        ; the guest's creations are REAL host arena state
-        t.eqInt("27 retained sprites (17 static + 8 moving + 2 players)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 27)
-        t.eqInt("one atlas" (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 1)
+        ; the guest's creations are REAL host arena state. Following v1's model,
+        ; the static environment (platforms, sky, flag, diamond) is immediate
+        ; world-space draw — NOT retained sprites; the retained sprites are the
+        ; two players + twelve skeleton enemies, each an LPC walk sheet.
+        t.eqInt("14 retained sprites (2 players + 12 skeleton enemies)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 14)
+        t.eqInt("three sheet atlases (p1 + p2 + enemy)"
+            (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 3)
         t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
         t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
         t.eqInt("pane 0 routes player 0" (host.bridge.surface.panePlayer(0)) 0)
@@ -79,13 +83,18 @@ class Ylos2E2ETest {
         t.ok("player sprite handle live in the arena" (host.bridge.d2.isLive(sh)))
 
         ; ---- split-screen present from host-owned pane views ----------------
-        def fbL:RgFramebuffer (RgFramebuffer.create(96 96))
-        def fbR:RgFramebuffer (RgFramebuffer.create(96 96))
+        ; the world is 480 wide and fills each pane (fixed camera X); present
+        ; both panes and confirm each draws sprites.
+        def fbL:RgFramebuffer (RgFramebuffer.create(480 270))
+        def fbR:RgFramebuffer (RgFramebuffer.create(480 270))
         t.ok("left pane drew sprites" ((Rg2DPresenter.present(host.bridge 0 fbL)) > 0))
         t.ok("right pane drew sprites" ((Rg2DPresenter.present(host.bridge 1 fbR)) > 0))
-        t.ok("P1 at left-pane centre" ((fbL.at(48 48)) != 0))
-        t.ok("P2 at right-pane centre" ((fbR.at(48 48)) != 0))
-        Rg2DPresenter.dumpPane(fbL "left pane (P1 at summit)")
+        ; split-screen ownership: each player is drawn ONLY in its own pane
+        ; (v1 hides the other player locally); enemies/world stay in both.
+        def sh0:RgHandle (host.bridge.resolveGuestId((to_int (host.callSlot("playerSpriteId" 0)))))
+        def sh1:RgHandle (host.bridge.resolveGuestId((to_int (host.callSlot("playerSpriteId" 1)))))
+        t.eqInt("P1 sprite owned by pane 0" (host.bridge.d2.spritePaneOwner(sh0)) 0)
+        t.eqInt("P2 sprite owned by pane 1" (host.bridge.d2.spritePaneOwner(sh1)) 1)
 
         t.summary()
     }

@@ -1,0 +1,138 @@
+; JPEGReader - A JPEG file reader for Ranger
+; Reads JPEG files and extracts image data for PDF embedding
+;
+; JPEG markers:
+; FFD8 - Start of Image (SOI)
+; FFE0 - APP0 (JFIF)
+; FFE1 - APP1 (EXIF)
+; FFC0 - Start of Frame (baseline DCT) - contains width/height
+; FFC2 - Start of Frame (progressive DCT)
+; FFDA - Start of Scan (image data follows)
+; FFD9 - End of Image (EOI)
+
+class JPEGImage {
+    def width:int 0
+    def height:int 0
+    def colorComponents:int 3        ; Usually 3 for RGB/YCbCr, 1 for grayscale
+    def bitsPerComponent:int 8
+    def imageData:buffer
+    def isValid:boolean false
+    def errorMessage:string ""
+    
+    Constructor () {
+        ; Initialize
+    }
+}
+
+class JPEGReader {
+    
+    Constructor () {
+        ; Initialize
+    }
+    
+    fn readUint16BE:int (data:buffer offset:int) {
+        ; Read 2 bytes as big-endian unsigned 16-bit integer
+        def high:int (buffer_get data offset)
+        def low:int (buffer_get data (offset + 1))
+        return ((high * 256) + low)
+    }
+    
+    fn readJPEG:JPEGImage (dirPath:string fileName:string) {
+        def result (new JPEGImage())
+        
+        ; Read the file into a buffer
+        def data:buffer (buffer_read_file dirPath fileName)
+        def dataLen:int (buffer_length data)
+        
+        if (dataLen < 4) {
+            result.errorMessage = "File too small to be a valid JPEG"
+            return result
+        }
+        
+        ; Check for JPEG signature (FFD8)
+        def marker1:int (buffer_get data 0)
+        def marker2:int (buffer_get data 1)
+        
+        if ((marker1 != 255) || (marker2 != 216)) {
+            result.errorMessage = "Invalid JPEG signature - expected FFD8"
+            return result
+        }
+        
+        ; Parse JPEG markers to find dimensions
+        def pos 2
+        def foundSOF false
+        
+        while ((pos < (dataLen - 2)) && (foundSOF == false)) {
+            def m1:int (buffer_get data pos)
+            
+            if (m1 != 255) {
+                ; Not a marker, skip
+                pos = pos + 1
+            } {
+                def m2:int (buffer_get data (pos + 1))
+                
+                ; Skip padding FF bytes
+                if (m2 == 255) {
+                    pos = pos + 1
+                } {
+                    if (m2 == 0) {
+                        ; FF00 is escaped FF in data stream, skip
+                        pos = pos + 2
+                    } {
+                        ; Check for SOF markers (FFC0-FFC3, FFC5-FFC7, FFC9-FFCB, FFCD-FFCF)
+                        ; We primarily care about FFC0 (baseline) and FFC2 (progressive)
+                        if ((m2 == 192) || (m2 == 193) || (m2 == 194)) {
+                            ; SOF0, SOF1, or SOF2 - Start of Frame
+                            ; Structure: FF C0 Len(2) Precision(1) Height(2) Width(2) Components(1) ...
+                            if ((pos + 9) < dataLen) {
+                                result.bitsPerComponent = (buffer_get data (pos + 4))
+                                result.height = (this.readUint16BE(data (pos + 5)))
+                                result.width = (this.readUint16BE(data (pos + 7)))
+                                result.colorComponents = (buffer_get data (pos + 9))
+                                foundSOF = true
+                            }
+                        } {
+                            if (m2 == 217) {
+                                ; EOI - End of Image, stop parsing
+                                pos = dataLen
+                            } {
+                                if (m2 == 218) {
+                                    ; SOS - Start of Scan, image data follows
+                                    ; Stop parsing headers
+                                    pos = dataLen
+                                } {
+                                    ; Other marker - read length and skip
+                                    if ((pos + 4) < dataLen) {
+                                        def segLen:int (this.readUint16BE(data (pos + 2)))
+                                        pos = pos + 2 + segLen
+                                    } {
+                                        pos = dataLen
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (foundSOF == false) {
+            result.errorMessage = "Could not find SOF marker in JPEG"
+            return result
+        }
+        
+        ; Store the entire JPEG data for PDF embedding
+        ; PDF can embed JPEG directly with DCTDecode filter
+        result.imageData = data
+        result.isValid = true
+        
+        return result
+    }
+    
+    fn getImageInfo:string (img:JPEGImage) {
+        if (img.isValid == false) {
+            return ("Invalid JPEG: " + img.errorMessage)
+        }
+        return ("JPEG: " + (to_string img.width) + "x" + (to_string img.height) + " pixels, " + (to_string img.colorComponents) + " components, " + (to_string img.bitsPerComponent) + " bits")
+    }
+}

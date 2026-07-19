@@ -15,6 +15,7 @@
 
 Import "../../interp/engine/RgRegistryBridge.rgr"
 Import "../../render/backends/software/RgSoftwareRenderer2D.rgr"
+Import "../../render/backends/software/RgTexturedRenderer2D.rgr"
 
 class Rg2DPresenter {
     ; Present one pane from host pane state. Returns sprites drawn (-1 if the
@@ -24,7 +25,19 @@ class Rg2DPresenter {
         def camH:RgHandle (bridge.surface.paneCam(paneIndex))
         if ((layerH.isValid()) == false) { return (0 - 1) }
         if ((camH.isValid()) == false) { return (0 - 1) }
-        return (RgSoftwareRenderer2D.present2D(bridge.d2 fb layerH camH))
+        return (RgSoftwareRenderer2D.present2D(bridge.d2 fb layerH camH paneIndex))
+    }
+
+    ; Present one pane through the SAMPLING backend (real texels) into an
+    ; RGBA-24 framebuffer, cleared to bgRGB (the app/scene sky colour — a
+    ; presenter parameter, not baked into a game). Same pane state as present();
+    ; a different backend is a different presenter, not a host or game change.
+    sfn presentTextured:int (bridge:RgRegistryBridge paneIndex:int fb:RgFramebuffer bgRGB:int) {
+        def layerH:RgHandle (bridge.surface.paneLayer(paneIndex))
+        def camH:RgHandle (bridge.surface.paneCam(paneIndex))
+        if ((layerH.isValid()) == false) { return (0 - 1) }
+        if ((camH.isValid()) == false) { return (0 - 1) }
+        return (RgTexturedRenderer2D.present(bridge.d2 fb layerH camH bgRGB paneIndex))
     }
 
     ; ---- debug helper (test/diagnostic output, not core presentation) -------

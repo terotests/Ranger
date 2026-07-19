@@ -35,9 +35,18 @@ class Rg2DType {
 }
 
 ; ---- payload types -----------------------------------------------------------
+; A texture may carry a decoded pixel store (D-2D): rgb is 0xRRGGBB per texel
+; (≤ 0xFFFFFF, i32-safe on every ABI profile — no sign-bit trap), alpha is
+; 0..255 per texel, both row-major width*height. hasPixels stays false for a
+; dimensions-only texture (the headless default); a backend that samples must
+; check it. Kept as two i32-safe channels rather than one packed 0xRRGGBBAA so
+; the wasm32 profile transfers them without the alpha byte setting the sign bit.
 class RgTexture2D {
     def width:int 0
     def height:int 0
+    def rgb:[int]
+    def alpha:[int]
+    def hasPixels:boolean false
 }
 
 class RgSpriteRegion {
@@ -60,6 +69,12 @@ class RgSpriteAtlas {
     def textureH:RgHandle (new RgHandle)
     def regions:[RgSpriteRegion]
     def clips:[RgAnimClip2D]
+    ; Spritesheet grid (v1 "sheet" kind). frameW>0 marks a sheet atlas: a sprite
+    ; samples a (col,row) cell of frameW×frameH instead of a named region.
+    def frameW:int 0
+    def frameH:int 0
+    def cols:int 0
+    def rows:int 0
 }
 
 class RgSprite2D {
@@ -68,6 +83,23 @@ class RgSprite2D {
     def x:double 0.0
     def y:double 0.0
     def layerSlot:int 0    ; membership (0 = none)
+    ; destination extent in WORLD units. 0 => draw the region at its native
+    ; texel size (1 texel = 1 world unit). A platform sets w×h to stretch one
+    ; region across its span; a background sets it to the view size.
+    def w:double 0.0
+    def h:double 0.0
+    ; draw order within a layer (painter's order): lower z drawn first, ties
+    ; broken by creation slot. Background 0 < platforms < players.
+    def z:int 0
+    ; horizontal mirror for facing (D-2D: transform state, not a new region).
+    def flipX:boolean false
+    ; spritesheet cell (v1 "sheet" kind): cellCol >= 0 samples the atlas frame
+    ; grid at (cellCol,cellRow) instead of the named region. -1 = use region.
+    def cellCol:int (0 - 1)
+    def cellRow:int 0
+    ; split-screen ownership: -1 = drawn in every pane (world objects); >=0 =
+    ; drawn only in that pane (a local player hidden from the other's view).
+    def paneOwner:int (0 - 1)
 }
 
 class RgLayer2D {
@@ -126,6 +158,25 @@ class RgDrawList2D {
     }
 }
 
+; ---- immediate world-space background primitives (v1 createStaticBg model) ---
+; The static environment (sky gradient, 3-tone platforms, clouds, flag, the
+; bitmap diamond glyph) is NOT retained sprites: the game paints it every frame
+; in WORLD coordinates via fillRect/fillCircle, exactly like v1's bgFillRect /
+; bgFillCircle. A backend rasterises the list through each pane's camera BEFORE
+; the retained sprites, so it composites under the players. No persistent
+; identity — the list is cleared at the start of the game's draw (bgBegin).
+class RgBgCmd2D {
+    def kind:int 0   ; 0 = rect, 1 = circle
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def rad:double 0.0
+    def r:int 0
+    def g:int 0
+    def b:int 0
+}
+
 ; ---- weak pose binding (body -> sprite) -------------------------------------
 class RgPoseBinding2D {
     def bodyH:RgHandle (new RgHandle)
@@ -149,6 +200,44 @@ class RgRanger2D {
     def camFree:[int]
     def players:[RgAnimPlayer2D]
     def playerFree:[int]
+
+    ; frame-local immediate background draw list (world space; no identity)
+    def bgCmds:[RgBgCmd2D]
+
+    ; ---- immediate background draw list (world space) ------------------------
+    ; bgBegin clears the list at the start of the game's per-frame draw; bgRect /
+    ; bgCircle append world-space primitives a backend rasterises through the
+    ; pane camera (under the retained sprites). Mirrors v1 bgFillRect/bgFillCircle.
+    fn bgBegin:void () {
+        def empty:[RgBgCmd2D]
+        this.bgCmds = empty
+    }
+    fn bgRect:void (x:double y:double w:double h:double r:int g:int b:int) {
+        def c:RgBgCmd2D (new RgBgCmd2D)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = r
+        c.g = g
+        c.b = b
+        push this.bgCmds c
+    }
+    fn bgCircle:void (cx:double cy:double rad:double r:int g:int b:int) {
+        def c:RgBgCmd2D (new RgBgCmd2D)
+        c.kind = 1
+        c.x = cx
+        c.y = cy
+        c.rad = rad
+        c.r = r
+        c.g = g
+        c.b = b
+        push this.bgCmds c
+    }
+    fn bgCount:int () {
+        return (array_length this.bgCmds)
+    }
 
     ; ---- generic pool alloc (one helper per pool) ----------------------------
     fn allocTex:int () {
@@ -264,6 +353,64 @@ class RgRanger2D {
         return (OwnedHandle.own(th))
     }
 
+    fn textureResolve:RgTexture2D (textureH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(textureH (Rg2DType.texture())))
+        if (r.ok == false) { return (new RgTexture2D) }
+        return (itemAt this.textures r.payloadIndex)
+    }
+
+    ; Upload a decoded pixel store into a texture (D-2D). rgb/alpha are row-major
+    ; width*height; this REPLACES any prior store and marks the texture sampled.
+    ; Rendering never calls this — it is a resource op, not a sync boundary.
+    fn textureUpload:void (textureH:RgHandle w:int h:int rgb:[int] alpha:[int]) {
+        def tx:RgTexture2D (this.textureResolve(textureH))
+        tx.width = w
+        tx.height = h
+        tx.rgb = rgb
+        tx.alpha = alpha
+        tx.hasPixels = true
+    }
+
+    fn textureHasPixels:boolean (textureH:RgHandle) {
+        def tx:RgTexture2D (this.textureResolve(textureH))
+        return tx.hasPixels
+    }
+
+    ; Sample one texel (clamped). Returns 0xRRGGBB; a=0 (via texelA) means the
+    ; texel is transparent / out of a store-less texture.
+    fn texelRGB:int (textureH:RgHandle px:int py:int) {
+        def tx:RgTexture2D (this.textureResolve(textureH))
+        if (tx.hasPixels == false) { return 0 }
+        if (tx.width <= 0) { return 0 }
+        if (tx.height <= 0) { return 0 }
+        def cx:int px
+        def cy:int py
+        if (cx < 0) { cx = 0 }
+        if (cy < 0) { cy = 0 }
+        if (cx >= tx.width) { cx = (tx.width - 1) }
+        if (cy >= tx.height) { cy = (tx.height - 1) }
+        def idx:int ((cy * tx.width) + cx)
+        if (idx < 0) { return 0 }
+        if (idx >= (array_length tx.rgb)) { return 0 }
+        return (itemAt tx.rgb idx)
+    }
+    fn texelA:int (textureH:RgHandle px:int py:int) {
+        def tx:RgTexture2D (this.textureResolve(textureH))
+        if (tx.hasPixels == false) { return 0 }
+        if (tx.width <= 0) { return 0 }
+        if (tx.height <= 0) { return 0 }
+        def cx:int px
+        def cy:int py
+        if (cx < 0) { cx = 0 }
+        if (cy < 0) { cy = 0 }
+        if (cx >= tx.width) { cx = (tx.width - 1) }
+        if (cy >= tx.height) { cy = (tx.height - 1) }
+        def idx:int ((cy * tx.width) + cx)
+        if (idx < 0) { return 0 }
+        if (idx >= (array_length tx.alpha)) { return 0 }
+        return (itemAt tx.alpha idx)
+    }
+
     ; atlas retains its texture (shared retain, D-OWN)
     fn atlasCreate:OwnedHandle (textureH:RgHandle) {
         def idx:int (this.allocAtlas())
@@ -366,6 +513,95 @@ class RgRanger2D {
     fn spriteRegion:int (spriteH:RgHandle) {
         def sp:RgSprite2D (this.spriteResolve(spriteH))
         return sp.regionIndex
+    }
+
+    fn spriteSetSize:void (spriteH:RgHandle w:double h:double) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        sp.w = w
+        sp.h = h
+    }
+    fn spriteW:double (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.w
+    }
+    fn spriteH:double (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.h
+    }
+    fn spriteSetZ:void (spriteH:RgHandle z:int) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        sp.z = z
+    }
+    fn spriteZ:int (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.z
+    }
+    fn spriteSetFlipX:void (spriteH:RgHandle flip:int) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        if (flip != 0) { sp.flipX = true } { sp.flipX = false }
+    }
+    fn spriteFlipX:boolean (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.flipX
+    }
+
+    fn spriteSetCell:void (spriteH:RgHandle col:int row:int) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        sp.cellCol = col
+        sp.cellRow = row
+    }
+    fn spriteCellCol:int (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.cellCol
+    }
+    fn spriteSetPaneOwner:void (spriteH:RgHandle pane:int) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        sp.paneOwner = pane
+    }
+    fn spritePaneOwner:int (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.paneOwner
+    }
+
+    ; declare an atlas as a spritesheet grid (v1 "sheet" kind)
+    fn atlasSetSheet:void (atlasH:RgHandle fw:int fh:int cols:int rows:int) {
+        def at:RgSpriteAtlas (this.atlasResolve(atlasH))
+        at.frameW = fw
+        at.frameH = fh
+        at.cols = cols
+        at.rows = rows
+    }
+    fn atlasFrameW:int (atlasH:RgHandle) {
+        def at:RgSpriteAtlas (this.atlasResolve(atlasH))
+        return at.frameW
+    }
+
+    ; region geometry by index (renderer reads these to place/sample a sprite)
+    fn regionAt:RgSpriteRegion (atlasH:RgHandle idx:int) {
+        def at:RgSpriteAtlas (this.atlasResolve(atlasH))
+        if (idx < 0) { return (new RgSpriteRegion) }
+        if (idx >= (array_length at.regions)) { return (new RgSpriteRegion) }
+        return (itemAt at.regions idx)
+    }
+
+    ; The source texel rect a sprite samples: a spritesheet CELL when the sprite
+    ; has one (cellCol>=0) and its atlas is a sheet, else the named region. This
+    ; is v1's drawSheet cell selection (col*frameW, row*frameH) folded into the
+    ; existing region-sampling backend.
+    fn spriteSrcRegion:RgSpriteRegion (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        if (sp.cellCol >= 0) {
+            def at:RgSpriteAtlas (this.atlasResolve(sp.atlasH))
+            if (at.frameW > 0) {
+                def reg:RgSpriteRegion (new RgSpriteRegion)
+                reg.x = (sp.cellCol * at.frameW)
+                reg.y = (sp.cellRow * at.frameH)
+                reg.w = at.frameW
+                reg.h = at.frameH
+                return reg
+            }
+        }
+        return (this.regionAt(sp.atlasH sp.regionIndex))
     }
 
     fn spriteSetPos:void (spriteH:RgHandle x:double y:double) {
