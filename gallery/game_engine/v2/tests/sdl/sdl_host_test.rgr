@@ -53,6 +53,36 @@ class SdlHostTest {
         t.ok("player 1 jump (up)" (inp.isDown(1 "jump")))
         t.no("player 0 unaffected" (inp.isDown(0 "jump")))
 
+        ; ---- rising-edge detection (menu nav fires once per tap) ------------
+        t.ok("right pressed this frame" (sdl.edge(0 32 32)))
+        t.no("right still held is not an edge" (sdl.edge(32 32 32)))
+        t.no("right released is not an edge" (sdl.edge(32 0 32)))
+        t.ok("left edge independent of right bit" (sdl.edge(0 16 16)))
+
+        ; ---- launcher menu driven purely by input-mask edges ---------------
+        def ui:RgLauncherUi (new RgLauncherUi)
+        ui.init(480 270)
+        ; right edge (32) moves the category selection Games -> Tests
+        def s0:int (sdl.launcherStep(0 32 ui))
+        t.eqInt("moving selection does not launch" s0 0)
+        t.eqStr("right edge selected Tests" (ui.selectedLabel()) "Tests")
+        ; left edge (16) moves back to Games
+        def s1:int (sdl.launcherStep(0 16 ui))
+        t.eqStr("left edge selected Games" (ui.selectedLabel()) "Games")
+        ; action edge (4) enters the Games category (page 1), no launch yet
+        def s2:int (sdl.launcherStep(0 4 ui))
+        t.eqInt("entering a category is not a launch" s2 0)
+        t.eqInt("now on the entries page" (ui.currentPage()) 1)
+        t.eqStr("first entry is Pomppija" (ui.selectedLabel()) "Pomppija")
+        ; action edge (4) on an entry hands off -> returns 1 with a target
+        def s3:int (sdl.launcherStep(0 4 ui))
+        t.eqInt("activating an entry hands off" s3 1)
+        t.eqStr("handoff dir is the game folder" (ui.selectedDir()) "gallery/game_engine/v2/games/ylos2")
+        ; down edge (2) goes back to the category page
+        def s4:int (sdl.launcherStep(0 2 ui))
+        t.eqInt("back is not a launch" s4 0)
+        t.eqInt("back to the category page" (ui.currentPage()) 0)
+
         t.summary()
     }
 }

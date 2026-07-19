@@ -18,10 +18,17 @@ knowledge** and **no additions to `ranger:core`**.
 
 ## Files
 
-- `RgSdlGameHost.rgr` — the driver: open window, loop (poll input → actions →
-  `host.frame` → present split → forward rumble), honour the launcher handoff.
-- `RgSdlMain.rgr` — native entry; boots the launcher menu (engine infra, not a
+- `RgSdlGameHost.rgr` — the driver. Two entry loops share one window/present
+  path: `runLauncher()` (present the rich launcher canvas via `gfx_present`,
+  navigate on key-press *edges*, hand off the chosen game to `run`) and `run`
+  (poll input → actions → `host.frame` → present split → forward rumble, honour
+  the guest launch handoff). `launcherStep`/`mapMask`/`edge`/`toRgbaBuffer` are
+  pure host-input/present seams, unit-tested headlessly.
+- `RgSdlMain.rgr` — native entry; calls `runLauncher()` (engine chrome, not a
   game — games remain `.tsx`-only).
+- `../../menu/RgLauncherUi.rgr` — the launcher screen itself (title, subtitle,
+  category cards → game cards, moving accent). Renders into a SoftCanvas through
+  the **self-contained** v2 UI/EVG/font stack (nothing imported outside `v2/`).
 - `../../../gfx_sdl.rgr` — the native `gfx_*` operators (SDL2). They carry both
   `cpp` and `es6` templates, so this host **compiles and runs headlessly as a
   no-op**; the real window exists only in the native build.
@@ -32,29 +39,34 @@ knowledge** and **no additions to `ranger:core`**.
 `2`→down, `4`→action, and jump = up | action. Source `0` = P1 (WASD/Space),
 source `1` = P2 (arrows); `2..9` = gamepads.
 
+In the launcher these bits drive the menu on rising edges (a tap moves once):
+`16`/`32` move the selection, `4` selects (category → game list → launch), `2`
+goes back a page.
+
 ## Build + run on macOS
 
 Prereq: SDL2 (`brew install sdl2`). From the repo root:
 
 ```sh
-# 1. Ranger -> C++
-node bin/output.js -cpp gallery/game_engine/v2/runtime/sdl/RgSdlMain.rgr \
-  -d=build/sdl -o=RgSdlMain.cpp
-
-# 2. C++ -> binary, linked against SDL2 (uses gfx_sdl's rgfx_* shim)
-clang++ -std=c++17 -O2 build/sdl/RgSdlMain.cpp \
-  $(sdl2-config --cflags --libs) -o build/sdl/ranger-v2
-
-# 3. run from the repo root (assets resolve relative to CWD via pkg://)
-./build/sdl/ranger-v2
+npm run engine:game-sdl:launcher:v2
 ```
 
-A window opens on the launcher; pick a game (e.g. Pomppija/ylos2). WASD + Space
-drives P1, arrows drive P2; a game's `runtime.input.player(i).rumble(...)` calls
-reach the pad through `gfx_rumble_pad`.
+That runs `scripts/build-sdl-v2.sh`, which (1) compiles `RgSdlMain.rgr` to C++
+(`RANGER_LIB=… node bin/output.js -l=cpp … -o RgSdlMain.cpp`) and (2) links it
+against SDL2 + OpenGL into `tmp/sdl-v2/ranger-v2`, then launches it. Unlike the
+v1 game runner, the v2 host needs **no wasm3 and no libcurl** — only the
+operators it actually calls are emitted (all `SDL2/SDL.h`); GL is pulled in only
+by `gfx_sdl.rgr`'s shared prelude.
+
+A window opens on the launcher: arrows move, Space/`A` selects (Games → pick a
+game → launch), `S` goes back, Q/Esc quits. WASD + Space drives P1 in-game,
+arrows drive P2; a game's `runtime.input.player(i).rumble(...)` calls reach the
+pad through `gfx_rumble_pad`.
 
 > The final SDL2 **link** needs SDL2 headers, which are absent in CI — so the
-> headless suite compile-checks the host and tests its pure seams
-> (`tests/sdl/sdl_host_test`: framebuffer→RGBA pack + input map), and the live
-> window run happens on a machine with SDL2. Audio playback additionally needs
-> the score/one-shot synth (a `gfx_audio_*` sink) — a separate follow-up.
+> headless suite compile-checks the host, validates the Ranger→C++ codegen, and
+> tests its pure seams (`tests/sdl/sdl_host_test`: framebuffer→RGBA pack, input
+> map, launcher-nav edges; `menu/tests/launcher_ui_test`: the rendered launcher
+> screen). The live window run happens on a machine with SDL2. Audio playback
+> additionally needs the score/one-shot synth (a `gfx_audio_*` sink) — a
+> separate follow-up.

@@ -15,6 +15,6 @@ Import "RgSdlGameHost.rgr"
 class RgSdlMain {
     sfn m@(main):void () {
         def h:RgSdlGameHost (new RgSdlGameHost)
-        def _r:int (h.run("gallery/game_engine/v2/menu" "launcher.tsx"))
+        def _r:int (h.runLauncher())
     }
 }

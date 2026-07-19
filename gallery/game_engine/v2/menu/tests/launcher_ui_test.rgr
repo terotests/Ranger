@@ -95,6 +95,47 @@ class LauncherUiTest {
         def leftAccentB:int (LauncherUiTest.countColor(ui 0 0 240 270 255 190 70))
         t.eqInt("Games card no longer accent" leftAccentB 0)
 
+        ; ---- two-level navigation + game handoff ---------------------------
+        def ui2:RgLauncherUi (new RgLauncherUi)
+        ui2.init(480 270)
+        t.eqInt("starts on the category page" (ui2.currentPage()) 0)
+        t.eqStr("no handoff target on the category page" (ui2.selectedDir()) "")
+
+        ; enter the Games category: activate returns 0 (nothing to launch yet)
+        def a0:int (ui2.activate())
+        t.eqInt("activating a category does not launch" a0 0)
+        t.eqInt("now on the entries page" (ui2.currentPage()) 1)
+        t.eqStr("first Games entry is Pomppija" (ui2.selectedLabel()) "Pomppija")
+        t.eqStr("Pomppija handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/games/ylos2")
+        t.eqStr("Pomppija handoff file" (ui2.selectedFile()) "index.tsx")
+
+        ; navigate the entries and clamp at the end (Games has 3)
+        ui2.moveSelection(1)
+        t.eqStr("second Games entry is Chess" (ui2.selectedLabel()) "Chess")
+        ui2.moveSelection(9)
+        t.eqStr("entries clamp at Breakout" (ui2.selectedLabel()) "Breakout")
+
+        ; activating an entry reports launch (1); the host reads dir/file
+        def a1:int (ui2.activate())
+        t.eqInt("activating an entry hands off" a1 1)
+        t.eqStr("Breakout handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/games/breakout")
+
+        ; back returns to the category page, on the category we came from
+        ui2.back()
+        t.eqInt("back to the category page" (ui2.currentPage()) 0)
+        t.eqStr("restored to the Games category" (ui2.selectedLabel()) "Games")
+
+        ; a different category yields a different entry set
+        ui2.moveSelection(1)
+        def a2:int (ui2.activate())
+        t.eqStr("Tests category entry is Sprites" (ui2.selectedLabel()) "Sprites")
+        t.eqStr("Sprites handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/tests/sprite_char")
+
+        ; page 1 renders the entry cards (accent present somewhere)
+        ui2.render()
+        def entAccent:int (LauncherUiTest.countColor(ui2 0 0 480 270 255 190 70))
+        t.ok("entry page renders an accent card" (entAccent > 0))
+
         t.summary()
     }
 }
