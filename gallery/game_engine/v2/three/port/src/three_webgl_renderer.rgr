@@ -277,6 +277,10 @@ class ThreeWebGLRenderer {
         def be:ThreeRenderBackend (this.activeBackend())
         return (be.raw())
     }
+    fn rawAlpha:buffer () {
+        def be:ThreeRenderBackend (this.activeBackend())
+        return (be.rawAlpha())
+    }
     fn width:int () {
         return w
     }

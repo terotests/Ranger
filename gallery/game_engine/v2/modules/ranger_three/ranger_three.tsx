@@ -36,6 +36,12 @@ class OctahedronGeometry {
   constructor(radius) { this.id = rg3d_geometry_octahedron(radius); }
 }
 
+// Classic gem: wide girdle, short crown, long narrow pavilion.
+class DiamondGeometry {
+  id = 0;
+  constructor(radius) { this.id = rg3d_geometry_diamond(radius); }
+}
+
 class MeshBasicMaterial {
   id = 0;
   constructor(colorHex) { this.id = rg3d_material_basic(colorHex); }
@@ -44,6 +50,9 @@ class MeshBasicMaterial {
 class MeshLambertMaterial {
   id = 0;
   constructor(colorHex) { this.id = rg3d_material_lambert(colorHex); }
+  setOpacity(opacity) {
+    rg3d_material_set_opacity(this.id, opacity);
+  }
 }
 
 class AmbientLight {

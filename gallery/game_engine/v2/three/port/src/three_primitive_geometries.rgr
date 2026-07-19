@@ -446,3 +446,60 @@ class ThreeOctahedronGeometry extends ThreeBufferGeometry {
         return this
     }
 }
+
+; ------------------------------------------------------------------ Diamond
+; Classic gem silhouette: wide girdle, short crown, long narrow pavilion
+; (pointy bottom). `radius` is the girdle half-width.
+class ThreeDiamondGeometry extends ThreeBufferGeometry {
+    def isDiamondGeometry:boolean true
+
+    fn pushFace:void (ax:double ay:double az:double bx:double by:double bz:double cx:double cy:double cz:double) {
+        def abx:double (bx - ax)
+        def aby:double (by - ay)
+        def abz:double (bz - az)
+        def acx:double (cx - ax)
+        def acy:double (cy - ay)
+        def acz:double (cz - az)
+        def nx:double ((aby * acz) - (abz * acy))
+        def ny:double ((abz * acx) - (abx * acz))
+        def nz:double ((abx * acy) - (aby * acx))
+        def len:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+        if (len < 0.000001) { len = 1.0 }
+        nx = (nx / len)
+        ny = (ny / len)
+        nz = (nz / len)
+        def base:int (this.vertexCount())
+        this.pushVertex(ax ay az nx ny nz 0.0 0.0)
+        this.pushVertex(bx by bz nx ny nz 1.0 0.0)
+        this.pushVertex(cx cy cz nx ny nz 0.5 1.0)
+        this.pushTriangle(base (base + 1) (base + 2))
+    }
+
+    fn build:ThreeDiamondGeometry (radius:double) {
+        def r:double radius
+        if (r <= 0.0) { r = 1.0 }
+        ; Short crown + long pavilion; girdle is the widest ring. Shift so the
+        ; AABB centres near the origin (spinning RTT gems stay framed).
+        def crownH:double (r * 0.38)
+        def pavH:double (r * 1.55)
+        def yOff:double ((pavH - crownH) * 0.5)
+        def gy:double yOff
+        def ty:double (crownH + yOff)
+        def by:double ((0.0 - pavH) + yOff)
+        def px:double r
+        def nx:double (0.0 - r)
+        def pz:double r
+        def nz:double (0.0 - r)
+        ; crown (upper, short)
+        this.pushFace(px gy 0.0  0.0 ty 0.0  0.0 gy pz)
+        this.pushFace(0.0 gy pz  0.0 ty 0.0  nx gy 0.0)
+        this.pushFace(nx gy 0.0  0.0 ty 0.0  0.0 gy nz)
+        this.pushFace(0.0 gy nz  0.0 ty 0.0  px gy 0.0)
+        ; pavilion (lower, long / narrow point)
+        this.pushFace(px gy 0.0  0.0 gy pz  0.0 by 0.0)
+        this.pushFace(0.0 gy pz  nx gy 0.0  0.0 by 0.0)
+        this.pushFace(nx gy 0.0  0.0 gy nz  0.0 by 0.0)
+        this.pushFace(0.0 gy nz  px gy 0.0  0.0 by 0.0)
+        return this
+    }
+}

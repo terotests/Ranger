@@ -49,6 +49,18 @@ class ThreeMaterial {
         return 0
     }
 
+    fn setOpacity:ThreeMaterial (v:double) {
+        this.opacity = v
+        if (this.opacity < 0.0) {
+            this.opacity = 0.0
+        }
+        if (this.opacity > 1.0) {
+            this.opacity = 1.0
+        }
+        this.transparent = (this.opacity < 0.999)
+        return this
+    }
+
     fn setColor:ThreeMaterial (r:double g:double b:double) {
         this.colorR = r
         this.colorG = g

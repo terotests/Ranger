@@ -32,20 +32,20 @@ class RttSpriteTest {
         def texId:int (s.callI(b "rgcore_graphics_rt_create" rtA))
         t.ok("rt create mints texture id" (texId > 0))
 
-        ; 3D scene: cyan octahedron
+        ; 3D scene: translucent cyan diamond (narrow pavilion)
         def sceneId:int (s.callI(b "rg3d_scene_create" empty))
         def camId:int (s.callI(b "rg3d_camera_create" empty))
         def csA:[EvalValue]
         push csA (s.num((to_double camId)))
         push csA (s.num(35.0))
-        push csA (s.num(1.0))
+        push csA (s.num(0.75))
         push csA (s.num(0.1))
         push csA (s.num(20.0))
         b.invoke("rg3d_camera_set" csA)
         def cpA:[EvalValue]
         push cpA (s.num((to_double camId)))
         push cpA (s.num(0.0))
-        push cpA (s.num(0.2))
+        push cpA (s.num(0.05))
         push cpA (s.num(3.0))
         push cpA (s.num(0.0))
         push cpA (s.num(0.0))
@@ -66,10 +66,14 @@ class RttSpriteTest {
         s.callI(b "rg3d_light_directional" dirA)
         def geoA:[EvalValue]
         push geoA (s.num(0.9))
-        def geoId:int (s.callI(b "rg3d_geometry_octahedron" geoA))
+        def geoId:int (s.callI(b "rg3d_geometry_diamond" geoA))
         def matA:[EvalValue]
         push matA (s.num(7926015.0))
         def matId:int (s.callI(b "rg3d_material_lambert" matA))
+        def opacA:[EvalValue]
+        push opacA (s.num((to_double matId)))
+        push opacA (s.num(0.72))
+        b.invoke("rg3d_material_set_opacity" opacA)
         def meshA:[EvalValue]
         push meshA (s.num((to_double sceneId)))
         push meshA (s.num((to_double geoId)))
@@ -97,9 +101,11 @@ class RttSpriteTest {
         def texH:RgHandle (b.resolveGuestId(texId))
         t.ok("rt texture has pixels after 3D" (b.d2.textureHasPixels(texH)))
         def mid:int (b.d2.texelRGB(texH 16 16))
-        t.ok("centre texel lit by octahedron" (mid > 0))
-        t.ok("centre texel opaque" ((b.d2.texelA(texH 16 16)) > 0))
-        ; Lambert facets: more than one distinct opaque colour in the RT
+        t.ok("centre texel lit by diamond" (mid > 0))
+        def midA:int (b.d2.texelA(texH 16 16))
+        t.ok("centre texel has coverage" (midA > 0))
+        t.ok("centre texel is translucent (not fully opaque)" (midA < 255))
+        ; Lambert facets: more than one distinct colour in the RT
         def shades 0
         def seen0:int (0 - 1)
         def seen1:int (0 - 1)

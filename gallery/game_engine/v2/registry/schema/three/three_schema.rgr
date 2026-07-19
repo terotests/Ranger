@@ -2,7 +2,8 @@
 ; three_schema — authored registry rows for the `ranger:three` module.
 ; ==============================================================================
 ; Minimal live guest surface for PLAN_2D_EMBED_3D H3 (SW path A): scene, camera,
-; box/octahedron geometry, basic material, mesh, and render-to-texture.
+; box/octahedron/diamond geometry, basic/lambert materials (+ opacity), mesh,
+; lights, and render-to-texture.
 ; Published ids are immutable:
 ;   classIds 30–39 · command ids 3000–3999   (golden-checked)
 ; ==============================================================================
@@ -29,12 +30,14 @@ class ThreeSchema {
         def geo:RgClassDef (RgClassDef.of(32 "Geometry3D"))
         geo.addMethod((RgMethodDef.cmd(3010 "rg3d_geometry_box" "rg3d_geometry_box" "d:d:d" "h" "create")))
         geo.addMethod((RgMethodDef.cmd(3011 "rg3d_geometry_octahedron" "rg3d_geometry_octahedron" "d" "h" "create")))
+        geo.addMethod((RgMethodDef.cmd(3012 "rg3d_geometry_diamond" "rg3d_geometry_diamond" "d" "h" "create")))
         s.addClass(geo)
 
         ; ---- Material3D (33) -------------------------------------------------
         def mat:RgClassDef (RgClassDef.of(33 "Material3D"))
         mat.addMethod((RgMethodDef.cmd(3020 "rg3d_material_basic" "rg3d_material_basic" "i" "h" "create")))
         mat.addMethod((RgMethodDef.cmd(3021 "rg3d_material_lambert" "rg3d_material_lambert" "i" "h" "create")))
+        mat.addMethod((RgMethodDef.cmd(3022 "rg3d_material_set_opacity" "rg3d_material_set_opacity" "h:d" "v" "none")))
         s.addClass(mat)
 
         ; ---- Mesh3D (34) -----------------------------------------------------

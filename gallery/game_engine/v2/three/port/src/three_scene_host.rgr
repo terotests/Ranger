@@ -154,9 +154,16 @@ class ThreeSceneHost {
         push geometries g
         return (array_length geometries)
     }
-    ; Regular octahedron (diamond) — used by hybrid 2D games as an RTT gem.
+    ; Regular octahedron — used by hybrid 2D games as an RTT gem.
     fn geometryOctahedron:int (radius:double) {
         def g:ThreeOctahedronGeometry (new ThreeOctahedronGeometry)
+        g.build(radius)
+        push geometries g
+        return (array_length geometries)
+    }
+    ; Classic gem: wide girdle, short crown, long pointed pavilion.
+    fn geometryDiamond:int (radius:double) {
+        def g:ThreeDiamondGeometry (new ThreeDiamondGeometry)
         g.build(radius)
         push geometries g
         return (array_length geometries)
@@ -177,6 +184,9 @@ class ThreeSceneHost {
         m.setSide(side)
         push materials m
         return (array_length materials)
+    }
+    fn materialSetOpacity:void (matH:int opacity:double) {
+        (this.materialAt(matH)).setOpacity(opacity)
     }
     fn materialPhong:int (colorHex:int specularHex:int shininess:double flat:boolean side:int) {
         def m:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
@@ -322,6 +332,9 @@ class ThreeSceneHost {
     }
     fn raw:buffer () {
         return (renderer.raw())
+    }
+    fn rawAlpha:buffer () {
+        return (renderer.rawAlpha())
     }
 
     ; --- textures (host-supplied, with provenance) ----------------------------

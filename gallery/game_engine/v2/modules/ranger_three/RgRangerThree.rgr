@@ -63,6 +63,12 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
+    fn geometryDiamond:OwnedHandle (radius:double) {
+        def th:int (this.host.geometryDiamond(radius))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
     fn materialBasic:OwnedHandle (colorHex:int) {
         def th:int (this.host.materialBasic(colorHex 0 false))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
@@ -73,6 +79,10 @@ class RgRangerThree {
         def th:int (this.host.materialLambert(colorHex 0))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
         return (OwnedHandle.own(h))
+    }
+
+    fn materialSetOpacity:void (matH:RgHandle opacity:double) {
+        this.host.materialSetOpacity((this.threeH(matH)) opacity)
     }
 
     fn lightAmbient:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double) {
@@ -97,12 +107,13 @@ class RgRangerThree {
         this.host.entityTransform((this.threeH(meshH)) px py pz ex ey ez 1.0 1.0 1.0)
     }
 
-    ; SW 3D → CPU Texture2D. Clear colour is keyed to alpha 0 so the gem
-    ; composites cleanly over the 2D world (opaque model over transparent clear).
+    ; SW 3D → CPU Texture2D. Backend clears alpha to 0; fragments write
+    ; mat.opacity (glass gems) so Sprite2D composites over the 2D world.
     fn renderToTexture:void (sceneH:RgHandle camH:RgHandle texH:RgHandle w:int h:int d2:RgRanger2D) {
         this.host.renderer.setClearColor(0.0 0.0 0.0)
         this.host.render((this.threeH(sceneH)) (this.threeH(camH)) w h)
         def raw:buffer (this.host.raw())
+        def aRaw:buffer (this.host.rawAlpha())
         def n:int (w * h)
         def rgb:[int]
         def alpha:[int]
@@ -114,11 +125,7 @@ class RgRangerThree {
             def b:int (buffer_get raw (o + 2))
             def c:int (((r * 65536) + (g * 256)) + b)
             push rgb c
-            if (((r + g) + b) == 0) {
-                push alpha 0
-            } {
-                push alpha 255
-            }
+            push alpha (buffer_get aRaw i)
             i = (i + 1)
         }
         d2.textureUpload(texH w h rgb alpha)

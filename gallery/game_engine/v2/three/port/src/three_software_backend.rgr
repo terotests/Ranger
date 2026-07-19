@@ -20,6 +20,9 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
     def w:int 0
     def h:int 0
     def color:buffer (buffer_alloc 0)
+    ; Per-pixel coverage alpha (w*h), 0..255 — clear stays 0 so RTT sprites
+    ; composite over the 2D world; fragments write mat.opacity (glass gems).
+    def alpha:buffer (buffer_alloc 0)
     def depth:double_buffer (double_buffer_alloc 0)
     ; per-frame lights (from setLights)
     def ambR:double 0.0
@@ -35,6 +38,7 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         def npix:int (width * height)
         def nbytes:int (npix * 3)
         color = (buffer_alloc nbytes)
+        alpha = (buffer_alloc npix)
         depth = (double_buffer_alloc npix)
     }
 
@@ -52,6 +56,7 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
             buffer_set color o br
             buffer_set color (o + 1) bg
             buffer_set color (o + 2) bb
+            buffer_set alpha i 0
             double_buffer_set depth i 1000000000.0
             i = (i + 1)
         }
@@ -87,7 +92,32 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         return (ThreeVector3.of((wx / len) (wy / len) (wz / len)))
     }
 
+    ; Peak N·L across directional lights (0..1) — used for facet sparkle / alpha.
+    fn peakNDotL:double (nx:double ny:double nz:double) {
+        def peak:double 0.0
+        def i:int 0
+        while (i < dirCount) {
+            def base:int (i * 3)
+            def lx:double (itemAt dirs base)
+            def ly:double (itemAt dirs (base + 1))
+            def lz:double (itemAt dirs (base + 2))
+            def ndotl:double (((nx * lx) + (ny * ly)) + (nz * lz))
+            if (ndotl > peak) {
+                peak = ndotl
+            }
+            i = (i + 1)
+        }
+        if (peak < 0.0) {
+            peak = 0.0
+        }
+        if (peak > 1.0) {
+            peak = 1.0
+        }
+        return peak
+    }
+
     ; Lambert: albedo * (ambient + Σ max(0, N·L) * lightColour) → 0xRRGGBB.
+    ; Bright facets lean toward white so cut glass reads with sparkle.
     fn shadeLambertRGB:int (albedoR:double albedoG:double albedoB:double nx:double ny:double nz:double) {
         def lr:double ambR
         def lg:double ambG
@@ -108,6 +138,16 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         def orr:double (albedoR * lr)
         def og:double (albedoG * lg)
         def ob:double (albedoB * lb)
+        def hi:double (this.peakNDotL(nx ny nz))
+        if (hi > 0.55) {
+            def mix:double ((hi - 0.55) * 1.1)
+            if (mix > 1.0) {
+                mix = 1.0
+            }
+            orr = (orr + ((1.0 - orr) * mix))
+            og = (og + ((1.0 - og) * mix))
+            ob = (ob + ((1.0 - ob) * mix))
+        }
         if (orr > 1.0) { orr = 1.0 }
         if (og > 1.0) { og = 1.0 }
         if (ob > 1.0) { ob = 1.0 }
@@ -196,6 +236,13 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         def r255:int (to_int (colorR * 255.0))
         def g255:int (to_int (colorG * 255.0))
         def b255:int (to_int (colorB * 255.0))
+        def baseOpacity:double mat.opacity
+        if (baseOpacity < 0.0) {
+            baseOpacity = 0.0
+        }
+        if (baseOpacity > 1.0) {
+            baseOpacity = 1.0
+        }
         def t:int 0
         while (t < ic) {
             def i0:int (geometry.getIndex(t))
@@ -205,8 +252,11 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
                 def tr:int r255
                 def tg:int g255
                 def tb:int b255
+                ; Opaque by default; lit facets modulate alpha so shadowed cuts
+                ; read as thinner glass.
+                def a255:int (to_int ((baseOpacity * 255.0) + 0.5))
                 if (shadeMode >= 1) {
-                    ; Face normal from geometry (octahedron stores one normal per
+                    ; Face normal from geometry (diamond stores one normal per
                     ; facet) transformed into world space — flat shading keeps
                     ; gem facets crisp.
                     def n0x:double (geometry.getNormal(i0 0))
@@ -217,14 +267,26 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
                     tr = (idiv lit 65536)
                     tg = (idiv (lit - (tr * 65536)) 256)
                     tb = ((lit - (tr * 65536)) - (tg * 256))
+                    ; Glass materials: shadowed facets thinner; opaque stays solid.
+                    if (baseOpacity < 0.999) {
+                        def nd:double (this.peakNDotL(wn.x wn.y wn.z))
+                        def facetA:double (baseOpacity * (0.40 + (nd * 0.60)))
+                        a255 = (to_int ((facetA * 255.0) + 0.5))
+                    }
                 }
-                this.rasterTri(geometry sx sy sz sw i0 i1 i2 hasTexture tex tr tg tb)
+                if (a255 > 255) {
+                    a255 = 255
+                }
+                if (a255 < 0) {
+                    a255 = 0
+                }
+                this.rasterTri(geometry sx sy sz sw i0 i1 i2 hasTexture tex tr tg tb a255)
             }
             t = (t + 3)
         }
     }
 
-    fn rasterTri:void (geometry:ThreeBufferGeometry sx:[double] sy:[double] sz:[double] sw:[double] i0:int i1:int i2:int hasTexture:boolean tex:ThreeTexture r255:int g255:int b255:int) {
+    fn rasterTri:void (geometry:ThreeBufferGeometry sx:[double] sy:[double] sz:[double] sw:[double] i0:int i1:int i2:int hasTexture:boolean tex:ThreeTexture r255:int g255:int b255:int a255:int) {
         def x0:double (itemAt sx i0)
         def y0:double (itemAt sy i0)
         def z0:double (itemAt sz i0)
@@ -292,6 +354,7 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
                         buffer_set color o cr
                         buffer_set color (o + 1) cg
                         buffer_set color (o + 2) cb
+                        buffer_set alpha pidx a255
                     }
                 }
                 px = (px + 1)
@@ -323,6 +386,9 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
 
     fn raw:buffer () {
         return color
+    }
+    fn rawAlpha:buffer () {
+        return alpha
     }
     fn width:int () {
         return w
