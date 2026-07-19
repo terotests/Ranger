@@ -301,14 +301,26 @@ CODE_CLEANUP decisions that pin this stack:
 
 ### 6.3 Worked paths (ylos2 → display)
 
-All paths start in [`games/ylos2/index.tsx`](./games/ylos2/index.tsx). Guest
-wrappers live in `modules/ranger_{core,2d}/*.tsx`; transport in
-`RgRegistryBridge`; arenas in `RgRanger2D` / `RgInput` / `RgSurface`; pixels in
-`RgSoftwareRenderer2D`.
+All paths start in [`games/ylos2/index.tsx`](./games/ylos2/index.tsx). Each
+subsection shows: **guest TSX** → **façade** → **Ranger call sites** (with
+file paths) → **data structures touched**.
+
+| Role | Where in the tree |
+|------|-------------------|
+| Guest game | [`games/ylos2/index.tsx`](./games/ylos2/index.tsx) |
+| Guest façades | [`modules/ranger_2d/ranger_2d.tsx`](./modules/ranger_2d/ranger_2d.tsx), [`modules/ranger_core/ranger_core.tsx`](./modules/ranger_core/ranger_core.tsx) |
+| Schema rows | [`registry/schema/two_d/two_d_schema.rgr`](./registry/schema/two_d/two_d_schema.rgr), [`registry/schema/core/core_schema.rgr`](./registry/schema/core/core_schema.rgr) |
+| Interpreter seam | [`interp/migrate/src/ComponentEngine.rgr`](./interp/migrate/src/ComponentEngine.rgr) (`EvalNativeBridge`) |
+| Transport | [`interp/engine/RgRegistryBridge.rgr`](./interp/engine/RgRegistryBridge.rgr) |
+| 2D arenas | [`modules/ranger_2d/RgRanger2D.rgr`](./modules/ranger_2d/RgRanger2D.rgr) |
+| Input / surface | [`modules/ranger_core/RgInputSurface.rgr`](./modules/ranger_core/RgInputSurface.rgr) |
+| Handles | [`host/handles/RgHandle.rgr`](./host/handles/RgHandle.rgr), [`host/ownership/OwnedHandle.rgr`](./host/ownership/OwnedHandle.rgr), [`host/RgRegistry.rgr`](./host/RgRegistry.rgr) |
+| Present | [`runtime/game_host/Rg2DPresenter.rgr`](./runtime/game_host/Rg2DPresenter.rgr), [`render/backends/software/RgSoftwareRenderer2D.rgr`](./render/backends/software/RgSoftwareRenderer2D.rgr) |
+| Lifecycle host | [`runtime/game_host/RgGameHost.rgr`](./runtime/game_host/RgGameHost.rgr) |
 
 #### Path A — create a platform sprite and put it on a layer
 
-Guest (init):
+Guest (init) — [`games/ylos2/index.tsx`](./games/ylos2/index.tsx):
 
 ```ts
 const s = new TWO.Sprite2D(this.atlas, rPlat);
@@ -316,115 +328,363 @@ s.setPos(p.x + p.w / 2, p.y);
 this.layer.add(s);
 ```
 
-| Step | Actor | What happens |
-|------|-------|--------------|
-| 1 | guest | `new TWO.Sprite2D(atlas, rPlat)` |
-| 2 | façade `ranger_2d.tsx` | `this.id = rg2d_sprite_create(atlas.id, regionIndex)` |
-| 3 | interp | `ComponentEngine` → `EvalNativeBridge.invoke("rg2d_sprite_create", …)` |
-| 4 | bridge | table row → decode `h:i` → resolve guest atlas id → `RgHandle` |
-| 5 | host | `RgRanger2D.spriteCreate` — alloc typed slot, **retain** atlas (D-OWN), mint guest id |
-| 6 | guest | `s.setPos(…)` → `rg2d_sprite_set_pos` → `spriteSetPos` writes arena `x`/`y` |
-| 7 | guest | `layer.add(s)` → `rg2d_layer_add` → `layerAdd` sets `sprite.layerSlot`, bumps child count |
+Façade — [`modules/ranger_2d/ranger_2d.tsx`](./modules/ranger_2d/ranger_2d.tsx):
 
-The guest `Sprite2D` is a thin id holder. Authoritative pixels/pose live in the
-host arena. Reordering/reparenting never changes the guest id (D-IDENTITY /
-D-2D).
+```ts
+class Sprite2D {
+  id = 0;
+  constructor(atlas, regionIndex) { this.id = rg2d_sprite_create(atlas.id, regionIndex); }
+  setPos(x, y) { rg2d_sprite_set_pos(this.id, x, y); }
+}
+class Layer2D {
+  add(sprite) { rg2d_layer_add(sprite.id, this.id); }
+}
+```
+
+Schema seed (command names + `argSpec`) —
+[`registry/schema/two_d/two_d_schema.rgr`](./registry/schema/two_d/two_d_schema.rgr):
+
+```rgr
+sprite.addMethod((RgMethodDef.cmd(2020 "rg2d_sprite_create" "rg2d_sprite_create" "h:i" "h" "create")))
+sprite.addMethod((RgMethodDef.cmd(2021 "rg2d_sprite_set_pos" "rg2d_sprite_set_pos" "h:d:d" "v" "none")))
+layer.addMethod((RgMethodDef.cmd(2031 "rg2d_layer_add" "rg2d_layer_add" "h:h" "v" "none")))
+```
+
+Interpreter → bridge — [`ComponentEngine.rgr`](./interp/migrate/src/ComponentEngine.rgr)
+sees an unknown name and forwards to the native bridge:
+
+```rgr
+if (nativeBridge) {
+    def bridge:EvalNativeBridge (unwrap nativeBridge)
+    if (bridge.has(fnName)) {
+        def nativeArgs:[EvalValue] (this.collectCallArgs(node))
+        return (bridge.invoke(fnName nativeArgs))
+    }
+}
+```
+
+Transport — [`RgRegistryBridge.rgr`](./interp/engine/RgRegistryBridge.rgr).
+`invoke` is table-driven; `h` args resolve guest surrogate ids → fat handles:
+
+```rgr
+fn invoke:EvalValue (name:string args:[EvalValue]) {
+    def row:RgCommand (RgCodegen.findByName(this.table name))
+    def dec:RgDecodedArgs (this.decode(row args))
+    return (this.dispatchRow(row dec))
+}
+; decode of argSpec token "h":
+def gid:int (to_int v.numberValue)
+def h:RgHandle (this.resolveGuestId(gid))   ; owned[] surrogate → RgHandle
+```
+
+Dispatch call sites (same file):
+
+```rgr
+if (row.name == "rg2d_sprite_create") {
+    def o:OwnedHandle (this.d2.spriteCreate((a.handleAt(0)) (a.intAt(1))))
+    def gid:int (this.mintId(o))            ; push OwnedHandle → guest id
+    return (RgRegistryBridge.retI(gid))
+}
+if (row.name == "rg2d_sprite_set_pos") {
+    this.d2.spriteSetPos((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)))
+    return (EvalValue.null())
+}
+if (row.name == "rg2d_layer_add") {
+    this.d2.layerAdd((a.handleAt(0)) (a.handleAt(1)))
+    return (EvalValue.null())
+}
+```
+
+Host arena — [`RgRanger2D.rgr`](./modules/ranger_2d/RgRanger2D.rgr).
+**Structures accessed:**
+
+| Structure | Fields touched | Role |
+|-----------|----------------|------|
+| `RgRanger2D.sprites:[RgSprite2D]` | `atlasH`, `regionIndex`, `x`, `y`, `layerSlot` | authoritative sprite payload |
+| `RgRanger2D.layers:[RgLayer2D]` | `childCount` | membership counter (not ownership) |
+| `RgRanger2D.registry:RgRegistry` | slot / gen / type / payload | typed handle table |
+| `OwnedHandle` | `handle`, `released` | ownership wrapper; mint → `bridge.owned[]` |
+| `RgHandle` | `slot`, `generation`, `realmId`, `typeId` | fat handle (`typeId` = `Rg2DType.sprite()` = 32) |
+
+```rgr
+class RgSprite2D {
+    def atlasH:RgHandle (new RgHandle)
+    def regionIndex:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def layerSlot:int 0    ; membership (0 = none)
+}
+
+fn spriteCreate:OwnedHandle (atlasH:RgHandle regionIndex:int) {
+    def idx:int (this.allocSprite())
+    def sp:RgSprite2D (itemAt this.sprites idx)
+    sp.atlasH = atlasH
+    sp.regionIndex = regionIndex
+    this.registry.retain(atlasH)                          ; D-OWN shared retain
+    def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.sprite()) idx))
+    return (OwnedHandle.own(h))
+}
+
+fn spriteSetPos:void (spriteH:RgHandle x:double y:double) {
+    def sp:RgSprite2D (this.spriteResolve(spriteH))       ; resolveTyped(sprite)
+    sp.x = x
+    sp.y = y
+}
+
+fn layerAdd:RgResolve (spriteH:RgHandle layerH:RgHandle) {
+    ; … resolveTyped sprite + layer …
+    sp.layerSlot = layerH.slot
+    ly.childCount = (ly.childCount + 1)
+}
+```
+
+The guest `Sprite2D` is a thin id holder. Authoritative pose/membership live in
+`RgSprite2D`. Reordering never changes the guest id (D-IDENTITY / D-2D).
 
 #### Path B — read input each frame
 
-Guest (`updatePlayer`):
+Guest — [`games/ylos2/index.tsx`](./games/ylos2/index.tsx):
 
 ```ts
 const pad = runtime.input.player(pl.slot);
 const left = pad.isDown("left");
 ```
 
-| Step | Actor | What happens |
-|------|-------|--------------|
-| 1 | façade | `player(index)` returns a **guest-only** helper (no host handle) |
-| 2 | façade | `isDown("left")` → `rgcore_input_is_down(index, "left")` |
-| 3 | bridge | decode `i:s` → `RgInput.isDown` → logical action state → `1`/`0` |
+Façade — [`modules/ranger_core/ranger_core.tsx`](./modules/ranger_core/ranger_core.tsx)
+(`__RgPlayerInput` is guest-only — no host handle):
 
-Who *feeds* the pad is outside the game: e2e uses `RgAttractDriver` + guest
-`autopilotBits`; a real device writes the same `RgInput` actions. The game
-never sees the source — only logical actions. That is genericity of **input
-policy** at the host edge, not inside the guest.
+```ts
+class __RgPlayerInput {
+  isDown(action) { return rgcore_input_is_down(this.index, action) > 0; }
+}
+```
+
+Schema — [`core_schema.rgr`](./registry/schema/core/core_schema.rgr):
+`rgcore_input_is_down` · `argSpec "i:s"` · ret `"i"`.
+
+Ranger call sites — bridge dispatch →
+[`RgInputSurface.rgr`](./modules/ranger_core/RgInputSurface.rgr):
+
+```rgr
+; RgRegistryBridge.dispatchRow
+if (row.name == "rgcore_input_is_down") {
+    if (this.input.isDown((a.intAt(0)) (a.strAt(1)))) {
+        return (RgRegistryBridge.retI(1))
+    }
+    return (RgRegistryBridge.retI(0))
+}
+
+; RgInput — modules/ranger_core/RgInputSurface.rgr
+fn isDown:boolean (playerIndex:int action:string) {
+    def p:RgPlayerInput (itemAt this.players playerIndex)
+    def idx:int (p.findAction(action))
+    if (idx < 0) { return false }
+    return (itemAt p.isDown idx)
+}
+```
+
+**Structures accessed:**
+
+| Structure | Fields | File |
+|-----------|--------|------|
+| `RgRegistryBridge.input:RgInput` | `players:[RgPlayerInput]` | `RgRegistryBridge.rgr` owns the instance |
+| `RgPlayerInput` | `actions:[string]`, `isDown:[boolean]`, `wasPressed:[boolean]` | `RgInputSurface.rgr` |
+
+Who *feeds* the pad is outside the game: e2e uses
+[`RgAttractDriver.rgr`](./runtime/game_host/RgAttractDriver.rgr) →
+`bridge.input.setAction(…)`; a real device writes the same arrays. The guest
+sees only logical action names.
 
 #### Path C — load the atlas from package data
 
-Guest (init):
+Guest — [`games/ylos2/index.tsx`](./games/ylos2/index.tsx):
 
 ```ts
 this.atlas = runtime.assets.loadSpriteAtlas("pkg://player.atlas");
 this.rIdle = this.atlas.regionIndex("idle");
 ```
 
-| Step | Actor | What happens |
-|------|-------|--------------|
-| 1 | façade | `rgcore_assets_load_atlas("pkg://player.atlas")` |
-| 2 | bridge | strip `pkg://`, read `{packageDir}/player.atlas` |
-| 3 | host | `textureCreate` → `atlasCreate` → `atlasAddRegion` / `atlasAddClip` |
-| 4 | bridge | mint atlas guest id; façade wraps `__RgLoadedAtlas` |
-| 5 | guest | `regionIndex("idle")` → `rg2d_atlas_region_index` (same atlas handle sprites use) |
+Façade — [`ranger_core.tsx`](./modules/ranger_core/ranger_core.tsx):
 
-**Profile split:** interpreter profile resolves synchronously; wasm profile
-lowers the *same* semantic op to D-ASYNC begin/poll. URI form is
-package-relative (`pkg://…`) — host filesystem paths never enter the game API
-(§2.7).
+```ts
+loadSpriteAtlas(uri) { return new __RgLoadedAtlas(rgcore_assets_load_atlas(uri)); }
+```
+
+Package file — [`games/ylos2/player.atlas`](./games/ylos2/player.atlas)
+(`texture` / `region` / `clip` lines).
+
+Ranger — bridge loads into the **same** 2D arenas sprites use
+([`RgRegistryBridge.loadAtlasAsset`](./interp/engine/RgRegistryBridge.rgr)):
+
+```rgr
+fn loadAtlasAsset:int (uri:string) {
+    ; strip pkg:// → read packageDir/rel
+    def raw:buffer (buffer_read_file pdir rel)
+    ; for each line:
+    ;   texture → d2.textureCreate + d2.atlasCreate + mintId
+    ;   region  → d2.atlasAddRegion(atlasH, name, x, y, w, h)
+    ;   clip    → d2.atlasAddClip(…)
+    return atlasGuestId
+}
+
+; dispatchRow:
+if (row.name == "rgcore_assets_load_atlas") {
+    def atlasId:int (this.loadAtlasAsset((a.strAt(0))))
+    return (RgRegistryBridge.retI(atlasId))
+}
+```
+
+**Structures accessed:**
+
+| Structure | Fields | File |
+|-----------|--------|------|
+| `RgRegistryBridge.packageDir` | game folder path | set by `RgGameHost.load` |
+| `RgRanger2D.textures:[RgTexture2D]` | `width`, `height` | `RgRanger2D.rgr` |
+| `RgRanger2D.atlases:[RgSpriteAtlas]` | `textureH`, `regions:[RgSpriteRegion]`, `clips:[RgAnimClip2D]` | same |
+| `RgSpriteRegion` | `name`, `x`, `y`, `w`, `h` | same |
+| `bridge.owned:[OwnedHandle]` | atlas (+ texture) guest ids | `RgRegistryBridge.rgr` |
+
+`regionIndex("idle")` then hits `rg2d_atlas_region_index` →
+`RgRanger2D.atlasRegionIndex` scanning `at.regions` by name — the same
+`RgSpriteAtlas` Path A’s sprites retain.
+
+**Profile split:** interpreter resolves synchronously here; wasm profile lowers
+the same semantic op to D-ASYNC begin/poll. URIs stay `pkg://…` (§2.7).
 
 #### Path D — render call → pane bind → pixels on the “display card”
 
-This is the full path to the framebuffer (the software stand-in for a display
-card / window surface).
-
-Guest (`update`):
+Guest — [`games/ylos2/index.tsx`](./games/ylos2/index.tsx):
 
 ```ts
 this.renderer.render(this.layer, this.cam1, 0);
 this.renderer.render(this.layer, this.cam2, 1);
 ```
 
-| Step | Actor | What happens |
-|------|-------|--------------|
-| 1 | façade | `rg2d_render(scene.id, cam.id, pane)` |
-| 2 | bridge | decode `h:h:i` → **`surface.paneSetView(pane, layerH, camH)`** |
-| 3 | — | **no pixels yet** — only host pane state is updated |
-| 4 | host (after update) | test/runtime: `Rg2DPresenter.present(bridge, pane, fb)` |
-| 5 | presenter | `paneLayer` / `paneCam` → real `RgHandle`s |
-| 6 | backend | `RgSoftwareRenderer2D.present2D(d2, fb, layerH, camH)` |
-| 7 | backend | for each live sprite on that layer: `worldToScreenSw*` → `fb.plot` |
+Façade — [`ranger_2d.tsx`](./modules/ranger_2d/ranger_2d.tsx):
 
-Split-screen is two pane binds of the **same** layer with two cameras — not
-two scene graphs. A GPU presenter is a sibling adapter over the same pane
-state; games and `RgGameHost` do not change.
+```ts
+class Renderer2D {
+  render(scene, cam, pane) { rg2d_render(scene.id, cam.id, pane); }
+}
+```
 
-e2e checks the end of this path: left/right framebuffers get non-zero centre
-pixels for P1/P2 (`tests/e2e/ylos2_e2e_test`).
+Schema: `rg2d_render` · `argSpec "h:h:i"` (layer, camera, pane index).
+
+**Step 6 — bind only (no pixels).** Bridge dispatch →
+[`RgSurface.paneSetView`](./modules/ranger_core/RgInputSurface.rgr):
+
+```rgr
+; RgRegistryBridge.dispatchRow
+if (row.name == "rg2d_render") {
+    this.surface.paneSetView((a.intAt(2)) (a.handleAt(0)) (a.handleAt(1)))
+    return (EvalValue.null())
+}
+
+; RgSurface — modules/ranger_core/RgInputSurface.rgr
+class RgPane {
+    def layerH:RgHandle (new RgHandle)   ; REAL handles, host-owned
+    def camH:RgHandle (new RgHandle)
+}
+fn paneSetView:void (i:int layerH:RgHandle camH:RgHandle) {
+    def p:RgPane (itemAt this.panes i)
+    p.layerH = layerH
+    p.camH = camH
+}
+```
+
+**Step 7 — present to the framebuffer** (“display card” stand-in).
+Caller (e2e / runtime) —
+[`Rg2DPresenter.rgr`](./runtime/game_host/Rg2DPresenter.rgr) +
+[`RgSoftwareRenderer2D.rgr`](./render/backends/software/RgSoftwareRenderer2D.rgr):
+
+```rgr
+; Rg2DPresenter.present
+sfn present:int (bridge:RgRegistryBridge paneIndex:int fb:RgFramebuffer) {
+    def layerH:RgHandle (bridge.surface.paneLayer(paneIndex))
+    def camH:RgHandle (bridge.surface.paneCam(paneIndex))
+    return (RgSoftwareRenderer2D.present2D(bridge.d2 fb layerH camH))
+}
+
+; RgSoftwareRenderer2D.present2D — READS host state only (D-SYNC)
+sfn present2D:int (d:RgRanger2D fb:RgFramebuffer layerH:RgHandle camH:RgHandle) {
+    def handles:[RgHandle] (d.liveSpriteHandles())
+    ; for each live sprite whose layerSlot == layerH.slot:
+    def sx:double (d.worldToScreenSwX(camH (d.spriteX(sh)) (d.spriteY(sh))))
+    def sy:double (d.worldToScreenSwY(camH (d.spriteX(sh)) (d.spriteY(sh))))
+    fb.plot(px py color)   ; RgFramebuffer.pixels:[int]
+}
+```
+
+**Structures accessed end-to-end:**
+
+| Structure | Access | File |
+|-----------|--------|------|
+| `RgSurface.panes:[RgPane]` | write `layerH`/`camH` at render; read at present | `RgInputSurface.rgr` |
+| `RgRanger2D.sprites` + `cameras` | read pose + camera math | `RgRanger2D.rgr` |
+| `RgRegistry` (via `liveSpriteHandles`) | enumerate live `typeId == sprite` slots | `RgRanger2D.rgr` / `host/RgRegistry.rgr` |
+| `RgFramebuffer.pixels:[int]` | `plot` / `at` | `RgSoftwareRenderer2D.rgr` |
+
+Split-screen = two pane binds of the **same** layer, two cameras — not two
+scene graphs. e2e asserts centre pixels on left/right fbs
+([`tests/e2e/ylos2_e2e_test.rgr`](./tests/e2e/ylos2_e2e_test.rgr)).
 
 #### Path E — lifecycle: `runtime.start` → init → update → present
 
-```text
-RgGameHost.load(dir, "index.tsx")
-  ├─ registerVirtualModule("ranger:core", …)
-  ├─ registerVirtualModule("ranger:2d", …)
-  ├─ loadScript(index.tsx)
-  │    ├─ materialize imports
-  │    └─ run top-level:  const __game = new Ylos2Game();
-  │                       runtime.start(__game);   // stores __rgGame
-  └─ callFunction("__rgGameInit")
-       └─ ranger_core: __rgGame.init()             // Path A + C + layout
+Guest top-level — [`games/ylos2/index.tsx`](./games/ylos2/index.tsx):
 
-each tick — RgGameHost.frame(dtMs)
-  ├─ callFunction("__rgGameUpdate", { dtMs })
-  │    └─ __rgGame.update(props)                   // Path B + D binds
-  ├─ bridge.frameBoundary(dt)                      // clock / audio / input edges
-  └─ (outside host) Rg2DPresenter.present(…)       // Path D pixels
+```ts
+const __game = new Ylos2Game();
+runtime.start(__game);
 ```
 
-Wasm guests export the same two entry points (`init` / `update`); only the
-transport of the host-owned tick differs. Attract-mode input
-(`RgAttractDriver` + optional `autopilotBits`) is out-of-band — the generic
-host stays input-agnostic.
+Façade lifecycle shims — [`ranger_core.tsx`](./modules/ranger_core/ranger_core.tsx):
+
+```ts
+start(game) { __rgGame = game; }
+function __rgGameInit() { return __rgGame.init(); }
+function __rgGameUpdate(props) { return __rgGame.update(props); }
+```
+
+Ranger host — [`RgGameHost.rgr`](./runtime/game_host/RgGameHost.rgr):
+
+```rgr
+fn load:boolean (dir:string file:string) {
+    this.bridge = (RgRegistryBridge.create())
+    this.engine.setNativeBridge(this.bridge)
+    this.engine.registerVirtualModule("ranger:core" (buffer_to_string coreSrc))
+    this.engine.registerVirtualModule("ranger:2d" (buffer_to_string twoSrc))
+    this.bridge.packageDir = dir
+    this.engine.loadScript((buffer_to_string game))   ; top-level runtime.start
+    def initR:EvalValue (this.engine.callFunction("__rgGameInit" (EvalValue.null())))
+    …
+}
+
+fn frame:void (dtMs:double) {
+    this.engine.callFunction("__rgGameUpdate" (EvalValue.object(keys vals)))
+    this.bridge.frameBoundary((dtMs / 1000.0))
+    ; present is NOT here — caller/presenter reads pane state (Path D step 7)
+}
+```
+
+```text
+RgGameHost.load
+  ├─ registerVirtualModule ranger:core / ranger:2d
+  ├─ loadScript → runtime.start(__game)          ; stores __rgGame in guest
+  └─ callFunction("__rgGameInit")                ; Paths A + C + surface layout
+
+RgGameHost.frame(dtMs)
+  ├─ callFunction("__rgGameUpdate", { dtMs })    ; Paths B + D binds
+  ├─ bridge.frameBoundary                        ; clock / audio / input edges
+  └─ (outside) Rg2DPresenter.present             ; Path D pixels
+```
+
+**Structures accessed at the host edge:**
+`RgGameHost.engine:ComponentEngine`, `RgGameHost.bridge:RgRegistryBridge`
+(owns `d2`, `input`, `surface`, `audio`, `clock`, `owned[]`). No ylos2 types
+appear in this file — only the lifecycle protocol.
+
+Wasm guests export the same two entry points; only the transport differs.
+Attract input (`RgAttractDriver` + optional `autopilotBits`) stays out-of-band.
 
 ### 6.4 One semantic op, two lowerings (preview)
 
