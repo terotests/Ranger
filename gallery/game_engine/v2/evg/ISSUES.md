@@ -229,3 +229,90 @@ See `gallery/pdf_writer/components/ListItem.tsx` for a component that demonstrat
 - A proper fix should distinguish between "inline" and "block" text elements
 - Consider adding a `display: inline` or similar property to control this behavior
 - Text measurement requires access to font metrics (FontManager in PDF writer context)
+
+---
+
+## Issue #4: `shadow*` (box-shadow / text-shadow) Modeled But Not Rendered
+
+**Status:** Open
+**Severity:** Medium
+**Found:** July 19, 2026 (render-path characterization)
+**Component:** ui/UIContext.rgr, ui/WasmUiSelect.rgr, scripting/wasm_ui_io.rgr
+
+### Description
+
+The element model declares `shadowRadius` / `shadowColor` / `shadowOffsetX` /
+`shadowOffsetY` (`evg/EVGElement.rgr:169-172`, initialized `:226-229`,
+unit-resolved `:478-480`, CSS-parsed `:794-807`), but **no rasterizer ever
+reads them**. `WasmUiRenderer.drawElement` (the pixel entry, `ui/WasmUiSelect.rgr`)
+has zero `shadow*` references, `ui/UIContext.rgr` has no shadow primitive, and
+`scripting/wasm_ui_io.rgr` has **no RGU1 key for shadow** (keys jump 55
+`glowIntensity` → 56 `BG_IMAGE`), so a WASM guest cannot even transmit them.
+
+A text drop-shadow primitive `RasterText.renderTextWithShadow`
+(`imaging/raster/RasterText.rgr:958`) exists but is unused — `UITextRenderer.drawLine`
+calls plain `renderText`.
+
+### Required Implementation
+
+1. Add a shadow primitive to `ui/UIContext.rgr` (offset + blurred rounded-rect
+   under the element fill).
+2. Call it from `WasmUiRenderer.drawElement` before the fill (~`WasmUiSelect.rgr:508`,
+   next to the existing `glowRoundRect` call).
+3. Add an RGU1 key for `shadow*` in `scripting/wasm_ui_io.rgr` so guests can
+   transmit the fields.
+
+### Notes
+
+- Glow (`glowIntensity`) IS rendered (`UIContext.glowRoundRect`, `ui/UIContext.rgr:333`),
+  so this is specifically the *shadow* fields that are dead, not the whole
+  effect family.
+
+---
+
+## Issue #5: Rounded-Corner Fills Are Not Anti-Aliased
+
+**Status:** Open
+**Severity:** Low (quality)
+**Found:** July 19, 2026 (render-path characterization)
+**Component:** ui/UIContext.rgr
+
+### Description
+
+Rounded corners DO render — `UIContext.fillRoundRectA` (`ui/UIContext.rgr:153`)
+clips per-pixel via `roundedInside` (`:130`), which tests `dx*dx + dy*dy <= r*r`
+against `borderRadiusPx`; the same test backs gradient/image fills and the
+border stroke, so the whole box honours the radius. But the corner test is a
+**hard boolean** — no sub-pixel coverage — so corner edges are aliased/jagged
+while the glyphs (TrueType) are anti-aliased, giving a visible sharpness
+asymmetry.
+
+### Required Implementation
+
+Add sub-pixel coverage (edge-distance → alpha) to `roundedInside` /
+`fillRoundRectA` so corner edges blend like the AA text.
+
+### Notes
+
+- Not a correctness bug — corners appear and are the right shape; this is a
+  pixel-quality gap only.
+
+---
+
+## Verified-Correct (no action needed)
+
+The July 19, 2026 characterization confirmed, with evidence PNGs, that two
+frequently-suspected areas are actually **correct** in the raster path
+(`ui/WasmUiSelect.rgr` → `ui/UIContext.rgr` → `imaging/raster/PNGEncoder.rgr`):
+
+- **Text centering (H + V).** `textAlign:"center"` measures real glyph pixel
+  width (`ctx.measureWidth`) and offsets by `(contentW - tw)/2` within the
+  content box (`WasmUiSelect.rgr:569-577`); vertical centering is
+  `(contentH - lineHeight)/2` (`:578`). Container `alignItems:"center"` centers
+  a shrink-wrapped text box in layout (`EVGLayout.rgr:574-585`). Any residual
+  mis-centering is the Issue #1 authoring case (a full-width text element with
+  default `textAlign:"left"` and no container `alignItems:center`) — a layout
+  matter, not the rasterizer.
+- **Glow.** `glowIntensity` is read and drawn as a soft halo
+  (`UIContext.glowRoundRect`). Correct (a ring-stack approximation, not a true
+  gaussian — a minor quality note only).
