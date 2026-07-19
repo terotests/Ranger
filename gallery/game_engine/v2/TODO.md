@@ -388,29 +388,34 @@ Contract: [`BRIDGES.md`](./BRIDGES.md) rev 2. Today steps 1–2 are done
 - Proves D-IDENTITY / D-OWN / D-SYNC across a second guest language.
 - Keeps content scope fixed while the **transport** is the variable under test.
 
-### Checklist
+### Checklist (aligns with “Validate the approach” sequence)
 
-- [ ] Author semantic IDL; stop growing the hand `dispatchRow` if-chain
-      (`RgRegistryBridge` — BRIDGES §2.4 / step 5 emitter replaces it)
-- [ ] Regenerate interpreter-profile command table from IDL; coverage gate red
-      on drift
-- [ ] wasm32 ABI profile + import surface under `bridge/` (or
-      `registry/generated/`)
+- [ ] Stabilize registry / IDL for current 2D + render-target / hybrid slice
+      (Texture2D, TextureView2D, RenderTarget, destinations, samplers — not
+      TSX-only)
+- [ ] Stop growing the hand `dispatchRow` if-chain; emitter replaces it
+      (`RgRegistryBridge` — BRIDGES §2.4)
+- [ ] Generate raw Rust `sys` imports from schema (no policy in that layer)
+- [ ] Safe `ranger_wasm`: `OwnedHandle<T>` (retain/release), errors, strings,
+      spans, `Game` + `export_game!`, typed descriptors
 - [ ] Golden wire vectors: handles, strings, spans, enums/results, typed errors
-- [ ] **Rust crate**: `ylos3d`-equivalent guest issuing the same registry
-      commands (split, sprites/atlases, 3D RTT gems, frame loop)
-- [ ] Host loads Rust wasm module through the generic path (no
-      game-specific `.rgr` shell — same rule as TSX packages)
-- [ ] Parity assertions: TSX ylos3d vs Rust ylos3d on host state / present
-      smoke (pixel or command-trace level)
-- [ ] old-guest / new-host compatibility runs before freeze
-- [ ] **Do not freeze** a published wasm32 ABI until step 7 criteria pass
+- [ ] **First E2E gate:** dual-source `wasm_parity` (TSX + Rust) — sprite move,
+      input, sound, small 3D RT→2D sprite, clean shutdown + trap cleanup;
+      compare command traces (see approach section)
+- [ ] TSX↔Rust command-trace parity gate in `tests/run.sh`
+- [ ] `GuestInstance` / `WasmGuestInstance` on host; WASM profile on SDL host
+- [ ] Same `.wasm` on macOS + Pi 5 (software present first)
+- [ ] Scale to **Rust `ylos3d`** reference (full hybrid slice)
+- [ ] old-guest / new-host compatibility runs
+- [ ] **Do not freeze** a published wasm32 ABI until TSX + Rust both pass on
+      one host (BRIDGES step 7)
 
 ### Explicit non-goals until W is green
 
 - [ ] Porting Chess or other v1 titles “to show progress”
 - [ ] Growing the launcher catalog with missing folders
 - [ ] Treating bridge fixture suites as sufficient WASM validation
+- [ ] Publishing ABI before the dual-source parity gate is green
 
 ---
 
