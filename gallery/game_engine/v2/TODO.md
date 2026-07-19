@@ -1,7 +1,7 @@
 # v2 — debt & readiness
 
-Working truth for agents: **`tests/run.sh` + this file + [`BRIDGES.md`](./BRIDGES.md)
-+ [`QUESTIONS.md`](./QUESTIONS.md)`**. The phase checkboxes in
+Working truth for agents: `tests/run.sh`, this file, [`BRIDGES.md`](./BRIDGES.md),
+and [`QUESTIONS.md`](./QUESTIONS.md). The phase checkboxes in
 [`CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md) are **stale** (only Phase 0
 marked `[x]` while suites already cover identity → present → e2e). Prefer the
 driver and the roadmap below over that checklist.
