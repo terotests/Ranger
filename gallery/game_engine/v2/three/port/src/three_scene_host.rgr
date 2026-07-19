@@ -212,6 +212,16 @@ class ThreeSceneHost {
         push entities m
         return (array_length entities)
     }
+    ; D-SYNC: create a mesh DETACHED — it gets a slot in entities[] (so it has a
+    ; stable handle and can be reparented later) but is added to NO scene's
+    ; children. Membership is established separately via entitySetParent.
+    fn meshNewDetached:int (geoH:int matH:int) {
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry((this.geometryAt(geoH)))
+        m.setMaterial((this.materialAt(matH)))
+        push entities m
+        return (array_length entities)
+    }
     ; --- hierarchy: nodes parented under another entity (not the scene) --------
     ; A transform-only node (THREE.Group / Object3D). parentH==0 => under the scene.
     fn groupNew:int (sceneH:int parentH:int) {

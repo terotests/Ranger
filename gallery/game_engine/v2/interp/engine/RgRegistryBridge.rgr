@@ -819,7 +819,7 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg3d_mesh_create") {
             this.d3.clearErr()
-            def o:OwnedHandle (this.d3.meshCreate((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2))))
+            def o:OwnedHandle (this.d3.meshCreate((a.handleAt(0)) (a.handleAt(1))))
             if ((o.handle.isValid()) == false) {
                 return (this.fail3d(row.name))
             }
@@ -843,6 +843,13 @@ class RgRegistryBridge extends EvalNativeBridge {
         if (row.name == "rg3d_entity_set_parent") {
             this.d3.clearErr()
             if ((this.d3.entitySetParent((a.handleAt(0)) (a.handleAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_entity_remove") {
+            this.d3.clearErr()
+            if ((this.d3.entityRemove((a.handleAt(0)) (a.handleAt(1)))) == false) {
                 return (this.fail3d(row.name))
             }
             return (EvalValue.null())

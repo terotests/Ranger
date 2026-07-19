@@ -382,8 +382,8 @@ class RegistryBridgeCoverageTest {
         push dirA (s.num(1.0))
         push dirA (s.num(0.3))
         def dirId:int (s.callI("rg3d_light_directional" dirA))
+        ; D-SYNC: DETACHED create (geo, mat); membership established below.
         def mesh3A:[EvalValue]
-        push mesh3A (s.num((to_double scene3)))
         push mesh3A (s.num((to_double octG)))
         push mesh3A (s.num((to_double matLambert)))
         def mesh3:int (s.callI("rg3d_mesh_create" mesh3A))
@@ -402,11 +402,19 @@ class RegistryBridgeCoverageTest {
         push scA (s.num(1.25))
         push scA (s.num(1.25))
         s.callN("rg3d_mesh_set_scale" scA)
-        ; D-SYNC standalone membership: reparent the mesh under the scene (root).
+        ; D-SYNC standalone membership: establish membership under the scene (root).
         ; Membership only — same guest id, no create/release; row-coverage + clean.
         def repA:[EvalValue]
         push repA (s.num((to_double mesh3)))
         push repA (s.num((to_double scene3)))
+        s.callN("rg3d_entity_set_parent" repA)
+        ; D-SYNC detach membership ONLY (row-coverage for rg3d_entity_remove): the
+        ; object is not destroyed, so re-attaching it below restores the scene
+        ; graph the render expects — same guest id throughout.
+        def remA:[EvalValue]
+        push remA (s.num((to_double scene3)))
+        push remA (s.num((to_double mesh3)))
+        s.callN("rg3d_entity_remove" remA)
         s.callN("rg3d_entity_set_parent" repA)
         ; Generic package .glb load (fixture under climber sample; not game-specific API)
         def mdlA:[EvalValue]

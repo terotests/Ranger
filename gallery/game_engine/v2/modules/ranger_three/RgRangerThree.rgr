@@ -163,14 +163,15 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
-    fn meshCreate:OwnedHandle (sceneH:RgHandle geoH:RgHandle matH:RgHandle) {
-        def sh:int (this.sceneH(sceneH))
-        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+    ; D-SYNC: DETACHED create — object lifetime is independent of scene
+    ; membership. No scene handle: builds the mesh into entities[] without adding
+    ; it to any scene. Membership is established separately via entitySetParent.
+    fn meshCreate:OwnedHandle (geoH:RgHandle matH:RgHandle) {
         def gh:int (this.geometryH(geoH))
         if (gh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
         def mh:int (this.materialH(matH))
         if (mh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
-        def th:int (this.host.meshNew(sh gh mh))
+        def th:int (this.host.meshNewDetached(gh mh))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
         return (OwnedHandle.own(h))
     }
@@ -212,6 +213,20 @@ class RgRangerThree {
         }
         this.lastErr = "wrong-type:parent"
         return false
+    }
+
+    ; D-SYNC: detach an entity from a scene — MEMBERSHIP ONLY. The object is NOT
+    ; destroyed (entities[] slot and handle survive), so a later entitySetParent
+    ; can re-attach it. Resolves both handles typed (scene via sceneH, entity via
+    ; meshH); returns false (typed bad-handle in lastErr) on any unresolved
+    ; handle, mirroring meshTransform's guard so the bridge yields a typed error.
+    fn entityRemove:boolean (sceneH:RgHandle entH:RgHandle) {
+        def sh:int (this.sceneH(sceneH))
+        if (sh == 0) { return false }
+        def eh:int (this.meshH(entH))
+        if (eh == 0) { return false }
+        this.host.entityRemove(sh eh)
+        return true
     }
 
     ; Attach a host-decoded Object3D subtree (e.g. from ThreeGLTFFile.loadGLB).

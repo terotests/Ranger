@@ -1,15 +1,21 @@
 ; ==============================================================================
-; registry_entity_parent_test — D-SYNC increment 1: standalone membership.
+; registry_entity_parent_test — D-SYNC increments 1 & 2: standalone membership.
 ; ==============================================================================
-; Exercises `rg3d_entity_set_parent` through the REAL generic bridge exactly as
-; a guest would (invoke with EvalValue args). It asserts the D-SYNC primitive
-; that the live path was missing: membership decoupled from creation. A mesh is
-; created into scene A, then reparented to scene B via a STANDALONE command:
-;   (i)   the invoke is a clean, typed success (errorCount == 0);
-;   (ii)  membership actually moved on the live Three tree — scene A no longer
-;         counts the mesh as a child, scene B now does;
-;   (iii) the mesh handle/id is UNCHANGED — no second create, no release; the
-;         host entity count is identical before and after (pure reparent).
+; Exercises the D-SYNC binding contract through the REAL generic bridge exactly
+; as a guest would (invoke with EvalValue args): object lifetime and scene
+; membership are INDEPENDENT. The faithful lifecycle is:
+;   const mesh = new THREE.Mesh(geometry, material);  // DETACHED create
+;   scene.add(mesh);                                  // establish membership
+;   scene.remove(mesh);                               // detach only — keep obj
+; It asserts, at the registry level:
+;   (1) `rg3d_mesh_create(geo,mat)` returns a valid mesh that is in NO scene yet
+;       (creating it does not change any scene's child count) — DETACHED create;
+;   (2) `rg3d_entity_set_parent(mesh, sceneA)` moves membership: sceneA +1 at
+;       that call, a clean typed success (errorCount unchanged);
+;   (3) `rg3d_entity_remove(sceneA, mesh)` detaches membership ONLY: sceneA −1,
+;       host entity count unchanged, and the mesh handle STAYS valid — a later
+;       `set_parent(mesh, sceneB)` re-attaches the SAME object (not destroyed).
+; errorCount is 0 across the whole lifecycle.
 ; ==============================================================================
 
 Import "../../../interp/engine/RgRegistryBridge.rgr"
@@ -60,38 +66,55 @@ class RegistryEntityParentTest {
         push matA (s.num(16711680.0))
         def mat:int (s.callI("rg3d_material_basic" matA))
 
+        ; --- (1) DETACHED create: mesh_create(geo, mat) — in NO scene yet ------
         def meshA:[EvalValue]
-        push meshA (s.num((to_double sceneA)))
         push meshA (s.num((to_double boxG)))
         push meshA (s.num((to_double mat)))
         def mesh:int (s.callI("rg3d_mesh_create" meshA))
-        t.ok("mesh minted into scene A" (mesh > 0))
+        t.ok("mesh minted (detached)" (mesh > 0))
+        t.eqInt("detached create leaves scene A empty" (s.sceneChildCount(sceneA)) 0)
+        t.eqInt("detached create leaves scene B empty" (s.sceneChildCount(sceneB)) 0)
 
-        ; membership + identity BEFORE the reparent
-        t.eqInt("scene A has the mesh as its child" (s.sceneChildCount(sceneA)) 1)
-        t.eqInt("scene B has no children yet" (s.sceneChildCount(sceneB)) 0)
+        ; --- (2) establish membership: set_parent(mesh, sceneA) -> sceneA +1 ---
+        def errBeforeAttach:int b.errorCount
+        def parA:[EvalValue]
+        push parA (s.num((to_double mesh)))
+        push parA (s.num((to_double sceneA)))
+        s.callN("rg3d_entity_set_parent" parA)
+        t.eqInt("set_parent to A is a clean typed success (no bridge error)"
+            b.errorCount errBeforeAttach)
+        t.eqInt("scene A now counts the mesh at that call" (s.sceneChildCount(sceneA)) 1)
+        t.eqInt("scene B still empty" (s.sceneChildCount(sceneB)) 0)
+
         def entitiesBefore:int (b.d3.host.entityCount())
-        def errBefore:int b.errorCount
 
-        ; --- the STANDALONE membership command: reparent mesh A -> scene B -----
-        def repA:[EvalValue]
-        push repA (s.num((to_double mesh)))
-        push repA (s.num((to_double sceneB)))
-        s.callN("rg3d_entity_set_parent" repA)
-
-        ; (i) clean typed success — the command dispatched without error
-        t.eqInt("reparent is a clean typed success (no bridge error)"
-            b.errorCount errBefore)
-
-        ; (ii) membership moved on the live tree
+        ; --- (3) detach membership ONLY: entity_remove(sceneA, mesh) ----------
+        ; Scene.remove drops the membership edge but MUST NOT destroy the object.
+        def errBeforeRemove:int b.errorCount
+        def remA:[EvalValue]
+        push remA (s.num((to_double sceneA)))
+        push remA (s.num((to_double mesh)))
+        s.callN("rg3d_entity_remove" remA)
+        t.eqInt("remove is a clean typed success (no bridge error)"
+            b.errorCount errBeforeRemove)
         t.eqInt("scene A no longer counts the mesh" (s.sceneChildCount(sceneA)) 0)
-        t.eqInt("scene B now counts the mesh" (s.sceneChildCount(sceneB)) 1)
-
-        ; (iii) pure reparent — no second create, no release
-        t.eqInt("host entity count unchanged (no alloc/release)"
+        t.eqInt("host entity count unchanged (detach, not destroy)"
             (b.d3.host.entityCount()) entitiesBefore)
-        t.ok("mesh guest id still live after reparent"
+        t.ok("mesh guest id still live after remove (object outlives membership)"
             ((b.resolveGuestId(mesh)).isValid()))
+
+        ; the SAME (undestroyed) object re-attaches under a different scene
+        def repB:[EvalValue]
+        push repB (s.num((to_double mesh)))
+        push repB (s.num((to_double sceneB)))
+        s.callN("rg3d_entity_set_parent" repB)
+        t.eqInt("scene B now counts the re-attached mesh" (s.sceneChildCount(sceneB)) 1)
+        t.eqInt("scene A stays empty" (s.sceneChildCount(sceneA)) 0)
+        t.eqInt("host entity count still unchanged (pure membership)"
+            (b.d3.host.entityCount()) entitiesBefore)
+
+        ; errorCount 0 throughout the lifecycle
+        t.eqInt("no bridge errors across the whole lifecycle" b.errorCount 0)
 
         t.summary()
     }

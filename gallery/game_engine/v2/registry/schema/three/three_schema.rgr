@@ -42,11 +42,15 @@ class ThreeSchema {
 
         ; ---- Mesh3D (34) -----------------------------------------------------
         def mesh:RgClassDef (RgClassDef.of(34 "Mesh3D"))
-        mesh.addMethod((RgMethodDef.cmd(3030 "rg3d_mesh_create" "rg3d_mesh_create" "h:h:h" "h" "create")))
+        ; D-SYNC: DETACHED create — object lifetime is independent of scene
+        ; membership. Args are (geo, mat); membership is established separately.
+        mesh.addMethod((RgMethodDef.cmd(3030 "rg3d_mesh_create" "rg3d_mesh_create" "h:h" "h" "create")))
         mesh.addMethod((RgMethodDef.cmd(3031 "rg3d_mesh_transform" "rg3d_mesh_transform" "h:d:d:d:d:d:d" "v" "none")))
         mesh.addMethod((RgMethodDef.cmd(3032 "rg3d_mesh_set_scale" "rg3d_mesh_set_scale" "h:d:d:d" "v" "none")))
         ; D-SYNC: standalone membership — reparent an existing entity (child, parent).
         mesh.addMethod((RgMethodDef.cmd(3033 "rg3d_entity_set_parent" "rg3d_entity_set_parent" "h:h" "v" "none")))
+        ; D-SYNC: detach membership ONLY (scene, entity) — do NOT destroy the object.
+        mesh.addMethod((RgMethodDef.cmd(3034 "rg3d_entity_remove" "rg3d_entity_remove" "h:h" "v" "none")))
         s.addClass(mesh)
 
         ; ---- Renderer3D (35) — RTT into a Texture2D / RenderTarget ------------
