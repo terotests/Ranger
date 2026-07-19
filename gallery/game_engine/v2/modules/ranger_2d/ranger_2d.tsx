@@ -44,6 +44,12 @@ class Camera2D {
   set(x, y, zoom, rotation) { rg2d_camera_set(this.id, x, y, zoom, rotation); }
 }
 
+class Renderer2D {
+  // frame pipeline step 6: the GAME calls render; each call binds
+  // (scene/layer, camera) to a pane; the host presents at step 7.
+  render(scene, cam, pane) { rg2d_render(scene.id, cam.id, pane); }
+}
+
 class AnimPlayer2D {
   id = 0;
   constructor(sprite, clipIndex) { this.id = rg2d_player_create(sprite.id, clipIndex); }

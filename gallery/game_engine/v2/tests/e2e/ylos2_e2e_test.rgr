@@ -22,6 +22,9 @@ class Ylos2E2ETest {
         t.ok("generic host loaded games/ylos2 (TSX only)"
             (host.load("gallery/game_engine/v2/games/ylos2" "index.tsx")))
         t.eqInt("no bridge errors in init" host.bridge.errorCount 0)
+        ; guest-side test fixture (rule 5): observations live beside the game
+        t.ok("test fixture loaded"
+            (host.loadFixture("gallery/game_engine/v2/games/ylos2/tests" "probe.tsx")))
 
         ; the guest's creations are REAL host arena state
         t.eqInt("27 retained sprites (17 static + 8 moving + 2 players)"

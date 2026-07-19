@@ -19,6 +19,8 @@ class LauncherE2ETest {
 
         t.ok("generic host loaded menu/launcher.tsx"
             (host.load("gallery/game_engine/v2/menu" "launcher.tsx")))
+        t.ok("menu test fixture loaded"
+            (host.loadFixture("gallery/game_engine/v2/menu/tests" "probe.tsx")))
         t.eqInt("categories page open" (to_int (host.callSlot("currentPage" 0))) 0)
         t.eqInt("two category tiles" (to_int (host.callSlot("tileCount" 0))) 2)
         t.eqInt("three retained sprites (2 tiles + cursor)"
@@ -56,6 +58,7 @@ class LauncherE2ETest {
         t.eqInt("no bridge errors in the menu session" host.bridge.errorCount 0)
 
         t.ok("host honoured the launch request (fresh realm)" (host.loadLaunched()))
+        host.loadFixture("gallery/game_engine/v2/games/ylos2/tests" "probe.tsx")
         t.eqInt("launched game built its scene (27 sprites)"
             (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 27)
         def y0:double (host.callSlot("playerY" 0))

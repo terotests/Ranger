@@ -25,6 +25,8 @@ class __RgPane {
 }
 
 class __RgSurface {
+  renderer = null;
+  attachRenderer(r) { this.renderer = r; }
   setLayout(mode) {
     let m = 0;
     if (mode == "split-horizontal") { m = 1; }
@@ -75,6 +77,21 @@ class __RgAudio {
   createSource(clip) { return new AudioSource(clip); }
 }
 
+// An atlas loaded through runtime.assets: same host object the ranger:2d
+// SpriteAtlas wraps (sprites take it by .id); regions/clips come from the
+// package's .atlas data, resolved by name.
+class __RgLoadedAtlas {
+  id = 0;
+  constructor(id) { this.id = id; }
+  regionIndex(name) { return rg2d_atlas_region_index(this.id, name); }
+}
+
+class __RgAssets {
+  // interpreter profile: resolves synchronously; wasm profile lowers to the
+  // D-ASYNC begin/poll pair. URI is package-relative ("pkg://player.atlas").
+  loadSpriteAtlas(uri) { return new __RgLoadedAtlas(rgcore_assets_load_atlas(uri)); }
+}
+
 class __RgTime {
   now() { return rgcore_time_now(); }
 }
@@ -93,6 +110,7 @@ class __RgRuntime {
   surface = new __RgSurface();
   input = new __RgInput();
   audio = new __RgAudio();
+  assets = new __RgAssets();
   time = new __RgTime();
   log = new __RgLog();
   platform = new __RgPlatform();

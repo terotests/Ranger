@@ -786,6 +786,17 @@ class ComponentEngine {
         context = saved
     }
 
+    ; Evaluate an ADDITIONAL guest source in the SAME realm/module scope (no
+    ; reset): the test-fixture door (games/AGENTS.md rule 5) — guest-side test
+    ; observations load beside a game without touching production source.
+    fn loadAdditionalScript:void (src:string) {
+        def ast:TSNode (this.parseProgramFromSrc(src))
+        this.processImports(ast)
+        this.registerComponents(ast)
+        this.processVariables(ast)
+        this.runTopLevelStatements(ast)
+    }
+
     fn updateLocalComponentNode:void (name:string node:TSNode) {
         def i:int 0
         while (i < (array_length localComponents)) {

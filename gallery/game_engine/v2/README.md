@@ -205,9 +205,16 @@ checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
   `runtime.start(new Ylos2Game())`, driven through the `__rgGameInit/Update`
   entry points (same two entry points a wasm guest exports). Engine work:
   virtual-module registration + top-level statement execution + a caller-`this`
-  argument-binding fix in `callUserFunctionNode`. KNOWN LIMIT (tracked):
-  module bindings still land in the shared scope — per-namespace isolation is
-  the remaining scope rework gated by `interp/module_isolation`.
+  argument-binding fix in `callUserFunctionNode`. The example is COMPLETE:
+  assets from package data (`runtime.assets.loadSpriteAtlas("pkg://…")` over
+  the documented `.atlas` format, wasm profile lowers to D-ASYNC begin/poll),
+  the game owns its render calls (`renderer.render(scene, cam, pane)` — frame
+  pipeline step 6; `rg2d_render` binds pane views host-side), and test
+  observations moved to guest fixtures (`games/<name>/tests/probe.tsx` via the
+  host's fixture door — rule 5 satisfied, production exports none). KNOWN
+  LIMIT (tracked): module bindings still land in the shared scope —
+  per-namespace isolation is the remaining scope rework gated by
+  `interp/module_isolation`.
   Gate: `tests/e2e/ylos2_e2e_test` (22 checks). Bridge design: `BRIDGES.md`
   (rev 2 — semantic IDL + per-target ABI profiles, after design review).
 - **Launcher menu as a TSX guest + menu→game handoff: ✅ green.**

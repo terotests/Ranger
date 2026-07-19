@@ -102,9 +102,13 @@ GameRunner analog) — adding a new v2 game means adding a game folder with
 defines a class with `init()` / `update(props)`, and calls
 `runtime.start(new MyGame())` — no ambient façade globals, no concatenation.
 Host lifecycle protocol: `__rgGameInit` / `__rgGameUpdate` (provided by
-ranger:core, not authored per game);
-presentation is declared once via `surfacePaneView(pane, layer, cam)` (real
-handles stored in host pane state — no guest accessor round trip; a presenter
-reads pane state and picks the renderer). Optional `autopilotBits(slot)`
-attract mode is consumed by the separate `RgAttractDriver`, never by the host.
+ranger:core, not authored per game). Assets load from package data via
+`runtime.assets.loadSpriteAtlas("pkg://player.atlas")` (host resolves inside
+the package; filesystem paths never cross). The GAME owns its render calls:
+`renderer.render(scene, camera, pane)` each update binds a pane's view (real
+handles in host pane state); the presenter reads pane state and picks the
+backend. Optional `autopilotBits(slot)` attract mode is consumed by the
+separate `RgAttractDriver`, never by the host. Guest-side test observations
+live in `games/<name>/tests/probe.tsx` fixtures loaded through the host's
+fixture door — production sources export none (rule 5 satisfied).
 E2E gates: `../tests/e2e/ylos2_e2e_test`, `../tests/e2e/launcher_e2e_test`.

@@ -42,6 +42,14 @@ class CoreSchema {
         audio.addMethod((RgMethodDef.cmd(1025 "rgcore_music_stop" "rgcore_music_stop" "" "v" "none")))
         s.addClass(audio)
 
+        ; ---- Assets (16) — package-relative asset loading --------------------
+        ; Interpreter profile resolves synchronously; the wasm profile lowers
+        ; this to the D-ASYNC begin/poll pair. URI is package-relative
+        ; ("pkg://player.atlas") — host filesystem paths never cross.
+        def assets:RgClassDef (RgClassDef.of(16 "Assets"))
+        assets.addMethod((RgMethodDef.cmd(1060 "rgcore_assets_load_atlas" "rgcore_assets_load_atlas" "s" "h" "create")))
+        s.addClass(assets)
+
         ; ---- Time (13) — runtime.time, host-driven clock ---------------------
         def time:RgClassDef (RgClassDef.of(13 "Time"))
         time.addMethod((RgMethodDef.cmd(1030 "rgcore_time_now" "rgcore_time_now" "" "d" "none")))

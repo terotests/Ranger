@@ -11,8 +11,7 @@
 // GRAV / MOVE / JUMP_* constants (px/ms), variable-height jump, land-on-top
 // collision, per-player camera scroll, goal → celebration, split-screen.
 // Out of scope for this port: enemies, bullets, fruits/diamonds, super mode,
-// LPC art. `runtime.assets.loadSpriteAtlas` is MISSING from the interim core
-// package, so the atlas is still built by hand (tracked deviation).
+// LPC art.
 // ============================================================================
 
 import { runtime } from "ranger:core";
@@ -79,6 +78,7 @@ class Ylos2Game {
   rWalk = 0;
   walkClip = 0;
   celebrateSfx = null;
+  renderer = null;
   movingPlats = [];
   platformSprites = [];
   players = [];
@@ -103,16 +103,18 @@ class Ylos2Game {
     runtime.surface.pane(0).assignPlayer(0);
     runtime.surface.pane(1).assignPlayer(1);
 
-    const tex = new TWO.Texture2D(256, 256);
-    this.atlas = new TWO.SpriteAtlas(tex);
-    this.rIdle = this.atlas.addRegion("idle", 0, 0, 32, 48);
-    this.rWalk = this.atlas.addRegion("walk", 32, 0, 32, 48);
-    const rPlat = this.atlas.addRegion("plat", 64, 0, 32, 8);
-    this.walkClip = this.atlas.addClip("walk", [this.rIdle, this.rWalk], [120, 120]);
+    // the atlas comes from package data via the assets capability
+    this.atlas = runtime.assets.loadSpriteAtlas("pkg://player.atlas");
+    this.rIdle = this.atlas.regionIndex("idle");
+    this.rWalk = this.atlas.regionIndex("walk");
+    const rPlat = this.atlas.regionIndex("plat");
+    this.walkClip = 0;   // first clip declared in player.atlas
 
     this.layer = new TWO.Layer2D();
     this.cam1 = new TWO.Camera2D();
     this.cam2 = new TWO.Camera2D();
+    this.renderer = new TWO.Renderer2D();
+    runtime.surface.attachRenderer(this.renderer);
     // clip ≠ source (D-LIFE): the source is created from an explicit clip
     const clip = runtime.audio.createClip();
     this.celebrateSfx = runtime.audio.createSource(clip);
@@ -145,10 +147,6 @@ class Ylos2Game {
     this.layer.add(p1.sprite);
     this.layer.add(p2.sprite);
     this.players = [p1, p2];
-
-    // declare each pane's view once — host-owned pane state drives presentation
-    runtime.surface.pane(0).setView(this.layer, this.cam1);
-    runtime.surface.pane(1).setView(this.layer, this.cam2);
 
     runtime.log.info("ylos2-v2 init: platforms=" + (BASE_PLATFORMS.length + BASE_MOVING_PLATFORMS.length));
     return 1;
@@ -259,6 +257,9 @@ class Ylos2Game {
     this.updatePlayer(this.players[0], dt);
     this.updatePlayer(this.players[1], dt);
     this.updateCameras();
+    // the game owns its render calls (one per pane, split-screen)
+    this.renderer.render(this.layer, this.cam1, 0);
+    this.renderer.render(this.layer, this.cam2, 1);
     return 1;
   }
 
@@ -300,9 +301,3 @@ function autopilotBits(slot) {
   }
   return bits;
 }
-
-// ---- test observations (games/AGENTS.md rule 5 — to migrate to fixtures) ---
-function playerY(slot) { return __game.players[slot].y; }
-function playerX(slot) { return __game.players[slot].x; }
-function reachedGoal(slot) { return __game.players[slot].reachedGoal; }
-function playerSpriteId(slot) { return __game.players[slot].sprite.id; }

@@ -184,6 +184,26 @@ class RegistryBridgeCoverageTest {
         t.ok("pane 0 layer handle stored" (pl0.isValid()))
         t.ok("pane 0 camera handle stored" (pc0.isValid()))
 
+        ; render: the guest's render call binds (layer, camera) to a pane
+        def rnA:[EvalValue]
+        push rnA (s.num((to_double layer)))
+        push rnA (s.num((to_double cam)))
+        push rnA (s.num(1.0))
+        s.callN("rg2d_render" rnA)
+        def pl1:RgHandle (b.surface.paneLayer(1))
+        t.ok("render bound pane 1 view" (pl1.isValid()))
+
+        ; assets: package-relative atlas load builds real host objects
+        b.packageDir = "gallery/game_engine/v2/games/ylos2"
+        def asA:[EvalValue]
+        push asA (s.str("pkg://player.atlas"))
+        def loadedAtlas:int (s.callI("rgcore_assets_load_atlas" asA))
+        t.ok("asset atlas loaded" (loadedAtlas > 0))
+        def riA2:[EvalValue]
+        push riA2 (s.num((to_double loadedAtlas)))
+        push riA2 (s.str("walk"))
+        t.eqInt("asset atlas resolves region by name" (s.callI("rg2d_atlas_region_index" riA2)) 1)
+
         def clipArgs:[EvalValue]
         def clipH:int (s.callI("rgcore_audio_clip_create" clipArgs))
         def srcA:[EvalValue]
