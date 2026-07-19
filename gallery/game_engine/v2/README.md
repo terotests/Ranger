@@ -15,7 +15,7 @@ interpreter + host arenas + WASM bridge first; rendering last.
 |--------|------|-----------------|
 | [`registry/`](./registry/) | Schema + codegen for every surface | Phase 3 |
 | [`interp/`](./interp/) | TSX evaluator, identity, adapter | Phase 1 → 4 |
-| [`host/`](./host/) | Handles, typed arenas, commands | Phase 2 |
+| [`host/`](./host/) | Handles, typed arenas, ownership (D-OWN), commands | Phase 2 |
 | [`bridge/`](./bridge/) | WASM imports, module inject, parity | Phase 5 |
 | [`modules/`](./modules/) | `ranger:*` + `ranger_wasm` façades | Phase 8 |
 | [`runtime/`](./runtime/) | Host-driven `Game` loop | Phase 8–10 |

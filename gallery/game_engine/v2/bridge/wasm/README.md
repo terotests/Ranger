@@ -6,6 +6,7 @@ rg_* imports and ranger_game_* host linkage for WASM guests.
 
 ## Binding decisions
 
+- D-ASYNC (begin/poll — no callbacks)
 - D-WASM
 - D-HANDLE
 

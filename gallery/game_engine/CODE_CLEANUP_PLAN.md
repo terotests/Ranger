@@ -21,6 +21,25 @@ Engine work still starts headless (evaluator + create/free over the bridge)
 before any v2 game needs pixels. Games arrive once the modules they call are
 gated — not by bulk-moving `gallery/game_engine/games/`.
 
+### Contract sync (master)
+
+[`CODE_CLEANUP.md`](./CODE_CLEANUP.md) on master now includes binding detail
+this plan must follow (merged after the first scaffold draft):
+
+| Addition | Plan impact |
+|----------|-------------|
+| **Hybrid binding invariants** (under D-ADAPTER) | Phase 4 — cached wrapper identity, dual revisions, turn-start refresh, guest-wins |
+| **D-OWN** — who retains / releases | Phases 2, 5, 6 — ownership table tests; borrowed getters; weak attachments |
+| **D-ASYNC** — poll + frame-boundary completions | Phases 5 / 8 / 10 — `begin`/`poll`/`cancel`/`release`; no ABI callbacks |
+| **D-REGISTRY ID immutability** | Phase 3 — golden id table; tombstones; codegen fails on meaning change |
+| **D-GEO aliasing split** | Phase 7 — Ranger-native one-copy vs Three-compat staging + `needsUpdate` |
+| **Module namespace isolation** | Phase 8 prerequisite (interp) — before `ranger:*` injection |
+| **Frame pipeline** (`runtime.start`) | Phase 8–10 — drain async completions between guest turns |
+| **`WASM_MEMORY_ABI.md` span/status rules** | Phase 5/7 — one span convention; status codes ≠ result counts |
+
+Gate order and required tests in CODE_CLEANUP’s **Implementation gates**
+section are authoritative; the phase table below tracks them.
+
 ---
 
 **Goal:** implement the live-object host model unit-testably from the bottom up —
@@ -90,8 +109,9 @@ gallery/game_engine/v2/
 │   ├── engine/                    # ComponentEngine evaluation core
 │   ├── semantics/                 # ===, Map/Set, undefined (D-IDENTITY)
 │   ├── adapter/                   # construct / get / set / invoke
-│   │   ├── residency/             # guest | host | hybrid
+│   │   ├── residency/             # guest | host | hybrid (+ hybrid invariants)
 │   │   └── overlay/               # D-PROP expandos / userData
+│   ├── module_isolation/          # per-import namespaces (D-MODULES prerequisite)
 │   └── migrate/                   # notes + staged copies from pdf_writer
 ├── host/                          # authoritative state (no render)
 │   ├── handles/                   # fat handle, realm, generation (D-HANDLE)
@@ -113,20 +133,24 @@ gallery/game_engine/v2/
 │   │       ├── action_map/
 │   │       └── gamepad/
 │   ├── lifetime/                  # object ≠ membership ≠ backend (D-LIFE)
+│   ├── ownership/                 # D-OWN retain/borrow/weak attach rules
 │   ├── commands/                  # registry command implementations
 │   └── tests/
 │       ├── create_release/
 │       ├── membership/
 │       ├── dispose_backend/
+│       ├── ownership/             # D-OWN table conformance
 │       └── stale_cross_realm/
 ├── bridge/                        # guest ↔ host crossings
 │   ├── wasm/
 │   │   ├── imports/               # rg_* import stubs / lowering
 │   │   ├── memory/                # D-WASM-MEM bounds checks
+│   │   ├── async/                 # D-ASYNC begin/poll/cancel/release
 │   │   ├── lifecycle/             # ranger_game_* exports host side
 │   │   └── tests/
 │   │       ├── create_free/
 │   │       ├── retain_release/
+│   │       ├── async_poll/
 │   │       └── span_bounds/
 │   ├── modules/                   # inject ranger:* into a realm
 │   └── parity/                    # TSX vs WASM command parity harness
@@ -174,8 +198,10 @@ gallery/game_engine/v2/
     ├── contract/                  # named after D-* decisions
     │   ├── d_identity/
     │   ├── d_life/
+    │   ├── d_own/
     │   ├── d_handle/
     │   ├── d_geo/
+    │   ├── d_async/
     │   └── d_modules/
     └── fixtures/
         ├── tsx_scripts/
@@ -195,20 +221,20 @@ of `gallery/game_engine/games/`.
 |-------|------|------------|------------|
 | **0** | Scaffold `v2/` + folder READMEs | — | No |
 | **1** | Interp values + D-IDENTITY semantics | 0 | No |
-| **2** | Host handles + typed arenas (create/release) | 0 | No |
-| **3** | Registry schema + command stubs | 0 | No |
-| **4** | Native adapter (D-ADAPTER / D-PROP) over arenas | 1, 2, 3 | No |
-| **5** | WASM import surface (create/free/retain/release) | 2, 3 | No |
-| **6** | D-LIFE membership + dispose_backend | 2, 4, 5 | No |
-| **7** | D-GEO bulk attributes + D-WASM-MEM | 5, 6 | No |
-| **8** | `ranger:*` modules + `runtime` root | 4, 5 | No |
+| **2** | Host handles + arenas create/release (**D-OWN** table) | 0 | No |
+| **3** | Registry schema + codegen + **ID immutability** | 0 | No |
+| **4** | Native adapter + hybrid invariants (D-ADAPTER / D-PROP) | 1, 2, 3 | No |
+| **5** | WASM create/free/retain/release + **D-ASYNC** poll stubs | 2, 3 | No |
+| **6** | D-LIFE + D-OWN membership / dispose / weak attach | 2, 4, 5 | No |
+| **7** | D-GEO bulk + aliasing split + D-WASM-MEM | 5, 6 | No |
+| **8** | Module isolation → `ranger:*` + frame pipeline | 4, 5 | No |
 | **9** | Physics arenas + pose sync (no draw) | 6, 8 | No |
-| **10** | Audio / input / surface (headless fakes OK) | 8 | No |
+| **10** | Audio / input / surface (D-OWN voices, D-ASYNC loads) | 8 | No |
 | **11** | Render backends (software first, then GL) | 6–10 | **Yes** |
-| **12** | Re-implement selected games in `v2/games/` + `RETIRE-RECONCILE` | 11 | Yes |
+| **12** | Selected `v2/games/` ports + `RETIRE-RECONCILE` | 11 | Yes |
 
 Phases 1–5 are the critical path: **before any frame is drawn**, create and free
-objects through both bridges under unit tests.
+objects through both bridges under unit tests (ownership rules included).
 
 ---
 
@@ -265,34 +291,38 @@ one host handle”.
 
 ---
 
-## Phase 2 — Host handles and arenas (create / free)
+## Phase 2 — Host handles and arenas (create / free + D-OWN)
 
 **Goal:** typed arenas that allocate and release generation-checked handles with
-**no** scene graph rendering and **no** GPU.
+**no** scene graph rendering and **no** GPU. Ownership follows **D-OWN**.
 
 **Implement first arenas (minimal):**
 
 1. `host/arenas/three/geometry` — empty geometry create / release
 2. `host/arenas/three/material` — basic material create / release
-3. `host/arenas/three/mesh` — mesh create retaining geo/mat; release
+3. `host/arenas/three/mesh` — mesh create **retains** geo/mat; release
 4. `host/handles` — pack/unpack, realm tag, stale rejection
+5. `host/ownership` — owned vs borrowed vs weak-attachment bookkeeping
 
 **Unit tests (gate)**
 
 | Test area | Asserts |
 |-----------|---------|
-| `host/tests/create_release` | create → live; release → slot free; double-release rejected |
+| `host/tests/create_release` | create → live; release → slot free; **second release through same wrapper → typed error** |
+| `host/tests/ownership` | `meshCreate` retains geo/mat; getter returns borrowed (no refcount change) |
 | `host/tests/stale_cross_realm` | wrong generation / wrong realm → error, no UB |
 | `host/handles/tests` | fat two-word handle round-trip; wrap policy documented |
+| `tests/contract/d_own` | ownership table rows for create / getter / arg / setGeometry |
 
 **Still no** `render()`, no SDL, no software rasterizer.
 
 ---
 
-## Phase 3 — Registry schema + codegen stubs
+## Phase 3 — Registry schema + codegen stubs (+ ID immutability)
 
 **Goal:** one schema describing Mesh / Geometry / Material (and later core /
-cannon) that *will* generate every surface.
+cannon) that *will* generate every surface. Published ids are **immutable**
+(tombstone on remove; new id for binary-lowering changes).
 
 **Early milestone:** hand-written schema fixtures + a stub generator that emits
 command name lists consumed by host and bridge tests. Full codegen can mature
@@ -304,10 +334,11 @@ in parallel with Phases 4–5.
 |-----------|---------|
 | `registry/fixtures` + codegen tests | schema → same command ids for adapter metadata and WASM import names |
 | `registry/codegen/*` | regenerating does not drift public command names without a version bump (D-WASM) |
+| golden id table | changing a published id’s meaning **fails** codegen; removed ids stay tombstoned |
 
 ---
 
-## Phase 4 — Native adapter over arenas (D-ADAPTER, D-PROP)
+## Phase 4 — Native adapter over arenas (D-ADAPTER, D-PROP, hybrid invariants)
 
 **Goal:** interpreter reaches host only through:
 
@@ -315,24 +346,30 @@ in parallel with Phases 4–5.
 construct / getProperty / setProperty / invokeMethod
 ```
 
+Hybrid properties also obey CODE_CLEANUP’s **Hybrid binding invariants**: one
+cached wrapper per `(NativeRef, propId)`; dual revisions; turn-start refresh;
+guest commit wins via the frame pipeline; stable reads within a turn unless
+`immediate`.
+
 **Unit tests (gate)**
 
 | Test area | Asserts |
 |-----------|---------|
 | `interp/adapter/tests` | `new Mesh(g,m)` → one `meshH`; second construct → different handle |
 | adapter overlay tests | unknown write → guest overlay; host never sees it |
-| residency tests | host prop round-trips; hybrid sync boundary explicit |
+| residency / hybrid tests | `mesh.position === mesh.position`; retained mirror ignores mid-turn host writes; refreshes next turn |
 | `tests/unit/interp` | same script object → same host handle after property churn |
 
 Wire guest scripts from `tests/fixtures/tsx_scripts/` — tiny files, no demos.
 
 ---
 
-## Phase 5 — WASM surface: create / free over the ABI (D-WASM)
+## Phase 5 — WASM surface: create / free + D-ASYNC stubs (D-WASM)
 
 **Goal:** compiled guests call the **same** create/release commands via `rg_*`
 imports. Helper concerns (strings, spans, error codes) can be thin; focus on
-handle lifecycle.
+handle lifecycle. Async loaders use **begin/poll/cancel/release** — no ABI
+callbacks (D-ASYNC).
 
 **Unit tests (gate)** — these are the first “bridge” tests the plan calls out:
 
@@ -340,17 +377,19 @@ handle lifecycle.
 |-----------|---------|
 | `bridge/wasm/tests/create_free` | `rg_mesh_create` / release; arena occupancy matches host tests |
 | `bridge/wasm/tests/retain_release` | retain bumps; release at 0 frees; Drop/Clone semantics for future Rust helper |
+| `bridge/wasm/tests/async_poll` | exactly-once result transfer; repeated COMPLETE polls do not double-transfer; teardown releases request+result |
 | `bridge/parity/tests` | TSX adapter sequence and WASM import sequence produce identical arena traces |
 | `bridge/wasm/tests/span_bounds` | (can start as stubs) OOB ptr/len → typed error (D-WASM-MEM) |
 
 **Fixture guests:** `tests/fixtures/wasm_guests/` — minimal modules that only
-create and free handles (no frame loop, no render).
+create and free handles (no frame loop, no render). Async fixtures may poll a
+fake completed request.
 
 ---
 
-## Phase 6 — Lifetimes (D-LIFE)
+## Phase 6 — Lifetimes (D-LIFE) + ownership edges (D-OWN)
 
-**Goal:** prove the three lifetimes independently of drawing.
+**Goal:** prove the three lifetimes and ownership edges independently of drawing.
 
 **Unit tests (gate)**
 
@@ -358,34 +397,50 @@ create and free handles (no frame loop, no render).
 |-----------|---------|
 | `host/tests/membership` | `scene.remove(mesh)` detaches; mesh+geo+mat handles still live |
 | `host/tests/dispose_backend` | `dispose_backend` does not release object handle; later attach/read still valid |
+| `host/tests/ownership` | weak attachment: destroy entity → auto-detach; attachment never keeps target alive |
 | `tests/contract/d_life` | shared geo: two meshes, one `geoH`; releasing one mesh does not free geo |
+| `tests/contract/d_own` | realm teardown releases every ownership the realm still holds |
 
 ---
 
-## Phase 7 — Geometry upload (D-GEO, D-WASM-MEM)
+## Phase 7 — Geometry upload (D-GEO, D-WASM-MEM, aliasing)
 
 Stable `geoH` across attribute setup; bulk spans; update ≠ new handle.
 
+**Aliasing split (CODE_CLEANUP):** Ranger-native API = one authoritative host
+copy. Three-compat wrapper may keep a guest staging array (`attribute.array`
+aliases `data`); `needsUpdate` flushes to host; writes without flush do not
+render.
+
 **Unit tests:** `tests/contract/d_geo` + `bridge/wasm/tests/span_bounds` —
-upload → update → read-back on one handle; OOB rejected without trap.
+upload → update → read-back on one handle; OOB rejected without trap; compat
+aliasing cases when the wrapper path exists.
 
 ---
 
-## Phase 8 — Virtual modules (D-MODULES)
+## Phase 8 — Module isolation → virtual modules (D-MODULES)
 
-Inject `ranger:core` / `ranger:three` / `ranger:cannon` for the current realm.
-Stub `runtime.surface` / `runtime.log` with headless fakes.
+**Prerequisite:** interpreter **module-namespace isolation** (CODE_CLEANUP gate
+6 / `TSX_ENGINE_ISSUES` #5/#9) — colliding helpers across imports must not
+clobber; repeated import returns the same namespace object.
 
-**Unit tests:** `bridge/modules/tests`, `tests/contract/d_modules` — import
-resolves; cross-realm `runtime` rejected; guest-only class never appears in an
-arena.
+Then inject `ranger:core` / `ranger:three` / `ranger:cannon` for the current
+realm. Stub `runtime.surface` / `runtime.log` with headless fakes. Implement
+the **frame pipeline** order from CODE_CLEANUP (including draining D-ASYNC
+completions between guest turns).
+
+**Unit tests:** `interp/module_isolation/tests`, `bridge/modules/tests`,
+`tests/contract/d_modules` — import resolves; two realms get distinct
+`runtime` roots; cross-realm `runtime` rejected; guest-only class never
+appears in an arena.
 
 ---
 
 ## Phase 9 — Physics (headless)
 
 World/body arenas + `fixed_step` + pose read. Copy pose into mesh transforms via
-host commands only — still no pixels.
+host commands only — still no pixels. Host pose writes bump hybrid **host
+revision** (Phase 4 invariants).
 
 **Move candidates later:** selected files from `physics/` Cannon port — only
 after arenas and commands exist.
@@ -394,8 +449,9 @@ after arenas and commands exist.
 
 ## Phase 10 — Audio / input / surface (fakes allowed)
 
-Action maps, rumble stubs, clip/source/voice lifetimes. Prefer fake devices so
-CI stays headless.
+Action maps, rumble stubs, clip/source/voice lifetimes (D-OWN: `play()` voices
+caller-owned; `playOneShot()` mixer-owned). Asset loads via D-ASYNC poll.
+Prefer fake devices so CI stays headless.
 
 ---
 
@@ -449,16 +505,19 @@ tangled. **Never delete the v1 original** as part of a port.
 
 ## Mapping to CODE_CLEANUP implementation gates
 
+Authoritative list: CODE_CLEANUP **Implementation gates** (9 steps). Plan map:
+
 | CODE_CLEANUP gate order | Plan phases |
 |-------------------------|-------------|
 | 1. D-IDENTITY | 1 |
-| 2. D-ADAPTER / D-PROP | 4 |
-| 3. D-REGISTRY / D-TYPE / D-HANDLE | 2, 3 |
-| 4. D-SYNC / D-LIFE / D-GEO | 4, 6, 7 |
-| 5. D-WASM / D-WASM-MEM | 5, 7 |
-| 6. D-MODULES | 8 |
-| 7. Demo `runtime.start` / `export_game!` | 10–12 |
-| 8. `RETIRE-RECONCILE` | 12 |
+| 2. D-ADAPTER / D-PROP (+ hybrid invariants) | 4 |
+| 3. D-REGISTRY / D-TYPE / D-HANDLE (+ id immutability) | 2, 3 |
+| 4. D-SYNC / D-LIFE / D-OWN / D-GEO | 4, 6, 7 |
+| 5. D-WASM / D-WASM-MEM / D-ASYNC | 5, 7, 10 |
+| 6. Interpreter module-namespace isolation | 8 (prerequisite) |
+| 7. Virtual modules + `runtime` (D-MODULES) | 8 |
+| 8. Demos → `runtime.start` / `export_game!` | 10–12 (`v2/games/`) |
+| 9. `RETIRE-RECONCILE` | 12 |
 
 ---
 
@@ -478,15 +537,15 @@ tangled. **Never delete the v1 original** as part of a port.
 
 - [x] **Phase 0** — `v2/` scaffold + per-folder READMEs
 - [ ] **Phase 1** — Interp values + D-IDENTITY tests green
-- [ ] **Phase 2** — Arena create/release + stale handle tests green
-- [ ] **Phase 3** — Registry fixtures emit stable command ids
-- [ ] **Phase 4** — Adapter construct/get/set/invoke over arenas
-- [ ] **Phase 5** — WASM create/free/retain/release + TSX↔WASM parity
-- [ ] **Phase 6** — Membership ≠ release; dispose_backend ≠ release
-- [ ] **Phase 7** — Stable `geoH` bulk upload/update/read-back
-- [ ] **Phase 8** — `ranger:*` injection + realm isolation
+- [ ] **Phase 2** — Arena create/release + D-OWN table + stale handle tests
+- [ ] **Phase 3** — Registry fixtures + golden id / tombstone tests
+- [ ] **Phase 4** — Adapter + hybrid invariants (`position === position`, turn refresh)
+- [ ] **Phase 5** — WASM create/free/retain/release + D-ASYNC poll stubs + parity
+- [ ] **Phase 6** — Membership ≠ release; dispose_backend ≠ release; weak attach
+- [ ] **Phase 7** — Stable `geoH` bulk upload + native vs compat aliasing
+- [ ] **Phase 8** — Module isolation → `ranger:*` + frame pipeline (drain async)
 - [ ] **Phase 9** — Physics step + pose sync (headless)
-- [ ] **Phase 10** — Audio/input/surface fakes
+- [ ] **Phase 10** — Audio/input/surface fakes (D-OWN voices, D-ASYNC loads)
 - [ ] **Phase 11** — First render from live host objects
 - [ ] **Phase 12** — Selected games re-implemented under `v2/games/` + `RETIRE-RECONCILE` (v1 games kept)
 

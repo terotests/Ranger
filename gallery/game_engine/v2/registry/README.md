@@ -6,6 +6,7 @@ Authoritative class/command schema that generates every public surface.
 
 ## Binding decisions
 
+- D-REGISTRY ID immutability (golden ids / tombstones)
 - D-REGISTRY
 - D-WASM
 - D-ADAPTER

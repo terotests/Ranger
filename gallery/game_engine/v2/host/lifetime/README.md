@@ -6,6 +6,7 @@ Central rules and helpers for the three lifetimes.
 
 ## Binding decisions
 
+- D-OWN (who retains/releases; complements the three lifetimes)
 - D-LIFE
 
 ## To implement

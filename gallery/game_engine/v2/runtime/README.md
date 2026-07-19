@@ -6,6 +6,7 @@ Frame ticks from the host into Game::update — not browser RAF as primary.
 
 ## Binding decisions
 
+- D-MODULES frame pipeline (drain D-ASYNC completions between turns)
 - D-MODULES
 - D-SYNC
 

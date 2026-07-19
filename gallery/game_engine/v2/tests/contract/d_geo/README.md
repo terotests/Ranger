@@ -6,6 +6,7 @@ Contract tests enforcing D-GEO.
 
 ## Binding decisions
 
+- D-GEO aliasing split (native one-copy vs Three-compat staging)
 - D-GEO
 
 ## Unit / contract tests that gate this folder

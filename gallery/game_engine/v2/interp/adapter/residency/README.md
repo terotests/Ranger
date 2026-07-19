@@ -6,6 +6,7 @@ Per-property residency rules and hybrid sync boundaries.
 
 ## Binding decisions
 
+- D-ADAPTER hybrid binding invariants (cached wrapper, dual revisions, turn-start refresh)
 - D-ADAPTER
 
 ## To implement
