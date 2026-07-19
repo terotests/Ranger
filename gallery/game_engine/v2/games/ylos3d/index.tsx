@@ -8,6 +8,11 @@
 //
 // Game logic restored from v1 ylos3_shared: diamond → super mode, enemy
 // stomp/hurt, named SFX/vocal/rumble sends, and the summit celebrate dance.
+//
+// Split-screen is TWO INDEPENDENT sessions (catalog splitWorld=separate),
+// not one shared world like autopeli: each pane owns its own diamonds and
+// enemies (setPane), so collecting / stomping on one side never affects the
+// other child's climb.
 // ============================================================================
 
 import { runtime } from "ranger:core";
@@ -248,8 +253,6 @@ class Ylos3DGame {
   celebrateSfx = null;
   movingPlats = [];
   players = [];
-  enemies = [];
-  diamonds = [];
   fx = [];
   enemyAtlas = null;
   nowMs = 0;
@@ -275,7 +278,10 @@ class Ylos3DGame {
       superAtlas: superAtlas,
       sprite: null,
       superSprite: null,
-      animTick: 0
+      animTick: 0,
+      // per-pane session world (independent of the other child)
+      enemies: [],
+      diamonds: []
     };
   }
 
@@ -287,11 +293,12 @@ class Ylos3DGame {
     runtime.input.player(slot).rumble(strength, ms);
   }
 
-  spawnBurst(x, y, count, r, g, b) {
+  spawnBurst(pane, x, y, count, r, g, b) {
     let i = 0;
     while (i < count) {
       const ang = (i / count) * 6.28318;
       this.fx.push({
+        pane: pane,
         x: x + Math.cos(ang) * 6,
         y: y + Math.sin(ang) * 4,
         vx: Math.cos(ang) * 0.06,
@@ -304,10 +311,10 @@ class Ylos3DGame {
     }
   }
 
-  spawnFinishParticles(x, y) {
-    this.spawnBurst(x, y - 32, 10, 255, 220, 90);
-    this.spawnBurst(x - 22, y - 16, 6, 255, 160, 80);
-    this.spawnBurst(x + 22, y - 16, 6, 120, 220, 255);
+  spawnFinishParticles(pane, x, y) {
+    this.spawnBurst(pane, x, y - 32, 10, 255, 220, 90);
+    this.spawnBurst(pane, x - 22, y - 16, 6, 255, 160, 80);
+    this.spawnBurst(pane, x + 22, y - 16, 6, 120, 220, 255);
   }
 
   spawnCelebratePulse(pl, burst) {
@@ -316,15 +323,15 @@ class Ylos3DGame {
     const px = pl.x + PLAYER_W / 2;
     const py = pl.y + PLAYER_H - hop;
     if (phase == 0) {
-      this.spawnBurst(px, py - 30, 8, 255, 230, 120);
+      this.spawnBurst(pl.slot, px, py - 30, 8, 255, 230, 120);
     } else if (phase == 1) {
-      this.spawnBurst(px - 18, py - 22, 5, 255, 140, 90);
-      this.spawnBurst(px + 18, py - 22, 5, 255, 140, 90);
+      this.spawnBurst(pl.slot, px - 18, py - 22, 5, 255, 140, 90);
+      this.spawnBurst(pl.slot, px + 18, py - 22, 5, 255, 140, 90);
     } else if (phase == 2) {
-      this.spawnBurst(px - 10, py - 26, 5, 140, 230, 255);
-      this.spawnBurst(px + 10, py - 26, 5, 140, 230, 255);
+      this.spawnBurst(pl.slot, px - 10, py - 26, 5, 140, 230, 255);
+      this.spawnBurst(pl.slot, px + 10, py - 26, 5, 140, 230, 255);
     } else {
-      this.spawnBurst(px, py - 34, 6, 255, 255, 180);
+      this.spawnBurst(pl.slot, px, py - 34, 6, 255, 255, 180);
     }
   }
 
@@ -345,12 +352,14 @@ class Ylos3DGame {
     this.fx = kept;
   }
 
-  drawFx() {
+  drawFx(pane) {
     const r = this.renderer;
     let i = 0;
     while (i < this.fx.length) {
       const p = this.fx[i];
-      r.fillCircle(p.x, p.y, p.rad, p.r, p.g, p.b);
+      if (p.pane == pane) {
+        r.fillCircle(p.x, p.y, p.rad, p.r, p.g, p.b);
+      }
       i = i + 1;
     }
   }
@@ -442,48 +451,53 @@ class Ylos3DGame {
     }
     this.players = starts;
 
-    // enemies — skeleton patrols on the platforms (v1 makeEnemies). One shared
-    // LPC skeleton sheet; each enemy is a retained sprite drawn feet-on-platform.
+    // Per-pane session worlds: each child gets their own enemy + diamond set
+    // (sprites owned by that pane so a pickup/stomp never steals from the other).
     this.enemyAtlas = runtime.assets.loadSpriteAtlas("pkg://enemy.atlas");
-    let ei = 0;
-    while (ei < BASE_ENEMY_DEFS.length) {
-      const d = BASE_ENEMY_DEFS[ei];
-      const spr = new TWO.Sprite2D(this.enemyAtlas, 0);
-      spr.setSize(40, 40);
-      spr.setZ(2);
-      let row = d.dir > 0 ? SHEET_ROW_RIGHT : SHEET_ROW_LEFT;
-      spr.setCell(0, row);
-      this.layer.add(spr);
-      this.enemies.push({
-        x: d.x, y: d.y, dir: d.dir, min: d.min, max: d.max,
-        tick: 0, alive: 1, sprite: spr
-      });
-      ei = ei + 1;
+    let pk = 0;
+    while (pk < starts.length) {
+      const pl = starts[pk];
+      let ei = 0;
+      while (ei < BASE_ENEMY_DEFS.length) {
+        const d = BASE_ENEMY_DEFS[ei];
+        const spr = new TWO.Sprite2D(this.enemyAtlas, 0);
+        spr.setSize(40, 40);
+        spr.setZ(2);
+        let row = d.dir > 0 ? SHEET_ROW_RIGHT : SHEET_ROW_LEFT;
+        spr.setCell(0, row);
+        spr.setPane(pl.slot);
+        this.layer.add(spr);
+        pl.enemies.push({
+          x: d.x, y: d.y, dir: d.dir, min: d.min, max: d.max,
+          tick: 0, alive: 1, sprite: spr
+        });
+        ei = ei + 1;
+      }
+      let di = 0;
+      while (di < BASE_DIAMOND_DEFS.length) {
+        const spot = BASE_DIAMOND_DEFS[di];
+        const gem = makeDiamondSprite(this.renderer3d);
+        gem.x = spot.x;
+        gem.y = spot.y;
+        gem.respawn = spot.respawn;
+        gem.taken = 0;
+        gem.sprite.setPos(spot.x, spot.y);
+        gem.sprite.setPane(pl.slot);
+        this.layer.add(gem.sprite);
+        pl.diamonds.push(gem);
+        di = di + 1;
+      }
+      pk = pk + 1;
     }
 
-    // 3D diamonds at v1 spots — collectible (grant SUPER_MS), not decoration.
-    let di = 0;
-    while (di < BASE_DIAMOND_DEFS.length) {
-      const spot = BASE_DIAMOND_DEFS[di];
-      const gem = makeDiamondSprite(this.renderer3d);
-      gem.x = spot.x;
-      gem.y = spot.y;
-      gem.respawn = spot.respawn;
-      gem.taken = 0;
-      gem.sprite.setPos(spot.x, spot.y);
-      this.layer.add(gem.sprite);
-      this.diamonds.push(gem);
-      di = di + 1;
-    }
-
-    runtime.log.info("ylos3d init: ylos2 LPC + 3D gems + super/stomp/celebrate");
+    runtime.log.info("ylos3d init: separate sessions + 3D gems + super/stomp/celebrate");
     return 1;
   }
 
-  updateEnemies(dt) {
+  updateEnemiesFor(pl, dt) {
     let i = 0;
-    while (i < this.enemies.length) {
-      const e = this.enemies[i];
+    while (i < pl.enemies.length) {
+      const e = pl.enemies[i];
       if (e.alive == 0) {
         e.sprite.setPos(-1000, -1000);
       } else {
@@ -516,7 +530,9 @@ class Ylos3DGame {
     r.fillCircle(cx + 16, cy + 4, 10, 235, 240, 250);
   }
 
-  drawStaticEnv() {
+  // Shared climb scenery (platforms/sky). Diamonds/enemies are retained sprites
+  // with pane ownership; FX is painted per pane so bursts stay local.
+  drawStaticEnv(pane) {
     const r = this.renderer;
     r.beginBackground();
     // sky gradient bands (v1 drawSkyGradient), world space, wide cover
@@ -554,7 +570,7 @@ class Ylos3DGame {
     r.fillRect(fx - 2, gp.y - 44, 4, 44, 160, 120, 70);
     r.fillRect(fx + 2, gp.y - 44, 24, 14, 255, 90, 90);
     r.fillRect(fx + 2, gp.y - 30, 20, 8, 255, 210, 60);
-    this.drawFx();
+    this.drawFx(pane);
   }
 
   tryStartSummitMusic() {
@@ -597,7 +613,7 @@ class Ylos3DGame {
     playSfx("celebrate");
     this.playVoice("cheer");
     this.rumble(pl.slot, 220, 125);
-    this.spawnFinishParticles(cx + PLAYER_W / 2, feetY);
+    this.spawnFinishParticles(pl.slot, cx + PLAYER_W / 2, feetY);
     this.tryStartSummitMusic();
   }
 
@@ -668,10 +684,10 @@ class Ylos3DGame {
     pl.animTick = 0;
   }
 
-  respawnMarkedDiamonds() {
+  respawnMarkedDiamonds(pl) {
     let i = 0;
-    while (i < this.diamonds.length) {
-      const gem = this.diamonds[i];
+    while (i < pl.diamonds.length) {
+      const gem = pl.diamonds[i];
       if (gem.respawn == 1 && gem.taken == 1) {
         gem.taken = 0;
         gem.sprite.setPos(gem.x, gem.y);
@@ -694,8 +710,8 @@ class Ylos3DGame {
     const py = pl.y + PLAYER_H;
     let died = 0;
     let ei = 0;
-    while (ei < this.enemies.length) {
-      const e = this.enemies[ei];
+    while (ei < pl.enemies.length) {
+      const e = pl.enemies[ei];
       if (e.alive == 1) {
         const kind = enemyCollisionKind(px, py, pl.vy, e.x, e.y);
         if (kind == "stomp") {
@@ -705,16 +721,16 @@ class Ylos3DGame {
           playSfx("bounce");
           this.playVoice("chuckle");
           this.rumble(pl.slot, 90, 70);
-          this.spawnBurst(e.x, e.y - 10, 6, 220, 220, 220);
+          this.spawnBurst(pl.slot, e.x, e.y - 10, 6, 220, 220, 220);
         } else if (kind == "hurt") {
           if (pl.superMs > 0) {
             e.alive = 0;
             playSfx("brick");
             this.rumble(pl.slot, 60, 47);
-            this.spawnBurst(e.x, e.y - 10, 8, 120, 230, 255);
+            this.spawnBurst(pl.slot, e.x, e.y - 10, 8, 120, 230, 255);
           } else {
             this.respawnPlayer(pl);
-            this.respawnMarkedDiamonds();
+            this.respawnMarkedDiamonds(pl);
             died = 1;
             playSfx("lose");
             this.playVoice("gasp");
@@ -733,8 +749,8 @@ class Ylos3DGame {
     const px = pl.x + PLAYER_W / 2;
     const py = pl.y + PLAYER_H;
     let i = 0;
-    while (i < this.diamonds.length) {
-      const gem = this.diamonds[i];
+    while (i < pl.diamonds.length) {
+      const gem = pl.diamonds[i];
       if (gem.taken == 0) {
         if (hitPickup(px, py, gem.x, gem.y)) {
           gem.taken = 1;
@@ -742,7 +758,7 @@ class Ylos3DGame {
           pl.superMs = SUPER_MS;
           playSfx("win");
           this.rumble(pl.slot, 160, 110);
-          this.spawnBurst(gem.x, gem.y, 10, 120, 230, 255);
+          this.spawnBurst(pl.slot, gem.x, gem.y, 10, 120, 230, 255);
         }
       }
       i = i + 1;
@@ -873,7 +889,7 @@ class Ylos3DGame {
 
     if (pl.y > WORLD_H) {
       this.respawnPlayer(pl);
-      this.respawnMarkedDiamonds();
+      this.respawnMarkedDiamonds(pl);
       playSfx("lose");
       this.playVoice("gasp");
     }
@@ -905,10 +921,10 @@ class Ylos3DGame {
     this.cam2.set(cx, this.camCenterY(p2), 1, 0);
   }
 
-  updateDiamonds(dt) {
+  updateDiamondsFor(pl, dt) {
     let gi = 0;
-    while (gi < this.diamonds.length) {
-      const gem = this.diamonds[gi];
+    while (gi < pl.diamonds.length) {
+      const gem = pl.diamonds[gi];
       if (gem.taken == 0) {
         gem.angle = gem.angle + dt * 0.002;
         gem.mesh.setTransform(0.0, 0.0, 0.0, 0.12, gem.angle, 0.08);
@@ -925,12 +941,13 @@ class Ylos3DGame {
     const dt = props.dtMs;
     this.nowMs = this.nowMs + dt;
     this.updateMovers(dt);
-    this.updateEnemies(dt);
     this.updateFx(dt);
 
     let si = 0;
     while (si < this.players.length) {
       const pl = this.players[si];
+      this.updateEnemiesFor(pl, dt);
+      this.updateDiamondsFor(pl, dt);
       if (pl.done == 1) {
         this.tickFinishPlayer(pl, dt);
       } else {
@@ -943,13 +960,11 @@ class Ylos3DGame {
       si = si + 1;
     }
 
-    this.updateDiamonds(dt);
     this.updateCameras();
-    // paint the static environment once (world space), then bind each pane's
-    // view; the backend rasterises the environment through that pane's camera
-    // under the players (v1 createStaticBg + split-screen present).
-    this.drawStaticEnv();
+    // Per-pane background snapshot (FX local to the session) + shared scenery.
+    this.drawStaticEnv(0);
     this.renderer.render(this.layer, this.cam1, 0);
+    this.drawStaticEnv(1);
     this.renderer.render(this.layer, this.cam2, 1);
     // HUD (screen-space overlay): each pane shows its player's climb score.
     this.renderer.beginOverlay();

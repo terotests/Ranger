@@ -12,11 +12,15 @@
 // collision, per-player camera scroll, goal → celebration, split-screen,
 // diamond → super mode, enemy stomp/hurt, named SFX sends, summit dance.
 //
+// Split-screen is TWO INDEPENDENT sessions (catalog splitWorld=separate),
+// not one shared world like autopeli: each pane owns its own diamonds and
+// enemies so collecting / stomping on one side never affects the other child.
+//
 // RENDERING follows v1's model (createStaticBg + sprites()): the static
 // environment — sky gradient, 3-tone platforms, clouds, goal flag, diamond
 // bitmap glyphs — is painted every frame in WORLD coordinates through the
-// renderer's immediate fillRect / fillCircle. Players (walk + super sheets)
-// and enemies are retained sprites.
+// renderer's immediate fillRect / fillCircle (per-pane snapshot so each
+// session's diamonds/FX stay local). Players and enemies are retained sprites.
 // ============================================================================
 
 import { runtime } from "ranger:core";
@@ -203,8 +207,6 @@ class Ylos2Game {
   celebrateSfx = null;
   movingPlats = [];
   players = [];
-  enemies = [];
-  diamonds = [];
   fx = [];
   enemyAtlas = null;
   nowMs = 0;
@@ -230,7 +232,9 @@ class Ylos2Game {
       superAtlas: superAtlas,
       sprite: null,
       superSprite: null,
-      animTick: 0
+      animTick: 0,
+      enemies: [],
+      diamonds: []
     };
   }
 
@@ -242,11 +246,12 @@ class Ylos2Game {
     runtime.input.player(slot).rumble(strength, ms);
   }
 
-  spawnBurst(x, y, count, r, g, b) {
+  spawnBurst(pane, x, y, count, r, g, b) {
     let i = 0;
     while (i < count) {
       const ang = (i / count) * 6.28318;
       this.fx.push({
+        pane: pane,
         x: x + Math.cos(ang) * 6,
         y: y + Math.sin(ang) * 4,
         vx: Math.cos(ang) * 0.06,
@@ -259,10 +264,10 @@ class Ylos2Game {
     }
   }
 
-  spawnFinishParticles(x, y) {
-    this.spawnBurst(x, y - 32, 10, 255, 220, 90);
-    this.spawnBurst(x - 22, y - 16, 6, 255, 160, 80);
-    this.spawnBurst(x + 22, y - 16, 6, 120, 220, 255);
+  spawnFinishParticles(pane, x, y) {
+    this.spawnBurst(pane, x, y - 32, 10, 255, 220, 90);
+    this.spawnBurst(pane, x - 22, y - 16, 6, 255, 160, 80);
+    this.spawnBurst(pane, x + 22, y - 16, 6, 120, 220, 255);
   }
 
   spawnCelebratePulse(pl, burst) {
@@ -271,15 +276,15 @@ class Ylos2Game {
     const px = pl.x + PLAYER_W / 2;
     const py = pl.y + PLAYER_H - hop;
     if (phase == 0) {
-      this.spawnBurst(px, py - 30, 8, 255, 230, 120);
+      this.spawnBurst(pl.slot, px, py - 30, 8, 255, 230, 120);
     } else if (phase == 1) {
-      this.spawnBurst(px - 18, py - 22, 5, 255, 140, 90);
-      this.spawnBurst(px + 18, py - 22, 5, 255, 140, 90);
+      this.spawnBurst(pl.slot, px - 18, py - 22, 5, 255, 140, 90);
+      this.spawnBurst(pl.slot, px + 18, py - 22, 5, 255, 140, 90);
     } else if (phase == 2) {
-      this.spawnBurst(px - 10, py - 26, 5, 140, 230, 255);
-      this.spawnBurst(px + 10, py - 26, 5, 140, 230, 255);
+      this.spawnBurst(pl.slot, px - 10, py - 26, 5, 140, 230, 255);
+      this.spawnBurst(pl.slot, px + 10, py - 26, 5, 140, 230, 255);
     } else {
-      this.spawnBurst(px, py - 34, 6, 255, 255, 180);
+      this.spawnBurst(pl.slot, px, py - 34, 6, 255, 255, 180);
     }
   }
 
@@ -300,12 +305,14 @@ class Ylos2Game {
     this.fx = kept;
   }
 
-  drawFx() {
+  drawFx(pane) {
     const r = this.renderer;
     let i = 0;
     while (i < this.fx.length) {
       const p = this.fx[i];
-      r.fillCircle(p.x, p.y, p.rad, p.r, p.g, p.b);
+      if (p.pane == pane) {
+        r.fillCircle(p.x, p.y, p.rad, p.r, p.g, p.b);
+      }
       i = i + 1;
     }
   }
@@ -392,40 +399,46 @@ class Ylos2Game {
     }
     this.players = starts;
 
+    // Per-pane session worlds: each child gets their own enemy + diamond set.
     this.enemyAtlas = runtime.assets.loadSpriteAtlas("pkg://enemy.atlas");
-    let ei = 0;
-    while (ei < BASE_ENEMY_DEFS.length) {
-      const d = BASE_ENEMY_DEFS[ei];
-      const spr = new TWO.Sprite2D(this.enemyAtlas, 0);
-      spr.setSize(40, 40);
-      spr.setZ(2);
-      let row = d.dir > 0 ? SHEET_ROW_RIGHT : SHEET_ROW_LEFT;
-      spr.setCell(0, row);
-      this.layer.add(spr);
-      this.enemies.push({
-        x: d.x, y: d.y, dir: d.dir, min: d.min, max: d.max,
-        tick: 0, alive: 1, sprite: spr
-      });
-      ei = ei + 1;
+    let pk = 0;
+    while (pk < starts.length) {
+      const pl = starts[pk];
+      let ei = 0;
+      while (ei < BASE_ENEMY_DEFS.length) {
+        const d = BASE_ENEMY_DEFS[ei];
+        const spr = new TWO.Sprite2D(this.enemyAtlas, 0);
+        spr.setSize(40, 40);
+        spr.setZ(2);
+        let row = d.dir > 0 ? SHEET_ROW_RIGHT : SHEET_ROW_LEFT;
+        spr.setCell(0, row);
+        spr.setPane(pl.slot);
+        this.layer.add(spr);
+        pl.enemies.push({
+          x: d.x, y: d.y, dir: d.dir, min: d.min, max: d.max,
+          tick: 0, alive: 1, sprite: spr
+        });
+        ei = ei + 1;
+      }
+      let di = 0;
+      while (di < BASE_DIAMOND_DEFS.length) {
+        const spot = BASE_DIAMOND_DEFS[di];
+        pl.diamonds.push({
+          x: spot.x, y: spot.y, respawn: spot.respawn, taken: 0
+        });
+        di = di + 1;
+      }
+      pk = pk + 1;
     }
 
-    let di = 0;
-    while (di < BASE_DIAMOND_DEFS.length) {
-      const spot = BASE_DIAMOND_DEFS[di];
-      this.diamonds.push({
-        x: spot.x, y: spot.y, respawn: spot.respawn, taken: 0
-      });
-      di = di + 1;
-    }
-
-    runtime.log.info("ylos2-v2 init: LPC + super/stomp/celebrate");
+    runtime.log.info("ylos2-v2 init: separate sessions + super/stomp/celebrate");
     return 1;
   }
 
-  updateEnemies(dt) {
+  updateEnemiesFor(pl, dt) {
     let i = 0;
-    while (i < this.enemies.length) {
-      const e = this.enemies[i];
+    while (i < pl.enemies.length) {
+      const e = pl.enemies[i];
       if (e.alive == 0) {
         e.sprite.setPos(-1000, -1000);
       } else {
@@ -478,7 +491,8 @@ class Ylos2Game {
     }
   }
 
-  drawStaticEnv() {
+  // Per-pane snapshot: each session paints only its own untaken diamonds + FX.
+  drawStaticEnv(pl) {
     const r = this.renderer;
     r.beginBackground();
     let y = 0;
@@ -512,16 +526,16 @@ class Ylos2Game {
     r.fillRect(fx - 2, gp.y - 44, 4, 44, 160, 120, 70);
     r.fillRect(fx + 2, gp.y - 44, 24, 14, 255, 90, 90);
     r.fillRect(fx + 2, gp.y - 30, 20, 8, 255, 210, 60);
-    // collectible diamonds (untaken only)
+    // this session's collectible diamonds (untaken only)
     i = 0;
-    while (i < this.diamonds.length) {
-      const gem = this.diamonds[i];
+    while (i < pl.diamonds.length) {
+      const gem = pl.diamonds[i];
       if (gem.taken == 0) {
         this.drawDiamond(gem.x, gem.y);
       }
       i = i + 1;
     }
-    this.drawFx();
+    this.drawFx(pl.slot);
   }
 
   tryStartSummitMusic() {
@@ -564,7 +578,7 @@ class Ylos2Game {
     playSfx("celebrate");
     this.playVoice("cheer");
     this.rumble(pl.slot, 220, 125);
-    this.spawnFinishParticles(cx + PLAYER_W / 2, feetY);
+    this.spawnFinishParticles(pl.slot, cx + PLAYER_W / 2, feetY);
     this.tryStartSummitMusic();
   }
 
@@ -634,10 +648,10 @@ class Ylos2Game {
     pl.animTick = 0;
   }
 
-  respawnMarkedDiamonds() {
+  respawnMarkedDiamonds(pl) {
     let i = 0;
-    while (i < this.diamonds.length) {
-      const gem = this.diamonds[i];
+    while (i < pl.diamonds.length) {
+      const gem = pl.diamonds[i];
       if (gem.respawn == 1 && gem.taken == 1) {
         gem.taken = 0;
       }
@@ -659,8 +673,8 @@ class Ylos2Game {
     const py = pl.y + PLAYER_H;
     let died = 0;
     let ei = 0;
-    while (ei < this.enemies.length) {
-      const e = this.enemies[ei];
+    while (ei < pl.enemies.length) {
+      const e = pl.enemies[ei];
       if (e.alive == 1) {
         const kind = enemyCollisionKind(px, py, pl.vy, e.x, e.y);
         if (kind == "stomp") {
@@ -670,16 +684,16 @@ class Ylos2Game {
           playSfx("bounce");
           this.playVoice("chuckle");
           this.rumble(pl.slot, 90, 70);
-          this.spawnBurst(e.x, e.y - 10, 6, 220, 220, 220);
+          this.spawnBurst(pl.slot, e.x, e.y - 10, 6, 220, 220, 220);
         } else if (kind == "hurt") {
           if (pl.superMs > 0) {
             e.alive = 0;
             playSfx("brick");
             this.rumble(pl.slot, 60, 47);
-            this.spawnBurst(e.x, e.y - 10, 8, 120, 230, 255);
+            this.spawnBurst(pl.slot, e.x, e.y - 10, 8, 120, 230, 255);
           } else {
             this.respawnPlayer(pl);
-            this.respawnMarkedDiamonds();
+            this.respawnMarkedDiamonds(pl);
             died = 1;
             playSfx("lose");
             this.playVoice("gasp");
@@ -698,15 +712,15 @@ class Ylos2Game {
     const px = pl.x + PLAYER_W / 2;
     const py = pl.y + PLAYER_H;
     let i = 0;
-    while (i < this.diamonds.length) {
-      const gem = this.diamonds[i];
+    while (i < pl.diamonds.length) {
+      const gem = pl.diamonds[i];
       if (gem.taken == 0) {
         if (hitPickup(px, py, gem.x, gem.y)) {
           gem.taken = 1;
           pl.superMs = SUPER_MS;
           playSfx("win");
           this.rumble(pl.slot, 160, 110);
-          this.spawnBurst(gem.x, gem.y, 10, 120, 230, 255);
+          this.spawnBurst(pl.slot, gem.x, gem.y, 10, 120, 230, 255);
         }
       }
       i = i + 1;
@@ -832,7 +846,7 @@ class Ylos2Game {
 
     if (pl.y > WORLD_H) {
       this.respawnPlayer(pl);
-      this.respawnMarkedDiamonds();
+      this.respawnMarkedDiamonds(pl);
       playSfx("lose");
       this.playVoice("gasp");
     }
@@ -862,12 +876,12 @@ class Ylos2Game {
     const dt = props.dtMs;
     this.nowMs = this.nowMs + dt;
     this.updateMovers(dt);
-    this.updateEnemies(dt);
     this.updateFx(dt);
 
     let si = 0;
     while (si < this.players.length) {
       const pl = this.players[si];
+      this.updateEnemiesFor(pl, dt);
       if (pl.done == 1) {
         this.tickFinishPlayer(pl, dt);
       } else {
@@ -881,8 +895,10 @@ class Ylos2Game {
     }
 
     this.updateCameras();
-    this.drawStaticEnv();
+    // Per-pane background snapshots so each session's diamonds/FX stay local.
+    this.drawStaticEnv(this.players[0]);
     this.renderer.render(this.layer, this.cam1, 0);
+    this.drawStaticEnv(this.players[1]);
     this.renderer.render(this.layer, this.cam2, 1);
     this.renderer.beginOverlay();
     this.drawNumber(this.climbScore(this.players[0]), 0.42, 0.9, 0.016, 0.02, 0);
@@ -951,8 +967,8 @@ class Ylos2Game {
     let best = null;
     let bestAbs = 100000;
     let i = 0;
-    while (i < this.enemies.length) {
-      const e = this.enemies[i];
+    while (i < pl.enemies.length) {
+      const e = pl.enemies[i];
       if (e.alive == 1) {
         const dy = py - e.y;
         if (dy > -24 && dy < 24) {

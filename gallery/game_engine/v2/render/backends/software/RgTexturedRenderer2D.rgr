@@ -44,8 +44,8 @@ class RgTexturedRenderer2D {
     ; painting under the sprites. Rect corner + circle centre transform like a
     ; sprite position; extents scale by camera zoom. (Rotation unhandled — the
     ; parity target uses none.) Mirrors v1's scrolled createStaticBg output.
-    sfn rasterBg:void (d:RgRanger2D fb:RgFramebuffer camH:RgHandle cx:int cy:int zoom:double) {
-        def cmds:[RgBgCmd2D] d.bgCmds
+    sfn rasterBg:void (d:RgRanger2D fb:RgFramebuffer camH:RgHandle cx:int cy:int zoom:double paneIndex:int) {
+        def cmds:[RgBgCmd2D] (d.bgCmdsForPane(paneIndex))
         def n:int (array_length cmds)
         def i 0
         while (i < n) {
@@ -122,7 +122,7 @@ class RgTexturedRenderer2D {
         ; static environment first (v1 createStaticBg model): world-space
         ; immediate primitives rasterised through this pane's camera, under the
         ; retained sprites.
-        RgTexturedRenderer2D.rasterBg(d fb camH cx cy cam.zoom)
+        RgTexturedRenderer2D.rasterBg(d fb camH cx cy cam.zoom paneIndex)
         def order:[RgHandle] (RgTexturedRenderer2D.sortedSprites(d layerH))
         def n:int (array_length order)
         def drawn 0

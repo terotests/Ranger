@@ -36,23 +36,28 @@ class Ylos2E2ETest {
         t.ok("test fixture loaded"
             (host.loadFixture("gallery/game_engine/v2/games/ylos2/tests" "probe.tsx")))
 
-        ; retained sprites: walk + super per player, twelve skeleton enemies.
+        ; retained sprites: walk + super per player, twelve skeleton enemies PER pane.
         ; Diamonds stay immediate-draw bitmap glyphs (not retained sprites).
-        t.eqInt("16 retained sprites (2+2 players + 12 skeleton enemies)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 16)
+        t.eqInt("28 retained sprites (2+2 players + 24 skeleton enemies)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 28)
         t.eqInt("five sheet atlases (p1 + p2 + supers + enemy)"
             (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 5)
         t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
         t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
         t.eqInt("pane 0 routes player 0" (host.bridge.surface.panePlayer(0)) 0)
         t.eqInt("pane 1 routes player 1" (host.bridge.surface.panePlayer(1)) 1)
-        t.eqInt("five diamond probes" (to_int (host.callSlot("diamondCount" 0))) 5)
-        t.eqInt("twelve enemy probes" (to_int (host.callSlot("enemyCount" 0))) 12)
+        t.eqInt("pane 0 has five diamonds" (to_int (host.callSlot("diamondCount" 0))) 5)
+        t.eqInt("pane 1 has five diamonds" (to_int (host.callSlot("diamondCount" 1))) 5)
+        t.eqInt("pane 0 has twelve enemies" (to_int (host.callSlot("enemyCount" 0))) 12)
+        t.eqInt("pane 1 has twelve enemies" (to_int (host.callSlot("enemyCount" 1))) 12)
 
         def startY1:double (host.callSlot("playerY" 0))
+        def startY2:double (host.callSlot("playerY" 1))
         def sprite1IdA:int (to_int (host.callSlot("playerSpriteId" 0)))
 
         ; ---- attract mode via the optional driver (host stays input-agnostic)
+        ; Stop when P1 reaches the goal (P2 has a harder independent enemy set
+        ; under attract and is checked for progress, not summit parity).
         def frame 0
         def goalFrame:int (0 - 1)
         while (frame < 3600) {
@@ -72,7 +77,9 @@ class Ylos2E2ETest {
         def endY2:double (host.callSlot("playerY" 1))
         print ("  frames=" + (to_string frame) + " p1.y=" + (to_string endY1) + " p2.y=" + (to_string endY2))
         t.ok("P1 climbed the tower (y decreased > 1000px)" ((startY1 - endY1) > 1000.0))
-        t.ok("P2 climbed too" (endY2 < 1400.0))
+        ; Separate sessions: P2 no longer rides P1's stomps. Attract still moves
+        ; P2 off the floor; summit parity is not required for this gate.
+        t.ok("P2 made climb progress under its own session" ((startY2 - endY2) > 100.0))
         t.ok("P1 reached the goal platform" (goalFrame > 0))
 
         ; ---- celebration through ranger:core (finish FSM + SFX vocabulary) --
@@ -88,11 +95,15 @@ class Ylos2E2ETest {
             (contains host.bridge.musicScore "1:C5"))
         t.ok("P1 finish dance active or done" ((host.callSlot("playerDone" 0)) > 0.5))
 
-        ; ---- direct gameplay probes (super / stomp) after the climb --------
+        ; ---- separate sessions + direct gameplay probes after the climb ----
+        t.eqInt("sessions independent (P0 collect leaves P1 gem)"
+            (to_int (host.callSlot("probeSessionsIndependent" 0))) 1)
+        t.eqInt("stomp independent (P0 stomp leaves P1 enemy)"
+            (to_int (host.callSlot("probeStompIndependent" 0))) 1)
         ; Reset-ish probes on P2 so we do not disturb P1's finished state.
         def superMs:double (host.callSlot("probeCollectDiamond" 1))
         t.ok("diamond pickup grants super timer" (superMs > 7000.0))
-        t.eqInt("stomp clears enemy 0" (to_int (host.callSlot("probeStompEnemy" 1))) 0)
+        t.eqInt("stomp clears enemy 0 on pane 1" (to_int (host.callSlot("probeStompEnemy" 1))) 0)
 
         ; ---- identity across the whole game ---------------------------------
         def sprite1IdB:int (to_int (host.callSlot("playerSpriteId" 0)))

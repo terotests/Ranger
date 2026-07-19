@@ -12,14 +12,14 @@ function playerFinishMs(slot) { return __game.players[slot].finishMs; }
 function playerSuperMs(slot) { return __game.players[slot].superMs; }
 function playerSpriteId(slot) { return __game.players[slot].sprite.id; }
 function playerSuperSpriteId(slot) { return __game.players[slot].superSprite.id; }
-function diamondCount() { return __game.diamonds.length; }
-function diamondTaken(i) { return __game.diamonds[i].taken; }
-function enemyAlive(i) { return __game.enemies[i].alive; }
-function enemyCount() { return __game.enemies.length; }
+function diamondCount(slot) { return __game.players[slot].diamonds.length; }
+function diamondTaken(slot) { return __game.players[slot].diamonds[0].taken; }
+function enemyAlive(slot) { return __game.players[slot].enemies[0].alive; }
+function enemyCount(slot) { return __game.players[slot].enemies.length; }
 
 function probeCollectDiamond(slot) {
   const pl = __game.players[slot];
-  const gem = __game.diamonds[0];
+  const gem = pl.diamonds[0];
   gem.taken = 0;
   pl.x = gem.x - 13;
   pl.y = gem.y - 44;
@@ -31,7 +31,7 @@ function probeCollectDiamond(slot) {
 
 function probeStompEnemy(slot) {
   const pl = __game.players[slot];
-  const e = __game.enemies[0];
+  const e = pl.enemies[0];
   e.alive = 1;
   e.x = 100;
   e.y = 1700;
@@ -41,6 +41,24 @@ function probeStompEnemy(slot) {
   pl.done = 0;
   __game.applyEnemyHits(pl);
   return e.alive;
+}
+
+// Stomp on slot 0 must leave slot 1's matching enemy alive (separate sessions).
+function probeStompIndependent(slot) {
+  const a = __game.players[0];
+  const b = __game.players[1];
+  a.enemies[0].alive = 1;
+  b.enemies[0].alive = 1;
+  a.enemies[0].x = 100;
+  a.enemies[0].y = 1700;
+  a.x = a.enemies[0].x - 13;
+  a.y = a.enemies[0].y - 10 - 44;
+  a.vy = 0.2;
+  a.done = 0;
+  __game.applyEnemyHits(a);
+  if (a.enemies[0].alive != 0) { return 0; }
+  if (b.enemies[0].alive != 1) { return 0; }
+  return 1;
 }
 
 function probeEnterFinish(slot) {
@@ -53,4 +71,19 @@ function probeTickFinish(slot) {
   const pl = __game.players[slot];
   __game.tickFinishPlayer(pl, 100);
   return pl.finishMs;
+}
+
+// After slot 0 collects diamond 0, slot 1's copy must remain untaken.
+function probeSessionsIndependent(slot) {
+  const a = __game.players[0];
+  const b = __game.players[1];
+  a.diamonds[0].taken = 0;
+  b.diamonds[0].taken = 0;
+  a.x = a.diamonds[0].x - 13;
+  a.y = a.diamonds[0].y - 44;
+  a.done = 0;
+  __game.collectDiamonds(a);
+  if (a.diamonds[0].taken != 1) { return 0; }
+  if (b.diamonds[0].taken != 0) { return 0; }
+  return 1;
 }
