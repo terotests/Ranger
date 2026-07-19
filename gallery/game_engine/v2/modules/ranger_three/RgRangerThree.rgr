@@ -199,31 +199,70 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
-    ; SW 3D → CPU Texture2D. Backend clears alpha to 0; fragments write
-    ; mat.opacity so Sprite2D composites over the 2D world.
-    ; Executed at record time (path A); presenter must not re-run RTT.
+    ; SW 3D → CPU Texture2D with 2× supersampling.
+    ; Rasterise at 2w×2h, then resolve each 2×2 block with a premultiplied
+    ; RGBA average into the uploaded w×h texture (avoids dark fringes from
+    ; averaging straight RGB against transparent black). Path A: executed at
+    ; record time; presenter must not re-run RTT.
     fn renderToTexture:boolean (sceneH:RgHandle camH:RgHandle texH:RgHandle w:int h:int d2:RgRanger2D) {
         def sh:int (this.sceneH(sceneH))
         if (sh == 0) { return false }
         def cam:int (this.cameraH(camH))
         if (cam == 0) { return false }
+        if (w < 1) { return false }
+        if (h < 1) { return false }
+        def sw:int (w * 2)
+        def shh:int (h * 2)
         this.host.renderer.setClearColor(0.0 0.0 0.0)
-        this.host.render(sh cam w h)
+        this.host.render(sh cam sw shh)
         def raw:buffer (this.host.raw())
         def aRaw:buffer (this.host.rawAlpha())
-        def n:int (w * h)
         def rgb:[int]
         def alpha:[int]
-        def i 0
-        while (i < n) {
-            def o:int (i * 3)
-            def r:int (buffer_get raw o)
-            def g:int (buffer_get raw (o + 1))
-            def b:int (buffer_get raw (o + 2))
-            def c:int (((r * 65536) + (g * 256)) + b)
-            push rgb c
-            push alpha (buffer_get aRaw i)
-            i = (i + 1)
+        def y 0
+        while (y < h) {
+            def x 0
+            while (x < w) {
+                def sumRA:int 0
+                def sumGA:int 0
+                def sumBA:int 0
+                def sumA:int 0
+                def dy 0
+                while (dy < 2) {
+                    def dx 0
+                    while (dx < 2) {
+                        def sx:int ((x * 2) + dx)
+                        def sy:int ((y * 2) + dy)
+                        def pidx:int ((sy * sw) + sx)
+                        def o:int (pidx * 3)
+                        def r:int (buffer_get raw o)
+                        def g:int (buffer_get raw (o + 1))
+                        def b:int (buffer_get raw (o + 2))
+                        def a:int (buffer_get aRaw pidx)
+                        sumRA = (sumRA + (r * a))
+                        sumGA = (sumGA + (g * a))
+                        sumBA = (sumBA + (b * a))
+                        sumA = (sumA + a)
+                        dx = (dx + 1)
+                    }
+                    dy = (dy + 1)
+                }
+                def outA:int (idiv (sumA + 2) 4)
+                def outR:int 0
+                def outG:int 0
+                def outB:int 0
+                if (sumA > 0) {
+                    ; Un-premultiply the averaged coverage into straight RGB for
+                    ; the existing src-over 2D compositor.
+                    outR = (idiv sumRA sumA)
+                    outG = (idiv sumGA sumA)
+                    outB = (idiv sumBA sumA)
+                }
+                push rgb (((outR * 65536) + (outG * 256)) + outB)
+                push alpha outA
+                x = (x + 1)
+            }
+            y = (y + 1)
         }
         d2.textureUpload(texH w h rgb alpha)
         this.rttCount = (this.rttCount + 1)

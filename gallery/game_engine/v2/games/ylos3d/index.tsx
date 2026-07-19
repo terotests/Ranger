@@ -127,7 +127,9 @@ function makeDiamondSprite(renderer3d) {
   const mesh = new THREE.GLTFModel(scene, "pkg://models/diamond.glb");
   mesh.setTransform(0, 0, 0, 0.12, 0.6, 0.08);
   mesh.setScale(1.55, 1.55, 1.55);
-  const rt = runtime.graphics.createRenderTarget({ width: 80, height: 144 });
+  // RT matches on-screen sprite pixels; engine RTT does 2× SSAA resolve into it
+  // so we don't nearest-downsample a larger buffer a second time in 2D.
+  const rt = runtime.graphics.createRenderTarget({ width: GEM_W, height: GEM_H });
   const sprite = new TWO.Sprite2D({ source: rt.colorTexture.view() });
   sprite.setSize(GEM_W, GEM_H);
   sprite.setZ(5);
@@ -136,7 +138,7 @@ function makeDiamondSprite(renderer3d) {
     camera: camera,
     target: rt,
     sprite: sprite,
-    resolution: { width: 80, height: 144 },
+    resolution: { width: GEM_W, height: GEM_H },
     update: "everyFrame"
   });
   const model = {
