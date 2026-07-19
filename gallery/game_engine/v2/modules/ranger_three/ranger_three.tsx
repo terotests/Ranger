@@ -41,6 +41,25 @@ class MeshBasicMaterial {
   constructor(colorHex) { this.id = rg3d_material_basic(colorHex); }
 }
 
+class MeshLambertMaterial {
+  id = 0;
+  constructor(colorHex) { this.id = rg3d_material_lambert(colorHex); }
+}
+
+class AmbientLight {
+  id = 0;
+  constructor(scene, colorHex, intensity) {
+    this.id = rg3d_light_ambient(scene.id, colorHex, intensity);
+  }
+}
+
+class DirectionalLight {
+  id = 0;
+  constructor(scene, colorHex, intensity, dx, dy, dz) {
+    this.id = rg3d_light_directional(scene.id, colorHex, intensity, dx, dy, dz);
+  }
+}
+
 class Mesh {
   id = 0;
   constructor(scene, geometry, material) {

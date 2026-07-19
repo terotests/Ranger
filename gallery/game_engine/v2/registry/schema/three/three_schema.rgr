@@ -34,6 +34,7 @@ class ThreeSchema {
         ; ---- Material3D (33) -------------------------------------------------
         def mat:RgClassDef (RgClassDef.of(33 "Material3D"))
         mat.addMethod((RgMethodDef.cmd(3020 "rg3d_material_basic" "rg3d_material_basic" "i" "h" "create")))
+        mat.addMethod((RgMethodDef.cmd(3021 "rg3d_material_lambert" "rg3d_material_lambert" "i" "h" "create")))
         s.addClass(mat)
 
         ; ---- Mesh3D (34) -----------------------------------------------------
@@ -46,6 +47,12 @@ class ThreeSchema {
         def ren:RgClassDef (RgClassDef.of(35 "Renderer3D"))
         ren.addMethod((RgMethodDef.cmd(3040 "rg3d_render_to" "rg3d_render_to" "h:h:h:i:i" "v" "none")))
         s.addClass(ren)
+
+        ; ---- Light3D (36) — ambient + directional for SW Lambert -------------
+        def light:RgClassDef (RgClassDef.of(36 "Light3D"))
+        light.addMethod((RgMethodDef.cmd(3050 "rg3d_light_ambient" "rg3d_light_ambient" "h:i:d" "h" "create")))
+        light.addMethod((RgMethodDef.cmd(3051 "rg3d_light_directional" "rg3d_light_directional" "h:i:d:d:d:d" "h" "create")))
+        s.addClass(light)
 
         return s
     }

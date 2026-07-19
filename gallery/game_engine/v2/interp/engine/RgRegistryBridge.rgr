@@ -733,6 +733,21 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
+        if (row.name == "rg3d_material_lambert") {
+            def o:OwnedHandle (this.d3.materialLambert((a.intAt(0))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_light_ambient") {
+            def o:OwnedHandle (this.d3.lightAmbient((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_light_directional") {
+            def o:OwnedHandle (this.d3.lightDirectional((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
         if (row.name == "rg3d_mesh_create") {
             def o:OwnedHandle (this.d3.meshCreate((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2))))
             def gid:int (this.mintId(o))

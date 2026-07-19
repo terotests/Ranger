@@ -19,8 +19,8 @@ const MOVE = 0.22;
 const JUMP_V = 0.34;
 const PLAYER_W = 26;
 const PLAYER_H = 44;
-const GEM_SIZE = 48;
-const DIAMOND_CYAN = 7926015; // 0x78F0FF
+const GEM_SIZE = 56;
+const DIAMOND_CYAN = 4259839; // 0x40FFFF — bright cyan so Lambert facets still read
 
 const PLATFORMS = [
   { x: 0, y: 840, w: 480, h: 60 },
@@ -47,13 +47,21 @@ function overlapsX(px, pw, plat) {
 
 function makeDiamondSprite(renderer3d) {
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 20);
-  camera.setPose(0, 0.15, 3.2, 0, 0, 0);
-  const geo = new THREE.OctahedronGeometry(0.9);
-  const mat = new THREE.MeshBasicMaterial(DIAMOND_CYAN);
+  // Key + fill lights: SW Lambert shades each octahedron facet (MeshBasic was
+  // unlit, so gems looked like flat cyan blobs).
+  // NOTE: bind to locals — the TSX evaluator may skip unused `new` expressions.
+  // Low ambient + strong key so opposing facets differ in value (reads as 3D).
+  const amb = new THREE.AmbientLight(scene, 16777215, 0.18);
+  const key = new THREE.DirectionalLight(scene, 16777215, 1.35, 0.55, 1.2, 0.65);
+  const fill = new THREE.DirectionalLight(scene, 8904703, 0.22, -1.0, 0.05, -0.4);
+  // Camera on +Z looking toward origin (default -Z view). Spin the mesh.
+  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 20);
+  camera.setPose(0.0, 0.2, 2.7, 0.0, 0.0, 0.0);
+  const geo = new THREE.OctahedronGeometry(1.0);
+  const mat = new THREE.MeshLambertMaterial(DIAMOND_CYAN);
   const mesh = new THREE.Mesh(scene, geo, mat);
-  mesh.setTransform(0, 0, 0, 0.4, 0.6, 0.15);
-  const rt = runtime.graphics.createRenderTarget({ width: 64, height: 64 });
+  mesh.setTransform(0, 0, 0, 0.45, 0.75, 0.3);
+  const rt = runtime.graphics.createRenderTarget({ width: 128, height: 128 });
   const sprite = new TWO.Sprite2D({ source: rt.colorTexture.view() });
   sprite.setSize(GEM_SIZE, GEM_SIZE);
   sprite.setZ(5);
@@ -63,9 +71,13 @@ function makeDiamondSprite(renderer3d) {
     mesh: mesh,
     target: rt,
     sprite: sprite,
-    resolution: { width: 64, height: 64 },
+    resolution: { width: 128, height: 128 },
     update: "everyFrame"
   });
+  // Keep light refs alive on the model (and prove construction ran).
+  model.amb = amb;
+  model.key = key;
+  model.fill = fill;
   // Prime the RT so the first present has texels even before update.
   model.sync(renderer3d, 0);
   return model;

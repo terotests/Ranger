@@ -362,10 +362,26 @@ class RegistryBridgeCoverageTest {
         def mat3A:[EvalValue]
         push mat3A (s.num(16711680.0))
         def mat3:int (s.callI("rg3d_material_basic" mat3A))
+        def matL:[EvalValue]
+        push matL (s.num(7926015.0))
+        def matLambert:int (s.callI("rg3d_material_lambert" matL))
+        def ambA:[EvalValue]
+        push ambA (s.num((to_double scene3)))
+        push ambA (s.num(16777215.0))
+        push ambA (s.num(0.4))
+        def ambId:int (s.callI("rg3d_light_ambient" ambA))
+        def dirA:[EvalValue]
+        push dirA (s.num((to_double scene3)))
+        push dirA (s.num(16777215.0))
+        push dirA (s.num(0.9))
+        push dirA (s.num(0.5))
+        push dirA (s.num(1.0))
+        push dirA (s.num(0.3))
+        def dirId:int (s.callI("rg3d_light_directional" dirA))
         def mesh3A:[EvalValue]
         push mesh3A (s.num((to_double scene3)))
         push mesh3A (s.num((to_double octG)))
-        push mesh3A (s.num((to_double mat3)))
+        push mesh3A (s.num((to_double matLambert)))
         def mesh3:int (s.callI("rg3d_mesh_create" mesh3A))
         def xf3:[EvalValue]
         push xf3 (s.num((to_double mesh3)))
@@ -384,7 +400,9 @@ class RegistryBridgeCoverageTest {
         push rtt3 (s.num(16.0))
         s.callN("rg3d_render_to" rtt3)
         t.ok("three box geometry created" (boxG > 0))
-        t.ok("three octahedron + rtt ok" (octG > 0))
+        t.ok("three basic material created" (mat3 > 0))
+        t.ok("three lights created" ((ambId > 0) && (dirId > 0)))
+        t.ok("three octahedron + lit rtt ok" (octG > 0))
 
         ; ================= COVERAGE DIFF =====================================
         def missing 0

@@ -22,7 +22,7 @@ class BridgeSchemaTest {
         def three:RgSchema (ThreeSchema.build())
         t.eqInt("core schema has 16 commands" (core.methodCount()) 16)
         t.eqInt("two_d schema has 27 commands" (twoD.methodCount()) 27)
-        t.eqInt("three schema has 10 commands" (three.methodCount()) 10)
+        t.eqInt("three schema has 13 commands" (three.methodCount()) 13)
         ; residency gate still applies (Sprite2D host props declare sync)
         def v2d:[string] (twoD.validate())
         t.eqInt("two_d rows pass residency validation" (array_length v2d) 0)
@@ -30,7 +30,7 @@ class BridgeSchemaTest {
         ; ---- the ONE table: union of core + two_d + three --------------------
         def base:[RgCommand] (RgCodegen.tableUnion(core twoD))
         def table:[RgCommand] (RgCodegen.tableAppend(base three))
-        t.eqInt("union table row count" (array_length table) 53)
+        t.eqInt("union table row count" (array_length table) 56)
         def viol:[string] (RgCodegen.checkTable(table))
         def nv:int (array_length viol)
         if (nv > 0) {

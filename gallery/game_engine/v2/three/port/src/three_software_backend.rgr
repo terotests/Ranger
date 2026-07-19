@@ -4,8 +4,9 @@
 ;
 ; A compact z-buffered triangle rasteriser: projects each vertex by the mesh MVP,
 ; then fills triangles with perspective (NDC) depth testing and affine UV /
-; texture sampling. Unlit, matching MeshBasicMaterial. No GPU, no JS — compiles
-; to C++ for native/embedded and is the default renderer backend.
+; texture sampling. MeshBasicMaterial stays unlit; Lambert/Phong use ambient +
+; directional N·L so faceted meshes (e.g. octahedron gems) read as 3D. No GPU —
+; compiles to C++ for native/embedded and is the default renderer backend.
 ; ==============================================================================
 
 Import "three_render_backend.rgr"
@@ -20,6 +21,13 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
     def h:int 0
     def color:buffer (buffer_alloc 0)
     def depth:double_buffer (double_buffer_alloc 0)
+    ; per-frame lights (from setLights)
+    def ambR:double 0.0
+    def ambG:double 0.0
+    def ambB:double 0.0
+    def dirCount:int 0
+    def dirs:[double]
+    def cols:[double]
 
     fn init:void (width:int height:int) {
         w = width
@@ -47,6 +55,66 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
             double_buffer_set depth i 1000000000.0
             i = (i + 1)
         }
+    }
+
+    fn setLights:void (aR:double aG:double aB:double count:int d:[double] c:[double]) {
+        ambR = aR
+        ambG = aG
+        ambB = aB
+        dirCount = count
+        dirs = d
+        cols = c
+    }
+
+    ; Transform a normal by the upper 3×3 of `model` and renormalise (uniform
+    ; scale / rotation — fine for SceneSprite gems with scale 1).
+    fn transformNormal:ThreeVector3 (model:ThreeMatrix4 nx:double ny:double nz:double) {
+        model.ensure()
+        def e0:double (itemAt model.elements 0)
+        def e1:double (itemAt model.elements 1)
+        def e2:double (itemAt model.elements 2)
+        def e4:double (itemAt model.elements 4)
+        def e5:double (itemAt model.elements 5)
+        def e6:double (itemAt model.elements 6)
+        def e8:double (itemAt model.elements 8)
+        def e9:double (itemAt model.elements 9)
+        def e10:double (itemAt model.elements 10)
+        def wx:double (((e0 * nx) + (e4 * ny)) + (e8 * nz))
+        def wy:double (((e1 * nx) + (e5 * ny)) + (e9 * nz))
+        def wz:double (((e2 * nx) + (e6 * ny)) + (e10 * nz))
+        def len:double (sqrt(((wx * wx) + (wy * wy)) + (wz * wz)))
+        if (len < 0.000001) { len = 1.0 }
+        return (ThreeVector3.of((wx / len) (wy / len) (wz / len)))
+    }
+
+    ; Lambert: albedo * (ambient + Σ max(0, N·L) * lightColour) → 0xRRGGBB.
+    fn shadeLambertRGB:int (albedoR:double albedoG:double albedoB:double nx:double ny:double nz:double) {
+        def lr:double ambR
+        def lg:double ambG
+        def lb:double ambB
+        def i:int 0
+        while (i < dirCount) {
+            def base:int (i * 3)
+            def lx:double (itemAt dirs base)
+            def ly:double (itemAt dirs (base + 1))
+            def lz:double (itemAt dirs (base + 2))
+            def ndotl:double (((nx * lx) + (ny * ly)) + (nz * lz))
+            if (ndotl < 0.0) { ndotl = 0.0 }
+            lr = (lr + (ndotl * (itemAt cols base)))
+            lg = (lg + (ndotl * (itemAt cols (base + 1))))
+            lb = (lb + (ndotl * (itemAt cols (base + 2))))
+            i = (i + 1)
+        }
+        def orr:double (albedoR * lr)
+        def og:double (albedoG * lg)
+        def ob:double (albedoB * lb)
+        if (orr > 1.0) { orr = 1.0 }
+        if (og > 1.0) { og = 1.0 }
+        if (ob > 1.0) { ob = 1.0 }
+        def ri:int (to_int (orr * 255.0))
+        def gi:int (to_int (og * 255.0))
+        def bi:int (to_int (ob * 255.0))
+        return (((ri * 65536) + (gi * 256)) + bi)
     }
 
     fn clampi:int (v:int lo:int hi:int) {
@@ -87,14 +155,13 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         if (vc == 0) {
             return
         }
-        ; Software path renders the material's flat colour * texture. Directional
-        ; lighting is handled by the GL backend (the browser target); the software
-        ; backend stays the unlit reference used by the headless tests.
+        ; Basic = unlit flat colour; Lambert/Phong = per-face N·L so facets read.
         def hasTexture:boolean mat.hasMap
         def tex:ThreeTexture mat.map
         def colorR:double mat.colorR
         def colorG:double mat.colorG
         def colorB:double mat.colorB
+        def shadeMode:int (mat.shadingMode())
         ; project every vertex to screen space (sx, sy, sz=NDC depth); w<=0 verts
         ; are marked behind (bad=1) and their triangles skipped.
         def sx:[double]
@@ -135,7 +202,23 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
             def i1:int (geometry.getIndex(t + 1))
             def i2:int (geometry.getIndex(t + 2))
             if ((((itemAt bad i0) + (itemAt bad i1)) + (itemAt bad i2)) == 0) {
-                this.rasterTri(geometry sx sy sz sw i0 i1 i2 hasTexture tex r255 g255 b255)
+                def tr:int r255
+                def tg:int g255
+                def tb:int b255
+                if (shadeMode >= 1) {
+                    ; Face normal from geometry (octahedron stores one normal per
+                    ; facet) transformed into world space — flat shading keeps
+                    ; gem facets crisp.
+                    def n0x:double (geometry.getNormal(i0 0))
+                    def n0y:double (geometry.getNormal(i0 1))
+                    def n0z:double (geometry.getNormal(i0 2))
+                    def wn:ThreeVector3 (this.transformNormal(model n0x n0y n0z))
+                    def lit:int (this.shadeLambertRGB(colorR colorG colorB wn.x wn.y wn.z))
+                    tr = (idiv lit 65536)
+                    tg = (idiv (lit - (tr * 65536)) 256)
+                    tb = ((lit - (tr * 65536)) - (tg * 256))
+                }
+                this.rasterTri(geometry sx sy sz sw i0 i1 i2 hasTexture tex tr tg tb)
             }
             t = (t + 3)
         }

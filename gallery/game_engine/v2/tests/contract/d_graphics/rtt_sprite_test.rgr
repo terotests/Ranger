@@ -51,12 +51,25 @@ class RttSpriteTest {
         push cpA (s.num(0.0))
         push cpA (s.num(0.0))
         b.invoke("rg3d_camera_pose" cpA)
+        def ambA:[EvalValue]
+        push ambA (s.num((to_double sceneId)))
+        push ambA (s.num(16777215.0))
+        push ambA (s.num(0.35))
+        s.callI(b "rg3d_light_ambient" ambA)
+        def dirA:[EvalValue]
+        push dirA (s.num((to_double sceneId)))
+        push dirA (s.num(16777215.0))
+        push dirA (s.num(0.95))
+        push dirA (s.num(0.6))
+        push dirA (s.num(1.0))
+        push dirA (s.num(0.4))
+        s.callI(b "rg3d_light_directional" dirA)
         def geoA:[EvalValue]
         push geoA (s.num(0.9))
         def geoId:int (s.callI(b "rg3d_geometry_octahedron" geoA))
         def matA:[EvalValue]
         push matA (s.num(7926015.0))
-        def matId:int (s.callI(b "rg3d_material_basic" matA))
+        def matId:int (s.callI(b "rg3d_material_lambert" matA))
         def meshA:[EvalValue]
         push meshA (s.num((to_double sceneId)))
         push meshA (s.num((to_double geoId)))
@@ -86,6 +99,28 @@ class RttSpriteTest {
         def mid:int (b.d2.texelRGB(texH 16 16))
         t.ok("centre texel lit by octahedron" (mid > 0))
         t.ok("centre texel opaque" ((b.d2.texelA(texH 16 16)) > 0))
+        ; Lambert facets: more than one distinct opaque colour in the RT
+        def shades 0
+        def seen0:int (0 - 1)
+        def seen1:int (0 - 1)
+        def yy 0
+        while (yy < 32) {
+            def xx 0
+            while (xx < 32) {
+                if ((b.d2.texelA(texH xx yy)) > 0) {
+                    def c:int (b.d2.texelRGB(texH xx yy))
+                    if (seen0 < 0) { seen0 = c }
+                    if (c != seen0) {
+                        if (seen1 < 0) { seen1 = c }
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+        if (seen0 >= 0) { shades = (shades + 1) }
+        if (seen1 >= 0) { shades = (shades + 1) }
+        t.ok("Lambert shading produces multiple facet colours" (shades >= 2))
 
         ; texture-backed sprite samples the RT
         def spA:[EvalValue]

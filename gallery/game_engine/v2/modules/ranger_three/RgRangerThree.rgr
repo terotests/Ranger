@@ -69,6 +69,24 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
+    fn materialLambert:OwnedHandle (colorHex:int) {
+        def th:int (this.host.materialLambert(colorHex 0))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn lightAmbient:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double) {
+        def th:int (this.host.lightAmbient((this.threeH(sceneH)) colorHex intensity))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn lightDirectional:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double dx:double dy:double dz:double) {
+        def th:int (this.host.lightDirectional((this.threeH(sceneH)) colorHex intensity dx dy dz false 0))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
+        return (OwnedHandle.own(h))
+    }
+
     fn meshCreate:OwnedHandle (sceneH:RgHandle geoH:RgHandle matH:RgHandle) {
         def th:int (this.host.meshNew((this.threeH(sceneH)) (this.threeH(geoH)) (this.threeH(matH))))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
