@@ -1,4 +1,4 @@
-# Part 0 — The rerouting trap: how this codebase accumulates debt
+# Current state: duplication and rerouting inventory
 
 The individual "wrong files" listed later in this plan are symptoms. The disease
 is a repeating pattern, and it works like this:
@@ -27,9 +27,9 @@ the end of this part maps each chapter to its IDEAL.md section.
 
 ---
 
-## Category A — core silently reroutes into game-specific code
+## Category A — game-specific code inside generic engine code
 
-### 0.1 The "generic" physics runner is secretly the autopeli runner
+### 0.1 wasm_physics_runner.rgr contains autopeli imports and constants
 
 `scripting/wasm_physics_runner.rgr` presents itself as the generic WASM physics
 runner. What the file actually contains:
@@ -49,7 +49,7 @@ lines 11–12: the moment the runner imported the game instead of receiving it
 through an interface, every later shortcut (the constants, the camera numbers,
 the progress formula) had a natural place to land.
 
-### 0.2 Three HUD systems, all selected inside that same runner
+### 0.2 Three HUD implementations, selected inside wasm_physics_runner.rgr
 
 The engine has three unrelated ways to draw a HUD, and `wasm_physics_runner.rgr`
 chooses between all three at runtime:
@@ -69,7 +69,7 @@ Meanwhile the rich EVG renderer (TTF fonts, borders, widgets) exists but is used
 only for menus. Three render paths, three capability ceilings, and the fallback
 is a specific game's dashboard (IDEAL.md §2.15).
 
-### 0.3 Sound: the guest sends integers, and hosts hand-map them in three places
+### 0.3 Sound id-to-name mappings hardcoded in three host files
 
 The ABI transports a sound event as an integer `sub` id, and the header now
 correctly says the id indexes a game-registered palette. But no registered
@@ -88,7 +88,7 @@ registered (`scripting/game_audio.rgr:247–251` registers
 `"brick"/"bounce"/"wall"/"lose"/"win"`). The same guest id can mean a different
 sound depending on which runner happens to load the game (IDEAL.md §2.10, §4).
 
-### 0.4 Particles: every guest effect becomes "sparkle"
+### 0.4 Particle preset duplicated; guest particle ids overridden
 
 Two reroutes stacked:
 
@@ -103,7 +103,7 @@ Two reroutes stacked:
   cannot ask for any other effect, so the next game's explosion will be a
   sparkle until someone adds another hardcoded case (IDEAL.md §2.18).
 
-### 0.5 A deleted game class was relocated *into* the generic reconciler
+### 0.5 Sponza-specific accessors in three_tsx_bridge.rgr
 
 `three/tsx/three_tsx_bridge.rgr` is the one generic TSX→host reconciler. It also
 contains:
@@ -122,9 +122,9 @@ fog, post-processing) will want its own accessor next to `sunLight()`.
 
 ---
 
-## Category B — the same data declared in more than one place
+## Category B — data defined in more than one place
 
-### 0.6 The same world is defined twice and agrees only by luck
+### 0.6 World geometry defined separately in host and guest
 
 The autopeli road and traffic exist in **two unrelated source files in two
 languages**, one on each side of the WASM boundary:
@@ -137,7 +137,7 @@ languages**, one on each side of the WASM boundary:
 Nothing checks these against each other. Change one and the game does not error
 — physics and rendering just quietly disagree (IDEAL.md §5).
 
-### 0.7 The voice-effect vocabulary is maintained in three hand-synced lists
+### 0.7 Voice-effect list maintained in three files
 
 The 11 vocal effects (`laugh, giggle, chuckle, sigh, gasp, cough, cheer, boo,
 hmm, huh, yawn`) are hardcoded, in the same order, in:
@@ -151,7 +151,7 @@ hmm, huh, yawn`) are hardcoded, in the same order, in:
 Adding one effect means editing three (arguably four) lists; missing one produces
 no error, just a voice that works on some paths and not others.
 
-### 0.8 Shared script modules are copied per game — and every copy has drifted
+### 0.8 Shared script modules copied per game folder, diverged
 
 Games import the Three.js façade as `import * as THREE from 'three'`. The
 interpreter resolves the bare name by checking **the game's own folder first**
@@ -172,7 +172,7 @@ has happened to `game_helpers.tsx` and `game.d.ts` (in both `scripting/` and
 `lib/`) and `breakout_bricks.tsx` (`scripting/` and `games/breakout/` hold
 byte-identical 127-line copies — identical *today*, one edit away from drifting).
 
-### 0.9 Whole games exist as parallel copies
+### 0.9 Games duplicated across folders and variants
 
 The duplication is not only inside the engine — entire games are copied:
 
@@ -196,9 +196,9 @@ Version control exists; versioning by folder copy means every bug fixed in
 
 ---
 
-## Category C — the same subsystem implemented N times
+## Category C — subsystems implemented multiple times
 
-### 0.10 Vector math: five implementations in three languages
+### 0.10 Vector math implemented five times in three languages
 
 | Implementation | Where | Language |
 |----------------|-------|----------|
@@ -211,7 +211,7 @@ Version control exists; versioning by folder copy means every bug fixed in
 Numerical fixes and conventions (handedness, Euler order, normalization edge
 cases) do not propagate between them.
 
-### 0.11 Entities: three registries, none shared
+### 0.11 Three entity registries, none shared
 
 - `three/src/three_scene_host.rgr` — five parallel arrays, handle = array
   index, removal never frees the slot.
@@ -220,10 +220,10 @@ cases) do not propagate between them.
   world games.
 
 All three lack the same things (stable ids, safe removal, type information), and
-fixing one fixes nothing for the other two. Part II exists to replace all three
+fixing one fixes nothing for the other two. the entity-registry chapter exists to replace all three
 with one registry.
 
-### 0.12 Input: five representations, and the host one contradicts the other four
+### 0.12 Five input encodings; the host bit layout differs from the other four
 
 The same D-pad + buttons concept is encoded five times (IDEAL.md §2.9):
 
@@ -240,7 +240,7 @@ Four representations agree on the bit values; the host's own `InputMask` uses a
 requires a translation, and getting it wrong is silent. (RGIN also illustrates
 the half-landed-fix pattern — see 0.21.)
 
-### 0.13 Body→visual binding: three unrelated mechanisms
+### 0.13 Three body-to-visual binding mechanisms
 
 How a moving thing gets drawn depends on which path the game took (IDEAL.md §2.5):
 
@@ -258,7 +258,7 @@ How a moving thing gets drawn depends on which path the game took (IDEAL.md §2.
 
 A game written once does not bind the same way on the other backend.
 
-### 0.14 Animation: three frame systems, only one of which actually keeps time
+### 0.14 Three animation frame mechanisms; one time-based
 
 1. `ui/UIAnimator.rgr` — host-only glow/pulse effects with an `elapsedMs` clock
    and an `.after` completion callback (lines 78, 174–184).
@@ -273,7 +273,7 @@ from the guest (`p0`), and the `.as` draw list takes `frame` per call. Three
 mechanisms, three capability ceilings, no shared tween/easing/completion model
 (IDEAL.md §2.12).
 
-### 0.15 Sprite sheets: three registration paths
+### 0.15 Three sprite-sheet registration paths
 
 1. `scripting/game_sprite.rgr` — TS-path sheet defs (`shFrameW/shCols/…`,
    lines 58–66, loaded at 336), drawn by sub-rect blit or GPU sprites.
@@ -286,7 +286,7 @@ Three ways to tell the engine "here is a sheet of frames," none shared, and the
 emitted `atlas.json` from the packing pipeline is ignored at runtime
 (IDEAL.md §2.8).
 
-### 0.16 Cameras: three systems, and the ABI can only scroll vertically
+### 0.16 Three camera systems; the ABI transports camera_y only
 
 1. **Integer pan** — `scripting/game_camera.rgr:27–28` (`camX/camY`) with the
    literal `screen = world − cam` subtraction in `game_runtime.rgr:1076–1085`.
@@ -300,7 +300,7 @@ emitted `atlas.json` from the packing pipeline is ignored at runtime
 And the shared ABI carries only `camera_y` — a guest cannot even pan
 horizontally through the transport (IDEAL.md §2.17).
 
-### 0.17 Physics: three parallel paths, two vehicle models, one unwired interface
+### 0.17 Three physics paths, two vehicle implementations, one unused interface
 
 - **Path 1:** `scripting/physics_core.rgr` (701 lines, arcade 2D) behind the
   `game_physics.rgr` facade — what games actually use.
@@ -320,13 +320,13 @@ then never connected (see 0.21).
 
 ---
 
-## Category D — features that exist on only one guest path
+## Category D — features available on one guest path only
 
 The engine promises "write the game once, run it compiled or interpreted." These
 features break that promise silently — the game runs, and the feature is just
 absent (IDEAL.md's parity axis, §2):
 
-### 0.18 The interpreted `.as` path has APIs the compiled path does not
+### 0.18 API set differs between the .as and compiled-WASM paths
 
 `scripting/as_abi_bridge.rgr` (64 functions) exposes the guest draw list
 (`drawSprite`), the host resource manifest (`hostSheet`/`hostRect`), and the
@@ -335,7 +335,7 @@ functions) — the compiled-WASM equivalent — has **none of them** (zero match
 for any of those names). A game that uses sprites-by-manifest or sounds, written
 once, behaves differently compiled vs interpreted.
 
-### 0.19 TS-path-only features: voice, music, screen navigation, persistence
+### 0.19 Voice, music, navigation and persistence exist on the TS path only
 
 - **Voice/music** — `playVoice` flows only through the TS event bridge
   (`game_vocal_fx_bridge.rgr:59`); music only via the TS `startMusic`/soundscore
@@ -351,7 +351,7 @@ once, behaves differently compiled vs interpreted.
   `game_persistence.rgr:5`); a WASM or `.as` guest cannot save
   (IDEAL.md §2.11).
 
-### 0.20 Named ABI blocks with no header
+### 0.20 RGX1 and RGLD blocks have no shared header
 
 `RGX1` (streaming) and `RGLD` (loader) are used by
 `scripting/streaming_world_runner.rgr` and `wasm/rust_worker/src/lib.rs`, but
@@ -361,9 +361,9 @@ must agree byte-for-byte with no shared definition (IDEAL.md §2.7).
 
 ---
 
-## Category E — the half-landed fix: the cure becomes another copy
+## Category E — partially completed fixes and deferred semantics
 
-### 0.21 Fixes ship, but the old path is never retired
+### 0.21 Completed fixes whose old paths were not removed
 
 This is the second-order trap, and it is worth naming because it is how the
 *cleanup itself* goes wrong. Every example below is a correct fix that stopped
@@ -397,7 +397,7 @@ The rule this implies for all the work in this plan: **a fix is finished when
 the old path is deleted**, not when the new path works. Retirement is part of
 the fix's definition of done.
 
-### 0.22 A one-line "for now" that became an architecture
+### 0.22 EvalValue object equality returns false; downstream effects
 
 `eval/jsx/EvalValue.rgr:540`:
 
@@ -415,7 +415,7 @@ so it keys them by array position and "assumes a stable tree shape"
 the design of every layer above it. This is the smallest reroute in the codebase
 and the most expensive one.
 
-### 0.23 Logging and flags: nine vocabularies and a mode soup
+### 0.23 Inconsistent logging prefixes and scattered feature flags
 
 - Log lines are bare `print` calls with ad-hoc bracket tags — nine distinct
   prefixes across `scripting/` (`[game-engine]`, `[split-screen]`, `[menu]`,
@@ -432,7 +432,7 @@ and the most expensive one.
 
 ---
 
-## 0.24 What the new core must do differently — build and test rules
+## 0.24 Build and test rules derived from the inventory
 
 Each example above survived because nothing *failed* when the shortcut was
 taken. There is also proof in this codebase that the right fix works when done
@@ -457,13 +457,13 @@ visible:
   the shared search path; a duplicate-basename check in CI flags a game-local
   copy of a shared module — and flags a game copied whole into a sibling folder
   (kills 0.8, 0.9).
-- **One definition per class and per subsystem, all faces generated.** The Class
-  Registry (Part IV) is the single source for classes/methods/props; the
+- **One definition per class and per subsystem, all faces generated.** The class
+  registry is the single source for classes/methods/props; the
   interpreter façade, Rust/AS guest structs, and every bridge surface are
   generated from it, with a surface-parity test that fails on drift
   (kills 0.10, and the command-surface drift in 0.21).
 - **One entity registry** with stable generation-tagged ids and type ids
-  (Part II) backs the Three host, `model3d`, and the world store
+  (entity-registry chapter) backs the Three host, `model3d`, and the world store
   (kills 0.11, and gives 0.13's binding one identity to hang on).
 - **One representation per concept across the boundary.** Input, camera,
   sheets, animation each get one typed surface in the contract, and the old
@@ -476,14 +476,14 @@ visible:
   plan lists the files it retires, and the PR that lands the new path removes
   the old one or is not done (kills 0.21 — the half-landed-fix trap).
 - **No silent "for now" in the value model.** The interpreter semantics get
-  their own test suite (`component_engine_js_semantics_test`, Part III) so a
+  their own test suite (`component_engine_js_semantics_test`, the Three object-model chapter) so a
   deferred semantic — identity, `undefined`, Map/Set keys — is a red test, not
   a comment (kills 0.22).
 - **One log call with a severity and one flag registry** replace the bracket
   tags and the independent booleans; runner mode becomes a single enum so
   contradictory states are unrepresentable (kills 0.23).
 
-## 0.25 Coverage — this catalog vs IDEAL.md's use-case areas
+## 0.25 Coverage of IDEAL.md use-case areas
 
 | IDEAL.md § | Area | Chapter here |
 |-----------|------|--------------|
@@ -508,14 +508,217 @@ visible:
 | §5 | One world, one owner | 0.6 |
 | §7 | Mechanically checkable "done" | 0.24 |
 
-The rest of this plan is organized around making the 0.24 rules true: Part I
-maps where everything lives and moves core into one place; Part II builds the
-one registry; Parts IV–V define the one contract and the bridge that runs it;
-Parts VI–VII cover lifetime and the generated guest faces.
+The rest of this plan is organized around making the 0.24 rules true: the
+file-system chapter maps where everything lives and moves core into one place;
+the entity-registry chapter builds the one registry; the class-registry and
+bridge chapters define the one contract and the runtime that serves it; the
+lifetime/GC and guest-support chapters cover object lifetime and the generated
+guest faces.
 
 ---
 
-# Part I — the engine core, and where it lives on disk
+# Vertex data flow: construction, world binding, rendering, read-back
+
+A single vertex of a cube is the best end-to-end probe of the architecture,
+because it has to cross every boundary this plan talks about: guest → core →
+renderer → and (ideally) back to the guest. This chapter walks one vertex —
+the cube corner at `(+1, +1, +1)` — through all four stages, with the real code
+at each step. Where a stage works differently on the TSX path and the WASM
+path, both are shown; where a stage does not exist yet, that is stated and tied
+to the Part that adds it.
+
+## Stage 1 — construction in guest code
+
+The guest never types the number `1.0` three times — it asks for a box, and the
+vertex is *born in the core*, not in the guest.
+
+**TSX guest** (`games/cube/index.tsx:23–26`):
+```tsx
+const geometry = new THREE.BoxGeometry();
+const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
+mesh = new THREE.Mesh( geometry, material );
+```
+The reconciler sees the façade object and issues one host command
+(`three_tsx_bridge.rgr:740` `buildGeometryH` → `:807`
+`host.geometryBox(gw gh gd)`).
+
+**Compiled WASM guest** (`games/cube3d_wasm/src/src/lib.rs:20–25`), using the
+`ranger_game` SDK — same idea, one command, no vertex memory in the guest:
+```rust
+pub extern "C" fn init() {
+    let scene = Scene::new();
+    let tex = scene.texture("crate");
+    let cube = scene.spawn_cube(Vec3::ZERO, 1.0, tex);   // -> opaque Entity id
+    ...
+}
+```
+`spawn_cube` (`lib/ranger_game/src/scene.rs:577`) sends `rg_create_mesh_entity`
+(`:728`) across the ABI and keeps only the returned integer id. The guest's own
+doc comment states the ownership model: *"The guest owns no geometry/camera/
+light memory … only high-level commands + EntityIds."*
+
+**Where the doubles are actually born** — the host command lands in
+`ThreeSceneHost.geometryBox`, which builds the vertices in the core
+(`three/src/three_box_geometry.rgr:25`):
+```
+fn setSize:ThreeBoxGeometry (width:double height:double depth:double) {
+    def hx:double (width * 0.5)
+    ...
+    ; +Z face — our vertex (+hx, +hy, +hz) is pushed here
+    this.addQuad(nhx nhy hz  hx nhy hz  hx hy hz  nhx hy hz  0.0 0.0 1.0)
+```
+`addQuad` calls `pushVertex`, and the vertex finally exists as three doubles in
+one flat array (`three/src/three_buffer_geometry.rgr`):
+```
+class ThreeBufferGeometry {
+    def positions:[double]        ; x,y,z per vertex — the ONE copy
+    def normals:[double]
+    def uvs:[double]
+    fn pushVertex:void (px py pz  nx ny nz  u v) { push this.positions px ... }
+    fn getPosition:double (vertex:int comp:int) {
+        return (itemAt this.positions ((vertex * 3) + comp))
+    }
+```
+One legacy variant still exists: the *block mode*, where the guest exported a
+`rg_mesh_ptr` table of fixed-point vertex records and the host copied them out
+of guest linear memory (`wasm3d_runner.rgr:467–487`). No shipped game uses it
+anymore — the runner keeps the reader (`sceneMode = (wasm_has_export handle
+"rg_mesh_ptr") == 0`, line 439) for compatibility. It appears again in stage 4,
+because it is the only mode where a guest can read a vertex back today.
+
+## Stage 2 — attachment to world objects by handle
+
+The vertex is **not copied** into the mesh. The mesh *references* the geometry
+by handle (`three/src/three_scene_host.rgr:196`):
+```
+fn meshNew:int (sceneH:int geoH:int matH:int) {
+    def m:ThreeMesh (new ThreeMesh)
+    m.setGeometry((this.geometryAt(geoH)))    ; reference, not copy
+    m.setMaterial((this.materialAt(matH)))
+    (this.sceneAt(sceneH)).add(m)
+    push entities m
+    return (array_length entities)            ; the mesh's own handle
+}
+```
+The entity's position/rotation/scale live on the *mesh*, set separately
+(`entityTransform`, `three_scene_host.rgr:242`). So after stage 2 there are two
+distinct pieces of state, joined only at render time:
+
+- the vertex's **local position** `(1, 1, 1)` — immutable, inside the geometry,
+  shared by every mesh that references that geometry;
+- the mesh's **world transform** — mutable, per entity, updated every frame
+  (the WASM guest's `CUBE.rotation(tumble)` → `rg_set_rotation`,
+  `scene.rs:734`).
+
+The world-space position of our vertex is never stored anywhere — it is
+computed fresh each frame in stage 3 as `uModel × (1,1,1)`. This split is
+exactly the resource/instance separation the plan's registry formalizes
+(entity-registry chapter), and it is why two meshes sharing one geometry must share one handle
+(II.E): the vertex exists once no matter how many cubes are on screen.
+
+## Stage 3 — transfer to the shaders
+
+**GL path.** When the geometry is first drawn, the core interleaves the flat
+arrays into one GPU buffer — 48 bytes per vertex
+(`three/src/three_gl_backend.rgr:306–315`):
+```
+; interleaved float32 [px,py,pz, nx,ny,nz, u,v, tx,ty,tz,tw] (48-byte stride)
+def vbuf:buffer (buffer_alloc (vc * 48))
+    def o:int (i * 48)
+    ByteReader.encodeF32(vbuf o (g.getPosition(i 0)))   ; px → byte offset 0
+```
+The GL glue binds that buffer to the `aPos` attribute
+(`three/src/three_gl.rgr:70`):
+```
+gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 48, 0);
+```
+and the vertex shader (`three/src/three_gl_shaders.rgr:16`) finally combines the
+two pieces of state from stage 2:
+```glsl
+attribute vec3 aPos;            // our vertex: (1, 1, 1), local space
+uniform mat4 uModel;            // the mesh's world transform
+uniform mat4 uMVP;
+void main() {
+  vec4 wp = uModel * vec4(aPos, 1.0);   // world position, computed per frame
+  vWorldPos = wp.xyz;
+  gl_Position = uMVP * vec4(aPos, 1.0); // clip position
+}
+```
+The upload happens once and is cached on the geometry (`glHandle` in
+`ThreeBufferGeometry`); after that, only the matrices travel per frame.
+
+**Software path** (no GPU — native Pi / tests): the rasteriser reads the same
+array through the same accessor and does the shader's job on the CPU
+(`three/src/three_software_backend.rgr:98–109`):
+```
+; project every vertex to screen space (sx, sy, sz=NDC depth)
+def lx:double (geometry.getPosition(vi 0))
+def ly:double (geometry.getPosition(vi 1))
+def lz:double (geometry.getPosition(vi 2))
+```
+Same data, two renderers — which is the point of the flat-array core: the
+vertex has one authoritative form, and each backend converts it at its own
+boundary (float32 for GL, fixed-point ×256 for the native `gfx_3d_mesh_upload`
+path).
+
+## Stage 4 — read-back from guest code
+
+This is where the architecture is honest about its gaps.
+
+**Compiled WASM + JS, block mode (works today, legacy).** Because the guest
+owned the vertex table, reading it back is just reading memory. The JS harness
+does exactly that (`games/cube3d_wasm/tools/render.cjs:150–158`):
+```js
+const mp  = exp.rg_mesh_ptr();            // guest's mesh block address
+const vc  = u32(mp + 16);                 // vertex count
+const VTX = mp + 64, VSZ = 32;            // records: 32 bytes/vertex
+for (let i = 0; i < vc; i++) { /* DataView reads at VTX + i*VSZ, /256 */ }
+```
+The host does the same word-by-word (`wasm3d_runner.rgr:475`
+`wasm_mem_i32 handle (mb + 64 + (w * 4))`). The guest itself can read its own
+static table with plain Rust. Read-back works — because there is no
+abstraction, only shared bytes at agreed offsets.
+
+**Compiled WASM, command mode (the current model): read-back does not exist.**
+The guest holds an opaque `Entity` id and the host owns the vertices; the
+`rg_*` import table (`scene.rs:728–786`) has creates and setters —
+`rg_create_mesh_entity`, `rg_set_rotation` — and **no getter**. A guest that
+needs a vertex (say, to fit a collision hull) must re-derive it from what it
+asked for, hoping the host built the same thing — the world-encoded-twice trap
+(0.6) waiting to reopen.
+
+**TSX + JS: the façade lies politely.** `games/cube/index.tsx:53` reads
+`mesh.geometry.width` — but that touches only the façade's *own data prop*, the
+argument it passed at construction. The real `positions` array in the core is
+unreachable from game script. (In the browser the core is compiled to ES6, so
+*host-side* JS can call `geometry.getPosition(i, c)` directly — the gap is
+specifically the guest→core direction.)
+
+**How the plan closes stage 4.** Reading a vertex back becomes one contract on
+every path:
+
+- The class registry gives geometry a typed read surface — e.g.
+  `geometryVertexCount(geoH)` and `geometryGetPosition(geoH, i) → (x, y, z)` —
+  generated for the host API, the WASM import table, and the JS wrapper alike,
+  with the handle validated by generation + type id (II.B) so a stale
+  geometry handle returns null instead of someone else's vertices.
+- On the interpreter path the native adapter (bridge chapter) routes
+  `mesh.geometry.getPosition(0)` through `getProperty`/`invokeMethod` to the
+  *same canonical* `ThreeBufferGeometry` — so the façade stops answering from
+  its private props.
+- Residency (V.3) applies: vertex data is bulk state, so the contract should
+  offer a bulk read (copy N vertices into a guest buffer in one call), not a
+  per-component boundary hop — the block mode's one virtue, kept without its
+  shared-offset fragility.
+
+Once stage 4 exists, the vertex's life is a closed loop — constructed by a
+command, stored once in the core, composed with a transform in the shader, and
+readable back through the same handle that created it — on every backend, from
+one definition.
+
+---
+
+# Engine core components and their file-system locations
 
 The engine's core is spread across many folders. Some of it already sits in tidy
 subsystem folders (`three/`, `physics/`, `model3d/`), some is loose at the engine
@@ -542,7 +745,7 @@ today, then **Actions** lists what to do with it.
 - This is the interpreter that runs `*.game.tsx` and `.as` scripts at runtime.
 
 ### Actions
-- Develop the object-identity and native-adapter work (Parts II and V) directly
+- Develop the object-identity and native-adapter work (entity-registry and bridge chapters) directly
   on this copy, independent of `pdf_writer`.
 - Move it back into `pdf_writer` once it is stable, or promote it to a shared
   module both can use.
@@ -580,7 +783,7 @@ today, then **Actions** lists what to do with it.
 - Treat `three/` as a reusable subsystem: either move it under `core/` or keep it
   a sibling of `core/` (decision C1).
 - `three_scene_host.rgr` is the host end of the entity registry — its rework lives
-  in Part II.
+  in the entity-registry chapter.
 
 ## I.4 Physics — `physics/`
 
@@ -607,7 +810,7 @@ today, then **Actions** lists what to do with it.
 
 ### Actions
 - Reusable subsystem: `core/` or sibling (C1).
-- Fold its `EntityRegistry` onto the shared registry defined in Part II so there
+- Fold its `EntityRegistry` onto the shared registry defined in the entity-registry chapter so there
   is one implementation, not two.
 
 ## I.6 The host runtime facades — `scripting/game_*.rgr`
@@ -678,11 +881,11 @@ today, then **Actions** lists what to do with it.
   `input` (controllers/`Buttons`), `scene`, `sprite`, `ui`, `world`, `pose`,
   `resources`, `block`.
 - It is the guest-side face of the ABIs and the source of the `ranger-game`
-  native module (Part V). Its `scene.rs` duplicates the host math by hand.
+  native module (bridge chapter). Its `scene.rs` duplicates the host math by hand.
 
 ### Actions
 - Keep it as the guest SDK.
-- Generate its scene/class types from the Class Registry (Part VII) so the guest
+- Generate its scene/class types from the Class Registry (guest-support chapter) so the guest
   copy cannot drift from the host.
 
 ## I.11 Not core — games, demos, prototypes
@@ -725,7 +928,7 @@ today, then **Actions** lists what to do with it.
 - No file is deleted during the move; the delete list is drawn only once the
   boundary exists (I.11).
 
-# Part II — Entity Registry & stable identity (engine-wide)
+# Entity registry and stable object identity
 
 > The branch's core theme, and **not** an interpreter-only concern. A stable,
 > process-wide entity ID is needed at **four layers**, and they must be *one*
@@ -752,7 +955,7 @@ which is the leak; the registry fixes it:
 Each slot stores **three** things: the object, its `generation`, and its
 **Object Type ID** (Mesh / Group / DirectionalLight / Sky / AmbientLight /
 Geometry / Material / Texture / …). Storing the type next to the id is what lets
-the host dispatch a bridge call without downcasting (Part III.5).
+the host dispatch a bridge call without downcasting (the bridge-call model (III.5)).
 ```
 ; 32-bit id, never a raw array index; 0 = null
 handle = (generation << 20) | (slot + 1)
@@ -812,14 +1015,14 @@ id."
 
 ---
 
-# Part III — fix the Three object model (the real work)
+# Three object model: identity, reconciliation, resource handling
 
 ## III.1 Interpreter object semantics (identity + missing member)
 The evaluator lacks stable object identity and returns `null` for missing
 members — tracked in [`docs/TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md)
-(#7 identity, #8 missing→`undefined`). The identity fix is **Part II.A** (it is
+(#7 identity, #8 missing→`undefined`). The identity fix is **II.A** (it is
 engine-wide, not Three-only); missing→`undefined` is its interpreter-local
-companion. Both gate §III.2–III.4 and the native adapter (Part V). The
+companion. Both gate §III.2–III.4 and the native adapter (bridge chapter). The
 `EvalValue.valueType` value model the adapter plugs into (note `7` is already a
 native `EVGElement` slot) is in
 [`TSX_ENGINE_ISSUES.md` → Value model](./docs/TSX_ENGINE_ISSUES.md).
@@ -848,7 +1051,7 @@ the docs say that, in three specific edits:
 
 Doc-only, no code — safe to do first; it unblocks everyone reading the design.
 ("Integer id" here = a small number naming a host object, **not** a pointer; the
-guest never sees host memory. This is the same id as Part II.B/II.C.)
+guest never sees host memory. This is the same id as II.B/II.C.)
 
 ## III.3 Reconciler: key by identity, mark-and-sweep
 Today `three_tsx_bridge.rgr` keys nodes by array index / DFS ordinal and assumes
@@ -859,12 +1062,12 @@ or a hot-reload leaves stale host objects behind.
 geometry`, `material id → material`, `texture id → texture`). Each reconcile:
 1) mark reached identities, 2) create missing, 3) update changed, 4) **destroy
 unmarked**, 5) set parent links explicitly. Never use an array index as identity.
-(The identity is Part II.A; the handle it maps to is Part II.B.)
+(The identity is II.A; the handle it maps to is II.B.)
 
-## III.4 Resource sharing → see Part II.E
+## III.4 Resource sharing → see II.E
 The `buildMeshH()` duplicate-resource bug and its fix (shared geometry/material
 resolve to one handle) are the concrete payoff of the identity scheme, covered in
-**Part II.E**. In reconciler terms: step 2 of III.3 looks a resource up by its
+**II.E**. In reconciler terms: step 2 of III.3 looks a resource up by its
 source identity before creating one.
 
 ## III.5 The bridge-call model (dispatch by stored Type ID)
@@ -908,7 +1111,7 @@ The bridge is hand-maintained in several places and already drifted: the host
 exposes 10 geometry constructors but `ThreeNativeBridge.invoke` exposes 2 (Box,
 Teapot); the declarative reconciler calls the host directly, so demos work and
 hide the gap. **Fix:** stop hand-writing the surface and generate every face from
-the one **Class Registry** contract — see **Part IV**.
+the one **Class Registry** contract — see **the class-registry chapter**.
 
 ## III.7 Harden the parity rig (`THREE_VALUE_PARITY_TESTS.md`)
 Good foundation (real Three.js goldens, natural Three code as input, render vs
@@ -939,7 +1142,7 @@ value parity split, honest 0/31 reporting), but:
 
 ---
 
-# Part IV — Class Registry: the bridge contract  ⚠️ SPECIAL REVIEW
+# Class registry: the bridge contract (requires separate review)
 > A **contract**, not a codegen convenience. The bridge between any front-end
 > (interpreter / WASM guest / native) and `ThreeSceneHost` is defined by a
 > registry of **classes → their methods and props**. A guest compiled against it
@@ -950,7 +1153,7 @@ value parity split, honest 0/31 reporting), but:
 **What it holds** — for each exposed class, one stable record:
 ```
 class {
-  classId : u32          ; stable, never reused — this IS the Object Type ID (Part II)
+  classId : u32          ; stable, never reused — this IS the Object Type ID (entity-registry chapter)
   name    : "Vector3"    ; the Three name a front-end constructs
   props   : [ { propId,   name, type, access: get|set|getset } ]
   methods : [ { methodId, name, argTypes[], returnType } ]
@@ -970,10 +1173,10 @@ class {
 
 **One source of truth.** Authored once, it generates the `ThreeSceneHost`
 methods, `ThreeNativeBridge.has/invoke`, the WASM import table, the TS/Rust guest
-wrappers, the native-adapter registrations (Part V), the doc command table, and a
+wrappers, the native-adapter registrations (bridge chapter), the doc command table, and a
 **surface-parity test** that fails if any generated face is missing a member —
 closing today's drift (host 10 geometry constructors vs native-bridge 2). The
-`classId` is the Object Type ID the host dispatches on (Part III, bridge-call
+`classId` is the Object Type ID the host dispatches on (III.5, bridge-call
 model).
 
 **Status — SPECIAL REVIEW.** It governs every front-end and any compiled guest,
@@ -981,13 +1184,13 @@ so freeze its shape before building codegen on it. Open: id widths, the type set
 where the registry lives (a `.rgr` table vs a data file), and how it maps onto
 the existing `wasm/*.h` ABI headers.
 
-# Part V — The Bridge: native classes & native modules
+# Bridge implementation: native classes and native modules
 The bridge is how interpreted game code reaches host/native functionality
 **without pointers** — it is the runtime side of the Class Registry contract
-(Part IV). It has **two surfaces**: native *classes* a script constructs
+(class-registry chapter). It has **two surfaces**: native *classes* a script constructs
 (`new THREE.Vector3()`), and native *modules* a script imports
 (`import * as Ranger from "ranger-game"`). Both are versioned by, and
-backward-compatible under, the Part IV contract.
+backward-compatible under, the class-registry contract.
 
 ## V.1 The façade stays — but it is declared once, and it is thin
 The façade module is still needed: something must answer
@@ -998,7 +1201,7 @@ What changes is what's *inside* it and how many copies exist:
   method bodies (plus the `__removed` hack, `three.tsx:60,67,71`) while the real
   math should live only in Ranger core. With the adapter (V.2), the façade stops
   implementing anything — it only *declares* which names bind to which registered
-  native classes (and can be generated from the Class Registry, Part IV).
+  native classes (and can be generated from the class registry).
 - **One copy, not one per game.** Today the façade is copied into every 3D game
   folder — `three/tsx/three.tsx` (585 lines) plus diverged copies in
   `games/cube/` (350), `games/cubes/` (350), `games/teapot/` (237),
@@ -1021,7 +1224,7 @@ The interpreter **already** wraps one native Ranger class: `valueType 7`
 IV)** registered with the ComponentEngine (`EVGElement` becomes client #0):
 ```
 interface NativeClassAdapter {
-  fn className() : string                       ; "Vector3" | "Object3D" | …  (== a Part IV class)
+  fn className() : string                       ; "Vector3" | "Object3D" | …  (== a class-registry class)
   fn construct(args:[EvalValue]) : NativeRef     ; new THREE.Vector3(x,y,z)
   fn getProperty(self:NativeRef key:string) : EvalValue
   fn setProperty(self:NativeRef key:string v:EvalValue) : void
@@ -1030,9 +1233,9 @@ interface NativeClassAdapter {
 ```
 Canonical types: `Vector3`↔`Vec3`, `Matrix4`↔`Mat4`, `Quaternion`↔`Quat`,
 `Object3D`↔host `ThreeObject3D` — chosen so interpreter, host, and parity read
-the **same** math. A host-backed `NativeRef` gets an `identityId` (Part II), so
+the **same** math. A host-backed `NativeRef` gets an `identityId` (entity-registry chapter), so
 shared instances are one value everywhere (what makes II.E aliasing + III.3
-reconciliation work); its *lifetime* is Part VI.
+reconciliation work); its *lifetime* is the lifetime/GC chapter.
 
 ## V.3 Residency — guest-side, host-side, or hybrid
 Not every bridged class is host-backed, and this split is a first-class part of
@@ -1041,16 +1244,16 @@ expensive. Each class is one of:
 - **Guest-side** — a plain interpreter value; every method runs in the
   interpreter, no host round-trip. Right for hot value math (`Vector3.add`
   shouldn't cross the boundary).
-- **Host-backed** — the canonical object lives in the host registry (Part II) and
+- **Host-backed** — the canonical object lives in the host registry (entity-registry chapter) and
   every method proxies to native. Required when the host owns the truth
   (`Object3D` in the scene graph, GPU resources).
 - **Hybrid** — host-backed, but its *hot* methods run guest-side on a mirrored
   value while its *state-changing* methods proxy to the host. e.g. `Vector3`
   arithmetic stays local; assigning it into `mesh.position` syncs to the host.
 
-So the **Class Registry (Part IV) marks each method/prop with an execution site**
+So the **class registry marks each method/prop with an execution site**
 (`guest` | `host`), and the adapter proxies only the `host` ones. Keeping value
-types guest-side is also what keeps the GC problem (Part VI) small.
+types guest-side is also what keeps the GC problem (the lifetime/GC chapter) small.
 
 ## V.4 Object invocation (the dispatch path)
 How the interpreter drives a native-class value at runtime — four hooks. The
@@ -1062,7 +1265,7 @@ obj.prop             -> adapter.getProperty(ref, "prop")
 obj.prop = v         -> adapter.setProperty(ref, "prop", v)
 obj.method(args…)    -> adapter.invokeMethod(ref, "method", args)
 ```
-The interpreter picks the adapter by the value's `nativeClassId` (== the Part IV
+The interpreter picks the adapter by the value's `nativeClassId` (== the class-registry
 `classId` / Object Type ID), so dispatch is a table lookup, and an unknown
 member is a defined error, not a crash.
 
@@ -1081,8 +1284,8 @@ if (pad.pressed(Ranger.Buttons.ACTION)) fire();
 Ranger.audio.play("hit");
 ```
 These are native functions/state, **not** JS objects — same no-pointer discipline
-as V.2, and the module's exported names/signatures are part of the **Part IV
-contract** (versioned, append-only), so a game compiled against `ranger-game`
+as V.2, and the module's exported names/signatures are part of the
+**class-registry contract** (versioned, append-only), so a game compiled against `ranger-game`
 keeps working when the host adds capabilities. Candidate first exports:
 `controllers`/`input`, `time`, `audio`, and read-only engine/config state.
 
@@ -1098,7 +1301,7 @@ client #0.
 
 ---
 
-# Part VI — Cross-boundary lifetime & garbage collection
+# Object lifetime and garbage collection across the boundary
 A host-backed or hybrid value (V.3) holds a host registry handle (II.B), retained
 on create. The hard question: **when the guest-side value dies, who releases the
 host object?** Get it wrong and you leak host objects (the II.B leak, now across
@@ -1130,7 +1333,7 @@ Approach:
    contract. The escape case is **decision C3** — favor guest-side residency to
    avoid it.
 
-# Part VII — One guest support layer, generated (don't hand-replicate)
+# Guest support libraries: single definition, generated output
 Today the same support classes are hand-written over and over, on two axes:
 - **Per language:** `three.tsx` carries a full `Vector3`/`Object3D` façade (~90
   method bodies), the Rust WASM helpers duplicate the math in
@@ -1146,222 +1349,21 @@ class level: a method fixed in one copy stays wrong in the others.
 **Rule: a support class is defined once and every face of it is generated from
 that definition — never hand-copied per language, and never copied per game.**
 Concretely:
-- The **Class Registry (Part IV)** is that single definition (names, methods,
+- The **class registry** is that single definition (names, methods,
   props, types).
-- On the interpreter path, the adapter (Part V) empties the façade of
+- On the interpreter path, the adapter (bridge chapter) empties the façade of
   implementation: one thin, shared `three.tsx` remains, declaring name→class
   bindings, resolved from a shared search path by every game (V.1).
 - For compiled guests (Rust/AS) that genuinely need local structs, **generate**
-  them from the registry (the same codegen that emits the wrappers in Part IV),
+  them from the registry (the same codegen that emits the wrappers in the class-registry chapter),
   so `lib/ranger_game/` scene types and the AS equivalents can't diverge from the
   host.
 - A **parity test** asserts each generated guest support matches the registry —
-  the class-level analog of Part IV's surface-parity test.
+  the class-level analog of the class registry's surface-parity test.
 
 This is the class-level half of IDEAL.md's "parity across guest paths": a game
 written once behaves identically compiled or interpreted because there is exactly
 one definition of each class, not one per backend.
-
----
-
-# Part VIII — Worked example: the life of one vertex
-
-A single vertex of a cube is the best end-to-end probe of the architecture,
-because it has to cross every boundary this plan talks about: guest → core →
-renderer → and (ideally) back to the guest. This chapter walks one vertex —
-the cube corner at `(+1, +1, +1)` — through all four stages, with the real code
-at each step. Where a stage works differently on the TSX path and the WASM
-path, both are shown; where a stage does not exist yet, that is stated and tied
-to the Part that adds it.
-
-## VIII.1 Stage 1 — the vertex is constructed in guest code
-
-The guest never types the number `1.0` three times — it asks for a box, and the
-vertex is *born in the core*, not in the guest.
-
-**TSX guest** (`games/cube/index.tsx:23–26`):
-```tsx
-const geometry = new THREE.BoxGeometry();
-const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
-mesh = new THREE.Mesh( geometry, material );
-```
-The reconciler sees the façade object and issues one host command
-(`three_tsx_bridge.rgr:740` `buildGeometryH` → `:807`
-`host.geometryBox(gw gh gd)`).
-
-**Compiled WASM guest** (`games/cube3d_wasm/src/src/lib.rs:20–25`), using the
-`ranger_game` SDK — same idea, one command, no vertex memory in the guest:
-```rust
-pub extern "C" fn init() {
-    let scene = Scene::new();
-    let tex = scene.texture("crate");
-    let cube = scene.spawn_cube(Vec3::ZERO, 1.0, tex);   // -> opaque Entity id
-    ...
-}
-```
-`spawn_cube` (`lib/ranger_game/src/scene.rs:577`) sends `rg_create_mesh_entity`
-(`:728`) across the ABI and keeps only the returned integer id. The guest's own
-doc comment states the ownership model: *"The guest owns no geometry/camera/
-light memory … only high-level commands + EntityIds."*
-
-**Where the doubles are actually born** — the host command lands in
-`ThreeSceneHost.geometryBox`, which builds the vertices in the core
-(`three/src/three_box_geometry.rgr:25`):
-```
-fn setSize:ThreeBoxGeometry (width:double height:double depth:double) {
-    def hx:double (width * 0.5)
-    ...
-    ; +Z face — our vertex (+hx, +hy, +hz) is pushed here
-    this.addQuad(nhx nhy hz  hx nhy hz  hx hy hz  nhx hy hz  0.0 0.0 1.0)
-```
-`addQuad` calls `pushVertex`, and the vertex finally exists as three doubles in
-one flat array (`three/src/three_buffer_geometry.rgr`):
-```
-class ThreeBufferGeometry {
-    def positions:[double]        ; x,y,z per vertex — the ONE copy
-    def normals:[double]
-    def uvs:[double]
-    fn pushVertex:void (px py pz  nx ny nz  u v) { push this.positions px ... }
-    fn getPosition:double (vertex:int comp:int) {
-        return (itemAt this.positions ((vertex * 3) + comp))
-    }
-```
-One legacy variant still exists: the *block mode*, where the guest exported a
-`rg_mesh_ptr` table of fixed-point vertex records and the host copied them out
-of guest linear memory (`wasm3d_runner.rgr:467–487`). No shipped game uses it
-anymore — the runner keeps the reader (`sceneMode = (wasm_has_export handle
-"rg_mesh_ptr") == 0`, line 439) for compatibility. It appears again in stage 4,
-because it is the only mode where a guest can read a vertex back today.
-
-## VIII.2 Stage 2 — the vertex is attached to world objects by handle
-
-The vertex is **not copied** into the mesh. The mesh *references* the geometry
-by handle (`three/src/three_scene_host.rgr:196`):
-```
-fn meshNew:int (sceneH:int geoH:int matH:int) {
-    def m:ThreeMesh (new ThreeMesh)
-    m.setGeometry((this.geometryAt(geoH)))    ; reference, not copy
-    m.setMaterial((this.materialAt(matH)))
-    (this.sceneAt(sceneH)).add(m)
-    push entities m
-    return (array_length entities)            ; the mesh's own handle
-}
-```
-The entity's position/rotation/scale live on the *mesh*, set separately
-(`entityTransform`, `three_scene_host.rgr:242`). So after stage 2 there are two
-distinct pieces of state, joined only at render time:
-
-- the vertex's **local position** `(1, 1, 1)` — immutable, inside the geometry,
-  shared by every mesh that references that geometry;
-- the mesh's **world transform** — mutable, per entity, updated every frame
-  (the WASM guest's `CUBE.rotation(tumble)` → `rg_set_rotation`,
-  `scene.rs:734`).
-
-The world-space position of our vertex is never stored anywhere — it is
-computed fresh each frame in stage 3 as `uModel × (1,1,1)`. This split is
-exactly the resource/instance separation the plan's registry formalizes
-(Part II), and it is why two meshes sharing one geometry must share one handle
-(II.E): the vertex exists once no matter how many cubes are on screen.
-
-## VIII.3 Stage 3 — the vertex is passed to the shaders
-
-**GL path.** When the geometry is first drawn, the core interleaves the flat
-arrays into one GPU buffer — 48 bytes per vertex
-(`three/src/three_gl_backend.rgr:306–315`):
-```
-; interleaved float32 [px,py,pz, nx,ny,nz, u,v, tx,ty,tz,tw] (48-byte stride)
-def vbuf:buffer (buffer_alloc (vc * 48))
-    def o:int (i * 48)
-    ByteReader.encodeF32(vbuf o (g.getPosition(i 0)))   ; px → byte offset 0
-```
-The GL glue binds that buffer to the `aPos` attribute
-(`three/src/three_gl.rgr:70`):
-```
-gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 48, 0);
-```
-and the vertex shader (`three/src/three_gl_shaders.rgr:16`) finally combines the
-two pieces of state from stage 2:
-```glsl
-attribute vec3 aPos;            // our vertex: (1, 1, 1), local space
-uniform mat4 uModel;            // the mesh's world transform
-uniform mat4 uMVP;
-void main() {
-  vec4 wp = uModel * vec4(aPos, 1.0);   // world position, computed per frame
-  vWorldPos = wp.xyz;
-  gl_Position = uMVP * vec4(aPos, 1.0); // clip position
-}
-```
-The upload happens once and is cached on the geometry (`glHandle` in
-`ThreeBufferGeometry`); after that, only the matrices travel per frame.
-
-**Software path** (no GPU — native Pi / tests): the rasteriser reads the same
-array through the same accessor and does the shader's job on the CPU
-(`three/src/three_software_backend.rgr:98–109`):
-```
-; project every vertex to screen space (sx, sy, sz=NDC depth)
-def lx:double (geometry.getPosition(vi 0))
-def ly:double (geometry.getPosition(vi 1))
-def lz:double (geometry.getPosition(vi 2))
-```
-Same data, two renderers — which is the point of the flat-array core: the
-vertex has one authoritative form, and each backend converts it at its own
-boundary (float32 for GL, fixed-point ×256 for the native `gfx_3d_mesh_upload`
-path).
-
-## VIII.4 Stage 4 — reading the vertex back from the guest
-
-This is where the architecture is honest about its gaps.
-
-**Compiled WASM + JS, block mode (works today, legacy).** Because the guest
-owned the vertex table, reading it back is just reading memory. The JS harness
-does exactly that (`games/cube3d_wasm/tools/render.cjs:150–158`):
-```js
-const mp  = exp.rg_mesh_ptr();            // guest's mesh block address
-const vc  = u32(mp + 16);                 // vertex count
-const VTX = mp + 64, VSZ = 32;            // records: 32 bytes/vertex
-for (let i = 0; i < vc; i++) { /* DataView reads at VTX + i*VSZ, /256 */ }
-```
-The host does the same word-by-word (`wasm3d_runner.rgr:475`
-`wasm_mem_i32 handle (mb + 64 + (w * 4))`). The guest itself can read its own
-static table with plain Rust. Read-back works — because there is no
-abstraction, only shared bytes at agreed offsets.
-
-**Compiled WASM, command mode (the current model): read-back does not exist.**
-The guest holds an opaque `Entity` id and the host owns the vertices; the
-`rg_*` import table (`scene.rs:728–786`) has creates and setters —
-`rg_create_mesh_entity`, `rg_set_rotation` — and **no getter**. A guest that
-needs a vertex (say, to fit a collision hull) must re-derive it from what it
-asked for, hoping the host built the same thing — the world-encoded-twice trap
-(0.6) waiting to reopen.
-
-**TSX + JS: the façade lies politely.** `games/cube/index.tsx:53` reads
-`mesh.geometry.width` — but that touches only the façade's *own data prop*, the
-argument it passed at construction. The real `positions` array in the core is
-unreachable from game script. (In the browser the core is compiled to ES6, so
-*host-side* JS can call `geometry.getPosition(i, c)` directly — the gap is
-specifically the guest→core direction.)
-
-**How the plan closes stage 4.** Reading a vertex back becomes one contract on
-every path:
-
-- The Class Registry (Part IV) gives geometry a typed read surface — e.g.
-  `geometryVertexCount(geoH)` and `geometryGetPosition(geoH, i) → (x, y, z)` —
-  generated for the host API, the WASM import table, and the JS wrapper alike,
-  with the handle validated by generation + type id (Part II.B) so a stale
-  geometry handle returns null instead of someone else's vertices.
-- On the interpreter path the native adapter (Part V) routes
-  `mesh.geometry.getPosition(0)` through `getProperty`/`invokeMethod` to the
-  *same canonical* `ThreeBufferGeometry` — so the façade stops answering from
-  its private props.
-- Residency (V.3) applies: vertex data is bulk state, so the contract should
-  offer a bulk read (copy N vertices into a guest buffer in one call), not a
-  per-component boundary hop — the block mode's one virtue, kept without its
-  shared-offset fragility.
-
-Once stage 4 exists, the vertex's life is a closed loop — constructed by a
-command, stored once in the core, composed with a transform in the shader, and
-readable back through the same handle that created it — on every backend, from
-one definition.
 
 ---
 
@@ -1383,7 +1385,7 @@ the whole engine; deepest risk, needs the new semantics suite)
 - *Reuses* existing canonical math — `three/src/three_vector3.rgr` (232),
   `three_matrix4.rgr` (480), `three_quaternion.rgr` (166) — as backing, not rewritten. **S**
 
-**C. Class Registry + codegen** — new (Part IV)
+**C. Class Registry + codegen** — new (class-registry chapter)
 - The registry data (classes/methods/props + Type IDs). **M**
 - Generators: `ThreeSceneHost` iface, `three_native_bridge` has/invoke, WASM
   imports, TS/Rust wrappers, doc table, surface-parity test. **L**
@@ -1402,7 +1404,7 @@ the whole engine; deepest risk, needs the new semantics suite)
   refcount; make `entityRemove` free. **M**
 - `model3d/EntityModel.rgr` — fold its parallel `EntityRegistry` onto the core. **M**
 
-**F. Guest support (generated, not hand-copied — Part VII)**
+**F. Guest support (generated, not hand-copied — the guest-support chapter)**
 - `lib/ranger_game/src/scene.rs` (986) — generate math/scene types from the
   registry instead of maintaining them by hand. **M** (+ AS guest if/when added)
 
@@ -1420,10 +1422,10 @@ the whole engine; deepest risk, needs the new semantics suite)
 > registry (E) block adding any new material/loader/geometry — everything else
 > builds on them.
 
-# Decisions — RESOLVED
-- **D1 = keep `ranger_games/`.** Part I complete at tranche 1; no further
+# Decisions
+- **D1 = keep `ranger_games/`.** File cleanup complete at tranche 1; no further
   deletions.
-- **D2 = native-object adapter** for broad Three.js support (Part V).
+- **D2 = native-object adapter** for broad Three.js support (bridge chapter).
 - **D3 = keep planning.** No code yet; this doc + `docs/ADR-0001-three-scene-
   host-authority.md` are the artifacts to review.
 
@@ -1432,4 +1434,4 @@ plan — no ordering or scheduling is implied. Sequencing comes later, once the
 design is agreed.
 
 ---
-*Part I tranche 1 committed. The rest is design-only, under review.*
+*Cleanup tranche 1 committed. The rest is design-only, under review.*
