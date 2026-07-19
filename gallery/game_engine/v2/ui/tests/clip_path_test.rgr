@@ -1,0 +1,59 @@
+; ==============================================================================
+; clip_path_test — an element's clipPath clips its whole rendering to a shape.
+; ==============================================================================
+; clipPath was modeled + parsed but never consumed (evg/ISSUES.md #6 remainder).
+; Now WasmUiRenderer.drawElement pushes a polygon clip (the SVG-path silhouette,
+; scaled to the element box) BEFORE the background, so the fill itself is clipped
+; to an arbitrary shape. This drives the real path: a full-box green fill with a
+; triangular clipPath. Asserts, by reading pixels, that a point inside the
+; triangle is filled while a point in a clipped-off corner is background — and
+; that an identical element with NO clipPath fills the whole box (no regression).
+; ==============================================================================
+
+Import "../WasmUiSelect.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class ClipPathTest {
+    sfn isColor:boolean (ctx:UIContext x:int y:int r:int g:int b:int) {
+        if ((ctx.canvas.pixelR(x y)) != r) { return false }
+        if ((ctx.canvas.pixelG(x y)) != g) { return false }
+        if ((ctx.canvas.pixelB(x y)) != b) { return false }
+        return true
+    }
+
+    ; build a 100x100 green box (optionally clipPath'd) over a blue background.
+    sfn render:UIContext (clip:string) {
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(100 100)
+        def ctx:UIContext (new UIContext)
+        ctx.attach(canvas)
+        ctx.fillRectA(0 0 100 100 0 0 255 255)
+        def el:EVGElement (new EVGElement)
+        el.calculatedX = 0.0
+        el.calculatedY = 0.0
+        el.calculatedWidth = 100.0
+        el.calculatedHeight = 100.0
+        el.backgroundColor = (EVGColor.rgb(0 255 0))
+        el.clipPath = clip
+        def r:WasmUiRenderer (new WasmUiRenderer)
+        r.draw(ctx el)
+        return ctx
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("ui/clip_path (D-CLIPPATH shape clip)"))
+
+        ; triangle clip-path (vertices scale to box corners (0,0),(100,0),(50,100))
+        def c:UIContext (ClipPathTest.render("M 10 10 L 90 10 L 50 90 Z"))
+        t.ok("clipPath: inside the triangle is filled" (ClipPathTest.isColor(c 50 30 0 255 0)))
+        t.ok("clipPath: clipped-off bottom-left corner is background" (ClipPathTest.isColor(c 10 88 0 0 255)))
+        t.ok("clipPath: clipped-off bottom-right corner is background" (ClipPathTest.isColor(c 90 88 0 0 255)))
+
+        ; no clipPath -> the whole box fills (corners included), no regression
+        def n:UIContext (ClipPathTest.render(""))
+        t.ok("no clipPath: bottom-left corner is filled" (ClipPathTest.isColor(n 10 88 0 255 0)))
+        t.ok("no clipPath: bottom-right corner is filled" (ClipPathTest.isColor(n 90 88 0 255 0)))
+
+        t.summary()
+    }
+}

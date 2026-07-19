@@ -2,10 +2,23 @@
 
 ## Issue #1: Text/Label Elements Don't Auto-Size Width Based on Content
 
-**Status:** Open  
-**Severity:** Medium  
-**Found:** December 19, 2025  
+**Status:** RESOLVED (July 19, 2026)
+**Severity:** Medium
+**Found:** December 19, 2025
 **Component:** EVGLayout.rgr
+
+### Resolution
+
+`EVGLayout.estimateChildWidth` (and the matching shrink-wrap in `layoutElement`)
+measure a text/label leaf's content width via `measureTextContentWidth` and use
+it when no explicit width is set (falling back to the parent width only if the
+text is wider). So a `<Label>` in a `flexDirection:"row"` shrink-wraps to its
+text and its siblings stay on the same row. Locked by `evg/evg_test.rgr`
+`testTextIntrinsicWidth` (a short label + a fixed box in a row: label width <
+full, sibling on the same row, sibling.x == label width). The original writeup
+below predates this.
+
+### Original description (for reference)
 
 ### Description
 
@@ -79,10 +92,25 @@ Modified `ComponentEngine.evaluateTextContent` to:
 
 ## Issue #3: SVG Path Elements Not Implemented
 
-**Status:** Open  
-**Severity:** Medium  
-**Found:** December 19, 2025 (via test_features.tsx)  
-**Component:** ComponentEngine.rgr, EVGElement.rgr, EVGPDFRenderer.rgr
+**Status:** RESOLVED (July 19, 2026) for the v2 raster path.
+**Severity:** Medium
+**Found:** December 19, 2025 (via test_features.tsx)
+**Component:** SVGPathParser.rgr, EVGElement.rgr, ui/UIContext.rgr, ui/WasmUiSelect.rgr
+
+### Resolution (v2 raster renderer)
+
+`<Path>` elements now rasterize in the live UI path:
+`SVGPathParser.flatten(steps)` flattens the command list to a polygon outline
+(C/Q beziers sampled into segments; A approximated as a line to the endpoint);
+`UIContext.fillPolygon` does an even-odd scanline fill (clip-stack aware);
+`EVGElement.svgPath` holds the `d`/`svgPath`/`path` attribute, and
+`WasmUiSelect.drawElement` fills the path — scaled into the element box — with
+`backgroundColor` in place of the rectangular background. Gated by
+`ui/tests/svg_path_test` (a triangle fills its interior, leaves the exterior,
+and a plain element still fills its rect). The original writeup below refers to
+the separate PDF renderer (`EVGPDFRenderer`), which is a different backend.
+
+### Original description (for reference)
 
 ### Description
 
@@ -234,7 +262,14 @@ See `gallery/pdf_writer/components/ListItem.tsx` for a component that demonstrat
 
 ## Issue #4: `shadow*` (box-shadow / text-shadow) Modeled But Not Rendered
 
-**Status:** Open
+**Status:** RESOLVED (July 19, 2026). `UIContext.shadowRoundRect` (offset rounded
+silhouette + quadratic outward falloff) is drawn before the fill in
+`WasmUiSelect.drawElement`, reading `el.shadow*` (gated on `shadowColor.isSet` +
+nonzero offset/blur so no-shadow UIs are byte-identical); text is drawn once in
+the shadow colour at the offset. RGU1 keys 57-60 transmit it. Gated by
+`ui/tests/box_shadow_test`.
+
+**Original status:** Open
 **Severity:** Medium
 **Found:** July 19, 2026 (render-path characterization)
 **Component:** ui/UIContext.rgr, ui/WasmUiSelect.rgr, scripting/wasm_ui_io.rgr
@@ -272,7 +307,13 @@ calls plain `renderText`.
 
 ## Issue #5: Rounded-Corner Fills Are Not Anti-Aliased
 
-**Status:** Open
+**Status:** RESOLVED (July 19, 2026). `UIContext.roundedCoverage` (4x4 supersample)
++ `covAlpha` scale corner-boundary alpha in `fillRoundRectA` and the ring in
+`strokeRoundRect`/`strokeRoundRectA`; interiors stay opaque, exteriors skipped
+(so exact-color region asserts are unaffected), `rad<=0` keeps the fast path.
+Gated by `ui/tests/rounded_aa_test`.
+
+**Original status:** Open
 **Severity:** Low (quality)
 **Found:** July 19, 2026 (render-path characterization)
 **Component:** ui/UIContext.rgr
@@ -301,7 +342,7 @@ Add sub-pixel coverage (edge-distance → alpha) to `roundedInside` /
 
 ## Issue #6: No Clipping — `overflow` Modeled But Not Rendered
 
-**Status:** RESOLVED (July 19, 2026) for `overflow`. `clipPath` still unused (see note).
+**Status:** RESOLVED (July 19, 2026) — both `overflow` and `clipPath`.
 **Severity:** High
 **Found:** July 19, 2026 (border/clip/flex characterization)
 **Component:** ui/WasmUiSelect.rgr (`WasmUiRenderer.drawElement`), ui/UIContext.rgr
@@ -328,10 +369,17 @@ child that overflows a rounded `overflow:hidden` parent is clipped at the bottom
 edge AND out of the rounded corners, while an `overflow:visible` parent leaves
 it un-clipped (so existing visible-overflow UIs are unaffected).
 
-**Remaining:** `clipPath` (arbitrary path clip) is still modeled+parsed but
-unused; and glyph clipping is rectangular only (rounded corners are not applied
-to text — negligible for text near a rounded edge). Tracked as a minor
-follow-up, not part of #6's overflow fix.
+**clip-path (also resolved):** `UIContext` now supports a polygon clip region
+(`pushClipPoly` + ray-cast `pointInPoly`, consulted by `blendPixel` alongside the
+rect/rounded entries). `WasmUiRenderer.drawElement` parses `el.clipPath` as an
+SVG-path silhouette (via `SVGPathParser.flatten`, scaled to the box) and pushes
+it BEFORE the background so the fill itself is clipped to an arbitrary shape.
+Gated by `ui/tests/clip_path_test`. The `clipPath` value is interpreted as SVG
+path data (the CSS `polygon()`/`circle()`/`inset()` shorthands are not parsed).
+
+**Remaining (micro):** glyph clipping is rectangular only — rounded/polygon clip
+edges are not applied to cached text bitmaps (negligible for text near a clip
+edge).
 
 ### Original description (for reference)
 
@@ -367,7 +415,12 @@ batch.
 
 ## Issue #7: `gap` Modeled + Parsed But Not Applied
 
-**Status:** Open
+**Status:** RESOLVED (July 19, 2026). `EVGLayout.layoutChildren` resolves `gap`
+and applies it between consecutive in-flow children on the main axis (row +
+column), and accounts for it in flex-available-space + `totalHeight`. RGU1 key 25
+transmits it. Gated by `evg/evg_test.rgr` `testGap`.
+
+**Original status:** Open
 **Severity:** Medium
 **Found:** July 19, 2026 (border/clip/flex characterization)
 **Component:** evg/EVGLayout.rgr (+ scripting/wasm_ui_io.rgr for authorability)
@@ -390,7 +443,19 @@ currently transmit it even once layout honors it. Cheap layout fix.
 
 ## Issue #8: Flexbox Incomplete — Column Grow / Shrink / Stretch / Wrap
 
-**Status:** Open
+**Status:** RESOLVED (July 19, 2026). Column-axis flex grow (leftover height to
+`flex>0` children), flex-shrink (nowrap: overflowing fixed children scale to fit,
+row + column), `alignItems:stretch` (new `EVGElement.calculatedFlexHeight`,
+honored by `layoutElement`), and a `flexWrap` field (row auto-wrap gated on it;
+default "wrap" keeps historical behavior, "nowrap" enables one-line + shrink) are
+all implemented in `EVGLayout.rgr`. `space-around`/`space-evenly`/`stretch` now
+reach the RGU1 path via the extended `alignName`; `flexWrap` via key 26. Gated by
+`evg/evg_test.rgr` (testFlexGrowRow/Column, testFlexShrink, testAlignStretch,
+testFlexWrap, testJustifyDistribution, testRowSideBySide). Deliberately NOT
+changed (parity, no regressions): the `flexDirection` default stays "column"
+(CSS is "row") and the dead `direction` field is left as-is — both documented.
+
+**Original status:** Open
 **Severity:** Medium
 **Found:** July 19, 2026 (border/clip/flex characterization)
 **Component:** evg/EVGLayout.rgr

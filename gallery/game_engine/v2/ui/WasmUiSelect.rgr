@@ -528,6 +528,39 @@ class WasmUiRenderer {
             ctx.glowRoundRect((x - 3) (y - 3) (rw + 6) (rh + 6) (rad + 3) cr cg cb spread galpha)
         }
 
+        ; clip-path: an SVG-path silhouette (scaled to the box) clips this whole
+        ; element — background, border, text and descendants — to an arbitrary
+        ; shape. Pushed BEFORE the background so the fill itself is clipped; popped
+        ; after the children loop (ISSUES.md #6 clip-path remainder). Counted in
+        ; clipsPushed alongside the overflow clip.
+        def clipsPushed:int 0
+        if ((strlen el.clipPath) > 0) {
+            def cparser:SVGPathParser (new SVGPathParser)
+            cparser.parse(el.clipPath)
+            def cpb:PathBounds (cparser.getBounds())
+            def cpw2:double cpb.width
+            def cph2:double cpb.height
+            if (cpw2 <= 0.0) { cpw2 = 1.0 }
+            if (cph2 <= 0.0) { cph2 = 1.0 }
+            def craw:[double] (cparser.flatten(12))
+            if ((array_length craw) >= 6) {
+                def cpoly:[double]
+                def cnp:int (idiv (array_length craw) 2)
+                def cq:int 0
+                while (cq < cnp) {
+                    def cpx2:double (itemAt craw (cq * 2))
+                    def cpy2:double (itemAt craw ((cq * 2) + 1))
+                    def csx:double ((to_double x) + (((cpx2 - cpb.minX) / cpw2) * (to_double rw)))
+                    def csy:double ((to_double y) + (((cpy2 - cpb.minY) / cph2) * (to_double rh)))
+                    push cpoly csx
+                    push cpoly csy
+                    cq = (cq + 1)
+                }
+                ctx.pushClipPoly(cpoly)
+                clipsPushed = (clipsPushed + 1)
+            }
+        }
+
         ; fill priority: guest-declared background image (clipped to the rounded
         ; box) > 2-stop linear gradient > solid backgroundColor. A missing/invalid
         ; image falls through so the panel still draws.
@@ -608,7 +641,6 @@ class WasmUiRenderer {
         ; above are drawn first so they define the box and are NOT clipped by it;
         ; the glow halo is intentionally outside the box too. Pushed here, popped
         ; after the children loop. Nested overflow boxes intersect automatically.
-        def clipped:boolean false
         if ((el.overflow == "visible") == false) {
             def cpx:int (x + bpx)
             def cpy:int (y + bpx)
@@ -617,7 +649,7 @@ class WasmUiRenderer {
             def crad:int (rad - bpx)
             if (crad < 0) { crad = 0 }
             ctx.pushClip(cpx cpy cpw cph crad)
-            clipped = true
+            clipsPushed = (clipsPushed + 1)
         }
 
         def txt:string el.textContent
@@ -673,8 +705,10 @@ class WasmUiRenderer {
             i = (i + 1)
         }
 
-        if clipped {
+        def pc:int 0
+        while (pc < clipsPushed) {
             ctx.popClip()
+            pc = (pc + 1)
         }
     }
 

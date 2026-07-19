@@ -190,6 +190,8 @@ run_suite ui/tests/box_shadow_test
 run_suite ui/tests/rounded_aa_test
 # filled <Path> elements (SVG path -> flatten -> scanline polygon fill)
 run_suite ui/tests/svg_path_test
+# clip-path: arbitrary polygon (SVG-path silhouette) clips an element's render
+run_suite ui/tests/clip_path_test
 # ui widget/layout logic (headless)
 run_suite ui/tests/UITest
 

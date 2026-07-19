@@ -520,30 +520,28 @@ rumble, vocal FX, music score, LPC/bitmap assets.
       cue/counter recorder (`push vocalCues`); route it through the same synth
       spec → `GameAudio` → capturing sink path the one-shots now use, and gate
       non-silent output.
-- [ ] **EVG render polish** (see [`evg/ISSUES.md`](./evg/ISSUES.md) #4–#8).
-      Two characterization passes (July 19, 2026) verified as CORRECT: text
-      centering (H+V), glow, **border rounding** (concentric stroke, all
-      corners), row-axis flex grow, and `justifyContent` distribution math.
-      Open, ranked by impact:
-      - **#6 (High, rasterizer)** — DONE. `UIContext` now has a clip stack
-        (`pushClip`/`popClip`/`clipAllows`) honored by `blendPixel` (+ opaque
-        fast-path bypass and rectangular text-glyph clipping);
-        `WasmUiSelect.drawElement` pushes the padding box (inner radius) around
-        text + children when `overflow != "visible"`. Gated by
-        `ui/tests/clip_overflow_test` (7 asserts). Remaining: `clipPath` still
-        unused; glyph clip is rectangular only.
-      - **#4 (Medium, rasterizer)** — box/text shadow modeled but not rendered
-        (no `UIContext` primitive, no RGU1 key).
-      - **#7 (Medium, layout)** — `gap` modeled+parsed but not applied in
-        `EVGLayout.layoutChildren`; also needs an RGU1 key.
-      - **#8 (Medium, layout)** — flex incomplete: column-axis grow, shrink,
-        `alignItems:stretch` all missing; `flexWrap` unmodeled (wrap hardcoded
-        on); `flexDirection` default is `column` (CSS is `row`).
-      - **#5 (Low, quality)** — rounded-corner fills/strokes not anti-aliased.
-      Plumbing note: `space-around`/`space-evenly`/`stretch` are implemented but
-      unreachable via the RGU1 `alignName` map (0–3 only). `evg_test.rgr` covers
-      only vertical stacking — no flex-grow / justify / row / gap / wrap
-      regression coverage; add it alongside the fixes.
+- [x] **EVG render/layout parity — DONE** (see [`evg/ISSUES.md`](./evg/ISSUES.md),
+      all issues #1–#8 resolved July 19, 2026; verified-correct up front: text
+      centering H+V, glow, border rounding, row flex grow, justifyContent math).
+      - **#6** clipping: `UIContext` clip stack (rect/rounded via `pushClip` +
+        arbitrary polygon via `pushClipPoly`/`pointInPoly`) honored by
+        `blendPixel`; `drawElement` clips descendants on `overflow!="visible"`
+        and clips the whole element on `clipPath` (SVG-path silhouette). Gated by
+        `ui/tests/clip_overflow_test`, `ui/tests/clip_path_test`.
+      - **#4** box + text shadow: `UIContext.shadowRoundRect` +
+        `drawElement`/RGU1 keys 57-60 — `ui/tests/box_shadow_test`.
+      - **#5** corner anti-aliasing: `roundedCoverage`/`covAlpha` —
+        `ui/tests/rounded_aa_test`.
+      - **#7** `gap` applied on the main axis (row+col) + RGU1 key 25.
+      - **#8** flex: column grow, shrink (nowrap), `alignItems:stretch`,
+        `flexWrap` + RGU1 (`alignName` extended for space-around/evenly/stretch,
+        key 26). Deliberately kept for parity: `flexDirection` default "column"
+        and the dead `direction` field (both documented).
+      - **#3** filled `<Path>` (SVGPathParser.flatten + `UIContext.fillPolygon`)
+        — `ui/tests/svg_path_test`; **#1** text intrinsic width confirmed +
+        `testTextIntrinsicWidth`. `evg_test.rgr` grew 73→102 asserts.
+      Remaining micro-note: glyph clipping is rectangular only (cached text
+      bitmaps aren't rounded/polygon-clipped — negligible).
 - [ ] **Chess port** — after W is green (not the current critical path).
 
 ### Open decisions (still block a crisp “done”)

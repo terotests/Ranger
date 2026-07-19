@@ -50,13 +50,16 @@ class UITheme {
 ; One clip region on the context's clip stack: a (rounded) rect that a pixel
 ; must fall inside to be painted. rad 0 = a plain rectangle. Nested clips stack;
 ; a pixel must pass EVERY entry (their intersection), so an inner overflow box
-; clips within an outer one automatically.
+; clips within an outer one automatically. If `poly` is non-empty the region is
+; an arbitrary polygon (clip-path) instead of a rect; x/y/w/h hold its bounding
+; box (used for the text-glyph clip bbox).
 class UIClipRect {
     def x:int 0
     def y:int 0
     def w:int 0
     def h:int 0
     def rad:int 0
+    def poly:[double]
     Constructor () {
     }
 }
@@ -97,6 +100,58 @@ class UIContext {
         c.rad = rad
         push this.clips c
         this.recomputeClipBounds()
+    }
+
+    ; Push a polygon clip region (clip-path). `pts` is a flat [x0,y0,x1,y1,...]
+    ; point list in absolute canvas coords; its bounding box is stored for the
+    ; text-glyph clip and bounds intersection.
+    fn pushClipPoly:void (pts:[double]) {
+        def m:int (array_length pts)
+        if (m < 6) { return }
+        def c:UIClipRect (new UIClipRect)
+        c.poly = pts
+        def minx:double (itemAt pts 0)
+        def miny:double (itemAt pts 1)
+        def maxx:double (itemAt pts 0)
+        def maxy:double (itemAt pts 1)
+        def k:int 0
+        def np:int (idiv m 2)
+        while (k < np) {
+            def vx:double (itemAt pts (k * 2))
+            def vy:double (itemAt pts ((k * 2) + 1))
+            if (vx < minx) { minx = vx }
+            if (vy < miny) { miny = vy }
+            if (vx > maxx) { maxx = vx }
+            if (vy > maxy) { maxy = vy }
+            k = (k + 1)
+        }
+        c.x = (to_int minx)
+        c.y = (to_int miny)
+        c.w = ((to_int maxx) - (to_int minx))
+        c.h = ((to_int maxy) - (to_int miny))
+        push this.clips c
+        this.recomputeClipBounds()
+    }
+
+    ; Ray-cast point-in-polygon (even-odd) for a flat point list.
+    fn pointInPoly:boolean (px:double py:double poly:[double]) {
+        def n:int (idiv (array_length poly) 2)
+        def inside:boolean false
+        def j:int (n - 1)
+        def i:int 0
+        while (i < n) {
+            def xi:double (itemAt poly (i * 2))
+            def yi:double (itemAt poly ((i * 2) + 1))
+            def xj:double (itemAt poly (j * 2))
+            def yj:double (itemAt poly ((j * 2) + 1))
+            if ((yi > py) != (yj > py)) {
+                def xint:double ((((xj - xi) * (py - yi)) / (yj - yi)) + xi)
+                if (px < xint) { inside = (inside == false) }
+            }
+            j = i
+            i = (i + 1)
+        }
+        return inside
     }
 
     fn popClip:void () {
@@ -146,15 +201,21 @@ class UIContext {
         def i 0
         while (i < n) {
             def c:UIClipRect (itemAt this.clips i)
-            if (c.rad > 0) {
-                if ((this.roundedInside(px py c.x c.y c.w c.h c.rad)) == false) {
+            if ((array_length c.poly) > 0) {
+                if ((this.pointInPoly(((to_double px) + 0.5) ((to_double py) + 0.5) c.poly)) == false) {
                     return false
                 }
             } {
-                if (px < c.x) { return false }
-                if (py < c.y) { return false }
-                if (px >= (c.x + c.w)) { return false }
-                if (py >= (c.y + c.h)) { return false }
+                if (c.rad > 0) {
+                    if ((this.roundedInside(px py c.x c.y c.w c.h c.rad)) == false) {
+                        return false
+                    }
+                } {
+                    if (px < c.x) { return false }
+                    if (py < c.y) { return false }
+                    if (px >= (c.x + c.w)) { return false }
+                    if (py >= (c.y + c.h)) { return false }
+                }
             }
             i = (i + 1)
         }
