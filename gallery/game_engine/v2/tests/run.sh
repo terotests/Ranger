@@ -76,6 +76,9 @@ run_suite interp/adapter/tests/adapter_hybrid_test
 run_suite tests/unit/interp/adapter_churn_test
 
 # ---- Phase 5 — WASM bridge (D-WASM / D-WASM-MEM / D-ASYNC) --------------------
+# node WebAssembly loader: a real Rust->wasm32 module runs headlessly (the
+# foundation for the wasm-guest conformance slice below)
+run_suite bridge/wasm/conformance/tests/wasm_loader_smoke_test
 run_suite bridge/wasm/tests/create_free/create_free_test
 run_suite bridge/wasm/tests/retain_release/retain_release_test
 run_suite bridge/wasm/tests/async_poll/async_poll_test

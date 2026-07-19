@@ -1,0 +1,42 @@
+; ==============================================================================
+; wasm_loader_smoke_test — a real Rust->wasm32 module runs headlessly under node.
+; ==============================================================================
+; The wasm_* host operators had es6 stubs (returning 0), so no WebAssembly ran on
+; the headless gate — only the native SDL build (wasm3) could. This gates the new
+; node `WebAssembly` loader: it loads a real Rust-compiled .wasm
+; (bridge/wasm/conformance/add_smoke, `add(a,b)`), confirms the export, and calls
+; it across the wasm32 boundary. This is the foundation the WASM-guest conformance
+; slice (a Rust ylos3d driving the generic bridge) builds on.
+;
+; The .wasm is committed; rebuild with:
+;   (cd gallery/game_engine/v2/bridge/wasm/conformance/add_smoke && \
+;    cargo build --release --target wasm32-unknown-unknown && \
+;    cp target/wasm32-unknown-unknown/release/add_smoke.wasm add_smoke.wasm)
+; ==============================================================================
+
+Import "../../../../scripting/wasm_runtime.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class WasmLoaderSmokeTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/wasm/loader_smoke (node WebAssembly)"))
+
+        ; path is repo-relative; the driver runs node from the repo root.
+        def path:string "gallery/game_engine/v2/bridge/wasm/conformance/add_smoke/add_smoke.wasm"
+        def h:int (wasm_load path)
+        t.ok("Rust->wasm32 module loaded (handle >= 1)" (h >= 1))
+        t.eqInt("module exports add" (wasm_has_export h "add") 1)
+        t.eqInt("module does not export a bogus name" (wasm_has_export h "nope") 0)
+
+        def sum:int (wasm_call_i32 h "add" 2 2 3 0 0 0)
+        t.eqInt("add(2,3) across wasm32 = 5" sum 5)
+        def sum2:int (wasm_call_i32 h "add" 2 40 2 0 0 0)
+        t.eqInt("add(40,2) across wasm32 = 42" sum2 42)
+
+        wasm_close h
+        def afterClose:int (wasm_call_i32 h "add" 2 1 1 0 0 0)
+        t.eqInt("closed module no longer calls (returns 0)" afterClose 0)
+
+        t.summary()
+    }
+}

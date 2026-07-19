@@ -67,3 +67,6 @@ gallery/game_engine/scripting/cannon_showcase_demo.js
 .v2_layout_out/
 .v2raster/
 .v2_raster_out/
+
+# Rust wasm conformance guests — build output (committed .wasm is kept explicitly)
+gallery/game_engine/v2/bridge/wasm/conformance/**/target/
