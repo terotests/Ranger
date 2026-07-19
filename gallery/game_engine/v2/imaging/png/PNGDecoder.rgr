@@ -1,0 +1,542 @@
+; ==============================================================================
+; png_decoder — indexed-color PNG (type 3) → RGBA ImageBuffer.
+; ==============================================================================
+; Supports LPC walk sheets: 8-bit palette + tRNS alpha.
+
+Import "../core/Buffer.rgr"
+Import "../jpeg/ImageBuffer.rgr"
+Import "../zip/Inflate.rgr"
+
+class PNGDecoder {
+    def pos:int 0
+    def fileData:buffer (buffer_alloc 0)
+    def fileLen:int 0
+
+    def width:int 0
+    def height:int 0
+    def colorType:int 0
+    def bitDepth:int 0
+
+    def paletteR:[int]
+    def paletteG:[int]
+    def paletteB:[int]
+    def paletteA:[int]
+    def paletteCount:int 0
+
+    def idatData:GrowableBuffer (new GrowableBuffer())
+
+    fn clearPalette:void () {
+        def emptyR:[int]
+        def emptyG:[int]
+        def emptyB:[int]
+        def emptyA:[int]
+        paletteR = emptyR
+        paletteG = emptyG
+        paletteB = emptyB
+        paletteA = emptyA
+        paletteCount = 0
+    }
+
+    fn readU8:int () {
+        if (pos >= fileLen) {
+            return 0
+        }
+        def v:int (buffer_get fileData pos)
+        pos = (pos + 1)
+        return v
+    }
+
+    fn readU32BE:int () {
+        def b0:int (this.readU8())
+        def b1:int (this.readU8())
+        def b2:int (this.readU8())
+        def b3:int (this.readU8())
+        return (((((b0 * 256) + b1) * 256) + b2) * 256) + b3
+    }
+
+    fn parseIHDR:void (chunkLen:int) {
+        width = (this.readU32BE())
+        height = (this.readU32BE())
+        bitDepth = (this.readU8())
+        colorType = (this.readU8())
+        this.readU8()
+        this.readU8()
+        this.readU8()
+        def remain:int (chunkLen - 13)
+        def skip 0
+        while (skip < remain) {
+            this.readU8()
+            skip = (skip + 1)
+        }
+    }
+
+    fn parsePLTE:void (chunkLen:int) {
+        this.clearPalette()
+        def count:int (to_int ((to_double chunkLen) / 3.0))
+        paletteCount = count
+        def i 0
+        while (i < count) {
+            push paletteR (this.readU8())
+            push paletteG (this.readU8())
+            push paletteB (this.readU8())
+            push paletteA 255
+            i = (i + 1)
+        }
+    }
+
+    fn parseTRNS:void (chunkLen:int) {
+        def i 0
+        while (i < chunkLen) {
+            if (i < paletteCount) {
+                set paletteA i (this.readU8())
+            } {
+                this.readU8()
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn appendIDAT:void (chunkLen:int) {
+        def i 0
+        while (i < chunkLen) {
+            idatData.writeByte((this.readU8()))
+            i = (i + 1)
+        }
+    }
+
+    fn skipBytes:void (n:int) {
+        def i 0
+        while (i < n) {
+            this.readU8()
+            i = (i + 1)
+        }
+    }
+
+    fn sliceBuffer:buffer (src:buffer start:int count:int) {
+        if (count <= 0) {
+            return (buffer_alloc 0)
+        }
+        def out:buffer (buffer_alloc count)
+        def i 0
+        while (i < count) {
+            buffer_set out i (buffer_get src (start + i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn abs:int (n:int) {
+        if (n < 0) {
+            return (0 - n)
+        }
+        return n
+    }
+
+    fn paeth:int (a:int b:int c:int) {
+        def p:int (a + b)
+        p = (p - c)
+        def pa:int (this.abs(p - a))
+        def pb:int (this.abs(p - b))
+        def pc:int (this.abs(p - c))
+        if ((pa <= pb) && (pa <= pc)) {
+            return a
+        }
+        if (pb <= pc) {
+            return b
+        }
+        return c
+    }
+
+    fn filterByte:int (n:int) {
+        ; PNG scanline reconstruction wraps at 256 (not clamp to 0..255).
+        return (bit_and n 255)
+    }
+
+    fn filterBpp:int (ctype:int) {
+        ; PNG filter neighbors are prior *pixels* (same channel), not prior bytes.
+        if (ctype == 6) {
+            return 4
+        }
+        if (ctype == 2) {
+            return 3
+        }
+        return 1
+    }
+
+    fn unfilter:buffer (raw:buffer rowBytes:int imgHeight:int bpp:int) {
+        def out:buffer (buffer_alloc (rowBytes * imgHeight))
+        def rawLen:int (buffer_length raw)
+        def rawPos:int 0
+        def prevRow:[int]
+        def y 0
+        while (y < imgHeight) {
+            if (rawPos >= rawLen) {
+                return out
+            }
+            def filterType:int (buffer_get raw rawPos)
+            rawPos = (rawPos + 1)
+
+            def curRow:[int]
+            def x 0
+            while (x < rowBytes) {
+                push curRow 0
+                x = (x + 1)
+            }
+
+            x = 0
+            while (x < rowBytes) {
+                if (rawPos >= rawLen) {
+                    return out
+                }
+                def fv:int (buffer_get raw rawPos)
+                rawPos = (rawPos + 1)
+                def recon:int fv
+
+                if (filterType == 1) {
+                    def left:int 0
+                    if (x >= bpp) {
+                        left = (itemAt curRow (x - bpp))
+                    }
+                    recon = (fv + left)
+                }
+                if (filterType == 2) {
+                    def up:int 0
+                    if (y > 0) {
+                        up = (itemAt prevRow x)
+                    }
+                    recon = (fv + up)
+                }
+                if (filterType == 3) {
+                    def left:int 0
+                    def up:int 0
+                    if (x >= bpp) {
+                        left = (itemAt curRow (x - bpp))
+                    }
+                    if (y > 0) {
+                        up = (itemAt prevRow x)
+                    }
+                    recon = (fv + (bit_shr (left + up) 1))
+                }
+                if (filterType == 4) {
+                    def left:int 0
+                    def up:int 0
+                    def upLeft:int 0
+                    if (x >= bpp) {
+                        left = (itemAt curRow (x - bpp))
+                    }
+                    if (y > 0) {
+                        up = (itemAt prevRow x)
+                    }
+                    if ((x >= bpp) && (y > 0)) {
+                        upLeft = (itemAt prevRow (x - bpp))
+                    }
+                    recon = (fv + (this.paeth(left up upLeft)))
+                }
+                recon = (this.filterByte(recon))
+                set curRow x recon
+                x = (x + 1)
+            }
+
+            x = 0
+            while (x < rowBytes) {
+                def o:int (((y * rowBytes) + x))
+                buffer_set out o (itemAt curRow x)
+                x = (x + 1)
+            }
+            prevRow = curRow
+            y = (y + 1)
+        }
+        return out
+    }
+
+    fn rowByteCount:int (w:int depth:int ctype:int) {
+        if (ctype == 6) {
+            return (w * 4)
+        }
+        if (ctype == 2) {
+            return (w * 3)
+        }
+        def bits:int (w * depth)
+        return (to_int ((to_double (bits + 7)) / 8.0))
+    }
+
+    fn decodeIndexedPixels:void (img:ImageBuffer indices:buffer rowBytes:int depth:int) {
+        def imgW:int (img.width)
+        def y 0
+        while (y < height) {
+            if (depth == 8) {
+                def x 0
+                while (x < width) {
+                    def idx:int (buffer_get indices ((y * rowBytes) + x))
+                    if (idx < paletteCount) {
+                        def a:int (itemAt paletteA idx)
+                        if (a > 0) {
+                            def off:int (((y * imgW) + x) * 4)
+                            buffer_set img.pixels off (itemAt paletteR idx)
+                            buffer_set img.pixels (off + 1) (itemAt paletteG idx)
+                            buffer_set img.pixels (off + 2) (itemAt paletteB idx)
+                            buffer_set img.pixels (off + 3) a
+                        }
+                    }
+                    x = (x + 1)
+                }
+            }
+            if (depth == 4) {
+                def x 0
+                def byteIdx 0
+                while (x < width) {
+                    def packed:int (buffer_get indices ((y * rowBytes) + byteIdx))
+                    def hi:int (bit_shr packed 4)
+                    def lo:int (bit_and packed 15)
+                    if (hi < paletteCount) {
+                        def aHi:int (itemAt paletteA hi)
+                        if (aHi > 0) {
+                            def offHi:int (((y * imgW) + x) * 4)
+                            buffer_set img.pixels offHi (itemAt paletteR hi)
+                            buffer_set img.pixels (offHi + 1) (itemAt paletteG hi)
+                            buffer_set img.pixels (offHi + 2) (itemAt paletteB hi)
+                            buffer_set img.pixels (offHi + 3) aHi
+                        }
+                    }
+                    def x2:int (x + 1)
+                    if (x2 < width) {
+                        if (lo < paletteCount) {
+                            def aLo:int (itemAt paletteA lo)
+                            if (aLo > 0) {
+                                def offLo:int (((y * imgW) + x2) * 4)
+                                buffer_set img.pixels offLo (itemAt paletteR lo)
+                                buffer_set img.pixels (offLo + 1) (itemAt paletteG lo)
+                                buffer_set img.pixels (offLo + 2) (itemAt paletteB lo)
+                                buffer_set img.pixels (offLo + 3) aLo
+                            }
+                        }
+                    }
+                    x = (x + 2)
+                    byteIdx = (byteIdx + 1)
+                }
+            }
+            y = (y + 1)
+        }
+    }
+
+    fn decodeRgbaPixels:void (img:ImageBuffer indices:buffer rowBytes:int) {
+        def imgW:int (img.width)
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                def off:int (((y * rowBytes) + (x * 4)))
+                def a:int (buffer_get indices (off + 3))
+                if (a > 0) {
+                    def dstOff:int (((y * imgW) + x) * 4)
+                    buffer_set img.pixels dstOff (buffer_get indices off)
+                    buffer_set img.pixels (dstOff + 1) (buffer_get indices (off + 1))
+                    buffer_set img.pixels (dstOff + 2) (buffer_get indices (off + 2))
+                    buffer_set img.pixels (dstOff + 3) a
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    fn decodeRgbPixels:void (img:ImageBuffer indices:buffer rowBytes:int) {
+        def imgW:int (img.width)
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                def off:int (((y * rowBytes) + (x * 3)))
+                def dstOff:int (((y * imgW) + x) * 4)
+                buffer_set img.pixels dstOff (buffer_get indices off)
+                buffer_set img.pixels (dstOff + 1) (buffer_get indices (off + 1))
+                buffer_set img.pixels (dstOff + 2) (buffer_get indices (off + 2))
+                buffer_set img.pixels (dstOff + 3) 255
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    fn inflateZlib:buffer (zlibData:buffer) {
+        def zlen:int (buffer_length zlibData)
+        if (zlen < 6) {
+            return (buffer_alloc 0)
+        }
+        def deflateLen:int (zlen - 6)
+        def deflateBuf:buffer (this.sliceBuffer(zlibData 2 deflateLen))
+        def inflater:Inflate (new Inflate())
+        return (inflater.decompress(deflateBuf))
+    }
+
+    fn parseChunks:boolean () {
+        idatData = (new GrowableBuffer())
+        this.clearPalette()
+        pos = 8
+        while (pos < fileLen) {
+            def chunkLen:int (this.readU32BE())
+            def type0:int (this.readU8())
+            def type1:int (this.readU8())
+            def type2:int (this.readU8())
+            def type3:int (this.readU8())
+
+            if (type0 == 73) {
+                if (type1 == 72) {
+                    if (type2 == 68) {
+                        if (type3 == 82) {
+                            this.parseIHDR(chunkLen)
+                            this.skipBytes(4)
+                            continue
+                        }
+                    }
+                }
+            }
+            if (type0 == 80) {
+                if (type1 == 76) {
+                    if (type2 == 84) {
+                        if (type3 == 69) {
+                            this.parsePLTE(chunkLen)
+                            this.skipBytes(4)
+                            continue
+                        }
+                    }
+                }
+            }
+            if (type0 == 116) {
+                if (type1 == 82) {
+                    if (type2 == 78) {
+                        if (type3 == 83) {
+                            this.parseTRNS(chunkLen)
+                            this.skipBytes(4)
+                            continue
+                        }
+                    }
+                }
+            }
+            if (type0 == 73) {
+                if (type1 == 68) {
+                    if (type2 == 65) {
+                        if (type3 == 84) {
+                            this.appendIDAT(chunkLen)
+                            this.skipBytes(4)
+                            continue
+                        }
+                    }
+                }
+            }
+            if (type0 == 73) {
+                if (type1 == 69) {
+                    if (type2 == 78) {
+                        if (type3 == 68) {
+                            return true
+                        }
+                    }
+                }
+            }
+            this.skipBytes((chunkLen + 4))
+        }
+        return false
+    }
+
+    fn decode:ImageBuffer (dir:string fileName:string) {
+        def fail:ImageBuffer (new ImageBuffer())
+        fail.init(1 1)
+
+        def bytes:buffer (buffer_read_file dir fileName)
+        if ((buffer_length bytes) < 24) {
+            print ("[png_decoder] file too small: " + dir + fileName)
+            return fail
+        }
+        return (this.decodeBytes(bytes))
+    }
+
+    ; decode a PNG already held in memory (e.g. a glTF embedded image slice).
+    fn decodeBytes:ImageBuffer (bytes:buffer) {
+        def fail:ImageBuffer (new ImageBuffer())
+        fail.init(1 1)
+
+        ; reset per-decode state so one instance can decode many buffers
+        pos = 0
+        idatData = (new GrowableBuffer())
+        this.clearPalette()
+        fileData = bytes
+        fileLen = (buffer_length fileData)
+        if (fileLen < 24) {
+            print "[png_decoder] buffer too small"
+            return fail
+        }
+
+        if ((this.parseChunks()) == false) {
+            print "[png_decoder] chunk parse failed"
+            return fail
+        }
+
+        if (colorType == 3) {
+            if ((bitDepth != 8) && (bitDepth != 4)) {
+                print ("[png_decoder] indexed depth unsupported: " + (to_string bitDepth))
+                return fail
+            }
+            if (paletteCount <= 0) {
+                print "[png_decoder] missing PLTE"
+                return fail
+            }
+        }
+        if (colorType == 6) {
+            if (bitDepth != 8) {
+                print "[png_decoder] RGBA requires 8-bit channels"
+                return fail
+            }
+        }
+        if (colorType == 2) {
+            if (bitDepth != 8) {
+                print "[png_decoder] RGB requires 8-bit channels"
+                return fail
+            }
+        }
+        if ((colorType != 3) && (colorType != 6) && (colorType != 2)) {
+            print ("[png_decoder] unsupported color type " + (to_string colorType))
+            return fail
+        }
+
+        def zlibBuf:buffer (idatData.toBuffer())
+        def inflated:buffer (this.inflateZlib(zlibBuf))
+        if ((buffer_length inflated) <= 0) {
+            print "[png_decoder] inflate failed"
+            return fail
+        }
+
+        def rowBytes:int (this.rowByteCount(width bitDepth colorType))
+        def bpp:int (this.filterBpp(colorType))
+        def indices:buffer (this.unfilter(inflated rowBytes height bpp))
+        def need:int (rowBytes * height)
+        if ((buffer_length indices) < need) {
+            print "[png_decoder] unfilter short"
+            return fail
+        }
+
+        def img:ImageBuffer (new ImageBuffer())
+        img.initClear(width height)
+        img.fillTransparent()
+        if (colorType == 3) {
+            this.decodeIndexedPixels(img indices rowBytes bitDepth)
+        }
+        if (colorType == 6) {
+            this.decodeRgbaPixels(img indices rowBytes)
+        }
+        if (colorType == 2) {
+            this.decodeRgbPixels(img indices rowBytes)
+        }
+        return img
+    }
+
+    fn decodeRelative:ImageBuffer (spritesheetsRoot:string relativePath:string) {
+        def slash:int (lastIndexOf relativePath "/")
+        def dir:string spritesheetsRoot
+        def file:string relativePath
+        if (slash >= 0) {
+            dir = (spritesheetsRoot + (substring relativePath 0 (slash + 1)))
+            file = (substring relativePath (slash + 1) (strlen relativePath))
+        }
+        return (this.decode(dir file))
+    }
+}

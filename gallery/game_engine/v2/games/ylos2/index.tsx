@@ -10,8 +10,16 @@
 // Faithful v1 pieces: full BASE_PLATFORMS / BASE_MOVING_PLATFORMS tables,
 // GRAV / MOVE / JUMP_* constants (px/ms), variable-height jump, land-on-top
 // collision, per-player camera scroll, goal → celebration, split-screen.
-// Out of scope for this port: enemies, bullets, fruits/diamonds, super mode,
-// LPC art.
+//
+// RENDERING follows v1's model (createStaticBg + sprites()): the static
+// environment — sky gradient, 3-tone platforms (body + light top edge + dark
+// bottom edge), clouds, goal flag, the diamond bitmap glyph — is painted every
+// frame in WORLD coordinates through the renderer's immediate fillRect /
+// fillCircle (the v2 equivalent of bgFillRect / bgFillCircle), rasterised by
+// the backend through each pane's camera UNDER the players. Only the players
+// are retained sprites (v1's "sheet" characters). Art here is ORIGINAL
+// placeholder pixels (scene.rgtx), not the v1 LPC sheets.
+// Out of scope for this port: enemies, bullets, fruits, super mode, LPC art.
 // ============================================================================
 
 import { runtime } from "ranger:core";
@@ -29,6 +37,16 @@ const JUMP_HOLD_MAX_MS = 400;
 const MOVING_PLAT_SPEED = 0.06;
 const PLAYER_W = 26;
 const PLAYER_H = 44;
+
+// v1 static-environment palette (createStaticBg)
+const PLAT_EDGE_H = 4;
+const PLAT_BODY_R = 72; const PLAT_BODY_G = 150; const PLAT_BODY_B = 64;
+const PLAT_TOP_R = 110; const PLAT_TOP_G = 190; const PLAT_TOP_B = 86;
+const PLAT_BOT_R = 42; const PLAT_BOT_G = 96; const PLAT_BOT_B = 38;
+
+// v1 diamond glyph (DIAMOND_A) — a kind:"bitmap" sprite, rasterised as px-sized
+// cells per 'X', body cyan over white edge. One decorative diamond for show.
+const DIAMOND_A = ["..XX..", ".XXXX.", "XXXXXX", ".XXXX.", "..XX.."];
 
 // v1 score verbatim (game_soundscore: duration:pitch tokens, newline headers).
 // The previous one-liner stub dropped durations and three of four phrases, so
@@ -80,24 +98,24 @@ function overlapsX(px, pw, plat) {
   return true;
 }
 
+// LPC walk sheet rows: 0=up 1=left 2=down 3=right (v1 sheetFrameForPlayer)
+const SHEET_ROW_RIGHT = 3;
+const SHEET_ROW_LEFT = 1;
+const SHEET_JUMP_COL = 3;
+
 class Ylos2Game {
   layer = null;
   cam1 = null;
   cam2 = null;
-  atlas = null;
-  rIdle = 0;
-  rWalk = 0;
-  walkClip = 0;
-  celebrateSfx = null;
   renderer = null;
+  celebrateSfx = null;
   movingPlats = [];
-  platformSprites = [];
   players = [];
   nowMs = 0;
   goalIndex = 16;
   summitMusicStarted = 0;
 
-  makePlayer(slot, startX) {
+  makePlayer(slot, startX, atlas) {
     return {
       slot: slot,
       x: startX, y: 1830 - PLAYER_H, vx: 0, vy: 0,
@@ -107,7 +125,7 @@ class Ylos2Game {
       lastGroundFeet: 1830,
       reachedGoal: 0,
       onMover: -1,
-      sprite: null, anim: null
+      atlas: atlas, sprite: null, animTick: 0
     };
   }
 
@@ -116,13 +134,6 @@ class Ylos2Game {
     runtime.surface.setLayout("split-vertical");
     runtime.surface.pane(0).assignPlayer(0);
     runtime.surface.pane(1).assignPlayer(1);
-
-    // the atlas comes from package data via the assets capability
-    this.atlas = runtime.assets.loadSpriteAtlas("pkg://player.atlas");
-    this.rIdle = this.atlas.regionIndex("idle");
-    this.rWalk = this.atlas.regionIndex("walk");
-    const rPlat = this.atlas.regionIndex("plat");
-    this.walkClip = 0;   // first clip declared in player.atlas
 
     this.layer = new TWO.Layer2D();
     this.cam1 = new TWO.Camera2D();
@@ -133,40 +144,126 @@ class Ylos2Game {
     const clip = runtime.audio.createClip();
     this.celebrateSfx = runtime.audio.createSource(clip);
 
+    // moving platforms are immediate-drawn each frame (v1 entities), not sprites
     let i = 0;
-    while (i < BASE_PLATFORMS.length) {
-      const p = BASE_PLATFORMS[i];
-      const s = new TWO.Sprite2D(this.atlas, rPlat);
-      s.setPos(p.x + p.w / 2, p.y);
-      this.layer.add(s);
-      this.platformSprites.push(s);
-      i = i + 1;
-    }
-    i = 0;
     while (i < BASE_MOVING_PLATFORMS.length) {
       const m = BASE_MOVING_PLATFORMS[i];
-      const s = new TWO.Sprite2D(this.atlas, rPlat);
-      s.setPos(m.x + m.w / 2, m.y);
-      this.layer.add(s);
       this.movingPlats.push({
         x: m.x, y: m.y, w: m.w, h: m.h, min: m.min, max: m.max, dir: m.dir,
-        vx: MOVING_PLAT_SPEED * m.dir, sprite: s
+        vx: MOVING_PLAT_SPEED * m.dir
       });
       i = i + 1;
     }
 
-    const p1 = this.makePlayer(0, 120);
-    const p2 = this.makePlayer(1, 330);
-    p1.sprite = new TWO.Sprite2D(this.atlas, this.rIdle);
-    p2.sprite = new TWO.Sprite2D(this.atlas, this.rIdle);
-    p1.anim = new TWO.AnimPlayer2D(p1.sprite, this.walkClip);
-    p2.anim = new TWO.AnimPlayer2D(p2.sprite, this.walkClip);
-    this.layer.add(p1.sprite);
-    this.layer.add(p2.sprite);
-    this.players = [p1, p2];
+    // players are the retained sprites — each its own LPC walk sheet (v1 sheet)
+    const a1 = runtime.assets.loadSpriteAtlas("pkg://p1.atlas");
+    const a2 = runtime.assets.loadSpriteAtlas("pkg://p2.atlas");
+    const p1 = this.makePlayer(0, 120, a1);
+    const p2 = this.makePlayer(1, 330, a2);
+    p1.facing = 1; p2.facing = -1;
+    const starts = [p1, p2];
+    let k = 0;
+    while (k < starts.length) {
+      const pl = starts[k];
+      pl.sprite = new TWO.Sprite2D(pl.atlas, 0);
+      // sheet cell is the character's on-screen box (feet-ish placement); a
+      // 64px LPC frame drawn ~PLAYER_H tall.
+      pl.sprite.setSize(PLAYER_H, PLAYER_H);
+      pl.sprite.setZ(3);
+      pl.sprite.setCell(0, pl.facing < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT);
+      this.layer.add(pl.sprite);
+      k = k + 1;
+    }
+    this.players = starts;
 
-    runtime.log.info("ylos2-v2 init: platforms=" + (BASE_PLATFORMS.length + BASE_MOVING_PLATFORMS.length));
+    runtime.log.info("ylos2-v2 init: LPC sheets + immediate static env");
     return 1;
+  }
+
+  // ---- static environment (v1 createStaticBg, immediate world-space) --------
+  drawPlatform(x, y, w, h) {
+    const r = this.renderer;
+    r.fillRect(x, y, w, h, PLAT_BODY_R, PLAT_BODY_G, PLAT_BODY_B);
+    r.fillRect(x, y, w, PLAT_EDGE_H, PLAT_TOP_R, PLAT_TOP_G, PLAT_TOP_B);
+    r.fillRect(x, y + h - PLAT_EDGE_H, w, PLAT_EDGE_H, PLAT_BOT_R, PLAT_BOT_G, PLAT_BOT_B);
+  }
+
+  drawCloud(cx, cy) {
+    const r = this.renderer;
+    r.fillCircle(cx, cy, 14, 240, 245, 255);
+    r.fillCircle(cx - 16, cy + 4, 10, 235, 240, 250);
+    r.fillCircle(cx + 16, cy + 4, 10, 235, 240, 250);
+  }
+
+  // v1 diamondSprite/drawBitmap: DIAMOND_A glyph, px-sized cells per 'X'
+  drawDiamond(cx, cy) {
+    const r = this.renderer;
+    const px = 3;
+    const midCol = 3;
+    const midRow = 2;
+    let ry = 0;
+    while (ry < DIAMOND_A.length) {
+      const line = DIAMOND_A[ry];
+      let ci = 0;
+      while (ci < line.length) {
+        if (line.charAt(ci) == "X") {
+          const wx = cx + (ci - midCol) * px;
+          const wy = cy + (ry - midRow) * px;
+          r.fillRect(wx, wy, px, px, 120, 240, 255);
+        }
+        ci = ci + 1;
+      }
+      ry = ry + 1;
+    }
+  }
+
+  drawStaticEnv() {
+    const r = this.renderer;
+    r.beginBackground();
+    // sky gradient bands (v1 drawSkyGradient), world space, wide cover
+    let y = 0;
+    while (y < WORLD_H) {
+      const t = y / WORLD_H;
+      const sr = 30 + t * 50;
+      const sg = 70 + t * 90;
+      const sb = 140 + t * 60;
+      r.fillRect(-260, y, 1000, 32, sr, sg, sb);
+      y = y + 32;
+    }
+    // solid ground from the floor down — the world ends at the ground band, so
+    // fill everything below it with ground (v1 clamps the camera at the floor;
+    // this reaches the same result without a camera special-case). Drawn over
+    // the sky bands; the platform loop repaints the band's 3-tone edges on top.
+    const groundTop = BASE_PLATFORMS[0].y;
+    r.fillRect(-260, groundTop, 1000, WORLD_H, PLAT_BODY_R, PLAT_BODY_G, PLAT_BODY_B);
+    r.fillRect(-260, groundTop, 1000, PLAT_EDGE_H, PLAT_TOP_R, PLAT_TOP_G, PLAT_TOP_B);
+    this.drawCloud(80, 1500);
+    this.drawCloud(360, 1300);
+    this.drawCloud(120, 980);
+    this.drawCloud(300, 560);
+    this.drawCloud(90, 300);
+    // static platforms (v1 createStaticBg)
+    let i = 0;
+    while (i < BASE_PLATFORMS.length) {
+      const p = BASE_PLATFORMS[i];
+      this.drawPlatform(p.x, p.y, p.w, p.h);
+      i = i + 1;
+    }
+    // moving platforms (redrawn per frame at live x)
+    i = 0;
+    while (i < this.movingPlats.length) {
+      const m = this.movingPlats[i];
+      this.drawPlatform(m.x, m.y, m.w, m.h);
+      i = i + 1;
+    }
+    // goal flag (v1 createStaticBg)
+    const gp = BASE_PLATFORMS[this.goalIndex];
+    const fx = gp.x + gp.w / 2;
+    r.fillRect(fx - 2, gp.y - 44, 4, 44, 160, 120, 70);
+    r.fillRect(fx + 2, gp.y - 44, 24, 14, 255, 90, 90);
+    r.fillRect(fx + 2, gp.y - 30, 20, 8, 255, 210, 60);
+    // a diamond (v1 bitmap glyph)
+    this.drawDiamond(420, 1775);
   }
 
   tryStartSummitMusic() {
@@ -192,7 +289,6 @@ class Ylos2Game {
       if (m.x < m.min) { m.x = m.min; m.dir = 1; }
       if (m.x + m.w > m.max) { m.x = m.max - m.w; m.dir = -1; }
       m.vx = MOVING_PLAT_SPEED * m.dir;
-      m.sprite.setPos(m.x + m.w / 2, m.y);
       i = i + 1;
     }
   }
@@ -291,12 +387,22 @@ class Ylos2Game {
 
     if (pl.y > WORLD_H) { pl.y = 1830 - PLAYER_H; pl.vy = 0; }
 
-    pl.sprite.setPos(pl.x + PLAYER_W / 2, pl.y + PLAYER_H / 2);
-    if (pl.vx != 0) {
-      pl.sprite.setRegion(pl.anim.frameAt(this.nowMs / 1000));
-    } else {
-      pl.sprite.setRegion(this.rIdle);
+    // Seat the character on the platform: the LPC frame has transparent foot
+    // padding, so nudge the sprite centre down until the drawn feet meet the
+    // surface (v1 feetTrim / feet-at-y placement).
+    pl.sprite.setPos(pl.x + PLAYER_W / 2, pl.y + PLAYER_H / 2 + 3);
+
+    // v1 sheetFrameForPlayer: row = facing; col = walk-cycle frame (or the
+    // jump frame while airborne); idle rests on col 0.
+    if (pl.vx != 0) { pl.animTick = pl.animTick + dt; }
+    const row = pl.facing < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT;
+    let col = 0;
+    if (pl.grounded == 0) {
+      col = SHEET_JUMP_COL;
+    } else if (pl.vx != 0) {
+      col = Math.floor(pl.animTick / 70) % 9;
     }
+    pl.sprite.setCell(col, row);
   }
 
   updateCameras() {
@@ -313,7 +419,10 @@ class Ylos2Game {
     this.updatePlayer(this.players[0], dt);
     this.updatePlayer(this.players[1], dt);
     this.updateCameras();
-    // the game owns its render calls (one per pane, split-screen)
+    // paint the static environment once (world space), then bind each pane's
+    // view; the backend rasterises the environment through that pane's camera
+    // under the players (v1 createStaticBg + split-screen present).
+    this.drawStaticEnv();
     this.renderer.render(this.layer, this.cam1, 0);
     this.renderer.render(this.layer, this.cam2, 1);
     return 1;

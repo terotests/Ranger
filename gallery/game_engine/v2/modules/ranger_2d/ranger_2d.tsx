@@ -35,6 +35,8 @@ class Sprite2D {
   setZ(z) { rg2d_sprite_set_z(this.id, z); }
   // horizontal mirror for facing
   setFlipX(on) { rg2d_sprite_set_flip(this.id, on ? 1 : 0); }
+  // spritesheet cell: sample frame (col,row) of a sheet atlas (v1 "sheet")
+  setCell(col, row) { rg2d_sprite_set_cell(this.id, col, row); }
   release() { return rg2d_sprite_release(this.id); }
 }
 
@@ -52,6 +54,14 @@ class Camera2D {
 }
 
 class Renderer2D {
+  // Static environment (v1 createStaticBg model): the game paints world-space
+  // primitives once per frame between beginBackground() and its render() calls;
+  // a backend rasterises them through each pane's camera UNDER the sprites.
+  // fillRect/fillCircle take world coordinates and 8-bit r,g,b — the same
+  // vocabulary v1's bgFillRect / bgFillCircle expose.
+  beginBackground() { rg2d_bg_begin(); }
+  fillRect(x, y, w, h, r, g, b) { rg2d_bg_rect(x, y, w, h, r, g, b); }
+  fillCircle(cx, cy, rad, r, g, b) { rg2d_bg_circle(cx, cy, rad, r, g, b); }
   // frame pipeline step 6: the GAME calls render; each call binds
   // (scene/layer, camera) to a pane; the host presents at step 7.
   render(scene, cam, pane) { rg2d_render(scene.id, cam.id, pane); }

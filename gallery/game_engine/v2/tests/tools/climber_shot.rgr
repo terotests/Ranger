@@ -13,6 +13,7 @@
 
 Import "../../runtime/game_host/RgGameHost.rgr"
 Import "../../runtime/game_host/Rg2DPresenter.rgr"
+Import "../../runtime/game_host/RgAttractDriver.rgr"
 
 class ClimberShot {
     sfn hex2:string (v:int) {

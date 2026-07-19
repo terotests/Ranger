@@ -26,10 +26,14 @@ class Ylos2E2ETest {
         t.ok("test fixture loaded"
             (host.loadFixture("gallery/game_engine/v2/games/ylos2/tests" "probe.tsx")))
 
-        ; the guest's creations are REAL host arena state
-        t.eqInt("27 retained sprites (17 static + 8 moving + 2 players)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 27)
-        t.eqInt("one atlas" (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 1)
+        ; the guest's creations are REAL host arena state. Following v1's model,
+        ; the static environment (platforms, sky, flag, diamond) is immediate
+        ; world-space draw — NOT retained sprites; only the two players are
+        ; retained sprites, each with its own LPC walk sheet.
+        t.eqInt("two retained player sprites (static env is immediate-draw)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 2)
+        t.eqInt("two sheet atlases (one LPC sheet per player)"
+            (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 2)
         t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
         t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
         t.eqInt("pane 0 routes player 0" (host.bridge.surface.panePlayer(0)) 0)
@@ -83,8 +87,10 @@ class Ylos2E2ETest {
         def fbR:RgFramebuffer (RgFramebuffer.create(96 96))
         t.ok("left pane drew sprites" ((Rg2DPresenter.present(host.bridge 0 fbL)) > 0))
         t.ok("right pane drew sprites" ((Rg2DPresenter.present(host.bridge 1 fbR)) > 0))
-        t.ok("P1 at left-pane centre" ((fbL.at(48 48)) != 0))
-        t.ok("P2 at right-pane centre" ((fbR.at(48 48)) != 0))
+        ; the player marker sits at the pane centre column, nudged down 3px (the
+        ; sprite is seated so its drawn feet meet the platform surface)
+        t.ok("P1 at left-pane centre" ((fbL.at(48 51)) != 0))
+        t.ok("P2 at right-pane centre" ((fbR.at(48 51)) != 0))
         Rg2DPresenter.dumpPane(fbL "left pane (P1 at summit)")
 
         t.summary()

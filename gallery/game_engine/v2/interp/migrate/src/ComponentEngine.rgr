@@ -11,7 +11,7 @@ Import "../../../../../ts_parser/ts_lexer.rgr"
 Import "../../../../../ts_parser/ts_ast_patch.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
-Import "../jpeg/JPEGMetadata.rgr"
+Import "../../../imaging/jpeg/JPEGMetadata.rgr"
 
 ; =============================================================================
 ; ImportedSymbol - Represents an imported component or function

@@ -138,6 +138,35 @@ class RegistryBridgeCoverageTest {
         s.callN("rg2d_sprite_set_flip" fxA)
         t.ok("host sprite flipX written through the bridge"
             (b.d2.spriteFlipX((b.resolveGuestId(sprite)))))
+        def cellA:[EvalValue]
+        push cellA (s.num((to_double sprite)))
+        push cellA (s.num(2.0))
+        push cellA (s.num(3.0))
+        s.callN("rg2d_sprite_set_cell" cellA)
+        t.eqInt("host sprite sheet cell written through the bridge"
+            (b.d2.spriteCellCol((b.resolveGuestId(sprite)))) 2)
+
+        ; immediate background draw list (static-environment primitives)
+        def bgbA:[EvalValue]
+        s.callN("rg2d_bg_begin" bgbA)
+        def bgrA:[EvalValue]
+        push bgrA (s.num(0.0))
+        push bgrA (s.num(0.0))
+        push bgrA (s.num(48.0))
+        push bgrA (s.num(8.0))
+        push bgrA (s.num(72.0))
+        push bgrA (s.num(150.0))
+        push bgrA (s.num(64.0))
+        s.callN("rg2d_bg_rect" bgrA)
+        def bgcA:[EvalValue]
+        push bgcA (s.num(10.0))
+        push bgcA (s.num(10.0))
+        push bgcA (s.num(6.0))
+        push bgcA (s.num(240.0))
+        push bgcA (s.num(245.0))
+        push bgcA (s.num(255.0))
+        s.callN("rg2d_bg_circle" bgcA)
+        t.eqInt("two background primitives recorded" (b.d2.bgCount()) 2)
 
         def layerArgs:[EvalValue]
         def layer:int (s.callI("rg2d_layer_create" layerArgs))
@@ -214,15 +243,16 @@ class RegistryBridgeCoverageTest {
         def pl1:RgHandle (b.surface.paneLayer(1))
         t.ok("render bound pane 1 view" (pl1.isValid()))
 
-        ; assets: package-relative atlas load builds real host objects
-        b.packageDir = "gallery/game_engine/v2/games/ylos2"
+        ; assets: package-relative atlas load builds real host objects (the
+        ; climber sample ships a named-region atlas over a .rgtx image)
+        b.packageDir = "gallery/game_engine/v2/tests/render/samples/climber"
         def asA:[EvalValue]
-        push asA (s.str("pkg://player.atlas"))
+        push asA (s.str("pkg://scene.atlas"))
         def loadedAtlas:int (s.callI("rgcore_assets_load_atlas" asA))
         t.ok("asset atlas loaded" (loadedAtlas > 0))
         def riA2:[EvalValue]
         push riA2 (s.num((to_double loadedAtlas)))
-        push riA2 (s.str("walk"))
+        push riA2 (s.str("plat"))
         t.eqInt("asset atlas resolves region by name" (s.callI("rg2d_atlas_region_index" riA2)) 1)
 
         def clipArgs:[EvalValue]

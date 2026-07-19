@@ -66,6 +66,66 @@ class RgFramebuffer {
         if (py >= this.height) { return }
         set this.pixels ((py * this.width) + px) color
     }
+
+    ; ---- immediate-mode fills (v1 SoftCanvas parity, 0xRRGGBB grid) ----------
+    ; Clipped opaque rectangle. Mirrors SoftCanvas.fillRect (framebuffer.rgr):
+    ; the static-environment primitive the game paints platforms/sky/flag with.
+    fn fillRectRGB:void (x:int y:int rw:int rh:int color:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        def x0 x
+        def y0 y
+        def x1 (x + rw)
+        def y1 (y + rh)
+        if (x0 < 0) { x0 = 0 }
+        if (y0 < 0) { y0 = 0 }
+        if (x1 > this.width) { x1 = this.width }
+        if (y1 > this.height) { y1 = this.height }
+        def yy y0
+        while (yy < y1) {
+            def base (yy * this.width)
+            def xx x0
+            while (xx < x1) {
+                set this.pixels (base + xx) color
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    ; Clipped filled circle, per-row half-width — the exact scanline test in
+    ; SoftCanvas.fillCircle (largest hw with hw*hw <= rad^2 - dy^2).
+    fn fillCircleRGB:void (cx:int cy:int rad:int color:int) {
+        if (rad <= 0) { return }
+        def r2 (rad * rad)
+        def yy (cy - rad)
+        def yEnd (cy + rad)
+        while (yy <= yEnd) {
+            if (yy >= 0) {
+                if (yy < this.height) {
+                    def dy (yy - cy)
+                    def rem (r2 - (dy * dy))
+                    if (rem >= 0) {
+                        def hw 0
+                        while (((hw + 1) * (hw + 1)) <= rem) {
+                            hw = (hw + 1)
+                        }
+                        def x0 (cx - hw)
+                        def x1 ((cx + hw) + 1)
+                        if (x0 < 0) { x0 = 0 }
+                        if (x1 > this.width) { x1 = this.width }
+                        def base (yy * this.width)
+                        def xx x0
+                        while (xx < x1) {
+                            set this.pixels (base + xx) color
+                            xx = (xx + 1)
+                        }
+                    }
+                }
+            }
+            yy = (yy + 1)
+        }
+    }
 }
 
 class RgSoftwareRenderer2D {

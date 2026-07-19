@@ -40,6 +40,37 @@ class RgTexturedRenderer2D {
         return (((orr * 65536) + (og * 256)) + ob)
     }
 
+    ; Rasterise the world-space background draw list through a pane camera,
+    ; painting under the sprites. Rect corner + circle centre transform like a
+    ; sprite position; extents scale by camera zoom. (Rotation unhandled — the
+    ; parity target uses none.) Mirrors v1's scrolled createStaticBg output.
+    sfn rasterBg:void (d:RgRanger2D fb:RgFramebuffer camH:RgHandle cx:int cy:int zoom:double) {
+        def cmds:[RgBgCmd2D] d.bgCmds
+        def n:int (array_length cmds)
+        def i 0
+        while (i < n) {
+            def c:RgBgCmd2D (itemAt cmds i)
+            def color:int (((c.r * 65536) + (c.g * 256)) + c.b)
+            if (c.kind == 0) {
+                def sxD:double (d.worldToScreenSwX(camH c.x c.y))
+                def syD:double (d.worldToScreenSwY(camH c.x c.y))
+                def px:int ((floor (sxD + 0.5)) + cx)
+                def py:int ((floor (syD + 0.5)) + cy)
+                def rw:int (floor ((c.w * zoom) + 0.5))
+                def rh:int (floor ((c.h * zoom) + 0.5))
+                fb.fillRectRGB(px py rw rh color)
+            } {
+                def sxD:double (d.worldToScreenSwX(camH c.x c.y))
+                def syD:double (d.worldToScreenSwY(camH c.x c.y))
+                def px:int ((floor (sxD + 0.5)) + cx)
+                def py:int ((floor (syD + 0.5)) + cy)
+                def rad:int (floor ((c.rad * zoom) + 0.5))
+                fb.fillCircleRGB(px py rad color)
+            }
+            i = (i + 1)
+        }
+    }
+
     ; Live sprites in `layerH`, sorted ascending by (z, creation slot) so the
     ; painter draws background first and players last. Selection sort — sprite
     ; counts are small (tens), and it keeps the ordering total + deterministic.
@@ -88,6 +119,10 @@ class RgTexturedRenderer2D {
         def cx:int (idiv fb.width 2)
         def cy:int (idiv fb.height 2)
         def cam:RgCamera2D (d.cameraResolve(camH))
+        ; static environment first (v1 createStaticBg model): world-space
+        ; immediate primitives rasterised through this pane's camera, under the
+        ; retained sprites.
+        RgTexturedRenderer2D.rasterBg(d fb camH cx cy cam.zoom)
         def order:[RgHandle] (RgTexturedRenderer2D.sortedSprites(d layerH))
         def n:int (array_length order)
         def drawn 0
@@ -104,8 +139,7 @@ class RgTexturedRenderer2D {
             def atlasH:RgHandle (d.spriteAtlasHandle(sh))
             def at:RgSpriteAtlas (d.atlasResolve(atlasH))
             def texH:RgHandle at.textureH
-            def rIdx:int (d.spriteRegion(sh))
-            def reg:RgSpriteRegion (d.regionAt(atlasH rIdx))
+            def reg:RgSpriteRegion (d.spriteSrcRegion(sh))
             if (reg.w > 0) {
                 if (reg.h > 0) {
                     ; destination size in world units (native region if unset)

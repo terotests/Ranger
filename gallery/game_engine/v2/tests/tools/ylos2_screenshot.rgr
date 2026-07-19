@@ -1,98 +1,33 @@
 ; ==============================================================================
-; ylos2_screenshot — render a REAL frame of the v2 ylos2 guest to a text dump.
+; ylos2_screenshot — render the real ylos2 game through the SAMPLING backend.
 ; ==============================================================================
-; Boots games/ylos2/index.tsx on the generic RgGameHost, runs the attract
-; driver for a while, then rasterises BOTH panes from host-owned state (pane
-; views declared by the guest via renderer.render → rg2d_render):
-;
-;   pane → layer/camera handles → per-sprite region RECT fill (flat colour)
-;
-; This is a diagnostic sibling of RgSoftwareRenderer2D.present2D: present2D is
-; the contract-pinned marker rasteriser (one pixel per sprite, colour = 100 +
-; region); THIS tool additionally fills each sprite's region w×h so the frame
-; is legible as a screen. It still samples NO texels — the ylos2 package
-; carries only the .atlas manifest (QUESTIONS.md Q1): region geometry exists
-; host-side, pixel data does not. When textures grow a pixel store, this tool
-; (and the backends) can sample instead of flat-filling.
-;
-; Output (stdout): "FRAME <n>" then "SCREENSHOT <w> <h>" and <h> rows of
-; chars — '.' empty, 'a'+regionIndex for filled (a=idle, b=walk, c=plat),
-; '|' pane divider. Convert with tests/tools/dump_to_png.js.
+; Boots games/ylos2 on the generic host and presents both panes through
+; RgTexturedRenderer2D: the real LPC walk sheets (assets/p1_walk.png,
+; p2_walk.png) decoded into the texture store and sampled as sheet cells, over
+; the immediate static environment (3-tone platforms, sky gradient, clouds,
+; flag, diamond glyph) — v1's rendering model on the v2 architecture. Emits an
+; RGBSHOT dump; dump_rgb_to_png.js turns it into a PNG. Diagnostic only.
 ;
 ;   node bin/output.js -es6 gallery/game_engine/v2/tests/tools/ylos2_screenshot.rgr \
-;     -d=out -o=shot.js && node out/shot.js > dump.txt
-;   node gallery/game_engine/v2/tests/tools/dump_to_png.js dump.txt shot.png
+;     -d=out -o=shot.js && node out/shot.js > s.txt
+;   node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js s.txt ylos2.png 3
 ; ==============================================================================
 
 Import "../../runtime/game_host/RgGameHost.rgr"
 Import "../../runtime/game_host/Rg2DPresenter.rgr"
-Import "../../runtime/game_host/RgAttractDriver.rgr"
 
 class Ylos2Screenshot {
-
-    ; Rasterise one pane: every live sprite in the pane's layer, as a flat
-    ; region-sized rect centred on the sprite position (ylos2 positions sprite
-    ; centres), colour 100 + regionIndex. Players are created after platforms,
-    ; so creation order already paints them on top.
-    sfn rasterPane:int (bridge:RgRegistryBridge paneIndex:int fb:RgFramebuffer) {
-        def layerH:RgHandle (bridge.surface.paneLayer(paneIndex))
-        def camH:RgHandle (bridge.surface.paneCam(paneIndex))
-        if ((layerH.isValid()) == false) { return (0 - 1) }
-        if ((camH.isValid()) == false) { return (0 - 1) }
-        def d:RgRanger2D bridge.d2
-        def cx:int (idiv fb.width 2)
-        def cy:int (idiv fb.height 2)
-        def handles:[RgHandle] (d.liveSpriteHandles())
-        def n:int (array_length handles)
-        def drawn 0
-        def i 0
-        while (i < n) {
-            def sh:RgHandle (itemAt handles i)
-            if ((d.spriteLayerSlot(sh)) == layerH.slot) {
-                def wx:double (d.spriteX(sh))
-                def wy:double (d.spriteY(sh))
-                def sx:double (d.worldToScreenSwX(camH wx wy))
-                def sy:double (d.worldToScreenSwY(camH wx wy))
-                def px:int ((floor (sx + 0.5)) + cx)
-                def py:int ((floor (sy + 0.5)) + cy)
-                def r:int (d.spriteRegion(sh))
-                ; region extent from host atlas state (the .atlas manifest)
-                def sp:RgSprite2D (d.spriteResolve(sh))
-                def at:RgSpriteAtlas (d.atlasResolve(sp.atlasH))
-                def rw:int 4
-                def rh:int 4
-                if (r >= 0) {
-                    if (r < (array_length at.regions)) {
-                        def reg:RgSpriteRegion (itemAt at.regions r)
-                        rw = reg.w
-                        rh = reg.h
-                    }
-                }
-                def color:int (100 + r)
-                def x0:int (px - (idiv rw 2))
-                def y0:int (py - (idiv rh 2))
-                def yy 0
-                while (yy < rh) {
-                    def xx 0
-                    while (xx < rw) {
-                        fb.plot((x0 + xx) (y0 + yy) color)
-                        xx = (xx + 1)
-                    }
-                    yy = (yy + 1)
-                }
-                drawn = (drawn + 1)
-            }
-            i = (i + 1)
-        }
-        return drawn
+    sfn hex2:string (v:int) {
+        def d:string "0123456789abcdef"
+        def hi:int (idiv v 16)
+        def lo:int (v - (hi * 16))
+        return ((substring d hi (hi + 1)) + (substring d lo (lo + 1)))
     }
-
-    sfn colorChar:string (c:int) {
-        if (c == 0) { return "." }
-        if (c == 100) { return "a" }
-        if (c == 101) { return "b" }
-        if (c == 102) { return "c" }
-        return "x"
+    sfn hex6:string (rgb:int) {
+        def r:int (idiv rgb 65536)
+        def g:int (idiv (rgb - (r * 65536)) 256)
+        def b:int ((rgb - (r * 65536)) - (g * 256))
+        return (((Ylos2Screenshot.hex2(r)) + (Ylos2Screenshot.hex2(g))) + (Ylos2Screenshot.hex2(b)))
     }
 
     sfn m@(main):void () {
@@ -101,38 +36,34 @@ class Ylos2Screenshot {
             print "ERROR: ylos2 failed to load"
             return
         }
-        ; attract-drive both players mid-tower (~10 s at 30 fps)
-        def frames:int 300
         def f 0
-        while (f < frames) {
-            RgAttractDriver.feedPlayers(host 2)
+        while (f < 4) {
             host.frame(33.333)
             f = (f + 1)
         }
-        def paneW:int 240
-        def paneH:int 320
+        def paneW:int 180
+        def paneH:int 220
+        def sky:int 5215951      ; 0x4f96cf, base sky under the gradient bands
+        def divider:int 3421742
         def fb0:RgFramebuffer (RgFramebuffer.create(paneW paneH))
         def fb1:RgFramebuffer (RgFramebuffer.create(paneW paneH))
-        def d0:int (Ylos2Screenshot.rasterPane(host.bridge 0 fb0))
-        def d1:int (Ylos2Screenshot.rasterPane(host.bridge 1 fb1))
-        print ("FRAME " + (to_string frames))
+        def d0:int (Rg2DPresenter.presentTextured(host.bridge 0 fb0 sky))
+        def d1:int (Rg2DPresenter.presentTextured(host.bridge 1 fb1 sky))
         print ("DRAWN " + ((to_string d0) + (" " + (to_string d1))))
         def totalW:int ((paneW * 2) + 1)
-        print ("SCREENSHOT " + ((to_string totalW) + (" " + (to_string paneH))))
+        print ("RGBSHOT " + ((to_string totalW) + (" " + (to_string paneH))))
         def y 0
         while (y < paneH) {
             def line:string ""
             def x 0
             while (x < paneW) {
-                def c0:int (fb0.at(x y))
-                line = (line + (Ylos2Screenshot.colorChar(c0)))
+                line = (line + (Ylos2Screenshot.hex6((fb0.at(x y)))))
                 x = (x + 1)
             }
-            line = (line + "|")
+            line = (line + (Ylos2Screenshot.hex6(divider)))
             def x2 0
             while (x2 < paneW) {
-                def c1:int (fb1.at(x2 y))
-                line = (line + (Ylos2Screenshot.colorChar(c1)))
+                line = (line + (Ylos2Screenshot.hex6((fb1.at(x2 y)))))
                 x2 = (x2 + 1)
             }
             print line

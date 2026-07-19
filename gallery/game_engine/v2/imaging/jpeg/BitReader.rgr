@@ -1,0 +1,169 @@
+; BitReader.rgr - Bit-level stream reader for JPEG decoding
+; Handles reading individual bits and byte stuffing (FF00 → FF)
+
+class BitReader {
+    def data:buffer (buffer_alloc 0)
+    def dataStart:int 0      ; Start position in buffer
+    def dataEnd:int 0        ; End position in buffer
+    def bytePos:int 0        ; Current byte position
+    def bitPos:int 0         ; Bits remaining in current byte (8 = full byte)
+    def currentByte:int 0    ; Current byte being read
+    def eof:boolean false
+    
+    Constructor () {
+    }
+    
+    fn init:void (buf:buffer startPos:int length:int) {
+        data = buf
+        dataStart = startPos
+        dataEnd = startPos + length
+        bytePos = startPos
+        bitPos = 0
+        currentByte = 0
+        eof = false
+    }
+    
+    fn loadNextByte:void () {
+        ; Load next byte, handling FF00 byte stuffing and RST markers
+        if (bytePos >= dataEnd) {
+            eof = true
+            currentByte = 0
+            bitPos = 8
+            return
+        }
+        
+        currentByte = (buffer_get data bytePos)
+        bytePos = bytePos + 1
+        
+        ; Check for byte stuffing and markers
+        if (currentByte == 255) {
+            if (bytePos < dataEnd) {
+                def nextByte:int (buffer_get data bytePos)
+                if (nextByte == 0) {
+                    ; FF00 = literal FF, skip the 00
+                    bytePos = bytePos + 1
+                } {
+                    ; RST markers (D0-D7 = 208-215) - skip them
+                    ; These should only appear if DRI is set, but we skip them anyway
+                    ; as they should not affect entropy data
+                    if ((nextByte >= 208) && (nextByte <= 215)) {
+                        ; Skip the RST marker
+                        bytePos = bytePos + 1
+                        ; Load the next actual byte
+                        this.loadNextByte()
+                        return
+                    }
+                    ; FF followed by FF is padding, skip
+                    if (nextByte == 255) {
+                        ; FF FF padding, skip
+                        bytePos = bytePos + 1
+                        this.loadNextByte()
+                        return
+                    }
+                }
+            }
+        }
+        
+        bitPos = 8
+    }
+    
+    fn readBit:int () {
+        ; Read single bit, MSB first
+        if (bitPos == 0) {
+            this.loadNextByte()
+        }
+        
+        if eof {
+            return 0
+        }
+        
+        bitPos = bitPos - 1
+        def bit:int (bit_and (bit_shr currentByte bitPos) 1)
+        return bit
+    }
+    
+    fn readBits:int (count:int) {
+        ; Read multiple bits, MSB first
+        def result:int 0
+        def i:int 0
+        while (i < count) {
+            result = (bit_or (bit_shl result 1) (this.readBit()))
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn peekBits:int (count:int) {
+        ; Peek at bits without consuming them
+        ; Save state
+        def savedBytePos:int bytePos
+        def savedBitPos:int bitPos
+        def savedCurrentByte:int currentByte
+        def savedEof:boolean eof
+        
+        def result:int (this.readBits(count))
+        
+        ; Restore state
+        bytePos = savedBytePos
+        bitPos = savedBitPos
+        currentByte = savedCurrentByte
+        eof = savedEof
+        
+        return result
+    }
+    
+    fn alignToByte:void () {
+        ; Skip remaining bits in current byte
+        bitPos = 0
+    }
+    
+    fn skipRestartMarker:boolean () {
+        ; Skip RST marker (FF D0-D7) after alignToByte()
+        ; Returns true if marker was found and skipped, false otherwise
+        ; Must be called after alignToByte() at restart interval boundaries
+        
+        if (bytePos + 1 >= dataEnd) {
+            return false
+        }
+        
+        def byte1:int (buffer_get data bytePos)
+        def byte2:int (buffer_get data (bytePos + 1))
+        
+        if ((byte1 == 255) && (byte2 >= 208) && (byte2 <= 215)) {
+            ; Valid RST marker found, skip it
+            bytePos = bytePos + 2
+            return true
+        }
+        
+        ; No RST marker found - this might indicate corruption or no DRI
+        return false
+    }
+    
+    fn getBytePosition:int () {
+        return bytePos
+    }
+    
+    fn isEOF:boolean () {
+        return eof
+    }
+    
+    fn receiveExtend:int (length:int) {
+        ; JPEG-specific: read 'length' bits and extend sign
+        ; Used for DC and AC coefficient decoding
+        if (length == 0) {
+            return 0
+        }
+        
+        def value:int (this.readBits(length))
+        
+        ; If MSB is 0, value is negative
+        ; threshold = 2^(length-1)
+        def threshold:int (bit_shl 1 (length - 1))
+        if (value < threshold) {
+            ; Negative value: subtract 2^length - 1
+            value = value - ((bit_shl threshold 1) - 1)
+        }
+        
+        return value
+    }
+}
