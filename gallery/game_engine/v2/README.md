@@ -133,7 +133,14 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   from `contentRevision` and from release), and `tests/contract/d_life` (a shared
   geometry survives until its last owner releases).
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (23 suites, 342
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 23/23 suites passed`.
+- **Phase 7 — Geometry upload / aliasing (D-GEO / D-WASM-MEM): ✅ green.**
+  `geometryCreateEmpty` → stable `geoH`; `geometrySetAttribute` / `updateRange` /
+  `readPositions` all mutate the same handle with bulk float spans, OOB rejected
+  without a trap. The Three-compat wrapper (`three/port/src/RgCompatAttribute.rgr`)
+  keeps a guest-aliased staging array; a write without `needsUpdate` never
+  renders, and a flush makes the host range byte-equal. Gate: `tests/contract/d_geo`.
 
-*Later phases (7+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (24 suites, 372
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 24/24 suites passed`.
+
+*Later phases (8+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

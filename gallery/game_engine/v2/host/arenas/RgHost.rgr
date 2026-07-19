@@ -34,6 +34,21 @@ class RgType {
     sfn scene:int () { return 13 }
 }
 
+; A named vertex attribute — the one authoritative host copy of the data
+; (D-GEO rule 1). itemSize is components per vertex (3 for position).
+class RgAttribute {
+    def name:string ""
+    def itemSize:int 3
+    def data:[double]
+}
+
+; Result of a bulk read-back: status separate from the element count written,
+; so a zero-element read is success (status 0, written 0), never an error.
+class RgReadResult {
+    def status:int 0
+    def written:int 0
+}
+
 class RgGeometry {
     def vertexCount:int 0
     ; D-LIFE revision counters — must NOT be merged:
@@ -41,6 +56,8 @@ class RgGeometry {
     ;   resourceRevision bumped by disposeBackend (backend objects invalidated)
     def contentRevision:int 0
     def resourceRevision:int 0
+    ; named attributes — the authoritative host vertex data (D-GEO)
+    def attributes:[RgAttribute]
 }
 
 class RgMaterial {
@@ -139,8 +156,19 @@ class RgHost {
         def idx:int (this.allocGeoIndex())
         def g:RgGeometry (itemAt this.geometries idx)
         g.vertexCount = vertexCount
+        ; reset a recycled pool slot to a clean geometry
+        g.contentRevision = 0
+        g.resourceRevision = 0
+        def emptyAttrs:[RgAttribute]
+        g.attributes = emptyAttrs
         def h:RgHandle (this.registry.alloc(realmId (RgType.geometry()) idx))
         return (OwnedHandle.own(h))
+    }
+
+    ; new BufferGeometry(): a stable geoH that exists BEFORE any attribute
+    ; (D-GEO). setAttribute mutates this same handle; it never re-creates.
+    fn geometryCreateEmpty:OwnedHandle (realmId:int) {
+        return (this.geometryCreate(realmId 0))
     }
 
     fn materialCreate:OwnedHandle (realmId:int r:double g:double b:double) {
@@ -193,6 +221,143 @@ class RgHost {
         }
         def g:RgGeometry (itemAt this.geometries r.payloadIndex)
         return g.vertexCount
+    }
+
+    ; ---- geometry attributes (D-GEO / D-WASM-MEM) --------------------------
+    fn findAttr:RgAttribute (g:RgGeometry name:string) {
+        def n:int (array_length g.attributes)
+        def i 0
+        while (i < n) {
+            def a:RgAttribute (itemAt g.attributes i)
+            if (a.name == name) { return a }
+            i = (i + 1)
+        }
+        return (new RgAttribute)
+    }
+
+    ; setAttribute mutates the SAME geoH (stable handle). N floats cross in one
+    ; bulk call, never one-per-float. Replacing an attribute keeps the handle.
+    fn geometrySetAttribute:RgResolve (geoH:RgHandle name:string data:[double] itemSize:int) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return r }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        ; find existing attribute (replace) or create a new one
+        def existing:RgAttribute (this.findAttr(g name))
+        def attr:RgAttribute existing
+        if ((existing.name == name)) {
+            ; replace in place
+        } {
+            attr = (new RgAttribute)
+            attr.name = name
+            push g.attributes attr
+        }
+        attr.itemSize = itemSize
+        ; bulk copy the incoming data into the authoritative host array
+        def copy:[double]
+        def nd:int (array_length data)
+        def i 0
+        while (i < nd) {
+            push copy (itemAt data i)
+            i = (i + 1)
+        }
+        attr.data = copy
+        if (name == "position") {
+            g.vertexCount = (idiv nd itemSize)
+        }
+        g.contentRevision = (g.contentRevision + 1)
+        return r
+    }
+
+    ; geometryUpdateRange: overwrite count*itemSize floats starting at
+    ; first*itemSize. Bounds-checked; same geoH; bumps contentRevision.
+    fn geometryUpdateRange:RgResolve (geoH:RgHandle name:string first:int count:int data:[double]) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return r }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        def attr:RgAttribute (this.findAttr(g name))
+        if (attr.name != name) {
+            return (RgResolve.fail((RgErr.invalidHandle())))
+        }
+        def startF:int (first * attr.itemSize)
+        def lenF:int (count * attr.itemSize)
+        def cap:int (array_length attr.data)
+        if (startF < 0) { return (RgResolve.fail((RgErr.invalidHandle()))) }
+        if ((startF + lenF) > cap) {
+            ; out-of-range update rejected — typed error, no trap
+            return (RgResolve.fail((RgErr.invalidHandle())))
+        }
+        def i 0
+        while (i < lenF) {
+            set attr.data (startF + i) (itemAt data i)
+            i = (i + 1)
+        }
+        g.contentRevision = (g.contentRevision + 1)
+        return r
+    }
+
+    ; geometryReadPositions: read count*itemSize floats from first, appending to
+    ; `out`. Returns status + written count (0-element read is success).
+    fn geometryReadPositions:RgReadResult (geoH:RgHandle first:int count:int out:[double]) {
+        def res:RgReadResult (new RgReadResult)
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) {
+            res.status = r.code
+            res.written = 0
+            return res
+        }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        def attr:RgAttribute (this.findAttr(g "position"))
+        if (attr.name != "position") {
+            res.status = (RgErr.invalidHandle())
+            res.written = 0
+            return res
+        }
+        def startF:int (first * attr.itemSize)
+        def lenF:int (count * attr.itemSize)
+        def cap:int (array_length attr.data)
+        if (startF < 0) {
+            res.status = (RgErr.invalidHandle())
+            return res
+        }
+        if ((startF + lenF) > cap) {
+            ; OOB read rejected without trap
+            res.status = (RgErr.invalidHandle())
+            res.written = 0
+            return res
+        }
+        def i 0
+        while (i < lenF) {
+            push out (itemAt attr.data (startF + i))
+            i = (i + 1)
+        }
+        res.status = (RgErr.ok())
+        res.written = lenF
+        return res
+    }
+
+    fn geometryAttributeLength:int (geoH:RgHandle name:string) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return (0 - 1) }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        def attr:RgAttribute (this.findAttr(g name))
+        if (attr.name != name) { return (0 - 1) }
+        return (array_length attr.data)
+    }
+
+    fn geometryAttributeAt:double (geoH:RgHandle name:string index:int) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return 0.0 }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        def attr:RgAttribute (this.findAttr(g name))
+        if (attr.name != name) { return 0.0 }
+        return (itemAt attr.data index)
+    }
+
+    fn geometryAttributeCount:int (geoH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) { return (0 - 1) }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        return (array_length g.attributes)
     }
 
     ; ---- meshSetGeometry: retain new, release old (atomic) ------------------

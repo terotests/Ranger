@@ -82,6 +82,9 @@ run_suite host/tests/membership/membership_test
 run_suite host/tests/dispose_backend/dispose_backend_test
 run_suite tests/contract/d_life/d_life_contract_test
 
+# ---- Phase 7 — geometry upload / aliasing (D-GEO / D-WASM-MEM) ---------------
+run_suite tests/contract/d_geo/d_geo_contract_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"

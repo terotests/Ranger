@@ -1,0 +1,96 @@
+; ==============================================================================
+; RgCompatAttribute — Three.js-compat BufferAttribute w/ aliasing (D-GEO).
+; ==============================================================================
+; The interpreted (Three-compat) path keeps a guest-visible staging array that
+; aliases the script's data — ordinary Three.js behaviour:
+;
+;   const data = new Float32Array([...])
+;   geometry.setAttribute("position", new THREE.BufferAttribute(data, 3))
+;   data[0] = 4
+;   attribute.needsUpdate = true
+;   attribute.array === data   // still true
+;
+; The host geometry arrays remain the RENDER authority (one authoritative copy
+; for rendering). The guest array is a staging copy WITH aliasing, not a second
+; authority: a guest write is visible to guest reads immediately but does not
+; render until `needsUpdate` flushes the tracked range to the host. After a
+; flush the host range is byte-equal to the guest range (parity).
+; ==============================================================================
+
+Import "../../../host/arenas/RgHost.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+
+class RgCompatAttribute {
+    def host:RgHost (new RgHost)
+    def geoH:RgHandle (new RgHandle)
+    def name:string ""
+    def itemSize:int 3
+    def data:[double]            ; guest staging array (script-visible, aliased)
+    def dirtyFirst:int 0         ; tracked dirty range, in vertices
+    def dirtyCount:int 0
+    def hasDirty:boolean false
+
+    ; setAttribute(name, new BufferAttribute(data, itemSize)): seeds the host
+    ; authoritative copy and keeps the guest array aliased.
+    sfn create:RgCompatAttribute (host:RgHost geoH:RgHandle name:string data:[double] itemSize:int) {
+        def a:RgCompatAttribute (new RgCompatAttribute)
+        a.host = host
+        a.geoH = geoH
+        a.name = name
+        a.itemSize = itemSize
+        a.data = data
+        a.host.geometrySetAttribute(geoH name data itemSize)
+        return a
+    }
+
+    ; the script-visible array (aliasing: same reference the guest passed in)
+    fn array:[double] () {
+        return this.data
+    }
+
+    fn getAt:double (i:int) {
+        return (itemAt this.data i)
+    }
+
+    ; guest write: mutates the staging array immediately and tracks the dirty
+    ; vertex range. Does NOT reach the host until needsUpdate().
+    fn setAt:void (i:int value:double) {
+        set this.data i value
+        def vtx:int (idiv i this.itemSize)
+        if (this.hasDirty == false) {
+            this.dirtyFirst = vtx
+            this.dirtyCount = 1
+            this.hasDirty = true
+        } {
+            def last:int (this.dirtyFirst + this.dirtyCount - 1)
+            if (vtx < this.dirtyFirst) {
+                this.dirtyCount = ((last - vtx) + 1)
+                this.dirtyFirst = vtx
+            }
+            if (vtx > last) {
+                this.dirtyCount = ((vtx - this.dirtyFirst) + 1)
+            }
+        }
+    }
+
+    ; attribute.needsUpdate = true → bulk-copy the tracked range to the host
+    ; (fallback: whole attribute if nothing tracked). Resets the dirty range.
+    fn needsUpdate:void () {
+        if (this.hasDirty == false) {
+            ; fallback: full-attribute flush
+            this.host.geometrySetAttribute(this.geoH this.name this.data this.itemSize)
+            return
+        }
+        def startF:int (this.dirtyFirst * this.itemSize)
+        def lenF:int (this.dirtyCount * this.itemSize)
+        def slice:[double]
+        def i 0
+        while (i < lenF) {
+            push slice (itemAt this.data (startF + i))
+            i = (i + 1)
+        }
+        this.host.geometryUpdateRange(this.geoH this.name this.dirtyFirst this.dirtyCount slice)
+        this.hasDirty = false
+        this.dirtyCount = 0
+    }
+}
