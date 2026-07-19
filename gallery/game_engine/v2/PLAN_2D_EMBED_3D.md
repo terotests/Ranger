@@ -1,6 +1,6 @@
 # PLAN — 2D mode embedding 3D objects (v2)
 
-**Status:** design plan (not implemented)  
+**Status:** architecture approved; **H0 not frozen** — spec revision after review  
 **Scope:** `gallery/game_engine/v2/` only  
 **Related:** [`QUESTIONS.md`](./QUESTIONS.md) Q1–Q3, [`BRIDGES.md`](./BRIDGES.md) §6,
 [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) D-2D / D-MODULES / frame pipeline,
@@ -21,9 +21,18 @@ Enable a single v2 game to:
 **Principle:** 2D and 3D share **GPU / present infrastructure**, not scene
 semantics. The 2D API must **not** be “the 3D API with `z = 0`”.
 
-This plan answers the open choices in [`QUESTIONS.md`](./QUESTIONS.md) Q2 / Q3
-and sequences work that fits the live v2 stack after Phase 11 (software 2D
-present) and Phase 12 (selected games).
+Central decisions that stand:
+
+* `ranger:2d` and `ranger:three` remain separate scene APIs.
+* Both share `Texture2D`, `RenderTarget`, the device, and presentation.
+* Whole-layer composition and render-to-texture are separate first-class
+  mechanisms.
+* Pass order is controlled by the game (one global ordered stream).
+* Shared 2D/3D depth is deferred.
+* `attachRenderer` is deprecated in favour of recorded render commands.
+
+This plan answers [`QUESTIONS.md`](./QUESTIONS.md) Q2 / Q3 and sequences work
+after Phase 11 (software 2D present) and Phase 12 (selected games).
 
 ---
 
@@ -32,21 +41,23 @@ present) and Phase 12 (selected games).
 | Piece | Status today | Where |
 |-------|--------------|--------|
 | `ranger:2d` façades | Live | [`modules/ranger_2d/ranger_2d.tsx`](./modules/ranger_2d/ranger_2d.tsx) |
-| Retained 2D arenas | Live | [`modules/ranger_2d/RgRanger2D.rgr`](./modules/ranger_2d/RgRanger2D.rgr) (`Texture2D` / atlas / sprite / layer / camera) |
+| Retained 2D arenas | Live | [`modules/ranger_2d/RgRanger2D.rgr`](./modules/ranger_2d/RgRanger2D.rgr) |
+| `Sprite2D(atlas, regionIndex)` | Live | façade + `RgSprite2D` retains **atlas**, not a bare texture |
+| `Layer2D.add(sprite)` | Live | sprite handles only |
 | `Renderer2D.render(layer, cam, pane)` | Live bind | `rg2d_render` → surface pane view |
-| Software present | Live, 2D-only | [`Rg2DPresenter`](./runtime/game_host/Rg2DPresenter.rgr) → [`RgSoftwareRenderer2D`](./render/backends/software/RgSoftwareRenderer2D.rgr) |
+| Software present | Live, 2D-only | [`Rg2DPresenter`](./runtime/game_host/Rg2DPresenter.rgr) → [`RgSoftwareRenderer2D`](./render/backends/software/RgSoftwareRenderer2D.rgr) — **plots marker colours from region index; does not sample texels** |
 | Frame pipeline steps 6–7 | Live | guest `render*` in `update`; host present after |
 | Split panes | Live | `runtime.surface` + pane indices (ylos2) |
 | `ranger:three` guest module | Scaffold only | [`modules/ranger_three/`](./modules/ranger_three/) |
-| Staged Three + GL FBO helpers | Staged / separate hosts | [`three/port/`](./three/port/), [`web/`](./web/) — not wired into `RgGameHost` |
+| Staged Three + GL FBO helpers | Staged / separate hosts | [`three/port/`](./three/port/), [`web/`](./web/) |
 | `attachRenderer` | Guest stub | no host registration |
 | `RgTexture2D` pixels | Metadata only | width/height; no RGBA store (Q1) |
-| Common `ranger:graphics` package | **Absent** | backends live under `render/` |
+| Common graphics package | **Absent** | backends under `render/` |
 
 **Bottom line:** the sibling-package model and multi-`render` frame pipeline are
-already the right shape. What is missing is (a) a shared texture / render-target
-abstraction, (b) a compose presenter that can run ordered 2D/3D passes, and
-(c) a live `ranger:three` path inside the generic game host.
+the right shape. Missing pieces: shared texture/view/RT types, one global
+`FramePass` stream, texture-backed sprites, ownership + hazard rules, and a
+backend-coherent path into the generic game host.
 
 ---
 
@@ -56,154 +67,362 @@ abstraction, (b) a compose presenter that can run ordered 2D/3D passes, and
 Guest game APIs (virtual modules — D-MODULES)
 ├── ranger:2d
 │   ├── Sprite2D · Layer2D · Camera2D · Renderer2D
+│   ├── TextureView2D / SpriteSource   ← atlas region OR full texture view
 │   └── (later) TileMap2D · masks · batching helpers
 │
 ├── ranger:three
 │   ├── Mesh · Scene · Camera · Renderer3D
-│   └── SceneSprite3D          ← ergonomic 3D-as-sprite (optional)
+│   └── SceneSprite3D                  ← owns RT + Sprite2D (composition)
 │
 └── ranger:core
-    ├── runtime.surface / panes
-    └── runtime.graphics       ← thin capability root over host GFX
+    ├── runtime.surface
+    │   ├── .target                    ← explicit full-surface destination
+    │   └── .pane(i)                   ← PaneTarget (+ input binding)
+    └── runtime.graphics               ← Texture2D · RenderTarget · Sampler
          (or import * as GFX from "ranger:graphics" if we split the package)
 
 Host / internal (not game scene graphs)
 ├── host arenas
-│   ├── RgRanger2D …           (retained 2D — already)
-│   ├── RgThree …              (live three arenas — to wire)
-│   └── RgGraphics             (Texture2D · RenderTarget · Sampler)
+│   ├── RgRanger2D …
+│   ├── RgThree …
+│   └── RgGraphics             (Texture2D backing · TextureView · RenderTarget)
 │
 └── render/
-    ├── backends/software/     (SW 2D + SW compose; CI)
+    ├── backends/software/
     ├── backends/gpu/          (shared device; GL/ES)
     └── present/
         ├── Rg2DPresenter      (today)
-        └── RgComposePresenter ← ordered pass list → surface
+        └── RgComposePresenter ← replays frame.passes[] in guest order
 ```
 
 Notes:
 
-- Prefer **`runtime.graphics`** (or a small `ranger:graphics`) for
-  `Texture2D` / `RenderTarget` / formats — not burying targets inside
-  `ranger:2d` or `ranger:three`. Both domain packages consume the same types.
-- Keep **`Renderer2D` / `Renderer3D` as façades** that submit work; the
-  presenter owns when pixels hit the surface (D-SYNC: render is not a sync
-  boundary; present reads host state).
-- Staged `three/port/src/three_gl.rgr` FBO helpers (`gpu_make_depth_target`,
-  bind/read) are **implementation provenance** for the GPU backend, not the
-  public guest API.
+- Prefer **`runtime.graphics`** first; promote to `ranger:graphics` if the
+  surface grows.
+- `Renderer2D` / `Renderer3D` are façades that **append** to the frame pass
+  list; the presenter executes that list at step 7 (D-SYNC).
+- Staged `three_gl.rgr` FBO helpers are GPU-backend provenance, not the guest
+  API.
 
 ---
 
-## 4. Design decisions (answers to QUESTIONS.md)
+## 4. Design decisions
 
 ### D1 — Two composition mechanisms (both first-class)
 
 | Mechanism | When | Guest shape |
 |-----------|------|-------------|
-| **Shared-target / pass list** | Whole layers behind or in front of each other | Ordered `render3D` / `render2D` into the same pane (or surface) |
-| **Render-to-texture** | 3D must behave like a sprite (rotate, fade, mask, UI slot, atlas-like sampling) | `Renderer3D.render(scene, cam, target)` → `Sprite2D` samples `target.colorTexture` |
+| **Shared-destination passes** | Whole layers behind or in front of each other | Ordered `render3D` / `render2D` into the same `SurfaceTarget` or `PaneTarget` |
+| **Render-to-texture** | 3D must behave like a sprite | `Renderer3D.render(scene, cam, { target: rt })` then 2D samples a `TextureView2D` of `rt.colorTexture` |
 
-Pass-list composition is cheaper when content only needs order. RTT is
-required when the result is an object inside the 2D scene graph.
+### D2 — One global ordered `FramePass` list
 
-### D2 — Overlay policy
-
-**Guest-declared pass order**, not a fixed “3D always on top”.
+**Fundamental representation** (not per-pane lists + a separate offscreen job
+queue):
 
 ```ts
-// Conceptual — exact façade names land with schema
-frame / update:
-  renderer3d.render(background3D, cam3d, { target: pane, clear: "color-depth" })
-  renderer2d.render(world2D, cam2d, { target: pane, clear: "none" })
-  renderer2d.render(hud2D, hudCam, { target: pane, clear: "none" })
+type FramePass =
+  | Render2DPass
+  | Render3DPass
+  | ClearPass
+  | ResolvePass;
+
+interface Render2DPass {
+  target: RenderDestination;
+  layer: Layer2DHandle;
+  camera: Camera2DHandle;
+  color: AttachmentOps;   // see D9
+  // depth N/A for pure 2D
+}
+
+interface Render3DPass {
+  target: RenderDestination;
+  scene: Scene3DHandle;
+  camera: Camera3DHandle;
+  color: AttachmentOps;
+  depth?: AttachmentOps;
+}
+
+// Host-owned for the current update → present cycle:
+frame.passes: FramePass[];
 ```
 
-Host present replays the **pass list recorded during the update** (step 6),
-then submits to the surface (step 7). Zero passes → re-present previous frame
-(existing rule).
+Every `renderer*.render(...)` **appends** to this one list. Per-pane grouping
+may be derived later as an optimisation; it is **not** the source of truth.
 
-Shared depth between 2D and 3D in one pass is **out of scope** for the first
-cut. Depth is per 3D pass / per RTT; 2D uses layer order + stable transparency
-rules inside `Renderer2D`.
-
-### D3 — Targets: panes vs `RenderTarget`
-
-| Target kind | Role |
-|-------------|------|
-| **Surface pane** | Viewport on the display surface (split-screen, input binding) |
-| **`RenderTarget`** | Offscreen color (+ optional depth); exposes `colorTexture: Texture2D` |
-
-Guest signature intent (Q3):
+That preserves order across mixed destinations:
 
 ```ts
-renderer2d.render(layer, cam)                      // full surface default
-renderer2d.render(layer, cam, pane)                // or { target: pane }
-renderer3d.render(scene, cam, { target: rt })      // offscreen
-renderer3d.render(scene, cam, { target: pane })    // compose into pane
+renderer3d.render(portraitScene, portraitCamera, { target: portraitTarget });
+renderer2d.render(world, worldCamera, { target: leftPane });
+renderer3d.render(mapScene, mapCamera, { target: mapTarget });
+renderer2d.render(hud, hudCamera, { target: leftPane });
 ```
 
-Bare integer pane indices remain a **lowering** for the interpreter/wasm
-profile (ylos2 today). They are not the long-term authorship vocabulary.
+Separate pane/offscreen lists would require sorting or dependency
+reconstruction — rejected for the first cut.
 
-**Answer to Q3 #3:** offscreen uses a distinct `RenderTarget` type in the same
-`target:` slot — not a second parallel API, and not “another pane index”.
+Zero passes in an update → re-present the previous frame (existing rule).
+
+Shared depth between 2D and 3D in one pass remains **out of scope**.
+
+### D3 — Three explicit destination kinds
+
+```ts
+type RenderDestination =
+  | SurfaceTarget   // runtime.surface.target — full bleed
+  | PaneTarget      // runtime.surface.pane(i) — viewport + input binding
+  | RenderTarget;   // offscreen; exposes colorTexture
+```
+
+| Kind | Role |
+|------|------|
+| **`SurfaceTarget`** | Entire display surface; use for full-bleed 3D under/over split UI |
+| **`PaneTarget`** | One surface viewport (split-screen); scissor/viewport = pane rect |
+| **`RenderTarget`** | Offscreen color (+ optional depth); sampled via `TextureView2D` |
+
+**Omitted target is never layout-dependent.**
+
+```ts
+render(scene, camera); // always means runtime.surface.target
+```
+
+Once a non-default layout is active, authors who mean a pane **must** pass that
+pane. Do not invent “omission means left pane” or “omission means all panes”.
+
+Bare integer pane indices remain an interpreter/wasm **lowering** (ylos2 today),
+not the long-term authorship vocabulary.
 
 ### D4 — `attachRenderer`
 
-**Deprecate the stub.** Backends are inferred from which `render*` commands
-ran (and which packages the realm loaded). Optional later: capability profile
-(“2D-only host”) rejects `Renderer3D` at construct time with a typed error.
-
-Do **not** grow `attachRenderer(twoD)` / `attachRenderer(three)` as the primary
-model — it fights the existing “game calls render in update; host presents”
-pipeline.
+**Deprecate the stub.** Backends are inferred from which `render*` commands ran
+(and which packages the realm loaded). Optional later: a “2D-only” capability
+profile rejects `Renderer3D` at construct with a typed error.
 
 ### D5 — Presenter ownership
 
-Evolve presentation without teaching `RgGameHost` about games:
-
 ```text
-RgGameHost          — lifecycle only (unchanged rule)
-RgComposePresenter  — reads pane pass lists + host arenas; picks SW/GPU backends
-Rg2DPresenter       — remains the 2D-only adapter until compose lands, then
-                      becomes the 2D backend entry used by the compose presenter
+RgGameHost           — lifecycle only
+RgComposePresenter   — reads frame.passes[]; picks SW/GPU backends
+Rg2DPresenter        — 2D-only adapter until compose lands, then 2D backend entry
 ```
 
-**Answer to Q2 #5:** sibling compose presenter (or rename to
-`RgSurfacePresenter`); host stays backend-agnostic.
+Host stays backend-agnostic and game-agnostic.
 
-### D6 — Split-screen + 3D
+### D6 — Split-screen + full-bleed
 
-**Per-pane pass lists.** Each pane may bind its own 2D and/or 3D cameras.
-Full-bleed 3D under a split is just “same 3D pass recorded for every pane” or
-a single full-surface pass before pane 2D — game policy, not host special case.
+Express both with destinations, not special host modes:
 
-### D7 — Alpha and color space (engine conventions)
+```ts
+renderer3d.render(background, cam3d, { target: runtime.surface.target, ... });
+renderer2d.render(p1World, cam1, { target: leftPane, ... });
+renderer2d.render(p2World, cam2, { target: rightPane, ... });
+```
 
-| Topic | First-cut convention |
-|-------|----------------------|
-| Compositing alpha | **Premultiplied** for RTT → sprite paths (avoids dark fringes) |
-| Display textures | `rgba8-srgb` default for 2D sampling |
-| 3D lighting | Linear in the 3D pass; tone-map into the target format before 2D samples |
-| Guest knob | `alphaMode` / format on `RenderTarget` create; packages rarely need it |
+Order in `frame.passes` decides stacking. No “broadcast this 3D pass to every
+pane” sugar in the first cut.
 
-Document “do not double-apply gamma” when `Renderer2D` samples an sRGB target
-texture.
+### D7 — Color space and alpha (pipeline wording)
+
+Direction: linear 3D lighting, sRGB display textures, premultiplied alpha for
+RTT → sprite compositing.
+
+**Actual pipeline:**
+
+```text
+3D shading in linear space
+→ tone mapping (still linear display-referred)
+→ hardware sRGB encoding when writing rgba8-srgb
+→ hardware sRGB decoding when Renderer2D samples it
+→ 2D compositing in linear space
+→ final sRGB encoding at presentation
+```
+
+Do **not** manually gamma-encode before writing an sRGB attachment (that would
+double-encode).
+
+**Premultiplied targets:**
+
+```text
+rgb output must already be multiplied by alpha
+blend = ONE, ONE_MINUS_SRC_ALPHA
+```
+
+Transparent 3D materials and MSAA edge resolution are **follow-on gates**.
+First proof: opaque models over a transparent clear (`clearColor` alpha 0).
+
+Guest knobs (`alphaMode`, format) exist on `RenderTarget` create; packages
+rarely need them.
 
 ### D8 — 2D stays first-class (not z=0)
 
-`Renderer2D` keeps sprite-oriented behaviour even when implemented with shared
-GPU primitives:
+`Renderer2D` keeps sprite-oriented behaviour (batching, atlases, flip, tint,
+layer/transparency order, later tile maps / masks / anchoring) even when
+implemented with shared GPU primitives.
 
-- Sprite batching / instancing (shared static quad + dynamic instance buffer)
-- Atlas regions, flip, tint, opacity
-- Pixel snapping (optional)
-- Layer / stable transparency ordering
-- Later: tile maps, 2D clips/masks, UI anchoring, camera dead zones
+### D9 — Attachment load / store (clear is sugar)
 
-Internally a sprite may be “textured quad × ortho camera × model matrix”;
-externally it remains `Sprite2D` / `Layer2D`.
+Façade sugar such as `clear: "color-depth"` / `clear: "none"` lowers to:
+
+```ts
+interface AttachmentOps {
+  load: "clear" | "load";
+  clearValue?: /* color: vec4 | depth: number */;
+  store: "store" | "discard";
+}
+```
+
+| Case | Rule |
+|------|------|
+| Newly created or resized `RenderTarget` | Initialized (implicit clear) **or** `load: "load"` rejected until first store |
+| First pass of a frame to a pane/surface | Default `color.load = "clear"` unless author opts into `load` |
+| Pane/surface between frames | Persist last presented contents; zero passes → re-present |
+| Offscreen RT between frames | Persist until release/resize (unless `store: "discard"`) |
+| After resize | Attachments recreated; previous contents gone; same init/`load` rules |
+| Consecutive 3D passes, depth | Depth persists only if prior pass used `depth.store = "store"` and next uses `depth.load = "load"` |
+| Uninitialized GPU attachment + `load` | Must not yield unspecified pixels — reject or force clear |
+
+### D10 — Texture-backed sprites (`TextureView2D`)
+
+**Problem:** today’s API is atlas-centric:
+
+```ts
+new TWO.Sprite2D(atlas, regionIndex);  // live
+// RgSprite2D retains atlasH — not a bare Texture2D
+```
+
+The hybrid plan needs `Sprite2D` to display RTT (and later video / procedural /
+canvas) **without** minting a synthetic one-region atlas per target.
+
+**Common source abstraction:**
+
+```ts
+interface TextureView2D {
+  texture: Texture2D;
+  uv: Rect;           // default full texture [0,0,1,1]
+  sampler?: Sampler;  // filter / wrap; default linear or nearest per context
+}
+
+type SpriteSource = AtlasRegion | TextureView2D;
+
+new TWO.Sprite2D({ source: atlas.region("idle") });
+new TWO.Sprite2D({ source: target.colorTexture.view() });
+```
+
+Atlas regions **are** texture views (named UV rects over the atlas texture).
+Legacy `(atlas, regionIndex)` remains a supported constructor sugar that lowers
+to `{ source: atlas.regionByIndex(i) }` so ylos2-class games keep compiling.
+
+`Layer2D.add` continues to take sprite handles; `SceneSprite3D` is composition,
+not a second child kind:
+
+```ts
+class SceneSprite3D {
+  readonly target: RenderTarget;
+  readonly sprite: Sprite2D;   // texture-backed via target.colorTexture.view()
+  // optional Sprite2D-compatible forwards (setPos, …)
+}
+```
+
+Internally it still lowers to an ordinary texture-backed sprite. It **schedules
+its own producer `Render3DPass`** automatically before the first 2D pass that
+would sample its texture (see D12), so authors need not manually order that
+pair when using the ergonomic type.
+
+### D11 — Frame-pass lifetime and ownership
+
+Recording happens in `update` (step 6); execution happens in present (step 7).
+A recorded pass must not hold a borrowed handle the guest already released.
+
+> **Rule:** recording a pass **retains** every referenced resource until the
+> frame is presented or discarded.
+
+Retained at least:
+
+* Scene or layer
+* Camera
+* `RenderDestination` (surface / pane state / render target)
+* Textures and attachments sampled or written
+* Materials / pipelines if the pass references them directly
+
+After presentation (or discard on update error / teardown), the pass list
+**releases** those temporary frame references.
+
+**`RenderTarget` ↔ `colorTexture` ownership:**
+
+* The render target **owns** its color (and depth) attachments.
+* External users may **retain a `TextureView2D`** (or the texture handle) —
+  retain bumps the texture’s refcount.
+* Destroying / releasing the RT **invalidates rendering into it**
+  (subsequent passes targeting it fail typed).
+* An externally retained view **keeps the resolved color texture alive** for
+  sampling until that retain is released (attachment storage outlives the RT
+  object, or the texture identity is transferred — implementation detail; the
+  observable rule is: retained views remain sampleable; writing through a
+  released RT fails deterministically).
+
+### D12 — Render-target hazard rules
+
+Strict guest order is the first implementation. The recorder **validates**:
+
+| Situation | Rule |
+|-----------|------|
+| Read-after-write (producer earlier in `frame.passes`) | Allowed |
+| Write-after-read (later pass) | Allowed |
+| Multiple writes to same target | Allowed; ordered by list |
+| Self-sample (pass samples texture it is writing) | **Rejected** (no framebuffer-fetch feature yet) |
+| Circular `SceneSprite3D` / embedded views | **Rejected** |
+| Resize of a target while referenced by a recorded pass | **Rejected** or deferred until after present |
+| Sample unresolved MSAA attachment | Auto-resolve via `ResolvePass`, or reject |
+
+Raw RTT API: author must place producer before consumer in the global list.
+`SceneSprite3D`: inserts its producer pass automatically before the consuming
+2D pass.
+
+### D13 — Backend residency coherence
+
+One public `Texture2D` type does **not** imply zero-copy between every backend
+pair. Explicit matrix:
+
+```text
+SW 3D  → CPU Texture2D → SW 2D     supported (default headless proof)
+GPU 3D → GPU Texture2D → GPU 2D    supported (shared device)
+GPU 3D → CPU / SW 2D               explicit readback only (discouraged)
+SW 3D  → GPU 2D                    upload required
+```
+
+Today’s SW 2D present does not sample texels at all (region-index markers).
+Any RTT→sprite proof must either:
+
+1. Use a **software 3D** path into a CPU-backed `Texture2D` sampled by SW 2D, or
+2. Move **shared-device GPU 2D** alongside the first GL 3D path (preferred if GL
+   is the intended live 3D backend).
+
+Option “GPU 3D + readback into SW 2D” is allowed only as an explicit, tested
+transfer — not the default.
+
+### D14 — `SceneSprite3D` update modes (revision-based)
+
+Detecting “dirty” across transforms, materials, lights, skins, time-dependent
+shaders, and external procedural state is non-trivial.
+
+**First version:**
+
+```ts
+update: "everyFrame" | "manual"
+modelSprite.invalidate();   // manual path
+```
+
+**Later**, once scene / camera / material / texture **revision counters**
+propagate reliably:
+
+```ts
+update: "whenDirty" | { fps: number }
+```
+
+`whenDirty` compares recorded revisions; anything not covered must still be
+invalidated manually. Do not claim automatic dirty tracking before the revision
+system exists.
 
 ---
 
@@ -213,7 +432,7 @@ externally it remains `Sprite2D` / `Layer2D`.
 
 ```ts
 import { runtime } from "ranger:core";
-// Option A — capability root:
+
 const rt = runtime.graphics.createRenderTarget({
   width: 256,
   height: 256,
@@ -222,28 +441,24 @@ const rt = runtime.graphics.createRenderTarget({
   alphaMode: "premultiplied",
   clearColor: [0, 0, 0, 0],
 });
-// rt.colorTexture : Texture2D   — accepted by Sprite2D / atlases / sampling
 
-// Option B — package:
-import * as GFX from "ranger:graphics";
+const view = rt.colorTexture.view(); // TextureView2D, full UV by default
 ```
 
-**Decision lean:** start with **`runtime.graphics`** on `ranger:core` (fewer
-modules to register in `RgGameHost`); promote to `ranger:graphics` if the
-surface grows (pipelines, compute, multi-sample knobs).
+**Decision lean:** `runtime.graphics` on `ranger:core` first.
 
-`Texture2D` must grow a real pixel / GPU residency path (closes Q1 follow-up):
-image decode, RTT color attachment, and (later) video/canvas uploads all mint
-or update the same host type.
+`Texture2D` grows backing variants (CPU pixels and/or GPU residency) so image
+decode, RTT attachments, and later uploads share one guest type (Q1).
 
-### 5.2 Ordinary 2D (unchanged authorship)
+### 5.2 Ordinary 2D (atlas sugar preserved)
 
 ```ts
 import * as TWO from "ranger:2d";
 
-const sprite = new TWO.Sprite2D(atlas, regionIndex);
+const sprite = new TWO.Sprite2D(atlas, regionIndex); // sugar → SpriteSource
+// or: new TWO.Sprite2D({ source: atlas.region("idle") });
 layer.add(sprite);
-renderer2d.render(layer, camera2d, pane);
+renderer2d.render(layer, camera2d, { target: runtime.surface.pane(0) });
 ```
 
 ### 5.3 3D as a texture for a sprite (RTT)
@@ -254,12 +469,18 @@ import * as THREE from "ranger:three";
 const target = runtime.graphics.createRenderTarget({
   width: 256, height: 256, colorFormat: "rgba8-srgb", depth: true,
 });
-const portrait = new TWO.Sprite2D(target.colorTexture); // or atlas region wrapper
+const portrait = new TWO.Sprite2D({ source: target.colorTexture.view() });
 layer.add(portrait);
 
 update(frame) {
-  renderer3d.render(scene, camera3d, { target });
-  renderer2d.render(layer, camera2d, pane);
+  renderer3d.render(scene, camera3d, {
+    target,
+    clear: "color-depth", // sugar → AttachmentOps
+  });
+  renderer2d.render(layer, camera2d, {
+    target: runtime.surface.pane(0),
+    clear: "none",
+  });
 }
 ```
 
@@ -270,18 +491,22 @@ const modelSprite = new THREE.SceneSprite3D({
   scene,
   camera,
   resolution: { mode: "fixed", width: 256, height: 256 },
-  update: "whenDirty",   // everyFrame | whenDirty | { fps: n } | "manual"
+  update: "manual",       // first cut; whenDirty after revisions
   alpha: true,
   depth: true,
-  sampling: "linear",    // or "nearest" for pixel-art crunch
+  sampling: "nearest",    // pixel-art crunch
 });
-layer.add(modelSprite);  // Layer2D accepts a textured 2D node
+layer.add(modelSprite.sprite); // or layer.add(modelSprite) if it forwards
+
+update(frame) {
+  modelSprite.invalidate(); // if update: "manual" and content changed
+  renderer2d.render(layer, camera2d, { target: runtime.surface.target });
+  // SceneSprite3D ensures its Render3DPass is in frame.passes before the
+  // consuming 2D pass.
+}
 ```
 
-Internally: owns a `RenderTarget`, marks dirty on scene/camera changes, exposes
-itself as a `Sprite2D`-compatible layer child (same host texture handle).
-
-Resolution modes:
+Resolution modes (adaptive sizing is a later slice — H7):
 
 ```ts
 type TargetResolution =
@@ -303,9 +528,6 @@ modelView.onPointerDown((event) => {
 });
 ```
 
-Coordinate chain: screen → sprite-local UV → render-target pixel → camera ray.
-Lives on `SceneSprite3D` / `EmbeddedView2D`, not on raw `Sprite2D`.
-
 ---
 
 ## 6. Internal rendering notes
@@ -315,15 +537,14 @@ Lives on `SceneSprite3D` / `EmbeddedView2D`, not on raw `Sprite2D`.
 ```text
 one shared static unit quad
 + dynamic instance buffer (transform, uvRect, tint, depth, flip)
-+ texture atlas bind
-→ instanced draw (few draw calls)
++ texture / atlas bind (from TextureView2D)
+→ instanced draw
 ```
 
-Do **not** allocate a vertex buffer per sprite. Software present may keep
-per-sprite plots until the GPU path lands; behaviour (camera math, layer
-membership) must stay identical (D-2D-4).
+Do not allocate a vertex buffer per sprite. SW may keep marker plots until a
+sampling path exists; camera math and membership stay identical (D-2D-4).
 
-### 6.2 Present pipeline extension
+### 6.2 Present pipeline
 
 Today:
 
@@ -335,117 +556,112 @@ present     → RgSoftwareRenderer2D.present2D(fb, layerH, camH)
 Target:
 
 ```text
-rg2d_render / rg3d_render / rg_graphics_target_*
-  → append PassRecord to pane (or to an offscreen target job list)
+rg2d_render / rg3d_render / …
+  → retain refs; append FramePass to frame.passes (global order)
+  → validate hazards (D12)
 
 present (RgComposePresenter):
-  for each PassRecord in order:
-    if 3D && target is RenderTarget → Renderer3D → RT
-    if 3D && target is pane         → Renderer3D → pane color/depth
-    if 2D && target is pane         → Renderer2D → pane (honor clear mode)
-  compose panes → surface
+  for each pass in frame.passes:
+    execute (SW or GPU per residency rules D13)
+  compose surface
+  release frame retains (D11)
 ```
-
-RTT jobs that feed sprites must run **before** the 2D pass that samples them
-in the same frame (presenter sorts: all `RenderTarget` producers, then pane
-consumers — or preserve strict guest call order, which is simpler and enough
-for v1 of this plan).
-
-**Recommendation:** preserve **guest call order** strictly. Authors place
-`renderer3d.render(..., target)` before `renderer2d.render(...)`.
 
 ---
 
-## 7. Work phases (implementation order)
+## 7. Work phases (revised)
 
-Phases below are **v2 follow-ons** after CODE_CLEANUP Phase 11 (SW 2D) and
-can run in parallel with Phase 12 game ports. None require deleting v1 paths.
+Phases are **v2 follow-ons** after CODE_CLEANUP Phase 11; parallel with Phase 12
+game ports is fine. No v1 path deletion.
 
-### H0 — Spec freeze (this document)
+### H0 — Spec (this document) — **not frozen until review items land**
 
-- [x] Record layering + D1–D8 decisions
-- [ ] Link from [`QUESTIONS.md`](./QUESTIONS.md) Q2 / Q3
-- [ ] Optional: one-line pointer in [`README.md`](./README.md) progress log
+- [x] Architecture principle + D1–D14
+- [x] Links from [`QUESTIONS.md`](./QUESTIONS.md) / [`README.md`](./README.md)
+- [ ] Review sign-off that H0 is complete (this revision addresses the four
+      required fixes: global pass stream, surface target, texture-backed
+      sprite/source, ownership / residency / clear / hazard rules)
 
-### H1 — `Texture2D` + `RenderTarget` host types
-
-**Goal:** one texture type every sampler accepts; RTT exposes `colorTexture`.
-
-| Deliverable | Notes |
-|-------------|--------|
-| Extend `RgTexture2D` with pixel/GPU residency | Closes Q1 follow-up for SW at least (RGBA store or lazy upload) |
-| `RgRenderTarget` arena | size, color format, optional depth, clear, `colorTexture` handle |
-| Schema + bridge rows | `rg_graphics_*` or `rgcore_graphics_*` |
-| Façade | `runtime.graphics.createRenderTarget(...)` |
-| Gate | create RT → sprite from `colorTexture` → SW present samples/plots non-zero; resize; release (D-OWN) |
-
-**Depends on:** Phase 10b arenas, Phase 11 present (for sampling proof).
-
-### H2 — Pass list + compose presenter (2D + clear modes first)
-
-**Goal:** multiple ordered 2D passes / clear modes without 3D yet; prove the
-recorder.
+### H1 — `Texture2D` backing variants, `TextureView2D`, `RenderTarget`, ownership
 
 | Deliverable | Notes |
 |-------------|--------|
-| Pane stores `PassRecord[]` for the frame | cleared each update boundary |
-| `rg2d_render` appends a 2D pass (not only “last view wins”) | migrate ylos2: two pane binds remain two passes |
-| `RgComposePresenter` | replaces single-view assumption in present |
-| Clear modes | `color` / `none` (depth N/A for pure 2D) |
-| Gate | two layers, second with `clear: none`, pixels from both visible |
+| `RgTexture2D` CPU and/or GPU backing | Q1; residency tagged on the texture |
+| `TextureView2D` (uv + optional sampler) | Atlas regions produce views |
+| `RgRenderTarget` owns attachments | D11 `colorTexture` / retain rules |
+| Façade `runtime.graphics.createRenderTarget` | |
+| Gate | create/resize/release; retained view outlives RT object for sampling; write-after-RT-release fails typed |
+
+### H2 — One global `FramePass` list; 2D passes; load/store semantics
+
+| Deliverable | Notes |
+|-------------|--------|
+| Host `frame.passes: FramePass[]` | Cleared each update boundary |
+| `rg2d_render` appends `Render2DPass` | Not “last view wins” |
+| Destinations: surface / pane / (later RT) | D3; omit = surface.target |
+| `AttachmentOps` + sugar | D9 |
+| `RgComposePresenter` executes list | |
+| Gate | two 2D passes, second `load: load` / `clear: none`; `pass_retains_resources`; `new_target_load_rejected_or_initialized` |
 
 Deprecate behavioural reliance on `attachRenderer`.
 
-### H3 — Live `Renderer3D` → `RenderTarget` (headless / SW or staged GL)
+### H3 — RTT proof on a **backend-coherent** path
 
-**Goal:** 3D can produce a `Texture2D` a 2D sprite can show.
+Pick **one** coherent pair for the first green gate (state which in the PR):
 
-| Deliverable | Notes |
-|-------------|--------|
-| Wire minimal `ranger:three` into `RgGameHost` module registration | opt-in import |
-| `Renderer3D.render(scene, camera, { target })` | host command; D-SYNC |
-| Soft or GL path that fills RT color | reuse staged `three/port` + FBO helpers where honest |
-| Gate | cube/teapot into RT → `Sprite2D` on layer → present shows non-clear pixels |
-
-Until this lands, 3D demos stay on separate hosts (current policy).
-
-### H4 — Pane-shared composition (3D behind / in front of 2D)
-
-**Goal:** Q2 “effects on the same surface” without RTT.
+* **A (headless-default):** SW 3D → CPU `Texture2D` → SW 2D sampling, **or**
+* **B (if GL is the live 3D intent):** GPU 3D → GPU `Texture2D` with GPU 2D
+  pulled forward (overlaps H5)
 
 | Deliverable | Notes |
 |-------------|--------|
-| `Renderer3D.render(..., { target: pane, clear })` | pass record |
-| Compose presenter runs 3D then 2D (guest order) | |
-| Split-screen: per-pane lists | D6 |
-| Gate | 3D clear color visible in gaps; 2D sprites on top; pane 0 ≠ pane 1 |
+| Minimal `ranger:three` registration in `RgGameHost` | Opt-in import |
+| `Renderer3D.render(..., { target: rt })` | Appends `Render3DPass`; D-SYNC |
+| Hazard validation | Self-sample rejected |
+| Gate | `rtt_sprite`, `rtt_self_sample_rejected`, `backend_residency_transfer` if any transfer is used |
 
-### H5 — `SceneSprite3D` ergonomics + update modes
+Until this lands, 3D demos stay on separate hosts.
 
-| Deliverable | Notes |
-|-------------|--------|
-| `THREE.SceneSprite3D` | owns RT; layer-addable |
-| `update`: `everyFrame` / `whenDirty` / `{ fps }` / `manual` | dirty flags on scene graph mutations |
-| Resolution: `fixed` + `matchDisplaySize` | clamp min/max |
-| `sampling: nearest` | pixel-art path |
-| Gate | static portrait does not re-render every frame when `whenDirty` + untouched |
-
-### H6 — GPU `Renderer2D` on shared device (batching)
+### H4 — Texture-backed `Sprite2D` + minimal `SceneSprite3D`
 
 | Deliverable | Notes |
 |-------------|--------|
-| Shared device/buffers with 3D backend | internal only |
-| Instanced quad path | §6.1 |
-| Camera2D parity SW == GPU | D-2D-4 completion for GPU |
-| Gate | invaders/ylos2-class sprite counts; golden or checksum present |
+| `Sprite2D({ source })` + atlas sugar | D10; ylos2 keeps compiling |
+| SW or GPU 2D **samples** `TextureView2D` | End of marker-only present for this path |
+| `SceneSprite3D` = RT + `Sprite2D` | `update: "everyFrame" \| "manual"` + `invalidate()` |
+| Auto-insert producer pass | D12 |
+| Gate | `rtt_multiple_consumers`, `scene_sprite_manual_invalidate` |
 
-### H7 — Picking + demo game
+### H5 — Shared-device GPU 2D/3D (if GL is the 3D backend)
 
 | Deliverable | Notes |
 |-------------|--------|
-| `cameraRay(localPos)` on `SceneSprite3D` | |
-| Must-pass hybrid demo under `games/` | e.g. 2D stage + 3D portrait / portal |
-| Docs | BRIDGES path E (hybrid compose); README progress |
+| Shared device / buffers | Internal only |
+| Instanced quad `Renderer2D` | §6.1 |
+| Camera2D parity SW == GPU | D-2D-4 |
+| Prefer this **alongside H3/H4** when choosing path B | Avoids readback |
+
+If H3 chose software-only (path A), H5 can follow; if path B, treat H5 as part
+of the H3/H4 delivery train.
+
+### H6 — Pane + full-surface mixed composition
+
+| Deliverable | Notes |
+|-------------|--------|
+| `Render3DPass` / `Render2DPass` to `SurfaceTarget` and `PaneTarget` | D3 / D6 |
+| Split independence via destinations in one global list | |
+| Gate | `surface_pass_before_split_panes`, `hybrid_panes`, `compose_pass_order` |
+
+### H7 — Dirty tracking, adaptive resolution, picking, hybrid demo
+
+| Deliverable | Notes |
+|-------------|--------|
+| Revision counters → `whenDirty` / `{ fps }` | D14 |
+| `matchDisplaySize` resolution mode | |
+| `cameraRay` picking | |
+| Must-pass hybrid demo under `games/` | |
+| Color gates | `premultiplied_alpha_edges`, `srgb_no_double_encode` |
+| Docs | BRIDGES path E; README progress |
 
 ---
 
@@ -453,10 +669,13 @@ Until this lands, 3D demos stay on separate hosts (current policy).
 
 - Unifying 2D and 3D into one scene graph or one public `Node` type
 - Shared depth testing between sprites and meshes in a single draw
-- Full Three.js postprocessing stack / MRT as a guest requirement
-- Replacing EVG/UI soft-canvas paths (they may later sample `Texture2D` too)
-- Breaking ylos2’s current pane-index lowering before a pane-object façade lands
-- Any v1 `scripting/` deletion (runnable-legacy freeze still applies)
+- Full Three.js postprocessing / MRT as a guest requirement
+- Framebuffer-fetch / intentional self-sample
+- Automatic `whenDirty` before revision propagation exists
+- Default GPU↔SW readback bridges
+- Replacing EVG/UI soft-canvas paths
+- Breaking ylos2 atlas `(atlas, regionIndex)` sugar
+- Any v1 `scripting/` deletion (runnable-legacy freeze)
 
 ---
 
@@ -464,14 +683,25 @@ Until this lands, 3D demos stay on separate hosts (current policy).
 
 | Gate | Asserts |
 |------|---------|
-| `d_graphics_rt` | RT create/resize/release; `colorTexture` handle type is `Texture2D`; D-OWN |
-| `compose_pass_order` | Guest order preserved; `clear: none` keeps prior pass pixels |
-| `rtt_sprite` | 3D → RT → Sprite2D → present; deterministic for fixed scene |
-| `scene_sprite_dirty` | `whenDirty` skips GPU/SW fill when clean; `manual` only on `redraw()` |
-| `hybrid_panes` | Split panes independent pass lists |
-| `camera2d_parity` | Existing D-2D camera tests still green on SW; GPU when H6 lands |
+| `d_graphics_rt` | RT create/resize/release; attachment ownership; D-OWN |
+| `pass_retains_resources` | Release after `render` still presents; post-present refs dropped |
+| `new_target_load_rejected_or_initialized` | D9 on fresh/resized targets |
+| `compose_pass_order` | Global guest order; mixed RT + pane destinations |
+| `rtt_sprite` | 3D → RT → texture-backed Sprite2D → present |
+| `rtt_self_sample_rejected` | Typed error |
+| `rtt_multiple_consumers` | One RT sampled by multiple sprites / passes |
+| `rtt_resize_between_frames` | Allowed when not in a live pass list; contents reset |
+| `surface_pass_before_split_panes` | Full-surface 3D then per-pane 2D |
+| `hybrid_panes` | Pane 0 ≠ pane 1 |
+| `backend_residency_transfer` | Only if a transfer path is exposed; cost/sync documented |
+| `premultiplied_alpha_edges` | No dark fringe on opaque-over-clear RT → sprite |
+| `srgb_no_double_encode` | Linear → sRGB write → sample → present |
+| `scene_sprite_manual_invalidate` | Manual update skips fill until `invalidate` |
+| `scene_sprite_dirty` | Later: `whenDirty` + revisions |
+| `camera2d_parity` | D-2D camera tests; GPU when H5 lands |
 
-Headless CI keeps the software path green first; GPU gates are additive.
+Headless CI keeps a coherent SW (or declared GPU) path green; transfers are
+additive and explicit.
 
 ---
 
@@ -479,12 +709,11 @@ Headless CI keeps the software path green first; GPU gates are additive.
 
 | Guest | Impact |
 |-------|--------|
-| `games/ylos2` | No change required for H0–H2 if pane bind remains; optional later portrait/celebration 3D |
+| `games/ylos2` | Atlas constructor sugar kept; pane-index lowering OK until façade pass; optional later hybrid celebration art |
 | `menu/launcher` | Unaffected |
-| Future hybrid title | New folder under `games/`; imports `ranger:2d` + `ranger:three` |
+| Future hybrid title | New `games/` folder; imports `ranger:2d` + `ranger:three` |
 
-`RgGameHost` stays free of game names; hybrid demos register modules the same
-way ylos2 registers `ranger:2d`.
+`RgGameHost` stays free of game names.
 
 ---
 
@@ -492,20 +721,38 @@ way ylos2 registers `ranger:2d`.
 
 ```ts
 // Ordinary 2D
-new TWO.Sprite2D(atlas, region);
+new TWO.Sprite2D({ source: atlas.region("idle") });
 
 // Live 3D scene as a sprite
-new THREE.SceneSprite3D({ scene, camera, resolution: { mode: "fixed", width: 128, height: 128 } });
+const portrait = new THREE.SceneSprite3D({
+  scene, camera,
+  resolution: { mode: "fixed", width: 128, height: 128 },
+  update: "manual",
+});
 
-// 3D background + 2D gameplay (shared pane)
-renderer3d.render(background3D, cam3d, { target: pane, clear: "color-depth" });
-renderer2d.render(game2D, cam2d, { target: pane, clear: "none" });
+// Full-bleed 3D under split 2D
+renderer3d.render(background3D, cam3d, { target: runtime.surface.target, clear: "color-depth" });
+renderer2d.render(game2D, cam2d, { target: leftPane, clear: "none" });
+renderer2d.render(game2D, cam2dB, { target: rightPane, clear: "none" });
 
 // 2D HUD over a 3D game
-renderer3d.render(world3D, cam3d, { target: pane, clear: "color-depth" });
-renderer2d.render(hud2D, hudCam, { target: pane, clear: "none" });
+renderer3d.render(world3D, cam3d, { target: runtime.surface.target, clear: "color-depth" });
+renderer2d.render(hud2D, hudCam, { target: runtime.surface.target, clear: "none" });
 ```
 
-Main principle, restated for v2: **`ranger:2d` and `ranger:three` share
-`Texture2D` / `RenderTarget` / present infrastructure; they do not share scene
-semantics.**
+**Main principle:** shared graphics resources and presentation infrastructure;
+separate 2D and 3D scene semantics.
+
+---
+
+## 12. H0 completion checklist (review)
+
+Four specification fixes required before implementation starts:
+
+1. [x] One global ordered frame-pass stream (D2)
+2. [x] Explicit full-surface target (D3)
+3. [x] Real texture-backed 2D sprite/source model (D10)
+4. [x] Ownership, backend residency, clear/load/store, and hazard rules
+      (D9, D11, D12, D13)
+
+Remaining before calling H0 frozen: human sign-off on this revision.
