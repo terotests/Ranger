@@ -46,7 +46,11 @@ class OctahedronGeometry {
 class TeapotGeometry {
   id = 0;
   constructor(size, seg, bottom, lid, body, fitLid, blinn) {
-    this.id = rg3d_geometry_teapot(size, seg, bottom, lid, body, fitLid, blinn);
+    // The 5 shape flags are i32 in the schema; a JS boolean does not coerce
+    // through the native-bridge int decode, so normalise here (accepts true/false
+    // OR 1/0 from callers).
+    this.id = rg3d_geometry_teapot(size, seg,
+      bottom ? 1 : 0, lid ? 1 : 0, body ? 1 : 0, fitLid ? 1 : 0, blinn ? 1 : 0);
   }
 }
 

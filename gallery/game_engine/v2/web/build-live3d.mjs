@@ -31,15 +31,18 @@ function findRoot(start) {
 const ROOT = findRoot(HERE);
 const SRC = path.join(HERE, "src");
 const argv = process.argv.slice(2);
-const outArg = argv.indexOf("--out");
-const OUT = path.resolve(outArg >= 0 ? argv[outArg + 1] : path.join(HERE, "dist", "live3d"));
+const arg = (name, def) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : def; };
+// One generic live3d host runs any ranger:three guest; pick the guest with
+// --guest <file.tsx> (default cube_live). --out defaults to dist/<guest-stem>.
+const GUEST_FILE = arg("--guest", "cube_live.tsx");
+const GUEST_STEM = GUEST_FILE.replace(/\.tsx$/, "");
+const OUT = path.resolve(arg("--out", path.join(HERE, "dist", GUEST_STEM === "cube_live" ? "live3d" : GUEST_STEM)));
 
 // v2 host + façade + guest, all at their repo-relative paths.
 const HOST_RGR = "gallery/game_engine/v2/web/web_live3d_host.rgr";
 const FACADE_DIR = "gallery/game_engine/v2/modules/ranger_three";
 const FACADE_FILE = "ranger_three.tsx";
 const GUEST_DIR = "gallery/game_engine/v2/web/guests/three";
-const GUEST_FILE = "cube_live.tsx";
 
 const log = (...a) => console.log("[live3d-build]", ...a);
 const sh = (cmd, args, opts) => execFileSync(cmd, args, { stdio: "inherit", cwd: ROOT, ...opts });
