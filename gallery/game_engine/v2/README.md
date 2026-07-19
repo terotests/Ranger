@@ -240,3 +240,8 @@ Phases 1–11 of `../CODE_CLEANUP_PLAN.md` are validated headlessly (identity �
 handles/arenas → registry → adapter → WASM bridge → lifetimes → geometry →
 modules/frame → physics → 2D → software present → devices). Phase 12 (selected
 game ports) is the remaining integration milestone.
+
+- **Hybrid 2D+3D composition (design):** [`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md)
+  — shared `Texture2D` / `RenderTarget`, ordered pass lists + render-to-texture,
+  `SceneSprite3D` ergonomics; answers [`QUESTIONS.md`](./QUESTIONS.md) Q2/Q3.
+  Not implemented yet (follow-on phases H1–H7 after Phase 11).

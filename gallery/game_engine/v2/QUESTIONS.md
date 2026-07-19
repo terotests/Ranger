@@ -45,6 +45,11 @@ Full call path: [`BRIDGES.md`](./BRIDGES.md) §6.3 Path C.
 manifest gain a `image <uri>` line (or separate `pkg://player.png`), and does
 `textureCreate` grow a pixel/upload path?
 
+**Plan lean (H1):** yes — `RgTexture2D` grows a real pixel/GPU residency path so
+atlas images, RTT color attachments, and later uploads share one type. Atlas
+manifest `image <uri>` (or sibling `pkg://…png`) is the asset-side half; see
+[`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md) §5.1 / H1.
+
 ---
 
 ## Q2 — Can the same game add a 3D renderer for effects on top of the 2D surface?
@@ -117,17 +122,19 @@ surface will present) — or be dropped in favour of “render calls declare the
 passes; the presenter selects backends.” Either way, **one surface / pane
 model stays**; games should not grow a second ad-hoc window.
 
-### Open design choices
+### Open design choices → decided in plan
 
-| # | Question |
-|---|----------|
-| 1 | Overlay policy: 3D always on top of 2D, or shared depth / offscreen layers? |
-| 2 | Same `pane` index for both passes, or explicit render targets? |
-| 3 | Does `attachRenderer` become multi-attach (`attachRenderer(twoD)`, `attachRenderer(three)`), or does the host infer backends from which `render` commands ran? |
-| 4 | Split-screen: does each pane get its own 3D camera, or is 3D full-bleed under/over the split? |
-| 5 | Does the generic `RgGameHost` gain a compose presenter, or a sibling `RgHybridPresenter`, without taking game knowledge? |
+Full write-up: [`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md) (D1–D8, phases H0–H7).
 
-Until those land, keep 2D games on `TWO.Renderer2D` + `rg2d_render`; treat 3D
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Overlay policy: 3D always on top of 2D, or shared depth / offscreen layers? | **Guest-declared pass order** on a compose presenter. Shared 2D↔3D depth in one pass is out of scope for the first cut. Also support **render-to-texture** when 3D must behave like a sprite. |
+| 2 | Same `pane` index for both passes, or explicit render targets? | **Both:** pane (or surface) for layer composition; distinct `RenderTarget` (exposing `colorTexture: Texture2D`) for RTT. Same `target:` slot, different object kinds. |
+| 3 | `attachRenderer` multi-attach vs infer from `render` commands? | **Infer from `render*` commands** (and loaded packages). Deprecate the stub; do not make multi-attach the primary model. |
+| 4 | Split-screen: per-pane 3D camera vs full-bleed? | **Per-pane pass lists** (each pane may bind its own 2D/3D cameras). Full-bleed is game policy (same pass recorded for every pane / pre-pass), not a host special case. |
+| 5 | Compose presenter ownership? | **Sibling `RgComposePresenter`** (or renamed surface presenter) used by `RgGameHost`; host stays backend-agnostic and game-agnostic. |
+
+Until H2–H4 land, keep 2D games on `TWO.Renderer2D` + `rg2d_render`; treat 3D
 demos as separate hosts. See also [`BRIDGES.md`](./BRIDGES.md) §6.3 Path D
 (render bind vs present).
 
@@ -205,13 +212,13 @@ is a profile detail (§2), not what games should author.
   target — input routing vs where pixels go. Don’t collapse “player 0” with
   “pane 0” in the render API even when ylos2 happens to use the same numbers.
 
-### Open
+### Open / decided
 
-| # | Question |
-|---|----------|
-| 1 | Freeze guest signature as `render(scene, cam, pane\|options)` and keep `i` only in the interpreter/wasm lowering? |
-| 2 | Prefer declare-once `pane.setView` + implicit present, or keep explicit per-frame `render(…, pane)` (current frame-pipeline step 6)? |
-| 3 | Offscreen targets: same `target:` slot, or a different object type (`RenderTarget2D`) beside panes? |
+| # | Question | Status |
+|---|----------|--------|
+| 1 | Freeze guest signature as `render(scene, cam, pane\|options)` and keep `i` only in the interpreter/wasm lowering? | **Lean yes** — pane object / options at authorship; `i` stays a profile lowering (ylos2 may keep indices until a façade pass). |
+| 2 | Prefer declare-once `pane.setView` + implicit present, or keep explicit per-frame `render(…, pane)` (current frame-pipeline step 6)? | **Keep explicit per-frame `render`** as the pipeline contract; `setView` may remain sugar for stable binds but must not replace step 6 for hybrid pass lists. |
+| 3 | Offscreen targets: same `target:` slot, or a different object type beside panes? | **Decided** — same `target:` slot; distinct `RenderTarget` type (not a pane index). See [`PLAN_2D_EMBED_3D.md`](./PLAN_2D_EMBED_3D.md) D3 / H1. |
 
 ---
 
