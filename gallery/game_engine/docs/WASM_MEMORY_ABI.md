@@ -71,8 +71,8 @@ allocate first, which may force `memory.grow`, which can fail.
 
 - The guest sizes the buffer from `geometryVertexCount` (or equivalent) before
   reading.
-- A failed allocation or an out-of-range window is a typed error (e.g. return
-  0), never a trap.
+- A failed allocation or an out-of-range window is a typed error status
+  (rule 11), never a trap.
 - Large read-backs chunk the same way uploads do.
 
 ### 7. Fixed-size shared blocks must not carry arbitrary geometry
@@ -104,6 +104,38 @@ before the host's.
 **Rule:** the authoritative copy lives host-side; the guest holds handles. Guest
 memory scales with what it **stages**, not with what the scene **contains**.
 
+### 10. Spans use one convention, validated with checked arithmetic
+
+Every span parameter is `(offset_bytes, element_count, element_type)` — never
+a per-call-site mix of byte counts and element counts.
+
+**Rule:** validation before any copy uses checked arithmetic; unchecked
+`ptr + len` can wrap and pass a naive bounds test:
+
+```
+byte_length = checked_mul(element_count, sizeof(element_type))   ; overflow → error
+end         = checked_add(offset_bytes, byte_length)             ; overflow → error
+require end <= current_memory_size
+require offset_bytes % alignof(element_type) == 0
+```
+
+### 11. Status codes are separate from result counts
+
+`0` must not mean both "success", "zero elements", and "error". Commands
+return a **status** (0 = success); counts travel in out-parameters:
+
+```
+status = geometryReadPositions(geoH, first, count,
+                               dstOffsetBytes, dstCapacityElements,
+                               outWrittenElements)
+; status == 0 → success; *outWrittenElements may legitimately be 0
+; status != 0 → typed error; *outWrittenElements is set to 0
+```
+
+**Rule:** every non-zero status maps to a typed guest error
+(`ranger_wasm::Error::from_code`) — no silent success, and a legitimate
+zero-element result is never conflated with failure.
+
 ## Relationship to other contracts
 
 | Topic | Document |
@@ -111,3 +143,4 @@ memory scales with what it **stages**, not with what the scene **contains**.
 | Stable `geoH`, one host vertex copy, bulk crossings | `CODE_CLEANUP.md` D-GEO |
 | Import signature versioning | `CODE_CLEANUP.md` D-WASM |
 | `span` / buffer types in the schema | `CODE_CLEANUP.md` D-REGISTRY |
+| Async completion scheduling (non-reentrant, frame boundary) | `CODE_CLEANUP.md` D-ASYNC |

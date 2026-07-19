@@ -5,7 +5,7 @@ Implementation contract for the game-engine cleanup.
 | Section | Contents |
 |---------|----------|
 | **Components and actors** | What each name used in the code comments refers to |
-| **Binding decisions** | D-IDENTITY … D-GEO + D-MODULES |
+| **Binding decisions** | D-IDENTITY … D-MODULES (14, incl. D-OWN ownership + D-ASYNC async ABI) |
 | **Worked examples** | Camera + physics pose; geometry upload; TS `ranger:core` game; Rust/WASM `ranger_wasm` game + ABI |
 | **Implementation gates** | Required order and tests before calling a migration done |
 
@@ -153,6 +153,31 @@ Must answer, in the registry metadata for `position`:
 Rendering must not act as an implicit structural reconciliation boundary
 (D-SYNC). Sync boundaries are declared, not inferred.
 
+### Hybrid binding invariants (binding)
+
+Residency metadata alone is not enough; every hybrid property also obeys:
+
+1. **One cached wrapper per (NativeRef identity, propId).** Repeated reads
+   preserve wrapper identity: `mesh.position === mesh.position` is `true`.
+   The adapter caches the bound mirror; it never mints a fresh wrapper per
+   read.
+2. **Two revisions.** Guest writes bump the mirror's dirty revision; host
+   writes (physics, animation, loaders) bump the slot's host revision. Sync
+   compares the two and propagates the newer value.
+3. **Turn-start refresh.** A mirror re-pulls from the host at its first
+   access in each guest turn. A retained reference (`const p = mesh.position`)
+   is a snapshot within its turn: it does not observe host writes mid-turn,
+   and it refreshes at its next read in a later turn — it is never
+   permanently stale.
+4. **Guest commit wins, ordered by the frame pipeline.** A guest commit at
+   the declared boundary overwrites the host value (full vector from the
+   turn-start snapshot plus the guest's component writes). Host systems that
+   must not be overwritten write between guest turns (D-MODULES frame
+   pipeline). Same-frame double writes resolve guest-wins — that is the
+   documented conflict policy, not an accident of scheduling.
+5. **Stable reads within a turn**, unless the property is declared
+   `immediate` in the registry (then every read is a host read).
+
 ## D-PROP — Native properties and dynamic overlay
 
 Host-backed objects expose **two** property stores:
@@ -254,6 +279,42 @@ destruction would be a **semantic regression**, not filling a stub.
 **Most important split:** object identity ≠ scene membership ≠ GPU resource
 lifetime. Separate commands and separate tests for each.
 
+## D-OWN — Deterministic ownership: who retains, who releases
+
+D-LIFE separates the three lifetimes; this decision fixes **who owns what**
+after every kind of operation, so the TS convention (explicit `release()` +
+realm sweep) and the Rust convention (`Clone` → retain, `Drop` → release) are
+two guest surfaces over one host contract.
+
+| Operation | Ownership result |
+|-----------|------------------|
+| `new` / `create*` / `load*` | **Owned** reference to the caller; refcount starts at 1 |
+| Property getter returning a handle (`mesh.geometry`) | **Borrowed** — returns the cached wrapper for that handle; no refcount change |
+| Handle passed as a method argument | **Borrowed for the duration of the call**; the callee retains only if its registry entry says so |
+| `meshCreate(geoH, matH)` | The mesh **retains** geometry and material (internal strong refs) |
+| `meshSetGeometry(meshH, geoH2)` | Retain new, release old — atomically on the host |
+| `entitySetParent` / `entityDetach` / `scene.add` / `scene.remove` | Membership only — never touches ownership |
+| Attachments (`audioSourceAttachEntity`, listener→camera, emitter→entity, constraint→body, player→device) | **Weak** generation-checked reference by default; target destruction auto-detaches; an attachment never keeps its target alive. `attachment: weak\|strong` is registry metadata; `strong` must be justified per relation |
+| `release(h)` | Ends the caller's ownership **exactly once**; a second release through the same wrapper is a typed error, not a second decrement |
+| Realm teardown | Releases every ownership the realm still holds — handles, requests, results, voices (final backstop) |
+
+Guest-path policies:
+
+- **Interpreted path.** `release()` is *optional for correctness*: realm
+  teardown reclaims everything, so a script that never releases leaks only for
+  the lifetime of its realm. Long-running realms should release what they
+  drop. The interpreter MAY release unreachable NativeRefs (GC / `WeakRef`
+  hook) as an optimization — the contract must hold without it (D-LIFE rule 5).
+- **Wrapper identity.** At most one live wrapper exists per (realm, handle)
+  (D-IDENTITY); getters return that cached wrapper. Two script variables
+  naming the same object are the same wrapper, so "two wrappers releasing the
+  same handle independently" cannot arise on the interpreted path.
+- **Compiled path.** Each `OwnedHandle` clone retains; each `Drop` releases
+  once. N clones = N owned references = N releases. Deterministic — no sweep
+  needed except after traps (realm teardown).
+- **Use after release** resolves through the stale-handle path (D-HANDLE) to a
+  typed error — never undefined behavior.
+
 ## D-TYPE — Typed arenas, not typeId + pretend downcast
 
 A stored `typeId` can *validate* a handle; it cannot produce a statically typed
@@ -332,7 +393,7 @@ uses `span<f32>` — both are meaningless without this schema.
 - ownership and retain/release behavior
 - mutability
 - residency (`guest` | `host` | `hybrid` — D-ADAPTER)
-- sync or async behavior (loaders)
+- sync or async behavior (async methods lower per D-ASYNC)
 - WASM argument/result lowering (D-WASM, D-WASM-MEM)
 - API version
 - stable binary export identity (`wasmExportName` / versioned name)
@@ -349,6 +410,21 @@ uses `span<f32>` — both are meaningless without this schema.
 
 If the schema cannot state these, codegen grows command-specific exceptions —
 the failure mode this design is trying to remove.
+
+**ID immutability (binding):**
+
+- Published `classId` / `propId` / `methodId` / command ids / enum values are
+  **immutable** once released.
+- A removed entry's id becomes a reserved **tombstone** — never renumbered,
+  never reused for a different semantic operation.
+- A changed binary lowering is a **new id / new export name**, not an edit to
+  the old one (pairs with D-WASM versioned imports).
+- Codegen keeps a golden id table and **fails** if a previously published id
+  changes meaning.
+
+Without this, a stable generic `invoke(methodId, …)` dispatcher (D-WASM
+model 2) is unsound: an old guest could invoke a newly assigned, unrelated
+method.
 
 **Status:** storage format (`.rgr` table vs data file) and exact handle packing
 (D-HANDLE) remain open; the type system and generation targets above are
@@ -400,6 +476,41 @@ Bounds checking, memory-growth safety, atomic copying, and chunking are
 - chunk large uploads and read-backs
 - no fixed-capacity ABI blocks for arbitrary geometry
 - seqlock / revision for concurrently written shared memory
+- one span convention (`offset_bytes`, `element_count`, `element_type`) with
+  checked arithmetic; status codes separate from result counts
+
+## D-ASYNC — Async operations across the WASM boundary
+
+The registry may mark a method `async` (loaders). TS `await` and Rust futures
+are guest-side sugar; the binary contract is polling plus a frame-boundary
+completion queue — the ABI itself has **no callbacks**.
+
+```
+assetsLoadAudioBegin(pathPtr, pathLen) -> requestH   ; request owned by caller
+requestPoll(requestH, resultOut) -> PENDING | COMPLETE | FAILED | CANCELLED
+requestCancel(requestH)                              ; later polls report CANCELLED
+requestRelease(requestH)                             ; frees the request slot
+```
+
+Rules:
+
+1. **Exactly-once result transfer.** The first `COMPLETE` poll transfers
+   ownership of the result handle to the caller; later polls still report
+   `COMPLETE` but transfer nothing. `requestRelease` on a
+   completed-but-unconsumed request releases the result too — a result can
+   neither leak nor double-free.
+2. **Completions are non-reentrant.** The host completes work and queues
+   events; guest futures/promises resolve only when the host drains the queue
+   at the frame boundary (D-MODULES frame pipeline, step 2) — never in the
+   middle of a guest call, and never during a bulk copy
+   ([`docs/WASM_MEMORY_ABI.md`](./docs/WASM_MEMORY_ABI.md) rule 3).
+3. **Cancellation is best-effort.** After `requestCancel`, poll reports
+   `CANCELLED` and any late host-side result is released host-side.
+4. **Realm teardown** cancels outstanding requests and releases unconsumed
+   results (D-OWN backstop) — including after a guest trap or an abandoned
+   future.
+5. The `rg_*_begin` / `rg_*_poll` import pairs in the Rust worked example are
+   this contract; generated helper futures wrap them.
 
 ## D-GEO — Stable geometry handle across attribute setup
 
@@ -424,7 +535,9 @@ attribute.needsUpdate = true
 **Two rules for vertex data:**
 
 1. **One authoritative copy** — coordinates live only in the host geometry
-   arrays. Guests hold handles or temporary read-back buffers.
+   arrays. Guests hold handles or temporary read-back buffers. (Exact on the
+   Ranger-native API; the Three-compat wrapper adds a guest staging array with
+   aliasing — see **Aliasing** below.)
 2. **Bulk crossings** — N vertices cross the WASM boundary in one call (ptr+len
    / `span`), never one call per float (D-WASM-MEM).
 
@@ -436,9 +549,43 @@ may exist as sugar that still returns the empty-created handle after filling.
 Read-back uses the **same** `geoH`:
 
 ```
-geometryReadPositions(geoH, first, count, outSpan) -> n
+geometryReadPositions(geoH, first, count, outSpan) -> status
+; status 0 = success; elements written return via an out param — a
+; zero-element read is success with writtenCount 0, never conflated with an
+; error (span + status conventions: docs/WASM_MEMORY_ABI.md rules 10–11)
 ```
 
+### Aliasing: Three-compat wrapper vs Ranger-native geometry
+
+`BufferAttribute` aliasing is ordinary Three.js behavior:
+
+```ts
+const data = new Float32Array([0, 0, 0,  1, 0, 0,  0, 1, 0])
+geometry.setAttribute("position", new THREE.BufferAttribute(data, 3))
+data[0] = 4
+attribute.needsUpdate = true
+attribute.array === data   // true in Three.js — the guest still holds `data`
+```
+
+A single host copy cannot silently preserve that, so the contract is split:
+
+| API | Authority | Behavior |
+|-----|-----------|----------|
+| **Three-compat wrapper** (interpreted path) | Guest array is the script-visible copy; host copy is what renders | `attribute.array` stays observable and mutable, aliasing preserved; direct writes are visible to guest reads immediately; `needsUpdate` bulk-copies the tracked range (fallback: whole attribute) to the host. A guest write without `needsUpdate` never renders. |
+| **Ranger-native API** (compiled path, and the native TS surface) | Host arrays are the only copy | Guest uses upload / update / read-back commands (`geometrySetAttribute`, `geometryUpdateRange`, `geometryReadPositions`); no guest-visible array exists. |
+
+Rules:
+
+- The compat wrapper's guest array is a **staging copy with aliasing**, not a
+  second authority: rendering always reads the host arrays, and after every
+  `needsUpdate` flush the two must be byte-equal for the flushed range
+  (parity-tested).
+- Ownership is **not** transferred: `setAttribute` does not detach or freeze
+  the guest array — that would break ordinary Three.js code.
+- The compiled path has no compat mode — spans only (D-WASM-MEM).
+- "One authoritative copy" is exact on the native API. On the compat wrapper
+  it means *render authority*; it must not be presented as full Three.js value
+  semantics — the table above is the semantics.
 
 ## D-MODULES — Importable packages: `ranger:core`, `ranger:three`, `ranger:cannon`
 
@@ -569,19 +716,31 @@ const source = runtime.audio.createSource(clip, { spatial: true })
 // host: audioSourceCreate(clipH, …) → sourceH; retain(clipH)
 
 source.attachTo(mesh)
-// host: audioSourceAttachEntity(sourceH, meshH) — borrowed entity ref
+// host: audioSourceAttachEntity(sourceH, meshH) — weak, generation-checked
+//       ref (D-OWN): destroying the mesh auto-detaches; the source never
+//       keeps a dead entity alive
 
 const voice1 = source.play()
 const voice2 = source.play()
-// host: audioSourcePlay(sourceH) → voice1H, voice2H
+// host: audioSourcePlay(sourceH) → voice1H, voice2H — caller-owned voices
 //       does not clone clipH or sourceH
+
+source.playOneShot()
+// host: audioSourcePlayOneShot(sourceH) — fire-and-forget: the mixer owns
+//       the voice and auto-releases it when playback completes; nothing for
+//       the caller to leak
 ```
 
-Lifetimes follow D-LIFE:
+Lifetimes follow D-LIFE (ownership per D-OWN):
 
 - `clip.disposeBackend()` / device-buffer release — backend only; `clipH` stays valid.
 - `clip.release()` — object ownership (refcount); may invalidate the handle.
 - Removing a mesh does not release attached sources; `source.release()` does.
+- `play()` returns a **caller-owned** `voiceH` — stop/release it (Rust: `Drop`),
+  or it lives until source release / realm teardown. `playOneShot()` returns
+  nothing; the mixer owns and auto-releases that voice at completion. Common
+  sound effects use `playOneShot`; looping / pitch-controlled playback uses
+  `play()`.
 
 ### Guest classes vs native classes
 
@@ -631,6 +790,65 @@ document.body.appendChild(...)         runtime.surface.attachRenderer(renderer)
 Both may resolve to the same host services; new examples use `ranger:core`
 explicitly.
 
+### Module namespace isolation (prerequisite)
+
+Today the interpreter binds every imported top-level name into one shared
+`moduleScope` — last import wins on a collision
+([`docs/TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md) #5/#9). The
+`ranger:*` packages are unsafe to expose until that is fixed. Binding rules:
+
+- Every imported module gets its **own namespace object**; two modules may
+  export the same names without clobbering each other:
+
+  ```ts
+  import * as A from "test:a"
+  import * as B from "test:b"
+  // both export helpers named Vector3 and init; neither overwrites the other
+  A.init()
+  B.init()
+  ```
+
+- Importing the same module twice in one realm returns the **same** namespace
+  object (cached instance; the module body evaluates once).
+- Two realms get **separate** namespace instances and **separate** `runtime`
+  capability roots — no cross-realm sharing (D-HANDLE realm rules).
+- A failed module initialization is **cached as failed**: re-importing reports
+  the same error; the initializer does not silently re-run.
+- Circular imports are a **hard error** in the first cut (deterministic), not
+  a partially initialized namespace.
+- Hot reload tears module state down with the realm and re-issues the
+  capability roots; a stale namespace object fails like a stale handle
+  (epoch bump), it does not half-work.
+
+### Frame pipeline (`runtime.start`)
+
+The host owns the tick; physics stepping and rendering are **guest-called
+inside `update`**. That is the one model — runtime-owned stepping/rendering is
+not a silently supported alternative.
+
+```
+1. host:  snapshot input                 (stable for the whole update call)
+2. host:  drain async completions        (D-ASYNC — futures/promises resolve here)
+3. host:  deliver resize, if any         (never mid-update)
+4. host:  call game.update(frame)
+5. guest:   zero or more world.fixedStep calls    (guest policy)
+6. guest:   renderer.render(scene, camera)        (explicit; reads host state)
+7. host:  submit audio + graphics, present the surface
+8. host:  advance input edges            (wasPressed / wasReleased clear)
+```
+
+Rules:
+
+- No `update` runs before async `init()` has resolved; no present before the
+  first update.
+- `update` throwing / returning an error stops the realm: the host calls
+  `shutdown`, then tears the realm down (D-OWN backstop) — it does not retry.
+- Zero render calls in an update → the host re-presents the previous frame's
+  output; it never renders implicitly (D-SYNC). Multiple render calls are
+  allowed (offscreen targets); the last render to the presented surface is
+  what step 7 shows.
+- Input values are stable across one `update` call; edge states advance only
+  at step 8.
 
 ### Rust / WASM package layout (`ranger_wasm`)
 
@@ -1236,7 +1454,9 @@ bulk upload, mutation + GPU revision, read-back through the same handle.
 
 ```js
 const vertices = new Float32Array([1, 1, 1,  -1, -1, 1,  -1, 1, -1 /* … */])
-// guest: staging array in guest memory; stops being authoritative after upload
+// guest: staging array in guest memory; after upload it remains the
+//        attribute's script-visible array (compat aliasing, D-GEO) — render
+//        authority is the host copy
 
 const material = new THREE.MeshBasicMaterial({ color: 0xff0000 })
 // host: materialBasic(…) → matH
@@ -1249,7 +1469,8 @@ g.setAttribute('position', new THREE.BufferAttribute(vertices, 3))
 // adapter: invokeMethod — lowers the whole typed array as one span
 // host:    geometrySetAttribute(geoH, "position", span<f32>, itemSize=3)
 //          one bulk copy into the host CPU arrays (D-WASM-MEM); same geoH.
-//          The guest array is now just a stale local copy.
+// guest:   attribute.array === vertices stays true (compat aliasing, D-GEO);
+//          the host copy is what renders
 
 const m = new THREE.Mesh(g, material)
 // adapter: identity(g) → geoH
@@ -1259,18 +1480,20 @@ scene.add(m)
 // host: entitySetParent(meshH, sceneH) — membership only
 
 g.attributes.position.setXYZ(0, 2, 3, 4)
-// adapter: buffers the write against the attribute mirror; no host call yet
+// guest:   writes the attribute's array in place — visible to guest reads at
+//          once (aliasing); not rendered yet
+// adapter: tracks the dirty range; no host call yet
 g.attributes.position.needsUpdate = true
-// adapter: needsUpdate is the declared flush boundary for buffered writes
+// adapter: needsUpdate is the declared flush boundary for tracked writes
 // host:    geometryUpdateRange(geoH, "position", first=0, count=1, data)
 //          overwrites the CPU range, bumps contentRevision; geoH and meshH unchanged
 // render:  next frame sees the changed contentRevision and re-uploads the buffer
 
 const x = g.attributes.position.getX(0)
-// adapter: read through the same handle
-// host:    geometryReadPositions(geoH, first=0, count=1, out) → x === 2
-//          answered from the same arrays the renderer draws — not from the
-//          guest's original staging array
+// guest:   compat read from the attribute's array — no host call (D-GEO
+//          aliasing); x === 2
+// (parity: geometryReadPositions(geoH, first=0, count=1, out) must yield the
+//  same 2 after the flush — host and staging copies converge at needsUpdate)
 ```
 
 Required effects (no alternatives):
@@ -1281,11 +1504,12 @@ geometrySetAttribute(geoH, ...)
 meshCreate(geoH, matH) -> meshH
 entitySetParent(meshH, sceneH)
 geometryUpdateRange(geoH, ...)
-geometryReadPositions(geoH, ...) -> 2
+geometryReadPositions(geoH, ...)   ; parity read-back: host copy yields 2
 ```
 
-Forbidden: replacement `geoH`, mesh recreation on attribute change, or a second
-authoritative vertex array on the guest after upload.
+Forbidden: replacement `geoH`, mesh recreation on attribute change, or treating
+the guest staging array as render authority (rendering reads host arrays only;
+compat aliasing rules in D-GEO).
 
 ---
 
@@ -1477,9 +1701,9 @@ class BoxGame implements Game {
       this.box.body.applyImpulse(new CANNON.Vec3(0, 5, 0))
       // physics: bodyApplyImpulse(bodyH, …)
 
-      this.collisionSound.play()
-      // host: audioSourcePlay(sourceH) → voiceH
-      //       new voice instance; does not clone clipH / sourceH
+      this.collisionSound.playOneShot()
+      // host: audioSourcePlayOneShot(sourceH) — mixer-owned voice, auto-
+      //       released at completion (D-OWN); does not clone clipH / sourceH
 
       // player 0 = logical assignment, not gamepads[0]
       runtime.input.player(0)?.rumble({
@@ -1536,7 +1760,7 @@ runtime.start(new BoxGame())
 | Frame loop | `runtime.start(game)` — host tick; not `requestAnimationFrame` as the native API |
 | Surface | `runtime.surface` — no `document.body.appendChild` |
 | Input | Action map + logical player; device handle ≠ player index |
-| Audio | `clipH` / `sourceH` / `voiceH` distinct; `play()` mints voices |
+| Audio | `clipH` / `sourceH` / `voiceH` distinct; `play()` mints caller-owned voices, `playOneShot()` mixer-owned (D-OWN) |
 | Custom class | `PhysicsVisual` stays guest-only |
 | Shutdown | `dispose()` = backend; `release()` = object; `remove` = membership |
 
@@ -1768,9 +1992,10 @@ impl Game for BoxGame {
             self.cube.body.apply_impulse(cannon::Vec3::new(0.0, 5.0, 0.0))?;
             // abi: rg_body_apply_impulse(…)
 
-            let _voice = self.impact_source.play()?;
-            // abi: rg_audio_source_play(sourceH, out_voiceH)
-            // host: new voice; does not clone clipH / sourceH
+            self.impact_source.play_one_shot()?;
+            // abi: rg_audio_source_play_one_shot(sourceH)
+            // host: mixer-owned voice, auto-released at completion (D-OWN);
+            //       does not clone clipH / sourceH
 
             if let Some(player) = ctx.input().player(0)? {
                 // abi: rg_input_player(player_index, out_playerH) — logical player
@@ -1984,6 +2209,8 @@ ctx.audio().listener().attach_to_entity(&camera)?;
 ```
 
 Identities: `clipH` (shared resource) ≠ `sourceH` (emitter) ≠ `voiceH` (playback).
+Ownership (D-OWN): `play()` voices are caller-owned — `Drop` releases them;
+`play_one_shot()` voices are mixer-owned and auto-released at completion.
 
 ## R.4 Surface, assets, logging, platform
 
@@ -2154,14 +2381,18 @@ emitter.burst(100)?;
 1. Interpreter identity and `undefined` semantics (D-IDENTITY).
 2. Native adapter and property-overlay semantics (D-ADAPTER, D-PROP).
 3. Typed registry and arenas (D-REGISTRY, D-TYPE, D-HANDLE).
-4. Shared resource identity and lifetime (D-SYNC, D-LIFE, D-GEO).
-5. Generated bridge and WASM surfaces (D-REGISTRY, D-WASM, D-WASM-MEM).
-6. Virtual modules + runtime capability root (D-MODULES): `ranger:core` /
+4. Shared resource identity, ownership, and lifetime (D-SYNC, D-LIFE, D-OWN,
+   D-GEO).
+5. Generated bridge and WASM surfaces (D-REGISTRY, D-WASM, D-WASM-MEM,
+   D-ASYNC).
+6. Interpreter module-namespace isolation (D-MODULES prerequisite — today
+   imports share one scope, `docs/TSX_ENGINE_ISSUES.md` #5/#9).
+7. Virtual modules + runtime capability root (D-MODULES): `ranger:core` /
    `ranger:three` / `ranger:cannon`, and the `ranger_wasm::{core,three,cannon}`
    helper surfaces — same registry commands.
-7. Migrate demos to live objects + `runtime.start(Game)` /
+8. Migrate demos to live objects + `runtime.start(Game)` /
    `ranger_wasm::export_game!` (D-SYNC, D-MODULES).
-8. Delete structural reconciliation (`RETIRE-RECONCILE`).
+9. Delete structural reconciliation (`RETIRE-RECONCILE`).
 
 **Required test gates:**
 
@@ -2180,13 +2411,32 @@ emitter.burst(100)?;
 - Geometry upload → update → read-back on one `geoH` (worked example 2).
 - Action-map input survives gamepad reconnect under a new device handle
   (same logical player).
-- `AudioSource.play()` twice → two voices, one `clipH` / `sourceH`.
+- `AudioSource.play()` twice → two voices, one `clipH` / `sourceH`;
+  `playOneShot()` voices are mixer-owned and auto-released at completion.
 - Guest-only class (`PhysicsVisual`) never appears in a host arena.
 - TS and Rust `BoxGame` paths issue the same registry commands (surface parity).
 - Fat-handle retain/release on Rust `Clone`/`Drop` matches host refcounts.
 - `dispose_backend` then render still works; `Drop` of a shared `geoH` wrapper
   does not free while a mesh retains it.
 - Bulk `set_attribute_f32` rejects OOB ptr/len (D-WASM-MEM) without trapping.
+- Ownership table conformance (D-OWN): getter-returned handles are borrowed
+  (no refcount change); a second release through one wrapper is a typed
+  error; realm teardown releases everything the realm still owns.
+- Weak attachment (D-OWN): destroying an entity auto-detaches attached
+  sources/emitters; an attachment never keeps its target alive.
+- Compat aliasing (D-GEO): `attribute.array === data` after `setAttribute`;
+  a guest write without `needsUpdate` does not render; host range equals the
+  staging range after each flush.
+- Hybrid identity (D-ADAPTER): `mesh.position === mesh.position`; a retained
+  mirror does not observe host writes mid-turn and refreshes next turn.
+- Module isolation (D-MODULES): colliding helper names across two imports do
+  not clobber; repeated import returns the same namespace object; two realms
+  get distinct `runtime` roots.
+- Async (D-ASYNC): exactly-once result transfer under repeated polls;
+  completions delivered only at frame boundaries; teardown with outstanding
+  requests releases both request and result.
+- Registry ids (D-REGISTRY): changing a published id's meaning fails codegen;
+  removed ids stay tombstoned.
 
 A migration is complete only when its replaced path is removed in the same
 change, or is covered by an explicitly tracked retirement item
