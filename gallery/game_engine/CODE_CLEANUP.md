@@ -1287,9 +1287,6 @@ geometryReadPositions(geoH, ...) -> 2
 Forbidden: replacement `geoH`, mesh recreation on attribute change, or a second
 authoritative vertex array on the guest after upload.
 
-
----
-
 ---
 
 # Worked example — `ranger:core` game with input and audio
@@ -1824,8 +1821,9 @@ impl Game for BoxGame {
     }
 
     fn shutdown(&mut self, _ctx: &mut GameContext) -> Result<()> {
-        self.impact_source.stop_all()?;
-        // abi: rg_audio_source_stop_all(sourceH)
+        self.impact_source.stop()?;
+        // abi: rg_audio_source_stop(sourceH) — stops this source's voices;
+        //      sourceH stays valid (same command as the TS path's stop())
 
         self.scene.remove(&self.cube.mesh)?;
         // abi: rg_entity_detach(meshH) / rg_entity_set_parent(meshH, 0)
@@ -2090,9 +2088,11 @@ geometry.set_index_u32(&indices)?;
 // abi: rg_geometry_set_index_u32(geoH, data_ptr, count)
 
 geometry.update_attribute_range_f32("position", 0, &[-2.0, -1.0, 0.0])?;
-// abi: rg_geometry_update_attribute_range_f32(geoH, …) — same geoH
-geometry.mark_attribute_needs_update("position")?;
-// abi: rg_geometry_mark_needs_update / bumps contentRevision
+// abi: rg_geometry_update_attribute_range_f32(geoH, …) — same geoH; the host
+//      overwrites the CPU range and bumps contentRevision (D-GEO).
+//      No separate needsUpdate call here: on the compiled path each update
+//      crosses the boundary directly. The interpreted path's `needsUpdate`
+//      is only the flush boundary for wrapper-buffered writes.
 ```
 
 ## R.7 `dispose_backend` versus Rust `Drop`
@@ -2145,7 +2145,7 @@ emitter.burst(100)?;
 // abi: rg_particle_emitter_burst(emitterH, 100)
 ```
 
-
+---
 
 # Implementation gates
 
