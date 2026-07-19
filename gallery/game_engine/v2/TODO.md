@@ -196,7 +196,7 @@ Also correct the stale claim in [`lpc/TODO.md`](./lpc/TODO.md) §1b that marked
 | `tests/e2e/` | 2 | yes | ylos2 + launcher — in order for current atlas/sim probes |
 | `lpc/` | 0 | no | **decoder + compose ungated** (this file, P0) |
 | `sprites/` | 0 | no | staged; runners/demos only |
-| `menu/` | 0 local | via e2e | launcher covered by `tests/e2e/launcher_e2e_test`; no folder-local unit suite |
+| `menu/` | 1 (`launcher_ui_test`) | yes | unit + `tests/e2e/launcher_e2e_test`; catalog still hardcoded in `.rgr` (see abstraction debt) |
 | `games/` | 0 | via e2e | ylos2 e2e only; chess/other ports still pending |
 | `physics/cannon/` | ~23 | no | staged Cannon class port; not wired into v2 driver |
 | `three/port/` | ~37 | no | staged; local `src/run.sh` still points at **v1** `gallery/game_engine/three/…` paths |
