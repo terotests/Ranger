@@ -1,0 +1,1058 @@
+; ==============================================================================
+; SoftCanvas - a tiny, portable RGBA8888 software framebuffer.
+; ==============================================================================
+;
+; This is the "render to a native buffer" layer of the PoC. It owns a raw byte
+; buffer laid out as tightly-packed RGBA (4 bytes per pixel, row-major) - i.e.
+; exactly the format an SDL2 streaming texture (SDL_PIXELFORMAT_RGBA32) or a
+; browser canvas ImageData expects. The platform layer just uploads `raw()`.
+;
+; It is pure Ranger built only on the `buffer` primitive (buffer_alloc /
+; buffer_set), so it compiles cleanly to every target (JS, C++, Go, Rust, LLVM)
+; and produces bit-identical pixels everywhere - the foundation for
+; golden-frame tests across Mac and Raspberry Pi.
+;
+; It deliberately mirrors a subset of the EVG raster API (clear / fillRect /
+; fillCircle) so game code can later swap in the full EVG vector renderer
+; without changing call sites, once the EVG stack builds natively (see
+; RENDERING_EVG.md).
+;
+; blitImage() composes RGBA ImageBuffer sprites via RgbaFastBlit (alpha-aware).
+; ==============================================================================
+
+Import "./rgba_fast_blit.rgr"
+Import "imaging/jpeg/ImageBuffer.rgr"
+Import "imaging/raster/RasterBuffer.rgr"
+
+class SoftCanvas {
+    def w:int 0
+    def h:int 0
+    ; initialised so the field is a concrete (non-optional) buffer; init()
+    ; reallocates it to the real frame size.
+    def px:buffer (buffer_alloc 4)
+    def blitter:RgbaFastBlit (new RgbaFastBlit)
+
+    fn init:void (width:int height:int) {
+        w = width
+        h = height
+        ; size kept in a local: the es6 buffer_alloc template inlines its
+        ; argument into an IIFE, so a bare `this.w * this.h` would lose `this`.
+        def total:int (w * h * 4)
+        px = (buffer_alloc total)
+    }
+
+    fn getWidth:int () {
+        return w
+    }
+
+    fn getHeight:int () {
+        return h
+    }
+
+    ; The tightly-packed RGBA bytes to hand straight to the display backend.
+    fn raw:buffer () {
+        return px
+    }
+
+    ; Copy px into dst.pixels (w*h*4 bytes). Use this instead of buffer_copy on
+    ; raw(): the C++ backend returns raw() by value, so buffer ops on raw() touch
+    ; temporaries and can crash (iterator pair from different vectors).
+    fn copyPixelsToImage:void (dst:ImageBuffer) {
+        def len:int (w * h * 4)
+        buffer_copy dst.pixels 0 px 0 len
+    }
+
+    ; Fill `count` consecutive opaque RGBA pixels starting at byte offset `off`.
+    ;
+    ; Small spans are written directly byte-by-byte: at low optimization levels
+    ; (the game build compiles with no -O flag) buffer_copy lowers to a real
+    ; std::copy call whose per-call overhead dominates a short run, so direct
+    ; writes are strictly faster there and never slower elsewhere.
+    ;
+    ; Large spans use exponential doubling: write the first pixel, then keep
+    ; doubling the filled run with buffer_copy (a native memmove-class span copy),
+    ; so a big run costs 4 writes + ~log2(W) copies instead of 4*W writes.
+    ; This is the high-level colour-fill primitive the fill/blit paths build on.
+    fn fillSpanRGB:void (off:int count:int r:int g:int b:int) {
+        if (count <= 0) {
+            return
+        }
+        ; Direct byte writes for short runs (no buffer_copy call overhead).
+        if (count <= 32) {
+            def o off
+            def i 0
+            while (i < count) {
+                buffer_set px o r
+                buffer_set px (o + 1) g
+                buffer_set px (o + 2) b
+                buffer_set px (o + 3) 255
+                o = (o + 4)
+                i = (i + 1)
+            }
+            return
+        }
+        buffer_set px off r
+        buffer_set px (off + 1) g
+        buffer_set px (off + 2) b
+        buffer_set px (off + 3) 255
+        def filled 1
+        while (filled < count) {
+            def copyCount filled
+            def remaining (count - filled)
+            if (copyCount > remaining) {
+                copyCount = remaining
+            }
+            buffer_copy px (off + (filled * 4)) px off (copyCount * 4)
+            filled = (filled + copyCount)
+        }
+    }
+
+    ; Fill the whole frame with an opaque colour. The frame is one contiguous
+    ; RGBA span, so this is a single exponential-doubling fill.
+    fn clear:void (r:int g:int b:int) {
+        this.fillSpanRGB(0 (w * h) r g b)
+    }
+
+    ; Set one pixel (opaque). Out-of-bounds writes are ignored so callers can
+    ; draw shapes that run off the edge without special-casing.
+    fn setPixel:void (x:int y:int r:int g:int b:int) {
+        if (x < 0) {
+            return
+        }
+        if (x >= w) {
+            return
+        }
+        if (y < 0) {
+            return
+        }
+        if (y >= h) {
+            return
+        }
+        def o (((y * w) + x) * 4)
+        buffer_set px o r
+        buffer_set px (o + 1) g
+        buffer_set px (o + 2) b
+        buffer_set px (o + 3) 255
+    }
+
+    fn fillRect:void (x:int y:int rw:int rh:int r:int g:int b:int) {
+        if (rw <= 0) {
+            return
+        }
+        if (rh <= 0) {
+            return
+        }
+        def x0 x
+        def y0 y
+        def x1 (x + rw)
+        def y1 (y + rh)
+        if (x0 < 0) {
+            x0 = 0
+        }
+        if (y0 < 0) {
+            y0 = 0
+        }
+        if (x1 > w) {
+            x1 = w
+        }
+        if (y1 > h) {
+            y1 = h
+        }
+        if (x0 >= x1) {
+            return
+        }
+        if (y0 >= y1) {
+            return
+        }
+        def spanPixels (x1 - x0)
+
+        ; Full-width rectangles are one contiguous RGBA region — fill in a single
+        ; span (this is the dominant createStaticBg ground-slice case).
+        if (x0 == 0) {
+            if (x1 == w) {
+                def base (((y0 * w)) * 4)
+                this.fillSpanRGB(base (spanPixels * (y1 - y0)) r g b)
+                return
+            }
+        }
+
+        ; Narrow rectangles (small sprites, bitmap pixels, thin lines) are filled
+        ; with direct byte writes: the per-row buffer_copy call overhead would
+        ; dominate a short row at low optimization levels (the game build uses no
+        ; -O flag), so a plain nested write loop is strictly faster and never
+        ; slower. Wide rectangles fill the first scanline then replicate it down
+        ; with contiguous row copies.
+        if (spanPixels < 32) {
+            def yy y0
+            while (yy < y1) {
+                def o (((yy * w) + x0) * 4)
+                def xx x0
+                while (xx < x1) {
+                    buffer_set px o r
+                    buffer_set px (o + 1) g
+                    buffer_set px (o + 2) b
+                    buffer_set px (o + 3) 255
+                    o = (o + 4)
+                    xx = (xx + 1)
+                }
+                yy = (yy + 1)
+            }
+            return
+        }
+
+        def firstRowOff (((y0 * w) + x0) * 4)
+        this.fillSpanRGB(firstRowOff spanPixels r g b)
+        def spanBytes (spanPixels * 4)
+        def yy2 (y0 + 1)
+        while (yy2 < y1) {
+            def rowOff (((yy2 * w) + x0) * 4)
+            buffer_copy px rowOff px firstRowOff spanBytes
+            yy2 = (yy2 + 1)
+        }
+    }
+
+    ; Filled horizontal trapezoid (parallel top/bottom edges). Scanline-lerps
+    ; left/right X from (y0,x0L..x0R) to (y1,x1L..x1R). Used for pseudo-3D
+    ; road bands so edges stay diagonal instead of staircased rect strips.
+    fn fillTrapezoid:void (y0:int x0L:int x0R:int y1:int x1L:int x1R:int r:int g:int b:int) {
+        def ty0:int y0
+        def ty1:int y1
+        def aL:int x0L
+        def aR:int x0R
+        def bL:int x1L
+        def bR:int x1R
+        if (ty0 > ty1) {
+            ty0 = y1
+            ty1 = y0
+            aL = x1L
+            aR = x1R
+            bL = x0L
+            bR = x0R
+        }
+        if (aL > aR) {
+            def tmp:int aL
+            aL = aR
+            aR = tmp
+        }
+        if (bL > bR) {
+            def tmp2:int bL
+            bL = bR
+            bR = tmp2
+        }
+        def dy:int (ty1 - ty0)
+        if (dy < 0) {
+            return
+        }
+        if (dy == 0) {
+            def xL0:int aL
+            def xR0:int aR
+            if (xL0 < 0) {
+                xL0 = 0
+            }
+            if (xR0 > w) {
+                xR0 = w
+            }
+            if (xL0 < xR0) {
+                if (ty0 >= 0) {
+                    if (ty0 < h) {
+                        this.fillSpanRGB((((ty0 * w) + xL0) * 4) (xR0 - xL0) r g b)
+                    }
+                }
+            }
+            return
+        }
+        def yy:int ty0
+        while (yy <= ty1) {
+            if (yy >= 0) {
+                if (yy < h) {
+                    def num:int (yy - ty0)
+                    def xL:int (aL + (idiv ((bL - aL) * num) dy))
+                    def xR:int (aR + (idiv ((bR - aR) * num) dy))
+                    if (xL > xR) {
+                        def sw:int xL
+                        xL = xR
+                        xR = sw
+                    }
+                    if (xL < 0) {
+                        xL = 0
+                    }
+                    if (xR > w) {
+                        xR = w
+                    }
+                    if (xL < xR) {
+                        this.fillSpanRGB((((yy * w) + xL) * 4) (xR - xL) r g b)
+                    }
+                }
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    ; Alpha-composite an RGBA ImageBuffer onto this canvas (top-left at dx,dy).
+    ; Clips to the framebuffer here because RgbaFastBlit.blitRect does not bounds
+    ; check the destination — an off-screen sprite would otherwise wrap rows or
+    ; write past the buffer.
+    fn blitImage:void (src:ImageBuffer dx:int dy:int) {
+        if (src.width <= 0) {
+            return
+        }
+        if (src.height <= 0) {
+            return
+        }
+        def sx:int 0
+        def sy:int 0
+        def ddx:int dx
+        def ddy:int dy
+        if (ddx < 0) {
+            sx = (0 - ddx)
+            ddx = 0
+        }
+        if (ddy < 0) {
+            sy = (0 - ddy)
+            ddy = 0
+        }
+        def sw:int (src.width - sx)
+        def sh:int (src.height - sy)
+        if ((ddx + sw) > w) {
+            sw = (w - ddx)
+        }
+        if ((ddy + sh) > h) {
+            sh = (h - ddy)
+        }
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        ; Blit straight into our pixel buffer (passed by reference). Wrapping px
+        ; in a temporary RasterBuffer copies the std::vector under C++ value
+        ; semantics and silently drops the writes (text/sprites invisible on the
+        ; native build) — see rgba_fast_blit.blitRectBuf.
+        blitter.blitRectBuf(px w src sx sy sw sh ddx ddy)
+    }
+
+    ; Alpha-composite a source sub-rectangle onto this canvas (centered draw uses
+    ; dx/dy as the top-left of the blitted region after caller offset).
+    fn blitImageRect:void (src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
+        if (src.width <= 0) {
+            return
+        }
+        if (src.height <= 0) {
+            return
+        }
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        def ddx:int dx
+        def ddy:int dy
+        def ssx:int sx
+        def ssy:int sy
+        def ssw:int sw
+        def ssh:int sh
+        if (ddx < 0) {
+            ssx = (ssx + (0 - ddx))
+            ssw = (ssw - (0 - ddx))
+            ddx = 0
+        }
+        if (ddy < 0) {
+            ssy = (ssy + (0 - ddy))
+            ssh = (ssh - (0 - ddy))
+            ddy = 0
+        }
+        if ((ddx + ssw) > w) {
+            ssw = (w - ddx)
+        }
+        if ((ddy + ssh) > h) {
+            ssh = (h - ddy)
+        }
+        if (ssw <= 0) {
+            return
+        }
+        if (ssh <= 0) {
+            return
+        }
+        def view:RasterBuffer (new RasterBuffer)
+        view.width = w
+        view.height = h
+        view.pixels = px
+        blitter.blitRect(view src ssx ssy ssw ssh ddx ddy)
+        px = view.pixels
+    }
+
+    ; Nearest-neighbour scale-blit of a source sub-rectangle (sw×sh → dw×dh).
+    fn blitImageRectScaled:void (src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int dw:int dh:int) {
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        if (dw <= 0) {
+            return
+        }
+        if (dh <= 0) {
+            return
+        }
+        def srcW:int src.width
+        def y 0
+        while (y < dh) {
+            def dstY:int (dy + y)
+            if (dstY < 0) {
+                y = (y + 1)
+            } {
+                if (dstY >= h) {
+                    y = (y + 1)
+                } {
+                    def syOff:int (sy + (to_int ((to_double (y * sh)) / (to_double dh))))
+                    if (syOff >= src.height) {
+                        syOff = (src.height - 1)
+                    }
+                    def x 0
+                    while (x < dw) {
+                        def dstX:int (dx + x)
+                        if (dstX < 0) {
+                            x = (x + 1)
+                        } {
+                            if (dstX >= w) {
+                                x = (x + 1)
+                            } {
+                                def sxOff:int (sx + (to_int ((to_double (x * sw)) / (to_double dw))))
+                                if (sxOff >= srcW) {
+                                    sxOff = (srcW - 1)
+                                }
+                                def sOff:int (((syOff * srcW) + sxOff) * 4)
+                                def srcA:int (buffer_get src.pixels (sOff + 3))
+                                if (srcA > 0) {
+                                    def dOff:int (((dstY * w) + dstX) * 4)
+                                    if (srcA >= 255) {
+                                        buffer_set px dOff (buffer_get src.pixels sOff)
+                                        buffer_set px (dOff + 1) (buffer_get src.pixels (sOff + 1))
+                                        buffer_set px (dOff + 2) (buffer_get src.pixels (sOff + 2))
+                                        buffer_set px (dOff + 3) 255
+                                    } {
+                                        blitter.blendOverBytes(px dOff
+                                            (buffer_get src.pixels sOff)
+                                            (buffer_get src.pixels (sOff + 1))
+                                            (buffer_get src.pixels (sOff + 2))
+                                            srcA)
+                                    }
+                                }
+                                x = (x + 1)
+                            }
+                        }
+                    }
+                    y = (y + 1)
+                }
+            }
+        }
+    }
+
+    fn degToRad:double (deg:double) {
+        return (deg * 0.017453292519943295)
+    }
+
+    ; Solid rectangle from pivot along +X (length rw), thickness rh, rotated angleDeg (Y-down).
+    fn fillRectRotated:void (pivotX:int pivotY:int rw:int rh:int angleDeg:double r:int g:int b:int) {
+        if (rw <= 0) {
+            return
+        }
+        if (rh <= 0) {
+            return
+        }
+        if (angleDeg == 0.0) {
+            def halfH:int (to_int ((to_double rh) * 0.5))
+            this.fillRect(pivotX (pivotY - halfH) rw rh r g b)
+            return
+        }
+        def rad:double (this.degToRad(angleDeg))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def halfTh:double ((to_double rh) * 0.5)
+        def y 0
+        while (y < rh) {
+            def ly:double ((to_double y) - halfTh)
+            def x 0
+            while (x < rw) {
+                def lx:double (to_double x)
+                def wx:double ((lx * cosA) - (ly * sinA))
+                def wy:double ((lx * sinA) + (ly * cosA))
+                def dstX:int (pivotX + (to_int wx))
+                def dstY:int (pivotY + (to_int wy))
+                if (dstX >= 0) {
+                    if (dstX < w) {
+                        if (dstY >= 0) {
+                            if (dstY < h) {
+                                this.setPixel(dstX dstY r g b)
+                            }
+                        }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    ; Centre-pivoted rotated rect fill: the rect of size rw x rh is centred on
+    ; (cx, cy) and rotated clockwise (Y-down). Unlike fillRectRotated (whose local
+    ; origin sits at the left edge / vertical centre), this rotates about the true
+    ; centre — what a guest-authored sprite needs so it spins in place.
+    fn fillRectRotatedC:void (cx:int cy:int rw:int rh:int angleDeg:double r:int g:int b:int) {
+        if (rw <= 0) {
+            return
+        }
+        if (rh <= 0) {
+            return
+        }
+        if (angleDeg == 0.0) {
+            def hx:int (to_int ((to_double rw) * 0.5))
+            def hy:int (to_int ((to_double rh) * 0.5))
+            this.fillRect((cx - hx) (cy - hy) rw rh r g b)
+            return
+        }
+        def rad:double (this.degToRad(angleDeg))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def hw:double ((to_double rw) * 0.5)
+        def hh:double ((to_double rh) * 0.5)
+        def y 0
+        while (y < rh) {
+            def ly:double ((to_double y) - hh)
+            def x 0
+            while (x < rw) {
+                def lx:double ((to_double x) - hw)
+                def wx:double ((lx * cosA) - (ly * sinA))
+                def wy:double ((lx * sinA) + (ly * cosA))
+                def dstX:int (cx + (to_int wx))
+                def dstY:int (cy + (to_int wy))
+                if (dstX >= 0) {
+                    if (dstX < w) {
+                        if (dstY >= 0) {
+                            if (dstY < h) {
+                                this.setPixel(dstX dstY r g b)
+                            }
+                        }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    ; A guest-authored rotatable sprite drawn as a bevelled block: a dark base, a
+    ; bright face, and one corner "stud" — all sharing the same centre + rotation.
+    ; The stud makes the rotation legible even though a bare square is 4-fold
+    ; symmetric, so a spinning piece reads clearly. rot is clockwise degrees.
+    fn drawBlockRotated:void (cx:int cy:int size:int angleDeg:double r:int g:int b:int) {
+        if (size <= 0) {
+            return
+        }
+        def dr:int (idiv (r * 42) 100)
+        def dg:int (idiv (g * 42) 100)
+        def db:int (idiv (b * 42) 100)
+        this.fillRectRotatedC(cx cy size size angleDeg dr dg db)
+        def face:int (size - 3)
+        if (face < 1) {
+            face = 1
+        }
+        this.fillRectRotatedC(cx cy face face angleDeg r g b)
+        ; corner stud: offset toward the block's local top-left, rotated with it
+        def studSize:int (idiv size 3)
+        if (studSize < 2) {
+            studSize = 2
+        }
+        def off:double ((to_double size) * 0.26)
+        def rad:double (this.degToRad(angleDeg))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def lx:double (0.0 - off)
+        def ly:double (0.0 - off)
+        def wx:double ((lx * cosA) - (ly * sinA))
+        def wy:double ((lx * sinA) + (ly * cosA))
+        def sx:int (cx + (to_int wx))
+        def sy:int (cy + (to_int wy))
+        def hr:int (r + 60)
+        def hg:int (g + 60)
+        def hb:int (b + 60)
+        if (hr > 255) { hr = 255 }
+        if (hg > 255) { hg = 255 }
+        if (hb > 255) { hb = 255 }
+        this.fillRectRotatedC(sx sy studSize studSize angleDeg hr hg hb)
+    }
+
+    ; Rotate + scale blit around pivot (screen pixels). angleDeg: clockwise, Y-down.
+    fn blitImageRectScaledRotated:void (src:ImageBuffer sx:int sy:int sw:int sh:int pivotX:int pivotY:int dw:int dh:int angleDeg:double) {
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        if (dw <= 0) {
+            return
+        }
+        if (dh <= 0) {
+            return
+        }
+        if (angleDeg == 0.0) {
+            def halfDw:int (to_int ((to_double dw) * 0.5))
+            def halfDh:int (to_int ((to_double dh) * 0.5))
+            def dx:int (pivotX - halfDw)
+            def dy:int (pivotY - halfDh)
+            this.blitImageRectScaled(src sx sy sw sh dx dy dw dh)
+            return
+        }
+        def srcW:int src.width
+        def rad:double (this.degToRad(angleDeg))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def hw:double ((to_double dw) * 0.5)
+        def hh:double ((to_double dh) * 0.5)
+        def y 0
+        while (y < dh) {
+            def ly:double ((to_double y) - hh)
+            def x 0
+            while (x < dw) {
+                def lx:double ((to_double x) - hw)
+                def wx:double ((lx * cosA) - (ly * sinA))
+                def wy:double ((lx * sinA) + (ly * cosA))
+                def dstX:int (pivotX + (to_int wx))
+                def dstY:int (pivotY + (to_int wy))
+                if (dstX >= 0) {
+                    if (dstX < w) {
+                        if (dstY >= 0) {
+                            if (dstY < h) {
+                                def sxOff:int (sx + (to_int ((to_double (x * sw)) / (to_double dw))))
+                                if (sxOff >= srcW) {
+                                    sxOff = (srcW - 1)
+                                }
+                                def syOff:int (sy + (to_int ((to_double (y * sh)) / (to_double dh))))
+                                if (syOff >= src.height) {
+                                    syOff = (src.height - 1)
+                                }
+                                def sOff:int (((syOff * srcW) + sxOff) * 4)
+                                def srcA:int (buffer_get src.pixels (sOff + 3))
+                                if (srcA > 0) {
+                                    def dOff:int (((dstY * w) + dstX) * 4)
+                                    if (srcA >= 255) {
+                                        buffer_set px dOff (buffer_get src.pixels sOff)
+                                        buffer_set px (dOff + 1) (buffer_get src.pixels (sOff + 1))
+                                        buffer_set px (dOff + 2) (buffer_get src.pixels (sOff + 2))
+                                        buffer_set px (dOff + 3) 255
+                                    } {
+                                        blitter.blendOverBytes(px dOff
+                                            (buffer_get src.pixels sOff)
+                                            (buffer_get src.pixels (sOff + 1))
+                                            (buffer_get src.pixels (sOff + 2))
+                                            srcA)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    fn fillCircle:void (cx:int cy:int rad:int r:int g:int b:int) {
+        def r2 (rad * rad)
+        def yy (cy - rad)
+        def yEnd (cy + rad)
+        while (yy <= yEnd) {
+            ; Clip the scanline to the buffer (matches setPixel's y bounds check).
+            if (yy >= 0) {
+                if (yy < h) {
+                    def dy (yy - cy)
+                    def rem (r2 - (dy * dy))
+                    if (rem >= 0) {
+                        ; Half-width of the circle at this row: largest hw with
+                        ; hw*hw <= rem (identical to the per-pixel dx*dx+dy*dy<=r2
+                        ; test, but computed once per row).
+                        def hw 0
+                        while (((hw + 1) * (hw + 1)) <= rem) {
+                            hw = (hw + 1)
+                        }
+                        def x0 (cx - hw)
+                        def x1 (cx + hw + 1)
+                        if (x0 < 0) {
+                            x0 = 0
+                        }
+                        if (x1 > w) {
+                            x1 = w
+                        }
+                        if (x0 < x1) {
+                            def rowOff (((yy * w) + x0) * 4)
+                            this.fillSpanRGB(rowOff (x1 - x0) r g b)
+                        }
+                    }
+                }
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    ; Directional wedge cut from a filled circle (mouth, pie slice, radar sweep).
+    ; wedgeDir: 0=up 1=right 2=down 3=left. wedgeOpen: 0=closed .. 3=wide.
+    fn wedgeSkipPixel:boolean (cx:int cy:int px:int py:int wedgeDir:int wedgeOpen:int) {
+        if (wedgeOpen <= 0) {
+            return false
+        }
+        def dx (px - cx)
+        def dy (py - cy)
+        def adx dx
+        def ady dy
+        if (adx < 0) { adx = 0 - adx }
+        if (ady < 0) { ady = 0 - ady }
+        def gap (wedgeOpen + 1)
+        if (wedgeDir == 1) {
+            if (dx <= 0) { return false }
+            if (ady * gap < dx) { return true }
+            return false
+        }
+        if (wedgeDir == 3) {
+            if (dx >= 0) { return false }
+            if (ady * gap < (0 - dx)) { return true }
+            return false
+        }
+        if (wedgeDir == 0) {
+            if (dy >= 0) { return false }
+            if (adx * gap < (0 - dy)) { return true }
+            return false
+        }
+        if (dy <= 0) { return false }
+        if (adx * gap < dy) { return true }
+        return false
+    }
+
+    fn fillWedgeCircle:void (cx:int cy:int rad:int wedgeDir:int wedgeOpen:int r:int g:int b:int) {
+        def r2 (rad * rad)
+        def yy (cy - rad)
+        def yEnd (cy + rad)
+        while (yy <= yEnd) {
+            def xx (cx - rad)
+            def xEnd (cx + rad)
+            while (xx <= xEnd) {
+                def dx (xx - cx)
+                def dy (yy - cy)
+                if (((dx * dx) + (dy * dy)) <= r2) {
+                    if (false == (this.wedgeSkipPixel(cx cy xx yy wedgeDir wedgeOpen))) {
+                        this.setPixel(xx yy r g b)
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn clampChan:int (n:int) {
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
+
+    ; Pac-style ghost: domed head, straight sides, scalloped hem, plus-shaped eyes.
+    ; faceDir: 0=up 1=right 2=down 3=left. eyesOnly: 0=full body, 1=small fleeing eyes.
+    fn ghostBodyAt:boolean (cx:int cy:int px:int py:int rad:int) {
+        def dx (px - cx)
+        def adx dx
+        if (adx < 0) {
+            adx = 0 - adx
+        }
+        if (py > (cy + rad)) {
+            return false
+        }
+        if (py < (cy - rad)) {
+            return false
+        }
+        if (px < (cx - rad)) {
+            return false
+        }
+        if (px > (cx + rad)) {
+            return false
+        }
+        def domeY (cy - 1)
+        def ddx (px - cx)
+        def ddy (py - domeY)
+        def r2 (rad * rad)
+        if (py <= (cy + 1)) {
+            if (((ddx * ddx) + (ddy * ddy)) <= r2) {
+                return true
+            }
+        }
+        if (py <= (cy + rad - 1)) {
+            if (adx <= rad) {
+                return true
+            }
+        }
+        if (py == (cy + rad - 1)) {
+            def wave ((px - cx + rad) % 4)
+            if (wave == 0) {
+                return false
+            }
+            if (wave == 3) {
+                return false
+            }
+            if (adx <= rad) {
+                return true
+            }
+        }
+        if (py == (cy + rad)) {
+            def wave2 ((px - cx + rad + 1) % 4)
+            if (wave2 == 1) {
+                return true
+            }
+            if (wave2 == 2) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn ghostEyePlus:boolean (ex:int ey:int px:int py:int) {
+        if (px == ex) {
+            if (py >= (ey - 1)) {
+                if (py <= (ey + 1)) {
+                    return true
+                }
+            }
+        }
+        if (py == ey) {
+            if (px >= (ex - 1)) {
+                if (px <= (ex + 1)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fn fillGhost:void (cx:int cy:int rad:int faceDir:int eyesOnly:int r:int g:int b:int) {
+        if (eyesOnly != 0) {
+            this.fillCircle(cx cy rad 255 255 255)
+        } {
+            def yy (cy - rad)
+            def yEnd (cy + rad)
+            while (yy <= yEnd) {
+                def xx (cx - rad)
+                def xEnd (cx + rad)
+                while (xx <= xEnd) {
+                    if (this.ghostBodyAt(cx cy xx yy rad)) {
+                        def br:int r
+                        def bg:int g
+                        def bb:int b
+                        if (yy <= (cy - 2)) {
+                            if (xx <= (cx - 1)) {
+                                br = (this.clampChan(r + 40))
+                                bg = (this.clampChan(g + 40))
+                                bb = (this.clampChan(b + 40))
+                            }
+                        }
+                        if (yy <= cy) {
+                            if (br == r) {
+                                br = (this.clampChan(r + 18))
+                                bg = (this.clampChan(g + 18))
+                                bb = (this.clampChan(b + 18))
+                            }
+                        }
+                        this.setPixel(xx yy br bg bb)
+                    }
+                    xx = (xx + 1)
+                }
+                yy = (yy + 1)
+            }
+        }
+        def le (cx - 3)
+        def re (cx + 3)
+        def ey (cy - 1)
+        if (eyesOnly != 0) {
+            le = (cx - 2)
+            re = (cx + 2)
+            ey = cy
+        }
+        def pOffX 0
+        def pOffY 0
+        if (faceDir == 0) {
+            pOffY = 0 - 1
+        }
+        if (faceDir == 1) {
+            pOffX = 1
+        }
+        if (faceDir == 2) {
+            pOffY = 1
+        }
+        if (faceDir == 3) {
+            pOffX = 0 - 1
+        }
+        def pr (this.clampChan(r - 90))
+        def pg (this.clampChan(g - 90))
+        def pb (this.clampChan(b - 90))
+        if (pr < 16) {
+            pr = 16
+        }
+        if (pg < 16) {
+            pg = 16
+        }
+        if (pb < 16) {
+            pb = 16
+        }
+        def py (ey - 2)
+        def pyEnd (ey + 2)
+        while (py <= pyEnd) {
+            def px (cx - rad)
+            def pxEnd (cx + rad)
+            while (px <= pxEnd) {
+                if (this.ghostEyePlus(le ey px py)) {
+                    this.setPixel(px py 235 245 255)
+                }
+                if (this.ghostEyePlus(re ey px py)) {
+                    this.setPixel(px py 235 245 255)
+                }
+                px = (px + 1)
+            }
+            py = (py + 1)
+        }
+        this.setPixel((le + pOffX) (ey + pOffY) pr pg pb)
+        this.setPixel((re + pOffX) (ey + pOffY) pr pg pb)
+    }
+
+    ; Copy a rectangle from another canvas (opaque). Used for static level layers.
+    ; One contiguous row copy (native memcpy) per scanline instead of per-pixel
+    ; channel writes — the source is tightly-packed RGBA so a whole row is one span.
+    fn copyRectFrom:void (src:SoftCanvas sx:int sy:int sw:int sh:int dx:int dy:int) {
+        def srcW (src.w)
+        def srcH (src.h)
+        def row 0
+        while (row < sh) {
+            def pxY (sy + row)
+            def dstY (dy + row)
+            if (pxY >= 0) {
+                if (pxY < srcH) {
+                    if (dstY >= 0) {
+                        if (dstY < h) {
+                            ; clip the horizontal span to both buffers once per row
+                            def cStart 0
+                            def cEnd sw
+                            if ((sx + cStart) < 0) {
+                                cStart = (0 - sx)
+                            }
+                            if ((dx + cStart) < 0) {
+                                cStart = (0 - dx)
+                            }
+                            if ((sx + cEnd) > srcW) {
+                                cEnd = (srcW - sx)
+                            }
+                            if ((dx + cEnd) > w) {
+                                cEnd = (w - dx)
+                            }
+                            if (cEnd > cStart) {
+                                def sOff (((pxY * srcW) + (sx + cStart)) * 4)
+                                def dOff (((dstY * w) + (dx + cStart)) * 4)
+                                def len ((cEnd - cStart) * 4)
+                                buffer_copy px dOff (src.px) sOff len
+                            }
+                        }
+                    }
+                }
+            }
+            row = (row + 1)
+        }
+    }
+
+    ; Nearest-neighbour scale-blit (split-screen autoscale: 480x270 → 240x270).
+    ; The per-pixel source-column mapping is constant across rows, so it is
+    ; precomputed once into a LUT — this removes both integer divisions from the
+    ; inner loop (the hot path that was dropping split-screen to ~30fps).
+    fn copyRectScaledFrom:void (src:SoftCanvas sx:int sy:int sw:int sh:int dx:int dy:int dw:int dh:int) {
+        if (dw <= 0) {
+            return
+        }
+        if (dh <= 0) {
+            return
+        }
+        def srcW (src.w)
+        def srcH (src.h)
+        ; LUT: source byte offset (within a row) for each destination column.
+        def colOff:int_buffer (int_buffer_alloc dw)
+        def c 0
+        while (c < dw) {
+            def srcCol:int (idiv (c * sw) dw)
+            int_buffer_set colOff c ((sx + srcCol) * 4)
+            c = (c + 1)
+        }
+        def row 0
+        while (row < dh) {
+            def srcRow:int (idiv (row * sh) dh)
+            def pxY (sy + srcRow)
+            def dstY (dy + row)
+            if (pxY >= 0) {
+                if (pxY < srcH) {
+                    if (dstY >= 0) {
+                        if (dstY < h) {
+                            def srcRowBase ((pxY * srcW) * 4)
+                            def dstRowBase (((dstY * w) + dx) * 4)
+                            def col 0
+                            while (col < dw) {
+                                def dstX (dx + col)
+                                if (dstX >= 0) {
+                                    if (dstX < w) {
+                                        def sOff (srcRowBase + (int_buffer_get colOff col))
+                                        def dOff (dstRowBase + (col * 4))
+                                        buffer_copy px dOff (src.px) sOff 4
+                                    }
+                                }
+                                col = (col + 1)
+                            }
+                        }
+                    }
+                }
+            }
+            row = (row + 1)
+        }
+    }
+
+    ; Read one pixel's red channel - used by golden-frame / rendering tests.
+    fn pixelR:int (x:int y:int) {
+        def o (((y * w) + x) * 4)
+        return (buffer_get px o)
+    }
+    fn pixelG:int (x:int y:int) {
+        def o (((y * w) + x) * 4)
+        return (buffer_get px (o + 1))
+    }
+    fn pixelB:int (x:int y:int) {
+        def o (((y * w) + x) * 4)
+        return (buffer_get px (o + 2))
+    }
+
+    ; Count pixels whose channel sum (r+g+b) exceeds minSum - a cheap,
+    ; deterministic "did we actually draw foreground" signal for tests.
+    fn litPixels:int (minSum:int) {
+        def n (w * h)
+        def i 0
+        def count 0
+        while (i < n) {
+            def o (i * 4)
+            def r (buffer_get px o)
+            def g (buffer_get px (o + 1))
+            def b (buffer_get px (o + 2))
+            if (((r + g) + b) > minSum) {
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        return count
+    }
+}

@@ -119,6 +119,9 @@ run_suite modules/ranger_core/tests/devices_test
 run_suite registry/schema/tests/bridge_schema_test
 run_suite tests/unit/bridge/registry_bridge_coverage_test
 
+# ---- menu / EVG launcher UI (self-contained ui/ + evg + fonts + framebuffer) -
+run_suite menu/tests/launcher_ui_test
+
 # ---- BRIDGES.md step 3 — real TSX guests on the ONE generic host -------------
 # Games are TSX-only folders (no per-game .rgr); RgGameHost is the single
 # generic host (v1 GameRunner analog). These are thin test drivers.

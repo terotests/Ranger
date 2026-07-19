@@ -10,8 +10,8 @@
 
 Import "../framebuffer.rgr"
 Import "UITextRenderer.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../evg/EVGColor.rgr"
+Import "../imaging/jpeg/ImageBuffer.rgr"
 
 ; Named colour roles. Dark, translucent-panel theme by default (reads well as an
 ; overlay on top of a bright game world). Swap fields for a light theme.

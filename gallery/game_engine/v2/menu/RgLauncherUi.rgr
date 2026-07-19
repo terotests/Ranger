@@ -1,0 +1,129 @@
+; ==============================================================================
+; RgLauncherUi — the rich EVG/UI launcher screen (engine chrome).
+; ==============================================================================
+; Built on the existing v2 UI layer (UILayer + UITextRenderer + SoftCanvas): a
+; title, a subtitle, category cards (Games / Tests) with a moving selection
+; highlight, and a footer hint — the v1 launcher screen. Renders headlessly into
+; a SoftCanvas whose raw() RGBA the SDL host presents; no game logic, and it does
+; not touch ranger:core (this is engine chrome, like RgGameHost — GAMES stay
+; TSX-only).
+;
+; Input is logical (moveSelection / activate); the SDL host maps physical keys.
+; ==============================================================================
+
+Import "../ui/UILayer.rgr"
+Import "../framebuffer.rgr"
+Import "../evg/EVGColor.rgr"
+
+; one selectable category (id is the launch target / route)
+class RgLauncherCat {
+    def label:string ""
+    def route:string ""
+    def card:UIBox (new UIBox)
+}
+
+class RgLauncherUi {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def layer:UILayer (new UILayer)
+    def w:int 0
+    def h:int 0
+    def selected:int 0
+    def cats:[RgLauncherCat]
+
+    fn addCategory:void (label:string route:string cx:int cy:int cw:int ch:int) {
+        def c:RgLauncherCat (new RgLauncherCat)
+        c.label = label
+        c.route = route
+        c.card.text = label
+        c.card.fontSize = 20.0
+        c.card.setBounds(cx cy cw ch)
+        this.layer.add(c.card)
+        push this.cats c
+    }
+
+    fn init:void (width:int height:int) {
+        this.w = width
+        this.h = height
+        this.canvas.init(width height)
+        this.layer.attach(this.canvas)
+        ; real TTF if present; UITextRenderer falls back to its 3x5 bitmap font.
+        this.layer.ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+
+        def cx:int (idiv width 2)
+
+        def title:UILabel (new UILabel)
+        title.text = "Ranger"
+        title.fontSize = 40.0
+        title.setBounds((cx - 90) (idiv height 12) 180 48)
+        this.layer.add(title)
+
+        def sub:UILabel (new UILabel)
+        sub.text = "valitse kategoria"
+        sub.fontSize = 16.0
+        sub.setBounds((cx - 80) (idiv height 5) 160 20)
+        this.layer.add(sub)
+
+        ; two category cards, centred
+        def cardW:int (idiv width 4)
+        def cardH:int cardW
+        def gap:int 24
+        def totalW:int ((cardW * 2) + gap)
+        def startX:int (cx - (idiv totalW 2))
+        def cardY:int (idiv height 3)
+        this.addCategory("Games" "games" startX cardY cardW cardH)
+        this.addCategory("Tests" "tests" (startX + cardW + gap) cardY cardW cardH)
+
+        def footer:UILabel (new UILabel)
+        footer.text = "A avaa, nuolet liikkuvat"
+        footer.fontSize = 13.0
+        footer.setBounds((cx - 110) (height - (idiv height 10)) 220 16)
+        this.layer.add(footer)
+
+        this.highlight()
+    }
+
+    ; the selected card takes the accent fill; the rest a muted panel fill.
+    fn highlight:void () {
+        def n:int (array_length this.cats)
+        def i 0
+        while (i < n) {
+            def c:RgLauncherCat (itemAt this.cats i)
+            if (i == this.selected) {
+                def accent:EVGColor (EVGColor.rgba(255 190 70 1.0))
+                c.card.setFill(accent)
+            } {
+                def muted:EVGColor (EVGColor.rgba(40 48 74 0.9))
+                c.card.setFill(muted)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn moveSelection:void (dir:int) {
+        def n:int (array_length this.cats)
+        if (n == 0) { return }
+        def s:int (this.selected + dir)
+        if (s < 0) { s = 0 }
+        if (s >= n) { s = (n - 1) }
+        this.selected = s
+        this.highlight()
+    }
+
+    fn selectedLabel:string () {
+        if ((array_length this.cats) == 0) { return "" }
+        def c:RgLauncherCat (itemAt this.cats this.selected)
+        return c.label
+    }
+    fn selectedRoute:string () {
+        if ((array_length this.cats) == 0) { return "" }
+        def c:RgLauncherCat (itemAt this.cats this.selected)
+        return c.route
+    }
+    fn categoryCount:int () { return (array_length this.cats) }
+
+    fn render:void () {
+        this.canvas.clear(16 18 34)   ; night background (v1 launcher)
+        this.layer.render()
+    }
+    fn raw:buffer () { return (this.canvas.raw()) }
+}
