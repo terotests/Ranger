@@ -529,37 +529,34 @@ to the Part that adds it.
 
 ## Stage 1 — construction in guest code
 
-The guest never types the number `1.0` three times — it asks for a box, and the
-vertex is *born in the core*, not in the guest.
+Three.js has several distinct ways to construct a mesh, and each one gives the
+vertex a different birthplace. The contract must cover all of them; today the
+engine covers some. The routes, with their support status:
 
-**TSX guest** (`games/cube/index.tsx:23–26`):
+| Route | Three.js form | Who types the coordinates | Status today |
+|-------|---------------|---------------------------|--------------|
+| 1a Parametric | `new THREE.BoxGeometry(w,h,d)` | the core | supported (10 host commands) |
+| 1b Explicit vertex data | `BufferGeometry` + `setAttribute('position', …)` | **the guest** | not supported (no host command, no façade class) |
+| 1c Loaded from a model file | `GLTFLoader.load(url)` | the file | supported (`modelAttach`) |
+| 1d Mutation after construction | `position.setXYZ(i,…)` + `needsUpdate` | the guest | partial (rebuild, not update) |
+
+**Route 1a — parametric.** The guest names a shape and its parameters; the
+coordinates are computed in the core. TSX (`games/cube/index.tsx:23–26`):
 ```tsx
 const geometry = new THREE.BoxGeometry();
 const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
 mesh = new THREE.Mesh( geometry, material );
 ```
-The reconciler sees the façade object and issues one host command
-(`three_tsx_bridge.rgr:740` `buildGeometryH` → `:807`
-`host.geometryBox(gw gh gd)`).
-
-**Compiled WASM guest** (`games/cube3d_wasm/src/src/lib.rs:20–25`), using the
-`ranger_game` SDK — same idea, one command, no vertex memory in the guest:
+The reconciler issues one host command (`three_tsx_bridge.rgr:740`
+`buildGeometryH` → `:807` `host.geometryBox(gw gh gd)`). The compiled WASM guest
+does the same through the SDK (`games/cube3d_wasm/src/src/lib.rs:20–25`):
 ```rust
-pub extern "C" fn init() {
-    let scene = Scene::new();
-    let tex = scene.texture("crate");
-    let cube = scene.spawn_cube(Vec3::ZERO, 1.0, tex);   // -> opaque Entity id
-    ...
-}
+let cube = scene.spawn_cube(Vec3::ZERO, 1.0, tex);   // -> opaque Entity id
 ```
-`spawn_cube` (`lib/ranger_game/src/scene.rs:577`) sends `rg_create_mesh_entity`
-(`:728`) across the ABI and keeps only the returned integer id. The guest's own
-doc comment states the ownership model: *"The guest owns no geometry/camera/
-light memory … only high-level commands + EntityIds."*
-
-**Where the doubles are actually born** — the host command lands in
-`ThreeSceneHost.geometryBox`, which builds the vertices in the core
-(`three/src/three_box_geometry.rgr:25`):
+(`spawn_cube`, `lib/ranger_game/src/scene.rs:577`, sends
+`rg_create_mesh_entity` and keeps only the returned id.) On this route the
+doubles are born in the core: `ThreeSceneHost.geometryBox` →
+`ThreeBoxGeometry.setSize` (`three/src/three_box_geometry.rgr:25`):
 ```
 fn setSize:ThreeBoxGeometry (width:double height:double depth:double) {
     def hx:double (width * 0.5)
@@ -567,8 +564,46 @@ fn setSize:ThreeBoxGeometry (width:double height:double depth:double) {
     ; +Z face — our vertex (+hx, +hy, +hz) is pushed here
     this.addQuad(nhx nhy hz  hx nhy hz  hx hy hz  nhx hy hz  0.0 0.0 1.0)
 ```
-`addQuad` calls `pushVertex`, and the vertex finally exists as three doubles in
-one flat array (`three/src/three_buffer_geometry.rgr`):
+
+**Route 1b — explicit vertex data.** In Three.js the guest types every
+coordinate itself; this is the standard route for any custom mesh:
+```js
+const geometry = new THREE.BufferGeometry();
+const vertices = new Float32Array([ 1,1,1,  -1,-1,1,  -1,1,-1 /* … */ ]);
+geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+const mesh = new THREE.Mesh(geometry, material);
+```
+This route **does not exist in the engine today**: the façade has no
+`BufferGeometry`/`setAttribute` class, and `ThreeSceneHost` has no command that
+accepts raw vertex arrays — its geometry surface is ten parametric constructors
+plus `modelAttach`. The only form in which a guest has ever supplied raw
+vertices is the legacy *block mode*: a `rg_mesh_ptr` table of 32-byte
+fixed-point records copied out of guest linear memory
+(`wasm3d_runner.rgr:467–487`; reader kept for compatibility, no shipped game
+uses it). The contract therefore needs a bulk vertex-upload command —
+`geometryCreateRaw(positions, normals, uvs, indices)` in class-registry terms —
+the write-side twin of stage 4's bulk read: one boundary crossing carrying N
+vertices, landing in the same `pushVertex` sink as route 1a.
+
+**Route 1c — loaded from a model file.** The vertices come from a glTF binary,
+decoded host-side (`three_gltf_loader` / `model3d`), and enter the scene as a
+finished subtree via `host.modelAttach(sceneH, model)`
+(`three_tsx_bridge.rgr:609–675`). The guest sees only the returned entity
+handle; the coordinates never pass through guest code at all.
+
+**Route 1d — mutation after construction.** Three.js lets a guest edit vertices
+in place (`geometry.attributes.position.setXYZ(i, x, y, z)`;
+`position.needsUpdate = true`) — terrain deformation, water, morphing. The
+engine's current answer is coarse: the reconciler diffs a *signature* of the
+geometry parameters and on change **destroys and rebuilds the whole mesh**
+(`three_tsx_bridge.rgr:582–588`, the "needsUpdate model" per its own comments
+`:30, :79–82`). Parameter changes work; per-vertex edits have no path at all
+until route 1b exists, after which the contract needs the matching
+`geometryUpdate` (bulk overwrite of an attribute range) so an edit is an update,
+not a rebuild.
+
+Whatever the route, every vertex ends in the same place — the flat arrays of the
+core geometry (`three/src/three_buffer_geometry.rgr`):
 ```
 class ThreeBufferGeometry {
     def positions:[double]        ; x,y,z per vertex — the ONE copy
@@ -579,12 +614,11 @@ class ThreeBufferGeometry {
         return (itemAt this.positions ((vertex * 3) + comp))
     }
 ```
-One legacy variant still exists: the *block mode*, where the guest exported a
-`rg_mesh_ptr` table of fixed-point vertex records and the host copied them out
-of guest linear memory (`wasm3d_runner.rgr:467–487`). No shipped game uses it
-anymore — the runner keeps the reader (`sceneMode = (wasm_has_export handle
-"rg_mesh_ptr") == 0`, line 439) for compatibility. It appears again in stage 4,
-because it is the only mode where a guest can read a vertex back today.
+The stages below follow the route-1a vertex, but stages 2–4 are identical for
+every route: once the doubles are in `positions`, their origin no longer
+matters. (Skinned, instanced and morph-target meshes are further construction
+forms Three.js offers; they add attributes and per-instance data on top of the
+same `BufferGeometry` model and are out of scope until routes 1b/1d land.)
 
 ## Stage 2 — attachment to world objects by handle
 
