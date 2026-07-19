@@ -1,0 +1,70 @@
+; ==============================================================================
+; ylos3d_e2e_test — ylos2 gameplay + 3D diamond sprites on the generic host.
+; ==============================================================================
+; Asserts PLAN_2D_EMBED_3D path A gems sit on top of the ylos2 port (LPC sheets,
+; split-screen, enemies, immediate env). Diamonds are texture-backed Sprite2Ds
+; from SW RTT of package .glb models.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/RgComposePresenter.rgr"
+Import "../harness/RgTest.rgr"
+
+class Ylos3DE2ETest {
+    sfn countNonClear:int (fb:RgFramebuffer clearRGB:int) {
+        def n 0
+        def y 0
+        while (y < fb.height) {
+            def x 0
+            while (x < fb.width) {
+                if ((fb.at(x y)) != clearRGB) { n = (n + 1) }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return n
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/e2e/ylos3d (ylos2 + embed 3D gems)"))
+        def host:RgGameHost (new RgGameHost)
+
+        t.ok("generic host loaded games/ylos3d"
+            (host.load("gallery/game_engine/v2/games/ylos3d" "index.tsx")))
+        t.eqInt("no bridge errors in init" host.bridge.errorCount 0)
+        t.ok("test fixture loaded"
+            (host.loadFixture("gallery/game_engine/v2/games/ylos3d/tests" "probe.tsx")))
+
+        ; ylos2 retained sprites + five 3D diamond sprites
+        t.eqInt("19 retained sprites (2 players + 12 enemies + 5 diamonds)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 19)
+        t.eqInt("three sheet atlases (p1 + p2 + enemy)"
+            (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 3)
+        t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
+        t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
+        t.eqInt("five diamond SceneSprite probes" (to_int (host.callSlot("diamondCount" 0))) 5)
+
+        def d0:int (to_int (host.callSlot("diamondSpriteId" 0)))
+        def d0h:RgHandle (host.bridge.resolveGuestId(d0))
+        t.ok("diamond 0 handle valid" (d0h.isValid()))
+        t.ok("diamond 0 is texture-backed" (host.bridge.d2.spriteUsesTexture(d0h)))
+
+        def f 0
+        while (f < 8) {
+            host.frame(33.333)
+            f = (f + 1)
+        }
+        t.eqInt("no bridge errors across frames" host.bridge.errorCount 0)
+        t.ok("frame recorded at least one 2D pass"
+            ((RgComposePresenter.passCount(host.bridge)) >= 1))
+
+        def fb:RgFramebuffer (RgFramebuffer.create(160 120))
+        def sky:int (((50 * 65536) + (120 * 256)) + 180)
+        def drawn:int (RgComposePresenter.presentPane(host.bridge 0 fb sky))
+        t.ok("compose presenter drew sprites" (drawn > 0))
+        def lit:int (Ylos3DE2ETest.countNonClear(fb sky))
+        t.ok("presented frame has non-sky pixels (LPC + 3D gems)" (lit > 40))
+
+        t.summary()
+    }
+}

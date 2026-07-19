@@ -1,0 +1,22 @@
+; ==============================================================================
+; RgComposePresenter — present a pane after path-A RTT has already run.
+; ==============================================================================
+; On PLAN_2D_EMBED_3D path A, `rg3d_render_to` executes SW→CPU Texture2D at
+; record time so the texture is sampleable by later 2D work in the same update.
+; Presentation therefore must NOT re-run 3D passes (that would double-render and
+; break ordered 3D/2D interleaving). Full ordered pass replay is a later slice.
+; ==============================================================================
+
+Import "../../interp/engine/RgRegistryBridge.rgr"
+Import "Rg2DPresenter.rgr"
+
+class RgComposePresenter {
+    ; Present one pane's current view. Returns sprites drawn (-1 if unbound).
+    sfn presentPane:int (bridge:RgRegistryBridge paneIndex:int fb:RgFramebuffer bgRGB:int) {
+        return (Rg2DPresenter.presentTextured(bridge paneIndex fb bgRGB))
+    }
+
+    sfn passCount:int (bridge:RgRegistryBridge) {
+        return (array_length bridge.passes)
+    }
+}

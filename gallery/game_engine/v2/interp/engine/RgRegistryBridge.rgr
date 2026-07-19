@@ -22,13 +22,30 @@ Import "../migrate/src/ComponentEngine.rgr"
 Import "../../imaging/png/PNGDecoder.rgr"
 Import "../../registry/schema/core/core_schema.rgr"
 Import "../../registry/schema/two_d/two_d_schema.rgr"
+Import "../../registry/schema/three/three_schema.rgr"
 Import "../../registry/codegen/RgCodegen.rgr"
 Import "../../modules/ranger_2d/RgRanger2D.rgr"
+Import "../../modules/ranger_three/RgRangerThree.rgr"
 Import "../../modules/ranger_core/RgAudio.rgr"
 Import "../../modules/ranger_core/RgInputSurface.rgr"
 Import "../../modules/ranger_core/RgRuntime.rgr"
+Import "../../three/port/src/three_gltf_file.rgr"
+Import "../../three/port/src/three_object3d.rgr"
 Import "../../host/handles/RgHandle.rgr"
 Import "../../host/ownership/OwnedHandle.rgr"
+
+; One recorded frame pass (PLAN_2D_EMBED_3D D2). kind: 0=2D pane, 1=3D RTT.
+class RgFramePass {
+    def kind:int 0
+    def layerH:RgHandle (new RgHandle)
+    def camH:RgHandle (new RgHandle)
+    def paneIndex:int 0
+    def sceneH:RgHandle (new RgHandle)
+    def cam3H:RgHandle (new RgHandle)
+    def texH:RgHandle (new RgHandle)
+    def width:int 0
+    def height:int 0
+}
 
 ; Position-indexed decoded arguments (parallel arrays; every position fills
 ; every array so indices align). At most one ai and one ad per command —
@@ -64,10 +81,13 @@ class RgRegistryBridge extends EvalNativeBridge {
 
     ; host modules (the real Phase 2–11 arenas)
     def d2:RgRanger2D (new RgRanger2D)
+    def d3:RgRangerThree (new RgRangerThree)
     def audio:RgAudio (new RgAudio)
     def input:RgInput (RgInput.create(2))
     def surface:RgSurface (new RgSurface)
     def clock:RgClock (new RgClock)
+    ; Global ordered frame-pass stream (PLAN D2) — cleared each update.
+    def passes:[RgFramePass]
 
     ; the single guest-id ↔ OwnedHandle surrogate table (all modules)
     def owned:[OwnedHandle]
@@ -89,8 +109,35 @@ class RgRegistryBridge extends EvalNativeBridge {
         def b:RgRegistryBridge (new RgRegistryBridge)
         def core:RgSchema (CoreSchema.build())
         def twoD:RgSchema (TwoDSchema.build())
-        b.table = (RgCodegen.tableUnion(core twoD))
+        def three:RgSchema (ThreeSchema.build())
+        def base:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        b.table = (RgCodegen.tableAppend(base three))
         return b
+    }
+
+    fn clearPasses:void () {
+        def empty:[RgFramePass]
+        this.passes = empty
+    }
+
+    fn appendPass2D:void (layerH:RgHandle camH:RgHandle pane:int) {
+        def p:RgFramePass (new RgFramePass)
+        p.kind = 0
+        p.layerH = layerH
+        p.camH = camH
+        p.paneIndex = pane
+        push this.passes p
+    }
+
+    fn appendPass3D:void (sceneH:RgHandle camH:RgHandle texH:RgHandle w:int h:int) {
+        def p:RgFramePass (new RgFramePass)
+        p.kind = 1
+        p.sceneH = sceneH
+        p.cam3H = camH
+        p.texH = texH
+        p.width = w
+        p.height = h
+        push this.passes p
     }
 
     ; ---- surrogate table ----------------------------------------------------
@@ -113,6 +160,16 @@ class RgRegistryBridge extends EvalNativeBridge {
         this.errorCount = (this.errorCount + 1)
         this.lastError = msg
         return (EvalValue.null())
+    }
+
+    ; Surface a typed 3D handle rejection from RgRangerThree.lastErr.
+    fn fail3d:EvalValue (cmd:string) {
+        def msg:string this.d3.lastErr
+        if (msg == "") {
+            msg = "wrong-type"
+        }
+        this.d3.clearErr()
+        return (this.fail((msg + ":") + cmd))
     }
 
     ; ---- EvalNativeBridge (pure table lookups) ------------------------------
@@ -244,9 +301,11 @@ class RgRegistryBridge extends EvalNativeBridge {
             o.released = true
             i = (i + 1)
         }
+        this.clearPasses()
         def a:int (this.d2.teardownRealm(this.d2.realmId))
+        def c:int (this.d3.teardownRealm(this.d3.realmId))
         def b:int (this.audio.registry.teardownRealm(this.audio.realmId))
-        return (a + b)
+        return ((a + b) + c)
     }
 
     ; ---- package asset loading (interpreter profile) ------------------------
@@ -408,6 +467,39 @@ class RgRegistryBridge extends EvalNativeBridge {
         return (this.loadTextureFile(texH rel))
     }
 
+    ; Package-relative .glb → scene entity. Game-agnostic: any uri under the
+    ; loaded package. Embedded PNG bufferViews are decoded here (bridge owns
+    ; imaging); geometry/materials come from ThreeGLTFFile.
+    fn loadModelAsset:int (sceneH:RgHandle uri:string) {
+        def rel:string uri
+        if ((indexOf uri "pkg://") == 0) {
+            rel = (substring uri 6)
+        }
+        if (this.packageDir == "") { return 0 }
+        def pdir:string this.packageDir
+        def raw:buffer (buffer_read_file pdir rel)
+        if ((buffer_length raw) < 20) { return 0 }
+        def loader:ThreeGLTFFile (new ThreeGLTFFile)
+        def root:ThreeObject3D (loader.loadGLB(raw))
+        def ni:int (loader.imageCount())
+        def i 0
+        while (i < ni) {
+            def png:buffer (loader.imageBytes(i))
+            if ((buffer_length png) > 8) {
+                def dec:PNGDecoder (new PNGDecoder)
+                def img:ImageBuffer (dec.decodeBytes(png))
+                if ((img.width > 0) && (img.height > 0)) {
+                    loader.setImage(i img.pixels img.width img.height)
+                }
+            }
+            i = (i + 1)
+        }
+        this.d3.clearErr()
+        def o:OwnedHandle (this.d3.modelAttachRoot(sceneH root))
+        if ((o.handle.isValid()) == false) { return 0 }
+        return (this.mintId(o))
+    }
+
     fn loadAtlasAsset:int (uri:string) {
         def rel:string uri
         if ((indexOf uri "pkg://") == 0) {
@@ -519,6 +611,11 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg2d_sprite_create") {
             def o:OwnedHandle (this.d2.spriteCreate((a.handleAt(0)) (a.intAt(1))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg2d_sprite_create_tex") {
+            def o:OwnedHandle (this.d2.spriteCreateFromTexture((a.handleAt(0))))
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
@@ -637,10 +734,124 @@ class RgRegistryBridge extends EvalNativeBridge {
             return (EvalValue.null())
         }
         if (row.name == "rg2d_render") {
-            ; the guest owns its render calls (frame pipeline step 6): each call
-            ; binds (scene/layer, camera) to a pane; the presenter reads pane
-            ; state at present time (step 7). Args are real resolved handles.
+            ; Append a Render2DPass (PLAN D2) and bind the pane view so present
+            ; can still read last-wins pane state (compat with Rg2DPresenter).
+            this.appendPass2D((a.handleAt(0)) (a.handleAt(1)) (a.intAt(2)))
             this.surface.paneSetView((a.intAt(2)) (a.handleAt(0)) (a.handleAt(1)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_graphics_rt_create") {
+            def o:OwnedHandle (this.d2.renderTargetCreate((a.intAt(0)) (a.intAt(1))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_scene_create") {
+            def o:OwnedHandle (this.d3.sceneCreate())
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_camera_create") {
+            def o:OwnedHandle (this.d3.cameraCreate())
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_camera_set") {
+            this.d3.clearErr()
+            if ((this.d3.cameraSet((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_camera_pose") {
+            this.d3.clearErr()
+            if ((this.d3.cameraPose((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_geometry_box") {
+            def o:OwnedHandle (this.d3.geometryBox((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_geometry_octahedron") {
+            def o:OwnedHandle (this.d3.geometryOctahedron((a.dblAt(0))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_basic") {
+            def o:OwnedHandle (this.d3.materialBasic((a.intAt(0))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_lambert") {
+            def o:OwnedHandle (this.d3.materialLambert((a.intAt(0))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_set_opacity") {
+            this.d3.clearErr()
+            if ((this.d3.materialSetOpacity((a.handleAt(0)) (a.dblAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_light_ambient") {
+            this.d3.clearErr()
+            def o:OwnedHandle (this.d3.lightAmbient((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2))))
+            if ((o.handle.isValid()) == false) {
+                return (this.fail3d(row.name))
+            }
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_light_directional") {
+            this.d3.clearErr()
+            def o:OwnedHandle (this.d3.lightDirectional((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5))))
+            if ((o.handle.isValid()) == false) {
+                return (this.fail3d(row.name))
+            }
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_mesh_create") {
+            this.d3.clearErr()
+            def o:OwnedHandle (this.d3.meshCreate((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2))))
+            if ((o.handle.isValid()) == false) {
+                return (this.fail3d(row.name))
+            }
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_mesh_transform") {
+            this.d3.clearErr()
+            if ((this.d3.meshTransform((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_mesh_set_scale") {
+            this.d3.clearErr()
+            if ((this.d3.meshSetScale((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_model_load") {
+            def mid:int (this.loadModelAsset((a.handleAt(0)) (a.strAt(1))))
+            if (mid < 1) {
+                return (this.fail("model-not-found:" + (a.strAt(1))))
+            }
+            return (RgRegistryBridge.retI(mid))
+        }
+        if (row.name == "rg3d_render_to") {
+            ; Execute SW RTT at record time (path A) so the texture is
+            ; sampleable by later 2D work. Presenter must not re-run this.
+            this.d3.clearErr()
+            if ((this.d3.renderToTexture((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2)) (a.intAt(3)) (a.intAt(4)) this.d2)) == false) {
+                return (this.fail3d(row.name))
+            }
+            this.appendPass3D((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2)) (a.intAt(3)) (a.intAt(4)))
             return (EvalValue.null())
         }
         if (row.name == "rgcore_assets_load_atlas") {

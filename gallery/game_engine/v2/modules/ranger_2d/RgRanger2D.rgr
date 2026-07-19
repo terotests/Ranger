@@ -79,6 +79,10 @@ class RgSpriteAtlas {
 
 class RgSprite2D {
     def atlasH:RgHandle (new RgHandle)
+    ; Texture-backed source (PLAN_2D_EMBED_3D D10): when useTexture is true the
+    ; sprite samples textureH over the full UV rect instead of an atlas region.
+    def textureH:RgHandle (new RgHandle)
+    def useTexture:boolean false
     def regionIndex:int 0
     def x:double 0.0
     def y:double 0.0
@@ -313,6 +317,24 @@ class RgRanger2D {
         push this.atlases (new RgSpriteAtlas)
         return n
     }
+    ; Clear every field so recycled payload slots cannot inherit flip/z/pane/etc.
+    fn resetSprite:void (sp:RgSprite2D) {
+        sp.atlasH = (RgHandle.invalid())
+        sp.textureH = (RgHandle.invalid())
+        sp.useTexture = false
+        sp.regionIndex = 0
+        sp.x = 0.0
+        sp.y = 0.0
+        sp.layerSlot = 0
+        sp.w = 0.0
+        sp.h = 0.0
+        sp.z = 0
+        sp.flipX = false
+        sp.cellCol = (0 - 1)
+        sp.cellRow = 0
+        sp.paneOwner = (0 - 1)
+    }
+
     fn allocSprite:int () {
         def nf:int (array_length this.spriteFree)
         if (nf > 0) {
@@ -324,6 +346,7 @@ class RgRanger2D {
                 i = (i + 1)
             }
             this.spriteFree = kept
+            this.resetSprite((itemAt this.sprites idx))
             return idx
         }
         def n:int (array_length this.sprites)
@@ -526,12 +549,39 @@ class RgRanger2D {
         def sp:RgSprite2D (itemAt this.sprites idx)
         sp.atlasH = atlasH
         sp.regionIndex = regionIndex
-        sp.x = 0.0
-        sp.y = 0.0
-        sp.layerSlot = 0
+        sp.useTexture = false
         this.registry.retain(atlasH)
         def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.sprite()) idx))
         return (OwnedHandle.own(h))
+    }
+
+    ; Texture-backed sprite (D10): samples the full texture as a TextureView2D.
+    ; Retains the texture (same ownership rule as atlas-backed sprites).
+    fn spriteCreateFromTexture:OwnedHandle (textureH:RgHandle) {
+        def idx:int (this.allocSprite())
+        def sp:RgSprite2D (itemAt this.sprites idx)
+        sp.textureH = textureH
+        sp.useTexture = true
+        this.registry.retain(textureH)
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.sprite()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    ; Create a CPU render-target colour attachment: a Texture2D initialised to
+    ; fully transparent pixels so RTT → sprite compositing starts clean (D9/D11).
+    fn renderTargetCreate:OwnedHandle (w:int h:int) {
+        def o:OwnedHandle (this.textureCreate(w h))
+        def n:int (w * h)
+        def rgb:[int]
+        def alpha:[int]
+        def i 0
+        while (i < n) {
+            push rgb 0
+            push alpha 0
+            i = (i + 1)
+        }
+        this.textureUpload(o.handle w h rgb alpha)
+        return o
     }
 
     fn spriteResolve:RgSprite2D (spriteH:RgHandle) {
@@ -543,6 +593,16 @@ class RgRanger2D {
     fn spriteAtlasHandle:RgHandle (spriteH:RgHandle) {
         def sp:RgSprite2D (this.spriteResolve(spriteH))
         return sp.atlasH
+    }
+
+    fn spriteUsesTexture:boolean (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.useTexture
+    }
+
+    fn spriteTextureHandle:RgHandle (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.textureH
     }
 
     fn spriteSetRegion:void (spriteH:RgHandle regionIndex:int) {
@@ -626,9 +686,19 @@ class RgRanger2D {
     ; The source texel rect a sprite samples: a spritesheet CELL when the sprite
     ; has one (cellCol>=0) and its atlas is a sheet, else the named region. This
     ; is v1's drawSheet cell selection (col*frameW, row*frameH) folded into the
-    ; existing region-sampling backend.
+    ; existing region-sampling backend. Texture-backed sprites (D10) expose the
+    ; full texture as a synthetic region at (0,0,w,h).
     fn spriteSrcRegion:RgSpriteRegion (spriteH:RgHandle) {
         def sp:RgSprite2D (this.spriteResolve(spriteH))
+        if sp.useTexture {
+            def tx:RgTexture2D (this.textureResolve(sp.textureH))
+            def regT:RgSpriteRegion (new RgSpriteRegion)
+            regT.x = 0
+            regT.y = 0
+            regT.w = tx.width
+            regT.h = tx.height
+            return regT
+        }
         if (sp.cellCol >= 0) {
             def at:RgSpriteAtlas (this.atlasResolve(sp.atlasH))
             if (at.frameW > 0) {
@@ -892,13 +962,19 @@ class RgRanger2D {
         if (owned.released) { return (RgResolve.fail((RgErr.doubleRelease()))) }
         def sp:RgSprite2D (this.spriteResolve(owned.handle))
         def atlasH:RgHandle sp.atlasH
+        def texH:RgHandle sp.textureH
+        def fromTex:boolean sp.useTexture
         def r:RgResolve (this.registry.releaseOnce(owned.handle))
         if (r.ok) {
             owned.released = true
             if (r.freed) {
                 push this.spriteFree r.payloadIndex
-                ; drop the sprite's retained atlas reference
-                this.registry.releaseOnce(atlasH)
+                ; drop the sprite's retained source reference (atlas or texture)
+                if fromTex {
+                    this.registry.releaseOnce(texH)
+                } {
+                    this.registry.releaseOnce(atlasH)
+                }
             }
         }
         return r

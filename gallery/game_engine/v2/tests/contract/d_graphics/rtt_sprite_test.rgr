@@ -1,0 +1,169 @@
+; ==============================================================================
+; rtt_sprite_test — PLAN_2D_EMBED_3D gate: 3D → RT → texture-backed Sprite2D.
+; ==============================================================================
+
+Import "../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../../runtime/game_host/RgComposePresenter.rgr"
+Import "../../harness/RgTest.rgr"
+
+class RttSpriteTest {
+    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+
+    fn callI:int (b:RgRegistryBridge name:string args:[EvalValue]) {
+        def r:EvalValue (b.invoke(name args))
+        return (to_int r.numberValue)
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_graphics/rtt_sprite"))
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+        def s:RttSpriteTest (new RttSpriteTest)
+        def empty:[EvalValue]
+
+        ; single-pane layout so rg2d_render can bind a view
+        def layA:[EvalValue]
+        push layA (s.num(0.0))
+        b.invoke("rgcore_surface_set_layout" layA)
+
+        ; RT colour attachment
+        def rtA:[EvalValue]
+        push rtA (s.num(32.0))
+        push rtA (s.num(32.0))
+        def texId:int (s.callI(b "rgcore_graphics_rt_create" rtA))
+        t.ok("rt create mints texture id" (texId > 0))
+
+        ; 3D scene: translucent cyan diamond (narrow pavilion)
+        def sceneId:int (s.callI(b "rg3d_scene_create" empty))
+        def camId:int (s.callI(b "rg3d_camera_create" empty))
+        def csA:[EvalValue]
+        push csA (s.num((to_double camId)))
+        push csA (s.num(35.0))
+        push csA (s.num(0.75))
+        push csA (s.num(0.1))
+        push csA (s.num(20.0))
+        b.invoke("rg3d_camera_set" csA)
+        def cpA:[EvalValue]
+        push cpA (s.num((to_double camId)))
+        push cpA (s.num(0.0))
+        push cpA (s.num(0.05))
+        push cpA (s.num(3.0))
+        push cpA (s.num(0.0))
+        push cpA (s.num(0.0))
+        push cpA (s.num(0.0))
+        b.invoke("rg3d_camera_pose" cpA)
+        def ambA:[EvalValue]
+        push ambA (s.num((to_double sceneId)))
+        push ambA (s.num(16777215.0))
+        push ambA (s.num(0.35))
+        s.callI(b "rg3d_light_ambient" ambA)
+        def dirA:[EvalValue]
+        push dirA (s.num((to_double sceneId)))
+        push dirA (s.num(16777215.0))
+        push dirA (s.num(0.95))
+        push dirA (s.num(0.6))
+        push dirA (s.num(1.0))
+        push dirA (s.num(0.4))
+        s.callI(b "rg3d_light_directional" dirA)
+        def geoA:[EvalValue]
+        push geoA (s.num(0.9))
+        def geoId:int (s.callI(b "rg3d_geometry_octahedron" geoA))
+        def matA:[EvalValue]
+        push matA (s.num(7926015.0))
+        def matId:int (s.callI(b "rg3d_material_lambert" matA))
+        def opacA:[EvalValue]
+        push opacA (s.num((to_double matId)))
+        push opacA (s.num(0.72))
+        b.invoke("rg3d_material_set_opacity" opacA)
+        def meshA:[EvalValue]
+        push meshA (s.num((to_double sceneId)))
+        push meshA (s.num((to_double geoId)))
+        push meshA (s.num((to_double matId)))
+        def meshId:int (s.callI(b "rg3d_mesh_create" meshA))
+        def xfA:[EvalValue]
+        push xfA (s.num((to_double meshId)))
+        push xfA (s.num(0.0))
+        push xfA (s.num(0.0))
+        push xfA (s.num(0.0))
+        push xfA (s.num(0.4))
+        push xfA (s.num(0.7))
+        push xfA (s.num(0.2))
+        b.invoke("rg3d_mesh_transform" xfA)
+
+        def rttA:[EvalValue]
+        push rttA (s.num((to_double sceneId)))
+        push rttA (s.num((to_double camId)))
+        push rttA (s.num((to_double texId)))
+        push rttA (s.num(32.0))
+        push rttA (s.num(32.0))
+        b.invoke("rg3d_render_to" rttA)
+        t.eqInt("rtt recorded no errors" b.errorCount 0)
+
+        def texH:RgHandle (b.resolveGuestId(texId))
+        t.ok("rt texture has pixels after 3D" (b.d2.textureHasPixels(texH)))
+        def mid:int (b.d2.texelRGB(texH 16 16))
+        t.ok("centre texel lit by diamond" (mid > 0))
+        def midA:int (b.d2.texelA(texH 16 16))
+        t.ok("centre texel has coverage" (midA > 0))
+        t.ok("centre texel is translucent (not fully opaque)" (midA < 255))
+        ; Lambert facets: more than one distinct colour in the RT
+        def shades 0
+        def seen0:int (0 - 1)
+        def seen1:int (0 - 1)
+        def yy 0
+        while (yy < 32) {
+            def xx 0
+            while (xx < 32) {
+                if ((b.d2.texelA(texH xx yy)) > 0) {
+                    def c:int (b.d2.texelRGB(texH xx yy))
+                    if (seen0 < 0) { seen0 = c }
+                    if (c != seen0) {
+                        if (seen1 < 0) { seen1 = c }
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+        if (seen0 >= 0) { shades = (shades + 1) }
+        if (seen1 >= 0) { shades = (shades + 1) }
+        t.ok("Lambert shading produces multiple facet colours" (shades >= 2))
+
+        ; texture-backed sprite samples the RT
+        def spA:[EvalValue]
+        push spA (s.num((to_double texId)))
+        def sprId:int (s.callI(b "rg2d_sprite_create_tex" spA))
+        def layerId:int (s.callI(b "rg2d_layer_create" empty))
+        def cam2Id:int (s.callI(b "rg2d_camera_create" empty))
+        def laA:[EvalValue]
+        push laA (s.num((to_double sprId)))
+        push laA (s.num((to_double layerId)))
+        b.invoke("rg2d_layer_add" laA)
+        def szA:[EvalValue]
+        push szA (s.num((to_double sprId)))
+        push szA (s.num(40.0))
+        push szA (s.num(40.0))
+        b.invoke("rg2d_sprite_set_size" szA)
+        def rnA:[EvalValue]
+        push rnA (s.num((to_double layerId)))
+        push rnA (s.num((to_double cam2Id)))
+        push rnA (s.num(0.0))
+        b.invoke("rg2d_render" rnA)
+
+        def fb:RgFramebuffer (RgFramebuffer.create(80 80))
+        def drawn:int (RgComposePresenter.presentPane(b 0 fb 0))
+        t.ok("compose drew the rtt sprite" (drawn > 0))
+        def hit 0
+        def y 0
+        while (y < 80) {
+            def x 0
+            while (x < 80) {
+                if ((fb.at(x y)) != 0) { hit = (hit + 1) }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        t.ok("framebuffer shows sampled 3D gem pixels" (hit > 20))
+        t.eqInt("no bridge errors" b.errorCount 0)
+        t.summary()
+    }
+}

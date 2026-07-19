@@ -1,22 +1,22 @@
 # modules/ranger_three — ranger:three
 
-Guest Three API backed by live host handles.
+Guest Three API backed by live host handles (`ThreeSceneHost` + SW rasteriser).
 
-**Plan phase:** 8 — see [`CODE_CLEANUP_PLAN.md`](../../../CODE_CLEANUP_PLAN.md).
+**Plan:** [`PLAN_2D_EMBED_3D.md`](../../PLAN_2D_EMBED_3D.md) H3/H4 (path A).
 
-## Binding decisions
+## Live surface (first cut)
 
-- D-SYNC
-- D-MODULES
+| Guest | Host |
+|-------|------|
+| `Scene` / `PerspectiveCamera` / `Mesh` | `RgRangerThree` → `ThreeSceneHost` |
+| `BoxGeometry` / `OctahedronGeometry` | SW triangle mesh |
+| `MeshBasicMaterial` | unlit colour |
+| `Renderer3D.render(scene, cam, target)` | SW 3D → CPU `Texture2D` |
+| `SceneSprite3D` | RT + texture-backed `Sprite2D` (ergonomic) |
 
-## To implement
+Registered by `RgGameHost` as the `ranger:three` virtual module (opt-in import).
 
-- Scene/Mesh/Camera/Geometry/Material + guest math
+## Gates
 
-## Unit / contract tests that gate this folder
-
-- new_mesh_creates_one_handle
-
----
-
-*Scaffold only (Phase 0). Implementation arrives in later phases.*
+- `tests/contract/d_graphics/rtt_sprite_test`
+- `tests/e2e/ylos3d_e2e_test`

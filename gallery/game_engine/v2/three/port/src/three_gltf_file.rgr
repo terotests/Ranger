@@ -184,6 +184,46 @@ class ThreeGLTFFile {
         def img:ThreeJsonValue (this.imagesJson.at(i))
         return (img.strOr("uri" ""))
     }
+
+    ; Embedded image bytes for image i (glTF bufferView), or empty if the image
+    ; is only referenced by external uri. Generic — any .glb with bufferView images.
+    fn imageBytes:buffer (i:int) {
+        def empty:buffer (buffer_alloc 0)
+        if (i < 0) { return empty }
+        if ((this.imagesJson.length()) <= i) { return empty }
+        def img:ThreeJsonValue (this.imagesJson.at(i))
+        if (img.has("bufferView") == false) { return empty }
+        def bvIndex:int (img.intOr("bufferView" 0))
+        if ((this.bufferViewsJson.length()) <= bvIndex) { return empty }
+        def bv:ThreeJsonValue (this.bufferViewsJson.at(bvIndex))
+        def bufIndex:int (bv.intOr("buffer" 0))
+        def off:int (bv.intOr("byteOffset" 0))
+        def len:int (bv.intOr("byteLength" 0))
+        if (len <= 0) { return empty }
+        if (bufIndex < 0) { return empty }
+        if (bufIndex >= (array_length this.buffers)) { return empty }
+        def src:buffer (itemAt this.buffers bufIndex)
+        if ((off + len) > (buffer_length src)) { return empty }
+        return (ThreeGLTFFile.subBuffer(src off len))
+    }
+
+    ; Apply glTF material factors (baseColorFactor → colour + opacity). Generic
+    ; PBR→Lambert reduction used by the software path.
+    fn applyMaterialFactors:void (mat:ThreeMaterial matIdx:int) {
+        if (matIdx < 0) { return }
+        if ((this.materialsJson.length()) <= matIdx) { return }
+        def mj:ThreeJsonValue (this.materialsJson.at(matIdx))
+        def pbr:ThreeJsonValue (mj.get("pbrMetallicRoughness"))
+        if (pbr.has("baseColorFactor")) {
+            def f:ThreeJsonValue (pbr.get("baseColorFactor"))
+            def r:ThreeJsonValue (f.at(0))
+            def g:ThreeJsonValue (f.at(1))
+            def b:ThreeJsonValue (f.at(2))
+            def a:ThreeJsonValue (f.at(3))
+            mat.setColor((r.asNumber()) (g.asNumber()) (b.asNumber()))
+            mat.setOpacity((a.asNumber()))
+        }
+    }
     ; the normalTexture image index for material mi (-1 if none): material ->
     ; normalTexture.index (a texture) -> texture.source.
     fn normalIndexForMaterial:int (mi:int) {
@@ -255,7 +295,23 @@ class ThreeGLTFFile {
                 def matIdx:int (prim.intOr("material" (0 - 1)))
                 def imgIdx:int (this.imageIndexForMaterial(matIdx))
                 def mat:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
-                mat.setSide(2)
+                ; Honor glTF doubleSided — do not force two-sided on every mesh
+                ; (backfaces through translucent gems looked like a solid slab).
+                def side:int 0
+                if (matIdx >= 0) {
+                    if ((this.materialsJson.length()) > matIdx) {
+                        def mjSide:ThreeJsonValue (this.materialsJson.at(matIdx))
+                        if (mjSide.has("doubleSided")) {
+                            def ds:ThreeJsonValue (mjSide.get("doubleSided"))
+                            if (ds.isBool()) {
+                                if (ds.asBool()) {
+                                    side = 2
+                                }
+                            }
+                        }
+                    }
+                }
+                mat.setSide(side)
                 def matBase:ThreeMaterial mat
                 if (imgIdx < 0) {
                     mat.setColor(0.72 0.72 0.72)
@@ -264,6 +320,7 @@ class ThreeGLTFFile {
                     push this.texMaterials matBase
                     push this.texImageIdx imgIdx
                 }
+                this.applyMaterialFactors(matBase matIdx)
                 ; record the normal map (if any) so a host can attach its pixels.
                 def normalImgIdx:int (this.normalIndexForMaterial(matIdx))
                 if (normalImgIdx >= 0) {

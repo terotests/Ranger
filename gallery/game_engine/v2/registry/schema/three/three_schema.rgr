@@ -1,0 +1,68 @@
+; ==============================================================================
+; three_schema — authored registry rows for the `ranger:three` module.
+; ==============================================================================
+; Minimal live guest surface for PLAN_2D_EMBED_3D H3 (SW path A): scene, camera,
+; box/octahedron geometry, basic/lambert materials (+ opacity), mesh, lights,
+; package-relative .glb model load (game supplies the uri), and render-to-texture.
+; No asset- or game-specific commands — games pass pkg:// paths.
+; Published ids are immutable:
+;   classIds 30–39 · command ids 3000–3999   (golden-checked)
+; ==============================================================================
+
+Import "../RgSchema.rgr"
+
+class ThreeSchema {
+    sfn build:RgSchema () {
+        def s:RgSchema (new RgSchema)
+
+        ; ---- Scene3D (30) ----------------------------------------------------
+        def scene:RgClassDef (RgClassDef.of(30 "Scene3D"))
+        scene.addMethod((RgMethodDef.cmd(3000 "rg3d_scene_create" "rg3d_scene_create" "" "h" "create")))
+        s.addClass(scene)
+
+        ; ---- Camera3D (31) ---------------------------------------------------
+        def cam:RgClassDef (RgClassDef.of(31 "Camera3D"))
+        cam.addMethod((RgMethodDef.cmd(3001 "rg3d_camera_create" "rg3d_camera_create" "" "h" "create")))
+        cam.addMethod((RgMethodDef.cmd(3002 "rg3d_camera_set" "rg3d_camera_set" "h:d:d:d:d" "v" "none")))
+        cam.addMethod((RgMethodDef.cmd(3003 "rg3d_camera_pose" "rg3d_camera_pose" "h:d:d:d:d:d:d" "v" "none")))
+        s.addClass(cam)
+
+        ; ---- Geometry3D (32) -------------------------------------------------
+        def geo:RgClassDef (RgClassDef.of(32 "Geometry3D"))
+        geo.addMethod((RgMethodDef.cmd(3010 "rg3d_geometry_box" "rg3d_geometry_box" "d:d:d" "h" "create")))
+        geo.addMethod((RgMethodDef.cmd(3011 "rg3d_geometry_octahedron" "rg3d_geometry_octahedron" "d" "h" "create")))
+        s.addClass(geo)
+
+        ; ---- Material3D (33) -------------------------------------------------
+        def mat:RgClassDef (RgClassDef.of(33 "Material3D"))
+        mat.addMethod((RgMethodDef.cmd(3020 "rg3d_material_basic" "rg3d_material_basic" "i" "h" "create")))
+        mat.addMethod((RgMethodDef.cmd(3021 "rg3d_material_lambert" "rg3d_material_lambert" "i" "h" "create")))
+        mat.addMethod((RgMethodDef.cmd(3022 "rg3d_material_set_opacity" "rg3d_material_set_opacity" "h:d" "v" "none")))
+        s.addClass(mat)
+
+        ; ---- Mesh3D (34) -----------------------------------------------------
+        def mesh:RgClassDef (RgClassDef.of(34 "Mesh3D"))
+        mesh.addMethod((RgMethodDef.cmd(3030 "rg3d_mesh_create" "rg3d_mesh_create" "h:h:h" "h" "create")))
+        mesh.addMethod((RgMethodDef.cmd(3031 "rg3d_mesh_transform" "rg3d_mesh_transform" "h:d:d:d:d:d:d" "v" "none")))
+        mesh.addMethod((RgMethodDef.cmd(3032 "rg3d_mesh_set_scale" "rg3d_mesh_set_scale" "h:d:d:d" "v" "none")))
+        s.addClass(mesh)
+
+        ; ---- Renderer3D (35) — RTT into a Texture2D / RenderTarget ------------
+        def ren:RgClassDef (RgClassDef.of(35 "Renderer3D"))
+        ren.addMethod((RgMethodDef.cmd(3040 "rg3d_render_to" "rg3d_render_to" "h:h:h:i:i" "v" "none")))
+        s.addClass(ren)
+
+        ; ---- Light3D (36) — ambient + directional for SW Lambert -------------
+        def light:RgClassDef (RgClassDef.of(36 "Light3D"))
+        light.addMethod((RgMethodDef.cmd(3050 "rg3d_light_ambient" "rg3d_light_ambient" "h:i:d" "h" "create")))
+        light.addMethod((RgMethodDef.cmd(3051 "rg3d_light_directional" "rg3d_light_directional" "h:i:d:d:d:d" "h" "create")))
+        s.addClass(light)
+
+        ; ---- Model3D (37) — package-relative .glb → scene entity --------------
+        def model:RgClassDef (RgClassDef.of(37 "Model3D"))
+        model.addMethod((RgMethodDef.cmd(3060 "rg3d_model_load" "rg3d_model_load" "h:s" "h" "create")))
+        s.addClass(model)
+
+        return s
+    }
+}

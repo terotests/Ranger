@@ -79,6 +79,10 @@ class ThreeRenderBackend {
     fn raw:buffer () {
         return (buffer_alloc 0)
     }
+    ; Per-pixel alpha (w*h), 0..255 — used by RTT → Sprite2D compositing.
+    fn rawAlpha:buffer () {
+        return (buffer_alloc 0)
+    }
     fn width:int () {
         return 0
     }

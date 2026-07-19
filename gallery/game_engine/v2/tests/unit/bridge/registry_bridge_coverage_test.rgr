@@ -321,6 +321,105 @@ class RegistryBridgeCoverageTest {
         s.callN("rgcore_launch" lnA)
         t.eqStr("launch request recorded" b.launchRequest "games/ylos2")
 
+        ; ---- graphics RT + texture-backed sprite + ranger:three (PLAN H1–H4)
+        def rtA:[EvalValue]
+        push rtA (s.num(16.0))
+        push rtA (s.num(16.0))
+        def rtTex:int (s.callI("rgcore_graphics_rt_create" rtA))
+        t.ok("graphics rt create" (rtTex > 0))
+        def stxA:[EvalValue]
+        push stxA (s.num((to_double rtTex)))
+        def texSprite:int (s.callI("rg2d_sprite_create_tex" stxA))
+        t.ok("texture-backed sprite" (texSprite > 0))
+
+        def empty3:[EvalValue]
+        def scene3:int (s.callI("rg3d_scene_create" empty3))
+        def cam3:int (s.callI("rg3d_camera_create" empty3))
+        def c3s:[EvalValue]
+        push c3s (s.num((to_double cam3)))
+        push c3s (s.num(40.0))
+        push c3s (s.num(1.0))
+        push c3s (s.num(0.1))
+        push c3s (s.num(10.0))
+        s.callN("rg3d_camera_set" c3s)
+        def c3p:[EvalValue]
+        push c3p (s.num((to_double cam3)))
+        push c3p (s.num(0.0))
+        push c3p (s.num(0.0))
+        push c3p (s.num(3.0))
+        push c3p (s.num(0.0))
+        push c3p (s.num(0.0))
+        push c3p (s.num(0.0))
+        s.callN("rg3d_camera_pose" c3p)
+        def boxA:[EvalValue]
+        push boxA (s.num(1.0))
+        push boxA (s.num(1.0))
+        push boxA (s.num(1.0))
+        def boxG:int (s.callI("rg3d_geometry_box" boxA))
+        def octA:[EvalValue]
+        push octA (s.num(0.8))
+        def octG:int (s.callI("rg3d_geometry_octahedron" octA))
+        def mat3A:[EvalValue]
+        push mat3A (s.num(16711680.0))
+        def mat3:int (s.callI("rg3d_material_basic" mat3A))
+        def matL:[EvalValue]
+        push matL (s.num(7926015.0))
+        def matLambert:int (s.callI("rg3d_material_lambert" matL))
+        def opacA:[EvalValue]
+        push opacA (s.num((to_double matLambert)))
+        push opacA (s.num(0.72))
+        s.callN("rg3d_material_set_opacity" opacA)
+        def ambA:[EvalValue]
+        push ambA (s.num((to_double scene3)))
+        push ambA (s.num(16777215.0))
+        push ambA (s.num(0.4))
+        def ambId:int (s.callI("rg3d_light_ambient" ambA))
+        def dirA:[EvalValue]
+        push dirA (s.num((to_double scene3)))
+        push dirA (s.num(16777215.0))
+        push dirA (s.num(0.9))
+        push dirA (s.num(0.5))
+        push dirA (s.num(1.0))
+        push dirA (s.num(0.3))
+        def dirId:int (s.callI("rg3d_light_directional" dirA))
+        def mesh3A:[EvalValue]
+        push mesh3A (s.num((to_double scene3)))
+        push mesh3A (s.num((to_double octG)))
+        push mesh3A (s.num((to_double matLambert)))
+        def mesh3:int (s.callI("rg3d_mesh_create" mesh3A))
+        def xf3:[EvalValue]
+        push xf3 (s.num((to_double mesh3)))
+        push xf3 (s.num(0.0))
+        push xf3 (s.num(0.0))
+        push xf3 (s.num(0.0))
+        push xf3 (s.num(0.2))
+        push xf3 (s.num(0.4))
+        push xf3 (s.num(0.0))
+        s.callN("rg3d_mesh_transform" xf3)
+        def scA:[EvalValue]
+        push scA (s.num((to_double mesh3)))
+        push scA (s.num(1.25))
+        push scA (s.num(1.25))
+        push scA (s.num(1.25))
+        s.callN("rg3d_mesh_set_scale" scA)
+        ; Generic package .glb load (fixture under climber sample; not game-specific API)
+        def mdlA:[EvalValue]
+        push mdlA (s.num((to_double scene3)))
+        push mdlA (s.str("pkg://models/sample.glb"))
+        def mdlId:int (s.callI("rg3d_model_load" mdlA))
+        def rtt3:[EvalValue]
+        push rtt3 (s.num((to_double scene3)))
+        push rtt3 (s.num((to_double cam3)))
+        push rtt3 (s.num((to_double rtTex)))
+        push rtt3 (s.num(16.0))
+        push rtt3 (s.num(16.0))
+        s.callN("rg3d_render_to" rtt3)
+        t.ok("three box geometry created" (boxG > 0))
+        t.ok("three basic material created" (mat3 > 0))
+        t.ok("three lights created" ((ambId > 0) && (dirId > 0)))
+        t.ok("three octahedron created" (octG > 0))
+        t.ok("three model_load + scale + rtt ok" (mdlId > 0))
+
         ; ================= COVERAGE DIFF =====================================
         def missing 0
         def nrows:int (array_length b.table)

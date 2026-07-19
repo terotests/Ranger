@@ -9,6 +9,7 @@
 
 Import "../core/core_schema.rgr"
 Import "../two_d/two_d_schema.rgr"
+Import "../three/three_schema.rgr"
 Import "../../codegen/RgCodegen.rgr"
 Import "../../../tests/harness/RgTest.rgr"
 
@@ -18,15 +19,19 @@ class BridgeSchemaTest {
 
         def core:RgSchema (CoreSchema.build())
         def twoD:RgSchema (TwoDSchema.build())
-        t.eqInt("core schema has 16 commands" (core.methodCount()) 16)
-        t.eqInt("two_d schema has 27 commands" (twoD.methodCount()) 27)
+        def three:RgSchema (ThreeSchema.build())
+        ; core+two_d gain rt_create / sprite_create_tex from path A; three is live.
+        t.eqInt("core schema has 17 commands" (core.methodCount()) 17)
+        t.eqInt("two_d schema has 28 commands" (twoD.methodCount()) 28)
+        t.eqInt("three schema has 16 commands" (three.methodCount()) 16)
         ; residency gate still applies (Sprite2D host props declare sync)
         def v2d:[string] (twoD.validate())
         t.eqInt("two_d rows pass residency validation" (array_length v2d) 0)
 
-        ; ---- the ONE table: union of both modules ---------------------------
-        def table:[RgCommand] (RgCodegen.tableUnion(core twoD))
-        t.eqInt("union table row count" (array_length table) 43)
+        ; ---- the ONE table: union of core + two_d + three --------------------
+        def base:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def table:[RgCommand] (RgCodegen.tableAppend(base three))
+        t.eqInt("union table row count" (array_length table) 61)
         def viol:[string] (RgCodegen.checkTable(table))
         def nv:int (array_length viol)
         if (nv > 0) {
@@ -55,21 +60,35 @@ class BridgeSchemaTest {
         t.eqStr("clip argSpec carries arrays" clip.argSpec "h:s:ai:ad")
 
         ; ---- id immutability machinery applies to the union -----------------
-        def golden:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def gBase:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def golden:[RgCommand] (RgCodegen.tableAppend(gBase three))
         def r0:RgIdReport (RgCodegen.checkGolden(golden table))
         t.ok("union passes its own golden check" r0.ok)
         ; a renumbered command still fails
-        def mut:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def mBase:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def mut:[RgCommand] (RgCodegen.tableAppend(mBase three))
         def c0:RgCommand (RgCodegen.findById(mut 2020))
         c0.id = 2500
         def r1:RgIdReport (RgCodegen.checkGolden(golden mut))
         t.no("renumbering a bridge command fails golden" r1.ok)
 
         ; ---- broken rows are caught -----------------------------------------
-        def bad:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def badBase:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def bad:[RgCommand] (RgCodegen.tableAppend(badBase three))
         push bad (RgCommand.of(9999 "rgx_out_of_range" "rgx_out_of_range"))
         def bv:[string] (RgCodegen.checkTable(bad))
         t.ok("out-of-range id flagged" ((array_length bv) > 0))
+
+        ; three commands live in the published 3000 range
+        def oct:RgCommand (RgCodegen.findByName(table "rg3d_geometry_octahedron"))
+        t.eqInt("octahedron id" oct.id 3011)
+        t.eqStr("octahedron module" (RgIdRanges.moduleOf(oct.id)) "three")
+        def opac:RgCommand (RgCodegen.findByName(table "rg3d_material_set_opacity"))
+        t.eqInt("material opacity id" opac.id 3022)
+        def scale:RgCommand (RgCodegen.findByName(table "rg3d_mesh_set_scale"))
+        t.eqInt("mesh set_scale id" scale.id 3032)
+        def mdl:RgCommand (RgCodegen.findByName(table "rg3d_model_load"))
+        t.eqInt("model_load id" mdl.id 3060)
 
         t.summary()
     }

@@ -435,6 +435,20 @@ class ThreeMatrix4 {
         return this
     }
 
+    ; Homogeneous clip-space components of (x,y,z,1). Used by the software
+    ; rasteriser for near-plane clipping before the perspective divide.
+    fn clipX:double (x:double y:double z:double) {
+        this.ensure()
+        return (((((itemAt this.elements 0) * x) + ((itemAt this.elements 4) * y)) + ((itemAt this.elements 8) * z)) + (itemAt this.elements 12))
+    }
+    fn clipY:double (x:double y:double z:double) {
+        this.ensure()
+        return (((((itemAt this.elements 1) * x) + ((itemAt this.elements 5) * y)) + ((itemAt this.elements 9) * z)) + (itemAt this.elements 13))
+    }
+    fn clipZ:double (x:double y:double z:double) {
+        this.ensure()
+        return (((((itemAt this.elements 2) * x) + ((itemAt this.elements 6) * y)) + ((itemAt this.elements 10) * z)) + (itemAt this.elements 14))
+    }
     ; homogeneous w of (x,y,z,1) under this matrix — <= 0 means behind the camera.
     fn clipW:double (x:double y:double z:double) {
         this.ensure()

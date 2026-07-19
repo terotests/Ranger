@@ -112,6 +112,10 @@ run_suite tests/render/textured_render_test
 # import also compile-checks the whole native driver against the gfx_* stubs
 run_suite tests/sdl/sdl_host_test
 
+# ---- PLAN_2D_EMBED_3D — H1–H4 path A (SW 3D → CPU Texture2D → SW 2D) ---------
+run_suite tests/contract/d_graphics/rtt_sprite_test
+run_suite tests/contract/d_graphics/embed3d_correctness_test
+
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test
 # headless music: score parse -> beat schedule -> equal-tempered PCM synth
@@ -129,6 +133,7 @@ run_suite menu/tests/launcher_ui_test
 # Games are TSX-only folders (no per-game .rgr); RgGameHost is the single
 # generic host (v1 GameRunner analog). These are thin test drivers.
 run_suite tests/e2e/ylos2_e2e_test
+run_suite tests/e2e/ylos3d_e2e_test
 run_suite tests/e2e/launcher_e2e_test
 
 echo "=============================================================="

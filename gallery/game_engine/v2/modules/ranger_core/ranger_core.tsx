@@ -106,6 +106,47 @@ class __RgPlatform {
   launch(path) { rgcore_launch(path); }
 }
 
+// Shared graphics (PLAN_2D_EMBED_3D H1): RenderTarget owns a colour Texture2D
+// initialised to transparent pixels. colorTexture.view() is a TextureView2D.
+class __RgTexture2D {
+  id = 0;
+  width = 0;
+  height = 0;
+  constructor(id, w, h) {
+    this.id = id;
+    this.width = w;
+    this.height = h;
+  }
+  view() { return { texture: this }; }
+}
+
+class __RgRenderTarget {
+  id = 0;
+  width = 0;
+  height = 0;
+  colorTexture = null;
+  constructor(w, h) {
+    this.width = w;
+    this.height = h;
+    // Host returns the colour attachment handle; RT identity is that texture
+    // for this thin H1 slice (ownership rules match D11 for sampling).
+    this.id = rgcore_graphics_rt_create(w, h);
+    this.colorTexture = new __RgTexture2D(this.id, w, h);
+  }
+}
+
+class __RgGraphics {
+  createRenderTarget(opts) {
+    let w = 64;
+    let h = 64;
+    if (opts != null) {
+      if (opts.width != null) { w = opts.width; }
+      if (opts.height != null) { h = opts.height; }
+    }
+    return new __RgRenderTarget(w, h);
+  }
+}
+
 let __rgGame = null;
 
 class __RgRuntime {
@@ -116,6 +157,7 @@ class __RgRuntime {
   time = new __RgTime();
   log = new __RgLog();
   platform = new __RgPlatform();
+  graphics = new __RgGraphics();
   // host owns the tick: start() stores the game; the host drives it through
   // the __rgGameInit / __rgGameUpdate entry points below.
   start(game) { __rgGame = game; }

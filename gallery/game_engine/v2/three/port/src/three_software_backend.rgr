@@ -2,10 +2,12 @@
 ; three_software_backend — pure-Ranger rasteriser backend for ThreeWebGLRenderer.
 ; ==============================================================================
 ;
-; A compact z-buffered triangle rasteriser: projects each vertex by the mesh MVP,
-; then fills triangles with perspective (NDC) depth testing and affine UV /
-; texture sampling. Unlit, matching MeshBasicMaterial. No GPU, no JS — compiles
-; to C++ for native/embedded and is the default renderer backend.
+; A compact z-buffered triangle rasteriser: clips each triangle against the
+; near plane in homogeneous clip space, perspective-divides, then fills with
+; NDC depth testing and perspective-correct UV sampling. MeshBasicMaterial
+; stays unlit; Lambert/Phong use ambient + directional N·L so faceted meshes
+; read as 3D. No GPU — compiles to C++ for native/embedded and is the default
+; renderer backend.
 ; ==============================================================================
 
 Import "three_render_backend.rgr"
@@ -19,7 +21,17 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
     def w:int 0
     def h:int 0
     def color:buffer (buffer_alloc 0)
+    ; Per-pixel coverage alpha (w*h), 0..255 — clear stays 0 so RTT sprites
+    ; composite over the 2D world; fragments write mat.opacity (glass gems).
+    def alpha:buffer (buffer_alloc 0)
     def depth:double_buffer (double_buffer_alloc 0)
+    ; per-frame lights (from setLights)
+    def ambR:double 0.0
+    def ambG:double 0.0
+    def ambB:double 0.0
+    def dirCount:int 0
+    def dirs:[double]
+    def cols:[double]
 
     fn init:void (width:int height:int) {
         w = width
@@ -27,6 +39,7 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         def npix:int (width * height)
         def nbytes:int (npix * 3)
         color = (buffer_alloc nbytes)
+        alpha = (buffer_alloc npix)
         depth = (double_buffer_alloc npix)
     }
 
@@ -44,9 +57,105 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
             buffer_set color o br
             buffer_set color (o + 1) bg
             buffer_set color (o + 2) bb
+            buffer_set alpha i 0
             double_buffer_set depth i 1000000000.0
             i = (i + 1)
         }
+    }
+
+    fn setLights:void (aR:double aG:double aB:double count:int d:[double] c:[double]) {
+        ambR = aR
+        ambG = aG
+        ambB = aB
+        dirCount = count
+        dirs = d
+        cols = c
+    }
+
+    ; Transform a normal by the upper 3×3 of `model` and renormalise (uniform
+    ; scale / rotation — fine for SceneSprite gems with scale 1).
+    fn transformNormal:ThreeVector3 (model:ThreeMatrix4 nx:double ny:double nz:double) {
+        model.ensure()
+        def e0:double (itemAt model.elements 0)
+        def e1:double (itemAt model.elements 1)
+        def e2:double (itemAt model.elements 2)
+        def e4:double (itemAt model.elements 4)
+        def e5:double (itemAt model.elements 5)
+        def e6:double (itemAt model.elements 6)
+        def e8:double (itemAt model.elements 8)
+        def e9:double (itemAt model.elements 9)
+        def e10:double (itemAt model.elements 10)
+        def wx:double (((e0 * nx) + (e4 * ny)) + (e8 * nz))
+        def wy:double (((e1 * nx) + (e5 * ny)) + (e9 * nz))
+        def wz:double (((e2 * nx) + (e6 * ny)) + (e10 * nz))
+        def len:double (sqrt(((wx * wx) + (wy * wy)) + (wz * wz)))
+        if (len < 0.000001) { len = 1.0 }
+        return (ThreeVector3.of((wx / len) (wy / len) (wz / len)))
+    }
+
+    ; Peak N·L across directional lights (0..1) — used for facet sparkle / alpha.
+    fn peakNDotL:double (nx:double ny:double nz:double) {
+        def peak:double 0.0
+        def i:int 0
+        while (i < dirCount) {
+            def base:int (i * 3)
+            def lx:double (itemAt dirs base)
+            def ly:double (itemAt dirs (base + 1))
+            def lz:double (itemAt dirs (base + 2))
+            def ndotl:double (((nx * lx) + (ny * ly)) + (nz * lz))
+            if (ndotl > peak) {
+                peak = ndotl
+            }
+            i = (i + 1)
+        }
+        if (peak < 0.0) {
+            peak = 0.0
+        }
+        if (peak > 1.0) {
+            peak = 1.0
+        }
+        return peak
+    }
+
+    ; Lambert: albedo * (ambient + Σ max(0, N·L) * lightColour) → 0xRRGGBB.
+    ; Bright facets lean toward white so cut glass reads with sparkle.
+    fn shadeLambertRGB:int (albedoR:double albedoG:double albedoB:double nx:double ny:double nz:double) {
+        def lr:double ambR
+        def lg:double ambG
+        def lb:double ambB
+        def i:int 0
+        while (i < dirCount) {
+            def base:int (i * 3)
+            def lx:double (itemAt dirs base)
+            def ly:double (itemAt dirs (base + 1))
+            def lz:double (itemAt dirs (base + 2))
+            def ndotl:double (((nx * lx) + (ny * ly)) + (nz * lz))
+            if (ndotl < 0.0) { ndotl = 0.0 }
+            lr = (lr + (ndotl * (itemAt cols base)))
+            lg = (lg + (ndotl * (itemAt cols (base + 1))))
+            lb = (lb + (ndotl * (itemAt cols (base + 2))))
+            i = (i + 1)
+        }
+        def orr:double (albedoR * lr)
+        def og:double (albedoG * lg)
+        def ob:double (albedoB * lb)
+        def hi:double (this.peakNDotL(nx ny nz))
+        if (hi > 0.55) {
+            def mix:double ((hi - 0.55) * 1.1)
+            if (mix > 1.0) {
+                mix = 1.0
+            }
+            orr = (orr + ((1.0 - orr) * mix))
+            og = (og + ((1.0 - og) * mix))
+            ob = (ob + ((1.0 - ob) * mix))
+        }
+        if (orr > 1.0) { orr = 1.0 }
+        if (og > 1.0) { og = 1.0 }
+        if (ob > 1.0) { ob = 1.0 }
+        def ri:int (to_int (orr * 255.0))
+        def gi:int (to_int (og * 255.0))
+        def bi:int (to_int (ob * 255.0))
+        return (((ri * 65536) + (gi * 256)) + bi)
     }
 
     fn clampi:int (v:int lo:int hi:int) {
@@ -82,80 +191,49 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         return (buffer_get tex.rgba (off + comp))
     }
 
-    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
-        def vc:int (geometry.vertexCount())
-        if (vc == 0) {
-            return
-        }
-        ; Software path renders the material's flat colour * texture. Directional
-        ; lighting is handled by the GL backend (the browser target); the software
-        ; backend stays the unlit reference used by the headless tests.
-        def hasTexture:boolean mat.hasMap
-        def tex:ThreeTexture mat.map
-        def colorR:double mat.colorR
-        def colorG:double mat.colorG
-        def colorB:double mat.colorB
-        ; project every vertex to screen space (sx, sy, sz=NDC depth); w<=0 verts
-        ; are marked behind (bad=1) and their triangles skipped.
-        def sx:[double]
-        def sy:[double]
-        def sz:[double]
-        def sw:[double]
-        def bad:[int]
-        def vi:int 0
-        while (vi < vc) {
-            def lx:double (geometry.getPosition(vi 0))
-            def ly:double (geometry.getPosition(vi 1))
-            def lz:double (geometry.getPosition(vi 2))
-            def cw:double (mvp.clipW(lx ly lz))
-            def ndc:ThreeVector3 (mvp.transformPoint((ThreeVector3.of(lx ly lz))))
-            def screenX:double (((ndc.x * 0.5) + 0.5) * (to_double w))
-            def screenY:double ((1.0 - ((ndc.y * 0.5) + 0.5)) * (to_double h))
-            push sx screenX
-            push sy screenY
-            push sz ndc.z
-            ; 1/w for perspective-correct attribute interpolation
-            if (cw <= 0.0) {
-                push bad 1
-                push sw 1.0
-            } {
-                push bad 0
-                push sw (1.0 / cw)
-            }
-            vi = (vi + 1)
-        }
-
-        def ic:int (geometry.indexCount())
-        def r255:int (to_int (colorR * 255.0))
-        def g255:int (to_int (colorG * 255.0))
-        def b255:int (to_int (colorB * 255.0))
-        def t:int 0
-        while (t < ic) {
-            def i0:int (geometry.getIndex(t))
-            def i1:int (geometry.getIndex(t + 1))
-            def i2:int (geometry.getIndex(t + 2))
-            if ((((itemAt bad i0) + (itemAt bad i1)) + (itemAt bad i2)) == 0) {
-                this.rasterTri(geometry sx sy sz sw i0 i1 i2 hasTexture tex r255 g255 b255)
-            }
-            t = (t + 3)
-        }
+    ; Near-plane distance in clip space (OpenGL): inside when cz + cw >= 0.
+    fn nearDist:double (cz:double cw:double) {
+        return (cz + cw)
     }
 
-    fn rasterTri:void (geometry:ThreeBufferGeometry sx:[double] sy:[double] sz:[double] sw:[double] i0:int i1:int i2:int hasTexture:boolean tex:ThreeTexture r255:int g255:int b255:int) {
-        def x0:double (itemAt sx i0)
-        def y0:double (itemAt sy i0)
-        def z0:double (itemAt sz i0)
-        def x1:double (itemAt sx i1)
-        def y1:double (itemAt sy i1)
-        def z1:double (itemAt sz i1)
-        def x2:double (itemAt sx i2)
-        def y2:double (itemAt sy i2)
-        def z2:double (itemAt sz i2)
+    ; Clip one attribute across an edge where distances da/db straddle the plane.
+    fn clipLerp:double (a:double b:double da:double db:double) {
+        def denom:double (da - db)
+        if ((denom < 0.0000001) && (denom > (0.0 - 0.0000001))) {
+            return a
+        }
+        def t:double (da / denom)
+        return (a + ((b - a) * t))
+    }
+
+    ; Rasterise a screen-space triangle (already near-clipped + perspective-divided).
+    ; UVs are passed explicitly (clipped verts are not geometry indices).
+    fn rasterScreenTri:void (x0:double y0:double z0:double iw0:double u0:double v0:double x1:double y1:double z1:double iw1:double u1:double v1:double x2:double y2:double z2:double iw2:double u2:double v2:double hasTexture:boolean tex:ThreeTexture r255:int g255:int b255:int a255:int cullBack:boolean) {
         def area:double (((x1 - x0) * (y2 - y0)) - ((x2 - x0) * (y1 - y0)))
         if ((area < 0.0001) && (area > (0.0 - 0.0001))) {
             return
         }
-        ; screen bounding box
+        ; y-down screen space: negative area is a back face.
+        if cullBack {
+            if (area < 0.0) {
+                return
+            }
+        }
+        ; Guard: a triangle that still spans a huge region after clipping is
+        ; almost certainly a residual clip-space failure — skip it.
+        def maxX:double (this.dmax3(x0 x1 x2))
+        def minX:double (this.dmin3(x0 x1 x2))
+        def maxY:double (this.dmax3(y0 y1 y2))
+        def minY:double (this.dmin3(y0 y1 y2))
+        def spanX:double (maxX - minX)
+        def spanY:double (maxY - minY)
+        def lim:double ((to_double w) * 8.0)
+        if (spanX > lim) {
+            return
+        }
+        if (spanY > lim) {
+            return
+        }
         def minx:int (to_int (this.dmin3(x0 x1 x2)))
         def maxx:int (to_int (this.dmax3(x0 x1 x2)))
         def miny:int (to_int (this.dmin3(y0 y1 y2)))
@@ -164,17 +242,6 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         maxx = (this.clampi(maxx 0 (w - 1)))
         miny = (this.clampi(miny 0 (h - 1)))
         maxy = (this.clampi(maxy 0 (h - 1)))
-        ; uvs at the corners
-        def u0:double (geometry.getUv(i0 0))
-        def v0:double (geometry.getUv(i0 1))
-        def u1:double (geometry.getUv(i1 0))
-        def v1:double (geometry.getUv(i1 1))
-        def u2:double (geometry.getUv(i2 0))
-        def v2:double (geometry.getUv(i2 1))
-        ; 1/w at the corners, for perspective-correct interpolation
-        def iw0:double (itemAt sw i0)
-        def iw1:double (itemAt sw i1)
-        def iw2:double (itemAt sw i2)
         def invArea:double (1.0 / area)
         def py:int miny
         while (py <= maxy) {
@@ -182,11 +249,11 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
             while (px <= maxx) {
                 def fx:double ((to_double px) + 0.5)
                 def fy:double ((to_double py) + 0.5)
-                def w0:double ((((x1 - fx) * (y2 - fy)) - ((x2 - fx) * (y1 - fy))) * invArea)
-                def w1:double ((((x2 - fx) * (y0 - fy)) - ((x0 - fx) * (y2 - fy))) * invArea)
-                def w2:double ((1.0 - w0) - w1)
-                if (((w0 >= 0.0) && (w1 >= 0.0)) && (w2 >= 0.0)) {
-                    def d:double (((w0 * z0) + (w1 * z1)) + (w2 * z2))
+                def bw0:double ((((x1 - fx) * (y2 - fy)) - ((x2 - fx) * (y1 - fy))) * invArea)
+                def bw1:double ((((x2 - fx) * (y0 - fy)) - ((x0 - fx) * (y2 - fy))) * invArea)
+                def bw2:double ((1.0 - bw0) - bw1)
+                if (((bw0 >= 0.0) && (bw1 >= 0.0)) && (bw2 >= 0.0)) {
+                    def d:double (((bw0 * z0) + (bw1 * z1)) + (bw2 * z2))
                     def pidx:int ((py * w) + px)
                     if (d < (double_buffer_get depth pidx)) {
                         double_buffer_set depth pidx d
@@ -194,26 +261,264 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
                         def cg:int g255
                         def cb:int b255
                         if hasTexture {
-                            ; perspective-correct: interpolate u/w, v/w, 1/w then divide
-                            def wsum:double (((w0 * iw0) + (w1 * iw1)) + (w2 * iw2))
-                            def u:double (((((w0 * u0) * iw0) + ((w1 * u1) * iw1)) + ((w2 * u2) * iw2)) / wsum)
-                            def v:double (((((w0 * v0) * iw0) + ((w1 * v1) * iw1)) + ((w2 * v2) * iw2)) / wsum)
-                            def tr:int (this.sampleTex(tex u v 0))
-                            def tg:int (this.sampleTex(tex u v 1))
-                            def tb:int (this.sampleTex(tex u v 2))
-                            cr = (idiv (r255 * tr) 255)
-                            cg = (idiv (g255 * tg) 255)
-                            cb = (idiv (b255 * tb) 255)
+                            def wsum:double (((bw0 * iw0) + (bw1 * iw1)) + (bw2 * iw2))
+                            if (wsum > 0.0000001) {
+                                def u:double (((((bw0 * u0) * iw0) + ((bw1 * u1) * iw1)) + ((bw2 * u2) * iw2)) / wsum)
+                                def v:double (((((bw0 * v0) * iw0) + ((bw1 * v1) * iw1)) + ((bw2 * v2) * iw2)) / wsum)
+                                def tr:int (this.sampleTex(tex u v 0))
+                                def tg:int (this.sampleTex(tex u v 1))
+                                def tb:int (this.sampleTex(tex u v 2))
+                                cr = (idiv (r255 * tr) 255)
+                                cg = (idiv (g255 * tg) 255)
+                                cb = (idiv (b255 * tb) 255)
+                            }
                         }
                         def o:int (pidx * 3)
                         buffer_set color o cr
                         buffer_set color (o + 1) cg
                         buffer_set color (o + 2) cb
+                        buffer_set alpha pidx a255
                     }
                 }
                 px = (px + 1)
             }
             py = (py + 1)
+        }
+    }
+
+    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
+        def vc:int (geometry.vertexCount())
+        if (vc == 0) {
+            return
+        }
+        def hasTexture:boolean mat.hasMap
+        def tex:ThreeTexture mat.map
+        def colorR:double mat.colorR
+        def colorG:double mat.colorG
+        def colorB:double mat.colorB
+        def shadeMode:int (mat.shadingMode())
+        ; Back-face culling is deferred: screen Y is flipped, so area sign needs
+        ; a dedicated winding test. side==2 still recorded for future GPU parity.
+        def cullBack:boolean false
+        if (mat.side == 0) {
+            cullBack = false
+        }
+        def ic:int (geometry.indexCount())
+        def r255:int (to_int (colorR * 255.0))
+        def g255:int (to_int (colorG * 255.0))
+        def b255:int (to_int (colorB * 255.0))
+        def baseOpacity:double mat.opacity
+        if (baseOpacity < 0.0) {
+            baseOpacity = 0.0
+        }
+        if (baseOpacity > 1.0) {
+            baseOpacity = 1.0
+        }
+        ; Coverage alpha follows material opacity only — do not darken/thin by
+        ; lighting (that made shadowed pavilion faces look like a translucent slab).
+        def a255:int (to_int ((baseOpacity * 255.0) + 0.5))
+        if (a255 > 255) {
+            a255 = 255
+        }
+        if (a255 < 0) {
+            a255 = 0
+        }
+        def t:int 0
+        while (t < ic) {
+            def i0:int (geometry.getIndex(t))
+            def i1:int (geometry.getIndex(t + 1))
+            def i2:int (geometry.getIndex(t + 2))
+            def lx0:double (geometry.getPosition(i0 0))
+            def ly0:double (geometry.getPosition(i0 1))
+            def lz0:double (geometry.getPosition(i0 2))
+            def lx1:double (geometry.getPosition(i1 0))
+            def ly1:double (geometry.getPosition(i1 1))
+            def lz1:double (geometry.getPosition(i1 2))
+            def lx2:double (geometry.getPosition(i2 0))
+            def ly2:double (geometry.getPosition(i2 1))
+            def lz2:double (geometry.getPosition(i2 2))
+            ; Clip-space corners (before perspective divide).
+            def cx0:double (mvp.clipX(lx0 ly0 lz0))
+            def cy0:double (mvp.clipY(lx0 ly0 lz0))
+            def cz0:double (mvp.clipZ(lx0 ly0 lz0))
+            def cw0:double (mvp.clipW(lx0 ly0 lz0))
+            def cx1:double (mvp.clipX(lx1 ly1 lz1))
+            def cy1:double (mvp.clipY(lx1 ly1 lz1))
+            def cz1:double (mvp.clipZ(lx1 ly1 lz1))
+            def cw1:double (mvp.clipW(lx1 ly1 lz1))
+            def cx2:double (mvp.clipX(lx2 ly2 lz2))
+            def cy2:double (mvp.clipY(lx2 ly2 lz2))
+            def cz2:double (mvp.clipZ(lx2 ly2 lz2))
+            def cw2:double (mvp.clipW(lx2 ly2 lz2))
+            def u0:double (geometry.getUv(i0 0))
+            def v0:double (geometry.getUv(i0 1))
+            def u1:double (geometry.getUv(i1 0))
+            def v1:double (geometry.getUv(i1 1))
+            def u2:double (geometry.getUv(i2 0))
+            def v2:double (geometry.getUv(i2 1))
+            ; Sutherland–Hodgman against the near plane (cz + cw >= eps).
+            def eps:double 0.0001
+            def inCx:[double]
+            def inCy:[double]
+            def inCz:[double]
+            def inCw:[double]
+            def inU:[double]
+            def inV:[double]
+            push inCx cx0
+            push inCy cy0
+            push inCz cz0
+            push inCw cw0
+            push inU u0
+            push inV v0
+            push inCx cx1
+            push inCy cy1
+            push inCz cz1
+            push inCw cw1
+            push inU u1
+            push inV v1
+            push inCx cx2
+            push inCy cy2
+            push inCz cz2
+            push inCw cw2
+            push inU u2
+            push inV v2
+            def outCx:[double]
+            def outCy:[double]
+            def outCz:[double]
+            def outCw:[double]
+            def outU:[double]
+            def outV:[double]
+            def nin:int 3
+            def pi:int 0
+            while (pi < nin) {
+                def qi:int (pi + 1)
+                if (qi >= nin) {
+                    qi = 0
+                }
+                def ax:double (itemAt inCx pi)
+                def ay:double (itemAt inCy pi)
+                def az:double (itemAt inCz pi)
+                def aw:double (itemAt inCw pi)
+                def au:double (itemAt inU pi)
+                def av:double (itemAt inV pi)
+                def bx:double (itemAt inCx qi)
+                def by:double (itemAt inCy qi)
+                def bz:double (itemAt inCz qi)
+                def bw:double (itemAt inCw qi)
+                def bu:double (itemAt inU qi)
+                def bv:double (itemAt inV qi)
+                def da:double (this.nearDist(az aw))
+                def db:double (this.nearDist(bz bw))
+                def aIn:boolean false
+                if (da >= eps) {
+                    aIn = true
+                }
+                def bIn:boolean false
+                if (db >= eps) {
+                    bIn = true
+                }
+                if aIn {
+                    if bIn {
+                        push outCx bx
+                        push outCy by
+                        push outCz bz
+                        push outCw bw
+                        push outU bu
+                        push outV bv
+                    } {
+                        push outCx (this.clipLerp(ax bx da db))
+                        push outCy (this.clipLerp(ay by da db))
+                        push outCz (this.clipLerp(az bz da db))
+                        push outCw (this.clipLerp(aw bw da db))
+                        push outU (this.clipLerp(au bu da db))
+                        push outV (this.clipLerp(av bv da db))
+                    }
+                } {
+                    if bIn {
+                        push outCx (this.clipLerp(ax bx da db))
+                        push outCy (this.clipLerp(ay by da db))
+                        push outCz (this.clipLerp(az bz da db))
+                        push outCw (this.clipLerp(aw bw da db))
+                        push outU (this.clipLerp(au bu da db))
+                        push outV (this.clipLerp(av bv da db))
+                        push outCx bx
+                        push outCy by
+                        push outCz bz
+                        push outCw bw
+                        push outU bu
+                        push outV bv
+                    }
+                }
+                pi = (pi + 1)
+            }
+            def nout:int (array_length outCx)
+            if (nout >= 3) {
+                def tr:int r255
+                def tg:int g255
+                def tb:int b255
+                if (shadeMode >= 1) {
+                    def n0x:double (geometry.getNormal(i0 0))
+                    def n0y:double (geometry.getNormal(i0 1))
+                    def n0z:double (geometry.getNormal(i0 2))
+                    def wn:ThreeVector3 (this.transformNormal(model n0x n0y n0z))
+                    def lit:int (this.shadeLambertRGB(colorR colorG colorB wn.x wn.y wn.z))
+                    tr = (idiv lit 65536)
+                    tg = (idiv (lit - (tr * 65536)) 256)
+                    tb = ((lit - (tr * 65536)) - (tg * 256))
+                }
+                ; Perspective-divide clipped verts → screen, then fan-triangulate.
+                def sx:[double]
+                def sy:[double]
+                def sz:[double]
+                def siw:[double]
+                def su:[double]
+                def sv:[double]
+                def ok:boolean true
+                def k:int 0
+                while (k < nout) {
+                    def pw:double (itemAt outCw k)
+                    if (pw <= eps) {
+                        ok = false
+                    } {
+                        def ndcx:double ((itemAt outCx k) / pw)
+                        def ndcy:double ((itemAt outCy k) / pw)
+                        def ndcz:double ((itemAt outCz k) / pw)
+                        push sx (((ndcx * 0.5) + 0.5) * (to_double w))
+                        push sy ((1.0 - ((ndcy * 0.5) + 0.5)) * (to_double h))
+                        push sz ndcz
+                        push siw (1.0 / pw)
+                        push su (itemAt outU k)
+                        push sv (itemAt outV k)
+                    }
+                    k = (k + 1)
+                }
+                if ok {
+                    def f:int 1
+                    while (f < (nout - 1)) {
+                        def ax0:double (itemAt sx 0)
+                        def ay0:double (itemAt sy 0)
+                        def az0:double (itemAt sz 0)
+                        def aw0:double (itemAt siw 0)
+                        def au0:double (itemAt su 0)
+                        def av0:double (itemAt sv 0)
+                        def ax1:double (itemAt sx f)
+                        def ay1:double (itemAt sy f)
+                        def az1:double (itemAt sz f)
+                        def aw1:double (itemAt siw f)
+                        def au1:double (itemAt su f)
+                        def av1:double (itemAt sv f)
+                        def ax2:double (itemAt sx (f + 1))
+                        def ay2:double (itemAt sy (f + 1))
+                        def az2:double (itemAt sz (f + 1))
+                        def aw2:double (itemAt siw (f + 1))
+                        def au2:double (itemAt su (f + 1))
+                        def av2:double (itemAt sv (f + 1))
+                        this.rasterScreenTri(ax0 ay0 az0 aw0 au0 av0 ax1 ay1 az1 aw1 au1 av1 ax2 ay2 az2 aw2 au2 av2 hasTexture tex tr tg tb a255 cullBack)
+                        f = (f + 1)
+                    }
+                }
+            }
+            t = (t + 3)
         }
     }
 
@@ -240,6 +545,9 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
 
     fn raw:buffer () {
         return color
+    }
+    fn rawAlpha:buffer () {
+        return alpha
     }
     fn width:int () {
         return w
