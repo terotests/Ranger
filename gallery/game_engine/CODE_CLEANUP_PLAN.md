@@ -298,6 +298,7 @@ gallery/game_engine/v2/
     │   ├── d_handle/
     │   ├── d_geo/
     │   ├── d_async/
+    │   ├── d_2d/                  # ranger:2d parity (D-2D)
     │   └── d_modules/
     └── fixtures/
         ├── tsx_scripts/
