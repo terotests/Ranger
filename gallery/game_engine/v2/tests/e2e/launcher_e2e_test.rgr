@@ -1,0 +1,72 @@
+; ==============================================================================
+; launcher_e2e_test — the launcher menu + handoff, on the GENERIC RgGameHost.
+; ==============================================================================
+; The launcher is guest content like any game (menu/launcher.tsx); the handoff
+; is a GENERIC host feature (`loadLaunched`): when a guest calls launch(path),
+; the host tears the realm down and loads `<path>/index.tsx` fresh — no
+; launcher-specific host code exists anywhere.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../harness/RgTest.rgr"
+
+class LauncherE2ETest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/e2e/launcher (generic host + handoff)"))
+        def host:RgGameHost (new RgGameHost)
+
+        t.ok("generic host loaded menu/launcher.tsx"
+            (host.load("gallery/game_engine/v2/menu" "launcher.tsx")))
+        t.eqInt("categories page open" (to_int (host.callSlot("currentPage" 0))) 0)
+        t.eqInt("two category tiles" (to_int (host.callSlot("tileCount" 0))) 2)
+        t.eqInt("three retained sprites (2 tiles + cursor)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 3)
+
+        ; ---- D-pad navigation on action EDGES (generic press) ---------------
+        host.press(0 "right")
+        t.eqInt("right moves selection" (to_int (host.callSlot("selectedIndex" 0))) 1)
+        ; edge, not level: holding must not repeat
+        host.bridge.input.setAction(0 "right" true)
+        host.frame(33.333)
+        host.frame(33.333)
+        host.bridge.input.setAction(0 "right" false)
+        host.frame(33.333)
+        t.eqInt("held key does not repeat" (to_int (host.callSlot("selectedIndex" 0))) 1)
+        host.press(0 "left")
+        t.eqInt("left moves back" (to_int (host.callSlot("selectedIndex" 0))) 0)
+
+        ; ---- drill into Games; page turn must not leak arena slots ----------
+        host.press(0 "action")
+        t.eqInt("games page open" (to_int (host.callSlot("currentPage" 0))) 1)
+        t.eqInt("page turn released old tiles (3 tiles + cursor)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 4)
+        t.eqInt("select sfx one-shot fired" host.bridge.oneShotCount 1)
+        t.ok("Pomppija selected" ((host.callSlot("selectedLabelIsPomppija" 0)) > 0.5))
+
+        ; ---- menu presents pixels via the generic protocol ------------------
+        def fb:RgFramebuffer (RgFramebuffer.create(96 96))
+        t.eqInt("menu present drew 3 tiles + cursor" (host.presentPane(0 fb)) 4)
+        t.ok("selected tile at camera centre" ((fb.at(48 48)) != 0))
+
+        ; ---- select Pomppija → GENERIC handoff ------------------------------
+        host.press(0 "action")
+        t.eqStr("guest launch request recorded" (host.launchRequest()) "games/ylos2")
+        t.eqInt("no bridge errors in the menu session" host.bridge.errorCount 0)
+
+        t.ok("host honoured the launch request (fresh realm)" (host.loadLaunched()))
+        t.eqInt("launched game built its scene (27 sprites)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 27)
+        def y0:double (host.callSlot("playerY" 0))
+        host.attractPlayers = 1
+        def f 0
+        while (f < 90) {
+            host.frame(33.333)
+            f = (f + 1)
+        }
+        t.ok("launched game is running (player moving)"
+            ((host.callSlot("playerY" 0)) < y0))
+        t.eqInt("no bridge errors in the launched game" host.bridge.errorCount 0)
+
+        t.summary()
+    }
+}
