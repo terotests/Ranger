@@ -114,6 +114,9 @@ run_suite tests/sdl/sdl_host_test
 
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test
+# headless music: score parse -> beat schedule -> equal-tempered PCM synth
+# (self-contained under v2/audio; the SDL gfx_audio_* sink consumes this PCM)
+run_suite audio/tests/audio_score_test
 
 # ---- BRIDGES.md steps 1–2 — schema rows + generic registry bridge ------------
 run_suite registry/schema/tests/bridge_schema_test
