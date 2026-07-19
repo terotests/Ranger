@@ -124,6 +124,20 @@ const SHEET_ROW_RIGHT = 3;
 const SHEET_ROW_LEFT = 1;
 const SHEET_JUMP_COL = 3;
 
+// original 3x5 numeral glyphs for the HUD (X = lit cell)
+const HUD_DIGITS = [
+  ["XXX", "X.X", "X.X", "X.X", "XXX"],
+  [".X.", "XX.", ".X.", ".X.", "XXX"],
+  ["XXX", "..X", "XXX", "X..", "XXX"],
+  ["XXX", "..X", "XXX", "..X", "XXX"],
+  ["X.X", "X.X", "XXX", "..X", "..X"],
+  ["XXX", "X..", "XXX", "..X", "XXX"],
+  ["XXX", "X..", "XXX", "X.X", "XXX"],
+  ["XXX", "..X", "..X", "..X", "..X"],
+  ["XXX", "X.X", "XXX", "X.X", "XXX"],
+  ["XXX", "X.X", "XXX", "..X", "XXX"]
+];
+
 class Ylos2Game {
   layer = null;
   cam1 = null;
@@ -494,7 +508,49 @@ class Ylos2Game {
     this.drawStaticEnv();
     this.renderer.render(this.layer, this.cam1, 0);
     this.renderer.render(this.layer, this.cam2, 1);
+    // HUD (screen-space overlay): each pane shows its player's climb score.
+    this.renderer.beginOverlay();
+    this.drawNumber(this.climbScore(this.players[0]), 0.42, 0.9, 0.016, 0.02, 0);
+    this.drawNumber(this.climbScore(this.players[1]), 0.42, 0.9, 0.016, 0.02, 1);
     return 1;
+  }
+
+  // climb score: how far above the floor the player has reached (~0 at the
+  // start, ~60 at the summit — the v1 HUD number).
+  climbScore(pl) {
+    let s = Math.floor((1830 - pl.y) / 28);
+    if (s < 0) { s = 0; }
+    return s;
+  }
+
+  // ---- HUD numerals (screen-space overlay, normalised pane coords) ----------
+  drawDigit(dgt, nx, ny, cw, ch, pane) {
+    const g = HUD_DIGITS[dgt];
+    let ry = 0;
+    while (ry < 5) {
+      const line = g[ry];
+      let cx = 0;
+      while (cx < 3) {
+        if (line.charAt(cx) == "X") {
+          this.renderer.overlayRect(nx + cx * cw, ny + ry * ch, cw, ch, 235, 235, 235, pane);
+        }
+        cx = cx + 1;
+      }
+      ry = ry + 1;
+    }
+  }
+  drawNumber(value, nx, ny, cw, ch, pane) {
+    const digits = [];
+    let v = value;
+    if (v <= 0) { digits.push(0); }
+    while (v > 0) { digits.push(v % 10); v = Math.floor(v / 10); }
+    let k = digits.length - 1;
+    let col = 0;
+    while (k >= 0) {
+      this.drawDigit(digits[k], nx + col * (4 * cw), ny, cw, ch, pane);
+      col = col + 1;
+      k = k - 1;
+    }
   }
 
   // attract-mode target: the closest platform above the last grounded height
