@@ -37,6 +37,8 @@ class Sprite2D {
   setFlipX(on) { rg2d_sprite_set_flip(this.id, on ? 1 : 0); }
   // spritesheet cell: sample frame (col,row) of a sheet atlas (v1 "sheet")
   setCell(col, row) { rg2d_sprite_set_cell(this.id, col, row); }
+  // split-screen ownership: draw only in pane p (-1 = every pane)
+  setPane(p) { rg2d_sprite_set_pane(this.id, p); }
   release() { return rg2d_sprite_release(this.id); }
 }
 

@@ -47,6 +47,8 @@ class TwoDSchema {
         sprite.addMethod((RgMethodDef.cmd(2026 "rg2d_sprite_set_flip" "rg2d_sprite_set_flip" "h:i" "v" "none")))
         ; spritesheet cell (col,row) — samples the atlas frame grid (v1 "sheet")
         sprite.addMethod((RgMethodDef.cmd(2027 "rg2d_sprite_set_cell" "rg2d_sprite_set_cell" "h:i:i" "v" "none")))
+        ; split-screen pane ownership (-1 = all panes; >=0 = only that pane)
+        sprite.addMethod((RgMethodDef.cmd(2028 "rg2d_sprite_set_pane" "rg2d_sprite_set_pane" "h:i" "v" "none")))
         s.addClass(sprite)
 
         ; ---- Layer2D (23) ----------------------------------------------------

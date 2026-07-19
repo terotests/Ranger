@@ -25,7 +25,7 @@ class Rg2DPresenter {
         def camH:RgHandle (bridge.surface.paneCam(paneIndex))
         if ((layerH.isValid()) == false) { return (0 - 1) }
         if ((camH.isValid()) == false) { return (0 - 1) }
-        return (RgSoftwareRenderer2D.present2D(bridge.d2 fb layerH camH))
+        return (RgSoftwareRenderer2D.present2D(bridge.d2 fb layerH camH paneIndex))
     }
 
     ; Present one pane through the SAMPLING backend (real texels) into an
@@ -37,7 +37,7 @@ class Rg2DPresenter {
         def camH:RgHandle (bridge.surface.paneCam(paneIndex))
         if ((layerH.isValid()) == false) { return (0 - 1) }
         if ((camH.isValid()) == false) { return (0 - 1) }
-        return (RgTexturedRenderer2D.present(bridge.d2 fb layerH camH bgRGB))
+        return (RgTexturedRenderer2D.present(bridge.d2 fb layerH camH bgRGB paneIndex))
     }
 
     ; ---- debug helper (test/diagnostic output, not core presentation) -------

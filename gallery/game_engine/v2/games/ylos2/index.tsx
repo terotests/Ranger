@@ -91,6 +91,27 @@ const BASE_MOVING_PLATFORMS = [
   { x: 70, y: 350, w: 90, h: 14, min: 50, max: 280, dir: 1 },
   { x: 210, y: 220, w: 110, h: 14, min: 60, max: 320, dir: -1 }
 ];
+// v1 enemy patrols — LPC skeleton walk strip (assets/enemy_walk.png)
+const BASE_ENEMY_DEFS = [
+  { x: 55, y: 1700, dir: 1, min: 35, max: 115 },
+  { x: 190, y: 1590, dir: -1, min: 175, max: 265 },
+  { x: 320, y: 1480, dir: 1, min: 315, max: 395 },
+  { x: 70, y: 1370, dir: 1, min: 55, max: 155 },
+  { x: 275, y: 1260, dir: -1, min: 265, max: 355 },
+  { x: 135, y: 1150, dir: 1, min: 125, max: 205 },
+  { x: 310, y: 1040, dir: -1, min: 305, max: 395 },
+  { x: 90, y: 710, dir: 1, min: 85, max: 175 },
+  { x: 165, y: 490, dir: 1, min: 155, max: 225 },
+  { x: 355, y: 380, dir: -1, min: 335, max: 400 },
+  { x: 100, y: 270, dir: 1, min: 72, max: 158 },
+  { x: 75, y: 220, dir: 1, min: 48, max: 122 }
+];
+const ENEMY_WALK_FRAMES = 9;
+
+// logical view height (v1 VIEW_H) — the camera clamps to the world floor so
+// the ground band sits as a thin strip at the bottom, exactly like v1.
+const VIEW_H = 270;
+const CAM_LEAD = 120;   // v1 computeCamera: player feet sit CAM_LEAD from the top
 
 function overlapsX(px, pw, plat) {
   if (px + pw <= plat.x) { return false; }
@@ -111,6 +132,8 @@ class Ylos2Game {
   celebrateSfx = null;
   movingPlats = [];
   players = [];
+  enemies = [];
+  enemyAtlas = null;
   nowMs = 0;
   goalIndex = 16;
   summitMusicStarted = 0;
@@ -171,13 +194,49 @@ class Ylos2Game {
       pl.sprite.setSize(PLAYER_H, PLAYER_H);
       pl.sprite.setZ(3);
       pl.sprite.setCell(0, pl.facing < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT);
+      // split-screen: this player is drawn ONLY in its own pane (v1 hides the
+      // other player in the local view); world objects stay in both panes.
+      pl.sprite.setPane(pl.slot);
       this.layer.add(pl.sprite);
       k = k + 1;
     }
     this.players = starts;
 
+    // enemies — skeleton patrols on the platforms (v1 makeEnemies). One shared
+    // LPC skeleton sheet; each enemy is a retained sprite drawn feet-on-platform.
+    this.enemyAtlas = runtime.assets.loadSpriteAtlas("pkg://enemy.atlas");
+    let ei = 0;
+    while (ei < BASE_ENEMY_DEFS.length) {
+      const d = BASE_ENEMY_DEFS[ei];
+      const spr = new TWO.Sprite2D(this.enemyAtlas, 0);
+      spr.setSize(40, 40);
+      spr.setZ(2);
+      let row = d.dir > 0 ? SHEET_ROW_RIGHT : SHEET_ROW_LEFT;
+      spr.setCell(0, row);
+      this.layer.add(spr);
+      this.enemies.push({ x: d.x, y: d.y, dir: d.dir, min: d.min, max: d.max, tick: 0, sprite: spr });
+      ei = ei + 1;
+    }
+
     runtime.log.info("ylos2-v2 init: LPC sheets + immediate static env");
     return 1;
+  }
+
+  updateEnemies(dt) {
+    let i = 0;
+    while (i < this.enemies.length) {
+      const e = this.enemies[i];
+      e.x = e.x + e.dir * dt * 0.08;
+      if (e.x < e.min) { e.x = e.min; e.dir = 1; }
+      if (e.x > e.max) { e.x = e.max; e.dir = -1; }
+      e.tick = e.tick + dt;
+      const anim = Math.floor(e.tick / 110) % ENEMY_WALK_FRAMES;
+      const row = e.dir < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT;
+      // feet at (x,y): seat the 40px frame a little above the platform surface
+      e.sprite.setPos(e.x, e.y - 14);
+      e.sprite.setCell(anim, row);
+      i = i + 1;
+    }
   }
 
   // ---- static environment (v1 createStaticBg, immediate world-space) --------
@@ -230,13 +289,6 @@ class Ylos2Game {
       r.fillRect(-260, y, 1000, 32, sr, sg, sb);
       y = y + 32;
     }
-    // solid ground from the floor down — the world ends at the ground band, so
-    // fill everything below it with ground (v1 clamps the camera at the floor;
-    // this reaches the same result without a camera special-case). Drawn over
-    // the sky bands; the platform loop repaints the band's 3-tone edges on top.
-    const groundTop = BASE_PLATFORMS[0].y;
-    r.fillRect(-260, groundTop, 1000, WORLD_H, PLAT_BODY_R, PLAT_BODY_G, PLAT_BODY_B);
-    r.fillRect(-260, groundTop, 1000, PLAT_EDGE_H, PLAT_TOP_R, PLAT_TOP_G, PLAT_TOP_B);
     this.drawCloud(80, 1500);
     this.drawCloud(360, 1300);
     this.drawCloud(120, 980);
@@ -405,17 +457,34 @@ class Ylos2Game {
     pl.sprite.setCell(col, row);
   }
 
+  // v1 computeCamera: the camera top follows the player's feet, held CAM_LEAD
+  // from the top, then CLAMPED to [0, WORLD_H - VIEW_H] so it never scrolls past
+  // the floor. The camera returns the world Y mapped to the pane centre.
+  camCenterY(pl) {
+    const feet = pl.y + PLAYER_H;
+    let top = feet - CAM_LEAD;
+    const maxTop = WORLD_H - VIEW_H;
+    if (top < 0) { top = 0; }
+    if (top > maxTop) { top = maxTop; }
+    return top + VIEW_H / 2;
+  }
+
   updateCameras() {
     const p1 = this.players[0];
     const p2 = this.players[1];
-    this.cam1.set(p1.x + PLAYER_W / 2, p1.y + PLAYER_H / 2, 1, 0);
-    this.cam2.set(p2.x + PLAYER_W / 2, p2.y + PLAYER_H / 2, 1, 0);
+    // camera X is FIXED at the world centre so each pane shows the full world
+    // width (v1: the 480-wide world fills the pane, no horizontal scroll); only
+    // the vertical follows the local player (clamped at the floor).
+    const cx = BASE_W / 2;
+    this.cam1.set(cx, this.camCenterY(p1), 1, 0);
+    this.cam2.set(cx, this.camCenterY(p2), 1, 0);
   }
 
   update(props) {
     const dt = props.dtMs;
     this.nowMs = this.nowMs + dt;
     this.updateMovers(dt);
+    this.updateEnemies(dt);
     this.updatePlayer(this.players[0], dt);
     this.updatePlayer(this.players[1], dt);
     this.updateCameras();

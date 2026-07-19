@@ -145,6 +145,12 @@ class RegistryBridgeCoverageTest {
         s.callN("rg2d_sprite_set_cell" cellA)
         t.eqInt("host sprite sheet cell written through the bridge"
             (b.d2.spriteCellCol((b.resolveGuestId(sprite)))) 2)
+        def paneA:[EvalValue]
+        push paneA (s.num((to_double sprite)))
+        push paneA (s.num(1.0))
+        s.callN("rg2d_sprite_set_pane" paneA)
+        t.eqInt("host sprite pane owner written through the bridge"
+            (b.d2.spritePaneOwner((b.resolveGuestId(sprite)))) 1)
 
         ; immediate background draw list (static-environment primitives)
         def bgbA:[EvalValue]

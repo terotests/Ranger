@@ -36,7 +36,7 @@ class SoftwarePresent2DTest {
         ; world (2,0) → screen x = (2-0)*10 = 20 → px = 20 + 32 = 52, py = 32
         def liveBefore:int (d.liveCount())
         fb.clear()
-        def drawn:int (RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle))
+        def drawn:int (RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle 0))
         t.eqInt("one sprite drawn" drawn 1)
         t.ok("pixel set at the projected sprite position" ((fb.at(52 32)) != 0))
         t.eqInt("empty space stays clear" (fb.at(10 10)) 0)
@@ -47,14 +47,14 @@ class SoftwarePresent2DTest {
 
         ; ---- deterministic re-present of identical state --------------------
         def fb2:RgFramebuffer (RgFramebuffer.create(64 64))
-        RgSoftwareRenderer2D.present2D(d fb2 layer.handle cam.handle)
+        RgSoftwareRenderer2D.present2D(d fb2 layer.handle cam.handle 0)
         t.ok("re-present marks the same pixel" ((fb2.at(52 32)) != 0))
         t.eqInt("re-present identical at the sprite pixel" (fb2.at(52 32)) (fb.at(52 32)))
 
         ; ---- panning the camera moves where the sprite lands ---------------
         d.cameraSet(cam.handle 2.0 0.0 10.0 0.0)   ; camera now centred on the sprite
         fb.clear()
-        RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle)
+        RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle 0)
         t.eqInt("old pixel cleared after pan" (fb.at(52 32)) 0)
         t.ok("sprite now lands at screen centre" ((fb.at(32 32)) != 0))
 
@@ -63,7 +63,7 @@ class SoftwarePresent2DTest {
         d.spriteSetPos(other.handle 0.0 0.0)   ; would land at centre if drawn
         ; not added to the layer → must not appear
         fb.clear()
-        def drawn2:int (RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle))
+        def drawn2:int (RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle 0))
         t.eqInt("still only one sprite in the layer drawn" drawn2 1)
 
         t.summary()

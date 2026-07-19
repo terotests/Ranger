@@ -41,8 +41,8 @@ class Ylos2Screenshot {
             host.frame(33.333)
             f = (f + 1)
         }
-        def paneW:int 180
-        def paneH:int 220
+        def paneW:int 480
+        def paneH:int 270
         def sky:int 5215951      ; 0x4f96cf, base sky under the gradient bands
         def divider:int 3421742
         def fb0:RgFramebuffer (RgFramebuffer.create(paneW paneH))

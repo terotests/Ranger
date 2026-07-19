@@ -546,6 +546,10 @@ class RgRegistryBridge extends EvalNativeBridge {
             this.d2.spriteSetCell((a.handleAt(0)) (a.intAt(1)) (a.intAt(2)))
             return (EvalValue.null())
         }
+        if (row.name == "rg2d_sprite_set_pane") {
+            this.d2.spriteSetPaneOwner((a.handleAt(0)) (a.intAt(1)))
+            return (EvalValue.null())
+        }
         if (row.name == "rg2d_sprite_release") {
             def o:OwnedHandle (this.ownedOf((a.guestIdAt(0))))
             def r:RgResolve (this.d2.releaseSprite(o))

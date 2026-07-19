@@ -114,7 +114,7 @@ class RgTexturedRenderer2D {
     ; Present one layer through one camera into fb (cleared to bgRGB first).
     ; Screen origin is the framebuffer centre (same convention as present2D).
     ; Returns the number of sprites blitted.
-    sfn present:int (d:RgRanger2D fb:RgFramebuffer layerH:RgHandle camH:RgHandle bgRGB:int) {
+    sfn present:int (d:RgRanger2D fb:RgFramebuffer layerH:RgHandle camH:RgHandle bgRGB:int paneIndex:int) {
         fb.fill(bgRGB)
         def cx:int (idiv fb.width 2)
         def cy:int (idiv fb.height 2)
@@ -129,6 +129,14 @@ class RgTexturedRenderer2D {
         def i 0
         while (i < n) {
             def sh:RgHandle (itemAt order i)
+            ; split-screen: skip a sprite owned by a different pane
+            def owner:int (d.spritePaneOwner(sh))
+            if (owner >= 0) {
+                if (owner != paneIndex) {
+                    i = (i + 1)
+                    continue
+                }
+            }
             def wx:double (d.spriteX(sh))
             def wy:double (d.spriteY(sh))
             def sxD:double (d.worldToScreenSwX(camH wx wy))

@@ -132,7 +132,7 @@ class RgSoftwareRenderer2D {
     ; Present every sprite in `layerH` through `camH` into `fb`. Screen origin is
     ; the framebuffer centre. Returns the number of sprites drawn. Reads host
     ; state only.
-    sfn present2D:int (d:RgRanger2D fb:RgFramebuffer layerH:RgHandle camH:RgHandle) {
+    sfn present2D:int (d:RgRanger2D fb:RgFramebuffer layerH:RgHandle camH:RgHandle paneIndex:int) {
         def cx:int (idiv fb.width 2)
         def cy:int (idiv fb.height 2)
         def handles:[RgHandle] (d.liveSpriteHandles())
@@ -141,6 +141,12 @@ class RgSoftwareRenderer2D {
         def i 0
         while (i < n) {
             def sh:RgHandle (itemAt handles i)
+            def owner:int (d.spritePaneOwner(sh))
+            def paneOk:boolean true
+            if (owner >= 0) {
+                if (owner != paneIndex) { paneOk = false }
+            }
+            if (paneOk) {
             if ((d.spriteLayerSlot(sh)) == layerH.slot) {
                 def sx:double (d.worldToScreenSwX(camH (d.spriteX(sh)) (d.spriteY(sh))))
                 def sy:double (d.worldToScreenSwY(camH (d.spriteX(sh)) (d.spriteY(sh))))
@@ -150,6 +156,7 @@ class RgSoftwareRenderer2D {
                 def color:int (100 + (d.spriteRegion(sh)))
                 fb.plot(px py color)
                 drawn = (drawn + 1)
+            }
             }
             i = (i + 1)
         }

@@ -97,6 +97,9 @@ class RgSprite2D {
     ; grid at (cellCol,cellRow) instead of the named region. -1 = use region.
     def cellCol:int (0 - 1)
     def cellRow:int 0
+    ; split-screen ownership: -1 = drawn in every pane (world objects); >=0 =
+    ; drawn only in that pane (a local player hidden from the other's view).
+    def paneOwner:int (0 - 1)
 }
 
 class RgLayer2D {
@@ -550,6 +553,14 @@ class RgRanger2D {
     fn spriteCellCol:int (spriteH:RgHandle) {
         def sp:RgSprite2D (this.spriteResolve(spriteH))
         return sp.cellCol
+    }
+    fn spriteSetPaneOwner:void (spriteH:RgHandle pane:int) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        sp.paneOwner = pane
+    }
+    fn spritePaneOwner:int (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.paneOwner
     }
 
     ; declare an atlas as a spritesheet grid (v1 "sheet" kind)
