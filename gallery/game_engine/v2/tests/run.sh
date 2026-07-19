@@ -53,12 +53,11 @@ run_suite interp/semantics/tests/rg_semantics_test
 run_suite tests/contract/d_identity/d_identity_contract_test
 
 # ---- Phase 2 — host handles / arenas / ownership (D-HANDLE / D-TYPE / D-OWN) --
-# (added as suites land)
-# run_suite host/handles/tests/rg_handle_test
-# run_suite host/tests/create_release/create_release_test
-# run_suite host/tests/ownership/ownership_test
-# run_suite host/tests/stale_cross_realm/stale_cross_realm_test
-# run_suite tests/contract/d_own/d_own_contract_test
+run_suite host/handles/tests/rg_handle_test
+run_suite host/tests/create_release/create_release_test
+run_suite host/tests/ownership/ownership_test
+run_suite host/tests/stale_cross_realm/stale_cross_realm_test
+run_suite tests/contract/d_own/d_own_contract_test
 
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then

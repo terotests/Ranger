@@ -1,0 +1,52 @@
+; ==============================================================================
+; create_release_test — host/tests/create_release gate (D-OWN / D-LIFE).
+; ==============================================================================
+; Asserts:
+;   create → live (refcount 1)
+;   release → slot free
+;   second release through the same wrapper → typed DOUBLE_RELEASE error
+;   payload readback survives create; a reused slot gets a fresh generation
+; ==============================================================================
+
+Import "../../arenas/RgHost.rgr"
+Import "../../handles/RgHandle.rgr"
+Import "../../ownership/OwnedHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class CreateReleaseTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("host/create_release"))
+        def host:RgHost (new RgHost)
+        def realm:int 1
+
+        ; ---- create → live --------------------------------------------------
+        def g:OwnedHandle (host.geometryCreate(realm 36))
+        t.ok("geometry live after create" (host.isLive(g.handle)))
+        t.eqInt("geometry refcount starts at 1" (host.refcount(g.handle)) 1)
+        t.eqInt("geometry vertex count readback" (host.geometryVertexCount(g.handle)) 36)
+        t.eqInt("one live object" (host.liveCount()) 1)
+
+        ; ---- release → slot free --------------------------------------------
+        def rel:RgResolve (host.releaseOwned(g))
+        t.ok("release ok" rel.ok)
+        t.ok("release freed the slot" rel.freed)
+        t.no("geometry not live after release" (host.isLive(g.handle)))
+        t.eqInt("zero live objects" (host.liveCount()) 0)
+
+        ; ---- second release through same wrapper → typed error --------------
+        def rel2:RgResolve (host.releaseOwned(g))
+        t.no("second release is not ok" rel2.ok)
+        t.eqInt("second release is DOUBLE_RELEASE" rel2.code (RgErr.doubleRelease()))
+        ; and the underlying handle is stale, not UB
+        t.no("released handle no longer live" (host.isLive(g.handle)))
+
+        ; ---- slot reuse gets a fresh generation -----------------------------
+        def g2:OwnedHandle (host.geometryCreate(realm 12))
+        t.eqInt("reused slot index" g2.handle.slot g.handle.slot)
+        t.ok("reused slot has newer generation" (g2.handle.generation > g.handle.generation))
+        t.no("stale handle from old wrapper still rejected" (host.isLive(g.handle)))
+        t.eqInt("new geometry vertex count" (host.geometryVertexCount(g2.handle)) 12)
+
+        t.summary()
+    }
+}

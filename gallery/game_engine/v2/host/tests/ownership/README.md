@@ -20,3 +20,12 @@ Ownership table conformance without rendering.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 2 ✅ green
+
+`ownership_test.rgr` (29 checks): `meshCreate` retains geo+mat (refcount 1→2),
+getters borrow (no refcount change), `meshSetGeometry` retains new / releases
+old, and releasing the mesh drops only the mesh's strong refs (caller-owned
+objects stay live until the caller releases them).

@@ -27,5 +27,7 @@ Unit and contract runners that may span interp/host/bridge.
   printing an aggregate `v2 ALL GREEN — N/N suites passed` banner (non-zero exit
   on any failure). Add new suites to the `run_suite` list as folders go green.
 
-**Status:** Phase 1 (D-IDENTITY) suites green — `interp/values`,
-`interp/semantics`, `tests/contract/d_identity`.
+**Status:** Phase 1 (D-IDENTITY) + Phase 2 (D-HANDLE / D-TYPE / D-OWN) suites
+green — 8 suites / 156 checks: `interp/values`, `interp/semantics`,
+`tests/contract/d_identity`, `host/handles`, `host/tests/create_release`,
+`host/tests/ownership`, `host/tests/stale_cross_realm`, `tests/contract/d_own`.

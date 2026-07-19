@@ -1,0 +1,110 @@
+; ==============================================================================
+; RgHandle — fat, generation-checked host handle (D-HANDLE).
+; ==============================================================================
+; A handle is a fat value carrying four fields:
+;   slot        1-based index into the entity registry (0 = HANDLE_INVALID)
+;   generation  bumped every time a slot is freed & reused (stale detection)
+;   realmId     owning realm / guest (cross-realm reuse rejected)
+;   typeId      arena type tag (wrong-arena rejected at the command boundary)
+;
+; D-HANDLE decisions honoured here:
+;   - Invalid sentinel is 0 only (slot 0). Never `handle < 0` — fields are
+;     opaque bit carriers, treated as unsigned magnitudes.
+;   - The logical id is wider than 32 bits, so it crosses the WASM boundary as
+;     TWO i32 words (`lo`, `hi`) rather than a single packed i32 that would wrap
+;     generation after a few thousand slot reuses. pack/unpack round-trip below
+;     is the transport encoding.
+;
+; Packing layout (documented wrap policy):
+;   lo = slot | (typeId << 20)          slot: 20 bits, typeId: 12 bits
+;   hi = generation | (realmId << 20)   generation: 20 bits, realmId: 12 bits
+; 20-bit slot ⇒ up to 1,048,575 live objects; 20-bit generation ⇒ ~1M reuses of
+; one slot before wrap (registry bumps an epoch on teardown to cover wrap).
+; ==============================================================================
+
+class RgHandle {
+    def slot:int 0
+    def generation:int 0
+    def realmId:int 0
+    def typeId:int 0
+
+    sfn of:RgHandle (slot:int generation:int realmId:int typeId:int) {
+        def h:RgHandle (new RgHandle)
+        h.slot = slot
+        h.generation = generation
+        h.realmId = realmId
+        h.typeId = typeId
+        return h
+    }
+
+    sfn invalid:RgHandle () {
+        return (RgHandle.of(0 0 0 0))
+    }
+
+    fn isValid:boolean () {
+        return (this.slot != 0)
+    }
+
+    ; ---- two-word WASM transport encoding ----------------------------------
+
+    fn packLo:int () {
+        return (this.slot + (this.typeId * 1048576))
+    }
+
+    fn packHi:int () {
+        return (this.generation + (this.realmId * 1048576))
+    }
+
+    sfn unpack:RgHandle (lo:int hi:int) {
+        def slot:int (lo % 1048576)
+        def typeId:int (idiv lo 1048576)
+        def generation:int (hi % 1048576)
+        def realmId:int (idiv hi 1048576)
+        return (RgHandle.of(slot generation realmId typeId))
+    }
+}
+
+; Typed error codes for handle resolution / ownership (D-HANDLE / D-OWN).
+class RgErr {
+    sfn ok:int () { return 0 }
+    sfn invalidHandle:int () { return 1 }   ; slot 0 or out of range
+    sfn stale:int () { return 2 }           ; generation mismatch (freed/reused)
+    sfn wrongRealm:int () { return 3 }       ; realm mismatch (cross-guest reuse)
+    sfn wrongType:int () { return 4 }        ; typeId mismatch (wrong arena)
+    sfn doubleRelease:int () { return 5 }    ; second release through same wrapper
+
+    sfn name:string (code:int) {
+        if (code == 0) { return "OK" }
+        if (code == 1) { return "INVALID_HANDLE" }
+        if (code == 2) { return "STALE" }
+        if (code == 3) { return "WRONG_REALM" }
+        if (code == 4) { return "WRONG_TYPE" }
+        if (code == 5) { return "DOUBLE_RELEASE" }
+        return "UNKNOWN"
+    }
+}
+
+; Result of resolving a handle against the registry.
+class RgResolve {
+    def ok:boolean false
+    def code:int 1
+    def slotIndex:int (0 - 1)    ; 0-based index into registry arrays
+    def payloadIndex:int (0 - 1) ; index into the owning arena's typed pool
+    def freed:boolean false       ; releaseOnce: did refcount reach 0 this call?
+
+    sfn fail:RgResolve (code:int) {
+        def r:RgResolve (new RgResolve)
+        r.ok = false
+        r.code = code
+        return r
+    }
+
+    sfn pass:RgResolve (slotIndex:int payloadIndex:int) {
+        def r:RgResolve (new RgResolve)
+        r.ok = true
+        r.code = 0
+        r.slotIndex = slotIndex
+        r.payloadIndex = payloadIndex
+        return r
+    }
+}

@@ -1,0 +1,270 @@
+; ==============================================================================
+; RgHost — typed arenas over the shared registry (D-TYPE / D-OWN / D-LIFE).
+; ==============================================================================
+; The scene host owns typed object pools — one per host type, addressed by
+; integer handle through the shared RgRegistry. This slice implements the first
+; three Three arenas from the Phase-2 plan:
+;
+;   geometry arena  (TYPE_GEOMETRY)  RgGeometry payloads
+;   material arena  (TYPE_MATERIAL)  RgMaterial payloads
+;   mesh arena      (TYPE_MESH)      RgMesh payloads (retain geo + mat)
+;
+; D-TYPE: each arena is a separate slot space / payload pool. A handle carries
+; its typeId; a command that resolves through the wrong arena is rejected
+; (WRONG_TYPE) — no `asLight(baseObject3D)` pretend downcast.
+;
+; D-OWN ownership rules realised here:
+;   - create*        → OwnedHandle, refcount 1
+;   - meshCreate     → retains geometry + material (internal strong refs)
+;   - meshGeometry   → borrowed getter, returns the stored handle, no refcount change
+;   - meshSetGeometry→ retain new, release old (atomic on the host)
+;   - releaseOwned   → ends ownership once; second release = typed error; when a
+;                      mesh reaches refcount 0 it releases its retained children
+;   - teardownRealm  → releases everything a realm still holds (final backstop)
+; ==============================================================================
+
+Import "../handles/RgHandle.rgr"
+Import "../RgRegistry.rgr"
+Import "../ownership/OwnedHandle.rgr"
+
+class RgType {
+    sfn geometry:int () { return 10 }
+    sfn material:int () { return 11 }
+    sfn mesh:int () { return 12 }
+}
+
+class RgGeometry {
+    def vertexCount:int 0
+}
+
+class RgMaterial {
+    def r:double 1.0
+    def g:double 1.0
+    def b:double 1.0
+}
+
+class RgMesh {
+    def geo:RgHandle (new RgHandle)
+    def mat:RgHandle (new RgHandle)
+}
+
+class RgHost {
+    def registry:RgRegistry (new RgRegistry)
+
+    ; typed payload pools + per-pool free-index lists
+    def geometries:[RgGeometry]
+    def geoFree:[int]
+    def materials:[RgMaterial]
+    def matFree:[int]
+    def meshes:[RgMesh]
+    def meshFree:[int]
+
+    ; weak attachment table (source → target), parallel arrays
+    def attSrc:[RgHandle]
+    def attTgt:[RgHandle]
+
+    ; ---- pool index allocation ---------------------------------------------
+    fn allocGeoIndex:int () {
+        def nf:int (array_length this.geoFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.geoFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.geoFree i)
+                i = (i + 1)
+            }
+            this.geoFree = kept
+            return idx
+        }
+        def n:int (array_length this.geometries)
+        push this.geometries (new RgGeometry)
+        return n
+    }
+
+    fn allocMatIndex:int () {
+        def nf:int (array_length this.matFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.matFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.matFree i)
+                i = (i + 1)
+            }
+            this.matFree = kept
+            return idx
+        }
+        def n:int (array_length this.materials)
+        push this.materials (new RgMaterial)
+        return n
+    }
+
+    fn allocMeshIndex:int () {
+        def nf:int (array_length this.meshFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.meshFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.meshFree i)
+                i = (i + 1)
+            }
+            this.meshFree = kept
+            return idx
+        }
+        def n:int (array_length this.meshes)
+        push this.meshes (new RgMesh)
+        return n
+    }
+
+    ; ---- create (owned, refcount 1) ----------------------------------------
+    fn geometryCreate:OwnedHandle (realmId:int vertexCount:int) {
+        def idx:int (this.allocGeoIndex())
+        def g:RgGeometry (itemAt this.geometries idx)
+        g.vertexCount = vertexCount
+        def h:RgHandle (this.registry.alloc(realmId (RgType.geometry()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    fn materialCreate:OwnedHandle (realmId:int r:double g:double b:double) {
+        def idx:int (this.allocMatIndex())
+        def m:RgMaterial (itemAt this.materials idx)
+        m.r = r
+        m.g = g
+        m.b = b
+        def h:RgHandle (this.registry.alloc(realmId (RgType.material()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    ; meshCreate retains geometry + material (internal strong refs). Returns an
+    ; owned mesh handle. geoH / matH are borrowed for the call; the mesh keeps
+    ; strong refs that outlive the caller's own ownership.
+    fn meshCreate:OwnedHandle (realmId:int geoH:RgHandle matH:RgHandle) {
+        def idx:int (this.allocMeshIndex())
+        def mesh:RgMesh (itemAt this.meshes idx)
+        mesh.geo = geoH
+        mesh.mat = matH
+        this.registry.retain(geoH)
+        this.registry.retain(matH)
+        def h:RgHandle (this.registry.alloc(realmId (RgType.mesh()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    ; ---- borrowed getters (no refcount change) -----------------------------
+    fn meshGeometry:RgHandle (meshH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(meshH (RgType.mesh())))
+        if (r.ok == false) {
+            return (RgHandle.invalid())
+        }
+        def mesh:RgMesh (itemAt this.meshes r.payloadIndex)
+        return mesh.geo
+    }
+
+    fn meshMaterial:RgHandle (meshH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(meshH (RgType.mesh())))
+        if (r.ok == false) {
+            return (RgHandle.invalid())
+        }
+        def mesh:RgMesh (itemAt this.meshes r.payloadIndex)
+        return mesh.mat
+    }
+
+    fn geometryVertexCount:int (geoH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(geoH (RgType.geometry())))
+        if (r.ok == false) {
+            return (0 - 1)
+        }
+        def g:RgGeometry (itemAt this.geometries r.payloadIndex)
+        return g.vertexCount
+    }
+
+    ; ---- meshSetGeometry: retain new, release old (atomic) ------------------
+    fn meshSetGeometry:RgResolve (meshH:RgHandle newGeoH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(meshH (RgType.mesh())))
+        if (r.ok == false) {
+            return r
+        }
+        def mesh:RgMesh (itemAt this.meshes r.payloadIndex)
+        def oldGeo:RgHandle mesh.geo
+        this.registry.retain(newGeoH)
+        mesh.geo = newGeoH
+        this.releaseHandleInternal(oldGeo)
+        return r
+    }
+
+    ; ---- release ------------------------------------------------------------
+    ; Internal release: decrement once; on final release recycle the payload
+    ; slot and, for a mesh, release its retained geometry + material.
+    fn releaseHandleInternal:RgResolve (h:RgHandle) {
+        def r:RgResolve (this.registry.releaseOnce(h))
+        if (r.ok == false) {
+            return r
+        }
+        if (r.freed) {
+            if (h.typeId == (RgType.mesh())) {
+                def mesh:RgMesh (itemAt this.meshes r.payloadIndex)
+                this.releaseHandleInternal(mesh.geo)
+                this.releaseHandleInternal(mesh.mat)
+                push this.meshFree r.payloadIndex
+            }
+            if (h.typeId == (RgType.geometry())) {
+                push this.geoFree r.payloadIndex
+            }
+            if (h.typeId == (RgType.material())) {
+                push this.matFree r.payloadIndex
+            }
+        }
+        return r
+    }
+
+    ; Public ownership release through an OwnedHandle wrapper (D-OWN). A second
+    ; release through the same wrapper is a typed DOUBLE_RELEASE error.
+    fn releaseOwned:RgResolve (owned:OwnedHandle) {
+        if (owned.released) {
+            return (RgResolve.fail((RgErr.doubleRelease())))
+        }
+        def r:RgResolve (this.releaseHandleInternal(owned.handle))
+        if (r.ok) {
+            owned.released = true
+        }
+        return r
+    }
+
+    ; ---- weak attachments (D-OWN) ------------------------------------------
+    ; An attachment is a weak, generation-checked reference by default: it never
+    ; retains its target, and the target's destruction auto-detaches it. Models
+    ; audioSourceAttachEntity / listener→camera / constraint→body relations.
+    fn attachWeak:void (source:RgHandle target:RgHandle) {
+        push this.attSrc source
+        push this.attTgt target
+    }
+
+    ; Resolve the live target of a weak attachment; returns HANDLE_INVALID if the
+    ; target has been released (auto-detach — no UB). Never touches refcounts.
+    fn attachmentTarget:RgHandle (source:RgHandle) {
+        def n:int (array_length this.attSrc)
+        def i 0
+        while (i < n) {
+            def s:RgHandle (itemAt this.attSrc i)
+            if (s.slot == source.slot) {
+                if (s.generation == source.generation) {
+                    def tgt:RgHandle (itemAt this.attTgt i)
+                    if (this.registry.isLive(tgt)) {
+                        return tgt
+                    }
+                    return (RgHandle.invalid())
+                }
+            }
+            i = (i + 1)
+        }
+        return (RgHandle.invalid())
+    }
+
+    ; ---- pass-throughs for tests -------------------------------------------
+    fn retain:RgResolve (h:RgHandle) { return (this.registry.retain(h)) }
+    fn refcount:int (h:RgHandle) { return (this.registry.refcountOf(h)) }
+    fn isLive:boolean (h:RgHandle) { return (this.registry.isLive(h)) }
+    fn liveCount:int () { return (this.registry.liveCount()) }
+    fn teardownRealm:int (realmId:int) { return (this.registry.teardownRealm(realmId)) }
+}

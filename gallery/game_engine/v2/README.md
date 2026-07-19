@@ -98,7 +98,16 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   v2-owned value slice proves reference identity without Three/rendering:
   `interp/values/` (`RgValue`, `RgRealm`), `interp/semantics/`
   (`RgMap`/`RgSet`/`RgArrayOps`), and the cross-cutting gate
-  `tests/contract/d_identity/`. Shared harness `tests/harness/RgTest.rgr` +
-  driver `tests/run.sh`. Run: `bash tests/run.sh` → `v2 ALL GREEN`.
+  `tests/contract/d_identity/`.
+- **Phase 2 — Host handles + typed arenas (D-HANDLE / D-TYPE / D-OWN): ✅ green.**
+  `host/handles/` (fat generation+realm+type handle, two-word transport),
+  `host/RgRegistry.rgr` (slot table with stale/cross-realm/wrong-type rejection),
+  `host/arenas/RgHost.rgr` (geometry/material/mesh arenas — create/release,
+  retain-on-create, borrowed getters, retain-new/release-old, weak attachments),
+  `host/ownership/OwnedHandle.rgr` (release-once), and the `tests/contract/d_own/`
+  gate.
 
-*Later phases (2+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (8 suites, 156
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 8/8 suites passed`.
+
+*Later phases (3+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

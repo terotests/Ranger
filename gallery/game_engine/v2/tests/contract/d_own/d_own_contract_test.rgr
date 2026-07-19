@@ -1,0 +1,83 @@
+; ==============================================================================
+; d_own_contract_test — cross-cutting D-OWN gate.
+; ==============================================================================
+; Mirrors the CODE_CLEANUP D-OWN ownership table rows:
+;   getter_borrowed        — a getter returns a borrowed handle (no refcount change)
+;   second_release_error   — a second release through the same wrapper is a typed
+;                            error, not a second decrement
+;   weak_attachment        — an attachment never keeps its target alive; target
+;                            destruction auto-detaches (no UB)
+;   realm_teardown_backstop— realm teardown releases everything the realm holds
+; ==============================================================================
+
+Import "../../../host/arenas/RgHost.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../host/ownership/OwnedHandle.rgr"
+Import "../../harness/RgTest.rgr"
+
+class DOwnContractTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_own"))
+        def host:RgHost (new RgHost)
+
+        ; ---- getter_borrowed ------------------------------------------------
+        def geo:OwnedHandle (host.geometryCreate(1 4))
+        def mat:OwnedHandle (host.materialCreate(1 1.0 1.0 1.0))
+        def mesh:OwnedHandle (host.meshCreate(1 geo.handle mat.handle))
+        def before:int (host.refcount(geo.handle))
+        ; call the getter several times — borrowing must never change refcount
+        host.meshGeometry(mesh.handle)
+        host.meshGeometry(mesh.handle)
+        def gh:RgHandle (host.meshGeometry(mesh.handle))
+        def after:int (host.refcount(geo.handle))
+        t.eqInt("getter is borrow-only (refcount unchanged)" after before)
+        t.eqInt("borrowed handle identifies the same geo slot" gh.slot geo.handle.slot)
+
+        ; ---- second_release_error -------------------------------------------
+        def r1:RgResolve (host.releaseOwned(mat))
+        t.ok("first release of mat ok" r1.ok)
+        def r2:RgResolve (host.releaseOwned(mat))
+        t.no("second release of mat is an error" r2.ok)
+        t.eqInt("second release is DOUBLE_RELEASE (not a decrement)"
+            r2.code (RgErr.doubleRelease()))
+        ; mat is still live because the mesh still holds its strong ref; the
+        ; double-release did NOT wrongly decrement that ref to 0.
+        t.ok("mat still live via mesh's retained ref" (host.isLive(mat.handle)))
+
+        ; ---- weak_attachment ------------------------------------------------
+        ; attach a "source" (a material) weakly to a "target" (a geometry).
+        def src:OwnedHandle (host.materialCreate(1 0.0 0.0 0.0))
+        def tgt:OwnedHandle (host.geometryCreate(1 64))
+        def tgtRcBefore:int (host.refcount(tgt.handle))
+        host.attachWeak(src.handle tgt.handle)
+        t.eqInt("weak attach did NOT retain the target"
+            (host.refcount(tgt.handle)) tgtRcBefore)
+        def liveTgt:RgHandle (host.attachmentTarget(src.handle))
+        t.ok("attachment resolves to live target" (liveTgt.isValid()))
+        t.eqInt("attachment target is the geometry" liveTgt.slot tgt.handle.slot)
+        ; destroy the target — the weak attachment must auto-detach, no UB
+        host.releaseOwned(tgt)
+        t.no("target destroyed" (host.isLive(tgt.handle)))
+        def detached:RgHandle (host.attachmentTarget(src.handle))
+        t.no("attachment auto-detached after target destruction"
+            (detached.isValid()))
+
+        ; ---- realm_teardown_backstop ----------------------------------------
+        ; build a fresh realm with several still-owned objects (some retained by
+        ; a mesh) and never release them; teardown must reclaim everything.
+        def h2:RgHost (new RgHost)
+        def g2:OwnedHandle (h2.geometryCreate(9 1))
+        def m2:OwnedHandle (h2.materialCreate(9 1.0 1.0 1.0))
+        def mesh2:OwnedHandle (h2.meshCreate(9 g2.handle m2.handle))
+        def extra:OwnedHandle (h2.geometryCreate(9 2))
+        t.eqInt("four live objects before teardown" (h2.liveCount()) 4)
+        def reclaimed:int (h2.teardownRealm(9))
+        t.eqInt("teardown reclaimed all four" reclaimed 4)
+        t.eqInt("no live objects after teardown" (h2.liveCount()) 0)
+        t.no("mesh handle dead after teardown" (h2.isLive(mesh2.handle)))
+        t.no("geometry handle dead after teardown" (h2.isLive(g2.handle)))
+        t.no("extra handle dead after teardown" (h2.isLive(extra.handle)))
+
+        t.summary()
+    }
+}
