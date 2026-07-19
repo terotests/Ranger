@@ -39,12 +39,12 @@ engine (`ranger:core` / `ranger:three` / `ranger:cannon` or `ranger_wasm`).
 Suggested early picks (small, high signal):
 
 - **3D:** rotating cube, teapot, one Cannon stack / sandbox
-- **2D / sprites:** Pac-Man or Breakout class title; one LPC / `sprite_char`
-  sample (uses `v2/sprites/` + `v2/lpc/`)
+- **2D (`ranger:2d`):** Pac-Man or Breakout class title; one LPC / character
+  sample via `SpriteAtlas` + `AnimationPlayer2D` (not RGSP1 slots)
 - **Audio/input:** one sample exercising `ranger:core`
 
 Exact order follows module readiness — do not skip 2D because Three landed
-first.
+first. Target imports: `ranger:2d` / `ranger_wasm::two_d` (D-2D).
 
 ## Unit / contract tests that gate this folder
 

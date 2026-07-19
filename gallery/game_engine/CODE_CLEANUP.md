@@ -5,8 +5,8 @@ Implementation contract for the game-engine cleanup.
 | Section | Contents |
 |---------|----------|
 | **Components and actors** | What each name used in the code comments refers to |
-| **Binding decisions** | D-IDENTITY … D-MODULES (14, incl. D-OWN ownership + D-ASYNC async ABI) |
-| **Worked examples** | Camera + physics pose; geometry upload; TS `ranger:core` game; Rust/WASM `ranger_wasm` game + ABI |
+| **Binding decisions** | D-IDENTITY … D-MODULES + **D-2D** (15, incl. D-OWN, D-ASYNC, first-class `ranger:2d`) |
+| **Worked examples** | Camera + physics pose; geometry upload; TS `ranger:core` game; Rust/WASM `ranger_wasm` game + ABI; **TS/Rust `ranger:2d` sprite game** |
 | **Implementation gates** | Required order and tests before calling a migration done |
 
 **Implementation plan (v2 tree):** [`CODE_CLEANUP_PLAN.md`](./CODE_CLEANUP_PLAN.md)
@@ -37,7 +37,7 @@ the worked examples name them with the labels in bold.
 | **wrapper** | The TSX wrapper classes | `three/tsx/three.tsx` — guest-side classes that imitate the Three.js API so existing Three.js-style code runs unchanged. Target model: thin declarations over the adapter. Today they still build a private scene tree consumed by the temporary reconciler (D-SYNC). |
 | **WASM boundary** | The compiled-guest ABI | For compiled guests there is no interpreter or adapter; the guest calls generated imports and only `i32` values and byte ranges cross (D-WASM, D-WASM-MEM). Command names, handles, and timing rules are the same as on the interpreted path. |
 | **runtime** | `ranger:core` capability root | Realm-scoped host services: surface, input, audio, assets, time, log, platform (D-MODULES). Not a browser global and not a cross-guest singleton. |
-| **modules** | Virtual import packages | `ranger:three`, `ranger:cannon`, `ranger:core` — injected by the Ranger runtime for the current `realmId` (D-MODULES). Compiled guests use the same split as `ranger_wasm::{three,cannon,core}`. |
+| **modules** | Virtual import packages | `ranger:core`, `ranger:2d`, `ranger:three`, `ranger:cannon` — injected by the Ranger runtime for the current `realmId` (D-MODULES, D-2D). Compiled guests use the same split as `ranger_wasm::{core,two_d,three,cannon}`. |
 | **abi** | Generated WASM import surface | Direct host commands for compiled guests (`rg_*` / registry exports). Same commands as the adapter path; only `i32` / byte spans cross (D-WASM, D-HANDLE). The `ranger_wasm` helper crate wraps validation, ownership, strings, spans, and error codes. |
 
 Comment convention in the code examples: comments are prefixed with the actor
@@ -590,7 +590,131 @@ Rules:
   it means *render authority*; it must not be presented as full Three.js value
   semantics — the table above is the semantics.
 
-## D-MODULES — Importable packages: `ranger:core`, `ranger:three`, `ranger:cannon`
+## D-2D — First-class retained 2D scene and sprite system
+
+**P1.** The old games framework depends on 2D sprites, sprite sheets, primitive
+shapes, cameras, animation, and frame-local drawing. These are **not**
+implemented as Three.js meshes and must **not** be left behind as legacy
+runner-specific ABIs (fixed RGSP1 slots, host-only character clocks, multiple
+sheet registries). Omitting 2D from the binding contract would unify 3D while
+leaving the more game-relevant 2D stack split across incompatible paths
+(inventory: [`CODE_CLEANUP_OLD.md`](./CODE_CLEANUP_OLD.md)).
+
+### Package
+
+TypeScript:
+
+```ts
+import * as TWO from "ranger:2d"
+```
+
+Rust/WASM:
+
+```rust
+use ranger_wasm::two_d;
+```
+
+`ranger:2d` is a **sibling** of `ranger:three` — not a `THREE.Sprite` façade and
+not folded into `ranger:core`. It uses the same handle registry, realm
+validation, ownership (D-OWN), class registry (D-REGISTRY), and generated WASM
+surface (D-WASM) as Three / Cannon / audio.
+
+Prefer `ranger:2d` over `ranger:sprite`: the domain already includes rectangles,
+circles, wedges, bitmap pixel art, sheets, cameras, layers, tilemaps, text, and
+particles — not only textured quads.
+
+### Object model
+
+Persistent host-backed types (stable handles, typed arenas):
+
+```text
+Entity registry (shared)
+├─ Sprite2D arena
+├─ Shape2D arena
+├─ Camera2D arena
+├─ Layer2D / Scene2D arena
+├─ TileMap2D arena
+├─ AnimationPlayer2D arena
+├─ Texture2D arena
+├─ SpriteAtlas arena
+└─ ParticleEmitter2D arena
+```
+
+Also registered: `AnimationClip2D`, `SpriteRegion` (may be a value or light
+handle — declare residency in the registry), `Renderer2D`.
+
+Frame-local drawing is separate:
+
+```text
+Sprite2D / Shape2D / …
+    retained objects with identity and lifetime (D-IDENTITY, D-LIFE, D-OWN)
+
+DrawList2D / Canvas2D commands
+    frame-local commands without persistent object identity
+```
+
+The old `game_sprite.rgr` path is the retained model; guest `.as` draw lists are
+the immediate model. Both remain valid use cases — they must not stay as
+unrelated implementations.
+
+### Binding rules
+
+- Sprite identity never depends on array index, slot number, z-order, or
+  traversal order.
+- Reordering and moving a sprite between layers preserves its handle.
+- Texture, atlas, sprite, and animation-player identities are separate.
+- Multiple sprites may share one texture or atlas (shared retain — D-OWN).
+- Removing a sprite from a layer does not release it or its resources
+  (membership ≠ object — D-LIFE).
+- Atlas metadata loads through `runtime.assets` (D-ASYNC), not runner-specific
+  manifests.
+- Animation timing uses `runtime.time` and one shared animation model (not a
+  per-runner clock).
+- `Camera2D` supports translation, zoom, and rotation consistently on software,
+  GPU, interpreted, and WASM paths — including `screenToWorld` / `worldToScreen`.
+- Physics `Body` and `Sprite2D` remain **separate** objects; sync is either
+  guest-side copy or an explicit weak `PoseBinding2D` (never “whichever runner
+  you picked”).
+
+### Atlas / animation asset model
+
+One shared model replaces fixed 64×64 / row-direction / RGSP1 catalog assumptions:
+
+```text
+Texture2D          decoded image resource
+SpriteAtlas        texture + named regions + animation definitions
+SpriteRegion       atlas + source rect + pivot
+AnimationClip2D    ordered regions + durations + events
+AnimationPlayer2D  playback state attached to a Sprite2D
+```
+
+Atlas JSON must allow irregularly packed frames (not only grid sheets). LPC and
+other packers emit this format; the host does not hard-code frame size.
+
+Engine-level animation (sprites and, later, property tracks) drains events on
+the same non-reentrant frame-boundary queue as D-ASYNC completions.
+
+### Pose binding (optional)
+
+```text
+Sprite2D handle ≠ Body handle
+
+PoseBinding2D { bodyH → spriteH }   // weak, generation-checked (D-OWN)
+```
+
+Destroying either side invalidates the binding; the binding must not keep body
+or sprite alive.
+
+### What this retires (after parity)
+
+Fixed sprite-slot ABIs as the *primary* identity, runner-specific sheet
+manifests, host-only character animation clocks, and incompatible Camera2D
+implementations — tracked as D-2D migration gates in
+[`CODE_CLEANUP_PLAN.md`](./CODE_CLEANUP_PLAN.md).
+
+---
+
+## D-MODULES — Importable packages: `ranger:core`, `ranger:2d`, `ranger:three`, `ranger:cannon`
 
 TypeScript (and the TSX interpreter) import **virtual modules** injected by the
 Ranger runtime for the current `realmId`. They are not ordinary globals and not
@@ -599,6 +723,7 @@ shared across guests.
 ```ts
 import * as THREE from "ranger:three"
 import * as CANNON from "ranger:cannon"
+import * as TWO from "ranger:2d"
 
 import {
   runtime,
@@ -625,10 +750,17 @@ ranger:core
 │  ├─ clips / sources / voices  separate identities (below)
 │  ├─ listener                  attachTo(camera)
 │  └─ mixer buses
-├─ asset loading                runtime.assets.loadAudio / loadModel / …
+├─ asset loading                loadAudio / loadModel / loadSpriteAtlas / …
 ├─ timing                       FrameInfo.delta, fixedDelta
 ├─ logging                      runtime.log.*
+├─ pose bindings (optional)     runtime.bindings.bindPose2D(…)
 └─ platform capabilities        runtime.platform.*
+
+ranger:2d                         (D-2D — not THREE.Sprite)
+├─ Scene2D / Layer2D / Camera2D / Renderer2D
+├─ Sprite2D / Shape2D / TileMap2D / ParticleEmitter2D
+├─ SpriteAtlas / AnimationClip2D / AnimationPlayer2D
+└─ DrawList2D                   frame-local (no persistent handles)
 
 ranger:three
 ├─ scenes, cameras, meshes, geometry, materials
@@ -636,11 +768,12 @@ ranger:three
 
 ranger:cannon
 ├─ worlds, bodies, shapes, constraints
-└─ physics arenas               (separate from Three handles — D-TYPE)
+└─ physics arenas               (separate from Three / 2D handles — D-TYPE)
 ```
 
-`ranger:three` and `ranger:cannon` provide **domain object APIs** (`new Mesh`,
-`new Body`). `ranger:core` provides the **host environment and services**.
+`ranger:2d`, `ranger:three`, and `ranger:cannon` provide **domain object APIs**
+(`new Sprite2D`, `new Mesh`, `new Body`). `ranger:core` provides the **host
+environment and services**.
 
 Today’s `ranger-game` / `scripting/engine.d.ts` surface migrates toward
 `ranger:core`; new examples must not invent `window` / `document` /
@@ -651,10 +784,10 @@ exist, but they resolve to the same runtime services).
 
 | Type | Creation |
 |------|----------|
-| `THREE.Mesh`, `THREE.Scene`, `CANNON.Body` | `new` → host handle (D-SYNC) |
+| `THREE.Mesh`, `THREE.Scene`, `TWO.Sprite2D`, `CANNON.Body` | `new` → host handle (D-SYNC) |
 | User-defined `PlayerController` / `PhysicsVisual` | `new` — **guest-only** class; holds NativeRefs, no host handle of its own |
 | `AudioSource` | `runtime.audio.createSource(…)` (or registered `new AudioSource` if in D-REGISTRY) |
-| `AudioClip` | returned by `runtime.assets.loadAudio` — not `new` |
+| `AudioClip` / `SpriteAtlas` | returned by `runtime.assets.load*` — not `new` |
 | `Gamepad` | discovered by input; **not** constructed |
 | Audio output device / display / window / frame clock | owned by runtime; **not** constructed |
 
@@ -760,7 +893,8 @@ Remains a **pure guest** object: it composes NativeRefs and needs no host
 handle. Register a class in D-REGISTRY only when its state/ops must live in
 Ranger (e.g. `AudioSource` with host pose attachment and voice allocation).
 
-Registry entries carry `module: ranger:core | ranger:three | ranger:cannon`
+Registry entries carry
+`module: ranger:core | ranger:2d | ranger:three | ranger:cannon`
 so codegen emits the correct import package, interpreter registration, WASM
 surface, and TypeScript declarations (D-REGISTRY).
 
@@ -861,6 +995,7 @@ TypeScript. A helper crate wraps the generated ABI:
 ```rust
 use ranger_wasm::{
     core::{self, ActionMap, FrameInfo, Game, GameContext, Result},
+    two_d,
     three,
     cannon,
 };
@@ -868,6 +1003,7 @@ use ranger_wasm::{
 
 ```text
 ranger_wasm::core     ↔  ranger:core      (runtime, input, audio, assets, …)
+ranger_wasm::two_d    ↔  ranger:2d        (sprites, cameras, atlases, …)
 ranger_wasm::three    ↔  ranger:three
 ranger_wasm::cannon   ↔  ranger:cannon
 ```
@@ -2377,6 +2513,194 @@ emitter.burst(100)?;
 
 ---
 
+# Worked example — `ranger:2d` sprite game (TS + Rust)
+
+Same registry commands on both guests (D-2D, D-MODULES). Retained `Sprite2D`
+identity; atlas via `runtime.assets`; physics body remains a separate handle.
+Comments use the actor prefixes from **Components and actors**.
+
+## TypeScript
+
+```ts
+import { runtime, type Game, type FrameInfo } from "ranger:core"
+import * as TWO from "ranger:2d"
+import * as PHYSICS from "ranger:cannon"
+
+class SpriteGame implements Game {
+  private scene!: TWO.Scene2D
+  private camera!: TWO.Camera2D
+  private renderer!: TWO.Renderer2D
+
+  private player!: TWO.Sprite2D
+  private animation!: TWO.AnimationPlayer2D
+
+  private world!: PHYSICS.World
+  private body!: PHYSICS.Body
+
+  async init() {
+    // guest:  construct retained 2D graph
+    // host:   scene2dCreate / camera2dCreate / renderer2dCreate → handles
+    this.scene = new TWO.Scene2D()
+    this.camera = new TWO.Camera2D()
+    this.renderer = new TWO.Renderer2D()
+
+    // runtime: surface owns the OS window / canvas
+    runtime.surface.attachRenderer(this.renderer)
+
+    // runtime: assetsLoadSpriteAtlas (D-ASYNC) → atlasH + textureH
+    const atlas = await runtime.assets.loadSpriteAtlas(
+      "characters/player.atlas.json",
+    )
+
+    // host: sprite2dCreate(region…) → spriteH (stable identity — D-2D)
+    this.player = new TWO.Sprite2D(atlas.region("walk-down-0"))
+    this.player.anchor.set(0.5, 1.0)
+    // host: layer/scene membership only — not release (D-LIFE)
+    this.scene.add(this.player)
+
+    const walk = atlas.animation("walk-down")
+    // host: animationPlayerCreate(spriteH) → playerH; play(clipH, …)
+    this.animation = new TWO.AnimationPlayer2D(this.player)
+    this.animation.play(walk, { loop: true, framesPerSecond: 9 })
+
+    this.world = new PHYSICS.World()
+    this.body = new PHYSICS.Body({ mass: 1 })
+    this.world.addBody(this.body)
+    // note: bodyH ≠ spriteH — guest sync below (or PoseBinding2D)
+  }
+
+  update(frame: FrameInfo) {
+    this.world.fixedStep(frame.fixedDelta, frame.delta)
+
+    const position = this.body.position
+    // adapter: hybrid position commit (D-ADAPTER) → spriteSetPosition
+    this.player.position.set(position.x, position.y)
+
+    // render: reads host 2D state; not a sync boundary (D-SYNC)
+    this.renderer.render(this.scene, this.camera)
+  }
+}
+
+runtime.start(new SpriteGame())
+```
+
+Immediate-mode (no handle) for debug/effects — same module, different API:
+
+```ts
+// guest: frame-local only — host must not mint spriteH / shapeH
+renderer2d.drawSprite({
+  texture,
+  position: [120, 80],
+  source: [0, 0, 32, 32],
+})
+renderer2d.drawRect({
+  x: 10, y: 10, width: 100, height: 8, color: 0xff0000ff,
+})
+```
+
+## Rust / WASM
+
+```rust
+use ranger_wasm::{
+    cannon,
+    core::{FrameInfo, Game, GameContext, InitContext, Result},
+    two_d,
+};
+
+struct SpriteGame {
+    scene: two_d::Scene2D,
+    camera: two_d::Camera2D,
+    renderer: two_d::Renderer2D,
+    player: two_d::Sprite2D,
+    animation: two_d::AnimationPlayer2D,
+    world: cannon::World,
+    body: cannon::Body,
+}
+
+impl Game for SpriteGame {
+    async fn init(ctx: &mut InitContext) -> Result<Self> {
+        let scene = two_d::Scene2D::new()?;
+        let camera = two_d::Camera2D::new()?;
+        let renderer = two_d::Renderer2D::new()?;
+        // abi: rg_surface_attach_renderer(…)
+        ctx.surface().attach_renderer(&renderer)?;
+
+        // abi: rg_assets_load_sprite_atlas_begin/poll → atlasH
+        let atlas = ctx
+            .assets()
+            .load_sprite_atlas("characters/player.atlas.json")
+            .await?;
+
+        // abi: rg_sprite2d_create(region…) → spriteH
+        let player = two_d::Sprite2D::new(&atlas.region("walk-down-0")?)?;
+        player.anchor()?.set(0.5, 1.0)?;
+        // abi: rg_scene2d_add(sceneH, spriteH) — membership
+        scene.add(&player)?;
+
+        let walk = atlas.animation("walk-down")?;
+        let animation = two_d::AnimationPlayer2D::new(&player)?;
+        animation.play(
+            &walk,
+            two_d::PlayOptions {
+                looping: true,
+                frames_per_second: 9.0,
+            },
+        )?;
+
+        let world = cannon::World::new()?;
+        let body = cannon::Body::new(cannon::BodyOptions {
+            mass: 1.0,
+            ..Default::default()
+        })?;
+        world.add_body(&body)?;
+
+        Ok(Self {
+            scene,
+            camera,
+            renderer,
+            player,
+            animation,
+            world,
+            body,
+        })
+    }
+
+    fn update(
+        &mut self,
+        _ctx: &mut GameContext,
+        frame: FrameInfo,
+    ) -> Result<()> {
+        self.world.fixed_step(
+            frame.fixed_delta_seconds,
+            frame.delta_seconds,
+        )?;
+
+        let position = self.body.position()?;
+        // abi: rg_sprite2d_set_position(spriteH, x, y)
+        self.player.position()?.set(position.x, position.y)?;
+
+        // abi: rg_renderer2d_render(rendererH, sceneH, cameraH)
+        self.renderer.render(&self.scene, &self.camera)?;
+        Ok(())
+    }
+}
+
+ranger_wasm::export_game!(SpriteGame);
+```
+
+### Forbids (2D regression checklist)
+
+| Anti-pattern | Why |
+|--------------|-----|
+| Sprite identity = RGSP1 slot index | Reorder/reconnect breaks games (D-2D, D-HANDLE) |
+| `layer.remove(sprite)` releases atlas | Shared resources + revive break (D-LIFE, D-OWN) |
+| Atlas only via runner manifest | Bypasses `runtime.assets` / D-ASYNC |
+| Separate Camera2D math per backend | Pointer/culling diverge (D-2D) |
+| `DrawList2D` minting persistent handles | Leaks / false identity |
+| Body handle reused as sprite handle | Typed arenas (D-TYPE) |
+
+---
+
 # Implementation gates
 
 **Required order:**
@@ -2391,11 +2715,14 @@ emitter.burst(100)?;
 6. Interpreter module-namespace isolation (D-MODULES prerequisite — today
    imports share one scope, `docs/TSX_ENGINE_ISSUES.md` #5/#9).
 7. Virtual modules + runtime capability root (D-MODULES): `ranger:core` /
-   `ranger:three` / `ranger:cannon`, and the `ranger_wasm::{core,three,cannon}`
-   helper surfaces — same registry commands.
-8. Migrate demos to live objects + `runtime.start(Game)` /
-   `ranger_wasm::export_game!` (D-SYNC, D-MODULES).
-9. Delete structural reconciliation (`RETIRE-RECONCILE`).
+   `ranger:2d` / `ranger:three` / `ranger:cannon`, and
+   `ranger_wasm::{core,two_d,three,cannon}` — same registry commands.
+8. **D-2D** retained 2D + atlas + Camera2D + AnimationPlayer2D + DrawList2D
+   (gates D-2D-1 … D-2D-10 in [`CODE_CLEANUP_PLAN.md`](./CODE_CLEANUP_PLAN.md)).
+9. Migrate demos (2D **and** 3D) to live objects + `runtime.start(Game)` /
+   `ranger_wasm::export_game!` (D-SYNC, D-MODULES, D-2D).
+10. Delete structural reconciliation (`RETIRE-RECONCILE`) and retired sprite
+    slot/manifest paths after D-2D parity.
 
 **Required test gates:**
 
@@ -2440,9 +2767,17 @@ emitter.burst(100)?;
   requests releases both request and result.
 - Registry ids (D-REGISTRY): changing a published id's meaning fails codegen;
   removed ids stay tombstoned.
+- **D-2D:** same `Sprite2D` retains the same handle after reorder/reparent;
+  two sprites share one atlas/texture handle; releasing one sprite does not
+  release the shared atlas; layer remove ≠ release; software and GPU
+  `Camera2D` transforms agree; TS and Rust resolve the same atlas region;
+  animation frame at a given `runtime.time` matches across guests; immediate
+  `DrawList2D` commands mint no persistent handles; `PoseBinding2D` rejects
+  stale body/sprite handles; atlas/resource counts stay stable across hot
+  reload.
 
 A migration is complete only when its replaced path is removed in the same
 change, or is covered by an explicitly tracked retirement item
-(e.g. `RETIRE-RECONCILE`). **Parity is tested across generated surfaces rather
-than promised.**
+(e.g. `RETIRE-RECONCILE`, D-2D-10). **Parity is tested across generated
+surfaces rather than promised.**
 

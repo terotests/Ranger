@@ -36,6 +36,7 @@ this plan must follow (merged after the first scaffold draft):
 | **Module namespace isolation** | Phase 8 prerequisite (interp) — before `ranger:*` injection |
 | **Frame pipeline** (`runtime.start`) | Phase 8–10 — drain async completions between guest turns |
 | **`WASM_MEMORY_ABI.md` span/status rules** | Phase 5/7 — one span convention; status codes ≠ result counts |
+| **D-2D / `ranger:2d`** (P1) | Phase 10b–12 — sibling of Three; retained + DrawList2D; D-2D-1…10 |
 
 Gate order and required tests in CODE_CLEANUP’s **Implementation gates**
 section are authoritative; the phase table below tracks them.
@@ -84,26 +85,46 @@ Copy mature, unit-tested modules; leave tangled bridge/demo shells in v1.
 
 Each folder’s README records provenance and rewire status.
 
-### 2D sprites are first-class (do not drop)
+### P1: `ranger:2d` is first-class (D-2D — do not omit)
 
-The old games framework is not 3D-only: Pac-Man, Breakout, Ylos, character
-walkers, and RGSP1 WASM guests all depend on **retained sprites**, sheets, and
-(often) **LPC** composition. v2 must keep that path:
+**Binding contract:** [`CODE_CLEANUP.md`](./CODE_CLEANUP.md) **D-2D**. Omitting
+2D would unify Three while leaving the old game-relevant sprite stack split
+across incompatible paths (fixed slots, multiple sheet registries, several
+cameras/animation clocks — see `CODE_CLEANUP_OLD.md`).
+
+Package layout (sibling of Three, not `THREE.Sprite`):
+
+```text
+ranger:core     runtime, surface, input, audio, assets, time, bindings
+ranger:2d       sprites, sheets/atlases, animation, layers, Camera2D,
+                shapes, tilemaps, text, particles, DrawList2D
+ranger:three    3D scenes / meshes / materials
+ranger:cannon   physics worlds / bodies
+```
+
+Rust: `ranger_wasm::{core, two_d, three, cannon}`.
 
 | Piece | v2 home | Role |
 |-------|---------|------|
-| Retained sprite host | `sprites/host/game_sprite.rgr` | `sprites()` vocabulary + draw dispatch |
-| RGSP1 block ABI | `sprites/abi/wasm_sprite_abi.h` | Compiled sprite guests |
-| Rust helpers | `sprites/rust/ranger_game` | `SpriteGame` / `sprite_game!` |
-| LPC compositor | `lpc/` | Sheet bake for character games |
-| Soft/blit deps | `sprites/deps/` | framebuffer helpers (SDL present stays Phase 11) |
+| Registry schema | `registry/schema/two_d/` | D-2D-1 class/command defs |
+| Guest module | `modules/ranger_2d/` | TS / interpreter façades |
+| Rust helper | `modules/ranger_wasm/two_d/` | `ranger_wasm::two_d` |
+| Host arenas | `host/arenas/two_d/` | Sprite2D, Camera2D, Atlas, … |
+| Staged v1 sprite code | `sprites/` | migrate sources (game_sprite, RGSP1) |
+| LPC compositor | `lpc/` | emit SpriteAtlas JSON + textures |
+| Soft/blit deps | `sprites/deps/` | until `render/` present path |
 
-Long-term, sprite entities should grow **host arenas + registry commands** with
-the same D-HANDLE / D-OWN / D-LIFE rules as meshes. Until then, RGSP1 remains a
-supported legacy block (versioned like other WASM surfaces).
+**Retained vs immediate** (both required, separate APIs):
 
-Selected **2D games** belong in `v2/games/` the same way as 3D titles (copy or
-rewrite by maturity).
+| Mode | Types | Identity |
+|------|-------|----------|
+| Retained | `Sprite2D`, `Shape2D`, `Scene2D`, … | Stable handles (D-HANDLE) |
+| Immediate | `DrawList2D` / frame draw commands | **No** persistent handles |
+
+RGSP1 / `game_sprite` remain **legacy migration sources** until D-2D-7…D-2D-10
+parity; they are not the target identity model.
+
+Selected **2D games** belong in `v2/games/` the same way as 3D titles.
 
 ---
 
@@ -126,9 +147,11 @@ rewrite by maturity).
    issue the same registry commands against the same arenas (D-MODULES).
 6. **Games are selected ports.** Re-implement chosen titles under `v2/games/`
    on the new API; copy when the old code is mature enough, rewrite when it is
-   not. Keep the originals. **Include 2D/sprite games**, not only Three demos.
+   not. Keep the originals. **Include `ranger:2d` games**, not only Three demos.
 7. **Staged copies are not live wiring.** A file under `v2/` still needs import
    rewires, registry exposure, and gate tests before games depend on it.
+8. **`ranger:2d` is P1.** Do not ship a “3D-only” cleanup; D-2D gates are
+   required alongside Three/Cannon (CODE_CLEANUP D-2D).
 
 ---
 
@@ -143,6 +166,7 @@ gallery/game_engine/v2/
 ├── registry/                      # D-REGISTRY — single schema source
 │   ├── schema/
 │   │   ├── core/                  # ranger:core classes & commands
+│   │   ├── two_d/                 # ranger:2d (D-2D)
 │   │   ├── three/                 # ranger:three
 │   │   └── cannon/                # ranger:cannon
 │   ├── codegen/
@@ -177,7 +201,14 @@ gallery/game_engine/v2/
 │   │   │   ├── clip/
 │   │   │   ├── source/
 │   │   │   └── voice/
-│   │   ├── sprites/               # 2D sprite/sheet handles (Phase 10b)
+│   │   ├── two_d/                 # Sprite2D, Camera2D, Atlas, Layer, … (D-2D)
+│   │   │   ├── sprite/
+│   │   │   ├── shape/
+│   │   │   ├── camera/
+│   │   │   ├── layer/
+│   │   │   ├── atlas/
+│   │   │   ├── animation/
+│   │   │   └── draw_list/         # frame-local — no arena identity
 │   │   └── input/
 │   │       ├── action_map/
 │   │       └── gamepad/
@@ -212,6 +243,7 @@ gallery/game_engine/v2/
 │   │   ├── assets/
 │   │   ├── log/
 │   │   └── platform/
+│   ├── ranger_2d/                 # ranger:2d (D-2D) — not THREE.Sprite
 │   ├── ranger_three/
 │   │   ├── scene/
 │   │   ├── cameras/
@@ -225,6 +257,7 @@ gallery/game_engine/v2/
 │   │   └── math/
 │   └── ranger_wasm/               # Rust helper crate layout
 │       ├── core/
+│       ├── two_d/                 # ranger_wasm::two_d
 │       ├── three/
 │       ├── cannon/
 │       └── export_game/
@@ -236,11 +269,11 @@ gallery/game_engine/v2/
 │   └── step/
 ├── three/                         # staged Ranger Three port (not tsx bridge)
 │   └── port/                      # COPY of three/src + three/tests
-├── sprites/                       # FIRST-CLASS 2D (host + RGSP1 + rust)
-│   ├── host/
-│   ├── abi/
+├── sprites/                       # STAGED v1 sprite sources → migrate to ranger:2d
+│   ├── host/                      # game_sprite.rgr (legacy retained)
+│   ├── abi/                       # RGSP1 (legacy slots — retire after D-2D-10)
 │   ├── rust/
-│   ├── runners/                   # reference only until rewired
+│   ├── runners/
 │   └── deps/
 ├── lpc/                           # COPY LPC compositor + pack
 ├── evg/                           # COPY gallery/evg primitives
@@ -293,12 +326,13 @@ of `gallery/game_engine/games/`.
 | **8** | Module isolation → `ranger:*` + frame pipeline | 4, 5 | No |
 | **9** | Physics arenas + pose sync (no draw) | 6, 8 | No |
 | **10** | Audio / input / surface (D-OWN voices, D-ASYNC loads) | 8 | No |
-| **10b** | Sprite arenas + RGSP1 validation (headless 2D) | 2, 8 | No* |
-| **11** | Render backends (software/GL) + sprite present path | 6–10b | **Yes** |
-| **12** | Selected `v2/games/` (2D + 3D) + `RETIRE-RECONCILE` | 11 | Yes |
+| **10b** | **D-2D** `ranger:2d` (gates D-2D-1…D-2D-6 headless first) | 2, 5, 8 | No* |
+| **11** | Render backends + Camera2D / sprite present (SW + GPU) | 6–10b | **Yes** |
+| **12** | Migrate games + D-2D-7…10 + `RETIRE-RECONCILE` | 11 | Yes |
 
-\*Sprite *slot/list* logic and ABI validation are headless; blitting/present
-needs Phase 11.
+\*Retained create/free, atlas load (fake bytes), animation clock, and DrawList2D
+“no handle minted” tests are headless; equivalent SW/GPU camera samples need
+Phase 11.
 
 Phases 1–5 are the critical path: **before any frame is drawn**, create and free
 objects through both bridges under unit tests (ownership rules included).
@@ -525,18 +559,36 @@ Prefer fake devices so CI stays headless.
 
 ---
 
-## Phase 10b — 2D sprites (headless host + RGSP1)
+## Phase 10b — D-2D `ranger:2d` (migration gates)
 
-Rewire staged `sprites/` onto host arenas / registry (or keep RGSP1 as a
-versioned block with validators). LPC compose can feed sheets.
+Implement the binding decision in CODE_CLEANUP **D-2D**. Staged `sprites/` /
+RGSP1 / LPC are **inputs to migrate**, not the long-term API.
 
-**Unit tests (gate)**
+| Gate | Deliverable |
+|------|-------------|
+| **D-2D-1** | Registry classes + generated TS/Rust (`ranger:2d` / `two_d`) |
+| **D-2D-2** | One atlas format via `runtime.assets.loadSpriteAtlas` (TS + WASM) |
+| **D-2D-3** | Retained `Sprite2D` with stable handle identity |
+| **D-2D-4** | Shared `Camera2D` (math first; SW/GPU present in Phase 11) |
+| **D-2D-5** | `AnimationClip2D` + `AnimationPlayer2D` on `runtime.time` |
+| **D-2D-6** | Frame-local `DrawList2D` separate from retained objects |
+| **D-2D-7** | Migrate `game_sprite` users → retained `ranger:2d` |
+| **D-2D-8** | Migrate RGSP1 ready-character games → SpriteAtlas / AnimationPlayer2D |
+| **D-2D-9** | Migrate `.as` `drawSprite` → `DrawList2D` |
+| **D-2D-10** | Delete old sheet manifests, fixed slots, runner animation clocks after parity |
 
-| Test area | Asserts |
-|-----------|---------|
-| `sprites/` + `tests/contract` (to add) | add/remove retained sprite ≠ release sheet |
-| RGSP1 header | magic/version/size/slot clamps rejected when invalid |
-| optional LPC | compose preset → sheet bytes loadable by sprite host |
+**Parity tests (required)** — also listed in CODE_CLEANUP implementation gates:
+
+- Same `Sprite2D` retains the same handle after reorder/reparent
+- Two sprites share one atlas and texture handle
+- Releasing one sprite does not release the shared atlas
+- Removing a sprite from a layer does not release it
+- Software and GPU camera transforms produce equivalent coordinates
+- TS and Rust/WASM resolve the same atlas region
+- Animation produces the same frame at a given runtime time
+- Immediate draw-list commands do not leak persistent handles
+- Body-to-sprite binding rejects stale body or sprite handles
+- Atlas/resource counts remain stable across hot reload
 
 ---
 
@@ -544,27 +596,25 @@ versioned block with validators). LPC compose can feed sheets.
 
 Backends under `v2/render/backends/` **read** host state only. Rendering is not
 a sync boundary (D-SYNC). Software backend first for CI; GL/SDL second.
-**Sprite present/blit** paths land here alongside 3D (soft-2D or GLES quads).
+**2D present** (sprites, shapes, tilemaps) must honor the same `Camera2D` as
+3D paths honor their cameras — D-2D-4 completes here for SW/GPU parity.
 
-**Gate:** cube/teapot-style fixture renders from live host objects created via
-adapter **and** via WASM — without calling any reconciler. Plus one retained
-sprite/sheet smoke (2D).
+**Gate:** cube/teapot from live handles (adapter + WASM) without reconciler;
+plus retained `Sprite2D` + atlas smoke on software (and GPU when available).
 
 ---
 
-## Phase 12 — Selected games in `v2/games/` + retire reconciler
+## Phase 12 — Selected games + D-2D-7…10 + retire reconciler
 
 Re-home gameplay onto the new API; **leave the old games tree untouched**.
 
-1. **Select** a small set of titles spanning **2D and 3D** (e.g. cube / teapot /
-   one Cannon toy / one sprite game such as Pac-Man or Breakout / one LPC
-   character sample — exact list in `v2/games/README.md`).
-2. For each title: **copy** into `v2/games/<name>/` if the old sources are
-   already close to the target API; otherwise **rewrite** a thin version on
-   `runtime.start` / `export_game!` / sprite APIs.
-3. Prove the game runs only against v2 modules (no reconciler imports).
-4. When `RETIRE-RECONCILE` criteria in CODE_CLEANUP are met, remove the
-   reconciler from the *engine* path. Still do not require deleting v1 games.
+1. **Select** titles spanning **2D and 3D** (cube / teapot / Cannon toy /
+   Pac-Man or Breakout / LPC character — list in `v2/games/README.md`).
+2. Copy or rewrite onto `ranger:2d` / `ranger:three` / `ranger:core` (not
+   RGSP1 slots or reconciler wrappers).
+3. Complete **D-2D-7…D-2D-10** for migrated titles.
+4. `RETIRE-RECONCILE` + delete retired sprite slot/manifest paths when parity
+   is green. Still do not require deleting v1 games.
 
 ---
 
@@ -586,7 +636,9 @@ tangled. **Never delete the v1 original** as part of a port.
 | `three/port` math/object model (+ backends later) | 2–7, 11 |
 | `bridge/wasm/legacy_blocks` | 5 / sprites / UI |
 | `physics/cannon` | 9 |
-| `sprites/*`, `lpc/`, `evg/`, `ui/` | 10b–11 |
+| `sprites/*`, `lpc/` → migrate into `ranger:2d` | 10b–12 (D-2D-*) |
+| `evg/`, `ui/` | with soft-2D / UI |
+| `registry/schema/two_d`, `modules/ranger_2d` | 10b D-2D-1 |
 | `model3d/`, `web/` | 10–12 |
 | Selected small games → `v2/games/<name>/` | 12 |
 
@@ -604,9 +656,10 @@ Authoritative list: CODE_CLEANUP **Implementation gates** (9 steps). Plan map:
 | 4. D-SYNC / D-LIFE / D-OWN / D-GEO | 4, 6, 7 |
 | 5. D-WASM / D-WASM-MEM / D-ASYNC | 5, 7, 10 |
 | 6. Interpreter module-namespace isolation | 8 (prerequisite) |
-| 7. Virtual modules + `runtime` (D-MODULES) | 8 |
-| 8. Demos → `runtime.start` / `export_game!` | 10–12 (`v2/games/`) |
-| 9. `RETIRE-RECONCILE` | 12 |
+| 7. Virtual modules + `runtime` (incl. `ranger:2d`) | 8, 10b |
+| 8. D-2D retained 2D + atlas + camera + anim + draw list | 10b–12 (D-2D-1…10) |
+| 9. Demos → `runtime.start` / `export_game!` (2D + 3D) | 10–12 (`v2/games/`) |
+| 10. `RETIRE-RECONCILE` + retire sprite slots/manifests | 12 |
 
 ---
 
@@ -635,9 +688,9 @@ Authoritative list: CODE_CLEANUP **Implementation gates** (9 steps). Plan map:
 - [ ] **Phase 8** — Module isolation → `ranger:*` + frame pipeline (drain async)
 - [ ] **Phase 9** — Physics step + pose sync (headless)
 - [ ] **Phase 10** — Audio/input/surface fakes (D-OWN voices, D-ASYNC loads)
-- [ ] **Phase 10b** — Sprite host/RGSP1 headless gates (+ LPC smoke)
-- [ ] **Phase 11** — First render from live host objects + sprite present
-- [ ] **Phase 12** — Selected 2D+3D games under `v2/games/` + `RETIRE-RECONCILE` (v1 kept)
+- [ ] **Phase 10b** — D-2D-1…D-2D-6 (`ranger:2d` registry, atlas, Sprite2D, Camera2D math, anim, DrawList2D)
+- [ ] **Phase 11** — SW/GPU present + Camera2D parity (3D + 2D)
+- [ ] **Phase 12** — D-2D-7…10 game migrations + `RETIRE-RECONCILE` (v1 kept)
 
 ---
 

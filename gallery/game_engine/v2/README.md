@@ -17,12 +17,12 @@ interpreter + host arenas + WASM bridge first; rendering last.
 | [`interp/`](./interp/) | TSX evaluator, identity, adapter (staged sources under `migrate/src`) | Phase 1 → 4 |
 | [`host/`](./host/) | Handles, typed arenas, ownership (D-OWN), commands | Phase 2 |
 | [`bridge/`](./bridge/) | WASM imports, legacy block headers, module inject, parity | Phase 5 |
-| [`modules/`](./modules/) | `ranger:*` + `ranger_wasm` façades | Phase 8 |
+| [`modules/`](./modules/) | `ranger:core` / **`ranger:2d`** / `three` / `cannon` + `ranger_wasm` | Phase 8–10b |
 | [`runtime/`](./runtime/) | Host-driven `Game` loop | Phase 8–10 |
 | [`physics/`](./physics/) | Staged Cannon port + step wiring | Phase 9 |
 | [`three/`](./three/) | Staged Three class port + tests (no `tsx` bridge) | Phase 2–7 |
-| [`sprites/`](./sprites/) | **2D sprites** — host, RGSP1, rust helpers | Phase 10b |
-| [`lpc/`](./lpc/) | LPC spritesheet compositor (staged) | Phase 10b |
+| [`sprites/`](./sprites/) | Staged v1 sprite sources → migrate to **`ranger:2d`** (D-2D) | Phase 10b–12 |
+| [`lpc/`](./lpc/) | LPC compositor → SpriteAtlas assets | Phase 10b |
 | [`evg/`](./evg/) | EVG layout/vector primitives (staged) | UI / soft-2D |
 | [`model3d/`](./model3d/) | glTF / model readers (staged) | Phase 10 |
 | [`ui/`](./ui/) | Retained UI widgets (staged) | with EVG |
@@ -42,7 +42,8 @@ unit tests gate that folder.
   before any renderer exists
 - Rebuild **including games** under `games/` — select, copy-or-rewrite; **do not
   delete** top-level `../games/`
-- Keep **2D sprites** first-class (`sprites/`, `lpc/`) — not a 3D-only engine
+- **`ranger:2d` is P1** (CODE_CLEANUP D-2D) — sibling of `ranger:three`, not
+  `THREE.Sprite`; staged `sprites/` / RGSP1 migrate via D-2D-1…10
 - Staged copies are present; rewire imports before treating them as live
 
 ## Unit / contract tests that gate this folder
