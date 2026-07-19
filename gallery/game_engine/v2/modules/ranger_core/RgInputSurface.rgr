@@ -26,6 +26,11 @@ class RgPlayerInput {
     def actions:[string]
     def isDown:[boolean]
     def wasPressed:[boolean]
+    ; haptics: the host records each rumble command (a real gamepad backend
+    ; forwards to hardware; headless records for tests). count + last params.
+    def rumbleCount:int 0
+    def rumbleStrength:int 0
+    def rumbleMs:int 0
 
     fn findAction:int (name:string) {
         def n:int (array_length this.actions)
@@ -83,6 +88,26 @@ class RgInput {
     fn assignDevice:void (playerIndex:int deviceH:RgHandle) {
         def p:RgPlayerInput (itemAt this.players playerIndex)
         p.deviceSlot = deviceH.slot
+    }
+
+    ; ---- haptics (CODE_CLEANUP: player.rumble) -----------------------------
+    fn rumble:void (playerIndex:int strength:int ms:int) {
+        if (playerIndex < 0) { return }
+        if (playerIndex >= (array_length this.players)) { return }
+        def p:RgPlayerInput (itemAt this.players playerIndex)
+        p.rumbleCount = (p.rumbleCount + 1)
+        p.rumbleStrength = strength
+        p.rumbleMs = ms
+    }
+    fn rumbleCount:int (playerIndex:int) {
+        if (playerIndex < 0) { return 0 }
+        if (playerIndex >= (array_length this.players)) { return 0 }
+        def p:RgPlayerInput (itemAt this.players playerIndex)
+        return p.rumbleCount
+    }
+    fn lastRumbleStrength:int (playerIndex:int) {
+        def p:RgPlayerInput (itemAt this.players playerIndex)
+        return p.rumbleStrength
     }
 
     ; ---- action state + edges ----------------------------------------------

@@ -43,6 +43,8 @@ class __RgPlayerInput {
   constructor(index) { this.index = index; }
   isDown(action) { return rgcore_input_is_down(this.index, action) > 0; }
   wasPressed(action) { return rgcore_input_was_pressed(this.index, action) > 0; }
+  // haptics (CODE_CLEANUP: player.rumble) — strength 0..255, duration ms
+  rumble(strength, ms) { rgcore_input_rumble(this.index, strength, ms); }
 }
 
 class __RgInput {

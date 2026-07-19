@@ -598,6 +598,14 @@ class RgRegistryBridge extends EvalNativeBridge {
             this.d2.bgCircle((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.intAt(3)) (a.intAt(4)) (a.intAt(5)))
             return (EvalValue.null())
         }
+        if (row.name == "rg2d_ov_begin") {
+            this.d2.ovBegin()
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_ov_rect") {
+            this.d2.ovRect((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.intAt(4)) (a.intAt(5)) (a.intAt(6)) (a.intAt(7)))
+            return (EvalValue.null())
+        }
 
         ; ---- ranger:core ----------------------------------------------------
         if (row.name == "rgcore_input_is_down") {
@@ -611,6 +619,10 @@ class RgRegistryBridge extends EvalNativeBridge {
                 return (RgRegistryBridge.retI(1))
             }
             return (RgRegistryBridge.retI(0))
+        }
+        if (row.name == "rgcore_input_rumble") {
+            this.input.rumble((a.intAt(0)) (a.intAt(1)) (a.intAt(2)))
+            return (EvalValue.null())
         }
         if (row.name == "rgcore_surface_set_layout") {
             this.surface.setLayout((a.intAt(0)))

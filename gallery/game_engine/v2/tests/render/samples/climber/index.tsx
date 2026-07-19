@@ -30,6 +30,20 @@ const Z_PLAT = 1;
 const Z_GEM = 2;
 const Z_PLAYER = 3;
 
+// original 3x5 numeral glyphs for the HUD (X = lit cell)
+const HUD_DIGITS = [
+  ["XXX", "X.X", "X.X", "X.X", "XXX"],
+  [".X.", "XX.", ".X.", ".X.", "XXX"],
+  ["XXX", "..X", "XXX", "X..", "XXX"],
+  ["XXX", "..X", "XXX", "..X", "XXX"],
+  ["X.X", "X.X", "XXX", "..X", "..X"],
+  ["XXX", "X..", "XXX", "..X", "XXX"],
+  ["XXX", "X..", "XXX", "X.X", "XXX"],
+  ["XXX", "..X", "..X", "..X", "..X"],
+  ["XXX", "X.X", "XXX", "X.X", "XXX"],
+  ["XXX", "X.X", "XXX", "..X", "XXX"]
+];
+
 class Player {
   x = 0;
   y = 0;
@@ -112,6 +126,38 @@ class ClimberGame {
     return 1;
   }
 
+  // ---- HUD (screen-space overlay): a tiny 3x5 numeral font ------------------
+  // Original glyphs; drawn from overlay rects in normalised pane coords (the
+  // v2 equivalent of v1's engine HUD numbers), one per pane.
+  drawDigit(dgt, nx, ny, cw, ch, pane) {
+    const g = HUD_DIGITS[dgt];
+    let ry = 0;
+    while (ry < 5) {
+      const line = g[ry];
+      let cx = 0;
+      while (cx < 3) {
+        if (line.charAt(cx) == "X") {
+          this.renderer.overlayRect(nx + cx * cw, ny + ry * ch, cw, ch, 235, 235, 235, pane);
+        }
+        cx = cx + 1;
+      }
+      ry = ry + 1;
+    }
+  }
+  drawNumber(value, nx, ny, cw, ch, pane) {
+    const digits = [];
+    let v = value;
+    if (v <= 0) { digits.push(0); }
+    while (v > 0) { digits.push(v % 10); v = Math.floor(v / 10); }
+    let k = digits.length - 1;
+    let col = 0;
+    while (k >= 0) {
+      this.drawDigit(digits[k], nx + col * (4 * cw), ny, cw, ch, pane);
+      col = col + 1;
+      k = k - 1;
+    }
+  }
+
   update(props) {
     this.nowMs = this.nowMs + props.dtMs;
     // animate the walk clip (idle<->walk) so motion is real host state
@@ -123,6 +169,10 @@ class ClimberGame {
     // frame pipeline step 6: the game binds each pane's view
     this.renderer.render(this.layer, this.cam0, 0);
     this.renderer.render(this.layer, this.cam1, 1);
+    // HUD overlay (screen space): a score number near the bottom of each pane
+    this.renderer.beginOverlay();
+    this.drawNumber(12, 0.42, 0.86, 0.02, 0.024, 0);
+    this.drawNumber(12, 0.42, 0.86, 0.02, 0.024, 1);
     return 1;
   }
 }

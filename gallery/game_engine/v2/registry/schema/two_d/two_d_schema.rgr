@@ -80,6 +80,11 @@ class TwoDSchema {
         draw.addMethod((RgMethodDef.cmd(2070 "rg2d_bg_begin" "rg2d_bg_begin" "" "v" "none")))
         draw.addMethod((RgMethodDef.cmd(2071 "rg2d_bg_rect" "rg2d_bg_rect" "d:d:d:d:i:i:i" "v" "none")))
         draw.addMethod((RgMethodDef.cmd(2072 "rg2d_bg_circle" "rg2d_bg_circle" "d:d:d:i:i:i" "v" "none")))
+        ; screen-space overlay (HUD): normalised rects drawn AFTER the sprites,
+        ; per pane, no camera transform. rg2d_ov_rect args are nx,ny,nw,nh in
+        ; [0,1] + r,g,b + owning pane (-1 = all).
+        draw.addMethod((RgMethodDef.cmd(2073 "rg2d_ov_begin" "rg2d_ov_begin" "" "v" "none")))
+        draw.addMethod((RgMethodDef.cmd(2074 "rg2d_ov_rect" "rg2d_ov_rect" "d:d:d:d:i:i:i:i" "v" "none")))
         s.addClass(draw)
 
         return s

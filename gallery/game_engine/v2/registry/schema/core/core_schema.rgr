@@ -20,6 +20,10 @@ class CoreSchema {
         def input:RgClassDef (RgClassDef.of(10 "Input"))
         input.addMethod((RgMethodDef.cmd(1000 "rgcore_input_is_down" "rgcore_input_is_down" "i:s" "i" "none")))
         input.addMethod((RgMethodDef.cmd(1001 "rgcore_input_was_pressed" "rgcore_input_was_pressed" "i:s" "i" "none")))
+        ; haptics (CODE_CLEANUP: player.rumble) — the host records the haptic
+        ; command on the player's assigned device (a real gamepad backend
+        ; forwards it to hardware; headless records it, generation-checked).
+        input.addMethod((RgMethodDef.cmd(1002 "rgcore_input_rumble" "rgcore_input_rumble" "i:i:i" "v" "none")))
         s.addClass(input)
 
         ; ---- Surface (11) — panes / split-screen ----------------------------
