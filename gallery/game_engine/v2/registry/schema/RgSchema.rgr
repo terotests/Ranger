@@ -62,6 +62,17 @@ class RgMethodDef {
     def async:boolean false
     def retainsArgs:boolean false
 
+    ; ---- lowering metadata (D-REGISTRY: schema states it or codegen grows
+    ; command-specific exceptions). The generic bridge decodes purely from these.
+    ;   argSpec  colon-joined param types: i=i32 d=f64 s=string h=handle
+    ;            ai=array<i32> ad=array<f64>. "" = no args.
+    ;   retSpec  one of: v=void i=i32 d=f64 h=handle(create → guest id minted)
+    ;   effect   ownership effect: "create" (refcount starts 1, caller owns),
+    ;            "release" (ends caller ownership of arg 0), "none"
+    def argSpec:string ""
+    def retSpec:string "v"
+    def effect:string "none"
+
     sfn of:RgMethodDef (methodId:int name:string wasmExport:string async:boolean retainsArgs:boolean) {
         def m:RgMethodDef (new RgMethodDef)
         m.methodId = methodId
@@ -69,6 +80,18 @@ class RgMethodDef {
         m.wasmExport = wasmExport
         m.async = async
         m.retainsArgs = retainsArgs
+        return m
+    }
+
+    ; Full factory for bridge-ready command rows.
+    sfn cmd:RgMethodDef (methodId:int name:string wasmExport:string argSpec:string retSpec:string effect:string) {
+        def m:RgMethodDef (new RgMethodDef)
+        m.methodId = methodId
+        m.name = name
+        m.wasmExport = wasmExport
+        m.argSpec = argSpec
+        m.retSpec = retSpec
+        m.effect = effect
         return m
     }
 }

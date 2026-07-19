@@ -106,6 +106,10 @@ run_suite render/tests/software_present2d_test
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test
 
+# ---- BRIDGES.md steps 1–2 — schema rows + generic registry bridge ------------
+run_suite registry/schema/tests/bridge_schema_test
+run_suite tests/unit/bridge/registry_bridge_coverage_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"

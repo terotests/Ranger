@@ -1,0 +1,65 @@
+; ==============================================================================
+; two_d_schema — authored registry rows for the `ranger:2d` module (D-REGISTRY).
+; ==============================================================================
+; DATA, not code: the declarative command surface of ranger:2d. Everything the
+; bridge, the WASM import list, and the guest façade know about these commands
+; derives from these rows (BRIDGES.md §2.1). Published ids are immutable:
+;   classIds 20–29 · command ids 2000–2999   (golden-checked)
+;
+; argSpec: i=i32 d=f64 s=string h=handle ai=array<i32> ad=array<f64>
+; retSpec: v void · i i32 · d f64 · h handle (create → guest id)
+; ==============================================================================
+
+Import "../RgSchema.rgr"
+
+class TwoDSchema {
+    sfn build:RgSchema () {
+        def s:RgSchema (new RgSchema)
+
+        ; ---- Texture2D (20) --------------------------------------------------
+        def tex:RgClassDef (RgClassDef.of(20 "Texture2D"))
+        tex.addMethod((RgMethodDef.cmd(2000 "rg2d_texture_create" "rg2d_texture_create" "i:i" "h" "create")))
+        s.addClass(tex)
+
+        ; ---- SpriteAtlas (21) — retains its texture (D-OWN) ------------------
+        def atlas:RgClassDef (RgClassDef.of(21 "SpriteAtlas"))
+        atlas.addMethod((RgMethodDef.cmd(2010 "rg2d_atlas_create" "rg2d_atlas_create" "h" "h" "create")))
+        atlas.addMethod((RgMethodDef.cmd(2011 "rg2d_atlas_add_region" "rg2d_atlas_add_region" "h:s:i:i:i:i" "i" "none")))
+        atlas.addMethod((RgMethodDef.cmd(2012 "rg2d_atlas_add_clip" "rg2d_atlas_add_clip" "h:s:ai:ad" "i" "none")))
+        atlas.addMethod((RgMethodDef.cmd(2013 "rg2d_atlas_region_index" "rg2d_atlas_region_index" "h:s" "i" "none")))
+        s.addClass(atlas)
+
+        ; ---- Sprite2D (22) — retains its atlas; layer membership ≠ ownership -
+        def sprite:RgClassDef (RgClassDef.of(22 "Sprite2D"))
+        sprite.addProp((RgPropDef.of(2200 "position" "vec2"
+            (RgResidency.host()) (RgOwnership.none()) true (RgSync.immediate()))))
+        sprite.addProp((RgPropDef.of(2201 "region" "i32"
+            (RgResidency.host()) (RgOwnership.none()) true (RgSync.immediate()))))
+        sprite.addMethod((RgMethodDef.cmd(2020 "rg2d_sprite_create" "rg2d_sprite_create" "h:i" "h" "create")))
+        sprite.addMethod((RgMethodDef.cmd(2021 "rg2d_sprite_set_pos" "rg2d_sprite_set_pos" "h:d:d" "v" "none")))
+        sprite.addMethod((RgMethodDef.cmd(2022 "rg2d_sprite_set_region" "rg2d_sprite_set_region" "h:i" "v" "none")))
+        sprite.addMethod((RgMethodDef.cmd(2023 "rg2d_sprite_release" "rg2d_sprite_release" "h" "i" "release")))
+        s.addClass(sprite)
+
+        ; ---- Layer2D (23) ----------------------------------------------------
+        def layer:RgClassDef (RgClassDef.of(23 "Layer2D"))
+        layer.addMethod((RgMethodDef.cmd(2030 "rg2d_layer_create" "rg2d_layer_create" "" "h" "create")))
+        layer.addMethod((RgMethodDef.cmd(2031 "rg2d_layer_add" "rg2d_layer_add" "h:h" "v" "none")))
+        layer.addMethod((RgMethodDef.cmd(2032 "rg2d_layer_remove" "rg2d_layer_remove" "h" "v" "none")))
+        s.addClass(layer)
+
+        ; ---- Camera2D (24) ---------------------------------------------------
+        def cam:RgClassDef (RgClassDef.of(24 "Camera2D"))
+        cam.addMethod((RgMethodDef.cmd(2040 "rg2d_camera_create" "rg2d_camera_create" "" "h" "create")))
+        cam.addMethod((RgMethodDef.cmd(2041 "rg2d_camera_set" "rg2d_camera_set" "h:d:d:d:d" "v" "none")))
+        s.addClass(cam)
+
+        ; ---- AnimationPlayer2D (25) — clocked by runtime.time ---------------
+        def player:RgClassDef (RgClassDef.of(25 "AnimationPlayer2D"))
+        player.addMethod((RgMethodDef.cmd(2050 "rg2d_player_create" "rg2d_player_create" "h:i" "h" "create")))
+        player.addMethod((RgMethodDef.cmd(2051 "rg2d_player_frame_at" "rg2d_player_frame_at" "h:d" "i" "none")))
+        s.addClass(player)
+
+        return s
+    }
+}

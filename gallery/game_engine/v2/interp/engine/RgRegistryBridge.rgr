@@ -1,0 +1,394 @@
+; ==============================================================================
+; RgRegistryBridge — THE interpreter transport (BRIDGES.md §2.3, D-ADAPTER).
+; ==============================================================================
+; The only EvalNativeBridge in v2. It contains no per-command knowledge in the
+; transport path: `has` and `invoke` are pure command-table lookups, argument
+; decoding is driven by each row's argSpec, results are encoded per retSpec,
+; and guest handles live in ONE surrogate table shared by every module
+; (D-IDENTITY: one guest id ↔ one live host handle; ids are never reused).
+;
+; A stale guest id, wrong arity, wrong value type, or unknown command resolves
+; to a typed, observable error (errorCount/lastError) — never silence, never UB.
+;
+; The terminal glue (`dispatchRow`) is the INTERIM hand dispatcher tolerated by
+; BRIDGES.md §2.4: one line per table row calling the owning arena method. It
+; is un-forkable because the coverage gate
+; (tests/unit/bridge/registry_bridge_coverage_test) executes EVERY table row
+; and fails on any unhandled or erroring command; the codegen emitter replaces
+; this section (registry/generated/RgDispatch.rgr) in BRIDGES.md step 5.
+; ==============================================================================
+
+Import "../migrate/src/ComponentEngine.rgr"
+Import "../../registry/schema/core/core_schema.rgr"
+Import "../../registry/schema/two_d/two_d_schema.rgr"
+Import "../../registry/codegen/RgCodegen.rgr"
+Import "../../modules/ranger_2d/RgRanger2D.rgr"
+Import "../../modules/ranger_core/RgAudio.rgr"
+Import "../../modules/ranger_core/RgInputSurface.rgr"
+Import "../../modules/ranger_core/RgRuntime.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+
+; Position-indexed decoded arguments (parallel arrays; every position fills
+; every array so indices align). At most one ai and one ad per command —
+; matching the current schema alphabet; the table validator enforces the specs.
+class RgDecodedArgs {
+    def ok:boolean true
+    def err:string ""
+    def ints:[int]
+    def dbls:[double]
+    def strs:[string]
+    def handles:[RgHandle]
+    def guestIds:[int]
+    def ai:[int]
+    def ad:[double]
+
+    fn pad:void () {
+        push this.ints 0
+        push this.dbls 0.0
+        push this.strs ""
+        push this.handles (RgHandle.invalid())
+        push this.guestIds 0
+    }
+    fn intAt:int (i:int) { return (itemAt this.ints i) }
+    fn dblAt:double (i:int) { return (itemAt this.dbls i) }
+    fn strAt:string (i:int) { return (itemAt this.strs i) }
+    fn handleAt:RgHandle (i:int) { return (itemAt this.handles i) }
+    fn guestIdAt:int (i:int) { return (itemAt this.guestIds i) }
+}
+
+class RgRegistryBridge extends EvalNativeBridge {
+    ; the ONE command table (generated from the authored module schemas)
+    def table:[RgCommand]
+
+    ; host modules (the real Phase 2–11 arenas)
+    def d2:RgRanger2D (new RgRanger2D)
+    def audio:RgAudio (new RgAudio)
+    def input:RgInput (RgInput.create(2))
+    def surface:RgSurface (new RgSurface)
+    def clock:RgClock (new RgClock)
+
+    ; the single guest-id ↔ OwnedHandle surrogate table (all modules)
+    def owned:[OwnedHandle]
+
+    ; typed-error + facade observability (runner/tests assert these)
+    def errorCount:int 0
+    def lastError:string ""
+    def unhandledCount:int 0
+    def oneShotCount:int 0
+    def vocalCues:[string]
+    def musicPlaying:boolean false
+    def musicScore:string ""
+    def logLines:[string]
+    def launchRequest:string ""
+
+    sfn create:RgRegistryBridge () {
+        def b:RgRegistryBridge (new RgRegistryBridge)
+        def core:RgSchema (CoreSchema.build())
+        def twoD:RgSchema (TwoDSchema.build())
+        b.table = (RgCodegen.tableUnion(core twoD))
+        return b
+    }
+
+    ; ---- surrogate table ----------------------------------------------------
+    fn mintId:int (o:OwnedHandle) {
+        push this.owned o
+        return (array_length this.owned)
+    }
+    fn resolveGuestId:RgHandle (id:int) {
+        if (id < 1) { return (RgHandle.invalid()) }
+        if (id > (array_length this.owned)) { return (RgHandle.invalid()) }
+        def o:OwnedHandle (itemAt this.owned (id - 1))
+        if (o.released) { return (RgHandle.invalid()) }
+        return o.handle
+    }
+    fn ownedOf:OwnedHandle (id:int) {
+        return (itemAt this.owned (id - 1))
+    }
+
+    fn fail:EvalValue (msg:string) {
+        this.errorCount = (this.errorCount + 1)
+        this.lastError = msg
+        return (EvalValue.null())
+    }
+
+    ; ---- EvalNativeBridge (pure table lookups) ------------------------------
+    fn has:boolean (name:string) {
+        def row:RgCommand (RgCodegen.findByName(this.table name))
+        return (row.id != (0 - 1))
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        def row:RgCommand (RgCodegen.findByName(this.table name))
+        if (row.id == (0 - 1)) {
+            return (this.fail("unknown-command:" + name))
+        }
+        def dec:RgDecodedArgs (this.decode(row args))
+        if (dec.ok == false) {
+            return (this.fail(dec.err))
+        }
+        return (this.dispatchRow(row dec))
+    }
+
+    ; ---- generic decode (driven only by the row's argSpec) ------------------
+    fn decode:RgDecodedArgs (row:RgCommand args:[EvalValue]) {
+        def dec:RgDecodedArgs (new RgDecodedArgs)
+        def toks:[string]
+        if (row.argSpec != "") {
+            toks = (strsplit row.argSpec ":")
+        }
+        def want:int (array_length toks)
+        if ((array_length args) != want) {
+            dec.ok = false
+            dec.err = ((("arity:" + row.name) + ":want:") + (to_string want))
+            return dec
+        }
+        def i 0
+        while (i < want) {
+            def tk:string (itemAt toks i)
+            def v:EvalValue (itemAt args i)
+            dec.pad()
+            if (tk == "i") {
+                if (v.valueType != 1) {
+                    dec.ok = false
+                    dec.err = (("type:" + row.name) + ":i32-expected")
+                    return dec
+                }
+                set dec.ints i (to_int v.numberValue)
+            }
+            if (tk == "d") {
+                if (v.valueType != 1) {
+                    dec.ok = false
+                    dec.err = (("type:" + row.name) + ":f64-expected")
+                    return dec
+                }
+                set dec.dbls i v.numberValue
+            }
+            if (tk == "s") {
+                if (v.valueType != 2) {
+                    dec.ok = false
+                    dec.err = (("type:" + row.name) + ":string-expected")
+                    return dec
+                }
+                set dec.strs i v.stringValue
+            }
+            if (tk == "h") {
+                if (v.valueType != 1) {
+                    dec.ok = false
+                    dec.err = (("type:" + row.name) + ":handle-id-expected")
+                    return dec
+                }
+                def gid:int (to_int v.numberValue)
+                def h:RgHandle (this.resolveGuestId(gid))
+                if ((h.isValid()) == false) {
+                    dec.ok = false
+                    dec.err = (("stale-handle:" + row.name) + (":" + (to_string gid)))
+                    return dec
+                }
+                set dec.handles i h
+                set dec.guestIds i gid
+            }
+            if (tk == "ai") {
+                if (v.valueType != 4) {
+                    dec.ok = false
+                    dec.err = (("type:" + row.name) + ":array-expected")
+                    return dec
+                }
+                def n:int (array_length v.arrayValue)
+                def k 0
+                while (k < n) {
+                    def e:EvalValue (itemAt v.arrayValue k)
+                    push dec.ai (to_int e.numberValue)
+                    k = (k + 1)
+                }
+            }
+            if (tk == "ad") {
+                if (v.valueType != 4) {
+                    dec.ok = false
+                    dec.err = (("type:" + row.name) + ":array-expected")
+                    return dec
+                }
+                def n:int (array_length v.arrayValue)
+                def k 0
+                while (k < n) {
+                    def e:EvalValue (itemAt v.arrayValue k)
+                    push dec.ad e.numberValue
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return dec
+    }
+
+    ; ---- result encoding ----------------------------------------------------
+    sfn retI:EvalValue (n:int) { return (EvalValue.number((to_double n))) }
+    sfn retD:EvalValue (n:double) { return (EvalValue.number(n)) }
+
+    ; ---- frame boundary (host pipeline step 7/8 side-effects) ---------------
+    fn frameBoundary:void (dt:double) {
+        this.clock.advance(dt)
+        this.audio.completeOneShots()
+        this.input.advanceEdges()
+    }
+
+    ; ---- realm teardown backstop (D-OWN) ------------------------------------
+    fn teardown:int () {
+        def n:int (array_length this.owned)
+        def i 0
+        while (i < n) {
+            def o:OwnedHandle (itemAt this.owned i)
+            o.released = true
+            i = (i + 1)
+        }
+        def a:int (this.d2.teardownRealm(this.d2.realmId))
+        def b:int (this.audio.registry.teardownRealm(this.audio.realmId))
+        return (a + b)
+    }
+
+    ; =========================================================================
+    ; INTERIM hand dispatcher (BRIDGES.md §2.4) — one line per table row.
+    ; Coverage-gated: registry_bridge_coverage_test executes every row; an
+    ; unhandled name or an errored dispatch is red. Replaced by generated
+    ; registry/generated/RgDispatch.rgr in step 5.
+    ; =========================================================================
+    fn dispatchRow:EvalValue (row:RgCommand a:RgDecodedArgs) {
+        ; ---- ranger:2d ------------------------------------------------------
+        if (row.name == "rg2d_texture_create") {
+            def o:OwnedHandle (this.d2.textureCreate((a.intAt(0)) (a.intAt(1))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg2d_atlas_create") {
+            def o:OwnedHandle (this.d2.atlasCreate((a.handleAt(0))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg2d_atlas_add_region") {
+            def idx:int (this.d2.atlasAddRegion((a.handleAt(0)) (a.strAt(1)) (a.intAt(2)) (a.intAt(3)) (a.intAt(4)) (a.intAt(5))))
+            return (RgRegistryBridge.retI(idx))
+        }
+        if (row.name == "rg2d_atlas_add_clip") {
+            def idx:int (this.d2.atlasAddClip((a.handleAt(0)) (a.strAt(1)) a.ai a.ad))
+            return (RgRegistryBridge.retI(idx))
+        }
+        if (row.name == "rg2d_atlas_region_index") {
+            def idx:int (this.d2.atlasRegionIndex((a.handleAt(0)) (a.strAt(1))))
+            return (RgRegistryBridge.retI(idx))
+        }
+        if (row.name == "rg2d_sprite_create") {
+            def o:OwnedHandle (this.d2.spriteCreate((a.handleAt(0)) (a.intAt(1))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg2d_sprite_set_pos") {
+            this.d2.spriteSetPos((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_sprite_set_region") {
+            this.d2.spriteSetRegion((a.handleAt(0)) (a.intAt(1)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_sprite_release") {
+            def o:OwnedHandle (this.ownedOf((a.guestIdAt(0))))
+            def r:RgResolve (this.d2.releaseSprite(o))
+            return (RgRegistryBridge.retI(r.code))
+        }
+        if (row.name == "rg2d_layer_create") {
+            def o:OwnedHandle (this.d2.layerCreate())
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg2d_layer_add") {
+            this.d2.layerAdd((a.handleAt(0)) (a.handleAt(1)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_layer_remove") {
+            this.d2.layerRemove((a.handleAt(0)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_camera_create") {
+            def o:OwnedHandle (this.d2.cameraCreate())
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg2d_camera_set") {
+            this.d2.cameraSet((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_player_create") {
+            def o:OwnedHandle (this.d2.playerCreate((a.handleAt(0)) (a.intAt(1))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg2d_player_frame_at") {
+            def frame:int (this.d2.playerFrameAt((a.handleAt(0)) (a.dblAt(1))))
+            return (RgRegistryBridge.retI(frame))
+        }
+
+        ; ---- ranger:core ----------------------------------------------------
+        if (row.name == "rgcore_input_is_down") {
+            if (this.input.isDown((a.intAt(0)) (a.strAt(1)))) {
+                return (RgRegistryBridge.retI(1))
+            }
+            return (RgRegistryBridge.retI(0))
+        }
+        if (row.name == "rgcore_input_was_pressed") {
+            if (this.input.wasPressed((a.intAt(0)) (a.strAt(1)))) {
+                return (RgRegistryBridge.retI(1))
+            }
+            return (RgRegistryBridge.retI(0))
+        }
+        if (row.name == "rgcore_surface_set_layout") {
+            this.surface.setLayout((a.intAt(0)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_surface_pane_player") {
+            this.surface.paneSetPlayer((a.intAt(0)) (a.intAt(1)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_audio_clip_create") {
+            def o:OwnedHandle (this.audio.clipCreate())
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rgcore_audio_source_create") {
+            def o:OwnedHandle (this.audio.sourceCreate((a.handleAt(0))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rgcore_audio_one_shot") {
+            def vh:RgHandle (this.audio.sourcePlayOneShot((a.handleAt(0))))
+            this.audio.markVoiceDone(vh)   ; headless mixer: completes this frame
+            this.oneShotCount = (this.oneShotCount + 1)
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_vocal") {
+            push this.vocalCues (a.strAt(0))
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_music_play") {
+            this.musicPlaying = true
+            this.musicScore = (a.strAt(0))
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_music_stop") {
+            this.musicPlaying = false
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_time_now") {
+            return (RgRegistryBridge.retD(this.clock.now))
+        }
+        if (row.name == "rgcore_log") {
+            push this.logLines (a.strAt(0))
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_launch") {
+            this.launchRequest = (a.strAt(0))
+            return (EvalValue.null())
+        }
+
+        this.unhandledCount = (this.unhandledCount + 1)
+        return (this.fail("unhandled:" + row.name))
+    }
+}

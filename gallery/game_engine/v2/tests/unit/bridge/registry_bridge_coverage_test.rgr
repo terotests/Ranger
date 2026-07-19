@@ -1,0 +1,269 @@
+; ==============================================================================
+; registry_bridge_coverage_test — BRIDGES.md step-2 gate.
+; ==============================================================================
+; 1. COVERAGE: every row of the generated command table is executed through the
+;    generic bridge (invoke with EvalValue args, exactly as a guest would). A
+;    schema row without a dispatcher, or a dispatch that errors, is red — this
+;    is what makes the interim hand dispatcher un-forkable (§2.4).
+; 2. TYPED ERRORS: unknown command / wrong arity / wrong value type / stale
+;    guest id all resolve to observable typed errors, never silence.
+; 3. IDENTITY: guest ids are never reused; a released id is stale everywhere.
+; ==============================================================================
+
+Import "../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../harness/RgTest.rgr"
+
+class RegistryBridgeCoverageTest {
+    def b:RgRegistryBridge (RgRegistryBridge.create())
+    def invoked:[string]
+
+    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+    fn str:EvalValue (s:string) { return (EvalValue.string(s)) }
+
+    fn call0:EvalValue (name:string) {
+        def args:[EvalValue]
+        push this.invoked name
+        return (this.b.invoke(name args))
+    }
+    fn callN:EvalValue (name:string args:[EvalValue]) {
+        push this.invoked name
+        return (this.b.invoke(name args))
+    }
+    fn callI:int (name:string args:[EvalValue]) {
+        def r:EvalValue (this.callN(name args))
+        return (to_int r.numberValue)
+    }
+
+    fn wasInvoked:boolean (name:string) {
+        def n:int (array_length this.invoked)
+        def i 0
+        while (i < n) {
+            if ((itemAt this.invoked i) == name) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/unit/bridge/registry_bridge_coverage"))
+        def s:RegistryBridgeCoverageTest (new RegistryBridgeCoverageTest)
+        def b:RgRegistryBridge s.b
+
+        ; ================= drive EVERY table row =============================
+        ; two_d: texture → atlas → region/clip → sprite → layer → camera → player
+        def texA:[EvalValue]
+        push texA (s.num(64.0))
+        push texA (s.num(64.0))
+        def tex:int (s.callI("rg2d_texture_create" texA))
+        t.ok("texture guest id minted" (tex > 0))
+
+        def atA:[EvalValue]
+        push atA (s.num((to_double tex)))
+        def atlas:int (s.callI("rg2d_atlas_create" atA))
+
+        def rgA:[EvalValue]
+        push rgA (s.num((to_double atlas)))
+        push rgA (s.str("idle"))
+        push rgA (s.num(0.0))
+        push rgA (s.num(0.0))
+        push rgA (s.num(32.0))
+        push rgA (s.num(32.0))
+        def rIdle:int (s.callI("rg2d_atlas_add_region" rgA))
+
+        def rg2A:[EvalValue]
+        push rg2A (s.num((to_double atlas)))
+        push rg2A (s.str("walk"))
+        push rg2A (s.num(32.0))
+        push rg2A (s.num(0.0))
+        push rg2A (s.num(32.0))
+        push rg2A (s.num(32.0))
+        def rWalk:int (s.callI("rg2d_atlas_add_region" rg2A))
+
+        def framesArr:[EvalValue]
+        push framesArr (s.num((to_double rIdle)))
+        push framesArr (s.num((to_double rWalk)))
+        def dursArr:[EvalValue]
+        push dursArr (s.num(0.1))
+        push dursArr (s.num(0.2))
+        def clA:[EvalValue]
+        push clA (s.num((to_double atlas)))
+        push clA (s.str("walk"))
+        push clA (EvalValue.array(framesArr))
+        push clA (EvalValue.array(dursArr))
+        def clip:int (s.callI("rg2d_atlas_add_clip" clA))
+        t.eqInt("clip index 0" clip 0)
+
+        def riA:[EvalValue]
+        push riA (s.num((to_double atlas)))
+        push riA (s.str("walk"))
+        t.eqInt("region index resolves" (s.callI("rg2d_atlas_region_index" riA)) rWalk)
+
+        def spA:[EvalValue]
+        push spA (s.num((to_double atlas)))
+        push spA (s.num((to_double rIdle)))
+        def sprite:int (s.callI("rg2d_sprite_create" spA))
+        def sprite2:int (s.callI("rg2d_sprite_create" spA))
+        t.no("guest ids unique" (sprite == sprite2))
+
+        def posA:[EvalValue]
+        push posA (s.num((to_double sprite)))
+        push posA (s.num(5.0))
+        push posA (s.num(7.0))
+        s.callN("rg2d_sprite_set_pos" posA)
+        t.near("host sprite x written through the bridge"
+            (b.d2.spriteX((b.resolveGuestId(sprite)))) 5.0)
+
+        def srA:[EvalValue]
+        push srA (s.num((to_double sprite)))
+        push srA (s.num((to_double rWalk)))
+        s.callN("rg2d_sprite_set_region" srA)
+
+        def layerArgs:[EvalValue]
+        def layer:int (s.callI("rg2d_layer_create" layerArgs))
+        def laA:[EvalValue]
+        push laA (s.num((to_double sprite)))
+        push laA (s.num((to_double layer)))
+        s.callN("rg2d_layer_add" laA)
+        def lrA:[EvalValue]
+        push lrA (s.num((to_double sprite)))
+        s.callN("rg2d_layer_remove" lrA)
+
+        def camArgs:[EvalValue]
+        def cam:int (s.callI("rg2d_camera_create" camArgs))
+        def csA:[EvalValue]
+        push csA (s.num((to_double cam)))
+        push csA (s.num(0.0))
+        push csA (s.num(0.0))
+        push csA (s.num(2.0))
+        push csA (s.num(0.0))
+        s.callN("rg2d_camera_set" csA)
+
+        def plA:[EvalValue]
+        push plA (s.num((to_double sprite2)))
+        push plA (s.num((to_double clip)))
+        def player:int (s.callI("rg2d_player_create" plA))
+        def pfA:[EvalValue]
+        push pfA (s.num((to_double player)))
+        push pfA (s.num(0.2))
+        t.eqInt("player frame at 0.2 is walk" (s.callI("rg2d_player_frame_at" pfA)) rWalk)
+
+        ; release sprite (row coverage + stale-id setup)
+        def relA:[EvalValue]
+        push relA (s.num((to_double sprite)))
+        t.eqInt("sprite release OK" (s.callI("rg2d_sprite_release" relA)) 0)
+
+        ; core: input / surface / audio / time / log / launch
+        b.input.setAction(0 "jump" true)
+        def idA:[EvalValue]
+        push idA (s.num(0.0))
+        push idA (s.str("jump"))
+        t.eqInt("input isDown through bridge" (s.callI("rgcore_input_is_down" idA)) 1)
+        def wpA:[EvalValue]
+        push wpA (s.num(0.0))
+        push wpA (s.str("jump"))
+        t.eqInt("input wasPressed through bridge" (s.callI("rgcore_input_was_pressed" wpA)) 1)
+
+        def slA:[EvalValue]
+        push slA (s.num(2.0))
+        s.callN("rgcore_surface_set_layout" slA)
+        t.eqInt("surface has two panes" (b.surface.paneCount()) 2)
+        def ppA:[EvalValue]
+        push ppA (s.num(1.0))
+        push ppA (s.num(1.0))
+        s.callN("rgcore_surface_pane_player" ppA)
+        t.eqInt("pane 1 bound to player 1" (b.surface.panePlayer(1)) 1)
+
+        def clipArgs:[EvalValue]
+        def clipH:int (s.callI("rgcore_audio_clip_create" clipArgs))
+        def srcA:[EvalValue]
+        push srcA (s.num((to_double clipH)))
+        def src:int (s.callI("rgcore_audio_source_create" srcA))
+        def osA:[EvalValue]
+        push osA (s.num((to_double src)))
+        s.callN("rgcore_audio_one_shot" osA)
+        t.eqInt("one-shot counted" b.oneShotCount 1)
+
+        def voA:[EvalValue]
+        push voA (s.str("chuckle"))
+        s.callN("rgcore_vocal" voA)
+        t.eqInt("vocal cue recorded" (array_length b.vocalCues) 1)
+
+        def muA:[EvalValue]
+        push muA (s.str("summit-score"))
+        s.callN("rgcore_music_play" muA)
+        t.ok("music playing" b.musicPlaying)
+        s.call0("rgcore_music_stop")
+        t.no("music stopped" b.musicPlaying)
+
+        b.clock.advance(0.5)
+        def now:EvalValue (s.call0("rgcore_time_now"))
+        t.near("time through bridge" now.numberValue 0.5)
+
+        def lgA:[EvalValue]
+        push lgA (s.str("hello"))
+        s.callN("rgcore_log" lgA)
+        t.eqInt("log recorded" (array_length b.logLines) 1)
+
+        def lnA:[EvalValue]
+        push lnA (s.str("games/ylos2"))
+        s.callN("rgcore_launch" lnA)
+        t.eqStr("launch request recorded" b.launchRequest "games/ylos2")
+
+        ; ================= COVERAGE DIFF =====================================
+        def missing 0
+        def nrows:int (array_length b.table)
+        def ri 0
+        while (ri < nrows) {
+            def row:RgCommand (itemAt b.table ri)
+            if ((s.wasInvoked(row.name)) == false) {
+                print ("  NOT COVERED: " + row.name)
+                missing = (missing + 1)
+            }
+            ri = (ri + 1)
+        }
+        t.eqInt("every table row was executed" missing 0)
+        t.eqInt("no unhandled dispatches" b.unhandledCount 0)
+        t.eqInt("no errors across full coverage" b.errorCount 0)
+
+        ; ================= typed errors ======================================
+        def e0:int b.errorCount
+        def unkArgs:[EvalValue]
+        b.invoke("rg2d_totally_unknown" unkArgs)
+        t.eqInt("unknown command is a typed error" b.errorCount (e0 + 1))
+
+        def badArity:[EvalValue]
+        push badArity (s.num((to_double sprite2)))
+        b.invoke("rg2d_sprite_set_pos" badArity)
+        t.eqInt("wrong arity is a typed error" b.errorCount (e0 + 2))
+
+        def badType:[EvalValue]
+        push badType (s.str("not-a-number"))
+        push badType (s.num(1.0))
+        b.invoke("rg2d_texture_create" badType)
+        t.eqInt("wrong value type is a typed error" b.errorCount (e0 + 3))
+
+        ; the released sprite's guest id is stale for every command
+        def staleA:[EvalValue]
+        push staleA (s.num((to_double sprite)))
+        push staleA (s.num(1.0))
+        push staleA (s.num(1.0))
+        b.invoke("rg2d_sprite_set_pos" staleA)
+        t.eqInt("stale guest id is a typed error" b.errorCount (e0 + 4))
+        t.ok("stale error names the command"
+            (b.lastError == "stale-handle:rg2d_sprite_set_pos:3"))
+
+        ; teardown reclaims everything the realm still holds
+        def reclaimed:int (b.teardown())
+        t.ok("teardown reclaimed live objects" (reclaimed > 0))
+        def afterA:[EvalValue]
+        push afterA (s.num((to_double sprite2)))
+        push afterA (s.num(1.0))
+        push afterA (s.num(1.0))
+        b.invoke("rg2d_sprite_set_pos" afterA)
+        t.ok("all guest ids stale after teardown"
+            (b.errorCount > (e0 + 4)))
+
+        t.summary()
+    }
+
+}
