@@ -7,8 +7,9 @@
 ;   Action            jump / rotate / … (logical, with edge states)
 ;
 ; Surface owns runtime panes (viewports) on the single surface for split-screen
-; — required for 2-player titles (ylos2). Cameras render into panes; the same
-; Camera2D math applies (D-2D-4).
+; and multi-viewport layouts. Cameras render into panes; the same Camera2D math
+; applies (D-2D-4). Layout is guest-declared via setLayout — the host never
+; assumes a player count or title.
 ; ==============================================================================
 
 Import "../../host/RgRegistry.rgr"

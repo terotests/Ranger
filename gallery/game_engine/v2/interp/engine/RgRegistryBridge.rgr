@@ -83,6 +83,9 @@ class RgRegistryBridge extends EvalNativeBridge {
     def d2:RgRanger2D (new RgRanger2D)
     def d3:RgRangerThree (new RgRangerThree)
     def audio:RgAudio (new RgAudio)
+    ; Default host capacity for logical players (not a title-specific count).
+    ; Guests that need fewer simply leave slots unused; hosts that need more
+    ; construct the bridge with a larger RgInput before install.
     def input:RgInput (RgInput.create(2))
     def surface:RgSurface (new RgSurface)
     def clock:RgClock (new RgClock)

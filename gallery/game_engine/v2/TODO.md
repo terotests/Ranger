@@ -5,8 +5,8 @@ Gaps found while reviewing coverage and **native/SDL run readiness** under
 
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
-| Headless gate | `npm run engine:v2:test` → `bash gallery/game_engine/v2/tests/run.sh` (40 suites) | — |
-| SDL / native window | — | **not runnable** (see § SDL below) |
+| Headless gate | `npm run engine:v2:test` → `bash gallery/game_engine/v2/tests/run.sh` (46 suites) | — |
+| SDL / native window | `RgSdlGameHost` + headless seam tests | full native CI smoke (see § SDL below) |
 
 Mark checklist items `[x]` when they land and stay green.
 
@@ -85,9 +85,11 @@ must move from “ES6 under Node” to “C++ binary + SDL bindings”.
 
 ### Follow-ons (after the first window opens)
 
-- [ ] Split-screen present (`gfx_present_split` or compose panes) for ylos2
-- [ ] Audio: bridge `vocalCues` / `musicScore` / one-shots → SDL audio
-      (v1: `game_audio_sdl.rgr`; v2 only records cues in the bridge today)
+- [x] Pane-aware present on `RgSdlGameHost` — follows guest `surface.paneCount()`
+      (1 → `gfx_present`, 2+ → `gfx_present_split`); neutral `clearRgb` (no
+      title-baked sky). Still wants a live native smoke of both layouts.
+- [ ] Audio: bridge `vocalCues` / one-shots → SDL audio (music path via
+      `musicScore` + `pumpAudio` already exists; vocals/SFX still record-only)
 - [ ] Real `render/backends/gl` path (GPU present) — optional once SW→SDL works
 
 ### Intentionally out of scope for “first SDL window”
@@ -95,6 +97,51 @@ must move from “ES6 under Node” to “C++ binary + SDL bindings”.
 - Full launcher/catalog parity with v1 menu
 - WASM guest profiles on the SDL binary
 - Replacing v1 `engine:game-sdl:*` (v1 stays runnable)
+
+---
+
+## Abstraction boundary debt (core must stay game/test-neutral)
+
+From the master audit of `v2/` core `.rgr` (tests/e2e may stay game-aware;
+`games/` must not grow host shells). Fixed already: ylos2 sky clear + forced
+2P split baked into `RgSdlGameHost` → pane-aware present + neutral `clearRgb`
+(see PR history / `runtime/sdl/RgSdlGameHost.rgr`).
+
+Still to clean up later:
+
+- [ ] **Launcher catalog is hardcoded in Ranger** — `menu/RgLauncherUi.rgr`
+      `init()` embeds Pomppija / Chess / Breakout / Sprites paths. Boundary map
+      wants menus as **TSX guests**; at minimum drive the catalog from data
+      (JSON / guest list) so adding a game does not edit core `.rgr`. Update
+      `menu/tests/launcher_ui_test` + `tests/e2e/launcher_e2e_test` with it.
+- [ ] **Default action-map conventions live in the SDL host** —
+      `mapMask` hardwires `jump = up | action` and fixed bit→action names;
+      `RgAttractDriver` hardwires left/right/jump bit packing. Document as the
+      default host profile, or make the map data-driven so a second title with
+      different verbs does not fork the host.
+- [ ] **Bridge observability vs real device sinks** — `RgRegistryBridge`
+      accumulates `vocalCues` / `oneShotCount` / `logLines` mainly for e2e.
+      Wire vocals/one-shots to SDL (or a real sink) and shrink test-only
+      counters to something tests can still assert without looking like a
+      parallel game API.
+- [ ] **Finish generated dispatch** — interim hand `dispatchRow` if-chain in
+      `interp/engine/RgRegistryBridge.rgr` (BRIDGES.md §2.4 / step 5 →
+      `registry/generated/RgDispatch.rgr`). Coverage gate already locks every
+      row; replace the hand section, do not grow it.
+- [ ] **Relocate `interp/engine/engine_probe.rgr`** — local smoke probe under
+      the engine path; belongs under `tests/` (or delete once e2e covers the
+      same thread).
+- [ ] **`RgInput.create(2)` default capacity** — fine as a host default, but
+      if a title ever needs >2 logical players, construct/install a larger
+      `RgInput` (or raise the default) without a game-named branch.
+
+**Keep green / do not regress**
+
+- No game name (`ylos*`, `chess`, …) in generic core `.rgr` (comments in
+  modules/runtime/host/render/bridge — docs/TODO/e2e excepted).
+- No `.rgr` runners inside `games/<name>/` (see `games/AGENTS.md`).
+- Scene clear / sky colours stay in guest paint or test tools — never baked
+  into `RgSdlGameHost` / presenters as a title palette.
 
 ---
 
@@ -149,7 +196,7 @@ Also correct the stale claim in [`lpc/TODO.md`](./lpc/TODO.md) §1b that marked
 | `tests/e2e/` | 2 | yes | ylos2 + launcher — in order for current atlas/sim probes |
 | `lpc/` | 0 | no | **decoder + compose ungated** (this file, P0) |
 | `sprites/` | 0 | no | staged; runners/demos only |
-| `menu/` | 0 local | via e2e | launcher covered by `tests/e2e/launcher_e2e_test`; no folder-local unit suite |
+| `menu/` | 1 (`launcher_ui_test`) | yes | unit + `tests/e2e/launcher_e2e_test`; catalog still hardcoded in `.rgr` (see abstraction debt) |
 | `games/` | 0 | via e2e | ylos2 e2e only; chess/other ports still pending |
 | `physics/cannon/` | ~23 | no | staged Cannon class port; not wired into v2 driver |
 | `three/port/` | ~37 | no | staged; local `src/run.sh` still points at **v1** `gallery/game_engine/three/…` paths |
