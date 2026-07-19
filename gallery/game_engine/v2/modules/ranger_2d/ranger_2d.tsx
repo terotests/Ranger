@@ -64,6 +64,10 @@ class Renderer2D {
   beginBackground() { rg2d_bg_begin(); }
   fillRect(x, y, w, h, r, g, b) { rg2d_bg_rect(x, y, w, h, r, g, b); }
   fillCircle(cx, cy, rad, r, g, b) { rg2d_bg_circle(cx, cy, rad, r, g, b); }
+  // screen-space HUD overlay: normalised rects [0,1] drawn AFTER the sprites,
+  // no camera transform; pane = owning pane (-1 = all) for per-player HUDs.
+  beginOverlay() { rg2d_ov_begin(); }
+  overlayRect(nx, ny, nw, nh, r, g, b, pane) { rg2d_ov_rect(nx, ny, nw, nh, r, g, b, pane); }
   // frame pipeline step 6: the GAME calls render; each call binds
   // (scene/layer, camera) to a pane; the host presents at step 7.
   render(scene, cam, pane) { rg2d_render(scene.id, cam.id, pane); }

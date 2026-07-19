@@ -177,6 +177,22 @@ class RgBgCmd2D {
     def b:int 0
 }
 
+; ---- immediate screen-space overlay (HUD) primitive -------------------------
+; Overlay rects are NORMALISED to the pane (x,y,w,h in [0,1]), so a HUD is
+; resolution-independent — the backend maps them to the pane's pixel size AFTER
+; the sprites, WITHOUT the camera transform (screen space, not world). `pane` is
+; the owning pane (-1 = every pane) for per-player HUDs on a split screen.
+class RgOvCmd2D {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def r:int 0
+    def g:int 0
+    def b:int 0
+    def pane:int (0 - 1)
+}
+
 ; ---- weak pose binding (body -> sprite) -------------------------------------
 class RgPoseBinding2D {
     def bodyH:RgHandle (new RgHandle)
@@ -203,6 +219,8 @@ class RgRanger2D {
 
     ; frame-local immediate background draw list (world space; no identity)
     def bgCmds:[RgBgCmd2D]
+    ; frame-local immediate overlay draw list (screen space, normalised; HUD)
+    def ovCmds:[RgOvCmd2D]
 
     ; ---- immediate background draw list (world space) ------------------------
     ; bgBegin clears the list at the start of the game's per-frame draw; bgRect /
@@ -237,6 +255,27 @@ class RgRanger2D {
     }
     fn bgCount:int () {
         return (array_length this.bgCmds)
+    }
+
+    ; ---- immediate overlay draw list (screen space, normalised; HUD) ---------
+    fn ovBegin:void () {
+        def empty:[RgOvCmd2D]
+        this.ovCmds = empty
+    }
+    fn ovRect:void (x:double y:double w:double h:double r:int g:int b:int pane:int) {
+        def c:RgOvCmd2D (new RgOvCmd2D)
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = r
+        c.g = g
+        c.b = b
+        c.pane = pane
+        push this.ovCmds c
+    }
+    fn ovCount:int () {
+        return (array_length this.ovCmds)
     }
 
     ; ---- generic pool alloc (one helper per pool) ----------------------------

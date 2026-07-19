@@ -84,12 +84,13 @@ class TexturedRenderTest {
         ; sky where nothing covers (top-left)
         t.eqInt("sky clear shows through the empty top-left" (fb.at(10 10)) sky)
 
-        ; ground band: full-width, sampled edge-over-grass (proves SIZE + texel)
-        def groundGreen:int (TexturedRenderTest.countInRow(fb 92 grass edge))
+        ; ground band: full-width, sampled edge-over-grass (proves SIZE + texel).
+        ; Sample at the LEFT edge (x=20), clear of the bottom-centre HUD overlay.
+        def groundGreen:int (TexturedRenderTest.countInRow(fb 95 grass edge))
         t.ok("ground band spans nearly the full pane width (size works)"
             (groundGreen > 100))
-        t.eqInt("ground body samples grass" (fb.at(60 92)) grass)
-        t.eqInt("ground top samples the darker edge row" (fb.at(60 87)) edge)
+        t.eqInt("ground body samples grass" (fb.at(20 92)) grass)
+        t.eqInt("ground top samples the darker edge row" (fb.at(20 87)) edge)
 
         ; character + pickup drawn from real texels
         t.ok("a player's hair texels are on screen" (TexturedRenderTest.anyColor(fb hair)))
@@ -111,6 +112,13 @@ class TexturedRenderTest {
         def fb2:RgFramebuffer (RgFramebuffer.create(120 96))
         t.eqInt("an unbound pane presents nothing (-1)"
             (Rg2DPresenter.presentTextured(host.bridge 5 fb2 sky)) (0 - 1))
+
+        ; HUD overlay: the game draws a "12" near the bottom-centre of each pane
+        ; in screen space (normalised, above the sky, on top of everything). The
+        ; glyphs are light grey (235,235,235) — not sky, ground, or a sprite.
+        def hud:int (TexturedRenderTest.rgb(235 235 235))
+        t.ok("HUD digits drawn on screen (screen-space overlay)"
+            (TexturedRenderTest.anyColor(fb hud)))
 
         t.eqInt("no bridge errors across the render" host.bridge.errorCount 0)
         t.summary()

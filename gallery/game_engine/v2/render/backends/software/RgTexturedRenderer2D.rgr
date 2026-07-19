@@ -200,6 +200,32 @@ class RgTexturedRenderer2D {
             }
             i = (i + 1)
         }
+        ; HUD overlay LAST — screen space (no camera), normalised → pixels.
+        RgTexturedRenderer2D.rasterOverlay(d fb paneIndex)
         return drawn
+    }
+
+    ; Draw the screen-space overlay list for this pane. Normalised rects map to
+    ; pane pixels; a rect owned by another pane is skipped. Opaque fill.
+    sfn rasterOverlay:void (d:RgRanger2D fb:RgFramebuffer paneIndex:int) {
+        def cmds:[RgOvCmd2D] d.ovCmds
+        def n:int (array_length cmds)
+        def i 0
+        while (i < n) {
+            def c:RgOvCmd2D (itemAt cmds i)
+            def paneOk:boolean true
+            if (c.pane >= 0) {
+                if (c.pane != paneIndex) { paneOk = false }
+            }
+            if paneOk {
+                def color:int (((c.r * 65536) + (c.g * 256)) + c.b)
+                def px:int (floor ((c.x * (to_double fb.width)) + 0.5))
+                def py:int (floor ((c.y * (to_double fb.height)) + 0.5))
+                def pw:int (floor ((c.w * (to_double fb.width)) + 0.5))
+                def ph:int (floor ((c.h * (to_double fb.height)) + 0.5))
+                fb.fillRectRGB(px py pw ph color)
+            }
+            i = (i + 1)
+        }
     }
 }
