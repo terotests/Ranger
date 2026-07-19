@@ -219,11 +219,16 @@ class RgTexturedRenderer2D {
             }
             if paneOk {
                 def color:int (((c.r * 65536) + (c.g * 256)) + c.b)
-                def px:int (floor ((c.x * (to_double fb.width)) + 0.5))
-                def py:int (floor ((c.y * (to_double fb.height)) + 0.5))
-                def pw:int (floor ((c.w * (to_double fb.width)) + 0.5))
-                def ph:int (floor ((c.h * (to_double fb.height)) + 0.5))
-                fb.fillRectRGB(px py pw ph color)
+                def fw:double (to_double fb.width)
+                def fh:double (to_double fb.height)
+                ; Round the cell EDGES (not width) and take the difference, so
+                ; adjacent glyph cells tile seamlessly — a cell's right edge is
+                ; the next cell's left edge, leaving no 1px gaps inside a glyph.
+                def x0:int (floor ((c.x * fw) + 0.5))
+                def x1:int (floor (((c.x + c.w) * fw) + 0.5))
+                def y0:int (floor ((c.y * fh) + 0.5))
+                def y1:int (floor (((c.y + c.h) * fh) + 0.5))
+                fb.fillRectRGB(x0 y0 (x1 - x0) (y1 - y0) color)
             }
             i = (i + 1)
         }
