@@ -52,13 +52,15 @@ function makeDiamondSprite(renderer3d) {
   const amb = new THREE.AmbientLight(scene, 16777215, 0.28);
   const key = new THREE.DirectionalLight(scene, 16777215, 1.45, 0.35, 1.35, 0.55);
   const fill = new THREE.DirectionalLight(scene, 12648447, 0.4, -0.9, 0.2, -0.5);
-  const camera = new THREE.PerspectiveCamera(30, 0.55, 0.1, 20);
-  camera.setPose(0.0, -0.1, 2.6, 0.0, 0.0, 0.0);
+  // Keep the gem well in front of the near plane — close FOV + large scale
+  // previously let rotating facets cross near and fill the RT as a rectangle.
+  const camera = new THREE.PerspectiveCamera(32, 0.55, 0.5, 40);
+  camera.setPose(0.0, -0.12, 3.8, 0.0, 0.0, 0.0);
   // Game-owned asset path; engine only sees a package-relative uri.
   const mesh = new THREE.GLTFModel(scene, "pkg://models/diamond.glb");
   // setTransform resets scale to 1 — apply scale after.
   mesh.setTransform(0, 0, 0, 0.12, 0.6, 0.08);
-  mesh.setScale(2.8, 2.8, 2.8);
+  mesh.setScale(1.55, 1.55, 1.55);
   const rt = runtime.graphics.createRenderTarget({ width: 80, height: 144 });
   const sprite = new TWO.Sprite2D({ source: rt.colorTexture.view() });
   sprite.setSize(GEM_W, GEM_H);
@@ -208,7 +210,7 @@ class Ylos3DGame {
       const gem = this.diamonds[i];
       gem.angle = gem.angle + dt * 0.002;
       gem.mesh.setTransform(0.0, 0.0, 0.0, 0.12, gem.angle, 0.08);
-      gem.mesh.setScale(2.8, 2.8, 2.8);
+      gem.mesh.setScale(1.55, 1.55, 1.55);
       gem.view.invalidate();
       gem.view.sync(this.renderer3d);
       i = i + 1;

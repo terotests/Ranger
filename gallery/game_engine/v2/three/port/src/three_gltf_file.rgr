@@ -295,7 +295,23 @@ class ThreeGLTFFile {
                 def matIdx:int (prim.intOr("material" (0 - 1)))
                 def imgIdx:int (this.imageIndexForMaterial(matIdx))
                 def mat:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
-                mat.setSide(2)
+                ; Honor glTF doubleSided — do not force two-sided on every mesh
+                ; (backfaces through translucent gems looked like a solid slab).
+                def side:int 0
+                if (matIdx >= 0) {
+                    if ((this.materialsJson.length()) > matIdx) {
+                        def mjSide:ThreeJsonValue (this.materialsJson.at(matIdx))
+                        if (mjSide.has("doubleSided")) {
+                            def ds:ThreeJsonValue (mjSide.get("doubleSided"))
+                            if (ds.isBool()) {
+                                if (ds.asBool()) {
+                                    side = 2
+                                }
+                            }
+                        }
+                    }
+                }
+                mat.setSide(side)
                 def matBase:ThreeMaterial mat
                 if (imgIdx < 0) {
                     mat.setColor(0.72 0.72 0.72)
