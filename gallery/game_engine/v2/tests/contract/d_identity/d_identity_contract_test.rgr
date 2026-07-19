@@ -1,0 +1,106 @@
+; ==============================================================================
+; d_identity_contract_test — cross-cutting D-IDENTITY gate.
+; ==============================================================================
+; Enforces the binding contract from CODE_CLEANUP.md "D-IDENTITY":
+;   - reference `===` compares identityId
+;   - Map/Set object keys use identity
+;   - reordering / reparenting / array-index changes never change identity
+;   - reading a missing property returns `undefined`, not `null`
+;   - one NativeRef identity maps to at most one live host handle in its realm
+; ==============================================================================
+
+Import "../../../interp/values/RgValue.rgr"
+Import "../../../interp/values/RgRealm.rgr"
+Import "../../../interp/semantics/RgSemantics.rgr"
+Import "../../harness/RgTest.rgr"
+
+class DIdentityContractTest {
+    ; Move `child` from array `from` to array `to` (membership change only).
+    sfn moveChild:void (from:RgValue to:RgValue child:RgValue) {
+        def rebuilt:RgValue (new RgValue)
+        rebuilt.kind = 6
+        def n:int (from.length())
+        def i 0
+        while (i < n) {
+            def c:RgValue (from.itemAt(i))
+            def same:boolean (RgValue.tripleEquals(c child))
+            if (same == false) {
+                rebuilt.pushItem(c)
+            }
+            i = (i + 1)
+        }
+        from.items = rebuilt.items
+        to.pushItem(child)
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_identity"))
+        def realm:RgRealm (RgRealm.withId(3))
+
+        ; ---- reparent never changes identity --------------------------------
+        ; Two parents, each with a children array; move a child across.
+        def parentA:RgValue (realm.newObject())
+        def parentB:RgValue (realm.newObject())
+        def kidsA:RgValue (realm.newArray())
+        def kidsB:RgValue (realm.newArray())
+        parentA.setProp("children" kidsA)
+        parentB.setProp("children" kidsB)
+
+        def child:RgValue (realm.newObject())
+        def childId:int child.identityId
+        kidsA.pushItem(child)
+
+        ; a Map keyed on the child records some host-side association
+        def assoc:RgMap (new RgMap)
+        assoc.set(child (RgValue.str_("host-slot-42")))
+
+        t.eqInt("child starts in parentA" (RgArrayOps.rgIndexOf(kidsA child)) 0)
+
+        DIdentityContractTest.moveChild(kidsA kidsB child)
+
+        t.eqInt("child removed from parentA" (RgArrayOps.rgIndexOf(kidsA child)) (0 - 1))
+        t.eqInt("child now in parentB" (RgArrayOps.rgIndexOf(kidsB child)) 0)
+        t.eqInt("reparent preserved identityId" child.identityId childId)
+        ; the Map association still resolves through the same identity
+        def slot:RgValue (assoc.get(child))
+        t.eqStr("map key survives reparent (identity stable)" slot.str "host-slot-42")
+
+        ; ---- reorder within an array never changes identity -----------------
+        def list:RgValue (realm.newArray())
+        def e0:RgValue (realm.newObject())
+        def e1:RgValue (realm.newObject())
+        def e2:RgValue (realm.newObject())
+        list.pushItem(e0)
+        list.pushItem(e1)
+        list.pushItem(e2)
+        def e1Id:int e1.identityId
+        ; reverse the array into a new backing store
+        def rev:RgValue (new RgValue)
+        rev.kind = 6
+        rev.pushItem(e2)
+        rev.pushItem(e1)
+        rev.pushItem(e0)
+        list.items = rev.items
+        t.eqInt("e1 moved to index 1->1 stays same object" (RgArrayOps.rgIndexOf(list e1)) 1)
+        t.eqInt("reorder preserved e1 identity" e1.identityId e1Id)
+        t.no("e0 and e2 remain distinct identities" (RgValue.tripleEquals(e0 e2)))
+
+        ; ---- missing property → undefined (not null) ------------------------
+        def missing:RgValue (parentA.getProp("nope"))
+        t.ok("missing prop undefined" (missing.isUndefined()))
+        t.no("missing prop not null" (missing.isNull()))
+
+        ; ---- one identity ↔ at most one live host handle --------------------
+        def nref:RgValue (realm.newNativeRef(555))
+        t.eqInt("native handle bound" (realm.handleFor(nref.identityId)) 555)
+        t.no("cannot rebind live identity to a new handle"
+            (realm.bindHandle(nref.identityId 777)))
+        t.ok("release then rebind is allowed"
+            (realm.unbindHandle(nref.identityId)))
+        t.ok("rebind after release"
+            (realm.bindHandle(nref.identityId 777)))
+        t.eqInt("identity survived handle swap" (realm.handleFor(nref.identityId)) 777)
+
+        t.summary()
+    }
+}

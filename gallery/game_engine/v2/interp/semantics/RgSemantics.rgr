@@ -1,0 +1,139 @@
+; ==============================================================================
+; RgSemantics — JS reference semantics over RgValue (D-IDENTITY).
+; ==============================================================================
+; Collection + comparison behaviour the interpreter must honour:
+;   - RgMap / RgSet key objects by reference identity, primitives by value
+;   - Array.indexOf / includes preserve strict reference semantics
+;   - a missing map entry reads back as `undefined` (never `null`)
+;
+; These are ordered, linear-scan structures — correctness over speed. They exist
+; to pin the contract, not to be the production hash map.
+; ==============================================================================
+
+Import "../values/RgValue.rgr"
+
+; Ordered map: insertion order preserved; keys matched by RgValue.sameKey
+; (identity for references, value for primitives).
+class RgMap {
+    def keys:[RgValue]
+    def vals:[RgValue]
+
+    fn findKey:int (k:RgValue) {
+        def n:int (array_length this.keys)
+        def i 0
+        while (i < n) {
+            def kk:RgValue (itemAt this.keys i)
+            if (RgValue.sameKey(kk k)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn set:void (k:RgValue v:RgValue) {
+        def idx:int (this.findKey(k))
+        if (idx < 0) {
+            push this.keys k
+            push this.vals v
+            return
+        }
+        set this.vals idx v
+    }
+
+    fn has:boolean (k:RgValue) {
+        return ((this.findKey(k)) >= 0)
+    }
+
+    ; Missing entry → undefined (kind 0), matching D-IDENTITY missing-member.
+    fn get:RgValue (k:RgValue) {
+        def idx:int (this.findKey(k))
+        if (idx < 0) {
+            return (RgValue.undef())
+        }
+        return (itemAt this.vals idx)
+    }
+
+    fn size:int () {
+        return (array_length this.keys)
+    }
+
+    ; Deletes an entry; returns true if it existed (JS Map.delete semantics).
+    fn del:boolean (k:RgValue) {
+        def idx:int (this.findKey(k))
+        if (idx < 0) {
+            return false
+        }
+        def n:int (array_length this.keys)
+        def nk:[RgValue]
+        def nv:[RgValue]
+        def i 0
+        while (i < n) {
+            if (i != idx) {
+                push nk (itemAt this.keys i)
+                push nv (itemAt this.vals i)
+            }
+            i = (i + 1)
+        }
+        this.keys = nk
+        this.vals = nv
+        return true
+    }
+}
+
+; Ordered set of unique elements (unique by RgValue.sameKey).
+class RgSet {
+    def elems:[RgValue]
+
+    fn find:int (v:RgValue) {
+        def n:int (array_length this.elems)
+        def i 0
+        while (i < n) {
+            def e:RgValue (itemAt this.elems i)
+            if (RgValue.sameKey(e v)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn has:boolean (v:RgValue) {
+        return ((this.find(v)) >= 0)
+    }
+
+    ; Adds only if not already present (identity-unique). Returns true if added.
+    fn add:boolean (v:RgValue) {
+        if ((this.find(v)) >= 0) {
+            return false
+        }
+        push this.elems v
+        return true
+    }
+
+    fn size:int () {
+        return (array_length this.elems)
+    }
+}
+
+; Array operations preserving JS strict reference semantics.
+class RgArrayOps {
+    ; Array.indexOf — strict equality (=== / identity for references).
+    sfn rgIndexOf:int (arr:RgValue target:RgValue) {
+        def n:int (arr.length())
+        def i 0
+        while (i < n) {
+            def e:RgValue (arr.itemAt(i))
+            if (RgValue.tripleEquals(e target)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn rgIncludes:boolean (arr:RgValue target:RgValue) {
+        def idx:int (RgArrayOps.rgIndexOf(arr target))
+        return (idx >= 0)
+    }
+}

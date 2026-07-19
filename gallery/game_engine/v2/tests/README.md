@@ -15,3 +15,17 @@ Unit and contract runners that may span interp/host/bridge.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — harness + runner live
+
+- `harness/RgTest.rgr` — shared assertion harness (`ok/no/eqInt/eqStr/eqBool/
+  near/summary`). Prints `  PASS/FAIL <name>` and a grep-able `ALL PASS` /
+  `SOME FAILED` summary, matching the physics/ and three/ port harnesses.
+- `run.sh` — compiles every registered suite to ES6 and runs it under Node,
+  printing an aggregate `v2 ALL GREEN — N/N suites passed` banner (non-zero exit
+  on any failure). Add new suites to the `run_suite` list as folders go green.
+
+**Status:** Phase 1 (D-IDENTITY) suites green — `interp/values`,
+`interp/semantics`, `tests/contract/d_identity`.

@@ -1,0 +1,66 @@
+; ==============================================================================
+; rg_value_test — interp/values gate (D-IDENTITY / D-HANDLE).
+; ==============================================================================
+; Asserts:
+;   - NativeRef carries an immutable identityId + host handle + realmId
+;   - reference identity is unique per mint; reorder/rebind never changes it
+;   - one identity maps to at most one live host handle in its realm
+; ==============================================================================
+
+Import "../RgValue.rgr"
+Import "../RgRealm.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class RgValueTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("interp/values/rg_value"))
+        def realm:RgRealm (RgRealm.withId(7))
+
+        ; --- NativeRef carries immutable identityId + handle + realmId --------
+        def a:RgValue (realm.newNativeRef(1001))
+        def b:RgValue (realm.newNativeRef(1002))
+        t.eqInt("nativeRef a identity minted" a.identityId 1)
+        t.eqInt("nativeRef b identity minted" b.identityId 2)
+        t.eqInt("nativeRef a handle" a.handle 1001)
+        t.eqInt("nativeRef a realm" a.realmId 7)
+        t.eqInt("nativeRef b realm" b.realmId 7)
+        t.ok("nativeRef is a reference" (a.isReference()))
+
+        ; identities are distinct across two mints
+        t.no("distinct mints are not ===" (RgValue.tripleEquals(a b)))
+        t.ok("value is === to itself" (RgValue.tripleEquals(a a)))
+
+        ; --- one identity -> at most one live host handle --------------------
+        t.eqInt("handleFor(a) resolves bound handle" (realm.handleFor(a.identityId)) 1001)
+        t.no("rebinding identity to a different live handle is rejected"
+            (realm.bindHandle(a.identityId 9999)))
+        t.ok("rebinding identity to the same handle is idempotent"
+            (realm.bindHandle(a.identityId 1001)))
+        t.ok("release unbinds the handle" (realm.unbindHandle(a.identityId)))
+        t.ok("after unbind, identity may bind a new handle"
+            (realm.bindHandle(a.identityId 2002)))
+        t.eqInt("identityId is unchanged after rebind" a.identityId 1)
+
+        ; --- object identity: reorder/reparent never changes identity --------
+        def obj:RgValue (realm.newObject())
+        def savedId:int obj.identityId
+        obj.setProp("x" (RgValue.number(1.0)))
+        obj.setProp("y" (RgValue.number(2.0)))
+        ; overwrite a prop (mutation) — identity is stable
+        obj.setProp("x" (RgValue.number(42.0)))
+        t.eqInt("object identity stable across mutation" obj.identityId savedId)
+        def rx:RgValue (obj.getProp("x"))
+        t.near("object prop read back" rx.num 42.0)
+
+        ; --- arrays are references with identity ------------------------------
+        def arr:RgValue (realm.newArray())
+        arr.pushItem(a)
+        arr.pushItem(b)
+        t.eqInt("array length" (arr.length()) 2)
+        t.ok("array is a reference" (arr.isReference()))
+        t.no("array identity differs from object identity"
+            (RgValue.tripleEquals(arr obj)))
+
+        t.summary()
+    }
+}

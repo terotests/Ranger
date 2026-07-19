@@ -92,4 +92,13 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
 
 ---
 
-*Scaffold only (Phase 0). Implementation arrives in later phases.*
+## Progress log
+
+- **Phase 1 — TSX evaluator core (D-IDENTITY): ✅ green.** A dependency-light,
+  v2-owned value slice proves reference identity without Three/rendering:
+  `interp/values/` (`RgValue`, `RgRealm`), `interp/semantics/`
+  (`RgMap`/`RgSet`/`RgArrayOps`), and the cross-cutting gate
+  `tests/contract/d_identity/`. Shared harness `tests/harness/RgTest.rgr` +
+  driver `tests/run.sh`. Run: `bash tests/run.sh` → `v2 ALL GREEN`.
+
+*Later phases (2+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

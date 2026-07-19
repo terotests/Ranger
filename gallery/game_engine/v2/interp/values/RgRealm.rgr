@@ -1,0 +1,135 @@
+; ==============================================================================
+; RgRealm — interpreter realm: mints reference identities (D-IDENTITY).
+; ==============================================================================
+; Every reference value (object/array/function/nativeRef) gets an immutable
+; `identityId` from the realm's monotonic counter. Identities are unique and
+; never reused within the realm's lifetime, so reorder / reparent / array-index
+; changes can never collide with a fresh identity.
+;
+; D-IDENTITY invariant enforced here: "one NativeRef identity maps to at most
+; one live host handle in its realm." bindHandle records identity→handle; a
+; second bind of the *same* identity to a *different* handle is rejected
+; (returns false) — the caller must release before rebinding.
+; ==============================================================================
+
+Import "RgValue.rgr"
+
+class RgRealm {
+    def realmId:int 1
+    def nextId:int 1
+
+    ; identity → handle binding table (parallel arrays, linear scan). Keyed by
+    ; the identityId rendered as a string so the same map shape can be reused if
+    ; this migrates to a native dictionary later.
+    def bindIds:[string]
+    def bindHandles:[int]
+
+    sfn withId:RgRealm (realmId:int) {
+        def r:RgRealm (new RgRealm)
+        r.realmId = realmId
+        r.nextId = 1
+        return r
+    }
+
+    fn mintId:int () {
+        def id:int this.nextId
+        this.nextId = (this.nextId + 1)
+        return id
+    }
+
+    ; ---- reference minting --------------------------------------------------
+
+    fn newObject:RgValue () {
+        def v:RgValue (new RgValue)
+        v.kind = 5
+        v.identityId = (this.mintId())
+        v.realmId = this.realmId
+        return v
+    }
+
+    fn newArray:RgValue () {
+        def v:RgValue (new RgValue)
+        v.kind = 6
+        v.identityId = (this.mintId())
+        v.realmId = this.realmId
+        return v
+    }
+
+    fn newFunction:RgValue (name:string) {
+        def v:RgValue (new RgValue)
+        v.kind = 7
+        v.fnName = name
+        v.identityId = (this.mintId())
+        v.realmId = this.realmId
+        return v
+    }
+
+    ; A native reference over a host handle. The handle is bound to the fresh
+    ; identity immediately (D-IDENTITY: one identity ↔ one live handle).
+    fn newNativeRef:RgValue (handle:int) {
+        def v:RgValue (new RgValue)
+        v.kind = 8
+        v.handle = handle
+        v.identityId = (this.mintId())
+        v.realmId = this.realmId
+        this.bindHandle(v.identityId handle)
+        return v
+    }
+
+    ; ---- identity → handle table -------------------------------------------
+
+    fn findBind:int (identityId:int) {
+        def key:string (to_string identityId)
+        def n:int (array_length this.bindIds)
+        def i 0
+        while (i < n) {
+            if ((itemAt this.bindIds i) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Returns true if bound (or re-bound to the same handle), false if the
+    ; identity is already live with a different handle.
+    fn bindHandle:boolean (identityId:int handle:int) {
+        def idx:int (this.findBind(identityId))
+        if (idx < 0) {
+            push this.bindIds (to_string identityId)
+            push this.bindHandles handle
+            return true
+        }
+        def existing:int (itemAt this.bindHandles idx)
+        if (existing == handle) {
+            return true
+        }
+        ; existing == 0 (HANDLE_INVALID) means the identity was released and is
+        ; free to bind a fresh handle; any other live handle blocks the rebind.
+        if (existing == 0) {
+            set this.bindHandles idx handle
+            return true
+        }
+        return false
+    }
+
+    ; Live host handle for an identity, or 0 (HANDLE_INVALID) if none.
+    fn handleFor:int (identityId:int) {
+        def idx:int (this.findBind(identityId))
+        if (idx < 0) {
+            return 0
+        }
+        return (itemAt this.bindHandles idx)
+    }
+
+    ; Ends the identity→handle binding (e.g. on release) so the identity may be
+    ; rebound. Returns true if a binding was cleared.
+    fn unbindHandle:boolean (identityId:int) {
+        def idx:int (this.findBind(identityId))
+        if (idx < 0) {
+            return false
+        }
+        set this.bindHandles idx 0
+        return true
+    }
+}

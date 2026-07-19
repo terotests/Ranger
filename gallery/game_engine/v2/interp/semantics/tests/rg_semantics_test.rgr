@@ -1,0 +1,95 @@
+; ==============================================================================
+; rg_semantics_test — interp/semantics gate (D-IDENTITY).
+; ==============================================================================
+; The four gated cases from the folder README:
+;   ref_triple_equals            — === uses identityId
+;   map_set_object_keys          — Map/Set key objects by identity, prims by value
+;   missing_property_undefined   — missing read → undefined (not null)
+;   array_indexOf_includes_identity — array search preserves reference semantics
+; ==============================================================================
+
+Import "../RgSemantics.rgr"
+Import "../../values/RgValue.rgr"
+Import "../../values/RgRealm.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class RgSemanticsTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("interp/semantics/rg_semantics"))
+        def realm:RgRealm (RgRealm.withId(1))
+
+        ; ---- ref_triple_equals ----------------------------------------------
+        def o1:RgValue (realm.newObject())
+        def o2:RgValue (realm.newObject())
+        t.ok("same object === itself" (RgValue.tripleEquals(o1 o1)))
+        t.no("distinct objects not ===" (RgValue.tripleEquals(o1 o2)))
+        ; primitives compare by value, not identity
+        t.ok("equal numbers ===" (RgValue.tripleEquals((RgValue.number(3.0)) (RgValue.number(3.0)))))
+        t.no("unequal numbers not ===" (RgValue.tripleEquals((RgValue.number(3.0)) (RgValue.number(4.0)))))
+        t.ok("equal strings ===" (RgValue.tripleEquals((RgValue.str_("hi")) (RgValue.str_("hi")))))
+        ; a reference is never === a primitive
+        t.no("object not === number" (RgValue.tripleEquals(o1 (RgValue.number(0.0)))))
+        ; null vs undefined are distinct
+        t.no("null not === undefined" (RgValue.tripleEquals((RgValue.nul()) (RgValue.undef()))))
+        t.ok("undefined === undefined" (RgValue.tripleEquals((RgValue.undef()) (RgValue.undef()))))
+
+        ; ---- map_set_object_keys --------------------------------------------
+        def m:RgMap (new RgMap)
+        m.set(o1 (RgValue.str_("first")))
+        m.set(o2 (RgValue.str_("second")))
+        t.eqInt("map keeps two distinct object keys" (m.size()) 2)
+        def g1:RgValue (m.get(o1))
+        t.eqStr("map get by object identity o1" g1.str "first")
+        def g2:RgValue (m.get(o2))
+        t.eqStr("map get by object identity o2" g2.str "second")
+        ; overwriting via the same key identity updates in place (no new slot)
+        m.set(o1 (RgValue.str_("first-updated")))
+        t.eqInt("map size unchanged after overwrite" (m.size()) 2)
+        def g1b:RgValue (m.get(o1))
+        t.eqStr("map overwrite by identity" g1b.str "first-updated")
+        ; primitive keys collapse by value: two "3" number values are one key
+        def pm:RgMap (new RgMap)
+        pm.set((RgValue.number(3.0)) (RgValue.str_("three")))
+        pm.set((RgValue.number(3.0)) (RgValue.str_("three-again")))
+        t.eqInt("primitive number keys collapse by value" (pm.size()) 1)
+
+        def s:RgSet (new RgSet)
+        t.ok("set add o1 first time" (s.add(o1)))
+        t.no("set add o1 again is a no-op" (s.add(o1)))
+        t.ok("set add o2" (s.add(o2)))
+        t.eqInt("set has two unique identities" (s.size()) 2)
+        t.ok("set contains o1 by identity" (s.has(o1)))
+
+        ; ---- missing_property_undefined -------------------------------------
+        def obj:RgValue (realm.newObject())
+        obj.setProp("present" (RgValue.number(1.0)))
+        def miss:RgValue (obj.getProp("absent"))
+        t.ok("missing property is undefined" (miss.isUndefined()))
+        t.no("missing property is NOT null" (miss.isNull()))
+        def freshKey:RgValue (realm.newObject())
+        def mapMiss:RgValue (m.get(freshKey))
+        t.ok("missing map entry is undefined" (mapMiss.isUndefined()))
+
+        ; ---- array_indexOf_includes_identity --------------------------------
+        def arr:RgValue (realm.newArray())
+        def x:RgValue (realm.newObject())
+        def y:RgValue (realm.newObject())
+        arr.pushItem(x)
+        arr.pushItem(y)
+        t.eqInt("indexOf finds x by identity" (RgArrayOps.rgIndexOf(arr x)) 0)
+        t.eqInt("indexOf finds y by identity" (RgArrayOps.rgIndexOf(arr y)) 1)
+        def z:RgValue (realm.newObject())
+        t.eqInt("indexOf absent object is -1" (RgArrayOps.rgIndexOf(arr z)) (0 - 1))
+        t.ok("includes x" (RgArrayOps.rgIncludes(arr x)))
+        t.no("does not include z" (RgArrayOps.rgIncludes(arr z)))
+        ; a structurally-identical but distinct object is NOT found (identity, not value)
+        def xClone:RgValue (realm.newObject())
+        t.no("distinct clone not found by identity" (RgArrayOps.rgIncludes(arr xClone)))
+        ; primitive membership is by value
+        def parr:RgValue (realm.newArray())
+        parr.pushItem((RgValue.number(10.0)))
+        t.ok("includes primitive by value" (RgArrayOps.rgIncludes(parr (RgValue.number(10.0)))))
+
+        t.summary()
+    }
+}
