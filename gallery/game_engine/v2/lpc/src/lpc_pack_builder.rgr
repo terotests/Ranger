@@ -4,7 +4,7 @@
 ; TODO: suodata metadata, kopioi vain tarvittavat spritesheets/, kirjoita zip.
 
 Import "lpc_config.rgr"
-Import "../../../zip/ZipWriter.rgr"
+Import "../../imaging/zip/ZipWriter.rgr"
 
 class LpcPackBuilder {
     def cfg:LpcConfig (new LpcConfig())

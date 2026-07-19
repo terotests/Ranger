@@ -1,0 +1,67 @@
+; ==============================================================================
+; png_decoder_test — lpc/tests gate (Track A P0, PNG → RGBA parity).
+; ==============================================================================
+; Exercises the real PNGDecoder against two live LPC sheets from lpc/pack/,
+; covering BOTH color-type paths the pack uses:
+;   - type-6 (truecolor RGBA)  : characters/hero/walk.png            (576x256)
+;   - type-3 (indexed + tRNS)  : demo-male-walk .../body/male/walk.png (576x256)
+; Asserts: decode succeeds (not the 1x1 failure buffer); width==576; height==256;
+; the RGBA buffer is full-size; and each sheet has at least one fully-opaque and
+; at least one fully-transparent pixel (LPC cells carry transparent padding).
+; Prints the grep-able "ALL PASS" / "passed=N failed=0" banner for the driver.
+; ==============================================================================
+
+Import "../src/png_decoder.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class PngDecoderTest {
+
+    ; count pixels whose alpha channel equals `wantAlpha` across the whole image.
+    sfn countAlpha:int (img:ImageBuffer wantAlpha:int) {
+        def total:int (img.width * img.height)
+        def n:int 0
+        def i 0
+        while (i < total) {
+            def a:int (buffer_get img.pixels ((i * 4) + 3))
+            if (a == wantAlpha) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; assert one decoded sheet: dimensions, full-size buffer, and mixed alpha.
+    sfn checkSheet:void (t:RgTest label:string img:ImageBuffer) {
+        t.eqInt((label + " width") img.width 576)
+        t.eqInt((label + " height") img.height 256)
+        ; not the 1x1 failure buffer, and the RGBA buffer is fully allocated.
+        t.ok((label + " not 1x1 failure buffer") ((img.width * img.height) > 1))
+        t.eqInt((label + " rgba buffer is full-size")
+            (buffer_length img.pixels) ((576 * 256) * 4))
+        def opaque:int (PngDecoderTest.countAlpha(img 255))
+        def clear:int (PngDecoderTest.countAlpha(img 0))
+        t.ok((label + " has a fully-opaque pixel") (opaque > 0))
+        t.ok((label + " has a transparent pixel") (clear > 0))
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("lpc/png_decoder"))
+
+        ; ---- type-6 (RGBA truecolor) hero character sheet -------------------
+        def decRgba:PNGDecoder (new PNGDecoder())
+        def hero:ImageBuffer (decRgba.decode(
+            "gallery/game_engine/v2/lpc/pack/characters/hero/" "walk.png"))
+        PngDecoderTest.checkSheet(t "type6(rgba) hero" hero)
+
+        ; ---- type-3 (indexed + tRNS) body layer sheet -----------------------
+        def decIdx:PNGDecoder (new PNGDecoder())
+        def body:ImageBuffer (decIdx.decode(
+            "gallery/game_engine/v2/lpc/pack/demo-male-walk/spritesheets/body/bodies/male/"
+            "walk.png"))
+        PngDecoderTest.checkSheet(t "type3(indexed) body" body)
+
+        t.summary()
+    }
+}

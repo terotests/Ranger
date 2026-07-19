@@ -9,8 +9,8 @@ Import "lpc_char_catalog.rgr"
 Import "lpc_layer_cache.rgr"
 Import "lpc_palette.rgr"
 Import "png_decoder.rgr"
-Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
+Import "../../imaging/raster/RasterBuffer.rgr"
 
 class LpcComposeResult {
     def width:int 0
