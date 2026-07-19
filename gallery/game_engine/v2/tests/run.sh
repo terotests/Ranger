@@ -114,6 +114,7 @@ run_suite tests/sdl/sdl_host_test
 
 # ---- PLAN_2D_EMBED_3D — H1–H4 path A (SW 3D → CPU Texture2D → SW 2D) ---------
 run_suite tests/contract/d_graphics/rtt_sprite_test
+run_suite tests/contract/d_graphics/embed3d_correctness_test
 
 # ---- Phase 10 — audio / input / surface devices (fakes) ---------------------
 run_suite modules/ranger_core/tests/devices_test

@@ -2,8 +2,9 @@
 ; RgRangerThree — thin host arena wrapping ThreeSceneHost for ranger:three.
 ; ==============================================================================
 ; Guest commands mint OwnedHandles whose payloadIndex is the 1-based Three
-; SceneHost handle. Render-to-texture copies the software backend's RGB buffer
-; into an RgTexture2D (PLAN_2D_EMBED_3D path A: SW 3D → CPU Texture2D → SW 2D).
+; SceneHost handle. Render-to-texture copies the software backend's RGB+alpha
+; buffers into an RgTexture2D (PLAN_2D_EMBED_3D path A: SW 3D → CPU Texture2D →
+; SW 2D). Handle args are resolved with resolveTyped (wrong arena type rejected).
 ; ==============================================================================
 
 Import "../../host/RgRegistry.rgr"
@@ -18,16 +19,73 @@ class Rg3DType {
     sfn geometry:int () { return 42 }
     sfn material:int () { return 43 }
     sfn mesh:int () { return 44 }
+    sfn light:int () { return 45 }
 }
 
 class RgRangerThree {
     def registry:RgRegistry (new RgRegistry)
     def realmId:int 1
     def host:ThreeSceneHost (new ThreeSceneHost)
+    ; Set when a typed resolve fails; bridge turns this into a typed error.
+    def lastErr:string ""
+    ; Counts successful renderToTexture calls (regression: present must not bump).
+    def rttCount:int 0
 
-    fn threeH:int (h:RgHandle) {
-        def r:RgResolve (this.registry.resolveSlot(h))
-        if (r.ok == false) { return 0 }
+    fn clearErr:void () {
+        this.lastErr = ""
+    }
+
+    fn sceneH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.scene())))
+        if (r.ok == false) {
+            this.lastErr = "wrong-type:scene"
+            return 0
+        }
+        return r.payloadIndex
+    }
+
+    fn cameraH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.camera())))
+        if (r.ok == false) {
+            this.lastErr = "wrong-type:camera"
+            return 0
+        }
+        return r.payloadIndex
+    }
+
+    fn geometryH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.geometry())))
+        if (r.ok == false) {
+            this.lastErr = "wrong-type:geometry"
+            return 0
+        }
+        return r.payloadIndex
+    }
+
+    fn materialH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.material())))
+        if (r.ok == false) {
+            this.lastErr = "wrong-type:material"
+            return 0
+        }
+        return r.payloadIndex
+    }
+
+    fn meshH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.mesh())))
+        if (r.ok == false) {
+            this.lastErr = "wrong-type:mesh"
+            return 0
+        }
+        return r.payloadIndex
+    }
+
+    fn lightH:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.light())))
+        if (r.ok == false) {
+            this.lastErr = "wrong-type:light"
+            return 0
+        }
         return r.payloadIndex
     }
 
@@ -43,12 +101,18 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
-    fn cameraSet:void (camH:RgHandle fov:double aspect:double near:double far:double) {
-        this.host.cameraSet((this.threeH(camH)) fov aspect near far)
+    fn cameraSet:boolean (camH:RgHandle fov:double aspect:double near:double far:double) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return false }
+        this.host.cameraSet(cam fov aspect near far)
+        return true
     }
 
-    fn cameraPose:void (camH:RgHandle px:double py:double pz:double ex:double ey:double ez:double) {
-        this.host.cameraPose((this.threeH(camH)) px py pz ex ey ez)
+    fn cameraPose:boolean (camH:RgHandle px:double py:double pz:double ex:double ey:double ez:double) {
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return false }
+        this.host.cameraPose(cam px py pz ex ey ez)
+        return true
     }
 
     fn geometryBox:OwnedHandle (w:double h:double d:double) {
@@ -81,37 +145,58 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
-    fn materialSetOpacity:void (matH:RgHandle opacity:double) {
-        this.host.materialSetOpacity((this.threeH(matH)) opacity)
+    fn materialSetOpacity:boolean (matH:RgHandle opacity:double) {
+        def mat:int (this.materialH(matH))
+        if (mat == 0) { return false }
+        this.host.materialSetOpacity(mat opacity)
+        return true
     }
 
     fn lightAmbient:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double) {
-        def th:int (this.host.lightAmbient((this.threeH(sceneH)) colorHex intensity))
-        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
+        def sh:int (this.sceneH(sceneH))
+        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+        def th:int (this.host.lightAmbient(sh colorHex intensity))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.light()) th))
         return (OwnedHandle.own(h))
     }
 
     fn lightDirectional:OwnedHandle (sceneH:RgHandle colorHex:int intensity:double dx:double dy:double dz:double) {
-        def th:int (this.host.lightDirectional((this.threeH(sceneH)) colorHex intensity dx dy dz false 0))
-        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
+        def sh:int (this.sceneH(sceneH))
+        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+        def th:int (this.host.lightDirectional(sh colorHex intensity dx dy dz false 0))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.light()) th))
         return (OwnedHandle.own(h))
     }
 
     fn meshCreate:OwnedHandle (sceneH:RgHandle geoH:RgHandle matH:RgHandle) {
-        def th:int (this.host.meshNew((this.threeH(sceneH)) (this.threeH(geoH)) (this.threeH(matH))))
+        def sh:int (this.sceneH(sceneH))
+        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+        def gh:int (this.geometryH(geoH))
+        if (gh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+        def mh:int (this.materialH(matH))
+        if (mh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+        def th:int (this.host.meshNew(sh gh mh))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
         return (OwnedHandle.own(h))
     }
 
-    fn meshTransform:void (meshH:RgHandle px:double py:double pz:double ex:double ey:double ez:double) {
-        this.host.entityTransform((this.threeH(meshH)) px py pz ex ey ez 1.0 1.0 1.0)
+    fn meshTransform:boolean (meshH:RgHandle px:double py:double pz:double ex:double ey:double ez:double) {
+        def mesh:int (this.meshH(meshH))
+        if (mesh == 0) { return false }
+        this.host.entityTransform(mesh px py pz ex ey ez 1.0 1.0 1.0)
+        return true
     }
 
     ; SW 3D → CPU Texture2D. Backend clears alpha to 0; fragments write
     ; mat.opacity (glass gems) so Sprite2D composites over the 2D world.
-    fn renderToTexture:void (sceneH:RgHandle camH:RgHandle texH:RgHandle w:int h:int d2:RgRanger2D) {
+    ; Executed at record time (path A); presenter must not re-run RTT.
+    fn renderToTexture:boolean (sceneH:RgHandle camH:RgHandle texH:RgHandle w:int h:int d2:RgRanger2D) {
+        def sh:int (this.sceneH(sceneH))
+        if (sh == 0) { return false }
+        def cam:int (this.cameraH(camH))
+        if (cam == 0) { return false }
         this.host.renderer.setClearColor(0.0 0.0 0.0)
-        this.host.render((this.threeH(sceneH)) (this.threeH(camH)) w h)
+        this.host.render(sh cam w h)
         def raw:buffer (this.host.raw())
         def aRaw:buffer (this.host.rawAlpha())
         def n:int (w * h)
@@ -129,6 +214,8 @@ class RgRangerThree {
             i = (i + 1)
         }
         d2.textureUpload(texH w h rgb alpha)
+        this.rttCount = (this.rttCount + 1)
+        return true
     }
 
     fn teardownRealm:int (realmId:int) {

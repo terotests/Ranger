@@ -20,14 +20,10 @@ class BridgeSchemaTest {
         def core:RgSchema (CoreSchema.build())
         def twoD:RgSchema (TwoDSchema.build())
         def three:RgSchema (ThreeSchema.build())
-        t.eqInt("core schema has 16 commands" (core.methodCount()) 16)
-<<<<<<< HEAD
-        t.eqInt("two_d schema has 27 commands" (twoD.methodCount()) 27)
-        t.eqInt("three schema has 13 commands" (three.methodCount()) 13)
-=======
-        t.eqInt("two_d schema has 26 commands" (twoD.methodCount()) 26)
+        ; core+two_d gain rt_create / sprite_create_tex from path A; three is live.
+        t.eqInt("core schema has 17 commands" (core.methodCount()) 17)
+        t.eqInt("two_d schema has 28 commands" (twoD.methodCount()) 28)
         t.eqInt("three schema has 15 commands" (three.methodCount()) 15)
->>>>>>> eb279eca (game_engine/v2: diamond geometry + translucent gem alpha)
         ; residency gate still applies (Sprite2D host props declare sync)
         def v2d:[string] (twoD.validate())
         t.eqInt("two_d rows pass residency validation" (array_length v2d) 0)
@@ -35,11 +31,7 @@ class BridgeSchemaTest {
         ; ---- the ONE table: union of core + two_d + three --------------------
         def base:[RgCommand] (RgCodegen.tableUnion(core twoD))
         def table:[RgCommand] (RgCodegen.tableAppend(base three))
-<<<<<<< HEAD
-        t.eqInt("union table row count" (array_length table) 56)
-=======
-        t.eqInt("union table row count" (array_length table) 57)
->>>>>>> eb279eca (game_engine/v2: diamond geometry + translucent gem alpha)
+        t.eqInt("union table row count" (array_length table) 60)
         def viol:[string] (RgCodegen.checkTable(table))
         def nv:int (array_length viol)
         if (nv > 0) {

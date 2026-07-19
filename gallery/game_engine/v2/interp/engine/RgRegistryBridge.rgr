@@ -160,6 +160,16 @@ class RgRegistryBridge extends EvalNativeBridge {
         return (EvalValue.null())
     }
 
+    ; Surface a typed 3D handle rejection from RgRangerThree.lastErr.
+    fn fail3d:EvalValue (cmd:string) {
+        def msg:string this.d3.lastErr
+        if (msg == "") {
+            msg = "wrong-type"
+        }
+        this.d3.clearErr()
+        return (this.fail((msg + ":") + cmd))
+    }
+
     ; ---- EvalNativeBridge (pure table lookups) ------------------------------
     fn has:boolean (name:string) {
         def row:RgCommand (RgCodegen.findByName(this.table name))
@@ -711,11 +721,17 @@ class RgRegistryBridge extends EvalNativeBridge {
             return (RgRegistryBridge.retI(gid))
         }
         if (row.name == "rg3d_camera_set") {
-            this.d3.cameraSet((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)))
+            this.d3.clearErr()
+            if ((this.d3.cameraSet((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)))) == false) {
+                return (this.fail3d(row.name))
+            }
             return (EvalValue.null())
         }
         if (row.name == "rg3d_camera_pose") {
-            this.d3.cameraPose((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6)))
+            this.d3.clearErr()
+            if ((this.d3.cameraPose((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6)))) == false) {
+                return (this.fail3d(row.name))
+            }
             return (EvalValue.null())
         }
         if (row.name == "rg3d_geometry_box") {
@@ -744,33 +760,54 @@ class RgRegistryBridge extends EvalNativeBridge {
             return (RgRegistryBridge.retI(gid))
         }
         if (row.name == "rg3d_material_set_opacity") {
-            this.d3.materialSetOpacity((a.handleAt(0)) (a.dblAt(1)))
+            this.d3.clearErr()
+            if ((this.d3.materialSetOpacity((a.handleAt(0)) (a.dblAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
             return (EvalValue.null())
         }
         if (row.name == "rg3d_light_ambient") {
+            this.d3.clearErr()
             def o:OwnedHandle (this.d3.lightAmbient((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2))))
+            if ((o.handle.isValid()) == false) {
+                return (this.fail3d(row.name))
+            }
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
         if (row.name == "rg3d_light_directional") {
+            this.d3.clearErr()
             def o:OwnedHandle (this.d3.lightDirectional((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5))))
+            if ((o.handle.isValid()) == false) {
+                return (this.fail3d(row.name))
+            }
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
         if (row.name == "rg3d_mesh_create") {
+            this.d3.clearErr()
             def o:OwnedHandle (this.d3.meshCreate((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2))))
+            if ((o.handle.isValid()) == false) {
+                return (this.fail3d(row.name))
+            }
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
         if (row.name == "rg3d_mesh_transform") {
-            this.d3.meshTransform((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6)))
+            this.d3.clearErr()
+            if ((this.d3.meshTransform((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6)))) == false) {
+                return (this.fail3d(row.name))
+            }
             return (EvalValue.null())
         }
         if (row.name == "rg3d_render_to") {
-            ; Record + execute SW RTT into the CPU Texture2D (path A). Execution
-            ; at record time keeps the texture sampleable by later 2D present.
+            ; Execute SW RTT at record time (path A) so the texture is
+            ; sampleable by later 2D work. Presenter must not re-run this.
+            this.d3.clearErr()
+            if ((this.d3.renderToTexture((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2)) (a.intAt(3)) (a.intAt(4)) this.d2)) == false) {
+                return (this.fail3d(row.name))
+            }
             this.appendPass3D((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2)) (a.intAt(3)) (a.intAt(4)))
-            this.d3.renderToTexture((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2)) (a.intAt(3)) (a.intAt(4)) this.d2)
             return (EvalValue.null())
         }
         if (row.name == "rgcore_assets_load_atlas") {

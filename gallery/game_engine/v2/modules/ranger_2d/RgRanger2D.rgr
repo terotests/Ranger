@@ -317,6 +317,24 @@ class RgRanger2D {
         push this.atlases (new RgSpriteAtlas)
         return n
     }
+    ; Clear every field so recycled payload slots cannot inherit flip/z/pane/etc.
+    fn resetSprite:void (sp:RgSprite2D) {
+        sp.atlasH = (RgHandle.invalid())
+        sp.textureH = (RgHandle.invalid())
+        sp.useTexture = false
+        sp.regionIndex = 0
+        sp.x = 0.0
+        sp.y = 0.0
+        sp.layerSlot = 0
+        sp.w = 0.0
+        sp.h = 0.0
+        sp.z = 0
+        sp.flipX = false
+        sp.cellCol = (0 - 1)
+        sp.cellRow = 0
+        sp.paneOwner = (0 - 1)
+    }
+
     fn allocSprite:int () {
         def nf:int (array_length this.spriteFree)
         if (nf > 0) {
@@ -328,6 +346,7 @@ class RgRanger2D {
                 i = (i + 1)
             }
             this.spriteFree = kept
+            this.resetSprite((itemAt this.sprites idx))
             return idx
         }
         def n:int (array_length this.sprites)
@@ -531,9 +550,6 @@ class RgRanger2D {
         sp.atlasH = atlasH
         sp.regionIndex = regionIndex
         sp.useTexture = false
-        sp.x = 0.0
-        sp.y = 0.0
-        sp.layerSlot = 0
         this.registry.retain(atlasH)
         def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.sprite()) idx))
         return (OwnedHandle.own(h))
@@ -546,10 +562,6 @@ class RgRanger2D {
         def sp:RgSprite2D (itemAt this.sprites idx)
         sp.textureH = textureH
         sp.useTexture = true
-        sp.regionIndex = 0
-        sp.x = 0.0
-        sp.y = 0.0
-        sp.layerSlot = 0
         this.registry.retain(textureH)
         def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.sprite()) idx))
         return (OwnedHandle.own(h))

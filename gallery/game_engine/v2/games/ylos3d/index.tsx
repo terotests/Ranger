@@ -20,10 +20,10 @@ const MOVE = 0.22;
 const JUMP_V = 0.34;
 const PLAYER_W = 26;
 const PLAYER_H = 44;
-const GEM_W = 48;
-const GEM_H = 64;
-const DIAMOND_CYAN = 4259839; // 0x40FFFF — bright cyan so Lambert facets still read
-const DIAMOND_OPACITY = 0.72;
+const GEM_W = 40;
+const GEM_H = 72;
+const DIAMOND_CYAN = 8978431; // 0x88FFFF — icy cyan; glass alpha still reads on facets
+const DIAMOND_OPACITY = 0.58;
 
 const PLATFORMS = [
   { x: 0, y: 840, w: 480, h: 60 },
@@ -53,37 +53,40 @@ function makeDiamondSprite(renderer3d) {
   // Key + fill lights: SW Lambert shades each diamond facet (MeshBasic was
   // unlit, so gems looked like flat cyan blobs).
   // NOTE: bind to locals — the TSX evaluator may skip unused `new` expressions.
-  // Low ambient + strong key so opposing facets differ in value (reads as 3D).
-  const amb = new THREE.AmbientLight(scene, 16777215, 0.18);
-  const key = new THREE.DirectionalLight(scene, 16777215, 1.35, 0.55, 1.2, 0.65);
-  const fill = new THREE.DirectionalLight(scene, 8904703, 0.22, -1.0, 0.05, -0.4);
-  // Tall framing for the pavilion silhouette; spin the mesh each frame.
-  const camera = new THREE.PerspectiveCamera(34, 0.75, 0.1, 20);
-  camera.setPose(0.0, 0.05, 3.0, 0.0, 0.0, 0.0);
+  const amb = new THREE.AmbientLight(scene, 16777215, 0.22);
+  const key = new THREE.DirectionalLight(scene, 16777215, 1.55, 0.35, 1.35, 0.55);
+  const fill = new THREE.DirectionalLight(scene, 12648447, 0.35, -0.9, 0.2, -0.5);
+  // Tall framing so the long pavilion reads; keep tilt small so tip stays down.
+  const camera = new THREE.PerspectiveCamera(30, 0.55, 0.1, 20);
+  camera.setPose(0.0, 0.0, 3.4, 0.0, 0.0, 0.0);
   const geo = new THREE.DiamondGeometry(1.0);
   const mat = new THREE.MeshLambertMaterial(DIAMOND_CYAN);
   mat.setOpacity(DIAMOND_OPACITY);
   const mesh = new THREE.Mesh(scene, geo, mat);
-  mesh.setTransform(0, 0, 0, 0.45, 0.75, 0.3);
-  const rt = runtime.graphics.createRenderTarget({ width: 96, height: 128 });
+  mesh.setTransform(0, 0, 0, 0.12, 0.6, 0.08);
+  const rt = runtime.graphics.createRenderTarget({ width: 80, height: 144 });
   const sprite = new TWO.Sprite2D({ source: rt.colorTexture.view() });
   sprite.setSize(GEM_W, GEM_H);
   sprite.setZ(5);
-  const model = new THREE.SceneSprite3D({
+  const view = new THREE.SceneSprite3D({
     scene: scene,
     camera: camera,
-    mesh: mesh,
     target: rt,
     sprite: sprite,
-    resolution: { width: 96, height: 128 },
+    resolution: { width: 80, height: 144 },
     update: "everyFrame"
   });
-  // Keep light refs alive on the model (and prove construction ran).
-  model.amb = amb;
-  model.key = key;
-  model.fill = fill;
-  // Prime the RT so the first present has texels even before update.
-  model.sync(renderer3d, 0);
+  // Game owns mesh animation + light refs (SceneSprite3D only refreshes RTT).
+  const model = {
+    view: view,
+    sprite: sprite,
+    mesh: mesh,
+    angle: 0.6,
+    amb: amb,
+    key: key,
+    fill: fill
+  };
+  view.sync(renderer3d);
   return model;
 }
 
@@ -207,10 +210,14 @@ class Ylos3DGame {
     if (camY > WORLD_H - VIEW_H / 2) { camY = WORLD_H - VIEW_H / 2; }
     this.camera.set(BASE_W / 2, camY, 1, 0);
 
-    // Spin + refresh each 3D diamond into its RT before the 2D pass samples it.
+    // Game owns gem spin; SceneSprite3D only refreshes the RT.
     let i = 0;
     while (i < this.diamonds.length) {
-      this.diamonds[i].sync(this.renderer3d, dt);
+      const gem = this.diamonds[i];
+      gem.angle = gem.angle + dt * 0.002;
+      gem.mesh.setTransform(0.0, 0.0, 0.0, 0.12, gem.angle, 0.08);
+      gem.view.invalidate();
+      gem.view.sync(this.renderer3d);
       i = i + 1;
     }
 

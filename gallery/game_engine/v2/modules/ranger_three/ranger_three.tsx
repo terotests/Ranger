@@ -89,46 +89,38 @@ class Renderer3D {
   }
 }
 
-// Ergonomic embedded 3D view (PLAN D10 / H4): owns an RT + texture-backed
-// Sprite2D. update: "everyFrame" | "manual"; call invalidate() on manual.
+// Embedded 3D view: owns an RT + texture-backed Sprite2D. Does not animate
+// meshes — the game owns transforms and calls invalidate()/sync as needed.
+// update: "everyFrame" | "manual".
 class SceneSprite3D {
   target = null;
   sprite = null;
   scene = null;
   camera = null;
-  mesh = null;
   width = 64;
   height = 64;
   updateMode = "everyFrame";
   dirty = 1;
-  angle = 0.0;
 
   constructor(opts) {
     this.scene = opts.scene;
     this.camera = opts.camera;
-    this.mesh = opts.mesh != null ? opts.mesh : null;
     if (opts.resolution != null) {
       this.width = opts.resolution.width;
       this.height = opts.resolution.height;
     }
     if (opts.update != null) { this.updateMode = opts.update; }
-    this.target = opts.target;
-    // Sprite is created by the game after importing ranger:2d, OR via the
-    // pre-built sprite handle when the host helper is used. Games normally
-    // pass a ready texture-backed Sprite2D as opts.sprite.
-    this.sprite = opts.sprite;
+    // Prefer caller-supplied target/sprite (games that import ranger:2d
+    // explicitly); otherwise leave null for host helpers to fill later.
+    this.target = opts.target != null ? opts.target : null;
+    this.sprite = opts.sprite != null ? opts.sprite : null;
     this.dirty = 1;
   }
 
   invalidate() { this.dirty = 1; }
 
-  // Rotate the mesh (if any) and ensure the RT is fresh for this frame.
-  sync(renderer3d, dtMs) {
-    if (this.mesh != null) {
-      this.angle = this.angle + dtMs * 0.002;
-      this.mesh.setTransform(0.0, 0.0, 0.0, 0.35, this.angle, 0.2);
-      this.dirty = 1;
-    }
+  // Refresh the RT when everyFrame or after invalidate(). No mesh mutation.
+  sync(renderer3d) {
     if (this.updateMode == "everyFrame") { this.dirty = 1; }
     if (this.dirty != 0) {
       renderer3d.render(this.scene, this.camera, this.target);

@@ -448,8 +448,8 @@ class ThreeOctahedronGeometry extends ThreeBufferGeometry {
 }
 
 ; ------------------------------------------------------------------ Diamond
-; Classic gem silhouette: wide girdle, short crown, long narrow pavilion
-; (pointy bottom). `radius` is the girdle half-width.
+; Classic gem: octagonal girdle (widest), flat table, short crown, long
+; narrow pavilion to a culet. `radius` is the girdle half-width.
 class ThreeDiamondGeometry extends ThreeBufferGeometry {
     def isDiamondGeometry:boolean true
 
@@ -478,28 +478,61 @@ class ThreeDiamondGeometry extends ThreeBufferGeometry {
     fn build:ThreeDiamondGeometry (radius:double) {
         def r:double radius
         if (r <= 0.0) { r = 1.0 }
-        ; Short crown + long pavilion; girdle is the widest ring. Shift so the
-        ; AABB centres near the origin (spinning RTT gems stay framed).
-        def crownH:double (r * 0.38)
-        def pavH:double (r * 1.55)
+        ; Proportions: short crown, long pointed pavilion. AABB-centred.
+        def crownH:double (r * 0.32)
+        def pavH:double (r * 1.72)
+        def tableR:double (r * 0.42)
         def yOff:double ((pavH - crownH) * 0.5)
         def gy:double yOff
         def ty:double (crownH + yOff)
         def by:double ((0.0 - pavH) + yOff)
-        def px:double r
-        def nx:double (0.0 - r)
-        def pz:double r
-        def nz:double (0.0 - r)
-        ; crown (upper, short)
-        this.pushFace(px gy 0.0  0.0 ty 0.0  0.0 gy pz)
-        this.pushFace(0.0 gy pz  0.0 ty 0.0  nx gy 0.0)
-        this.pushFace(nx gy 0.0  0.0 ty 0.0  0.0 gy nz)
-        this.pushFace(0.0 gy nz  0.0 ty 0.0  px gy 0.0)
-        ; pavilion (lower, long / narrow point)
-        this.pushFace(px gy 0.0  0.0 gy pz  0.0 by 0.0)
-        this.pushFace(0.0 gy pz  nx gy 0.0  0.0 by 0.0)
-        this.pushFace(nx gy 0.0  0.0 gy nz  0.0 by 0.0)
-        this.pushFace(0.0 gy nz  px gy 0.0  0.0 by 0.0)
+        ; 8 girdle / table ring points (unit circle * radius)
+        def gx:[double]
+        def gz:[double]
+        def tx:[double]
+        def tz:[double]
+        def i:int 0
+        while (i < 8) {
+            def ang:double (((to_double i) * 3.141592653589793) * 0.25)
+            push gx ((cos(ang)) * r)
+            push gz ((sin(ang)) * r)
+            push tx ((cos(ang)) * tableR)
+            push tz ((sin(ang)) * tableR)
+            i = (i + 1)
+        }
+        ; flat table (fan from first vertex)
+        def t0x:double (itemAt tx 0)
+        def t0z:double (itemAt tz 0)
+        i = 1
+        while (i < 7) {
+            this.pushFace(t0x ty t0z (itemAt tx i) ty (itemAt tz i) (itemAt tx (i + 1)) ty (itemAt tz (i + 1)))
+            i = (i + 1)
+        }
+        ; crown: table edge → girdle edge (2 tris / sector)
+        i = 0
+        while (i < 8) {
+            def j:int (i + 1)
+            if (j >= 8) { j = 0 }
+            def g0x:double (itemAt gx i)
+            def g0z:double (itemAt gz i)
+            def g1x:double (itemAt gx j)
+            def g1z:double (itemAt gz j)
+            def a0x:double (itemAt tx i)
+            def a0z:double (itemAt tz i)
+            def a1x:double (itemAt tx j)
+            def a1z:double (itemAt tz j)
+            this.pushFace(a0x ty a0z g0x gy g0z g1x gy g1z)
+            this.pushFace(a0x ty a0z g1x gy g1z a1x ty a1z)
+            i = (i + 1)
+        }
+        ; pavilion: girdle → culet (narrow bottom point)
+        i = 0
+        while (i < 8) {
+            def j2:int (i + 1)
+            if (j2 >= 8) { j2 = 0 }
+            this.pushFace((itemAt gx i) gy (itemAt gz i) (itemAt gx j2) gy (itemAt gz j2) 0.0 by 0.0)
+            i = (i + 1)
+        }
         return this
     }
 }

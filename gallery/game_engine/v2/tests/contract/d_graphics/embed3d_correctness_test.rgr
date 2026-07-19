@@ -1,0 +1,239 @@
+; ==============================================================================
+; embed3d_correctness_test — PR review gates for PLAN_2D_EMBED_3D path A.
+; ==============================================================================
+; Covers: typed 3D handle rejection, no RTT re-run at present, black geometry
+; survives (not chroma-keyed), recycled sprite payloads fully reset.
+; ==============================================================================
+
+Import "../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../../runtime/game_host/RgComposePresenter.rgr"
+Import "../../harness/RgTest.rgr"
+
+class Embed3dCorrectnessTest {
+    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+    fn str:EvalValue (s:string) { return (EvalValue.string(s)) }
+
+    fn callI:int (b:RgRegistryBridge name:string args:[EvalValue]) {
+        def r:EvalValue (b.invoke(name args))
+        return (to_int r.numberValue)
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_graphics/embed3d_correctness"))
+        def s:Embed3dCorrectnessTest (new Embed3dCorrectnessTest)
+        def empty:[EvalValue]
+
+        ; ================= typed 3D handle rejection =========================
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+        def sceneId:int (s.callI(b "rg3d_scene_create" empty))
+        def camId:int (s.callI(b "rg3d_camera_create" empty))
+        def geoA:[EvalValue]
+        push geoA (s.num(1.0))
+        def geoId:int (s.callI(b "rg3d_geometry_diamond" geoA))
+        def matA:[EvalValue]
+        push matA (s.num(16711680.0))
+        def matId:int (s.callI(b "rg3d_material_lambert" matA))
+        def e0:int b.errorCount
+
+        def badCam:[EvalValue]
+        push badCam (s.num((to_double sceneId)))
+        push badCam (s.num(35.0))
+        push badCam (s.num(1.0))
+        push badCam (s.num(0.1))
+        push badCam (s.num(20.0))
+        b.invoke("rg3d_camera_set" badCam)
+        t.eqInt("camera_set rejects scene handle" b.errorCount (e0 + 1))
+        t.ok("error names wrong-type:camera" ((indexOf b.lastError "wrong-type:camera") >= 0))
+
+        def badXf:[EvalValue]
+        push badXf (s.num((to_double matId)))
+        push badXf (s.num(0.0))
+        push badXf (s.num(0.0))
+        push badXf (s.num(0.0))
+        push badXf (s.num(0.0))
+        push badXf (s.num(0.0))
+        push badXf (s.num(0.0))
+        b.invoke("rg3d_mesh_transform" badXf)
+        t.eqInt("mesh_transform rejects material handle" b.errorCount (e0 + 2))
+        t.ok("error names wrong-type:mesh" ((indexOf b.lastError "wrong-type:mesh") >= 0))
+
+        def badMesh:[EvalValue]
+        push badMesh (s.num((to_double camId)))
+        push badMesh (s.num((to_double geoId)))
+        push badMesh (s.num((to_double matId)))
+        b.invoke("rg3d_mesh_create" badMesh)
+        t.eqInt("mesh_create rejects camera as scene" b.errorCount (e0 + 3))
+        t.ok("error names wrong-type:scene" ((indexOf b.lastError "wrong-type:scene") >= 0))
+
+        def badLight:[EvalValue]
+        push badLight (s.num((to_double geoId)))
+        push badLight (s.num(16777215.0))
+        push badLight (s.num(0.5))
+        b.invoke("rg3d_light_ambient" badLight)
+        t.eqInt("light_ambient rejects geometry as scene" b.errorCount (e0 + 4))
+
+        def badOp:[EvalValue]
+        push badOp (s.num((to_double sceneId)))
+        push badOp (s.num(0.5))
+        b.invoke("rg3d_material_set_opacity" badOp)
+        t.eqInt("set_opacity rejects scene handle" b.errorCount (e0 + 5))
+
+        ; ================= no RTT re-run at present ==========================
+        def b2:RgRegistryBridge (RgRegistryBridge.create())
+        def layA:[EvalValue]
+        push layA (s.num(0.0))
+        b2.invoke("rgcore_surface_set_layout" layA)
+        def rtA:[EvalValue]
+        push rtA (s.num(16.0))
+        push rtA (s.num(16.0))
+        def texId:int (s.callI(b2 "rgcore_graphics_rt_create" rtA))
+        def sc2:int (s.callI(b2 "rg3d_scene_create" empty))
+        def c2:int (s.callI(b2 "rg3d_camera_create" empty))
+        def cs:[EvalValue]
+        push cs (s.num((to_double c2)))
+        push cs (s.num(35.0))
+        push cs (s.num(1.0))
+        push cs (s.num(0.1))
+        push cs (s.num(20.0))
+        b2.invoke("rg3d_camera_set" cs)
+        def cp:[EvalValue]
+        push cp (s.num((to_double c2)))
+        push cp (s.num(0.0))
+        push cp (s.num(0.0))
+        push cp (s.num(3.0))
+        push cp (s.num(0.0))
+        push cp (s.num(0.0))
+        push cp (s.num(0.0))
+        b2.invoke("rg3d_camera_pose" cp)
+        def boxA:[EvalValue]
+        push boxA (s.num(1.0))
+        push boxA (s.num(1.0))
+        push boxA (s.num(1.0))
+        def boxG:int (s.callI(b2 "rg3d_geometry_box" boxA))
+        def m2A:[EvalValue]
+        push m2A (s.num(255.0))
+        def m2:int (s.callI(b2 "rg3d_material_basic" m2A))
+        def meshA:[EvalValue]
+        push meshA (s.num((to_double sc2)))
+        push meshA (s.num((to_double boxG)))
+        push meshA (s.num((to_double m2)))
+        s.callI(b2 "rg3d_mesh_create" meshA)
+        def before:int b2.d3.rttCount
+        def rttA:[EvalValue]
+        push rttA (s.num((to_double sc2)))
+        push rttA (s.num((to_double c2)))
+        push rttA (s.num((to_double texId)))
+        push rttA (s.num(16.0))
+        push rttA (s.num(16.0))
+        b2.invoke("rg3d_render_to" rttA)
+        t.eqInt("rtt executed once at record" b2.d3.rttCount (before + 1))
+        def afterRecord:int b2.d3.rttCount
+        def fb:RgFramebuffer (RgFramebuffer.create(32 32))
+        RgComposePresenter.presentPane(b2 0 fb 0)
+        RgComposePresenter.presentPane(b2 0 fb 0)
+        t.eqInt("present does not re-run RTT" b2.d3.rttCount afterRecord)
+
+        ; ================= black geometry is not chroma-keyed ================
+        def b3:RgRegistryBridge (RgRegistryBridge.create())
+        def rt3A:[EvalValue]
+        push rt3A (s.num(16.0))
+        push rt3A (s.num(16.0))
+        def tex3:int (s.callI(b3 "rgcore_graphics_rt_create" rt3A))
+        def sc3:int (s.callI(b3 "rg3d_scene_create" empty))
+        def c3:int (s.callI(b3 "rg3d_camera_create" empty))
+        def cs3:[EvalValue]
+        push cs3 (s.num((to_double c3)))
+        push cs3 (s.num(35.0))
+        push cs3 (s.num(1.0))
+        push cs3 (s.num(0.1))
+        push cs3 (s.num(20.0))
+        b3.invoke("rg3d_camera_set" cs3)
+        def cp3:[EvalValue]
+        push cp3 (s.num((to_double c3)))
+        push cp3 (s.num(0.0))
+        push cp3 (s.num(0.0))
+        push cp3 (s.num(2.5))
+        push cp3 (s.num(0.0))
+        push cp3 (s.num(0.0))
+        push cp3 (s.num(0.0))
+        b3.invoke("rg3d_camera_pose" cp3)
+        def box3A:[EvalValue]
+        push box3A (s.num(1.2))
+        push box3A (s.num(1.2))
+        push box3A (s.num(1.2))
+        def box3:int (s.callI(b3 "rg3d_geometry_box" box3A))
+        def mat3A:[EvalValue]
+        push mat3A (s.num(0.0))
+        def mat3:int (s.callI(b3 "rg3d_material_basic" mat3A))
+        def mesh3A:[EvalValue]
+        push mesh3A (s.num((to_double sc3)))
+        push mesh3A (s.num((to_double box3)))
+        push mesh3A (s.num((to_double mat3)))
+        s.callI(b3 "rg3d_mesh_create" mesh3A)
+        def rtt3:[EvalValue]
+        push rtt3 (s.num((to_double sc3)))
+        push rtt3 (s.num((to_double c3)))
+        push rtt3 (s.num((to_double tex3)))
+        push rtt3 (s.num(16.0))
+        push rtt3 (s.num(16.0))
+        b3.invoke("rg3d_render_to" rtt3)
+        def texH:RgHandle (b3.resolveGuestId(tex3))
+        def midA:int (b3.d2.texelA(texH 8 8))
+        def midRGB:int (b3.d2.texelRGB(texH 8 8))
+        t.ok("black box centre has coverage alpha" (midA > 0))
+        t.eqInt("black box centre RGB is black" midRGB 0)
+
+        ; ================= recycled sprite payload reset =====================
+        def b4:RgRegistryBridge (RgRegistryBridge.create())
+        def tex4A:[EvalValue]
+        push tex4A (s.num(4.0))
+        push tex4A (s.num(4.0))
+        def tex4:int (s.callI(b4 "rgcore_graphics_rt_create" tex4A))
+        def atA:[EvalValue]
+        push atA (s.num((to_double tex4)))
+        def atlas:int (s.callI(b4 "rg2d_atlas_create" atA))
+        def rgArgs:[EvalValue]
+        push rgArgs (s.num((to_double atlas)))
+        push rgArgs (s.str("cell"))
+        push rgArgs (s.num(0.0))
+        push rgArgs (s.num(0.0))
+        push rgArgs (s.num(2.0))
+        push rgArgs (s.num(2.0))
+        def reg:int (s.callI(b4 "rg2d_atlas_add_region" rgArgs))
+        def spA:[EvalValue]
+        push spA (s.num((to_double atlas)))
+        push spA (s.num((to_double reg)))
+        def spr1:int (s.callI(b4 "rg2d_sprite_create" spA))
+        def szA:[EvalValue]
+        push szA (s.num((to_double spr1)))
+        push szA (s.num(40.0))
+        push szA (s.num(50.0))
+        b4.invoke("rg2d_sprite_set_size" szA)
+        def zA:[EvalValue]
+        push zA (s.num((to_double spr1)))
+        push zA (s.num(10.0))
+        b4.invoke("rg2d_sprite_set_z" zA)
+        def fxA:[EvalValue]
+        push fxA (s.num((to_double spr1)))
+        push fxA (s.num(1.0))
+        b4.invoke("rg2d_sprite_set_flip" fxA)
+        def paneA:[EvalValue]
+        push paneA (s.num((to_double spr1)))
+        push paneA (s.num(1.0))
+        b4.invoke("rg2d_sprite_set_pane" paneA)
+        def relA:[EvalValue]
+        push relA (s.num((to_double spr1)))
+        b4.invoke("rg2d_sprite_release" relA)
+        def texSpA:[EvalValue]
+        push texSpA (s.num((to_double tex4)))
+        def spr2:int (s.callI(b4 "rg2d_sprite_create_tex" texSpA))
+        def spH:RgHandle (b4.resolveGuestId(spr2))
+        t.eqInt("recycled sprite z reset" (b4.d2.spriteZ(spH)) 0)
+        t.no("recycled sprite flipX reset" (b4.d2.spriteFlipX(spH)))
+        t.eqInt("recycled sprite paneOwner reset" (b4.d2.spritePaneOwner(spH)) (0 - 1))
+        t.near("recycled sprite w reset" (b4.d2.spriteW(spH)) 0.0)
+        t.near("recycled sprite h reset" (b4.d2.spriteH(spH)) 0.0)
+
+        t.summary()
+    }
+}
