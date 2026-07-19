@@ -69,6 +69,7 @@
             bundleSource, zipBuffer, canvas, size: scene.size || 480,
             facadeDir: scene.facadeDir, facadeFile: scene.facadeFile,
             guestDir: scene.guestDir, guestFile: scene.guestFile,
+            packageDir: scene.packageDir || "",
           });
           setStatus("rendering — the LIVE method-call cube, no reconciler");
         } catch (e) {

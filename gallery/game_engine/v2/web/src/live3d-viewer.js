@@ -28,8 +28,13 @@
     }
 
     // Register the façade + evaluate the guest + run init(); render frame 0.
-    load(facadeDir, facadeFile, guestDir, guestFile) {
+    // packageDir (optional) is the bridge's asset root: guests that load real
+    // models via `new THREE.GLTFModel("pkg://…")` need it set BEFORE loadFromVfs
+    // (init() runs the model load), so pkg:// resolves against the mounted VFS
+    // zip exactly like an in-engine game. Primitive guests leave it "".
+    load(facadeDir, facadeFile, guestDir, guestFile, packageDir) {
       this.host.setup();
+      if (packageDir) this.host.bridge.packageDir = packageDir;
       const ok = this.host.loadFromVfs(
         facadeDir, facadeFile, guestDir, guestFile, this.size, this.size);
       if (ok !== "ok" || this.host.errorCount() > 0) {
@@ -78,7 +83,7 @@
     const engine = root.RangerEngineHost.createEngine(config.bundleSource, vfs, {});
     const host = new engine.WebLive3dHost();
     const session = new Live3dSession({ canvas: config.canvas, host, size: config.size });
-    session.load(config.facadeDir, config.facadeFile, config.guestDir, config.guestFile);
+    session.load(config.facadeDir, config.facadeFile, config.guestDir, config.guestFile, config.packageDir);
     if (config.autostart !== false) session.start();
     return session;
   }

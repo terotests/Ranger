@@ -9,7 +9,7 @@ driver and the roadmap below over that checklist.
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
 | Headless gate | `npm run engine:v2:test` → 88 suites + boundary gate | — |
-| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — cube/teapot/sponza demos re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
+| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — live-path demos (cube, teapot, a procedural courtyard, and a real glTF model — NOT the Sponza atrium) re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
@@ -55,7 +55,10 @@ handle → separate object / membership / GPU lifetimes) is now advancing on the
       (`RgRegistry` slot table) — no index-based guest IDs.
 - [x] **`RETIRE-RECONCILE`** — **done.** Ported the THREE demo surface onto the
       live registry (Group, TeapotGeometry, PlaneGeometry, OrbitControls),
-      re-implemented the cube / teapot / sponza demos on the LIVE path
+      re-implemented the live-path demos on the LIVE path — the cube, the
+      teapot, a procedural courtyard (`courtyard_live.tsx`, PlaneGeometry + boxes,
+      NOT the Sponza atrium) and a real glTF model (`model_live.tsx`, loads
+      `games/ylos3d/models/diamond.glb` via `rg3d_model_load`)
       (`web/web_live3d_host.rgr` + `web/guests/three/*.tsx`), and
       **browser-verified** each renders in headless Chromium via
       `web/tests/browser_smoke.mjs`. Then deleted `three_tsx_bridge` +
@@ -64,7 +67,9 @@ handle → separate object / membership / GPU lifetimes) is now advancing on the
       Follow-ups (live-path polish, not blockers): sky/background, light-probe GI,
       first-person controls, material textures/PBR — all documented; the SW
       rasteriser's `w*8` span guard still drops huge flat quads (subdivide meshes;
-      see the "remove the 8x span guard" item).
+      see the "remove the 8x span guard" item). A true **Sponza-atrium** live demo
+      is also a follow-up — it needs a Sponza `.gltf`/`.glb` asset that is not
+      in-tree (the current `courtyard_live` is procedural primitives, not Sponza).
 
 See [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) D-IDENTITY / D-SYNC for the contract.
 

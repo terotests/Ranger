@@ -130,12 +130,16 @@ The live `ranger:three` object model is the sole path.
 
 **Deletion milestone (`RETIRE-RECONCILE`) — done.** The live adapter covers
 Scene / Camera / Mesh / Group / Light / Model construct + parent + transform +
-shared geo/mat (+ TeapotGeometry, PlaneGeometry, OrbitControls). The cube, teapot
-and sponza demos were re-implemented on the LIVE path (`web/web_live3d_host.rgr`
-+ `web/guests/three/*.tsx`) and **browser-verified rendering in headless Chromium**
-via `web/tests/browser_smoke.mjs` (this also caught a real façade boolean-coercion
+shared geo/mat (+ TeapotGeometry, PlaneGeometry, OrbitControls). The LIVE-path
+demos are the cube, the teapot, a **procedural courtyard** (`courtyard_live.tsx`
+— PlaneGeometry floor + boxes + lights, NOT the Sponza atrium) and a **real glTF
+model** (`model_live.tsx` — loads `games/ylos3d/models/diamond.glb` through the
+live `rg3d_model_load` path) (`web/web_live3d_host.rgr` + `web/guests/three/*.tsx`),
+each **browser-verified rendering in headless Chromium** via
+`web/tests/browser_smoke.mjs` (this also caught a real façade boolean-coercion
 bug the unit tests missed). The index/DFS reconcile path and Sponza accessors are
-gone; the full gate stays green (89/89).
+gone; the full gate stays green (89/89). (A true Sponza-atrium live demo remains a
+follow-up — it needs a Sponza `.gltf`/`.glb` asset that is not in-tree.)
 
 **STATUS (live path — membership decoupled from creation):** the LIVE
 `ranger:three` path now separates object lifetime from scene membership per the

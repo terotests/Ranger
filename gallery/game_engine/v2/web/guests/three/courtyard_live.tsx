@@ -1,17 +1,18 @@
 // ============================================================================
-// sponza_live.tsx — a LIVE (method-call) ranger:three procedural courtyard.
+// courtyard_live.tsx — a LIVE (method-call) ranger:three procedural courtyard.
 // ============================================================================
 // Third RETIRE-RECONCILE demo on the live path. Like cube_live / teapot_live it
 // drives the ranger:three façade DIRECTLY (Scene / PerspectiveCamera / geometry
 // / material / Mesh / lights) — every construction is an immediate host method
 // call through RgRegistryBridge → RgRangerThree → ThreeSceneHost, no reconciler.
 //
-// This is the "sponza"-style PROCEDURAL scene the web_sponza_tsx_host demo shows
-// (a ground plane + a cluster of boxes + lights), not the real Sponza atrium. It
-// exercises the newly-added live PlaneGeometry (laid flat as a floor) alongside
-// BoxGeometry and the ambient/directional lights. init() builds the scene once;
-// tick(dt) slowly orbits the CAMERA around the origin so the floor + boxes sweep
-// through view and shade to many distinct colours.
+// This is a purely PROCEDURAL primitives scene: a ground plane (PlaneGeometry
+// laid flat as a floor) plus a cluster of coloured boxes (BoxGeometry) and
+// ambient/directional lights. It is NOT the Sponza atrium — there is no imported
+// model here, just live primitives. It exercises the live PlaneGeometry alongside
+// BoxGeometry and the lights. init() builds the scene once; tick(dt) slowly
+// orbits the CAMERA around the origin so the floor + boxes sweep through view and
+// shade to many distinct colours.
 // ============================================================================
 
 import * as THREE from "ranger:three";

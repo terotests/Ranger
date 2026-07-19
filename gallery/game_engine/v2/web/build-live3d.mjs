@@ -19,6 +19,7 @@ import path from "node:path";
 import url from "node:url";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
+const V2 = path.dirname(HERE); // gallery/game_engine/v2 (guests/assets are given relative to this)
 // Repo root — walk up until bin/output.js is found (robust to the web/ dir depth).
 function findRoot(start) {
   let d = start;
@@ -32,11 +33,22 @@ const ROOT = findRoot(HERE);
 const SRC = path.join(HERE, "src");
 const argv = process.argv.slice(2);
 const arg = (name, def) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : def; };
+// Collect all occurrences of a repeatable flag (e.g. --asset a --asset b).
+const argAll = (name) => { const out = []; for (let i = 0; i < argv.length; i++) if (argv[i] === name && i + 1 < argv.length) out.push(argv[i + 1]); return out; };
 // One generic live3d host runs any ranger:three guest; pick the guest with
-// --guest <file.tsx> (default cube_live). --out defaults to dist/<guest-stem>.
+// --guest <file.tsx> (default cube_live). --out defaults to dist/<guest-stem>
+// (cube_live keeps its historical "live3d" dir; every other guest gets its own).
 const GUEST_FILE = arg("--guest", "cube_live.tsx");
 const GUEST_STEM = GUEST_FILE.replace(/\.tsx$/, "");
 const OUT = path.resolve(arg("--out", path.join(HERE, "dist", GUEST_STEM === "cube_live" ? "live3d" : GUEST_STEM)));
+// Optional GLB (or other) assets to package into the VFS zip for guests that
+// load real models via the live path (new THREE.GLTFModel("pkg://…")). Each
+// --asset is given RELATIVE TO gallery/game_engine/v2 (e.g. games/ylos3d/models/
+// diamond.glb) and is packaged at its REPO-relative name so `pkg://` /
+// buffer_read_file resolve it exactly like the in-engine game does. Convention
+// mirrors ylos3d: an asset lives under <package>/models/<file>, so the bridge's
+// packageDir is <package> (repo-relative) and the guest uses pkg://models/<file>.
+const ASSET_ARGS = argAll("--asset");
 
 // v2 host + façade + guest, all at their repo-relative paths.
 const HOST_RGR = "gallery/game_engine/v2/web/web_live3d_host.rgr";
@@ -95,10 +107,28 @@ const entries = [
   { name: FACADE_DIR + "/" + FACADE_FILE, bytes: fs.readFileSync(path.join(ROOT, FACADE_DIR, FACADE_FILE)) },
   { name: GUEST_DIR + "/" + GUEST_FILE, bytes: fs.readFileSync(path.join(ROOT, GUEST_DIR, GUEST_FILE)) },
 ];
+
+// Package any --asset GLBs at their REPO-relative names, and derive the bridge
+// packageDir the live host must set so `pkg://models/<file>` resolves to them.
+// (ylos3d convention: asset at <package>/models/<file> → packageDir = <package>.)
+const toPosix = (p) => p.split(path.sep).join("/");
+let packageDir = "";
+for (const rel of ASSET_ARGS) {
+  const absPath = path.resolve(V2, rel);
+  if (!fs.existsSync(absPath)) throw new Error("--asset not found: " + rel + " (resolved " + absPath + ")");
+  const repoName = toPosix(path.relative(ROOT, absPath)); // e.g. gallery/game_engine/v2/games/ylos3d/models/diamond.glb
+  entries.push({ name: repoName, bytes: fs.readFileSync(absPath) });
+  // package root = parent of the models/ dir; pkg://models/<file> resolves under it.
+  const pkgRoot = toPosix(path.relative(ROOT, path.dirname(path.dirname(absPath))));
+  if (packageDir === "") packageDir = pkgRoot;
+  else if (packageDir !== pkgRoot) log("warning: assets span multiple package roots; using " + packageDir);
+  log("packaged asset:", repoName);
+}
+
 fs.writeFileSync(path.join(OUT, "scene.zip"), makeStoredZip(entries));
 fs.writeFileSync(path.join(OUT, "scene.json"), JSON.stringify(
-  { facadeDir: FACADE_DIR, facadeFile: FACADE_FILE, guestDir: GUEST_DIR, guestFile: GUEST_FILE, size: 480 }, null, 2));
-log("packaged façade + live guest (" + entries.length + " files)");
+  { facadeDir: FACADE_DIR, facadeFile: FACADE_FILE, guestDir: GUEST_DIR, guestFile: GUEST_FILE, packageDir: packageDir, size: 480 }, null, 2));
+log("packaged façade + live guest" + (ASSET_ARGS.length ? " + " + ASSET_ARGS.length + " asset(s)" : "") + " (" + entries.length + " files)");
 
 // Runtime + page.
 for (const f of ["vfs.js", "engine-host.js", "live3d-viewer.js"]) {
