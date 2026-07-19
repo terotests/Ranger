@@ -57,13 +57,14 @@ class Embed3dCorrectnessTest {
         t.eqInt("mesh_transform rejects material handle" b.errorCount (e0 + 2))
         t.ok("error names wrong-type:mesh" ((indexOf b.lastError "wrong-type:mesh") >= 0))
 
+        ; D-SYNC: mesh_create is now DETACHED (geo, mat) — no scene arg. Still a
+        ; typed bad-handle guard: a camera handle where geometry is expected.
         def badMesh:[EvalValue]
         push badMesh (s.num((to_double camId)))
-        push badMesh (s.num((to_double geoId)))
         push badMesh (s.num((to_double matId)))
         b.invoke("rg3d_mesh_create" badMesh)
-        t.eqInt("mesh_create rejects camera as scene" b.errorCount (e0 + 3))
-        t.ok("error names wrong-type:scene" ((indexOf b.lastError "wrong-type:scene") >= 0))
+        t.eqInt("mesh_create rejects camera as geometry" b.errorCount (e0 + 3))
+        t.ok("error names wrong-type:geometry" ((indexOf b.lastError "wrong-type:geometry") >= 0))
 
         def badLight:[EvalValue]
         push badLight (s.num((to_double geoId)))
@@ -113,11 +114,15 @@ class Embed3dCorrectnessTest {
         def m2A:[EvalValue]
         push m2A (s.num(255.0))
         def m2:int (s.callI(b2 "rg3d_material_basic" m2A))
+        ; D-SYNC: detached create + explicit membership == old fused scene graph.
         def meshA:[EvalValue]
-        push meshA (s.num((to_double sc2)))
         push meshA (s.num((to_double boxG)))
         push meshA (s.num((to_double m2)))
-        s.callI(b2 "rg3d_mesh_create" meshA)
+        def mesh2:int (s.callI(b2 "rg3d_mesh_create" meshA))
+        def par2:[EvalValue]
+        push par2 (s.num((to_double mesh2)))
+        push par2 (s.num((to_double sc2)))
+        b2.invoke("rg3d_entity_set_parent" par2)
         def before:int b2.d3.rttCount
         def rttA:[EvalValue]
         push rttA (s.num((to_double sc2)))
@@ -165,11 +170,15 @@ class Embed3dCorrectnessTest {
         def mat3A:[EvalValue]
         push mat3A (s.num(0.0))
         def mat3:int (s.callI(b3 "rg3d_material_basic" mat3A))
+        ; D-SYNC: detached create + explicit membership == old fused scene graph.
         def mesh3A:[EvalValue]
-        push mesh3A (s.num((to_double sc3)))
         push mesh3A (s.num((to_double box3)))
         push mesh3A (s.num((to_double mat3)))
-        s.callI(b3 "rg3d_mesh_create" mesh3A)
+        def mesh3:int (s.callI(b3 "rg3d_mesh_create" mesh3A))
+        def par3:[EvalValue]
+        push par3 (s.num((to_double mesh3)))
+        push par3 (s.num((to_double sc3)))
+        b3.invoke("rg3d_entity_set_parent" par3)
         def rtt3:[EvalValue]
         push rtt3 (s.num((to_double sc3)))
         push rtt3 (s.num((to_double c3)))

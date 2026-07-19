@@ -163,14 +163,15 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
-    fn meshCreate:OwnedHandle (sceneH:RgHandle geoH:RgHandle matH:RgHandle) {
-        def sh:int (this.sceneH(sceneH))
-        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+    ; D-SYNC: DETACHED create — object lifetime is independent of scene
+    ; membership. No scene handle: builds the mesh into entities[] without adding
+    ; it to any scene. Membership is established separately via entitySetParent.
+    fn meshCreate:OwnedHandle (geoH:RgHandle matH:RgHandle) {
         def gh:int (this.geometryH(geoH))
         if (gh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
         def mh:int (this.materialH(matH))
         if (mh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
-        def th:int (this.host.meshNew(sh gh mh))
+        def th:int (this.host.meshNewDetached(gh mh))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
         return (OwnedHandle.own(h))
     }
@@ -186,6 +187,45 @@ class RgRangerThree {
         def mesh:int (this.meshH(meshH))
         if (mesh == 0) { return false }
         this.host.entitySetScale(mesh sx sy sz)
+        return true
+    }
+
+    ; D-SYNC: reparent an ALREADY-created entity (membership decoupled from
+    ; creation). The child is a mesh entity; the parent may be a scene root or
+    ; another mesh entity — resolved by trying the scene type first, then mesh.
+    ; Membership only: allocates nothing, releases nothing. Returns false (typed
+    ; bad-handle in lastErr) on any unresolved handle, mirroring meshTransform's
+    ; guard so the bridge turns it into a typed error.
+    fn entitySetParent:boolean (childH:RgHandle parentH:RgHandle) {
+        def child:int (this.meshH(childH))
+        if (child == 0) { return false }
+        def ps:int (this.sceneH(parentH))
+        if (ps != 0) {
+            this.lastErr = ""
+            this.host.entitySetParent(child ps 0)
+            return true
+        }
+        def pe:int (this.meshH(parentH))
+        if (pe != 0) {
+            this.lastErr = ""
+            this.host.entitySetParent(child 0 pe)
+            return true
+        }
+        this.lastErr = "wrong-type:parent"
+        return false
+    }
+
+    ; D-SYNC: detach an entity from a scene — MEMBERSHIP ONLY. The object is NOT
+    ; destroyed (entities[] slot and handle survive), so a later entitySetParent
+    ; can re-attach it. Resolves both handles typed (scene via sceneH, entity via
+    ; meshH); returns false (typed bad-handle in lastErr) on any unresolved
+    ; handle, mirroring meshTransform's guard so the bridge yields a typed error.
+    fn entityRemove:boolean (sceneH:RgHandle entH:RgHandle) {
+        def sh:int (this.sceneH(sceneH))
+        if (sh == 0) { return false }
+        def eh:int (this.meshH(entH))
+        if (eh == 0) { return false }
+        this.host.entityRemove(sh eh)
         return true
     }
 

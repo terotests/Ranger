@@ -131,6 +131,26 @@ and teapot + sponza + cube demos no longer call `ThreeTsxBridge.reconcile` (or
 equivalent), delete the index/DFS reconcile path and the Sponza typed accessors
 (`sunLight` / `skyNode` / `modelNode`).
 
+**STATUS (live path — membership decoupled from creation):** the LIVE
+`ranger:three` path now separates object lifetime from scene membership per the
+D-SYNC table:
+- `rg3d_entity_set_parent` (membership-only reparent; no create/release) and
+  `rg3d_entity_remove` (detach, object survives) are wired through
+  `RgRangerThree` → `ThreeSceneHost` and gated by
+  `tests/unit/bridge/registry_entity_parent_test`.
+- `new THREE.Mesh(geometry, material)` is now a DETACHED create; `scene.add(mesh)`
+  / `scene.remove(mesh)` establish/detach membership as separate ops
+  (`modules/ranger_three/ranger_three.tsx`). `rg3d_mesh_create` lowered to
+  `(geo, mat)`.
+
+Remaining before `RETIRE-RECONCILE`: (1) migrate the still-fused live ctors —
+`AmbientLight` / `DirectionalLight` / `GLTFModel` take a `scene` arg — onto the
+same detached-create + `scene.add` shape; (2) move the teapot/sponza/cube
+THREE-port façade demos (the only `ThreeTsxBridge.reconcile` callers) onto the
+live path; then delete the reconcile/DFS path. The reconcile path is a SEPARATE
+guest surface (`three/port/tsx/three_tsx_bridge.rgr`) and does not touch the live
+registry.
+
 ## D-ADAPTER — Native adapter and value residency
 
 The interpreter reaches host objects through one native-object interface:

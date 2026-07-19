@@ -212,6 +212,16 @@ class ThreeSceneHost {
         push entities m
         return (array_length entities)
     }
+    ; D-SYNC: create a mesh DETACHED — it gets a slot in entities[] (so it has a
+    ; stable handle and can be reparented later) but is added to NO scene's
+    ; children. Membership is established separately via entitySetParent.
+    fn meshNewDetached:int (geoH:int matH:int) {
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry((this.geometryAt(geoH)))
+        m.setMaterial((this.materialAt(matH)))
+        push entities m
+        return (array_length entities)
+    }
     ; --- hierarchy: nodes parented under another entity (not the scene) --------
     ; A transform-only node (THREE.Group / Object3D). parentH==0 => under the scene.
     fn groupNew:int (sceneH:int parentH:int) {
@@ -274,6 +284,54 @@ class ThreeSceneHost {
     }
     fn entityRemove:void (sceneH:int entH:int) {
         (this.sceneAt(sceneH)).remove((this.entityAt(entH)))
+    }
+
+    ; --- membership decoupled from creation (D-SYNC scene.add / reparent) ------
+    ; Move an ALREADY-created entity to a new parent. Membership ONLY: this
+    ; allocates nothing and releases nothing — the entity keeps its slot in
+    ; entities[] (its handle is unchanged), only the parent/child edges move.
+    ; Mirrors the RgHost model slice's entitySetParent RULE (drop the old
+    ; membership first, then set the new one) ported onto the live Three tree.
+    ;
+    ; ThreeObject3D keeps no parent back-reference (world matrices are composed
+    ; top-down, so none is needed), so "which parent is it under now?" is not
+    ; stored. The consistent way to drop the old membership is therefore to
+    ; remove the child by identity from every container it could be under
+    ; (each scene root + each entity) — ThreeObject3D.remove already rebuilds a
+    ; child list without the given child and is a no-op where it is absent. The
+    ; child is then added under the new parent, exactly as meshNew/meshNewUnder
+    ; wire a fresh child. newParentEntH==0 => reparent under the scene root
+    ; (mirrors groupNew's sceneH/parentH convention); otherwise the new parent
+    ; is entityAt(newParentEntH). Returns true when the move was applied.
+    fn entitySetParent:boolean (childH:int newParentSceneH:int newParentEntH:int) {
+        def child:ThreeObject3D (this.entityAt(childH))
+        this.detachEntity(child)
+        if (newParentEntH == 0) {
+            def sc:ThreeScene (this.sceneAt(newParentSceneH))
+            sc.add(child)
+        } {
+            def par:ThreeObject3D (this.entityAt(newParentEntH))
+            par.add(child)
+        }
+        return true
+    }
+    ; drop `child` from every current parent (scene roots + entities) by
+    ; identity, so exactly one membership edge remains after the subsequent add.
+    fn detachEntity:void (child:ThreeObject3D) {
+        def si:int 0
+        while (si < (array_length scenes)) {
+            def sc:ThreeScene (itemAt scenes si)
+            sc.remove(child)
+            si = (si + 1)
+        }
+        def ei:int 0
+        while (ei < (array_length entities)) {
+            def e:ThreeObject3D (itemAt entities ei)
+            if (e != child) {
+                e.remove(child)
+            }
+            ei = (ei + 1)
+        }
     }
 
     ; --- lights ---------------------------------------------------------------

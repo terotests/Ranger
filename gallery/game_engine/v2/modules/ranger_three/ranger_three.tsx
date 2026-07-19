@@ -13,6 +13,11 @@
 class Scene {
   id = 0;
   constructor() { this.id = rg3d_scene_create(); }
+  // D-SYNC: membership is independent of object lifetime. add() establishes
+  // membership for an already-created object; remove() detaches it WITHOUT
+  // destroying the object (it can be re-added to this or another scene later).
+  add(obj) { rg3d_entity_set_parent(obj.id, this.id); }
+  remove(obj) { rg3d_entity_remove(this.id, obj.id); }
 }
 
 class PerspectiveCamera {
@@ -65,8 +70,10 @@ class DirectionalLight {
 
 class Mesh {
   id = 0;
-  constructor(scene, geometry, material) {
-    this.id = rg3d_mesh_create(scene.id, geometry.id, material.id);
+  // D-SYNC: create the object DETACHED (no scene membership). Establish
+  // membership separately via scene.add(mesh).
+  constructor(geometry, material) {
+    this.id = rg3d_mesh_create(geometry.id, material.id);
   }
   setTransform(px, py, pz, ex, ey, ez) {
     rg3d_mesh_transform(this.id, px, py, pz, ex, ey, ez);

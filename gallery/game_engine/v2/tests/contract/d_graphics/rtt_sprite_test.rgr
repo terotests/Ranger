@@ -74,11 +74,16 @@ class RttSpriteTest {
         push opacA (s.num((to_double matId)))
         push opacA (s.num(0.72))
         b.invoke("rg3d_material_set_opacity" opacA)
+        ; D-SYNC: DETACHED create (geo, mat), then establish scene membership.
+        ; The resulting scene graph is identical to the old fused create.
         def meshA:[EvalValue]
-        push meshA (s.num((to_double sceneId)))
         push meshA (s.num((to_double geoId)))
         push meshA (s.num((to_double matId)))
         def meshId:int (s.callI(b "rg3d_mesh_create" meshA))
+        def parA:[EvalValue]
+        push parA (s.num((to_double meshId)))
+        push parA (s.num((to_double sceneId)))
+        b.invoke("rg3d_entity_set_parent" parA)
         def xfA:[EvalValue]
         push xfA (s.num((to_double meshId)))
         push xfA (s.num(0.0))
