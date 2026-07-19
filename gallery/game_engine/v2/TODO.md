@@ -489,7 +489,7 @@ rumble, vocal FX, music score, LPC/bitmap assets.
 |------------|:-------------:|:---------:|:--------:|:-----------:|
 | ylos2 loads | ✓ e2e | [ ] | [ ] | N/A (2D-only TSX first) |
 | ylos3d loads | ✓ e2e | [ ] | [ ] | [ ] **PoC** |
-| Assets resolve | partial | [ ] | [ ] | [ ] |
+| Assets resolve | ✓ gated (real LPC PNG) | [ ] | [ ] | [ ] |
 | 1-player input | ✓ / attract | [ ] | [ ] | [ ] |
 | 2-player input | ✓ e2e | [ ] | [ ] | [ ] |
 | Split panes | ✓ e2e | [ ] | [ ] | [ ] |
@@ -504,8 +504,17 @@ rumble, vocal FX, music score, LPC/bitmap assets.
 - [ ] Honest launcher catalog — only existing packages; no fake Chess/Breakout
       entries.
 - [ ] Close ylos2 bar ([`QUESTIONS.md`](./QUESTIONS.md) Q4–Q7); extend e2e.
-- [ ] Real atlas pixels + LPC decoder suite.
-- [ ] Vocals / one-shots → real audio sink.
+- [x] Real atlas pixels + LPC decoder suite — `lpc/tests/png_decoder_test` (decode)
+      + `tests/render/ylos2_textured_test` (ylos2's real LPC sheets decode →
+      texture store → sampled sprite render, gated). Also **`web/web_live2d_host.rgr`**
+      runs ylos2 in the browser with real LPC sprites (browser-verified via
+      `web/tests/browser_smoke.mjs`).
+- [ ] Vocals / one-shots → real audio sink. **Design increment**: `AudioClip` is
+      created with no sound data (`createClip()` takes no args), so one-shots have
+      nothing to synthesize — the clip/source API needs to carry a synth spec (or
+      a decoded sample); the `GameAudio` additive synth already exists (music uses
+      it via the SDL pump) but isn't reachable from a clip. Then route one-shots
+      through it to a capturing PCM sink and gate non-silent output.
 - [ ] **Chess port** — after W is green (not the current critical path).
 
 ### Open decisions (still block a crisp “done”)
