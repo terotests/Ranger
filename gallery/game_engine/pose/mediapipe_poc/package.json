@@ -11,6 +11,6 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.14",
-    "playwright": "1.48.2"
+    "playwright": "^1.55.1"
   }
 }

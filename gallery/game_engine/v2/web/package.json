@@ -7,7 +7,10 @@
     "build": "node build.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.25.0",
     "monaco-editor": "0.55.1"
+  },
+  "overrides": {
+    "dompurify": "^3.4.6"
   }
 }

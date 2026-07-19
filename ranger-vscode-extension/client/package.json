@@ -13,5 +13,9 @@
   "devDependencies": {
     "@types/vscode": "^1.85.0",
     "@types/node": "^20.10.0"
+  },
+  "overrides": {
+    "minimatch": "^5.1.9",
+    "brace-expansion": "^2.0.3"
   }
 }

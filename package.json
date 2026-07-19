@@ -319,7 +319,12 @@
     "@types/node": "^22.19.2",
     "cross-env": "^10.1.0",
     "typescript": "^5.9.3",
-    "vitest": "^1.6.0",
+    "vitest": "^3.2.7",
     "wabt": "^1.0.39"
+  },
+  "overrides": {
+    "vite": "^6.4.3",
+    "esbuild": "^0.25.0",
+    "rollup": "^4.59.0"
   }
 }
