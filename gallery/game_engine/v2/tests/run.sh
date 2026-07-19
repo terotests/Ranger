@@ -52,6 +52,9 @@ run_suite() {
 # ---- Phase 1 — D-IDENTITY ----------------------------------------------------
 run_suite interp/values/tests/rg_value_test
 run_suite interp/semantics/tests/rg_semantics_test
+# D-IDENTITY on the REAL interpreter: script-level === identity, Map/Set object
+# keys, indexOf by reference, missing member -> undefined (unblocks D-ADAPTER/D-SYNC)
+run_suite interp/semantics/tests/component_engine_js_semantics_test
 run_suite tests/contract/d_identity/d_identity_contract_test
 
 # ---- Phase 2 — host handles / arenas / ownership (D-HANDLE / D-TYPE / D-OWN) --

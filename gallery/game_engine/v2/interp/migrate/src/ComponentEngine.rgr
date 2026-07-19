@@ -1941,8 +1941,10 @@ class ComponentEngine {
                 
                 ; Check if prop exists in provided props
                 def propValue:EvalValue (props.getMember(propName))
-                
-                if (propValue.isNull()) {
+
+                ; a missing prop now reads as undefined (rule 6); treat null OR
+                ; undefined as absent so the default still fires.
+                if ((propValue.isNull()) || (propValue.isUndefined())) {
                     ; Use default value if provided
                     if prop.init {
                         def initNode:TSNode (unwrap prop.init)
@@ -3216,7 +3218,9 @@ class ComponentEngine {
             return rightValue
         }
         if (op == "??=") {
-            if (current.isNull()) {
+            ; nullish: assign when the current value is null OR undefined
+            ; (a missing member now reads as undefined — D-IDENTITY rule 6).
+            if ((current.isNull()) || (current.isUndefined())) {
                 return rightValue
             }
             return current
@@ -5850,7 +5854,9 @@ class ComponentEngine {
             if node.left {
                 def leftExpr:TSNode (unwrap node.left)
                 def left:EvalValue (this.evaluateExpr(leftExpr))
-                if (false == (left.isNull())) {
+                ; nullish: fall through to the right only when left is null OR
+                ; undefined (a missing member now reads as undefined — rule 6).
+                if (false == ((left.isNull()) || (left.isUndefined()))) {
                     return left
                 }
                 if node.right {
@@ -5989,17 +5995,42 @@ class ComponentEngine {
             return (EvalValue.boolean((left.toNumber()) >= (right.toNumber())))
         }
         
-        ; Equality
-        if ((op == "==") || (op == "===")) {
+        ; Equality. `===`/`!==` are strict (EvalValue.equals — value for
+        ; primitives, reference identity for objects). `==`/`!=` are loose: the
+        ; ONLY JS coercion this engine models is `null == undefined` (both are
+        ; nullish), which matters now that a missing member reads as `undefined`
+        ; (D-IDENTITY rule 6) — the guest idiom `x != null` must still hold.
+        if (op == "===") {
             return (EvalValue.boolean((left.equals(right))))
         }
-        if ((op == "!=") || (op == "!==")) {
+        if (op == "!==") {
             return (EvalValue.boolean(((left.equals(right)) == false)))
+        }
+        if (op == "==") {
+            return (EvalValue.boolean((this.looseEquals(left right))))
+        }
+        if (op == "!=") {
+            return (EvalValue.boolean(((this.looseEquals(left right)) == false)))
         }
         
         return (EvalValue.null())
     }
-    
+
+    ; JS loose equality (`==`/`!=`) restricted to the one coercion this engine
+    ; models: `null == undefined` (and each equals itself). A nullish value is
+    ; never loosely equal to a non-nullish one; every other pair defers to strict
+    ; EvalValue.equals (no numeric/string cross-type coercion). This keeps the
+    ; universal guest idiom `x != null` meaning "neither null nor undefined" now
+    ; that a missing member reads as undefined (D-IDENTITY rule 6).
+    fn looseEquals:boolean (left:EvalValue right:EvalValue) {
+        def ln:boolean ((left.isNull()) || (left.isUndefined()))
+        def rn:boolean ((right.isNull()) || (right.isUndefined()))
+        if (ln || rn) {
+            return (ln && rn)
+        }
+        return (left.equals(right))
+    }
+
     fn bindingExists:boolean (name:string) {
         return (context.has(name))
     }

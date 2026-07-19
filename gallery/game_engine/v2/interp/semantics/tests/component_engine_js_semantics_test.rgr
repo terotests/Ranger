@@ -1,0 +1,104 @@
+; ==============================================================================
+; component_engine_js_semantics_test — engine-level D-IDENTITY gate.
+; ==============================================================================
+; The RgValue / RgSemantics model slice pins the D-IDENTITY *rules*; THIS suite
+; proves the REAL interpreter (ComponentEngine) enforces them for actual script
+; snippets evaluated through its JS surface:
+;
+;   - a reference is `===` to itself; two distinct object literals are not
+;   - a reference is never `===` a primitive (number / null)
+;   - object / array identity survives property writes and array mutation
+;   - Map object keys use reference identity (hit on the same ref, miss on a
+;     distinct equal-shaped ref)
+;   - Array.indexOf uses reference identity
+;   - reading a missing property yields `undefined` (=== undefined, !== null)
+;
+; Driven like tests/unit/interp/module_scope_isolation_test: build a real
+; ComponentEngine, loadScript() an entry program of no-arg wrapper functions,
+; and callFunction() each, asserting the returned EvalValue.
+; ==============================================================================
+
+Import "../../migrate/src/ComponentEngine.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class ComponentEngineJsSemanticsTest {
+
+    sfn entrySrc:string () {
+        def s:string ""
+        ; 1 — self identity vs distinct literals
+        s = (s + "function selfIdentity() { const a = {}; return a === a; }\n")
+        s = (s + "function distinctObjs() { const a = {}; const b = {}; return a === b; }\n")
+        ; 2 — reference vs primitive is never ===
+        s = (s + "function refVsNum() { const a = {}; return a === 1; }\n")
+        s = (s + "function refVsNull() { const a = {}; return a === null; }\n")
+        ; 3 — identity survives mutation (property write + array push)
+        s = (s + "function survivesPropWrite() { const a = {}; const c = a; a.x = 1; return c === a; }\n")
+        s = (s + "function survivesArrayPush() { const a = [1, 2]; const c = a; a.push(3); return c === a; }\n")
+        ; 4 — Map object keys use reference identity
+        s = (s + "function mapKeyHit() { const a = {}; const m = new Map(); m.set(a, 7); return m.get(a); }\n")
+        s = (s + "function mapKeyMiss() { const a = {}; const b = {}; const m = new Map(); m.set(a, 7); const r = m.get(b); if (r === undefined) { return 1; } return 0; }\n")
+        ; 5 — Array.indexOf uses reference identity
+        s = (s + "function indexOfHit() { const a = {}; const arr = [a]; return arr.indexOf(a); }\n")
+        s = (s + "function indexOfMiss() { const a = {}; const arr = [{}]; return arr.indexOf(a); }\n")
+        ; 6 — missing property reads as undefined (not null)
+        s = (s + "function missingIsUndefined() { const o = {}; if (o.missing === undefined) { return 1; } return 0; }\n")
+        s = (s + "function missingIsNotNull() { const o = {}; if (o.missing !== null) { return 1; } return 0; }\n")
+        return s
+    }
+
+    sfn callBool:boolean (engine:ComponentEngine name:string) {
+        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        return r.boolValue
+    }
+
+    sfn callNum:double (engine:ComponentEngine name:string) {
+        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        return r.numberValue
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("interp/semantics/component_engine_js_semantics"))
+        def engine:ComponentEngine (new ComponentEngine())
+        engine.quiet = true
+        def eSrc:string (ComponentEngineJsSemanticsTest.entrySrc())
+        engine.loadScript(eSrc)
+
+        ; 1 — self identity vs distinct literals
+        t.ok("a === a is true for a reference"
+            (ComponentEngineJsSemanticsTest.callBool(engine "selfIdentity")))
+        t.no("distinct object literals are not ==="
+            (ComponentEngineJsSemanticsTest.callBool(engine "distinctObjs")))
+
+        ; 2 — reference vs primitive is never ===
+        t.no("reference === number is false"
+            (ComponentEngineJsSemanticsTest.callBool(engine "refVsNum")))
+        t.no("reference === null is false"
+            (ComponentEngineJsSemanticsTest.callBool(engine "refVsNull")))
+
+        ; 3 — identity survives mutation
+        t.ok("identity survives a property write"
+            (ComponentEngineJsSemanticsTest.callBool(engine "survivesPropWrite")))
+        t.ok("identity survives an array mutation"
+            (ComponentEngineJsSemanticsTest.callBool(engine "survivesArrayPush")))
+
+        ; 4 — Map object keys use reference identity
+        t.eqInt("Map.get with the same object key returns the value"
+            (to_int (ComponentEngineJsSemanticsTest.callNum(engine "mapKeyHit"))) 7)
+        t.eqInt("Map.get with a distinct equal-shaped object misses"
+            (to_int (ComponentEngineJsSemanticsTest.callNum(engine "mapKeyMiss"))) 1)
+
+        ; 5 — Array.indexOf uses reference identity
+        t.eqInt("indexOf finds the same object reference"
+            (to_int (ComponentEngineJsSemanticsTest.callNum(engine "indexOfHit"))) 0)
+        t.eqInt("indexOf does not find a distinct equal-shaped object"
+            (to_int (ComponentEngineJsSemanticsTest.callNum(engine "indexOfMiss"))) (0 - 1))
+
+        ; 6 — missing property reads as undefined (not null)
+        t.eqInt("reading a missing property === undefined"
+            (to_int (ComponentEngineJsSemanticsTest.callNum(engine "missingIsUndefined"))) 1)
+        t.eqInt("a missing property is !== null"
+            (to_int (ComponentEngineJsSemanticsTest.callNum(engine "missingIsNotNull"))) 1)
+
+        t.summary()
+    }
+}
