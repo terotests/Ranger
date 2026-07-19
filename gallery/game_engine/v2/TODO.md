@@ -520,14 +520,27 @@ rumble, vocal FX, music score, LPC/bitmap assets.
       cue/counter recorder (`push vocalCues`); route it through the same synth
       spec → `GameAudio` → capturing sink path the one-shots now use, and gate
       non-silent output.
-- [ ] **EVG render polish** (see [`evg/ISSUES.md`](./evg/ISSUES.md) #4, #5).
-      Render-path characterization (July 19, 2026) confirmed text centering
-      (H+V, real glyph-width measurement) and glow both render correctly. Open:
-      **#4** box-shadow/text-shadow are modeled (`EVGElement.shadow*`) but never
-      rasterized and have no RGU1 key to transmit them — add a `UIContext` shadow
-      primitive + `drawElement` call + `wasm_ui_io` key; **#5** (quality)
-      rounded-corner fills are not anti-aliased (hard boolean corner test in
-      `UIContext.roundedInside`) so edges are jagged vs AA glyphs.
+- [ ] **EVG render polish** (see [`evg/ISSUES.md`](./evg/ISSUES.md) #4–#8).
+      Two characterization passes (July 19, 2026) verified as CORRECT: text
+      centering (H+V), glow, **border rounding** (concentric stroke, all
+      corners), row-axis flex grow, and `justifyContent` distribution math.
+      Open, ranked by impact:
+      - **#6 (High, rasterizer)** — no clip mechanism at all: `overflow` and
+        `clipPath` are modeled+parsed but ignored, so children bleed past parent
+        edges and rounded parents don't clip their children. Fix = a clip-stack
+        in `WasmUiSelect.drawElement` honored by `UIContext.blendPixel`.
+      - **#4 (Medium, rasterizer)** — box/text shadow modeled but not rendered
+        (no `UIContext` primitive, no RGU1 key).
+      - **#7 (Medium, layout)** — `gap` modeled+parsed but not applied in
+        `EVGLayout.layoutChildren`; also needs an RGU1 key.
+      - **#8 (Medium, layout)** — flex incomplete: column-axis grow, shrink,
+        `alignItems:stretch` all missing; `flexWrap` unmodeled (wrap hardcoded
+        on); `flexDirection` default is `column` (CSS is `row`).
+      - **#5 (Low, quality)** — rounded-corner fills/strokes not anti-aliased.
+      Plumbing note: `space-around`/`space-evenly`/`stretch` are implemented but
+      unreachable via the RGU1 `alignName` map (0–3 only). `evg_test.rgr` covers
+      only vertical stacking — no flex-grow / justify / row / gap / wrap
+      regression coverage; add it alongside the fixes.
 - [ ] **Chess port** — after W is green (not the current critical path).
 
 ### Open decisions (still block a crisp “done”)

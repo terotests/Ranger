@@ -299,6 +299,116 @@ Add sub-pixel coverage (edge-distance → alpha) to `roundedInside` /
 
 ---
 
+## Issue #6: No Clipping — `overflow` / `clipPath` Modeled But Not Rendered
+
+**Status:** Open
+**Severity:** High
+**Found:** July 19, 2026 (border/clip/flex characterization)
+**Component:** ui/WasmUiSelect.rgr (`WasmUiRenderer.drawElement`), ui/UIContext.rgr
+
+### Description
+
+There is **no scissor/clip mechanism anywhere** in the render path.
+`WasmUiRenderer.drawElement` (`ui/WasmUiSelect.rgr:474-589`) draws each child
+recursively at its own absolute `calculatedX/Y` (`:582-588`) with **zero
+intersection against the parent box**. `blendPixel` (`ui/UIContext.rgr:64-84`)
+clips only to the **canvas** bounds (`:69-71`); fills/bg-images clip only to
+*their own* rounded path via `roundedInside` (`:517`, `:534`), never to an
+ancestor.
+
+Consequences (both reproduced with evidence PNGs):
+
+1. **`overflow:hidden` ignored** — a child taller/wider than its parent bleeds
+   past the parent edge. `overflow` is modeled (`EVGElement.rgr:86`) and parsed
+   (`:726-729`) but never read.
+2. **Rounded parents don't clip children** — a square child fills in the
+   rounded-off corners of a `borderRadius` parent (the parent's own fill is
+   rounded, but the child is an independent draw call).
+
+`clipPath` is likewise modeled (`EVGElement.rgr:155`) and parsed (`:812-815`)
+but never used.
+
+### Required Implementation (rasterizer)
+
+Push a clip rect (and, for rounded parents, a rounded-corner mask) in
+`drawElement` before recursing into children, and honor it inside
+`blendPixel` / the fill loops. `overflow:hidden` and rounded-corner child
+clipping both fall out of the same clip-stack. Highest-impact item in this
+batch.
+
+---
+
+## Issue #7: `gap` Modeled + Parsed But Not Applied
+
+**Status:** Open
+**Severity:** Medium
+**Found:** July 19, 2026 (border/clip/flex characterization)
+**Component:** evg/EVGLayout.rgr (+ scripting/wasm_ui_io.rgr for authorability)
+
+### Description
+
+The flex `gap` field is modeled (`EVGElement.rgr:103`) and CSS-parsed (`:743`)
+but **never read in `EVGLayout.rgr`** — the child-cursor advance
+(`layoutChildren`, `:442`,`:446`) does not add `gap` between children. Measured:
+three 80px children with `gap=20` lay out at x=0/80/160 (should be 0/100/200).
+
+### Required Implementation
+
+Add `gap` to the main-axis cursor advance in `layoutChildren` (both row and
+column). Also add an RGU1 key for `gap` in `scripting/wasm_ui_io.rgr` — there is
+**no key for it** (keys jump 16→20→…→24→50), so a WASM/TSX guest cannot
+currently transmit it even once layout honors it. Cheap layout fix.
+
+---
+
+## Issue #8: Flexbox Incomplete — Column Grow / Shrink / Stretch / Wrap
+
+**Status:** Open
+**Severity:** Medium
+**Found:** July 19, 2026 (border/clip/flex characterization)
+**Component:** evg/EVGLayout.rgr
+
+### Description
+
+Main-axis flex is solid (**verified correct**, see below), but several flex
+behaviors are missing or hardcoded:
+
+- **Column-axis `flex` grow — MISSING.** The flex-distribution block is guarded
+  `if (isColumn == false)` (`EVGLayout.rgr:298`), so `flex:1` children in a
+  column get `h=0`. Only row-direction grow works.
+- **`flex` shrink — MISSING.** `availableForFlex` is clamped to 0
+  (`:324`); fixed items are never shrunk, so over-full containers overflow.
+- **`alignItems:stretch` — MISSING.** No stretch branch in `alignRow`
+  (`:662`) / `alignColumn` (`:492`); children keep their own cross-axis size.
+- **`flexWrap` — NOT MODELED; wrap hardcoded ON.** There is no `flexWrap`
+  field anywhere, and row layout auto-wraps (`:412-423`). CSS default is
+  `nowrap`, so this is both a missing feature and a wrong default.
+- **`flexDirection` default is `column`** (`EVGElement.rgr:100`); CSS default
+  is `row`. The separate `direction` field (`EVGElement.rgr:81`) is **dead** —
+  layout reads only `flexDirection` (`:295`,`:611`).
+
+### Related plumbing / coverage gaps (not layout bugs)
+
+- **RGU1 reachability ceiling** (`scripting/wasm_ui_io.rgr:373-378`):
+  `alignName` maps only 0/1/2/3 → flex-start/center/flex-end/space-between, so
+  `space-around`, `space-evenly`, and `alignItems:stretch` are
+  **implemented-but-unreachable** through the RGU1/`.as`/TSX byte path
+  (reachable only by direct `EVGElement` authoring).
+- **`evg_test.rgr` coverage:** `testSimpleLayout`/`testNestedLayout`/
+  `testAlignment` only assert vertical stacking + one centered box.
+  `testNestedLayout` sets `content.direction="row"` (`:219`) but layout ignores
+  `direction`, so it silently tests column stacking and never asserts
+  `leftCol.x != rightCol.x`. No test covers flex grow, `justifyContent`
+  distribution, row side-by-side, `gap`, or wrap — the pixel-correct behavior
+  that WAS verified here is otherwise untested. Add regression coverage when
+  fixing the above.
+- **Absolute children never sized:** `layoutChildren` (`:353-385`) calls
+  `layoutAbsolute` + recurses but never `layoutElement`, so a `position:absolute`
+  child's `calculatedWidth/Height` stay 0 (only the `absX/absY` overlay path
+  sizes them).
+
+---
+
 ## Verified-Correct (no action needed)
 
 The July 19, 2026 characterization confirmed, with evidence PNGs, that two
@@ -316,3 +426,18 @@ frequently-suspected areas are actually **correct** in the raster path
 - **Glow.** `glowIntensity` is read and drawn as a soft halo
   (`UIContext.glowRoundRect`). Correct (a ring-stack approximation, not a true
   gaussian — a minor quality note only).
+
+The July 19, 2026 border/clip/flex pass additionally confirmed:
+
+- **Border rounding.** `strokeRoundRectA` (`UIContext.rgr:303-328`) draws a
+  geometrically-correct concentric ring — inner corner radius = outer radius −
+  thickness (`innerRad = rad - t`, `:307`) — on all four corners, no gaps /
+  overshoot / double-draw, concentric with the fill (`border-box` semantics).
+  Color/width parse and reach the stroke end-to-end. Only defect is corner
+  aliasing (= Issue #5). Per-side border width and per-corner radius are
+  modeled-but-unread (low-priority missing features, not bugs).
+- **Flex main axis.** Row-direction `flex` grow is correct (fixed80 + flex:1 +
+  flex:1 → x=0/80/240; flex:1/flex:2 → w=100/200), and `justifyContent`
+  distribution math (center / flex-end / space-between / space-around /
+  space-evenly) is correct on the main axis (space-between 3×80 → x=0/160/320).
+  Pixel-verified.
