@@ -1,0 +1,18 @@
+; probe: does the staged v2 ComponentEngine compile and run a tiny script?
+Import "../migrate/src/ComponentEngine.rgr"
+
+class EngineProbe {
+    sfn m@(main):void () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        engine.loadScript("let n = 0;\nfunction init() { n = 41; }\nfunction tick() { n = n + 1; return n; }\n")
+        engine.callFunction("init" (EvalValue.null()))
+        def r:EvalValue (engine.callFunction("tick" (EvalValue.null())))
+        print ("tick -> " + (to_string r.numberValue))
+        if (r.numberValue == 42.0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -5,7 +5,7 @@
 ; null, arrays, objects, functions, and EVG elements.
 
 Import "../../../evg/EVGElement.rgr"
-Import "../../../ts_parser/ts_parser_simple.rgr"
+Import "../../../../../ts_parser/ts_parser_simple.rgr"
 
 ; Value types
 ; 0 = null

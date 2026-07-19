@@ -6,9 +6,9 @@
 ; - Expression evaluation in JSX context
 ; - Variable scope/context management
 
-Import "../../../ts_parser/ts_parser_simple.rgr"
-Import "../../../ts_parser/ts_lexer.rgr"
-Import "../../../ts_parser/ts_ast_patch.rgr"
+Import "../../../../../ts_parser/ts_parser_simple.rgr"
+Import "../../../../../ts_parser/ts_lexer.rgr"
+Import "../../../../../ts_parser/ts_ast_patch.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
 Import "../jpeg/JPEGMetadata.rgr"

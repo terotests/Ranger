@@ -3,8 +3,8 @@
 ; This module takes the AST output from ts_parser (with JSX support)
 ; and converts it into EVG elements that can be laid out and rendered.
 
-Import "../../../ts_parser/ts_parser_simple.rgr"
-Import "../../../ts_parser/ts_lexer.rgr"
+Import "../../../../../ts_parser/ts_parser_simple.rgr"
+Import "../../../../../ts_parser/ts_lexer.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
