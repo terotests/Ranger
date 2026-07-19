@@ -97,6 +97,10 @@ class LauncherUiTest {
         t.eqStr("Pomppija handoff dir (from the real folder)" (ui2.selectedDir()) "gallery/game_engine/v2/games/ylos2")
         t.eqStr("Pomppija handoff file (game.info entry)" (ui2.selectedFile()) "index.tsx")
 
+        ; ---- real fonts + a decoded preview image (v1 parity) --------------
+        t.ok("a real TrueType font is loaded (not the bitmap fallback)" (ui2.hasTrueTypeFont()))
+        t.ok("Pomppija has a decoded preview image from its game.info icon" (ui2.selectedHasImage()))
+
         ; selection clamps within the discovered games
         ui2.moveSelection(9)
         t.eqStr("selection clamps at the last discovered game" (ui2.selectedLabel()) "Pomppija")

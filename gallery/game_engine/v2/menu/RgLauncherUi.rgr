@@ -18,6 +18,8 @@
 Import "../ui/UILayer.rgr"
 Import "../framebuffer.rgr"
 Import "../evg/EVGColor.rgr"
+Import "../imaging/png/PNGDecoder.rgr"
+Import "../imaging/jpeg/ImageBuffer.rgr"
 Import "game_catalog.rgr"
 
 ; one launchable game card (dir/file is the game-folder handoff, catIndex groups)
@@ -27,6 +29,11 @@ class RgLauncherGame {
     def file:string ""
     def catIndex:int 0
     def card:UIBox (new UIBox)
+    ; the game's preview image (game.info icon=), decoded to RGBA once at init
+    def img:ImageBuffer (new ImageBuffer)
+    def hasImg:boolean false
+    def imgW:int 0
+    def imgH:int 0
 }
 
 class RgLauncherUi {
@@ -57,13 +64,80 @@ class RgLauncherUi {
         return (cx - (idiv totalW 2))
     }
 
+    ; decode a game's game.info icon (relative to its folder) to an RGBA image
+    fn loadIcon:void (g:RgLauncherGame entry:GameCatalogEntry) {
+        if ((strlen entry.iconPath) == 0) { return }
+        if ((file_exists entry.dir entry.iconPath) == false) { return }
+        def dec:PNGDecoder (new PNGDecoder)
+        def im:ImageBuffer (dec.decode(entry.dir entry.iconPath))
+        if ((im.width) > 0) {
+            g.img = im
+            g.imgW = im.width
+            g.imgH = im.height
+            g.hasImg = true
+        }
+    }
+
+    ; draw `text` centred on x=cx at baseline-top y, in the loaded font
+    fn drawCentered:void (text:string cx:int y:int size:double r:int g:int b:int) {
+        def wf:double (this.layer.ctx.tr.measureWidth(text size))
+        def tx:int (cx - (idiv (to_int wf) 2))
+        this.layer.ctx.tr.drawLine(this.canvas text tx y size r g b 255)
+    }
+
+    ; paint a preview image (top) + a caption (bottom strip) over a card the UI
+    ; layer already drew, so the accent fill frames the selection. Source crop =
+    ; the first sheet cell (64x64) so a walk strip reads as a single character
+    ; portrait, not a filmstrip.
+    fn drawCardImage:void (card:UIBox img:ImageBuffer imgW:int imgH:int caption:string) {
+        def pad:int 8
+        def capH:int 26
+        def ax:int (card.x + pad)
+        def ay:int (card.y + pad)
+        def aw:int (card.w - (pad * 2))
+        def ah:int ((card.h - capH) - (pad * 2))
+        ; crop one cell. For an LPC-style 9x4 walk sheet (h>=256) the front-facing
+        ; row is row 2 (y=128) col 0 — the cleanest standing portrait.
+        def sx:int 0
+        def sy:int 0
+        def sw:int imgW
+        def sh:int imgH
+        if (imgW >= 64) { sw = 64 }
+        if (imgH >= 256) {
+            sh = 64
+            sy = 128
+        } {
+            if (imgH >= 64) { sh = 64 }
+        }
+        this.canvas.blitImageRectScaled(img sx sy sw sh ax ay aw ah)
+        ; a translucent dark band behind the caption keeps it legible on any art
+        def capY:int ((card.y + card.h) - capH)
+        this.layer.ctx.fillRectA(card.x capY card.w capH 12 14 26 180)
+        this.drawCentered(caption (card.x + (idiv card.w 2)) (capY + 7) 15.0 245 248 255)
+    }
+
+    ; games[] index of the first game in a category that has a preview image, or -1
+    fn catFirstImageIndex:int (catIdx:int) {
+        def i:int 0
+        while (i < (array_length this.games)) {
+            def g:RgLauncherGame (itemAt this.games i)
+            if (g.catIndex == catIdx) {
+                if (g.hasImg) { return i }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
     fn init:void (width:int height:int) {
         this.w = width
         this.h = height
         this.canvas.init(width height)
         this.layer.attach(this.canvas)
-        ; real TTF if present; UITextRenderer falls back to its 3x5 bitmap font.
-        this.layer.ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        ; real TrueType text (v2-local Open Sans); falls back to the 3x5 bitmap
+        ; font only if the .ttf can't be read.
+        this.layer.ctx.tr.addFontDir("gallery/game_engine/v2/menu/assets/fonts")
+        def _font:boolean (this.layer.ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf"))
 
         def cx:int (idiv width 2)
 
@@ -114,8 +188,11 @@ class RgLauncherUi {
                 g.dir = e.dir
                 g.file = e.entryFile
                 g.catIndex = ci
-                g.card.text = e.title
                 g.card.fontSize = 18.0
+                this.loadIcon(g e)
+                ; a game with a preview image draws it + a caption in render();
+                ; one without falls back to a centered title on the plain card.
+                if (g.hasImg) { g.card.text = "" } { g.card.text = e.title }
                 def exj:int (eStartX + (ei * (eCardW + eGap)))
                 g.card.setBounds(exj cardY eCardW cardH)
                 g.card.visible = false
@@ -123,6 +200,9 @@ class RgLauncherUi {
                 push this.games g
                 ei = (ei + 1)
             }
+            ; if this category will show a preview image, drop the UIBox's
+            ; centered label — drawCardImage paints the name as a caption instead.
+            if ((this.catFirstImageIndex(ci)) >= 0) { ccard.text = "" }
             ci = (ci + 1)
         }
 
@@ -295,11 +375,47 @@ class RgLauncherUi {
         def g:RgLauncherGame (itemAt this.games idx)
         return g.file
     }
+    ; whether the selected game (page 1) has a decoded preview image
+    fn selectedHasImage:boolean () {
+        def idx:int (this.selectedGameIndex())
+        if (idx < 0) { return false }
+        def g:RgLauncherGame (itemAt this.games idx)
+        return g.hasImg
+    }
+    ; whether a real TrueType font is active (vs the bitmap fallback)
+    fn hasTrueTypeFont:boolean () { return (this.layer.ctx.tr.hasFont) }
 
     ; ---- present -------------------------------------------------------------
     fn render:void () {
         this.canvas.clear(16 18 34)   ; night background (v1 launcher)
         this.layer.render()
+        if (this.page == 0) {
+            ; each category card previews its first game's image + the cat name
+            def c:int 0
+            while (c < (array_length this.catCards)) {
+                def gi:int (this.catFirstImageIndex(c))
+                if (gi >= 0) {
+                    def cc:UIBox (itemAt this.catCards c)
+                    def gg:RgLauncherGame (itemAt this.games gi)
+                    this.drawCardImage(cc gg.img gg.imgW gg.imgH (itemAt this.categoryNames c))
+                }
+                c = (c + 1)
+            }
+        } {
+            ; each visible game card shows its own preview image + title caption
+            def n:int (this.gamesInCatCount(this.activeCat))
+            def k:int 0
+            while (k < n) {
+                def idx:int (this.nthGameInCat(this.activeCat k))
+                if (idx >= 0) {
+                    def g:RgLauncherGame (itemAt this.games idx)
+                    if (g.hasImg) {
+                        this.drawCardImage(g.card g.img g.imgW g.imgH g.title)
+                    }
+                }
+                k = (k + 1)
+            }
+        }
     }
     fn raw:buffer () { return (this.canvas.raw()) }
 }
