@@ -1,0 +1,344 @@
+; ==============================================================================
+; GameHudBlitter - composite a JSX/EVG HUD tree onto a SoftCanvas.
+; ==============================================================================
+;
+; GameRunner calls engine.callRender("hud", props) each frame, runs EVGLayout
+; at screen size, then blits View backgrounds and Label text onto the world
+; buffer. This is the lightweight bridge toward full EVGRasterRenderer
+; integration (see docs/GAME_ENGINE_DESIGN.md).
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../evg/EVGLayout.rgr"
+Import "../evg/EVGElement.rgr"
+Import "../evg/EVGColor.rgr"
+Import "../evg/EVGUnit.rgr"
+Import "../evg/EVGTextMeasurer.rgr"
+Import "../ui/UITextRenderer.rgr"
+
+; Text measurer matching the bitmap HUD font in drawGlyph/drawText.
+class HudBitmapTextMeasurer {
+    Extends(EVGTextMeasurer)
+
+    fn scaleFor:int (fontSize:double) {
+        ; Bitmap HUD font scale steps. Existing games use <= 18px (scale 2/3);
+        ; larger sizes (>= 24px) unlock bigger, clearer text for kid-facing UIs.
+        ; The engine=ui launcher uses a separate RGU1 renderer, so it is not
+        ; affected by these steps.
+        def scale 2
+        if (fontSize >= 14.0) { scale = 3 }
+        if (fontSize >= 24.0) { scale = 4 }
+        if (fontSize >= 34.0) { scale = 5 }
+        if (fontSize >= 44.0) { scale = 6 }
+        return scale
+    }
+
+    fn charStep:int (fontSize:double) {
+        def scale (this.scaleFor(fontSize))
+        return ((scale * 3) + scale)
+    }
+
+    fn lineStep:int (fontSize:double) {
+        def scale (this.scaleFor(fontSize))
+        return ((scale * 5) + scale)
+    }
+
+    fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        def step:double (to_double (this.charStep(fontSize)))
+        def lineH:double (to_double (this.lineStep(fontSize)))
+        def width:double 0.0
+        def lines:[string] (strsplit text "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            def lineW:double ((to_double (strlen line)) * step)
+            if (lineW > width) {
+                width = lineW
+            }
+            i = i + 1
+        }
+        def lineCount:int (array_length lines)
+        if (lineCount < 1) {
+            lineCount = 1
+        }
+        def height:double (lineH * (to_double lineCount))
+        def metrics (new EVGTextMetrics())
+        metrics.width = width
+        metrics.height = height
+        metrics.lineHeight = lineH
+        metrics.ascent = lineH
+        metrics.descent = 0.0
+        return metrics
+    }
+
+    fn measureTextWidth:double (text:string fontFamily:string fontSize:double) {
+        def m:EVGTextMetrics (this.measureText(text fontFamily fontSize))
+        return m.width
+    }
+
+    fn measureChar:double (ch:int fontFamily:string fontSize:double) {
+        return (to_double (this.charStep(fontSize)))
+    }
+
+    fn getLineHeight:double (fontFamily:string fontSize:double) {
+        return (to_double (this.lineStep(fontSize)))
+    }
+}
+
+class GameHudBlitter {
+    def layout:EVGLayout (new EVGLayout)
+    def hudMeasurer:HudBitmapTextMeasurer (new HudBitmapTextMeasurer)
+    def canvas:SoftCanvas
+
+    ; Optional per-game TrueType text. A game opts in with a { kind: "font" }
+    ; resource; game_runtime then calls loadFont() here. When a font is loaded,
+    ; Label text is rasterized through the EVG RasterText stack (crisp, anti-
+    ; aliased, real letterforms) and layout is measured with its TTF metrics.
+    ; Games that declare no font keep the compact 3x5 bitmap font unchanged.
+    def textRenderer:UITextRenderer (new UITextRenderer)
+    def fontReady:boolean false
+
+    fn attach:void (c:SoftCanvas) {
+        canvas = c
+    }
+
+    ; Load a per-game TTF (dir is the game folder; relPath is resolved against
+    ; it; family is the name to draw with). Silently keeps the bitmap font if
+    ; the font can't be loaded, so a missing asset never breaks the HUD.
+    fn loadFont:void (dir:string relPath:string family:string) {
+        textRenderer.addFontDir(dir)
+        def ok:boolean (textRenderer.loadFont(family relPath))
+        if ok {
+            fontReady = true
+        }
+    }
+
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    ; Layout HUD as a top/content-sized strip — NOT full framebuffer height.
+    ; EVGLayout.layout() forces root to page size and alpha backgrounds dim the game.
+    fn drawTree:void (root:EVGElement w:int h:int) {
+        def fw:double (to_double w)
+        def fh:double (to_double h)
+        layout.setPageSize(fw fh)
+        ; Measure with the TTF metrics when a per-game font is loaded so Label
+        ; boxes size to the real glyphs (keeps centering/wrapping correct);
+        ; otherwise fall back to the bitmap-font measurer.
+        if fontReady {
+            layout.setMeasurer(textRenderer.measurer)
+        } {
+            layout.setMeasurer(hudMeasurer)
+        }
+        root.calculatedX = 0.0
+        root.calculatedY = 0.0
+        ; Keep script-defined height (e.g. height="100%" splash screens). Auto-height when unset.
+        if (root.width.isSet == false) {
+            root.width = (EVGUnit.px(fw))
+            root.width.isSet = true
+        }
+        layout.layoutElement(root 0.0 0.0 fw fh)
+        this.drawElement(root)
+    }
+
+    fn drawElement:void (el:EVGElement) {
+        def x:int (to_int el.calculatedX)
+        def y:int (to_int el.calculatedY)
+        def rw:int (to_int el.calculatedWidth)
+        def rh:int (to_int el.calculatedHeight)
+
+        ; View background defaults to transparent — only blit when explicitly set and alpha > 0.
+        if (el.backgroundColor.isSet) {
+            def ba:double (el.backgroundColor.alpha())
+            if (ba > 0.0) {
+                if (rw > 0) {
+                    if (rh > 0) {
+                        def br:int (el.backgroundColor.red())
+                        def bg:int (el.backgroundColor.green())
+                        def bb:int (el.backgroundColor.blue())
+                        if (ba >= 0.99) {
+                            canvas.fillRect(x y rw rh br bg bb)
+                        } {
+                            this.fillRectAlpha(x y rw rh br bg bb ba)
+                        }
+                    }
+                }
+            }
+        }
+
+        def txt:string el.textContent
+        if ((strlen txt) > 0) {
+            if (el.color.isSet) {
+                def tr:int (el.color.red())
+                def tg:int (el.color.green())
+                def tb:int (el.color.blue())
+                def fs:double el.inheritedFontSize
+                if (el.fontSize.isSet) {
+                    fs = el.fontSize.pixels
+                }
+                if (fs <= 0.0) {
+                    fs = 14.0
+                }
+                if fontReady {
+                    ; Crisp TrueType path (EVG RasterText), cached per line.
+                    def _h:int (textRenderer.drawText((unwrap canvas) txt x y fs 0.0 tr tg tb 255))
+                } {
+                    def scale (hudMeasurer.scaleFor(fs))
+                    this.drawText(x y scale txt tr tg tb)
+                }
+            }
+        }
+
+        def i 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            this.drawElement(child)
+            i = (i + 1)
+        }
+    }
+
+    fn fillRectAlpha:void (x:int y:int rw:int rh:int r:int g:int b:int a:double) {
+        def ai:int (to_int (a * 255.0))
+        def yy y
+        def yEnd (y + rh)
+        def xEnd (x + rw)
+        while (yy < yEnd) {
+            def xx x
+            while (xx < xEnd) {
+                this.blendPixel(xx yy r g b ai)
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn blendPixel:void (x:int y:int r:int g:int b:int a:int) {
+        def cw:int (canvas.getWidth())
+        def ch:int (canvas.getHeight())
+        if (x < 0) { return }
+        if (y < 0) { return }
+        if (x >= cw) { return }
+        if (y >= ch) { return }
+        if (a <= 0) { return }
+        if (a >= 255) {
+            canvas.setPixel(x y r g b)
+            return
+        }
+        def oldR:int (canvas.pixelR(x y))
+        def oldG:int (canvas.pixelG(x y))
+        def oldB:int (canvas.pixelB(x y))
+        def inv (255 - a)
+        def nr (to_int (((r * a) + (oldR * inv)) / 255))
+        def ng (to_int (((g * a) + (oldG * inv)) / 255))
+        def nb (to_int (((b * a) + (oldB * inv)) / 255))
+        canvas.setPixel(x y nr ng nb)
+    }
+
+    ; Tiny 3x5 uppercase / digit font for HUD labels.
+    fn glyphBits:string (ch:string) {
+        if (ch == "0") { return "111101101101111" }
+        if (ch == "1") { return "010110010010111" }
+        if (ch == "2") { return "111001111100111" }
+        if (ch == "3") { return "111001111001111" }
+        if (ch == "4") { return "101101111001001" }
+        if (ch == "5") { return "111100111001111" }
+        if (ch == "6") { return "111100111101111" }
+        if (ch == "7") { return "111001010010010" }
+        if (ch == "8") { return "111101111101111" }
+        if (ch == "9") { return "111101111001111" }
+        if (ch == "A") { return "111101101111101" }
+        if (ch == "B") { return "110101110101110" }
+        if (ch == "C") { return "111100100100111" }
+        if (ch == "D") { return "110101101101110" }
+        if (ch == "E") { return "111100111100111" }
+        if (ch == "F") { return "111100111100100" }
+        if (ch == "G") { return "111100101101111" }
+        if (ch == "H") { return "101101111101101" }
+        if (ch == "I") { return "111010010010111" }
+        if (ch == "K") { return "101101110101101" }
+        if (ch == "L") { return "100100100100111" }
+        if (ch == "M") { return "101111111101101" }
+        if (ch == "N") { return "101110110101101" }
+        if (ch == "O") { return "111101101101111" }
+        if (ch == "P") { return "111101111100100" }
+        if (ch == "R") { return "111101111101101" }
+        if (ch == "S") { return "111100111001111" }
+        if (ch == "T") { return "111010010010010" }
+        if (ch == "U") { return "101101101101111" }
+        if (ch == "V") { return "101101101010010" }
+        if (ch == "X") { return "101101010101101" }
+        if (ch == "Y") { return "101101010010010" }
+        if (ch == "Z") { return "111001010110111" }
+        if (ch == "J") { return "011110010000100" }
+        if (ch == "Q") { return "111101111001111" }
+        if (ch == "W") { return "101101101101101" }
+        if (ch == ":") { return "000010000010000" }
+        if (ch == ".") { return "000000000000010" }
+        if (ch == "-") { return "000000111000000" }
+        if (ch == "+") { return "000010111010000" }
+        if (ch == "=") { return "000111000111000" }
+        if (ch == "?") { return "111001011000010" }
+        if (ch == "/") { return "001001010100010" }
+        if (ch == ">") { return "001011100000000" }
+        if (ch == "^") { return "010111000000000" }
+        if (ch == "v") { return "000111010000000" }
+        if (ch == " ") { return "000000000000000" }
+        return "000000000000000"
+    }
+
+    fn glyphLookup:string (ch:string) {
+        if ((strlen ch) == 0) {
+            return "000000000000000"
+        }
+        def code:int (charAt ch 0)
+        ; Lowercase a-z → reuse uppercase glyph (menu + HUD strings are mostly mixed case).
+        if ((code >= 97) && (code <= 122)) {
+            return (this.glyphBits((strfromcode (code - 32))))
+        }
+        return (this.glyphBits(ch))
+    }
+
+    fn drawGlyph:void (x:int y:int scale:int ch:string r:int g:int b:int) {
+        def bits:string (this.glyphLookup(ch))
+        def row 0
+        while (row < 5) {
+            def col 0
+            while (col < 3) {
+                def idx ((row * 3) + col)
+                def pixel:string (substring bits idx (idx + 1))
+                if (pixel == "1") {
+                    canvas.fillRect((x + (col * scale)) (y + (row * scale)) scale scale r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn drawText:void (x:int y:int scale:int text:string r:int g:int b:int) {
+        def step ((scale * 3) + scale)
+        def lineStep ((scale * 5) + scale)
+        def i 0
+        def len:int (strlen text)
+        def cx x
+        def cy y
+        while (i < len) {
+            def ch:string (substring text i (i + 1))
+            if (ch == "\n") {
+                cy = cy + lineStep
+                cx = x
+            } {
+                this.drawGlyph(cx cy scale ch r g b)
+                cx = cx + step
+            }
+            i = (i + 1)
+        }
+    }
+}

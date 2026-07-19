@@ -19,18 +19,18 @@
 ; viewer drives (setupGL / load / frame / key + look input / setSize).
 ; ==============================================================================
 
-Import "../three/tsx/three_tsx_bridge.rgr"
-Import "../three/src/three_webgl_renderer.rgr"
-Import "../three/src/three_gl_backend.rgr"
-Import "../three/src/three_perspective_camera.rgr"
-Import "../three/src/three_first_person_controls.rgr"
-Import "../three/src/three_light_probe_volume.rgr"
-Import "../three/src/three_box3.rgr"
-Import "../three/src/three_vector3.rgr"
-Import "../three/src/three_mesh.rgr"
-Import "../three/src/three_mesh_lambert_material.rgr"
-Import "../three/src/three_box_geometry.rgr"
-Import "../three/src/three_gltf_file.rgr"
+Import "../three/port/tsx/three_tsx_bridge.rgr"
+Import "../three/port/src/three_webgl_renderer.rgr"
+Import "../three/port/src/three_gl_backend.rgr"
+Import "../three/port/src/three_perspective_camera.rgr"
+Import "../three/port/src/three_first_person_controls.rgr"
+Import "../three/port/src/three_light_probe_volume.rgr"
+Import "../three/port/src/three_box3.rgr"
+Import "../three/port/src/three_vector3.rgr"
+Import "../three/port/src/three_mesh.rgr"
+Import "../three/port/src/three_mesh_lambert_material.rgr"
+Import "../three/port/src/three_box_geometry.rgr"
+Import "../three/port/src/three_gltf_file.rgr"
 
 ; The Sponza scene reconciles ENTIRELY through the ONE generic ThreeTsxBridge (sky,
 ; bounds-derived shadow-casting sun, host-attached model, camera, and the diffuse-GI

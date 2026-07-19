@@ -7,21 +7,21 @@
 ; interpreter façade. Flat API for a canvas harness: setupGL / frame / spin.
 ; ==============================================================================
 
-Import "../three/src/three_webgl_renderer.rgr"
-Import "../three/src/three_gl_backend.rgr"
-Import "../three/src/three_scene.rgr"
-Import "../three/src/three_perspective_camera.rgr"
-Import "../three/src/three_mesh.rgr"
-Import "../three/src/three_material.rgr"
-Import "../three/src/three_mesh_basic_material.rgr"
-Import "../three/src/three_mesh_lambert_material.rgr"
-Import "../three/src/three_mesh_phong_material.rgr"
-Import "../three/src/three_light.rgr"
-Import "../three/src/three_teapot_geometry.rgr"
-Import "../three/src/three_orbit_controls.rgr"
-Import "../three/tsx/three_gui_overlay.rgr"
-Import "../three/src/three_texture.rgr"
-Import "../three/src/three_cube_texture.rgr"
+Import "../three/port/src/three_webgl_renderer.rgr"
+Import "../three/port/src/three_gl_backend.rgr"
+Import "../three/port/src/three_scene.rgr"
+Import "../three/port/src/three_perspective_camera.rgr"
+Import "../three/port/src/three_mesh.rgr"
+Import "../three/port/src/three_material.rgr"
+Import "../three/port/src/three_mesh_basic_material.rgr"
+Import "../three/port/src/three_mesh_lambert_material.rgr"
+Import "../three/port/src/three_mesh_phong_material.rgr"
+Import "../three/port/src/three_light.rgr"
+Import "../three/port/src/three_teapot_geometry.rgr"
+Import "../three/port/src/three_orbit_controls.rgr"
+Import "../three/port/tsx/three_gui_overlay.rgr"
+Import "../three/port/src/three_texture.rgr"
+Import "../three/port/src/three_cube_texture.rgr"
 
 class WebTeapotProbe {
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)

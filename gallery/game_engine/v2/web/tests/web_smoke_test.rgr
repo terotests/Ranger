@@ -1,0 +1,65 @@
+; ==============================================================================
+; web_smoke_test — headless smoke gate for the web soft-render host.
+; ==============================================================================
+; Drives WebTsx3dHost (the software-rendered, no-GPU/no-WASM browser host) end to
+; end without a GL context or asset files, proving the vendored soft-render seam
+; builds a frame and the interpreter/native-bridge wiring initializes cleanly:
+;   - the host software-renders a fixed-size RGB frame (buffer sized w*h*3)
+;   - the SoftScene3dBridge native seam advertises its script-facing verbs
+;   - ComponentEngine.loadScript + callFunction("init") run a scene script through
+;     the native bridge without crashing (asset-less: model load fails gracefully)
+; Prints the grep-able "ALL PASS" / "passed=X failed=Y" banner like every v2 suite.
+; ==============================================================================
+
+Import "../web_tsx3d_host.rgr"
+Import "../../interp/migrate/src/EvalValue.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class WebSmokeTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("web/web_smoke"))
+
+        ; --- 1. Asset-free software render produces a correctly-sized frame ----
+        def host:WebTsx3dHost (new WebTsx3dHost)
+        def w:int 64
+        def h:int 48
+        host.setOrbit(0.5)
+        host.render(w h)
+        t.eqInt("render sets frame width" (host.width()) w)
+        t.eqInt("render sets frame height" (host.height()) h)
+        t.eqInt("frame RGB buffer sized w*h*3" (buffer_length (host.raw())) ((w * h) * 3))
+        t.eqInt("no models declared yet" (host.modelCount()) 0)
+        t.near("spinRate is zero with empty scene" (host.spinRate()) 0.0)
+
+        ; --- 2. The native-bridge seam advertises its script-facing verbs ------
+        def bridge:SoftScene3dBridge (new SoftScene3dBridge)
+        t.ok("bridge exposes addModel" (bridge.has("addModel")))
+        t.ok("bridge exposes place" (bridge.has("place")))
+        t.ok("bridge exposes spin" (bridge.has("spin")))
+        t.ok("bridge exposes sceneError" (bridge.has("sceneError")))
+        t.no("bridge rejects unknown verb" (bridge.has("teleport")))
+
+        ; --- 3. ComponentEngine runs a scene script through the native bridge --
+        ; Exercises the interp -> native-bridge seam (loadScript, callFunction, and
+        ; SoftScene3dBridge.invoke) over the file-IO-free verbs. addModel is left
+        ; out on purpose: the host's model load reads a GLB off disk, so an
+        ; asset-free smoke run drives the safe verbs (spin/place/sceneError).
+        def script:string ""
+        script = (script + "export function init() {\n")
+        script = (script + "  place(0, 1.0, 0.0, 0.0);\n")
+        script = (script + "  spin(0, 0.6);\n")
+        script = (script + "  const e = sceneError();\n")
+        script = (script + "}\n")
+        host.engine.quiet = true
+        host.engine.setNativeBridge(host.bridge)
+        host.engine.loadScript(script)
+        host.engine.callFunction("init" (EvalValue.null()))
+        t.eqInt("empty scene still declares no models after script" (host.modelCount()) 0)
+
+        ; Re-render after driving the script: still builds a valid frame.
+        host.render(w h)
+        t.eqInt("frame still valid after script tick" (buffer_length (host.raw())) ((w * h) * 3))
+
+        t.summary()
+    }
+}

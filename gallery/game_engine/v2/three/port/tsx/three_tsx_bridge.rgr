@@ -1,0 +1,1109 @@
+; ==============================================================================
+; three_tsx_bridge — the GENERIC reconciler: map an interpreted TSX façade scene
+; onto the ONE host-owned Ranger Three registry (ThreeSceneHost), then render it
+; (software headless, or WebGL/GLES in a host).
+; ==============================================================================
+;
+; This is the render bridge of IDEAL_THREE §7, the generic-reconciliation rule of
+; §5, and the single-truth-model migration of THREE_BRIDGE.md (Phase 3). The
+; canonical Three.js script runs in the TSX interpreter (ComponentEngine) against
+; the thin `three.tsx` façade, which holds only plain data (positions, rotations,
+; geometry params, material params, the texture path). Each frame the host advances
+; the script (animate()) and calls renderFrame(): the bridge reads the façade
+; `scene` + `camera` out of the engine and reconciles them — every façade object
+; mapped to its real counterpart BY TYPE:
+;
+;   - geometry  → three_geometry_box / three_geometry_teapot (host resource handle)
+;   - material  → three_material_basic / …lambert / …phong (host resource handle),
+;                 with colour / map / side / wireframe / shininess / specular / …
+;   - light     → three_light_ambient / a directional light (host entity handle)
+;   - transform → three_entity_transform, re-read fresh every frame
+;
+; …but it no longer OWNS those objects. Ownership lives in ONE ThreeSceneHost
+; registry (`host`); the reconciler is a declarative → command translator that
+; *commands* that host by integer handle and caches the handles it gets back. So
+; the interpreter front-end and a future WASM/native front-end drive the SAME
+; registry and converge on one scene (THREE_BRIDGE §2). `scene` / `camera` /
+; `renderer` are now read-through references to the host's owned instances (kept
+; for the demo plumbing until Phase 6 migrates it to pure handles).
+;
+; This is the `needsUpdate` model: mutable per-frame state (transforms) is re-read
+; every frame; heavy resources (geometry, textures) are built once (host caches
+; them) so the upload happens once. No GPU code here — the host's renderer draws
+; through ThreeRenderBackend, so the bridge is pure Ranger and compiles to C++ as
+; well as ES6. The host chooses the backend (software = headless/Raspberry Pi;
+; ThreeGLBackend = WebGL browser / desktop GL).
+; ==============================================================================
+
+Import "../src/three_scene_host.rgr"
+Import "../src/three_webgl_renderer.rgr"
+Import "../src/three_render_backend.rgr"
+Import "../src/three_scene.rgr"
+Import "../src/three_object3d.rgr"
+Import "../src/three_box3.rgr"
+Import "../src/three_vector3.rgr"
+Import "../src/three_animation.rgr"
+Import "../src/three_perspective_camera.rgr"
+Import "../src/three_box_geometry.rgr"
+Import "../src/three_teapot_geometry.rgr"
+Import "../src/three_mesh.rgr"
+Import "../src/three_material.rgr"
+Import "../src/three_mesh_basic_material.rgr"
+Import "../src/three_mesh_lambert_material.rgr"
+Import "../src/three_mesh_phong_material.rgr"
+Import "../src/three_light.rgr"
+Import "../src/three_sky.rgr"
+Import "../src/three_light_probe_volume.rgr"
+Import "../src/three_texture.rgr"
+Import "../../../interp/migrate/src/ComponentEngine.rgr"
+Import "../../../interp/migrate/src/EvalValue.rgr"
+
+class ThreeTsxBridge {
+    def engine:ComponentEngine (new ComponentEngine())
+    ; the ONE host-owned Three registry this reconciler commands (THREE_BRIDGE §2).
+    def host:ThreeSceneHost (new ThreeSceneHost)
+    def sceneH:int 0
+    def camH:int 0
+    def lastW:int 0
+    def lastH:int 0
+    ; read-through references to the host's owned scene / camera / renderer (the
+    ; same instances the registry holds), so the demo plumbing that reads them keeps
+    ; working. The bridge never NEWs or privately mutates these for construction —
+    ; every scene mutation goes through a host command.
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+
+    ; the host ENTITY HANDLES for each façade scene.children[i] (index-keyed).
+    def nodeHandles:[int]
+    ; per-node rebuild bookkeeping: a mesh whose geometry/material signature changes
+    ; (e.g. the teapot GUI re-tessellates or swaps shading — the scene removes the
+    ; old mesh and adds a new one at the same index) is REBUILT, so a scene that
+    ; mutates its geometry/material actually updates (the needsUpdate model), instead
+    ; of being frozen at its first build.
+    def nodeSigs:[string]
+    def nodeIsMesh:[boolean]
+    ; nested-node (hierarchy) handles, in a stable DFS order across frames. Built
+    ; once (append on first sight); on later frames the cursor re-walks the same
+    ; order and reuses the handles, so nested transforms re-sync without allocating
+    ; new host entities. Assumes a stable tree shape (as the flat cache does too).
+    def subHandles:[int]
+    def subCursor:int 0
+    ; a single AnimationMixer reconciled from a global `mixer` (built once from the
+    ; interpreted clip's tracks; applied to its target entity each frame).
+    def animMixer:ThreeAnimationMixer (new ThreeAnimationMixer)
+    def animBuilt:boolean false
+
+    ; reconcile bookkeeping (also serves as introspection for tests: proves the
+    ; façade was mapped to the right REAL object types, not a single hard-coded one).
+    def nMesh:int 0
+    def nAmbient:int 0
+    def nDirectional:int 0
+    def nSky:int 0
+    def firstMatKind:string ""
+    ; references to reconciled scene content a host PLUMBING module may need to drive
+    ; a GPU technique (e.g. the Sponza GI bake reads the reconciled sun + model, and
+    ; adds its baked probe volume to `scene`). These are the SAME instances the host
+    ; registry owns (the reconciler builds them, then attaches them to the host via a
+    ; command); the module runs the technique on them — it never forks the reconciler.
+    def reconciledSun:ThreeDirectionalLight (new ThreeDirectionalLight)
+    def hasSun:boolean false
+    def reconciledSky:ThreeSky (new ThreeSky)
+    def hasSky:boolean false
+    def hostModel:ThreeObject3D (new ThreeObject3D)
+    def hasHostModel:boolean false
+    def reconciledModel:ThreeObject3D (new ThreeObject3D)
+    def hasModelNode:boolean false
+    ; the diffuse-GI probe volume this reconciler builds from a declared
+    ; LightProbeGrid node and bakes (capture bake — no analytic tints) when the scene
+    ; calls probes.bake(). This is the generic technique the old model-named
+    ; ThreeSponzaScene recipe used to own; it now lives in the one generic reconciler.
+    def volume:ThreeLightProbeVolume (new ThreeLightProbeVolume)
+    def hasProbes:boolean false
+    def probesBuilt:boolean false
+    def lastProbeSig:string ""
+    def lastBakeReq:int 0
+    def bakePending:boolean false
+    ; anything the scene SPECIFIED that we could not reconcile to a real object
+    ; (an unsupported geometry / material / light / feature). Counted + warned so a
+    ; deviation from the specified scene is never a silent fake. (Sensible defaults
+    ; for UNspecified values are not counted — only specified-but-unhandled ones.)
+    def nUnsupported:int 0
+
+    fn meshCount:int () { return nMesh }
+    fn ambientLightCount:int () { return nAmbient }
+    fn directionalLightCount:int () { return nDirectional }
+    fn skyCount:int () { return nSky }
+    fn firstMaterialKind:string () { return firstMatKind }
+    fn unsupportedCount:int () { return nUnsupported }
+
+    ; A specified thing we can't honour — report it (loud) and count it, instead of
+    ; silently substituting something else and pretending the TSX drove it.
+    fn noteUnsupported:void (what:string) {
+        print ("[three] WARNING: scene specified '" + what + "' but it is not reconciled to a real object (not a silent fake)")
+        nUnsupported = (nUnsupported + 1)
+    }
+    ; texture-fidelity introspection (delegated to the host, the texture owner): how
+    ; many referenced textures were satisfied by real host pixels vs a placeholder.
+    ; fallbackTextureCount()==0 means every texture the scene specified is the real
+    ; asset (no silent substitution).
+    fn hostTextureCount:int () { return (host.hostTextureCount()) }
+    fn fallbackTextureCount:int () { return (host.fallbackTextureCount()) }
+
+    ; reconciled-object accessors for a host plumbing module (see field comment).
+    fn sunLight:ThreeDirectionalLight () { return reconciledSun }
+    fn hasSunLight:boolean () { return hasSun }
+    fn skyNode:ThreeSky () { return reconciledSky }
+    fn hasSkyNode:boolean () { return hasSky }
+    fn modelNode:ThreeObject3D () { return reconciledModel }
+    fn hasModelNode3D:boolean () { return hasModelNode }
+    ; the diffuse-GI probe volume built from a declared LightProbeGrid node.
+    fn hasProbeVolume:boolean () { return hasProbes }
+    fn probeVolume:ThreeLightProbeVolume () { return volume }
+    ; the host hands in the decoded model (the async glTF load is host plumbing); the
+    ; bridge attaches it when it reconciles the scene's `GLTFModel` placeholder.
+    fn setHostModel:ThreeTsxBridge (m:ThreeObject3D) {
+        hostModel = m
+        hasHostModel = true
+        return this
+    }
+
+    ; Publish a decoded model's world bounds to the interpreter as the `__hostBounds`
+    ; global, so an interpreted scene's `new THREE.Box3().setFromObject(model)` reads
+    ; real numbers (the interpreter can't traverse decoded geometry). The host calls
+    ; this AFTER decoding the model and BEFORE init(), since init() derives the light
+    ; distance / shadow extents / probe far from these bounds.
+    sfn publishBounds:void (engine:ComponentEngine model:ThreeObject3D) {
+        def box:ThreeBox3 (model.boundingBox())
+        def sz:ThreeVector3 (new ThreeVector3)
+        box.getSize(sz)
+        def ct:ThreeVector3 (new ThreeVector3)
+        box.getCenter(ct)
+        def hx:double (sz.x * 0.5)
+        def hy:double (sz.y * 0.5)
+        def hz:double (sz.z * 0.5)
+        def keys:[string]
+        def vals:[EvalValue]
+        push keys "minX"
+        push vals (EvalValue.number(ct.x - hx))
+        push keys "minY"
+        push vals (EvalValue.number(ct.y - hy))
+        push keys "minZ"
+        push vals (EvalValue.number(ct.z - hz))
+        push keys "maxX"
+        push vals (EvalValue.number(ct.x + hx))
+        push keys "maxY"
+        push vals (EvalValue.number(ct.y + hy))
+        push keys "maxZ"
+        push vals (EvalValue.number(ct.z + hz))
+        engine.registerGlobal("__hostBounds" (EvalValue.object(keys vals)))
+    }
+
+    ; point this reconciler at an EXISTING host so several front-ends command one
+    ; shared registry (the convergence path). Resets the handles so ensureHost
+    ; re-allocates the scene/camera in the new host.
+    fn setHost:ThreeTsxBridge (h:ThreeSceneHost) {
+        host = h
+        sceneH = 0
+        camH = 0
+        return this
+    }
+    ; the one registry this reconciler commands (for tests / a shared-host front-end).
+    fn getHost:ThreeSceneHost () {
+        this.ensureHost()
+        return host
+    }
+
+    ; allocate the host scene + camera once, and point the read-through references at
+    ; the host's owned instances (idempotent; called from every public entry).
+    fn ensureHost:void () {
+        if (sceneH == 0) {
+            sceneH = (host.sceneNew())
+            camH = (host.cameraNew())
+            scene = (host.sceneAt(sceneH))
+            camera = (host.cameraAt(camH))
+            renderer = host.renderer
+        }
+    }
+
+    fn setEngine:ThreeTsxBridge (e:ComponentEngine) {
+        this.ensureHost()
+        engine = e
+        return this
+    }
+
+    ; Inject a GPU backend (ThreeGLBackend) — otherwise the software rasteriser.
+    fn useBackend:ThreeTsxBridge (b:ThreeRenderBackend) {
+        this.ensureHost()
+        host.useBackend(b)
+        return this
+    }
+
+    ; Supply decoded pixels for a texture path (forwarded to the host, which owns the
+    ; texture cache). Call before the first renderFrame so the material picks it up.
+    fn setTexture:void (path:string rgba:buffer w:int h:int) {
+        host.setTexture(path rgba w h)
+    }
+
+    ; --- read helpers ---------------------------------------------------------
+    fn num:double (obj:EvalValue key:string) {
+        def v:EvalValue (obj.getMember(key))
+        return (v.toNumber())
+    }
+    fn numOr:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNumber()) {
+            return (v.toNumber())
+        }
+        return dflt
+    }
+    fn boolOr:boolean (obj:EvalValue key:string dflt:boolean) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        return dflt
+    }
+    fn flagOn:boolean (obj:EvalValue key:string) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        return false
+    }
+
+    ; --- per-frame reconcile --------------------------------------------------
+    fn syncCamera:void () {
+        def cam:EvalValue (engine.getGlobal("camera"))
+        if (cam.isObject() == false) {
+            return
+        }
+        def fov:double (this.numOr(cam "fov" 50.0))
+        def aspect:double (this.numOr(cam "aspect" 1.0))
+        def near:double (this.numOr(cam "near" 0.1))
+        def far:double (this.numOr(cam "far" 2000.0))
+        if (aspect <= 0.0) {
+            aspect = 1.0
+        }
+        if (far <= near) {
+            far = 2000.0
+        }
+        host.cameraSet(camH fov aspect near far)
+        ; position AND orientation — honour the interpreted camera.position +
+        ; camera.rotation (the core derives the view matrix from the world transform),
+        ; so a scene that aims the camera actually aims it.
+        def px:double 0.0
+        def py:double 0.0
+        def pz:double 0.0
+        def pos:EvalValue (cam.getMember("position"))
+        if (pos.isObject()) {
+            px = (this.num(pos "x"))
+            py = (this.num(pos "y"))
+            pz = (this.num(pos "z"))
+        }
+        def ex:double 0.0
+        def ey:double 0.0
+        def ez:double 0.0
+        def crot:EvalValue (cam.getMember("rotation"))
+        if (crot.isObject()) {
+            ex = (this.num(crot "x"))
+            ey = (this.num(crot "y"))
+            ez = (this.num(crot "z"))
+        }
+        host.cameraPose(camH px py pz ex ey ez)
+    }
+
+    ; Honour the interpreted renderer + scene settings (tone mapping / exposure /
+    ; background) that the TSX specifies — the real host renderer/scene drive them,
+    ; not a hard-wired host value. Unspecified values keep their current defaults.
+    fn syncRenderer:void () {
+        def rd:EvalValue (engine.getGlobal("renderer"))
+        if (rd.isObject()) {
+            def tm:int (to_int (this.numOr(rd "toneMapping" (to_double renderer.toneMapping))))
+            def ex:double (this.numOr(rd "toneMappingExposure" renderer.toneMappingExposure))
+            def shadowOn:boolean renderer.shadowMapEnabled
+            def sm:EvalValue (rd.getMember("shadowMap"))
+            if (sm.isObject()) {
+                def en:EvalValue (sm.getMember("enabled"))
+                if (en.isBoolean()) {
+                    shadowOn = en.boolValue
+                }
+            }
+            host.rendererSet(tm ex shadowOn)
+        }
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject()) {
+            def bg:EvalValue (sc.getMember("background"))
+            if (bg.isObject()) {
+                def h:EvalValue (bg.getMember("hex"))
+                if (h.isNumber()) {
+                    def hex:int (to_int (h.toNumber()))
+                    def r:int (idiv hex 65536)
+                    def g:int (idiv (hex - (r * 65536)) 256)
+                    def b:int ((hex - (r * 65536)) - (g * 256))
+                    host.sceneBackground(sceneH ((to_double r) / 255.0) ((to_double g) / 255.0) ((to_double b) / 255.0))
+                }
+            }
+        }
+    }
+
+    fn syncScene:void () {
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject() == false) {
+            return
+        }
+        def childrenV:EvalValue (sc.getMember("children"))
+        if (childrenV.isArray() == false) {
+            return
+        }
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def childV:EvalValue (childrenV.getIndex(i))
+            this.syncNode(i childV)
+            i = (i + 1)
+        }
+    }
+
+    ; --- animation reconcile --------------------------------------------------
+    ; find the host entity handle for the top-level scene child carrying __uid.
+    fn findHandleByUid:int (uid:int) {
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject() == false) { return 0 }
+        def childrenV:EvalValue (sc.getMember("children"))
+        if (childrenV.isArray() == false) { return 0 }
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def cv:EvalValue (childrenV.getIndex(i))
+            def cuid:int (to_int (this.numOr(cv "__uid" 0.0)))
+            if (cuid == uid) {
+                if (i < (array_length nodeHandles)) {
+                    return (itemAt nodeHandles i)
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; build a host ThreeAnimationClip from an interpreted clip's tracks.
+    fn buildClipFromV:ThreeAnimationClip (clipV:EvalValue) {
+        def clip:ThreeAnimationClip (new ThreeAnimationClip)
+        def tracksV:EvalValue (clipV.getMember("tracks"))
+        if (tracksV.isArray() == false) { return clip }
+        def n:int (array_length tracksV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def tv:EvalValue (tracksV.getIndex(i))
+            def name:string ""
+            def nameV:EvalValue (tv.getMember("name"))
+            if (nameV.isString()) { name = nameV.stringValue }
+            def stride:int (to_int (this.numOr(tv "stride" 3.0)))
+            def isQuat:boolean (this.boolOr(tv "isQuaternion" false))
+            def tr:ThreeKeyframeTrack (new ThreeKeyframeTrack)
+            tr.setup(name stride isQuat)
+            def timesV:EvalValue (tv.getMember("times"))
+            if (timesV.isArray()) {
+                def tn:int (array_length timesV.arrayValue)
+                def k:int 0
+                while (k < tn) {
+                    tr.pushTime(((timesV.getIndex(k)).toNumber()))
+                    k = (k + 1)
+                }
+            }
+            def valuesV:EvalValue (tv.getMember("values"))
+            if (valuesV.isArray()) {
+                def vn:int (array_length valuesV.arrayValue)
+                def j:int 0
+                while (j < vn) {
+                    tr.pushValue(((valuesV.getIndex(j)).toNumber()))
+                    j = (j + 1)
+                }
+            }
+            clip.addTrack(tr)
+            i = (i + 1)
+        }
+        return clip
+    }
+
+    ; build one blend layer per playing action (once).
+    fn buildHostMixer:void (actionsV:EvalValue) {
+        def n:int (array_length actionsV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def av:EvalValue (actionsV.getIndex(i))
+            def clipV:EvalValue (av.getMember("clip"))
+            if (clipV.isObject()) {
+                def clip:ThreeAnimationClip (this.buildClipFromV(clipV))
+                animMixer.addLayer(clip (this.numOr(av "weight" 1.0)))
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn syncAnimation:void () {
+        def mx:EvalValue (engine.getGlobal("mixer"))
+        if (mx.isObject() == false) { return }
+        def actionsV:EvalValue (mx.getMember("actions"))
+        if (actionsV.isArray() == false) { return }
+        if ((array_length actionsV.arrayValue) == 0) { return }
+        if (animBuilt == false) {
+            this.buildHostMixer(actionsV)
+            animBuilt = true
+        }
+        ; refresh weights each frame (crossfade can change them over time).
+        def nl:int (array_length animMixer.layers)
+        def li:int 0
+        while (li < nl) {
+            if (li < (array_length actionsV.arrayValue)) {
+                def av:EvalValue (actionsV.getIndex(li))
+                def layer:ThreeAnimationLayer (itemAt animMixer.layers li)
+                layer.weight = (this.numOr(av "weight" 1.0))
+            }
+            li = (li + 1)
+        }
+        def targetV:EvalValue (mx.getMember("target"))
+        if (targetV.isObject() == false) { return }
+        def uid:int (to_int (this.numOr(targetV "__uid" 0.0)))
+        def th:int (this.findHandleByUid(uid))
+        if (th <= 0) { return }
+        def t:double (this.numOr(mx "time" 0.0))
+        def target:ThreeObject3D (host.entityAt(th))
+        animMixer.applyBlendedAt(t target)
+    }
+
+    ; Reconcile façade child i: build its real node (command the host) on first sight,
+    ; then update the mutable per-frame transform (position/rotation/scale) via a
+    ; three_entity_transform command.
+    fn syncNode:void (i:int childV:EvalValue) {
+        if (childV.isObject() == false) {
+            return
+        }
+        def h:int (this.ensureNode(i childV))
+        this.applyTransform(h childV)
+        ; recurse into this node's children (hierarchy): build/reuse each as a host
+        ; entity parented under h, and sync its transform. Flat scenes (no children)
+        ; skip this entirely — fully backward compatible.
+        this.syncChildren(childV h)
+    }
+
+    ; read the façade node's local TRS and command the host entity's transform.
+    fn applyTransform:void (h:int childV:EvalValue) {
+        def ex:double 0.0
+        def ey:double 0.0
+        def ez:double 0.0
+        def rot:EvalValue (childV.getMember("rotation"))
+        if (rot.isObject()) {
+            ex = (this.num(rot "x"))
+            ey = (this.num(rot "y"))
+            ez = (this.num(rot "z"))
+        }
+        def px:double 0.0
+        def py:double 0.0
+        def pz:double 0.0
+        def pos:EvalValue (childV.getMember("position"))
+        if (pos.isObject()) {
+            px = (this.num(pos "x"))
+            py = (this.num(pos "y"))
+            pz = (this.num(pos "z"))
+        }
+        def sx:double 1.0
+        def sy:double 1.0
+        def sz:double 1.0
+        def scl:EvalValue (childV.getMember("scale"))
+        if (scl.isObject()) {
+            sx = (this.num(scl "x"))
+            sy = (this.num(scl "y"))
+            sz = (this.num(scl "z"))
+        }
+        host.entityTransform(h px py pz ex ey ez sx sy sz)
+    }
+
+    ; reconcile the children of a node whose host handle is parentH.
+    fn syncChildren:void (parentV:EvalValue parentH:int) {
+        def kids:EvalValue (parentV.getMember("children"))
+        if (kids.isArray() == false) {
+            return
+        }
+        def n:int (array_length kids.arrayValue)
+        def k:int 0
+        while (k < n) {
+            def gv:EvalValue (kids.getIndex(k))
+            if (gv.isObject()) {
+                def gh:int (this.ensureSub(gv parentH))
+                this.applyTransform(gh gv)
+                this.syncChildren(gv gh)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; nested node: reuse its handle from the DFS-ordinal cache, or build it once
+    ; (a mesh or a transform-only group) parented under parentH.
+    fn ensureSub:int (childV:EvalValue parentH:int) {
+        if (subCursor < (array_length subHandles)) {
+            def cached:int (itemAt subHandles subCursor)
+            subCursor = (subCursor + 1)
+            return cached
+        }
+        def built:int (this.buildSubNode(childV parentH))
+        push subHandles built
+        subCursor = (subCursor + 1)
+        return built
+    }
+
+    fn buildSubNode:int (childV:EvalValue parentH:int) {
+        if (this.flagOn(childV "isMesh")) {
+            def geoV:EvalValue (childV.getMember("geometry"))
+            def geoH:int (this.buildGeometryH(geoV))
+            def matV:EvalValue (childV.getMember("material"))
+            def matH:int (this.buildMaterialH(matV))
+            return (host.meshNewUnder(parentH geoH matH))
+        }
+        ; a Group / Object3D — a transform-only node.
+        return (host.groupNew(sceneH parentH))
+    }
+
+    ; keep the parallel arrays (handle / signature / is-mesh) in lockstep.
+    fn registerNode:int (handle:int sig:string isMesh:boolean) {
+        push nodeHandles handle
+        push nodeSigs sig
+        push nodeIsMesh isMesh
+        return handle
+    }
+
+    ; Command the host to build the real node for façade child i (by type) and cache
+    ; the returned handle — so the geometry/texture upload happens once. A light and
+    ; a mesh are both entities in the one registry, so the same handle cache holds
+    ; either.
+    fn ensureNode:int (i:int childV:EvalValue) {
+        if (i < (array_length nodeHandles)) {
+            ; rebuild a mesh whose geometry/material signature changed (needsUpdate).
+            if (itemAt nodeIsMesh i) {
+                def newSig:string (this.meshSig(childV))
+                if (newSig != (itemAt nodeSigs i)) {
+                    host.entityRemove(sceneH (itemAt nodeHandles i))
+                    def rebuilt:int (this.buildMeshH(childV))
+                    set nodeHandles i rebuilt
+                    set nodeSigs i newSig
+                    return rebuilt
+                }
+            }
+            return (itemAt nodeHandles i)
+        }
+        ; light? (Ambient / Directional) — built with its colour/intensity/direction
+        if (this.flagOn(childV "isAmbientLight")) {
+            def color:int (to_int (this.numOr(childV "color" 16777215.0)))
+            def intensity:double (this.numOr(childV "intensity" 1.0))
+            def h:int (host.lightAmbient(sceneH color intensity))
+            nAmbient = (nAmbient + 1)
+            return (this.registerNode(h "" false))
+        }
+        if (this.flagOn(childV "isDirectionalLight")) {
+            ; a real typed sun in the one registry. Its dynamic props (position +
+            ; target, intensity, castShadow, the bounds-derived shadow extents) are
+            ; (re)applied every reconcile by applySun, so a live light-angle / hot-
+            ; reload edit actually moves the sun + its shadow.
+            def dir:ThreeDirectionalLight (new ThreeDirectionalLight)
+            def h:int (host.modelAttach(sceneH dir))
+            nDirectional = (nDirectional + 1)
+            reconciledSun = dir
+            hasSun = true
+            return (this.registerNode(h "" false))
+        }
+        ; sky (Preetham atmosphere) — a real ThreeSky the renderer draws behind the
+        ; scene; its scattering params + sun uniform are (re)applied by applySky.
+        if (this.flagOn(childV "isSky")) {
+            def sky:ThreeSky (new ThreeSky)
+            def h:int (host.modelAttach(sceneH sky))
+            nSky = (nSky + 1)
+            reconciledSky = sky
+            hasSky = true
+            return (this.registerNode(h "" false))
+        }
+        ; host-attached model (GLTFModel placeholder). The decoded geometry is
+        ; supplied by the host (setHostModel); the bridge attaches it to the scene.
+        if (this.flagOn(childV "isModel")) {
+            if hasHostModel {
+                def h:int (host.modelAttach(sceneH hostModel))
+                reconciledModel = hostModel
+                hasModelNode = true
+                return (this.registerNode(h "" false))
+            }
+            this.noteUnsupported("model (no host-decoded geometry supplied via setHostModel)")
+            def mo:ThreeObject3D (new ThreeObject3D)
+            def hh:int (host.modelAttach(sceneH mo))
+            return (this.registerNode(hh "" false))
+        }
+        ; light-probe volume (diffuse GI) — a real ThreeLightProbeVolume the bridge
+        ; builds from the declared dims/counts and bakes via bakeFromScene when the
+        ; scene calls probes.bake() (the generic Three.js capture bake, no tints). The
+        ; volume manages its own grid + helper as host scene children; applyProbes
+        ; drives build/bake each reconcile. Keep an empty placeholder entity so the
+        ; index cache stays aligned.
+        if (this.flagOn(childV "isLightProbeGrid")) {
+            hasProbes = true
+            def h:int (host.groupNew(sceneH 0))
+            return (this.registerNode(h "" false))
+        }
+        ; mesh (default) — typed geometry + typed material
+        if (this.flagOn(childV "isMesh")) {
+            def h:int (this.buildMeshH(childV))
+            nMesh = (nMesh + 1)
+            return (this.registerNode(h (this.meshSig(childV)) true))
+        }
+        ; a transform-only node (THREE.Group / Object3D) at the top level — a real
+        ; host Object3D under the scene; its children reconcile via syncChildren.
+        if ((this.flagOn(childV "isGroup")) || (this.flagOn(childV "isObject3D"))) {
+            def gh2:int (host.groupNew(sceneH 0))
+            return (this.registerNode(gh2 "" false))
+        }
+        ; a child the scene specified but we don't reconcile (an unsupported light
+        ; type — Point/Spot/Hemisphere — or any other object). Report it (loud +
+        ; counted) rather than pretending it rendered; an empty Object3D keeps the
+        ; parallel-array indexing intact.
+        if (this.flagOn(childV "isModel")) {
+            this.noteUnsupported("model (its async load/decode is host plumbing — attach via a host module)")
+        } {
+        if (this.flagOn(childV "isLight")) {
+            this.noteUnsupported("light (only Ambient/Directional are reconciled)")
+        } {
+            this.noteUnsupported("scene object (not a Mesh/Ambient/Directional light/Sky)")
+        }}
+        def o:ThreeObject3D (new ThreeObject3D)
+        def oh:int (host.modelAttach(sceneH o))
+        return (this.registerNode(oh "" false))
+    }
+
+    ; Type-tagged geometry signature (so a re-tessellation OR a type swap rebuilds).
+    fn geometrySig:string (geoV:EvalValue) {
+        if (this.flagOn(geoV "isTeapotGeometry")) {
+            return ("t" + (to_string (this.numOr(geoV "size" 300.0))) + "," + (to_string (this.numOr(geoV "segments" 10.0))) + "," + (to_string (this.boolOr(geoV "bottom" true))) + "," + (to_string (this.boolOr(geoV "lid" true))) + "," + (to_string (this.boolOr(geoV "body" true))) + "," + (to_string (this.boolOr(geoV "fitLid" true))) + "," + (to_string (this.boolOr(geoV "blinn" true))))
+        }
+        if (this.flagOn(geoV "isPlaneGeometry")) {
+            return ("pl" + (to_string (this.numOr(geoV "width" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "widthSegments" 1.0))) + "," + (to_string (this.numOr(geoV "heightSegments" 1.0))))
+        }
+        if (this.flagOn(geoV "isCircleGeometry")) {
+            return ("ci" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "segments" 32.0))))
+        }
+        if (this.flagOn(geoV "isRingGeometry")) {
+            return ("ri" + (to_string (this.numOr(geoV "innerRadius" 0.5))) + "," + (to_string (this.numOr(geoV "outerRadius" 1.0))) + "," + (to_string (this.numOr(geoV "thetaSegments" 32.0))) + "," + (to_string (this.numOr(geoV "phiSegments" 1.0))))
+        }
+        if (this.flagOn(geoV "isSphereGeometry")) {
+            return ("sp" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "widthSegments" 32.0))) + "," + (to_string (this.numOr(geoV "heightSegments" 16.0))))
+        }
+        if (this.flagOn(geoV "isCylinderGeometry")) {
+            return ("cy" + (to_string (this.numOr(geoV "radiusTop" 1.0))) + "," + (to_string (this.numOr(geoV "radiusBottom" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "radialSegments" 32.0))) + "," + (to_string (this.numOr(geoV "heightSegments" 1.0))))
+        }
+        if (this.flagOn(geoV "isConeGeometry")) {
+            return ("co" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "radialSegments" 32.0))))
+        }
+        if (this.flagOn(geoV "isTorusGeometry")) {
+            return ("to" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "tube" 0.4))) + "," + (to_string (this.numOr(geoV "radialSegments" 12.0))) + "," + (to_string (this.numOr(geoV "tubularSegments" 48.0))))
+        }
+        if (this.flagOn(geoV "isTorusKnotGeometry")) {
+            return ("tk" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "tube" 0.4))) + "," + (to_string (this.numOr(geoV "tubularSegments" 64.0))) + "," + (to_string (this.numOr(geoV "radialSegments" 8.0))) + "," + (to_string (this.numOr(geoV "p" 2.0))) + "," + (to_string (this.numOr(geoV "q" 3.0))))
+        }
+        return ("b" + (to_string (this.numOr(geoV "width" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "depth" 1.0))))
+    }
+
+    ; A change-detection signature over the façade mesh's geometry + material params
+    ; — when it changes, ensureNode rebuilds the mesh (so re-tessellation / a shading
+    ; swap / a colour edit actually re-uploads, per the needsUpdate model).
+    fn meshSig:string (childV:EvalValue) {
+        def s:string ""
+        def geoV:EvalValue (childV.getMember("geometry"))
+        if (geoV.isObject()) {
+            s = (this.geometrySig(geoV))
+        }
+        def matV:EvalValue (childV.getMember("material"))
+        if (matV.isObject()) {
+            s = (s + "|" + (this.materialKind(matV)) + ":" + (to_string (this.numOr(matV "color" 16777215.0))) + ":" + (to_string (this.boolOr(matV "wireframe" false))) + ":" + (to_string (this.boolOr(matV "flatShading" false))) + ":" + (to_string (this.numOr(matV "side" 0.0))))
+            def mapV:EvalValue (matV.getMember("map"))
+            if (mapV.isObject()) {
+                def pv:EvalValue (mapV.getMember("path"))
+                if (pv.isString()) { s = (s + ":m" + pv.stringValue) }
+            }
+            def emv:EvalValue (matV.getMember("envMap"))
+            if (emv.isObject()) { s = (s + ":env") }
+        }
+        return s
+    }
+
+    ; --- mesh: typed geometry + typed material, as host resource + instance -----
+    ; Command the host to build the geometry + material resources and a mesh instance
+    ; referencing them; return the mesh entity handle.
+    ; Two-pi default for the sweep-based primitives (no M_PI constant here).
+    ; Build the real host geometry from the façade args — the object is constructed
+    ; in Ranger from interpreter-supplied args; the type is chosen by the flag.
+    fn buildGeometryH:int (geoV:EvalValue) {
+        def twoPi:double 6.283185307179586
+        def pi:double 3.141592653589793
+        if (geoV.isObject()) {
+            if (this.flagOn(geoV "isTeapotGeometry")) {
+                return (host.geometryTeapot((this.numOr(geoV "size" 300.0))
+                    (to_int (this.numOr(geoV "segments" 10.0)))
+                    (this.boolOr(geoV "bottom" true)) (this.boolOr(geoV "lid" true))
+                    (this.boolOr(geoV "body" true)) (this.boolOr(geoV "fitLid" true))
+                    (this.boolOr(geoV "blinn" true))))
+            }
+            if (this.flagOn(geoV "isPlaneGeometry")) {
+                return (host.geometryPlane((this.numOr(geoV "width" 1.0)) (this.numOr(geoV "height" 1.0))
+                    (to_int (this.numOr(geoV "widthSegments" 1.0))) (to_int (this.numOr(geoV "heightSegments" 1.0)))))
+            }
+            if (this.flagOn(geoV "isCircleGeometry")) {
+                return (host.geometryCircle((this.numOr(geoV "radius" 1.0)) (to_int (this.numOr(geoV "segments" 32.0)))
+                    (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" twoPi))))
+            }
+            if (this.flagOn(geoV "isRingGeometry")) {
+                return (host.geometryRing((this.numOr(geoV "innerRadius" 0.5)) (this.numOr(geoV "outerRadius" 1.0))
+                    (to_int (this.numOr(geoV "thetaSegments" 32.0))) (to_int (this.numOr(geoV "phiSegments" 1.0)))
+                    (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" twoPi))))
+            }
+            if (this.flagOn(geoV "isSphereGeometry")) {
+                return (host.geometrySphere((this.numOr(geoV "radius" 1.0)) (to_int (this.numOr(geoV "widthSegments" 32.0)))
+                    (to_int (this.numOr(geoV "heightSegments" 16.0))) (this.numOr(geoV "phiStart" 0.0)) (this.numOr(geoV "phiLength" twoPi))
+                    (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" pi))))
+            }
+            if (this.flagOn(geoV "isCylinderGeometry")) {
+                return (host.geometryCylinder((this.numOr(geoV "radiusTop" 1.0)) (this.numOr(geoV "radiusBottom" 1.0))
+                    (this.numOr(geoV "height" 1.0)) (to_int (this.numOr(geoV "radialSegments" 32.0)))
+                    (to_int (this.numOr(geoV "heightSegments" 1.0))) (this.boolOr(geoV "openEnded" false))
+                    (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" twoPi))))
+            }
+            if (this.flagOn(geoV "isConeGeometry")) {
+                return (host.geometryCone((this.numOr(geoV "radius" 1.0)) (this.numOr(geoV "height" 1.0))
+                    (to_int (this.numOr(geoV "radialSegments" 32.0))) (to_int (this.numOr(geoV "heightSegments" 1.0)))
+                    (this.boolOr(geoV "openEnded" false)) (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" twoPi))))
+            }
+            if (this.flagOn(geoV "isTorusGeometry")) {
+                return (host.geometryTorus((this.numOr(geoV "radius" 1.0)) (this.numOr(geoV "tube" 0.4))
+                    (to_int (this.numOr(geoV "radialSegments" 12.0))) (to_int (this.numOr(geoV "tubularSegments" 48.0)))
+                    (this.numOr(geoV "arc" twoPi))))
+            }
+            if (this.flagOn(geoV "isTorusKnotGeometry")) {
+                return (host.geometryTorusKnot((this.numOr(geoV "radius" 1.0)) (this.numOr(geoV "tube" 0.4))
+                    (to_int (this.numOr(geoV "tubularSegments" 64.0))) (to_int (this.numOr(geoV "radialSegments" 8.0)))
+                    (to_int (this.numOr(geoV "p" 2.0))) (to_int (this.numOr(geoV "q" 3.0)))))
+            }
+            if ((this.flagOn(geoV "isBoxGeometry")) == false) {
+                ; unknown geometry object — loud, not a silent box.
+                this.noteUnsupported("geometry (unrecognised type)")
+            }
+        }
+        ; Box (default): a geometry object with width/height/depth, or none = unit box.
+        def gw:double 1.0
+        def gh:double 1.0
+        def gd:double 1.0
+        if (geoV.isObject()) {
+            def w:double (this.numOr(geoV "width" 1.0))
+            def h:double (this.numOr(geoV "height" 1.0))
+            def d:double (this.numOr(geoV "depth" 1.0))
+            if (w > 0.0) { gw = w }
+            if (h > 0.0) { gh = h }
+            if (d > 0.0) { gd = d }
+        }
+        return (host.geometryBox(gw gh gd))
+    }
+
+    fn buildMeshH:int (childV:EvalValue) {
+        def geoV:EvalValue (childV.getMember("geometry"))
+        def geoH:int (this.buildGeometryH(geoV))
+
+        def matV:EvalValue (childV.getMember("material"))
+        if (nMesh == 0) {
+            firstMatKind = (this.materialKind(matV))
+        }
+        def matH:int (this.buildMaterialH(matV))
+        return (host.meshNew(sceneH geoH matH))
+    }
+
+    ; --- material: typed by isXxxMaterial flag, as a host resource handle -------
+    fn materialKind:string (matV:EvalValue) {
+        if (this.flagOn(matV "isMeshBasicMaterial")) { return "basic" }
+        if (this.flagOn(matV "isMeshLambertMaterial")) { return "lambert" }
+        if (this.flagOn(matV "isMeshPhongMaterial")) { return "phong" }
+        return "basic"
+    }
+
+    fn buildMaterialH:int (matV:EvalValue) {
+        if (matV.isObject() == false) {
+            return (host.materialBasic(16777215 0 false))
+        }
+        def kind:string (this.materialKind(matV))
+        ; unknown material type specified? report it (we render a basic placeholder).
+        if ((this.flagOn(matV "isMeshBasicMaterial")) == false) {
+            if ((this.flagOn(matV "isMeshLambertMaterial")) == false) {
+                if ((this.flagOn(matV "isMeshPhongMaterial")) == false) {
+                    this.noteUnsupported("material (only Basic/Lambert/Phong are reconciled)")
+                }
+            }
+        }
+        def side:int (to_int (this.numOr(matV "side" 0.0)))
+        def colHex:int 16777215
+        def cv:EvalValue (matV.getMember("color"))
+        if (cv.isNumber()) {
+            colHex = (to_int (cv.toNumber()))
+        }
+
+        def matH:int 0
+        if (kind == "basic") {
+            matH = (host.materialBasic(colHex side (this.boolOr(matV "wireframe" false))))
+        } {
+        if (kind == "lambert") {
+            matH = (host.materialLambert(colHex side))
+        } {
+            ; phong
+            def specHex:int 1118481
+            def spec:EvalValue (matV.getMember("specular"))
+            if (spec.isNumber()) {
+                specHex = (to_int (spec.toNumber()))
+            }
+            matH = (host.materialPhong(colHex specHex (this.numOr(matV "shininess" 30.0)) (this.boolOr(matV "flatShading" false)) side))
+        }}
+        ; texture map: the host resolves host pixels for the path (or a counted +
+        ; warned placeholder), so a UV-mapped material still shows textured faces.
+        def mapV:EvalValue (matV.getMember("map"))
+        if (mapV.isObject()) {
+            def pathV:EvalValue (mapV.getMember("path"))
+            def path:string ""
+            if (pathV.isString()) {
+                path = pathV.stringValue
+            }
+            host.materialMap(matH path)
+        }
+        ; envMap → reflective material. The actual reflection needs the host to have
+        ; supplied the scene's cube map; with none, the übershader's uHasEnv gate
+        ; simply leaves the base material (no crash, no fake).
+        def emv:EvalValue (matV.getMember("envMap"))
+        if (emv.isObject()) {
+            host.materialReflective(matH 0.9)
+        }
+        return matH
+    }
+
+    ; The texture paths the current façade scene references (a pure façade read — no
+    ; object built), so a host can load exactly those assets from disk/network and
+    ; hand them in via setTexture BEFORE the first reconcile — i.e. run the
+    ; specified textures rather than the fallback.
+    fn collectTextureRequests:[string] () {
+        def out:[string]
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject() == false) {
+            return out
+        }
+        def childrenV:EvalValue (sc.getMember("children"))
+        if (childrenV.isArray() == false) {
+            return out
+        }
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def c:EvalValue (childrenV.getIndex(i))
+            if (c.isObject()) {
+                def matV:EvalValue (c.getMember("material"))
+                if (matV.isObject()) {
+                    def mapV:EvalValue (matV.getMember("map"))
+                    if (mapV.isObject()) {
+                        def pathV:EvalValue (mapV.getMember("path"))
+                        if (pathV.isString()) {
+                            def p:string pathV.stringValue
+                            def found:boolean false
+                            def k:int 0
+                            while (k < (array_length out)) {
+                                if ((itemAt out k) == p) { found = true }
+                                k = (k + 1)
+                            }
+                            if (found == false) {
+                                push out p
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; (re)apply a declared DirectionalLight's dynamic props onto the reconciled sun.
+    ; position + target place the light and its shadow camera (which sits AT the light
+    ; looking at the target — so direction = target - position, matching three.js);
+    ; intensity / castShadow / mapSize / the bounds-derived ortho extents follow.
+    fn applySun:void (childV:EvalValue) {
+        if (hasSun == false) {
+            return
+        }
+        reconciledSun.setColorHex((to_int (this.numOr(childV "color" 16777215.0))))
+        reconciledSun.setIntensity((this.numOr(childV "intensity" 1.0)))
+        def dp:EvalValue (childV.getMember("position"))
+        if (dp.isObject()) {
+            reconciledSun.position.set((this.num(dp "x")) (this.num(dp "y")) (this.num(dp "z")))
+        }
+        def tg:EvalValue (childV.getMember("target"))
+        if (tg.isObject()) {
+            def tp:EvalValue (tg.getMember("position"))
+            if (tp.isObject()) {
+                reconciledSun.target.position.set((this.num(tp "x")) (this.num(tp "y")) (this.num(tp "z")))
+            }
+        }
+        reconciledSun.setCastShadow((this.boolOr(childV "castShadow" false)))
+        def sh:EvalValue (childV.getMember("shadow"))
+        if (sh.isObject()) {
+            def ms:EvalValue (sh.getMember("mapSize"))
+            if (ms.isNumber()) {
+                reconciledSun.shadow.setMapSize((to_int (ms.toNumber())))
+            }
+            def shcam:EvalValue (sh.getMember("camera"))
+            if (shcam.isObject()) {
+                reconciledSun.shadow.setExtent((this.numOr(shcam "left" (0.0 - 5.0)))
+                    (this.numOr(shcam "right" 5.0))
+                    (this.numOr(shcam "top" 5.0))
+                    (this.numOr(shcam "bottom" (0.0 - 5.0)))
+                    (this.numOr(shcam "near" 0.5))
+                    (this.numOr(shcam "far" 500.0)))
+            }
+        }
+    }
+
+    ; (re)apply a declared Sky's scattering params + sun uniform onto the reconciled
+    ; sky, so a live sun-angle / turbidity edit updates the atmosphere.
+    fn applySky:void (childV:EvalValue) {
+        if (hasSky == false) {
+            return
+        }
+        reconciledSky.setTurbidity((this.numOr(childV "turbidity" 10.0)))
+        reconciledSky.setRayleigh((this.numOr(childV "rayleigh" 3.0)))
+        reconciledSky.setMieCoefficient((this.numOr(childV "mieCoefficient" 0.005)))
+        reconciledSky.setMieDirectionalG((this.numOr(childV "mieDirectionalG" 0.7)))
+        def sp:EvalValue (childV.getMember("sunPosition"))
+        if (sp.isObject()) {
+            reconciledSky.setSunPosition((this.num(sp "x")) (this.num(sp "y")) (this.num(sp "z")))
+        }
+    }
+
+    ; the probe grid's rebuild signature — a count change rebuilds the volume.
+    fn probeSig:string (childV:EvalValue) {
+        return ((to_string (to_int (this.numOr(childV "countX" 2.0)))) + "," + (to_string (to_int (this.numOr(childV "countY" 2.0)))) + "," + (to_string (to_int (this.numOr(childV "countZ" 2.0)))))
+    }
+
+    ; build the diffuse-GI probe volume from a declared LightProbeGrid node: dims /
+    ; counts / bounds (position) / visibility come from the node; a count change
+    ; rebuilds the grid. A probes.bake() call (bakeRequest bump) arms the capture bake
+    ; (deferred to after world matrices compose, so the captured scene is current).
+    fn applyProbes:void (childV:EvalValue) {
+        this.volume.gridSizeX = (this.numOr(childV "sizeX" 1.0))
+        this.volume.gridSizeY = (this.numOr(childV "sizeY" 1.0))
+        this.volume.gridSizeZ = (this.numOr(childV "sizeZ" 1.0))
+        this.volume.countX = (to_int (this.numOr(childV "countX" 2.0)))
+        this.volume.countY = (to_int (this.numOr(childV "countY" 2.0)))
+        this.volume.countZ = (to_int (this.numOr(childV "countZ" 2.0)))
+        def pv:EvalValue (childV.getMember("position"))
+        if (pv.isObject()) {
+            this.volume.boundsX = (this.num(pv "x"))
+            this.volume.boundsY = (this.num(pv "y"))
+            this.volume.boundsZ = (this.num(pv "z"))
+        }
+        this.volume.probeSize = (this.numOr(childV "probeSize" 0.2))
+        this.volume.captureFaceSize = (to_int (this.numOr(childV "cubemapSize" 32.0)))
+        this.volume.enabled = (this.boolOr(childV "visible" true))
+        this.volume.showProbes = (this.boolOr(childV "showProbes" false))
+
+        def sig:string (this.probeSig(childV))
+        if ((probesBuilt == false) || (sig != lastProbeSig)) {
+            this.volume.rebuild(this.scene)
+            this.volume.captureCounts()
+            probesBuilt = true
+            lastProbeSig = sig
+        }
+        this.volume.setEnabled(this.volume.enabled)
+        this.volume.setHelperVisible(this.volume.showProbes)
+
+        def req:int (to_int (this.numOr(childV "bakeRequest" 0.0)))
+        if (req != lastBakeReq) {
+            bakePending = true
+            lastBakeReq = req
+        }
+    }
+
+    ; re-apply the declared sun / sky / probe-volume props onto the reconciled host
+    ; objects each reconcile (they are built once by ensureNode, but their props are
+    ; dynamic — live GUI + hot-reload edits). This generic technique driver replaces
+    ; the model-named ThreeSponzaScene recipe.
+    fn applyDynamics:void () {
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject() == false) {
+            return
+        }
+        def childrenV:EvalValue (sc.getMember("children"))
+        if (childrenV.isArray() == false) {
+            return
+        }
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def childV:EvalValue (childrenV.getIndex(i))
+            if (childV.isObject()) {
+                if (this.flagOn(childV "isDirectionalLight")) {
+                    this.applySun(childV)
+                }
+                if (this.flagOn(childV "isSky")) {
+                    this.applySky(childV)
+                }
+                if (this.flagOn(childV "isLightProbeGrid")) {
+                    this.applyProbes(childV)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Reconcile the current façade scene into the one host registry WITHOUT drawing.
+    ; A host plumbing module can run between reconcile() and present() — e.g. to add
+    ; a baked probe volume to `scene`, or set bounds-derived shadow extents on the
+    ; reconciled sun — then present().
+    fn reconcile:void (w:int h:int) {
+        this.ensureHost()
+        lastW = w
+        lastH = h
+        this.syncRenderer()
+        this.syncCamera()
+        subCursor = 0
+        this.syncScene()
+        ; animation: sample the reconciled clip at the mixer's time and write the
+        ; result onto the target entity's TRS (after syncScene, so it overrides the
+        ; static façade transform; before world compose).
+        this.syncAnimation()
+        ; drive the sun / sky / probe volume from the declared scene (the generic
+        ; technique that replaced ThreeSponzaScene): sun placement + shadow extents,
+        ; probe build, and arming the capture bake.
+        this.applyDynamics()
+        ; compose world matrices so nested nodes' matrixWorld is current (the
+        ; renderer also does this during present; explicit here so a headless
+        ; reconcile without a draw still yields correct world transforms).
+        host.updateWorldMatrices(sceneH)
+        ; the capture bake renders the whole scene into a cube per probe, so it runs
+        ; AFTER world matrices compose (the just-built probes + placed sun included).
+        if bakePending {
+            this.volume.bakeFromScene(this.scene this.renderer)
+            bakePending = false
+        }
+    }
+    ; Draw the reconciled scene (the host owns the renderer + scene + camera).
+    fn present:void () {
+        this.ensureHost()
+        host.render(sceneH camH lastW lastH)
+    }
+
+    ; Reconcile the current façade scene and draw one frame at w*h.
+    fn renderFrame:void (w:int h:int) {
+        this.reconcile(w h)
+        this.present()
+    }
+
+    ; The rendered RGB frame (software backend path).
+    fn raw:buffer () {
+        return (host.raw())
+    }
+}
