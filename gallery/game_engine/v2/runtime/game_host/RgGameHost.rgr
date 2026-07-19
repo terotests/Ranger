@@ -41,18 +41,27 @@ class RgGameHost {
     }
 
     ; ---- load ---------------------------------------------------------------
+    ; No source concatenation: the host registers the virtual `ranger:*`
+    ; packages (guest-side sources under modules/) and evaluates the game file
+    ; ONLY. Dependencies are explicit — a game that does not import ranger:2d
+    ; has no Sprite2D. Lifecycle runs through the ranger:core entry points
+    ; (`runtime.start(game)` → __rgGameInit / __rgGameUpdate).
     fn load:boolean (dir:string file:string) {
         this.engine = (new ComponentEngine())
         this.engine.quiet = true
         this.bridge = (RgRegistryBridge.create())
         this.engine.setNativeBridge(this.bridge)
-        def facadeDir:string (this.v2Root + "/games")
-        def facade:buffer (buffer_read_file facadeDir "ranger2d.tsx")
+        def coreDir:string (this.v2Root + "/modules/ranger_core")
+        def coreSrc:buffer (buffer_read_file coreDir "ranger_core.tsx")
+        this.engine.registerVirtualModule("ranger:core" (buffer_to_string coreSrc))
+        def twoDir:string (this.v2Root + "/modules/ranger_2d")
+        def twoSrc:buffer (buffer_read_file twoDir "ranger_2d.tsx")
+        this.engine.registerVirtualModule("ranger:2d" (buffer_to_string twoSrc))
         def game:buffer (buffer_read_file dir file)
-        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string game))
-        this.engine.loadScript(src)
-        this.engine.callFunction("init" (EvalValue.null()))
+        this.engine.loadScript((buffer_to_string game))
+        def initR:EvalValue (this.engine.callFunction("__rgGameInit" (EvalValue.null())))
         this.loaded = (this.bridge.errorCount == 0)
+        if (initR.numberValue < 0.5) { this.loaded = false }
         return this.loaded
     }
 
@@ -62,7 +71,7 @@ class RgGameHost {
         push keys "dtMs"
         def vals:[EvalValue]
         push vals (EvalValue.number(dtMs))
-        this.engine.callFunction("update" (EvalValue.object(keys vals)))
+        this.engine.callFunction("__rgGameUpdate" (EvalValue.object(keys vals)))
         this.bridge.frameBoundary((dtMs / 1000.0))
     }
 

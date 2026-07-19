@@ -188,12 +188,26 @@ Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (33 suites, 55
 checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
 
 - **Real TSX guest end-to-end (BRIDGES.md steps 1–3): ✅ green.** The ylos2
-  must-pass runs as an ordinary TSX guest: `games/ranger2d.tsx` (façade) +
-  `games/ylos2/index.tsx` (the v1 level tables + jump physics) evaluated by the
-  staged `ComponentEngine`, issuing commands through the table-driven
-  `RgRegistryBridge` into the ranger:2d / ranger:core arenas, presented
-  split-screen by the software backend. Both players climb the original tower
-  and reach the goal; celebration fires through the audio/vocal/music facades.
+  must-pass runs as an ordinary TSX guest (`games/ylos2/index.tsx` — the v1
+  level tables + jump physics) evaluated by the staged `ComponentEngine`,
+  issuing commands through the table-driven `RgRegistryBridge` into the
+  ranger:2d / ranger:core arenas, presented split-screen by the software
+  backend. Both players climb the original tower and reach the goal;
+  celebration fires through the audio/vocal/music facades.
+- **D-MODULES (interpreter profile) — real `ranger:*` imports: ✅ green.**
+  Games are authored against virtual packages, not ambient globals:
+  `import { runtime } from "ranger:core"` + `import * as TWO from "ranger:2d"`
+  resolve to host-registered module sources (`modules/ranger_core/ranger_core.tsx`,
+  `modules/ranger_2d/ranger_2d.tsx`) evaluated once per realm — **no source
+  concatenation** (`games/ranger2d.tsx` prelude deleted); un-imported packages
+  are absent. The `runtime` capability root carries surface/input/audio(vocal,
+  music, clip≠source)/time/log/platform; a game is a class started with
+  `runtime.start(new Ylos2Game())`, driven through the `__rgGameInit/Update`
+  entry points (same two entry points a wasm guest exports). Engine work:
+  virtual-module registration + top-level statement execution + a caller-`this`
+  argument-binding fix in `callUserFunctionNode`. KNOWN LIMIT (tracked):
+  module bindings still land in the shared scope — per-namespace isolation is
+  the remaining scope rework gated by `interp/module_isolation`.
   Gate: `tests/e2e/ylos2_e2e_test` (22 checks). Bridge design: `BRIDGES.md`
   (rev 2 — semantic IDL + per-target ABI profiles, after design review).
 - **Launcher menu as a TSX guest + menu→game handoff: ✅ green.**

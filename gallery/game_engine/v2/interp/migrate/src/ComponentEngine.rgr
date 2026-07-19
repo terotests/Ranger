@@ -188,6 +188,10 @@ class ComponentEngine {
     ; Canonical import paths currently loading / fully materialized (cycle guard).
     def importLoading:[string]
     def importLoaded:[string]
+    ; registered virtual `ranger:*` packages (name/source pairs) + load-once set
+    def virtualModuleNames:[string]
+    def virtualModuleSrcs:[string]
+    def virtualModulesLoaded:[string]
     ; Survives loadScript(): skip tokenize+parse when path mtime is unchanged.
     def importAstCache:[CachedImportAst]
     
@@ -639,6 +643,52 @@ class ComponentEngine {
         nativeBridge = bridge
     }
 
+    ; ---- virtual modules (D-MODULES, interpreter profile) -------------------
+    ; A `ranger:*` import is not a file: the host registers each package's
+    ; guest-side source once, and an `import ... from "ranger:x"` evaluates that
+    ; registered source exactly once per engine (classes into the class table,
+    ; consts/functions into module scope — see materializeImportedModule).
+    ; Un-imported packages are NOT injected: dependencies are explicit.
+    ; KNOWN LIMIT (tracked): bindings land in the shared module scope; true
+    ; per-namespace isolation is the scope rework gated by
+    ; interp/module_isolation tests.
+    fn registerVirtualModule:void (name:string src:string) {
+        virtualModuleNames = (this.listWithStringIfMissing(virtualModuleNames name))
+        push virtualModuleSrcs src
+    }
+
+    fn virtualModuleSource:string (name:string) {
+        def n:int (array_length virtualModuleNames)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt virtualModuleNames i) == name) {
+                return (itemAt virtualModuleSrcs i)
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fn loadVirtualModule:void (name:string) {
+        if (this.isInStringList(name virtualModulesLoaded)) {
+            return
+        }
+        def src:string (this.virtualModuleSource(name))
+        if ((strlen src) == 0) {
+            print ("ERROR: virtual module not registered: " + name)
+            return
+        }
+        push virtualModulesLoaded name
+        def vLexer (new TSLexer(src))
+        def vTokens:[Token] (vLexer.tokenize())
+        def vParser:TSParserSimple (new TSParserSimple())
+        vParser.initParser(vTokens)
+        vParser.tsxMode = jsxParsing
+        def vAst:TSNode (vParser.parseProgram())
+        this.processImports(vAst)
+        this.materializeImportedModule(vAst)
+    }
+
     fn collectCallArgs:[EvalValue] (node:TSNode) {
         def args:[EvalValue]
         def i:int 0
@@ -713,6 +763,27 @@ class ComponentEngine {
         ; Functions first so const initializers may call helpers.
         this.registerComponents(ast)
         this.processVariables(ast)
+        this.runTopLevelStatements(ast)
+    }
+
+    ; Standard JS module semantics: top-level expression statements execute at
+    ; load time (e.g. `runtime.start(new MyGame())` — the D-MODULES authored
+    ; lifecycle). Declarations were already handled by registerComponents /
+    ; processVariables; only ExpressionStatements run here, in module scope.
+    fn runTopLevelStatements:void (ast:TSNode) {
+        def saved:EvalContext context
+        context = moduleScope
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def stmt:TSNode (itemAt ast.children i)
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    this.evaluateExprForSideEffect((unwrap stmt.left))
+                }
+            }
+            i = i + 1
+        }
+        context = saved
     }
 
     fn updateLocalComponentNode:void (name:string node:TSNode) {
@@ -852,6 +923,11 @@ class ComponentEngine {
         
         ; Skip primitive imports (evg_types) and empty paths
         if ((strlen modulePath) == 0) {
+            return
+        }
+        ; Virtual `ranger:*` packages: evaluate the registered source once.
+        if ((indexOf modulePath "ranger:") == 0) {
+            this.loadVirtualModule(modulePath)
             return
         }
         if ((indexOf modulePath "evg_types") >= 0) {
@@ -5838,12 +5914,9 @@ class ComponentEngine {
         def savedReturnValue:EvalValue scriptReturnValue
         scriptDidReturn = false
         scriptReturnValue = (EvalValue.null())
-        context = (context.createChild())
-        if hasThis {
-            context.define("this" thisVal)
-        }
-        ; Evaluate arg expressions (expanding ...spread) then bind — gives default
-        ; params, rest params and destructured params to methods/constructors too.
+        ; Evaluate arg expressions (expanding ...spread) IN THE CALLER'S CONTEXT
+        ; — an argument like `this.atlas` must see the caller's `this`, not the
+        ; callee's. Only then create the call scope and bind `this`.
         def argVals:[EvalValue]
         def i 0
         while (i < (array_length argNodes)) {
@@ -5864,6 +5937,10 @@ class ComponentEngine {
                 push argVals (this.evaluateExpr(an))
             }
             i = (i + 1)
+        }
+        context = (context.createChild())
+        if hasThis {
+            context.define("this" thisVal)
         }
         this.bindParams(fnNode argVals)
         def body:TSNode (this.getFunctionBody(fnNode))

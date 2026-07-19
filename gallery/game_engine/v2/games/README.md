@@ -97,7 +97,12 @@ The must-pass ylos2 port runs from this folder as **pure TSX content**
 (`ylos2/index.tsx` on the `ranger2d.tsx` façade). There is **no per-game
 `.rgr`**: `../runtime/game_host/RgGameHost.rgr` is the one generic host (v1
 GameRunner analog) — adding a new v2 game means adding a game folder with
-`index.tsx`, nothing else. Game protocol: `init()` / `update(props)`;
+`index.tsx`, nothing else. A game imports the REAL virtual packages
+(`import { runtime } from "ranger:core"`, `import * as TWO from "ranger:2d"`),
+defines a class with `init()` / `update(props)`, and calls
+`runtime.start(new MyGame())` — no ambient façade globals, no concatenation.
+Host lifecycle protocol: `__rgGameInit` / `__rgGameUpdate` (provided by
+ranger:core, not authored per game);
 presentation is declared once via `surfacePaneView(pane, layer, cam)` (real
 handles stored in host pane state — no guest accessor round trip; a presenter
 reads pane state and picks the renderer). Optional `autopilotBits(slot)`
