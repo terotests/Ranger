@@ -212,3 +212,134 @@ is a profile detail (§2), not what games should author.
 | 1 | Freeze guest signature as `render(scene, cam, pane\|options)` and keep `i` only in the interpreter/wasm lowering? |
 | 2 | Prefer declare-once `pane.setView` + implicit present, or keep explicit per-frame `render(…, pane)` (current frame-pipeline step 6)? |
 | 3 | Offscreen targets: same `target:` slot, or a different object type (`RenderTarget2D`) beside panes? |
+
+---
+
+## Q4 — How much of v1 Pomppija must the v2 ylos2 guest reproduce?
+
+v2 [`games/ylos2/index.tsx`](./games/ylos2/index.tsx) states a split:
+
+```text
+Faithful: platforms, jump constants, land-on-top, per-player camera,
+          goal → celebration, split-screen, summit music score
+Out of scope: enemies, bullets, fruits/diamonds, super mode, LPC art
+```
+
+A functional diff against v1 [`games/ylos2/index.tsx`](../games/ylos2/index.tsx)
+showed the “faithful” slice itself was incomplete (stub summit score, mover
+bounds, jump edge-trigger, platform carry, goal proximity). Some of that is
+now restored; several celebration / SFX / visual pieces are still missing.
+
+### Answer (current)
+
+| Area | Status |
+|------|--------|
+| Level tables + jump numbers | Present |
+| Summit `SUMMIT_MUSIC` text | Restored to v1 verbatim (duration:pitch + four phrases); start-once |
+| Mover clamp / carry / landing slack / jump edge | Aligned with v1 |
+| Finish timeline (bounce → walk → particles, 7.5 s) | **Missing** — goal only sets `reachedGoal` + cheer + music |
+| SFX vocabulary (`bounce` / `wall` / `celebrate`) | **Missing** — `celebrateSfx` is `createClip()` with no samples |
+| Sprite facing / LPC sheets / HUD / flag / sky | **Missing** (facing: no `Sprite2D` flip API yet) |
+| Enemies / pickups / super / bullets | Explicitly out of scope |
+| Victory banner + restart + `stopMusic` | **Missing** |
+
+E2E (`tests/e2e/ylos2_e2e_test`) gates climb + cheer + music **score text**,
+not celebration choreography or SFX content.
+
+### Open
+
+| # | Question |
+|---|----------|
+| 1 | Is “must-pass ylos2” **climb + split + vocal/music façades**, or **play-feel parity** on the faithful slice (finish phase, landing/jump SFX, ride movers under real input)? |
+| 2 | Should remaining faithful gaps become e2e assertions (finishMs phases, `music.stop` on restart), or stay manual / follow-up PRs? |
+| 3 | When (if ever) do out-of-scope systems (enemies, diamonds/super) re-enter the v2 guest — after `ranger:2d` bitmap/sheet APIs, or never (v1 stays the full game)? |
+
+---
+
+## Q5 — What is the guest contract for `runtime.audio.music.play(score)`?
+
+v1 emits scored music via helpers:
+
+```ts
+musicScoreEvent(SUMMIT_MUSIC, false)  // loop === false → amount 0
+stopMusicEvent()                      // only on post-victory restart
+```
+
+v2 ylos2:
+
+```ts
+runtime.audio.music.play(SUMMIT_MUSIC);  // no loop flag
+// no music.stop() on any path yet
+```
+
+The façade today ([`ranger_core.tsx`](./modules/ranger_core/ranger_core.tsx)):
+
+```ts
+play(score) { rgcore_music_play(score); }
+stop() { rgcore_music_stop(); }
+```
+
+Headless bridge only stores `musicPlaying` + `musicScore` string — it does
+**not** parse or schedule notes. Real playback (when wired) must use the same
+`game_soundscore` grammar as v1 (`tempo` / `beats` / `@melody` lines,
+`beats:pitch` tokens). A one-line stub without durations is silent / wrong
+under that parser — which is why the port’s score was restored verbatim.
+
+### Open
+
+| # | Question |
+|---|----------|
+| 1 | Does `music.play` take `(score, opts?: { loop?: boolean })` (or a second `loop` arg), matching v1’s non-looping summit line? |
+| 2 | Is **start-once / replace / layer** policy host-owned (second `play` no-ops or restarts), or must every guest keep a `summitMusicStarted` flag? |
+| 3 | Who owns score identity for tests — exact string equality, or “parser accepts and schedules N beats”? |
+| 4 | When the real synth path lands, does the headless bridge grow a tiny scheduler (so e2e can assert audible structure), or stay a record-only stub? |
+
+---
+
+## Q6 — Celebration: one-shot clip vs vocal cue vs particles?
+
+On goal, v2 today:
+
+```ts
+this.celebrateSfx.playOneShot();       // empty clip from createClip()
+runtime.audio.vocal.play("cheer");
+this.tryStartSummitMusic();            // once per run
+```
+
+v1 fires `soundEvent("celebrate")`, rumble, a burst of particle events, then
+a timed finish phase (celebrate hop → goal walk → victory ready).
+
+### Answer (current)
+
+- E2E asserts `oneShotCount` and vocal `"cheer"` — so the **façade calls**
+  matter more than clip bytes today.
+- `createClip()` with no upload means the one-shot is a **lifecycle probe**,
+  not an audible celebrate sample.
+- Particles / rumble are not on the ylos2 guest path yet (no
+  `runtime.particles` / `runtime.input.rumble` usage in this port).
+
+### Open
+
+| # | Question |
+|---|----------|
+| 1 | Is `vocal.play("cheer")` the canonical celebrate cue on v2, with `playOneShot` only proving D-LIFE — or should a real celebrate buffer be packaged (`pkg://…`)? |
+| 2 | Do finish particles/rumble wait on new `ranger:core` capabilities, or can the guest approximate with `ranger:2d` sprites until then? |
+| 3 | Should reaching the goal **lock** the player into a finish state machine (v1), or keep free physics after `reachedGoal` (current v2)? |
+
+---
+
+## Q7 — Attract / autopilot vs v1 jump edge-trigger?
+
+Grounded jumps are edge-triggered (v1 `jumpHold`). Attract feeds actions every
+frame via `autopilotBits` → `RgAttractDriver` → `setAction(…, "jump", …)`.
+
+A constant jump bit (always `+4`) never re-jumps after the first takeoff.
+The guest now pulses jump: set while grounded or rising, clear while falling.
+
+### Open
+
+| # | Question |
+|---|----------|
+| 1 | Is pulse-on-fall the permanent attract contract, or should the driver synthesize edges (press/release) so games can keep level-triggered bits? |
+| 2 | Should `autopilotBits` stay a game export, or move to a shared attract helper that understands edge-triggered jump? |
+| 3 | Does human input need the same documentation (hold ≠ auto-rejump) in the must-pass writeup / games README? |

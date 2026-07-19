@@ -66,6 +66,11 @@ class Ylos2E2ETest {
         t.eqInt("vocal cues (both players)" (array_length host.bridge.vocalCues) 2)
         t.eqStr("vocal cue is the cheer" (itemAt host.bridge.vocalCues 0) "cheer")
         t.ok("summit music playing" host.bridge.musicPlaying)
+        ; v1 score uses duration:pitch tokens — bare "E4 G4 …" stubs parse as silence
+        t.ok("summit score has timed melody tokens"
+            (contains host.bridge.musicScore "0.5:E4"))
+        t.ok("summit score keeps the full four-phrase tune"
+            (contains host.bridge.musicScore "1:C5"))
 
         ; ---- identity across the whole game ---------------------------------
         def sprite1IdB:int (to_int (host.callSlot("playerSpriteId" 0)))
