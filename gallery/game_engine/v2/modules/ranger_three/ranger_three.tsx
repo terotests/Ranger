@@ -41,6 +41,14 @@ class OctahedronGeometry {
   constructor(radius) { this.id = rg3d_geometry_octahedron(radius); }
 }
 
+// Flat plane primitive (floor). width/height, then optional segment counts.
+class PlaneGeometry {
+  id = 0;
+  constructor(width, height, wSeg, hSeg) {
+    this.id = rg3d_geometry_plane(width, height, wSeg || 1, hSeg || 1);
+  }
+}
+
 // Utah teapot (Three.js addons TeapotGeometry). A leaf resource — no membership.
 // The 5 part/shape flags are booleans; the bridge carries them as i32 0/1.
 class TeapotGeometry {

@@ -179,6 +179,26 @@ class RegistryEntityParentTest {
         t.ok("mesh_create accepts the teapot geometry" (teaMesh > 0))
         t.eqInt("teapot mesh_create is a clean typed success" b.errorCount errBeforeTeapot)
 
+        ; (1b) PlaneGeometry — the floor primitive on the live path. Assert the
+        ;     live command mints a valid handle usable in rg3d_mesh_create.
+        ;     width(d), height(d), then wSeg(i), hSeg(i).
+        def errBeforePlane:int b.errorCount
+        def plnA:[EvalValue]
+        push plnA (s.num(10.0))
+        push plnA (s.num(10.0))
+        push plnA (s.num(1.0))
+        push plnA (s.num(1.0))
+        def plnG:int (s.callI("rg3d_geometry_plane" plnA))
+        t.ok("plane geometry minted" (plnG > 0))
+        t.eqInt("plane create is a clean typed success (no bridge error)"
+            b.errorCount errBeforePlane)
+        def plnMeshA:[EvalValue]
+        push plnMeshA (s.num((to_double plnG)))
+        push plnMeshA (s.num((to_double mat)))
+        def plnMesh:int (s.callI("rg3d_mesh_create" plnMeshA))
+        t.ok("mesh_create accepts the plane geometry" (plnMesh > 0))
+        t.eqInt("plane mesh_create is a clean typed success" b.errorCount errBeforePlane)
+
         ; (2) Group — a D-SYNC entity: DETACHED create (in NO scene), usable AS a
         ;     child (scene.add(group)) and AS a parent (group.add(mesh)).
         def sceneD:int (s.callI("rg3d_scene_create" empty))

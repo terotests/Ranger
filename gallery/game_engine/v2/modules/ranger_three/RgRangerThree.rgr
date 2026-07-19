@@ -223,6 +223,13 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
+    ; Flat plane geometry (leaf resource, mirrors geometryBox). Used as a floor.
+    fn geometryPlane:OwnedHandle (width:double height:double wSeg:int hSeg:int) {
+        def th:int (this.host.geometryPlane(width height wSeg hSeg))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
     fn geometryOctahedron:OwnedHandle (radius:double) {
         def th:int (this.host.geometryOctahedron(radius))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))

@@ -369,6 +369,13 @@ class RegistryBridgeCoverageTest {
         push teaA (s.num(1.0))
         push teaA (s.num(1.0))
         def teaG:int (s.callI("rg3d_geometry_teapot" teaA))
+        ; Flat plane geometry (floor) — width, height, then wSeg, hSeg.
+        def plnA:[EvalValue]
+        push plnA (s.num(10.0))
+        push plnA (s.num(10.0))
+        push plnA (s.num(1.0))
+        push plnA (s.num(1.0))
+        def plnG:int (s.callI("rg3d_geometry_plane" plnA))
         def mat3A:[EvalValue]
         push mat3A (s.num(16711680.0))
         def mat3:int (s.callI("rg3d_material_basic" mat3A))
@@ -464,6 +471,7 @@ class RegistryBridgeCoverageTest {
         t.ok("three lights created" ((ambId > 0) && (dirId > 0)))
         t.ok("three octahedron created" (octG > 0))
         t.ok("three teapot geometry created" (teaG > 0))
+        t.ok("three plane geometry created" (plnG > 0))
         t.ok("three group created + nested under scene" (grp > 0))
         t.ok("three model_load + scale + rtt ok" (mdlId > 0))
 

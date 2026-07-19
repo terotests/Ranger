@@ -35,6 +35,9 @@ class ThreeSchema {
         ; (bottom, lid, body, fitLid, blinn) are encoded as i32 0/1 (the argSpec
         ; alphabet is {i,d,s,h,ai,ad}; no bool code) and converted in dispatch.
         geo.addMethod((RgMethodDef.cmd(3012 "rg3d_geometry_teapot" "rg3d_geometry_teapot" "d:i:i:i:i:i:i" "h" "create")))
+        ; Flat plane primitive (floor). width(d), height(d), then the segment
+        ; counts wSeg(i), hSeg(i). A leaf resource, mirrors geometry_box.
+        geo.addMethod((RgMethodDef.cmd(3013 "rg3d_geometry_plane" "rg3d_geometry_plane" "d:d:i:i" "h" "create")))
         s.addClass(geo)
 
         ; ---- Material3D (33) -------------------------------------------------

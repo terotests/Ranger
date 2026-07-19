@@ -777,6 +777,11 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
+        if (row.name == "rg3d_geometry_plane") {
+            def o:OwnedHandle (this.d3.geometryPlane((a.dblAt(0)) (a.dblAt(1)) (a.intAt(2)) (a.intAt(3))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
         if (row.name == "rg3d_geometry_octahedron") {
             def o:OwnedHandle (this.d3.geometryOctahedron((a.dblAt(0))))
             def gid:int (this.mintId(o))
