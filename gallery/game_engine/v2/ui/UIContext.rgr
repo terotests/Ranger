@@ -259,6 +259,69 @@ class UIContext {
         return (((dx * dx) + (dy * dy)) <= (r * r))
     }
 
+    ; Sub-pixel coverage [0,1] of pixel (px,py) by the rounded rect [x,y,w,h,rad].
+    ; Interiors return 1.0, exteriors 0.0, and the ~1px corner boundary a fraction
+    ; via 4x4 supersampling of the analytic rounded-rect test. Straight edges keep
+    ; 1.0 (sub-samples never straddle a straight edge within the pixel), so only
+    ; corner pixels become fractional — that is the anti-aliasing (evg/ISSUES.md #5).
+    fn roundedCoverage:double (px:int py:int x:int y:int w:int h:int rad:int) {
+        if (w <= 0) { return 0.0 }
+        if (h <= 0) { return 0.0 }
+        def r rad
+        def hw (to_int (w / 2))
+        def hh (to_int (h / 2))
+        if (r > hw) { r = hw }
+        if (r > hh) { r = hh }
+        if (r < 0) { r = 0 }
+        def x0:double (to_double x)
+        def y0:double (to_double y)
+        def x1:double (to_double (x + w))
+        def y1:double (to_double (y + h))
+        def rd:double (to_double r)
+        def cxL:double (x0 + rd)              ; corner-arc centres
+        def cxR:double (x1 - rd)
+        def cyT:double (y0 + rd)
+        def cyB:double (y1 - rd)
+        def rr:double (rd * rd)
+        def hits:int 0
+        def sj:int 0
+        while (sj < 4) {
+            def fy:double (y0 + ((to_double (py - y)) + (((to_double sj) + 0.5) * 0.25)))
+            def si:int 0
+            while (si < 4) {
+                def fx:double (x0 + ((to_double (px - x)) + (((to_double si) + 0.5) * 0.25)))
+                def inside:boolean true
+                if (fx < x0) { inside = false }
+                if (fy < y0) { inside = false }
+                if (fx >= x1) { inside = false }
+                if (fy >= y1) { inside = false }
+                if inside {
+                    if (r > 0) {
+                        def qx:double fx
+                        if (qx < cxL) { qx = cxL }
+                        if (qx > cxR) { qx = cxR }
+                        def qy:double fy
+                        if (qy < cyT) { qy = cyT }
+                        if (qy > cyB) { qy = cyB }
+                        def dx:double (fx - qx)
+                        def dy:double (fy - qy)
+                        if (((dx * dx) + (dy * dy)) > rr) { inside = false }
+                    }
+                }
+                if inside { hits = (hits + 1) }
+                si = (si + 1)
+            }
+            sj = (sj + 1)
+        }
+        return ((to_double hits) / 16.0)
+    }
+
+    ; Scale alpha `a` by sub-pixel coverage `cov` (interior->a, boundary->partial).
+    fn covAlpha:int (a:int cov:double) {
+        if (cov >= 1.0) { return a }
+        return (to_int ((to_double a) * cov))
+    }
+
     fn fillRoundRectA:void (x:int y:int rw:int rh:int rad:int r:int g:int b:int a:int) {
         if (rw <= 0) { return }
         if (rh <= 0) { return }
@@ -272,8 +335,11 @@ class UIContext {
             def xx x
             def xEnd (x + rw)
             while (xx < xEnd) {
-                if (this.roundedInside(xx yy x y rw rh rad)) {
-                    this.blendPixel(xx yy r g b a)
+                ; anti-aliased: interior pixels blend at full alpha, corner-boundary
+                ; pixels at coverage-scaled alpha, exterior pixels are skipped.
+                def cov:double (this.roundedCoverage(xx yy x y rw rh rad))
+                if (cov > 0.0) {
+                    this.blendPixel(xx yy r g b (this.covAlpha(a cov)))
                 }
                 xx = (xx + 1)
             }
@@ -397,9 +463,14 @@ class UIContext {
             def xx x
             def xEnd (x + rw)
             while (xx < xEnd) {
-                if (this.roundedInside(xx yy x y rw rh rad)) {
-                    if ((this.roundedInside(xx yy ix iy iw ih innerRad)) == false) {
-                        this.blendPixel(xx yy cr cg cb ca)
+                ; ring coverage = outer coverage minus inner coverage, so both the
+                ; outer and inner corner edges are anti-aliased.
+                def co:double (this.roundedCoverage(xx yy x y rw rh rad))
+                if (co > 0.0) {
+                    def ci:double (this.roundedCoverage(xx yy ix iy iw ih innerRad))
+                    def ring:double (co - ci)
+                    if (ring > 0.0) {
+                        this.blendPixel(xx yy cr cg cb (this.covAlpha(ca ring)))
                     }
                 }
                 xx = (xx + 1)
@@ -425,9 +496,12 @@ class UIContext {
             def xx x
             def xEnd (x + rw)
             while (xx < xEnd) {
-                if (this.roundedInside(xx yy x y rw rh rad)) {
-                    if ((this.roundedInside(xx yy ix iy iw ih innerRad)) == false) {
-                        this.blendPixel(xx yy r g b a)
+                def co:double (this.roundedCoverage(xx yy x y rw rh rad))
+                if (co > 0.0) {
+                    def ci:double (this.roundedCoverage(xx yy ix iy iw ih innerRad))
+                    def ring:double (co - ci)
+                    if (ring > 0.0) {
+                        this.blendPixel(xx yy r g b (this.covAlpha(a ring)))
                     }
                 }
                 xx = (xx + 1)
@@ -450,6 +524,34 @@ class UIContext {
             ; overlap and there is no 1px gap banding at higher resolutions.
             def a (to_int (((maxAlpha * num) * num) / (spread * spread)))
             this.strokeRoundRectA((x - i) (y - i) (rw + (i * 2)) (rh + (i * 2)) (rad + i) 2 r g b a)
+            i = (i + 1)
+        }
+    }
+
+    ; Drop shadow (box-shadow, evg/ISSUES.md #4): the element's rounded-rect
+    ; silhouette, translated by (offX,offY) and softened over `blur` px. Unlike
+    ; glowRoundRect (an outward-only halo/outline), this is a FILLED silhouette —
+    ; a solid rounded-rect core at full `a` plus a quadratic outward falloff — so
+    ; it reads as a shadow the box then paints over. Call it BEFORE the box fill.
+    fn shadowRoundRect:void (x:int y:int rw:int rh:int rad:int offX:int offY:int blur:int r:int g:int b:int a:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (a <= 0) { return }
+        def sx (x + offX)
+        def sy (y + offY)
+        ; solid (anti-aliased) core silhouette at the offset position.
+        this.fillRoundRectA(sx sy rw rh rad r g b a)
+        if (blur <= 0) { return }
+        ; soft outward falloff: 2px rounded rings growing outward from the core
+        ; edge, alpha fading quadratically so the shadow edge is diffuse.
+        def i 1
+        while (i <= blur) {
+            def num (blur - i + 1)
+            def den (blur + 1)
+            def ra (to_int (((a * num) * num) / (den * den)))
+            if (ra > 0) {
+                this.strokeRoundRectA((sx - i) (sy - i) (rw + (i * 2)) (rh + (i * 2)) (rad + i) 2 r g b ra)
+            }
             i = (i + 1)
         }
     }

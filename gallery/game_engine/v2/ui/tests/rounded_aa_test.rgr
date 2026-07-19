@@ -1,0 +1,83 @@
+; ==============================================================================
+; rounded_aa_test — rounded-corner fills are anti-aliased (sub-pixel coverage).
+; ==============================================================================
+; evg/ISSUES.md #5: fillRoundRectA / strokeRoundRectA used a HARD boolean corner
+; test (roundedInside), so a rounded corner stepped between fill and background
+; with no blending. This drives the real render path with a rounded blue box over
+; a white background and asserts, by reading canvas pixels, that:
+;   * at least one corner-boundary pixel has an INTERMEDIATE value (strictly
+;     between background and fill) — i.e. the corner is anti-aliased,
+;   * a deep-interior pixel is EXACTLY the fill colour (interiors untouched), and
+;   * a far-exterior pixel is EXACTLY the background (exteriors untouched).
+; Before the fix every corner pixel is exactly fill or exactly background, so the
+; intermediate-pixel assertion fails.
+; ==============================================================================
+
+Import "../WasmUiSelect.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class RoundedAaTest {
+    sfn mkColorEl:EVGElement (x:double y:double w:double h:double col:EVGColor) {
+        def e:EVGElement (new EVGElement)
+        e.calculatedX = x
+        e.calculatedY = y
+        e.calculatedWidth = w
+        e.calculatedHeight = h
+        e.backgroundColor = col
+        return e
+    }
+
+    ; 40x40 opaque-blue rounded (radius 10) box at [10,10] over a white bg.
+    sfn renderScene:UIContext () {
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(100 100)
+        def ctx:UIContext (new UIContext)
+        ctx.attach(canvas)
+        ctx.fillRectA(0 0 100 100 255 255 255 255)              ; white background
+
+        def box:EVGElement (RoundedAaTest.mkColorEl(10.0 10.0 40.0 40.0 (EVGColor.rgb(0 0 255))))
+        box.box.borderRadius = (EVGUnit.parse("10px"))
+        def r:WasmUiRenderer (new WasmUiRenderer)
+        r.draw(ctx box)
+        return ctx
+    }
+
+    ; true if the pixel's RED channel is strictly between fill (0) and bg (255):
+    ; a blended corner pixel (fill=blue R=0, bg=white R=255).
+    sfn isIntermediate:boolean (ctx:UIContext x:int y:int) {
+        def pr:int (ctx.canvas.pixelR(x y))
+        if (pr <= 0) { return false }
+        if (pr >= 255) { return false }
+        return true
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("ui/rounded_aa (EVG #5 rounded AA)"))
+        def ctx:UIContext (RoundedAaTest.renderScene())
+
+        ; scan the top-left corner region [10..20]x[10..20] for a blended pixel.
+        def found:boolean false
+        def yy 10
+        while (yy < 20) {
+            def xx 10
+            while (xx < 20) {
+                if (RoundedAaTest.isIntermediate(ctx xx yy)) { found = true }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+        t.ok("a rounded corner has an anti-aliased (intermediate) pixel" found)
+
+        ; deep interior is exactly the fill colour (interiors fully opaque).
+        t.ok("deep interior is exactly the fill colour"
+            (((ctx.canvas.pixelR(30 30)) == 0) && ((ctx.canvas.pixelG(30 30)) == 0) && ((ctx.canvas.pixelB(30 30)) == 255)))
+
+        ; far exterior is exactly the background (exteriors fully skipped).
+        t.ok("far exterior is exactly the background"
+            (((ctx.canvas.pixelR(2 2)) == 255) && ((ctx.canvas.pixelG(2 2)) == 255) && ((ctx.canvas.pixelB(2 2)) == 255)))
+
+        t.summary()
+    }
+}

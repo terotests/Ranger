@@ -1,0 +1,92 @@
+; ==============================================================================
+; box_shadow_test — box-shadow is rendered as an offset rounded drop shadow.
+; ==============================================================================
+; evg/ISSUES.md #4: EVGElement carries shadowColor/shadowRadius/shadowOffsetX/Y
+; but the rasterizer never read them, so a declared box-shadow drew nothing. This
+; drives the real render path (WasmUiRenderer.draw -> UIContext -> SoftCanvas)
+; with an element that declares a shadow offset DOWN-RIGHT and asserts, by reading
+; canvas pixels, that:
+;   * shadow-coloured (blended) pixels appear OUTSIDE the box on the offset side,
+;   * NONE appear on the opposite (top-left) side,
+;   * the box paints OVER its own shadow (box interior is the fill colour), and
+;   * an otherwise-identical element with NO shadow leaves those pixels at the
+;     background (back-comparable — no-shadow UIs are unchanged).
+; ==============================================================================
+
+Import "../WasmUiSelect.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class BoxShadowTest {
+    sfn mkColorEl:EVGElement (x:double y:double w:double h:double col:EVGColor) {
+        def e:EVGElement (new EVGElement)
+        e.calculatedX = x
+        e.calculatedY = y
+        e.calculatedWidth = w
+        e.calculatedHeight = h
+        e.backgroundColor = col
+        return e
+    }
+
+    ; Render a 40x40 blue box at [30,30]; when `withShadow`, a half-opaque black
+    ; box-shadow offset +10,+10 (blur 3). Returns the drawn ctx (100x100, white bg).
+    sfn renderScene:UIContext (withShadow:boolean) {
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(100 100)
+        def ctx:UIContext (new UIContext)
+        ctx.attach(canvas)
+        ctx.fillRectA(0 0 100 100 255 255 255 255)              ; white background
+
+        def box:EVGElement (BoxShadowTest.mkColorEl(30.0 30.0 40.0 40.0 (EVGColor.rgb(0 0 255))))
+        if withShadow {
+            box.shadowColor = (EVGColor.rgba(0 0 0 0.5))
+            box.shadowOffsetX = (EVGUnit.parse("10px"))
+            box.shadowOffsetY = (EVGUnit.parse("10px"))
+            box.shadowRadius = (EVGUnit.parse("3px"))
+        }
+
+        def r:WasmUiRenderer (new WasmUiRenderer)
+        r.draw(ctx box)
+        return ctx
+    }
+
+    sfn isWhite:boolean (ctx:UIContext x:int y:int) {
+        if ((ctx.canvas.pixelR(x y)) != 255) { return false }
+        if ((ctx.canvas.pixelG(x y)) != 255) { return false }
+        if ((ctx.canvas.pixelB(x y)) != 255) { return false }
+        return true
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("ui/box_shadow (EVG #4 box-shadow)"))
+
+        def sh:UIContext (BoxShadowTest.renderScene(true))
+        def no:UIContext (BoxShadowTest.renderScene(false))
+
+        ; box is [30..70]; shadow silhouette (offset +10) is [40..80]. Pixel (74,50)
+        ; is to the RIGHT of the box but inside the shadow -> shadow-blended (darker
+        ; than white). With no shadow the same pixel is background white.
+        t.ok("shadow present outside box on offset side (down-right)"
+            ((sh.canvas.pixelR(74 50)) < 200))
+        t.ok("that same pixel is background when no shadow declared"
+            (BoxShadowTest.isWhite(no 74 50)))
+
+        ; opposite (top-left) side: nothing outside the box there.
+        t.ok("no shadow outside box on the opposite (top-left) side"
+            (BoxShadowTest.isWhite(sh 24 24)))
+        t.ok("no shadow left of the box either"
+            (BoxShadowTest.isWhite(sh 24 50)))
+
+        ; the box paints OVER its own shadow: interior stays the fill colour.
+        t.ok("box interior is its fill colour (paints over shadow)"
+            (((sh.canvas.pixelB(50 50)) == 255) && ((sh.canvas.pixelR(50 50)) == 0)))
+
+        ; back-comparable: with no shadow the outside-offset pixel matches bg,
+        ; with shadow it does not (proves the gate actually changed output).
+        t.no("shadow actually changed the offset-side pixel vs no-shadow"
+            (BoxShadowTest.isWhite(sh 74 50)))
+
+        t.summary()
+    }
+}

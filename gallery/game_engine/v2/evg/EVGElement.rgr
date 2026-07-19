@@ -100,6 +100,9 @@ class EVGElement {
     def flexDirection:string "column"
     def justifyContent:string "flex-start"
     def alignItems:string "flex-start"
+    ; flexWrap: "wrap" (row auto-wraps — historical EVG default) or "nowrap"
+    ; (CSS default; children never wrap, they overflow / shrink instead).
+    def flexWrap:string "wrap"
     def gap:EVGUnit
     def position:string "relative"
     
@@ -184,6 +187,9 @@ class EVGElement {
     def calculatedInnerWidth:double 0.0
     def calculatedInnerHeight:double 0.0
     def calculatedFlexWidth:double 0.0
+    ; Column-axis flex grow (and row alignItems:stretch) target height, resolved
+    ; by EVGLayout and consumed by layoutElement when height is not explicitly set.
+    def calculatedFlexHeight:double 0.0
     def calculatedPage:int 0
     def isAbsolute:boolean false
     def isLayoutComplete:boolean false
@@ -214,7 +220,8 @@ class EVGElement {
         bottom = (EVGUnit.unset())
         x = (EVGUnit.unset())
         y = (EVGUnit.unset())
-        
+        gap = (EVGUnit.unset())
+
         def newBox (new EVGBox())
         box = newBox
         
@@ -731,6 +738,10 @@ class EVGElement {
         ; Flexbox
         if ((name == "flex-direction") || (name == "flexDirection")) {
             flexDirection = value
+            return
+        }
+        if ((name == "flex-wrap") || (name == "flexWrap")) {
+            flexWrap = value
             return
         }
         if (name == "flex") {

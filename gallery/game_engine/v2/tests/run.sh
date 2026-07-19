@@ -184,6 +184,10 @@ run_suite menu/tests/launcher_ui_test
 run_suite evg/evg_test
 # D-CLIP: overflow:hidden clips descendants to the (rounded) padding box
 run_suite ui/tests/clip_overflow_test
+# box/text shadow render (drop shadow silhouette + falloff)
+run_suite ui/tests/box_shadow_test
+# rounded-corner anti-aliasing (sub-pixel coverage on fills/strokes)
+run_suite ui/tests/rounded_aa_test
 # ui widget/layout logic (headless)
 run_suite ui/tests/UITest
 

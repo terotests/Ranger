@@ -480,6 +480,26 @@ class WasmUiRenderer {
 
         def rad:int (to_int ((to_double (this.radiusOf(el))) * vScale))
 
+        ; box-shadow (evg/ISSUES.md #4): a rounded drop shadow drawn BEHIND the
+        ; element (before its own fill, so the box paints over it). Gated on a real
+        ; shadow being declared (shadowColor set AND some offset or blur), so a UI
+        ; that declares no shadow renders byte-identically to before.
+        if el.shadowColor.isSet {
+            def soffX:int (to_int (el.shadowOffsetX.pixels * vScale))
+            def soffY:int (to_int (el.shadowOffsetY.pixels * vScale))
+            def sblur:int (to_int (el.shadowRadius.pixels * vScale))
+            def hasShadow:boolean false
+            if (soffX != 0) { hasShadow = true }
+            if (soffY != 0) { hasShadow = true }
+            if (sblur > 0) { hasShadow = true }
+            if hasShadow {
+                def sa:int (to_int ((el.shadowColor.alpha()) * 255.0))
+                if (sa > 0) {
+                    ctx.shadowRoundRect(x y rw rh rad soffX soffY sblur (el.shadowColor.red()) (el.shadowColor.green()) (el.shadowColor.blue()) sa)
+                }
+            }
+        }
+
         ; guest-driven animated glow halo (drawn behind the element's own fill).
         ; Two sources combined by max: a static intensity declared on the node in
         ; the RGU1 doc, and the live host-run UIAnimator effect (glow/pulse). When
@@ -594,6 +614,17 @@ class WasmUiRenderer {
                 tx = (contentX + (contentW - tw))
             }
             def ty:int (contentY + (to_int ((contentH - lh) / 2)))
+            ; text drop-shadow (evg/ISSUES.md #4, secondary): draw the glyph
+            ; silhouette in the shadow colour at the declared offset first, then the
+            ; real text over it. Gated on shadowColor so no-shadow text is unchanged.
+            if el.shadowColor.isSet {
+                def tsx:int (to_int (el.shadowOffsetX.pixels * vScale))
+                def tsy:int (to_int (el.shadowOffsetY.pixels * vScale))
+                if ((tsx != 0) || (tsy != 0)) {
+                    def scol:EVGColor (EVGColor.rgba((el.shadowColor.red()) (el.shadowColor.green()) (el.shadowColor.blue()) (el.shadowColor.alpha())))
+                    ctx.text(txt (tx + tsx) (ty + tsy) fs scol)
+                }
+            }
             ctx.text(txt tx ty fs col)
         }
 

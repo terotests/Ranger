@@ -38,6 +38,14 @@ class EVGTest {
         test.testSimpleLayout(t)
         test.testNestedLayout(t)
         test.testAlignment(t)
+        test.testGap(t)
+        test.testRowSideBySide(t)
+        test.testFlexGrowRow(t)
+        test.testFlexGrowColumn(t)
+        test.testFlexShrink(t)
+        test.testJustifyDistribution(t)
+        test.testAlignStretch(t)
+        test.testFlexWrap(t)
         test.testSvgPath(t)
         t.summary()
     }
@@ -271,6 +279,262 @@ class EVGTest {
         ; centered horizontally: (400 - 100) / 2 = 150
         t.near("center-aligned box x" box.calculatedX 150.0)
         t.near("center-aligned box width" box.calculatedWidth 100.0)
+    }
+
+    ; ---- #7 gap: applied between children on the main axis (row + column) -----
+    fn testGap:void (t:RgTest) {
+        ; column (default direction), gap 20 between three 100x40 children
+        def col (new EVGElement())
+        col.width = (EVGUnit.px(200.0))
+        col.height = (EVGUnit.px(300.0))
+        col.gap = (EVGUnit.parse("20px"))
+        def a (new EVGElement())
+        a.width = (EVGUnit.px(100.0))
+        a.height = (EVGUnit.px(40.0))
+        col.addChild(a)
+        def b (new EVGElement())
+        b.width = (EVGUnit.px(100.0))
+        b.height = (EVGUnit.px(40.0))
+        col.addChild(b)
+        def c (new EVGElement())
+        c.width = (EVGUnit.px(100.0))
+        c.height = (EVGUnit.px(40.0))
+        col.addChild(c)
+        def lay (new EVGLayout())
+        lay.layout(col)
+        t.near("col gap: child0 y" a.calculatedY 0.0)
+        t.near("col gap: child1 y = 40+20" b.calculatedY 60.0)
+        t.near("col gap: child2 y = 2*(40+20)" c.calculatedY 120.0)
+
+        ; row, gap 20 between three 100x40 children
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(400.0))
+        row.height = (EVGUnit.px(100.0))
+        row.flexDirection = "row"
+        row.gap = (EVGUnit.parse("20px"))
+        def d (new EVGElement())
+        d.width = (EVGUnit.px(100.0))
+        d.height = (EVGUnit.px(40.0))
+        row.addChild(d)
+        def e (new EVGElement())
+        e.width = (EVGUnit.px(100.0))
+        e.height = (EVGUnit.px(40.0))
+        row.addChild(e)
+        def f (new EVGElement())
+        f.width = (EVGUnit.px(100.0))
+        f.height = (EVGUnit.px(40.0))
+        row.addChild(f)
+        def lay2 (new EVGLayout())
+        lay2.layout(row)
+        t.near("row gap: child0 x" d.calculatedX 0.0)
+        t.near("row gap: child1 x = 100+20" e.calculatedX 120.0)
+        t.near("row gap: child2 x = 2*(100+20)" f.calculatedX 240.0)
+    }
+
+    ; ---- row direction actually lays children side by side (was silently col) -
+    fn testRowSideBySide:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(200.0))
+        root.flexDirection = "row"
+        def l (new EVGElement())
+        l.width = (EVGUnit.px(100.0))
+        l.height = (EVGUnit.px(50.0))
+        root.addChild(l)
+        def r (new EVGElement())
+        r.width = (EVGUnit.px(100.0))
+        r.height = (EVGUnit.px(50.0))
+        root.addChild(r)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        t.ok("row: children are side by side (distinct x)" (l.calculatedX != r.calculatedX))
+        t.near("row: left x" l.calculatedX 0.0)
+        t.near("row: right x = left width" r.calculatedX 100.0)
+        t.near("row: same y" l.calculatedY r.calculatedY)
+    }
+
+    ; ---- #8: row flex grow (fixed + two flex:1 split the remainder) -----------
+    fn testFlexGrowRow:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(100.0))
+        root.flexDirection = "row"
+        def fixed (new EVGElement())
+        fixed.width = (EVGUnit.px(100.0))
+        fixed.height = (EVGUnit.px(50.0))
+        root.addChild(fixed)
+        def g1 (new EVGElement())
+        g1.flex = 1.0
+        g1.height = (EVGUnit.px(50.0))
+        root.addChild(g1)
+        def g2 (new EVGElement())
+        g2.flex = 1.0
+        g2.height = (EVGUnit.px(50.0))
+        root.addChild(g2)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        t.near("row grow: fixed width" fixed.calculatedWidth 100.0)
+        t.near("row grow: flex1 width = (400-100)/2" g1.calculatedWidth 150.0)
+        t.near("row grow: flex2 width = (400-100)/2" g2.calculatedWidth 150.0)
+    }
+
+    ; ---- #8a: column flex grow (fixed + two flex:1 split the leftover height) -
+    fn testFlexGrowColumn:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(200.0))
+        root.height = (EVGUnit.px(300.0))
+        ; default flexDirection = column
+        def fixed (new EVGElement())
+        fixed.width = (EVGUnit.px(100.0))
+        fixed.height = (EVGUnit.px(60.0))
+        root.addChild(fixed)
+        def g1 (new EVGElement())
+        g1.flex = 1.0
+        g1.width = (EVGUnit.px(100.0))
+        root.addChild(g1)
+        def g2 (new EVGElement())
+        g2.flex = 1.0
+        g2.width = (EVGUnit.px(100.0))
+        root.addChild(g2)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        t.near("col grow: fixed height" fixed.calculatedHeight 60.0)
+        t.near("col grow: flex1 height = (300-60)/2" g1.calculatedHeight 120.0)
+        t.near("col grow: flex2 height = (300-60)/2" g2.calculatedHeight 120.0)
+    }
+
+    ; ---- #8b: flex shrink — overflowing fixed children scale to fit ----------
+    fn testFlexShrink:void (t:RgTest) {
+        ; row (nowrap): three fixed 200 in a 400 container -> 400/600 -> ~133.3 each
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(400.0))
+        row.height = (EVGUnit.px(100.0))
+        row.flexDirection = "row"
+        row.flexWrap = "nowrap"
+        def a (new EVGElement())
+        a.width = (EVGUnit.px(200.0))
+        a.height = (EVGUnit.px(50.0))
+        row.addChild(a)
+        def b (new EVGElement())
+        b.width = (EVGUnit.px(200.0))
+        b.height = (EVGUnit.px(50.0))
+        row.addChild(b)
+        def c (new EVGElement())
+        c.width = (EVGUnit.px(200.0))
+        c.height = (EVGUnit.px(50.0))
+        row.addChild(c)
+        def lay (new EVGLayout())
+        lay.layout(row)
+        t.near("row shrink: each = 400/3" a.calculatedWidth (400.0 / 3.0))
+        t.ok("row shrink: last child fits in container"
+            ((c.calculatedX + c.calculatedWidth) <= 400.5))
+
+        ; column: two fixed 200 in a 200 container -> scale 0.5 -> 100 each
+        def col (new EVGElement())
+        col.width = (EVGUnit.px(100.0))
+        col.height = (EVGUnit.px(200.0))
+        def d (new EVGElement())
+        d.width = (EVGUnit.px(100.0))
+        d.height = (EVGUnit.px(200.0))
+        col.addChild(d)
+        def e (new EVGElement())
+        e.width = (EVGUnit.px(100.0))
+        e.height = (EVGUnit.px(200.0))
+        col.addChild(e)
+        def lay2 (new EVGLayout())
+        lay2.layout(col)
+        t.near("col shrink: each = 200/2" d.calculatedHeight 100.0)
+    }
+
+    ; ---- justifyContent distribution (space-between) on the row main axis -----
+    fn testJustifyDistribution:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(100.0))
+        root.flexDirection = "row"
+        root.justifyContent = "space-between"
+        def a (new EVGElement())
+        a.width = (EVGUnit.px(80.0))
+        a.height = (EVGUnit.px(50.0))
+        root.addChild(a)
+        def b (new EVGElement())
+        b.width = (EVGUnit.px(80.0))
+        b.height = (EVGUnit.px(50.0))
+        root.addChild(b)
+        def c (new EVGElement())
+        c.width = (EVGUnit.px(80.0))
+        c.height = (EVGUnit.px(50.0))
+        root.addChild(c)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        ; free = 400 - 240 = 160, gap between = 80: x = 0, 160, 320
+        t.near("space-between: first at start" a.calculatedX 0.0)
+        t.near("space-between: middle centered" b.calculatedX 160.0)
+        t.near("space-between: last at end" c.calculatedX 320.0)
+    }
+
+    ; ---- #8c: alignItems stretch — no-cross-size child fills the cross axis ---
+    fn testAlignStretch:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(100.0))
+        root.flexDirection = "row"
+        root.alignItems = "stretch"
+        def child (new EVGElement())
+        child.width = (EVGUnit.px(100.0))
+        root.addChild(child)   ; no height set
+        def lay (new EVGLayout())
+        lay.layout(root)
+        t.near("stretch: child height fills parent inner height" child.calculatedHeight 100.0)
+    }
+
+    ; ---- #8d: flexWrap — default wraps, "nowrap" keeps one line --------------
+    fn testFlexWrap:void (t:RgTest) {
+        ; default wrap: 3x100-wide in a 250-wide row -> third wraps to next line
+        def w (new EVGElement())
+        w.width = (EVGUnit.px(250.0))
+        w.height = (EVGUnit.px(200.0))
+        w.flexDirection = "row"
+        def a (new EVGElement())
+        a.width = (EVGUnit.px(100.0))
+        a.height = (EVGUnit.px(50.0))
+        w.addChild(a)
+        def b (new EVGElement())
+        b.width = (EVGUnit.px(100.0))
+        b.height = (EVGUnit.px(50.0))
+        w.addChild(b)
+        def c (new EVGElement())
+        c.width = (EVGUnit.px(100.0))
+        c.height = (EVGUnit.px(50.0))
+        w.addChild(c)
+        def lay (new EVGLayout())
+        lay.layout(w)
+        t.ok("wrap (default): third child drops to a new row" (c.calculatedY > a.calculatedY))
+
+        ; nowrap: stays on one line. Width 350 so 3x100 fits without triggering
+        ; flex-shrink (which nowrap+overflow would otherwise apply) — this case
+        ; isolates the "no wrap" behavior; shrink is covered by testFlexShrink.
+        def nw (new EVGElement())
+        nw.width = (EVGUnit.px(350.0))
+        nw.height = (EVGUnit.px(200.0))
+        nw.flexDirection = "row"
+        nw.flexWrap = "nowrap"
+        def d (new EVGElement())
+        d.width = (EVGUnit.px(100.0))
+        d.height = (EVGUnit.px(50.0))
+        nw.addChild(d)
+        def e (new EVGElement())
+        e.width = (EVGUnit.px(100.0))
+        e.height = (EVGUnit.px(50.0))
+        nw.addChild(e)
+        def f (new EVGElement())
+        f.width = (EVGUnit.px(100.0))
+        f.height = (EVGUnit.px(50.0))
+        nw.addChild(f)
+        def lay2 (new EVGLayout())
+        lay2.layout(nw)
+        t.near("nowrap: third child stays on the first row" f.calculatedY d.calculatedY)
+        t.near("nowrap: third child at x = 200" f.calculatedX 200.0)
     }
 
     fn testSvgPath:void (t:RgTest) {
