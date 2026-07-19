@@ -1,0 +1,112 @@
+; CRC32.rgr - CRC-32 checksum implementation for ZIP file integrity
+; Uses the standard CRC-32 polynomial 0xEDB88320 (reflected form)
+
+class CRC32 {
+    def table:[int]
+    def tableBuilt:boolean false
+    
+    Constructor () {
+        this.buildTable()
+    }
+    
+    fn buildTable:void () {
+        ; Build 256-entry CRC lookup table
+        ; Polynomial: 0xEDB88320 (reflected form of 0x04C11DB7)
+        def i 0
+        while (i < 256) {
+            def crc:int i
+            def j 0
+            while (j < 8) {
+                if ((crc % 2) == 1) {
+                    ; crc = (crc >> 1) ^ 0xEDB88320
+                    def shifted:double ((to_double crc) / 2.0)
+                    def shiftedInt:int (to_int shifted)
+                    ; XOR with polynomial 0xEDB88320 = 3988292384
+                    crc = (bit_xor shiftedInt 3988292384)
+                } {
+                    def shifted:double ((to_double crc) / 2.0)
+                    crc = (to_int shifted)
+                }
+                j = j + 1
+            }
+            push table crc
+            i = i + 1
+        }
+        tableBuilt = true
+    }
+    
+    fn update:int (crc:int data:buffer offset:int length:int) {
+        ; Update CRC with data bytes
+        ; crc should be initialized to 0xFFFFFFFF
+        def i 0
+        while (i < length) {
+            def b:int (buffer_get data (offset + i))
+            def index:int ((bit_xor crc b) % 256)
+            ; Ensure index is positive
+            if (index < 0) {
+                index = index + 256
+            }
+            def tableValue:int (itemAt table index)
+            def shiftedD:double ((to_double crc) / 256.0)
+            def shifted:int (to_int shiftedD)
+            ; Mask to 24 bits (>> 8 means divide by 256, which gives us upper 24 bits)
+            def masked:int (bit_and shifted 16777215)
+            crc = (bit_xor masked tableValue)
+            i = i + 1
+        }
+        return crc
+    }
+    
+    fn compute:int (data:buffer) {
+        ; Compute CRC-32 of entire buffer
+        ; Returns the final CRC value (inverted)
+        def len:int (buffer_length data)
+        ; Start with 0xFFFFFFFF = 4294967295
+        def crc:int 4294967295
+        crc = (this.update(crc data 0 len))
+        ; Invert final value (XOR with 0xFFFFFFFF)
+        return (bit_xor crc 4294967295)
+    }
+    
+    fn computeString:int (s:string) {
+        ; Compute CRC-32 of a string
+        def len:int (strlen s)
+        def data:buffer (buffer_alloc len)
+        def i 0
+        while (i < len) {
+            def ch:int (charAt s i)
+            buffer_set data i ch
+            i = i + 1
+        }
+        return (this.compute(data))
+    }
+    
+    fn verify:boolean (data:buffer expectedCrc:int) {
+        ; Verify data against expected CRC
+        def computed:int (this.compute(data))
+        return (computed == expectedCrc)
+    }
+}
+
+; Static CRC32 utility functions
+class CRC32Util {
+    def instance@(optional):CRC32
+    
+    sfn getInstance:CRC32 () {
+        def util (new CRC32Util())
+        if (null? util.instance) {
+            util.instance = (new CRC32())
+        }
+        return (unwrap util.instance)
+    }
+    
+    sfn computeCRC:int (data:buffer) {
+        def crc (new CRC32())
+        return (crc.compute(data))
+    }
+    
+    sfn computeStringCRC:int (s:string) {
+        def crc (new CRC32())
+        return (crc.computeString(s))
+    }
+}

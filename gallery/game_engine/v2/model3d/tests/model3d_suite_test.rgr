@@ -1,0 +1,56 @@
+; ==============================================================================
+; model3d_suite_test — v2 model3d gate (feature-parity Track E).
+; ==============================================================================
+; Thin aggregating entry point: runs every model3d test suite via its static
+; suiteRun() (each returns its failed-check count), sums the failures, then
+; prints the grep-able banner the central v2 tests/run.sh driver expects:
+;
+;   == model3d suite summary ==
+;   passed=N failed=0
+;   ALL PASS            (or SOME FAILED)
+;
+; Mirrors the interp/values/rg_value_test banner convention. Each suite still
+; runs standalone (its own main prints ALL PASS); this file is the single
+; aggregating entry so the central driver needs just one run_suite line.
+; ==============================================================================
+
+Import "Model3dTest.rgr"
+Import "TextureDecodeTest.rgr"
+Import "MeshBridgeTest.rgr"
+Import "Model3dScriptBridgeTest.rgr"
+Import "Scene3dBridgeTest.rgr"
+
+class Model3dSuiteTest {
+    sfn m@(main):void () {
+        print "### Model3dTest"
+        def f0:int (Model3dTest.runModel3d())
+        print "### TextureDecodeTest"
+        def f1:int (TextureDecodeTest.runTextureDecode())
+        print "### MeshBridgeTest"
+        def f2:int (MeshBridgeTest.runMeshBridge())
+        print "### Model3dScriptBridgeTest"
+        def f3:int (Model3dScriptBridgeTest.runScriptBridge())
+        print "### Scene3dBridgeTest"
+        def f4:int (Scene3dBridgeTest.runScene3d())
+        def failed:int (f0 + f1 + f2 + f3 + f4)
+
+        ; suite-level tally for the aggregate banner (per-check counts are in the
+        ; per-suite "passed=N failed=M" lines above); 5 suites total.
+        def suitesFailed:int 0
+        if (f0 != 0) { suitesFailed = (suitesFailed + 1) } {}
+        if (f1 != 0) { suitesFailed = (suitesFailed + 1) } {}
+        if (f2 != 0) { suitesFailed = (suitesFailed + 1) } {}
+        if (f3 != 0) { suitesFailed = (suitesFailed + 1) } {}
+        if (f4 != 0) { suitesFailed = (suitesFailed + 1) } {}
+        def suitesPassed:int (5 - suitesFailed)
+
+        print "== model3d suite summary =="
+        print ("suites: passed=" + (to_string suitesPassed) + " failed=" + (to_string suitesFailed) + " (failing checks=" + (to_string failed) + ")")
+        print ("passed=" + (to_string suitesPassed) + " failed=" + (to_string suitesFailed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

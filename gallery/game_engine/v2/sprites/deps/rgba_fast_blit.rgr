@@ -4,8 +4,8 @@
 ; Avoids per-pixel Color / RasterPixel allocations. Uses direct buffer byte
 ; access and integer source-over blending for partial alpha.
 
-Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
+Import "../../imaging/raster/RasterBuffer.rgr"
 
 class RgbaFastBlit {
     fn clamp255:int (n:int) {

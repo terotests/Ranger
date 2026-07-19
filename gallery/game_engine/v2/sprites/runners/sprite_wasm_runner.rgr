@@ -20,7 +20,7 @@ Import "./wasm_sprite_runner.rgr"
 Import "./wasm_ui_io.rgr"
 Import "./game_hud.rgr"
 Import "../lpc/src/png_decoder.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
 
 class SpriteWasmRunner {
     def canvas:SoftCanvas (new SoftCanvas)

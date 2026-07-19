@@ -2,7 +2,7 @@
 ; lpc_catalog — read curated pack metadata (draft).
 ; ==============================================================================
 
-Import "../../../zip/ZipReader.rgr"
+Import "../../imaging/zip/ZipReader.rgr"
 
 class LpcCatalog {
     def packPath:string ""

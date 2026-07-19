@@ -1,0 +1,31 @@
+; ==============================================================================
+; cannon_suite_test — v2 physics/cannon gate (feature-parity Track B).
+; ==============================================================================
+; Thin aggregating entry point: runs all 23 Cannon.js parity suites via the
+; existing CannonTestRunner.runAll(), then prints the grep-able banner the
+; central v2 tests/run.sh driver expects:
+;
+;   == summary ==
+;   passed=N failed=0
+;   ALL PASS            (or SOME FAILED)
+;
+; Mirrors the interp/values/rg_value_test banner convention (RgTest.summary()).
+; ==============================================================================
+
+Import "../src/cannon_test_runner.rgr"
+
+class CannonSuiteTest {
+    sfn m@(main):void () {
+        def harness:CannonTestHarness (new CannonTestHarness)
+        def runner:CannonTestRunner (new CannonTestRunner)
+        runner.runAll(harness "")
+
+        print "== summary =="
+        print ("passed=" + (to_string harness.passCount) + " failed=" + (to_string harness.failCount))
+        if (harness.failCount == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

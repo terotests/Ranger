@@ -15,7 +15,7 @@
 ; Keeping body/head on IDENTITY preserves the face; legs/feet/hair carry the
 ; per-character colour. Profiles come from the character catalog (lpc_char_catalog).
 
-Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
 
 ; tint modes (passed to setGroup): 0 = IDENTITY (untouched), 1 = COLORIZE.
 class LpcPalette {

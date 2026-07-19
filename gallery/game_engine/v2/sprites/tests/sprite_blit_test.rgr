@@ -1,0 +1,101 @@
+; ==============================================================================
+; sprite_blit_test — sprites/ headless blit gate.
+; ==============================================================================
+; First unit test for the sprites module. Exercises the headless-safe core of
+; the sprite render path — SoftCanvas (deps/framebuffer.rgr) compositing an
+; in-memory RGBA ImageBuffer sprite via RgbaFastBlit (deps/rgba_fast_blit.rgr).
+; No PNG decode, no SDL/wasm host: sprites are built from raw RGBA in memory.
+;
+; Asserts:
+;   - an opaque sprite pixel lands on the canvas with the sprite's colour
+;   - a fully transparent sprite pixel leaves the background untouched
+;   - untouched canvas pixels keep the background colour
+;   - a partial-alpha sprite pixel source-over blends onto the background
+;   - clipping: a sprite straddling the right/bottom edge writes only in-bounds
+; ==============================================================================
+
+Import "../deps/framebuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class SpriteBlitTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("sprites/sprite_blit"))
+
+        ; --- canvas: 12x8, opaque background (10,20,30) ----------------------
+        def bgR:int 10
+        def bgG:int 20
+        def bgB:int 30
+        def cv:SoftCanvas (new SoftCanvas)
+        cv.init(12 8)
+        cv.clear(bgR bgG bgB)
+        t.eqInt("canvas width" (cv.getWidth()) 12)
+        t.eqInt("canvas height" (cv.getHeight()) 8)
+        t.eqInt("cleared pixel R is background" (cv.pixelR(0 0)) bgR)
+        t.eqInt("cleared pixel G is background" (cv.pixelG(0 0)) bgG)
+        t.eqInt("cleared pixel B is background" (cv.pixelB(0 0)) bgB)
+
+        ; --- opaque sprite: 2x2 solid red, blitted at (3,2) ------------------
+        def sr:int 200
+        def sg:int 50
+        def sb:int 60
+        def opaque:ImageBuffer (new ImageBuffer())
+        opaque.initClear(2 2)
+        opaque.setPixelRGBA(0 0 sr sg sb 255)
+        opaque.setPixelRGBA(1 0 sr sg sb 255)
+        opaque.setPixelRGBA(0 1 sr sg sb 255)
+        opaque.setPixelRGBA(1 1 sr sg sb 255)
+        cv.blitImage(opaque 3 2)
+
+        ; covered pixels carry the sprite colour
+        t.eqInt("opaque cover (3,2) R" (cv.pixelR(3 2)) sr)
+        t.eqInt("opaque cover (3,2) G" (cv.pixelG(3 2)) sg)
+        t.eqInt("opaque cover (3,2) B" (cv.pixelB(3 2)) sb)
+        t.eqInt("opaque cover (4,3) R" (cv.pixelR(4 3)) sr)
+        t.eqInt("opaque cover (4,3) B" (cv.pixelB(4 3)) sb)
+
+        ; a pixel just outside the 2x2 footprint keeps the background
+        t.eqInt("neighbour (5,2) stays background R" (cv.pixelR(5 2)) bgR)
+        t.eqInt("neighbour (2,2) stays background G" (cv.pixelG(2 2)) bgG)
+        ; a far corner never touched by any blit
+        t.eqInt("far corner (11,7) stays background R" (cv.pixelR(11 7)) bgR)
+        t.eqInt("far corner (11,7) stays background B" (cv.pixelB(11 7)) bgB)
+
+        ; --- transparency + partial alpha: 2x1 sprite at (6,5) ---------------
+        ; col 0 = fully transparent (alpha 0), col 1 = half-alpha red (alpha 128)
+        def alphaSpr:ImageBuffer (new ImageBuffer())
+        alphaSpr.initClear(2 1)
+        alphaSpr.setPixelRGBA(0 0 sr sg sb 0)
+        alphaSpr.setPixelRGBA(1 0 sr sg sb 128)
+        cv.blitImage(alphaSpr 6 5)
+
+        ; transparent source pixel leaves the background intact
+        t.eqInt("transparent src leaves bg R" (cv.pixelR(6 5)) bgR)
+        t.eqInt("transparent src leaves bg G" (cv.pixelG(6 5)) bgG)
+        t.eqInt("transparent src leaves bg B" (cv.pixelB(6 5)) bgB)
+
+        ; half-alpha source-over: out = (src*a + dst*(255-a)) >> 8
+        ; a=128, invA=127. R:(200*128+10*127)>>8=104  G:(50*128+20*127)>>8=34
+        ; B:(60*128+30*127)>>8=44
+        t.eqInt("half-alpha blend R" (cv.pixelR(7 5)) 104)
+        t.eqInt("half-alpha blend G" (cv.pixelG(7 5)) 34)
+        t.eqInt("half-alpha blend B" (cv.pixelB(7 5)) 44)
+
+        ; --- edge clipping: 2x2 opaque sprite at bottom-right corner ---------
+        ; dx=11,dy=7 places only its top-left texel on-canvas; the rest is
+        ; clipped away (no row wrap / out-of-bounds write).
+        def cg:int 90
+        def corner:ImageBuffer (new ImageBuffer())
+        corner.initClear(2 2)
+        corner.setPixelRGBA(0 0 cg cg cg 255)
+        corner.setPixelRGBA(1 0 cg cg cg 255)
+        corner.setPixelRGBA(0 1 cg cg cg 255)
+        corner.setPixelRGBA(1 1 cg cg cg 255)
+        cv.blitImage(corner 11 7)
+        t.eqInt("clipped corner in-bounds texel drawn" (cv.pixelR(11 7)) cg)
+        ; the pixel to its left must be untouched by the clipped sprite
+        t.eqInt("clipped corner does not smear left" (cv.pixelR(10 7)) bgR)
+
+        t.summary()
+    }
+}

@@ -10,10 +10,10 @@
 
 Import "../Scene3dBridge.rgr"
 Import "GlbFixture.rgr"
-Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../interp/migrate/src/ComponentEngine.rgr"
+Import "../../interp/migrate/src/EvalValue.rgr"
 
-class Checker {
+class Scene3dChecker {
     def passed:int 0
     def failed:int 0
 
@@ -38,8 +38,8 @@ class Checker {
 }
 
 class Scene3dBridgeTest {
-    sfn m@(main):void () {
-        def ck:Checker (new Checker)
+    sfn runScene3d:int () {
+        def ck:Scene3dChecker (new Scene3dChecker)
 
         ; a real GLB on disk for the script to load
         def glb:buffer (GlbFixture.build())
@@ -54,7 +54,7 @@ class Scene3dBridgeTest {
         scene.setRadius(1.0)
         engine.setNativeBridge(scene)
 
-        def buf:buffer (buffer_read_file "gallery/game_engine/model3d/tests" "scene_bridge_demo.tsx")
+        def buf:buffer (buffer_read_file "gallery/game_engine/v2/model3d/tests" "scene_bridge_demo.tsx")
         engine.loadScript((buffer_to_string buf))
 
         ; the ONLY script evaluation — declares the whole scene
@@ -76,7 +76,11 @@ class Scene3dBridgeTest {
 
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
-        if (ck.failed == 0) {
+        return ck.failed
+    }
+
+    sfn m@(main):void () {
+        if (Scene3dBridgeTest.runScene3d() == 0) {
             print "ALL PASS"
         } {
             print "SOME FAILED"

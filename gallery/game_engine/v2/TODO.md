@@ -8,7 +8,7 @@ driver and the roadmap below over that checklist.
 
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
-| Headless gate | `npm run engine:v2:test` → 46 suites + boundary gate | — |
+| Headless gate | `npm run engine:v2:test` → 86 suites + boundary gate | — |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
@@ -838,6 +838,15 @@ From the master audit of `v2/` core `.rgr` (tests/e2e may stay game-aware;
 2P split baked into `RgSdlGameHost` → pane-aware present + neutral `clearRgb`
 (see PR history / `runtime/sdl/RgSdlGameHost.rgr`).
 
+**`scripting/` is now a gate-guarded live-core prefix.** The vendored scripting
+layer (`game_catalog`, `game_image_loader`, `game_hud`, `wasm_ui_io`, …) is
+shared engine infra imported by `ui/` and `web/`, so `check_boundaries.py`
+`LIVE_PREFIXES` now includes `scripting/`: any game-title identifier leaking
+into it fails the build. Verified free of game names and test-case identifiers
+when vendored. No engine-core source (`interp/host/modules/render/registry/
+bridge/runtime/audio`) was modified to accommodate the new tests — tests live
+under module `tests/` dirs only.
+
 Still to clean up later:
 
 - [ ] **Launcher catalog is hardcoded in Ranger** — `menu/RgLauncherUi.rgr`
@@ -878,8 +887,10 @@ Still to clean up later:
 
 ## Import isolation — `.rgr` files still escape `v2/`
 
-Verified by resolving every `Import "…"` under `v2/**/*.rgr` against the
-filesystem (1040 import lines). **35 still resolve outside `v2/`.**
+Originally **35** imports resolved outside `v2/`. The staged/demo trees have now
+been retargeted (lpc, ui, model3d, three/port, sprites, web), leaving **only the
+6 interpreter → `ts_parser` escapes** in the allowlist. Everything else resolves
+inside `v2/`, and the boundary gate is green.
 
 ### Live stack (green gate) — 6 escapes, all to `gallery/ts_parser/`
 
@@ -900,28 +911,25 @@ These are real and currently required by the interpreter:
 `audio/`, `imaging/`, `evg/`, `tests/` (aside from migrate→ts_parser) have
 **no** out-of-v2 `Import`s.
 
-### Staged / demo trees — 29 out-of-v2 imports (mostly broken)
+### Staged / demo trees — retargeted ✅
 
-Paths still point at pre-v2 locations; many targets are **missing** on disk
-(pdf_writer / top-level evg / zip were folded into `v2/imaging`, `v2/evg`,
-`v2/imaging/zip`).
+All previously-escaping staged trees now resolve inside `v2/`:
 
-| Area | Escapes to | Fix |
-|------|------------|-----|
-| `lpc/src/` | `../../../pdf_writer/…`, `../../../zip/…` | Retarget to `v2/imaging/…` (and `v2/imaging/zip/…`) |
-| `ui/` demos + `WasmUiSelect` / `EvgLauncherMenu` | `../../pdf_writer/…`, `../../evg/…`, `../scripting/…` | Use `../evg/…`, `../imaging/…`; drop or replace v1 `scripting/` deps (no `v2/scripting/`) |
-| `model3d/` (+ tests) | `../../pdf_writer/src/jsx/…`, JPEG decoder | Use `v2/interp/migrate/src/` + `v2/imaging/` |
-| `web/web_tsx3d_host.rgr` | `../../pdf_writer/src/jsx/…` | Same as model3d |
-| `web/web_game_host.rgr` | `../scripting/…` | Staged v1 host; rewrite onto `RgGameHost` or delete |
+| Area | Was | Now |
+|------|-----|-----|
+| `lpc/src/` | `../../../pdf_writer/…`, `../../../zip/…` | `v2/imaging/…` (+ `ZipReader`/`ZipWriter` copied into `v2/imaging/zip`) |
+| `ui/` demos + `WasmUiSelect` / `EvgLauncherMenu` | `../../pdf_writer/…`, `../../evg/…`, `../scripting/…` | `../evg/…`, `../imaging/…`; `scripting/*` vendored into **`v2/scripting/`** |
+| `model3d/` (+ tests) | `../../pdf_writer/src/jsx/…`, JPEG decoder | `v2/interp/migrate/src/` + `v2/imaging/` |
+| `three/port/` | jpeg + jsx to `pdf_writer` | `v2/imaging/jpeg` + `v2/interp/migrate/src` |
+| `sprites/` | malformed `../pdf_writer/…` | `v2/imaging/…` |
+| `web/web_tsx3d_host.rgr` | `../../pdf_writer/src/jsx/…` | `v2/interp/migrate/src/` (+ vendored `three/port/tsx`, `model3d/demo`) |
+| `web/web_game_host.rgr` | `../scripting/…` | still **blocked** — native runtime (`game_runtime`/`host_native`/`audio`/`input`) not yet vendored; resolves in-v2 to absent files (boundary-clean) |
 
-### Wrong-depth / missing-inside-v2 (related)
+### Wrong-depth / missing-inside-v2 (related) — fixed ✅
 
-These resolve *under* `v2/` but to non-existent paths (copy-paste from v1
-depths). Same cleanup:
-
-- [ ] `sprites/deps/`, `sprites/host/`, `sprites/runners/` → `pdf_writer/…`
-- [ ] `three/port/src/three_gltf_textures.rgr` + `three/port/tests/**` →
-      `pdf_writer/src/jsx/…` / JPEG (should be migrate + imaging)
+- [x] `sprites/deps/`, `sprites/host/`, `sprites/runners/` → `v2/imaging/…`
+- [x] `three/port/src/three_gltf_textures.rgr` + `three/port/tests/**` →
+      `v2/imaging` + `v2/interp/migrate/src`
 - [ ] `menu/RgLauncherUi.rgr` runtime font dir string
       `gallery/pdf_writer/assets/fonts` (not an `Import`, but a path escape)
 
@@ -929,12 +937,20 @@ depths). Same cleanup:
       `tests/check_boundaries.py` fails the run on (1) any `.rgr` under
       `games/`, (2) any out-of-v2 `Import` not listed in
       `tests/boundary_import_allowlist.txt`, (3) game-title identifiers in
-      live-core `.rgr`. Known staged escapes stay allowlisted until retargeted
+      live-core `.rgr` — `LIVE_PREFIXES` now also covers **`scripting/`**.
+      Allowlist shrunk 35 → **6** (only the `ts_parser` escapes remain)
       — **do not grow the allowlist**.
 
 ---
 
-## P0 — LPC PNG decoder has no unit test
+## P0 — LPC PNG decoder unit test ✅ DONE
+
+Landed as `lpc/tests/png_decoder_test` (wired into `tests/run.sh`). Decodes a
+real type-6 RGBA character sheet **and** a type-3 indexed layer sheet (both
+576×256), asserting dimensions, a non-trivial full-size RGBA buffer, and the
+presence of opaque + transparent pixels. `lpc/` imports were also retargeted
+off `pdf_writer`/`zip` onto `v2/imaging/*` (with `ZipReader`/`ZipWriter` copied
+into `v2/imaging/zip`). Original checklist retained below for provenance.
 
 `lpc/src/png_decoder.rgr` decodes indexed (type 3) and RGB/RGBA sheets, and
 real sample sheets already ship in-tree:
@@ -944,16 +960,15 @@ real sample sheets already ship in-tree:
 | Character walk sheets | `lpc/pack/characters/{hero,knight,mage,rogue}/walk.png` | 576×256 RGBA |
 | Layer pack (indexed + RGBA mix) | `lpc/pack/demo-male-walk/spritesheets/**/walk.png` | 576×256 |
 
-**Missing today**
+**Delivered**
 
-- [ ] A `*_test.rgr` that loads at least one real sheet via `PNGDecoder` /
-  `decode` / `decodeRelative` / `decodeBytes`
-- [ ] Asserts: decode succeeds, `width==576`, `height==256`, non-trivial RGBA
-  (not the 1×1 failure buffer), and a few known opaque / transparent samples
+- [x] A `*_test.rgr` that loads real sheets via `PNGDecoder`
+- [x] Asserts: decode succeeds, `width==576`, `height==256`, non-trivial RGBA
+  (not the 1×1 failure buffer), and known opaque / transparent samples
   (LPC cells have transparent padding — that is expected)
-- [ ] Cover both color-type paths used by the pack: type 3 (e.g. body/head
+- [x] Cover both color-type paths used by the pack: type 3 (body/head
   layers) and type 6 (character `walk.png` sheets)
-- [ ] Wire the suite into `tests/run.sh` (or `lpc/tests/run.sh` invoked from it)
+- [x] Wire the suite into `tests/run.sh`
 
 **Not a substitute**
 
@@ -983,29 +998,33 @@ Also correct the stale claim in [`lpc/TODO.md`](./lpc/TODO.md) §1b that marked
 | `render/` | 1 | yes | software 2D present — in order |
 | `tests/contract/` | 6 real + 2 scaffold | yes (the 6) | **`d_handle/`** and **`d_async/`** are README-only; coverage lives in host/bridge suites instead |
 | `tests/e2e/` | 3 | yes | ylos2 + ylos3d + launcher |
-| `lpc/` | 0 | no | **decoder + compose ungated** (this file, P0) |
-| `sprites/` | 0 | no | staged; runners/demos only |
+| `lpc/` | 1 (`png_decoder_test`) | yes | **P0 done** — decoder unit test (type-3 + type-6 real sheets); imports retargeted to `imaging/` |
+| `sprites/` | 1 (`sprite_blit_test`) | yes | first unit test — SoftCanvas + RgbaFastBlit compositing (opaque / alpha / clip); imaging imports retargeted |
 | `menu/` | 1 (`launcher_ui_test`) | yes | unit + `tests/e2e/launcher_e2e_test`; catalog still hardcoded in `.rgr` (see abstraction debt) |
 | `games/` | 0 | via e2e | ylos2 + ylos3d e2e; **chess** must-pass still pending |
-| `physics/cannon/` | ~23 | no | staged Cannon class port; not wired into v2 driver |
-| `three/port/` | ~37 | no | staged; local `src/run.sh` still points at **v1** `gallery/game_engine/three/…` paths |
-| `model3d/` | 5 | no | has `tests/run.sh`, but it still targets **v1** `gallery/game_engine/model3d/tests/…` |
-| `ui/` | 1 (`UITest.rgr`) | no | staged copy; npm `engine:ui:test` still hits v1 `ui/` |
-| `evg/` | 1 (`evg_test.rgr`) | no | staged; not in central driver |
-| `web/` | 0 | no | staged; README mentions VFS smoke later |
+| `physics/cannon/` | 23 | yes | wired via `tests/cannon_suite_test` (89 assertions); self-contained inside v2 |
+| `three/port/` | 33 wired | yes | curated pure-logic / asset-free subset; jsx→`interp/migrate`, jpeg→`imaging`; `src/run.sh` repointed to v2. 5 tsx-bridge feature tests still excluded (bridge now vendored — revisit) |
+| `model3d/` | 5 | yes | wired via `tests/model3d_suite_test` (165 checks); jsx/jpeg retargeted; `tests/run.sh` repointed to v2 |
+| `ui/` | 1 (`UITest.rgr`) | yes | 29 asserts; evg/PNGEncoder retargeted; `scripting/*` vendored into v2 |
+| `evg/` | 1 (`evg_test.rgr`) | yes | 73 asserts; self-contained inside v2 |
+| `web/` | 1 (`web_smoke_test`) | yes | soft-render TSX3D smoke; 7/8 hosts compile (`web_game_host` blocked on unvendored native runtime) |
 
 ### Follow-ups (beyond P0)
 
-- [ ] Add LPC decoder suite (above) and keep pack PNGs as fixtures
+- [x] Add LPC decoder suite (above) and keep pack PNGs as fixtures
 - [ ] Decide whether `d_handle` / `d_async` need dedicated contract drivers or
   should drop the empty scaffold folders
-- [ ] Re-home or clearly mark staged runners: `three/port/src/run.sh` and
-  `model3d/tests/run.sh` currently compile **v1** paths, so “run the v2 copy”
-  is misleading
-- [ ] When staged ports go live, either register their suites in `tests/run.sh`
-  or document a separate green gate per folder README
-- [ ] `sprites/` / sheet-grid atlas path: no unit gate until PNG decode + atlas
-  upload are first-class in ranger:2d (see also `BRIDGES.md` / games atlas notes)
+- [x] Re-home staged runners: `three/port/src/run.sh` and
+  `model3d/tests/run.sh` now compile the **v2** copies (were pointing at v1)
+- [x] Staged ports registered in central `tests/run.sh` (cannon, three/port,
+  model3d, ui, evg, sprites, web) — all green in `engine:v2:test`
+- [ ] `sprites/` / sheet-grid atlas path: unit gate now covers headless blit;
+  PNG-decode → atlas-upload as first-class ranger:2d still pending (see also
+  `BRIDGES.md` / games atlas notes)
+- [ ] Re-enable the 5 `three/port` tsx-bridge feature tests now that
+  `three/port/tsx/three_tsx_bridge` is vendored into v2
+- [ ] Vendor / re-home the native runtime (`game_runtime`, `game_host_native`,
+  `game_audio`, `game_input`) so `web/web_game_host` can compile in v2
 
 ---
 

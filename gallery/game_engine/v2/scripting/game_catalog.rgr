@@ -1,0 +1,562 @@
+; ==============================================================================
+; game_catalog — discover games under a games/ directory.
+; ==============================================================================
+;
+; Each game lives in its own subfolder and must contain index.tsx at the root,
+; OR game.info with engine=wasm and the declared module file (e.g. logic.wasm).
+; Optional game.info (key=value lines) for display metadata:
+;   name=My Game Title
+;   icon=icon.png
+;   index=1              ; launcher menu order within a category (lower = earlier)
+;   engine=wasm
+;   module=logic.wasm
+;
+; Folder name is used as the default title when name is omitted.
+; ==============================================================================
+
+Import "./ranger-dir.rgr"
+Import "../interp/migrate/src/EvalValue.rgr"
+
+class GameCatalogEntry {
+    def id:string ""
+    def dir:string ""
+    def entryFile:string "index.tsx"
+    def title:string ""
+    def iconPath:string ""
+    def entryPath:string ""
+    ; splitScreen: auto | always | never. "auto"/"always" both mean the ENGINE
+    ; splits the screen into two panes for a game authored from a single-player
+    ; perspective — the game itself does nothing. "never" = single pane.
+    def splitScreen:string ""
+    ; splitWorld: shared | separate — the world model behind a two-pane split.
+    ;   separate = two INDEPENDENT game sessions, one per pane (e.g. two
+    ;              unrelated boards). This is the default for tsx games.
+    ;   shared   = ONE simulated world/physics viewed by two cameras following
+    ;              different players (e.g. one shared road + physics, two views).
+    ;              This is the default for wasm+physics games.
+    ; When empty the host infers it from the backend (see resolveSplitWorld) to keep
+    ; today's behaviour; setting it explicitly decouples the choice from the engine.
+    def splitWorld:string ""
+    ; autoscale: true | false — host renders at full width and scales to pane (default true)
+    def autoscale:string ""
+    ; Relative path to a single-player script for split-screen panes (from games dir).
+    def soloScript:string ""
+    ; engine: tsx (default) | wasm
+    def engine:string "tsx"
+    ; WASM module filename relative to dir (when engine=wasm).
+    def moduleFile:string "logic.wasm"
+    ; abi: getter (default) | linear — linear uses shared memory block (RGW1).
+    def abi:string "getter"
+    ; physics: true | false — host runs GamePhysics; WASM writes controls via ABI.
+    def physics:string "false"
+    ; category: which top-level launcher group this entry lands in ("Games",
+    ; "Tests", ...). Set by `category=` in game.info; when omitted the catalog
+    ; infers one (engine=ui/as demos -> Tests, everything else -> Games).
+    def category:string ""
+    ; iconFrames: how many headless frames game_icon_shots_demo advances before
+    ; grabbing assets/image.png (e.g. a game that dies fast wants an early shot).
+    ; Empty = the tool's default.
+    def iconFrames:string ""
+    ; index: launcher tile order inside a category. Lower numbers come first
+    ; (index=1 = top of the list). Empty = unsorted (falls back to title order
+    ; after every entry that set an explicit index).
+    def index:string ""
+}
+
+class GameCatalog {
+    def gamesDir:string ""
+    def entries:[GameCatalogEntry]
+    def lastFingerprint:string ""
+
+    fn setGamesDir:void (dir:string) {
+        gamesDir = dir
+    }
+
+    fn entryCount:int () {
+        return (array_length entries)
+    }
+
+    fn entryAt:GameCatalogEntry (idx:int) {
+        def fail:GameCatalogEntry (new GameCatalogEntry)
+        if (idx < 0) {
+            return fail
+        }
+        if (idx >= (array_length entries)) {
+            return fail
+        }
+        return (itemAt entries idx)
+    }
+
+    ; Distinct category names in catalog order (first-seen), so the launcher can
+    ; build one top-level tile per group. "Games" is forced first when present so
+    ; the front page always leads with the real games.
+    fn categories:[string] () {
+        def cats:[string]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:GameCatalogEntry (itemAt entries i)
+            def c:string e.category
+            if ((strlen c) > 0) {
+                def seen:boolean false
+                def j:int 0
+                while (j < (array_length cats)) {
+                    if ((itemAt cats j) == c) { seen = true }
+                    j = (j + 1)
+                }
+                if (seen == false) { push cats c }
+            }
+            i = (i + 1)
+        }
+        ; force "Games" to the front if present
+        def ordered:[string]
+        def k:int 0
+        while (k < (array_length cats)) {
+            if ((itemAt cats k) == "Games") { push ordered "Games" }
+            k = (k + 1)
+        }
+        def m:int 0
+        while (m < (array_length cats)) {
+            def cc:string (itemAt cats m)
+            if (cc != "Games") { push ordered cc }
+            m = (m + 1)
+        }
+        return ordered
+    }
+
+    ; All entries whose category matches (in catalog order).
+    fn entriesInCategory:[GameCatalogEntry] (cat:string) {
+        def out:[GameCatalogEntry]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:GameCatalogEntry (itemAt entries i)
+            if (e.category == cat) { push out e }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Count of entries in a category (convenience for tile subtitles).
+    fn categoryCount:int (cat:string) {
+        return (array_length (this.entriesInCategory(cat)))
+    }
+
+    fn trim:string (s:string) {
+        def start:int 0
+        def end:int (strlen s)
+        while (start < end) {
+            def ch:string (substring s start (start + 1))
+            if (ch == " ") {
+                start = (start + 1)
+            } {
+                if (ch == "\t") {
+                    start = (start + 1)
+                } {
+                    break
+                }
+            }
+        }
+        while (end > start) {
+            def ch2:string (substring s (end - 1) end)
+            if (ch2 == " ") {
+                end = (end - 1)
+            } {
+                if (ch2 == "\t") {
+                    end = (end - 1)
+                } {
+                    break
+                }
+            }
+        }
+        if (end <= start) {
+            return ""
+        }
+        return (substring s start end)
+    }
+
+    fn joinPath:string (dir:string file:string) {
+        if ((strlen dir) == 0) {
+            return file
+        }
+        def last:int (strlen dir)
+        last = (last - 1)
+        def tail:string (substring dir last (last + 1))
+        if (tail == "/") {
+            return (dir + file)
+        }
+        return (dir + "/" + file)
+    }
+
+    fn findByPath:GameCatalogEntry (path:string) {
+        def fail:GameCatalogEntry (new GameCatalogEntry)
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:GameCatalogEntry (itemAt entries i)
+            if (e.entryPath == path) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return fail
+    }
+
+    fn resolveSoloPath:string (entry:GameCatalogEntry) {
+        if ((strlen entry.soloScript) == 0) {
+            return ""
+        }
+        ; Path with "/" is relative to games/ (e.g. other_game/index.tsx).
+        if ((indexOf entry.soloScript "/") >= 0) {
+            if ((strlen gamesDir) == 0) {
+                return entry.soloScript
+            }
+            return (this.joinPath(gamesDir entry.soloScript))
+        }
+        ; Bare filename is relative to this game's folder (e.g. index.tsx).
+        if ((strlen entry.dir) > 0) {
+            return (this.joinPath(entry.dir entry.soloScript))
+        }
+        return entry.soloScript
+    }
+
+    ; Resolve the world model for a two-pane split: "shared" (one world/physics,
+    ; two cameras) or "separate" (two independent sessions). An explicit
+    ; splitWorld= wins; otherwise infer from the backend to preserve today's
+    ; behaviour — wasm+physics games share a world, everything else
+    ; runs separate sessions (independent tsx games).
+    fn resolveSplitWorld:string (entry:GameCatalogEntry) {
+        if (entry.splitWorld == "shared") {
+            return "shared"
+        }
+        if (entry.splitWorld == "separate") {
+            return "separate"
+        }
+        if (entry.engine == "wasm") {
+            if (entry.physics == "true") {
+                return "shared"
+            }
+        }
+        return "separate"
+    }
+
+    fn parseInfoLine:void (entry:GameCatalogEntry line:string) {
+        def eq:int (indexOf line "=")
+        if (eq < 0) {
+            return
+        }
+        def key:string (this.trim((substring line 0 eq)))
+        def val:string (this.trim((substring line (eq + 1) (strlen line))))
+        if (key == "name") {
+            if ((strlen val) > 0) {
+                entry.title = val
+            }
+        }
+        if (key == "icon") {
+            entry.iconPath = val
+        }
+        if (key == "iconFrames") {
+            entry.iconFrames = val
+        }
+        if (key == "splitScreen") {
+            entry.splitScreen = val
+        }
+        if (key == "splitWorld") {
+            entry.splitWorld = val
+        }
+        if (key == "autoscale") {
+            entry.autoscale = val
+        }
+        if (key == "soloScript") {
+            entry.soloScript = val
+        }
+        if (key == "engine") {
+            entry.engine = val
+        }
+        if (key == "module") {
+            entry.moduleFile = val
+        }
+        if (key == "abi") {
+            entry.abi = val
+        }
+        if (key == "physics") {
+            entry.physics = val
+        }
+        if (key == "category") {
+            entry.category = val
+        }
+        if (key == "index") {
+            entry.index = val
+        }
+    }
+
+    fn readMetadata:void (entry:GameCatalogEntry) {
+        if (file_exists entry.dir "game.info") {
+            def buf:buffer (buffer_read_file entry.dir "game.info")
+            def txt:string (buffer_to_string buf)
+            def lines:[string] (strsplit txt "\n")
+            def i:int 0
+            while (i < (array_length lines)) {
+                this.parseInfoLine(entry (itemAt lines i))
+                i = (i + 1)
+            }
+        }
+        if ((strlen entry.title) == 0) {
+            entry.title = entry.id
+        }
+        ; default category when game.info doesn't declare one: engine=ui menus and
+        ; engine=as interpreted sources are demos/tests; everything else is a game.
+        if ((strlen entry.category) == 0) {
+            if (entry.engine == "ui") {
+                entry.category = "Tests"
+            } {
+                if (entry.engine == "as") {
+                    entry.category = "Tests"
+                } {
+                    entry.category = "Games"
+                }
+            }
+        }
+        if (entry.engine == "tsx") {
+            entry.entryPath = (this.joinPath(entry.dir entry.entryFile))
+        } {
+            ; wasm/as/ui/streaming all point at their module file
+            entry.entryPath = (this.joinPath(entry.dir entry.moduleFile))
+        }
+    }
+
+    fn isWasmGameFolder:boolean (gameDir:string) {
+        if (file_exists gameDir "game.info") {
+            def buf:buffer (buffer_read_file gameDir "game.info")
+            def txt:string (buffer_to_string buf)
+            def isLinear:boolean false
+            if ((indexOf txt "engine=wasm") >= 0) {
+                isLinear = true
+            }
+            if ((indexOf txt "engine=as") >= 0) {
+                isLinear = true
+            }
+            ; engine=ui — a WASM guest that only builds an RGU1 UI document
+            ; (selectable menu), rendered + navigated by the host UI layer.
+            if ((indexOf txt "engine=ui") >= 0) {
+                isLinear = true
+            }
+            ; engine=streaming — worker.wasm + spawned loader, StreamingWorldRunner.
+            if ((indexOf txt "engine=streaming") >= 0) {
+                isLinear = true
+            }
+            if (isLinear) {
+                def modFile:string "logic.wasm"
+                def entry:GameCatalogEntry (new GameCatalogEntry)
+                entry.dir = gameDir
+                def lines:[string] (strsplit txt "\n")
+                def i:int 0
+                while (i < (array_length lines)) {
+                    this.parseInfoLine(entry (itemAt lines i))
+                    i = (i + 1)
+                }
+                if ((strlen entry.moduleFile) > 0) {
+                    modFile = entry.moduleFile
+                }
+                return (file_exists gameDir modFile)
+            }
+        }
+        return false
+    }
+
+    fn isGameFolder:boolean (parentDir:string id:string) {
+        if (id == ".") {
+            return false
+        }
+        if (id == "..") {
+            return false
+        }
+        def gameDir:string (this.joinPath(parentDir id))
+        def hasIndex:boolean (file_exists gameDir "index.tsx")
+        if (hasIndex) {
+            return true
+        }
+        ; isWasmGameFolder covers wasm/as/ui/streaming (all module-file games).
+        return (this.isWasmGameFolder(gameDir))
+    }
+
+    fn scan:void () {
+        def empty:[GameCatalogEntry]
+        entries = empty
+        if ((strlen gamesDir) == 0) {
+            lastFingerprint = ""
+            return
+        }
+        def names:[string] (list_dir_files gamesDir)
+        def i:int 0
+        while (i < (array_length names)) {
+            def id:string (itemAt names i)
+            if (this.isGameFolder(gamesDir id)) {
+                def entry:GameCatalogEntry (new GameCatalogEntry)
+                entry.id = id
+                entry.dir = (this.joinPath(gamesDir id))
+                this.readMetadata(entry)
+                push entries entry
+            }
+            i = (i + 1)
+        }
+        this.sortEntries()
+        lastFingerprint = (this.dirFingerprint())
+    }
+
+    fn dirFingerprint:string () {
+        if ((strlen gamesDir) == 0) {
+            return ""
+        }
+        def names:[string] (list_dir_files gamesDir)
+        def ids:[string]
+        def i:int 0
+        while (i < (array_length names)) {
+            def id:string (itemAt names i)
+            if (this.isGameFolder(gamesDir id)) {
+                push ids id
+            }
+            i = (i + 1)
+        }
+        def fp:string ""
+        def j:int 0
+        while (j < (array_length ids)) {
+            if (j > 0) {
+                fp = (fp + "\n")
+            }
+            fp = (fp + (itemAt ids j))
+            j = (j + 1)
+        }
+        return fp
+    }
+
+    fn scanIfChanged:boolean () {
+        def fp:string (this.dirFingerprint())
+        if (fp == lastFingerprint) {
+            return false
+        }
+        this.scan()
+        return true
+    }
+
+    fn strLess:boolean (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def n:int la
+        if (lb < n) {
+            n = lb
+        }
+        def j:int 0
+        while (j < n) {
+            def ca:int (charAt a j)
+            def cb:int (charAt b j)
+            if (ca < cb) {
+                return true
+            }
+            if (ca > cb) {
+                return false
+            }
+            j = (j + 1)
+        }
+        if (la < lb) {
+            return true
+        }
+        return false
+    }
+
+    fn titleLess:boolean (a:GameCatalogEntry b:GameCatalogEntry) {
+        return (this.strLess(a.title b.title))
+    }
+
+    ; Numeric menu rank from game.info index=. Missing / unparseable → a large
+    ; sentinel so titled-only games sort after every explicitly ranked entry.
+    fn indexValue:int (e:GameCatalogEntry) {
+        if ((strlen e.index) == 0) {
+            return 1000000
+        }
+        def parsed@(optional):int (to_int e.index)
+        if (!null? parsed) {
+            return (unwrap parsed)
+        }
+        return 1000000
+    }
+
+    ; Primary key: index= (lower first). Tie-break: title A→Z.
+    fn entryLess:boolean (a:GameCatalogEntry b:GameCatalogEntry) {
+        def ia:int (this.indexValue(a))
+        def ib:int (this.indexValue(b))
+        if (ia < ib) {
+            return true
+        }
+        if (ia > ib) {
+            return false
+        }
+        return (this.titleLess(a b))
+    }
+
+    fn sortEntries:void () {
+        def n:int (array_length entries)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            while (j < n) {
+                def a:GameCatalogEntry (itemAt entries i)
+                def b:GameCatalogEntry (itemAt entries j)
+                if (this.entryLess(b a)) {
+                    set entries i b
+                    set entries j a
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Resolve a launcher-usable icon image for an entry: the explicit game.info
+    ; icon= wins (relative to the game folder); otherwise the assets/image.png
+    ; convention (a headless screenshot dropped by game_icon_shots_demo.rgr)
+    ; kicks in. Only paths whose file actually exists are returned, so a stale
+    ; game.info line never sends the renderer chasing a missing PNG.
+    fn resolveIconPath:string (entry:GameCatalogEntry) {
+        if ((strlen entry.dir) == 0) {
+            return ""
+        }
+        if ((strlen entry.iconPath) > 0) {
+            if (file_exists entry.dir entry.iconPath) {
+                return (this.joinPath(entry.dir entry.iconPath))
+            }
+        }
+        if (file_exists entry.dir "assets/image.png") {
+            return (this.joinPath(entry.dir "assets/image.png"))
+        }
+        return ""
+    }
+
+    ; Build EvalValue array for injection as the `gameCatalog` TS global.
+    fn toEvalArray:EvalValue () {
+        def items:[EvalValue]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:GameCatalogEntry (itemAt entries i)
+            def keys:[string]
+            def vals:[EvalValue]
+            push keys "id"
+            push vals (EvalValue.string(e.id))
+            push keys "title"
+            push vals (EvalValue.string(e.title))
+            push keys "path"
+            push vals (EvalValue.string(e.entryPath))
+            push keys "engine"
+            push vals (EvalValue.string(e.engine))
+            push keys "category"
+            push vals (EvalValue.string(e.category))
+            ; icon is exported as a ready-to-load path (game dir already joined)
+            ; so the TSX menu can hand it straight to backgroundImage.
+            def icon:string (this.resolveIconPath(e))
+            if ((strlen icon) > 0) {
+                push keys "icon"
+                push vals (EvalValue.string(icon))
+            }
+            push items (EvalValue.object(keys vals))
+            i = (i + 1)
+        }
+        return (EvalValue.array(items))
+    }
+}

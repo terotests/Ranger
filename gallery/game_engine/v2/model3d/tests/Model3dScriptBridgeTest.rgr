@@ -19,10 +19,10 @@
 
 Import "../Model3dScriptBridge.rgr"
 Import "GlbFixture.rgr"
-Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
-Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../interp/migrate/src/ComponentEngine.rgr"
+Import "../../interp/migrate/src/EvalValue.rgr"
 
-class Checker {
+class ScriptBridgeChecker {
     def passed:int 0
     def failed:int 0
 
@@ -53,8 +53,8 @@ class Checker {
 }
 
 class Model3dScriptBridgeTest {
-    sfn m@(main):void () {
-        def ck:Checker (new Checker)
+    sfn runScriptBridge:int () {
+        def ck:ScriptBridgeChecker (new ScriptBridgeChecker)
 
         ; 1. materialise a real GLB on disk (the "resource" being loaded)
         def glb:buffer (GlbFixture.build())
@@ -70,7 +70,7 @@ class Model3dScriptBridgeTest {
 
         ; 3. load the TSX fixture and run it — all GLB parse + GL-buffer prep
         ;    happens host-side, invoked purely through the interpreter.
-        def buf:buffer (buffer_read_file "gallery/game_engine/model3d/tests" "model3d_bridge_demo.tsx")
+        def buf:buffer (buffer_read_file "gallery/game_engine/v2/model3d/tests" "model3d_bridge_demo.tsx")
         engine.loadScript((buffer_to_string buf))
         def res:EvalValue (engine.callFunction("run" (EvalValue.null())))
 
@@ -108,7 +108,11 @@ class Model3dScriptBridgeTest {
 
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
-        if (ck.failed == 0) {
+        return ck.failed
+    }
+
+    sfn m@(main):void () {
+        if (Model3dScriptBridgeTest.runScriptBridge() == 0) {
             print "ALL PASS"
         } {
             print "SOME FAILED"

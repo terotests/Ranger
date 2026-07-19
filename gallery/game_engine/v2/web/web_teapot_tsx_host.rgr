@@ -14,12 +14,12 @@
 ; drives either. No JavaScript in the engine — compiles to C++ too.
 ; ==============================================================================
 
-Import "../three/tsx/three_tsx_bridge.rgr"
-Import "../three/src/three_gl_backend.rgr"
-Import "../three/src/three_orbit_controls.rgr"
-Import "../three/src/three_cube_texture.rgr"
-Import "../three/src/three_texture.rgr"
-Import "../three/tsx/three_gui_overlay.rgr"
+Import "../three/port/tsx/three_tsx_bridge.rgr"
+Import "../three/port/src/three_gl_backend.rgr"
+Import "../three/port/src/three_orbit_controls.rgr"
+Import "../three/port/src/three_cube_texture.rgr"
+Import "../three/port/src/three_texture.rgr"
+Import "../three/port/tsx/three_gui_overlay.rgr"
 
 ; The teapot runs on the ONE generic reconciler (ThreeTsxBridge). This host is pure
 ; PLUMBING (IDEAL_THREE §5): OrbitControls + the lil-gui panel + input, plus the

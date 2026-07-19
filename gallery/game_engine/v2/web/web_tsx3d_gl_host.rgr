@@ -18,8 +18,8 @@
 ; the same path runs native.
 ; ==============================================================================
 
-Import "../three/tsx/three_tsx_bridge.rgr"
-Import "../three/src/three_gl_backend.rgr"
+Import "../three/port/tsx/three_tsx_bridge.rgr"
+Import "../three/port/src/three_gl_backend.rgr"
 
 class WebTsx3dGlHost {
     def engine:ComponentEngine (new ComponentEngine())

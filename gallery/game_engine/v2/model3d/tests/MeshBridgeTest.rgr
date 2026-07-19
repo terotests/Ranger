@@ -11,7 +11,7 @@ Import "../ModelLoader.rgr"
 Import "../MeshBridge.rgr"
 Import "GlbFixture.rgr"
 
-class Checker {
+class MeshBridgeChecker {
     def passed:int 0
     def failed:int 0
     fn ok:void (name:string cond:boolean) {
@@ -29,8 +29,8 @@ class Checker {
 }
 
 class MeshBridgeTest {
-    sfn m@(main):void () {
-        def ck:Checker (new Checker)
+    sfn runMeshBridge:int () {
+        def ck:MeshBridgeChecker (new MeshBridgeChecker)
         print "== MeshBridge: GLB -> engine mesh =="
 
         def glb:buffer (GlbFixture.build())
@@ -86,7 +86,11 @@ class MeshBridgeTest {
         ck.ok("no emissive" (em.emissiveG == 0.0))
 
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
-        if (ck.failed == 0) {
+        return ck.failed
+    }
+
+    sfn m@(main):void () {
+        if (MeshBridgeTest.runMeshBridge() == 0) {
             print "ALL PASS"
         } {
             print "SOME FAILED"

@@ -21,8 +21,8 @@
 ; ==============================================================================
 
 Import "./rgba_fast_blit.rgr"
-Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
+Import "../../imaging/raster/RasterBuffer.rgr"
 
 class SoftCanvas {
     def w:int 0

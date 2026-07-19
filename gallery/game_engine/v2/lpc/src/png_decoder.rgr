@@ -3,9 +3,9 @@
 ; ==============================================================================
 ; Supports LPC walk sheets: 8-bit palette + tRNS alpha.
 
-Import "../../../pdf_writer/src/core/Buffer.rgr"
-Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../../zip/Inflate.rgr"
+Import "../../imaging/core/Buffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
+Import "../../imaging/zip/Inflate.rgr"
 
 class PNGDecoder {
     def pos:int 0

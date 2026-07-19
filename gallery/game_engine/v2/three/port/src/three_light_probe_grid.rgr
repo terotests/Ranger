@@ -15,7 +15,7 @@
 Import "three_object3d.rgr"
 Import "three_vector3.rgr"
 Import "three_spherical_harmonics3.rgr"
-Import "../../model3d/ByteReader.rgr"
+Import "../../../model3d/ByteReader.rgr"
 
 class ThreeLightProbeGrid extends ThreeObject3D {
     def isLightProbeGrid:boolean true

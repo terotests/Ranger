@@ -28,7 +28,7 @@
 Import "../framebuffer.rgr"
 Import "../../runtime/sdl/gfx_sdl.rgr"
 Import "./game_image_loader.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
 
 ; Retained on-screen object: static shape from sprites(), runtime pose from state.
 class GameEntity {

@@ -2,8 +2,8 @@
 ; lpc_blit — alpha blit ImageBuffer → RasterBuffer (fast buffer path).
 ; ==============================================================================
 
-Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../imaging/jpeg/ImageBuffer.rgr"
+Import "../../imaging/raster/RasterBuffer.rgr"
 Import "../../rgba_fast_blit.rgr"
 
 class LpcBlit {
