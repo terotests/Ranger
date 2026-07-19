@@ -25,30 +25,272 @@ Mark checklist items `[x]` when they land and stay green.
 
 ---
 
+## Validate the approach — WASM as a first-class parity target **now**
+
+**Yes — treat WASM as a first-class parity target now**, not after the TSX API
+is “finished.” Otherwise the 2D/3D API may accumulate conveniences that cannot
+be lowered cleanly to a stable binary boundary.
+
+Architectural intent is already right
+([`CODE_CLEANUP.md`](../CODE_CLEANUP.md), [`BRIDGES.md`](./BRIDGES.md)):
+TSX and WASM guests issue the **same registry commands** against the same
+host-owned resources. One schema should generate host dispatch, interpreter
+bindings, WASM imports, TypeScript declarations, Rust wrappers, and parity
+tests.
+
+**Implementation is uneven today:**
+
+| Piece | Status |
+|-------|--------|
+| Low-level WASM bridge (handle, retain/release, span, async poll, TSX↔WASM command-trace fixtures) | green under `bridge/wasm/tests/` |
+| Ergonomic `ranger_wasm` Rust package | still a **scaffold** |
+| WASM guest through macOS/Pi SDL host | **not** in the first SDL-window milestone — no Rust game E2E on native yet |
+
+### Desired layering
+
+```text
+TSX game                           Rust game
+   │                                  │
+ranger:core / ranger:2d          ranger_wasm::core / ::two_d
+   │                                  │
+interpreter adapter              generated safe Rust wrappers
+   │                                  │
+   └──────── same registry commands ──┘
+                       │
+                 RgGameHost
+                       │
+       software / GLES / Metal renderer
+```
+
+Public programming experience should be **similar**; the binary ABI stays
+deliberately **primitive**.
+
+### Similar source APIs, not identical syntax
+
+TSX:
+
+```ts
+import { runtime } from "ranger:core";
+import * as TWO from "ranger:2d";
+
+class JumperGame {
+  layer = new TWO.Layer2D();
+  camera = new TWO.Camera2D();
+  renderer = new TWO.Renderer2D();
+  update(frame) {
+    this.renderer.render(this.layer, this.camera, 0);
+  }
+}
+runtime.start(new JumperGame());
+```
+
+Rust should preserve the same concepts and lifecycle, with Rust conventions
+(`snake_case`, `Result`, RAII, borrowing, typed options, `Clone`/`Drop`) —
+not JS property proxies:
+
+```rust
+use ranger_wasm::{
+    core::{FrameInfo, Game, GameContext, InitContext, Result},
+    two_d,
+};
+
+struct JumperGame {
+    layer: two_d::Layer2D,
+    camera: two_d::Camera2D,
+    renderer: two_d::Renderer2D,
+}
+
+impl Game for JumperGame {
+    async fn init(_ctx: &mut InitContext) -> Result<Self> {
+        Ok(Self {
+            layer: two_d::Layer2D::new()?,
+            camera: two_d::Camera2D::new()?,
+            renderer: two_d::Renderer2D::new()?,
+        })
+    }
+    fn update(
+        &mut self,
+        _ctx: &mut GameContext,
+        _frame: FrameInfo,
+    ) -> Result<()> {
+        self.renderer.render(&self.layer, &self.camera, 0)?;
+        Ok(())
+    }
+}
+
+ranger_wasm::export_game!(JumperGame);
+```
+
+`Game` trait + `export_game!` → lifecycle exports (create, async-init poll,
+update, resize, shutdown) per CODE_CLEANUP / BRIDGES.
+
+### ABI smaller than either source API
+
+Raw ABI must **not** expose classes, Rust references, TS objects, or renderer
+impl details. Reasonable core lowering (already the documented direction):
+
+```text
+handles        two u32 words: low, high
+bool/enums     i32/u32
+numbers        i32/u32/f32/f64
+strings        UTF-8 offset + byte length
+arrays         memory offset + element count + element type
+results        status code + out parameters
+async          begin / poll / cancel / release
+```
+
+Friendly call → ugly raw import (by design; only generated bindings call it):
+
+```text
+Sprite2D::from_texture(&view)
+  → rg_sprite2d_create_from_texture_view(view_lo, view_hi, out_lo, out_hi) -> status
+```
+
+### Generate two Rust layers in `ranger_wasm`
+
+**1. Generated raw `sys` layer** — no policy; regenerated entirely from the
+registry:
+
+```rust
+mod sys {
+    extern "C" {
+        pub fn rg_sprite2d_set_position(lo: u32, hi: u32, x: f32, y: f32) -> i32;
+    }
+}
+```
+
+**2. Safe ergonomic layer** — `OwnedHandle<T>` with `Clone → rg_retain`,
+`Drop → rg_release`; host still validates realm/generation/slot/type (hostile
+modules can bypass wrappers). Also: `BorrowedHandle`, `Error`/`Result`, UTF-8
++ checked span lowering, async `Future` wrappers, `Game` contexts,
+`export_game!`, typed descriptors.
+
+### Put 2D/3D composition into the schema **now**
+
+Do not leave these TSX-only — they must lower to both guests:
+
+```text
+Texture2D · TextureView2D · RenderTarget
+SceneSprite3D (or helper)
+render-to-target · pane/surface destination
+sampler/filter · pass clear/load
+```
+
+If an API cannot be expressed naturally in **both** TSX and Rust, the public
+abstraction is probably over-fit to TS object behaviour. That is a design test
+for the hybrid slice (`ylos3d`).
+
+### Versioned descriptors for complex options
+
+- Hot ops: direct versioned imports (`rg_sprite2d_set_position_v1`)
+- Option-rich constructors: versioned **memory descriptors**
+  (`rg_render_target_create_v1(desc_off, desc_size, out_lo, out_hi)`) with
+  `struct_size` first field
+- **Never** silently add args to an existing import (Wasm validates types at
+  instantiate — “defaulted” params still break old guests)
+- Prefer direct versioned imports for common ops; descriptors for rich create;
+  generic dispatcher only for experiments / rare extensions
+
+### Native macOS and Pi — WASM is a guest format, not a browser mode
+
+```text
+Raspberry Pi SDL host          macOS SDL host
+  + embedded WASM runtime        + embedded WASM runtime
+  + Ranger imports               + identical Ranger imports
+  + game.wasm                    + same game.wasm
+```
+
+Renderer stays native. WASM only sends commands + handles. Same `.wasm` must
+drive software / Pi GLES / macOS Metal (or compat GL). **No** GPU pointers,
+SDL handles, native paths, or GL IDs cross the ABI.
+
+Host common guest interface (so `RgGameHost` does not care which it ticks):
+
+```text
+GuestInstance
+├── TsxGuestInstance
+└── WasmGuestInstance
+    create() · pollInit() · update(frame) · resize() · shutdown()
+```
+
+### WASM-specific Pi constraints
+
+(see also [`docs/WASM_MEMORY_ABI.md`](../docs/WASM_MEMORY_ABI.md))
+
+- Prefer **host-side** asset decoding (large models must not occupy linear
+  memory first)
+- Chunk large guest geometry uploads
+- Do not cache host views across `memory.grow`
+- Avoid per-vertex ABI calls
+- Realm teardown must release handles after a trap
+- Limits: memory, handles, pending requests, commands/frame
+
+### First end-to-end parity gate (before full ylos3d Rust port)
+
+Do **not** start with the full 3D game. One small dual-source package:
+
+```text
+games/wasm_parity/          (or tests/fixtures/wasm_parity/)
+├── index.tsx
+└── rust/
+    ├── Cargo.toml
+    └── src/lib.rs
+```
+
+Both versions must:
+
+1. Create layer, camera, renderer, atlas, sprite  
+2. Read a typed input action  
+3. Move the sprite  
+4. Render one pane  
+5. Play one sound  
+6. Create a small 3D render target  
+7. Show its texture through a 2D sprite  
+8. Shut down cleanly  
+
+Compare: registry command IDs + order · handle types · retain/release ·
+render-pass · framebuffer · input edges · audio events · cleanup after normal
+shutdown **and** after a WASM trap.
+
+Then scale that package up to a full **Rust `ylos3d`** reference (Milestone W).
+
+### Approach-validation priority (tight sequence)
+
+1. Stabilize registry defs for the current 2D + render-target slice  
+2. Generate raw Rust `sys` imports from that schema  
+3. Implement `OwnedHandle<T>`, errors, strings, spans, lifecycle exports  
+4. Run one minimal Rust/WASM game in the **headless** host  
+5. TSX-versus-Rust **command-trace** parity  
+6. Add WASM guest profile to the **SDL** host  
+7. Run the same `.wasm` on macOS and Pi 5  
+8. Add 3D-RT→2D-sprite parity case  
+9. **Only then** publish the first stable ABI version  
+10. Continue GPU backends behind that **unchanged** ABI  
+
+**Most important point:**
+
+> TSX and Rust share the same conceptual API and exactly the same host command
+> semantics; the WASM ABI remains a small, stable, generated implementation
+> detail.
+
+That gives Rust a native-feeling API without a second engine architecture.
+**Adding more games is lower priority than proving this path.**
+
+---
+
 ## PoC priority — full path over more games
 
-**WASM is a first-class part of the v2 PoC**, not a follow-on after “all the
-TSX games.” The interpreter profile (TSX → `RgRegistryBridge`) is necessary
-but not sufficient: the same semantic commands must also run from a
-**Rust→wasm32** guest against the same host ([`BRIDGES.md`](./BRIDGES.md)
-rev 2).
-
-**Adding more games right now is not the priority.** Chess and a wider catalog
-stay on the long-term must-pass list, but they wait until the **end-to-end
-path** is validated:
+See **Validate the approach** above. Summary: WASM is first-class for the v2
+PoC; the interpreter profile alone is not enough. Wait on Chess / catalog
+growth until TSX + Rust share one host command stream.
 
 ```text
 TSX ylos2 / ylos3d  (interpreter profile)     ✓ partly green
         +
-Rust ylos3d         (wasm32 profile)          ← elevate this
+minimal wasm_parity  →  Rust ylos3d           ← elevate (Milestone W)
         ↓
 same host arenas / present / (later) native SDL on macOS + Pi 5
 ```
-
-`ylos3d` is the right WASM reference: it already exercises **2D + embedded 3D
-RTT + split panes + input + audio façades** — more of the registry surface
-than Chess would. Porting Chess early would expand content without proving
-the second guest language / ABI.
 
 ---
 
