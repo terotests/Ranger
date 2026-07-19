@@ -5,11 +5,11 @@ Re-implemented sketches / ports that target **only** v2 modules:
 `ranger:core` / `ranger:2d` / `ranger:three` / `ranger:cannon`  
 (or `ranger_wasm::{core,two_d,three,cannon}`).
 
-**v1 keeps running.** Top-level [`../../games/`](../../games/) and the v1
-engine paths they need (`scripting/game_sprite.rgr`, runners, …) stay
-supported — see [`CODE_CLEANUP_PLAN.md`](../../CODE_CLEANUP_PLAN.md)
-(**Intent: v1 keeps running**). Ports here do **not** license deleting that
-runtime.
+**Runnable legacy (current).** Top-level [`../../games/`](../../games/) and
+the v1 engine paths they need (`scripting/game_sprite.rgr`, runners, …) stay
+launchable — see [`CODE_CLEANUP_PLAN.md`](../../CODE_CLEANUP_PLAN.md)
+(**Intent** / runnable → archival). Ports here do **not** flip the tree to
+archival legacy or license deleting that runtime.
 
 Sketches may not compile until façades exist. Comments mark `MISSING` /
 `TODO` / `HACK` where the API or content is incomplete.

@@ -648,9 +648,11 @@ Frame-local drawing is separate:
 ```text
 Sprite2D / Shape2D / …
     retained objects with identity and lifetime (D-IDENTITY, D-LIFE, D-OWN)
+    → host/arenas/two_d/*
 
 DrawList2D / Canvas2D commands
     frame-local commands without persistent object identity
+    → host/frame_commands/two_d/draw_list/   (not an arena)
 ```
 
 The old `game_sprite.rgr` path is the retained model; guest `.as` draw lists are
