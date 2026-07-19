@@ -196,6 +196,13 @@ checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
   and reach the goal; celebration fires through the audio/vocal/music facades.
   Gate: `games/ylos2/ylos2_v2_runner` (24 checks). Bridge design: `BRIDGES.md`
   (rev 2 — semantic IDL + per-target ABI profiles, after design review).
+- **Launcher menu as a TSX guest + menu→game handoff: ✅ green.**
+  `menu/launcher.tsx` (categories → games tile pages, retained tile sprites,
+  D-pad navigation on wasPressed edges, select → `launch(path)`) driven by
+  `menu/launcher_v2_runner` (22 checks): page turns release old tiles (no arena
+  leak), held keys don't repeat (edge ≠ level), the menu presents pixels,
+  selecting Pomppija reports `games/ylos2`, the menu realm tears down, and the
+  ylos2 guest boots in a fresh realm and starts running.
 
 Phases 1–11 of `../CODE_CLEANUP_PLAN.md` are validated headlessly (identity →
 handles/arenas → registry → adapter → WASM bridge → lifetimes → geometry →

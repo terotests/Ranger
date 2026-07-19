@@ -114,6 +114,9 @@ run_suite tests/unit/bridge/registry_bridge_coverage_test
 # games/ranger2d.tsx + games/ylos2/index.tsx through ComponentEngine ->
 # RgRegistryBridge -> ranger:2d/core arenas -> split-screen software present.
 run_suite games/ylos2/ylos2_v2_runner
+# launcher menu TSX guest: tile pages, D-pad edges, select -> launch path,
+# realm teardown, then the ylos2 guest boots in a fresh realm (handoff).
+run_suite menu/launcher_v2_runner
 
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
