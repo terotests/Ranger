@@ -510,8 +510,39 @@ Façade — [`ranger_core.tsx`](./modules/ranger_core/ranger_core.tsx):
 loadSpriteAtlas(uri) { return new __RgLoadedAtlas(rgcore_assets_load_atlas(uri)); }
 ```
 
-Package file — [`games/ylos2/player.atlas`](./games/ylos2/player.atlas)
-(`texture` / `region` / `clip` lines).
+##### Where is the asset?
+
+**On disk there is only one file** in the game package:
+
+[`games/ylos2/player.atlas`](./games/ylos2/player.atlas) — a **text manifesto**,
+not a PNG sheet:
+
+```text
+texture 256 256
+region idle 0 0 32 48
+region walk 32 0 32 48
+region plat 64 0 32 8
+clip walk idle,walk 120,120
+```
+
+| Line | Meaning | What the host creates |
+|------|---------|------------------------|
+| `texture 256 256` | logical sheet size | `RgTexture2D` with `width`/`height` only — **no pixel buffer** |
+| `region idle 0 0 32 48` | named rect in that sheet | `RgSpriteRegion{name,x,y,w,h}` pushed on the atlas |
+| `region walk …` / `region plat …` | more named rects | same; indices 0, 1, 2 |
+| `clip walk idle,walk 120,120` | animation: region names + ms/frame | `RgAnimClip2D{frames,durations}` |
+
+Resolution: `pkg://player.atlas` → strip `pkg://` → read
+`{bridge.packageDir}/player.atlas` (set by `RgGameHost.load` to
+`gallery/game_engine/v2/games/ylos2`). Host filesystem paths never appear in
+guest code (§2.7).
+
+There is **no** `player.png` (or any image) under `games/ylos2/` today. The
+software presenter does not sample texels — it plots a colour keyed on
+`regionIndex` (`100 + region`, see Path D). So the regions are enough for the
+headless e2e to tell idle vs walk vs plat apart. v1 ylos used real PNGs
+(`games/ylos2/assets/p1_walk.png`, …); that art path is out of scope for this
+v2 port until a backend reads texture pixels.
 
 Ranger — bridge loads into the **same** 2D arenas sprites use
 ([`RgRegistryBridge.loadAtlasAsset`](./interp/engine/RgRegistryBridge.rgr)):
@@ -521,9 +552,9 @@ fn loadAtlasAsset:int (uri:string) {
     ; strip pkg:// → read packageDir/rel
     def raw:buffer (buffer_read_file pdir rel)
     ; for each line:
-    ;   texture → d2.textureCreate + d2.atlasCreate + mintId
+    ;   texture → d2.textureCreate(w, h) + d2.atlasCreate + mintId
     ;   region  → d2.atlasAddRegion(atlasH, name, x, y, w, h)
-    ;   clip    → d2.atlasAddClip(…)
+    ;   clip    → resolve region names → d2.atlasAddClip(…)
     return atlasGuestId
 }
 
@@ -534,10 +565,29 @@ if (row.name == "rgcore_assets_load_atlas") {
 }
 ```
 
+Host create (no pixels) — [`RgRanger2D.rgr`](./modules/ranger_2d/RgRanger2D.rgr):
+
+```rgr
+fn textureCreate:OwnedHandle (w:int h:int) {
+    ; … alloc RgTexture2D …
+    tx.width = w
+    tx.height = h          ; dimensions only — no RGBA store yet
+    …
+}
+fn atlasAddRegion:int (atlasH:RgHandle name:string x:int y:int w:int h:int) {
+    def reg:RgSpriteRegion (new RgSpriteRegion)
+    reg.name = name
+    reg.x = x   reg.y = y   reg.w = w   reg.h = h
+    push at.regions reg
+    return ((array_length at.regions) - 1)
+}
+```
+
 **Structures accessed:**
 
 | Structure | Fields | File |
 |-----------|--------|------|
+| `games/ylos2/player.atlas` | text lines on disk | game package (only asset file) |
 | `RgRegistryBridge.packageDir` | game folder path | set by `RgGameHost.load` |
 | `RgRanger2D.textures:[RgTexture2D]` | `width`, `height` | `RgRanger2D.rgr` |
 | `RgRanger2D.atlases:[RgSpriteAtlas]` | `textureH`, `regions:[RgSpriteRegion]`, `clips:[RgAnimClip2D]` | same |
