@@ -1,6 +1,7 @@
 # ADR-0001 — `ThreeSceneHost` owns authoritative Three state
 
-> Status: **proposed** (planning). Context: `CODE_CLEANUP.md` §III.2.
+> Status: **proposed** (planning). Context: `CODE_CLEANUP.md` §III.2 and
+> Architecture decisions (D-SYNC).
 > Supersedes the conflicting architecture statements in `IDEAL_THREE.md`,
 > `THREE_BRIDGE.md`, and `THREE.md`.
 
@@ -15,45 +16,63 @@ The design docs describe **two** incompatible architectures:
   privately.
 
 The second is what is actually built (`three/src/three_scene_host.rgr` is the
-single registry; `three/tsx/three_native_bridge.rgr` and the TSX reconciler both
-drive it). But the first is still in the docs, and `THREE.md` still names the
-Teapot/Sponza demos through per-demo bridges that the same doc elsewhere says are
-removed. This ambiguity is the source of drift (e.g. the command-ABI surface gap:
-the host exposes 10 geometry constructors, the native bridge exposes 2).
+single registry; `three/tsx/three_native_bridge.rgr` and the transitional TSX
+reconciler both drive it). But the first is still in the docs, and `THREE.md`
+still names the Teapot/Sponza demos through per-demo bridges that the same doc
+elsewhere says are removed. This ambiguity is the source of drift (e.g. the
+command-ABI surface gap: the host exposes 10 geometry constructors, the native
+bridge exposes 2).
+
+A second ambiguity in planning drafts: **snapshot reconciliation** (façade tree
+diffed into the host each frame) versus **live host-backed objects** (`new Mesh`
+/ `scene.add` / property writes hit the host immediately). Those are different
+sync models and must not both be treated as the final architecture.
 
 ## Decision
 
 **`ThreeSceneHost` is the single owner of authoritative Three state.** Every
-front-end — the TSX interpreter reconciler, a Ranger program, a C++/WASM guest —
-holds only **opaque handles** and issues **commands** against that one host
-instance. No front-end keeps its own Three object graph; no host pointer or GPU
-resource ever crosses into a guest.
+front-end — the TSX live native adapter (target), the transitional reconciler
+(temporary), a Ranger program, a C++/WASM guest — holds only **opaque handles**
+and issues **commands** against that one host instance. No front-end keeps its
+own Three object graph; no host pointer or GPU resource ever crosses into a
+guest.
+
+**Sync model (see `CODE_CLEANUP.md` D-SYNC):** the target is the **live-object**
+path. `new THREE.Mesh(...)` creates a host object once; `scene.add` reparents
+immediately; property writes update the host immediately or through explicitly
+documented batching. Structural reconciliation in `three_tsx_bridge.rgr` is a
+compatibility adapter with a stated retirement milestone (`RETIRE-RECONCILE`),
+not the long-term design.
 
 Corollaries:
 - Resources (geometry / material / texture) and instances (entities) are host
-  registries; a mesh references resources by handle (already the shape in
-  `three_scene_host.rgr`).
+  registries with **typed arenas** (not heterogeneous base-type arrays plus
+  pretend downcasts); a mesh references resources by handle.
 - The host is the only place the renderer and GPU resources live.
-- A front-end's "scene" is a projection it reconciles *into* the host, not a
-  parallel source of truth.
+- **Object identity ≠ scene membership ≠ GPU resource lifetime** (D-LIFE):
+  `dispose()` disposes backend resources; it does not release the object handle.
+- A front-end's script objects are NativeRefs to host handles, not a parallel
+  source of truth.
 
 ## Consequences
 
 - `IDEAL_THREE.md`'s "front-ends use the object model directly" model is
-  **retired**; that document is either rewritten to the command/handle model or
-  marked historical.
+  **retired**; that document is rewritten to the command/handle + live-adapter
+  model or marked historical.
 - `THREE.md`'s demo table is corrected to describe Teapot/Sponza through the
-  reconciler + host, not removed per-demo bridges.
-- Premise for `CODE_CLEANUP.md` II–III: host owns host-object identity; after
-  II.A the interpreter owns script-object identity; the reconciler (III.3) diffs
-  those two identity spaces instead of using child-index caches.
+  host (live adapter; reconciler only while still temporary).
+- Premise for `CODE_CLEANUP.md` II–V: host owns host-object identity; after II.A
+  the interpreter owns script-object identity; the live adapter binds them at
+  construct time. The reconciler must not create a second host object for an
+  already-constructed live instance.
 - The native-object adapter (V.2) does **not** change ownership: adapter backing
   objects are the host's canonical types, so value parity and host state are the
   same objects, not two mirrors.
 
 ## Non-goals
 
-- This ADR does not decide the interpreter identity representation (II.A) or
-  the adapter API (V.2) — it only fixes *who owns state*.
+- This ADR does not decide the interpreter identity representation (II.A), the
+  exact handle bit layout (D-HANDLE), or the class-registry file format — it
+  fixes *who owns state* and which sync model is authoritative.
 - It does not remove `ranger_games/` or any native path; those front-ends still
   drive the same host through the same command surface.
