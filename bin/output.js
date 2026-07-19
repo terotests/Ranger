@@ -6851,18 +6851,11 @@ class RangerLispParser  {
   };
 }
 RangerLispParser.normalizeLineEndings = function(src) {
-  let s = src;
-  let pos = s.indexOf("\r\n");
-  while (pos >= 0) {
-    s = ((s.substring(0, pos )) + "\n") + (s.substring((pos + 2), (s.length) ));
-    pos = s.indexOf("\r\n");
-  };
-  pos = s.indexOf("\r");
-  while (pos >= 0) {
-    s = ((s.substring(0, pos )) + "\n") + (s.substring((pos + 1), (s.length) ));
-    pos = s.indexOf("\r");
-  };
-  return s;
+  if ( (src.indexOf("\r")) < 0 ) {
+    return src;
+  }
+  const s = (src.split("\r\n")).join("\n");
+  return (s.split("\r")).join("\n");
 };
 class TTypes  {
   constructor() {

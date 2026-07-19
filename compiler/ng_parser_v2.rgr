@@ -31,19 +31,14 @@ class RangerLispParser {
   def disableOperators false
 
   ; Accept LF, CRLF, and lone CR — normalize to LF before tokenization.
+  ; Use split/join (linear) instead of repeated substring rebuilds (quadratic on
+  ; large CRLF sources such as Lang.rgr / lib/*.rgr).
   static fn normalizeLineEndings:string (src:string) {
-    def s:string src
-    def pos (indexOf s "\r\n")
-    while (pos >= 0) {
-      s = (substring s 0 pos) + "\n" + (substring s (pos + 2) (strlen s))
-      pos = (indexOf s "\r\n")
+    if ((indexOf src "\r") < 0) {
+      return src
     }
-    pos = (indexOf s "\r")
-    while (pos >= 0) {
-      s = (substring s 0 pos) + "\n" + (substring s (pos + 1) (strlen s))
-      pos = (indexOf s "\r")
-    }
-    return s
+    def s:string (join (strsplit src "\r\n") "\n")
+    return (join (strsplit s "\r") "\n")
   }
   
   Constructor ( code_module:SourceCode ) {
