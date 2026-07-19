@@ -517,238 +517,179 @@ guest faces.
 
 ---
 
-# Vertex data flow: construction, world binding, rendering, read-back
+# Vertex data flow: target design
 
-A single vertex of a cube is the best end-to-end probe of the architecture,
-because it has to cross every boundary this plan talks about: guest → core →
-renderer → and (ideally) back to the guest. This chapter walks one vertex —
-the cube corner at `(+1, +1, +1)` — through all four stages, with the real code
-at each step. Where a stage works differently on the TSX path and the WASM
-path, both are shown; where a stage does not exist yet, that is stated and tied
-to the chapter that adds it.
+This chapter specifies how one vertex — the cube corner at `(+1, +1, +1)` —
+should travel through the planned architecture, end to end: constructed in guest
+code, attached to world objects, rendered, and read back. It is a design, not a
+description of current behavior; the current gaps are catalogued in the
+inventory chapter (0.x). Every mechanism used here is defined elsewhere in the
+plan — the class registry (contract), the bridge (native classes and modules),
+the entity registry (handles), and the lifetime/GC chapter (ownership) — this
+chapter shows them working together on one concrete piece of data.
+
+Two rules shape everything below:
+
+- **One copy.** The vertex exists exactly once, in the core geometry's flat
+  arrays. Guests, façades and renderers hold handles or copies-by-request, never
+  a second authoritative copy.
+- **Bulk crossings.** Vertex data crosses the guest↔host boundary in one call
+  carrying N vertices, never one call per component. Per-vertex chatter over the
+  WASM boundary is the failure mode the design must not permit.
 
 ## Stage 1 — construction in guest code
 
-Three.js has several distinct ways to construct a mesh, and each one gives the
-vertex a different birthplace. The contract must cover all of them; today the
-engine covers some. The routes, with their support status:
+Three.js offers several construction routes; each becomes a thin path onto the
+same write surface. All geometry commands are declared once in the class
+registry and generated for every face (host API, interpreter adapter, WASM
+imports, JS wrapper).
 
-| Route | Three.js form | Who types the coordinates | Status today |
-|-------|---------------|---------------------------|--------------|
-| 1a Parametric | `new THREE.BoxGeometry(w,h,d)` | the core | supported (10 host commands) |
-| 1b Explicit vertex data | `BufferGeometry` + `setAttribute('position', …)` | **the guest** | not supported (no host command, no façade class) |
-| 1c Loaded from a model file | `GLTFLoader.load(url)` | the file | supported (`modelAttach`) |
-| 1d Mutation after construction | `position.setXYZ(i,…)` + `needsUpdate` | the guest | partial (rebuild, not update) |
-
-**Route 1a — parametric.** The guest names a shape and its parameters; the
-coordinates are computed in the core. TSX (`games/cube/index.tsx:23–26`):
+**Route 1a — parametric.** The guest names a shape; the core computes the
+coordinates.
 ```tsx
-const geometry = new THREE.BoxGeometry();
-const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
-mesh = new THREE.Mesh( geometry, material );
+const geometry = new THREE.BoxGeometry();          // adapter: construct("BoxGeometry")
+const mesh     = new THREE.Mesh(geometry, material);
 ```
-The reconciler issues one host command (`three_tsx_bridge.rgr:740`
-`buildGeometryH` → `:807` `host.geometryBox(gw gh gd)`). The compiled WASM guest
-does the same through the SDK (`games/cube3d_wasm/src/src/lib.rs:20–25`):
-```rust
-let cube = scene.spawn_cube(Vec3::ZERO, 1.0, tex);   // -> opaque Entity id
-```
-(`spawn_cube`, `lib/ranger_game/src/scene.rs:577`, sends
-`rg_create_mesh_entity` and keeps only the returned id.) On this route the
-doubles are born in the core: `ThreeSceneHost.geometryBox` →
-`ThreeBoxGeometry.setSize` (`three/src/three_box_geometry.rgr:25`):
-```
-fn setSize:ThreeBoxGeometry (width:double height:double depth:double) {
-    def hx:double (width * 0.5)
-    ...
-    ; +Z face — our vertex (+hx, +hy, +hz) is pushed here
-    this.addQuad(nhx nhy hz  hx nhy hz  hx hy hz  nhx hy hz  0.0 0.0 1.0)
-```
+The native adapter maps the constructor to the registry command
+`geometryBox(w, h, d) → geoH` and returns an EvalValue holding the geometry
+handle. The compiled guest issues the same command through the generated SDK
+(`scene.spawn_cube(...)` today; the command, not the SDK call, is the contract).
+The doubles are born in the core (`ThreeBoxGeometry.setSize` → `pushVertex`),
+which stays exactly as it is.
 
-**Route 1b — explicit vertex data.** In Three.js the guest types every
-coordinate itself; this is the standard route for any custom mesh:
+**Route 1b — explicit vertex data.** The guest types every coordinate — the
+standard Three.js custom-mesh route:
 ```js
 const geometry = new THREE.BufferGeometry();
 const vertices = new Float32Array([ 1,1,1,  -1,-1,1,  -1,1,-1 /* … */ ]);
 geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-const mesh = new THREE.Mesh(geometry, material);
 ```
-This route **does not exist in the engine today**: the façade has no
-`BufferGeometry`/`setAttribute` class, and `ThreeSceneHost` has no command that
-accepts raw vertex arrays — its geometry surface is ten parametric constructors
-plus `modelAttach`. The only form in which a guest has ever supplied raw
-vertices is the legacy *block mode*: a `rg_mesh_ptr` table of 32-byte
-fixed-point records copied out of guest linear memory
-(`wasm3d_runner.rgr:467–487`; reader kept for compatibility, no shipped game
-uses it). The contract therefore needs a bulk vertex-upload command —
-`geometryCreateRaw(positions, normals, uvs, indices)` in class-registry terms —
-the write-side twin of stage 4's bulk read: one boundary crossing carrying N
-vertices, landing in the same `pushVertex` sink as route 1a.
-
-**Route 1c — loaded from a model file.** The vertices come from a glTF binary,
-decoded host-side (`three_gltf_loader` / `model3d`), and enter the scene as a
-finished subtree via `host.modelAttach(sceneH, model)`
-(`three_tsx_bridge.rgr:609–675`). The guest sees only the returned entity
-handle; the coordinates never pass through guest code at all.
-
-**Route 1d — mutation after construction.** Three.js lets a guest edit vertices
-in place (`geometry.attributes.position.setXYZ(i, x, y, z)`;
-`position.needsUpdate = true`) — terrain deformation, water, morphing. The
-engine's current answer is coarse: the reconciler diffs a *signature* of the
-geometry parameters and on change **destroys and rebuilds the whole mesh**
-(`three_tsx_bridge.rgr:582–588`, the "needsUpdate model" per its own comments
-`:30, :79–82`). Parameter changes work; per-vertex edits have no path at all
-until route 1b exists, after which the contract needs the matching
-`geometryUpdate` (bulk overwrite of an attribute range) so an edit is an update,
-not a rebuild.
-
-Whatever the route, every vertex ends in the same place — the flat arrays of the
-core geometry (`three/src/three_buffer_geometry.rgr`):
+`BufferGeometry` is a registered native class. `setAttribute` does **not** send
+90 little calls — the adapter batches the typed array and issues one bulk
+command:
 ```
-class ThreeBufferGeometry {
-    def positions:[double]        ; x,y,z per vertex — the ONE copy
-    def normals:[double]
-    def uvs:[double]
-    fn pushVertex:void (px py pz  nx ny nz  u v) { push this.positions px ... }
-    fn getPosition:double (vertex:int comp:int) {
-        return (itemAt this.positions ((vertex * 3) + comp))
-    }
+geometryCreateRaw(positions: f32[], normals: f32[], uvs: f32[], indices: u32[]) → geoH
 ```
-The stages below follow the route-1a vertex, but stages 2–4 are identical for
-every route: once the doubles are in `positions`, their origin no longer
-matters. (Skinned, instanced and morph-target meshes are further construction
-forms Three.js offers; they add attributes and per-instance data on top of the
-same `BufferGeometry` model and are out of scope until routes 1b/1d land.)
+On the WASM path the generated import is the same command with a
+pointer+length pair per attribute — one boundary crossing, the host copies the
+range out of guest linear memory into the core arrays (the one thing the old
+`rg_mesh_ptr` block mode did well, kept without its hand-agreed offsets):
+```rust
+// generated from the class registry — not hand-written per game
+let geo = scene.geometry_raw(&VERTS, &NORMALS, &UVS, &INDICES);
+```
+Both land in the same `pushVertex` sink as route 1a. The attribute encoding
+(f32 bits as i32 words) is fixed once, in the registry, for every path.
+
+**Route 1c — loaded from a model file.** The guest names an asset; the host
+decodes the glTF and instantiates the subtree:
+```rust
+let model = scene.load_model("sponza");    // → ModelHandle
+let root  = scene.instantiate(model);      // → root entity handle
+```
+The vertices go file → host decoder → core arrays and never pass through guest
+code. The guest can still reach them afterwards — stage 4 works on any geometry
+handle, including ones born from a file.
+
+**Route 1d — mutation after construction.** Per-vertex editing (terrain, water,
+morphing) is an *update*, not a rebuild:
+```js
+geometry.attributes.position.setXYZ(7, 1.0, 2.5, 1.0);
+geometry.attributes.position.needsUpdate = true;
+```
+The adapter buffers `setXYZ` writes against the local mirror (residency rule
+V.3: hot math is guest-side) and, on `needsUpdate`, flushes one command:
+```
+geometryUpdate(geoH, attribute, firstVertex, count, data) → revision
+```
+The host overwrites the range in the core arrays and bumps the geometry's
+**content revision**. Nothing is destroyed; the mesh, its handle, and its
+identity survive the edit. (Skinned, instanced and morph-target meshes extend
+this same model with additional attributes and per-instance buffers — new
+registry entries, no new mechanism.)
 
 ## Stage 2 — attachment to world objects by handle
 
-The vertex is **not copied** into the mesh. The mesh *references* the geometry
-by handle (`three/src/three_scene_host.rgr:196`):
+The mesh references the geometry; it never copies it:
 ```
-fn meshNew:int (sceneH:int geoH:int matH:int) {
-    def m:ThreeMesh (new ThreeMesh)
-    m.setGeometry((this.geometryAt(geoH)))    ; reference, not copy
-    m.setMaterial((this.materialAt(matH)))
-    (this.sceneAt(sceneH)).add(m)
-    push entities m
-    return (array_length entities)            ; the mesh's own handle
-}
+meshNew(sceneH, geoH, matH) → meshH
 ```
-The entity's position/rotation/scale live on the *mesh*, set separately
-(`entityTransform`, `three_scene_host.rgr:242`). So after stage 2 there are two
-distinct pieces of state, joined only at render time:
+All three arguments and the result are entity-registry handles —
+generation-tagged, type-tagged (II.B). Attachment has defined semantics:
 
-- the vertex's **local position** `(1, 1, 1)` — immutable, inside the geometry,
-  shared by every mesh that references that geometry;
-- the mesh's **world transform** — mutable, per entity, updated every frame
-  (the WASM guest's `CUBE.rotation(tumble)` → `rg_set_rotation`,
-  `scene.rs:734`).
+- `meshNew` **retains** `geoH` and `matH` (refcount +1, lifetime chapter). Two
+  meshes built from the same façade `geometry` object resolve — via interpreter
+  identity (II.A) — to the **same** `geoH`, so sharing is automatic and a
+  material edit reaches both meshes.
+- The vertex's local position `(1, 1, 1)` lives in the geometry and is immutable
+  from the mesh's point of view; the mesh owns only its transform
+  (`entityTransform(meshH, …)` / `rg_set_rotation(meshH, …)`).
+- The world-space position of the vertex is **never stored** — it is computed
+  per frame in stage 3 as `uModel × (1,1,1)`. There is no world-space copy to
+  drift out of date.
+- Passing a wrong-typed or stale handle (`resolveAs(geoH, GEOMETRY)` fails the
+  generation or type check) is a defined error at the command boundary, not a
+  silent wrong-object bind.
 
-The world-space position of our vertex is never stored anywhere — it is
-computed fresh each frame in stage 3 as `uModel × (1,1,1)`. This split is
-exactly the resource/instance separation the plan's registry formalizes
-(entity-registry chapter), and it is why two meshes sharing one geometry must share one handle
-(II.E): the vertex exists once no matter how many cubes are on screen.
+## Stage 3 — rendering
 
-## Stage 3 — transfer to the shaders
+Rendering consumes the one copy; this is the part of the current engine the
+design keeps, tightened by the revision from stage 1d:
 
-**GL path.** When the geometry is first drawn, the core interleaves the flat
-arrays into one GPU buffer — 48 bytes per vertex
-(`three/src/three_gl_backend.rgr:306–315`):
-```
-; interleaved float32 [px,py,pz, nx,ny,nz, u,v, tx,ty,tz,tw] (48-byte stride)
-def vbuf:buffer (buffer_alloc (vc * 48))
-    def o:int (i * 48)
-    ByteReader.encodeF32(vbuf o (g.getPosition(i 0)))   ; px → byte offset 0
-```
-The GL glue binds that buffer to the `aPos` attribute
-(`three/src/three_gl.rgr:70`):
-```
-gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 48, 0);
-```
-and the vertex shader (`three/src/three_gl_shaders.rgr:16`) finally combines the
-two pieces of state from stage 2:
+- On first draw — or when the geometry's content revision has changed — the
+  backend interleaves the flat arrays into its native form: the GL backend
+  packs `[px,py,pz, nx,ny,nz, u,v, tangent]` at a 48-byte stride and caches the
+  GPU buffer keyed by `(geoH, revision)`; a `geometryUpdate` therefore
+  invalidates exactly one cached buffer, and an unchanged geometry is never
+  re-uploaded.
+- The vertex shader composes the two pieces of stage-2 state:
 ```glsl
-attribute vec3 aPos;            // our vertex: (1, 1, 1), local space
-uniform mat4 uModel;            // the mesh's world transform
+attribute vec3 aPos;                    // (1, 1, 1) — local, from the geometry
+uniform mat4 uModel;                    // the mesh's transform, per frame
 uniform mat4 uMVP;
 void main() {
-  vec4 wp = uModel * vec4(aPos, 1.0);   // world position, computed per frame
+  vec4 wp = uModel * vec4(aPos, 1.0);   // world position, computed, not stored
   vWorldPos = wp.xyz;
-  gl_Position = uMVP * vec4(aPos, 1.0); // clip position
+  gl_Position = uMVP * vec4(aPos, 1.0);
 }
 ```
-The upload happens once and is cached on the geometry (`glHandle` in
-`ThreeBufferGeometry`); after that, only the matrices travel per frame.
-
-**Software path** (no GPU — native Pi / tests): the rasteriser reads the same
-array through the same accessor and does the shader's job on the CPU
-(`three/src/three_software_backend.rgr:98–109`):
-```
-; project every vertex to screen space (sx, sy, sz=NDC depth)
-def lx:double (geometry.getPosition(vi 0))
-def ly:double (geometry.getPosition(vi 1))
-def lz:double (geometry.getPosition(vi 2))
-```
-Same data, two renderers — which is the point of the flat-array core: the
-vertex has one authoritative form, and each backend converts it at its own
-boundary (float32 for GL, fixed-point ×256 for the native `gfx_3d_mesh_upload`
-path).
+- The software rasteriser reads the same arrays through the same accessor
+  (`geometry.getPosition(vi, c)`) and does the same composition on the CPU. Two
+  renderers, one authoritative form, per-backend conversion at the last
+  boundary (f32 for GL, fixed-point for the native upload path).
 
 ## Stage 4 — read-back from guest code
 
-This is where the architecture is honest about its gaps.
+Reading a vertex back is part of the same contract that wrote it — one typed
+read surface, generated for every path from the same registry entries:
 
-**Compiled WASM + JS, block mode (works today, legacy).** Because the guest
-owned the vertex table, reading it back is just reading memory. The JS harness
-does exactly that (`games/cube3d_wasm/tools/render.cjs:150–158`):
-```js
-const mp  = exp.rg_mesh_ptr();            // guest's mesh block address
-const vc  = u32(mp + 16);                 // vertex count
-const VTX = mp + 64, VSZ = 32;            // records: 32 bytes/vertex
-for (let i = 0; i < vc; i++) { /* DataView reads at VTX + i*VSZ, /256 */ }
 ```
-The host does the same word-by-word (`wasm3d_runner.rgr:475`
-`wasm_mem_i32 handle (mb + 64 + (w * 4))`). The guest itself can read its own
-static table with plain Rust. Read-back works — because there is no
-abstraction, only shared bytes at agreed offsets.
+geometryVertexCount(geoH) → n
+geometryReadPositions(geoH, firstVertex, count, out) → count   ; bulk copy
+```
 
-**Compiled WASM, command mode (the current model): read-back does not exist.**
-The guest holds an opaque `Entity` id and the host owns the vertices; the
-`rg_*` import table (`scene.rs:728–786`) has creates and setters —
-`rg_create_mesh_entity`, `rg_set_rotation` — and **no getter**. A guest that
-needs a vertex (say, to fit a collision hull) must re-derive it from what it
-asked for, hoping the host built the same thing — the world-encoded-twice trap
-(0.6) waiting to reopen.
+- **Interpreter path.** `mesh.geometry` resolves through the adapter to the
+  canonical core object — not to a façade data prop — so
+  `geometry.attributes.position.getX(0)` answers from the same `positions`
+  array the renderer draws. Single-value reads are cheap here because the core
+  is in-process.
+- **WASM path.** The generated import copies a vertex range into a guest buffer
+  in one crossing:
+```rust
+let mut buf = [0f32; 3 * 24];
+let n = geo.read_positions(0, 24, &mut buf);   // one call, 24 vertices
+```
+- **JS host path.** The generated wrapper exposes the same two calls over the
+  compiled core; a browser tool reads vertices through the wrapper, not by
+  dead-reckoning byte offsets in guest memory.
+- **Failure is typed.** A stale handle (geometry destroyed, slot reused) fails
+  the generation check and the read returns 0/null — it cannot return another
+  geometry's vertices. A wrong-type handle fails `resolveAs` the same way.
 
-**TSX + JS: the façade lies politely.** `games/cube/index.tsx:53` reads
-`mesh.geometry.width` — but that touches only the façade's *own data prop*, the
-argument it passed at construction. The real `positions` array in the core is
-unreachable from game script. (In the browser the core is compiled to ES6, so
-*host-side* JS can call `geometry.getPosition(i, c)` directly — the gap is
-specifically the guest→core direction.)
-
-**How the plan closes stage 4.** Reading a vertex back becomes one contract on
-every path:
-
-- The class registry gives geometry a typed read surface — e.g.
-  `geometryVertexCount(geoH)` and `geometryGetPosition(geoH, i) → (x, y, z)` —
-  generated for the host API, the WASM import table, and the JS wrapper alike,
-  with the handle validated by generation + type id (II.B) so a stale
-  geometry handle returns null instead of someone else's vertices.
-- On the interpreter path the native adapter (bridge chapter) routes
-  `mesh.geometry.getPosition(0)` through `getProperty`/`invokeMethod` to the
-  *same canonical* `ThreeBufferGeometry` — so the façade stops answering from
-  its private props.
-- Residency (V.3) applies: vertex data is bulk state, so the contract should
-  offer a bulk read (copy N vertices into a guest buffer in one call), not a
-  per-component boundary hop — the block mode's one virtue, kept without its
-  shared-offset fragility.
-
-Once stage 4 exists, the vertex's life is a closed loop — constructed by a
-command, stored once in the core, composed with a transform in the shader, and
-readable back through the same handle that created it — on every backend, from
-one definition.
+With stage 4 in place the loop closes: the same handle that created the vertex
+attaches it, renders it, updates it, and reads it back — on the interpreted,
+compiled, and JS paths, from one definition in the class registry, with the one
+copy living in the core the whole time.
 
 ---
 
