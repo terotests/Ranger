@@ -772,6 +772,76 @@ attaches it, renders it, updates it, and reads it back — on the interpreted,
 compiled, and JS paths, from one definition in the class registry, with the one
 copy living in the core the whole time.
 
+## WASM linear-memory constraints and the rules they impose
+
+The WASM column of this design moves vertex payloads through the guest's linear
+memory. That memory model has specific properties, each of which is a concrete
+risk for the bulk commands above; each risk becomes a rule of the contract.
+
+**1. The host receives offsets, not pointers.** `ptr` in
+`rg_geometry_raw(ptr, len)` is an integer offset into the guest's memory. A
+buggy or hostile guest can pass any number. *Rule:* the host bounds-checks
+`ptr + len` against the current memory size (and requires 4-byte alignment)
+before copying, and rejects with a typed error — the same discipline the RGU1
+validator already applies to its block.
+
+**2. Memory growth invalidates host-side views.** When guest memory grows
+(`memory.grow`), a JS `ArrayBuffer` view of it is detached; a cached view then
+reads garbage or throws. This is not hypothetical — the current JS harness
+caches exactly such a view (`render.cjs:49,143`,
+`const dv = new DataView(exp.memory.buffer)`). The Ranger host's per-word
+`wasm_mem_i32` reads are immune but slow. *Rule:* a bulk copy re-acquires the
+memory buffer at the start of every command and never holds a view across
+calls; the fast path and the safe path are the same path.
+
+**3. No guest callbacks during a copy.** If the host calls back into the guest
+mid-copy (an allocation, a logging hook), the guest may grow memory and the
+source range moves under the copy. *Rule:* bulk commands are atomic with
+respect to guest execution — the host completes the copy before any guest
+export runs again.
+
+**4. Linear memory grows but never shrinks.** A guest that stages a large
+vertex buffer to upload it keeps that memory forever, even after the host has
+copied it out — a 50 MB model staged guest-side inflates the instance
+permanently. *Rules:* large assets take route 1c (host-side decode — the
+vertices never enter guest memory at all); guest-built geometry beyond a
+threshold uploads in **chunks** (`geometryAppend(geoH, first, count, data)`)
+so peak staging is bounded and reusable.
+
+**5. Uploads double the data temporarily.** During `geometryCreateRaw` the
+vertices exist twice — guest staging buffer plus core arrays. On Pi-class
+targets with large scenes this peak matters. Chunked upload (rule 4) bounds it;
+the one-copy rule guarantees the doubling is transient, not permanent.
+
+**6. Read-back requires guest-side allocation.** `read_positions` writes into a
+buffer the guest must allocate first, which may force `memory.grow`, which can
+fail. *Rules:* the guest sizes the buffer from `geometryVertexCount` before
+reading; a failed allocation or an out-of-range window is a typed error
+(return 0), never a trap; large read-backs chunk the same way uploads do.
+
+**7. Fixed-size shared blocks cap capacity — vertex data must not use them.**
+The engine's existing ABI blocks freeze their capacity into the header:
+`RG_WASM_MAX_BODIES 32`, `RG_WASM_MAX_ENTITIES 64`, `RG_UI_MAX_NODES 64`,
+`RG_UI_STRING_CAP 1024`. A fixed block for geometry would put a
+`MAX_VERTICES` constant in a header and cap every game's mesh size forever —
+the legacy `rg_mesh_ptr` block had exactly this shape. *Rule:* vertex payloads
+go through ptr+len bulk commands only; fixed blocks remain for small,
+fixed-cardinality state (input words, camera), never for geometry.
+
+**8. Shared memory across threads can tear.** The streaming vertical
+(`rust_worker`, RGX1 at a fixed offset in linear memory) has a worker writing
+while another side reads. A reader can observe a half-written vertex range.
+The codebase already has the discipline for this: RGP1's seqlock `revision`
+(odd = mid-write, even = stable, `wasm_pose_abi.h:43`). *Rule:* any
+concurrently-written buffer carries the same seqlock; single-threaded command
+uploads need none because rule 3 makes them atomic.
+
+**9. wasm32 addresses top out at 4 GiB.** Whole-scene vertex data can approach
+the guest's address-space ceiling long before the host's. This is the memory
+argument for the design's ownership rule: the authoritative copy lives host-side
+and the guest holds 32-bit handles — the guest's memory scales with what it
+*stages*, not with what the scene *contains*.
+
 ---
 
 # Engine core components and their file-system locations
