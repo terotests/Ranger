@@ -687,9 +687,10 @@ python3 gallery/game_engine/v2/tests/check_boundaries.py
 # Optional: offline PNG of ylos2 via textured software present
 npm run engine:v2:shot:ylos2
 
-# Native SDL launcher (needs SDL2 headers/libs on the machine)
+# Native SDL launcher (macOS today; Pi 5 arm64 is Milestone B)
 npm run engine:game-sdl:launcher:v2
 # build only: bash gallery/game_engine/scripts/build-sdl-v2.sh
+# Target: same binary path on Raspberry Pi OS arm64 via pkg-config SDL2
 
 # Inventory: local tests vs central driver
 # (suites listed in tests/run.sh vs find v2 -name '*_test.rgr')
