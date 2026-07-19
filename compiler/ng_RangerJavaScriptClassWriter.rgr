@@ -1328,22 +1328,37 @@ class RangerJavaScriptClassWriter {
           if( variant.nameNode.hasFlag('async') ) {
             asyncKeyword = 'async '
           }
-          if (!null? variant.nameNode) {
-            wr.outMapped((((cl.name + ".") + variant.compiledName) + " = " + asyncKeyword + "function(") (unwrap variant.nameNode) false variant.compiledName)
+          ; Function.name / Function.length are non-writable on the constructor.
+          ; Bun throws on `Class.name = fn`; Node silently keeps the string name.
+          ; Use defineProperty so static sfn name/length are callable on both.
+          def useDefineProp:boolean false
+          if ((variant.compiledName == "name") || (variant.compiledName == "length")) {
+            useDefineProp = true
+          }
+          if useDefineProp {
+            wr.out((("Object.defineProperty(" + cl.name + ", \"" + variant.compiledName + "\", { value: ") + asyncKeyword + "function(") false)
           } {
-            wr.out((((cl.name + ".") + variant.compiledName) + " = " + asyncKeyword + "function(") false)
+            if (!null? variant.nameNode) {
+              wr.outMapped((((cl.name + ".") + variant.compiledName) + " = " + asyncKeyword + "function(") (unwrap variant.nameNode) false variant.compiledName)
+            } {
+              wr.out((((cl.name + ".") + variant.compiledName) + " = " + asyncKeyword + "function(") false)
+            }
           }
           this.writeArgsDef(variant ctx wr)
           wr.out(") {" true)
+          wr.indent(1)
+          wr.newline()
+          def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
+          subCtx.is_function = true
+          this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
+          wr.newline()
+          wr.indent(-1)
+          if useDefineProp {
+            wr.out("}, writable: true, configurable: true });" true)
+          } {
+            wr.out("};" true)
+          }
         }
-        wr.indent(1)
-        wr.newline()
-        def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
-        subCtx.is_function = true
-        this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
-        wr.newline()
-        wr.indent(-1)
-        wr.out("};" true)
       }
     }
     if( (ctx.hasCompilerFlag("nodemodule")) == false ) {

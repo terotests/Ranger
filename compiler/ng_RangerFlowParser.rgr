@@ -5278,6 +5278,12 @@ class RangerFlowParser {
   fn findFunctionDesc@(weak optional):RangerAppFunctionDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def varDesc:RangerAppParamDesc
     def varFnDesc:RangerAppFunctionDesc
+    ; Populate obj.nsp (like findParamDesc) so writers can emit reserved-word
+    ; compiledName for the method segment (e.g. ES6/Bun: name -> _name).
+    def set_nsp:boolean false
+    if (0 == (size obj.nsp)) {
+      set_nsp = true
+    }
     
     if (obj.vref != (this.getThisName())) {
       if ((size obj.ns) > 1) {
@@ -5288,10 +5294,16 @@ class RangerFlowParser {
           if (i == 0) {
             
             if (strname == (this.getThisName())) {
-              classDesc = (ctx.getCurrentClass())           
+              classDesc = (ctx.getCurrentClass())
+              if set_nsp {
+                push obj.nsp (unwrap classDesc)
+              }
             } {
               if ( (ctx.isDefinedClass(strname)) && (false == (this.varShadowsSystemType(strname ctx))) ) {
                 classDesc = (ctx.findClass(strname))
+                if set_nsp {
+                  push obj.nsp (unwrap classDesc)
+                }
                 continue _
               }
               classRefDesc = (ctx.getVariableDef(strname))
@@ -5300,6 +5312,9 @@ class RangerFlowParser {
                 break _
               }
               classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)
+              if set_nsp {
+                push obj.nsp (unwrap classRefDesc)
+              }
               classDesc = (ctx.findClass(classRefDesc.nameNode.type_name))
               if(null? classDesc) {
                 return varFnDesc
@@ -5315,6 +5330,9 @@ class RangerFlowParser {
               if (null? varDesc) {
                 ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
               }
+              if set_nsp {
+                push obj.nsp (unwrap varDesc)
+              }
               def subClass:string (varDesc.getTypeName())
               classDesc = (ctx.findClass(subClass))
               continue _
@@ -5326,6 +5344,9 @@ class RangerFlowParser {
                 if (null? varFnDesc) {
                   ctx.addError(obj (' function variable not found ' + strname))
                 }
+              }
+              if ((!null? varFnDesc) && set_nsp) {
+                push obj.nsp (unwrap varFnDesc)
               }
             }
           }
