@@ -17,7 +17,8 @@ Think of three layers. Code belongs to exactly one:
 |-------|----------|----------------|--------------------|
 | **Engine core** | `scripting/` runtime files, `framebuffer.rgr`, ABI helpers, generic runners | Framebuffers, the ABI *shape*, physics primitives, sprite/HUD *mechanisms* | Any specific game: its entities, world size, track, sprites, HUD gauges, sound names, player count |
 | **Reusable subsystems** | `physics/`, `lpc/`, `menu/`, `ui/`, `pose/` | Their own domain (physics bodies, spritesheets, UI trees) | Which game is using them |
-| **A game** | `games/<name>/` (loadable TSX/WASM/`.as`) **or** `ranger_games/` (static Ranger compiled to native), plus any `<Name>Setup`/`<Name>Render`/`<Name>Hud` modules | Everything about itself | Nothing needs to know about it in core |
+| **A game (guest source)** | `games/<name>/` (loadable TSX/WASM/`.as`) **or** `ranger_games/` (static Ranger compiled to native), plus any v1 `<Name>Setup`/`<Name>Render`/`<Name>Hud` modules | Everything about itself | Nothing needs to know about it in core |
+| **Host-side per-game test/demo drivers** | `tests/` (v1) · `v2/tests/e2e/` (v2) — **never inside `games/<name>/`** | The one generic runner + that game's expected outcomes | — |
 
 ### Hard rules
 
@@ -41,7 +42,16 @@ Think of three layers. Code belongs to exactly one:
    one game's numbers satisfy (world height `6000`, camera `5860`, id prefixes
    `t`/`c`/`b`, sound ids `wall`/`bounce`/`win`, `resolvePlayerCount → 2`, …).
 
-4. **The shared ABI stays game-neutral.** `wasm/wasm_game_abi.h` and
+4. **A game directory is guest content only (v2: strict).** Guest game source
+   and host-side per-game drivers are different layers even when both are
+   game-named. A runner/harness that sets up the interpreter, bridge, or
+   renderer for one game is a *host test driver* and lives under `tests/`
+   (v2: `v2/tests/e2e/`) — never inside `games/<name>/`. In `v2/`, **adding a
+   TSX game must not require adding or compiling a game-specific `.rgr`
+   file** (see `v2/games/AGENTS.md`; v1 `<Name>Setup`-style modules are
+   grandfathered).
+
+5. **The shared ABI stays game-neutral.** `wasm/wasm_game_abi.h` and
    `scripting/wasm_abi_io.rgr` define a *transport*. Body-index meaning, id-code
    ranges, and event sub-ids are **conventions the guest defines** — document
    them as such. Do not freeze one game's taxonomy into the ABI header as if it
@@ -50,6 +60,7 @@ Think of three layers. Code belongs to exactly one:
 ### Before you commit an engine-core change — checklist
 
 - [ ] No game name (`autopeli`, `pong`, …) appears in a generic `scripting/` file.
+- [ ] No `.rgr` runner / host setup / host assertions added inside a `games/<name>/` directory (host test drivers go under `tests/`; v2: `v2/tests/e2e/`).
 - [ ] No world constant that only one game satisfies is hardcoded in core.
 - [ ] Per-game behavior arrives via a parameter/field/provider, not a branch.
 - [ ] A hypothetical *second* physics game could use this file unchanged.

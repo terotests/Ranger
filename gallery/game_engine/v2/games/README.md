@@ -78,9 +78,15 @@ Comment markers:
 | `HACK:` | Temporary assumption (units, hybrid vectors, 2D Cannon plane) |
 | `NOT` | Explicitly rejected v1 pattern (`window`, RGSP1 slots, reconciler) |
 
-## Unit / contract tests (later)
+## Unit / contract tests
 
-- Headless smoke per game once façades exist
+- Host-side headless and contract runners live under `v2/tests/` (e2e drivers
+  in `v2/tests/e2e/`). Optional guest-side TSX test fixtures may live under
+  `games/<name>/tests/`, but they must run through the generic host.
+- **A game directory contains guest content only** — `.tsx` source, metadata,
+  assets, docs. Never `.rgr` runners, interpreter/bridge/renderer setup, or
+  host-side assertions. Adding a TSX game must not require adding or compiling
+  a game-specific `.rgr` file. Full rules: [`AGENTS.md`](./AGENTS.md).
 - **Must-pass:** chess + ylos2 playable on v2; v1 chess + ylos2 still launch
 - No `ThreeTsxBridge.reconcile` / v1 `three/tsx` imports in v2 ports
 - D-LIFE shutdown paths (remove ≠ release; shared atlas retains)
