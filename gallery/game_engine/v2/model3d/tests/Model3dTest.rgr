@@ -14,7 +14,7 @@ Import "../GlbImporter.rgr"
 Import "../EntityModel.rgr"
 Import "GlbFixture.rgr"
 
-class Checker {
+class Model3dChecker {
     def passed:int 0
     def failed:int 0
 
@@ -46,7 +46,7 @@ class Checker {
 }
 
 class Model3dTest {
-    sfn checkReject:void (ck:Checker label:string json:string wantErr:string) {
+    sfn checkReject:void (ck:Model3dChecker label:string json:string wantErr:string) {
         def glb:buffer (GlbFixture.glbFromJson(json))
         def imp:GlbImporter (new GlbImporter)
         def model:ModelAsset (imp.importModel(glb))
@@ -54,8 +54,8 @@ class Model3dTest {
         ck.eqStr((label + " message") imp.error wantErr)
     }
 
-    sfn m@(main):void () {
-        def ck:Checker (new Checker)
+    sfn runModel3d:int () {
+        def ck:Model3dChecker (new Model3dChecker)
         print "== container + document =="
         def glb:buffer (GlbFixture.build())
         def imp:GlbImporter (new GlbImporter)
@@ -210,7 +210,11 @@ class Model3dTest {
 
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
-        if (ck.failed == 0) {
+        return ck.failed
+    }
+
+    sfn m@(main):void () {
+        if (Model3dTest.runModel3d() == 0) {
             print "ALL PASS"
         } {
             print "SOME FAILED"

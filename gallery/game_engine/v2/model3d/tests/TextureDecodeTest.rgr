@@ -10,7 +10,7 @@
 Import "../ModelLoader.rgr"
 Import "GlbFixture.rgr"
 
-class Checker {
+class TextureDecodeChecker {
     def passed:int 0
     def failed:int 0
     fn ok:void (name:string cond:boolean) {
@@ -29,8 +29,8 @@ class Checker {
 }
 
 class TextureDecodeTest {
-    sfn m@(main):void () {
-        def ck:Checker (new Checker)
+    sfn runTextureDecode:int () {
+        def ck:TextureDecodeChecker (new TextureDecodeChecker)
         print "== load + decode embedded PNG =="
         def glb:buffer (GlbFixture.build())
         def loader:ModelLoader (new ModelLoader)
@@ -68,7 +68,11 @@ class TextureDecodeTest {
 
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
-        if (ck.failed == 0) {
+        return ck.failed
+    }
+
+    sfn m@(main):void () {
+        if (TextureDecodeTest.runTextureDecode() == 0) {
             print "ALL PASS"
         } {
             print "SOME FAILED"

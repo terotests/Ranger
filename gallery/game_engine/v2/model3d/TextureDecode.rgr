@@ -10,7 +10,7 @@
 ; ==============================================================================
 
 Import "../lpc/src/png_decoder.rgr"
-Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "../imaging/jpeg/JPEGDecoder.rgr"
 Import "AssetModel.rgr"
 
 class TextureDecode {
