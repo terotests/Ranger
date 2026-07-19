@@ -29,13 +29,7 @@ Import "physics_world_test.rgr"
 Import "cannon_extra_shapes_test.rgr"
 
 class CannonTestRunner {
-    sfn m@(main):void () {
-        def filter:string ""
-        if ((shell_arg_cnt) > 0) {
-            filter = (shell_arg 0)
-        }
-
-        def harness:CannonTestHarness (new CannonTestHarness)
+    fn runAll:void (harness:CannonTestHarness filter:string) {
         def vec3Test:CannonVec3Test (new CannonVec3Test)
         def quatTest:CannonQuaternionTest (new CannonQuaternionTest)
         def sphereTest:CannonSphereTest (new CannonSphereTest)
@@ -83,6 +77,17 @@ class CannonTestRunner {
         convexTest.runFiltered(harness filter)
         physicsWorldTest.runFiltered(harness filter)
         extraShapesTest.runFiltered(harness filter)
+    }
+
+    sfn m@(main):void () {
+        def filter:string ""
+        if ((shell_arg_cnt) > 0) {
+            filter = (shell_arg 0)
+        }
+
+        def harness:CannonTestHarness (new CannonTestHarness)
+        def runner:CannonTestRunner (new CannonTestRunner)
+        runner.runAll(harness filter)
 
         if (filter == "") {
             print ("pass=" + (to_string harness.passCount))
