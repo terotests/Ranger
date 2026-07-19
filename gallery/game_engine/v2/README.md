@@ -107,7 +107,13 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   `host/ownership/OwnedHandle.rgr` (release-once), and the `tests/contract/d_own/`
   gate.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (8 suites, 156
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 8/8 suites passed`.
+- **Phase 3 — Registry schema + codegen + golden ids (D-REGISTRY): ✅ green.**
+  `registry/schema/` (class/prop/method model with residency+ownership+sync),
+  `registry/codegen/` (host/wasm/adapter surfaces from one schema + golden-id
+  immutability checker), `registry/fixtures/` (Mesh/Geometry/Material sample +
+  golden table). Schema validation, codegen parity, and golden-id gates.
 
-*Later phases (3+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (11 suites, 185
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 11/11 suites passed`.
+
+*Later phases (4+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

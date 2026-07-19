@@ -1,0 +1,66 @@
+; ==============================================================================
+; three_schema_fixture — tiny Mesh/Geometry/Material schema for codegen tests.
+; ==============================================================================
+; A hand-authored registry fixture covering create/release + a couple of
+; properties, plus the published golden id table (with one retired tombstone).
+; Kept minimal so codegen / golden-id tests stay fast.
+;
+; Published ids (immutable):
+;   100 geometryCreate      rg_geometry_create
+;   101 geometryRelease     rg_geometry_release
+;   110 materialCreate      rg_material_create
+;   111 materialRelease     rg_material_release
+;   120 meshCreate          rg_mesh_create        (retains geo + mat)
+;   121 meshRelease         rg_mesh_release
+;   122 meshSetGeometry     rg_mesh_set_geometry
+;   199 <tombstone>         (a retired command id — never reused)
+; ==============================================================================
+
+Import "../schema/RgSchema.rgr"
+Import "../codegen/RgCodegen.rgr"
+
+class ThreeSchemaFixture {
+    sfn buildSchema:RgSchema () {
+        def s:RgSchema (new RgSchema)
+
+        ; ---- Geometry -------------------------------------------------------
+        def geo:RgClassDef (RgClassDef.of(1 "Geometry"))
+        geo.addProp((RgPropDef.of(1000 "vertexCount" "i32"
+            (RgResidency.host()) (RgOwnership.none()) false (RgSync.immediate()))))
+        geo.addMethod((RgMethodDef.of(100 "geometryCreate" "rg_geometry_create" false false)))
+        geo.addMethod((RgMethodDef.of(101 "geometryRelease" "rg_geometry_release" false false)))
+        s.addClass(geo)
+
+        ; ---- Material -------------------------------------------------------
+        def mat:RgClassDef (RgClassDef.of(2 "Material"))
+        mat.addProp((RgPropDef.of(1100 "color" "vec3"
+            (RgResidency.hybrid()) (RgOwnership.none()) true (RgSync.batch()))))
+        mat.addMethod((RgMethodDef.of(110 "materialCreate" "rg_material_create" false false)))
+        mat.addMethod((RgMethodDef.of(111 "materialRelease" "rg_material_release" false false)))
+        s.addClass(mat)
+
+        ; ---- Mesh -----------------------------------------------------------
+        def mesh:RgClassDef (RgClassDef.of(3 "Mesh"))
+        ; position: hybrid cached mirror, written immediately (D-ADAPTER)
+        mesh.addProp((RgPropDef.of(1200 "position" "vec3"
+            (RgResidency.hybrid()) (RgOwnership.none()) true (RgSync.immediate()))))
+        ; geometry: host-owned handle, borrowed on read
+        mesh.addProp((RgPropDef.of(1201 "geometry" "handle<Geometry>"
+            (RgResidency.host()) (RgOwnership.borrowed()) true (RgSync.immediate()))))
+        mesh.addMethod((RgMethodDef.of(120 "meshCreate" "rg_mesh_create" false true)))
+        mesh.addMethod((RgMethodDef.of(121 "meshRelease" "rg_mesh_release" false false)))
+        mesh.addMethod((RgMethodDef.of(122 "meshSetGeometry" "rg_mesh_set_geometry" false false)))
+        s.addClass(mesh)
+
+        return s
+    }
+
+    ; The published golden table: every live command + one retired tombstone.
+    sfn buildGolden:[RgCommand] () {
+        def s:RgSchema (ThreeSchemaFixture.buildSchema())
+        def golden:[RgCommand] (RgCodegen.commands(s))
+        ; id 199 was a real command once; it is retired and must stay tombstoned.
+        push golden (RgCommand.tomb(199))
+        return golden
+    }
+}

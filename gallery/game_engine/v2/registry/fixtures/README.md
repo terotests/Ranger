@@ -19,3 +19,10 @@ Minimal schema snippets (e.g. Mesh + Geometry only) so codegen tests stay fast.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 3 ✅
+
+`three_schema_fixture.rgr` provides the Mesh/Geometry/Material schema + golden id
+table consumed by the schema/codegen/golden tests.

@@ -59,6 +59,11 @@ run_suite host/tests/ownership/ownership_test
 run_suite host/tests/stale_cross_realm/stale_cross_realm_test
 run_suite tests/contract/d_own/d_own_contract_test
 
+# ---- Phase 3 — registry schema + codegen + golden ids (D-REGISTRY) -----------
+run_suite registry/schema/tests/schema_validation_test
+run_suite registry/codegen/tests/codegen_parity_test
+run_suite registry/codegen/tests/golden_id_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"

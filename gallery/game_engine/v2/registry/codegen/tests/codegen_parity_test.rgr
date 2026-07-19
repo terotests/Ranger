@@ -1,0 +1,55 @@
+; ==============================================================================
+; codegen_parity_test — registry/codegen gate (D-REGISTRY / D-WASM).
+; ==============================================================================
+; Asserts: the host command list, the WASM import list, and the adapter id list
+; all derive from ONE schema — same length, index-aligned, stable names/ids.
+; ==============================================================================
+
+Import "../RgCodegen.rgr"
+Import "../../schema/RgSchema.rgr"
+Import "../../fixtures/three_schema_fixture.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class CodegenParityTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("registry/codegen/parity"))
+        def s:RgSchema (ThreeSchemaFixture.buildSchema())
+
+        def hostNames:[string] (RgCodegen.hostCommandNames(s))
+        def wasmNames:[string] (RgCodegen.wasmImportNames(s))
+        def ids:[int] (RgCodegen.adapterCommandIds(s))
+
+        ; ---- same length across all backends --------------------------------
+        t.eqInt("host command count" (array_length hostNames) 7)
+        t.eqInt("wasm import count matches host" (array_length wasmNames) (array_length hostNames))
+        t.eqInt("adapter id count matches host" (array_length ids) (array_length hostNames))
+
+        ; ---- index-aligned: same schema order everywhere --------------------
+        t.eqStr("host[0] is geometryCreate" (itemAt hostNames 0) "geometryCreate")
+        t.eqStr("wasm[0] is rg_geometry_create" (itemAt wasmNames 0) "rg_geometry_create")
+        t.eqInt("id[0] is 100" (itemAt ids 0) 100)
+
+        t.eqStr("host[4] is meshCreate" (itemAt hostNames 4) "meshCreate")
+        t.eqStr("wasm[4] is rg_mesh_create" (itemAt wasmNames 4) "rg_mesh_create")
+        t.eqInt("id[4] is 120" (itemAt ids 4) 120)
+
+        t.eqStr("host[6] is meshSetGeometry" (itemAt hostNames 6) "meshSetGeometry")
+        t.eqStr("wasm[6] is rg_mesh_set_geometry" (itemAt wasmNames 6) "rg_mesh_set_geometry")
+        t.eqInt("id[6] is 122" (itemAt ids 6) 122)
+
+        ; ---- regenerating is deterministic (no drift) -----------------------
+        def hostNames2:[string] (RgCodegen.hostCommandNames(s))
+        def drift 0
+        def n:int (array_length hostNames)
+        def i 0
+        while (i < n) {
+            if ((itemAt hostNames i) != (itemAt hostNames2 i)) {
+                drift = (drift + 1)
+            }
+            i = (i + 1)
+        }
+        t.eqInt("no command-name drift on regeneration" drift 0)
+
+        t.summary()
+    }
+}

@@ -20,3 +20,11 @@ Tools that turn schema into host tables, adapter bindings, WASM, TS, Rust.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 3 ✅
+
+`RgCodegen.rgr` emits host/wasm/adapter surfaces from one schema (parity test)
+and enforces golden id-table immutability (golden_id test). Full lowering
+(TS/Rust bodies, span encoding) lands with Phases 4–5.
