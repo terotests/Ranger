@@ -1,0 +1,50 @@
+# Known out-of-v2 Import escapes (file:import-path).
+# NEW escapes must NOT be added here — fix the Import instead.
+# Shrink this list as staged trees retarget to v2/imaging, v2/evg, etc.
+# See TODO.md § "Import isolation".
+#
+# Format: one entry per line, relative to v2/, no spaces around ':'.
+# Lines starting with # are comments.
+
+# ---- live interpreter: shared gallery parser (policy TBD: vendor or keep) ----
+interp/migrate/src/ComponentEngine.rgr:../../../../../ts_parser/ts_ast_patch.rgr
+interp/migrate/src/ComponentEngine.rgr:../../../../../ts_parser/ts_lexer.rgr
+interp/migrate/src/ComponentEngine.rgr:../../../../../ts_parser/ts_parser_simple.rgr
+interp/migrate/src/EvalValue.rgr:../../../../../ts_parser/ts_parser_simple.rgr
+interp/migrate/src/JSXToEVG.rgr:../../../../../ts_parser/ts_lexer.rgr
+interp/migrate/src/JSXToEVG.rgr:../../../../../ts_parser/ts_parser_simple.rgr
+
+# ---- staged LPC (retarget to v2/imaging + v2/imaging/zip) ----
+lpc/src/lpc_blit.rgr:../../../pdf_writer/src/jpeg/ImageBuffer.rgr
+lpc/src/lpc_blit.rgr:../../../pdf_writer/src/raster/RasterBuffer.rgr
+lpc/src/lpc_catalog.rgr:../../../zip/ZipReader.rgr
+lpc/src/lpc_compose.rgr:../../../pdf_writer/src/jpeg/ImageBuffer.rgr
+lpc/src/lpc_compose.rgr:../../../pdf_writer/src/raster/RasterBuffer.rgr
+lpc/src/lpc_compose_runner.rgr:../../../pdf_writer/src/raster/PNGEncoder.rgr
+lpc/src/lpc_pack_builder.rgr:../../../zip/ZipWriter.rgr
+lpc/src/lpc_palette.rgr:../../../pdf_writer/src/jpeg/ImageBuffer.rgr
+lpc/src/png_decoder.rgr:../../../pdf_writer/src/core/Buffer.rgr
+lpc/src/png_decoder.rgr:../../../pdf_writer/src/jpeg/ImageBuffer.rgr
+lpc/src/png_decoder.rgr:../../../zip/Inflate.rgr
+
+# ---- staged model3d / web (retarget to migrate + imaging) ----
+model3d/Model3dScriptBridge.rgr:../../pdf_writer/src/jsx/ComponentEngine.rgr
+model3d/Model3dScriptBridge.rgr:../../pdf_writer/src/jsx/EvalValue.rgr
+model3d/TextureDecode.rgr:../../pdf_writer/src/jpeg/JPEGDecoder.rgr
+model3d/tests/Model3dScriptBridgeTest.rgr:../../../pdf_writer/src/jsx/ComponentEngine.rgr
+model3d/tests/Model3dScriptBridgeTest.rgr:../../../pdf_writer/src/jsx/EvalValue.rgr
+model3d/tests/Scene3dBridgeTest.rgr:../../../pdf_writer/src/jsx/ComponentEngine.rgr
+model3d/tests/Scene3dBridgeTest.rgr:../../../pdf_writer/src/jsx/EvalValue.rgr
+web/web_tsx3d_host.rgr:../../pdf_writer/src/jsx/ComponentEngine.rgr
+web/web_tsx3d_host.rgr:../../pdf_writer/src/jsx/EvalValue.rgr
+
+# ---- staged ui demos (use ../evg, ../imaging; drop v1 scripting) ----
+ui/EvgLauncherMenu.rgr:../../evg/EVGColor.rgr
+ui/WasmUiSelect.rgr:../../evg/EVGElement.rgr
+ui/WasmUiSelect.rgr:../../evg/EVGLayout.rgr
+ui/evg_launcher_demo.rgr:../../pdf_writer/src/raster/PNGEncoder.rgr
+ui/ui_anim_visual_demo.rgr:../../pdf_writer/src/raster/PNGEncoder.rgr
+ui/ui_bgimage_demo.rgr:../../evg/EVGColor.rgr
+ui/ui_bgimage_demo.rgr:../../pdf_writer/src/raster/PNGEncoder.rgr
+ui/ui_editor_demo.rgr:../../pdf_writer/src/raster/PNGEncoder.rgr
+ui/wasm_ui_select_demo.rgr:../../pdf_writer/src/raster/PNGEncoder.rgr
