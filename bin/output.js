@@ -13721,6 +13721,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     findFunctionDesc (obj, ctx, wr) {
       let varDesc;
       let varFnDesc;
+      let set_nsp = false;
+      if ( 0 == (obj.nsp.length) ) {
+        set_nsp = true;
+      }
       if ( obj.vref != this.getThisName() ) {
         if ( (obj.ns.length) > 1 ) {
           const cnt = obj.ns.length;
@@ -13731,9 +13735,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( i == 0 ) {
               if ( strname == this.getThisName() ) {
                 classDesc = ctx.getCurrentClass();
+                if ( set_nsp ) {
+                  obj.nsp.push(classDesc);
+                }
               } else {
                 if ( ctx.isDefinedClass(strname) && (false == this.varShadowsSystemType(strname, ctx)) ) {
                   classDesc = ctx.findClass(strname);
+                  if ( set_nsp ) {
+                    obj.nsp.push(classDesc);
+                  }
                   continue;
                 }
                 classRefDesc = ctx.getVariableDef(strname);
@@ -13742,6 +13752,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   break;
                 }
                 classRefDesc.ref_cnt = 1 + classRefDesc.ref_cnt;
+                if ( set_nsp ) {
+                  obj.nsp.push(classRefDesc);
+                }
                 classDesc = ctx.findClass(classRefDesc.nameNode.type_name);
                 if ( typeof(classDesc) === "undefined" ) {
                   return varFnDesc;
@@ -13756,6 +13769,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( typeof(varDesc) === "undefined" ) {
                   ctx.addError(obj, "Error, no description for refenced obj: " + strname);
                 }
+                if ( set_nsp ) {
+                  obj.nsp.push(varDesc);
+                }
                 const subClass = varDesc.getTypeName();
                 classDesc = ctx.findClass(subClass);
                 continue;
@@ -13767,6 +13783,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( typeof(varFnDesc) === "undefined" ) {
                     ctx.addError(obj, " function variable not found " + strname);
                   }
+                }
+                if ( ((typeof(varFnDesc) !== "undefined" && varFnDesc != null ) ) && set_nsp ) {
+                  obj.nsp.push(varFnDesc);
                 }
               }
             }
@@ -29333,22 +29352,34 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( variant_2.nameNode.hasFlag("async") ) {
               asyncKeyword = "async ";
             }
-            if ( (typeof(variant_2.nameNode) !== "undefined" && variant_2.nameNode != null )  ) {
-              wr.outMapped(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", variant_2.nameNode, false, variant_2.compiledName);
+            let useDefineProp = false;
+            if ( (variant_2.compiledName == "name") || (variant_2.compiledName == "length") ) {
+              useDefineProp = true;
+            }
+            if ( useDefineProp ) {
+              wr.out(((((("Object.defineProperty(" + cl.name) + ", \"") + variant_2.compiledName) + "\", { value: ") + asyncKeyword) + "function(", false);
             } else {
-              wr.out(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", false);
+              if ( (typeof(variant_2.nameNode) !== "undefined" && variant_2.nameNode != null )  ) {
+                wr.outMapped(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", variant_2.nameNode, false, variant_2.compiledName);
+              } else {
+                wr.out(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", false);
+              }
             }
             await this.writeArgsDef(variant_2, ctx, wr);
             wr.out(") {", true);
+            wr.indent(1);
+            wr.newline();
+            const subCtx_3 = variant_2.fnCtx;
+            subCtx_3.is_function = true;
+            await this.WalkNode(variant_2.fnBody, subCtx_3, wr);
+            wr.newline();
+            wr.indent(-1);
+            if ( useDefineProp ) {
+              wr.out("}, writable: true, configurable: true });", true);
+            } else {
+              wr.out("};", true);
+            }
           }
-          wr.indent(1);
-          wr.newline();
-          const subCtx_3 = variant_2.fnCtx;
-          subCtx_3.is_function = true;
-          await this.WalkNode(variant_2.fnBody, subCtx_3, wr);
-          wr.newline();
-          wr.indent(-1);
-          wr.out("};", true);
         };
       }
       if ( ctx.hasCompilerFlag("nodemodule") == false ) {
