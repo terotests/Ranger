@@ -142,6 +142,10 @@ class RgPane {
     def w:double 1.0
     def h:double 1.0
     def player:int (0 - 1)   ; bound logical player (-1 = none)
+    ; the pane's declared presentation resources (REAL handles, host-owned —
+    ; a presenter reads these; no guest accessor round trip). Invalid = unset.
+    def layerH:RgHandle (new RgHandle)
+    def camH:RgHandle (new RgHandle)
 }
 
 class RgSurface {
@@ -194,5 +198,26 @@ class RgSurface {
     fn panePlayer:int (i:int) {
         def p:RgPane (itemAt this.panes i)
         return p.player
+    }
+
+    ; ---- pane views (set layout FIRST; setLayout resets pane state) ---------
+    fn paneSetView:void (i:int layerH:RgHandle camH:RgHandle) {
+        if (i < 0) { return }
+        if (i >= (array_length this.panes)) { return }
+        def p:RgPane (itemAt this.panes i)
+        p.layerH = layerH
+        p.camH = camH
+    }
+    fn paneLayer:RgHandle (i:int) {
+        if (i < 0) { return (RgHandle.invalid()) }
+        if (i >= (array_length this.panes)) { return (RgHandle.invalid()) }
+        def p:RgPane (itemAt this.panes i)
+        return p.layerH
+    }
+    fn paneCam:RgHandle (i:int) {
+        if (i < 0) { return (RgHandle.invalid()) }
+        if (i >= (array_length this.panes)) { return (RgHandle.invalid()) }
+        def p:RgPane (itemAt this.panes i)
+        return p.camH
     }
 }

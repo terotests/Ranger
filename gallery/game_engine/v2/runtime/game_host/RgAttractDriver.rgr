@@ -1,0 +1,29 @@
+; ==============================================================================
+; RgAttractDriver — optional automated-input driver (demo / test harness).
+; ==============================================================================
+; Split out of RgGameHost per design review: attract mode is a second protocol
+; beside the registry, so it does not belong in the generic lifecycle host. A
+; guest MAY export `autopilotBits(slot)` (left=1 right=2 jump=4 — the game owns
+; the navigation logic); this driver decodes that suggestion and feeds it back
+; through the REAL ranger:core action map, so the game still reads only logical
+; actions. Hosts that don't want demo input simply never construct this.
+; ==============================================================================
+
+Import "RgGameHost.rgr"
+
+class RgAttractDriver {
+    sfn feed:void (host:RgGameHost slot:int) {
+        def bits:int (to_int (host.callSlot("autopilotBits" slot)))
+        host.bridge.input.setAction(slot "left" ((bits % 2) == 1))
+        host.bridge.input.setAction(slot "right" (((idiv bits 2) % 2) == 1))
+        host.bridge.input.setAction(slot "jump" (((idiv bits 4) % 2) == 1))
+    }
+
+    sfn feedPlayers:void (host:RgGameHost count:int) {
+        def slot 0
+        while (slot < count) {
+            RgAttractDriver.feed(host slot)
+            slot = (slot + 1)
+        }
+    }
+}

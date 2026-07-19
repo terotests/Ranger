@@ -1,35 +1,37 @@
 ; ==============================================================================
-; RgGameHost — the ONE generic v2 game host (analog of v1's single GameRunner).
+; RgGameHost — the single generic host for interpreted v2 ranger2d TSX games.
 ; ==============================================================================
-; Runs ANY v2 game: a game is a folder of TSX content and nothing else — no
-; per-game .rgr shell may exist (that was the v1→v2 regression this file
-; removes). The host knows the GAME PROTOCOL, never a game:
+; (Scope stated exactly, per design review: generic across games on this
+; protocol and the interpreter profile — not yet across compiled/WASM guests;
+; that arrives with the BRIDGES.md rev-2 profiles.)
 ;
-;   required guest exports        init() · update(props{dtMs})
-;   present protocol              getLayerId() · getCameraId(paneIndex)
-;   optional attract mode         autopilotBits(slot) → left=1 right=2 jump=4
-;   capabilities                  everything else via ranger:2d / ranger:core
+; A game is a folder of TSX content and nothing else — no per-game .rgr shell
+; may exist. The host knows the LIFECYCLE protocol, never a game:
+;
+;   guest exports     init() · update(props{dtMs})
+;   presentation      none here — the guest declares pane views ONCE via
+;                     rgcore_surface_pane_view (real handles in host pane
+;                     state); Rg2DPresenter reads that state (renderer choice
+;                     lives there, keeping this host backend-agnostic)
+;   demo input        none here — RgAttractDriver is the optional out-of-band
+;                     driver for guests that export autopilotBits
+;   capabilities      everything else via ranger:2d / ranger:core
 ;
 ; Lifecycle: load(dir,file) evaluates façade+game and calls init(); frame(dt)
-; runs one host-owned pipeline tick (attract feed if enabled → update → frame
-; boundary); presentPane() rasterises a pane from guest-created host state.
-; A guest `launch(path)` request is honoured generically: the current realm is
-; torn down (D-OWN backstop) and the requested game folder is loaded in a
-; fresh realm — that is the launcher→game handoff, with zero launcher-specific
-; host code.
+; runs one host-owned pipeline tick (update → frame boundary). A guest
+; `launch(path)` request is honoured generically: teardown (D-OWN backstop),
+; then the requested game folder loads in a fresh realm.
 ;
 ; The ranger2d.tsx façade is the standard guest prelude until the generated
 ; wrapper replaces it (BRIDGES.md §2.6 / step 6).
 ; ==============================================================================
 
 Import "../../interp/engine/RgRegistryBridge.rgr"
-Import "../../render/backends/software/RgSoftwareRenderer2D.rgr"
 
 class RgGameHost {
     def engine:ComponentEngine (new ComponentEngine())
     def bridge:RgRegistryBridge (RgRegistryBridge.create())
     def loaded:boolean false
-    def attractPlayers:int 0    ; 0 = real input only; N = feed autopilot slots 0..N-1
     def v2Root:string "gallery/game_engine/v2"
 
     ; ---- guest calls (protocol only — no game knowledge) --------------------
@@ -39,40 +41,38 @@ class RgGameHost {
     }
 
     ; ---- load ---------------------------------------------------------------
+    ; No source concatenation: the host registers the virtual `ranger:*`
+    ; packages (guest-side sources under modules/) and evaluates the game file
+    ; ONLY. Dependencies are explicit — a game that does not import ranger:2d
+    ; has no Sprite2D. Lifecycle runs through the ranger:core entry points
+    ; (`runtime.start(game)` → __rgGameInit / __rgGameUpdate).
     fn load:boolean (dir:string file:string) {
         this.engine = (new ComponentEngine())
         this.engine.quiet = true
         this.bridge = (RgRegistryBridge.create())
         this.engine.setNativeBridge(this.bridge)
-        def facadeDir:string (this.v2Root + "/games")
-        def facade:buffer (buffer_read_file facadeDir "ranger2d.tsx")
+        def coreDir:string (this.v2Root + "/modules/ranger_core")
+        def coreSrc:buffer (buffer_read_file coreDir "ranger_core.tsx")
+        this.engine.registerVirtualModule("ranger:core" (buffer_to_string coreSrc))
+        def twoDir:string (this.v2Root + "/modules/ranger_2d")
+        def twoSrc:buffer (buffer_read_file twoDir "ranger_2d.tsx")
+        this.engine.registerVirtualModule("ranger:2d" (buffer_to_string twoSrc))
+        this.bridge.packageDir = dir
         def game:buffer (buffer_read_file dir file)
-        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string game))
-        this.engine.loadScript(src)
-        this.engine.callFunction("init" (EvalValue.null()))
+        this.engine.loadScript((buffer_to_string game))
+        def initR:EvalValue (this.engine.callFunction("__rgGameInit" (EvalValue.null())))
         this.loaded = (this.bridge.errorCount == 0)
+        if (initR.numberValue < 0.5) { this.loaded = false }
         return this.loaded
     }
 
     ; ---- frame pipeline -----------------------------------------------------
-    fn feedAttract:void (slot:int) {
-        def bits:int (to_int (this.callSlot("autopilotBits" slot)))
-        this.bridge.input.setAction(slot "left" ((bits % 2) == 1))
-        this.bridge.input.setAction(slot "right" (((idiv bits 2) % 2) == 1))
-        this.bridge.input.setAction(slot "jump" (((idiv bits 4) % 2) == 1))
-    }
-
     fn frame:void (dtMs:double) {
-        def slot 0
-        while (slot < this.attractPlayers) {
-            this.feedAttract(slot)
-            slot = (slot + 1)
-        }
         def keys:[string]
         push keys "dtMs"
         def vals:[EvalValue]
         push vals (EvalValue.number(dtMs))
-        this.engine.callFunction("update" (EvalValue.object(keys vals)))
+        this.engine.callFunction("__rgGameUpdate" (EvalValue.object(keys vals)))
         this.bridge.frameBoundary((dtMs / 1000.0))
     }
 
@@ -85,16 +85,14 @@ class RgGameHost {
         this.frame(33.333)
     }
 
-    ; ---- present (reads host state only — D-SYNC) ---------------------------
-    fn guestHandle:RgHandle (name:string slot:int) {
-        def id:int (to_int (this.callSlot(name slot)))
-        return (this.bridge.resolveGuestId(id))
-    }
-
-    fn presentPane:int (paneIndex:int fb:RgFramebuffer) {
-        def layerH:RgHandle (this.guestHandle("getLayerId" 0))
-        def camH:RgHandle (this.guestHandle("getCameraId" paneIndex))
-        return (RgSoftwareRenderer2D.present2D(this.bridge.d2 fb layerH camH))
+    ; Load a guest-side TEST FIXTURE into the current realm (rule 5 door):
+    ; fixtures live under <package>/tests/ and run through this host only.
+    fn loadFixture:boolean (dir:string file:string) {
+        def src:buffer (buffer_read_file dir file)
+        def txt:string (buffer_to_string src)
+        if ((strlen txt) == 0) { return false }
+        this.engine.loadAdditionalScript(txt)
+        return true
     }
 
     ; ---- launch handoff (generic) -------------------------------------------
@@ -111,31 +109,5 @@ class RgGameHost {
         this.bridge.teardown()
         def gameDir:string (this.v2Root + ("/" + path))
         return (this.load(gameDir "index.tsx"))
-    }
-
-    ; ---- debug helper -------------------------------------------------------
-    sfn dumpPane:void (fb:RgFramebuffer label:string) {
-        print ("  --- " + label + " (48x12 downsample of 96x96) ---")
-        def row 0
-        while (row < 12) {
-            def line:string "  "
-            def col 0
-            while (col < 48) {
-                def hit:boolean false
-                def dy 0
-                while (dy < 8) {
-                    def dx 0
-                    while (dx < 2) {
-                        if ((fb.at((col * 2 + dx) (row * 8 + dy))) != 0) { hit = true }
-                        dx = (dx + 1)
-                    }
-                    dy = (dy + 1)
-                }
-                if hit { line = (line + "#") } { line = (line + ".") }
-                col = (col + 1)
-            }
-            print line
-            row = (row + 1)
-        }
     }
 }

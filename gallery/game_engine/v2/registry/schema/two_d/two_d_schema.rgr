@@ -52,6 +52,7 @@ class TwoDSchema {
         def cam:RgClassDef (RgClassDef.of(24 "Camera2D"))
         cam.addMethod((RgMethodDef.cmd(2040 "rg2d_camera_create" "rg2d_camera_create" "" "h" "create")))
         cam.addMethod((RgMethodDef.cmd(2041 "rg2d_camera_set" "rg2d_camera_set" "h:d:d:d:d" "v" "none")))
+        cam.addMethod((RgMethodDef.cmd(2060 "rg2d_render" "rg2d_render" "h:h:i" "v" "none")))
         s.addClass(cam)
 
         ; ---- AnimationPlayer2D (25) — clocked by runtime.time ---------------

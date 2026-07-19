@@ -1,0 +1,5 @@
+texture 256 256
+region idle 0 0 32 48
+region walk 32 0 32 48
+region plat 64 0 32 8
+clip walk idle,walk 120,120

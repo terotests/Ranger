@@ -81,6 +81,8 @@ class RgRegistryBridge extends EvalNativeBridge {
     def musicScore:string ""
     def logLines:[string]
     def launchRequest:string ""
+    ; the loaded game package's directory — pkg:// asset URIs resolve here
+    def packageDir:string ""
 
     sfn create:RgRegistryBridge () {
         def b:RgRegistryBridge (new RgRegistryBridge)
@@ -246,6 +248,78 @@ class RgRegistryBridge extends EvalNativeBridge {
         return (a + b)
     }
 
+    ; ---- package asset loading (interpreter profile) ------------------------
+    ; Parses the documented interim .atlas text format (JSON emitter later):
+    ;   texture <w> <h>
+    ;   region <name> <x> <y> <w> <h>
+    ;   clip <name> <r1,r2,...> <d1,d2,...>
+    ; Builds the REAL host texture+atlas and returns the atlas guest id.
+    fn s2i:int (txt:string) {
+        def v@(optional):int (to_int txt)
+        if (null? v) { return 0 }
+        return (unwrap v)
+    }
+
+    fn loadAtlasAsset:int (uri:string) {
+        def rel:string uri
+        if ((indexOf uri "pkg://") == 0) {
+            rel = (substring uri 6)
+        }
+        if (this.packageDir == "") { return 0 }
+        def pdir:string this.packageDir
+        def raw:buffer (buffer_read_file pdir rel)
+        def src:string (buffer_to_string raw)
+        if ((strlen src) == 0) { return 0 }
+        def texOwned@(optional):OwnedHandle
+        def atlasOwned@(optional):OwnedHandle
+        def atlasGuestId:int 0
+        def lines:[string] (strsplit src "\n")
+        def n:int (array_length lines)
+        def i 0
+        while (i < n) {
+            def toks:[string] (strsplit (trim (itemAt lines i)) " ")
+            if ((array_length toks) > 0) {
+                def kind:string (itemAt toks 0)
+                if (kind == "texture") {
+                    def to:OwnedHandle (this.d2.textureCreate((this.s2i((itemAt toks 1))) (this.s2i((itemAt toks 2)))))
+                    texOwned = to
+                    def ao:OwnedHandle (this.d2.atlasCreate(to.handle))
+                    atlasOwned = ao
+                    atlasGuestId = (this.mintId(ao))
+                    this.mintId(to)
+                }
+                if (kind == "region") {
+                    if atlasOwned {
+                        def ao2:OwnedHandle (unwrap atlasOwned)
+                        this.d2.atlasAddRegion(ao2.handle (itemAt toks 1) (this.s2i((itemAt toks 2))) (this.s2i((itemAt toks 3))) (this.s2i((itemAt toks 4))) (this.s2i((itemAt toks 5))))
+                    }
+                }
+                if (kind == "clip") {
+                    if atlasOwned {
+                        def ao3:OwnedHandle (unwrap atlasOwned)
+                        def frameNames:[string] (strsplit (itemAt toks 2) ",")
+                        def frames:[int]
+                        def fi 0
+                        while (fi < (array_length frameNames)) {
+                            push frames (this.d2.atlasRegionIndex(ao3.handle (itemAt frameNames fi)))
+                            fi = (fi + 1)
+                        }
+                        def durToks:[string] (strsplit (itemAt toks 3) ",")
+                        def durs:[double]
+                        def di 0
+                        while (di < (array_length durToks)) {
+                            push durs (to_double (this.s2i((itemAt durToks di))))
+                            di = (di + 1)
+                        }
+                        this.d2.atlasAddClip(ao3.handle (itemAt toks 1) frames durs)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return atlasGuestId
+    }
+
     ; =========================================================================
     ; INTERIM hand dispatcher (BRIDGES.md §2.4) — one line per table row.
     ; Coverage-gated: registry_bridge_coverage_test executes every row; an
@@ -346,6 +420,24 @@ class RgRegistryBridge extends EvalNativeBridge {
         if (row.name == "rgcore_surface_pane_player") {
             this.surface.paneSetPlayer((a.intAt(0)) (a.intAt(1)))
             return (EvalValue.null())
+        }
+        if (row.name == "rgcore_surface_pane_view") {
+            this.surface.paneSetView((a.intAt(0)) (a.handleAt(1)) (a.handleAt(2)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rg2d_render") {
+            ; the guest owns its render calls (frame pipeline step 6): each call
+            ; binds (scene/layer, camera) to a pane; the presenter reads pane
+            ; state at present time (step 7). Args are real resolved handles.
+            this.surface.paneSetView((a.intAt(2)) (a.handleAt(0)) (a.handleAt(1)))
+            return (EvalValue.null())
+        }
+        if (row.name == "rgcore_assets_load_atlas") {
+            def atlasId:int (this.loadAtlasAsset((a.strAt(0))))
+            if (atlasId < 1) {
+                return (this.fail("asset-not-found:" + (a.strAt(0))))
+            }
+            return (RgRegistryBridge.retI(atlasId))
         }
         if (row.name == "rgcore_audio_clip_create") {
             def o:OwnedHandle (this.audio.clipCreate())

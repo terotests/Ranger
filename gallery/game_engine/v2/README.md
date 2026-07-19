@@ -188,12 +188,33 @@ Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (33 suites, 55
 checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
 
 - **Real TSX guest end-to-end (BRIDGES.md steps 1–3): ✅ green.** The ylos2
-  must-pass runs as an ordinary TSX guest: `games/ranger2d.tsx` (façade) +
-  `games/ylos2/index.tsx` (the v1 level tables + jump physics) evaluated by the
-  staged `ComponentEngine`, issuing commands through the table-driven
-  `RgRegistryBridge` into the ranger:2d / ranger:core arenas, presented
-  split-screen by the software backend. Both players climb the original tower
-  and reach the goal; celebration fires through the audio/vocal/music facades.
+  must-pass runs as an ordinary TSX guest (`games/ylos2/index.tsx` — the v1
+  level tables + jump physics) evaluated by the staged `ComponentEngine`,
+  issuing commands through the table-driven `RgRegistryBridge` into the
+  ranger:2d / ranger:core arenas, presented split-screen by the software
+  backend. Both players climb the original tower and reach the goal;
+  celebration fires through the audio/vocal/music facades.
+- **D-MODULES (interpreter profile) — real `ranger:*` imports: ✅ green.**
+  Games are authored against virtual packages, not ambient globals:
+  `import { runtime } from "ranger:core"` + `import * as TWO from "ranger:2d"`
+  resolve to host-registered module sources (`modules/ranger_core/ranger_core.tsx`,
+  `modules/ranger_2d/ranger_2d.tsx`) evaluated once per realm — **no source
+  concatenation** (`games/ranger2d.tsx` prelude deleted); un-imported packages
+  are absent. The `runtime` capability root carries surface/input/audio(vocal,
+  music, clip≠source)/time/log/platform; a game is a class started with
+  `runtime.start(new Ylos2Game())`, driven through the `__rgGameInit/Update`
+  entry points (same two entry points a wasm guest exports). Engine work:
+  virtual-module registration + top-level statement execution + a caller-`this`
+  argument-binding fix in `callUserFunctionNode`. The example is COMPLETE:
+  assets from package data (`runtime.assets.loadSpriteAtlas("pkg://…")` over
+  the documented `.atlas` format, wasm profile lowers to D-ASYNC begin/poll),
+  the game owns its render calls (`renderer.render(scene, cam, pane)` — frame
+  pipeline step 6; `rg2d_render` binds pane views host-side), and test
+  observations moved to guest fixtures (`games/<name>/tests/probe.tsx` via the
+  host's fixture door — rule 5 satisfied, production exports none). KNOWN
+  LIMIT (tracked): module bindings still land in the shared scope —
+  per-namespace isolation is the remaining scope rework gated by
+  `interp/module_isolation`.
   Gate: `tests/e2e/ylos2_e2e_test` (22 checks). Bridge design: `BRIDGES.md`
   (rev 2 — semantic IDL + per-target ABI profiles, after design review).
 - **Launcher menu as a TSX guest + menu→game handoff: ✅ green.**
@@ -203,10 +224,13 @@ checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
   arena leak), held keys don't repeat (edge ≠ level), the menu presents pixels,
   selecting Pomppija reports `games/ylos2`, and the host's generic handoff
   boots the ylos2 guest in a fresh realm.
-- **ONE generic game host — `runtime/game_host/RgGameHost.rgr`: ✅.** The v2
-  analog of v1's single GameRunner: load(gameDir) → façade+TSX → init, host
-  frame pipeline, pane present via the game protocol (`getLayerId` /
-  `getCameraId`), optional attract mode, and a generic `launch(path)` handoff.
+- **ONE generic game host — `runtime/game_host/RgGameHost.rgr`: ✅.** The
+  single generic host for interpreted v2 ranger2d TSX games (v1 GameRunner
+  analog): load(gameDir) → façade+TSX → init, host frame pipeline, and a
+  generic `launch(path)` handoff. Presentation moved to host-owned pane views
+  (`surfacePaneView` → `Rg2DPresenter` reads pane state; renderer choice lives
+  in the presenter, host is backend-agnostic); demo input moved to
+  `RgAttractDriver` (optional, out-of-band).
   **A v2 game is a folder of `.tsx` files and nothing else** — per-game `.rgr`
   runners are forbidden (the earlier `ylos2_v2_runner.rgr` /
   `launcher_v2_runner.rgr` regression is deleted); e2e assertions live in thin
