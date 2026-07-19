@@ -89,6 +89,7 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
 - Plan: [`../CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md) (rebuild policy +
   **Staged modular imports** + **2D sprites** + runnable→archival transition)
 - Contract: [`../CODE_CLEANUP.md`](../CODE_CLEANUP.md)
+- Testing debt / module coverage gaps: [`TODO.md`](./TODO.md)
 
 ---
 
