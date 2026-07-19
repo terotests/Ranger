@@ -8,7 +8,8 @@ driver and the roadmap below over that checklist.
 
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
-| Headless gate | `npm run engine:v2:test` → 86 suites + boundary gate | — |
+| Headless gate | `npm run engine:v2:test` → 88 suites + boundary gate | — |
+| Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity + Map/Set/`indexOf` on the **real** interpreter; live 3D path splits object lifetime from scene membership (`new Mesh(g,m)` detached, `scene.add`/`remove`) | migrate fused light/GLTF ctors; then `RETIRE-RECONCILE` |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
@@ -22,6 +23,36 @@ rumble, music pump). Prefer this file + `runtime/sdl/README.md` over stale
 claims. Align README when touching native work.
 
 Mark checklist items `[x]` when they land and stay green.
+
+### Identity mapping → live-object model (D-IDENTITY / D-SYNC) — in progress
+
+The most important CODE_CLEANUP target (stable reference identity → one host
+handle → separate object / membership / GPU lifetimes) is now advancing on the
+**real** interpreter, not just the `RgValue`/`RgAdapter` model slice:
+
+- [x] **D-IDENTITY on the real engine** — `EvalValue` carries an immutable
+      `identityId` (minted once per reference); `equals()` compares it, so
+      `obj === obj`, object Map/Set keys, `indexOf` by reference, and
+      `obj.missing === undefined` hold in `ComponentEngine`. `==`/`!=` split from
+      `===`/`!==` (loose models `null == undefined`). Gated by
+      `interp/semantics/tests/component_engine_js_semantics_test`.
+- [x] **D-SYNC membership decoupled from creation** — `rg3d_entity_set_parent`
+      (reparent, no create/release) + `rg3d_entity_remove` (detach, object
+      survives) on the live registry. Gated by
+      `tests/unit/bridge/registry_entity_parent_test`.
+- [x] **Unfused live `Mesh`** — `new THREE.Mesh(geometry, material)` is a
+      DETACHED create; `scene.add(mesh)` / `scene.remove(mesh)` establish/detach
+      membership as separate ops (`modules/ranger_three/ranger_three.tsx`).
+      `rg3d_mesh_create` lowered to `(geo, mat)`.
+- [ ] **Migrate the still-fused live ctors** — `AmbientLight` /
+      `DirectionalLight` / `GLTFModel` still take a `scene` arg; move them onto
+      the same detached-create + `scene.add` shape (this one legitimately edits
+      `games/ylos3d/index.tsx`; guard with `ylos3d_e2e`).
+- [ ] **`RETIRE-RECONCILE`** — migrate the teapot/sponza/cube THREE-port façade
+      demos (the only `ThreeTsxBridge.reconcile` callers, a **separate** guest
+      surface) onto the live path, then delete the index/DFS reconcile path.
+
+See [`CODE_CLEANUP.md`](../CODE_CLEANUP.md) D-IDENTITY / D-SYNC for the contract.
 
 ---
 
