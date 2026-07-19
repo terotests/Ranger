@@ -194,15 +194,23 @@ checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 33/33 suites passed`.
   `RgRegistryBridge` into the ranger:2d / ranger:core arenas, presented
   split-screen by the software backend. Both players climb the original tower
   and reach the goal; celebration fires through the audio/vocal/music facades.
-  Gate: `games/ylos2/ylos2_v2_runner` (24 checks). Bridge design: `BRIDGES.md`
+  Gate: `tests/e2e/ylos2_e2e_test` (22 checks). Bridge design: `BRIDGES.md`
   (rev 2 — semantic IDL + per-target ABI profiles, after design review).
 - **Launcher menu as a TSX guest + menu→game handoff: ✅ green.**
   `menu/launcher.tsx` (categories → games tile pages, retained tile sprites,
-  D-pad navigation on wasPressed edges, select → `launch(path)`) driven by
-  `menu/launcher_v2_runner` (22 checks): page turns release old tiles (no arena
-  leak), held keys don't repeat (edge ≠ level), the menu presents pixels,
-  selecting Pomppija reports `games/ylos2`, the menu realm tears down, and the
-  ylos2 guest boots in a fresh realm and starts running.
+  D-pad navigation on wasPressed edges, select → `launch(path)`). Gate:
+  `tests/e2e/launcher_e2e_test` (19 checks): page turns release old tiles (no
+  arena leak), held keys don't repeat (edge ≠ level), the menu presents pixels,
+  selecting Pomppija reports `games/ylos2`, and the host's generic handoff
+  boots the ylos2 guest in a fresh realm.
+- **ONE generic game host — `runtime/game_host/RgGameHost.rgr`: ✅.** The v2
+  analog of v1's single GameRunner: load(gameDir) → façade+TSX → init, host
+  frame pipeline, pane present via the game protocol (`getLayerId` /
+  `getCameraId`), optional attract mode, and a generic `launch(path)` handoff.
+  **A v2 game is a folder of `.tsx` files and nothing else** — per-game `.rgr`
+  runners are forbidden (the earlier `ylos2_v2_runner.rgr` /
+  `launcher_v2_runner.rgr` regression is deleted); e2e assertions live in thin
+  test drivers under `tests/e2e/`.
 
 Phases 1–11 of `../CODE_CLEANUP_PLAN.md` are validated headlessly (identity →
 handles/arenas → registry → adapter → WASM bridge → lifetimes → geometry →

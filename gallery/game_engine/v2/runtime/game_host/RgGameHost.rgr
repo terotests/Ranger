@@ -1,0 +1,141 @@
+; ==============================================================================
+; RgGameHost — the ONE generic v2 game host (analog of v1's single GameRunner).
+; ==============================================================================
+; Runs ANY v2 game: a game is a folder of TSX content and nothing else — no
+; per-game .rgr shell may exist (that was the v1→v2 regression this file
+; removes). The host knows the GAME PROTOCOL, never a game:
+;
+;   required guest exports        init() · update(props{dtMs})
+;   present protocol              getLayerId() · getCameraId(paneIndex)
+;   optional attract mode         autopilotBits(slot) → left=1 right=2 jump=4
+;   capabilities                  everything else via ranger:2d / ranger:core
+;
+; Lifecycle: load(dir,file) evaluates façade+game and calls init(); frame(dt)
+; runs one host-owned pipeline tick (attract feed if enabled → update → frame
+; boundary); presentPane() rasterises a pane from guest-created host state.
+; A guest `launch(path)` request is honoured generically: the current realm is
+; torn down (D-OWN backstop) and the requested game folder is loaded in a
+; fresh realm — that is the launcher→game handoff, with zero launcher-specific
+; host code.
+;
+; The ranger2d.tsx façade is the standard guest prelude until the generated
+; wrapper replaces it (BRIDGES.md §2.6 / step 6).
+; ==============================================================================
+
+Import "../../interp/engine/RgRegistryBridge.rgr"
+Import "../../render/backends/software/RgSoftwareRenderer2D.rgr"
+
+class RgGameHost {
+    def engine:ComponentEngine (new ComponentEngine())
+    def bridge:RgRegistryBridge (RgRegistryBridge.create())
+    def loaded:boolean false
+    def attractPlayers:int 0    ; 0 = real input only; N = feed autopilot slots 0..N-1
+    def v2Root:string "gallery/game_engine/v2"
+
+    ; ---- guest calls (protocol only — no game knowledge) --------------------
+    fn callSlot:double (name:string slot:int) {
+        def r:EvalValue (this.engine.callFunction(name (EvalValue.number((to_double slot)))))
+        return r.numberValue
+    }
+
+    ; ---- load ---------------------------------------------------------------
+    fn load:boolean (dir:string file:string) {
+        this.engine = (new ComponentEngine())
+        this.engine.quiet = true
+        this.bridge = (RgRegistryBridge.create())
+        this.engine.setNativeBridge(this.bridge)
+        def facadeDir:string (this.v2Root + "/games")
+        def facade:buffer (buffer_read_file facadeDir "ranger2d.tsx")
+        def game:buffer (buffer_read_file dir file)
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string game))
+        this.engine.loadScript(src)
+        this.engine.callFunction("init" (EvalValue.null()))
+        this.loaded = (this.bridge.errorCount == 0)
+        return this.loaded
+    }
+
+    ; ---- frame pipeline -----------------------------------------------------
+    fn feedAttract:void (slot:int) {
+        def bits:int (to_int (this.callSlot("autopilotBits" slot)))
+        this.bridge.input.setAction(slot "left" ((bits % 2) == 1))
+        this.bridge.input.setAction(slot "right" (((idiv bits 2) % 2) == 1))
+        this.bridge.input.setAction(slot "jump" (((idiv bits 4) % 2) == 1))
+    }
+
+    fn frame:void (dtMs:double) {
+        def slot 0
+        while (slot < this.attractPlayers) {
+            this.feedAttract(slot)
+            slot = (slot + 1)
+        }
+        def keys:[string]
+        push keys "dtMs"
+        def vals:[EvalValue]
+        push vals (EvalValue.number(dtMs))
+        this.engine.callFunction("update" (EvalValue.object(keys vals)))
+        this.bridge.frameBoundary((dtMs / 1000.0))
+    }
+
+    ; one discrete edge press for a player action (menus): down → frame (guest
+    ; sees the wasPressed edge; boundary clears it) → up → settle frame
+    fn press:void (slot:int action:string) {
+        this.bridge.input.setAction(slot action true)
+        this.frame(33.333)
+        this.bridge.input.setAction(slot action false)
+        this.frame(33.333)
+    }
+
+    ; ---- present (reads host state only — D-SYNC) ---------------------------
+    fn guestHandle:RgHandle (name:string slot:int) {
+        def id:int (to_int (this.callSlot(name slot)))
+        return (this.bridge.resolveGuestId(id))
+    }
+
+    fn presentPane:int (paneIndex:int fb:RgFramebuffer) {
+        def layerH:RgHandle (this.guestHandle("getLayerId" 0))
+        def camH:RgHandle (this.guestHandle("getCameraId" paneIndex))
+        return (RgSoftwareRenderer2D.present2D(this.bridge.d2 fb layerH camH))
+    }
+
+    ; ---- launch handoff (generic) -------------------------------------------
+    fn launchRequest:string () {
+        return this.bridge.launchRequest
+    }
+
+    ; Honour a guest launch(path) request: tear the current realm down and load
+    ; `<v2Root>/<path>/index.tsx` in a fresh realm. Returns false if no request
+    ; is pending or the load fails.
+    fn loadLaunched:boolean () {
+        def path:string this.bridge.launchRequest
+        if (path == "") { return false }
+        this.bridge.teardown()
+        def gameDir:string (this.v2Root + ("/" + path))
+        return (this.load(gameDir "index.tsx"))
+    }
+
+    ; ---- debug helper -------------------------------------------------------
+    sfn dumpPane:void (fb:RgFramebuffer label:string) {
+        print ("  --- " + label + " (48x12 downsample of 96x96) ---")
+        def row 0
+        while (row < 12) {
+            def line:string "  "
+            def col 0
+            while (col < 48) {
+                def hit:boolean false
+                def dy 0
+                while (dy < 8) {
+                    def dx 0
+                    while (dx < 2) {
+                        if ((fb.at((col * 2 + dx) (row * 8 + dy))) != 0) { hit = true }
+                        dx = (dx + 1)
+                    }
+                    dy = (dy + 1)
+                }
+                if hit { line = (line + "#") } { line = (line + ".") }
+                col = (col + 1)
+            }
+            print line
+            row = (row + 1)
+        }
+    }
+}

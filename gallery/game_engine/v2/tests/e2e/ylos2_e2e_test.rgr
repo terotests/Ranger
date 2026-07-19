@@ -1,0 +1,82 @@
+; ==============================================================================
+; ylos2_e2e_test — the ylos2 must-pass, driven by the GENERIC RgGameHost.
+; ==============================================================================
+; The game is ONLY TSX (games/ylos2/index.tsx); this file is a test driver, not
+; a runner: it points the one generic host at the game folder — exactly like a
+; v1 tests/*_runner_demo.rgr pointed the one GameRunner at a game — and then
+; asserts ylos2-specific outcomes. Adding a new v2 game requires no file like
+; this; only shipping a game folder of .tsx.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../harness/RgTest.rgr"
+
+class Ylos2E2ETest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/e2e/ylos2 (generic host, TSX-only game)"))
+        def host:RgGameHost (new RgGameHost)
+
+        ; ---- the generic host loads the game folder -------------------------
+        t.ok("generic host loaded games/ylos2 (TSX only)"
+            (host.load("gallery/game_engine/v2/games/ylos2" "index.tsx")))
+        t.eqInt("no bridge errors in init" host.bridge.errorCount 0)
+
+        ; the guest's creations are REAL host arena state
+        t.eqInt("27 retained sprites (17 static + 8 moving + 2 players)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 27)
+        t.eqInt("one atlas" (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 1)
+        t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
+        t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
+        t.eqInt("pane 0 routes player 0" (host.bridge.surface.panePlayer(0)) 0)
+        t.eqInt("pane 1 routes player 1" (host.bridge.surface.panePlayer(1)) 1)
+
+        def startY1:double (host.callSlot("playerY" 0))
+        def sprite1IdA:int (to_int (host.callSlot("playerSpriteId" 0)))
+
+        ; ---- attract mode through the generic host --------------------------
+        host.attractPlayers = 2
+        def frame 0
+        def goalFrame:int (0 - 1)
+        while (frame < 3600) {
+            host.frame(33.333)
+            frame = (frame + 1)
+            if (goalFrame < 0) {
+                if ((host.callSlot("reachedGoal" 0)) > 0.5) {
+                    goalFrame = frame
+                }
+            }
+            if (goalFrame > 0) { break }
+        }
+        t.eqInt("no bridge errors across the whole run" host.bridge.errorCount 0)
+
+        def endY1:double (host.callSlot("playerY" 0))
+        def endY2:double (host.callSlot("playerY" 1))
+        print ("  frames=" + (to_string frame) + " p1.y=" + (to_string endY1) + " p2.y=" + (to_string endY2))
+        t.ok("P1 climbed the tower (y decreased > 1000px)" ((startY1 - endY1) > 1000.0))
+        t.ok("P2 climbed too" (endY2 < 1400.0))
+        t.ok("P1 reached the goal platform" (goalFrame > 0))
+
+        ; ---- celebration through ranger:core (both players finish) ----------
+        t.eqInt("celebrate one-shots (both players)" host.bridge.oneShotCount 2)
+        t.eqInt("vocal cues (both players)" (array_length host.bridge.vocalCues) 2)
+        t.eqStr("vocal cue is the cheer" (itemAt host.bridge.vocalCues 0) "cheer")
+        t.ok("summit music playing" host.bridge.musicPlaying)
+
+        ; ---- identity across the whole game ---------------------------------
+        def sprite1IdB:int (to_int (host.callSlot("playerSpriteId" 0)))
+        t.eqInt("player sprite guest id stable across the run" sprite1IdB sprite1IdA)
+        def sh:RgHandle (host.bridge.resolveGuestId(sprite1IdB))
+        t.ok("player sprite handle live in the arena" (host.bridge.d2.isLive(sh)))
+
+        ; ---- split-screen present via the generic protocol ------------------
+        def fbL:RgFramebuffer (RgFramebuffer.create(96 96))
+        def fbR:RgFramebuffer (RgFramebuffer.create(96 96))
+        t.ok("left pane drew sprites" ((host.presentPane(0 fbL)) > 0))
+        t.ok("right pane drew sprites" ((host.presentPane(1 fbR)) > 0))
+        t.ok("P1 at left-pane centre" ((fbL.at(48 48)) != 0))
+        t.ok("P2 at right-pane centre" ((fbR.at(48 48)) != 0))
+        RgGameHost.dumpPane(fbL "left pane (P1 at summit)")
+
+        t.summary()
+    }
+}

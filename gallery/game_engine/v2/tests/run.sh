@@ -110,13 +110,11 @@ run_suite modules/ranger_core/tests/devices_test
 run_suite registry/schema/tests/bridge_schema_test
 run_suite tests/unit/bridge/registry_bridge_coverage_test
 
-# ---- BRIDGES.md step 3 — real TSX guest end-to-end (ylos2 must-pass) ---------
-# games/ranger2d.tsx + games/ylos2/index.tsx through ComponentEngine ->
-# RgRegistryBridge -> ranger:2d/core arenas -> split-screen software present.
-run_suite games/ylos2/ylos2_v2_runner
-# launcher menu TSX guest: tile pages, D-pad edges, select -> launch path,
-# realm teardown, then the ylos2 guest boots in a fresh realm (handoff).
-run_suite menu/launcher_v2_runner
+# ---- BRIDGES.md step 3 — real TSX guests on the ONE generic host -------------
+# Games are TSX-only folders (no per-game .rgr); RgGameHost is the single
+# generic host (v1 GameRunner analog). These are thin test drivers.
+run_suite tests/e2e/ylos2_e2e_test
+run_suite tests/e2e/launcher_e2e_test
 
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
