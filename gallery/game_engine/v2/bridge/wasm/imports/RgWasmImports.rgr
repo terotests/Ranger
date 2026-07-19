@@ -1,0 +1,88 @@
+; ==============================================================================
+; RgWasmImports — the rg_* WASM import surface (D-WASM / D-OWN).
+; ==============================================================================
+; Compiled guests call the SAME create/release commands as the interpreter, via
+; direct `rg_*` imports. Only i32 words cross the boundary: a handle travels as
+; two i32 words (`lo`, `hi`) per D-HANDLE, and a create returns its handle
+; through an out-register (`retLo`/`retHi`) plus a status code — modelling a
+; WASM out-pointer ABI ("only i32 / byte spans cross").
+;
+; Ownership on the compiled path is Clone/Drop = refcount (D-OWN): `rg_retain`
+; bumps, `rg_release` drops once and frees at zero (releasing a mesh's retained
+; geometry + material through the host). No OwnedHandle wrapper / double-release
+; guard here — that is the interpreted path.
+;
+; A trace of command names is recorded so bridge/parity can assert the WASM
+; import sequence and the interpreter adapter sequence produce identical arena
+; state.
+; ==============================================================================
+
+Import "../../../host/arenas/RgHost.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+
+class RgWasmImports {
+    def host:RgHost (new RgHost)
+    def realm:int 1
+    ; out-register for the handle a create returns (two i32 words)
+    def retLo:int 0
+    def retHi:int 0
+    def trace:[string]
+
+    fn record:void (op:string) { push this.trace op }
+
+    ; ---- create (handle returned via retLo/retHi; status is the return) -----
+    fn rg_geometry_create:int (vertexCount:int) {
+        def owned:OwnedHandle (this.host.geometryCreate(this.realm vertexCount))
+        this.retLo = (owned.handle.packLo())
+        this.retHi = (owned.handle.packHi())
+        this.record("geometryCreate")
+        return (RgErr.ok())
+    }
+
+    fn rg_material_create:int () {
+        def owned:OwnedHandle (this.host.materialCreate(this.realm 1.0 1.0 1.0))
+        this.retLo = (owned.handle.packLo())
+        this.retHi = (owned.handle.packHi())
+        this.record("materialCreate")
+        return (RgErr.ok())
+    }
+
+    ; rg_mesh_create(geoLo, geoHi, matLo, matHi) — handles arrive as i32 words.
+    fn rg_mesh_create:int (geoLo:int geoHi:int matLo:int matHi:int) {
+        def geo:RgHandle (RgHandle.unpack(geoLo geoHi))
+        def mat:RgHandle (RgHandle.unpack(matLo matHi))
+        def owned:OwnedHandle (this.host.meshCreate(this.realm geo mat))
+        this.retLo = (owned.handle.packLo())
+        this.retHi = (owned.handle.packHi())
+        this.record("meshCreate")
+        return (RgErr.ok())
+    }
+
+    ; ---- ownership (Clone/Drop = refcount) ---------------------------------
+    fn rg_retain:int (lo:int hi:int) {
+        def h:RgHandle (RgHandle.unpack(lo hi))
+        def r:RgResolve (this.host.retain(h))
+        this.record("retain")
+        return r.code
+    }
+
+    fn rg_release:int (lo:int hi:int) {
+        def h:RgHandle (RgHandle.unpack(lo hi))
+        def r:RgResolve (this.host.releaseHandleInternal(h))
+        this.record("release")
+        return r.code
+    }
+
+    ; ---- occupancy (matches host tests) ------------------------------------
+    fn occupancy:int () { return (this.host.liveCount()) }
+
+    fn refcountWords:int (lo:int hi:int) {
+        def h:RgHandle (RgHandle.unpack(lo hi))
+        return (this.host.refcount(h))
+    }
+
+    fn isLiveWords:boolean (lo:int hi:int) {
+        def h:RgHandle (RgHandle.unpack(lo hi))
+        return (this.host.isLive(h))
+    }
+}

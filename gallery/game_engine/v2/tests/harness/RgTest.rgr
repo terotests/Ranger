@@ -1,0 +1,92 @@
+; ==============================================================================
+; RgTest — shared v2 unit/contract test harness.
+; ==============================================================================
+; Minimal nodeunit-style assertions used by every v2 suite. Compile a suite to
+; ES6 and run under Node; each check prints "  PASS <name>" / "  FAIL <name>",
+; and summary() prints a grep-able "ALL PASS" (or "SOME FAILED") plus a
+; "passed=X failed=Y" line. Mirrors the physics/ and three/ port harnesses so
+; the same run.sh grep works across the tree.
+; ==============================================================================
+
+class RgTest {
+    def passed:int 0
+    def failed:int 0
+    def suite:string ""
+
+    sfn forSuite:RgTest (name:string) {
+        def t:RgTest (new RgTest)
+        t.suite = name
+        print ("### " + name)
+        return t
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    ; Asserts the condition is false (negative case). Keeps intent readable at
+    ; the call site instead of forcing `ok(name (not x))` spelling everywhere.
+    fn no:void (name:string cond:boolean) {
+        this.ok(name (cond == false))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name + " got=" + got + " want=" + want)
+        }
+    }
+
+    fn eqBool:void (name:string got:boolean want:boolean) {
+        if (got == want) {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.000001) {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+
+    fn summary:void () {
+        print "== summary =="
+        print ("passed=" + (to_string this.passed) + " failed=" + (to_string this.failed))
+        if (this.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

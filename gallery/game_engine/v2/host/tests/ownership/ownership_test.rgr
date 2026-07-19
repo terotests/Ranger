@@ -1,0 +1,81 @@
+; ==============================================================================
+; ownership_test — host/tests/ownership gate (D-OWN).
+; ==============================================================================
+; Asserts the ownership table rows:
+;   meshCreate retains geometry + material (refcount goes 1 → 2)
+;   a property getter returns a BORROWED handle (no refcount change)
+;   meshSetGeometry retains the new geometry and releases the old one
+;   releasing the mesh releases its retained children (final refs drop to 0)
+; ==============================================================================
+
+Import "../../arenas/RgHost.rgr"
+Import "../../handles/RgHandle.rgr"
+Import "../../ownership/OwnedHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class OwnershipTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("host/ownership"))
+        def host:RgHost (new RgHost)
+        def realm:int 1
+
+        def geo:OwnedHandle (host.geometryCreate(realm 24))
+        def mat:OwnedHandle (host.materialCreate(realm 1.0 0.5 0.25))
+        t.eqInt("geo refcount 1 after create" (host.refcount(geo.handle)) 1)
+        t.eqInt("mat refcount 1 after create" (host.refcount(mat.handle)) 1)
+
+        ; ---- meshCreate retains geo + mat -----------------------------------
+        def mesh:OwnedHandle (host.meshCreate(realm geo.handle mat.handle))
+        t.eqInt("mesh refcount 1 after create" (host.refcount(mesh.handle)) 1)
+        t.eqInt("geo retained by mesh (refcount 2)" (host.refcount(geo.handle)) 2)
+        t.eqInt("mat retained by mesh (refcount 2)" (host.refcount(mat.handle)) 2)
+
+        ; ---- getter returns borrowed (no refcount change) -------------------
+        def gGeo:RgHandle (host.meshGeometry(mesh.handle))
+        def gMat:RgHandle (host.meshMaterial(mesh.handle))
+        t.eqInt("meshGeometry returns geo slot" gGeo.slot geo.handle.slot)
+        t.eqInt("meshMaterial returns mat slot" gMat.slot mat.handle.slot)
+        t.eqInt("getter did NOT change geo refcount" (host.refcount(geo.handle)) 2)
+        t.eqInt("getter did NOT change mat refcount" (host.refcount(mat.handle)) 2)
+
+        ; ---- caller drops its own geo ownership; mesh still holds it ---------
+        def relGeo:RgResolve (host.releaseOwned(geo))
+        t.ok("caller release geo ok" relGeo.ok)
+        t.no("caller release did not free geo (mesh holds)" relGeo.freed)
+        t.eqInt("geo refcount 1 (mesh's strong ref)" (host.refcount(geo.handle)) 1)
+        t.ok("geo still live" (host.isLive(geo.handle)))
+
+        ; ---- meshSetGeometry: retain new, release old -----------------------
+        def geo2:OwnedHandle (host.geometryCreate(realm 99))
+        t.eqInt("geo2 refcount 1" (host.refcount(geo2.handle)) 1)
+        def setR:RgResolve (host.meshSetGeometry(mesh.handle geo2.handle))
+        t.ok("meshSetGeometry ok" setR.ok)
+        t.eqInt("new geo retained (refcount 2)" (host.refcount(geo2.handle)) 2)
+        t.no("old geo released (dropped to 0, not live)" (host.isLive(geo.handle)))
+        def gGeo2:RgHandle (host.meshGeometry(mesh.handle))
+        t.eqInt("mesh now points at geo2" gGeo2.slot geo2.handle.slot)
+
+        ; ---- release mesh drops ONLY the mesh's strong refs -----------------
+        ; The caller still owns geo2 and mat, so releasing the mesh brings those
+        ; back to refcount 1 (still live) — the mesh does not free what the
+        ; caller independently owns (D-OWN: each owner releases once).
+        def relMesh:RgResolve (host.releaseOwned(mesh))
+        t.ok("mesh release ok" relMesh.ok)
+        t.ok("mesh release freed the mesh" relMesh.freed)
+        t.no("mesh not live" (host.isLive(mesh.handle)))
+        t.eqInt("geo2 back to caller-only refcount 1" (host.refcount(geo2.handle)) 1)
+        t.eqInt("mat back to caller-only refcount 1" (host.refcount(mat.handle)) 1)
+        t.ok("geo2 still live (caller owns it)" (host.isLive(geo2.handle)))
+        t.ok("mat still live (caller owns it)" (host.isLive(mat.handle)))
+        t.eqInt("two live objects remain (geo2 + mat)" (host.liveCount()) 2)
+
+        ; ---- caller now drops its remaining ownership → fully reclaimed ------
+        host.releaseOwned(geo2)
+        host.releaseOwned(mat)
+        t.no("geo2 not live after caller release" (host.isLive(geo2.handle)))
+        t.no("mat not live after caller release" (host.isLive(mat.handle)))
+        t.eqInt("host fully reclaimed" (host.liveCount()) 0)
+
+        t.summary()
+    }
+}

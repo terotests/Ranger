@@ -23,3 +23,14 @@ Per-import module scopes — prerequisite before ranger:* injection.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 8a (D-MODULES prerequisite) ✅ green
+
+`RgModuleSystem.rgr` gives every imported module its OWN namespace object:
+colliding export names across modules never clobber; the same module imported
+twice in one realm returns the cached namespace (body evaluated once); two realms
+get separate instances; a failed init is cached as failed (no silent re-run); a
+circular import is a deterministic hard error. Gate:
+`tests/module_isolation_test.rgr` (18). Run via `bash ../../tests/run.sh`.

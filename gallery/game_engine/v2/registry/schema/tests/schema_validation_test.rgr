@@ -1,0 +1,47 @@
+; ==============================================================================
+; schema_validation_test — registry/schema gate (D-REGISTRY / D-ADAPTER).
+; ==============================================================================
+; Asserts: every host/hybrid property declares a sync boundary. The fixture is
+; clean; a deliberately-broken schema (a host prop left `unspecified`) is flagged.
+; ==============================================================================
+
+Import "../RgSchema.rgr"
+Import "../../fixtures/three_schema_fixture.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class SchemaValidationTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("registry/schema/validation"))
+
+        ; ---- the fixture is valid ------------------------------------------
+        def s:RgSchema (ThreeSchemaFixture.buildSchema())
+        def v:[string] (s.validate())
+        t.eqInt("fixture has no sync-boundary violations" (array_length v) 0)
+        t.eqInt("fixture method count" (s.methodCount()) 7)
+
+        ; ---- a broken schema is flagged ------------------------------------
+        def bad:RgSchema (new RgSchema)
+        def c:RgClassDef (RgClassDef.of(9 "Broken"))
+        ; a HOST property with no sync boundary declared → must be flagged
+        c.addProp((RgPropDef.of(9000 "hostThing" "i32"
+            (RgResidency.host()) (RgOwnership.none()) true (RgSync.unspecified()))))
+        ; a pure GUEST property with no sync is fine (no host truth to sync)
+        c.addProp((RgPropDef.of(9001 "guestThing" "i32"
+            (RgResidency.guest()) (RgOwnership.none()) true (RgSync.unspecified()))))
+        bad.addClass(c)
+        def bv:[string] (bad.validate())
+        t.eqInt("exactly one violation (host prop only)" (array_length bv) 1)
+        t.eqStr("violation names the host prop" (itemAt bv 0) "Broken.hostThing")
+
+        ; a hybrid prop also requires a sync boundary
+        def bad2:RgSchema (new RgSchema)
+        def c2:RgClassDef (RgClassDef.of(10 "Broken2"))
+        c2.addProp((RgPropDef.of(10000 "hybridThing" "vec3"
+            (RgResidency.hybrid()) (RgOwnership.none()) true (RgSync.unspecified()))))
+        bad2.addClass(c2)
+        def bv2:[string] (bad2.validate())
+        t.eqInt("hybrid prop without sync is flagged" (array_length bv2) 1)
+
+        t.summary()
+    }
+}

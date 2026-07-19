@@ -1,0 +1,107 @@
+; ==============================================================================
+; rg_handle_test — host/handles gate (D-HANDLE).
+; ==============================================================================
+; Asserts: fat two-word handle pack/unpack round-trip; stale handle rejected;
+; cross-realm handle rejected even when generation + type agree; invalid
+; sentinel is slot 0.
+; ==============================================================================
+
+Import "../RgHandle.rgr"
+Import "../../RgRegistry.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class RgHandleTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("host/handles/rg_handle"))
+
+        ; ---- pack / unpack round-trip ---------------------------------------
+        def h:RgHandle (RgHandle.of(1234 56 7 12))
+        def lo:int (h.packLo())
+        def hi:int (h.packHi())
+        def back:RgHandle (RgHandle.unpack(lo hi))
+        t.eqInt("unpack slot" back.slot 1234)
+        t.eqInt("unpack generation" back.generation 56)
+        t.eqInt("unpack realm" back.realmId 7)
+        t.eqInt("unpack type" back.typeId 12)
+
+        ; invalid sentinel is slot 0 (never negative)
+        def inv:RgHandle (RgHandle.invalid())
+        t.no("invalid handle is not valid" (inv.isValid()))
+        t.ok("valid handle is valid" (h.isValid()))
+
+        ; ---- registry resolve / stale / cross-realm -------------------------
+        def reg:RgRegistry (new RgRegistry)
+        ; realm 7, type 12, payload 0
+        def a:RgHandle (reg.alloc(7 12 0))
+        def r1:RgResolve (reg.resolveSlot(a))
+        t.ok("fresh handle resolves" r1.ok)
+        t.eqInt("resolve payload index" r1.payloadIndex 0)
+
+        ; free it, then a stale copy must be rejected
+        def rel:RgResolve (reg.releaseOnce(a))
+        t.ok("release succeeds" rel.ok)
+        def r2:RgResolve (reg.resolveSlot(a))
+        t.no("released handle no longer resolves" r2.ok)
+        t.eqInt("released handle is STALE" r2.code (RgErr.stale()))
+
+        ; reuse the slot: same slot index, bumped generation
+        def b:RgHandle (reg.alloc(7 12 3))
+        t.eqInt("slot reused" b.slot a.slot)
+        t.ok("generation bumped on reuse" (b.generation > a.generation))
+        ; the OLD handle (a) is still stale against the reused slot
+        def r3:RgResolve (reg.resolveSlot(a))
+        t.no("old handle stale after slot reuse" r3.ok)
+        t.eqInt("old handle STALE code" r3.code (RgErr.stale()))
+
+        ; ---- cross-realm rejection (same slot+gen+type, wrong realm) --------
+        ; forge a handle with b's slot/gen/type but a different realm
+        def forged:RgHandle (RgHandle.of(b.slot b.generation 999 b.typeId))
+        def r4:RgResolve (reg.resolveSlot(forged))
+        t.no("cross-realm handle rejected" r4.ok)
+        t.eqInt("cross-realm WRONG_REALM code" r4.code (RgErr.wrongRealm()))
+
+        ; ---- wrong-type rejection at command boundary -----------------------
+        def rWrongType:RgResolve (reg.resolveTyped(b 99))
+        t.no("wrong arena type rejected" rWrongType.ok)
+        t.eqInt("wrong type WRONG_TYPE code" rWrongType.code (RgErr.wrongType()))
+        def rRightType:RgResolve (reg.resolveTyped(b 12))
+        t.ok("right arena type accepted" rRightType.ok)
+
+        ; ---- signedness safety: out-of-range fields fail loudly -------------
+        ; typeId/realmId are 11-bit: 2048 would set the i32 sign bit, so pack
+        ; refuses (word 0 -> decodes to the invalid sentinel), never truncates.
+        def big:RgHandle (RgHandle.of(1 1 1 2048))
+        t.eqInt("typeId over 11 bits refuses to pack" (big.packLo()) 0)
+        def bigR:RgHandle (RgHandle.of(1 1 2048 1))
+        t.eqInt("realmId over 11 bits refuses to pack" (bigR.packHi()) 0)
+        def maxOk:RgHandle (RgHandle.of(1048575 1048575 2047 2047))
+        t.ok("max legal fields pack to positive words" ((maxOk.packLo()) > 0))
+        def back2:RgHandle (RgHandle.unpack((maxOk.packLo()) (maxOk.packHi())))
+        t.eqInt("max legal fields round-trip slot" back2.slot 1048575)
+        t.eqInt("max legal fields round-trip realm" back2.realmId 2047)
+
+        ; ---- wrap protection: generation cap retires the slot forever -------
+        def reg2:RgRegistry (new RgRegistry)
+        reg2.maxGeneration = 3
+        def w1:RgHandle (reg2.alloc(1 12 0))
+        reg2.releaseOnce(w1)
+        def w2:RgHandle (reg2.alloc(1 12 0))    ; gen 2
+        reg2.releaseOnce(w2)
+        def w3:RgHandle (reg2.alloc(1 12 0))    ; gen 3 = cap
+        t.eqInt("slot reused up to the cap" w3.slot w1.slot)
+        t.eqInt("generation reached the cap" w3.generation 3)
+        reg2.releaseOnce(w3)
+        def w4:RgHandle (reg2.alloc(1 12 0))
+        t.no("capped slot NEVER reused (fresh slot instead)" (w4.slot == w1.slot))
+        t.eqInt("one slot permanently retired" reg2.retiredCount 1)
+        def wOld:RgResolve (reg2.resolveSlot(w3))
+        t.no("old capped handle stays stale forever" wOld.ok)
+
+        ; ---- invalid handle (slot 0) ----------------------------------------
+        def rInv:RgResolve (reg.resolveSlot(inv))
+        t.no("invalid handle rejected" rInv.ok)
+        t.eqInt("invalid handle INVALID_HANDLE code" rInv.code (RgErr.invalidHandle()))
+
+        t.summary()
+    }
+}

@@ -1,0 +1,176 @@
+; ==============================================================================
+; RgModuleSystem — per-realm module namespace isolation (D-MODULES).
+; ==============================================================================
+; Today the interpreter binds every imported top-level name into one shared
+; scope (last import wins). The `ranger:*` packages are unsafe to expose until
+; that is fixed. This slice pins the corrected binding rules:
+;
+;   - every imported module gets its OWN namespace object; two modules may
+;     export the same names without clobbering each other
+;   - importing the same module twice in ONE realm returns the SAME namespace
+;     (cached; the module body evaluates exactly once)
+;   - two realms get SEPARATE namespace instances (no cross-realm sharing)
+;   - a failed initialization is cached as failed (re-import: same error, the
+;     initializer does not silently re-run)
+;   - circular imports are a hard error (deterministic), not a partial namespace
+;
+; Module definitions live in a shared catalog; each realm has its own
+; RgModuleSystem with its own instance cache.
+; ==============================================================================
+
+Import "../values/RgValue.rgr"
+Import "../values/RgRealm.rgr"
+
+; A module definition (shared catalog): a name, the export names it provides
+; (may collide with other modules), an optional init-failure flag, and its
+; import dependencies (for cycle detection).
+class RgModuleDef {
+    def name:string ""
+    def exports:[string]
+    def failOnInit:boolean false
+    def deps:[string]
+
+    sfn of:RgModuleDef (name:string) {
+        def d:RgModuleDef (new RgModuleDef)
+        d.name = name
+        return d
+    }
+    fn addExport:void (n:string) { push this.exports n }
+    fn addDep:void (n:string) { push this.deps n }
+}
+
+; A resolved import outcome for one realm.
+class RgModuleInstance {
+    def name:string ""
+    def namespace:RgValue (new RgValue)
+    def ok:boolean false
+    def error:string ""
+    def initialized:boolean false
+}
+
+class RgModuleSystem {
+    def realm:RgRealm (RgRealm.withId(1))
+    def defs:[RgModuleDef]            ; shared catalog (set per system)
+    def instances:[RgModuleInstance]  ; per-realm cache
+    def importing:[string]            ; in-progress stack (cycle detection)
+    def evalCount:int 0               ; module bodies evaluated in this realm
+
+    sfn withRealm:RgModuleSystem (realm:RgRealm defs:[RgModuleDef]) {
+        def s:RgModuleSystem (new RgModuleSystem)
+        s.realm = realm
+        s.defs = defs
+        return s
+    }
+
+    fn findDef:RgModuleDef (name:string) {
+        def n:int (array_length this.defs)
+        def i 0
+        while (i < n) {
+            def d:RgModuleDef (itemAt this.defs i)
+            if (d.name == name) { return d }
+            i = (i + 1)
+        }
+        return (new RgModuleDef)
+    }
+
+    fn findInstance:RgModuleInstance (name:string) {
+        def n:int (array_length this.instances)
+        def i 0
+        while (i < n) {
+            def inst:RgModuleInstance (itemAt this.instances i)
+            if (inst.name == name) { return inst }
+            i = (i + 1)
+        }
+        return (new RgModuleInstance)
+    }
+
+    fn isImporting:boolean (name:string) {
+        def n:int (array_length this.importing)
+        def i 0
+        while (i < n) {
+            if ((itemAt this.importing i) == name) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; import(name) — resolve/cache the module namespace for this realm.
+    fn importModule:RgModuleInstance (name:string) {
+        ; already resolved (success or cached failure) → return the cache
+        def existing:RgModuleInstance (this.findInstance(name))
+        if (existing.name == name) {
+            return existing
+        }
+        ; re-entry while this module is mid-import → transient cycle signal.
+        ; Do NOT cache here; the outer resolution caches the failed instance.
+        if (this.isImporting(name)) {
+            def circ:RgModuleInstance (new RgModuleInstance)
+            circ.name = name
+            circ.ok = false
+            circ.error = "circular-import"
+            return circ
+        }
+        def mdef:RgModuleDef (this.findDef(name))
+        if (mdef.name != name) {
+            def missing:RgModuleInstance (new RgModuleInstance)
+            missing.name = name
+            missing.ok = false
+            missing.error = "not-found"
+            push this.instances missing
+            return missing
+        }
+
+        push this.importing name
+        ; resolve dependencies first (drives cycle detection)
+        def depCycle:boolean false
+        def nd:int (array_length mdef.deps)
+        def di 0
+        while (di < nd) {
+            def dr:RgModuleInstance (this.importModule((itemAt mdef.deps di)))
+            if (dr.error == "circular-import") { depCycle = true }
+            di = (di + 1)
+        }
+        ; evaluate the module body exactly once
+        this.evalCount = (this.evalCount + 1)
+        def inst:RgModuleInstance (new RgModuleInstance)
+        inst.name = name
+        inst.initialized = true
+        if (depCycle) {
+            inst.ok = false
+            inst.error = "circular-import"
+        } {
+        if (mdef.failOnInit) {
+            inst.ok = false
+            inst.error = "init-failed"
+        } {
+            inst.ok = true
+            ; each module gets its OWN namespace object with its own identities
+            def ns:RgValue (this.realm.newObject())
+            def ne:int (array_length mdef.exports)
+            def ei 0
+            while (ei < ne) {
+                def exportName:string (itemAt mdef.exports ei)
+                ns.setProp(exportName (this.realm.newFunction(exportName)))
+                ei = (ei + 1)
+            }
+            inst.namespace = ns
+        }
+        }
+        push this.instances inst
+        ; pop the importing stack
+        this.popImporting()
+        return inst
+    }
+
+    fn popImporting:void () {
+        def n:int (array_length this.importing)
+        if (n == 0) { return }
+        def kept:[string]
+        def i 0
+        while (i < (n - 1)) {
+            push kept (itemAt this.importing i)
+            i = (i + 1)
+        }
+        this.importing = kept
+    }
+}

@@ -22,3 +22,12 @@ Interpreter realm: EvalValue, evaluation engine, semantics, native adapter.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 1 slice green
+
+`values/` (RgValue + RgRealm) and `semantics/` (RgMap/RgSet/RgArrayOps) form a
+dependency-light interpreter value slice that proves D-IDENTITY without Three,
+rendering, or the EVG/JSX stack. See each subfolder README. Adapter/engine work
+(Phase 4) builds on this identity guarantee.

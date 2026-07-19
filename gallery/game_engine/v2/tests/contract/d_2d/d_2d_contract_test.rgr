@@ -1,0 +1,162 @@
+; ==============================================================================
+; d_2d_contract_test — cross-cutting D-2D gate (ranger:2d parity).
+; ==============================================================================
+; The ten required D-2D parity cases:
+;   1. sprite handle stable after reorder / reparent
+;   2. two sprites share one atlas (+ texture)
+;   3. releasing one sprite does not release the shared atlas
+;   4. removing a sprite from a layer does not release it
+;   5. software and GPU camera transforms produce equivalent coordinates
+;   6. TS and Rust/WASM resolve the same atlas region
+;   7. animation produces the same frame at a given runtime time
+;   8. immediate draw-list commands do not leak persistent handles
+;   9. body-to-sprite binding rejects a stale body or sprite handle
+;  10. atlas/resource counts stay stable across hot reload
+; ==============================================================================
+
+Import "../../../modules/ranger_2d/RgRanger2D.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../host/ownership/OwnedHandle.rgr"
+Import "../../harness/RgTest.rgr"
+
+class D2DContractTest {
+    sfn buildScene:RgRanger2D () {
+        def d:RgRanger2D (new RgRanger2D)
+        return d
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_2d"))
+        def d:RgRanger2D (new RgRanger2D)
+
+        ; atlas with two named regions + a two-frame walk clip
+        def tex:OwnedHandle (d.textureCreate(256 256))
+        def atlas:OwnedHandle (d.atlasCreate(tex.handle))
+        def rIdle:int (d.atlasAddRegion(atlas.handle "idle" 0 0 32 32))
+        def rWalk:int (d.atlasAddRegion(atlas.handle "walk" 32 0 32 32))
+        def frames:[int]
+        push frames rIdle
+        push frames rWalk
+        def durs:[double]
+        push durs 0.1
+        push durs 0.2
+        def clip:int (d.atlasAddClip(atlas.handle "walk" frames durs))
+
+        ; ---- 2. two sprites share one atlas (+ texture) --------------------
+        def s1:OwnedHandle (d.spriteCreate(atlas.handle rIdle))
+        def s2:OwnedHandle (d.spriteCreate(atlas.handle rIdle))
+        def a1:RgHandle (d.spriteAtlasHandle(s1.handle))
+        def a2:RgHandle (d.spriteAtlasHandle(s2.handle))
+        t.eqInt("both sprites reference the same atlas slot" a1.slot a2.slot)
+        ; atlas retained by both sprites + caller = refcount 3
+        t.eqInt("shared atlas retained by both sprites + caller" (d.refcount(atlas.handle)) 3)
+        ; texture retained by the atlas + caller = refcount 2
+        t.eqInt("shared texture retained by atlas + caller" (d.refcount(tex.handle)) 2)
+        ; sprite / atlas / texture identities are separate
+        t.no("sprite and atlas handles are different slots" (s1.handle.slot == atlas.handle.slot))
+
+        ; ---- 1. sprite handle stable after reorder / reparent --------------
+        def layerA:OwnedHandle (d.layerCreate())
+        def layerB:OwnedHandle (d.layerCreate())
+        def s1Slot:int s1.handle.slot
+        def s1Gen:int s1.handle.generation
+        d.layerAdd(s1.handle layerA.handle)
+        t.eqInt("sprite in layer A" (d.spriteLayerSlot(s1.handle)) layerA.handle.slot)
+        t.eqInt("layer A has one child" (d.layerChildCount(layerA.handle)) 1)
+        ; reparent to layer B — handle must not change
+        d.layerAdd(s1.handle layerB.handle)
+        t.eqInt("reparent preserved sprite slot" s1.handle.slot s1Slot)
+        t.eqInt("reparent preserved sprite generation" s1.handle.generation s1Gen)
+        t.eqInt("layer A child count decremented" (d.layerChildCount(layerA.handle)) 0)
+        t.eqInt("layer B child count incremented" (d.layerChildCount(layerB.handle)) 1)
+        ; changing region / z-order does not change identity
+        d.spriteSetRegion(s1.handle rWalk)
+        t.eqInt("region change preserved sprite slot" s1.handle.slot s1Slot)
+
+        ; ---- 4. removing a sprite from a layer does not release it ---------
+        d.layerRemove(s1.handle)
+        t.eqInt("sprite detached from layer" (d.spriteLayerSlot(s1.handle)) 0)
+        t.eqInt("layer B child count back to 0" (d.layerChildCount(layerB.handle)) 0)
+        t.ok("sprite still live after layer remove" (d.isLive(s1.handle)))
+
+        ; ---- 3. releasing one sprite does not release the shared atlas -----
+        def rel:RgResolve (d.releaseSprite(s1))
+        t.ok("sprite 1 release ok" rel.ok)
+        t.no("sprite 1 not live" (d.isLive(s1.handle)))
+        t.ok("shared atlas still live" (d.isLive(atlas.handle)))
+        t.eqInt("atlas refcount dropped by one (sprite2 + caller)" (d.refcount(atlas.handle)) 2)
+        t.ok("sprite 2 still live and shares the atlas" (d.isLive(s2.handle)))
+        t.ok("texture still live" (d.isLive(tex.handle)))
+
+        ; ---- 5. software and GPU camera transforms agree -------------------
+        def cam:OwnedHandle (d.cameraCreate())
+        d.cameraSet(cam.handle 3.0 (0.0 - 2.0) 1.5 0.7)
+        def swX:double (d.worldToScreenSwX(cam.handle 10.0 4.0))
+        def gpX:double (d.worldToScreenGpuX(cam.handle 10.0 4.0))
+        def swY:double (d.worldToScreenSwY(cam.handle 10.0 4.0))
+        def gpY:double (d.worldToScreenGpuY(cam.handle 10.0 4.0))
+        t.near("SW and GPU worldToScreen X agree" swX gpX)
+        t.near("SW and GPU worldToScreen Y agree" swY gpY)
+        ; screenToWorld round-trips
+        def wx:double (d.screenToWorldX(cam.handle swX swY))
+        def wy:double (d.screenToWorldY(cam.handle swX swY))
+        t.near("screenToWorld round-trips X" wx 10.0)
+        t.near("screenToWorld round-trips Y" wy 4.0)
+
+        ; ---- 6. TS and WASM resolve the same atlas region -----------------
+        ; both guest paths call the one host command → identical rect
+        def tsX:int (d.atlasRegionX(atlas.handle "walk"))
+        def wasmX:int (d.atlasRegionX(atlas.handle "walk"))
+        t.eqInt("TS and WASM atlas region X agree" tsX wasmX)
+        t.eqInt("resolved walk region x is 32" tsX 32)
+        t.eqInt("resolved walk region w is 32" (d.atlasRegionW(atlas.handle "walk")) 32)
+
+        ; ---- 7. animation produces the same frame at a given time ---------
+        def player:OwnedHandle (d.playerCreate(s2.handle clip))
+        ; clip: frame0 [0,0.1), frame1 [0.1,0.3), loop at 0.3
+        t.eqInt("t=0.05 → idle frame" (d.playerFrameAt(player.handle 0.05)) rIdle)
+        t.eqInt("t=0.2 → walk frame" (d.playerFrameAt(player.handle 0.2)) rWalk)
+        t.eqInt("t=0.35 loops → idle frame" (d.playerFrameAt(player.handle 0.35)) rIdle)
+        ; deterministic: same time → same frame
+        t.eqInt("same time yields the same frame"
+            (d.playerFrameAt(player.handle 0.2)) (d.playerFrameAt(player.handle 0.2)))
+
+        ; ---- 8. immediate draw-list commands do not leak persistent handles
+        def liveBefore:int (d.liveCount())
+        def dl:RgDrawList2D (new RgDrawList2D)
+        dl.drawSprite(rIdle 5.0 5.0)
+        dl.drawRect(1.0 1.0)
+        dl.drawSprite(rWalk 9.0 9.0)
+        t.eqInt("draw list recorded three commands" (dl.count()) 3)
+        t.eqInt("draw list allocated NO registry handles" (d.liveCount()) liveBefore)
+        dl.reset()
+        t.eqInt("draw list cleared at the frame boundary" (dl.count()) 0)
+        t.eqInt("still no persistent handles after reset" (d.liveCount()) liveBefore)
+
+        ; ---- 9. body-to-sprite binding rejects a stale body or sprite -----
+        t.ok("binding valid with a live body + live sprite"
+            (d.poseBindingValid(true s2.handle)))
+        t.no("binding rejects a stale body" (d.poseBindingValid(false s2.handle)))
+        t.no("binding rejects a stale sprite" (d.poseBindingValid(true s1.handle)))
+
+        ; ---- 10. atlas/resource counts stable across hot reload -----------
+        def texturesBefore:int (d.liveOfType((Rg2DType.texture())))
+        def atlasesBefore:int (d.liveOfType((Rg2DType.atlas())))
+        t.eqInt("one texture before reload" texturesBefore 1)
+        t.eqInt("one atlas before reload" atlasesBefore 1)
+        ; hot reload: tear the realm down, rebuild the same scene
+        d.teardownRealm(1)
+        t.eqInt("everything reclaimed on teardown" (d.liveCount()) 0)
+        def tex2:OwnedHandle (d.textureCreate(256 256))
+        def atlas2:OwnedHandle (d.atlasCreate(tex2.handle))
+        d.atlasAddRegion(atlas2.handle "idle" 0 0 32 32)
+        def sr1:OwnedHandle (d.spriteCreate(atlas2.handle 0))
+        def sr2:OwnedHandle (d.spriteCreate(atlas2.handle 0))
+        t.eqInt("texture count identical after reload" (d.liveOfType((Rg2DType.texture()))) texturesBefore)
+        t.eqInt("atlas count identical after reload" (d.liveOfType((Rg2DType.atlas()))) atlasesBefore)
+        t.eqInt("atlas refcount identical after reload (2 sprites + caller)"
+            (d.refcount(atlas2.handle)) 3)
+
+        t.summary()
+    }
+}

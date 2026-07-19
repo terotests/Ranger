@@ -20,3 +20,10 @@ Human-authored registry documents split by module.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 3 ✅
+
+`RgSchema.rgr` is the schema model; `validate()` gates that every host/hybrid
+prop declares a sync boundary (see `tests/schema_validation_test.rgr`).

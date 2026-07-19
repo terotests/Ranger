@@ -1,0 +1,59 @@
+; ==============================================================================
+; span_bounds_test — bridge/wasm/tests/span_bounds gate (D-WASM-MEM).
+; ==============================================================================
+; A bulk span (offset_bytes, element_count, element_type) is validated before
+; any copy: in-bounds → OK + byte length; out-of-bounds / overflow / negative /
+; misaligned → a typed error, never a misread. Status codes are separate from
+; the byte count.
+; ==============================================================================
+
+Import "../../memory/RgSpan.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class SpanBoundsTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/wasm/span_bounds"))
+        def memSize:int 1024
+        def f32:int 4   ; element size for f32
+
+        ; ---- valid span -----------------------------------------------------
+        def okSpan:RgSpanResult (RgSpan.check(0 16 f32 memSize))
+        t.ok("valid span passes" (okSpan.ok()))
+        t.eqInt("valid span byte length = count*size" okSpan.byteLength 64)
+
+        def okSpan2:RgSpanResult (RgSpan.check(512 128 f32 memSize))
+        t.ok("span ending exactly at memory end is valid" (okSpan2.ok()))
+        t.eqInt("byte length reported separately from status" okSpan2.byteLength 512)
+
+        ; ---- out of bounds --------------------------------------------------
+        def oob:RgSpanResult (RgSpan.check(1000 32 f32 memSize))
+        t.no("out-of-bounds span fails" (oob.ok()))
+        t.eqInt("OOB code" oob.code (RgSpanErr.oob()))
+        t.eqInt("failed span reports zero bytes (status != count)" oob.byteLength 0)
+
+        ; one element past the end is OOB
+        def past:RgSpanResult (RgSpan.check(1024 1 f32 memSize))
+        t.eqInt("one element past end is OOB" past.code (RgSpanErr.oob()))
+
+        ; ---- negative offset / count ---------------------------------------
+        def neg1:RgSpanResult (RgSpan.check((0 - 4) 4 f32 memSize))
+        t.eqInt("negative offset is NEGATIVE" neg1.code (RgSpanErr.negative()))
+        def neg2:RgSpanResult (RgSpan.check(0 (0 - 1) f32 memSize))
+        t.eqInt("negative count is NEGATIVE" neg2.code (RgSpanErr.negative()))
+
+        ; ---- misalignment ---------------------------------------------------
+        def mis:RgSpanResult (RgSpan.check(2 4 f32 memSize))
+        t.eqInt("offset not a multiple of element size is ALIGN" mis.code (RgSpanErr.align()))
+
+        ; ---- overflow -------------------------------------------------------
+        def ovf:RgSpanResult (RgSpan.check(0 2000000000 f32 memSize))
+        t.eqInt("huge count*size overflow is OVERFLOW" ovf.code (RgSpanErr.overflow()))
+
+        ; ---- zero-length span is valid (0 bytes) ---------------------------
+        def zero:RgSpanResult (RgSpan.check(0 0 f32 memSize))
+        t.ok("zero-length span is valid" (zero.ok()))
+        t.eqInt("zero-length byte count" zero.byteLength 0)
+
+        t.summary()
+    }
+}

@@ -1,0 +1,56 @@
+; ==============================================================================
+; adapter_churn_test — tests/unit/interp gate (D-SYNC / D-ADAPTER).
+; ==============================================================================
+; "Same script object → same host handle after property churn." A mesh's
+; NativeRef identity and its host handle stay fixed while the guest hammers
+; expandos, reads/writes position across turns, and re-reads the geometry
+; wrapper — no property write ever recreates the host object (D-SYNC live model).
+; ==============================================================================
+
+Import "../../../interp/adapter/RgAdapter.rgr"
+Import "../../../interp/values/RgValue.rgr"
+Import "../../harness/RgTest.rgr"
+
+class AdapterChurnTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/unit/interp/adapter_churn"))
+        def a:RgAdapter (new RgAdapter)
+
+        def geo:RgValue (a.constructGeometry(12))
+        def mat:RgValue (a.constructMaterial())
+        def mesh:RgValue (a.constructMesh(geo mat))
+
+        def startSlot:int (a.meshHandleSlot(mesh))
+        def startId:int mesh.identityId
+        def geoWrap0:RgValue (a.getProperty(mesh "geometry"))
+
+        ; ---- churn: expandos + position across several turns ---------------
+        def turnN 0
+        while (turnN < 5) {
+            a.setProperty(mesh ("k" + (to_string turnN)) (RgValue.number((to_double turnN))))
+            a.guestWritePos(mesh (to_double turnN) 0.0 0.0)
+            a.commitTurn()
+            a.beginTurn()
+            ; read geometry wrapper each turn — must be the same cached wrapper
+            def gw:RgValue (a.getProperty(mesh "geometry"))
+            t.ok(("geometry wrapper identity stable turn " + (to_string turnN))
+                (RgValue.tripleEquals(gw geoWrap0)))
+            ; the mesh handle must never move
+            t.eqInt(("mesh handle unchanged turn " + (to_string turnN))
+                (a.meshHandleSlot(mesh)) startSlot)
+            turnN = (turnN + 1)
+        }
+
+        ; ---- identity + handle unchanged after all the churn ---------------
+        t.eqInt("mesh NativeRef identity unchanged" mesh.identityId startId)
+        t.eqInt("mesh host handle unchanged" (a.meshHandleSlot(mesh)) startSlot)
+        ; all five expandos survived on the one object
+        t.ok("expando k0 present" (a.hasExpando(mesh "k0")))
+        t.ok("expando k4 present" (a.hasExpando(mesh "k4")))
+        ; committed position reflects the last guest write (guest-wins pipeline)
+        t.near("host position tracked the last committed guest write"
+            (a.hostPosX(mesh)) 4.0)
+
+        t.summary()
+    }
+}

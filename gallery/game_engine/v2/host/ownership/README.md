@@ -25,3 +25,13 @@ Owned vs borrowed vs weak-attachment rules shared by arenas and commands.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 2 ✅
+
+`OwnedHandle.rgr` implements the D-OWN "release exactly once per wrapper" rule.
+Refcount ownership itself lives in `../RgRegistry.rgr` (retain/releaseOnce) and
+the retain-on-create / release-children behaviour in `../arenas/RgHost.rgr`.
+Second release through the same wrapper → typed `DOUBLE_RELEASE` (see
+`../../tests/contract/d_own/`).

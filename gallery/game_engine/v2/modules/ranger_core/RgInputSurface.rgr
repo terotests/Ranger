@@ -1,0 +1,198 @@
+; ==============================================================================
+; RgInput / RgSurface — action maps + split-screen panes (ranger:core devices).
+; ==============================================================================
+; Input distinguishes three things (a gamepad's array index is NOT identity):
+;   Device identity   physical connection + generation (D-HANDLE-style)
+;   Player assignment logical player 0, 1, … (stable across reconnect)
+;   Action            jump / rotate / … (logical, with edge states)
+;
+; Surface owns runtime panes (viewports) on the single surface for split-screen
+; — required for 2-player titles (ylos2). Cameras render into panes; the same
+; Camera2D math applies (D-2D-4).
+; ==============================================================================
+
+Import "../../host/RgRegistry.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+
+class RgInputType {
+    sfn gamepad:int () { return 43 }
+}
+
+; logical action state for one player
+class RgPlayerInput {
+    def playerIndex:int 0
+    def deviceSlot:int 0          ; assigned device (0 = none)
+    def actions:[string]
+    def isDown:[boolean]
+    def wasPressed:[boolean]
+
+    fn findAction:int (name:string) {
+        def n:int (array_length this.actions)
+        def i 0
+        while (i < n) {
+            if ((itemAt this.actions i) == name) { return i }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+    fn ensureAction:int (name:string) {
+        def idx:int (this.findAction(name))
+        if (idx >= 0) { return idx }
+        push this.actions name
+        push this.isDown false
+        push this.wasPressed false
+        return ((array_length this.actions) - 1)
+    }
+}
+
+class RgInput {
+    def registry:RgRegistry (new RgRegistry)
+    def realmId:int 1
+    def players:[RgPlayerInput]
+
+    sfn create:RgInput (playerCount:int) {
+        def inp:RgInput (new RgInput)
+        def i 0
+        while (i < playerCount) {
+            def p:RgPlayerInput (new RgPlayerInput)
+            p.playerIndex = i
+            push inp.players p
+            i = (i + 1)
+        }
+        return inp
+    }
+
+    ; ---- device identity (generation-checked) ------------------------------
+    fn connectGamepad:OwnedHandle () {
+        def h:RgHandle (this.registry.alloc(this.realmId (RgInputType.gamepad()) 0))
+        return (OwnedHandle.own(h))
+    }
+    fn disconnectGamepad:RgResolve (owned:OwnedHandle) {
+        if (owned.released) { return (RgResolve.fail((RgErr.doubleRelease()))) }
+        def r:RgResolve (this.registry.releaseOnce(owned.handle))
+        if (r.ok) { owned.released = true }
+        return r
+    }
+    fn gamepadLive:boolean (h:RgHandle) { return (this.registry.isLive(h)) }
+
+    ; ---- player assignment (stable across reconnect) -----------------------
+    fn player:RgPlayerInput (i:int) {
+        return (itemAt this.players i)
+    }
+    fn assignDevice:void (playerIndex:int deviceH:RgHandle) {
+        def p:RgPlayerInput (itemAt this.players playerIndex)
+        p.deviceSlot = deviceH.slot
+    }
+
+    ; ---- action state + edges ----------------------------------------------
+    fn bindAction:void (playerIndex:int action:string) {
+        def p:RgPlayerInput (itemAt this.players playerIndex)
+        p.ensureAction(action)
+    }
+    fn setAction:void (playerIndex:int action:string down:boolean) {
+        def p:RgPlayerInput (itemAt this.players playerIndex)
+        def idx:int (p.ensureAction(action))
+        def prev:boolean (itemAt p.isDown idx)
+        if (down) {
+            if (prev == false) { set p.wasPressed idx true }
+        }
+        set p.isDown idx down
+    }
+    fn isDown:boolean (playerIndex:int action:string) {
+        def p:RgPlayerInput (itemAt this.players playerIndex)
+        def idx:int (p.findAction(action))
+        if (idx < 0) { return false }
+        return (itemAt p.isDown idx)
+    }
+    fn wasPressed:boolean (playerIndex:int action:string) {
+        def p:RgPlayerInput (itemAt this.players playerIndex)
+        def idx:int (p.findAction(action))
+        if (idx < 0) { return false }
+        return (itemAt p.wasPressed idx)
+    }
+    ; axis1D from two actions: +1 if positive down, -1 if negative down, else 0.
+    fn axis1D:int (playerIndex:int negAction:string posAction:string) {
+        def v 0
+        if (this.isDown(playerIndex posAction)) { v = (v + 1) }
+        if (this.isDown(playerIndex negAction)) { v = (v - 1) }
+        return v
+    }
+    ; step 8 of the frame pipeline: edge states clear (isDown persists).
+    fn advanceEdges:void () {
+        def np:int (array_length this.players)
+        def pi 0
+        while (pi < np) {
+            def p:RgPlayerInput (itemAt this.players pi)
+            def na:int (array_length p.wasPressed)
+            def ai 0
+            while (ai < na) {
+                set p.wasPressed ai false
+                ai = (ai + 1)
+            }
+            pi = (pi + 1)
+        }
+    }
+}
+
+; ---- Surface panes / split-screen -------------------------------------------
+class RgPane {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 1.0
+    def h:double 1.0
+    def player:int (0 - 1)   ; bound logical player (-1 = none)
+}
+
+class RgSurface {
+    def panes:[RgPane]
+
+    ; layout: 0 single, 1 split-horizontal (stacked), 2 split-vertical (side-by-side)
+    fn setLayout:void (mode:int) {
+        def np:[RgPane]
+        if (mode == 1) {
+            def top:RgPane (new RgPane)
+            top.x = 0.0
+            top.y = 0.0
+            top.w = 1.0
+            top.h = 0.5
+            push np top
+            def bot:RgPane (new RgPane)
+            bot.x = 0.0
+            bot.y = 0.5
+            bot.w = 1.0
+            bot.h = 0.5
+            push np bot
+        } {
+        if (mode == 2) {
+            def left:RgPane (new RgPane)
+            left.x = 0.0
+            left.y = 0.0
+            left.w = 0.5
+            left.h = 1.0
+            push np left
+            def right:RgPane (new RgPane)
+            right.x = 0.5
+            right.y = 0.0
+            right.w = 0.5
+            right.h = 1.0
+            push np right
+        } {
+            def full:RgPane (new RgPane)
+            push np full
+        }
+        }
+        this.panes = np
+    }
+
+    fn paneCount:int () { return (array_length this.panes) }
+    fn pane:RgPane (i:int) { return (itemAt this.panes i) }
+    fn paneSetPlayer:void (i:int player:int) {
+        def p:RgPane (itemAt this.panes i)
+        p.player = player
+    }
+    fn panePlayer:int (i:int) {
+        def p:RgPane (itemAt this.panes i)
+        return p.player
+    }
+}

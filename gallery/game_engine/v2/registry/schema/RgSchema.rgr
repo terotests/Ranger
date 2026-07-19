@@ -1,0 +1,160 @@
+; ==============================================================================
+; RgSchema — the single registry schema model (D-REGISTRY).
+; ==============================================================================
+; The authoritative description of classes, properties, and methods that will
+; generate every public surface (host dispatch, adapter bindings, WASM imports,
+; TS/Rust wrappers). This is the Phase-3 "stub" model: it carries the minimum
+; each member must declare so codegen and the golden-id checker have real data.
+;
+; Every property declares residency + ownership; host/hybrid properties MUST
+; declare a sync boundary (D-ADAPTER). Every method carries an immutable
+; methodId and a stable binary export name (D-WASM / D-REGISTRY ID immutability).
+; ==============================================================================
+
+; ---- enum-ish constants ------------------------------------------------------
+class RgResidency {
+    sfn guest:int () { return 0 }   ; lives in the interpreter overlay
+    sfn host:int () { return 1 }    ; authoritative on the host
+    sfn hybrid:int () { return 2 }  ; cached mirror + host truth (D-ADAPTER)
+}
+
+class RgOwnership {
+    sfn none:int () { return 0 }
+    sfn owned:int () { return 1 }
+    sfn borrowed:int () { return 2 }
+    sfn weak:int () { return 3 }
+}
+
+class RgSync {
+    sfn unspecified:int () { return 0 }
+    sfn immediate:int () { return 1 }  ; host write happens now
+    sfn batch:int () { return 2 }      ; flushed at frame boundary
+    sfn none:int () { return 3 }       ; pure guest, no host sync
+}
+
+; ---- member definitions ------------------------------------------------------
+class RgPropDef {
+    def propId:int 0
+    def name:string ""
+    def typeName:string ""
+    def residency:int 0
+    def ownership:int 0
+    def mutable:boolean true
+    def sync:int 0
+
+    sfn of:RgPropDef (propId:int name:string typeName:string residency:int ownership:int mutable:boolean sync:int) {
+        def p:RgPropDef (new RgPropDef)
+        p.propId = propId
+        p.name = name
+        p.typeName = typeName
+        p.residency = residency
+        p.ownership = ownership
+        p.mutable = mutable
+        p.sync = sync
+        return p
+    }
+}
+
+class RgMethodDef {
+    def methodId:int 0
+    def name:string ""          ; source API command name (e.g. "meshCreate")
+    def wasmExport:string ""    ; stable binary export (e.g. "rg_mesh_create")
+    def async:boolean false
+    def retainsArgs:boolean false
+
+    ; ---- lowering metadata (D-REGISTRY: schema states it or codegen grows
+    ; command-specific exceptions). The generic bridge decodes purely from these.
+    ;   argSpec  colon-joined param types: i=i32 d=f64 s=string h=handle
+    ;            ai=array<i32> ad=array<f64>. "" = no args.
+    ;   retSpec  one of: v=void i=i32 d=f64 h=handle(create → guest id minted)
+    ;   effect   ownership effect: "create" (refcount starts 1, caller owns),
+    ;            "release" (ends caller ownership of arg 0), "none"
+    def argSpec:string ""
+    def retSpec:string "v"
+    def effect:string "none"
+
+    sfn of:RgMethodDef (methodId:int name:string wasmExport:string async:boolean retainsArgs:boolean) {
+        def m:RgMethodDef (new RgMethodDef)
+        m.methodId = methodId
+        m.name = name
+        m.wasmExport = wasmExport
+        m.async = async
+        m.retainsArgs = retainsArgs
+        return m
+    }
+
+    ; Full factory for bridge-ready command rows.
+    sfn cmd:RgMethodDef (methodId:int name:string wasmExport:string argSpec:string retSpec:string effect:string) {
+        def m:RgMethodDef (new RgMethodDef)
+        m.methodId = methodId
+        m.name = name
+        m.wasmExport = wasmExport
+        m.argSpec = argSpec
+        m.retSpec = retSpec
+        m.effect = effect
+        return m
+    }
+}
+
+class RgClassDef {
+    def classId:int 0
+    def name:string ""
+    def props:[RgPropDef]
+    def methods:[RgMethodDef]
+
+    sfn of:RgClassDef (classId:int name:string) {
+        def c:RgClassDef (new RgClassDef)
+        c.classId = classId
+        c.name = name
+        return c
+    }
+
+    fn addProp:void (p:RgPropDef) { push this.props p }
+    fn addMethod:void (m:RgMethodDef) { push this.methods m }
+}
+
+class RgSchema {
+    def classes:[RgClassDef]
+
+    fn addClass:void (c:RgClassDef) { push this.classes c }
+
+    ; ---- schema validation (gate) ------------------------------------------
+    ; Every host/hybrid property must declare a sync boundary (not unspecified).
+    ; Returns the list of violation strings ("" prefix per offender).
+    fn validate:[string] () {
+        def out:[string]
+        def nc:int (array_length this.classes)
+        def ci 0
+        while (ci < nc) {
+            def c:RgClassDef (itemAt this.classes ci)
+            def np:int (array_length c.props)
+            def pi 0
+            while (pi < np) {
+                def p:RgPropDef (itemAt c.props pi)
+                def isHostOrHybrid:boolean false
+                if (p.residency == (RgResidency.host())) { isHostOrHybrid = true }
+                if (p.residency == (RgResidency.hybrid())) { isHostOrHybrid = true }
+                if (isHostOrHybrid) {
+                    if (p.sync == (RgSync.unspecified())) {
+                        push out ((c.name + ".") + p.name)
+                    }
+                }
+                pi = (pi + 1)
+            }
+            ci = (ci + 1)
+        }
+        return out
+    }
+
+    fn methodCount:int () {
+        def nc:int (array_length this.classes)
+        def total 0
+        def ci 0
+        while (ci < nc) {
+            def c:RgClassDef (itemAt this.classes ci)
+            total = (total + (array_length c.methods))
+            ci = (ci + 1)
+        }
+        return total
+    }
+}

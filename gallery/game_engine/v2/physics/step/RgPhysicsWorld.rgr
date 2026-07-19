@@ -1,0 +1,143 @@
+; ==============================================================================
+; RgPhysicsWorld — headless rigid-body world (D-TYPE separate arena).
+; ==============================================================================
+; Physics lives in its OWN slot space, separate from the Three arenas (D-TYPE):
+; body handles are generation-checked through a dedicated RgRegistry with a
+; physics type tag. No rendering — just create/step/read.
+;
+; `step(dt)` is a fixed integration tick (semi-implicit Euler with gravity),
+; driven by `runtime.time` in the frame pipeline. Reading a body pose after a
+; step is how the game copies physics → mesh transforms via host commands only
+; (the pose write into a mesh bumps the mesh's hybrid HOST revision — Phase 4).
+; ==============================================================================
+
+Import "../../host/RgRegistry.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+
+class RgBody {
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
+    def vz:double 0.0
+    def invMass:double 1.0   ; 0 = static (immovable)
+}
+
+class RgPhysicsType {
+    sfn body:int () { return 21 }
+}
+
+class RgPhysicsWorld {
+    def registry:RgRegistry (new RgRegistry)
+    def bodies:[RgBody]
+    def bodyFree:[int]
+    def gravityY:double (0.0 - 9.81)
+
+    fn allocBodyIndex:int () {
+        def nf:int (array_length this.bodyFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.bodyFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.bodyFree i)
+                i = (i + 1)
+            }
+            this.bodyFree = kept
+            return idx
+        }
+        def n:int (array_length this.bodies)
+        push this.bodies (new RgBody)
+        return n
+    }
+
+    ; mass 0 → static body (invMass 0). Returns an owned body handle.
+    fn bodyCreate:OwnedHandle (realmId:int mass:double x:double y:double z:double) {
+        def idx:int (this.allocBodyIndex())
+        def b:RgBody (itemAt this.bodies idx)
+        b.x = x
+        b.y = y
+        b.z = z
+        b.vx = 0.0
+        b.vy = 0.0
+        b.vz = 0.0
+        if (mass <= 0.0) {
+            b.invMass = 0.0
+        } {
+            b.invMass = (1.0 / mass)
+        }
+        def h:RgHandle (this.registry.alloc(realmId (RgPhysicsType.body()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    fn resolveBody:RgBody (bodyH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(bodyH (RgPhysicsType.body())))
+        if (r.ok == false) { return (new RgBody) }
+        return (itemAt this.bodies r.payloadIndex)
+    }
+
+    fn setVelocity:RgResolve (bodyH:RgHandle vx:double vy:double vz:double) {
+        def r:RgResolve (this.registry.resolveTyped(bodyH (RgPhysicsType.body())))
+        if (r.ok == false) { return r }
+        def b:RgBody (itemAt this.bodies r.payloadIndex)
+        b.vx = vx
+        b.vy = vy
+        b.vz = vz
+        return r
+    }
+
+    ; One fixed integration step. Dynamic bodies accelerate under gravity and
+    ; advance; static bodies (invMass 0) never move.
+    fn step:void (dt:double) {
+        def n:int (array_length this.bodies)
+        def i 0
+        while (i < n) {
+            if ((itemAt this.registry.live i)) {
+                def b:RgBody (itemAt this.bodies (itemAt this.registry.payload i))
+                if (b.invMass > 0.0) {
+                    b.vy = (b.vy + (this.gravityY * dt))
+                    b.x = (b.x + (b.vx * dt))
+                    b.y = (b.y + (b.vy * dt))
+                    b.z = (b.z + (b.vz * dt))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn bodyX:double (bodyH:RgHandle) {
+        def b:RgBody (this.resolveBody(bodyH))
+        return b.x
+    }
+    fn bodyY:double (bodyH:RgHandle) {
+        def b:RgBody (this.resolveBody(bodyH))
+        return b.y
+    }
+    fn bodyZ:double (bodyH:RgHandle) {
+        def b:RgBody (this.resolveBody(bodyH))
+        return b.z
+    }
+    fn bodyVy:double (bodyH:RgHandle) {
+        def b:RgBody (this.resolveBody(bodyH))
+        return b.vy
+    }
+
+    fn isLive:boolean (bodyH:RgHandle) { return (this.registry.isLive(bodyH)) }
+    fn liveCount:int () { return (this.registry.liveCount()) }
+
+    fn release:RgResolve (owned:OwnedHandle) {
+        if (owned.released) {
+            return (RgResolve.fail((RgErr.doubleRelease())))
+        }
+        def r:RgResolve (this.registry.releaseOnce(owned.handle))
+        if (r.ok) {
+            owned.released = true
+            if (r.freed) {
+                push this.bodyFree r.payloadIndex
+            }
+        }
+        return r
+    }
+}

@@ -1,0 +1,67 @@
+; ==============================================================================
+; dispose_backend_test — host/tests/dispose_backend gate (D-LIFE lifetime 3).
+; ==============================================================================
+; geometry.dispose() invalidates backend caches (bumps resourceRevision) but
+; does NOT release the object handle or the CPU data. The handle stays valid,
+; can be re-attached and read, and the renderer would recreate GPU buffers from
+; the still-valid CPU arrays. contentRevision and resourceRevision are separate
+; counters — a data write bumps one, a backend dispose the other.
+; ==============================================================================
+
+Import "../../arenas/RgHost.rgr"
+Import "../../handles/RgHandle.rgr"
+Import "../../ownership/OwnedHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class DisposeBackendTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("host/dispose_backend"))
+        def host:RgHost (new RgHost)
+        def realm:int 1
+
+        def geo:OwnedHandle (host.geometryCreate(realm 100))
+        def mat:OwnedHandle (host.materialCreate(realm 1.0 1.0 1.0))
+        def mesh:OwnedHandle (host.meshCreate(realm geo.handle mat.handle))
+
+        t.eqInt("initial resourceRevision 0" (host.geometryResourceRevision(geo.handle)) 0)
+        t.eqInt("initial contentRevision 0" (host.geometryContentRevision(geo.handle)) 0)
+        def rc0:int (host.refcount(geo.handle))
+
+        ; ---- dispose backend: bumps resourceRevision, keeps everything ------
+        def d:RgResolve (host.geometryDisposeBackend(geo.handle))
+        t.ok("disposeBackend ok" d.ok)
+        t.eqInt("resourceRevision bumped" (host.geometryResourceRevision(geo.handle)) 1)
+        t.eqInt("contentRevision untouched by dispose" (host.geometryContentRevision(geo.handle)) 0)
+        t.ok("geometry handle still live after dispose" (host.isLive(geo.handle)))
+        t.eqInt("dispose did NOT change refcount (not a release)"
+            (host.refcount(geo.handle)) rc0)
+        t.eqInt("geometry data still readable (vertex count)"
+            (host.geometryVertexCount(geo.handle)) 100)
+
+        ; ---- legal after dispose: re-attach the SAME geo to the mesh --------
+        def setR:RgResolve (host.meshSetGeometry(mesh.handle geo.handle))
+        t.ok("re-attach same geometry after dispose ok" setR.ok)
+        def gGeo:RgHandle (host.meshGeometry(mesh.handle))
+        t.eqInt("mesh still points at the same geometry slot" gGeo.slot geo.handle.slot)
+
+        ; ---- separate counters: a data write bumps contentRevision only -----
+        def u:RgResolve (host.geometryUpdateContent(geo.handle))
+        t.ok("update content ok" u.ok)
+        t.eqInt("contentRevision bumped by data write"
+            (host.geometryContentRevision(geo.handle)) 1)
+        t.eqInt("resourceRevision unchanged by data write"
+            (host.geometryResourceRevision(geo.handle)) 1)
+
+        ; a second dispose bumps resourceRevision again, content stays put
+        host.geometryDisposeBackend(geo.handle)
+        t.eqInt("resourceRevision bumped again" (host.geometryResourceRevision(geo.handle)) 2)
+        t.eqInt("contentRevision still 1" (host.geometryContentRevision(geo.handle)) 1)
+
+        ; ---- dispose is orthogonal to release: release actually frees -------
+        host.releaseOwned(mesh)   ; drops the mesh's retain on geo
+        host.releaseOwned(geo)     ; caller's own ownership
+        t.no("release (unlike dispose) frees the geometry" (host.isLive(geo.handle)))
+
+        t.summary()
+    }
+}

@@ -1,0 +1,89 @@
+; ==============================================================================
+; RgSoftwareRenderer2D — software 2D present (Phase 11, D-SYNC).
+; ==============================================================================
+; The first place pixels are required. A backend READS host state only and
+; rasterises it into a framebuffer — rendering is NOT a sync boundary (D-SYNC):
+; it never mutates the scene, never allocates a handle, and re-presents
+; identically for identical host state. It honours the same `Camera2D` the rest
+; of the engine uses (D-2D-4).
+; ==============================================================================
+
+Import "../../../modules/ranger_2d/RgRanger2D.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+
+; A CPU framebuffer: width*height ints (0 = clear; a sprite marks its pixel with
+; a non-zero colour). Kept tiny for headless CI.
+class RgFramebuffer {
+    def width:int 0
+    def height:int 0
+    def pixels:[int]
+
+    sfn create:RgFramebuffer (width:int height:int) {
+        def fb:RgFramebuffer (new RgFramebuffer)
+        fb.width = width
+        fb.height = height
+        def px:[int]
+        def n:int (width * height)
+        def i 0
+        while (i < n) {
+            push px 0
+            i = (i + 1)
+        }
+        fb.pixels = px
+        return fb
+    }
+
+    fn clear:void () {
+        def n:int (this.width * this.height)
+        def i 0
+        while (i < n) {
+            set this.pixels i 0
+            i = (i + 1)
+        }
+    }
+
+    fn at:int (px:int py:int) {
+        if (px < 0) { return 0 }
+        if (py < 0) { return 0 }
+        if (px >= this.width) { return 0 }
+        if (py >= this.height) { return 0 }
+        return (itemAt this.pixels ((py * this.width) + px))
+    }
+
+    fn plot:void (px:int py:int color:int) {
+        if (px < 0) { return }
+        if (py < 0) { return }
+        if (px >= this.width) { return }
+        if (py >= this.height) { return }
+        set this.pixels ((py * this.width) + px) color
+    }
+}
+
+class RgSoftwareRenderer2D {
+    ; Present every sprite in `layerH` through `camH` into `fb`. Screen origin is
+    ; the framebuffer centre. Returns the number of sprites drawn. Reads host
+    ; state only.
+    sfn present2D:int (d:RgRanger2D fb:RgFramebuffer layerH:RgHandle camH:RgHandle) {
+        def cx:int (idiv fb.width 2)
+        def cy:int (idiv fb.height 2)
+        def handles:[RgHandle] (d.liveSpriteHandles())
+        def n:int (array_length handles)
+        def drawn 0
+        def i 0
+        while (i < n) {
+            def sh:RgHandle (itemAt handles i)
+            if ((d.spriteLayerSlot(sh)) == layerH.slot) {
+                def sx:double (d.worldToScreenSwX(camH (d.spriteX(sh)) (d.spriteY(sh))))
+                def sy:double (d.worldToScreenSwY(camH (d.spriteX(sh)) (d.spriteY(sh))))
+                def px:int ((floor (sx + 0.5)) + cx)
+                def py:int ((floor (sy + 0.5)) + cy)
+                ; colour keyed on the region so different frames are distinguishable
+                def color:int (100 + (d.spriteRegion(sh)))
+                fb.plot(px py color)
+                drawn = (drawn + 1)
+            }
+            i = (i + 1)
+        }
+        return drawn
+    }
+}

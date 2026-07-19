@@ -1,0 +1,44 @@
+; ==============================================================================
+; clock_test — runtime.time fixed-step clock gate (Phase 8 fundamental runtime).
+; ==============================================================================
+; The host-driven clock advances real time and yields whole fixed steps from an
+; accumulator (drives AnimationPlayer2D / physics step). Fractional remainder is
+; carried, never dropped.
+; ==============================================================================
+
+Import "../../modules/ranger_core/RgRuntime.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class ClockTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("runtime/time/clock"))
+        def clk:RgClock (new RgClock)
+        clk.fixedStep = 0.01   ; 100 Hz for deterministic arithmetic
+
+        t.near("clock starts at 0" clk.now 0.0)
+        t.eqInt("frame starts at 0" clk.frame 0)
+
+        ; advance 0.025 s → two whole fixed steps, 0.005 carried
+        clk.advance(0.025)
+        t.near("now advanced" clk.now 0.025)
+        t.eqInt("frame incremented" clk.frame 1)
+        def s1:int (clk.consumeFixedSteps())
+        t.eqInt("0.025 s yields two 10 ms steps" s1 2)
+        t.near("remainder carried in the accumulator" clk.accumulator 0.005)
+
+        ; advance another 0.005 → accumulator reaches 0.01 → one more step
+        clk.advance(0.005)
+        def s2:int (clk.consumeFixedSteps())
+        t.eqInt("carried remainder completes one more step" s2 1)
+        t.near("accumulator drained" clk.accumulator 0.0)
+
+        ; a sub-step advance yields zero steps but still accrues time
+        clk.advance(0.004)
+        def s3:int (clk.consumeFixedSteps())
+        t.eqInt("sub-step advance yields no fixed step" s3 0)
+        t.near("but time still advanced" clk.now 0.034)
+        t.eqInt("three advances → frame 3" clk.frame 3)
+
+        t.summary()
+    }
+}

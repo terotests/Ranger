@@ -17,3 +17,12 @@ Create and free objects; refcount zero frees slot.
 ---
 
 *Scaffold only (Phase 0). Implementation arrives in later phases.*
+
+---
+
+## Progress — Phase 2 ✅ green
+
+`create_release_test.rgr` (15 checks): create → live (refcount 1) + payload
+readback; release → slot freed (`liveCount` 0); second release through the same
+wrapper → typed `DOUBLE_RELEASE`; a reused slot returns a fresh generation so the
+old wrapper's handle stays stale.

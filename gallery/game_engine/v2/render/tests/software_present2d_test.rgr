@@ -1,0 +1,71 @@
+; ==============================================================================
+; software_present2d_test — render/tests gate (Phase 11, D-SYNC + D-2D-4).
+; ==============================================================================
+; The software backend reads retained 2D host state and produces pixels through
+; the shared Camera2D. Asserts: a sprite lands at its camera-projected pixel;
+; empty space stays clear; rendering allocates no handles and never mutates the
+; scene (not a sync boundary); panning the camera moves the pixel; re-presenting
+; identical host state is deterministic.
+; ==============================================================================
+
+Import "../backends/software/RgSoftwareRenderer2D.rgr"
+Import "../../modules/ranger_2d/RgRanger2D.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class SoftwarePresent2DTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("render/software_present2d"))
+        def d:RgRanger2D (new RgRanger2D)
+
+        ; a 64x64 framebuffer, centre origin at (32,32)
+        def fb:RgFramebuffer (RgFramebuffer.create(64 64))
+
+        ; scene: one sprite at world (2,0); camera zoom 10 at origin
+        def tex:OwnedHandle (d.textureCreate(64 64))
+        def atlas:OwnedHandle (d.atlasCreate(tex.handle))
+        def rIdle:int (d.atlasAddRegion(atlas.handle "idle" 0 0 16 16))
+        def layer:OwnedHandle (d.layerCreate())
+        def cam:OwnedHandle (d.cameraCreate())
+        d.cameraSet(cam.handle 0.0 0.0 10.0 0.0)
+        def sprite:OwnedHandle (d.spriteCreate(atlas.handle rIdle))
+        d.spriteSetPos(sprite.handle 2.0 0.0)
+        d.layerAdd(sprite.handle layer.handle)
+
+        ; world (2,0) → screen x = (2-0)*10 = 20 → px = 20 + 32 = 52, py = 32
+        def liveBefore:int (d.liveCount())
+        fb.clear()
+        def drawn:int (RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle))
+        t.eqInt("one sprite drawn" drawn 1)
+        t.ok("pixel set at the projected sprite position" ((fb.at(52 32)) != 0))
+        t.eqInt("empty space stays clear" (fb.at(10 10)) 0)
+
+        ; ---- rendering reads host state: no handles allocated, no mutation ---
+        t.eqInt("present allocated no registry handles" (d.liveCount()) liveBefore)
+        t.near("sprite world position unchanged by rendering" (d.spriteX(sprite.handle)) 2.0)
+
+        ; ---- deterministic re-present of identical state --------------------
+        def fb2:RgFramebuffer (RgFramebuffer.create(64 64))
+        RgSoftwareRenderer2D.present2D(d fb2 layer.handle cam.handle)
+        t.ok("re-present marks the same pixel" ((fb2.at(52 32)) != 0))
+        t.eqInt("re-present identical at the sprite pixel" (fb2.at(52 32)) (fb.at(52 32)))
+
+        ; ---- panning the camera moves where the sprite lands ---------------
+        d.cameraSet(cam.handle 2.0 0.0 10.0 0.0)   ; camera now centred on the sprite
+        fb.clear()
+        RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle)
+        t.eqInt("old pixel cleared after pan" (fb.at(52 32)) 0)
+        t.ok("sprite now lands at screen centre" ((fb.at(32 32)) != 0))
+
+        ; ---- a sprite outside the layer is not drawn ------------------------
+        def other:OwnedHandle (d.spriteCreate(atlas.handle rIdle))
+        d.spriteSetPos(other.handle 0.0 0.0)   ; would land at centre if drawn
+        ; not added to the layer → must not appear
+        fb.clear()
+        def drawn2:int (RgSoftwareRenderer2D.present2D(d fb layer.handle cam.handle))
+        t.eqInt("still only one sprite in the layer drawn" drawn2 1)
+
+        t.summary()
+    }
+}

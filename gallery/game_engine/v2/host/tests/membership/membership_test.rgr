@@ -1,0 +1,54 @@
+; ==============================================================================
+; membership_test — host/tests/membership gate (D-LIFE lifetime 2).
+; ==============================================================================
+; Scene membership is separate from object lifetime: scene.add / scene.remove
+; attach and detach without ever retaining or releasing. Removing a mesh from a
+; scene leaves the mesh + its geometry + material handles fully live.
+; ==============================================================================
+
+Import "../../arenas/RgHost.rgr"
+Import "../../handles/RgHandle.rgr"
+Import "../../ownership/OwnedHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class MembershipTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("host/membership"))
+        def host:RgHost (new RgHost)
+        def realm:int 1
+
+        def scene:OwnedHandle (host.sceneCreate(realm))
+        def geo:OwnedHandle (host.geometryCreate(realm 24))
+        def mat:OwnedHandle (host.materialCreate(realm 1.0 1.0 1.0))
+        def mesh:OwnedHandle (host.meshCreate(realm geo.handle mat.handle))
+
+        def geoRc0:int (host.refcount(geo.handle))
+        def meshRc0:int (host.refcount(mesh.handle))
+
+        ; ---- scene.add(mesh) — membership only, no refcount change ----------
+        t.eqInt("mesh starts detached" (host.parentSlotOf(mesh.handle)) 0)
+        def addR:RgResolve (host.entitySetParent(mesh.handle scene.handle))
+        t.ok("add to scene ok" addR.ok)
+        t.eqInt("mesh parent is the scene" (host.parentSlotOf(mesh.handle)) scene.handle.slot)
+        t.eqInt("scene has one child" (host.sceneChildCount(scene.handle)) 1)
+        t.eqInt("add did not change mesh refcount" (host.refcount(mesh.handle)) meshRc0)
+        t.eqInt("add did not change geo refcount" (host.refcount(geo.handle)) geoRc0)
+
+        ; ---- scene.remove(mesh) — detaches; handles all still live ---------
+        def remR:RgResolve (host.entityDetach(mesh.handle))
+        t.ok("remove from scene ok" remR.ok)
+        t.eqInt("mesh detached (no parent)" (host.parentSlotOf(mesh.handle)) 0)
+        t.eqInt("scene child count back to 0" (host.sceneChildCount(scene.handle)) 0)
+        t.ok("mesh still live after remove" (host.isLive(mesh.handle)))
+        t.ok("geometry still live after remove" (host.isLive(geo.handle)))
+        t.ok("material still live after remove" (host.isLive(mat.handle)))
+        t.eqInt("remove did not change mesh refcount" (host.refcount(mesh.handle)) meshRc0)
+
+        ; ---- re-add after remove works (object was never destroyed) --------
+        host.entitySetParent(mesh.handle scene.handle)
+        t.eqInt("re-add restores membership" (host.parentSlotOf(mesh.handle)) scene.handle.slot)
+        t.eqInt("scene child count 1 again" (host.sceneChildCount(scene.handle)) 1)
+
+        t.summary()
+    }
+}

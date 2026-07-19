@@ -1,0 +1,138 @@
+; ==============================================================================
+; devices_test — ranger:core audio / input / surface gate (Phase 10, fakes).
+; ==============================================================================
+; Audio: clip ≠ source ≠ voice with D-OWN (createSource retains clip; play() =
+; caller-owned; playOneShot() = mixer-owned auto-release; weak attach;
+; disposeBackend ≠ release). Input: device identity generation, player stable
+; across reconnect, action edge states. Surface: split-screen panes.
+; ==============================================================================
+
+Import "../RgAudio.rgr"
+Import "../RgInputSurface.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../host/ownership/OwnedHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class DevicesTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("ranger_core/devices"))
+
+        ; ================= AUDIO (D-OWN) ====================================
+        def au:RgAudio (new RgAudio)
+        def clip:OwnedHandle (au.clipCreate())
+        t.eqInt("clip refcount 1" (au.refcount(clip.handle)) 1)
+
+        ; createSource retains the clip
+        def src:OwnedHandle (au.sourceCreate(clip.handle))
+        t.eqInt("source retained the clip (refcount 2)" (au.refcount(clip.handle)) 2)
+
+        ; play() → caller-owned voices; two plays → two distinct live voices
+        def v1:OwnedHandle (au.sourcePlay(src.handle))
+        def v2:OwnedHandle (au.sourcePlay(src.handle))
+        t.ok("play voice 1 live" (au.isLive(v1.handle)))
+        t.ok("play voice 2 live" (au.isLive(v2.handle)))
+        t.no("two voices are distinct handles" (v1.handle.slot == v2.handle.slot))
+        t.eqInt("play did not clone the clip" (au.refcount(clip.handle)) 2)
+        t.eqInt("two caller-owned voices live" (au.liveOfType((RgAudioType.voice()))) 2)
+
+        ; playOneShot() → mixer-owned voice; the mixer auto-releases at completion
+        def oneShot:RgHandle (au.sourcePlayOneShot(src.handle))
+        t.eqInt("three voices live incl. one-shot" (au.liveOfType((RgAudioType.voice()))) 3)
+        ; nothing done yet → completeOneShots reclaims none
+        t.eqInt("no one-shot completes early" (au.completeOneShots()) 0)
+        ; mark it done → mixer reclaims exactly it, caller voices untouched
+        au.markVoiceDone(oneShot)
+        t.eqInt("mixer reclaimed the finished one-shot" (au.completeOneShots()) 1)
+        t.no("one-shot voice freed by the mixer" (au.isLive(oneShot)))
+        t.ok("caller voice 1 untouched by the mixer" (au.isLive(v1.handle)))
+        t.eqInt("two caller voices remain" (au.liveOfType((RgAudioType.voice()))) 2)
+
+        ; caller releases its own voices
+        au.voiceRelease(v1)
+        au.voiceRelease(v2)
+        t.eqInt("all voices reclaimed" (au.liveOfType((RgAudioType.voice()))) 0)
+
+        ; weak attach: destroying the target auto-detaches (never keeps it alive)
+        au.sourceAttach(src.handle 99)
+        t.ok("attachment valid with a live target" (au.sourceAttachValid(src.handle true)))
+        t.no("attachment auto-detaches when the target dies"
+            (au.sourceAttachValid(src.handle false)))
+
+        ; disposeBackend ≠ release: bumps resourceRevision, clip stays live
+        def rev0:int (au.clipResourceRevision(clip.handle))
+        au.clipDisposeBackend(clip.handle)
+        t.eqInt("disposeBackend bumped resourceRevision" (au.clipResourceRevision(clip.handle)) (rev0 + 1))
+        t.ok("clip still live after disposeBackend" (au.isLive(clip.handle)))
+        t.eqInt("disposeBackend did not change refcount" (au.refcount(clip.handle)) 2)
+
+        ; source.release() drops its retained clip ref
+        au.sourceRelease(src)
+        t.no("source released" (au.isLive(src.handle)))
+        t.eqInt("clip back to caller-only refcount 1" (au.refcount(clip.handle)) 1)
+
+        ; ================= INPUT ============================================
+        def inp:RgInput (RgInput.create(2))
+        def pad:OwnedHandle (inp.connectGamepad())
+        inp.assignDevice(0 pad.handle)
+        def padSlot:int pad.handle.slot
+        def padGen:int pad.handle.generation
+
+        ; action edges: press registers wasPressed once; advanceEdges clears it
+        inp.bindAction(0 "jump")
+        inp.setAction(0 "jump" true)
+        t.ok("jump is down" (inp.isDown(0 "jump")))
+        t.ok("jump wasPressed this frame" (inp.wasPressed(0 "jump")))
+        inp.advanceEdges()
+        t.ok("jump still held after edge advance" (inp.isDown(0 "jump")))
+        t.no("wasPressed cleared after edge advance" (inp.wasPressed(0 "jump")))
+        inp.setAction(0 "jump" false)
+        t.no("jump released" (inp.isDown(0 "jump")))
+
+        ; axis1D from two actions
+        inp.setAction(0 "right" true)
+        t.eqInt("axis1D right is +1" (inp.axis1D(0 "left" "right")) 1)
+        inp.setAction(0 "right" false)
+        inp.setAction(0 "left" true)
+        t.eqInt("axis1D left is -1" (inp.axis1D(0 "left" "right")) (0 - 1))
+
+        ; device identity: disconnect → reconnect gives a NEW device handle, but
+        ; player(0) stays "player one".
+        inp.disconnectGamepad(pad)
+        t.no("old gamepad handle stale after disconnect" (inp.gamepadLive(pad.handle)))
+        def pad2:OwnedHandle (inp.connectGamepad())
+        t.eqInt("reconnected device reuses the slot" pad2.handle.slot padSlot)
+        t.ok("reconnected device has a newer generation" (pad2.handle.generation > padGen))
+        def p0:RgPlayerInput (inp.player(0))
+        t.eqInt("player 0 identity is stable across reconnect" p0.playerIndex 0)
+        inp.assignDevice(0 pad2.handle)
+        def p0b:RgPlayerInput (inp.player(0))
+        t.eqInt("player 0 re-bound to the new device" p0b.deviceSlot pad2.handle.slot)
+
+        ; ================= SURFACE (split-screen) ===========================
+        def surf:RgSurface (new RgSurface)
+        surf.setLayout(0)
+        t.eqInt("single layout has one full-surface pane" (surf.paneCount()) 1)
+        def full:RgPane (surf.pane(0))
+        t.near("full pane width" full.w 1.0)
+
+        surf.setLayout(1)
+        t.eqInt("split-horizontal has two panes" (surf.paneCount()) 2)
+        def top:RgPane (surf.pane(0))
+        def bot:RgPane (surf.pane(1))
+        t.near("top pane height is half" top.h 0.5)
+        t.near("bottom pane y starts at half" bot.y 0.5)
+
+        surf.setLayout(2)
+        def left:RgPane (surf.pane(0))
+        def right:RgPane (surf.pane(1))
+        t.near("left pane width is half" left.w 0.5)
+        t.near("right pane x starts at half" right.x 0.5)
+        ; panes bind logical players for input routing
+        surf.paneSetPlayer(0 0)
+        surf.paneSetPlayer(1 1)
+        t.eqInt("pane 0 bound to player 0" (surf.panePlayer(0)) 0)
+        t.eqInt("pane 1 bound to player 1" (surf.panePlayer(1)) 1)
+
+        t.summary()
+    }
+}

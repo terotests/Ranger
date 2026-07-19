@@ -1,0 +1,76 @@
+; ==============================================================================
+; bridge_schema_test — BRIDGES.md step-1 gate: the authored core+two_d rows.
+; ==============================================================================
+; Asserts the union command table is well-formed (unique ids/names, ids inside
+; the published module ranges, legal arg/ret specs, create→handle), that the
+; old Phase-3 gates still hold (residency validation), and that the union
+; passes a golden self-check (id immutability machinery applies to it).
+; ==============================================================================
+
+Import "../core/core_schema.rgr"
+Import "../two_d/two_d_schema.rgr"
+Import "../../codegen/RgCodegen.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class BridgeSchemaTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("registry/schema/bridge_schema"))
+
+        def core:RgSchema (CoreSchema.build())
+        def twoD:RgSchema (TwoDSchema.build())
+        t.eqInt("core schema has 13 commands" (core.methodCount()) 13)
+        t.eqInt("two_d schema has 16 commands" (twoD.methodCount()) 16)
+        ; residency gate still applies (Sprite2D host props declare sync)
+        def v2d:[string] (twoD.validate())
+        t.eqInt("two_d rows pass residency validation" (array_length v2d) 0)
+
+        ; ---- the ONE table: union of both modules ---------------------------
+        def table:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        t.eqInt("union table row count" (array_length table) 29)
+        def viol:[string] (RgCodegen.checkTable(table))
+        def nv:int (array_length viol)
+        if (nv > 0) {
+            def i 0
+            while (i < nv) {
+                print ("  VIOLATION " + (itemAt viol i))
+                i = (i + 1)
+            }
+        }
+        t.eqInt("table is well-formed (no violations)" nv 0)
+
+        ; ---- range + lowering spot checks -----------------------------------
+        def spr:RgCommand (RgCodegen.findByName(table "rg2d_sprite_create"))
+        t.eqInt("sprite_create id in two_d range" (spr.id) 2020)
+        t.eqStr("sprite_create module" (RgIdRanges.moduleOf(spr.id)) "two_d")
+        t.eqStr("sprite_create argSpec" spr.argSpec "h:i")
+        t.eqStr("sprite_create retSpec (mints a handle)" spr.retSpec "h")
+        t.eqStr("sprite_create effect" spr.effect "create")
+        t.eqInt("sprite_create classId" spr.classId 22)
+
+        def inp:RgCommand (RgCodegen.findByName(table "rgcore_input_is_down"))
+        t.eqStr("input command module" (RgIdRanges.moduleOf(inp.id)) "core")
+        t.eqStr("input argSpec" inp.argSpec "i:s")
+
+        def clip:RgCommand (RgCodegen.findByName(table "rg2d_atlas_add_clip"))
+        t.eqStr("clip argSpec carries arrays" clip.argSpec "h:s:ai:ad")
+
+        ; ---- id immutability machinery applies to the union -----------------
+        def golden:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def r0:RgIdReport (RgCodegen.checkGolden(golden table))
+        t.ok("union passes its own golden check" r0.ok)
+        ; a renumbered command still fails
+        def mut:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        def c0:RgCommand (RgCodegen.findById(mut 2020))
+        c0.id = 2500
+        def r1:RgIdReport (RgCodegen.checkGolden(golden mut))
+        t.no("renumbering a bridge command fails golden" r1.ok)
+
+        ; ---- broken rows are caught -----------------------------------------
+        def bad:[RgCommand] (RgCodegen.tableUnion(core twoD))
+        push bad (RgCommand.of(9999 "rgx_out_of_range" "rgx_out_of_range"))
+        def bv:[string] (RgCodegen.checkTable(bad))
+        t.ok("out-of-range id flagged" ((array_length bv) > 0))
+
+        t.summary()
+    }
+}

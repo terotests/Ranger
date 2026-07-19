@@ -1,0 +1,58 @@
+; ==============================================================================
+; core_schema — authored registry rows for the `ranger:core` module (D-REGISTRY).
+; ==============================================================================
+; DATA, not code. Published ids are immutable:
+;   classIds 10–19 · command ids 1000–1999   (golden-checked)
+;
+; Devices follow the capability-root model: input by logical player + action,
+; surface panes for split-screen, audio clip≠source≠voice with the vocal/music
+; facades v1 titles rely on, time from runtime.time, log, and the launcher's
+; launch request.
+; ==============================================================================
+
+Import "../RgSchema.rgr"
+
+class CoreSchema {
+    sfn build:RgSchema () {
+        def s:RgSchema (new RgSchema)
+
+        ; ---- Input (10) — logical actions over assigned devices --------------
+        def input:RgClassDef (RgClassDef.of(10 "Input"))
+        input.addMethod((RgMethodDef.cmd(1000 "rgcore_input_is_down" "rgcore_input_is_down" "i:s" "i" "none")))
+        input.addMethod((RgMethodDef.cmd(1001 "rgcore_input_was_pressed" "rgcore_input_was_pressed" "i:s" "i" "none")))
+        s.addClass(input)
+
+        ; ---- Surface (11) — panes / split-screen ----------------------------
+        def surf:RgClassDef (RgClassDef.of(11 "Surface"))
+        surf.addMethod((RgMethodDef.cmd(1010 "rgcore_surface_set_layout" "rgcore_surface_set_layout" "i" "v" "none")))
+        surf.addMethod((RgMethodDef.cmd(1011 "rgcore_surface_pane_player" "rgcore_surface_pane_player" "i:i" "v" "none")))
+        s.addClass(surf)
+
+        ; ---- Audio (12) — clip ≠ source ≠ voice + vocal/music facades --------
+        def audio:RgClassDef (RgClassDef.of(12 "Audio"))
+        audio.addMethod((RgMethodDef.cmd(1020 "rgcore_audio_clip_create" "rgcore_audio_clip_create" "" "h" "create")))
+        audio.addMethod((RgMethodDef.cmd(1021 "rgcore_audio_source_create" "rgcore_audio_source_create" "h" "h" "create")))
+        audio.addMethod((RgMethodDef.cmd(1022 "rgcore_audio_one_shot" "rgcore_audio_one_shot" "h" "v" "none")))
+        audio.addMethod((RgMethodDef.cmd(1023 "rgcore_vocal" "rgcore_vocal" "s" "v" "none")))
+        audio.addMethod((RgMethodDef.cmd(1024 "rgcore_music_play" "rgcore_music_play" "s" "v" "none")))
+        audio.addMethod((RgMethodDef.cmd(1025 "rgcore_music_stop" "rgcore_music_stop" "" "v" "none")))
+        s.addClass(audio)
+
+        ; ---- Time (13) — runtime.time, host-driven clock ---------------------
+        def time:RgClassDef (RgClassDef.of(13 "Time"))
+        time.addMethod((RgMethodDef.cmd(1030 "rgcore_time_now" "rgcore_time_now" "" "d" "none")))
+        s.addClass(time)
+
+        ; ---- Log (14) --------------------------------------------------------
+        def log:RgClassDef (RgClassDef.of(14 "Log"))
+        log.addMethod((RgMethodDef.cmd(1040 "rgcore_log" "rgcore_log" "s" "v" "none")))
+        s.addClass(log)
+
+        ; ---- Launcher (15) — the menu's launch request -----------------------
+        def launch:RgClassDef (RgClassDef.of(15 "Launcher"))
+        launch.addMethod((RgMethodDef.cmd(1050 "rgcore_launch" "rgcore_launch" "s" "v" "none")))
+        s.addClass(launch)
+
+        return s
+    }
+}

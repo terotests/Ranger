@@ -1,0 +1,271 @@
+; ==============================================================================
+; RgCodegen — surface generators + golden-id immutability (D-REGISTRY / D-WASM).
+; ==============================================================================
+; The Phase-3 "stub" generators: they turn ONE schema into the command surfaces
+; that later phases lower fully. Every backend derives from the same schema, so
+; the host command list, the WASM import list, and the adapter id list are
+; index-aligned — proving a single source of truth.
+;
+; The golden-id table pins D-REGISTRY ID immutability. A published id's meaning
+; is frozen: changing what an id means, renumbering a name, reusing a tombstoned
+; id, or changing a binary lowering without a new export all FAIL the check.
+; ==============================================================================
+
+Import "../schema/RgSchema.rgr"
+
+; One generated command entry (the unit the golden table freezes).
+class RgCommand {
+    def id:int 0
+    def name:string ""
+    def wasmExport:string ""
+    def tombstone:boolean false
+    ; bridge lowering columns (BRIDGES.md §2.2) — copied from the schema row
+    def classId:int 0
+    def argSpec:string ""
+    def retSpec:string "v"
+    def effect:string "none"
+
+    sfn of:RgCommand (id:int name:string wasmExport:string) {
+        def c:RgCommand (new RgCommand)
+        c.id = id
+        c.name = name
+        c.wasmExport = wasmExport
+        c.tombstone = false
+        return c
+    }
+
+    ; A tombstone: a retired id that must never be reused for a new operation.
+    sfn tomb:RgCommand (id:int) {
+        def c:RgCommand (new RgCommand)
+        c.id = id
+        c.name = "<tombstone>"
+        c.wasmExport = ""
+        c.tombstone = true
+        return c
+    }
+}
+
+class RgIdReport {
+    def ok:boolean true
+    def violations:[string]
+}
+
+; Published module id ranges (immutable; BRIDGES.md §2.1).
+class RgIdRanges {
+    ; module name for a command id, or "" if the id is outside every range.
+    sfn moduleOf:string (id:int) {
+        if (id >= 1000) { if (id < 2000) { return "core" } }
+        if (id >= 2000) { if (id < 3000) { return "two_d" } }
+        if (id >= 3000) { if (id < 4000) { return "three" } }
+        if (id >= 4000) { if (id < 5000) { return "cannon" } }
+        ; 100–199: the Phase-3 three fixture's legacy ids (fixture-only)
+        if (id >= 100) { if (id < 200) { return "three_fixture" } }
+        return ""
+    }
+}
+
+class RgCodegen {
+    ; ---- the command surface (flatten every method across classes) ----------
+    sfn commands:[RgCommand] (schema:RgSchema) {
+        def out:[RgCommand]
+        def nc:int (array_length schema.classes)
+        def ci 0
+        while (ci < nc) {
+            def c:RgClassDef (itemAt schema.classes ci)
+            def nm:int (array_length c.methods)
+            def mi 0
+            while (mi < nm) {
+                def m:RgMethodDef (itemAt c.methods mi)
+                def cmd:RgCommand (RgCommand.of(m.methodId m.name m.wasmExport))
+                cmd.classId = c.classId
+                cmd.argSpec = m.argSpec
+                cmd.retSpec = m.retSpec
+                cmd.effect = m.effect
+                push out cmd
+                mi = (mi + 1)
+            }
+            ci = (ci + 1)
+        }
+        return out
+    }
+
+    ; ---- the ONE table: union of module schemas (BRIDGES.md §2.2) -----------
+    sfn tableUnion:[RgCommand] (a:RgSchema b:RgSchema) {
+        def out:[RgCommand] (RgCodegen.commands(a))
+        def more:[RgCommand] (RgCodegen.commands(b))
+        def n:int (array_length more)
+        def i 0
+        while (i < n) {
+            push out (itemAt more i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Validate a command table: unique ids, unique names, every id inside a
+    ; published module range, argSpec alphabet legal, retSpec legal, and a
+    ; "create" effect always returns a handle. Returns violation strings.
+    sfn checkTable:[string] (table:[RgCommand]) {
+        def out:[string]
+        def n:int (array_length table)
+        def i 0
+        while (i < n) {
+            def c:RgCommand (itemAt table i)
+            ; range
+            if ((RgIdRanges.moduleOf(c.id)) == "") {
+                push out ("range:" + (to_string c.id))
+            }
+            ; duplicates (id + name) against earlier rows
+            def j 0
+            while (j < i) {
+                def p:RgCommand (itemAt table j)
+                if (p.id == c.id) { push out ("dup-id:" + (to_string c.id)) }
+                if (p.name == c.name) { push out ("dup-name:" + c.name) }
+                j = (j + 1)
+            }
+            ; retSpec ∈ {v,i,d,h}
+            def retOk:boolean false
+            if (c.retSpec == "v") { retOk = true }
+            if (c.retSpec == "i") { retOk = true }
+            if (c.retSpec == "d") { retOk = true }
+            if (c.retSpec == "h") { retOk = true }
+            if (retOk == false) { push out ("bad-ret:" + c.name) }
+            ; argSpec tokens ∈ {i,d,s,h,ai,ad}
+            if (c.argSpec != "") {
+                def toks:[string] (strsplit c.argSpec ":")
+                def nt:int (array_length toks)
+                def k 0
+                while (k < nt) {
+                    def tk:string (itemAt toks k)
+                    def tOk:boolean false
+                    if (tk == "i") { tOk = true }
+                    if (tk == "d") { tOk = true }
+                    if (tk == "s") { tOk = true }
+                    if (tk == "h") { tOk = true }
+                    if (tk == "ai") { tOk = true }
+                    if (tk == "ad") { tOk = true }
+                    if (tOk == false) { push out ("bad-arg:" + (c.name + (":" + tk))) }
+                    k = (k + 1)
+                }
+            }
+            ; a create must mint a handle
+            if (c.effect == "create") {
+                if (c.retSpec != "h") { push out ("create-not-handle:" + c.name) }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ---- per-backend name/id lists (all index-aligned, one source) ----------
+    sfn hostCommandNames:[string] (schema:RgSchema) {
+        def cmds:[RgCommand] (RgCodegen.commands(schema))
+        def out:[string]
+        def n:int (array_length cmds)
+        def i 0
+        while (i < n) {
+            def c:RgCommand (itemAt cmds i)
+            push out c.name
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn wasmImportNames:[string] (schema:RgSchema) {
+        def cmds:[RgCommand] (RgCodegen.commands(schema))
+        def out:[string]
+        def n:int (array_length cmds)
+        def i 0
+        while (i < n) {
+            def c:RgCommand (itemAt cmds i)
+            push out c.wasmExport
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn adapterCommandIds:[int] (schema:RgSchema) {
+        def cmds:[RgCommand] (RgCodegen.commands(schema))
+        def out:[int]
+        def n:int (array_length cmds)
+        def i 0
+        while (i < n) {
+            def c:RgCommand (itemAt cmds i)
+            push out c.id
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ---- lookups ------------------------------------------------------------
+    sfn findById:RgCommand (list:[RgCommand] id:int) {
+        def n:int (array_length list)
+        def i 0
+        while (i < n) {
+            def c:RgCommand (itemAt list i)
+            if (c.id == id) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (RgCommand.of((0 - 1) "" ""))
+    }
+
+    sfn findByName:RgCommand (list:[RgCommand] name:string) {
+        def n:int (array_length list)
+        def i 0
+        while (i < n) {
+            def c:RgCommand (itemAt list i)
+            if (c.tombstone == false) {
+                if (c.name == name) {
+                    return c
+                }
+            }
+            i = (i + 1)
+        }
+        return (RgCommand.of((0 - 1) "" ""))
+    }
+
+    ; ---- golden id-table immutability check ---------------------------------
+    ; Fails if a candidate schema violates D-REGISTRY id immutability against the
+    ; published golden table.
+    sfn checkGolden:RgIdReport (golden:[RgCommand] current:[RgCommand]) {
+        def report:RgIdReport (new RgIdReport)
+        def ng:int (array_length golden)
+        def gi 0
+        while (gi < ng) {
+            def g:RgCommand (itemAt golden gi)
+            def cur:RgCommand (RgCodegen.findById(current g.id))
+            if (g.tombstone) {
+                ; a tombstoned id must not appear as a live command
+                if (cur.id == g.id) {
+                    if (cur.tombstone == false) {
+                        push report.violations ("tombstone-reuse:" + (to_string g.id))
+                    }
+                }
+            } {
+                ; a published (live) id must keep its exact meaning
+                if (cur.id == g.id) {
+                    if (cur.name != g.name) {
+                        push report.violations ("meaning-change:" + (to_string g.id))
+                    } {
+                        ; same id + same name: binary lowering must not drift
+                        if (cur.wasmExport != g.wasmExport) {
+                            push report.violations ("lowering-change:" + (to_string g.id))
+                        }
+                    }
+                }
+                ; the published name must not be renumbered to a different id
+                def byName:RgCommand (RgCodegen.findByName(current g.name))
+                if (byName.id != (0 - 1)) {
+                    if (byName.id != g.id) {
+                        push report.violations ("renumber:" + g.name)
+                    }
+                }
+            }
+            gi = (gi + 1)
+        }
+        report.ok = ((array_length report.violations) == 0)
+        return report
+    }
+}

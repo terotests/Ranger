@@ -1,0 +1,102 @@
+; ==============================================================================
+; module_isolation_test — interp/module_isolation gate (D-MODULES prerequisite).
+; ==============================================================================
+; Namespace isolation rules: no clobber across modules; same-module-twice
+; returns the cached namespace (body runs once); two realms get separate
+; instances; failed init is cached; circular imports are a hard error.
+; ==============================================================================
+
+Import "../RgModuleSystem.rgr"
+Import "../../values/RgValue.rgr"
+Import "../../values/RgRealm.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class ModuleIsolationTest {
+    ; Shared catalog: modules test:a and test:b BOTH export "init" and "Vector3";
+    ; test:bad fails on init; test:x/test:y import each other (cycle).
+    sfn buildCatalog:[RgModuleDef] () {
+        def defs:[RgModuleDef]
+        def a:RgModuleDef (RgModuleDef.of("test:a"))
+        a.addExport("init")
+        a.addExport("Vector3")
+        push defs a
+        def b:RgModuleDef (RgModuleDef.of("test:b"))
+        b.addExport("init")
+        b.addExport("Vector3")
+        push defs b
+        def bad:RgModuleDef (RgModuleDef.of("test:bad"))
+        bad.failOnInit = true
+        push defs bad
+        def x:RgModuleDef (RgModuleDef.of("test:x"))
+        x.addDep("test:y")
+        push defs x
+        def y:RgModuleDef (RgModuleDef.of("test:y"))
+        y.addDep("test:x")
+        push defs y
+        return defs
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("interp/module_isolation"))
+        def defs:[RgModuleDef] (ModuleIsolationTest.buildCatalog())
+        def realm1:RgRealm (RgRealm.withId(1))
+        def sys:RgModuleSystem (RgModuleSystem.withRealm(realm1 defs))
+
+        ; ---- no clobber across modules with colliding export names ----------
+        def a:RgModuleInstance (sys.importModule("test:a"))
+        def b:RgModuleInstance (sys.importModule("test:b"))
+        t.ok("test:a imports ok" a.ok)
+        t.ok("test:b imports ok" b.ok)
+        t.no("A and B namespaces are distinct objects"
+            (RgValue.tripleEquals(a.namespace b.namespace)))
+        def aInit:RgValue (a.namespace.getProp("init"))
+        def bInit:RgValue (b.namespace.getProp("init"))
+        t.ok("A.init resolves" (aInit.isReference()))
+        t.ok("B.init resolves" (bInit.isReference()))
+        t.no("A.init and B.init are different functions (no clobber)"
+            (RgValue.tripleEquals(aInit bInit)))
+        def aVec:RgValue (a.namespace.getProp("Vector3"))
+        def bVec:RgValue (b.namespace.getProp("Vector3"))
+        t.no("A.Vector3 and B.Vector3 do not collide"
+            (RgValue.tripleEquals(aVec bVec)))
+
+        ; ---- same module twice in one realm → same namespace, body once -----
+        def evalsBefore:int sys.evalCount
+        def a2:RgModuleInstance (sys.importModule("test:a"))
+        t.ok("re-import returns the SAME namespace object"
+            (RgValue.tripleEquals(a.namespace a2.namespace)))
+        t.eqInt("module body evaluated only once (no re-run)"
+            sys.evalCount evalsBefore)
+
+        ; ---- two realms → separate namespace instances ----------------------
+        def realm2:RgRealm (RgRealm.withId(2))
+        def sys2:RgModuleSystem (RgModuleSystem.withRealm(realm2 defs))
+        def a_r2:RgModuleInstance (sys2.importModule("test:a"))
+        t.ok("realm 2 import ok" a_r2.ok)
+        t.no("realm 2 gets a separate namespace instance"
+            (RgValue.tripleEquals(a.namespace a_r2.namespace)))
+        t.eqInt("realm 2 evaluated its own module body once" sys2.evalCount 1)
+
+        ; ---- failed init cached as failed -----------------------------------
+        def bad1:RgModuleInstance (sys.importModule("test:bad"))
+        t.no("failed module import is not ok" bad1.ok)
+        t.eqStr("failed module reports init-failed" bad1.error "init-failed")
+        def evalsAfterBad:int sys.evalCount
+        def bad2:RgModuleInstance (sys.importModule("test:bad"))
+        t.no("re-import of failed module still fails" bad2.ok)
+        t.eqStr("cached failure reports the same error" bad2.error "init-failed")
+        t.eqInt("failed initializer does not silently re-run"
+            sys.evalCount evalsAfterBad)
+
+        ; ---- circular import → hard error -----------------------------------
+        def x:RgModuleInstance (sys.importModule("test:x"))
+        ; test:x depends on test:y which depends back on test:x → cycle
+        def y:RgModuleInstance (sys.findInstance("test:y"))
+        def cyc:boolean false
+        if (x.error == "circular-import") { cyc = true }
+        if (y.error == "circular-import") { cyc = true }
+        t.ok("circular import is a hard error (deterministic)" cyc)
+
+        t.summary()
+    }
+}

@@ -1,0 +1,97 @@
+; ==============================================================================
+; RgRuntime — the per-realm capability root (D-MODULES).
+; ==============================================================================
+; One capability root per realm carries realm identity, lifecycle, and the
+; service handles (`time`, `assets`, `log`, …) — not bare `GamePads` / `Window`
+; globals. Two realms get SEPARATE runtime roots (no cross-realm sharing,
+; D-HANDLE realm rules); a root used with a foreign realm is rejected like a
+; stale handle.
+;
+; `runtime.assets` (D-ASYNC loads) and `runtime.time` (frame clock / fixed step)
+; are fundamental runtime services and live here from Phase 8 — not "devices".
+; ==============================================================================
+
+Import "../../bridge/wasm/async/RgAsync.rgr"
+Import "../../host/handles/RgHandle.rgr"
+
+; runtime.time — host-driven frame clock with a fixed-step accumulator.
+class RgClock {
+    def now:double 0.0
+    def fixedStep:double 0.016666667   ; ~1/60 s
+    def accumulator:double 0.0
+    def frame:int 0
+
+    fn advance:void (dt:double) {
+        this.now = (this.now + dt)
+        this.accumulator = (this.accumulator + dt)
+        this.frame = (this.frame + 1)
+    }
+
+    ; Number of whole fixed steps to run this frame; drains the accumulator.
+    fn consumeFixedSteps:int () {
+        def steps 0
+        while (this.accumulator >= this.fixedStep) {
+            this.accumulator = (this.accumulator - this.fixedStep)
+            steps = (steps + 1)
+        }
+        return steps
+    }
+}
+
+; runtime.assets — D-ASYNC load stubs over the poll-based request table.
+class RgAssets {
+    def async:RgAsync (new RgAsync)
+
+    ; loadSpriteAtlas / loadAudio share the begin/poll/release contract; the
+    ; `kind` distinguishes them at the catalog level (fake bytes in headless CI).
+    fn loadBegin:int (path:string) {
+        return (this.async.begin())
+    }
+
+    fn poll:int (reqId:int) {
+        return (this.async.poll(reqId))
+    }
+
+    ; test hook: the host finishing a load at the frame boundary
+    fn hostComplete:void (reqId:int handle:RgHandle) {
+        this.async.hostComplete(reqId handle)
+    }
+
+    fn release:void (reqId:int) {
+        this.async.release(reqId)
+    }
+}
+
+class RgRuntime {
+    def realmId:int 1
+    def alive:boolean true
+    def time:RgClock (new RgClock)
+    def assets:RgAssets (new RgAssets)
+    def logCount:int 0   ; runtime.log — headless fake (counts messages)
+
+    sfn forRealm:RgRuntime (realmId:int) {
+        def r:RgRuntime (new RgRuntime)
+        r.realmId = realmId
+        return r
+    }
+
+    ; A capability call is valid only from its owning realm (D-HANDLE realm
+    ; rules). A cross-realm use is rejected — the root is realm-scoped.
+    fn checkRealm:boolean (callerRealm:int) {
+        if (this.alive == false) { return false }
+        return (this.realmId == callerRealm)
+    }
+
+    fn log:boolean (callerRealm:int msg:string) {
+        if ((this.checkRealm(callerRealm)) == false) { return false }
+        this.logCount = (this.logCount + 1)
+        return true
+    }
+
+    ; Hot reload / teardown: the root dies with the realm; later use fails like
+    ; a stale handle (epoch bump), it does not half-work.
+    fn teardown:void () {
+        this.alive = false
+        this.assets.async.teardown()
+    }
+}

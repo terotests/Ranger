@@ -1,0 +1,54 @@
+; ==============================================================================
+; retain_release_test — bridge/wasm/tests/retain_release gate (D-OWN compiled).
+; ==============================================================================
+; The compiled path is Clone/Drop = refcount: `rg_retain` bumps, `rg_release`
+; drops once, and the slot frees only at zero. N clones = N owned references =
+; N releases — deterministic, no sweep needed.
+; ==============================================================================
+
+Import "../../imports/RgWasmImports.rgr"
+Import "../../../../host/handles/RgHandle.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class RetainReleaseTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/wasm/retain_release"))
+        def w:RgWasmImports (new RgWasmImports)
+
+        w.rg_geometry_create(8)
+        def lo:int w.retLo
+        def hi:int w.retHi
+        t.eqInt("owned refcount starts at 1" (w.refcountWords(lo hi)) 1)
+
+        ; ---- two clones (retain) → 3 owned references -----------------------
+        w.rg_retain(lo hi)
+        w.rg_retain(lo hi)
+        t.eqInt("refcount 3 after two clones" (w.refcountWords(lo hi)) 3)
+        t.ok("live at refcount 3" (w.isLiveWords(lo hi)))
+
+        ; ---- three drops (release) → freed at zero --------------------------
+        def d1:int (w.rg_release(lo hi))
+        t.eqInt("first drop OK" d1 (RgErr.ok()))
+        t.eqInt("refcount 2 after first drop" (w.refcountWords(lo hi)) 2)
+        t.ok("still live after first drop" (w.isLiveWords(lo hi)))
+
+        w.rg_release(lo hi)
+        t.eqInt("refcount 1 after second drop" (w.refcountWords(lo hi)) 1)
+        t.ok("still live after second drop" (w.isLiveWords(lo hi)))
+
+        w.rg_release(lo hi)
+        t.no("freed after the third (final) drop" (w.isLiveWords(lo hi)))
+        t.eqInt("arena empty" (w.occupancy()) 0)
+
+        ; ---- a drop past zero → typed STALE error, not a negative refcount --
+        def dpast:int (w.rg_release(lo hi))
+        t.eqInt("release past zero is STALE (no negative refcount)"
+            dpast (RgErr.stale()))
+
+        ; ---- retaining a dead handle → typed STALE error --------------------
+        def rt:int (w.rg_retain(lo hi))
+        t.eqInt("retain of a freed handle is STALE" rt (RgErr.stale()))
+
+        t.summary()
+    }
+}

@@ -1,0 +1,66 @@
+; ==============================================================================
+; stale_cross_realm_test — host/tests/stale_cross_realm gate (D-HANDLE / D-TYPE).
+; ==============================================================================
+; Every failure resolves to a typed error at the command boundary — never
+; undefined behaviour:
+;   wrong generation (use-after-release)  → STALE
+;   wrong realm (cross-guest reuse)        → WRONG_REALM
+;   wrong arena type                       → WRONG_TYPE
+;   invalid sentinel (slot 0)              → INVALID_HANDLE
+; ==============================================================================
+
+Import "../../arenas/RgHost.rgr"
+Import "../../handles/RgHandle.rgr"
+Import "../../ownership/OwnedHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class StaleCrossRealmTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("host/stale_cross_realm"))
+        def host:RgHost (new RgHost)
+
+        ; realm 1 owns a geometry
+        def geo:OwnedHandle (host.geometryCreate(1 8))
+        def mat:OwnedHandle (host.materialCreate(1 1.0 1.0 1.0))
+        def mesh:OwnedHandle (host.meshCreate(1 geo.handle mat.handle))
+
+        ; ---- wrong arena type at the command boundary -----------------------
+        ; a geometry handle handed to a mesh command must be rejected, not
+        ; silently mis-read (no pretend downcast — D-TYPE).
+        def wrongType:RgHandle (host.meshGeometry(geo.handle))
+        t.no("geometry handle rejected by mesh command" (wrongType.isValid()))
+        ; and a mesh handle handed to a geometry command
+        t.eqInt("mesh handle rejected by geometry command"
+            (host.geometryVertexCount(mesh.handle)) (0 - 1))
+        ; the correct arena still works
+        t.eqInt("geometry command on geometry handle works"
+            (host.geometryVertexCount(geo.handle)) 8)
+
+        ; ---- stale handle (use after release) -------------------------------
+        def geoSnapshot:RgHandle geo.handle
+        ; release mesh first (drops its retain on geo), then caller's geo
+        host.releaseOwned(mesh)
+        host.releaseOwned(geo)
+        t.no("released geometry not live" (host.isLive(geoSnapshot)))
+        t.eqInt("stale geometry command returns error"
+            (host.geometryVertexCount(geoSnapshot)) (0 - 1))
+
+        ; ---- cross-realm forged handle --------------------------------------
+        ; realm 2 creates its own geometry; forge a handle with realm 1's id but
+        ; realm 2's slot/generation — resolution must reject on realm mismatch.
+        def other:OwnedHandle (host.geometryCreate(2 5))
+        def forged:RgHandle (RgHandle.of(other.handle.slot other.handle.generation 1 other.handle.typeId))
+        t.no("cross-realm forged handle not live" (host.isLive(forged)))
+        t.eqInt("cross-realm forged handle command errors"
+            (host.geometryVertexCount(forged)) (0 - 1))
+        ; the genuine realm-2 handle still resolves
+        t.eqInt("genuine realm-2 handle works" (host.geometryVertexCount(other.handle)) 5)
+
+        ; ---- invalid sentinel -----------------------------------------------
+        def inv:RgHandle (RgHandle.invalid())
+        t.no("invalid handle not live" (host.isLive(inv)))
+        t.eqInt("invalid handle command errors" (host.geometryVertexCount(inv)) (0 - 1))
+
+        t.summary()
+    }
+}

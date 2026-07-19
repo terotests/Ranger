@@ -1,0 +1,137 @@
+; ==============================================================================
+; d_geo_contract_test — cross-cutting D-GEO gate.
+; ==============================================================================
+; Native path: a stable geoH across attribute setup; setAttribute / update /
+; read-back all use the SAME handle; update ≠ new handle; OOB rejected without a
+; trap. Compat path: the Three-compat wrapper's guest array aliases the script
+; data; a write without needsUpdate does not reach the host; needsUpdate flushes
+; the tracked range and the host range becomes byte-equal.
+; ==============================================================================
+
+Import "../../../host/arenas/RgHost.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../host/ownership/OwnedHandle.rgr"
+Import "../../../three/port/src/RgCompatAttribute.rgr"
+Import "../../harness/RgTest.rgr"
+
+class DGeoContractTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_geo"))
+        def host:RgHost (new RgHost)
+        def realm:int 1
+
+        ; ---- stable handle across attribute setup (native path) ------------
+        def geoOwned:OwnedHandle (host.geometryCreateEmpty(realm))
+        def geoH:RgHandle geoOwned.handle
+        def startSlot:int geoH.slot
+        def startGen:int geoH.generation
+        t.eqInt("empty geometry has 0 attributes" (host.geometryAttributeCount(geoH)) 0)
+
+        ; setAttribute("position", 3 verts) — mutates the SAME handle
+        def pos:[double]
+        push pos 0.0
+        push pos 0.0
+        push pos 0.0
+        push pos 1.0
+        push pos 0.0
+        push pos 0.0
+        push pos 0.0
+        push pos 1.0
+        push pos 0.0
+        def sr:RgResolve (host.geometrySetAttribute(geoH "position" pos 3))
+        t.ok("setAttribute ok" sr.ok)
+        t.eqInt("handle slot unchanged by setAttribute" geoH.slot startSlot)
+        t.eqInt("handle generation unchanged by setAttribute" geoH.generation startGen)
+        t.eqInt("vertexCount derived from position" (host.geometryVertexCount(geoH)) 3)
+        t.eqInt("position attribute length" (host.geometryAttributeLength(geoH "position")) 9)
+        def rev1:int (host.geometryContentRevision(geoH))
+        t.eqInt("contentRevision bumped by setAttribute" rev1 1)
+
+        ; add a second attribute one at a time — still the same handle
+        def normals:[double]
+        push normals 0.0
+        push normals 0.0
+        push normals 1.0
+        host.geometrySetAttribute(geoH "normal" normals 3)
+        t.eqInt("handle stable after adding a second attribute" geoH.slot startSlot)
+        t.eqInt("two attributes now" (host.geometryAttributeCount(geoH)) 2)
+
+        ; ---- update range = same handle, not a new create ------------------
+        def upd:[double]
+        push upd 4.0
+        push upd 0.0
+        push upd 0.0
+        def ur:RgResolve (host.geometryUpdateRange(geoH "position" 0 1 upd))
+        t.ok("updateRange ok" ur.ok)
+        t.eqInt("handle unchanged by updateRange" geoH.slot startSlot)
+        t.near("updated x is visible on the host" (host.geometryAttributeAt(geoH "position" 0)) 4.0)
+        t.eqInt("contentRevision bumped again" (host.geometryContentRevision(geoH)) 3)
+
+        ; ---- read-back through the SAME handle -----------------------------
+        def out:[double]
+        def rr:RgReadResult (host.geometryReadPositions(geoH 0 3 out))
+        t.eqInt("read status OK" rr.status (RgErr.ok()))
+        t.eqInt("read wrote 9 floats" rr.written 9)
+        t.near("read-back x0" (itemAt out 0) 4.0)
+        t.near("read-back y2" (itemAt out 7) 1.0)
+
+        ; zero-element read is success, not an error (status != count) --------
+        def out0:[double]
+        def rr0:RgReadResult (host.geometryReadPositions(geoH 0 0 out0))
+        t.eqInt("zero-element read is success" rr0.status (RgErr.ok()))
+        t.eqInt("zero-element read wrote 0" rr0.written 0)
+
+        ; ---- OOB update / read rejected without a trap ---------------------
+        def oob:[double]
+        push oob 1.0
+        push oob 2.0
+        push oob 3.0
+        def uoob:RgResolve (host.geometryUpdateRange(geoH "position" 5 1 oob))
+        t.no("OOB update rejected" uoob.ok)
+        def outX:[double]
+        def rrOob:RgReadResult (host.geometryReadPositions(geoH 2 5 outX))
+        t.no("OOB read rejected" (rrOob.status == (RgErr.ok())))
+        t.eqInt("OOB read wrote nothing" rrOob.written 0)
+
+        ; ---- two meshes share the geometry; handle still stable ------------
+        def matA:OwnedHandle (host.materialCreate(realm 1.0 1.0 1.0))
+        def matB:OwnedHandle (host.materialCreate(realm 1.0 1.0 1.0))
+        def meshA:OwnedHandle (host.meshCreate(realm geoH matA.handle))
+        def meshB:OwnedHandle (host.meshCreate(realm geoH matB.handle))
+        t.eqInt("shared geo handle unchanged after two meshes" geoH.slot startSlot)
+        t.eqInt("shared geo retained by both meshes + caller (refcount 3)"
+            (host.refcount(geoH)) 3)
+
+        ; ==== compat aliasing path ==========================================
+        def host2:RgHost (new RgHost)
+        def g2:OwnedHandle (host2.geometryCreateEmpty(realm))
+        def data:[double]
+        push data 0.0
+        push data 0.0
+        push data 0.0
+        push data 1.0
+        push data 0.0
+        push data 0.0
+        def attr:RgCompatAttribute (RgCompatAttribute.create(host2 g2.handle "position" data 3))
+        ; the guest array aliases the script data
+        def arr:[double] (attr.array())
+        t.near("compat: host seeded from guest data" (host2.geometryAttributeAt(g2.handle "position" 0)) 0.0)
+
+        ; guest write WITHOUT needsUpdate: visible to guest, NOT to the host
+        attr.setAt(0 9.0)
+        t.near("compat: guest read sees the write immediately" (attr.getAt(0)) 9.0)
+        t.near("compat: aliased array reflects the write" (itemAt arr 0) 9.0)
+        t.near("compat: host NOT updated before needsUpdate (does not render)"
+            (host2.geometryAttributeAt(g2.handle "position" 0)) 0.0)
+
+        ; needsUpdate flushes the tracked range → host byte-equal for that range
+        attr.needsUpdate()
+        t.near("compat: host flushed after needsUpdate"
+            (host2.geometryAttributeAt(g2.handle "position" 0)) 9.0)
+        ; the untouched vertex stays as seeded on the host
+        t.near("compat: untouched vertex unchanged on host"
+            (host2.geometryAttributeAt(g2.handle "position" 3)) 1.0)
+
+        t.summary()
+    }
+}

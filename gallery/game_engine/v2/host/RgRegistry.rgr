@@ -1,0 +1,198 @@
+; ==============================================================================
+; RgRegistry — entity registry / slot table (D-HANDLE / D-TYPE / D-OWN).
+; ==============================================================================
+; One authoritative table behind every typed arena:
+;
+;   handle → { generation, realmId, typeId, payloadIndex, refcount, live }
+;
+; Slots are 1-based in the handle (slot 0 = HANDLE_INVALID). Freed slots are
+; recycled through a free list; each reuse bumps the slot's generation so old
+; handles resolve to a typed STALE error (never undefined behaviour).
+;
+; resolve() enforces, in order: valid slot range → live → generation match →
+; realm match → (optional) type match. A mismatch on realm is rejected even when
+; generation and type agree (D-HANDLE rule 3: no cross-guest handle reuse).
+;
+; Ownership is refcount-based (D-OWN): create starts at 1; retain ++, release --.
+; When refcount reaches 0 the slot is freed and its payloadIndex handed back to
+; the arena so it can tear down / recycle the typed payload.
+; ==============================================================================
+
+Import "handles/RgHandle.rgr"
+
+class RgRegistry {
+    ; parallel arrays indexed by 0-based slotIndex
+    def gen:[int]
+    def realm:[int]
+    def typ:[int]
+    def payload:[int]
+    def refc:[int]
+    def live:[boolean]
+    def freeSlots:[int]
+    ; Generation cap (RgHandle 20-bit field). A freed slot whose generation has
+    ; reached this is PERMANENTLY retired instead of reused, so a transported
+    ; stale handle can never become valid again via wrap-around. Tests may lower
+    ; it to exercise retirement without a million allocations.
+    def maxGeneration:int 1048575
+    def retiredCount:int 0
+
+    ; ---- allocation ---------------------------------------------------------
+    ; Allocates a slot for a freshly created object (refcount 1) and returns its
+    ; handle. Reuses a freed slot (bumping its generation) when one is available
+    ; below the generation cap; capped slots are dropped from the free list
+    ; forever (wrap protection — see RgHandle packing policy).
+    fn alloc:RgHandle (realmId:int typeId:int payloadIndex:int) {
+        ; pop free slots from the end until one is reusable; retire capped ones
+        def idx:int (0 - 1)
+        def nfree:int (array_length this.freeSlots)
+        while (nfree > 0) {
+            def cand:int (itemAt this.freeSlots (nfree - 1))
+            def nf:[int]
+            def i 0
+            while (i < (nfree - 1)) {
+                push nf (itemAt this.freeSlots i)
+                i = (i + 1)
+            }
+            this.freeSlots = nf
+            nfree = (nfree - 1)
+            if ((itemAt this.gen cand) < this.maxGeneration) {
+                idx = cand
+                nfree = 0
+            } {
+                ; generation cap reached → slot retired permanently
+                this.retiredCount = (this.retiredCount + 1)
+            }
+        }
+        if (idx >= 0) {
+            set this.gen idx ((itemAt this.gen idx) + 1)
+            set this.realm idx realmId
+            set this.typ idx typeId
+            set this.payload idx payloadIndex
+            set this.refc idx 1
+            set this.live idx true
+            return (RgHandle.of((idx + 1) (itemAt this.gen idx) realmId typeId))
+        }
+        def idx2:int (array_length this.gen)
+        push this.gen 1
+        push this.realm realmId
+        push this.typ typeId
+        push this.payload payloadIndex
+        push this.refc 1
+        push this.live true
+        return (RgHandle.of((idx2 + 1) 1 realmId typeId))
+    }
+
+    ; ---- resolution ---------------------------------------------------------
+    fn resolveSlot:RgResolve (h:RgHandle) {
+        if (h.slot == 0) {
+            return (RgResolve.fail((RgErr.invalidHandle())))
+        }
+        def idx:int (h.slot - 1)
+        def n:int (array_length this.gen)
+        if (idx < 0) {
+            return (RgResolve.fail((RgErr.invalidHandle())))
+        }
+        if (idx >= n) {
+            return (RgResolve.fail((RgErr.invalidHandle())))
+        }
+        if ((itemAt this.live idx) == false) {
+            return (RgResolve.fail((RgErr.stale())))
+        }
+        if ((itemAt this.gen idx) != h.generation) {
+            return (RgResolve.fail((RgErr.stale())))
+        }
+        if ((itemAt this.realm idx) != h.realmId) {
+            return (RgResolve.fail((RgErr.wrongRealm())))
+        }
+        return (RgResolve.pass(idx (itemAt this.payload idx)))
+    }
+
+    ; Resolve with a required arena type (wrong-arena rejected at the boundary).
+    fn resolveTyped:RgResolve (h:RgHandle expectedType:int) {
+        def r:RgResolve (this.resolveSlot(h))
+        if (r.ok == false) {
+            return r
+        }
+        if ((itemAt this.typ r.slotIndex) != expectedType) {
+            return (RgResolve.fail((RgErr.wrongType())))
+        }
+        return r
+    }
+
+    ; ---- refcount ownership -------------------------------------------------
+    fn retain:RgResolve (h:RgHandle) {
+        def r:RgResolve (this.resolveSlot(h))
+        if (r.ok == false) {
+            return r
+        }
+        set this.refc r.slotIndex ((itemAt this.refc r.slotIndex) + 1)
+        return r
+    }
+
+    ; Decrements the refcount once. When it reaches 0 the slot is freed (marked
+    ; dead, generation preserved until reuse, pushed to the free list). Returns a
+    ; resolve whose payloadIndex lets the arena tear the payload down; ok stays
+    ; true even at the final release. A stale/invalid handle returns its error.
+    fn releaseOnce:RgResolve (h:RgHandle) {
+        def r:RgResolve (this.resolveSlot(h))
+        if (r.ok == false) {
+            return r
+        }
+        def newRc:int ((itemAt this.refc r.slotIndex) - 1)
+        set this.refc r.slotIndex newRc
+        if (newRc <= 0) {
+            set this.live r.slotIndex false
+            set this.refc r.slotIndex 0
+            push this.freeSlots r.slotIndex
+            r.freed = true
+        }
+        return r
+    }
+
+    fn refcountOf:int (h:RgHandle) {
+        def r:RgResolve (this.resolveSlot(h))
+        if (r.ok == false) {
+            return (0 - 1)
+        }
+        return (itemAt this.refc r.slotIndex)
+    }
+
+    fn isLive:boolean (h:RgHandle) {
+        def r:RgResolve (this.resolveSlot(h))
+        return r.ok
+    }
+
+    ; ---- realm teardown backstop (D-OWN) -----------------------------------
+    ; Force-frees every live slot owned by realmId regardless of refcount, and
+    ; returns the count reclaimed. Final backstop after a guest trap / shutdown.
+    fn teardownRealm:int (realmId:int) {
+        def n:int (array_length this.gen)
+        def count 0
+        def i 0
+        while (i < n) {
+            if ((itemAt this.live i)) {
+                if ((itemAt this.realm i) == realmId) {
+                    set this.live i false
+                    set this.refc i 0
+                    push this.freeSlots i
+                    count = (count + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return count
+    }
+
+    fn liveCount:int () {
+        def n:int (array_length this.gen)
+        def count 0
+        def i 0
+        while (i < n) {
+            if ((itemAt this.live i)) {
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        return count
+    }
+}

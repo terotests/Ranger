@@ -1,0 +1,82 @@
+; ==============================================================================
+; RgSpan — linear-memory span bounds checking (D-WASM-MEM).
+; ==============================================================================
+; One span convention for every bulk payload: (offset_bytes, element_count,
+; element_type) with checked arithmetic. Bounds/overflow/alignment validation is
+; a MANDATORY part of the ABI, not an optimization. Status codes are kept
+; SEPARATE from result counts — a bad span returns an error code, never a
+; misread "0 elements copied".
+;
+; Checks, in order: negative offset/count → NEGATIVE; count*size overflow →
+; OVERFLOW; offset+bytes past memory end → OOB; offset misaligned for the
+; element type → ALIGN.
+; ==============================================================================
+
+class RgSpanErr {
+    sfn ok:int () { return 0 }
+    sfn negative:int () { return 1 }
+    sfn overflow:int () { return 2 }
+    sfn oob:int () { return 3 }
+    sfn align:int () { return 4 }
+
+    sfn name:string (code:int) {
+        if (code == 0) { return "OK" }
+        if (code == 1) { return "NEGATIVE" }
+        if (code == 2) { return "OVERFLOW" }
+        if (code == 3) { return "OOB" }
+        if (code == 4) { return "ALIGN" }
+        return "UNKNOWN"
+    }
+}
+
+class RgSpanResult {
+    def code:int 0
+    def byteLength:int 0   ; separate from the status code (D-WASM-MEM)
+
+    sfn of:RgSpanResult (code:int byteLength:int) {
+        def r:RgSpanResult (new RgSpanResult)
+        r.code = code
+        r.byteLength = byteLength
+        return r
+    }
+
+    fn ok:boolean () { return (this.code == 0) }
+}
+
+class RgSpan {
+    ; A large sentinel used to detect multiplicative overflow without 64-bit math:
+    ; if elementCount exceeds this for a given size we flag OVERFLOW conservatively.
+    sfn maxBytes:int () { return 2000000000 }
+
+    ; check(offsetBytes, elementCount, elementSize, memSize) → RgSpanResult
+    sfn check:RgSpanResult (offsetBytes:int elementCount:int elementSize:int memSize:int) {
+        if (offsetBytes < 0) {
+            return (RgSpanResult.of((RgSpanErr.negative()) 0))
+        }
+        if (elementCount < 0) {
+            return (RgSpanResult.of((RgSpanErr.negative()) 0))
+        }
+        if (elementSize <= 0) {
+            return (RgSpanResult.of((RgSpanErr.negative()) 0))
+        }
+        ; overflow guard on elementCount * elementSize
+        def cap:int (idiv (RgSpan.maxBytes()) elementSize)
+        if (elementCount > cap) {
+            return (RgSpanResult.of((RgSpanErr.overflow()) 0))
+        }
+        def bytes:int (elementCount * elementSize)
+        ; alignment: offset must be a multiple of the element size
+        if ((offsetBytes % elementSize) != 0) {
+            return (RgSpanResult.of((RgSpanErr.align()) 0))
+        }
+        ; bounds: offset + bytes must fit within memory (also guards offset overflow)
+        def endByte:int (offsetBytes + bytes)
+        if (endByte > memSize) {
+            return (RgSpanResult.of((RgSpanErr.oob()) 0))
+        }
+        if (endByte < offsetBytes) {
+            return (RgSpanResult.of((RgSpanErr.overflow()) 0))
+        }
+        return (RgSpanResult.of((RgSpanErr.ok()) bytes))
+    }
+}

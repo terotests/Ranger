@@ -1,0 +1,131 @@
+; ==============================================================================
+; RgHandle — fat, generation-checked host handle (D-HANDLE).
+; ==============================================================================
+; A handle is a fat value carrying four fields:
+;   slot        1-based index into the entity registry (0 = HANDLE_INVALID)
+;   generation  bumped every time a slot is freed & reused (stale detection)
+;   realmId     owning realm / guest (cross-realm reuse rejected)
+;   typeId      arena type tag (wrong-arena rejected at the command boundary)
+;
+; D-HANDLE decisions honoured here:
+;   - Invalid sentinel is 0 only (slot 0). Never `handle < 0` — fields are
+;     opaque bit carriers, treated as unsigned magnitudes.
+;   - The logical id is wider than 32 bits, so it crosses the WASM boundary as
+;     TWO i32 words (`lo`, `hi`) rather than a single packed i32 that would wrap
+;     generation after a few thousand slot reuses. pack/unpack round-trip below
+;     is the transport encoding.
+;
+; Packing layout (documented wrap + signedness policy):
+;   lo = slot | (typeId << 20)          slot: 20 bits, typeId: 11 bits
+;   hi = generation | (realmId << 20)   generation: 20 bits, realmId: 11 bits
+; Field widths are chosen so BOTH words stay < 2^31: the top (sign) bit of an
+; i32 carrier is never set, so a signed host representation can never see a
+; "negative handle" and arithmetic decode stays portable (no negative % / /).
+; An out-of-range field is a loud failure: pack returns word 0, which decodes
+; to the invalid sentinel (slot 0) and resolves as a typed INVALID_HANDLE —
+; never a silently truncated, colliding handle.
+;
+; Wrap protection is ENFORCED, not aspirational: RgRegistry permanently retires
+; a slot whose generation reaches the 20-bit cap (see maxGeneration there) — a
+; transported stale handle can never become valid again through wrap-around.
+; ==============================================================================
+
+class RgHandle {
+    def slot:int 0
+    def generation:int 0
+    def realmId:int 0
+    def typeId:int 0
+
+    sfn of:RgHandle (slot:int generation:int realmId:int typeId:int) {
+        def h:RgHandle (new RgHandle)
+        h.slot = slot
+        h.generation = generation
+        h.realmId = realmId
+        h.typeId = typeId
+        return h
+    }
+
+    sfn invalid:RgHandle () {
+        return (RgHandle.of(0 0 0 0))
+    }
+
+    fn isValid:boolean () {
+        return (this.slot != 0)
+    }
+
+    ; ---- two-word WASM transport encoding ----------------------------------
+    ; Field bounds: slot/generation < 2^20, typeId/realmId < 2^11 — keeps each
+    ; word < 2^31 (sign bit clear). Out of range → 0 (decodes as invalid).
+
+    sfn maxIndex:int () { return 1048575 }   ; 2^20 - 1 (slot / generation)
+    sfn maxTag:int () { return 2047 }        ; 2^11 - 1 (typeId / realmId)
+
+    fn packLo:int () {
+        if (this.slot < 0) { return 0 }
+        if (this.slot > (RgHandle.maxIndex())) { return 0 }
+        if (this.typeId < 0) { return 0 }
+        if (this.typeId > (RgHandle.maxTag())) { return 0 }
+        return (this.slot + (this.typeId * 1048576))
+    }
+
+    fn packHi:int () {
+        if (this.generation < 0) { return 0 }
+        if (this.generation > (RgHandle.maxIndex())) { return 0 }
+        if (this.realmId < 0) { return 0 }
+        if (this.realmId > (RgHandle.maxTag())) { return 0 }
+        return (this.generation + (this.realmId * 1048576))
+    }
+
+    sfn unpack:RgHandle (lo:int hi:int) {
+        def slot:int (lo % 1048576)
+        def typeId:int (idiv lo 1048576)
+        def generation:int (hi % 1048576)
+        def realmId:int (idiv hi 1048576)
+        return (RgHandle.of(slot generation realmId typeId))
+    }
+}
+
+; Typed error codes for handle resolution / ownership (D-HANDLE / D-OWN).
+class RgErr {
+    sfn ok:int () { return 0 }
+    sfn invalidHandle:int () { return 1 }   ; slot 0 or out of range
+    sfn stale:int () { return 2 }           ; generation mismatch (freed/reused)
+    sfn wrongRealm:int () { return 3 }       ; realm mismatch (cross-guest reuse)
+    sfn wrongType:int () { return 4 }        ; typeId mismatch (wrong arena)
+    sfn doubleRelease:int () { return 5 }    ; second release through same wrapper
+
+    sfn name:string (code:int) {
+        if (code == 0) { return "OK" }
+        if (code == 1) { return "INVALID_HANDLE" }
+        if (code == 2) { return "STALE" }
+        if (code == 3) { return "WRONG_REALM" }
+        if (code == 4) { return "WRONG_TYPE" }
+        if (code == 5) { return "DOUBLE_RELEASE" }
+        return "UNKNOWN"
+    }
+}
+
+; Result of resolving a handle against the registry.
+class RgResolve {
+    def ok:boolean false
+    def code:int 1
+    def slotIndex:int (0 - 1)    ; 0-based index into registry arrays
+    def payloadIndex:int (0 - 1) ; index into the owning arena's typed pool
+    def freed:boolean false       ; releaseOnce: did refcount reach 0 this call?
+
+    sfn fail:RgResolve (code:int) {
+        def r:RgResolve (new RgResolve)
+        r.ok = false
+        r.code = code
+        return r
+    }
+
+    sfn pass:RgResolve (slotIndex:int payloadIndex:int) {
+        def r:RgResolve (new RgResolve)
+        r.ok = true
+        r.code = 0
+        r.slotIndex = slotIndex
+        r.payloadIndex = payloadIndex
+        return r
+    }
+}

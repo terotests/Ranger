@@ -1,0 +1,633 @@
+; ==============================================================================
+; RgRanger2D — first-class retained 2D scene + sprite system (D-2D, P1).
+; ==============================================================================
+; ranger:2d is a sibling of ranger:three, NOT THREE.Sprite. Persistent 2D types
+; live in their own typed arenas over the shared registry (D-TYPE); frame-local
+; drawing (DrawList2D) is a separate command buffer with NO persistent identity.
+;
+; Object model (this slice):
+;   Texture2D          decoded image resource
+;   SpriteAtlas        texture + named regions + animation clips (retains texture)
+;   Sprite2D           atlas + region + layer membership + transform (retains atlas)
+;   Layer2D            membership container (add/remove is not ownership)
+;   Camera2D           translate / zoom / rotation + world<->screen transforms
+;   AnimationPlayer2D  playback state over an atlas clip, timed by runtime.time
+;   DrawList2D         frame-local immediate commands (no registry handles)
+;   PoseBinding2D      weak body -> sprite link (generation-checked)
+;
+; Binding rules honoured: sprite identity never depends on index / z-order /
+; layer; reorder + reparent preserve the handle; texture/atlas/sprite/player
+; identities are separate; sharing is refcounted (D-OWN); membership ≠ object
+; (D-LIFE); animation timing uses one shared model on runtime.time.
+; ==============================================================================
+
+Import "../../host/RgRegistry.rgr"
+Import "../../host/handles/RgHandle.rgr"
+Import "../../host/ownership/OwnedHandle.rgr"
+
+class Rg2DType {
+    sfn texture:int () { return 30 }
+    sfn atlas:int () { return 31 }
+    sfn sprite:int () { return 32 }
+    sfn layer:int () { return 33 }
+    sfn camera:int () { return 34 }
+    sfn player:int () { return 35 }
+}
+
+; ---- payload types -----------------------------------------------------------
+class RgTexture2D {
+    def width:int 0
+    def height:int 0
+}
+
+class RgSpriteRegion {
+    def name:string ""
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    def pivotX:double 0.5
+    def pivotY:double 0.5
+}
+
+class RgAnimClip2D {
+    def name:string ""
+    def frames:[int]        ; region indices, in order
+    def durations:[double]  ; seconds per frame (parallel to frames)
+}
+
+class RgSpriteAtlas {
+    def textureH:RgHandle (new RgHandle)
+    def regions:[RgSpriteRegion]
+    def clips:[RgAnimClip2D]
+}
+
+class RgSprite2D {
+    def atlasH:RgHandle (new RgHandle)
+    def regionIndex:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def layerSlot:int 0    ; membership (0 = none)
+}
+
+class RgLayer2D {
+    def childCount:int 0
+}
+
+class RgCamera2D {
+    def x:double 0.0
+    def y:double 0.0
+    def zoom:double 1.0
+    def rotation:double 0.0
+}
+
+class RgAnimPlayer2D {
+    def spriteH:RgHandle (new RgHandle)
+    def clipIndex:int 0
+    def playing:boolean true
+}
+
+; ---- frame-local draw list (NOT an arena) -----------------------------------
+; Immediate commands with no persistent object identity. Reset each frame; it
+; never allocates a registry handle.
+class RgDrawCmd2D {
+    def kind:int 0   ; 0 sprite-blit, 1 rect
+    def regionIndex:int 0
+    def x:double 0.0
+    def y:double 0.0
+}
+
+class RgDrawList2D {
+    def cmds:[RgDrawCmd2D]
+
+    fn drawSprite:void (regionIndex:int x:double y:double) {
+        def c:RgDrawCmd2D (new RgDrawCmd2D)
+        c.kind = 0
+        c.regionIndex = regionIndex
+        c.x = x
+        c.y = y
+        push this.cmds c
+    }
+
+    fn drawRect:void (x:double y:double) {
+        def c:RgDrawCmd2D (new RgDrawCmd2D)
+        c.kind = 1
+        c.x = x
+        c.y = y
+        push this.cmds c
+    }
+
+    fn count:int () { return (array_length this.cmds) }
+
+    ; frame boundary: immediate commands do not persist
+    fn reset:void () {
+        def empty:[RgDrawCmd2D]
+        this.cmds = empty
+    }
+}
+
+; ---- weak pose binding (body -> sprite) -------------------------------------
+class RgPoseBinding2D {
+    def bodyH:RgHandle (new RgHandle)
+    def spriteH:RgHandle (new RgHandle)
+}
+
+; ==============================================================================
+class RgRanger2D {
+    def registry:RgRegistry (new RgRegistry)
+    def realmId:int 1
+
+    def textures:[RgTexture2D]
+    def texFree:[int]
+    def atlases:[RgSpriteAtlas]
+    def atlasFree:[int]
+    def sprites:[RgSprite2D]
+    def spriteFree:[int]
+    def layers:[RgLayer2D]
+    def layerFree:[int]
+    def cameras:[RgCamera2D]
+    def camFree:[int]
+    def players:[RgAnimPlayer2D]
+    def playerFree:[int]
+
+    ; ---- generic pool alloc (one helper per pool) ----------------------------
+    fn allocTex:int () {
+        def nf:int (array_length this.texFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.texFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.texFree i)
+                i = (i + 1)
+            }
+            this.texFree = kept
+            return idx
+        }
+        def n:int (array_length this.textures)
+        push this.textures (new RgTexture2D)
+        return n
+    }
+    fn allocAtlas:int () {
+        def nf:int (array_length this.atlasFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.atlasFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.atlasFree i)
+                i = (i + 1)
+            }
+            this.atlasFree = kept
+            return idx
+        }
+        def n:int (array_length this.atlases)
+        push this.atlases (new RgSpriteAtlas)
+        return n
+    }
+    fn allocSprite:int () {
+        def nf:int (array_length this.spriteFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.spriteFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.spriteFree i)
+                i = (i + 1)
+            }
+            this.spriteFree = kept
+            return idx
+        }
+        def n:int (array_length this.sprites)
+        push this.sprites (new RgSprite2D)
+        return n
+    }
+    fn allocLayer:int () {
+        def nf:int (array_length this.layerFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.layerFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.layerFree i)
+                i = (i + 1)
+            }
+            this.layerFree = kept
+            return idx
+        }
+        def n:int (array_length this.layers)
+        push this.layers (new RgLayer2D)
+        return n
+    }
+    fn allocCam:int () {
+        def nf:int (array_length this.camFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.camFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.camFree i)
+                i = (i + 1)
+            }
+            this.camFree = kept
+            return idx
+        }
+        def n:int (array_length this.cameras)
+        push this.cameras (new RgCamera2D)
+        return n
+    }
+    fn allocPlayer:int () {
+        def nf:int (array_length this.playerFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.playerFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.playerFree i)
+                i = (i + 1)
+            }
+            this.playerFree = kept
+            return idx
+        }
+        def n:int (array_length this.players)
+        push this.players (new RgAnimPlayer2D)
+        return n
+    }
+
+    ; ---- create (owned) ------------------------------------------------------
+    fn textureCreate:OwnedHandle (w:int h:int) {
+        def idx:int (this.allocTex())
+        def tx:RgTexture2D (itemAt this.textures idx)
+        tx.width = w
+        tx.height = h
+        def th:RgHandle (this.registry.alloc(this.realmId (Rg2DType.texture()) idx))
+        return (OwnedHandle.own(th))
+    }
+
+    ; atlas retains its texture (shared retain, D-OWN)
+    fn atlasCreate:OwnedHandle (textureH:RgHandle) {
+        def idx:int (this.allocAtlas())
+        def at:RgSpriteAtlas (itemAt this.atlases idx)
+        at.textureH = textureH
+        def emptyR:[RgSpriteRegion]
+        at.regions = emptyR
+        def emptyC:[RgAnimClip2D]
+        at.clips = emptyC
+        this.registry.retain(textureH)
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.atlas()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    fn atlasResolve:RgSpriteAtlas (atlasH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(atlasH (Rg2DType.atlas())))
+        if (r.ok == false) { return (new RgSpriteAtlas) }
+        return (itemAt this.atlases r.payloadIndex)
+    }
+
+    fn atlasAddRegion:int (atlasH:RgHandle name:string x:int y:int w:int h:int) {
+        def at:RgSpriteAtlas (this.atlasResolve(atlasH))
+        def reg:RgSpriteRegion (new RgSpriteRegion)
+        reg.name = name
+        reg.x = x
+        reg.y = y
+        reg.w = w
+        reg.h = h
+        push at.regions reg
+        return ((array_length at.regions) - 1)
+    }
+
+    fn atlasRegionIndex:int (atlasH:RgHandle name:string) {
+        def at:RgSpriteAtlas (this.atlasResolve(atlasH))
+        def n:int (array_length at.regions)
+        def i 0
+        while (i < n) {
+            def reg:RgSpriteRegion (itemAt at.regions i)
+            if (reg.name == name) { return i }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; deterministic region lookup — the same host command TS and WASM both call.
+    fn atlasRegionX:int (atlasH:RgHandle name:string) {
+        def at:RgSpriteAtlas (this.atlasResolve(atlasH))
+        def idx:int (this.atlasRegionIndex(atlasH name))
+        if (idx < 0) { return (0 - 1) }
+        def reg:RgSpriteRegion (itemAt at.regions idx)
+        return reg.x
+    }
+    fn atlasRegionW:int (atlasH:RgHandle name:string) {
+        def at:RgSpriteAtlas (this.atlasResolve(atlasH))
+        def idx:int (this.atlasRegionIndex(atlasH name))
+        if (idx < 0) { return (0 - 1) }
+        def reg:RgSpriteRegion (itemAt at.regions idx)
+        return reg.w
+    }
+
+    fn atlasAddClip:int (atlasH:RgHandle name:string frames:[int] durations:[double]) {
+        def at:RgSpriteAtlas (this.atlasResolve(atlasH))
+        def clip:RgAnimClip2D (new RgAnimClip2D)
+        clip.name = name
+        clip.frames = frames
+        clip.durations = durations
+        push at.clips clip
+        return ((array_length at.clips) - 1)
+    }
+
+    ; sprite retains its atlas (shared retain, D-OWN)
+    fn spriteCreate:OwnedHandle (atlasH:RgHandle regionIndex:int) {
+        def idx:int (this.allocSprite())
+        def sp:RgSprite2D (itemAt this.sprites idx)
+        sp.atlasH = atlasH
+        sp.regionIndex = regionIndex
+        sp.x = 0.0
+        sp.y = 0.0
+        sp.layerSlot = 0
+        this.registry.retain(atlasH)
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.sprite()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    fn spriteResolve:RgSprite2D (spriteH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(spriteH (Rg2DType.sprite())))
+        if (r.ok == false) { return (new RgSprite2D) }
+        return (itemAt this.sprites r.payloadIndex)
+    }
+
+    fn spriteAtlasHandle:RgHandle (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.atlasH
+    }
+
+    fn spriteSetRegion:void (spriteH:RgHandle regionIndex:int) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        sp.regionIndex = regionIndex
+    }
+    fn spriteRegion:int (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.regionIndex
+    }
+
+    fn spriteSetPos:void (spriteH:RgHandle x:double y:double) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        sp.x = x
+        sp.y = y
+    }
+    fn spriteX:double (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.x
+    }
+    fn spriteY:double (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.y
+    }
+
+    ; Enumerate live sprite handles (for a backend that READS host state to draw
+    ; — D-SYNC: rendering reads, it never mutates). Handles are reconstructed
+    ; from the registry slot metadata, staying generation-checked.
+    fn liveSpriteHandles:[RgHandle] () {
+        def out:[RgHandle]
+        def n:int (array_length this.registry.gen)
+        def i 0
+        while (i < n) {
+            if ((itemAt this.registry.live i)) {
+                if ((itemAt this.registry.typ i) == (Rg2DType.sprite())) {
+                    def h:RgHandle (RgHandle.of((i + 1) (itemAt this.registry.gen i) (itemAt this.registry.realm i) (Rg2DType.sprite())))
+                    push out h
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ---- layer membership (D-LIFE lifetime 2, never ownership) --------------
+    fn layerCreate:OwnedHandle () {
+        def idx:int (this.allocLayer())
+        def ly:RgLayer2D (itemAt this.layers idx)
+        ly.childCount = 0
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.layer()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    fn layerChildCount:int (layerH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(layerH (Rg2DType.layer())))
+        if (r.ok == false) { return (0 - 1) }
+        def ly:RgLayer2D (itemAt this.layers r.payloadIndex)
+        return ly.childCount
+    }
+
+    fn decLayer:void (layerSlot:int) {
+        def idx:int (layerSlot - 1)
+        if (idx >= 0) {
+            def payIdx:int (itemAt this.registry.payload idx)
+            if (payIdx >= 0) {
+                if (payIdx < (array_length this.layers)) {
+                    def ly:RgLayer2D (itemAt this.layers payIdx)
+                    if (ly.childCount > 0) { ly.childCount = (ly.childCount - 1) }
+                }
+            }
+        }
+    }
+
+    fn layerAdd:RgResolve (spriteH:RgHandle layerH:RgHandle) {
+        def rs:RgResolve (this.registry.resolveTyped(spriteH (Rg2DType.sprite())))
+        if (rs.ok == false) { return rs }
+        def rl:RgResolve (this.registry.resolveTyped(layerH (Rg2DType.layer())))
+        if (rl.ok == false) { return rl }
+        def sp:RgSprite2D (itemAt this.sprites rs.payloadIndex)
+        if (sp.layerSlot != 0) {
+            if (sp.layerSlot != layerH.slot) { this.decLayer(sp.layerSlot) }
+        }
+        if (sp.layerSlot != layerH.slot) {
+            sp.layerSlot = layerH.slot
+            def ly:RgLayer2D (itemAt this.layers rl.payloadIndex)
+            ly.childCount = (ly.childCount + 1)
+        }
+        return rs
+    }
+
+    fn layerRemove:RgResolve (spriteH:RgHandle) {
+        def rs:RgResolve (this.registry.resolveTyped(spriteH (Rg2DType.sprite())))
+        if (rs.ok == false) { return rs }
+        def sp:RgSprite2D (itemAt this.sprites rs.payloadIndex)
+        if (sp.layerSlot != 0) {
+            this.decLayer(sp.layerSlot)
+            sp.layerSlot = 0
+        }
+        return rs
+    }
+
+    fn spriteLayerSlot:int (spriteH:RgHandle) {
+        def sp:RgSprite2D (this.spriteResolve(spriteH))
+        return sp.layerSlot
+    }
+
+    ; ---- Camera2D transforms (SW + GPU formulations must agree) -------------
+    fn cameraCreate:OwnedHandle () {
+        def idx:int (this.allocCam())
+        def cam:RgCamera2D (itemAt this.cameras idx)
+        cam.x = 0.0
+        cam.y = 0.0
+        cam.zoom = 1.0
+        cam.rotation = 0.0
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.camera()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    fn cameraResolve:RgCamera2D (camH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(camH (Rg2DType.camera())))
+        if (r.ok == false) { return (new RgCamera2D) }
+        return (itemAt this.cameras r.payloadIndex)
+    }
+
+    fn cameraSet:void (camH:RgHandle x:double y:double zoom:double rotation:double) {
+        def cam:RgCamera2D (this.cameraResolve(camH))
+        cam.x = x
+        cam.y = y
+        cam.zoom = zoom
+        cam.rotation = rotation
+    }
+
+    ; software path: direct arithmetic. Returns screen X.
+    fn worldToScreenSwX:double (camH:RgHandle wx:double wy:double) {
+        def cam:RgCamera2D (this.cameraResolve(camH))
+        def dx:double ((wx - cam.x) * cam.zoom)
+        def dy:double ((wy - cam.y) * cam.zoom)
+        def c:double (cos cam.rotation)
+        def s:double (sin cam.rotation)
+        return ((dx * c) - (dy * s))
+    }
+    fn worldToScreenSwY:double (camH:RgHandle wx:double wy:double) {
+        def cam:RgCamera2D (this.cameraResolve(camH))
+        def dx:double ((wx - cam.x) * cam.zoom)
+        def dy:double ((wy - cam.y) * cam.zoom)
+        def c:double (cos cam.rotation)
+        def s:double (sin cam.rotation)
+        return ((dx * s) + (dy * c))
+    }
+
+    ; GPU path: build the affine (a,b,c,d,e,f) and apply — same math, matrix form.
+    fn worldToScreenGpuX:double (camH:RgHandle wx:double wy:double) {
+        def cam:RgCamera2D (this.cameraResolve(camH))
+        def co:double (cos cam.rotation)
+        def si:double (sin cam.rotation)
+        def a:double (cam.zoom * co)
+        def b:double (0.0 - (cam.zoom * si))
+        def e:double (0.0 - ((cam.x * a) + (cam.y * b)))
+        return (((a * wx) + (b * wy)) + e)
+    }
+    fn worldToScreenGpuY:double (camH:RgHandle wx:double wy:double) {
+        def cam:RgCamera2D (this.cameraResolve(camH))
+        def co:double (cos cam.rotation)
+        def si:double (sin cam.rotation)
+        def cc:double (cam.zoom * si)
+        def dd:double (cam.zoom * co)
+        def f:double (0.0 - ((cam.x * cc) + (cam.y * dd)))
+        return (((cc * wx) + (dd * wy)) + f)
+    }
+
+    ; screenToWorld inverse of the SW path (round-trip check)
+    fn screenToWorldX:double (camH:RgHandle sx:double sy:double) {
+        def cam:RgCamera2D (this.cameraResolve(camH))
+        def c:double (cos cam.rotation)
+        def s:double (sin cam.rotation)
+        ; un-rotate then un-zoom then un-translate
+        def rx:double ((sx * c) + (sy * s))
+        return ((rx / cam.zoom) + cam.x)
+    }
+    fn screenToWorldY:double (camH:RgHandle sx:double sy:double) {
+        def cam:RgCamera2D (this.cameraResolve(camH))
+        def c:double (cos cam.rotation)
+        def s:double (sin cam.rotation)
+        def ry:double ((0.0 - (sx * s)) + (sy * c))
+        return ((ry / cam.zoom) + cam.y)
+    }
+
+    ; ---- AnimationPlayer2D (one shared model on runtime.time) ---------------
+    fn playerCreate:OwnedHandle (spriteH:RgHandle clipIndex:int) {
+        def idx:int (this.allocPlayer())
+        def pl:RgAnimPlayer2D (itemAt this.players idx)
+        pl.spriteH = spriteH
+        pl.clipIndex = clipIndex
+        pl.playing = true
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg2DType.player()) idx))
+        return (OwnedHandle.own(h))
+    }
+
+    ; region index displayed at a given (looping) runtime time, deterministic.
+    fn playerFrameAt:int (playerH:RgHandle time:double) {
+        def r:RgResolve (this.registry.resolveTyped(playerH (Rg2DType.player())))
+        if (r.ok == false) { return (0 - 1) }
+        def pl:RgAnimPlayer2D (itemAt this.players r.payloadIndex)
+        def sp:RgSprite2D (this.spriteResolve(pl.spriteH))
+        def at:RgSpriteAtlas (this.atlasResolve(sp.atlasH))
+        def clip:RgAnimClip2D (itemAt at.clips pl.clipIndex)
+        def nf:int (array_length clip.frames)
+        if (nf == 0) { return (0 - 1) }
+        def total:double 0.0
+        def i 0
+        while (i < nf) {
+            total = (total + (itemAt clip.durations i))
+            i = (i + 1)
+        }
+        ; loop time into [0,total)
+        def tt:double time
+        while (tt >= total) { tt = (tt - total) }
+        while (tt < 0.0) { tt = (tt + total) }
+        def acc:double 0.0
+        def j 0
+        while (j < nf) {
+            acc = (acc + (itemAt clip.durations j))
+            if (tt < acc) {
+                return (itemAt clip.frames j)
+            }
+            j = (j + 1)
+        }
+        return (itemAt clip.frames (nf - 1))
+    }
+
+    ; ---- weak PoseBinding2D -------------------------------------------------
+    ; body -> sprite; rejects a stale body OR sprite handle. Never keeps either
+    ; alive (the caller holds the physics-world / 2D registries separately).
+    fn poseBindingValid:boolean (bodyLive:boolean spriteH:RgHandle) {
+        if (bodyLive == false) { return false }
+        return (this.registry.isLive(spriteH))
+    }
+
+    ; ---- shared ownership helpers ------------------------------------------
+    fn refcount:int (h:RgHandle) { return (this.registry.refcountOf(h)) }
+    fn isLive:boolean (h:RgHandle) { return (this.registry.isLive(h)) }
+    fn liveCount:int () { return (this.registry.liveCount()) }
+    fn liveOfType:int (typeId:int) {
+        def n:int (array_length this.registry.gen)
+        def c 0
+        def i 0
+        while (i < n) {
+            if ((itemAt this.registry.live i)) {
+                if ((itemAt this.registry.typ i) == typeId) { c = (c + 1) }
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; release a sprite: ends its ownership; releases its retained atlas ref.
+    fn releaseSprite:RgResolve (owned:OwnedHandle) {
+        if (owned.released) { return (RgResolve.fail((RgErr.doubleRelease()))) }
+        def sp:RgSprite2D (this.spriteResolve(owned.handle))
+        def atlasH:RgHandle sp.atlasH
+        def r:RgResolve (this.registry.releaseOnce(owned.handle))
+        if (r.ok) {
+            owned.released = true
+            if (r.freed) {
+                push this.spriteFree r.payloadIndex
+                ; drop the sprite's retained atlas reference
+                this.registry.releaseOnce(atlasH)
+            }
+        }
+        return r
+    }
+
+    fn teardownRealm:int (realmId:int) { return (this.registry.teardownRealm(realmId)) }
+}

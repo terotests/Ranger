@@ -1,0 +1,56 @@
+; ==============================================================================
+; adapter_overlay_test — interp/adapter overlay gate (D-PROP).
+; ==============================================================================
+; The two-store property model:
+;   - unknown read  → undefined (no host call)
+;   - unknown write → guest-side dynamic overlay (host never sees it)
+;   - the overlay is per-object; a native getter (`geometry`) still works
+; ==============================================================================
+
+Import "../RgAdapter.rgr"
+Import "../../values/RgValue.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class AdapterOverlayTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("interp/adapter/overlay"))
+        def a:RgAdapter (new RgAdapter)
+
+        def geo:RgValue (a.constructGeometry(4))
+        def mat:RgValue (a.constructMaterial())
+        def mesh:RgValue (a.constructMesh(geo mat))
+
+        ; ---- unknown read → undefined --------------------------------------
+        def miss:RgValue (a.getProperty(mesh "nonexistent"))
+        t.ok("unknown property read is undefined" (miss.isUndefined()))
+        t.no("unknown property read is not null" (miss.isNull()))
+        t.no("no expando stored for a mere read" (a.hasExpando(mesh "nonexistent")))
+
+        ; ---- unknown write → guest overlay ---------------------------------
+        a.setProperty(mesh "customValue" (RgValue.number(123.0)))
+        t.ok("expando stored after write" (a.hasExpando(mesh "customValue")))
+        def cv:RgValue (a.getProperty(mesh "customValue"))
+        t.near("expando reads back the stored value" cv.num 123.0)
+
+        ; ---- host never sees the expando -----------------------------------
+        ; a second mesh built from the SAME host arenas has no such overlay
+        def geo2:RgValue (a.constructGeometry(4))
+        def mat2:RgValue (a.constructMaterial())
+        def mesh2:RgValue (a.constructMesh(geo2 mat2))
+        t.no("expando is per-object (not on the host)" (a.hasExpando(mesh2 "customValue")))
+        def miss2:RgValue (a.getProperty(mesh2 "customValue"))
+        t.ok("other mesh sees undefined for the expando" (miss2.isUndefined()))
+
+        ; ---- native getter still works alongside the overlay ---------------
+        def g:RgValue (a.getProperty(mesh "geometry"))
+        t.ok("native geometry getter returns the cached geo wrapper"
+            (RgValue.tripleEquals(g geo)))
+
+        ; ---- userData-style overlay is guest-side by definition ------------
+        a.setProperty(mesh "userData" (RgValue.str_("guest-only")))
+        def ud:RgValue (a.getProperty(mesh "userData"))
+        t.eqStr("userData lives in the overlay" ud.str "guest-only")
+
+        t.summary()
+    }
+}

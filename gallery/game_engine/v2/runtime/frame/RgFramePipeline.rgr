@@ -1,0 +1,150 @@
+; ==============================================================================
+; RgFramePipeline — host-owned frame pipeline (D-MODULES frame pipeline).
+; ==============================================================================
+; The host owns the tick; physics stepping and rendering are guest-called inside
+; `update`. The one model, in order:
+;
+;   1. host:  snapshot input (stable for the whole update)
+;   2. host:  drain async completions (D-ASYNC — loads resolve HERE, at the
+;             frame boundary, never mid-update)
+;   3. host:  deliver resize / pane layout (never mid-update)
+;   4. host:  game.update(frame)
+;   5. guest:   zero or more world.fixedStep calls
+;   6. guest:   zero or more renderer.render(scene, camera[, pane])
+;   7. host:  present — zero render calls re-presents the previous frame (never
+;             renders implicitly, D-SYNC)
+;   8. host:  advance input edges (wasPressed / wasReleased clear)
+;
+; Rules: no update before async init() resolves; an update error stops the realm
+; (shutdown + D-OWN teardown backstop) — the host does not retry.
+; ==============================================================================
+
+Import "../../modules/ranger_core/RgRuntime.rgr"
+Import "../../bridge/wasm/async/RgAsync.rgr"
+
+; The per-frame context handed to the guest. The guest issues its fixedStep /
+; render calls against it; the host reads the counts back for steps 7–8.
+class RgFrame {
+    def index:int 0
+    def inputSnapshot:int 0   ; stable for the whole update call
+    def fixedStepCount:int 0
+    def renderCount:int 0
+
+    fn fixedStep:void () { this.fixedStepCount = (this.fixedStepCount + 1) }
+    fn render:void () { this.renderCount = (this.renderCount + 1) }
+}
+
+; A game (trait modelled as a probe): the host calls init/update/shutdown. The
+; guest's update issues fixedStep/render calls and returns ok/error.
+class RgGameProbe {
+    def initialized:boolean false
+    def updateCalls:int 0
+    def shutdownCalled:boolean false
+    def failOnUpdate:boolean false
+    def rendersPerUpdate:int 1
+    def stepsPerUpdate:int 0
+    def lastInputSeen:int 0
+
+    fn init:void () { this.initialized = true }
+
+    fn update:boolean (frame:RgFrame) {
+        this.updateCalls = (this.updateCalls + 1)
+        this.lastInputSeen = frame.inputSnapshot
+        def k 0
+        while (k < this.stepsPerUpdate) {
+            frame.fixedStep()
+            k = (k + 1)
+        }
+        def r 0
+        while (r < this.rendersPerUpdate) {
+            frame.render()
+            r = (r + 1)
+        }
+        if (this.failOnUpdate) { return false }
+        return true
+    }
+
+    fn shutdown:void () { this.shutdownCalled = true }
+}
+
+class RgFramePipeline {
+    def runtime:RgRuntime (new RgRuntime)
+    def game:RgGameProbe (new RgGameProbe)
+    def started:boolean false
+    def stopped:boolean false
+    def realmTornDown:boolean false
+    def presentCount:int 0        ; new frames presented
+    def rePresentCount:int 0      ; frames where the previous output was re-presented
+    def drainedThisFrame:int 0
+    def inputEdgeAdvances:int 0
+    def trackedReqs:[int]
+    def inputCursor:int 0         ; stand-in for a changing input snapshot
+
+    sfn create:RgFramePipeline (runtime:RgRuntime game:RgGameProbe) {
+        def p:RgFramePipeline (new RgFramePipeline)
+        p.runtime = runtime
+        p.game = game
+        return p
+    }
+
+    fn trackAsset:void (reqId:int) { push this.trackedReqs reqId }
+
+    ; async init() resolved → updates may run (never before this).
+    fn init:void () {
+        this.game.init()
+        this.started = true
+    }
+
+    fn frame:void (dt:double) {
+        if (this.stopped) { return }
+
+        ; 1. snapshot input (stable for the whole update)
+        this.inputCursor = (this.inputCursor + 1)
+        def snapshot:int this.inputCursor
+
+        ; 2. drain async completions (D-ASYNC resolves at the frame boundary)
+        this.drainedThisFrame = 0
+        def nr:int (array_length this.trackedReqs)
+        def i 0
+        while (i < nr) {
+            def req:int (itemAt this.trackedReqs i)
+            def st:int (this.runtime.assets.poll(req))
+            if (st == (RgAsyncStatus.complete())) {
+                if (this.runtime.assets.async.transferred) {
+                    this.drainedThisFrame = (this.drainedThisFrame + 1)
+                }
+            }
+            i = (i + 1)
+        }
+
+        ; 3. deliver resize / pane layout (headless: nothing)
+
+        ; 4. no update before init resolved
+        if (this.started == false) { return }
+        this.runtime.time.advance(dt)
+        def frame:RgFrame (new RgFrame)
+        frame.index = this.runtime.time.frame
+        frame.inputSnapshot = snapshot
+
+        def ok:boolean (this.game.update(frame))
+
+        ; update error → shutdown + realm teardown; no retry
+        if (ok == false) {
+            this.game.shutdown()
+            this.runtime.teardown()
+            this.realmTornDown = true
+            this.stopped = true
+            return
+        }
+
+        ; 7. present — zero render calls re-presents; never renders implicitly
+        if (frame.renderCount > 0) {
+            this.presentCount = (this.presentCount + 1)
+        } {
+            this.rePresentCount = (this.rePresentCount + 1)
+        }
+
+        ; 8. advance input edges (wasPressed / wasReleased clear)
+        this.inputEdgeAdvances = (this.inputEdgeAdvances + 1)
+    }
+}

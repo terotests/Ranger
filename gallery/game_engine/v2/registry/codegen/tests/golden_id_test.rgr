@@ -1,0 +1,86 @@
+; ==============================================================================
+; golden_id_test — registry golden id-table gate (D-REGISTRY ID immutability).
+; ==============================================================================
+; The golden table freezes published ids. Asserts the check PASSES for an
+; unchanged schema and FAILS for each way an id's meaning can drift:
+;   meaning-change  — same id, different command name
+;   renumber        — same name, different id
+;   tombstone-reuse — a retired id revived as a live command
+;   lowering-change — same id + name, different binary export (needs new id)
+; while adding a brand-new command with a fresh id is allowed.
+; ==============================================================================
+
+Import "../RgCodegen.rgr"
+Import "../../schema/RgSchema.rgr"
+Import "../../fixtures/three_schema_fixture.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class GoldenIdTest {
+    sfn freshCommands:[RgCommand] () {
+        def s:RgSchema (ThreeSchemaFixture.buildSchema())
+        return (RgCodegen.commands(s))
+    }
+
+    sfn hasViolation:boolean (report:RgIdReport exact:string) {
+        def n:int (array_length report.violations)
+        def i 0
+        while (i < n) {
+            def v:string (itemAt report.violations i)
+            if (v == exact) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("registry/codegen/golden_id"))
+        def golden:[RgCommand] (ThreeSchemaFixture.buildGolden())
+
+        ; ---- unchanged schema passes ---------------------------------------
+        def clean:[RgCommand] (GoldenIdTest.freshCommands())
+        def r0:RgIdReport (RgCodegen.checkGolden(golden clean))
+        t.ok("unchanged schema passes golden check" r0.ok)
+        t.eqInt("no violations on clean schema" (array_length r0.violations) 0)
+
+        ; ---- meaning-change: same id 120, different name --------------------
+        def m1:[RgCommand] (GoldenIdTest.freshCommands())
+        def c120:RgCommand (RgCodegen.findById(m1 120))
+        c120.name = "meshCreateV2"
+        def r1:RgIdReport (RgCodegen.checkGolden(golden m1))
+        t.no("meaning change fails" r1.ok)
+        t.ok("reports meaning-change" (GoldenIdTest.hasViolation(r1 "meaning-change:120")))
+
+        ; ---- renumber: same name meshRelease, different id ------------------
+        def m2:[RgCommand] (GoldenIdTest.freshCommands())
+        def c121:RgCommand (RgCodegen.findById(m2 121))
+        c121.id = 500
+        def r2:RgIdReport (RgCodegen.checkGolden(golden m2))
+        t.no("renumber fails" r2.ok)
+        t.ok("reports renumber" (GoldenIdTest.hasViolation(r2 "renumber:meshRelease")))
+
+        ; ---- tombstone-reuse: revive retired id 199 as a live command -------
+        def m3:[RgCommand] (GoldenIdTest.freshCommands())
+        push m3 (RgCommand.of(199 "meshResurrect" "rg_mesh_resurrect"))
+        def r3:RgIdReport (RgCodegen.checkGolden(golden m3))
+        t.no("tombstone reuse fails" r3.ok)
+        t.ok("reports tombstone-reuse" (GoldenIdTest.hasViolation(r3 "tombstone-reuse:199")))
+
+        ; ---- lowering-change: same id+name, different wasm export -----------
+        def m4:[RgCommand] (GoldenIdTest.freshCommands())
+        def c122:RgCommand (RgCodegen.findById(m4 122))
+        c122.wasmExport = "rg_mesh_set_geometry_v2"
+        def r4:RgIdReport (RgCodegen.checkGolden(golden m4))
+        t.no("lowering change fails" r4.ok)
+        t.ok("reports lowering-change" (GoldenIdTest.hasViolation(r4 "lowering-change:122")))
+
+        ; ---- adding a NEW command with a fresh id is allowed ----------------
+        def m5:[RgCommand] (GoldenIdTest.freshCommands())
+        push m5 (RgCommand.of(130 "meshClone" "rg_mesh_clone"))
+        def r5:RgIdReport (RgCodegen.checkGolden(golden m5))
+        t.ok("adding a new command passes" r5.ok)
+
+        t.summary()
+    }
+}

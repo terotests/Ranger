@@ -1,0 +1,32 @@
+; ==============================================================================
+; OwnedHandle — a single owned reference to a host handle (D-OWN).
+; ==============================================================================
+; `new` / `create*` / `load*` hand the caller an OwnedHandle (refcount starts at
+; 1). Ownership ends exactly once: release() through this wrapper flips
+; `released` and a *second* release through the same wrapper is a typed error
+; (DOUBLE_RELEASE), not a second refcount decrement.
+;
+; On the interpreted path at most one live wrapper exists per (realm, handle)
+; (D-IDENTITY), so "two wrappers releasing the same handle" cannot arise. On the
+; compiled path each clone is its own OwnedHandle with its own `released` flag —
+; N clones = N owned references = N releases. This type models one such owned
+; reference.
+; ==============================================================================
+
+Import "../handles/RgHandle.rgr"
+
+class OwnedHandle {
+    def handle:RgHandle (new RgHandle)
+    def released:boolean false
+
+    sfn own:OwnedHandle (h:RgHandle) {
+        def o:OwnedHandle (new OwnedHandle)
+        o.handle = h
+        o.released = false
+        return o
+    }
+
+    fn isReleased:boolean () {
+        return this.released
+    }
+}
