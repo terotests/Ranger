@@ -21,6 +21,7 @@ interpreter + host arenas + WASM bridge first; rendering last.
 | [`runtime/`](./runtime/) | Host-driven `Game` loop | Phase 8–10 |
 | [`physics/`](./physics/) | Headless step + pose sync | Phase 9 |
 | [`render/`](./render/) | Backends only — **do not start early** | Phase 11 |
+| [`games/`](./games/) | Selected titles re-implemented on v2 API (v1 kept) | Phase 12 |
 | [`tests/`](./tests/) | Cross-cutting unit + D-* contract gates | Phase 1+ |
 
 Each subdirectory has its own `README.md` listing what to implement and which
@@ -32,6 +33,8 @@ unit tests gate that folder.
 - Do not import the reconciler or `three/tsx` wrapper tree here
 - Phase 5 headline: `bridge/wasm/tests/create_free` — create/free over `rg_*`
   before any renderer exists
+- Rebuild **including games** under `games/` — select, copy-or-rewrite; **do not
+  delete** top-level `../games/`
 
 ## Unit / contract tests that gate this folder
 
@@ -40,9 +43,10 @@ unit tests gate that folder.
 
 ## Notes
 
-- Plan: [`../CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md)
+- Plan: [`../CODE_CLEANUP_PLAN.md`](../CODE_CLEANUP_PLAN.md) (see **Rebuild
+  everything in v2/** at the top)
 - Contract: [`../CODE_CLEANUP.md`](../CODE_CLEANUP.md)
-- v1 demos remain under `three/`, `scripting/`, `games/` until Phase 12
+- v1 `three/`, `scripting/`, `games/` stay as reference; ports land only in v2
 
 ---
 
