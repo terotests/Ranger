@@ -28,6 +28,7 @@ Import "../game_host/RgGameHost.rgr"
 Import "../game_host/Rg2DPresenter.rgr"
 Import "../../menu/RgLauncherUi.rgr"
 Import "../../audio/game_soundscore.rgr"
+Import "../../audio/game_vocal_fx.rgr"
 Import "./gfx_sdl.rgr"
 
 ; The SDL audio sink: the score synth calls onSynthPlay with a PCM buffer as each
@@ -56,12 +57,19 @@ class RgSdlGameHost {
     ; last observed haptic counts, to forward only NEW rumble commands to SDL
     def lastRumble0:int 0
     def lastRumble1:int 0
-    ; host-side music + SFX playback: the guest's runtime.audio.music.play(score)
-    ; and runtime.audio.vocal.play(id) are recorded on the bridge; the host owns
-    ; the synth + schedule clock and pushes PCM to SDL. (Nothing here is game
-    ; logic; the guest only ever said "play".)
+    ; host-side music + SFX + voice playback (v1 parity):
+    ;   runtime.audio.music.play(score)  → SoundScorePlayer → GameAudio synth
+    ;   runtime.audio.vocal.play(id)     → GameAudio palette (bounce/brick/…)
+    ;                                    OR GameVocalFx (cheer/chuckle/gasp/…)
+    ; Both are recorded on the bridge; the host owns the synth clock and pushes
+    ; PCM to SDL. (Nothing here is game logic; the guest only ever said "play".)
     def musicAudio:GameAudio (new GameAudio)
     def music:SoundScorePlayer (new SoundScorePlayer)
+    def vocalFx:GameVocalFx (new GameVocalFx)
+    def audioSink:RgSdlAudioSink (new RgSdlAudioSink)
+    ; synth tables / sink wired (independent of whether the device opened)
+    def audioInited:boolean false
+    ; native device currently open (false under es6 stubs; false after gfx_close)
     def audioReady:boolean false
     def lastScore:string ""
     ; Index into bridge.vocalCues already synthesised (same rising-edge pattern
@@ -119,33 +127,54 @@ class RgSdlGameHost {
         gfx_present_split (fbL.toRgbaBuffer()) (fbR.toRgbaBuffer()) this.paneW this.paneH
     }
 
-    ; Bring up the host synth once: build its frequency tables, open the SDL audio
-    ; device, and route synthesised PCM to it. Idempotent; native device is a
-    ; no-op under es6. After open, adopt the device's negotiated sample rate
-    ; (CoreAudio often hands back 48 kHz).
+    ; Mark the native device closed. gfx_close / SDL_Quit tear the device down;
+    ; the next initAudio must reopen it (do NOT leave audioReady stuck true).
+    fn resetAudioDevice:void () {
+        this.audioReady = false
+        this.lastVocal = 0
+        this.lastScore = ""
+    }
+
+    ; Bring up the host synth (once) and (re)open the SDL audio device.
+    ; Mirrors v1 game_sdl_runner: open after the window, adopt the negotiated
+    ; sample rate, and retune GameVocalFx to match. Safe to call every run() —
+    ; gfx_close clears the device, so relaunch must reopen.
     fn initAudio:void () {
-        if (this.audioReady) { return }
-        this.musicAudio.init()
-        def sink:RgSdlAudioSink (new RgSdlAudioSink)
-        this.musicAudio.sink = sink
-        this.music.audio = this.musicAudio
-        def _o:int (gfx_audio_open 44100)
+        if (this.audioInited == false) {
+            this.musicAudio.init()
+            this.vocalFx.init()
+            this.musicAudio.sink = this.audioSink
+            this.music.audio = this.musicAudio
+            this.audioInited = true
+        }
+        def opened:int (gfx_audio_open 44100)
         def rate:int (gfx_audio_sample_rate)
         if (rate > 0) {
             this.musicAudio.sampleRate = rate
+            this.vocalFx.synth.sampleRate = rate
         }
-        this.audioReady = true
+        if (opened != 0) {
+            this.audioReady = true
+        } {
+            this.audioReady = false
+        }
     }
 
-    ; Drain newly-recorded vocal cues (runtime.audio.vocal.play) into the synth.
-    ; Returns how many cues were synthesised this call (testable headlessly).
+    ; Drain newly-recorded vocal cues (runtime.audio.vocal.play).
+    ; Voice catalogue ids (cheer/chuckle/gasp/…) → GameVocalFx (v1 path);
+    ; palette SFX (bounce/brick/wall/…) → GameAudio.play. Returns how many
+    ; cues were synthesised this call (testable headlessly).
     fn pumpVocals:int () {
         def b:RgRegistryBridge this.host.bridge
         def n:int (array_length b.vocalCues)
         def started:int 0
         while (this.lastVocal < n) {
             def id:string (itemAt b.vocalCues this.lastVocal)
-            this.musicAudio.play(id)
+            if (this.vocalFx.has(id)) {
+                this.vocalFx.play(id this.audioSink)
+            } {
+                this.musicAudio.play(id)
+            }
             this.lastVocal = (this.lastVocal + 1)
             started = (started + 1)
         }
@@ -221,9 +250,11 @@ class RgSdlGameHost {
                 def d:string (ui.selectedDir())
                 def f:string (ui.selectedFile())
                 gfx_close
+                this.resetAudioDevice()
                 def _g:int (this.run(d f))
                 ; back from the game: reopen the launcher and resume on categories
                 gfx_clear_should_close
+                this.resetAudioDevice()
                 if ((gfx_open "Ranger" lw lh) == 0) { return 1 }
                 ui.back()
                 prev = 0
@@ -235,6 +266,7 @@ class RgSdlGameHost {
             }
         }
         gfx_close
+        this.resetAudioDevice()
         return 1
     }
 
@@ -276,6 +308,7 @@ class RgSdlGameHost {
             if (gfx_should_close) { go = false }
         }
         gfx_close
+        this.resetAudioDevice()
         return 1
     }
 }

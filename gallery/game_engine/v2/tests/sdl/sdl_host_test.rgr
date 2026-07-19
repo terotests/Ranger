@@ -104,9 +104,9 @@ class SdlHostTest {
         def _p:int (snd.pumpAudio(33))
         t.ok("host music stops when the guest stops" ((snd.music.isPlaying()) == false))
 
-        ; ---- host vocal/SFX pump: vocal.play(id) → GameAudio.play ------------
+        ; ---- host vocal/SFX pump (v1 parity: palette + GameVocalFx) ----------
         ; The bridge accumulates cue strings (rgcore_vocal); the host drains
-        ; them into the shared synth (palette ids: bounce/brick/wall/…).
+        ; palette ids through GameAudio and voice ids through GameVocalFx.
         def sfx:RgSdlGameHost (new RgSdlGameHost)
         sfx.initAudio()
         t.eqInt("no vocals before any cue" (sfx.pumpVocals()) 0)
@@ -114,15 +114,29 @@ class SdlHostTest {
         push sfx.host.bridge.vocalCues "brick"
         push sfx.host.bridge.vocalCues "cheer"
         t.eqInt("three vocal cues synthesised" (sfx.pumpVocals()) 3)
-        t.eqStr("last synthesised id retained" sfx.musicAudio.lastId "cheer")
-        t.eqInt("playCount advanced for each cue" sfx.musicAudio.playCount 3)
+        ; bounce/brick hit GameAudio; cheer is a GameVocalFx catalogue id
+        t.eqStr("last palette id is brick" sfx.musicAudio.lastId "brick")
+        t.eqInt("two palette SFX synthesised" sfx.musicAudio.playCount 2)
+        t.eqStr("cheer went through GameVocalFx" sfx.vocalFx.lastId "cheer")
+        t.eqInt("one voice effect synthesised" sfx.vocalFx.playCount 1)
         ; a second pump must not re-fire already-drained cues
         t.eqInt("drained cues are not replayed" (sfx.pumpVocals()) 0)
         ; a new cue after drain is still picked up (rising-edge index)
         push sfx.host.bridge.vocalCues "wall"
         def _n:int (sfx.pumpAudio(33))
-        t.eqInt("pumpAudio drains a new vocal too" sfx.musicAudio.playCount 4)
-        t.eqStr("newest vocal id is wall" sfx.musicAudio.lastId "wall")
+        t.eqInt("pumpAudio drains a new palette vocal too" sfx.musicAudio.playCount 3)
+        t.eqStr("newest palette id is wall" sfx.musicAudio.lastId "wall")
+        ; chuckle (voice) vs bounce (palette) in one pump
+        push sfx.host.bridge.vocalCues "chuckle"
+        push sfx.host.bridge.vocalCues "bounce"
+        t.eqInt("mixed voice+sfx pump" (sfx.pumpVocals()) 2)
+        t.eqStr("chuckle via GameVocalFx" sfx.vocalFx.lastId "chuckle")
+        t.eqInt("voice playCount is 2" sfx.vocalFx.playCount 2)
+        t.eqInt("palette playCount is 4" sfx.musicAudio.playCount 4)
+        ; relaunch must reopen the device flag (gfx_close clears it)
+        sfx.audioReady = true
+        sfx.resetAudioDevice()
+        t.no("resetAudioDevice clears audioReady" sfx.audioReady)
 
         t.summary()
     }
