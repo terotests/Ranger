@@ -1,0 +1,187 @@
+; ==============================================================================
+; ylos2_textured_test — REAL LPC PNG atlas sheets decode + sample (D-SYNC).
+; ==============================================================================
+; The v1-parity guard the other gated suites miss: textured_render_test proves
+; the SAMPLING backend renders a picture, but it uses the climber sample with a
+; synthetic hand-authored `.rgtx` raster. Nothing else asserts that ylos2's REAL
+; committed LPC spritesheets (assets/p1_walk.png, ~590KB RGBA) actually decode
+; through the PNGDecoder into the texture store and sample as real texels. The
+; e2e marker renderer plots one pixel per sprite regardless of pixel data, so a
+; silent loadPngInto() failure (packageDir unset, decode error) would leave
+; hasPixels=false with NO gated test catching it. This suite closes that gap.
+;
+; Boots games/ylos2 on the generic host (which sets bridge.packageDir = the game
+; dir, the value loadPngInto needs — it early-returns false on ""), runs a few
+; frames, then asserts against the player's real atlas texture:
+;   1. hasPixels == true          — the PNG actually decoded (THE regression guard)
+;   2. 576x256 + store == w*h      — real LPC dims, not a 1x1 decode-failure buffer
+;   3. opaque + transparent texels — real character pixels AND LPC alpha padding,
+;      and a real opaque texel colour renders into the framebuffer (not a marker)
+;   4. two sheet cells sample DIFFERENT texels — sheet-grid source-rect math works
+;   5. host.bridge.errorCount == 0 throughout
+; Assertions are STRUCTURAL/tolerant (dims, alpha classes, cell difference) so
+; committed-pixel drift in the LPC art does not break the gate.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+Import "../harness/RgTest.rgr"
+
+class Ylos2TexturedTest {
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/render/ylos2_textured (real LPC PNG texels)"))
+        def host:RgGameHost (new RgGameHost)
+        ; The generic host's load() sets bridge.packageDir = this dir, which is
+        ; exactly the value loadPngInto needs to read assets/*.png (it returns
+        ; false on packageDir=="") — the same boot the ylos2 shot tool uses.
+        t.ok("ylos2 loaded on the generic host (real LPC .atlas sheets)"
+            (host.load("gallery/game_engine/v2/games/ylos2" "index.tsx")))
+
+        def f 0
+        while (f < 4) {
+            host.frame(33.333)
+            f = (f + 1)
+        }
+
+        ; ---- locate player 0's sprite + its atlas texture ---------------------
+        ; player 0 is the only sprite with paneOwner==0 (world objects + enemies
+        ; are -1; player 1 is 1). Its atlas is p1.atlas (the real p1_walk.png).
+        def hs:[RgHandle] (host.bridge.d2.liveSpriteHandles())
+        def psh:RgHandle (new RgHandle)
+        def texH:RgHandle (new RgHandle)
+        def found:boolean false
+        def i 0
+        while (i < (array_length hs)) {
+            def sh:RgHandle (itemAt hs i)
+            if (found == false) {
+                if ((host.bridge.d2.spritePaneOwner(sh)) == 0) {
+                    psh = sh
+                    def atlasH:RgHandle (host.bridge.d2.spriteAtlasHandle(sh))
+                    def at:RgSpriteAtlas (host.bridge.d2.atlasResolve(atlasH))
+                    texH = at.textureH
+                    found = true
+                }
+            }
+            i = (i + 1)
+        }
+        t.ok("found player 0's LPC sprite + its atlas texture" found)
+
+        ; ---- 1. decode happened (THE missing regression guard) ---------------
+        ; If loadPngInto silently returned false, hasPixels stays false and no
+        ; other gated suite notices. This is the assertion that catches it.
+        t.ok("player LPC atlas decoded to real texels (hasPixels)"
+            (host.bridge.d2.textureHasPixels(texH)))
+
+        ; ---- 2. real dimensions + non-trivial store --------------------------
+        def tx:RgTexture2D (host.bridge.d2.textureResolve(texH))
+        t.eqInt("player atlas is the real 576-wide LPC sheet" tx.width 576)
+        t.eqInt("player atlas is the real 256-tall LPC sheet" tx.height 256)
+        ; store length == w*h proves a real decode (a decode failure leaves the
+        ; store empty / mismatched, never the full 576*256 texel buffer).
+        t.eqInt("rgb store length == w*h (not a 1x1 decode-failure buffer)"
+            (array_length tx.rgb) (576 * 256))
+        t.eqInt("alpha store length == w*h" (array_length tx.alpha) (576 * 256))
+
+        ; ---- 3. real LPC texels: opaque character + transparent padding ------
+        ; The player's current walk cell (its live sheet source rect). LPC frames
+        ; have a character body (fully-opaque texels) surrounded by transparent
+        ; padding — assert BOTH exist (structural, not an exact-RGB match), and
+        ; collect the opaque colours to prove they render through the backend.
+        def reg:RgSpriteRegion (host.bridge.d2.spriteSrcRegion(psh))
+        def opaqueColors:[int]
+        def sawTransparent:boolean false
+        def yy 0
+        while (yy < reg.h) {
+            def xx 0
+            while (xx < reg.w) {
+                def a:int (host.bridge.d2.texelA(texH (reg.x + xx) (reg.y + yy)))
+                if (a == 0) { sawTransparent = true }
+                if (a >= 255) {
+                    if ((array_length opaqueColors) < 48) {
+                        push opaqueColors (host.bridge.d2.texelRGB(texH (reg.x + xx) (reg.y + yy)))
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+        t.ok("player walk cell has fully-opaque character texels"
+            ((array_length opaqueColors) > 0))
+        t.ok("player walk cell has transparent padding texels (real LPC alpha)"
+            sawTransparent)
+
+        ; Present pane 0 through the sampling backend and confirm a real opaque
+        ; LPC texel colour landed in the framebuffer — proving the decoded PNG
+        ; texels sample through RgTexturedRenderer2D, not a marker plot. Fully-
+        ; opaque texels bypass the src-over blend (fb.plot of the exact colour),
+        ; so an exact colour match is robust without fragile screen coords.
+        def sky:int 5215951
+        def fb0:RgFramebuffer (RgFramebuffer.create(480 270))
+        def drawn:int (Rg2DPresenter.presentTextured(host.bridge 0 fb0 sky))
+        t.ok("pane 0 presented sprites through the sampling backend" (drawn > 0))
+
+        def rendered:boolean false
+        def yb 0
+        while (yb < 270) {
+            if (rendered == false) {
+                def xb 0
+                while (xb < 480) {
+                    if (rendered == false) {
+                        def p:int (fb0.at(xb yb))
+                        def ci 0
+                        while (ci < (array_length opaqueColors)) {
+                            if (p == (itemAt opaqueColors ci)) { rendered = true }
+                            ci = (ci + 1)
+                        }
+                    }
+                    xb = (xb + 1)
+                }
+            }
+            yb = (yb + 1)
+        }
+        t.ok("real LPC opaque texels rendered into the framebuffer (not a marker)"
+            rendered)
+
+        ; ---- 4. sheet-cell selection samples DIFFERENT texels ----------------
+        ; Two distinct grid cells (col0,row0) vs (col4,row2) must carry different
+        ; texel content — proving col*frameW / row*frameH source-rect math, not a
+        ; single static frame. Compare rgb+alpha across the 64x64 cells for any
+        ; difference (tolerant: one differing texel is enough).
+        def differ:boolean false
+        def yc 0
+        while (yc < 64) {
+            if (differ == false) {
+                def xc 0
+                while (xc < 64) {
+                    def aA:int (host.bridge.d2.texelA(texH (0 + xc) (0 + yc)))
+                    def aB:int (host.bridge.d2.texelA(texH (256 + xc) (128 + yc)))
+                    def cA:int (host.bridge.d2.texelRGB(texH (0 + xc) (0 + yc)))
+                    def cB:int (host.bridge.d2.texelRGB(texH (256 + xc) (128 + yc)))
+                    if (aA != aB) { differ = true }
+                    if (cA != cB) { differ = true }
+                    xc = (xc + 1)
+                }
+            }
+            yc = (yc + 1)
+        }
+        t.ok("two sheet cells sample DIFFERENT texels (grid source-rect math)"
+            differ)
+
+        ; And the source-rect math itself, through the real code path: setCell
+        ; maps (col,row) -> (col*frameW, row*frameH).
+        host.bridge.d2.spriteSetCell(psh 0 0)
+        def rA:RgSpriteRegion (host.bridge.d2.spriteSrcRegion(psh))
+        host.bridge.d2.spriteSetCell(psh 4 2)
+        def rB:RgSpriteRegion (host.bridge.d2.spriteSrcRegion(psh))
+        t.eqInt("cell(0,0) source-rect x = 0" rA.x 0)
+        t.eqInt("cell(0,0) source-rect y = 0" rA.y 0)
+        t.eqInt("cell(4,2) source-rect x = 4*64" rB.x 256)
+        t.eqInt("cell(4,2) source-rect y = 2*64" rB.y 128)
+
+        ; ---- 5. no bridge errors across load + present -----------------------
+        t.eqInt("no bridge errors across load + decode + present"
+            host.bridge.errorCount 0)
+        t.summary()
+    }
+}

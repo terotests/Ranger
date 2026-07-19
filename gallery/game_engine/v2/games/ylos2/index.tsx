@@ -17,9 +17,10 @@
 // frame in WORLD coordinates through the renderer's immediate fillRect /
 // fillCircle (the v2 equivalent of bgFillRect / bgFillCircle), rasterised by
 // the backend through each pane's camera UNDER the players. Only the players
-// are retained sprites (v1's "sheet" characters). Art here is ORIGINAL
-// placeholder pixels (scene.rgtx), not the v1 LPC sheets.
-// Out of scope for this port: enemies, bullets, fruits, super mode, LPC art.
+// are retained sprites (v1's "sheet" characters). Art here is the REAL v1
+// LPC PNG walk sheets (p1/p2/enemy_walk.png, decoded via each .atlas `image`
+// line and sampled as 64x64 sheet cells) — not placeholder pixels.
+// Out of scope for this port: bullets, fruits, super mode.
 // ============================================================================
 
 import { runtime } from "ranger:core";
