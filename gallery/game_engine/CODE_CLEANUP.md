@@ -537,6 +537,87 @@ Two rules shape everything below:
   carrying N vertices, never one call per component. Per-vertex chatter over the
   WASM boundary is the failure mode the design must not permit.
 
+## Path diagram — TSX (interpreted)
+
+The interpreted path runs in one process; the "boundary" is the native adapter,
+which maps script objects to registry commands. Identity, not memory layout, is
+what crosses it.
+
+```
+TSX guest script                interpreter (bridge)            host core
+────────────────                ────────────────────            ─────────
+const g = new THREE.BoxGeometry()
+        │
+        ▼
+façade name "BoxGeometry" ────► native adapter
+                                construct(args)
+                                       │  command: geometryBox(1,1,1)
+                                       ▼
+                                ThreeSceneHost ───► ThreeBoxGeometry.setSize
+                                       │                 │ pushVertex(+1,+1,+1,…)
+                                geoH = (gen|type|slot)   ▼
+                                       │           ThreeBufferGeometry
+                                       ▼           positions:[double] ◄── ONE copy
+g holds EvalValue{ NativeRef geoH, identityId }
+        │
+const m = new THREE.Mesh(g, mat)
+        │  identity(g) → the SAME geoH for every mesh sharing g
+        ▼
+meshNew(sceneH, geoH, matH) → meshH          retain(geoH)      [entity registry]
+        │
+render frame:
+  (geoH, revision) → 48-byte interleave → GPU buffer   (or software rasteriser)
+  uModel(meshH) × (1,1,1) → world position             (computed, never stored)
+
+read-back:
+  m.geometry.attributes.position.getX(0)
+        │  adapter getProperty / invokeMethod
+        ▼
+  resolveAs(geoH, GEOMETRY) → ThreeBufferGeometry.getPosition(0,0) → 1.0
+```
+
+## Path diagram — WASM (compiled)
+
+The compiled path has a hard memory boundary: only integers and byte ranges
+cross it. Every arrow through the wall is one generated import from the class
+registry; vertex payloads cross once, in bulk, in each direction.
+
+```
+Rust guest (WASM linear memory)      ║ ABI boundary ║        Ranger host
+───────────────────────────────      ║ i32 + bytes  ║        ───────────
+static VERTS: [f32; 72] = [ … ];     ║              ║
+        │                            ║              ║
+let geo = scene.geometry_raw(        ║              ║
+    &VERTS, &NORMALS, &UVS, &IDX);   ║              ║
+        │  rg_geometry_raw(ptr,len ×4)              ║
+        ├───────── one crossing ─────╫──────────────╫──► copy ranges out of
+        │                            ║              ║    guest linear memory
+        │◄──────── geoH : i32 ───────╫──────────────╫─── pushVertex → core arrays
+        │                            ║              ║    positions:[double] ◄ ONE copy
+let cube = scene.mesh(geo, mat);     ║              ║
+        │  rg_create_mesh_entity(geoH, matH)        ║
+        │◄──────── meshH : i32 ──────╫──────────────╫─── meshNew + retain(geoH)
+        │                            ║              ║
+cube.rotation(q);                    ║              ║
+        │  rg_set_rotation(meshH, qx,qy,qz,qw)      ║
+        ├────────────────────────────╫──────────────╫──► entityTransform(meshH)
+        │                            ║              ║
+        │                            ║              ║    render frame:
+        │                            ║              ║    (geoH, revision) → GPU /
+        │                            ║              ║    software backend
+let n = geo.read_positions(          ║              ║
+    0, 24, &mut buf);                ║              ║
+        │  rg_geometry_read(geoH, 0, 24, outPtr)    ║
+        ├───────── one crossing ─────╫──────────────╫──► resolveAs(geoH, GEOMETRY)
+        │◄──────── 24 vertices ──────╫──────────────╫─── bulk copy into guest buf
+```
+
+The two diagrams differ only at the boundary column: the TSX path passes
+identities and EvalValues through an in-process adapter, the WASM path passes
+integers and byte ranges through generated imports — but the command names, the
+handle format, the one copy in the core, and the read-back contract are the
+same. That symmetry is the point: one registry definition serves both columns.
+
 ## Stage 1 — construction in guest code
 
 Three.js offers several construction routes; each becomes a thin path onto the
