@@ -10,7 +10,10 @@
 
 ## To implement
 
-- component_engine_js_semantics_test suite lands here
+- [x] `component_engine_js_semantics_test` — **landed** in `tests/`; drives a
+  real `ComponentEngine` and gates script-level D-IDENTITY (reference `===`,
+  Map/Set object keys, `indexOf` by reference, missing member → `undefined`).
+  Wired into `tests/run.sh` under Phase 1 — D-IDENTITY.
 
 ## Unit / contract tests that gate this folder
 
