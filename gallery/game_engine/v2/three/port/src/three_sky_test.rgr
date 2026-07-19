@@ -1,5 +1,5 @@
 ; ==============================================================================
-; three_sky_test — ThreeSky uniform holder + Object3D scale (Sponza slice 5).
+; three_sky_test — ThreeSky uniform holder + Object3D scale.
 ; ==============================================================================
 ; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
 ; (The Preetham scattering itself is GLSL — three_gl_shaders.atmosphere*Src — and

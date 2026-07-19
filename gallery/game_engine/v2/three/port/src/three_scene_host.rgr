@@ -63,8 +63,8 @@ class ThreeSceneHost {
     fn materialAt:ThreeMaterial (h:int) { return (itemAt materials (h - 1)) }
     fn entityAt:ThreeObject3D (h:int) { return (itemAt entities (h - 1)) }
 
-    ; read-only camera pose accessors (test/debug introspection: assert an orbit
-    ; drag actually moved the bound camera). No mutation.
+    ; Read-only accessors for a camera's world position (no mutation) — a general
+    ; query any tool, controller, or test can use to observe where a camera sits.
     fn cameraPosX:double (camH:int) {
         def c:ThreePerspectiveCamera (this.cameraAt(camH))
         return c.position.x

@@ -1,6 +1,6 @@
 ; ==============================================================================
 ; three_light_probe_grid — a volume of SH light probes for diffuse GI (Three.js
-; addons lighting/LightProbeGrid). Sponza slice 7.
+; addons lighting/LightProbeGrid).
 ; ==============================================================================
 ; A regular 3D grid of probes covering a box of size (sizeX,sizeY,sizeZ) with
 ; count (cx,cy,cz) probes per axis, each an order-2 SphericalHarmonics3. The real

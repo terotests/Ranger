@@ -1,6 +1,6 @@
 ; ==============================================================================
 ; three_gltf_loader — glTF binary accessor decoder (Three.js addons GLTFLoader).
-; Sponza slice 6.
+; (three.js glTF loader port).
 ; ==============================================================================
 ; The portable, unit-tested heart of the loader: turning glTF accessors + a binary
 ; buffer into ThreeBufferGeometry (positions/normals/uvs/indices). This is the
@@ -9,9 +9,9 @@
 ;
 ; The layers above it — parsing the JSON structure (buffers/bufferViews/accessors/
 ; meshes/nodes/materials, via lib/JSON on the browser path), splitting a .glb into
-; its JSON + BIN chunks, base64 data-URIs, and the network fetch of Sponza — are
+; its JSON + BIN chunks, base64 data-URIs, and the network fetch of a large model — are
 ; the loader's host wiring, layered on this decoder and added at GPU integration
-; (the Sponza .glb download + upload is a browser/native step, not headless).
+; (a large .glb download + upload is a browser/native step, not headless).
 ;
 ; glTF component types: 5121 = UNSIGNED_BYTE, 5123 = UNSIGNED_SHORT,
 ; 5125 = UNSIGNED_INT, 5126 = FLOAT. Element types: SCALAR=1, VEC2=2, VEC3=3.

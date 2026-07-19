@@ -2,7 +2,7 @@
 ; three_box3 — axis-aligned bounding box (Three.js port of src/math/Box3.js).
 ; ==============================================================================
 ;
-; The Sponza example uses Box3 to measure the loaded model: _box.setFromObject(model)
+; A scene uses Box3 to measure a loaded model: _box.setFromObject(model)
 ; then getSize()/getCenter() drive the light distance, shadow-camera extent and
 ; probe-volume far plane. This file is the PURE-MATH core (min/max, expandByPoint,
 ; setFromPoints, union, getSize, getCenter, getBoundingSphere) — it imports only
@@ -11,7 +11,7 @@
 ; setFromObject (bounds of a whole scene node) lives on the object side to avoid a
 ; Box3<->Object3D import cycle: ThreeObject3D.expandBox3(box) recurses the tree and
 ; ThreeMesh contributes its transformed vertices. Object3D.boundingBox() returns a
-; Box3 built that way (the setFromObject equivalent). See IDEAL_SPONZA.md slice 1.
+; Box3 built that way (the setFromObject equivalent).
 ; ==============================================================================
 
 Import "three_vector3.rgr"

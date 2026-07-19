@@ -2,11 +2,11 @@
 ; three_timer — frame clock (Three.js port of src/misc/Timer.js).
 ; ==============================================================================
 ;
-; The Sponza example drives its animation loop with a THREE.Timer: each frame it
+; A scene drives its animation loop with a THREE.Timer: each frame it
 ; calls timer.update(timestamp) then controls.update(timer.getDelta()). Timer
 ; tracks the delta between updates (seconds) and the elapsed total, with an
 ; optional timescale. Timestamps come from the host (performance.now, ms) and are
-; converted to seconds. See IDEAL_SPONZA.md slice 1.
+; converted to seconds.
 ; ==============================================================================
 
 class ThreeTimer {

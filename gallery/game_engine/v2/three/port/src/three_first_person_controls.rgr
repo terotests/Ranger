@@ -1,6 +1,6 @@
 ; ==============================================================================
 ; three_first_person_controls — WASD + mouse-look (Three.js addons
-; FirstPersonControls). Sponza slice 2.
+; FirstPersonControls).
 ; ==============================================================================
 ; A fly/walk camera: the HOST feeds key state (setMoveState / keyDown / keyUp)
 ; and look deltas (handleLook), then calls update(delta) each frame. The

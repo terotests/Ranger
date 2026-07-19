@@ -1,6 +1,6 @@
 ; ==============================================================================
 ; three_light_probe_grid_helper — probe gizmos (Three.js addons helpers/
-; LightProbeGridHelper). Sponza slice 8.
+; LightProbeGridHelper).
 ; ==============================================================================
 ; A debugging visual: one small sphere at each probe, tinted by that probe's
 ; reconstructed irradiance, so "Show Probes" in the GUI reveals the baked GI. The

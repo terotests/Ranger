@@ -419,7 +419,7 @@ class ThreeGLTFFile {
 
     ; load a multi-file .gltf from a url: fetch the JSON, then fetch each external
     ; buffer by uri (relative to the .gltf's directory), then build. data: URIs are
-    ; not decoded yet (Sponza uses file uris); such a buffer stays empty.
+    ; not decoded yet (some models use file uris); such a buffer stays empty.
     fn loadGLTFFromURL:ThreeObject3D (url:string) {
         def root:ThreeObject3D (new ThreeObject3D)
         def jsonBytes:buffer (http_get_bytes url)

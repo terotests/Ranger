@@ -139,8 +139,9 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
-    ; read-only camera position accessors (test/debug introspection). Resolve the
-    ; camera typed; a bad handle reads 0.0 (never mutates, never a typed error).
+    ; Read-only camera world-position accessors (general query for tools /
+    ; controllers). Resolve the camera typed; a bad handle reads 0.0 (never
+    ; mutates, never a typed error).
     fn cameraPosX:double (camH:RgHandle) {
         def cam:int (this.cameraH(camH))
         if (cam == 0) { return 0.0 }

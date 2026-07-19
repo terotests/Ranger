@@ -2,9 +2,9 @@
 ; three_math_utils — scalar helpers (Three.js port of src/math/MathUtils.js).
 ; ==============================================================================
 ;
-; The subset the Sponza / light-probe example uses: THREE.MathUtils.degToRad,
+; The subset the light-probe example uses: THREE.MathUtils.degToRad,
 ; radToDeg, clamp, lerp. Static methods (sfn) so calls read like Three.js
-; (ThreeMathUtils.degToRad(45)). See IDEAL_SPONZA.md slice 1.
+; (ThreeMathUtils.degToRad(45)).
 ; ==============================================================================
 
 class ThreeMathUtils {

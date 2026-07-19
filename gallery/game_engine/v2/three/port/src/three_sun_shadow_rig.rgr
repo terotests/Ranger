@@ -9,7 +9,7 @@
 ; bounds-derived metrics; it never owns scene objects — the caller passes the
 ; reconciled sun / sky / scene, so the rig operates on the host-owned registry.
 ;
-; A scene wires this rig (or does the equivalent placement inline, as sponza.tsx
+; A scene wires this rig (or does the equivalent placement inline, as a scene guest
 ; does) + a probe-GI volume + controls; a different look is a different composition
 ; over the same generic units, not a fork.
 ; Pure Ranger (compiles to ES6 and C++).
