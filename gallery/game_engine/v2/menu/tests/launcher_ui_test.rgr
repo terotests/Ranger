@@ -65,37 +65,25 @@ class LauncherUiTest {
         def ui:RgLauncherUi (new RgLauncherUi)
         ui.init(480 270)
 
-        ; ---- categories + navigation model ---------------------------------
-        t.eqInt("two categories" (ui.categoryCount()) 2)
-        t.eqStr("Games selected first" (ui.selectedLabel()) "Games")
-        t.eqStr("route is games" (ui.selectedRoute()) "games")
-        ui.moveSelection(1)
-        t.eqStr("right selects Tests" (ui.selectedLabel()) "Tests")
-        ui.moveSelection(1)
-        t.eqStr("right clamps at the last category" (ui.selectedLabel()) "Tests")
+        ; ---- catalog DISCOVERED from the real v2 games folder ---------------
+        ; Only ylos2 (Pomppija) is a ported v2 game today, so the scan finds one
+        ; "Games" category with Pomppija in it. (Adding a game folder with a
+        ; game.info would extend this automatically — the test is intentionally
+        ; tied to the real filesystem, like v1's launcher.)
+        t.ok("at least one category discovered" ((ui.categoryCount()) >= 1))
+        t.ok("at least one game discovered" ((ui.gameCount()) >= 1))
+        t.eqStr("first category is Games" (ui.selectedLabel()) "Games")
+        t.eqStr("selected category name" (ui.selectedCategory()) "Games")
         ui.moveSelection(0 - 5)
-        t.eqStr("left clamps back to Games" (ui.selectedLabel()) "Games")
+        t.eqStr("left clamps to the first category" (ui.selectedLabel()) "Games")
 
-        ; ---- it actually renders pixels ------------------------------------
+        ; ---- it actually renders pixels + an accent card -------------------
         ui.render()
         t.ok("something was drawn into the canvas" ((LauncherUiTest.nonBackground(ui)) > 0))
+        def catAccent:int (LauncherUiTest.countColor(ui 0 0 480 270 255 190 70))
+        t.ok("the selected category card is accent-filled" (catAccent > 0))
 
-        ; ---- accent highlight follows the selection ------------------------
-        ; Games selected: accent (255,190,70) appears in the LEFT half.
-        def leftAccent:int (LauncherUiTest.countColor(ui 0 0 240 270 255 190 70))
-        t.ok("selected (Games) card is accent-filled on the left" (leftAccent > 0))
-        def rightAccentA:int (LauncherUiTest.countColor(ui 240 0 480 270 255 190 70))
-        t.eqInt("the right (Tests) card is NOT accent while Games selected" rightAccentA 0)
-
-        ; select Tests, re-render: accent moves to the RIGHT half.
-        ui.moveSelection(1)
-        ui.render()
-        def rightAccentB:int (LauncherUiTest.countColor(ui 240 0 480 270 255 190 70))
-        t.ok("selecting Tests moves the accent to the right card" (rightAccentB > 0))
-        def leftAccentB:int (LauncherUiTest.countColor(ui 0 0 240 270 255 190 70))
-        t.eqInt("Games card no longer accent" leftAccentB 0)
-
-        ; ---- two-level navigation + game handoff ---------------------------
+        ; ---- two-level navigation + real game handoff ----------------------
         def ui2:RgLauncherUi (new RgLauncherUi)
         ui2.init(480 270)
         t.eqInt("starts on the category page" (ui2.currentPage()) 0)
@@ -104,37 +92,29 @@ class LauncherUiTest {
         ; enter the Games category: activate returns 0 (nothing to launch yet)
         def a0:int (ui2.activate())
         t.eqInt("activating a category does not launch" a0 0)
-        t.eqInt("now on the entries page" (ui2.currentPage()) 1)
-        t.eqStr("first Games entry is Pomppija" (ui2.selectedLabel()) "Pomppija")
-        t.eqStr("Pomppija handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/games/ylos2")
-        t.eqStr("Pomppija handoff file" (ui2.selectedFile()) "index.tsx")
+        t.eqInt("now on the games page" (ui2.currentPage()) 1)
+        t.eqStr("the discovered game is Pomppija" (ui2.selectedLabel()) "Pomppija")
+        t.eqStr("Pomppija handoff dir (from the real folder)" (ui2.selectedDir()) "gallery/game_engine/v2/games/ylos2")
+        t.eqStr("Pomppija handoff file (game.info entry)" (ui2.selectedFile()) "index.tsx")
 
-        ; navigate the entries and clamp at the end (Games has 3)
-        ui2.moveSelection(1)
-        t.eqStr("second Games entry is Chess" (ui2.selectedLabel()) "Chess")
+        ; selection clamps within the discovered games
         ui2.moveSelection(9)
-        t.eqStr("entries clamp at Breakout" (ui2.selectedLabel()) "Breakout")
+        t.eqStr("selection clamps at the last discovered game" (ui2.selectedLabel()) "Pomppija")
 
-        ; activating an entry reports launch (1); the host reads dir/file
+        ; activating a game reports launch (1); the host reads dir/file
         def a1:int (ui2.activate())
-        t.eqInt("activating an entry hands off" a1 1)
-        t.eqStr("Breakout handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/games/breakout")
+        t.eqInt("activating a game hands off" a1 1)
 
-        ; back returns to the category page, on the category we came from
+        ; back returns to the category page
         ui2.back()
         t.eqInt("back to the category page" (ui2.currentPage()) 0)
         t.eqStr("restored to the Games category" (ui2.selectedLabel()) "Games")
 
-        ; a different category yields a different entry set
-        ui2.moveSelection(1)
-        def a2:int (ui2.activate())
-        t.eqStr("Tests category entry is Sprites" (ui2.selectedLabel()) "Sprites")
-        t.eqStr("Sprites handoff dir" (ui2.selectedDir()) "gallery/game_engine/v2/tests/sprite_char")
-
-        ; page 1 renders the entry cards (accent present somewhere)
+        ; page 1 renders the game cards (accent present somewhere)
+        def _a2:int (ui2.activate())
         ui2.render()
-        def entAccent:int (LauncherUiTest.countColor(ui2 0 0 480 270 255 190 70))
-        t.ok("entry page renders an accent card" (entAccent > 0))
+        def gameAccent:int (LauncherUiTest.countColor(ui2 0 0 480 270 255 190 70))
+        t.ok("games page renders an accent card" (gameAccent > 0))
 
         t.summary()
     }

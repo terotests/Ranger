@@ -1,0 +1,6 @@
+name=Pomppija
+category=Games
+splitScreen=auto
+icon=assets/p1_walk.png
+iconFrames=480
+index=1

@@ -2,37 +2,31 @@
 ; RgLauncherUi — the rich EVG/UI launcher screen (engine chrome).
 ; ==============================================================================
 ; Built on the self-contained v2 UI layer (UILayer + UITextRenderer + SoftCanvas
-; + fonts, all under v2): a title, a subtitle, a row of cards with a moving
-; accent highlight, and a footer hint — the v1 launcher screen. It has TWO pages:
-;   page 0  CATEGORIES ("valitse kategoria")  — Games / Tests
-;   page 1  ENTRIES     (the chosen category) — the games/tests in it
+; + fonts, all under v2). Like v1, the catalog is DISCOVERED, not hardcoded: it
+; scans the games directory, reads each game's game.info (name / category / ...),
+; and groups the entries into categories. Two pages:
+;   page 0  CATEGORIES ("valitse kategoria")  — the distinct game.info categories
+;   page 1  GAMES        (the chosen category) — the real games in it
 ; Renders headlessly into a SoftCanvas whose raw() RGBA the SDL host presents.
 ;
-; It is engine chrome, like RgGameHost: NO game logic, and it does not touch
-; ranger:core (GAMES stay TSX-only). Input is logical (moveSelection / activate /
-; back); the SDL host maps physical keys. On activating an entry the host reads
-; selectedDir()/selectedFile() and hands off through the same generic
-; RgGameHost.load the tests use — the launcher never launches anything itself.
+; Engine chrome, like RgGameHost: NO game logic, no ranger:core. Input is logical
+; (moveSelection / activate / back); the SDL host maps physical keys. On
+; activating a game the host reads selectedDir()/selectedFile() and hands off
+; through the same generic RgGameHost.load the tests use.
 ; ==============================================================================
 
 Import "../ui/UILayer.rgr"
 Import "../framebuffer.rgr"
 Import "../evg/EVGColor.rgr"
+Import "game_catalog.rgr"
 
-; one launchable entry inside a category (dir/file is the game folder handoff)
-class RgLauncherEntry {
-    def label:string ""
+; one launchable game card (dir/file is the game-folder handoff, catIndex groups)
+class RgLauncherGame {
+    def title:string ""
     def dir:string ""
     def file:string ""
+    def catIndex:int 0
     def card:UIBox (new UIBox)
-}
-
-; one selectable category (route is the logical id; entries are its games)
-class RgLauncherCat {
-    def label:string ""
-    def route:string ""
-    def card:UIBox (new UIBox)
-    def entries:[RgLauncherEntry]
 }
 
 class RgLauncherUi {
@@ -41,37 +35,22 @@ class RgLauncherUi {
     def w:int 0
     def h:int 0
 
-    def page:int 0        ; 0 = categories, 1 = entries
+    def page:int 0        ; 0 = categories, 1 = games
     def selected:int 0    ; index within the CURRENT page
-    def activeCat:int 0   ; which category's entries page 1 shows
+    def activeCat:int 0   ; which category's games page 1 shows
 
-    def cats:[RgLauncherCat]
+    def catalog:GameCatalog (new GameCatalog)
+    def gamesDir:string "gallery/game_engine/v2/games"
+    def categoryNames:[string]
+    def catCards:[UIBox]
+    def games:[RgLauncherGame]
     def sub:UILabel (new UILabel)
     def footer:UILabel (new UILabel)
 
-    ; ---- construction --------------------------------------------------------
-    fn addCategory:RgLauncherCat (label:string route:string) {
-        def c:RgLauncherCat (new RgLauncherCat)
-        c.label = label
-        c.route = route
-        c.card.text = label
-        c.card.fontSize = 20.0
-        push this.cats c
-        return c
-    }
+    ; override the scan root before init() (tests / alternate game trees)
+    fn setGamesDir:void (dir:string) { this.gamesDir = dir }
 
-    fn addEntry:void (c:RgLauncherCat label:string dir:string file:string) {
-        def e:RgLauncherEntry (new RgLauncherEntry)
-        e.label = label
-        e.dir = dir
-        e.file = file
-        e.card.text = label
-        e.card.fontSize = 18.0
-        push c.entries e
-    }
-
-    ; lay out `n` cards centred in the card row, calling back is inlined here:
-    ; returns the startX so the caller can position each card by index.
+    ; centre `n` cards of width cardW (gap between) in the card row; returns startX
     fn rowStartX:int (n:int cardW:int gap:int) {
         def cx:int (idiv this.w 2)
         def totalW:int ((cardW * n) + (gap * (n - 1)))
@@ -96,47 +75,55 @@ class RgLauncherUi {
 
         this.sub.text = "valitse kategoria"
         this.sub.fontSize = 16.0
-        this.sub.setBounds((cx - 90) (idiv height 5) 180 20)
+        this.sub.setBounds((cx - 100) (idiv height 5) 200 20)
         this.layer.add(this.sub)
 
-        ; ---- the catalog (engine chrome config, not game logic) -------------
-        def games:RgLauncherCat (this.addCategory("Games" "games"))
-        this.addEntry(games "Pomppija" "gallery/game_engine/v2/games/ylos2" "index.tsx")
-        this.addEntry(games "Chess"    "gallery/game_engine/v2/games/chess"  "index.tsx")
-        this.addEntry(games "Breakout" "gallery/game_engine/v2/games/breakout" "index.tsx")
+        ; ---- DISCOVER the catalog from the filesystem (v1 model) -------------
+        this.catalog.setGamesDir(this.gamesDir)
+        this.catalog.scan()
+        this.categoryNames = (this.catalog.categories())
 
-        def tests:RgLauncherCat (this.addCategory("Tests" "tests"))
-        this.addEntry(tests "Sprites" "gallery/game_engine/v2/tests/sprite_char" "index.tsx")
-
-        ; ---- lay out the category cards (page 0) ----------------------------
         def cardW:int (idiv width 4)
         def cardH:int cardW
         def gap:int 24
         def cardY:int (idiv height 3)
-        def nCats:int (array_length this.cats)
+        def nCats:int (array_length this.categoryNames)
         def startX:int (this.rowStartX(nCats cardW gap))
-        def i 0
-        while (i < nCats) {
-            def c:RgLauncherCat (itemAt this.cats i)
-            def cxi:int (startX + (i * (cardW + gap)))
-            c.card.setBounds(cxi cardY cardW cardH)
-            this.layer.add(c.card)
-            ; ---- lay out that category's entry cards (page 1), hidden -------
-            def ents:[RgLauncherEntry] c.entries
+        def ci:int 0
+        while (ci < nCats) {
+            def cname:string (itemAt this.categoryNames ci)
+            def cxi:int (startX + (ci * (cardW + gap)))
+            def ccard:UIBox (new UIBox)
+            ccard.text = cname
+            ccard.fontSize = 20.0
+            ccard.setBounds(cxi cardY cardW cardH)
+            this.layer.add(ccard)
+            push this.catCards ccard
+
+            ; ---- that category's game cards (page 1), hidden -----------------
+            def ents:[GameCatalogEntry] (this.catalog.entriesInCategory(cname))
             def ne:int (array_length ents)
             def eCardW:int (idiv width 5)
             def eGap:int 20
             def eStartX:int (this.rowStartX(ne eCardW eGap))
-            def j 0
-            while (j < ne) {
-                def e:RgLauncherEntry (itemAt ents j)
-                def exj:int (eStartX + (j * (eCardW + eGap)))
-                e.card.setBounds(exj cardY eCardW cardH)
-                e.card.visible = false
-                this.layer.add(e.card)
-                j = (j + 1)
+            def ei:int 0
+            while (ei < ne) {
+                def e:GameCatalogEntry (itemAt ents ei)
+                def g:RgLauncherGame (new RgLauncherGame)
+                g.title = e.title
+                g.dir = e.dir
+                g.file = e.entryFile
+                g.catIndex = ci
+                g.card.text = e.title
+                g.card.fontSize = 18.0
+                def exj:int (eStartX + (ei * (eCardW + eGap)))
+                g.card.setBounds(exj cardY eCardW cardH)
+                g.card.visible = false
+                this.layer.add(g.card)
+                push this.games g
+                ei = (ei + 1)
             }
-            i = (i + 1)
+            ci = (ci + 1)
         }
 
         this.footer.text = "A avaa, nuolet liikkuvat"
@@ -148,43 +135,62 @@ class RgLauncherUi {
         this.applyPage()
     }
 
-    ; ---- page state ----------------------------------------------------------
-    ; how many cards the current page navigates over
-    fn pageCount:int () {
-        if (this.page == 0) { return (array_length this.cats) }
-        def c:RgLauncherCat (itemAt this.cats this.activeCat)
-        return (array_length c.entries)
+    ; ---- category / game grouping helpers ------------------------------------
+    fn gamesInCatCount:int (catIdx:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length this.games)) {
+            def g:RgLauncherGame (itemAt this.games i)
+            if (g.catIndex == catIdx) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
     }
-
-    ; set card visibility for the current page and re-apply the accent highlight
-    fn applyPage:void () {
-        def nCats:int (array_length this.cats)
-        def i 0
-        while (i < nCats) {
-            def c:RgLauncherCat (itemAt this.cats i)
-            def catVisible:boolean (this.page == 0)
-            c.card.visible = catVisible
-            def ents:[RgLauncherEntry] c.entries
-            def ne:int (array_length ents)
-            def j 0
-            while (j < ne) {
-                def e:RgLauncherEntry (itemAt ents j)
-                def show:boolean false
-                if (this.page == 1) {
-                    if (i == this.activeCat) { show = true }
-                }
-                e.card.visible = show
-                j = (j + 1)
+    ; games[] index of the n-th game in a category (page-1 selection order), or -1
+    fn nthGameInCat:int (catIdx:int n:int) {
+        def seen:int 0
+        def i:int 0
+        while (i < (array_length this.games)) {
+            def g:RgLauncherGame (itemAt this.games i)
+            if (g.catIndex == catIdx) {
+                if (seen == n) { return i }
+                seen = (seen + 1)
             }
             i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn pageCount:int () {
+        if (this.page == 0) { return (array_length this.categoryNames) }
+        return (this.gamesInCatCount(this.activeCat))
+    }
+
+    ; show the current page's cards and re-apply the accent highlight
+    fn applyPage:void () {
+        def nCats:int (array_length this.catCards)
+        def i:int 0
+        while (i < nCats) {
+            def cc:UIBox (itemAt this.catCards i)
+            cc.visible = (this.page == 0)
+            i = (i + 1)
+        }
+        def gi:int 0
+        while (gi < (array_length this.games)) {
+            def g:RgLauncherGame (itemAt this.games gi)
+            def show:boolean false
+            if (this.page == 1) {
+                if (g.catIndex == this.activeCat) { show = true }
+            }
+            g.card.visible = show
+            gi = (gi + 1)
         }
         if (this.page == 0) {
             this.sub.text = "valitse kategoria"
             this.footer.text = "A avaa, nuolet liikkuvat"
         } {
-            def ac:RgLauncherCat (itemAt this.cats this.activeCat)
-            this.sub.text = ac.label
-            this.footer.text = "A valitsee, B takaisin"
+            this.sub.text = (itemAt this.categoryNames this.activeCat)
+            this.footer.text = "A pelaa, B takaisin"
         }
         this.highlight()
     }
@@ -194,22 +200,22 @@ class RgLauncherUi {
         def accent:EVGColor (EVGColor.rgba(255 190 70 1.0))
         def muted:EVGColor (EVGColor.rgba(40 48 74 0.9))
         if (this.page == 0) {
-            def n:int (array_length this.cats)
-            def i 0
-            while (i < n) {
-                def c:RgLauncherCat (itemAt this.cats i)
-                if (i == this.selected) { c.card.setFill(accent) } { c.card.setFill(muted) }
+            def i:int 0
+            while (i < (array_length this.catCards)) {
+                def cc:UIBox (itemAt this.catCards i)
+                if (i == this.selected) { cc.setFill(accent) } { cc.setFill(muted) }
                 i = (i + 1)
             }
             return
         }
-        def ac:RgLauncherCat (itemAt this.cats this.activeCat)
-        def ents:[RgLauncherEntry] ac.entries
-        def ne:int (array_length ents)
-        def k 0
-        while (k < ne) {
-            def e:RgLauncherEntry (itemAt ents k)
-            if (k == this.selected) { e.card.setFill(accent) } { e.card.setFill(muted) }
+        def n:int (this.gamesInCatCount(this.activeCat))
+        def k:int 0
+        while (k < n) {
+            def idx:int (this.nthGameInCat(this.activeCat k))
+            if (idx >= 0) {
+                def g:RgLauncherGame (itemAt this.games idx)
+                if (k == this.selected) { g.card.setFill(accent) } { g.card.setFill(muted) }
+            }
             k = (k + 1)
         }
     }
@@ -229,6 +235,7 @@ class RgLauncherUi {
     ; page 1: returns 1 — the host reads selectedDir()/selectedFile() to hand off.
     fn activate:int () {
         if (this.page == 0) {
+            if ((array_length this.categoryNames) == 0) { return 0 }
             this.activeCat = this.selected
             this.page = 1
             this.selected = 0
@@ -247,38 +254,46 @@ class RgLauncherUi {
     }
 
     ; ---- queries -------------------------------------------------------------
-    fn categoryCount:int () { return (array_length this.cats) }
+    fn categoryCount:int () { return (array_length this.categoryNames) }
+    fn gameCount:int () { return (array_length this.games) }
     fn currentPage:int () { return this.page }
+
+    ; games[] index of the current page-1 selection, or -1 on the category page
+    fn selectedGameIndex:int () {
+        if (this.page == 0) { return (0 - 1) }
+        return (this.nthGameInCat(this.activeCat this.selected))
+    }
 
     fn selectedLabel:string () {
         if (this.page == 0) {
-            if ((array_length this.cats) == 0) { return "" }
-            def c:RgLauncherCat (itemAt this.cats this.selected)
-            return c.label
+            if ((array_length this.categoryNames) == 0) { return "" }
+            return (itemAt this.categoryNames this.selected)
         }
-        def ac:RgLauncherCat (itemAt this.cats this.activeCat)
-        def e:RgLauncherEntry (itemAt ac.entries this.selected)
-        return e.label
+        def idx:int (this.selectedGameIndex())
+        if (idx < 0) { return "" }
+        def g:RgLauncherGame (itemAt this.games idx)
+        return g.title
     }
 
-    fn selectedRoute:string () {
-        if ((array_length this.cats) == 0) { return "" }
-        def c:RgLauncherCat (itemAt this.cats this.selected)
-        return c.route
+    ; the selected category name (page 0) — kept for host/test observation
+    fn selectedCategory:string () {
+        if ((array_length this.categoryNames) == 0) { return "" }
+        if (this.page == 0) { return (itemAt this.categoryNames this.selected) }
+        return (itemAt this.categoryNames this.activeCat)
     }
 
-    ; the game-folder handoff target of the selected ENTRY (page 1); "" on page 0
+    ; the game-folder handoff target of the selected GAME (page 1); "" on page 0
     fn selectedDir:string () {
-        if (this.page == 0) { return "" }
-        def ac:RgLauncherCat (itemAt this.cats this.activeCat)
-        def e:RgLauncherEntry (itemAt ac.entries this.selected)
-        return e.dir
+        def idx:int (this.selectedGameIndex())
+        if (idx < 0) { return "" }
+        def g:RgLauncherGame (itemAt this.games idx)
+        return g.dir
     }
     fn selectedFile:string () {
-        if (this.page == 0) { return "" }
-        def ac:RgLauncherCat (itemAt this.cats this.activeCat)
-        def e:RgLauncherEntry (itemAt ac.entries this.selected)
-        return e.file
+        def idx:int (this.selectedGameIndex())
+        if (idx < 0) { return "" }
+        def g:RgLauncherGame (itemAt this.games idx)
+        return g.file
     }
 
     ; ---- present -------------------------------------------------------------
