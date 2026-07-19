@@ -72,8 +72,8 @@ Corollaries:
 
 ## Non-goals
 
-- This ADR does not decide the interpreter identity representation (II.A), the
-  exact handle bit layout (D-HANDLE), or the class-registry file format — it
-  fixes *who owns state* and which sync model is authoritative.
+- This ADR does not decide the interpreter identity representation, the exact
+  handle bit layout (D-HANDLE), or the class-registry file format — it fixes
+  *who owns state* and which sync model is authoritative.
 - It does not remove `ranger_games/` or any native path; those front-ends still
   drive the same host through the same command surface.
