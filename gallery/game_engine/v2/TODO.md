@@ -424,11 +424,30 @@ Contract: [`BRIDGES.md`](./BRIDGES.md) rev 2. Today steps 1–2 are done
 |------|------|--------|
 | 1–2 | Interpreter profile table + generic bridge + coverage | done (not a published ABI) |
 | 3 | Real TSX guests (ylos2 / ylos3d / launcher) | in progress |
+| **5b** | **Rust→wasm32 conformance guest** — a real Rust guest drives the GENERIC bridge | **fail-fast slice PROVEN** ✓ |
 | **4** | **IDL extraction** — full types, identities, capabilities; regen interpreter table from IDL × profile | **not started — next** |
-| **5** | **wasm32 profile** — token/epoch lowering; golden **wire vectors** | not started |
-| **5b** | **Rust→wasm32 `ylos3d` conformance guest** — reference implementation covering hybrid use cases | **elevate** |
+| **5** | **wasm32 profile** — token/epoch lowering; golden **wire vectors** | in progress (slice wire format below) |
 | 6 | Extend IDL to three + cannon; dispatcher emitter; generated façades | after 5 |
 | 7 | **Golden freeze** only when TSX + Rust guests both pass on one host | gated |
+
+**Fail-fast proof landed (July 19, 2026).** A real Rust module compiled to
+`wasm32-unknown-unknown` (`bridge/wasm/conformance/ylos3d_slice`) builds a 3D
+scene — scene, camera, box geometry, lambert material, mesh, `scene.add`,
+transform — by writing an RGC1 command buffer into its own linear memory; the
+host drains it and replays each record through **`RgRegistryBridge.invoke →
+dispatchRow` (the ONE generic bridge, not a hand-linked C ABI)**, mapping
+guest-local ids → host handles. `bridge/wasm/conformance/tests/
+ylos3d_wasm_conformance_test` (13 asserts) confirms zero dispatch errors, the
+arena actually created the geometry/material/mesh, the mesh is parented to the
+scene (**D-SYNC across wasm32**), and distinct guest ids resolve to distinct
+valid host handles (**D-IDENTITY**). Runs headlessly in the node gate via a new
+`WebAssembly` loader (the `wasm_*` es6 templates were stubs before). This
+retires the biggest architecture risk: the generic bridge *can* host a
+second-language guest. Remaining toward a full Rust ylos3d: return-value
+round-trip (host → guest memory), strings/assets (`rg3d_model_load`), the 2D +
+RTT + input + audio surface, and lifting the hand wire format into the generated
+wasm32 profile (step 5). The command-buffer model deliberately mirrors the
+existing RGU1/RGX1 shared-block guests (no host-call imports).
 
 ### Why Rust `ylos3d` (not a toy, not Chess first)
 

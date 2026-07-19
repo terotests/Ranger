@@ -1,0 +1,133 @@
+; ==============================================================================
+; ylos3d_wasm_conformance_test — a Rust->wasm32 guest drives the GENERIC bridge.
+; ==============================================================================
+; The fail-fast proof that the v2 architecture holds across a second guest
+; language: a real Rust module compiled to wasm32 (bridge/wasm/conformance/
+; ylos3d_slice) builds a 3D scene by writing a command buffer (RGC1) into its own
+; linear memory; this host drains the buffer and replays each record through
+; RgRegistryBridge.invoke -> dispatchRow (the ONE generic bridge, not a
+; hand-linked C ABI), mapping guest-local ids -> host handles (D-IDENTITY).
+;
+; Asserts the whole path: every command dispatched without error, the host arena
+; actually created the geometry/material/mesh, the mesh is parented to the scene
+; (D-SYNC: scene.add crossed the wasm32 boundary), and distinct guest ids resolve
+; to distinct valid host handles. If this is green, a full Rust ylos3d is just
+; more of the same command coverage.
+;
+; The .wasm is committed; rebuild with:
+;   (cd gallery/game_engine/v2/bridge/wasm/conformance/ylos3d_slice && \
+;    cargo build --release --target wasm32-unknown-unknown && \
+;    cp target/wasm32-unknown-unknown/release/ylos3d_slice.wasm ylos3d_slice.wasm)
+; ==============================================================================
+
+Import "../../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../../../scripting/wasm_runtime.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class Ylos3dWasmConformanceTest {
+    fn num:EvalValue (d:double) { return (EvalValue.number(d)) }
+
+    ; invoke a create command and return the minted guest id (gid).
+    fn callCreate:int (b:RgRegistryBridge name:string args:[EvalValue]) {
+        def r:EvalValue (b.invoke(name args))
+        return (to_int r.numberValue)
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/wasm/ylos3d_conformance (Rust->wasm32 -> generic bridge)"))
+        def self:Ylos3dWasmConformanceTest (new Ylos3dWasmConformanceTest)
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+
+        def path:string "gallery/game_engine/v2/bridge/wasm/conformance/ylos3d_slice/ylos3d_slice.wasm"
+        def h:int (wasm_load path)
+        t.ok("Rust ylos3d-slice guest loaded" (h >= 1))
+        t.eqInt("guest exports frame()" (wasm_has_export h "frame") 1)
+        t.eqInt("guest exports cmd_ptr()" (wasm_has_export h "cmd_ptr") 1)
+
+        ; run one guest frame -> it writes N command records into its memory.
+        def n:int (wasm_call_i32 h "frame" 0 0 0 0 0 0)
+        def base:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        t.eqInt("guest emitted 7 commands" n 7)
+        t.ok("command buffer pointer is valid" (base > 0))
+
+        ; guest-local id -> minted host gid
+        def map:[int] (make _:[int] 64 0)
+        def i:int 0
+        while (i < n) {
+            def rb:int (base + ((i * 12) * 4))
+            def op:int (wasm_mem_i32 h rb)
+            def dst:int (wasm_mem_i32 h (rb + 4))
+            def a0:int (wasm_mem_i32 h (rb + 8))
+            def a1:int (wasm_mem_i32 h (rb + 12))
+            def a2:int (wasm_mem_i32 h (rb + 16))
+            def a3:int (wasm_mem_i32 h (rb + 20))
+            def a4:int (wasm_mem_i32 h (rb + 24))
+            def a5:int (wasm_mem_i32 h (rb + 28))
+            def a6:int (wasm_mem_i32 h (rb + 32))
+
+            if (op == 1) {
+                def e:[EvalValue]
+                set map dst (self.callCreate(b "rg3d_scene_create" e))
+            }
+            if (op == 2) {
+                def e:[EvalValue]
+                set map dst (self.callCreate(b "rg3d_camera_create" e))
+            }
+            if (op == 3) {
+                def e:[EvalValue]
+                push e (self.num(((to_double a0) / 1000.0)))
+                push e (self.num(((to_double a1) / 1000.0)))
+                push e (self.num(((to_double a2) / 1000.0)))
+                set map dst (self.callCreate(b "rg3d_geometry_box" e))
+            }
+            if (op == 4) {
+                def e:[EvalValue]
+                push e (self.num((to_double a0)))
+                set map dst (self.callCreate(b "rg3d_material_lambert" e))
+            }
+            if (op == 5) {
+                def e:[EvalValue]
+                push e (self.num((to_double (itemAt map a0))))
+                push e (self.num((to_double (itemAt map a1))))
+                set map dst (self.callCreate(b "rg3d_mesh_create" e))
+            }
+            if (op == 6) {
+                def e:[EvalValue]
+                push e (self.num((to_double (itemAt map a0))))
+                push e (self.num((to_double (itemAt map a1))))
+                b.invoke("rg3d_entity_set_parent" e)
+            }
+            if (op == 7) {
+                def e:[EvalValue]
+                push e (self.num((to_double (itemAt map a0))))
+                push e (self.num(((to_double a1) / 1000.0)))
+                push e (self.num(((to_double a2) / 1000.0)))
+                push e (self.num(((to_double a3) / 1000.0)))
+                push e (self.num(((to_double a4) / 1000.0)))
+                push e (self.num(((to_double a5) / 1000.0)))
+                push e (self.num(((to_double a6) / 1000.0)))
+                b.invoke("rg3d_mesh_transform" e)
+            }
+            i = (i + 1)
+        }
+
+        ; ---- the architecture held across wasm32 --------------------------------
+        t.eqInt("every wasm-emitted command dispatched without error" b.errorCount 0)
+        t.eqInt("host created 1 box geometry" (b.d3.host.geometryCount()) 1)
+        t.eqInt("host created 1 material" (b.d3.host.materialCount()) 1)
+        t.eqInt("host created 1 entity (the mesh)" (b.d3.host.entityCount()) 1)
+
+        ; D-SYNC: the mesh is a child of the scene (scene.add crossed the boundary)
+        def sceneH:RgHandle (b.resolveGuestId((itemAt map 1)))
+        t.eqInt("mesh is parented to the scene" (b.d3.sceneChildCount(sceneH)) 1)
+
+        ; D-IDENTITY: distinct guest ids resolve to distinct valid host handles
+        def meshH:RgHandle (b.resolveGuestId((itemAt map 5)))
+        t.ok("scene guest id -> valid host handle" (sceneH.isValid()))
+        t.ok("mesh guest id -> valid host handle" (meshH.isValid()))
+        t.ok("distinct guest ids map to distinct host gids" ((itemAt map 1) != (itemAt map 5)))
+
+        wasm_close h
+        t.summary()
+    }
+}

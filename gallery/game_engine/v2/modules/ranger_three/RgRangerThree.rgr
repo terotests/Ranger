@@ -47,6 +47,13 @@ class RgRangerThree {
         return r.payloadIndex
     }
 
+    ; direct children of a scene handle (D-SYNC membership inspection for tests).
+    fn sceneChildCount:int (h:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.scene())))
+        if (r.ok == false) { return (0 - 1) }
+        return (this.host.sceneChildCount(r.payloadIndex))
+    }
+
     fn cameraH:int (h:RgHandle) {
         def r:RgResolve (this.registry.resolveTyped(h (Rg3DType.camera())))
         if (r.ok == false) {
