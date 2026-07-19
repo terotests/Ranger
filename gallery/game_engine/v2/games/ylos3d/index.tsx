@@ -2,10 +2,9 @@
 // ylos3d — hybrid 2D climber sketch with 3D diamond sprites (PLAN_2D_EMBED_3D).
 // ============================================================================
 // Authored against ranger:core + ranger:2d + ranger:three. The world is 2D
-// (platforms, camera, players); decorative diamonds are live SW-3D cut gems
-// (wide girdle, long pavilion, translucent Lambert) rendered into CPU
-// RenderTargets and sampled as texture-backed Sprite2Ds
-// (path A: SW 3D → Texture2D → SW 2D).
+// (platforms, camera, players); decorative diamonds are package .glb models
+// rendered via generic rg3d_model_load into CPU RenderTargets and sampled as
+// texture-backed Sprite2Ds (path A: SW 3D → Texture2D → SW 2D).
 // ============================================================================
 
 import { runtime } from "ranger:core";
@@ -22,8 +21,6 @@ const PLAYER_W = 26;
 const PLAYER_H = 44;
 const GEM_W = 40;
 const GEM_H = 72;
-const DIAMOND_CYAN = 10485759; // 0x9FFFFF — icy cyan; glass alpha still reads
-const DIAMOND_OPACITY = 0.62;
 
 const PLATFORMS = [
   { x: 0, y: 840, w: 480, h: 60 },
@@ -50,20 +47,18 @@ function overlapsX(px, pw, plat) {
 
 function makeDiamondSprite(renderer3d) {
   const scene = new THREE.Scene();
-  // Key + fill lights: SW Lambert shades each diamond facet (MeshBasic was
-  // unlit, so gems looked like flat cyan blobs).
+  // Key + fill lights: SW Lambert shades glTF materials.
   // NOTE: bind to locals — the TSX evaluator may skip unused `new` expressions.
-  const amb = new THREE.AmbientLight(scene, 16777215, 0.22);
-  const key = new THREE.DirectionalLight(scene, 16777215, 1.55, 0.35, 1.35, 0.55);
-  const fill = new THREE.DirectionalLight(scene, 12648447, 0.35, -0.9, 0.2, -0.5);
-  // Tall framing so the long pavilion reads; keep tilt small so tip stays down.
+  const amb = new THREE.AmbientLight(scene, 16777215, 0.28);
+  const key = new THREE.DirectionalLight(scene, 16777215, 1.45, 0.35, 1.35, 0.55);
+  const fill = new THREE.DirectionalLight(scene, 12648447, 0.4, -0.9, 0.2, -0.5);
   const camera = new THREE.PerspectiveCamera(30, 0.55, 0.1, 20);
-  camera.setPose(0.0, 0.0, 3.4, 0.0, 0.0, 0.0);
-  const geo = new THREE.DiamondGeometry(1.0);
-  const mat = new THREE.MeshLambertMaterial(DIAMOND_CYAN);
-  mat.setOpacity(DIAMOND_OPACITY);
-  const mesh = new THREE.Mesh(scene, geo, mat);
+  camera.setPose(0.0, -0.1, 2.6, 0.0, 0.0, 0.0);
+  // Game-owned asset path; engine only sees a package-relative uri.
+  const mesh = new THREE.GLTFModel(scene, "pkg://models/diamond.glb");
+  // setTransform resets scale to 1 — apply scale after.
   mesh.setTransform(0, 0, 0, 0.12, 0.6, 0.08);
+  mesh.setScale(2.8, 2.8, 2.8);
   const rt = runtime.graphics.createRenderTarget({ width: 80, height: 144 });
   const sprite = new TWO.Sprite2D({ source: rt.colorTexture.view() });
   sprite.setSize(GEM_W, GEM_H);
@@ -76,7 +71,6 @@ function makeDiamondSprite(renderer3d) {
     resolution: { width: 80, height: 144 },
     update: "everyFrame"
   });
-  // Game owns mesh animation + light refs (SceneSprite3D only refreshes RTT).
   const model = {
     view: view,
     sprite: sprite,
@@ -110,8 +104,6 @@ class Ylos3DGame {
 
     // Placeholder player: 1×1 cyan-ish texture as a solid sprite stand-in.
     const pt = runtime.graphics.createRenderTarget({ width: 8, height: 8 });
-    // Fill via a tiny 3D-less path: reuse RT pixels already transparent — paint
-    // with a one-shot upload by rendering a flat box into it.
     const pScene = new THREE.Scene();
     const pCam = new THREE.PerspectiveCamera(40, 1, 0.1, 20);
     pCam.setPose(0, 0, 3, 0, 0, 0);
@@ -210,12 +202,13 @@ class Ylos3DGame {
     if (camY > WORLD_H - VIEW_H / 2) { camY = WORLD_H - VIEW_H / 2; }
     this.camera.set(BASE_W / 2, camY, 1, 0);
 
-    // Game owns gem spin; SceneSprite3D only refreshes the RT.
+    // Game owns model spin; SceneSprite3D only refreshes the RT.
     let i = 0;
     while (i < this.diamonds.length) {
       const gem = this.diamonds[i];
       gem.angle = gem.angle + dt * 0.002;
       gem.mesh.setTransform(0.0, 0.0, 0.0, 0.12, gem.angle, 0.08);
+      gem.mesh.setScale(2.8, 2.8, 2.8);
       gem.view.invalidate();
       gem.view.sync(this.renderer3d);
       i = i + 1;

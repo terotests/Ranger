@@ -154,16 +154,9 @@ class ThreeSceneHost {
         push geometries g
         return (array_length geometries)
     }
-    ; Regular octahedron — used by hybrid 2D games as an RTT gem.
+    ; Regular octahedron (standard primitive).
     fn geometryOctahedron:int (radius:double) {
         def g:ThreeOctahedronGeometry (new ThreeOctahedronGeometry)
-        g.build(radius)
-        push geometries g
-        return (array_length geometries)
-    }
-    ; Classic gem: wide girdle, short crown, long pointed pavilion.
-    fn geometryDiamond:int (radius:double) {
-        def g:ThreeDiamondGeometry (new ThreeDiamondGeometry)
         g.build(radius)
         push geometries g
         return (array_length geometries)
@@ -256,10 +249,20 @@ class ThreeSceneHost {
         push entities model
         return (array_length entities)
     }
+
     fn entityTransform:void (entH:int px:double py:double pz:double ex:double ey:double ez:double sx:double sy:double sz:double) {
         def e:ThreeObject3D (this.entityAt(entH))
         e.position.set(px py pz)
         e.rotation.set(ex ey ez)
+        e.quatDriven = false
+        if (sx == 0.0) { sx = 1.0 }
+        if (sy == 0.0) { sy = 1.0 }
+        if (sz == 0.0) { sz = 1.0 }
+        e.scale.set(sx sy sz)
+    }
+
+    fn entitySetScale:void (entH:int sx:double sy:double sz:double) {
+        def e:ThreeObject3D (this.entityAt(entH))
         if (sx == 0.0) { sx = 1.0 }
         if (sy == 0.0) { sy = 1.0 }
         if (sz == 0.0) { sz = 1.0 }

@@ -29,6 +29,8 @@ Import "../../modules/ranger_three/RgRangerThree.rgr"
 Import "../../modules/ranger_core/RgAudio.rgr"
 Import "../../modules/ranger_core/RgInputSurface.rgr"
 Import "../../modules/ranger_core/RgRuntime.rgr"
+Import "../../three/port/src/three_gltf_file.rgr"
+Import "../../three/port/src/three_object3d.rgr"
 Import "../../host/handles/RgHandle.rgr"
 Import "../../host/ownership/OwnedHandle.rgr"
 
@@ -465,6 +467,39 @@ class RgRegistryBridge extends EvalNativeBridge {
         return (this.loadTextureFile(texH rel))
     }
 
+    ; Package-relative .glb → scene entity. Game-agnostic: any uri under the
+    ; loaded package. Embedded PNG bufferViews are decoded here (bridge owns
+    ; imaging); geometry/materials come from ThreeGLTFFile.
+    fn loadModelAsset:int (sceneH:RgHandle uri:string) {
+        def rel:string uri
+        if ((indexOf uri "pkg://") == 0) {
+            rel = (substring uri 6)
+        }
+        if (this.packageDir == "") { return 0 }
+        def pdir:string this.packageDir
+        def raw:buffer (buffer_read_file pdir rel)
+        if ((buffer_length raw) < 20) { return 0 }
+        def loader:ThreeGLTFFile (new ThreeGLTFFile)
+        def root:ThreeObject3D (loader.loadGLB(raw))
+        def ni:int (loader.imageCount())
+        def i 0
+        while (i < ni) {
+            def png:buffer (loader.imageBytes(i))
+            if ((buffer_length png) > 8) {
+                def dec:PNGDecoder (new PNGDecoder)
+                def img:ImageBuffer (dec.decodeBytes(png))
+                if ((img.width > 0) && (img.height > 0)) {
+                    loader.setImage(i img.pixels img.width img.height)
+                }
+            }
+            i = (i + 1)
+        }
+        this.d3.clearErr()
+        def o:OwnedHandle (this.d3.modelAttachRoot(sceneH root))
+        if ((o.handle.isValid()) == false) { return 0 }
+        return (this.mintId(o))
+    }
+
     fn loadAtlasAsset:int (uri:string) {
         def rel:string uri
         if ((indexOf uri "pkg://") == 0) {
@@ -744,11 +779,6 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
-        if (row.name == "rg3d_geometry_diamond") {
-            def o:OwnedHandle (this.d3.geometryDiamond((a.dblAt(0))))
-            def gid:int (this.mintId(o))
-            return (RgRegistryBridge.retI(gid))
-        }
         if (row.name == "rg3d_material_basic") {
             def o:OwnedHandle (this.d3.materialBasic((a.intAt(0))))
             def gid:int (this.mintId(o))
@@ -799,6 +829,20 @@ class RgRegistryBridge extends EvalNativeBridge {
                 return (this.fail3d(row.name))
             }
             return (EvalValue.null())
+        }
+        if (row.name == "rg3d_mesh_set_scale") {
+            this.d3.clearErr()
+            if ((this.d3.meshSetScale((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_model_load") {
+            def mid:int (this.loadModelAsset((a.handleAt(0)) (a.strAt(1))))
+            if (mid < 1) {
+                return (this.fail("model-not-found:" + (a.strAt(1))))
+            }
+            return (RgRegistryBridge.retI(mid))
         }
         if (row.name == "rg3d_render_to") {
             ; Execute SW RTT at record time (path A) so the texture is

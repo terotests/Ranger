@@ -396,8 +396,8 @@ class ThreeTorusKnotGeometry extends ThreeBufferGeometry {
 }
 
 ; ------------------------------------------------------------------ Octahedron
-; Regular octahedron (diamond) centred at the origin. `radius` is the distance
-; from the centre to each vertex — the silhouette used for 3D "gem" sprites.
+; Regular octahedron centred at the origin. `radius` is the distance from the
+; centre to each vertex.
 class ThreeOctahedronGeometry extends ThreeBufferGeometry {
     def isOctahedronGeometry:boolean true
 
@@ -443,97 +443,6 @@ class ThreeOctahedronGeometry extends ThreeBufferGeometry {
         this.pushFace(0.0 0.0 pz  nx 0.0 0.0  0.0 ny 0.0)
         this.pushFace(nx 0.0 0.0  0.0 0.0 nz  0.0 ny 0.0)
         this.pushFace(0.0 0.0 nz  px 0.0 0.0  0.0 ny 0.0)
-        return this
-    }
-}
-
-; ------------------------------------------------------------------ Diamond
-; Classic gem: octagonal girdle (widest), flat table, short crown, long
-; narrow pavilion to a culet. `radius` is the girdle half-width.
-class ThreeDiamondGeometry extends ThreeBufferGeometry {
-    def isDiamondGeometry:boolean true
-
-    fn pushFace:void (ax:double ay:double az:double bx:double by:double bz:double cx:double cy:double cz:double) {
-        def abx:double (bx - ax)
-        def aby:double (by - ay)
-        def abz:double (bz - az)
-        def acx:double (cx - ax)
-        def acy:double (cy - ay)
-        def acz:double (cz - az)
-        def nx:double ((aby * acz) - (abz * acy))
-        def ny:double ((abz * acx) - (abx * acz))
-        def nz:double ((abx * acy) - (aby * acx))
-        def len:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
-        if (len < 0.000001) { len = 1.0 }
-        nx = (nx / len)
-        ny = (ny / len)
-        nz = (nz / len)
-        def base:int (this.vertexCount())
-        this.pushVertex(ax ay az nx ny nz 0.0 0.0)
-        this.pushVertex(bx by bz nx ny nz 1.0 0.0)
-        this.pushVertex(cx cy cz nx ny nz 0.5 1.0)
-        this.pushTriangle(base (base + 1) (base + 2))
-    }
-
-    fn build:ThreeDiamondGeometry (radius:double) {
-        def r:double radius
-        if (r <= 0.0) { r = 1.0 }
-        ; Proportions: readable crown trapezoid + long pointed pavilion.
-        ; AABB-centred so spinning RTT gems stay framed.
-        def crownH:double (r * 0.55)
-        def pavH:double (r * 1.45)
-        def tableR:double (r * 0.34)
-        def yOff:double ((pavH - crownH) * 0.5)
-        def gy:double yOff
-        def ty:double (crownH + yOff)
-        def by:double ((0.0 - pavH) + yOff)
-        ; 8 girdle / table ring points (unit circle * radius)
-        def gx:[double]
-        def gz:[double]
-        def tx:[double]
-        def tz:[double]
-        def i:int 0
-        while (i < 8) {
-            def ang:double (((to_double i) * 3.141592653589793) * 0.25)
-            push gx ((cos(ang)) * r)
-            push gz ((sin(ang)) * r)
-            push tx ((cos(ang)) * tableR)
-            push tz ((sin(ang)) * tableR)
-            i = (i + 1)
-        }
-        ; flat table (fan from first vertex)
-        def t0x:double (itemAt tx 0)
-        def t0z:double (itemAt tz 0)
-        i = 1
-        while (i < 7) {
-            this.pushFace(t0x ty t0z (itemAt tx i) ty (itemAt tz i) (itemAt tx (i + 1)) ty (itemAt tz (i + 1)))
-            i = (i + 1)
-        }
-        ; crown: table edge → girdle edge (2 tris / sector)
-        i = 0
-        while (i < 8) {
-            def j:int (i + 1)
-            if (j >= 8) { j = 0 }
-            def g0x:double (itemAt gx i)
-            def g0z:double (itemAt gz i)
-            def g1x:double (itemAt gx j)
-            def g1z:double (itemAt gz j)
-            def a0x:double (itemAt tx i)
-            def a0z:double (itemAt tz i)
-            def a1x:double (itemAt tx j)
-            def a1z:double (itemAt tz j)
-            this.pushFace(a0x ty a0z g0x gy g0z g1x gy g1z)
-            this.pushFace(a0x ty a0z g1x gy g1z a1x ty a1z)
-            i = (i + 1)
-        }
-        ; pavilion: girdle → culet (outward winding: next → curr → tip)
-        i = 0
-        while (i < 8) {
-            def j2:int (i + 1)
-            if (j2 >= 8) { j2 = 0 }
-            this.pushFace((itemAt gx j2) gy (itemAt gz j2) (itemAt gx i) gy (itemAt gz i) 0.0 by 0.0)
-            i = (i + 1)
-        }
         return this
     }
 }

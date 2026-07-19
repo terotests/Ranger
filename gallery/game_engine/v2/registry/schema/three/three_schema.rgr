@@ -2,8 +2,9 @@
 ; three_schema — authored registry rows for the `ranger:three` module.
 ; ==============================================================================
 ; Minimal live guest surface for PLAN_2D_EMBED_3D H3 (SW path A): scene, camera,
-; box/octahedron/diamond geometry, basic/lambert materials (+ opacity), mesh,
-; lights, and render-to-texture.
+; box/octahedron geometry, basic/lambert materials (+ opacity), mesh, lights,
+; package-relative .glb model load (game supplies the uri), and render-to-texture.
+; No asset- or game-specific commands — games pass pkg:// paths.
 ; Published ids are immutable:
 ;   classIds 30–39 · command ids 3000–3999   (golden-checked)
 ; ==============================================================================
@@ -30,7 +31,6 @@ class ThreeSchema {
         def geo:RgClassDef (RgClassDef.of(32 "Geometry3D"))
         geo.addMethod((RgMethodDef.cmd(3010 "rg3d_geometry_box" "rg3d_geometry_box" "d:d:d" "h" "create")))
         geo.addMethod((RgMethodDef.cmd(3011 "rg3d_geometry_octahedron" "rg3d_geometry_octahedron" "d" "h" "create")))
-        geo.addMethod((RgMethodDef.cmd(3012 "rg3d_geometry_diamond" "rg3d_geometry_diamond" "d" "h" "create")))
         s.addClass(geo)
 
         ; ---- Material3D (33) -------------------------------------------------
@@ -44,6 +44,7 @@ class ThreeSchema {
         def mesh:RgClassDef (RgClassDef.of(34 "Mesh3D"))
         mesh.addMethod((RgMethodDef.cmd(3030 "rg3d_mesh_create" "rg3d_mesh_create" "h:h:h" "h" "create")))
         mesh.addMethod((RgMethodDef.cmd(3031 "rg3d_mesh_transform" "rg3d_mesh_transform" "h:d:d:d:d:d:d" "v" "none")))
+        mesh.addMethod((RgMethodDef.cmd(3032 "rg3d_mesh_set_scale" "rg3d_mesh_set_scale" "h:d:d:d" "v" "none")))
         s.addClass(mesh)
 
         ; ---- Renderer3D (35) — RTT into a Texture2D / RenderTarget ------------
@@ -56,6 +57,11 @@ class ThreeSchema {
         light.addMethod((RgMethodDef.cmd(3050 "rg3d_light_ambient" "rg3d_light_ambient" "h:i:d" "h" "create")))
         light.addMethod((RgMethodDef.cmd(3051 "rg3d_light_directional" "rg3d_light_directional" "h:i:d:d:d:d" "h" "create")))
         s.addClass(light)
+
+        ; ---- Model3D (37) — package-relative .glb → scene entity --------------
+        def model:RgClassDef (RgClassDef.of(37 "Model3D"))
+        model.addMethod((RgMethodDef.cmd(3060 "rg3d_model_load" "rg3d_model_load" "h:s" "h" "create")))
+        s.addClass(model)
 
         return s
     }

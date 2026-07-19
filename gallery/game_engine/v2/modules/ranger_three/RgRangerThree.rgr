@@ -11,6 +11,7 @@ Import "../../host/RgRegistry.rgr"
 Import "../../host/handles/RgHandle.rgr"
 Import "../../host/ownership/OwnedHandle.rgr"
 Import "../../three/port/src/three_scene_host.rgr"
+Import "../../three/port/src/three_object3d.rgr"
 Import "../ranger_2d/RgRanger2D.rgr"
 
 class Rg3DType {
@@ -127,12 +128,6 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
-    fn geometryDiamond:OwnedHandle (radius:double) {
-        def th:int (this.host.geometryDiamond(radius))
-        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
-        return (OwnedHandle.own(h))
-    }
-
     fn materialBasic:OwnedHandle (colorHex:int) {
         def th:int (this.host.materialBasic(colorHex 0 false))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
@@ -187,8 +182,25 @@ class RgRangerThree {
         return true
     }
 
+    fn meshSetScale:boolean (meshH:RgHandle sx:double sy:double sz:double) {
+        def mesh:int (this.meshH(meshH))
+        if (mesh == 0) { return false }
+        this.host.entitySetScale(mesh sx sy sz)
+        return true
+    }
+
+    ; Attach a host-decoded Object3D subtree (e.g. from ThreeGLTFFile.loadGLB).
+    ; Package I/O and image decode stay in the bridge — this arena is game-agnostic.
+    fn modelAttachRoot:OwnedHandle (sceneH:RgHandle root:ThreeObject3D) {
+        def sh:int (this.sceneH(sceneH))
+        if (sh == 0) { return (OwnedHandle.own((RgHandle.invalid()))) }
+        def th:int (this.host.modelAttach(sh root))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.mesh()) th))
+        return (OwnedHandle.own(h))
+    }
+
     ; SW 3D → CPU Texture2D. Backend clears alpha to 0; fragments write
-    ; mat.opacity (glass gems) so Sprite2D composites over the 2D world.
+    ; mat.opacity so Sprite2D composites over the 2D world.
     ; Executed at record time (path A); presenter must not re-run RTT.
     fn renderToTexture:boolean (sceneH:RgHandle camH:RgHandle texH:RgHandle w:int h:int d2:RgRanger2D) {
         def sh:int (this.sceneH(sceneH))

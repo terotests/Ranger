@@ -66,7 +66,7 @@ class RttSpriteTest {
         s.callI(b "rg3d_light_directional" dirA)
         def geoA:[EvalValue]
         push geoA (s.num(0.9))
-        def geoId:int (s.callI(b "rg3d_geometry_diamond" geoA))
+        def geoId:int (s.callI(b "rg3d_geometry_octahedron" geoA))
         def matA:[EvalValue]
         push matA (s.num(7926015.0))
         def matId:int (s.callI(b "rg3d_material_lambert" matA))

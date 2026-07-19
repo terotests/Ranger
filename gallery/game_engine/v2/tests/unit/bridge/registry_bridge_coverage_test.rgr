@@ -359,9 +359,6 @@ class RegistryBridgeCoverageTest {
         def octA:[EvalValue]
         push octA (s.num(0.8))
         def octG:int (s.callI("rg3d_geometry_octahedron" octA))
-        def diaA:[EvalValue]
-        push diaA (s.num(0.9))
-        def diaG:int (s.callI("rg3d_geometry_diamond" diaA))
         def mat3A:[EvalValue]
         push mat3A (s.num(16711680.0))
         def mat3:int (s.callI("rg3d_material_basic" mat3A))
@@ -387,7 +384,7 @@ class RegistryBridgeCoverageTest {
         def dirId:int (s.callI("rg3d_light_directional" dirA))
         def mesh3A:[EvalValue]
         push mesh3A (s.num((to_double scene3)))
-        push mesh3A (s.num((to_double diaG)))
+        push mesh3A (s.num((to_double octG)))
         push mesh3A (s.num((to_double matLambert)))
         def mesh3:int (s.callI("rg3d_mesh_create" mesh3A))
         def xf3:[EvalValue]
@@ -399,6 +396,17 @@ class RegistryBridgeCoverageTest {
         push xf3 (s.num(0.4))
         push xf3 (s.num(0.0))
         s.callN("rg3d_mesh_transform" xf3)
+        def scA:[EvalValue]
+        push scA (s.num((to_double mesh3)))
+        push scA (s.num(1.25))
+        push scA (s.num(1.25))
+        push scA (s.num(1.25))
+        s.callN("rg3d_mesh_set_scale" scA)
+        ; Generic package .glb load (fixture under climber sample; not game-specific API)
+        def mdlA:[EvalValue]
+        push mdlA (s.num((to_double scene3)))
+        push mdlA (s.str("pkg://models/sample.glb"))
+        def mdlId:int (s.callI("rg3d_model_load" mdlA))
         def rtt3:[EvalValue]
         push rtt3 (s.num((to_double scene3)))
         push rtt3 (s.num((to_double cam3)))
@@ -410,7 +418,7 @@ class RegistryBridgeCoverageTest {
         t.ok("three basic material created" (mat3 > 0))
         t.ok("three lights created" ((ambId > 0) && (dirId > 0)))
         t.ok("three octahedron created" (octG > 0))
-        t.ok("three diamond + translucent lit rtt ok" (diaG > 0))
+        t.ok("three model_load + scale + rtt ok" (mdlId > 0))
 
         ; ================= COVERAGE DIFF =====================================
         def missing 0

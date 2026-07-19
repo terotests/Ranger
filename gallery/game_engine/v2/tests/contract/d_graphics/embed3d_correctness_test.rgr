@@ -29,7 +29,7 @@ class Embed3dCorrectnessTest {
         def camId:int (s.callI(b "rg3d_camera_create" empty))
         def geoA:[EvalValue]
         push geoA (s.num(1.0))
-        def geoId:int (s.callI(b "rg3d_geometry_diamond" geoA))
+        def geoId:int (s.callI(b "rg3d_geometry_octahedron" geoA))
         def matA:[EvalValue]
         push matA (s.num(16711680.0))
         def matId:int (s.callI(b "rg3d_material_lambert" matA))

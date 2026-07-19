@@ -36,12 +36,6 @@ class OctahedronGeometry {
   constructor(radius) { this.id = rg3d_geometry_octahedron(radius); }
 }
 
-// Classic gem: wide girdle, short crown, long narrow pavilion.
-class DiamondGeometry {
-  id = 0;
-  constructor(radius) { this.id = rg3d_geometry_diamond(radius); }
-}
-
 class MeshBasicMaterial {
   id = 0;
   constructor(colorHex) { this.id = rg3d_material_basic(colorHex); }
@@ -76,6 +70,24 @@ class Mesh {
   }
   setTransform(px, py, pz, ex, ey, ez) {
     rg3d_mesh_transform(this.id, px, py, pz, ex, ey, ez);
+  }
+  setScale(sx, sy, sz) {
+    rg3d_mesh_set_scale(this.id, sx, sy, sz);
+  }
+}
+
+// Package-relative .glb attached under a scene (host-decoded via ThreeGLTFFile).
+// Games pass any pkg:// uri — the engine has no asset- or game-specific loaders.
+class GLTFModel {
+  id = 0;
+  constructor(scene, uri) {
+    this.id = rg3d_model_load(scene.id, uri);
+  }
+  setTransform(px, py, pz, ex, ey, ez) {
+    rg3d_mesh_transform(this.id, px, py, pz, ex, ey, ez);
+  }
+  setScale(sx, sy, sz) {
+    rg3d_mesh_set_scale(this.id, sx, sy, sz);
   }
 }
 
