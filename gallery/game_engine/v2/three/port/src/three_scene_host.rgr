@@ -236,6 +236,15 @@ class ThreeSceneHost {
         push entities g
         return (array_length entities)
     }
+    ; D-SYNC: create a Group/Object3D node DETACHED — it gets a slot in entities[]
+    ; (stable handle, reparentable) but is added to NO scene. Membership is
+    ; established separately via entitySetParent. Mirrors groupNew minus the attach;
+    ; the fused groupNew above stays intact for callers that attach at create time.
+    fn groupNewDetached:int () {
+        def g:ThreeObject3D (new ThreeObject3D)
+        push entities g
+        return (array_length entities)
+    }
     ; A mesh parented under another entity, so its world matrix composes with the
     ; parent's (the core's updateMatrixWorld walks parent -> child).
     fn meshNewUnder:int (parentH:int geoH:int matH:int) {

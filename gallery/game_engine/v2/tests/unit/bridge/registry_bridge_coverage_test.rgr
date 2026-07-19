@@ -359,6 +359,16 @@ class RegistryBridgeCoverageTest {
         def octA:[EvalValue]
         push octA (s.num(0.8))
         def octG:int (s.callI("rg3d_geometry_octahedron" octA))
+        ; Utah teapot geometry — size, segments, then 5 shape flags as i32 0/1.
+        def teaA:[EvalValue]
+        push teaA (s.num(1.0))
+        push teaA (s.num(2.0))
+        push teaA (s.num(1.0))
+        push teaA (s.num(1.0))
+        push teaA (s.num(1.0))
+        push teaA (s.num(1.0))
+        push teaA (s.num(1.0))
+        def teaG:int (s.callI("rg3d_geometry_teapot" teaA))
         def mat3A:[EvalValue]
         push mat3A (s.num(16711680.0))
         def mat3:int (s.callI("rg3d_material_basic" mat3A))
@@ -433,6 +443,15 @@ class RegistryBridgeCoverageTest {
         push mdlParA (s.num((to_double mdlId)))
         push mdlParA (s.num((to_double scene3)))
         s.callN("rg3d_entity_set_parent" mdlParA)
+        ; D-SYNC: DETACHED group create, then establish membership under the scene
+        ; (group as a child) — row coverage for rg3d_group_create + entity-generic
+        ; parent path with a group.
+        def grpArgs:[EvalValue]
+        def grp:int (s.callI("rg3d_group_create" grpArgs))
+        def grpParA:[EvalValue]
+        push grpParA (s.num((to_double grp)))
+        push grpParA (s.num((to_double scene3)))
+        s.callN("rg3d_entity_set_parent" grpParA)
         def rtt3:[EvalValue]
         push rtt3 (s.num((to_double scene3)))
         push rtt3 (s.num((to_double cam3)))
@@ -444,6 +463,8 @@ class RegistryBridgeCoverageTest {
         t.ok("three basic material created" (mat3 > 0))
         t.ok("three lights created" ((ambId > 0) && (dirId > 0)))
         t.ok("three octahedron created" (octG > 0))
+        t.ok("three teapot geometry created" (teaG > 0))
+        t.ok("three group created + nested under scene" (grp > 0))
         t.ok("three model_load + scale + rtt ok" (mdlId > 0))
 
         ; ================= COVERAGE DIFF =====================================

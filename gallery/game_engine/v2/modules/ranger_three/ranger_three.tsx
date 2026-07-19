@@ -41,6 +41,15 @@ class OctahedronGeometry {
   constructor(radius) { this.id = rg3d_geometry_octahedron(radius); }
 }
 
+// Utah teapot (Three.js addons TeapotGeometry). A leaf resource — no membership.
+// The 5 part/shape flags are booleans; the bridge carries them as i32 0/1.
+class TeapotGeometry {
+  id = 0;
+  constructor(size, seg, bottom, lid, body, fitLid, blinn) {
+    this.id = rg3d_geometry_teapot(size, seg, bottom, lid, body, fitLid, blinn);
+  }
+}
+
 class MeshBasicMaterial {
   id = 0;
   constructor(colorHex) { this.id = rg3d_material_basic(colorHex); }
@@ -79,6 +88,28 @@ class Mesh {
   constructor(geometry, material) {
     this.id = rg3d_mesh_create(geometry.id, material.id);
   }
+  setTransform(px, py, pz, ex, ey, ez) {
+    rg3d_mesh_transform(this.id, px, py, pz, ex, ey, ez);
+  }
+  setScale(sx, sy, sz) {
+    rg3d_mesh_set_scale(this.id, sx, sy, sz);
+  }
+}
+
+// THREE.Group — a transform-only node that owns children. D-SYNC: created
+// DETACHED (no scene membership); establish membership via scene.add(group).
+// A group is a first-class entity: usable AS a child (scene.add(group)) and AS a
+// parent (group.add(mesh)). setTransform/setScale move the whole subtree.
+//
+// Group.remove(child) is intentionally OMITTED: rg3d_entity_remove takes a SCENE
+// handle (host.entityRemove(sceneH, entH) removes from a scene root), so it cannot
+// express "detach a child from a group". To move a child out of a group, reparent
+// it with scene.add(child) / otherGroup.add(child) — entity_set_parent detaches
+// from the current parent first, which covers the group case correctly.
+class Group {
+  id = 0;
+  constructor() { this.id = rg3d_group_create(); }
+  add(obj) { rg3d_entity_set_parent(obj.id, this.id); }
   setTransform(px, py, pz, ex, ey, ez) {
     rg3d_mesh_transform(this.id, px, py, pz, ex, ey, ez);
   }
