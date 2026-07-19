@@ -19,6 +19,9 @@ in [`games/ylos2`](./games/ylos2/index.tsx) crosses façades → interpreter
 bridge → host arenas → presenter → framebuffer, and how genericity is layered
 (game-specific only at the top; host/bridge/presenter stay game-blind).
 
+Open follow-ups (atlas pixels, 2D+3D on one surface, …):
+[`QUESTIONS.md`](./QUESTIONS.md).
+
 ---
 
 ## 1. Why v1 died at the bridges (unchanged from rev 1)
