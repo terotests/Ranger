@@ -1,0 +1,78 @@
+; ==============================================================================
+; frame_pipeline_test — runtime/frame gate (D-MODULES frame pipeline).
+; ==============================================================================
+; Asserts the pipeline order/rules: no update before init; async completions
+; drain at the frame boundary (not mid-update); zero render calls re-present the
+; previous frame (never renders implicitly); an update error stops the realm
+; (shutdown + teardown, no retry); input edges advance at step 8.
+; ==============================================================================
+
+Import "../RgFramePipeline.rgr"
+Import "../../../modules/ranger_core/RgRuntime.rgr"
+Import "../../../bridge/wasm/async/RgAsync.rgr"
+Import "../../../host/handles/RgHandle.rgr"
+Import "../../../tests/harness/RgTest.rgr"
+
+class FramePipelineTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("runtime/frame"))
+
+        ; ---- no update before init resolves ---------------------------------
+        def rt:RgRuntime (RgRuntime.forRealm(1))
+        def g:RgGameProbe (new RgGameProbe)
+        def p:RgFramePipeline (RgFramePipeline.create(rt g))
+        p.frame(0.016)
+        t.eqInt("no update before init" g.updateCalls 0)
+        t.eqInt("no present before init" p.presentCount 0)
+
+        p.init()
+        t.ok("init resolved before first update" g.initialized)
+
+        ; ---- normal frame: update + present --------------------------------
+        p.frame(0.016)
+        t.eqInt("update called after init" g.updateCalls 1)
+        t.eqInt("rendered frame presented" p.presentCount 1)
+        t.eqInt("input edges advanced" p.inputEdgeAdvances 1)
+        ; input snapshot is stable & delivered to the guest
+        t.ok("guest saw the frame's input snapshot" (g.lastInputSeen > 0))
+
+        ; ---- zero render calls → re-present previous (no implicit render) ----
+        g.rendersPerUpdate = 0
+        p.frame(0.016)
+        t.eqInt("update ran again" g.updateCalls 2)
+        t.eqInt("no new present on a zero-render frame" p.presentCount 1)
+        t.eqInt("previous frame re-presented" p.rePresentCount 1)
+        g.rendersPerUpdate = 1
+
+        ; ---- async completions drain at the frame boundary ------------------
+        def req:int (rt.assets.loadBegin("atlas.png"))
+        p.trackAsset(req)
+        ; not complete yet → nothing drains
+        p.frame(0.016)
+        t.eqInt("nothing drains while the load is pending" p.drainedThisFrame 0)
+        ; host finishes the load between turns
+        def loaded:OwnedHandle (rt.assets.async.host.geometryCreate(1 1))
+        rt.assets.hostComplete(req loaded.handle)
+        p.frame(0.016)
+        t.eqInt("completion drained at the next frame boundary" p.drainedThisFrame 1)
+        ; exactly-once: it does not drain again
+        p.frame(0.016)
+        t.eqInt("completion does not drain twice" p.drainedThisFrame 0)
+
+        ; ---- update error → shutdown + teardown, no retry -------------------
+        def updatesBeforeFail:int g.updateCalls
+        g.failOnUpdate = true
+        p.frame(0.016)
+        t.ok("shutdown called on update error" g.shutdownCalled)
+        t.ok("realm torn down on update error" p.realmTornDown)
+        t.ok("pipeline stopped" p.stopped)
+        def updatesAtFail:int g.updateCalls
+        ; a further frame is a no-op — the host does not retry
+        p.frame(0.016)
+        t.eqInt("no retry after a failed update" g.updateCalls updatesAtFail)
+        t.eqInt("failing update ran exactly once more than before"
+            updatesAtFail (updatesBeforeFail + 1))
+
+        t.summary()
+    }
+}

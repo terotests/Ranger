@@ -148,7 +148,14 @@ Phase 12 does **not** delete v1 runtime infrastructure. See plan Intent.
   cross-realm rejection, teardown). Gates: `interp/module_isolation/tests`,
   `tests/contract/d_modules`.
 
-Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (26 suites, 409
-checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 26/26 suites passed`.
+- **Phase 8b — Frame pipeline + runtime.time (D-MODULES): ✅ green.**
+  `runtime/frame/RgFramePipeline.rgr` — the host-owned 8-step tick: input
+  snapshot → drain async at the frame boundary → update → present (zero renders
+  re-present, never implicit) → advance input edges; no update before init;
+  update error → shutdown + teardown, no retry. `runtime.time` fixed-step clock.
+  Gates: `runtime/frame/tests`, `runtime/tests/clock_test`.
 
-*Later phases (8b/9+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*
+Shared harness `tests/harness/RgTest.rgr` + driver `tests/run.sh` (28 suites, 438
+checks). Run: `bash tests/run.sh` → `v2 ALL GREEN — 28/28 suites passed`.
+
+*Later phases (9+) arrive incrementally; see `../CODE_CLEANUP_PLAN.md`.*

@@ -89,6 +89,10 @@ run_suite tests/contract/d_geo/d_geo_contract_test
 run_suite interp/module_isolation/tests/module_isolation_test
 run_suite tests/contract/d_modules/d_modules_contract_test
 
+# ---- Phase 8b — frame pipeline + runtime.time (D-MODULES) --------------------
+run_suite runtime/frame/tests/frame_pipeline_test
+run_suite runtime/tests/clock_test
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ]; then
   echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"
