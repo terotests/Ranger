@@ -97,7 +97,8 @@ class RgSdlGameHost {
     ; Present declared panes to the window. Layout comes from the guest's
     ; runtime.surface.setLayout (paneCount on the host surface) — never from a
     ; hardcoded 1P/2P assumption. One pane → full-window present; two or more →
-    ; side-by-side of panes 0 and 1 (further panes are a future compose path).
+    ; panes 0 and 1 GPU-scaled into each window half (window stays paneW×paneH /
+    ; 16:9; further panes are a future compose path).
     fn present:void (fbL:RgFramebuffer fbR:RgFramebuffer) {
         def n:int (this.host.bridge.surface.paneCount())
         if (n <= 1) {
@@ -174,9 +175,11 @@ class RgSdlGameHost {
     ; Open a window on the rich launcher screen (engine chrome), navigate it, and
     ; hand off to the chosen game through the SAME generic run() the tests use.
     ; Single-surface present (gfx_present) of the launcher's SoftCanvas RGBA — the
-    ; launcher is not split. Native-only loop (gfx_* stub to no-ops under es6).
+    ; launcher is not split. Window is one pane (paneW×paneH, 16:9), matching the
+    ; headless launcher tests and the in-game display aspect. Native-only loop
+    ; (gfx_* stub to no-ops under es6).
     fn runLauncher:int () {
-        def lw:int (this.paneW * 2)
+        def lw:int this.paneW
         def lh:int this.paneH
         if ((gfx_open "Ranger" lw lh) == 0) { return 0 }
         def ui:RgLauncherUi (new RgLauncherUi)
@@ -212,17 +215,15 @@ class RgSdlGameHost {
     ; Open a window and run the game loop until the window closes. Generic: the
     ; game is a folder of .tsx (dir/file). Honours the guest launch(path) request
     ; generically (menu -> game) via the same RgGameHost handoff the tests use.
-    ; Window width follows the guest-declared pane count after load (1 pane =
-    ; paneW, 2+ panes = paneW*2 for side-by-side).
+    ; Display is always one pane size (paneW×paneH, 16:9). Split-screen games
+    ; still rasterise full-res panes; gfx_present_split GPU-scales each into a
+    ; window half (same as v1) — do not open a 2×-wide window.
     fn run:int (dir:string file:string) {
         if ((this.host.load(dir file)) == false) {
             return 0
         }
-        def panes:int (this.host.bridge.surface.paneCount())
-        def winW:int this.paneW
-        if (panes >= 2) { winW = (this.paneW * 2) }
         def title:string ("Ranger v2 — " + file)
-        if ((gfx_open title winW this.paneH) == 0) {
+        if ((gfx_open title this.paneW this.paneH) == 0) {
             return 0
         }
         this.initAudio()
@@ -241,15 +242,6 @@ class RgSdlGameHost {
                 this.host.loadLaunched()
                 this.lastRumble0 = 0
                 this.lastRumble1 = 0
-                ; guest may declare a different pane layout on the new load
-                def nextPanes:int (this.host.bridge.surface.paneCount())
-                def nextW:int this.paneW
-                if (nextPanes >= 2) { nextW = (this.paneW * 2) }
-                if (nextW != winW) {
-                    gfx_close
-                    winW = nextW
-                    if ((gfx_open title winW this.paneH) == 0) { return 0 }
-                }
             }
             this.present(fbL fbR)
             gfx_delay 16

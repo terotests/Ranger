@@ -60,7 +60,8 @@ operators {
         }
     }
 
-    ; Present two full-res panes side-by-side, GPU-scaled into each window half.
+    ; Present two full-res panes, GPU-scaled into each window half (texture =
+    ; pane size; window may be the same 16:9 pane size — not 2× wide).
     ; left/right are w*h*4 RGBA buffers; the GPU downscale replaces the CPU blit.
     gfx_present_split _:void (left:buffer right:buffer w:int h:int) {
         templates {
@@ -162,6 +163,10 @@ operators {
 static SDL_Window*   g_rgfx_win = nullptr;
 static SDL_Renderer* g_rgfx_ren = nullptr;
 static SDL_Texture*  g_rgfx_tex = nullptr;
+// Streaming texture pixel size — must match SDL_UpdateTexture pitch (w*4).
+// Mismatch vs upload width triggers AGX bytes_per_row asserts on macOS/Metal.
+static int g_rgfx_tex_w = 0;
+static int g_rgfx_tex_h = 0;
 static SDL_AudioDeviceID g_rgfx_audio = 0;
 static int g_rgfx_audio_channels = 1;
 static int g_rgfx_audio_freq = 44100;
@@ -2016,6 +2021,27 @@ static void rgfx_gl_cleanup() {
     g_rgfx_gpu_mode = 0;
 }
 
+// Ensure the streaming upload texture is exactly w×h. SDL_UpdateTexture with
+// rect=nullptr writes the whole texture; pitch must be w*4. A wider texture
+// (e.g. old 960-wide window vs 480-wide pane) fails Metal/AGX with
+// bytes_per_row >= used_bytes_per_row.
+static int rgfx_ensure_streaming_tex(int w, int h) {
+    if (g_rgfx_ren == nullptr || w <= 0 || h <= 0) { return 0; }
+    if (g_rgfx_tex != nullptr && g_rgfx_tex_w == w && g_rgfx_tex_h == h) { return 1; }
+    if (g_rgfx_tex != nullptr) {
+        SDL_DestroyTexture(g_rgfx_tex);
+        g_rgfx_tex = nullptr;
+        g_rgfx_tex_w = 0;
+        g_rgfx_tex_h = 0;
+    }
+    g_rgfx_tex = SDL_CreateTexture(g_rgfx_ren, SDL_PIXELFORMAT_RGBA32,
+        SDL_TEXTUREACCESS_STREAMING, w, h);
+    if (g_rgfx_tex == nullptr) { return 0; }
+    g_rgfx_tex_w = w;
+    g_rgfx_tex_h = h;
+    return 1;
+}
+
 static int rgfx_open(const std::string& title, int w, int h) {
     rgfx_prepare_audio_env();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) { return 0; }
@@ -2027,9 +2053,7 @@ static int rgfx_open(const std::string& title, int w, int h) {
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (g_rgfx_ren == nullptr) { g_rgfx_ren = SDL_CreateRenderer(g_rgfx_win, -1, 0); }
     if (g_rgfx_ren == nullptr) { return 0; }
-    g_rgfx_tex = SDL_CreateTexture(g_rgfx_ren, SDL_PIXELFORMAT_RGBA32,
-        SDL_TEXTUREACCESS_STREAMING, w, h);
-    if (g_rgfx_tex == nullptr) { return 0; }
+    if (!rgfx_ensure_streaming_tex(w, h)) { return 0; }
     return 1;
 }
 // Actual output surface size in pixels (drawable / window), so UI can be
@@ -2060,7 +2084,7 @@ static void rgfx_present(const uint8_t* pixels, int w, int h) {
         rgfx_gpu_finish_frame();
         return;
     }
-    if (g_rgfx_tex == nullptr) { return; }
+    if (!rgfx_ensure_streaming_tex(w, h)) { return; }
     SDL_UpdateTexture(g_rgfx_tex, nullptr, pixels, w * 4);
     SDL_RenderClear(g_rgfx_ren);
     SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, nullptr);
@@ -2068,13 +2092,14 @@ static void rgfx_present(const uint8_t* pixels, int w, int h) {
 }
 // Split-screen present: upload each full-res pane once and let the GPU scale it
 // into its half of the window. Avoids the CPU 480→240 downscale blit entirely —
-// the scale is free on the GPU during SDL_RenderCopy.
+// the scale is free on the GPU during SDL_RenderCopy. The streaming texture is
+// sized to the pane (w×h), not the window — required for correct pitch on Metal.
 static void rgfx_present_split(const uint8_t* left, const uint8_t* right, int w, int h) {
     if (g_rgfx_gpu_mode) {
         rgfx_gpu_present_split(left, right, w, h);
         return;
     }
-    if (g_rgfx_tex == nullptr) { return; }
+    if (!rgfx_ensure_streaming_tex(w, h)) { return; }
     int outW = w;
     int outH = h;
     SDL_GetRendererOutputSize(g_rgfx_ren, &outW, &outH);
@@ -2119,6 +2144,8 @@ static void rgfx_close() {
     }
     g_pad_count = 0;
     if (g_rgfx_tex) { SDL_DestroyTexture(g_rgfx_tex); g_rgfx_tex = nullptr; }
+    g_rgfx_tex_w = 0;
+    g_rgfx_tex_h = 0;
     if (g_rgfx_ren) { SDL_DestroyRenderer(g_rgfx_ren); g_rgfx_ren = nullptr; }
     if (g_rgfx_win) { SDL_DestroyWindow(g_rgfx_win); g_rgfx_win = nullptr; }
     SDL_Quit();

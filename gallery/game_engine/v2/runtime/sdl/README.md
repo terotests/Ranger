@@ -22,10 +22,12 @@ knowledge** and **no additions to `ranger:core`**.
   path: `runLauncher()` (present the rich launcher canvas via `gfx_present`,
   navigate on key-press *edges*, hand off the chosen game to `run`) and `run`
   (poll input → actions → `host.frame` → present → forward rumble, honour
-  the guest launch handoff). Present follows the guest-declared pane count
-  (1 pane → `gfx_present`, 2+ → `gfx_present_split`); `clearRgb` is a neutral
-  framebuffer clear, not a scene sky. `launcherStep`/`mapMask`/`edge`/
-  `toRgbaBuffer` are pure host-input/present seams, unit-tested headlessly.
+  the guest launch handoff). The window is always one pane (`480×270`, 16:9);
+  present follows the guest-declared pane count (1 pane → `gfx_present`, 2+ →
+  `gfx_present_split` which scales each full-res pane into a window half).
+  `clearRgb` is a neutral framebuffer clear, not a scene sky.
+  `launcherStep`/`mapMask`/`edge`/`toRgbaBuffer` are pure host-input/present
+  seams, unit-tested headlessly.
 - `RgSdlMain.rgr` — native entry; calls `runLauncher()` (engine chrome, not a
   game — games remain `.tsx`-only).
 - `../../menu/RgLauncherUi.rgr` — the launcher screen itself (title, subtitle,
