@@ -13,17 +13,27 @@ folder**.
 
 **v2 is additive.** The goal is a parallel, unit-testable stack — not to
 downgrade, break, or strip the runtime that kids’ titles (chess, ylos2, …)
-use today. Until an explicit, later decision retires v1 support:
+use today.
+
+**Two policies, one explicit transition:**
+
+| Policy | When | Meaning |
+|--------|------|---------|
+| **Runnable legacy** | Now through Phase 12 and until an explicit end-of-v1 milestone | Top-level `games/*` stay launchable on **v1** engine paths. Reconciler / sprite / sheet infrastructure those demos still need **cannot** be removed. |
+| **Archival legacy** | Only after that milestone | v1 sources remain on disk as migration reference; **only v2** is guaranteed runnable. Deleting v1 runtime paths is then allowed. |
+
+Until archival is declared, the runnable-legacy guarantees hold:
 
 | Guarantee | Meaning |
 |-----------|---------|
 | **v1 games keep working** | Top-level `games/*` continue to launch on the **v1** engine paths (`scripting/game_sprite.rgr`, TS runners, sheet manifests, etc.). |
 | **v1 engine paths are frozen** | Do **not** delete or “clean up” `scripting/`, v1 sprite runners, or sheet machinery as part of D-2D-7…10 / Phase 12. Those retirements apply only to **v2-staged** copies (e.g. `v2/sprites/*`) and to **v2** call sites after parity. |
 | **No silent runtime removal** | Keeping game *sources* while deleting the v1 runtime they need is treated as destroying the games — forbidden. |
-| **`RETIRE-RECONCILE` scope** | Touches the 3D `three/tsx` reconciler path only — not 2D GameRunner / `game_sprite` used by chess and ylos2. |
+| **`RETIRE-RECONCILE` scope** | Touches the 3D `three/tsx` reconciler path only — and only when no remaining **runnable** v1 3D demo depends on it. Never removes 2D GameRunner / `game_sprite` used by chess and ylos2. |
 
-v2 ports prove the new API; they do **not** license ripping out v1 until a
-dedicated “end v1 support” milestone says so.
+v2 ports prove the new API; they do **not** license ripping out v1. Phase 12
+stays under **runnable legacy**. Moving to **archival legacy** is a separate,
+named decision — not implied by selected ports finishing.
 
 | Rule | Meaning |
 |------|---------|
@@ -47,11 +57,12 @@ this plan must follow (merged after the first scaffold draft):
 |----------|-------------|
 | **Hybrid binding invariants** (under D-ADAPTER) | Phase 4 — cached wrapper identity, dual revisions, turn-start refresh, guest-wins |
 | **D-OWN** — who retains / releases | Phases 2, 5, 6 — ownership table tests; borrowed getters; weak attachments |
-| **D-ASYNC** — poll + frame-boundary completions | Phases 5 / 8 / 10 — `begin`/`poll`/`cancel`/`release`; no ABI callbacks |
+| **D-ASYNC** — poll + frame-boundary completions | Phases 5 / 8 — `begin`/`poll`/`cancel`/`release`; no ABI callbacks; asset loads in Phase 8 |
 | **D-REGISTRY ID immutability** | Phase 3 — golden id table; tombstones; codegen fails on meaning change |
 | **D-GEO aliasing split** | Phase 7 — Ranger-native one-copy vs Three-compat staging + `needsUpdate` |
 | **Module namespace isolation** | Phase 8 prerequisite (interp) — before `ranger:*` injection |
 | **Frame pipeline** (`runtime.start`) | Phase 8–10 — drain async completions between guest turns |
+| **`runtime.assets` / `runtime.time`** | Phase 8 — fundamental runtime (not Phase 10 devices); 10b depends on these |
 | **`WASM_MEMORY_ABI.md` span/status rules** | Phase 5/7 — one span convention; status codes ≠ result counts |
 | **D-2D / `ranger:2d`** (P1) | Phase 10b–12 — sibling of Three; retained + DrawList2D; D-2D-1…10 |
 | **Surface panes / split-screen** | Phase 8–10 / 12 — required for ylos2 / 2P titles |
@@ -59,7 +70,10 @@ this plan must follow (merged after the first scaffold draft):
 | **v1 path freeze** | All phases — D-2D-10 / Phase 12 retirement is **v2-scoped** only |
 
 Gate order and required tests in CODE_CLEANUP’s **Implementation gates**
-section are authoritative; the phase table below tracks them.
+section are authoritative and **aligned with the phase dependency graph**
+below (identity → registry/arenas → adapter → ownership/geo → WASM → …).
+Do not start the next phase’s production code until that phase’s gate tests
+pass.
 
 ---
 
@@ -77,7 +91,8 @@ selected, re-implemented, old copies kept.
 | [`docs/ADR-0001-three-scene-host-authority.md`](./docs/ADR-0001-three-scene-host-authority.md) | Host authority ADR |
 
 The existing `three/`, `scripting/`, `physics/`, `wasm/`, and top-level `games/`
-trees remain as the **v1 reference / demo** stack. They are not deleted.
+trees remain as the **runnable v1** stack (and as reference). They are not
+deleted while runnable legacy applies.
 
 **Staged imports:** well-tested modular packages are **copied into `v2/`**
 (see below) so work happens on the new tree. Copies start as *staged* — import
@@ -223,17 +238,24 @@ gallery/game_engine/v2/
 │   │   │   ├── clip/
 │   │   │   ├── source/
 │   │   │   └── voice/
-│   │   ├── two_d/                 # Sprite2D, Camera2D, Atlas, Layer, … (D-2D)
-│   │   │   ├── sprite/
-│   │   │   ├── shape/
-│   │   │   ├── camera/
-│   │   │   ├── layer/
-│   │   │   ├── atlas/
-│   │   │   ├── animation/
-│   │   │   └── draw_list/         # frame-local — no arena identity
+│   │   ├── two_d/                 # retained 2D pools only (D-2D) — see folder README
+│   │   │   ├── scene/             # Scene2D
+│   │   │   ├── layer/             # Layer2D
+│   │   │   ├── camera/            # Camera2D
+│   │   │   ├── renderer/          # Renderer2D (retained present state)
+│   │   │   ├── sprite/            # Sprite2D
+│   │   │   ├── shape/             # Shape2D
+│   │   │   ├── tilemap/           # TileMap2D
+│   │   │   ├── particle/          # ParticleEmitter2D
+│   │   │   ├── texture/           # Texture2D
+│   │   │   ├── atlas/             # SpriteAtlas
+│   │   │   └── animation/         # AnimationClip2D / AnimationPlayer2D
 │   │   └── input/
 │   │       ├── action_map/
 │   │       └── gamepad/
+│   ├── frame_commands/            # frame-owned buffers — NOT typed arenas
+│   │   └── two_d/
+│   │       └── draw_list/         # DrawList2D — no persistent handles
 │   ├── lifetime/                  # object ≠ membership ≠ backend (D-LIFE)
 │   ├── ownership/                 # D-OWN retain/borrow/weak attach rules
 │   ├── commands/                  # registry command implementations
@@ -346,16 +368,21 @@ of `gallery/game_engine/games/`.
 | **5** | WASM create/free/retain/release + **D-ASYNC** poll stubs | 2, 3 | No |
 | **6** | D-LIFE + D-OWN membership / dispose / weak attach | 2, 4, 5 | No |
 | **7** | D-GEO bulk + aliasing split + D-WASM-MEM | 5, 6 | No |
-| **8** | Module isolation → `ranger:*` + frame pipeline | 4, 5 | No |
+| **8** | Module isolation → `ranger:*` + frame pipeline + **`runtime.assets` / `runtime.time`** | 4, 5 | No |
 | **9** | Physics arenas + pose sync (no draw) | 6, 8 | No |
-| **10** | Audio / input / surface (D-OWN voices, D-ASYNC loads) | 8 | No |
-| **10b** | **D-2D** `ranger:2d` (gates D-2D-1…D-2D-6 headless first) | 2, 5, 8 | No* |
+| **10** | Audio / input / physical surface devices (D-OWN voices, panes) | 8 | No |
+| **10b** | **D-2D** `ranger:2d` (gates D-2D-1…D-2D-6 headless first) | 2, 5, **8** | No* |
 | **11** | Render backends + Camera2D / sprite present (SW + GPU) | 6–10b | **Yes** |
-| **12** | Migrate games + D-2D-7…10 + `RETIRE-RECONCILE` | 11 | Yes |
+| **12** | Migrate games + D-2D-7…10 + `RETIRE-RECONCILE` (**runnable legacy**) | 11 | Yes |
 
-\*Retained create/free, atlas load (fake bytes), animation clock, and DrawList2D
-“no handle minted” tests are headless; equivalent SW/GPU camera samples need
-Phase 11.
+\*Retained create/free, atlas load (fake bytes via Phase 8 `runtime.assets`),
+animation clock (`runtime.time`), and DrawList2D “no handle minted” tests are
+headless; equivalent SW/GPU camera samples need Phase 11.
+
+**Phase 10b depends on Phase 8** (not Phase 10): atlas loads and animation
+clocks need `runtime.assets` / `runtime.time`, which land in Phase 8 as
+fundamental runtime capabilities. Phase 10 is device integration (audio,
+input, physical surface / panes) and does **not** gate 10b.
 
 Phases 1–5 are the critical path: **before any frame is drawn**, create and free
 objects through both bridges under unit tests (ownership rules included).
@@ -551,15 +578,24 @@ aliasing cases when the wrapper path exists.
 6 / `TSX_ENGINE_ISSUES` #5/#9) — colliding helpers across imports must not
 clobber; repeated import returns the same namespace object.
 
-Then inject `ranger:core` / `ranger:three` / `ranger:cannon` for the current
-realm. Stub `runtime.surface` / `runtime.log` with headless fakes. Implement
-the **frame pipeline** order from CODE_CLEANUP (including draining D-ASYNC
-completions between guest turns).
+Then inject `ranger:core` / `ranger:2d` / `ranger:three` / `ranger:cannon` for
+the current realm. Stub `runtime.surface` / `runtime.log` with headless fakes.
+Implement the **frame pipeline** order from CODE_CLEANUP (including draining
+D-ASYNC completions between guest turns).
+
+**Also in this phase (fundamental runtime, not “devices”):**
+
+| Service | Why here |
+|---------|----------|
+| `runtime.assets` | D-ASYNC load stubs (`loadSpriteAtlas`, `loadAudio`, …) — required by Phase 10b and several later systems |
+| `runtime.time` | Frame clock / fixed step — required by AnimationPlayer2D (D-2D-5) and physics step |
+
+Prefer fake asset bytes and a host-driven clock so CI stays headless.
 
 **Unit tests:** `interp/module_isolation/tests`, `bridge/modules/tests`,
 `tests/contract/d_modules` — import resolves; two realms get distinct
 `runtime` roots; cross-realm `runtime` rejected; guest-only class never
-appears in an arena.
+appears in an arena; asset poll stubs obey D-ASYNC exactly-once transfer.
 
 ---
 
@@ -567,25 +603,40 @@ appears in an arena.
 
 World/body arenas + `fixed_step` + pose read. Copy pose into mesh transforms via
 host commands only — still no pixels. Host pose writes bump hybrid **host
-revision** (Phase 4 invariants).
+revision** (Phase 4 invariants). Uses Phase 8 `runtime.time` for the step clock.
 
 **Move candidates later:** selected files from `physics/` Cannon port — only
 after arenas and commands exist.
 
 ---
 
-## Phase 10 — Audio / input / surface (fakes allowed)
+## Phase 10 — Audio / input / physical surface (fakes allowed)
 
-Action maps, rumble stubs, clip/source/voice lifetimes (D-OWN: `play()` voices
-caller-owned; `playOneShot()` mixer-owned). Asset loads via D-ASYNC poll.
-Prefer fake devices so CI stays headless.
+Device integration on top of Phase 8’s runtime root — **not** a dependency of
+Phase 10b:
+
+- Action maps, rumble stubs
+- Clip/source/voice lifetimes (D-OWN: `play()` voices caller-owned;
+  `playOneShot()` mixer-owned)
+- Vocal FX + music-score facades (or interim “map to clips” policy)
+- Physical surface / **split-screen viewports** (`createViewport`, …
+  — required for ylos2 / 2P)
+
+Asset loading and time stay in Phase 8. Prefer fake devices so CI stays
+headless.
 
 ---
 
 ## Phase 10b — D-2D `ranger:2d` (migration gates)
 
+**Depends on Phases 2, 5, and 8** (arenas, WASM create/free, modules +
+`runtime.assets` / `runtime.time`). Does **not** wait on Phase 10 devices.
+
 Implement the binding decision in CODE_CLEANUP **D-2D**. Staged `sprites/` /
 RGSP1 / LPC are **inputs to migrate**, not the long-term API.
+
+`DrawList2D` lives under `host/frame_commands/two_d/` (frame-owned buffer),
+**not** under `host/arenas/` (typed object pools).
 
 | Gate | Deliverable |
 |------|-------------|
@@ -629,8 +680,9 @@ plus retained `Sprite2D` + atlas smoke on software (and GPU when available).
 
 ## Phase 12 — Selected games + D-2D-7…10 + retire reconciler (v2-scoped)
 
-Re-home gameplay onto the new API; **v1 games and v1 engine paths keep
-running** (see **Intent: v1 keeps running** above).
+Re-home gameplay onto the new API under **runnable legacy**: v1 games and the
+v1 engine paths they need **keep running** (see **Intent** above). This phase
+does **not** flip the tree to archival legacy.
 
 1. **Must-pass ports:** `chess`, `ylos2` (named in `v2/games/README.md`), plus
    other selected 2D/3D titles (cube / teapot / Cannon / Pac-Man / Breakout /
@@ -638,13 +690,15 @@ running** (see **Intent: v1 keeps running** above).
 2. Copy or rewrite onto `ranger:2d` / `ranger:three` / `ranger:core` (not
    RGSP1 slots or reconciler wrappers) **inside `v2/games/` only**.
 3. Complete **D-2D-7…D-2D-10** for *v2* migrated titles — retirement deletes
-   only `v2/`-staged obsolete paths.
-4. `RETIRE-RECONCILE` removes the 3D reconciler when its criteria are met; it
-   does **not** remove 2D GameRunner / `game_sprite` while v1 2D games remain
-   supported.
+   only `v2/`-staged obsolete paths. Top-level `scripting/` / runners stay.
+4. `RETIRE-RECONCILE` removes the 3D reconciler only when its criteria are met
+   **and** no remaining runnable v1 3D demo depends on it. It never removes
+   2D GameRunner / `game_sprite` while v1 2D games remain supported.
 5. **ylos2 port gate** also requires ranger:core split-screen viewports +
    vocal FX + music score (or an explicit “port maps these to plain clips /
    single camera” decision documented on that game).
+6. **Archival legacy** (v1 sources kept, v1 runtime may be deleted) is **out of
+   scope** for Phase 12 — requires a later, explicit end-of-v1 milestone.
 
 ---
 
@@ -677,20 +731,22 @@ tangled. **Never delete the v1 original** as part of a port.
 
 ## Mapping to CODE_CLEANUP implementation gates
 
-Authoritative list: CODE_CLEANUP **Implementation gates** (9 steps). Plan map:
+Authoritative list: CODE_CLEANUP **Implementation gates**. The contract order
+and this phase graph agree — adapter is gate 3 / Phase 4, after arenas +
+registry.
 
 | CODE_CLEANUP gate order | Plan phases |
 |-------------------------|-------------|
 | 1. D-IDENTITY | 1 |
-| 2. D-ADAPTER / D-PROP (+ hybrid invariants) | 4 |
-| 3. D-REGISTRY / D-TYPE / D-HANDLE (+ id immutability) | 2, 3 |
+| 2. D-REGISTRY / D-TYPE / D-HANDLE (+ id immutability) | 2, 3 |
+| 3. D-ADAPTER / D-PROP (+ hybrid invariants) | 4 |
 | 4. D-SYNC / D-LIFE / D-OWN / D-GEO | 4, 6, 7 |
-| 5. D-WASM / D-WASM-MEM / D-ASYNC | 5, 7, 10 |
+| 5. D-WASM / D-WASM-MEM / D-ASYNC | 5, 7, 8 (assets poll) |
 | 6. Interpreter module-namespace isolation | 8 (prerequisite) |
-| 7. Virtual modules + `runtime` (incl. `ranger:2d`) | 8, 10b |
+| 7. Virtual modules + `runtime` (incl. assets/time, `ranger:2d`) | 8 |
 | 8. D-2D retained 2D + atlas + camera + anim + draw list | 10b–12 (D-2D-1…10) |
 | 9. Demos → `runtime.start` / `export_game!` (2D + 3D) | 10–12 (`v2/games/`) |
-| 10. `RETIRE-RECONCILE` + retire sprite slots/manifests | 12 |
+| 10. `RETIRE-RECONCILE` + retire **v2** sprite slots/manifests | 12 (runnable legacy) |
 
 ---
 
@@ -716,12 +772,12 @@ Authoritative list: CODE_CLEANUP **Implementation gates** (9 steps). Plan map:
 - [ ] **Phase 5** — WASM create/free/retain/release + D-ASYNC poll stubs + parity
 - [ ] **Phase 6** — Membership ≠ release; dispose_backend ≠ release; weak attach
 - [ ] **Phase 7** — Stable `geoH` bulk upload + native vs compat aliasing
-- [ ] **Phase 8** — Module isolation → `ranger:*` + frame pipeline (drain async)
+- [ ] **Phase 8** — Module isolation → `ranger:*` + frame pipeline + `runtime.assets` / `runtime.time`
 - [ ] **Phase 9** — Physics step + pose sync (headless)
-- [ ] **Phase 10** — Audio/input/surface fakes (D-OWN voices, D-ASYNC loads)
-- [ ] **Phase 10b** — D-2D-1…D-2D-6 (`ranger:2d` registry, atlas, Sprite2D, Camera2D math, anim, DrawList2D)
+- [ ] **Phase 10** — Audio/input/surface devices (D-OWN voices, panes, vocal/music)
+- [ ] **Phase 10b** — D-2D-1…D-2D-6 (`ranger:2d`; depends on 8 for assets/time; DrawList2D in `frame_commands/`)
 - [ ] **Phase 11** — SW/GPU present + Camera2D parity (3D + 2D)
-- [ ] **Phase 12** — Must-pass chess + ylos2 (+ others); D-2D-7…10 **v2-scoped** retirement; `RETIRE-RECONCILE` (v1 runtime frozen)
+- [ ] **Phase 12** — Must-pass chess + ylos2 (+ others); D-2D-7…10 **v2-scoped**; `RETIRE-RECONCILE` under **runnable legacy**
 
 ---
 

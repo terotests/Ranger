@@ -6,7 +6,7 @@ Readers, mesh/scene bridges, texture decode, and existing tests. Wire into
 `ranger:three` asset loading (D-ASYNC) rather than keeping a parallel script
 bridge forever.
 
-**Plan phase:** after geometry arenas (Phase 7) / assets (Phase 10).
+**Plan phase:** after geometry arenas (Phase 7) / assets (Phase 8 `runtime.assets`).
 
 ## Unit / contract tests that gate this folder
 
