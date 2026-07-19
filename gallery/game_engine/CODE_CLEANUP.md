@@ -11,8 +11,7 @@ Related: [`docs/ADR-0001-three-scene-host-authority.md`](./docs/ADR-0001-three-s
 
 # Architecture decisions (binding — from design review)
 
-These resolve conflicts that would otherwise make the rest of this document an
-unsafe implementation contract. Treat them as decisions, not options.
+Binding choices for implementation. Treat them as decisions, not options.
 
 ## D-SYNC — Live host-backed objects; reconciler is temporary
 
