@@ -3,7 +3,8 @@
 ; ==============================================================================
 ; Asserts PLAN_2D_EMBED_3D path A gems sit on top of the ylos2 port (LPC sheets,
 ; split-screen, enemies, immediate env). Diamonds are texture-backed Sprite2Ds
-; from SW RTT of package .glb models.
+; from SW RTT of package .glb models. Also gates v1-parity logic probes: super
+; sheets, enemy alive flags, and collectible diamond state.
 ; ==============================================================================
 
 Import "../../runtime/game_host/RgGameHost.rgr"
@@ -35,19 +36,28 @@ class Ylos3DE2ETest {
         t.ok("test fixture loaded"
             (host.loadFixture("gallery/game_engine/v2/games/ylos3d/tests" "probe.tsx")))
 
-        ; ylos2 retained sprites + five 3D diamond sprites
-        t.eqInt("19 retained sprites (2 players + 12 enemies + 5 diamonds)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 19)
-        t.eqInt("three sheet atlases (p1 + p2 + enemy)"
-            (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 3)
+        ; walk + super sprites per player, twelve enemies, five 3D diamonds
+        t.eqInt("21 retained sprites (2+2 players + 12 enemies + 5 diamonds)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 21)
+        t.eqInt("five sheet atlases (p1 + p2 + supers + enemy)"
+            (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 5)
         t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
         t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
         t.eqInt("five diamond SceneSprite probes" (to_int (host.callSlot("diamondCount" 0))) 5)
+        t.eqInt("twelve enemy probes" (to_int (host.callSlot("enemyCount" 0))) 12)
+        t.eqInt("enemy 0 starts alive" (to_int (host.callSlot("enemyAlive" 0))) 1)
+        t.eqInt("diamond 0 starts untaken" (to_int (host.callSlot("diamondTaken" 0))) 0)
+        t.eqInt("player 0 starts without super" (to_int (host.callSlot("playerSuperMs" 0))) 0)
+        t.eqInt("player 0 not finished" (to_int (host.callSlot("playerDone" 0))) 0)
 
         def d0:int (to_int (host.callSlot("diamondSpriteId" 0)))
         def d0h:RgHandle (host.bridge.resolveGuestId(d0))
         t.ok("diamond 0 handle valid" (d0h.isValid()))
         t.ok("diamond 0 is texture-backed" (host.bridge.d2.spriteUsesTexture(d0h)))
+
+        def s0:int (to_int (host.callSlot("playerSuperSpriteId" 0)))
+        def s0h:RgHandle (host.bridge.resolveGuestId(s0))
+        t.ok("player 0 super sprite handle valid" (s0h.isValid()))
 
         def f 0
         while (f < 8) {
