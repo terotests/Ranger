@@ -101,9 +101,13 @@ class LauncherUiTest {
         t.ok("a real TrueType font is loaded (not the bitmap fallback)" (ui2.hasTrueTypeFont()))
         t.ok("Pomppija has a decoded preview image from its game.info icon" (ui2.selectedHasImage()))
 
-        ; selection clamps within the discovered games
+        ; selection clamps within the discovered games (count-agnostic: the set is
+        ; filesystem-driven, so more games may appear — clamp must stay valid)
         ui2.moveSelection(9)
-        t.eqStr("selection clamps at the last discovered game" (ui2.selectedLabel()) "Pomppija")
+        t.ok("selection clamps to a valid game at the end" ((strlen (ui2.selectedLabel())) > 0))
+        t.ok("the clamped game still has a handoff target" ((strlen (ui2.selectedDir())) > 0))
+        ui2.moveSelection(0 - 100)
+        t.eqStr("clamps back to the first game (Pomppija, index=1)" (ui2.selectedLabel()) "Pomppija")
 
         ; activating a game reports launch (1); the host reads dir/file
         def a1:int (ui2.activate())
