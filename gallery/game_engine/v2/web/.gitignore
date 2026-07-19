@@ -2,3 +2,6 @@
 dist/
 _raw/
 node_modules/
+# browser smoke-test screenshots
+tests/*.png
+*_smoke.png
