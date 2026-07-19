@@ -26,8 +26,8 @@ Import "UIContext.rgr"
 Import "UIAnimator.rgr"
 Import "../scripting/wasm_ui_io.rgr"
 Import "../scripting/game_image_loader.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGElement.rgr"
+Import "../evg/EVGLayout.rgr"
+Import "../evg/EVGElement.rgr"
 
 ; -----------------------------------------------------------------------------
 ; Guest-driven effects: the WASM UI guest fires env.rg_ui_glow(node,dur,delay,tag)

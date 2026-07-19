@@ -8,7 +8,7 @@
 ; ==============================================================================
 
 Import "EvgLauncherMenu.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../imaging/raster/PNGEncoder.rgr"
 
 class EvgLauncherDemo {
     def passed:int 0

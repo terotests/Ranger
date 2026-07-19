@@ -23,7 +23,7 @@ Import "UIContext.rgr"
 Import "WasmUiSelect.rgr"
 Import "../scripting/game_catalog.rgr"
 Import "../scripting/game_image_loader.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "../evg/EVGColor.rgr"
 
 ; One laid-out tile: the image square plus the label bar under it.
 class LauncherTile {

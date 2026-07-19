@@ -198,7 +198,7 @@ class UITest {
         c.ok("bitmap measured width positive" (bw > 0.0))
 
         print "======================================"
-        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
             print "ALL PASS"
         } {
