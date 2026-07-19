@@ -17,8 +17,8 @@
 
 Import "three_gltf_file.rgr"
 Import "three_http.rgr"
-Import "../../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
-Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../../imaging/jpeg/JPEGDecoder.rgr"
+Import "../../../imaging/jpeg/ImageBuffer.rgr"
 Import "../../lpc/src/png_decoder.rgr"
 
 class ThreeGLTFTextures {

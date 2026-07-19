@@ -19,7 +19,7 @@ Import "three_cube_texture.rgr"
 Import "three_matrix4.rgr"
 Import "three_texture.rgr"
 Import "three_material.rgr"
-Import "../../model3d/ByteReader.rgr"
+Import "../../../model3d/ByteReader.rgr"
 
 class ThreeGLBackend extends ThreeRenderBackend {
     def prog:int 0
