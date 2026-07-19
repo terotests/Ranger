@@ -182,6 +182,8 @@ run_suite tests/unit/three/orbit_controls_test
 run_suite menu/tests/launcher_ui_test
 # EVG layout/color/text/path primitives that back the launcher UI
 run_suite evg/evg_test
+# D-CLIP: overflow:hidden clips descendants to the (rounded) padding box
+run_suite ui/tests/clip_overflow_test
 # ui widget/layout logic (headless)
 run_suite ui/tests/UITest
 

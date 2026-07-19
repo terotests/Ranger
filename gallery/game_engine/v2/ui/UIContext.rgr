@@ -47,17 +47,118 @@ class UITheme {
     }
 }
 
+; One clip region on the context's clip stack: a (rounded) rect that a pixel
+; must fall inside to be painted. rad 0 = a plain rectangle. Nested clips stack;
+; a pixel must pass EVERY entry (their intersection), so an inner overflow box
+; clips within an outer one automatically.
+class UIClipRect {
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    def rad:int 0
+    Constructor () {
+    }
+}
+
 class UIContext {
     def canvas:SoftCanvas (new SoftCanvas)
     def tr:UITextRenderer (new UITextRenderer)
     def theme:UITheme (new UITheme)
     def frame:int 0        ; frame counter, drives caret blink etc.
 
+    ; Clip stack (empty = no clipping, the common case). `hasClipFlag` mirrors
+    ; "stack non-empty" so the per-pixel hot path is a single boolean test, and
+    ; clipX/Y/W/H is the rectangular bounding box of the intersection (used to
+    ; clip cached text-glyph blits, which bypass blendPixel).
+    def clips:[UIClipRect]
+    def hasClipFlag:boolean false
+    def clipX:int 0
+    def clipY:int 0
+    def clipW:int 0
+    def clipH:int 0
+
     Constructor () {
     }
 
     fn attach:void (c:SoftCanvas) {
         canvas = c
+    }
+
+    ; --- clip stack ------------------------------------------------------------
+    ; Push a (rounded) clip region. Subsequent paints are confined to the
+    ; intersection of all pushed regions until the matching popClip().
+    fn pushClip:void (x:int y:int w:int h:int rad:int) {
+        def c:UIClipRect (new UIClipRect)
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.rad = rad
+        push this.clips c
+        this.recomputeClipBounds()
+    }
+
+    fn popClip:void () {
+        def n:int (array_length this.clips)
+        if (n <= 0) { return }
+        def out:[UIClipRect]
+        def i 0
+        while (i < (n - 1)) {
+            push out (itemAt this.clips i)
+            i = (i + 1)
+        }
+        this.clips = out
+        this.recomputeClipBounds()
+    }
+
+    ; Recompute hasClipFlag + the intersection bounding box after a push/pop.
+    fn recomputeClipBounds:void () {
+        def n:int (array_length this.clips)
+        if (n <= 0) {
+            this.hasClipFlag = false
+            return
+        }
+        this.hasClipFlag = true
+        def c0:UIClipRect (itemAt this.clips 0)
+        def minx:int c0.x
+        def miny:int c0.y
+        def maxx:int (c0.x + c0.w)
+        def maxy:int (c0.y + c0.h)
+        def i 1
+        while (i < n) {
+            def c:UIClipRect (itemAt this.clips i)
+            if (c.x > minx) { minx = c.x }
+            if (c.y > miny) { miny = c.y }
+            if ((c.x + c.w) < maxx) { maxx = (c.x + c.w) }
+            if ((c.y + c.h) < maxy) { maxy = (c.y + c.h) }
+            i = (i + 1)
+        }
+        this.clipX = minx
+        this.clipY = miny
+        this.clipW = (maxx - minx)
+        this.clipH = (maxy - miny)
+    }
+
+    ; True if (px,py) is inside every clip region on the stack.
+    fn clipAllows:boolean (px:int py:int) {
+        def n:int (array_length this.clips)
+        def i 0
+        while (i < n) {
+            def c:UIClipRect (itemAt this.clips i)
+            if (c.rad > 0) {
+                if ((this.roundedInside(px py c.x c.y c.w c.h c.rad)) == false) {
+                    return false
+                }
+            } {
+                if (px < c.x) { return false }
+                if (py < c.y) { return false }
+                if (px >= (c.x + c.w)) { return false }
+                if (py >= (c.y + c.h)) { return false }
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
     ; --- low-level fills -------------------------------------------------------
@@ -69,6 +170,9 @@ class UIContext {
         if (y < 0) { return }
         if (x >= cw) { return }
         if (y >= ch) { return }
+        if (this.hasClipFlag) {
+            if ((this.clipAllows(x y)) == false) { return }
+        }
         if (a >= 255) {
             canvas.setPixel(x y r g b)
             return
@@ -86,9 +190,14 @@ class UIContext {
     fn fillRectA:void (x:int y:int rw:int rh:int r:int g:int b:int a:int) {
         if (rw <= 0) { return }
         if (rh <= 0) { return }
+        ; Opaque fast path bypasses blendPixel — only safe with no active clip.
+        ; When a clip is active, fall through to the per-pixel path so each pixel
+        ; is clip-tested (blendPixel with a=255 still writes via setPixel).
         if (a >= 255) {
-            canvas.fillRect(x y rw rh r g b)
-            return
+            if (this.hasClipFlag == false) {
+                canvas.fillRect(x y rw rh r g b)
+                return
+            }
         }
         def yy y
         def yEnd (y + rh)
@@ -347,6 +456,12 @@ class UIContext {
 
     ; --- text ------------------------------------------------------------------
     fn text:void (s:string x:int y:int size:double col:EVGColor) {
+        if (this.hasClipFlag) {
+            ; cached glyph bitmaps blit straight to the canvas (bypassing
+            ; blendPixel), so clip the blit to the clip bounding box rectangle.
+            tr.drawLineClipped(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)) this.clipX this.clipY this.clipW this.clipH)
+            return
+        }
         tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))
     }
 

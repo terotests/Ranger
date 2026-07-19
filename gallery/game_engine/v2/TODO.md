@@ -525,10 +525,13 @@ rumble, vocal FX, music score, LPC/bitmap assets.
       centering (H+V), glow, **border rounding** (concentric stroke, all
       corners), row-axis flex grow, and `justifyContent` distribution math.
       Open, ranked by impact:
-      - **#6 (High, rasterizer)** — no clip mechanism at all: `overflow` and
-        `clipPath` are modeled+parsed but ignored, so children bleed past parent
-        edges and rounded parents don't clip their children. Fix = a clip-stack
-        in `WasmUiSelect.drawElement` honored by `UIContext.blendPixel`.
+      - **#6 (High, rasterizer)** — DONE. `UIContext` now has a clip stack
+        (`pushClip`/`popClip`/`clipAllows`) honored by `blendPixel` (+ opaque
+        fast-path bypass and rectangular text-glyph clipping);
+        `WasmUiSelect.drawElement` pushes the padding box (inner radius) around
+        text + children when `overflow != "visible"`. Gated by
+        `ui/tests/clip_overflow_test` (7 asserts). Remaining: `clipPath` still
+        unused; glyph clip is rectangular only.
       - **#4 (Medium, rasterizer)** — box/text shadow modeled but not rendered
         (no `UIContext` primitive, no RGU1 key).
       - **#7 (Medium, layout)** — `gap` modeled+parsed but not applied in

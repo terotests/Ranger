@@ -1,0 +1,95 @@
+; ==============================================================================
+; clip_overflow_test — overflow:hidden clips descendants to the (rounded) box.
+; ==============================================================================
+; The EVG model carries `overflow` (and `clipPath`) but before this increment
+; the renderer had NO clip mechanism: every element was drawn at its own
+; absolute rect with no intersection against its parent, so a child bled past
+; the parent edge and a square child filled a rounded parent's cut-off corners
+; (evg/ISSUES.md #6).
+;
+; This drives the real render path — WasmUiRenderer.draw -> UIContext ->
+; SoftCanvas — with a rounded red parent (overflow:hidden) and a green child
+; that is both taller than the parent (overflows the bottom) and square (would
+; poke into the rounded corners). It asserts, by reading canvas pixels, that:
+;   * the child is visible INSIDE the parent box,
+;   * the child is CLIPPED below the parent's bottom edge (background shows), and
+;   * the child is CLIPPED out of the parent's rounded corner (background shows).
+; A second pass with overflow:visible proves the clip is gated by `overflow`
+; (the child is NOT clipped there) — so existing visible-overflow UIs are
+; unaffected.
+; ==============================================================================
+
+Import "../WasmUiSelect.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class ClipOverflowTest {
+    ; a solid-colour element at an already-laid-out rect (no layout pass needed).
+    sfn mkColorEl:EVGElement (x:double y:double w:double h:double col:EVGColor) {
+        def e:EVGElement (new EVGElement)
+        e.calculatedX = x
+        e.calculatedY = y
+        e.calculatedWidth = w
+        e.calculatedHeight = h
+        e.backgroundColor = col
+        return e
+    }
+
+    ; render a rounded red parent with a green overflowing child; `overflow` on
+    ; the parent decides whether the child is clipped. Returns the drawn ctx.
+    sfn renderScene:UIContext (overflow:string) {
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(100 100)
+        def ctx:UIContext (new UIContext)
+        ctx.attach(canvas)
+        ctx.fillRectA(0 0 100 100 0 0 255 255)              ; blue background
+
+        def parent:EVGElement (ClipOverflowTest.mkColorEl(10.0 10.0 40.0 40.0 (EVGColor.rgb(255 0 0))))
+        ; parse("20px") resolves .pixels immediately (radiusOf reads it); the real
+        ; path gets this from EVGLayout resolving the box.
+        parent.box.borderRadius = (EVGUnit.parse("20px"))    ; fully rounded corners
+        parent.overflow = overflow
+
+        ; green child: x[10..30], y[10..90] — narrower than the parent (so the
+        ; red right half stays visible) and taller (overflows the bottom).
+        def child:EVGElement (ClipOverflowTest.mkColorEl(10.0 10.0 20.0 80.0 (EVGColor.rgb(0 255 0))))
+        push parent.children child
+
+        def r:WasmUiRenderer (new WasmUiRenderer)
+        r.draw(ctx parent)
+        return ctx
+    }
+
+    sfn isColor:boolean (ctx:UIContext x:int y:int r:int g:int b:int) {
+        if ((ctx.canvas.pixelR(x y)) != r) { return false }
+        if ((ctx.canvas.pixelG(x y)) != g) { return false }
+        if ((ctx.canvas.pixelB(x y)) != b) { return false }
+        return true
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("ui/clip_overflow (D-CLIP overflow:hidden)"))
+
+        ; ---- overflow:hidden — child is clipped to the rounded parent box ----
+        def hid:UIContext (ClipOverflowTest.renderScene("hidden"))
+        t.ok("child visible inside parent (hidden)"
+            (ClipOverflowTest.isColor(hid 15 30 0 255 0)))
+        t.ok("parent red still visible where child does not cover (hidden)"
+            (ClipOverflowTest.isColor(hid 40 30 255 0 0)))
+        t.ok("child clipped below parent bottom -> background (hidden)"
+            (ClipOverflowTest.isColor(hid 15 70 0 0 255)))
+        t.ok("child clipped out of rounded corner -> background (hidden)"
+            (ClipOverflowTest.isColor(hid 12 12 0 0 255)))
+
+        ; ---- overflow:visible — child is NOT clipped (gating proof) ----------
+        def vis:UIContext (ClipOverflowTest.renderScene("visible"))
+        t.ok("child visible inside parent (visible)"
+            (ClipOverflowTest.isColor(vis 15 30 0 255 0)))
+        t.ok("child overflows below parent when visible"
+            (ClipOverflowTest.isColor(vis 15 70 0 255 0)))
+        t.ok("child fills rounded corner when visible"
+            (ClipOverflowTest.isColor(vis 12 12 0 255 0)))
+
+        t.summary()
+    }
+}

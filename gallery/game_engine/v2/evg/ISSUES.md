@@ -299,16 +299,43 @@ Add sub-pixel coverage (edge-distance → alpha) to `roundedInside` /
 
 ---
 
-## Issue #6: No Clipping — `overflow` / `clipPath` Modeled But Not Rendered
+## Issue #6: No Clipping — `overflow` Modeled But Not Rendered
 
-**Status:** Open
+**Status:** RESOLVED (July 19, 2026) for `overflow`. `clipPath` still unused (see note).
 **Severity:** High
 **Found:** July 19, 2026 (border/clip/flex characterization)
 **Component:** ui/WasmUiSelect.rgr (`WasmUiRenderer.drawElement`), ui/UIContext.rgr
 
-### Description
+### Resolution
 
-There is **no scissor/clip mechanism anywhere** in the render path.
+`UIContext` now owns a **clip stack** (`UIContext.rgr`): `pushClip(x,y,w,h,rad)` /
+`popClip()` maintain a list of (rounded) clip regions, and every paint is
+confined to their intersection. `blendPixel` rejects any pixel failing
+`clipAllows` (each stacked region tested; rounded regions via `roundedInside`),
+and the opaque `fillRectA` fast path is bypassed while a clip is active so solid
+fills are clipped too. Cached text-glyph blits bypass `blendPixel`, so
+`UIContext.text` routes through `UITextRenderer.drawLineClipped` (a sub-rect
+blit to the clip bounding box) when a clip is active.
+
+`WasmUiRenderer.drawElement` pushes the element's **padding box** (with inner
+corner radius = outer − border) as a clip around its own text + all descendants
+whenever `overflow != "visible"`, and pops it after the children loop. The
+element's own background/border/glow are painted first, so they define the box
+and are not clipped by it. Nested overflow boxes intersect automatically.
+
+Gated regression suite: `ui/tests/clip_overflow_test` (7 asserts) — a green
+child that overflows a rounded `overflow:hidden` parent is clipped at the bottom
+edge AND out of the rounded corners, while an `overflow:visible` parent leaves
+it un-clipped (so existing visible-overflow UIs are unaffected).
+
+**Remaining:** `clipPath` (arbitrary path clip) is still modeled+parsed but
+unused; and glyph clipping is rectangular only (rounded corners are not applied
+to text — negligible for text near a rounded edge). Tracked as a minor
+follow-up, not part of #6's overflow fix.
+
+### Original description (for reference)
+
+There was **no scissor/clip mechanism anywhere** in the render path.
 `WasmUiRenderer.drawElement` (`ui/WasmUiSelect.rgr:474-589`) draws each child
 recursively at its own absolute `calculatedX/Y` (`:582-588`) with **zero
 intersection against the parent box**. `blendPixel` (`ui/UIContext.rgr:64-84`)

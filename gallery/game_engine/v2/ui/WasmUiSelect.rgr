@@ -545,6 +545,24 @@ class WasmUiRenderer {
             }
         }
 
+        ; overflow:hidden (anything other than the default "visible") clips this
+        ; element's own text and all descendants to its padding box, honouring the
+        ; corner radius (inner radius = outer - border). The background/border
+        ; above are drawn first so they define the box and are NOT clipped by it;
+        ; the glow halo is intentionally outside the box too. Pushed here, popped
+        ; after the children loop. Nested overflow boxes intersect automatically.
+        def clipped:boolean false
+        if ((el.overflow == "visible") == false) {
+            def cpx:int (x + bpx)
+            def cpy:int (y + bpx)
+            def cpw:int (rw - (bpx * 2))
+            def cph:int (rh - (bpx * 2))
+            def crad:int (rad - bpx)
+            if (crad < 0) { crad = 0 }
+            ctx.pushClip(cpx cpy cpw cph crad)
+            clipped = true
+        }
+
         def txt:string el.textContent
         if ((strlen txt) > 0) {
             def fs:double el.inheritedFontSize
@@ -585,6 +603,10 @@ class WasmUiRenderer {
             def child:EVGElement (itemAt el.children i)
             this.drawElement(ctx child)
             i = (i + 1)
+        }
+
+        if clipped {
+            ctx.popClip()
         }
     }
 
