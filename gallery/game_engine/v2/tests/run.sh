@@ -9,7 +9,8 @@
 #
 #   bash gallery/game_engine/v2/tests/run.sh
 #
-# Exit code is non-zero if any suite fails to compile or reports SOME FAILED.
+# Exit code is non-zero if any suite fails to compile or reports SOME FAILED,
+# or if the post-suite boundary gate fails (out-of-v2 Imports / game-name leaks).
 # ==============================================================================
 set -u
 
@@ -23,6 +24,7 @@ V2="gallery/game_engine/v2"
 
 TOTAL_SUITES=0
 FAILED_SUITES=0
+BOUNDARY_FAIL=0
 
 # run_suite <relative-path-under-v2 without .rgr>
 run_suite() {
@@ -136,11 +138,25 @@ run_suite tests/e2e/ylos2_e2e_test
 run_suite tests/e2e/ylos3d_e2e_test
 run_suite tests/e2e/launcher_e2e_test
 
-echo "=============================================================="
-if [ "$FAILED_SUITES" -eq 0 ]; then
-  echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed"
-  exit 0
-else
-  echo "v2 FAILURES — ${FAILED_SUITES}/${TOTAL_SUITES} suites failed"
-  exit 1
+# ---- Boundary gate (static) — after suites; cheap Import / title scan --------
+# Unit/contract suites prove behaviour; this proves the *tree* did not grow
+# game-specific core or new out-of-v2 Imports. Known staged debt is allowlisted
+# in tests/boundary_import_allowlist.txt (shrink only). See TODO.md.
+echo
+if ! python3 "${V2}/tests/check_boundaries.py"; then
+  BOUNDARY_FAIL=1
 fi
+echo
+
+echo "=============================================================="
+if [ "$FAILED_SUITES" -eq 0 ] && [ "$BOUNDARY_FAIL" -eq 0 ]; then
+  echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed (+ boundary gate)"
+  exit 0
+fi
+if [ "$FAILED_SUITES" -ne 0 ]; then
+  echo "v2 FAILURES — ${FAILED_SUITES}/${TOTAL_SUITES} suites failed"
+fi
+if [ "$BOUNDARY_FAIL" -ne 0 ]; then
+  echo "v2 BOUNDARY FAIL — see check_boundaries.py output above"
+fi
+exit 1

@@ -194,9 +194,12 @@ depths). Same cleanup:
 - [ ] `menu/RgLauncherUi.rgr` runtime font dir string
       `gallery/pdf_writer/assets/fonts` (not an `Import`, but a path escape)
 
-- [ ] Add a small gate (script or suite) that fails if any `v2/**/*.rgr`
-      `Import` resolves outside `v2/` (with an explicit allowlist for
-      `ts_parser` until policy (a)/(b) lands).
+- [x] **Boundary gate in `tests/run.sh`** — after all suites,
+      `tests/check_boundaries.py` fails the run on (1) any `.rgr` under
+      `games/`, (2) any out-of-v2 `Import` not listed in
+      `tests/boundary_import_allowlist.txt`, (3) game-title identifiers in
+      live-core `.rgr`. Known staged escapes stay allowlisted until retargeted
+      — **do not grow the allowlist**.
 
 ---
 
