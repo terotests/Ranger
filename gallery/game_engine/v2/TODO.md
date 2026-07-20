@@ -95,7 +95,10 @@ tests.
 |-------|--------|
 | Low-level WASM bridge (handle, retain/release, span, async poll, TSX↔WASM command-trace fixtures) | green under `bridge/wasm/tests/` |
 | Ergonomic `ranger_wasm` Rust package | still a **scaffold** |
-| WASM guest through macOS/Pi SDL host | **not** in the first SDL-window milestone — no Rust game E2E on native yet |
+| WASM guest through the generic host | **done** — `RgWasmGameHost` runs a wasm32 game the same way `RgGameHost` runs a `.tsx` game (drain RGC1 → generic bridge → presenter). Covered headless by `tests/e2e/ylos3d_wasm_e2e_test`. |
+| A wasm game in `games/` | **done** — `games/ylos3d_wasm/` (schema-generated `rg_abi.rs`) builds a scene, renders it to a render target, and draws it into a single pane. The e2e asserts real rasterised pixels reach the framebuffer. |
+| Launcher routes wasm vs tsx | **done** — the launcher tags each tile's `engine`; `RgSdlGameHost.runLauncher` dispatches `engine=wasm` to `runWasm()` (wasm3-backed on native) and `tsx` to `run()`. |
+| WASM guest through macOS/Pi SDL host | **wired, awaiting on-device run** — `runWasm()` + `presentBridge()` are in `RgSdlGameHost` and the C++ codegen is clean; the macOS/Pi build links wasm3 already. Left to verify: launch `Ylos3D (WASM)` from the menu on the physical SDL window. |
 
 ### Desired layering
 
