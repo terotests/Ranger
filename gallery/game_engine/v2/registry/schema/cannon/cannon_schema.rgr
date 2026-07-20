@@ -1,0 +1,52 @@
+; ==============================================================================
+; cannon_schema — authored registry rows for the `ranger:cannon` module.
+; ==============================================================================
+; Minimal live guest surface for rigid-body physics, backed by the Cannon port
+; (host/arenas/physics/RgPhysicsHost -> CannonPhysicsWorld). A tsx OR wasm guest
+; drives physics through the SAME command path as ranger:2d/three: create bodies,
+; set gravity/velocity, step the world, read body poses (to copy into a Three
+; mesh — the three + cannon loop).
+;
+; No game- or asset-specific commands. Published ids are immutable:
+;   classIds 40–49 · command ids 4000–4999   (the range RgCodegen reserves for
+;   cannon; golden-checked once frozen).
+;
+; Shapes are engine primitives (sphere/box/static-plane); a body handle is minted
+; per create (mass 0 => static). Poses are plain doubles so the guest owns the
+; physics -> render copy (D-TYPE keeps physics in its own arena, separate from
+; Three).
+; ==============================================================================
+
+Import "../RgSchema.rgr"
+
+class CannonSchema {
+    sfn build:RgSchema () {
+        def s:RgSchema (new RgSchema)
+
+        ; ---- World (40): gravity + fixed step -------------------------------
+        def world:RgClassDef (RgClassDef.of(40 "PhysicsWorld"))
+        world.addMethod((RgMethodDef.cmd(4000 "cannon_world_gravity" "cannon_world_gravity" "d:d:d" "v" "none")))
+        ; step advances the simulation by dt SECONDS (a fixed tick; the host owns
+        ; the clock, the guest chooses how many steps per frame).
+        world.addMethod((RgMethodDef.cmd(4001 "cannon_world_step" "cannon_world_step" "d" "v" "none")))
+        s.addClass(world)
+
+        ; ---- Body (41): create (mass 0 => static) + control + pose ----------
+        def body:RgClassDef (RgClassDef.of(41 "PhysicsBody"))
+        ; sphere(mass, x, y, z, radius)
+        body.addMethod((RgMethodDef.cmd(4010 "cannon_body_sphere" "cannon_body_sphere" "d:d:d:d:d" "h" "create")))
+        ; box(mass, x, y, z, halfX, halfY, halfZ)
+        body.addMethod((RgMethodDef.cmd(4011 "cannon_body_box" "cannon_body_box" "d:d:d:d:d:d:d" "h" "create")))
+        ; staticPlane(normalX, normalY, normalZ) — an immovable ground/wall
+        body.addMethod((RgMethodDef.cmd(4012 "cannon_body_static_plane" "cannon_body_static_plane" "d:d:d" "h" "create")))
+        ; setVelocity(body, vx, vy, vz)
+        body.addMethod((RgMethodDef.cmd(4013 "cannon_body_set_velocity" "cannon_body_set_velocity" "h:d:d:d" "v" "none")))
+        ; pose reads — the guest copies these into a Three mesh transform
+        body.addMethod((RgMethodDef.cmd(4014 "cannon_body_pos_x" "cannon_body_pos_x" "h" "d" "none")))
+        body.addMethod((RgMethodDef.cmd(4015 "cannon_body_pos_y" "cannon_body_pos_y" "h" "d" "none")))
+        body.addMethod((RgMethodDef.cmd(4016 "cannon_body_pos_z" "cannon_body_pos_z" "h" "d" "none")))
+        s.addClass(body)
+
+        return s
+    }
+}

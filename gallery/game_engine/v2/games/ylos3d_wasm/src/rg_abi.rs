@@ -80,6 +80,15 @@ pub const RG3D_ORBIT_TARGET: i32 = 3072;
 pub const RG3D_ORBIT_POINTER: i32 = 3073;
 pub const RG3D_ORBIT_WHEEL: i32 = 3074;
 pub const RG3D_ORBIT_APPLY: i32 = 3075;
+pub const CANNON_WORLD_GRAVITY: i32 = 4000;
+pub const CANNON_WORLD_STEP: i32 = 4001;
+pub const CANNON_BODY_SPHERE: i32 = 4010;
+pub const CANNON_BODY_BOX: i32 = 4011;
+pub const CANNON_BODY_STATIC_PLANE: i32 = 4012;
+pub const CANNON_BODY_SET_VELOCITY: i32 = 4013;
+pub const CANNON_BODY_POS_X: i32 = 4014;
+pub const CANNON_BODY_POS_Y: i32 = 4015;
+pub const CANNON_BODY_POS_Z: i32 = 4016;
 
 // Typed command-buffer builder - one checked method per command.
 pub struct RgCmdBuf<'a> { buf: &'a mut [i32], count: usize }
@@ -308,6 +317,33 @@ impl<'a> RgCmdBuf<'a> {
     }
     pub fn rg3d_orbit_apply(&mut self, a0: i32) {
         self.put(RG3D_ORBIT_APPLY, 0, &[a0]);
+    }
+    pub fn cannon_world_gravity(&mut self, a0: f32, a1: f32, a2: f32) {
+        self.put(CANNON_WORLD_GRAVITY, 0, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn cannon_world_step(&mut self, a0: f32) {
+        self.put(CANNON_WORLD_STEP, 0, &[((a0 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn cannon_body_sphere(&mut self, dst: i32, a0: f32, a1: f32, a2: f32, a3: f32, a4: f32) {
+        self.put(CANNON_BODY_SPHERE, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), ((a4 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn cannon_body_box(&mut self, dst: i32, a0: f32, a1: f32, a2: f32, a3: f32, a4: f32, a5: f32, a6: f32) {
+        self.put(CANNON_BODY_BOX, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), ((a4 * RGC1_FIXED as f32) as i32), ((a5 * RGC1_FIXED as f32) as i32), ((a6 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn cannon_body_static_plane(&mut self, dst: i32, a0: f32, a1: f32, a2: f32) {
+        self.put(CANNON_BODY_STATIC_PLANE, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn cannon_body_set_velocity(&mut self, a0: i32, a1: f32, a2: f32, a3: f32) {
+        self.put(CANNON_BODY_SET_VELOCITY, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn cannon_body_pos_x(&mut self, a0: i32) {
+        self.put(CANNON_BODY_POS_X, 0, &[a0]);
+    }
+    pub fn cannon_body_pos_y(&mut self, a0: i32) {
+        self.put(CANNON_BODY_POS_Y, 0, &[a0]);
+    }
+    pub fn cannon_body_pos_z(&mut self, a0: i32) {
+        self.put(CANNON_BODY_POS_Z, 0, &[a0]);
     }
 }
 

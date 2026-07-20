@@ -145,6 +145,8 @@ run_suite physics/tests/pose_sync_test
 run_suite host/arenas/physics/tests/physics_host_test
 # three + cannon: the real Cannon port drives a Three mesh pose (net-example loop)
 run_suite physics/tests/three_cannon_sync_test
+# ranger:cannon reachable through the registry bridge (guest command path)
+run_suite tests/contract/d_physics/cannon_bridge_test
 # Cannon.js port kernel — all 23 rigid-body suites via one aggregating entry
 run_suite physics/cannon/tests/cannon_suite_test
 

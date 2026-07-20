@@ -517,6 +517,52 @@ class RegistryBridgeCoverageTest {
         push oaA (s.num((to_double orbit)))
         s.callN("rg3d_orbit_apply" oaA)
 
+        ; ---- ranger:cannon (rigid-body physics arena) -----------------------
+        def cgA:[EvalValue]
+        push cgA (s.num(0.0))
+        push cgA (s.num((0.0 - 10.0)))
+        push cgA (s.num(0.0))
+        s.callN("cannon_world_gravity" cgA)
+        def cplA:[EvalValue]
+        push cplA (s.num(0.0))
+        push cplA (s.num(1.0))
+        push cplA (s.num(0.0))
+        def cGround:int (s.callI("cannon_body_static_plane" cplA))
+        def cspA:[EvalValue]
+        push cspA (s.num(1.0))
+        push cspA (s.num(0.0))
+        push cspA (s.num(3.0))
+        push cspA (s.num(0.0))
+        push cspA (s.num(0.5))
+        def cBall:int (s.callI("cannon_body_sphere" cspA))
+        def cbxA:[EvalValue]
+        push cbxA (s.num(1.0))
+        push cbxA (s.num(0.0))
+        push cbxA (s.num(5.0))
+        push cbxA (s.num(0.0))
+        push cbxA (s.num(0.5))
+        push cbxA (s.num(0.5))
+        push cbxA (s.num(0.5))
+        def cBox:int (s.callI("cannon_body_box" cbxA))
+        def cvA:[EvalValue]
+        push cvA (s.num((to_double cBall)))
+        push cvA (s.num(0.0))
+        push cvA (s.num(1.0))
+        push cvA (s.num(0.0))
+        s.callN("cannon_body_set_velocity" cvA)
+        def cstA:[EvalValue]
+        push cstA (s.num((1.0 / 60.0)))
+        s.callN("cannon_world_step" cstA)
+        def cpxA:[EvalValue]
+        push cpxA (s.num((to_double cBall)))
+        s.callN("cannon_body_pos_x" cpxA)
+        def cpyA:[EvalValue]
+        push cpyA (s.num((to_double cBall)))
+        s.callN("cannon_body_pos_y" cpyA)
+        def cpzA:[EvalValue]
+        push cpzA (s.num((to_double cBall)))
+        s.callN("cannon_body_pos_z" cpzA)
+
         ; ================= COVERAGE DIFF =====================================
         def missing 0
         def nrows:int (array_length b.table)
