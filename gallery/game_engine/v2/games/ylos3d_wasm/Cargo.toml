@@ -1,0 +1,13 @@
+[package]
+name = "ylos3d_wasm"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+name = "logic"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"

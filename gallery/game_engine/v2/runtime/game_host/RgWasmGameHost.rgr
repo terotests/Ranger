@@ -1,0 +1,67 @@
+; ==============================================================================
+; RgWasmGameHost — the generic host for COMPILED (wasm32) v2 games.
+; ==============================================================================
+; The wasm sibling of RgGameHost: it runs a game compiled to wasm32 instead of an
+; interpreted .tsx guest, but drives the SAME RgRegistryBridge -> host arenas ->
+; presenter -> framebuffer. Only the "produce this frame's commands" step differs:
+; RgGameHost runs ComponentEngine; this drains the guest's RGC1 command buffer
+; through RgWasmCmdDispatch (the generated wasm32 profile). Presentation, input,
+; and rendering are identical because they are all bridge state.
+;
+;   guest exports   init() · update(dtMs)  (+ cmd_ptr(), result_ptr())
+;   protocol        the guest writes an RGC1 command buffer each frame; the host
+;                   validates the ABI header and dispatches every record into the
+;                   generic bridge, mapping guest ids -> host handles.
+;
+; The native (cpp) build backs wasm_* with wasm3 (runtime/rg_wasm_bridge.c); the
+; headless (es6) build backs them with node's WebAssembly — so the same host runs
+; a wasm game in the test gate AND on the SDL desktop.
+; ==============================================================================
+
+Import "../../bridge/wasm/RgWasmCmdDispatch.rgr"
+
+class RgWasmGameHost {
+    def bridge:RgRegistryBridge (RgRegistryBridge.create())
+    def disp:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+    def mod:int 0
+    def cmdBase:int 0
+    def resBase:int 0
+    def loaded:boolean false
+    def v2Root:string "gallery/game_engine/v2"
+
+    ; ---- load ---------------------------------------------------------------
+    ; Load `<dir>/<moduleFile>` (a wasm32 game), wire the dispatcher to a fresh
+    ; bridge, run init() and drain its initial command buffer. packageDir is set
+    ; so string/asset args (rg3d_model_load) resolve relative to the game folder.
+    fn load:boolean (dir:string moduleFile:string) {
+        this.bridge = (RgRegistryBridge.create())
+        this.bridge.packageDir = dir
+        this.disp = (new RgWasmCmdDispatch)
+        this.disp.init(this.bridge (RgWasm3dProfile.build()))
+        this.mod = (wasm_load (dir + ("/" + moduleFile)))
+        if (this.mod < 1) { return false }
+        if ((wasm_has_export this.mod "cmd_ptr") == 0) { return false }
+        this.cmdBase = (wasm_call_i32 this.mod "cmd_ptr" 0 0 0 0 0 0)
+        this.resBase = (wasm_call_i32 this.mod "result_ptr" 0 0 0 0 0 0)
+        wasm_call_i32 this.mod "init" 0 0 0 0 0 0
+        this.disp.drainDoc(this.mod this.cmdBase this.resBase)
+        this.loaded = ((this.bridge.errorCount == 0) && (this.disp.abiError == false))
+        return this.loaded
+    }
+
+    ; ---- frame pipeline -----------------------------------------------------
+    ; One host-owned tick: clear the pass list, call update(dtMs) so the guest
+    ; writes this frame's commands, drain them into the bridge, and close the
+    ; frame boundary (same as RgGameHost, minus the interpreter).
+    fn frame:void (dtMs:double) {
+        this.bridge.clearPasses()
+        wasm_call_i32 this.mod "update" 1 (to_int dtMs) 0 0 0 0
+        this.disp.drainDoc(this.mod this.cmdBase this.resBase)
+        this.bridge.frameBoundary((dtMs / 1000.0))
+    }
+
+    ; host handle bound to a guest-local id (for tests / handoff).
+    fn hostId:int (guestLocal:int) {
+        return (this.disp.hostId(guestLocal))
+    }
+}

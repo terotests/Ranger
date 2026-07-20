@@ -244,6 +244,8 @@ run_suite web/tests/web_smoke_test
 # generic host (v1 GameRunner analog). These are thin test drivers.
 run_suite tests/e2e/ylos2_e2e_test
 run_suite tests/e2e/ylos3d_e2e_test
+# compiled (wasm32) game runs through RgWasmGameHost (loader integration)
+run_suite tests/e2e/ylos3d_wasm_e2e_test
 run_suite tests/e2e/launcher_e2e_test
 
 # ---- Boundary gate (static) — after suites; cheap Import / title scan --------

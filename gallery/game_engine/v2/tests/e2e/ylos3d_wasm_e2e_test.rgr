@@ -1,0 +1,67 @@
+; ==============================================================================
+; ylos3d_wasm_game_test — a WASM game runs through RgWasmGameHost (loader proof).
+; ==============================================================================
+; The headless proof that the native "run a compiled game" path is sound: load
+; games/ylos3d_wasm/logic.wasm through RgWasmGameHost (the wasm sibling of
+; RgGameHost), run its init() + a run of update() frames, and assert the SAME
+; generic bridge that .tsx games use ends up with the scene built, animated, AND
+; PRESENTED — the 3D scene renders to a render target and a single-pane 2D layer
+; draws it, exactly as the .tsx ylos3d does. Only the SDL windowing/blit is
+; untestable here (no display); everything up to the framebuffer is exercised,
+; including real rasterised pixels.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgWasmGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+Import "../harness/RgTest.rgr"
+
+class Ylos3dWasmGameTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("games/ylos3d_wasm (compiled game via RgWasmGameHost)"))
+        def host:RgWasmGameHost (new RgWasmGameHost)
+
+        ; ---- load: init() builds the scene + composition through the bridge ----
+        def ok:boolean (host.load("gallery/game_engine/v2/games/ylos3d_wasm" "logic.wasm"))
+        t.ok("wasm game loaded + init drained" ok)
+        t.eqInt("no bridge errors after init" host.bridge.errorCount 0)
+        t.eqInt("init built exactly 1 mesh entity" (host.bridge.d3.host.entityCount()) 1)
+        t.eqInt("init built 1 geometry" (host.bridge.d3.host.geometryCount()) 1)
+        t.eqInt("init built 1 material" (host.bridge.d3.host.materialCount()) 1)
+
+        ; the mesh is parented to the scene (D-SYNC across the wasm loader)
+        def sceneH:RgHandle (host.bridge.resolveGuestId((host.hostId(1))))
+        t.eqInt("mesh parented to the scene" (host.bridge.d3.sceneChildCount(sceneH)) 1)
+
+        ; init declared a single on-screen pane (rgcore_surface_set_layout 0)
+        t.eqInt("init declared one full pane" (host.bridge.surface.paneCount()) 1)
+
+        ; ---- run frames: update() animates + re-renders through the host loop --
+        def before:int host.disp.dispatched
+        def rtt0:int host.bridge.d3.rttCount
+        def i 0
+        while (i < 10) {
+            host.frame(16.667)
+            i = (i + 1)
+        }
+        ; update emits 3 records/frame (spin + render_to + draw-to-pane)
+        t.eqInt("update drained 3 commands per frame" (host.disp.dispatched - before) 30)
+        t.eqInt("no bridge errors across 10 frames" host.bridge.errorCount 0)
+        t.eqInt("still exactly 1 entity (the same mesh, animated)" (host.bridge.d3.host.entityCount()) 1)
+        ; the 3D scene rendered into the render target once per frame
+        t.eqInt("render-to-texture ran once per frame" (host.bridge.d3.rttCount - rtt0) 10)
+
+        ; ---- present: the 3D actually rasterised, and the pane composites it ----
+        ; the render target (guest-local id 6) has real coverage at its centre
+        ; where the spinning octahedron projects (same probe embed3d uses).
+        def texH:RgHandle (host.bridge.resolveGuestId((host.hostId(6))))
+        t.ok("render target holds a real 3D image (centre covered)" ((host.bridge.d2.texelA(texH 100 100)) > 0))
+
+        ; presenting pane 0 draws the render-target sprite into a framebuffer
+        def fb:RgFramebuffer (RgFramebuffer.create(200 200))
+        def drawn:int (Rg2DPresenter.presentTextured(host.bridge 0 fb 0))
+        t.ok("pane 0 composites the game (a sprite was drawn)" (drawn >= 1))
+        t.ok("the framebuffer centre is not the clear colour" ((fb.at(100 100)) != 0))
+
+        t.summary()
+    }
+}

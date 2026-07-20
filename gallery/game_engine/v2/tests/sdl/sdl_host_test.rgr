@@ -72,6 +72,16 @@ class SdlHostTest {
         t.eqInt("entering a category is not a launch" s2 0)
         t.eqInt("now on the games page" (ui.currentPage()) 1)
         t.eqStr("the discovered game is Pomppija" (ui.selectedLabel()) "Pomppija")
+        t.eqStr("Pomppija is an interpreted game" (ui.selectedEngine()) "tsx")
+        ; right edge (32) moves to the sibling tile: a COMPILED (wasm32) game the
+        ; host must route to runWasm, not run — the launcher tags its backend so
+        ; the same menu drives both loops.
+        def sW:int (sdl.launcherStep(0 32 ui))
+        t.eqStr("the next Games tile is the wasm build" (ui.selectedLabel()) "Ylos3D (WASM)")
+        t.eqStr("the wasm game routes to the compiled loop" (ui.selectedEngine()) "wasm")
+        ; left edge (16) back to Pomppija for the handoff assertions below
+        def sB:int (sdl.launcherStep(0 16 ui))
+        t.eqStr("back on Pomppija" (ui.selectedLabel()) "Pomppija")
         ; action edge (4) on a game hands off -> returns 1 with a target
         def s3:int (sdl.launcherStep(0 4 ui))
         t.eqInt("activating a game hands off" s3 1)

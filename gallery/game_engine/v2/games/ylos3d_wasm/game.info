@@ -1,0 +1,5 @@
+name=Ylos3D (WASM)
+category=Games
+index=2
+engine=wasm
+module=logic.wasm

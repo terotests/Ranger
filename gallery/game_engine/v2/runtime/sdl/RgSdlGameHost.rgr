@@ -25,6 +25,7 @@
 ; ==============================================================================
 
 Import "../game_host/RgGameHost.rgr"
+Import "../game_host/RgWasmGameHost.rgr"
 Import "../game_host/Rg2DPresenter.rgr"
 Import "../../menu/RgLauncherUi.rgr"
 Import "../../audio/game_soundscore.rgr"
@@ -47,6 +48,8 @@ class RgSdlAudioSink {
 
 class RgSdlGameHost {
     def host:RgGameHost (new RgGameHost)
+    ; the compiled-game (wasm32) sibling host — same bridge/presenter, wasm3 guest
+    def wasmHost:RgWasmGameHost (new RgWasmGameHost)
     def paneW:int 480
     def paneH:int 270
     ; Neutral framebuffer clear before the guest's own world-space background
@@ -249,9 +252,13 @@ class RgSdlGameHost {
             if (launch == 1) {
                 def d:string (ui.selectedDir())
                 def f:string (ui.selectedFile())
+                def eng:string (ui.selectedEngine())
                 gfx_close
                 this.resetAudioDevice()
-                def _g:int (this.run(d f))
+                ; wasm games run through the compiled loop, tsx through the
+                ; interpreted one — both drive the same bridge/presenter.
+                def _g:int 0
+                if (eng == "wasm") { _g = (this.runWasm(d f)) } { _g = (this.run(d f)) }
                 ; back from the game: reopen the launcher and resume on categories
                 gfx_clear_should_close
                 this.resetAudioDevice()
@@ -267,6 +274,50 @@ class RgSdlGameHost {
         }
         gfx_close
         this.resetAudioDevice()
+        return 1
+    }
+
+    ; Present a specific bridge's panes (shared by the tsx and wasm loops).
+    fn presentBridge:void (b:RgRegistryBridge fbL:RgFramebuffer fbR:RgFramebuffer) {
+        def n:int (b.surface.paneCount())
+        if (n <= 1) {
+            if (n == 1) {
+                def d0:int (Rg2DPresenter.presentTextured(b 0 fbL this.clearRgb))
+            } {
+                fbL.fill(this.clearRgb)
+            }
+            gfx_present (fbL.toRgbaBuffer()) this.paneW this.paneH
+            return
+        }
+        def dL:int (Rg2DPresenter.presentTextured(b 0 fbL this.clearRgb))
+        def dR:int (Rg2DPresenter.presentTextured(b 1 fbR this.clearRgb))
+        gfx_present_split (fbL.toRgbaBuffer()) (fbR.toRgbaBuffer()) this.paneW this.paneH
+    }
+
+    ; Open a window and run a COMPILED (wasm32) game to window close. The wasm
+    ; sibling of run(): the guest is a folder with a wasm module (engine=wasm),
+    ; loaded + framed through RgWasmGameHost, presented through the SAME presenter.
+    ; wasm_* are backed by wasm3 on the SDL/native build. Self-contained so the
+    ; interpreted run() path is untouched.
+    fn runWasm:int (dir:string moduleFile:string) {
+        if ((this.wasmHost.load(dir moduleFile)) == false) {
+            return 0
+        }
+        def title:string ("Ranger v2 (wasm) — " + moduleFile)
+        if ((gfx_open title this.paneW this.paneH) == 0) {
+            return 0
+        }
+        def fbL:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
+        def fbR:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
+        def go:boolean true
+        while go {
+            gfx_input_poll
+            this.wasmHost.frame(33.333)
+            this.presentBridge(this.wasmHost.bridge fbL fbR)
+            gfx_delay 16
+            if (gfx_should_close) { go = false }
+        }
+        gfx_close
         return 1
     }
 
