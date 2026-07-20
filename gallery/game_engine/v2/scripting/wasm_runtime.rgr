@@ -97,10 +97,11 @@ operators {
 
     ; Read `len` bytes of guest linear memory at byte offset `off` as a string
     ; (used to lower an `s`/string command arg — a ptr+len in the guest's memory).
-    ; ASCII/UTF-8 paths; the native path is a follow-up (returns "" for now).
+    ; ASCII/UTF-8 paths. Native reads the bytes out of wasm3 linear memory; es6
+    ; reads them out of the WebAssembly.Memory buffer.
     wasm_mem_str _:string (handle:int off:int len:int) {
         templates {
-            cpp ( "std::string()" (imp "<string>") )
+            cpp ( "std::string(rg_wasm_mem_read_str(" (e 1) ", " (e 2) ", " (e 3) "))" (imp "<string>") (imp "<rg_wasm_bridge.h>") )
             es6 ( "(function(h,o,l){var H=globalThis.__rgwasm;var m=H&&H.mods[h];if(!m||!m.mem||l<=0)return '';var u=new Uint8Array(m.mem.buffer,o,l);var s='';for(var i=0;i<l;i++){s+=String.fromCharCode(u[i]);}return s;})(" (e 1) "," (e 2) "," (e 3) ")" )
             ranger ( "\"\"" )
         }

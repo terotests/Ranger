@@ -32,6 +32,11 @@ int rg_wasm_spawned_child(int handle);
 
 int32_t rg_wasm_mem_read_i32(int handle, uint32_t off);
 void rg_wasm_mem_write_i32(int handle, uint32_t off, int32_t val);
+/* Read `len` bytes of the module's linear memory at byte offset `off` as a
+ * NUL-terminated string (for lowering `s`/string command args — a ptr+len into
+ * the guest's own memory, e.g. a pkg-relative asset path). Returns a pointer to
+ * a static buffer valid until the next call; the caller copies it immediately. */
+const char* rg_wasm_mem_read_str(int handle, int32_t off, int32_t len);
 
 /* Host resource manifest — populated when the WASM module calls the linked
  * host import functions (env.rg_host_register_sheet / rg_host_register_rect).
