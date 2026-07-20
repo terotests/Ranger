@@ -1,28 +1,29 @@
 // ============================================================================
-// pinball — a physics pinball table (ranger:cannon + ranger:2d + audio).
+// pinball — a 3D physics pinball table (ranger:cannon + ranger:three + audio).
 // ============================================================================
-// Top-down table: the ball is a cannon rigid body (gravity + integration); the
-// guest reads its pose each frame, derives velocity from the position delta, and
-// resolves the pinball-specific collisions (walls, pop bumpers, slingshots,
-// flippers, drain) with setVelocity kicks. A DMD score display, colourful
-// playfield, spinning targets and audio cues complete it. Flippers are the
-// left/right inputs; a drained ball costs a ball and resets to the plunger lane.
+// A real lit 3D scene rendered through ranger:three: the playfield, pop bumpers,
+// slingshots, flippers and the steel ball are 3D meshes with lambert materials,
+// shaded by an ambient + directional light rig (lights parented to the scene so
+// they actually light it), viewed at an angle like a real cabinet. Cannon drives
+// the ball in the 2D playfield plane; its (px,py) maps onto the 3D playfield and
+// the ball mesh follows. A DMD score overlay sits on top. Left/right = flippers.
 //
-// World is y-DOWN to match the screen (top = DMD/bumpers, bottom = flippers), so
-// gravity is +Y (down the table).
+// Physics stays y-DOWN in playfield space (py: 0 = top/bumpers, H = flippers), so
+// gravity is +py (down the table). 3D map: X = px-W/2, Z = py-H/2, Y = height.
 
 import { runtime } from "ranger:core";
 import * as TWO from "ranger:2d";
+import * as THREE from "ranger:three";
 import * as CANNON from "ranger:cannon";
 
 const W = 360;
 const H = 620;
 const BALL_R = 9;
-const GRAV = 430;              // px/s^2 down the table
-const WALL = 12;               // playfield inset
+const GRAV = 430;
+const WALL = 12;
 const WALL_BOUNCE = 0.82;
-const FLIP_KICK = 540;         // pressed flipper launch speed
-const FLIP_SOFT = 190;         // resting-flipper bounce
+const FLIP_KICK = 540;
+const FLIP_SOFT = 190;
 const BUMP_KICK = 400;
 const SLING_KICK = 360;
 const PLUNGE_X = W - 24;
@@ -30,63 +31,171 @@ const PLUNGE_Y = 90;
 const DRAIN_Y = H - 12;
 const VIEW_W = 480;
 const VIEW_H = 270;
+const RT_W = 440;
+const RT_H = 300;
+const SC = 0.05;               // px -> 3D units
 
-// pop bumpers (x, y, r, colour rgb)
 const BUMPERS = [
-  { x: 96, y: 150, r: 24, r0: 90, g0: 150, b0: 255 },
-  { x: 180, y: 116, r: 24, r0: 255, g0: 90, b0: 120 },
-  { x: 264, y: 150, r: 24, r0: 180, g0: 110, b0: 255 },
+  { x: 96, y: 150, r: 26, cr: 90, cg: 150, cb: 255 },
+  { x: 180, y: 116, r: 26, cr: 255, cg: 90, cb: 120 },
+  { x: 264, y: 150, r: 26, cr: 190, cg: 110, cb: 255 },
 ];
-// slingshots (x, y) — triangular kickers above the flippers
 const SLINGS = [
-  { x: 88, y: 452, dir: 1 },
-  { x: 272, y: 452, dir: -1 },
+  { x: 84, y: 452, dir: 1 },
+  { x: 276, y: 452, dir: -1 },
 ];
-// bank targets (x, y, r, g, b) — the colourful rollover dots
-const TARGETS = [
-  { x: 150, y: 230, cr: 255, cg: 210, cb: 60 },
-  { x: 180, y: 210, cr: 255, cg: 120, cb: 60 },
-  { x: 210, y: 230, cr: 90, cg: 200, cb: 255 },
-  { x: 120, y: 300, cr: 230, cg: 70, cb: 70 },
-  { x: 240, y: 300, cr: 70, cg: 200, cb: 120 },
-  { x: 180, y: 330, cr: 250, cg: 220, cb: 80 },
-];
+
+// map playfield (px,py) -> 3D X/Z on the flat playfield
+function mapX(px) { return (px - W / 2) * SC; }
+function mapZ(py) { return (py - H / 2) * SC; }
 
 class PinballGame {
   layer = null;
   cam = null;
   renderer = null;
+  r3d = null;
+  view = null;
   world = null;
   ball = null;
+  ballMesh = null;
+  flipMeshL = null;
+  flipMeshR = null;
+  bumpMeshes = [];
   bx = 0; by = 0; lbx = 0; lby = 0;
-  trail = [];
   score = 0;
   balls = 3;
   mult = 2;
-  spinner = 0;         // spinner wheel angle
-  flipL = 0; flipR = 0; // flipper raise animation (0..1)
+  flipL = 0; flipR = 0;
   bumpFlash = [0, 0, 0];
   nowMs = 0;
+
+  addLambertMesh(geo, cr, cg, cb, scene) {
+    const mat = new THREE.MeshLambertMaterial((cr * 65536) + (cg * 256) + cb);
+    const m = new THREE.Mesh(geo, mat);
+    scene.add(m);
+    return m;
+  }
 
   init() {
     runtime.surface.setLayout("single");
     this.layer = new TWO.Layer2D();
     this.cam = new TWO.Camera2D();
     this.renderer = new TWO.Renderer2D();
+    this.r3d = new THREE.Renderer3D();
     runtime.surface.attachRenderer(this.renderer);
 
+    // ---- cannon: the ball in the playfield plane -------------------------
     this.world = new CANNON.World();
     this.world.setGravity(0, GRAV, 0);
     this.ball = this.world.addSphere(1, PLUNGE_X, PLUNGE_Y, 0, BALL_R);
     this.bx = PLUNGE_X; this.by = PLUNGE_Y; this.lbx = PLUNGE_X; this.lby = PLUNGE_Y;
-    this.trail = [];
+
+    // ---- three: the lit 3D table -----------------------------------------
+    const scene = new THREE.Scene();
+    // light rig — PARENTED to the scene (scene.add) so it actually shades.
+    const amb = new THREE.AmbientLight(0xFFFFFF, 0.45);
+    scene.add(amb);
+    const key = new THREE.DirectionalLight(0xFFFFFF, 1.15, -0.4, 1.1, 0.5);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0x8899FF, 0.5, 0.6, 0.7, -0.4);
+    scene.add(fill);
+
+    // camera: above and behind the flipper end, looking down the whole table
+    const camera = new THREE.PerspectiveCamera(50, RT_W / RT_H, 0.5, 120);
+    camera.setPose(0.0, H * SC * 0.78, H * SC * 0.66, -0.9, 0.0, 0.0);
+
+    // playfield: a flat plane (rotate the XY plane flat), deep blue
+    const pfGeo = new THREE.PlaneGeometry(W * SC * 1.02, H * SC * 1.02, 1, 1);
+    const pf = this.addLambertMesh(pfGeo, 40, 46, 130, scene);
+    pf.setTransform(0, 0, 0, -1.5707963, 0, 0);
+
+    // rails around the playfield (thin raised boxes)
+    const railGeo = new THREE.BoxGeometry(0.3, 0.7, H * SC);
+    const railL = this.addLambertMesh(railGeo, 150, 160, 200, scene);
+    railL.setTransform(mapX(WALL), 0.35, 0, 0, 0, 0);
+    const railR = this.addLambertMesh(railGeo, 150, 160, 200, scene);
+    railR.setTransform(mapX(W - WALL), 0.35, 0, 0, 0, 0);
+    const railTGeo = new THREE.BoxGeometry(W * SC, 0.7, 0.3);
+    const railT = this.addLambertMesh(railTGeo, 150, 160, 200, scene);
+    railT.setTransform(0, 0.35, mapZ(WALL), 0, 0, 0);
+
+    // pop bumpers — octahedron caps that stand up off the field
+    this.bumpMeshes = [];
+    let bi = 0;
+    while (bi < BUMPERS.length) {
+      const bp = BUMPERS[bi];
+      const g = new THREE.OctahedronGeometry(bp.r * SC * 1.3);
+      const m = this.addLambertMesh(g, bp.cr, bp.cg, bp.cb, scene);
+      m.setTransform(mapX(bp.x), bp.r * SC, mapZ(bp.y), 0, 0, 0);
+      this.bumpMeshes[bi] = m;
+      bi = bi + 1;
+    }
+
+    // slingshots — low blue wedges near the flippers
+    let si = 0;
+    while (si < SLINGS.length) {
+      const sl = SLINGS[si];
+      const g = new THREE.BoxGeometry(0.9, 0.6, 1.4);
+      const m = this.addLambertMesh(g, 70, 150, 240, scene);
+      m.setTransform(mapX(sl.x), 0.3, mapZ(sl.y), 0, sl.dir * 0.5, 0);
+      si = si + 1;
+    }
+
+    // spinner disc (left) — a flattened bright octahedron target
+    const spinGeo = new THREE.OctahedronGeometry(1.6);
+    const spin = this.addLambertMesh(spinGeo, 245, 200, 60, scene);
+    spin.setTransform(mapX(62), 0.15, mapZ(300), 0, 0, 0);
+    spin.setScale(1.0, 0.28, 1.0);
+
+    // bank targets — bright studs scattered up the table
+    const tgs = [[150, 236, 255, 210, 60], [210, 236, 90, 200, 255], [126, 300, 230, 70, 90], [246, 300, 70, 200, 120], [180, 340, 250, 220, 80]];
+    let ti = 0;
+    while (ti < tgs.length) {
+      const tg = tgs[ti];
+      const g = new THREE.OctahedronGeometry(0.55);
+      const m = this.addLambertMesh(g, tg[2], tg[3], tg[4], scene);
+      m.setTransform(mapX(tg[0]), 0.45, mapZ(tg[1]), 0, 0, 0);
+      ti = ti + 1;
+    }
+
+    // centre lane arrows — thin raised boxes pointing up the table
+    const arGeo = new THREE.BoxGeometry(0.5, 0.28, 2.4);
+    const arCols = [[255, 80, 60], [250, 210, 70], [255, 80, 60]];
+    const arXs = [150, 180, 210];
+    let ai = 0;
+    while (ai < 3) {
+      const c = arCols[ai];
+      const m = this.addLambertMesh(arGeo, c[0], c[1], c[2], scene);
+      m.setTransform(mapX(arXs[ai]), 0.2, mapZ(410), 0, 0, 0);
+      ai = ai + 1;
+    }
+
+    // flippers — red bars that swing about the vertical axis
+    const flGeo = new THREE.BoxGeometry(2.6, 0.5, 0.7);
+    this.flipMeshL = this.addLambertMesh(flGeo, 235, 70, 70, scene);
+    this.flipMeshR = this.addLambertMesh(flGeo, 235, 70, 70, scene);
+
+    // the steel ball — a bright octahedron so the facets catch the light
+    const ballGeo = new THREE.OctahedronGeometry(BALL_R * SC * 1.6);
+    this.ballMesh = this.addLambertMesh(ballGeo, 220, 226, 236, scene);
+
+    // present: render the scene to a target the single pane shows
+    const rt = runtime.graphics.createRenderTarget({ width: RT_W, height: RT_H });
+    const sprite = new TWO.Sprite2D({ source: rt.colorTexture.view() });
+    sprite.setSize(RT_W, RT_H);
+    sprite.setZ(1);
+    this.layer.add(sprite);
+    this.view = new THREE.SceneSprite3D({
+      scene: scene, camera: camera, target: rt, sprite: sprite,
+      resolution: { width: RT_W, height: RT_H }, update: "everyFrame"
+    });
+    this.view.sync(this.r3d);
     return 1;
   }
 
   resetBall() {
     this.ball.setPosition(PLUNGE_X, PLUNGE_Y, 0);
     this.bx = PLUNGE_X; this.by = PLUNGE_Y; this.lbx = PLUNGE_X; this.lby = PLUNGE_Y;
-    this.trail = [];
   }
 
   sfx(name) { runtime.audio.vocal.play(name); }
@@ -103,20 +212,16 @@ class PinballGame {
     this.flipL = lpr ? 1 : Math.max(0, this.flipL - dt / 90);
     this.flipR = rpr ? 1 : Math.max(0, this.flipR - dt / 90);
 
-    // pose + derived velocity
     this.bx = this.ball.posX();
     this.by = this.ball.posY();
     let vx = (this.bx - this.lbx) / dts;
     let vy = (this.by - this.lby) / dts;
     this.lbx = this.bx; this.lby = this.by;
 
-    // ---- collisions -------------------------------------------------------
-    // walls (reflect)
     if (this.bx < WALL + BALL_R && vx < 0) { vx = -vx * WALL_BOUNCE; this.sfx("wall"); }
     if (this.bx > W - WALL - BALL_R && vx > 0) { vx = -vx * WALL_BOUNCE; this.sfx("wall"); }
     if (this.by < WALL + BALL_R && vy < 0) { vy = -vy * WALL_BOUNCE; }
 
-    // pop bumpers (radial kick)
     let bi = 0;
     while (bi < BUMPERS.length) {
       const bp = BUMPERS[bi];
@@ -128,14 +233,13 @@ class PinballGame {
         vx = (dx / d) * BUMP_KICK;
         vy = (dy / d) * BUMP_KICK;
         this.score = this.score + 100 * this.mult;
-        this.bumpFlash[bi] = 160;
+        this.bumpFlash[bi] = 180;
         this.sfx("bounce");
       }
       if (this.bumpFlash[bi] > 0) { this.bumpFlash[bi] = this.bumpFlash[bi] - dt; }
       bi = bi + 1;
     }
 
-    // slingshots (kick up-and-in when the ball rolls onto them)
     let si = 0;
     while (si < SLINGS.length) {
       const sl = SLINGS[si];
@@ -150,40 +254,16 @@ class PinballGame {
       si = si + 1;
     }
 
-    // spinner (left) — spin + score while the ball is over it
-    const sdx = this.bx - 66;
-    const sdy = this.by - 300;
-    if (sdx * sdx + sdy * sdy < 42 * 42) {
-      this.spinner = this.spinner + dt * 0.02;
-      this.score = this.score + 5;
-    }
-
-    // targets (score + light up on contact)
-    let ti = 0;
-    while (ti < TARGETS.length) {
-      const tg = TARGETS[ti];
-      const dx = this.bx - tg.x;
-      const dy = this.by - tg.y;
-      if (dx * dx + dy * dy < 16 * 16) {
-        this.score = this.score + 20 * this.mult;
-      }
-      ti = ti + 1;
-    }
-
-    // flippers — two zones just above the drain
     if (this.by > 512 && this.by < 588 && vy > -60) {
       if (this.bx > 60 && this.bx < 176) {
-        vy = lpr ? -FLIP_KICK : -FLIP_SOFT;
-        vx = 150;
+        vy = lpr ? -FLIP_KICK : -FLIP_SOFT; vx = 150;
         if (lpr) { this.sfx("bounce"); }
       } else if (this.bx > 184 && this.bx < 300) {
-        vy = rpr ? -FLIP_KICK : -FLIP_SOFT;
-        vx = -150;
+        vy = rpr ? -FLIP_KICK : -FLIP_SOFT; vx = -150;
         if (rpr) { this.sfx("bounce"); }
       }
     }
 
-    // drain
     if (this.by > DRAIN_Y) {
       this.balls = this.balls - 1;
       this.sfx("lose");
@@ -192,170 +272,47 @@ class PinballGame {
       vx = 0; vy = 0;
     }
 
-    // apply + integrate (keep the ball on the z=0 plane)
     this.ball.setVelocity(vx, vy, 0);
     this.world.step(dts);
 
-    // motion trail (drop the oldest by rebuild — avoids Array.shift)
-    this.trail.push({ x: this.bx, y: this.by });
-    if (this.trail.length > 8) {
-      const kept = [];
-      let z = 1;
-      while (z < this.trail.length) { kept.push(this.trail[z]); z = z + 1; }
-      this.trail = kept;
-    }
-
-    this.draw();
+    this.draw3d();
     return 1;
   }
 
-  // ---- rendering ----------------------------------------------------------
-  draw() {
-    const r = this.renderer;
-    // fit the tall table into the pane by height; centre it
-    const zoom = VIEW_H / H;
-    this.cam.set(W / 2, H / 2, zoom, 0);
+  draw3d() {
+    // ball follows the physics; spin it a little for life
+    const spin = this.nowMs * 0.004;
+    this.ballMesh.setTransform(mapX(this.bx), BALL_R * SC, mapZ(this.by), spin, spin * 0.7, 0);
 
-    r.beginBackground();
-    // cabinet surround (fills the pane margins beside the portrait table)
-    r.fillRect(-400, -200, 1200, 1200, 12, 8, 40);
-    // side cabinet art panels
-    r.fillRect(-140, 0, 130, H, 40, 20, 90);
-    r.fillRect(W + 10, 0, 130, H, 40, 20, 90);
-    let a = 0;
-    while (a < 8) {
-      const ay = 40 + a * 74;
-      r.fillRect(-120, ay, 90, 44, 200, 60, 90);
-      r.fillRect(W + 30, ay, 90, 44, 60, 90, 200);
-      a = a + 1;
-    }
+    // flippers swing about Y: left tip inward when raised, right mirrored
+    const laRest = -0.35; const laUp = 0.5;
+    const raRest = 3.14159 + 0.35; const raUp = 3.14159 - 0.5;
+    const la = laRest + (laUp - laRest) * this.flipL;
+    const ra = raRest + (raUp - raRest) * this.flipR;
+    this.flipMeshL.setTransform(mapX(120), 0.35, mapZ(560), 0, la, 0);
+    this.flipMeshR.setTransform(mapX(240), 0.35, mapZ(560), 0, ra, 0);
 
-    // playfield
-    r.fillRect(0, 0, W, H, 26, 30, 96);
-    r.fillRect(WALL, WALL, W - 2 * WALL, H - 2 * WALL, 40, 46, 130);
-
-    // decorative arrows (centre, pointing up the table)
-    this.drawArrow(180, 300, 255, 70, 60);
-    this.drawArrow(120, 430, 250, 210, 70);
-    this.drawArrow(240, 430, 250, 210, 70);
-
-    // spinner wheel (left) — colourful pie approximated with wedges
-    this.drawSpinner(66, 300, 40);
-
-    // bank targets
-    let ti = 0;
-    while (ti < TARGETS.length) {
-      const tg = TARGETS[ti];
-      r.fillCircle(tg.x, tg.y, 9, tg.cr, tg.cg, tg.cb);
-      r.fillCircle(tg.x, tg.y, 4, 255, 255, 255);
-      ti = ti + 1;
-    }
-
-    // slingshots (triangular blue kickers)
-    let si = 0;
-    while (si < SLINGS.length) {
-      const sl = SLINGS[si];
-      this.drawSling(sl.x, sl.y, sl.dir);
-      si = si + 1;
-    }
-
-    // pop bumpers (concentric caps, flash on hit)
+    // bumper flash: pop up + brighten by scaling when hit
     let bi = 0;
-    while (bi < BUMPERS.length) {
+    while (bi < this.bumpMeshes.length) {
       const bp = BUMPERS[bi];
       const hot = this.bumpFlash[bi] > 0 ? 1 : 0;
-      r.fillCircle(bp.x, bp.y, bp.r + 4, 240, 240, 255);
-      if (hot == 1) {
-        r.fillCircle(bp.x, bp.y, bp.r, 255, 255, 200);
-      } else {
-        r.fillCircle(bp.x, bp.y, bp.r, bp.r0, bp.g0, bp.b0);
-      }
-      r.fillCircle(bp.x, bp.y, bp.r - 9, 255, 255, 255);
+      const s = hot == 1 ? 1.28 : 1.0;
+      this.bumpMeshes[bi].setScale(s, s, s);
       bi = bi + 1;
     }
 
-    // flippers
-    this.drawFlipper(118, 560, 1, this.flipL);
-    this.drawFlipper(242, 560, -1, this.flipR);
+    this.view.sync(this.r3d);
+    this.renderer.render(this.layer, this.cam, 0);
 
-    // ball trail + ball
-    let k = 0;
-    while (k < this.trail.length) {
-      const tp = this.trail[k];
-      const f = k / this.trail.length;
-      r.fillCircle(tp.x, tp.y, BALL_R * (0.4 + f * 0.5), 120 + f * 80, 130 + f * 80, 150 + f * 90);
-      k = k + 1;
-    }
-    r.fillCircle(this.bx, this.by, BALL_R, 210, 220, 235);
-    r.fillCircle(this.bx - 3, this.by - 3, BALL_R * 0.5, 255, 255, 255);
-
-    r.render(this.layer, this.cam, 0);
-
-    // DMD score display (screen-space overlay)
+    // DMD score overlay
+    const r = this.renderer;
     r.beginOverlay();
-    r.overlayRect(0.30, 0.02, 0.40, 0.10, 30, 8, 8, 0);
-    this.drawNumber(this.score, 0.66, 0.035, 0.012, 0.02, 255, 170, 20);
-    // BALL indicator + multiplier
-    this.drawNumber(this.balls, 0.34, 0.035, 0.010, 0.016, 255, 170, 20);
+    r.overlayRect(0.30, 0.02, 0.40, 0.11, 26, 6, 6, 0);
+    this.drawNumber(this.score, 0.66, 0.04, 0.012, 0.022, 255, 170, 20);
+    this.drawNumber(this.balls, 0.335, 0.04, 0.010, 0.018, 255, 170, 20);
   }
 
-  drawArrow(cx, cy, cr, cg, cb) {
-    const r = this.renderer;
-    r.fillRect(cx - 8, cy - 30, 16, 44, cr, cg, cb);
-    r.fillRect(cx - 18, cy - 44, 36, 8, cr, cg, cb);
-    r.fillRect(cx - 12, cy - 52, 24, 8, cr, cg, cb);
-    r.fillRect(cx - 6, cy - 60, 12, 8, cr, cg, cb);
-  }
-
-  drawSpinner(cx, cy, rad) {
-    const r = this.renderer;
-    r.fillCircle(cx, cy, rad + 3, 235, 235, 245);
-    // eight wedges as rotating coloured dots around the hub (approximated pie)
-    const cols = [[230, 60, 60], [240, 150, 40], [245, 220, 60], [80, 200, 90], [70, 170, 230], [90, 90, 210], [200, 80, 200], [240, 120, 160]];
-    let i = 0;
-    while (i < 8) {
-      const ang = this.spinner + (i / 8) * 6.28318;
-      const px = cx + Math.cos(ang) * (rad * 0.55);
-      const py = cy + Math.sin(ang) * (rad * 0.55);
-      const c = cols[i];
-      r.fillCircle(px, py, rad * 0.34, c[0], c[1], c[2]);
-      i = i + 1;
-    }
-    r.fillCircle(cx, cy, rad * 0.28, 20, 20, 30);
-  }
-
-  drawSling(cx, cy, dir) {
-    const r = this.renderer;
-    // a filled triangle, approximated by stacked rects (widening toward the base)
-    let i = 0;
-    while (i < 7) {
-      const w = 6 + i * 6;
-      const x = dir > 0 ? cx : cx - w;
-      r.fillRect(x, cy - 24 + i * 7, w, 7, 70, 150, 240);
-      i = i + 1;
-    }
-    r.fillCircle(cx, cy - 6, 5, 255, 240, 120);
-  }
-
-  drawFlipper(px, py, dir, raise) {
-    const r = this.renderer;
-    // flipper points inward-down at rest, swings up when pressed (raise 0..1)
-    const restAng = dir > 0 ? 0.5 : (3.14159 - 0.5);
-    const upAng = dir > 0 ? -0.5 : (3.14159 + 0.5);
-    const ang = restAng + (upAng - restAng) * raise;
-    const len = 52;
-    let s = 0;
-    while (s <= 10) {
-      const f = s / 10;
-      const x = px + Math.cos(ang) * len * f;
-      const y = py + Math.sin(ang) * len * f;
-      r.fillCircle(x, y, 8 - f * 3, 235, 70, 70);
-      s = s + 1;
-    }
-    r.fillCircle(px, py, 7, 255, 255, 255);
-  }
-
-  // DMD-style numerals (7-seg-ish 3x5 grid) in normalised overlay coords
   drawNumber(value, nx, ny, cw, ch, cr, cg, cb) {
     const digits = [];
     let v = value;
@@ -377,7 +334,7 @@ class PinballGame {
       let cx = 0;
       while (cx < 3) {
         if (line.charAt(cx) == "X") {
-          this.renderer.overlayRect(nx + cx * cw, ny + ry * ch, cw * 0.92, ch * 0.92, cr, cg, cb, 0);
+          this.renderer.overlayRect(nx + cx * cw, ny + ry * ch, cw * 0.9, ch * 0.9, cr, cg, cb, 0);
         }
         cx = cx + 1;
       }
