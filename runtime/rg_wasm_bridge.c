@@ -783,6 +783,22 @@ int32_t rg_wasm_mem_read_i32(int handle, uint32_t off) {
     return v;
 }
 
+const char* rg_wasm_mem_read_str(int handle, int32_t off, int32_t len) {
+    static char rg_wasm_str_buf[1024];
+    RgWasmSlot* s = rg_slot(handle);
+    uint8_t* mem;
+    rg_wasm_str_buf[0] = '\0';
+    if (!s) {
+        return rg_wasm_str_buf;
+    }
+    mem = rg_wasm_mem(handle);
+    if (!mem) {
+        return rg_wasm_str_buf;
+    }
+    rg_copy_wasm_str(s->runtime, mem, off, len, rg_wasm_str_buf, (int)sizeof(rg_wasm_str_buf));
+    return rg_wasm_str_buf;
+}
+
 void rg_wasm_mem_write_i32(int handle, uint32_t off, int32_t val) {
     RgWasmSlot* s = rg_slot(handle);
     uint8_t* mem;
