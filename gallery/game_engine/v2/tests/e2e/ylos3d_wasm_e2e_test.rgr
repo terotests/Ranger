@@ -1,11 +1,11 @@
 ; ==============================================================================
-; ylos3d_wasm_game_test — the ylos3d gems (wasm32) run through RgWasmGameHost.
+; ylos3d_wasm_e2e_test — the faithful Rust/wasm32 port of ylos3d, through the host.
 ; ==============================================================================
-; Loads games/ylos3d_wasm/logic.wasm through RgWasmGameHost (the wasm sibling of
-; RgGameHost) and asserts it drives the SAME generic bridge .tsx games use: a
-; cluster of coloured, spinning octahedral gems is built, PRESENTED (rendered to
-; a render target a single pane displays), and animated. Real rasterised colour
-; reaches the framebuffer. Only the SDL blit is untestable here.
+; Loads games/ylos3d_wasm/logic.wasm through RgWasmGameHost and asserts it drives
+; the SAME generic bridge as the .tsx ylos3d: split-screen surface, LPC player
+; sprites with real physics (rest on the floor, jump, walk), enemies, 3D diamonds,
+; and a rendered world — all from Rust. Sprite positions are read back from the
+; host 2D arena to check the SIMULATION; a present proves the world rasterises.
 ; ==============================================================================
 
 Import "../../runtime/game_host/RgWasmGameHost.rgr"
@@ -13,111 +13,85 @@ Import "../../runtime/game_host/Rg2DPresenter.rgr"
 Import "../harness/RgTest.rgr"
 
 class Ylos3dWasmGameTest {
-    ; count framebuffer samples that carry a non-clear colour (the gems).
-    sfn colouredSamples:int (fb:RgFramebuffer x0:int y0:int x1:int y1:int) {
+    ; sprite Y of a guest-local sprite id (through the host 2D arena)
+    sfn spriteY:double (host:RgWasmGameHost gid:int) {
+        def h:RgHandle (host.bridge.resolveGuestId((host.hostId(gid))))
+        return (host.bridge.d2.spriteY(h))
+    }
+    sfn spriteX:double (host:RgWasmGameHost gid:int) {
+        def h:RgHandle (host.bridge.resolveGuestId((host.hostId(gid))))
+        return (host.bridge.d2.spriteX(h))
+    }
+    sfn nonClear:int (fb:RgFramebuffer w:int h:int) {
         def n 0
-        def y:int y0
-        while (y < y1) {
-            def x:int x0
-            while (x < x1) {
+        def y 0
+        while (y < h) {
+            def x 0
+            while (x < w) {
                 if ((fb.at(x y)) != 0) { n = (n + 1) }
-                x = (x + 4)
-            }
-            y = (y + 4)
-        }
-        return n
-    }
-    sfn diffCount:int (a:RgFramebuffer b:RgFramebuffer x0:int y0:int x1:int y1:int) {
-        def n 0
-        def y:int y0
-        while (y < y1) {
-            def x:int x0
-            while (x < x1) {
-                if ((a.at(x y)) != (b.at(x y))) { n = (n + 1) }
-                x = (x + 4)
-            }
-            y = (y + 4)
-        }
-        return n
-    }
-    ; average x of coloured pixels (the gem cluster's horizontal centre)
-    sfn avgX:int (fb:RgFramebuffer) {
-        def sum 0
-        def cnt 0
-        def y 90
-        while (y < 230) {
-            def x 20
-            while (x < 300) {
-                if ((fb.at(x y)) != 0) {
-                    sum = (sum + x)
-                    cnt = (cnt + 1)
-                }
                 x = (x + 6)
             }
             y = (y + 6)
         }
-        if (cnt == 0) { return (0 - 1) }
-        return (idiv sum cnt)
+        return n
     }
-
-    sfn m@(main):void () {
-        def t:RgTest (RgTest.forSuite("games/ylos3d_wasm (gems via RgWasmGameHost)"))
-        def host:RgWasmGameHost (new RgWasmGameHost)
-
-        ; ---- load: init() builds the gem cluster through the generic bridge ---
-        def ok:boolean (host.load("gallery/game_engine/v2/games/ylos3d_wasm" "logic.wasm"))
-        t.ok("wasm game loaded + init drained" ok)
-        t.eqInt("no bridge errors after init" host.bridge.errorCount 0)
-        t.eqInt("init built 5 gem meshes" (host.bridge.d3.host.entityCount()) 5)
-        t.eqInt("init built 5 gem geometries" (host.bridge.d3.host.geometryCount()) 5)
-        t.eqInt("init built 5 gem materials" (host.bridge.d3.host.materialCount()) 5)
-
-        ; all five gems are parented to the scene (D-SYNC across the wasm loader)
-        def sceneH:RgHandle (host.bridge.resolveGuestId((host.hostId(1))))
-        t.eqInt("all 5 gems parented to the scene" (host.bridge.d3.sceneChildCount(sceneH)) 5)
-
-        ; init declared a single on-screen pane
-        t.eqInt("init declared one full pane" (host.bridge.surface.paneCount()) 1)
-
-        ; ---- one frame binds the pane; present composites the coloured gems ---
-        host.frame(16.667)
-        def fb1:RgFramebuffer (RgFramebuffer.create(320 320))
-        def drawn:int (Rg2DPresenter.presentTextured(host.bridge 0 fb1 0))
-        t.ok("pane 0 composites the gems (a sprite was drawn)" (drawn >= 1))
-        t.ok("the gems rendered in colour (non-clear framebuffer pixels)"
-            ((Ylos3dWasmGameTest.colouredSamples(fb1 40 60 280 260)) > 0))
-
-        ; ---- run frames: the gems spin, so the picture changes ---------------
-        def before:int host.disp.dispatched
+    sfn stepN:void (host:RgWasmGameHost n:int) {
         def i 0
-        while (i < 10) {
+        while (i < n) {
             host.frame(16.667)
             i = (i + 1)
         }
-        t.eqInt("no bridge errors across 10 frames" host.bridge.errorCount 0)
-        t.eqInt("still 5 gems (spinning, not leaked)" (host.bridge.d3.host.entityCount()) 5)
-        def fb2:RgFramebuffer (RgFramebuffer.create(320 320))
-        def drawn2:int (Rg2DPresenter.presentTextured(host.bridge 0 fb2 0))
-        t.ok("still compositing after spinning" (drawn2 >= 1))
-        t.ok("the gems are animating (framebuffer changed as they spun)"
-            ((Ylos3dWasmGameTest.diffCount(fb1 fb2 40 60 280 260)) > 0))
+    }
 
-        ; ---- input channel: player 0 pans the cluster left/right -------------
-        ; the host writes each player's input into the guest's input_ptr region
-        ; before update(); the guest reads it and pans. Hold LEFT -> the cluster's
-        ; colour centre-of-mass shifts left of where it started.
-        def base:int (Ylos3dWasmGameTest.avgX(fb2))
-        host.bridge.input.setAction(0 "left" true)
-        def j 0
-        while (j < 12) {
-            host.frame(16.667)
-            j = (j + 1)
-        }
-        def fbL:RgFramebuffer (RgFramebuffer.create(320 320))
-        def dL:int (Rg2DPresenter.presentTextured(host.bridge 0 fbL 0))
-        t.ok("holding LEFT panned the cluster left (input reaches the guest)"
-            ((Ylos3dWasmGameTest.avgX(fbL)) < base))
-        t.eqInt("no bridge errors after input" host.bridge.errorCount 0)
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("games/ylos3d_wasm (ylos3d Rust port via RgWasmGameHost)"))
+        def host:RgWasmGameHost (new RgWasmGameHost)
+
+        ; ---- load: init builds the whole scene through the generic bridge -----
+        def ok:boolean (host.load("gallery/game_engine/v2/games/ylos3d_wasm" "logic.wasm"))
+        t.ok("wasm game loaded + init drained" ok)
+        t.eqInt("no bridge errors after init" host.bridge.errorCount 0)
+        t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
+        t.ok("3D diamonds built (entities present)" ((host.bridge.d3.host.entityCount()) > 0))
+
+        ; ---- physics: players rest on the floor platform --------------------
+        Ylos3dWasmGameTest.stepN(host 3)
+        t.eqInt("no unhandled commands running the game" host.bridge.unhandledCount 0)
+        t.eqInt("no bridge errors running the game" host.bridge.errorCount 0)
+        def p0rest:double (Ylos3dWasmGameTest.spriteY(host 10))
+        def p1rest:double (Ylos3dWasmGameTest.spriteY(host 12))
+        t.near("player 0 rests on the ground (sprite y ~ 1811)" p0rest 1811.0)
+        t.near("player 1 rests on the ground (sprite y ~ 1811)" p1rest 1811.0)
+        def p0x0:double (Ylos3dWasmGameTest.spriteX(host 10))
+
+        ; ---- input: JUMP raises the player ----------------------------------
+        host.bridge.input.setAction(0 "jump" true)
+        Ylos3dWasmGameTest.stepN(host 5)
+        t.ok("holding JUMP lifts player 0 off the floor"
+            ((Ylos3dWasmGameTest.spriteY(host 10)) < p0rest))
+        host.bridge.input.setAction(0 "jump" false)
+        Ylos3dWasmGameTest.stepN(host 70)
+        t.near("player 0 lands back on the floor after the jump"
+            (Ylos3dWasmGameTest.spriteY(host 10)) 1811.0)
+
+        ; ---- input: RIGHT walks the player ----------------------------------
+        host.bridge.input.setAction(0 "right" true)
+        Ylos3dWasmGameTest.stepN(host 10)
+        t.ok("holding RIGHT walks player 0 rightward"
+            ((Ylos3dWasmGameTest.spriteX(host 10)) > p0x0))
+        host.bridge.input.setAction(0 "right" false)
+
+        ; ---- enemies patrol (enemy 0 sprite is placed on its platform) ------
+        t.ok("enemy 0 is seated in the world (not hidden)"
+            ((Ylos3dWasmGameTest.spriteY(host 40)) > 0.0))
+
+        ; ---- present: the split-screen world rasterises ---------------------
+        def fb:RgFramebuffer (RgFramebuffer.create(240 270))
+        def drawn:int (Rg2DPresenter.presentTextured(host.bridge 0 fb 0))
+        t.ok("pane 0 composites the world (sprites drawn)" (drawn >= 1))
+        t.ok("the world rendered (sky/platforms/player fill the pane)"
+            ((Ylos3dWasmGameTest.nonClear(fb 240 270)) > 0))
+        t.eqInt("no bridge errors across the whole run" host.bridge.errorCount 0)
 
         t.summary()
     }
