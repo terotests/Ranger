@@ -425,8 +425,8 @@ Contract: [`BRIDGES.md`](./BRIDGES.md) rev 2. Today steps 1–2 are done
 | 1–2 | Interpreter profile table + generic bridge + coverage | done (not a published ABI) |
 | 3 | Real TSX guests (ylos2 / ylos3d / launcher) | in progress |
 | **5b** | **Rust→wasm32 conformance guest** — a real Rust guest drives the GENERIC bridge | **fail-fast slice PROVEN** ✓ |
-| **4** | **IDL extraction** — full types, identities, capabilities; regen interpreter table from IDL × profile | **not started — next** |
-| **5** | **wasm32 profile** — token/epoch lowering; golden **wire vectors** | in progress (slice wire format below) |
+| **4** | **IDL extraction** — full types, identities, capabilities; regen interpreter table from IDL × profile | **started**: table-driven wasm32 dispatch off argSpec (below) |
+| **5** | **wasm32 profile** — token/epoch lowering; golden **wire vectors** | in progress: `RgWasm3dProfile` opcode map + RGC1 record format |
 | 6 | Extend IDL to three + cannon; dispatcher emitter; generated façades | after 5 |
 | 7 | **Golden freeze** only when TSX + Rust guests both pass on one host | gated |
 
@@ -443,11 +443,26 @@ scene (**D-SYNC across wasm32**), and distinct guest ids resolve to distinct
 valid host handles (**D-IDENTITY**). Runs headlessly in the node gate via a new
 `WebAssembly` loader (the `wasm_*` es6 templates were stubs before). This
 retires the biggest architecture risk: the generic bridge *can* host a
-second-language guest. Remaining toward a full Rust ylos3d: return-value
-round-trip (host → guest memory), strings/assets (`rg3d_model_load`), the 2D +
-RTT + input + audio surface, and lifting the hand wire format into the generated
-wasm32 profile (step 5). The command-buffer model deliberately mirrors the
+second-language guest. The command-buffer model deliberately mirrors the
 existing RGU1/RGX1 shared-block guests (no host-call imports).
+
+**Follow-ups landed (July 19, 2026):**
+- **Generic table-driven dispatch (step 4 start).** The hand-written per-command
+  if-chain is replaced by `bridge/wasm/RgWasmCmdDispatch` — it decodes each RGC1
+  record's args straight from the command row's SEMANTIC `argSpec` (`i`/`d`/`h`,
+  doubles as ×1000 fixed-point) and dispatches through `RgRegistryBridge.invoke`.
+  No per-command host code: adding a command is a schema edit + one opcode
+  binding in the wasm32 profile (`RgWasm3dProfile`, opcode → command name).
+- **Return-value round-trip.** The dispatcher writes each minted host id back into
+  the guest's result region (`result_ptr[dst]`); the guest's `frame2()` reads its
+  mesh handle back and only then emits a follow-up transform — the guest observed
+  a host-written handle and acted on it across a frame boundary.
+- Conformance test now 18 asserts (was 13), all through the generic dispatcher.
+
+**Remaining toward a full Rust ylos3d:** strings/assets (`rg3d_model_load` — the
+`s` argSpec needs a ptr+len decode from guest memory), the 2D + RTT + input +
+audio surface (more opcode bindings), and formalising `RgWasm3dProfile` as a
+GENERATED artifact of the IDL rather than an authored list (step 4 proper).
 
 ### Why Rust `ylos3d` (not a toy, not Chess first)
 

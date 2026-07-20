@@ -24,6 +24,11 @@ const WORDS: usize = 12;
 const MAX_REC: usize = 32;
 static mut BUF: [i32; WORDS * MAX_REC] = [0; WORDS * MAX_REC];
 
+// Result region: the host writes the minted host id of each created object here,
+// indexed by the guest-local id it was created with (the return-value round-trip).
+const MAX_ID: usize = 64;
+static mut RESULT: [i32; MAX_ID] = [0; MAX_ID];
+
 // opcodes
 const OP_SCENE: i32 = 1;      // -> rg3d_scene_create()
 const OP_CAMERA: i32 = 2;     // -> rg3d_camera_create()
@@ -50,6 +55,11 @@ pub extern "C" fn cmd_ptr() -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn result_ptr() -> i32 {
+    core::ptr::addr_of!(RESULT) as i32
+}
+
+#[no_mangle]
 pub extern "C" fn frame() -> i32 {
     unsafe {
         put(0, OP_SCENE, 1, &[]);                              // scene        -> id 1
@@ -60,5 +70,23 @@ pub extern "C" fn frame() -> i32 {
         put(5, OP_ADD, 0, &[5, 1]);                           // scene.add(mesh 5 -> scene 1)
         put(6, OP_TRANSFORM, 0, &[5, 1500, 0, -3000, 0, 0, 0]); // mesh 5 pos(1.5,0,-3)
         7
+    }
+}
+
+/// A second frame that depends on the return-value round-trip: the guest reads
+/// back the HOST id the host wrote into RESULT[5] for its mesh, and only if it
+/// received a valid handle does it emit a follow-up transform (re-using guest-
+/// local id 5, which the host's persistent id map still resolves). Proves the
+/// guest observed the host-written handle and conditioned behaviour on it.
+/// Returns the number of records emitted (0 if no handle came back).
+#[no_mangle]
+pub extern "C" fn frame2() -> i32 {
+    unsafe {
+        let mesh_host = RESULT[5];
+        if mesh_host == 0 {
+            return 0; // no round-trip -> nothing to do
+        }
+        put(0, OP_TRANSFORM, 0, &[5, 500, 500, -2000, 0, 0, 0]); // move mesh 5
+        1
     }
 }

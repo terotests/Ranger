@@ -1,0 +1,136 @@
+; ==============================================================================
+; RgWasmCmdDispatch — generic, schema-driven wasm32 command lowering (BRIDGES 4/5)
+; ==============================================================================
+; The wasm32 profile binding: a guest compiled to wasm32 writes an RGC1 command
+; buffer into its own linear memory; this drains it and dispatches each record
+; through the ONE generic bridge (RgRegistryBridge.invoke -> dispatchRow). It is
+; PURELY TABLE-DRIVEN — there is no per-command code here. Each record's args are
+; decoded straight from the row's SEMANTIC argSpec (the same authored source the
+; interpreter profile uses), so adding a command is a schema edit + one opcode
+; binding, never a new branch. This is the "generated binding from one semantic
+; definition" that BRIDGES rev 2 calls for, standing in for a hand emitter.
+;
+; Wire format (RGC1): a flat array of fixed WORDS-int32 little-endian records:
+;   [op, dst, a0, a1, ... a(WORDS-3)]
+;   op  = opcode (mapped to a command name by the profile)
+;   dst = guest-local id to bind the created handle to (0 = no result)
+;   args are laid out in argSpec order; doubles are fixed-point (value * FIXED).
+;
+; Handles: within a frame the guest refers to objects it just created by small
+; guest-local ids, resolved here via a persistent id map. After a create the
+; minted host id is ALSO written back into the guest's result region
+; (result_ptr[dst]) so the guest can read its handles on the next frame — the
+; return-value round-trip.
+; ==============================================================================
+
+Import "../../interp/engine/RgRegistryBridge.rgr"
+Import "../../scripting/wasm_runtime.rgr"
+
+; The wasm32 profile's opcode assignment: opcode -> semantic command name. This
+; is the small authored lowering table (abi_profiles/wasm32_v1) — the ONE place a
+; transport-specific opcode is tied to a semantic command.
+class RgWasmProfile {
+    def names:[string]
+
+    fn bind:void (op:int name:string) {
+        while ((array_length this.names) <= op) {
+            push this.names ""
+        }
+        set this.names op name
+    }
+    fn nameOf:string (op:int) {
+        if (op < 0) { return "" }
+        if (op >= (array_length this.names)) { return "" }
+        return (itemAt this.names op)
+    }
+}
+
+class RgWasmCmdDispatch {
+    def bridge:RgRegistryBridge
+    def profile:RgWasmProfile
+    ; guest-local id -> minted host id (persistent across frames)
+    def map:[int]
+    def words:int 12
+    def fixed:double 1000.0
+    def dispatched:int 0
+
+    fn init:void (b:RgRegistryBridge p:RgWasmProfile) {
+        this.bridge = b
+        this.profile = p
+        this.map = (make _:[int] 256 0)
+    }
+
+    ; Decode one record's args from wasm memory per the row's semantic argSpec.
+    fn decodeArgs:[EvalValue] (h:int rb:int row:RgCommand) {
+        def args:[EvalValue]
+        if (row.argSpec == "") { return args }
+        def toks:[string] (strsplit row.argSpec ":")
+        def k 0
+        while (k < (array_length toks)) {
+            def tk:string (itemAt toks k)
+            def slot:int (wasm_mem_i32 h (rb + (8 + (k * 4))))
+            if (tk == "i") {
+                push args (EvalValue.number((to_double slot)))
+            }
+            if (tk == "d") {
+                push args (EvalValue.number(((to_double slot) / this.fixed)))
+            }
+            if (tk == "h") {
+                push args (EvalValue.number((to_double (itemAt this.map slot))))
+            }
+            k = (k + 1)
+        }
+        return args
+    }
+
+    ; Drain `count` records from module `h` at command-buffer offset `base`,
+    ; writing minted host ids back into the guest result region at `resBase`
+    ; (indexed by guest-local id; pass 0 to skip the write-back).
+    fn drain:void (h:int base:int count:int resBase:int) {
+        def i 0
+        while (i < count) {
+            def rb:int (base + ((i * this.words) * 4))
+            def op:int (wasm_mem_i32 h rb)
+            def dst:int (wasm_mem_i32 h (rb + 4))
+            def name:string (this.profile.nameOf(op))
+            if ((strlen name) > 0) {
+                def row:RgCommand (RgCodegen.findByName(this.bridge.table name))
+                if (row.id != (0 - 1)) {
+                    def args:[EvalValue] (this.decodeArgs(h rb row))
+                    def res:EvalValue (this.bridge.invoke(name args))
+                    this.dispatched = (this.dispatched + 1)
+                    if (row.retSpec == "h") {
+                        def gid:int (to_int res.numberValue)
+                        set this.map dst gid
+                        if (resBase > 0) {
+                            wasm_mem_set_i32 h (resBase + (dst * 4)) gid
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; the minted host id bound to a guest-local id (0 if unset).
+    fn hostId:int (guestLocal:int) {
+        if (guestLocal < 0) { return 0 }
+        if (guestLocal >= (array_length this.map)) { return 0 }
+        return (itemAt this.map guestLocal)
+    }
+}
+
+; The authored wasm32 lowering for the ranger:three surface (opcode -> command).
+class RgWasm3dProfile {
+    sfn build:RgWasmProfile () {
+        def p:RgWasmProfile (new RgWasmProfile)
+        p.bind(1 "rg3d_scene_create")
+        p.bind(2 "rg3d_camera_create")
+        p.bind(3 "rg3d_geometry_box")
+        p.bind(4 "rg3d_material_lambert")
+        p.bind(5 "rg3d_mesh_create")
+        p.bind(6 "rg3d_entity_set_parent")
+        p.bind(7 "rg3d_mesh_transform")
+        return p
+    }
+}
