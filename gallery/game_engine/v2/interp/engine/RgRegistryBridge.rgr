@@ -23,6 +23,7 @@ Import "../../imaging/png/PNGDecoder.rgr"
 Import "../../registry/schema/core/core_schema.rgr"
 Import "../../registry/schema/two_d/two_d_schema.rgr"
 Import "../../registry/schema/three/three_schema.rgr"
+Import "../../registry/schema/cannon/cannon_schema.rgr"
 Import "../../registry/codegen/RgCodegen.rgr"
 Import "../../modules/ranger_2d/RgRanger2D.rgr"
 Import "../../modules/ranger_three/RgRangerThree.rgr"
@@ -34,6 +35,7 @@ Import "../../three/port/src/three_gltf_file.rgr"
 Import "../../three/port/src/three_object3d.rgr"
 Import "../../host/handles/RgHandle.rgr"
 Import "../../host/ownership/OwnedHandle.rgr"
+Import "../../host/arenas/physics/RgPhysicsHost.rgr"
 
 ; One recorded frame pass (PLAN_2D_EMBED_3D D2). kind: 0=2D pane, 1=3D RTT.
 class RgFramePass {
@@ -111,6 +113,8 @@ class RgRegistryBridge extends EvalNativeBridge {
     ; host modules (the real Phase 2–11 arenas)
     def d2:RgRanger2D (new RgRanger2D)
     def d3:RgRangerThree (new RgRangerThree)
+    ; cannon-backed rigid-body arena (D-TYPE: its own slot space, separate from d3)
+    def phys:RgPhysicsHost (new RgPhysicsHost)
     def audio:RgAudio (new RgAudio)
     ; the tone synth + a capturing sink: one-shots synthesise REAL PCM here.
     def gameAudio:GameAudio (new GameAudio)
@@ -145,8 +149,10 @@ class RgRegistryBridge extends EvalNativeBridge {
         def core:RgSchema (CoreSchema.build())
         def twoD:RgSchema (TwoDSchema.build())
         def three:RgSchema (ThreeSchema.build())
+        def cannon:RgSchema (CannonSchema.build())
         def base:[RgCommand] (RgCodegen.tableUnion(core twoD))
-        b.table = (RgCodegen.tableAppend(base three))
+        def withThree:[RgCommand] (RgCodegen.tableAppend(base three))
+        b.table = (RgCodegen.tableAppend(withThree cannon))
         ; build the synth tables (sine/midi) and wire the capturing sink so the
         ; one-shot path can synthesise real PCM the moment a guest plays it.
         b.gameAudio.init()
@@ -1028,6 +1034,48 @@ class RgRegistryBridge extends EvalNativeBridge {
         if (row.name == "rgcore_launch") {
             this.launchRequest = (a.strAt(0))
             return (EvalValue.null())
+        }
+
+        ; ---- ranger:cannon (rigid-body physics, D-TYPE arena) ---------------
+        ; Bodies are minted in the physics arena's own slot space and surfaced
+        ; through the SAME guest-id surrogate table as every other module, so a
+        ; body handle round-trips exactly like a mesh handle. Poses come back as
+        ; doubles for the guest to copy into a Three mesh (the three+cannon loop).
+        if (row.name == "cannon_world_gravity") {
+            this.phys.setGravity((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)))
+            return (EvalValue.null())
+        }
+        if (row.name == "cannon_world_step") {
+            this.phys.step((a.dblAt(0)))
+            return (EvalValue.null())
+        }
+        if (row.name == "cannon_body_sphere") {
+            def o:OwnedHandle (this.phys.addSphere(1 (a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "cannon_body_box") {
+            def o:OwnedHandle (this.phys.addBox(1 (a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "cannon_body_static_plane") {
+            def o:OwnedHandle (this.phys.addStaticPlane(1 (a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "cannon_body_set_velocity") {
+            this.phys.setVelocity((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))
+            return (EvalValue.null())
+        }
+        if (row.name == "cannon_body_pos_x") {
+            return (RgRegistryBridge.retD((this.phys.bodyX((a.handleAt(0))))))
+        }
+        if (row.name == "cannon_body_pos_y") {
+            return (RgRegistryBridge.retD((this.phys.bodyY((a.handleAt(0))))))
+        }
+        if (row.name == "cannon_body_pos_z") {
+            return (RgRegistryBridge.retD((this.phys.bodyZ((a.handleAt(0))))))
         }
 
         this.unhandledCount = (this.unhandledCount + 1)

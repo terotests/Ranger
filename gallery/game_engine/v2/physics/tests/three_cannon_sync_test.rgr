@@ -1,0 +1,84 @@
+; ==============================================================================
+; three_cannon_sync_test — the classic three.js + cannon-es pattern, headless.
+; ==============================================================================
+; The net examples do, every frame:
+;
+;     world.step(dt)
+;     mesh.position.copy(body.position)      // three follows cannon
+;
+; This is that loop, proven through the v2 host: the REAL Cannon port
+; (CannonPhysicsWorld — broadphase -> narrowphase -> GSSolver -> integration)
+; simulates a sphere falling onto a ground plane, and each step copies the body
+; pose into a Three mesh via host commands (the same RgAdapter.hostWritePos path
+; pose_sync_test uses, which bumps the mesh's hybrid HOST revision — Phase 4).
+;
+; No rendering here — this gate proves the SIMULATION -> MESH seam. The Three
+; mesh transform tracks the Cannon body, so a presenter drawing that mesh would
+; show the sphere fall and rest on the floor. Physics lives in its own arena
+; (D-TYPE); the mesh lives in the Three arena; the only coupling is the pose copy.
+; ==============================================================================
+
+Import "../cannon/src/cannon_physics_world.rgr"
+Import "../../interp/adapter/RgAdapter.rgr"
+Import "../../interp/values/RgValue.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class ThreeCannonSyncTest {
+    ; copy the Cannon body pose into the Three mesh host transform (one "frame").
+    sfn syncMeshToBody:void (a:RgAdapter mesh:RgValue world:CannonPhysicsWorld id:int) {
+        a.hostWritePos(mesh (world.bodyPosX(id)) (world.bodyPosY(id)) (world.bodyPosZ(id)))
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("physics/three_cannon_sync"))
+        def a:RgAdapter (new RgAdapter)
+
+        ; ---- Three: a mesh at the origin (host transform 0,0,0) ---------------
+        def geo:RgValue (a.constructGeometry(4))
+        def mat:RgValue (a.constructMaterial())
+        def mesh:RgValue (a.constructMesh(geo mat))
+        t.near("mesh starts at host y 0" (a.hostPosY(mesh)) 0.0)
+        def rev0:int (a.hostPosRev(mesh))
+
+        ; ---- Cannon: a ground plane + a sphere dropped from y = 2 -------------
+        def world:CannonPhysicsWorld (new CannonPhysicsWorld)
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+        def ground:int (world.addStaticPlane(0.0 1.0 0.0))
+        def ball:int (world.addSphere(1.0 0.0 2.0 0.0 0.5))
+
+        ; sync the initial pose so the mesh sits where the body starts
+        ThreeCannonSyncTest.syncMeshToBody(a mesh world ball)
+        t.near("mesh followed the body to its start height (y=2)" (a.hostPosY(mesh)) 2.0)
+        t.eqInt("the initial sync bumped the mesh host revision" (a.hostPosRev(mesh)) (rev0 + 1))
+
+        ; ---- the frame loop: step cannon, copy pose into the three mesh -------
+        def dt:double (1.0 / 60.0)
+        def yAfterFirst:double 0.0
+        def s 0
+        while (s < 150) {
+            world.step(dt)
+            ThreeCannonSyncTest.syncMeshToBody(a mesh world ball)
+            if (s == 0) { yAfterFirst = (a.hostPosY(mesh)) }
+            s = (s + 1)
+        }
+
+        ; the mesh moved with the falling body from the very first frame
+        t.ok("mesh dropped on the first frame (gravity)" (yAfterFirst < 2.0))
+        ; the mesh host transform equals the body pose EXACTLY (a faithful copy)
+        t.near("mesh host y equals the cannon body y" (a.hostPosY(mesh)) (world.bodyPosY(ball)))
+        ; the sphere (radius 0.5) came to rest on the ground plane (physics is
+        ; approximate — same 0.2 tolerance the cannon PhysicsWorld gate uses)
+        def restY:double (world.bodyPosY(ball))
+        t.ok("the sphere rests on the floor (y ~= radius 0.5)" (((restY - 0.5) < 0.2) && ((0.5 - restY) < 0.2)))
+        t.ok("... and so the mesh rests there too" (((a.hostPosY(mesh)) < 0.7) && ((a.hostPosY(mesh)) > 0.3)))
+        ; every one of the 150 steps + the initial sync wrote the mesh pose
+        t.eqInt("every frame synced the mesh (150 steps + 1 initial)" (a.hostPosRev(mesh)) (rev0 + 151))
+
+        ; ---- next turn: the guest's retained mirror sees the settled pose -----
+        a.beginTurn()
+        t.near("next turn the retained mirror holds the rest pose" (a.posY(mesh)) (world.bodyPosY(ball)))
+
+        t.summary()
+    }
+}

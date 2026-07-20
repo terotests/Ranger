@@ -1,0 +1,145 @@
+; ==============================================================================
+; RgPhysicsHost — the live physics arena (D-TYPE), backed by the Cannon port.
+; ==============================================================================
+; The host-integrated home for physics handles that `physics/README.md` calls
+; for ("Live handles eventually sit in host/arenas/physics/"). It wraps the real
+; Cannon port (CannonPhysicsWorld: broadphase -> narrowphase -> GSSolver ->
+; integration) behind v2's generation-checked handle system, exactly like the
+; Three arena wraps ThreeSceneHost:
+;
+;   * bodies get minted OwnedHandles in a physics-typed slot space (separate from
+;     Three — D-TYPE), release-safe (double release -> typed error);
+;   * create/step/pose calls delegate to the Cannon world;
+;   * a handle's payload is the Cannon engine's own integer body id.
+;
+; This is the seam the registry bridge dispatches `cannon_*` commands into, so a
+; tsx OR wasm guest drives Cannon through the SAME command path as ranger:2d/3d.
+; No rendering here — poses are read back and copied into a Three mesh by the
+; guest (the three + cannon loop), or bound by a later host convenience command.
+; ==============================================================================
+
+Import "../../../physics/cannon/src/cannon_physics_world.rgr"
+Import "../../RgRegistry.rgr"
+Import "../../handles/RgHandle.rgr"
+Import "../../ownership/OwnedHandle.rgr"
+
+; physics body type tag — distinct slot space from Three/2D arenas (D-TYPE).
+class RgPhysicsHostType {
+    sfn body:int () { return 21 }
+}
+
+class RgPhysicsHost {
+    def world:CannonPhysicsWorld (new CannonPhysicsWorld)
+    def registry:RgRegistry (new RgRegistry)
+    ; slot -> Cannon engine body id (payload store, mirrors RgPhysicsWorld.bodies)
+    def cannonIds:[int]
+    def slotFree:[int]
+    def started:boolean false
+
+    ; Build the underlying Cannon world once (idempotent).
+    fn start:void () {
+        if (this.started) { return }
+        this.world.initWorld()
+        this.started = true
+    }
+
+    fn setGravity:void (x:double y:double z:double) {
+        this.start()
+        this.world.setGravity(x y z)
+    }
+
+    fn allocSlot:int () {
+        def nf:int (array_length this.slotFree)
+        if (nf > 0) {
+            def idx:int (itemAt this.slotFree (nf - 1))
+            def kept:[int]
+            def i 0
+            while (i < (nf - 1)) {
+                push kept (itemAt this.slotFree i)
+                i = (i + 1)
+            }
+            this.slotFree = kept
+            return idx
+        }
+        def n:int (array_length this.cannonIds)
+        push this.cannonIds 0
+        return n
+    }
+
+    ; mint a body handle whose payload slot records the Cannon engine body id.
+    fn mintBody:OwnedHandle (realmId:int cannonId:int) {
+        def slot:int (this.allocSlot())
+        set this.cannonIds slot cannonId
+        def h:RgHandle (this.registry.alloc(realmId (RgPhysicsHostType.body()) slot))
+        return (OwnedHandle.own(h))
+    }
+
+    ; ---- body creation (mass 0 => static) -----------------------------------
+    fn addSphere:OwnedHandle (realmId:int mass:double x:double y:double z:double radius:double) {
+        this.start()
+        def cid:int (this.world.addSphere(mass x y z radius))
+        return (this.mintBody(realmId cid))
+    }
+    fn addBox:OwnedHandle (realmId:int mass:double x:double y:double z:double hx:double hy:double hz:double) {
+        this.start()
+        def cid:int (this.world.addBox(mass x y z hx hy hz))
+        return (this.mintBody(realmId cid))
+    }
+    fn addStaticPlane:OwnedHandle (realmId:int nx:double ny:double nz:double) {
+        this.start()
+        def cid:int (this.world.addStaticPlane(nx ny nz))
+        return (this.mintBody(realmId cid))
+    }
+
+    ; resolve a handle to its Cannon engine body id, or -1 if stale/wrong type.
+    fn cannonIdOf:int (bodyH:RgHandle) {
+        def r:RgResolve (this.registry.resolveTyped(bodyH (RgPhysicsHostType.body())))
+        if (r.ok == false) { return (0 - 1) }
+        return (itemAt this.cannonIds r.payloadIndex)
+    }
+
+    fn setVelocity:RgResolve (bodyH:RgHandle vx:double vy:double vz:double) {
+        def r:RgResolve (this.registry.resolveTyped(bodyH (RgPhysicsHostType.body())))
+        if (r.ok == false) { return r }
+        this.world.setBodyVelocity((itemAt this.cannonIds r.payloadIndex) vx vy vz)
+        return r
+    }
+
+    ; ---- one fixed step + pose reads ----------------------------------------
+    fn step:void (dt:double) {
+        this.start()
+        this.world.step(dt)
+    }
+    fn bodyX:double (bodyH:RgHandle) {
+        def cid:int (this.cannonIdOf(bodyH))
+        if (cid < 0) { return 0.0 }
+        return (this.world.bodyPosX(cid))
+    }
+    fn bodyY:double (bodyH:RgHandle) {
+        def cid:int (this.cannonIdOf(bodyH))
+        if (cid < 0) { return 0.0 }
+        return (this.world.bodyPosY(cid))
+    }
+    fn bodyZ:double (bodyH:RgHandle) {
+        def cid:int (this.cannonIdOf(bodyH))
+        if (cid < 0) { return 0.0 }
+        return (this.world.bodyPosZ(cid))
+    }
+
+    fn isLive:boolean (bodyH:RgHandle) { return (this.registry.isLive(bodyH)) }
+    fn liveCount:int () { return (this.registry.liveCount()) }
+
+    fn release:RgResolve (owned:OwnedHandle) {
+        if (owned.released) {
+            return (RgResolve.fail((RgErr.doubleRelease())))
+        }
+        def r:RgResolve (this.registry.releaseOnce(owned.handle))
+        if (r.ok) {
+            owned.released = true
+            if (r.freed) {
+                push this.slotFree r.payloadIndex
+            }
+        }
+        return r
+    }
+}

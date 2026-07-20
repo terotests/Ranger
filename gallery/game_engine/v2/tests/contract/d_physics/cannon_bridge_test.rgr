@@ -1,0 +1,117 @@
+; ==============================================================================
+; cannon_bridge_test — ranger:cannon reachable through the registry bridge.
+; ==============================================================================
+; Proves a guest can drive Cannon physics through the SAME command path it uses
+; for ranger:2d/three: the cannon_* rows are in the live table, bodies mint
+; handles that round-trip through the guest-id surrogate, the world steps, and
+; poses read back as doubles. Then the three + cannon loop THROUGH the bridge: a
+; falling body's pose is copied into a Three mesh via rg3d_mesh_transform every
+; step. Physics stays in its own arena (D-TYPE); the only coupling is the copy.
+; ==============================================================================
+
+Import "../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../harness/RgTest.rgr"
+
+class CannonBridgeTest {
+    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+    fn callI:int (b:RgRegistryBridge name:string args:[EvalValue]) {
+        def r:EvalValue (b.invoke(name args))
+        return (to_int r.numberValue)
+    }
+    fn callD:double (b:RgRegistryBridge name:string args:[EvalValue]) {
+        def r:EvalValue (b.invoke(name args))
+        return r.numberValue
+    }
+    fn v3:[EvalValue] (x:double y:double z:double) {
+        def a:[EvalValue]
+        push a (EvalValue.number(x))
+        push a (EvalValue.number(y))
+        push a (EvalValue.number(z))
+        return a
+    }
+    fn h1:[EvalValue] (gid:int) {
+        def a:[EvalValue]
+        push a (EvalValue.number((to_double gid)))
+        return a
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/contract/d_physics/cannon_bridge"))
+        def s:CannonBridgeTest (new CannonBridgeTest)
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+
+        ; ---- the cannon rows are in the live command table ------------------
+        t.ok("cannon_body_sphere is a known command" (b.has("cannon_body_sphere")))
+        t.ok("cannon_world_step is a known command" (b.has("cannon_world_step")))
+        t.ok("cannon_body_pos_y is a known command" (b.has("cannon_body_pos_y")))
+
+        ; ---- build the physics scene through the bridge ---------------------
+        b.invoke("cannon_world_gravity" (s.v3(0.0 (0.0 - 10.0) 0.0)))
+        def groundArgs:[EvalValue] (s.v3(0.0 1.0 0.0))
+        def ground:int (s.callI(b "cannon_body_static_plane" groundArgs))
+        def ballArgs:[EvalValue]
+        push ballArgs (s.num(1.0))          ; mass
+        push ballArgs (s.num(0.0))          ; x
+        push ballArgs (s.num(2.0))          ; y
+        push ballArgs (s.num(0.0))          ; z
+        push ballArgs (s.num(0.5))          ; radius
+        def ball:int (s.callI(b "cannon_body_sphere" ballArgs))
+        t.ok("static plane handle minted" (ground >= 1))
+        t.ok("sphere handle minted (distinct from the plane)" ((ball >= 1) && (ball != ground)))
+        t.near("pose reads back the start height (y=2) via the minted handle"
+            (s.callD(b "cannon_body_pos_y" (s.h1(ball)))) 2.0)
+
+        ; ---- a Three mesh the physics body will drive -----------------------
+        def empty:[EvalValue]
+        def scene:int (s.callI(b "rg3d_scene_create" empty))
+        def boxArgs:[EvalValue] (s.v3(0.5 0.5 0.5))
+        def geo:int (s.callI(b "rg3d_geometry_box" boxArgs))
+        def matArgs:[EvalValue] (s.h1(255))          ; basic material colour
+        def mat:int (s.callI(b "rg3d_material_basic" matArgs))
+        def meshArgs:[EvalValue]
+        push meshArgs (s.num((to_double geo)))
+        push meshArgs (s.num((to_double mat)))
+        def mesh:int (s.callI(b "rg3d_mesh_create" meshArgs))
+        def parentArgs:[EvalValue]
+        push parentArgs (s.num((to_double mesh)))
+        push parentArgs (s.num((to_double scene)))
+        b.invoke("rg3d_entity_set_parent" parentArgs)
+
+        ; ---- the frame loop: step cannon, copy body pose into the mesh ------
+        ; dt is in SECONDS; the interpreter passes doubles raw (only the wasm wire
+        ; format uses ×1000 fixed-point, decoded host-side there).
+        def dt:double (1.0 / 60.0)
+        def stepArg:[EvalValue]
+        push stepArg (s.num(dt))
+        def i 0
+        while (i < 150) {
+            b.invoke("cannon_world_step" stepArg)
+            def bx:double (s.callD(b "cannon_body_pos_x" (s.h1(ball))))
+            def by:double (s.callD(b "cannon_body_pos_y" (s.h1(ball))))
+            def bz:double (s.callD(b "cannon_body_pos_z" (s.h1(ball))))
+            def tf:[EvalValue]
+            push tf (s.num((to_double mesh)))
+            push tf (s.num(bx))
+            push tf (s.num(by))
+            push tf (s.num(bz))
+            push tf (s.num(0.0))
+            push tf (s.num(0.0))
+            push tf (s.num(0.0))
+            b.invoke("rg3d_mesh_transform" tf)
+            i = (i + 1)
+        }
+
+        def restY:double (s.callD(b "cannon_body_pos_y" (s.h1(ball))))
+        t.ok("the sphere fell under gravity" (restY < 2.0))
+        t.ok("the sphere rests on the plane (y ~= radius 0.5)" (((restY - 0.5) < 0.2) && ((0.5 - restY) < 0.2)))
+
+        ; ---- everything dispatched: no unhandled commands, no typed errors --
+        t.eqInt("no unhandled commands across the run" b.unhandledCount 0)
+        t.eqInt("no bridge errors across the run" b.errorCount 0)
+        ; the scene holds exactly the one driven mesh (physics is a SEPARATE arena)
+        def sceneH:RgHandle (b.resolveGuestId(scene))
+        t.eqInt("the driven mesh is the scene's only child" (b.d3.sceneChildCount(sceneH)) 1)
+
+        t.summary()
+    }
+}

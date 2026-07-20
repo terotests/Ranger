@@ -1,0 +1,81 @@
+; ==============================================================================
+; cannon3d_e2e_test — the three + cannon demo game runs through RgGameHost.
+; ==============================================================================
+; The headless proof that the VISIBLE tsx demo is sound: load games/cannon3d
+; through the generic RgGameHost (the same host every tsx game uses), and assert
+; it drives BOTH arenas through the guest command path — ranger:cannon creates
+; the physics bodies, ranger:three builds + renders the scene, and the falling
+; bodies animate the framebuffer. Only the SDL blit is untestable here; the whole
+; pipeline up to the pixels is exercised.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+Import "../harness/RgTest.rgr"
+
+class Cannon3dE2eTest {
+    ; count pixels that differ between two framebuffers over a sampled window.
+    sfn diffCount:int (a:RgFramebuffer b:RgFramebuffer x0:int y0:int x1:int y1:int) {
+        def n 0
+        def y:int y0
+        while (y < y1) {
+            def x:int x0
+            while (x < x1) {
+                if ((a.at(x y)) != (b.at(x y))) { n = (n + 1) }
+                x = (x + 4)
+            }
+            y = (y + 4)
+        }
+        return n
+    }
+    sfn nonClear:int (fb:RgFramebuffer x0:int y0:int x1:int y1:int) {
+        def n 0
+        def y:int y0
+        while (y < y1) {
+            def x:int x0
+            while (x < x1) {
+                if ((fb.at(x y)) != 0) { n = (n + 1) }
+                x = (x + 4)
+            }
+            y = (y + 4)
+        }
+        return n
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("games/cannon3d (three + cannon demo via RgGameHost)"))
+        def host:RgGameHost (new RgGameHost)
+
+        ; ---- load: init() builds the scene + physics through the bridge ------
+        def ok:boolean (host.load("gallery/game_engine/v2/games/cannon3d" "index.tsx"))
+        t.ok("cannon3d loaded + init ran" ok)
+        t.eqInt("no bridge errors after init" host.bridge.errorCount 0)
+        ; ranger:cannon created a static ground plane + 6 dynamic boxes = 7 bodies
+        t.eqInt("the physics arena holds the ground + 6 boxes" (host.bridge.phys.liveCount()) 7)
+
+        ; ---- one frame binds the pane; present must draw the scene -----------
+        host.frame(16.667)
+        t.eqInt("init/update declared one full pane" (host.bridge.surface.paneCount()) 1)
+        def fb1:RgFramebuffer (RgFramebuffer.create(480 270))
+        def drawn:int (Rg2DPresenter.presentTextured(host.bridge 0 fb1 0))
+        t.ok("pane 0 composites the demo (a sprite was drawn)" (drawn >= 1))
+        t.ok("the scene rendered (framebuffer has non-clear pixels)"
+            ((Cannon3dE2eTest.nonClear(fb1 120 40 360 230)) > 0))
+
+        ; ---- run the sim: the boxes fall, so the picture must change ---------
+        def i 0
+        while (i < 40) {
+            host.frame(16.667)
+            i = (i + 1)
+        }
+        def fb2:RgFramebuffer (RgFramebuffer.create(480 270))
+        def drawn2:int (Rg2DPresenter.presentTextured(host.bridge 0 fb2 0))
+        t.ok("still compositing after the fall" (drawn2 >= 1))
+        t.ok("the boxes moved (framebuffer changed as they fell)"
+            ((Cannon3dE2eTest.diffCount(fb1 fb2 120 40 360 230)) > 0))
+        t.eqInt("no bridge errors across the run" host.bridge.errorCount 0)
+        t.eqInt("still the same 7 bodies (fell, not leaked)" (host.bridge.phys.liveCount()) 7)
+
+        t.summary()
+    }
+}

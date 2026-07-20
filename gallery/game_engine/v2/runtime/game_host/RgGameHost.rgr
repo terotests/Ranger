@@ -62,6 +62,11 @@ class RgGameHost {
         def threeDir:string (this.v2Root + "/modules/ranger_three")
         def threeSrc:buffer (buffer_read_file threeDir "ranger_three.tsx")
         this.engine.registerVirtualModule("ranger:three" (buffer_to_string threeSrc))
+        ; Opt-in physics package — games that do not import ranger:cannon never
+        ; touch the physics arena.
+        def cannonDir:string (this.v2Root + "/modules/ranger_cannon")
+        def cannonSrc:buffer (buffer_read_file cannonDir "ranger_cannon.tsx")
+        this.engine.registerVirtualModule("ranger:cannon" (buffer_to_string cannonSrc))
         this.bridge.packageDir = dir
         def game:buffer (buffer_read_file dir file)
         this.engine.loadScript((buffer_to_string game))
