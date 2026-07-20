@@ -40,6 +40,25 @@ class Ylos3dWasmGameTest {
         }
         return n
     }
+    ; average x of coloured pixels (the gem cluster's horizontal centre)
+    sfn avgX:int (fb:RgFramebuffer) {
+        def sum 0
+        def cnt 0
+        def y 90
+        while (y < 230) {
+            def x 20
+            while (x < 300) {
+                if ((fb.at(x y)) != 0) {
+                    sum = (sum + x)
+                    cnt = (cnt + 1)
+                }
+                x = (x + 6)
+            }
+            y = (y + 6)
+        }
+        if (cnt == 0) { return (0 - 1) }
+        return (idiv sum cnt)
+    }
 
     sfn m@(main):void () {
         def t:RgTest (RgTest.forSuite("games/ylos3d_wasm (gems via RgWasmGameHost)"))
@@ -82,6 +101,23 @@ class Ylos3dWasmGameTest {
         t.ok("still compositing after spinning" (drawn2 >= 1))
         t.ok("the gems are animating (framebuffer changed as they spun)"
             ((Ylos3dWasmGameTest.diffCount(fb1 fb2 40 60 280 260)) > 0))
+
+        ; ---- input channel: player 0 pans the cluster left/right -------------
+        ; the host writes each player's input into the guest's input_ptr region
+        ; before update(); the guest reads it and pans. Hold LEFT -> the cluster's
+        ; colour centre-of-mass shifts left of where it started.
+        def base:int (Ylos3dWasmGameTest.avgX(fb2))
+        host.bridge.input.setAction(0 "left" true)
+        def j 0
+        while (j < 12) {
+            host.frame(16.667)
+            j = (j + 1)
+        }
+        def fbL:RgFramebuffer (RgFramebuffer.create(320 320))
+        def dL:int (Rg2DPresenter.presentTextured(host.bridge 0 fbL 0))
+        t.ok("holding LEFT panned the cluster left (input reaches the guest)"
+            ((Ylos3dWasmGameTest.avgX(fbL)) < base))
+        t.eqInt("no bridge errors after input" host.bridge.errorCount 0)
 
         t.summary()
     }

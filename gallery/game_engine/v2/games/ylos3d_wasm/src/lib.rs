@@ -24,7 +24,13 @@ static mut BUF: [i32; RGC1_HDR + RGC1_WORDS * MAX_REC] = [0; RGC1_HDR + RGC1_WOR
 const MAX_ID: usize = 64;
 static mut RESULT: [i32; MAX_ID] = [0; MAX_ID];
 
+// host writes each player's input here before update(): 4 players × [down, pressed]
+// bits LEFT 1 · RIGHT 2 · JUMP 4 · UP 8 · DOWN 16 · ACTION 32.
+static mut INPUT: [i32; 8] = [0; 8];
+
 static mut ANGLE: f32 = 0.0;
+// player-driven horizontal pan of the whole cluster (left/right)
+static mut PAN_X: f32 = 0.0;
 
 const RT_W: i32 = 320;
 const RT_H: i32 = 320;
@@ -52,6 +58,8 @@ fn gem_y(i: i32) -> f32 { 0.55 - 0.16 * (((i - 2) * (i - 2)) as f32) }
 pub extern "C" fn cmd_ptr() -> i32 { core::ptr::addr_of!(BUF) as i32 }
 #[no_mangle]
 pub extern "C" fn result_ptr() -> i32 { core::ptr::addr_of!(RESULT) as i32 }
+#[no_mangle]
+pub extern "C" fn input_ptr() -> i32 { core::ptr::addr_of!(INPUT) as i32 }
 
 /// Build the gem cluster + the on-screen composition once.
 #[no_mangle]
@@ -89,6 +97,13 @@ pub extern "C" fn init() -> i32 {
 /// Per frame: spin each gem about Y (varying rate) so the cluster shimmers.
 #[no_mangle]
 pub extern "C" fn update(dt_ms: i32) -> i32 {
+    // player 0 pans the cluster left/right (proves the host->guest input channel)
+    let pan = unsafe {
+        let down0 = INPUT[0];
+        if down0 & 1 != 0 { PAN_X -= (dt_ms as f32) * 0.02; }
+        if down0 & 2 != 0 { PAN_X += (dt_ms as f32) * 0.02; }
+        PAN_X
+    };
     let a = unsafe {
         ANGLE += (dt_ms as f32) * 0.0016;
         ANGLE
@@ -97,7 +112,7 @@ pub extern "C" fn update(dt_ms: i32) -> i32 {
     let mut i = 0;
     while i < N {
         let spin = a * (1.0 + 0.14 * (i as f32));
-        cb.rg3d_mesh_transform(mesh_id(i), gem_x(i), gem_y(i), 0.0, 0.3, spin, 0.1);
+        cb.rg3d_mesh_transform(mesh_id(i), gem_x(i) + pan, gem_y(i), 0.0, 0.3, spin, 0.1);
         i += 1;
     }
     cb.rg3d_render_to(SCENE, CAMERA, TEX, RT_W, RT_H);
