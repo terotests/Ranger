@@ -76,6 +76,25 @@ class Cannon3dE2eTest {
         t.eqInt("no bridge errors across the run" host.bridge.errorCount 0)
         t.eqInt("still the same 7 bodies (fell, not leaked)" (host.bridge.phys.liveCount()) 7)
 
+        ; ---- input: the "action" edge whacks the pile (toss) -----------------
+        ; press action through the host (down-frame -> up-frame); the guest reads
+        ; wasPressed and setVelocity-tosses every box. The picture changes again
+        ; (motion resumes) and the input path dispatches cleanly.
+        def fbRest:RgFramebuffer (RgFramebuffer.create(480 270))
+        def dR:int (Rg2DPresenter.presentTextured(host.bridge 0 fbRest 0))
+        host.press(0 "action")
+        def j 0
+        while (j < 8) {
+            host.frame(16.667)
+            j = (j + 1)
+        }
+        def fbToss:RgFramebuffer (RgFramebuffer.create(480 270))
+        def dT2:int (Rg2DPresenter.presentTextured(host.bridge 0 fbToss 0))
+        t.ok("the action toss moved the boxes (input drives the sim)"
+            ((Cannon3dE2eTest.diffCount(fbRest fbToss 120 40 360 230)) > 0))
+        t.eqInt("input dispatched with no bridge errors" host.bridge.errorCount 0)
+        t.eqInt("bodies intact after the toss" (host.bridge.phys.liveCount()) 7)
+
         t.summary()
     }
 }

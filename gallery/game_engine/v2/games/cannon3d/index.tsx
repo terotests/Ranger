@@ -98,6 +98,27 @@ class Cannon3DGame {
     const dt = props.dtMs;
     this.nowMs = this.nowMs + dt;
 
+    // ---- input: whack the pile (edge-triggered impulses) ------------------
+    // up / jump / action -> toss every box straight up and scatter it;
+    // left / right -> shove the pile that way (plus a little lift). Momentary,
+    // so setVelocity reads cleanly off the resting bodies (a pinball-flipper feel).
+    const pad = runtime.input.player(0);
+    const toss = pad.wasPressed("up") || pad.wasPressed("jump") || pad.wasPressed("action");
+    const shoveL = pad.wasPressed("left");
+    const shoveR = pad.wasPressed("right");
+    if (toss || shoveL || shoveR) {
+      let k = 0;
+      while (k < this.boxes.length) {
+        let vx = 0;
+        let vy = 0;
+        if (toss) { vx = (k - 2.5) * 1.4; vy = 8.5; }
+        if (shoveL) { vx = -7.5; vy = 3.5; }
+        if (shoveR) { vx = 7.5; vy = 3.5; }
+        this.boxes[k].body.setVelocity(vx, vy, 0);
+        k = k + 1;
+      }
+    }
+
     // cannon integrates (seconds), then three follows the body poses
     this.world.step(dt / 1000);
     let i = 0;
