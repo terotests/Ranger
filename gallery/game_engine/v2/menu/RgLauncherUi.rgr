@@ -27,6 +27,10 @@ class RgLauncherGame {
     def title:string ""
     def dir:string ""
     def file:string ""
+    ; backend: "tsx" (interpreted, run through RgGameHost) or "wasm" (compiled,
+    ; run through RgWasmGameHost). The host reads this to pick the loop; `file`
+    ; already points at the right entry (index.tsx vs the wasm module).
+    def engine:string "tsx"
     def catIndex:int 0
     def card:UIBox (new UIBox)
     ; the game's preview image (game.info icon=), decoded to RGBA once at init
@@ -186,7 +190,9 @@ class RgLauncherUi {
                 def g:RgLauncherGame (new RgLauncherGame)
                 g.title = e.title
                 g.dir = e.dir
-                g.file = e.entryFile
+                ; wasm games hand off their module file; tsx games their index.tsx.
+                g.engine = e.engine
+                if (e.engine == "wasm") { g.file = e.moduleFile } { g.file = e.entryFile }
                 g.catIndex = ci
                 g.card.fontSize = 18.0
                 this.loadIcon(g e)
@@ -374,6 +380,14 @@ class RgLauncherUi {
         if (idx < 0) { return "" }
         def g:RgLauncherGame (itemAt this.games idx)
         return g.file
+    }
+    ; backend of the selected game ("tsx" | "wasm") — the host picks run() vs
+    ; runWasm() from this. "" on the category page.
+    fn selectedEngine:string () {
+        def idx:int (this.selectedGameIndex())
+        if (idx < 0) { return "" }
+        def g:RgLauncherGame (itemAt this.games idx)
+        return g.engine
     }
     ; whether the selected game (page 1) has a decoded preview image
     fn selectedHasImage:boolean () {

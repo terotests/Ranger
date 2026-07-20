@@ -252,9 +252,13 @@ class RgSdlGameHost {
             if (launch == 1) {
                 def d:string (ui.selectedDir())
                 def f:string (ui.selectedFile())
+                def eng:string (ui.selectedEngine())
                 gfx_close
                 this.resetAudioDevice()
-                def _g:int (this.run(d f))
+                ; wasm games run through the compiled loop, tsx through the
+                ; interpreted one — both drive the same bridge/presenter.
+                def _g:int 0
+                if (eng == "wasm") { _g = (this.runWasm(d f)) } { _g = (this.run(d f)) }
                 ; back from the game: reopen the launcher and resume on categories
                 gfx_clear_should_close
                 this.resetAudioDevice()
