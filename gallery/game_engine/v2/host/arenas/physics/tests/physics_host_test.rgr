@@ -1,0 +1,53 @@
+; ==============================================================================
+; physics_host_test — the cannon-backed live physics arena (D-TYPE).
+; ==============================================================================
+; RgPhysicsHost mints generation-checked body handles around the real Cannon
+; port. This gate proves: bodies simulate through the arena (a sphere falls onto
+; a static plane and rests at its radius), pose reads go through minted handles,
+; the slot space is release-safe (double release -> typed error), and a released
+; handle no longer resolves.
+; ==============================================================================
+
+Import "../RgPhysicsHost.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class PhysicsHostTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("host/arenas/physics"))
+        def h:RgPhysicsHost (new RgPhysicsHost)
+        h.setGravity(0.0 (0.0 - 10.0) 0.0)
+
+        ; a ground plane + a dynamic sphere (radius 0.5) dropped from y=2
+        def ground:OwnedHandle (h.addStaticPlane(1 0.0 1.0 0.0))
+        def ball:OwnedHandle (h.addSphere(1 1.0 0.0 2.0 0.0 0.5))
+        t.eqInt("two bodies live in the arena" (h.liveCount()) 2)
+        t.ok("the ball handle is live" (h.isLive(ball.handle)))
+        t.near("the ball starts at y=2 (pose through the minted handle)" (h.bodyY(ball.handle)) 2.0)
+
+        ; simulate: the ball falls and comes to rest on the plane
+        def dt:double (1.0 / 60.0)
+        def yStart:double (h.bodyY(ball.handle))
+        def s 0
+        while (s < 150) {
+            h.step(dt)
+            s = (s + 1)
+        }
+        def restY:double (h.bodyY(ball.handle))
+        t.ok("the ball fell under gravity" (restY < yStart))
+        t.ok("the ball rests on the plane (y ~= radius 0.5)" (((restY - 0.5) < 0.2) && ((0.5 - restY) < 0.2)))
+
+        ; a static body never moves (invariant carried by the Cannon plane)
+        t.near("the static plane stays put" (h.bodyY(ground.handle)) 0.0)
+
+        ; ---- handle safety: D-TYPE slot space is release-safe ---------------
+        def r1:RgResolve (h.release(ball))
+        t.ok("first release succeeds" r1.ok)
+        t.no("the released ball handle no longer resolves" (h.isLive(ball.handle)))
+        t.eqInt("pose of a stale handle is refused (cannonId -1 -> 0.0)" (to_int (h.bodyY(ball.handle))) 0)
+        def r2:RgResolve (h.release(ball))
+        t.no("double release is a typed error, not a crash" r2.ok)
+        t.eqInt("one body remains (the ground)" (h.liveCount()) 1)
+
+        t.summary()
+    }
+}
