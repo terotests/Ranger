@@ -41,11 +41,13 @@ const SCRIPT_ABS = path.join(HERE, "guests/three/pinball_live.tsx");
 const VFS_DIR = "gallery/game_engine/three/tsx"; // where the host reads façade+script
 const FACADE = "three.tsx";
 const SCRIPT = "pinball_live.tsx";
-// The baked playfield art — single-sourced from the committed game asset and
-// decoded in-browser (createImageBitmap). TEXTURE_PATH is the key the scene
-// loads it under (new THREE.TextureLoader().load('playfield.png')).
-const TEXTURE_ABS = path.join(ROOT, "gallery/game_engine/v2/games/pinball/playfield.png");
-const TEXTURE_PATH = "playfield.png";
+// Textures — single-sourced from the committed game assets and decoded
+// in-browser (createImageBitmap). Keys match the scene's TextureLoader().load(…).
+const GAME_DIR = path.join(ROOT, "gallery/game_engine/v2/games/pinball");
+const TEXTURES = [
+  { path: "playfield.png", file: "playfield.png" },
+  { path: "dmd.png", file: "dmd.png" },
+];
 
 const log = (...a) => console.log("[pinball3d-build]", ...a);
 const sh = (cmd, args, opts) => execFileSync(cmd, args, { stdio: "inherit", cwd: ROOT, ...opts });
@@ -99,11 +101,13 @@ const entries = [
 ];
 fs.writeFileSync(path.join(OUT, "scene.zip"), makeStoredZip(entries));
 
-// The playfield texture (served alongside the page; the harness decodes it).
-fs.copyFileSync(TEXTURE_ABS, path.join(OUT, "playfield.png"));
+// The textures (served alongside the page; the harness decodes them in-browser).
+for (const t of TEXTURES) fs.copyFileSync(path.join(GAME_DIR, t.file), path.join(OUT, t.file));
 fs.writeFileSync(path.join(OUT, "scene.json"), JSON.stringify(
-  { dir: VFS_DIR, facade: FACADE, script: SCRIPT, texturePath: TEXTURE_PATH, textureUrl: "playfield.png" }, null, 2));
-log("packaged façade + pinball scene + playfield texture");
+  { dir: VFS_DIR, facade: FACADE, script: SCRIPT,
+    textures: TEXTURES.map((t) => ({ path: t.path, url: t.file })),
+    environment: 64 }, null, 2));
+log("packaged façade + pinball scene + " + TEXTURES.length + " textures");
 
 // Runtime + page.
 for (const f of ["vfs.js", "engine-host.js", "tsx3d-gl-viewer.js"]) {

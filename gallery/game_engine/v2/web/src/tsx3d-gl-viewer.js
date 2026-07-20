@@ -57,6 +57,12 @@
       this.cubeSrc = config.cubeSrc || null;
       this.texturePath = config.texturePath || null;
       this.textureUrl = config.textureUrl || null;
+      // Optional multi-texture manifest [{path, url}, ...] (scenes that map more
+      // than one image, e.g. a playfield + a DMD). Falls back to the single
+      // texturePath/textureUrl pair when absent.
+      this.textures = Array.isArray(config.textures) ? config.textures : null;
+      // Opt-in dark-studio environment cube (chrome reflections + moody skybox).
+      this.environment = config.environment || null;
       this._textureRGBA = null; // cached decoded texture (re-applied on reload)
       // The Ranger GL layer finds the drawing surface via
       // document.getElementById(canvasId), so the canvas needs a stable id.
@@ -93,6 +99,10 @@
       }
       this._loadInto(this.host);
       await this._applyTexture(this.host);
+      if (this.environment && this.host.enableEnvironment) {
+        const size = typeof this.environment === "number" ? this.environment : 64;
+        this.host.enableEnvironment(size);
+      }
       this._loaded = true;
       this._resume();
       return this;
@@ -111,28 +121,38 @@
 
     // Hand real texture pixels to the bridge BEFORE the first frame builds the
     // mesh (else it falls back to a generated checker for that path).
+    // Decode any URL to { w, h, rgba }: raw PPM (no decoder) or any
+    // browser-decodable image (PNG/JPG/GIF) via the platform image pipeline.
+    async _decode(url) {
+      if (/\.ppm$/i.test(url)) {
+        return parsePPM(await (await fetch(url)).arrayBuffer());
+      }
+      const blob = await (await fetch(url)).blob();
+      const bmp = await createImageBitmap(blob);
+      const cv = new OffscreenCanvas(bmp.width, bmp.height);
+      const ctx = cv.getContext("2d");
+      ctx.drawImage(bmp, 0, 0);
+      const id = ctx.getImageData(0, 0, bmp.width, bmp.height);
+      return { w: bmp.width, h: bmp.height, rgba: new Uint8Array(id.data.buffer) };
+    }
+
     async _applyTexture(host) {
+      // Multi-texture manifest takes precedence (playfield + DMD + …).
+      if (this.textures && this.textures.length) {
+        if (!this._decoded) {
+          this._decoded = [];
+          for (const t of this.textures) {
+            try { this._decoded.push({ path: t.path, img: await this._decode(t.url) }); }
+            catch (e) { console.warn("tsx3d: texture load failed:", t.url, e.message); }
+          }
+        }
+        for (const d of this._decoded) host.setTexture(d.path, d.img.rgba, d.img.w, d.img.h);
+        return;
+      }
       if (!this.texturePath) return;
       if (!this._textureRGBA && this.textureUrl) {
-        try {
-          if (/\.ppm$/i.test(this.textureUrl)) {
-            const buf = await (await fetch(this.textureUrl)).arrayBuffer();
-            this._textureRGBA = parsePPM(buf);
-          } else {
-            // Any browser-decodable image (PNG/JPG/GIF): decode via the platform
-            // image pipeline and read back RGBA — no bespoke decoder needed.
-            const blob = await (await fetch(this.textureUrl)).blob();
-            const bmp = await createImageBitmap(blob);
-            const cv = new OffscreenCanvas(bmp.width, bmp.height);
-            const ctx = cv.getContext("2d");
-            ctx.drawImage(bmp, 0, 0);
-            const id = ctx.getImageData(0, 0, bmp.width, bmp.height);
-            this._textureRGBA = { w: bmp.width, h: bmp.height, rgba: new Uint8Array(id.data.buffer) };
-          }
-        } catch (e) {
-          console.warn("tsx3d: texture load failed, using checker fallback:", e.message);
-          return;
-        }
+        try { this._textureRGBA = await this._decode(this.textureUrl); }
+        catch (e) { console.warn("tsx3d: texture load failed, using checker fallback:", e.message); return; }
       }
       if (this._textureRGBA) {
         const { w, h, rgba } = this._textureRGBA;
@@ -198,6 +218,8 @@
       cubeSrc: config.cubeSrc,
       texturePath: config.texturePath,
       textureUrl: config.textureUrl,
+      textures: config.textures,
+      environment: config.environment,
     });
     if (config.autostart !== false) await session.start();
     return session;

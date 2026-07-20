@@ -124,4 +124,10 @@ class WebTsx3dGlHost {
     fn isReady:boolean () {
         return ready
     }
+
+    ; Opt in to the dark-studio environment cube (chrome reflections on envMap
+    ; materials + a moody dark skybox). Applied on the next reconciled frame.
+    fn enableEnvironment:void (size:int) {
+        bridge.enableEnvironment(size)
+    }
 }

@@ -73,6 +73,11 @@ class ThreeTsxBridge {
     def scene:ThreeScene (new ThreeScene)
     def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    ; optional dark-studio environment (chrome reflections + moody skybox): a host
+    ; requests it via enableEnvironment(); it is applied once the scene exists.
+    def wantEnv:boolean false
+    def envApplied:boolean false
+    def envSize:int 64
 
     ; the host ENTITY HANDLES for each façade scene.children[i] (index-keyed).
     def nodeHandles:[int]
@@ -1097,8 +1102,23 @@ class ThreeTsxBridge {
     }
 
     ; Reconcile the current façade scene and draw one frame at w*h.
+    ; Request a dark-studio environment cube. Applied lazily in renderFrame once
+    ; the scene has been reconciled (sceneH is 0 until the first reconcile).
+    fn enableEnvironment:void (size:int) {
+        this.wantEnv = true
+        this.envSize = size
+    }
+
     fn renderFrame:void (w:int h:int) {
         this.reconcile(w h)
+        if (this.wantEnv) {
+            if (this.envApplied == false) {
+                if (this.sceneH > 0) {
+                    host.sceneEnvironmentStudio(this.sceneH this.envSize)
+                    this.envApplied = true
+                }
+            }
+        }
         this.present()
     }
 

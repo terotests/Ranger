@@ -92,6 +92,14 @@ class ThreeSceneHost {
             sc.hasEnvCube = false
         }
     }
+    ; Attach a dark "studio" environment cube to the scene: reflective materials
+    ; sample it (chrome look) and it doubles as a moody dark skybox. size is the
+    ; per-face resolution (e.g. 64).
+    fn sceneEnvironmentStudio:void (sceneH:int size:int) {
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        def cube:ThreeCubeTexture (ThreeCubeTexture.proceduralStudio(size))
+        sc.setEnvironmentMap(cube)
+    }
 
     ; --- camera ---------------------------------------------------------------
     fn cameraNew:int () {
