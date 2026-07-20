@@ -1,0 +1,55 @@
+; ==============================================================================
+; wasm_abi_binding_test — the Rust guest binding is GENERATED from the schema,
+; and stays in sync (drift guard). Enforces "the schema is the ABI".
+; ==============================================================================
+; RgWasmRustGen.emit turns the live command table into the Rust binding module
+; (RGC1 wire constants + a const per command id). This test:
+;   1. asserts the emitted constants carry the schema's OWN ids (so the generator
+;      is faithful — the guest's ids ARE the schema's ids, not hand-copied), and
+;   2. asserts the COMMITTED binding
+;      (bridge/wasm/conformance/ylos3d_slice/src/rg_abi.rs) matches a fresh emit,
+;      so a schema id change that isn't regenerated fails the gate (no silent
+;      guest drift).
+;
+; Regenerate the committed binding with:
+;   node bin/output.js -es6 gallery/game_engine/v2/bridge/wasm/tools/gen_rust_abi.rgr \
+;     -d=/tmp -o=g.js && node /tmp/g.js \
+;     > gallery/game_engine/v2/bridge/wasm/conformance/ylos3d_slice/src/rg_abi.rs
+; ==============================================================================
+
+Import "../../RgWasmRustGen.rgr"
+Import "../../RgWasmCmdDispatch.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class WasmAbiBindingTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/wasm/abi_binding (schema -> Rust, drift guard)"))
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+        def prof:RgWasmProfile (RgWasm3dProfile.build())
+        def disp:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        disp.init(b prof)
+
+        def gen:string (RgWasmRustGen.emit(b.table prof.major (RgWasmCmdDispatch.magic()) disp.words (to_int disp.fixed)))
+
+        ; (1) the generator carries the schema's own ids + wire constants
+        t.ok("binding has the RGC1 magic constant"
+            ((indexOf gen "pub const RGC1_MAGIC: i32 = 1380401969;") >= 0))
+        t.ok("binding has the ABI major"
+            ((indexOf gen "pub const RGC1_MAJOR: i32 = 1;") >= 0))
+        t.ok("scene-create id is the schema's (3000)"
+            ((indexOf gen "pub const RG3D_SCENE_CREATE: i32 = 3000;") >= 0))
+        t.ok("mesh-create id is the schema's (3030)"
+            ((indexOf gen "pub const RG3D_MESH_CREATE: i32 = 3030;") >= 0))
+        t.ok("entity-set-parent id is the schema's (3033)"
+            ((indexOf gen "pub const RG3D_ENTITY_SET_PARENT: i32 = 3033;") >= 0))
+
+        ; (2) the committed guest binding is fresh (regenerate == committed)
+        def dir:string "gallery/game_engine/v2/bridge/wasm/conformance/ylos3d_slice/src"
+        t.ok("committed rg_abi.rs exists" (file_exists dir "rg_abi.rs"))
+        def onDisk:string (buffer_to_string (buffer_read_file dir "rg_abi.rs"))
+        t.eqStr("committed rg_abi.rs matches a fresh generation (no drift)"
+            (trim onDisk) (trim gen))
+
+        t.summary()
+    }
+}

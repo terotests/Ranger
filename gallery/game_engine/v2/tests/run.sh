@@ -83,6 +83,8 @@ run_suite bridge/wasm/conformance/tests/wasm_loader_smoke_test
 # the GENERIC RgRegistryBridge (command-buffer -> dispatchRow), preserving
 # D-IDENTITY (guest ids -> host handles) + D-SYNC (mesh parented to the scene)
 run_suite bridge/wasm/conformance/tests/ylos3d_wasm_conformance_test
+# the guest's Rust ABI binding is GENERATED from the schema (drift guard)
+run_suite bridge/wasm/conformance/tests/wasm_abi_binding_test
 run_suite bridge/wasm/tests/create_free/create_free_test
 run_suite bridge/wasm/tests/retain_release/retain_release_test
 run_suite bridge/wasm/tests/async_poll/async_poll_test

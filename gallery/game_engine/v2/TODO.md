@@ -482,10 +482,21 @@ dispatching. Consequences (all gated by the 27-assert conformance test):
   a per-profile ABI-compatibility golden and wire vectors. The profile is
   deliberately NOT frozen (BRIDGES: no published ABI until TSX + Rust both pass).
 
+**Guest binding generated from the schema (step 4/6, landed).** The guest no
+longer hand-copies ids: `bridge/wasm/RgWasmRustGen` emits a Rust module
+(`rg_abi.rs`: RGC1 wire constants + a `pub const` per live command id) straight
+from the command table; `bridge/wasm/tools/gen_rust_abi` regenerates it and the
+guest `use`s it, so its ids ARE the schema's ids. `wasm_abi_binding_test` (7
+asserts) checks the generator is schema-faithful AND that the committed
+`rg_abi.rs` matches a fresh generation — a schema id change without regeneration
+fails the gate (no silent guest drift). The schema is now the *enforced* source
+of truth, not agreement-by-hand.
+
 **Remaining toward a full Rust ylos3d:** strings/assets (`rg3d_model_load` — the
 `s` argSpec needs a ptr+len decode from guest memory), the 2D + RTT + input +
-audio surface (more opcode bindings), and formalising `RgWasm3dProfile` as a
-GENERATED artifact of the IDL rather than an authored list (step 4 proper).
+audio surface (more command ids, all already generated into the binding), and
+emitting typed Rust wrappers (not just id consts) from the schema so guests get
+a checked API, plus a per-profile ABI-compatibility golden before any freeze.
 
 ### Why Rust `ylos3d` (not a toy, not Chess first)
 

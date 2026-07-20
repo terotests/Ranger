@@ -20,19 +20,16 @@
 #[panic_handler]
 fn ph(_: &core::panic::PanicInfo) -> ! { loop {} }
 
-// RGC1 header (4 i32): [MAGIC, MAJOR, COUNT, RESERVED], then records follow.
-// MAGIC and the ABI MAJOR must match the host's wasm32 profile or the host
-// rejects us. Commands are encoded by their SCHEMA id (below), not a separate
-// opcode space — so new host commands (new ids) never outdate this guest.
-const RGC1_MAGIC: i32 = 0x5247_4331; // 1380401969
-const RGC1_MAJOR: i32 = 1;
-const HDR: usize = 4;
+// The command ids + RGC1 wire constants are GENERATED from the schema — this
+// guest does not hand-copy them. Regenerate rg_abi.rs via
+// bridge/wasm/tools/gen_rust_abi (freshness gated by wasm_abi_binding_test).
+mod rg_abi;
+use rg_abi::*;
 
-const WORDS: usize = 12;
 const MAX_REC: usize = 32;
-static mut BUF: [i32; HDR + WORDS * MAX_REC] = [0; HDR + WORDS * MAX_REC];
+static mut BUF: [i32; RGC1_HDR + RGC1_WORDS * MAX_REC] = [0; RGC1_HDR + RGC1_WORDS * MAX_REC];
 
-// Write the RGC1 header with `count` records that follow it.
+// Write the RGC1 header ([MAGIC, MAJOR, COUNT, RESERVED]) with `count` records.
 unsafe fn header(count: i32) {
     BUF[0] = RGC1_MAGIC;
     BUF[1] = RGC1_MAJOR;
@@ -45,22 +42,12 @@ unsafe fn header(count: i32) {
 const MAX_ID: usize = 64;
 static mut RESULT: [i32; MAX_ID] = [0; MAX_ID];
 
-// Commands are encoded by their SCHEMA id (registry/schema/three), the one
-// stable id space — not a private opcode table.
-const OP_SCENE: i32 = 3000;     // rg3d_scene_create()
-const OP_CAMERA: i32 = 3001;    // rg3d_camera_create()
-const OP_GEOM_BOX: i32 = 3010;  // a0,a1,a2 = w,h,d (x1000) -> rg3d_geometry_box
-const OP_MATERIAL: i32 = 3021;  // a0 = colorRGB -> rg3d_material_lambert
-const OP_MESH: i32 = 3030;      // a0,a1 = geom id, mat id -> rg3d_mesh_create
-const OP_ADD: i32 = 3033;       // a0,a1 = child id, parent id -> rg3d_entity_set_parent
-const OP_TRANSFORM: i32 = 3031; // a0=mesh id, a1..a6 = px,py,pz,rx,ry,rz (x1000)
-
 unsafe fn put(rec: usize, op: i32, dst: i32, args: &[i32]) {
-    let base = HDR + rec * WORDS;
+    let base = RGC1_HDR + rec * RGC1_WORDS;
     BUF[base] = op;
     BUF[base + 1] = dst;
     let mut i = 0;
-    while i < args.len() && i < WORDS - 2 {
+    while i < args.len() && i < RGC1_WORDS - 2 {
         BUF[base + 2 + i] = args[i];
         i += 1;
     }
@@ -79,13 +66,13 @@ pub extern "C" fn result_ptr() -> i32 {
 #[no_mangle]
 pub extern "C" fn frame() -> i32 {
     unsafe {
-        put(0, OP_SCENE, 1, &[]);                              // scene        -> id 1
-        put(1, OP_CAMERA, 2, &[]);                             // camera       -> id 2
-        put(2, OP_GEOM_BOX, 3, &[2000, 2000, 2000]);          // box 2x2x2     -> id 3
-        put(3, OP_MATERIAL, 4, &[0x33_aa_ff]);                // lambert color -> id 4
-        put(4, OP_MESH, 5, &[3, 4]);                          // mesh(3,4)     -> id 5
-        put(5, OP_ADD, 0, &[5, 1]);                           // scene.add(mesh 5 -> scene 1)
-        put(6, OP_TRANSFORM, 0, &[5, 1500, 0, -3000, 0, 0, 0]); // mesh 5 pos(1.5,0,-3)
+        put(0, RG3D_SCENE_CREATE, 1, &[]);                              // scene        -> id 1
+        put(1, RG3D_CAMERA_CREATE, 2, &[]);                             // camera       -> id 2
+        put(2, RG3D_GEOMETRY_BOX, 3, &[2000, 2000, 2000]);          // box 2x2x2     -> id 3
+        put(3, RG3D_MATERIAL_LAMBERT, 4, &[0x33_aa_ff]);                // lambert color -> id 4
+        put(4, RG3D_MESH_CREATE, 5, &[3, 4]);                          // mesh(3,4)     -> id 5
+        put(5, RG3D_ENTITY_SET_PARENT, 0, &[5, 1]);                           // scene.add(mesh 5 -> scene 1)
+        put(6, RG3D_MESH_TRANSFORM, 0, &[5, 1500, 0, -3000, 0, 0, 0]); // mesh 5 pos(1.5,0,-3)
         header(7);
         7
     }
@@ -105,7 +92,7 @@ pub extern "C" fn frame2() -> i32 {
             header(0);
             return 0; // no round-trip -> nothing to do
         }
-        put(0, OP_TRANSFORM, 0, &[5, 500, 500, -2000, 0, 0, 0]); // move mesh 5
+        put(0, RG3D_MESH_TRANSFORM, 0, &[5, 500, 500, -2000, 0, 0, 0]); // move mesh 5
         header(1);
         1
     }

@@ -1,0 +1,45 @@
+; ==============================================================================
+; RgWasmRustGen — emit a Rust wasm32 guest binding FROM the schema (BRIDGES 4/6).
+; ==============================================================================
+; Makes the schema the ENFORCED source of truth for a wasm32 guest: instead of a
+; guest hand-copying command ids and wire constants (which can silently drift),
+; this generates a Rust module of `pub const`s — the RGC1 wire constants plus one
+; const per live (non-tombstone) command id — straight from the command table.
+; A guest `use`s this generated module, so its ids ARE the schema's ids; a
+; freshness test (regenerate == committed) makes drift a gate failure.
+; ==============================================================================
+
+Import "../../registry/codegen/RgCodegen.rgr"
+
+class RgWasmRustGen {
+    ; Emit the Rust binding module text for the given command table + wire params.
+    ; `major` is the ABI major (RgWasmProfile), `magic`/`words`/`fixed` are the
+    ; RGC1 wire constants (RgWasmCmdDispatch). One `pub const <UPPER_NAME>` per
+    ; live command; tombstones and unnamed rows are skipped.
+    sfn emit:string (cmds:[RgCommand] major:int magic:int words:int fixed:int) {
+        def s:string ""
+        s = (s + "// GENERATED from registry/schema by RgWasmRustGen - do not edit by hand.\n")
+        s = (s + "// The schema is the ABI; regenerate via bridge/wasm/tools/gen_rust_abi.\n")
+        s = (s + "#![allow(dead_code)]\n")
+        s = (s + "\n")
+        s = (s + ("pub const RGC1_MAGIC: i32 = " + ((to_string magic) + ";\n")))
+        s = (s + ("pub const RGC1_MAJOR: i32 = " + ((to_string major) + ";\n")))
+        s = (s + ("pub const RGC1_FIXED: i32 = " + ((to_string fixed) + ";\n")))
+        s = (s + ("pub const RGC1_WORDS: usize = " + ((to_string words) + ";\n")))
+        s = (s + "pub const RGC1_HDR: usize = 4;\n")
+        s = (s + "\n")
+        def i 0
+        def n:int (array_length cmds)
+        while (i < n) {
+            def c:RgCommand (itemAt cmds i)
+            if (c.tombstone == false) {
+                if ((strlen c.name) > 0) {
+                    def cn:string (to_uppercase c.name)
+                    s = (s + ("pub const " + (cn + (": i32 = " + ((to_string c.id) + ";\n")))))
+                }
+            }
+            i = (i + 1)
+        }
+        return s
+    }
+}
