@@ -119,6 +119,8 @@
     "engine:sdl:run": "bash gallery/game_engine/scripts/build-sdl.sh --run",
     "engine:v2:test": "bash gallery/game_engine/v2/tests/run.sh",
     "engine:v2:shot:ylos2": "bash gallery/game_engine/v2/tests/tools/ylos2_screenshot.sh",
+    "engine:v2:pinball3d:build": "node gallery/game_engine/v2/web/build-pinball3d.mjs --out gallery/game_engine/v2/web/dist/pinball3d",
+    "engine:v2:pinball3d:shot": "npm run engine:v2:pinball3d:build && node gallery/game_engine/v2/web/tests/browser_smoke.mjs gallery/game_engine/v2/web/dist/pinball3d --canvas '#screen' --ms 2000 --shot gallery/game_engine/v2/web/dist/pinball3d/pinball_gpu.png",
     "engine:game-sdl": "bash gallery/game_engine/scripts/build-game-sdl.sh",
     "engine:game-sdl:run": "bash gallery/game_engine/scripts/build-game-sdl.sh --run",
     "engine:game-sdl:launcher": "bash gallery/game_engine/scripts/build-game-sdl.sh --run",

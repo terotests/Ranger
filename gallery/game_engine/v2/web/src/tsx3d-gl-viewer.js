@@ -115,8 +115,20 @@
       if (!this.texturePath) return;
       if (!this._textureRGBA && this.textureUrl) {
         try {
-          const buf = await (await fetch(this.textureUrl)).arrayBuffer();
-          this._textureRGBA = parsePPM(buf);
+          if (/\.ppm$/i.test(this.textureUrl)) {
+            const buf = await (await fetch(this.textureUrl)).arrayBuffer();
+            this._textureRGBA = parsePPM(buf);
+          } else {
+            // Any browser-decodable image (PNG/JPG/GIF): decode via the platform
+            // image pipeline and read back RGBA — no bespoke decoder needed.
+            const blob = await (await fetch(this.textureUrl)).blob();
+            const bmp = await createImageBitmap(blob);
+            const cv = new OffscreenCanvas(bmp.width, bmp.height);
+            const ctx = cv.getContext("2d");
+            ctx.drawImage(bmp, 0, 0);
+            const id = ctx.getImageData(0, 0, bmp.width, bmp.height);
+            this._textureRGBA = { w: bmp.width, h: bmp.height, rgba: new Uint8Array(id.data.buffer) };
+          }
         } catch (e) {
           console.warn("tsx3d: texture load failed, using checker fallback:", e.message);
           return;
