@@ -55,9 +55,34 @@ class RgWasmGameHost {
     ; frame boundary (same as RgGameHost, minus the interpreter).
     fn frame:void (dtMs:double) {
         this.bridge.clearPasses()
+        this.writeInput()
         wasm_call_i32 this.mod "update" 1 (to_int dtMs) 0 0 0 0
         this.disp.drainDoc(this.mod this.cmdBase this.resBase)
         this.bridge.frameBoundary((dtMs / 1000.0))
+    }
+
+    ; If the guest exports `input_ptr`, push each player's input into that region
+    ; BEFORE update() so an interactive guest can read it (the RGC1 command buffer
+    ; is fire-and-forget, so input can't come back through it). Layout: 4 players
+    ; × two i32 [downMask, pressedMask] (bits LEFT 1 RIGHT 2 JUMP 4 UP 8 DOWN 16
+    ; ACTION 32). A non-interactive guest simply omits the export and pays nothing.
+    fn writeInput:void () {
+        if ((wasm_has_export this.mod "input_ptr") == 0) { return }
+        def base:int (wasm_call_i32 this.mod "input_ptr" 0 0 0 0 0 0)
+        def np:int (array_length this.bridge.input.players)
+        def p 0
+        while (p < 4) {
+            def dm 0
+            def pm 0
+            if (p < np) {
+                def pi:RgPlayerInput (this.bridge.input.player(p))
+                dm = (pi.downMask())
+                pm = (pi.pressedMask())
+            }
+            wasm_mem_set_i32 this.mod (base + (p * 8)) dm
+            wasm_mem_set_i32 this.mod (base + ((p * 8) + 4)) pm
+            p = (p + 1)
+        }
     }
 
     ; host handle bound to a guest-local id (for tests / handoff).
