@@ -1,19 +1,16 @@
-//! ylos3d_wasm — a v2 game compiled to wasm32, run by RgWasmGameHost the same way
-//! RgGameHost runs a .tsx game. It drives the ONE generic bridge via an RGC1
-//! command buffer (the generated wasm32 profile), so the SAME host arenas +
-//! presenter + framebuffer render it — on the SDL desktop and in the headless
-//! gate alike.
+//! ylos3d_wasm — the ylos3d gems, compiled to wasm32.
 //!
-//! Lifecycle: `init()` builds the scene AND the on-screen composition once;
-//! `update(dt_ms)` emits this frame's commands (spin the mesh, re-render the 3D
-//! into the render target, draw that render target into the pane).
+//! games/ylos3d's signature 3D element is its collectible DIAMONDS (faceted gems
+//! the player gathers). This is that, as a wasm32 guest: a row of coloured
+//! octahedral gems, each spinning, rendered to a render target that a single pane
+//! displays — driven by RgWasmGameHost through the ONE generic bridge, so the SAME
+//! host arenas render it on the SDL desktop and in the headless gate.
 //!
-//! Presentation mirrors the .tsx ylos3d: the 3D scene renders to a render target
-//! (rgcore_graphics_rt_create + rg3d_render_to), a 2D sprite samples that target
-//! (rg2d_sprite_create_tex), and a single-pane layer draws the sprite (rg2d_render)
-//! so Rg2DPresenter composites it into the framebuffer. No engine changes — every
-//! command id + wire encoding comes from the schema-generated `rg_abi.rs`
-//! (regenerate via bridge/wasm/tools/gen_rust_abi).
+//! Materials are unlit (basic) flat colours: the software 3D host renders by
+//! material colour with no dynamic lighting, so a lit/glass diamond.glb would read
+//! black — a cluster of bright, faceted, spinning gems is the faithful look this
+//! renderer can actually show. Command ids + wire encoding come from the
+//! schema-generated rg_abi.rs.
 
 #![no_std]
 #[panic_handler]
@@ -22,49 +19,60 @@ fn ph(_: &core::panic::PanicInfo) -> ! { loop {} }
 mod rg_abi;
 use rg_abi::*;
 
-const MAX_REC: usize = 32;
+const MAX_REC: usize = 48;
 static mut BUF: [i32; RGC1_HDR + RGC1_WORDS * MAX_REC] = [0; RGC1_HDR + RGC1_WORDS * MAX_REC];
 const MAX_ID: usize = 64;
 static mut RESULT: [i32; MAX_ID] = [0; MAX_ID];
 
-// accumulated rotation (radians), advanced each frame from dt
 static mut ANGLE: f32 = 0.0;
 
-// render-target (== on-screen sprite) pixel size
-const RT_W: i32 = 200;
-const RT_H: i32 = 200;
+const RT_W: i32 = 320;
+const RT_H: i32 = 320;
 
-// guest-local ids
+// the ylos3d collectible-gem colours (0x00RRGGBB, unlit flat)
+const N: i32 = 5;
+const COLORS: [i32; 5] = [0x00FF_5A5A, 0x00FF_B74D, 0x00FF_E24B, 0x0066_CC66, 0x004F_A3FF];
+
 const SCENE: i32 = 1;
-const CAMERA: i32 = 2; // 3D camera
-const GEOM: i32 = 3;
-const MAT: i32 = 4;
-const MESH: i32 = 5;
-const TEX: i32 = 6; // render target
-const CAM2D: i32 = 7; // 2D camera for the pane
-const SPRITE: i32 = 8; // 2D sprite sampling the render target
-const LAYER: i32 = 9; // 2D layer holding the sprite
+const CAMERA: i32 = 2;
+const TEX: i32 = 3;
+const CAM2D: i32 = 4;
+const SPRITE: i32 = 5;
+const LAYER: i32 = 6;
+// per-gem ids (i in 0..N): mesh = 10+i, geometry = 20+i, material = 30+i
+fn mesh_id(i: i32) -> i32 { 10 + i }
+fn geo_id(i: i32) -> i32 { 20 + i }
+fn mat_id(i: i32) -> i32 { 30 + i }
+// x position of gem i, spread across the view
+fn gem_x(i: i32) -> f32 { ((i - 2) as f32) * 1.5 }
+// a gentle arc so the row reads as a cluster, not a flat line
+fn gem_y(i: i32) -> f32 { 0.55 - 0.16 * (((i - 2) * (i - 2)) as f32) }
 
 #[no_mangle]
 pub extern "C" fn cmd_ptr() -> i32 { core::ptr::addr_of!(BUF) as i32 }
 #[no_mangle]
 pub extern "C" fn result_ptr() -> i32 { core::ptr::addr_of!(RESULT) as i32 }
 
-/// Build the scene and the on-screen composition once.
+/// Build the gem cluster + the on-screen composition once.
 #[no_mangle]
 pub extern "C" fn init() -> i32 {
     let mut cb = RgCmdBuf::new(unsafe { &mut BUF });
-    // 3D scene: a spinning octahedron ("diamond"), unlit flat colour so it is
-    // visible without a light (which keeps the scene to a single entity).
     cb.rg3d_scene_create(SCENE);
     cb.rg3d_camera_create(CAMERA);
-    cb.rg3d_camera_set(CAMERA, 35.0, 1.0, 0.1, 20.0);
-    cb.rg3d_camera_pose(CAMERA, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0);
-    cb.rg3d_geometry_octahedron(GEOM, 1.0);
-    cb.rg3d_material_basic(MAT, 0x0033_CCFF);
-    cb.rg3d_mesh_create(MESH, GEOM, MAT);
-    cb.rg3d_entity_set_parent(MESH, SCENE);
-    // On-screen composition: render target -> 2D sprite -> single-pane layer.
+    cb.rg3d_camera_set(CAMERA, 42.0, 1.0, 0.5, 40.0);
+    cb.rg3d_camera_pose(CAMERA, 0.0, 0.2, 8.5, 0.0, 0.0, 0.0);
+
+    let mut i = 0;
+    while i < N {
+        cb.rg3d_geometry_octahedron(geo_id(i), 0.62);
+        cb.rg3d_material_basic(mat_id(i), COLORS[i as usize]);
+        cb.rg3d_mesh_create(mesh_id(i), geo_id(i), mat_id(i));
+        cb.rg3d_mesh_transform(mesh_id(i), gem_x(i), gem_y(i), 0.0, 0.3, 0.4, 0.1);
+        cb.rg3d_entity_set_parent(mesh_id(i), SCENE);
+        i += 1;
+    }
+
+    // on-screen composition: render target -> 2D sprite -> single-pane layer
     cb.rgcore_graphics_rt_create(TEX, RT_W, RT_H);
     cb.rg2d_sprite_create_tex(SPRITE, TEX);
     cb.rg2d_sprite_set_size(SPRITE, RT_W as f32, RT_H as f32);
@@ -78,15 +86,20 @@ pub extern "C" fn init() -> i32 {
     cb.finish()
 }
 
-/// Per frame: spin the mesh, re-render the 3D into the target, draw it to the pane.
+/// Per frame: spin each gem about Y (varying rate) so the cluster shimmers.
 #[no_mangle]
 pub extern "C" fn update(dt_ms: i32) -> i32 {
     let a = unsafe {
-        ANGLE += (dt_ms as f32) * 0.0015;
+        ANGLE += (dt_ms as f32) * 0.0016;
         ANGLE
     };
     let mut cb = RgCmdBuf::new(unsafe { &mut BUF });
-    cb.rg3d_mesh_transform(MESH, 0.0, 0.0, 0.0, a * 0.5, a, 0.0);
+    let mut i = 0;
+    while i < N {
+        let spin = a * (1.0 + 0.14 * (i as f32));
+        cb.rg3d_mesh_transform(mesh_id(i), gem_x(i), gem_y(i), 0.0, 0.3, spin, 0.1);
+        i += 1;
+    }
     cb.rg3d_render_to(SCENE, CAMERA, TEX, RT_W, RT_H);
     cb.rg2d_render(LAYER, CAM2D, 0);
     cb.finish()
