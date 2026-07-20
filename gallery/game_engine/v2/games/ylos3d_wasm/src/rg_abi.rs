@@ -86,6 +86,7 @@ pub const CANNON_BODY_SPHERE: i32 = 4010;
 pub const CANNON_BODY_BOX: i32 = 4011;
 pub const CANNON_BODY_STATIC_PLANE: i32 = 4012;
 pub const CANNON_BODY_SET_VELOCITY: i32 = 4013;
+pub const CANNON_BODY_SET_POSITION: i32 = 4017;
 pub const CANNON_BODY_POS_X: i32 = 4014;
 pub const CANNON_BODY_POS_Y: i32 = 4015;
 pub const CANNON_BODY_POS_Z: i32 = 4016;
@@ -335,6 +336,9 @@ impl<'a> RgCmdBuf<'a> {
     }
     pub fn cannon_body_set_velocity(&mut self, a0: i32, a1: f32, a2: f32, a3: f32) {
         self.put(CANNON_BODY_SET_VELOCITY, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn cannon_body_set_position(&mut self, a0: i32, a1: f32, a2: f32, a3: f32) {
+        self.put(CANNON_BODY_SET_POSITION, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32)]);
     }
     pub fn cannon_body_pos_x(&mut self, a0: i32) {
         self.put(CANNON_BODY_POS_X, 0, &[a0]);

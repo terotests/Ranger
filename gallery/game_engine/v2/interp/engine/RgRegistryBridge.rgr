@@ -1068,6 +1068,10 @@ class RgRegistryBridge extends EvalNativeBridge {
             this.phys.setVelocity((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))
             return (EvalValue.null())
         }
+        if (row.name == "cannon_body_set_position") {
+            this.phys.setPosition((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))
+            return (EvalValue.null())
+        }
         if (row.name == "cannon_body_pos_x") {
             return (RgRegistryBridge.retD((this.phys.bodyX((a.handleAt(0))))))
         }

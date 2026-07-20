@@ -104,6 +104,12 @@ class RgPhysicsHost {
         this.world.setBodyVelocity((itemAt this.cannonIds r.payloadIndex) vx vy vz)
         return r
     }
+    fn setPosition:RgResolve (bodyH:RgHandle x:double y:double z:double) {
+        def r:RgResolve (this.registry.resolveTyped(bodyH (RgPhysicsHostType.body())))
+        if (r.ok == false) { return r }
+        this.world.setBodyPosition((itemAt this.cannonIds r.payloadIndex) x y z)
+        return r
+    }
 
     ; ---- one fixed step + pose reads ----------------------------------------
     fn step:void (dt:double) {

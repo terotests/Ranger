@@ -550,6 +550,12 @@ class RegistryBridgeCoverageTest {
         push cvA (s.num(1.0))
         push cvA (s.num(0.0))
         s.callN("cannon_body_set_velocity" cvA)
+        def cposA:[EvalValue]
+        push cposA (s.num((to_double cBall)))
+        push cposA (s.num(0.0))
+        push cposA (s.num(2.0))
+        push cposA (s.num(0.0))
+        s.callN("cannon_body_set_position" cposA)
         def cstA:[EvalValue]
         push cstA (s.num((1.0 / 60.0)))
         s.callN("cannon_world_step" cstA)

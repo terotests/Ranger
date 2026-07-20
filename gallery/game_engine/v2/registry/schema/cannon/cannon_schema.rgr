@@ -41,6 +41,8 @@ class CannonSchema {
         body.addMethod((RgMethodDef.cmd(4012 "cannon_body_static_plane" "cannon_body_static_plane" "d:d:d" "h" "create")))
         ; setVelocity(body, vx, vy, vz)
         body.addMethod((RgMethodDef.cmd(4013 "cannon_body_set_velocity" "cannon_body_set_velocity" "h:d:d:d" "v" "none")))
+        ; setPosition(body, x, y, z) — teleport + stop (reset a ball to the plunger)
+        body.addMethod((RgMethodDef.cmd(4017 "cannon_body_set_position" "cannon_body_set_position" "h:d:d:d" "v" "none")))
         ; pose reads — the guest copies these into a Three mesh transform
         body.addMethod((RgMethodDef.cmd(4014 "cannon_body_pos_x" "cannon_body_pos_x" "h" "d" "none")))
         body.addMethod((RgMethodDef.cmd(4015 "cannon_body_pos_y" "cannon_body_pos_y" "h" "d" "none")))
