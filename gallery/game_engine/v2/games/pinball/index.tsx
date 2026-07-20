@@ -111,9 +111,12 @@ class PinballGame {
     const camera = new THREE.PerspectiveCamera(50, RT_W / RT_H, 0.5, 120);
     camera.setPose(0.0, H * SC * 0.78, H * SC * 0.66, -0.9, 0.0, 0.0);
 
-    // playfield: a flat plane (rotate the XY plane flat), deep blue
+    // playfield: a flat plane with the printed art texture mapped on
     const pfGeo = new THREE.PlaneGeometry(W * SC * 1.02, H * SC * 1.02, 1, 1);
-    const pf = this.addLambertMesh(pfGeo, 40, 46, 130, scene);
+    const pfMat = new THREE.MeshLambertMaterial(0xFFFFFF);
+    pfMat.setMap("playfield.png");
+    const pf = new THREE.Mesh(pfGeo, pfMat);
+    scene.add(pf);
     pf.setTransform(0, 0, 0, -1.5707963, 0, 0);
 
     // rails around the playfield (thin raised boxes)
