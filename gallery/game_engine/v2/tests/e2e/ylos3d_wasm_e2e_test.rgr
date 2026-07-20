@@ -1,0 +1,45 @@
+; ==============================================================================
+; ylos3d_wasm_game_test — a WASM game runs through RgWasmGameHost (loader proof).
+; ==============================================================================
+; The headless proof that the native "run a compiled game" path is sound: load
+; games/ylos3d_wasm/logic.wasm through RgWasmGameHost (the wasm sibling of
+; RgGameHost), run its init() + a run of update() frames, and assert the SAME
+; generic bridge that .tsx games use ends up with the scene built and animated —
+; exactly what the SDL desktop host will drive. Only the SDL windowing/present is
+; untestable here (no display); everything up to the bridge is exercised.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgWasmGameHost.rgr"
+Import "../harness/RgTest.rgr"
+
+class Ylos3dWasmGameTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("games/ylos3d_wasm (compiled game via RgWasmGameHost)"))
+        def host:RgWasmGameHost (new RgWasmGameHost)
+
+        ; ---- load: init() builds the scene through the generic bridge ---------
+        def ok:boolean (host.load("gallery/game_engine/v2/games/ylos3d_wasm" "logic.wasm"))
+        t.ok("wasm game loaded + init drained" ok)
+        t.eqInt("no bridge errors after init" host.bridge.errorCount 0)
+        t.eqInt("init built exactly 1 mesh entity" (host.bridge.d3.host.entityCount()) 1)
+        t.eqInt("init built 1 geometry" (host.bridge.d3.host.geometryCount()) 1)
+        t.eqInt("init built 1 material" (host.bridge.d3.host.materialCount()) 1)
+
+        ; the mesh is parented to the scene (D-SYNC across the wasm loader)
+        def sceneH:RgHandle (host.bridge.resolveGuestId((host.hostId(1))))
+        t.eqInt("mesh parented to the scene" (host.bridge.d3.sceneChildCount(sceneH)) 1)
+
+        ; ---- run frames: update() animates through the same host loop ---------
+        def before:int host.disp.dispatched
+        def i 0
+        while (i < 10) {
+            host.frame(16.667)
+            i = (i + 1)
+        }
+        t.eqInt("update ran once per frame (10 commands drained)" (host.disp.dispatched - before) 10)
+        t.eqInt("no bridge errors across 10 frames" host.bridge.errorCount 0)
+        t.eqInt("still exactly 1 entity (the same mesh, animated)" (host.bridge.d3.host.entityCount()) 1)
+
+        t.summary()
+    }
+}
