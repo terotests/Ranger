@@ -75,6 +75,13 @@ class PinballGame {
     scene.add(m);
     return m;
   }
+  // glossy phong mesh (specular highlight) for round caps and the metal ball
+  addPhongMesh(geo, cr, cg, cb, specHex, shine, scene) {
+    const mat = new THREE.MeshPhongMaterial((cr * 65536) + (cg * 256) + cb, specHex, shine);
+    const m = new THREE.Mesh(geo, mat);
+    scene.add(m);
+    return m;
+  }
 
   init() {
     runtime.surface.setLayout("single");
@@ -119,14 +126,14 @@ class PinballGame {
     const railT = this.addLambertMesh(railTGeo, 150, 160, 200, scene);
     railT.setTransform(0, 0.35, mapZ(WALL), 0, 0, 0);
 
-    // pop bumpers — octahedron caps that stand up off the field
+    // pop bumpers — glossy round cylinder caps that stand up off the field
     this.bumpMeshes = [];
     let bi = 0;
     while (bi < BUMPERS.length) {
       const bp = BUMPERS[bi];
-      const g = new THREE.OctahedronGeometry(bp.r * SC * 1.3);
-      const m = this.addLambertMesh(g, bp.cr, bp.cg, bp.cb, scene);
-      m.setTransform(mapX(bp.x), bp.r * SC, mapZ(bp.y), 0, 0, 0);
+      const g = new THREE.CylinderGeometry(bp.r * SC * 1.05, bp.r * SC * 1.25, 0.7, 24);
+      const m = this.addPhongMesh(g, bp.cr, bp.cg, bp.cb, 0xFFFFFF, 60.0, scene);
+      m.setTransform(mapX(bp.x), 0.35, mapZ(bp.y), 0, 0, 0);
       this.bumpMeshes[bi] = m;
       bi = bi + 1;
     }
@@ -141,20 +148,19 @@ class PinballGame {
       si = si + 1;
     }
 
-    // spinner disc (left) — a flattened bright octahedron target
-    const spinGeo = new THREE.OctahedronGeometry(1.6);
-    const spin = this.addLambertMesh(spinGeo, 245, 200, 60, scene);
-    spin.setTransform(mapX(62), 0.15, mapZ(300), 0, 0, 0);
-    spin.setScale(1.0, 0.28, 1.0);
+    // spinner disc (left) — a glossy round cylinder target
+    const spinGeo = new THREE.CylinderGeometry(1.7, 1.7, 0.3, 24);
+    const spin = this.addPhongMesh(spinGeo, 245, 200, 60, 0xFFFFFF, 50.0, scene);
+    spin.setTransform(mapX(62), 0.2, mapZ(300), 0, 0, 0);
 
-    // bank targets — bright studs scattered up the table
+    // bank targets — glossy round studs scattered up the table
     const tgs = [[150, 236, 255, 210, 60], [210, 236, 90, 200, 255], [126, 300, 230, 70, 90], [246, 300, 70, 200, 120], [180, 340, 250, 220, 80]];
     let ti = 0;
     while (ti < tgs.length) {
       const tg = tgs[ti];
-      const g = new THREE.OctahedronGeometry(0.55);
-      const m = this.addLambertMesh(g, tg[2], tg[3], tg[4], scene);
-      m.setTransform(mapX(tg[0]), 0.45, mapZ(tg[1]), 0, 0, 0);
+      const g = new THREE.SphereGeometry(0.5, 16, 12);
+      const m = this.addPhongMesh(g, tg[2], tg[3], tg[4], 0xFFFFFF, 50.0, scene);
+      m.setTransform(mapX(tg[0]), 0.5, mapZ(tg[1]), 0, 0, 0);
       ti = ti + 1;
     }
 
@@ -175,9 +181,9 @@ class PinballGame {
     this.flipMeshL = this.addLambertMesh(flGeo, 235, 70, 70, scene);
     this.flipMeshR = this.addLambertMesh(flGeo, 235, 70, 70, scene);
 
-    // the steel ball — a bright octahedron so the facets catch the light
-    const ballGeo = new THREE.OctahedronGeometry(BALL_R * SC * 1.6);
-    this.ballMesh = this.addLambertMesh(ballGeo, 220, 226, 236, scene);
+    // the steel ball — a smooth phong sphere with a sharp specular highlight
+    const ballGeo = new THREE.SphereGeometry(BALL_R * SC * 1.6, 24, 16);
+    this.ballMesh = this.addPhongMesh(ballGeo, 205, 212, 226, 0xFFFFFF, 90.0, scene);
 
     // present: render the scene to a target the single pane shows
     const rt = runtime.graphics.createRenderTarget({ width: RT_W, height: RT_H });
