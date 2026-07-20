@@ -252,6 +252,8 @@ run_suite tests/e2e/ylos2_e2e_test
 run_suite tests/e2e/ylos3d_e2e_test
 # compiled (wasm32) game runs through RgWasmGameHost (loader integration)
 run_suite tests/e2e/ylos3d_wasm_e2e_test
+# three + cannon demo game (ranger:cannon physics drives ranger:three meshes)
+run_suite tests/e2e/cannon3d_e2e_test
 run_suite tests/e2e/launcher_e2e_test
 
 # ---- Boundary gate (static) — after suites; cheap Import / title scan --------

@@ -8,7 +8,7 @@ driver and the roadmap below over that checklist.
 
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
-| Headless gate | `npm run engine:v2:test` → 103 suites + boundary gate | — |
+| Headless gate | `npm run engine:v2:test` → 104 suites + boundary gate | — |
 | Live 3D web demos | `ranger:three` cube / teapot / courtyard / real glTF model, **browser-verified** in headless Chromium (`web/tests/browser_smoke.mjs`) | sky/GI/first-person/textures polish |
 | Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — live-path demos (cube, teapot, a procedural courtyard, and a real glTF model — NOT the Sponza atrium) re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
@@ -16,7 +16,7 @@ driver and the roadmap below over that checklist.
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
 | Native SDL | `RgSdlGameHost` + `build-sdl-v2.sh` + `engine:game-sdl:launcher:v2` (macOS-oriented today) | **Pi 5 arm64** build/smoke; cross-platform `pkg-config`; live CI |
 | WASM32 / Rust | **merged** (PR #444): `RgWasmGameHost` runs a wasm32 game like a `.tsx` game; `games/ylos3d_wasm` builds + renders 3D→RT→pane (real pixels in the gate); launcher routes `engine=wasm`→`runWasm` | on-device SDL run (macOS/Pi); `wasm_mem_str` cpp template (string/asset args) still a stub |
-| Physics / Cannon | full **Cannon.js port** green (`cannon_suite_test`, 89) + cannon-backed **live arena** (`RgPhysicsHost`, D-TYPE handles) + **`ranger:cannon` bridge commands** (`cannon_bridge_test`: a body falls + drives a Three mesh through the guest command path; regenerated wasm binding, drift-guarded) | a guest **module façade** (`modules/ranger_cannon`) + a visible three+cannon **demo game** (tsx or wasm, rendered) |
+| Physics / Cannon | full **Cannon.js port** green (`cannon_suite_test`, 89) + cannon-backed **live arena** (`RgPhysicsHost`) + **`ranger:cannon`** bridge commands + guest **module façade** + a **visible demo game** `games/cannon3d` (falling boxes, three-rendered, in the Games menu; `cannon3d_e2e_test` asserts the boxes render + animate) | box **rotation** sync (poses are position-only today — add a body-quaternion command); on-device SDL run |
 | v1 | still **runnable legacy** (~many titles under `games/`) | archival only at an explicit milestone (not Phase 12) |
 
 **Docs inconsistency:** README / older notes still say “no SDL window”;
