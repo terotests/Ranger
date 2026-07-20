@@ -380,12 +380,28 @@ class RegistryBridgeCoverageTest {
         push plnA (s.num(1.0))
         push plnA (s.num(1.0))
         def plnG:int (s.callI("rg3d_geometry_plane" plnA))
+        def sphA:[EvalValue]
+        push sphA (s.num(1.0))
+        push sphA (s.num(16.0))
+        push sphA (s.num(12.0))
+        def sphG:int (s.callI("rg3d_geometry_sphere" sphA))
+        def cylA:[EvalValue]
+        push cylA (s.num(1.0))
+        push cylA (s.num(1.0))
+        push cylA (s.num(2.0))
+        push cylA (s.num(16.0))
+        def cylG:int (s.callI("rg3d_geometry_cylinder" cylA))
         def mat3A:[EvalValue]
         push mat3A (s.num(16711680.0))
         def mat3:int (s.callI("rg3d_material_basic" mat3A))
         def matL:[EvalValue]
         push matL (s.num(7926015.0))
         def matLambert:int (s.callI("rg3d_material_lambert" matL))
+        def phA:[EvalValue]
+        push phA (s.num(15790320.0))
+        push phA (s.num(16777215.0))
+        push phA (s.num(40.0))
+        def matPhong:int (s.callI("rg3d_material_phong" phA))
         def opacA:[EvalValue]
         push opacA (s.num((to_double matLambert)))
         push opacA (s.num(0.72))

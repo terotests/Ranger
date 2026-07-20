@@ -61,9 +61,12 @@ pub const RG3D_GEOMETRY_BOX: i32 = 3010;
 pub const RG3D_GEOMETRY_OCTAHEDRON: i32 = 3011;
 pub const RG3D_GEOMETRY_TEAPOT: i32 = 3012;
 pub const RG3D_GEOMETRY_PLANE: i32 = 3013;
+pub const RG3D_GEOMETRY_SPHERE: i32 = 3014;
+pub const RG3D_GEOMETRY_CYLINDER: i32 = 3015;
 pub const RG3D_MATERIAL_BASIC: i32 = 3020;
 pub const RG3D_MATERIAL_LAMBERT: i32 = 3021;
 pub const RG3D_MATERIAL_SET_OPACITY: i32 = 3022;
+pub const RG3D_MATERIAL_PHONG: i32 = 3023;
 pub const RG3D_MESH_CREATE: i32 = 3030;
 pub const RG3D_MESH_TRANSFORM: i32 = 3031;
 pub const RG3D_MESH_SET_SCALE: i32 = 3032;
@@ -262,6 +265,12 @@ impl<'a> RgCmdBuf<'a> {
     pub fn rg3d_geometry_plane(&mut self, dst: i32, a0: f32, a1: f32, a2: i32, a3: i32) {
         self.put(RG3D_GEOMETRY_PLANE, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), a2, a3]);
     }
+    pub fn rg3d_geometry_sphere(&mut self, dst: i32, a0: f32, a1: i32, a2: i32) {
+        self.put(RG3D_GEOMETRY_SPHERE, dst, &[((a0 * RGC1_FIXED as f32) as i32), a1, a2]);
+    }
+    pub fn rg3d_geometry_cylinder(&mut self, dst: i32, a0: f32, a1: f32, a2: f32, a3: i32) {
+        self.put(RG3D_GEOMETRY_CYLINDER, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), a3]);
+    }
     pub fn rg3d_material_basic(&mut self, dst: i32, a0: i32) {
         self.put(RG3D_MATERIAL_BASIC, dst, &[a0]);
     }
@@ -270,6 +279,9 @@ impl<'a> RgCmdBuf<'a> {
     }
     pub fn rg3d_material_set_opacity(&mut self, a0: i32, a1: f32) {
         self.put(RG3D_MATERIAL_SET_OPACITY, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_material_phong(&mut self, dst: i32, a0: i32, a1: i32, a2: f32) {
+        self.put(RG3D_MATERIAL_PHONG, dst, &[a0, a1, ((a2 * RGC1_FIXED as f32) as i32)]);
     }
     pub fn rg3d_mesh_create(&mut self, dst: i32, a0: i32, a1: i32) {
         self.put(RG3D_MESH_CREATE, dst, &[a0, a1]);

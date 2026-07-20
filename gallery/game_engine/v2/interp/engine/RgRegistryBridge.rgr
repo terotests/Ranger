@@ -834,6 +834,16 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
+        if (row.name == "rg3d_geometry_sphere") {
+            def o:OwnedHandle (this.d3.geometrySphere((a.dblAt(0)) (a.intAt(1)) (a.intAt(2))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_geometry_cylinder") {
+            def o:OwnedHandle (this.d3.geometryCylinder((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.intAt(3))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
         if (row.name == "rg3d_geometry_teapot") {
             ; the 5 shape flags are carried as i32 0/1 (schema argSpec has no bool
             ; code) — decode them back to booleans for the host signature.
@@ -848,6 +858,11 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg3d_material_lambert") {
             def o:OwnedHandle (this.d3.materialLambert((a.intAt(0))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_phong") {
+            def o:OwnedHandle (this.d3.materialPhong((a.intAt(0)) (a.intAt(1)) (a.dblAt(2))))
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }

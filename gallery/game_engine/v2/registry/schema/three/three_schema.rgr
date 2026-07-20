@@ -38,6 +38,10 @@ class ThreeSchema {
         ; Flat plane primitive (floor). width(d), height(d), then the segment
         ; counts wSeg(i), hSeg(i). A leaf resource, mirrors geometry_box.
         geo.addMethod((RgMethodDef.cmd(3013 "rg3d_geometry_plane" "rg3d_geometry_plane" "d:d:i:i" "h" "create")))
+        ; Smooth UV sphere: radius(d), widthSegments(i), heightSegments(i).
+        geo.addMethod((RgMethodDef.cmd(3014 "rg3d_geometry_sphere" "rg3d_geometry_sphere" "d:i:i" "h" "create")))
+        ; Cylinder: radiusTop(d), radiusBottom(d), height(d), radialSegments(i).
+        geo.addMethod((RgMethodDef.cmd(3015 "rg3d_geometry_cylinder" "rg3d_geometry_cylinder" "d:d:d:i" "h" "create")))
         s.addClass(geo)
 
         ; ---- Material3D (33) -------------------------------------------------
@@ -45,6 +49,8 @@ class ThreeSchema {
         mat.addMethod((RgMethodDef.cmd(3020 "rg3d_material_basic" "rg3d_material_basic" "i" "h" "create")))
         mat.addMethod((RgMethodDef.cmd(3021 "rg3d_material_lambert" "rg3d_material_lambert" "i" "h" "create")))
         mat.addMethod((RgMethodDef.cmd(3022 "rg3d_material_set_opacity" "rg3d_material_set_opacity" "h:d" "v" "none")))
+        ; Phong (smooth-shaded, specular): colour(i), specularColour(i), shininess(d).
+        mat.addMethod((RgMethodDef.cmd(3023 "rg3d_material_phong" "rg3d_material_phong" "i:i:d" "h" "create")))
         s.addClass(mat)
 
         ; ---- Mesh3D (34) -----------------------------------------------------
