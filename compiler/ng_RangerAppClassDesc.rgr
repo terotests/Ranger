@@ -529,6 +529,19 @@ Tests if the `class name` is either
   }
 
   fn addVariable:void (desc@(strong):RangerAppParamDesc) {
+    ; Duplicate class-property guard (all field-adding paths funnel through here):
+    ; declaring the same field twice is silently last-wins in the JS backend but
+    ; emits two members in C++ (a "duplicate member" error that only surfaces on
+    ; the native build). Flag it in the frontend so BOTH backends fail fast.
+    def dupField:boolean false
+    for variables prevVar:RangerAppParamDesc dupI {
+      if (prevVar.name == desc.name) {
+        dupField = true
+      }
+    }
+    if dupField {
+      this.ctx.addError( (unwrap desc.node) ("Duplicate class property '" + desc.name + "' in class " + this.name) )
+    }
     push variables desc
     desc.propertyClass = this
   }
