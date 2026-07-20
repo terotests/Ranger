@@ -51,9 +51,10 @@ class Ylos3dWasmConformanceTest {
         def resBase:int (wasm_call_i32 h "result_ptr" 0 0 0 0 0 0)
         t.eqInt("guest emitted 7 commands" n 7)
 
-        disp.drain(h base n resBase)
-
-        t.eqInt("all 7 wasm commands dispatched" disp.dispatched 7)
+        ; drainDoc validates the RGC1 header (MAGIC + profile EPOCH) before dispatch
+        def got:int (disp.drainDoc(h base resBase))
+        t.ok("RGC1 header validated — ABI epoch matches" (disp.abiError == false))
+        t.eqInt("all 7 wasm commands dispatched" got 7)
         t.eqInt("no bridge errors through the generic dispatcher" b.errorCount 0)
         t.eqInt("host created 1 box geometry" (b.d3.host.geometryCount()) 1)
         t.eqInt("host created 1 material" (b.d3.host.materialCount()) 1)
@@ -77,11 +78,24 @@ class Ylos3dWasmConformanceTest {
         def n2:int (wasm_call_i32 h "frame2" 0 0 0 0 0 0)
         t.eqInt("frame2 emitted a follow-up (guest saw its handle)" n2 1)
         def base2:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
-        disp.drain(h base2 n2 0)
+        def got2:int (disp.drainDoc(h base2 0))
 
-        t.eqInt("follow-up transform dispatched (total 8)" disp.dispatched 8)
+        t.eqInt("follow-up transform dispatched" got2 1)
         t.eqInt("still no bridge errors after the round-trip frame" b.errorCount 0)
         t.eqInt("follow-up applied to the SAME mesh (still 1 entity)" (b.d3.host.entityCount()) 1)
+
+        ; ---- ABI guard: a guest compiled against a different epoch is REFUSED ----
+        ; (answers "will already-compiled apps be outdated if the ABI changes?" —
+        ; yes, and the host DETECTS it instead of silently misdispatching.)
+        def stale:RgWasmProfile (RgWasm3dProfile.build())
+        stale.epoch = (stale.epoch + 1)                 ; host advanced its ABI
+        def disp2:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        disp2.init(b stale)
+        wasm_call_i32 h "frame" 0 0 0 0 0 0             ; guest re-emits its (old-epoch) buffer
+        def base3:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        def got3:int (disp2.drainDoc(h base3 0))
+        t.ok("mismatched ABI epoch is detected" (disp2.abiError))
+        t.eqInt("nothing is dispatched from a stale guest" got3 0)
 
         wasm_close h
         t.summary()

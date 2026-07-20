@@ -10,11 +10,18 @@
 ; binding, never a new branch. This is the "generated binding from one semantic
 ; definition" that BRIDGES rev 2 calls for, standing in for a hand emitter.
 ;
-; Wire format (RGC1): a flat array of fixed WORDS-int32 little-endian records:
-;   [op, dst, a0, a1, ... a(WORDS-3)]
+; Wire format (RGC1): a 4-int32 header followed by fixed WORDS-int32 records:
+;   header: [MAGIC 'RGC1', EPOCH, COUNT, RESERVED]
+;   record: [op, dst, a0, a1, ... a(WORDS-3)]
 ;   op  = opcode (mapped to a command name by the profile)
 ;   dst = guest-local id to bind the created handle to (0 = no result)
 ;   args are laid out in argSpec order; doubles are fixed-point (value * FIXED).
+;
+; The header carries a MAGIC and an EPOCH (the wasm32 profile version the guest
+; was compiled against). Before dispatching anything the host validates both, so
+; a stale guest compiled against a different ABI is REJECTED (abiError), not
+; silently misdispatched — the same magic+version discipline the sibling RGU1 /
+; RGX1 shared-block guests use. Bumping the profile epoch invalidates old .wasm.
 ;
 ; Handles: within a frame the guest refers to objects it just created by small
 ; guest-local ids, resolved here via a persistent id map. After a create the
@@ -28,9 +35,12 @@ Import "../../scripting/wasm_runtime.rgr"
 
 ; The wasm32 profile's opcode assignment: opcode -> semantic command name. This
 ; is the small authored lowering table (abi_profiles/wasm32_v1) — the ONE place a
-; transport-specific opcode is tied to a semantic command.
+; transport-specific opcode is tied to a semantic command. `epoch` is the ABI
+; version; bump it whenever an opcode binding or a bound command's argSpec
+; changes, so guests compiled against the old ABI are rejected.
 class RgWasmProfile {
     def names:[string]
+    def epoch:int 1
 
     fn bind:void (op:int name:string) {
         while ((array_length this.names) <= op) {
@@ -46,6 +56,10 @@ class RgWasmProfile {
 }
 
 class RgWasmCmdDispatch {
+    ; RGC1 command-buffer magic ('R','G','C','1' as a shared little-endian i32).
+    ; Guest and host must agree on this exact integer.
+    sfn magic:int () { return 1380401969 }
+
     def bridge:RgRegistryBridge
     def profile:RgWasmProfile
     ; guest-local id -> minted host id (persistent across frames)
@@ -53,6 +67,9 @@ class RgWasmCmdDispatch {
     def words:int 12
     def fixed:double 1000.0
     def dispatched:int 0
+    ; set true when a drained buffer's header fails MAGIC/EPOCH validation (a
+    ; guest compiled against a different ABI) — nothing from it is dispatched.
+    def abiError:boolean false
 
     fn init:void (b:RgRegistryBridge p:RgWasmProfile) {
         this.bridge = b
@@ -110,6 +127,29 @@ class RgWasmCmdDispatch {
             }
             i = (i + 1)
         }
+    }
+
+    ; Validate an RGC1 buffer header at `base` (MAGIC + profile EPOCH), then drain
+    ; its COUNT records (which start after the 4-int32 header). Refuses to dispatch
+    ; anything if the guest's ABI does not match (sets abiError). This is the guard
+    ; that keeps a stale compiled guest from silently misdispatching. Returns the
+    ; number of records dispatched from this buffer (0 on ABI mismatch).
+    fn drainDoc:int (h:int base:int resBase:int) {
+        this.abiError = false
+        def magic:int (wasm_mem_i32 h base)
+        if (magic != (RgWasmCmdDispatch.magic())) {
+            this.abiError = true
+            return 0
+        }
+        def epoch:int (wasm_mem_i32 h (base + 4))
+        if (epoch != this.profile.epoch) {
+            this.abiError = true
+            return 0
+        }
+        def count:int (wasm_mem_i32 h (base + 8))
+        def before:int this.dispatched
+        this.drain(h (base + 16) count resBase)
+        return (this.dispatched - before)
     }
 
     ; the minted host id bound to a guest-local id (0 if unset).

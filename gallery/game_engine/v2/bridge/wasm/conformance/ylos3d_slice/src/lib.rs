@@ -20,9 +20,23 @@
 #[panic_handler]
 fn ph(_: &core::panic::PanicInfo) -> ! { loop {} }
 
+// RGC1 header (4 i32): [MAGIC, EPOCH, COUNT, RESERVED], then records follow.
+// MAGIC and EPOCH must match the host's wasm32 profile or the host rejects us.
+const RGC1_MAGIC: i32 = 0x5247_4331; // 1380401969
+const RGC1_EPOCH: i32 = 1;
+const HDR: usize = 4;
+
 const WORDS: usize = 12;
 const MAX_REC: usize = 32;
-static mut BUF: [i32; WORDS * MAX_REC] = [0; WORDS * MAX_REC];
+static mut BUF: [i32; HDR + WORDS * MAX_REC] = [0; HDR + WORDS * MAX_REC];
+
+// Write the RGC1 header with `count` records that follow it.
+unsafe fn header(count: i32) {
+    BUF[0] = RGC1_MAGIC;
+    BUF[1] = RGC1_EPOCH;
+    BUF[2] = count;
+    BUF[3] = 0;
+}
 
 // Result region: the host writes the minted host id of each created object here,
 // indexed by the guest-local id it was created with (the return-value round-trip).
@@ -39,7 +53,7 @@ const OP_ADD: i32 = 6;        // a0,a1 = child id, parent id -> rg3d_entity_set_
 const OP_TRANSFORM: i32 = 7;  // a0=mesh id, a1..a6 = px,py,pz,rx,ry,rz (x1000)
 
 unsafe fn put(rec: usize, op: i32, dst: i32, args: &[i32]) {
-    let base = rec * WORDS;
+    let base = HDR + rec * WORDS;
     BUF[base] = op;
     BUF[base + 1] = dst;
     let mut i = 0;
@@ -69,6 +83,7 @@ pub extern "C" fn frame() -> i32 {
         put(4, OP_MESH, 5, &[3, 4]);                          // mesh(3,4)     -> id 5
         put(5, OP_ADD, 0, &[5, 1]);                           // scene.add(mesh 5 -> scene 1)
         put(6, OP_TRANSFORM, 0, &[5, 1500, 0, -3000, 0, 0, 0]); // mesh 5 pos(1.5,0,-3)
+        header(7);
         7
     }
 }
@@ -84,9 +99,11 @@ pub extern "C" fn frame2() -> i32 {
     unsafe {
         let mesh_host = RESULT[5];
         if mesh_host == 0 {
+            header(0);
             return 0; // no round-trip -> nothing to do
         }
         put(0, OP_TRANSFORM, 0, &[5, 500, 500, -2000, 0, 0, 0]); // move mesh 5
+        header(1);
         1
     }
 }

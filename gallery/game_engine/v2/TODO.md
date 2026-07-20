@@ -459,6 +459,20 @@ existing RGU1/RGX1 shared-block guests (no host-call imports).
   a host-written handle and acted on it across a frame boundary.
 - Conformance test now 18 asserts (was 13), all through the generic dispatcher.
 
+**ABI versioning (guest/host compatibility).** RGC1 now carries a header
+`[MAGIC, EPOCH, COUNT, RESERVED]`; `RgWasmCmdDispatch.drainDoc` validates MAGIC +
+the profile's `epoch` before dispatching anything, so a guest compiled against a
+different ABI is **rejected** (`abiError`), not silently misdispatched — the same
+discipline as the sibling RGU1/RGX1 blocks. Gated by the conformance test
+(matched epoch dispatches; bumped epoch → 0 dispatched). **Residual risk:** the
+epoch is bumped by hand, so an argSpec change without an epoch bump would slip
+through — a stronger guard would DERIVE the epoch from a hash of the profile's
+command signatures (auto-invalidates old .wasm on any signature change). Still
+open per BRIDGES step 7: semantic-id / interface-compatibility golden, golden
+wire vectors, and an explicit old-guest/new-host compatibility run. The profile
+is deliberately NOT frozen yet (BRIDGES: no published ABI until TSX + Rust both
+pass), so today's break-on-change is acceptable — the guard just makes it loud.
+
 **Remaining toward a full Rust ylos3d:** strings/assets (`rg3d_model_load` — the
 `s` argSpec needs a ptr+len decode from guest memory), the 2D + RTT + input +
 audio surface (more opcode bindings), and formalising `RgWasm3dProfile` as a
