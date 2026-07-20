@@ -61,6 +61,7 @@ class PinballGame {
   flipMeshL = null;
   flipMeshR = null;
   bumpMeshes = [];
+  ballShadow = null;
   bx = 0; by = 0; lbx = 0; lby = 0;
   score = 0;
   balls = 3;
@@ -79,6 +80,14 @@ class PinballGame {
   addPhongMesh(geo, cr, cg, cb, specHex, shine, scene) {
     const mat = new THREE.MeshPhongMaterial((cr * 65536) + (cg * 256) + cb, specHex, shine);
     const m = new THREE.Mesh(geo, mat);
+    scene.add(m);
+    return m;
+  }
+  // a flat dark UNLIT disc laid on the field — a fake contact shadow
+  addShadow(rad, scene) {
+    const g = new THREE.CylinderGeometry(rad, rad, 0.04, 20);
+    const mat = new THREE.MeshBasicMaterial(0x0C0E22);
+    const m = new THREE.Mesh(g, mat);
     scene.add(m);
     return m;
   }
@@ -150,6 +159,8 @@ class PinballGame {
     let bi = 0;
     while (bi < BUMPERS.length) {
       const bp = BUMPERS[bi];
+      const sh = this.addShadow(bp.r * SC * 1.35, scene);
+      sh.setTransform(mapX(bp.x) + 0.25, 0.05, mapZ(bp.y) + 0.35, 0, 0, 0);
       const g = new THREE.CylinderGeometry(bp.r * SC * 1.05, bp.r * SC * 1.25, 0.7, 24);
       const m = this.addPhongMesh(g, bp.cr, bp.cg, bp.cb, 0xFFFFFF, 60.0, scene);
       m.setTransform(mapX(bp.x), 0.35, mapZ(bp.y), 0, 0, 0);
@@ -177,6 +188,8 @@ class PinballGame {
     let ti = 0;
     while (ti < tgs.length) {
       const tg = tgs[ti];
+      const sh = this.addShadow(0.62, scene);
+      sh.setTransform(mapX(tg[0]) + 0.15, 0.05, mapZ(tg[1]) + 0.2, 0, 0, 0);
       const g = new THREE.SphereGeometry(0.5, 16, 12);
       const m = this.addPhongMesh(g, tg[2], tg[3], tg[4], 0xFFFFFF, 50.0, scene);
       m.setTransform(mapX(tg[0]), 0.5, mapZ(tg[1]), 0, 0, 0);
@@ -201,6 +214,7 @@ class PinballGame {
     this.flipMeshR = this.addLambertMesh(flGeo, 235, 70, 70, scene);
 
     // the steel ball — a smooth phong sphere with a sharp specular highlight
+    this.ballShadow = this.addShadow(BALL_R * SC * 1.7, scene);
     const ballGeo = new THREE.SphereGeometry(BALL_R * SC * 1.6, 24, 16);
     this.ballMesh = this.addPhongMesh(ballGeo, 205, 212, 226, 0xFFFFFF, 90.0, scene);
 
@@ -308,6 +322,8 @@ class PinballGame {
     // ball follows the physics; spin it a little for life
     const spin = this.nowMs * 0.004;
     this.ballMesh.setTransform(mapX(this.bx), BALL_R * SC, mapZ(this.by), spin, spin * 0.7, 0);
+    // its contact shadow tracks it on the field (offset toward the light)
+    this.ballShadow.setTransform(mapX(this.bx) + 0.2, 0.05, mapZ(this.by) + 0.28, 0, 0, 0);
 
     // flippers swing about Y: left tip inward when raised, right mirrored
     const laRest = -0.35; const laUp = 0.5;
