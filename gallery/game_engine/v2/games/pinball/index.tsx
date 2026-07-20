@@ -31,8 +31,8 @@ const PLUNGE_Y = 90;
 const DRAIN_Y = H - 12;
 const VIEW_W = 480;
 const VIEW_H = 270;
-const RT_W = 440;
-const RT_H = 300;
+const RT_W = 620;
+const RT_H = 420;
 const SC = 0.05;               // px -> 3D units
 
 const BUMPERS = [
@@ -100,12 +100,14 @@ class PinballGame {
     // ---- three: the lit 3D table -----------------------------------------
     const scene = new THREE.Scene();
     // light rig — PARENTED to the scene (scene.add) so it actually shades.
-    const amb = new THREE.AmbientLight(0xFFFFFF, 0.45);
+    const amb = new THREE.AmbientLight(0xFFF4E8, 0.5);
     scene.add(amb);
-    const key = new THREE.DirectionalLight(0xFFFFFF, 1.15, -0.4, 1.1, 0.5);
+    const key = new THREE.DirectionalLight(0xFFF0D8, 1.2, -0.35, 1.1, 0.45);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0x8899FF, 0.5, 0.6, 0.7, -0.4);
+    const fill = new THREE.DirectionalLight(0x7088FF, 0.55, 0.7, 0.6, -0.4);
     scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xFFFFFF, 0.6, 0.0, 0.4, -1.0);
+    scene.add(rim);
 
     // camera: above and behind the flipper end, looking down the whole table
     const camera = new THREE.PerspectiveCamera(50, RT_W / RT_H, 0.5, 120);
@@ -128,6 +130,20 @@ class PinballGame {
     const railTGeo = new THREE.BoxGeometry(W * SC, 0.7, 0.3);
     const railT = this.addLambertMesh(railTGeo, 150, 160, 200, scene);
     railT.setTransform(0, 0.35, mapZ(WALL), 0, 0, 0);
+
+    // cabinet frame — dark metal bezel standing proud around the playfield
+    const halfW = W * SC * 0.5;
+    const halfH = H * SC * 0.5;
+    const fSideGeo = new THREE.BoxGeometry(0.9, 1.6, H * SC + 1.6);
+    const fL = this.addPhongMesh(fSideGeo, 30, 32, 52, 0x9099B0, 24.0, scene);
+    fL.setTransform(-halfW - 0.4, 0.6, 0, 0, 0, 0);
+    const fR = this.addPhongMesh(fSideGeo, 30, 32, 52, 0x9099B0, 24.0, scene);
+    fR.setTransform(halfW + 0.4, 0.6, 0, 0, 0, 0);
+    const fEndGeo = new THREE.BoxGeometry(W * SC + 2.6, 1.6, 0.9);
+    const fT = this.addPhongMesh(fEndGeo, 30, 32, 52, 0x9099B0, 24.0, scene);
+    fT.setTransform(0, 0.6, -halfH - 0.4, 0, 0, 0);
+    const fB = this.addPhongMesh(fEndGeo, 30, 32, 52, 0x9099B0, 24.0, scene);
+    fB.setTransform(0, 0.6, halfH + 0.4, 0, 0, 0);
 
     // pop bumpers — glossy round cylinder caps that stand up off the field
     this.bumpMeshes = [];
