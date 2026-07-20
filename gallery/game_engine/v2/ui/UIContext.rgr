@@ -47,17 +47,179 @@ class UITheme {
     }
 }
 
+; One clip region on the context's clip stack: a (rounded) rect that a pixel
+; must fall inside to be painted. rad 0 = a plain rectangle. Nested clips stack;
+; a pixel must pass EVERY entry (their intersection), so an inner overflow box
+; clips within an outer one automatically. If `poly` is non-empty the region is
+; an arbitrary polygon (clip-path) instead of a rect; x/y/w/h hold its bounding
+; box (used for the text-glyph clip bbox).
+class UIClipRect {
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    def rad:int 0
+    def poly:[double]
+    Constructor () {
+    }
+}
+
 class UIContext {
     def canvas:SoftCanvas (new SoftCanvas)
     def tr:UITextRenderer (new UITextRenderer)
     def theme:UITheme (new UITheme)
     def frame:int 0        ; frame counter, drives caret blink etc.
 
+    ; Clip stack (empty = no clipping, the common case). `hasClipFlag` mirrors
+    ; "stack non-empty" so the per-pixel hot path is a single boolean test, and
+    ; clipX/Y/W/H is the rectangular bounding box of the intersection (used to
+    ; clip cached text-glyph blits, which bypass blendPixel).
+    def clips:[UIClipRect]
+    def hasClipFlag:boolean false
+    def clipX:int 0
+    def clipY:int 0
+    def clipW:int 0
+    def clipH:int 0
+
     Constructor () {
     }
 
     fn attach:void (c:SoftCanvas) {
         canvas = c
+    }
+
+    ; --- clip stack ------------------------------------------------------------
+    ; Push a (rounded) clip region. Subsequent paints are confined to the
+    ; intersection of all pushed regions until the matching popClip().
+    fn pushClip:void (x:int y:int w:int h:int rad:int) {
+        def c:UIClipRect (new UIClipRect)
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.rad = rad
+        push this.clips c
+        this.recomputeClipBounds()
+    }
+
+    ; Push a polygon clip region (clip-path). `pts` is a flat [x0,y0,x1,y1,...]
+    ; point list in absolute canvas coords; its bounding box is stored for the
+    ; text-glyph clip and bounds intersection.
+    fn pushClipPoly:void (pts:[double]) {
+        def m:int (array_length pts)
+        if (m < 6) { return }
+        def c:UIClipRect (new UIClipRect)
+        c.poly = pts
+        def minx:double (itemAt pts 0)
+        def miny:double (itemAt pts 1)
+        def maxx:double (itemAt pts 0)
+        def maxy:double (itemAt pts 1)
+        def k:int 0
+        def np:int (idiv m 2)
+        while (k < np) {
+            def vx:double (itemAt pts (k * 2))
+            def vy:double (itemAt pts ((k * 2) + 1))
+            if (vx < minx) { minx = vx }
+            if (vy < miny) { miny = vy }
+            if (vx > maxx) { maxx = vx }
+            if (vy > maxy) { maxy = vy }
+            k = (k + 1)
+        }
+        c.x = (to_int minx)
+        c.y = (to_int miny)
+        c.w = ((to_int maxx) - (to_int minx))
+        c.h = ((to_int maxy) - (to_int miny))
+        push this.clips c
+        this.recomputeClipBounds()
+    }
+
+    ; Ray-cast point-in-polygon (even-odd) for a flat point list.
+    fn pointInPoly:boolean (px:double py:double poly:[double]) {
+        def n:int (idiv (array_length poly) 2)
+        def inside:boolean false
+        def j:int (n - 1)
+        def i:int 0
+        while (i < n) {
+            def xi:double (itemAt poly (i * 2))
+            def yi:double (itemAt poly ((i * 2) + 1))
+            def xj:double (itemAt poly (j * 2))
+            def yj:double (itemAt poly ((j * 2) + 1))
+            if ((yi > py) != (yj > py)) {
+                def xint:double ((((xj - xi) * (py - yi)) / (yj - yi)) + xi)
+                if (px < xint) { inside = (inside == false) }
+            }
+            j = i
+            i = (i + 1)
+        }
+        return inside
+    }
+
+    fn popClip:void () {
+        def n:int (array_length this.clips)
+        if (n <= 0) { return }
+        def out:[UIClipRect]
+        def i 0
+        while (i < (n - 1)) {
+            push out (itemAt this.clips i)
+            i = (i + 1)
+        }
+        this.clips = out
+        this.recomputeClipBounds()
+    }
+
+    ; Recompute hasClipFlag + the intersection bounding box after a push/pop.
+    fn recomputeClipBounds:void () {
+        def n:int (array_length this.clips)
+        if (n <= 0) {
+            this.hasClipFlag = false
+            return
+        }
+        this.hasClipFlag = true
+        def c0:UIClipRect (itemAt this.clips 0)
+        def minx:int c0.x
+        def miny:int c0.y
+        def maxx:int (c0.x + c0.w)
+        def maxy:int (c0.y + c0.h)
+        def i 1
+        while (i < n) {
+            def c:UIClipRect (itemAt this.clips i)
+            if (c.x > minx) { minx = c.x }
+            if (c.y > miny) { miny = c.y }
+            if ((c.x + c.w) < maxx) { maxx = (c.x + c.w) }
+            if ((c.y + c.h) < maxy) { maxy = (c.y + c.h) }
+            i = (i + 1)
+        }
+        this.clipX = minx
+        this.clipY = miny
+        this.clipW = (maxx - minx)
+        this.clipH = (maxy - miny)
+    }
+
+    ; True if (px,py) is inside every clip region on the stack.
+    fn clipAllows:boolean (px:int py:int) {
+        def n:int (array_length this.clips)
+        def i 0
+        while (i < n) {
+            def c:UIClipRect (itemAt this.clips i)
+            if ((array_length c.poly) > 0) {
+                if ((this.pointInPoly(((to_double px) + 0.5) ((to_double py) + 0.5) c.poly)) == false) {
+                    return false
+                }
+            } {
+                if (c.rad > 0) {
+                    if ((this.roundedInside(px py c.x c.y c.w c.h c.rad)) == false) {
+                        return false
+                    }
+                } {
+                    if (px < c.x) { return false }
+                    if (py < c.y) { return false }
+                    if (px >= (c.x + c.w)) { return false }
+                    if (py >= (c.y + c.h)) { return false }
+                }
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
     ; --- low-level fills -------------------------------------------------------
@@ -69,6 +231,9 @@ class UIContext {
         if (y < 0) { return }
         if (x >= cw) { return }
         if (y >= ch) { return }
+        if (this.hasClipFlag) {
+            if ((this.clipAllows(x y)) == false) { return }
+        }
         if (a >= 255) {
             canvas.setPixel(x y r g b)
             return
@@ -86,9 +251,14 @@ class UIContext {
     fn fillRectA:void (x:int y:int rw:int rh:int r:int g:int b:int a:int) {
         if (rw <= 0) { return }
         if (rh <= 0) { return }
+        ; Opaque fast path bypasses blendPixel — only safe with no active clip.
+        ; When a clip is active, fall through to the per-pixel path so each pixel
+        ; is clip-tested (blendPixel with a=255 still writes via setPixel).
         if (a >= 255) {
-            canvas.fillRect(x y rw rh r g b)
-            return
+            if (this.hasClipFlag == false) {
+                canvas.fillRect(x y rw rh r g b)
+                return
+            }
         }
         def yy y
         def yEnd (y + rh)
@@ -150,6 +320,69 @@ class UIContext {
         return (((dx * dx) + (dy * dy)) <= (r * r))
     }
 
+    ; Sub-pixel coverage [0,1] of pixel (px,py) by the rounded rect [x,y,w,h,rad].
+    ; Interiors return 1.0, exteriors 0.0, and the ~1px corner boundary a fraction
+    ; via 4x4 supersampling of the analytic rounded-rect test. Straight edges keep
+    ; 1.0 (sub-samples never straddle a straight edge within the pixel), so only
+    ; corner pixels become fractional — that is the anti-aliasing (evg/ISSUES.md #5).
+    fn roundedCoverage:double (px:int py:int x:int y:int w:int h:int rad:int) {
+        if (w <= 0) { return 0.0 }
+        if (h <= 0) { return 0.0 }
+        def r rad
+        def hw (to_int (w / 2))
+        def hh (to_int (h / 2))
+        if (r > hw) { r = hw }
+        if (r > hh) { r = hh }
+        if (r < 0) { r = 0 }
+        def x0:double (to_double x)
+        def y0:double (to_double y)
+        def x1:double (to_double (x + w))
+        def y1:double (to_double (y + h))
+        def rd:double (to_double r)
+        def cxL:double (x0 + rd)              ; corner-arc centres
+        def cxR:double (x1 - rd)
+        def cyT:double (y0 + rd)
+        def cyB:double (y1 - rd)
+        def rr:double (rd * rd)
+        def hits:int 0
+        def sj:int 0
+        while (sj < 4) {
+            def fy:double (y0 + ((to_double (py - y)) + (((to_double sj) + 0.5) * 0.25)))
+            def si:int 0
+            while (si < 4) {
+                def fx:double (x0 + ((to_double (px - x)) + (((to_double si) + 0.5) * 0.25)))
+                def inside:boolean true
+                if (fx < x0) { inside = false }
+                if (fy < y0) { inside = false }
+                if (fx >= x1) { inside = false }
+                if (fy >= y1) { inside = false }
+                if inside {
+                    if (r > 0) {
+                        def qx:double fx
+                        if (qx < cxL) { qx = cxL }
+                        if (qx > cxR) { qx = cxR }
+                        def qy:double fy
+                        if (qy < cyT) { qy = cyT }
+                        if (qy > cyB) { qy = cyB }
+                        def dx:double (fx - qx)
+                        def dy:double (fy - qy)
+                        if (((dx * dx) + (dy * dy)) > rr) { inside = false }
+                    }
+                }
+                if inside { hits = (hits + 1) }
+                si = (si + 1)
+            }
+            sj = (sj + 1)
+        }
+        return ((to_double hits) / 16.0)
+    }
+
+    ; Scale alpha `a` by sub-pixel coverage `cov` (interior->a, boundary->partial).
+    fn covAlpha:int (a:int cov:double) {
+        if (cov >= 1.0) { return a }
+        return (to_int ((to_double a) * cov))
+    }
+
     fn fillRoundRectA:void (x:int y:int rw:int rh:int rad:int r:int g:int b:int a:int) {
         if (rw <= 0) { return }
         if (rh <= 0) { return }
@@ -163,8 +396,11 @@ class UIContext {
             def xx x
             def xEnd (x + rw)
             while (xx < xEnd) {
-                if (this.roundedInside(xx yy x y rw rh rad)) {
-                    this.blendPixel(xx yy r g b a)
+                ; anti-aliased: interior pixels blend at full alpha, corner-boundary
+                ; pixels at coverage-scaled alpha, exterior pixels are skipped.
+                def cov:double (this.roundedCoverage(xx yy x y rw rh rad))
+                if (cov > 0.0) {
+                    this.blendPixel(xx yy r g b (this.covAlpha(a cov)))
                 }
                 xx = (xx + 1)
             }
@@ -288,9 +524,14 @@ class UIContext {
             def xx x
             def xEnd (x + rw)
             while (xx < xEnd) {
-                if (this.roundedInside(xx yy x y rw rh rad)) {
-                    if ((this.roundedInside(xx yy ix iy iw ih innerRad)) == false) {
-                        this.blendPixel(xx yy cr cg cb ca)
+                ; ring coverage = outer coverage minus inner coverage, so both the
+                ; outer and inner corner edges are anti-aliased.
+                def co:double (this.roundedCoverage(xx yy x y rw rh rad))
+                if (co > 0.0) {
+                    def ci:double (this.roundedCoverage(xx yy ix iy iw ih innerRad))
+                    def ring:double (co - ci)
+                    if (ring > 0.0) {
+                        this.blendPixel(xx yy cr cg cb (this.covAlpha(ca ring)))
                     }
                 }
                 xx = (xx + 1)
@@ -316,9 +557,12 @@ class UIContext {
             def xx x
             def xEnd (x + rw)
             while (xx < xEnd) {
-                if (this.roundedInside(xx yy x y rw rh rad)) {
-                    if ((this.roundedInside(xx yy ix iy iw ih innerRad)) == false) {
-                        this.blendPixel(xx yy r g b a)
+                def co:double (this.roundedCoverage(xx yy x y rw rh rad))
+                if (co > 0.0) {
+                    def ci:double (this.roundedCoverage(xx yy ix iy iw ih innerRad))
+                    def ring:double (co - ci)
+                    if (ring > 0.0) {
+                        this.blendPixel(xx yy r g b (this.covAlpha(a ring)))
                     }
                 }
                 xx = (xx + 1)
@@ -345,8 +589,112 @@ class UIContext {
         }
     }
 
+    ; Drop shadow (box-shadow, evg/ISSUES.md #4): the element's rounded-rect
+    ; silhouette, translated by (offX,offY) and softened over `blur` px. Unlike
+    ; glowRoundRect (an outward-only halo/outline), this is a FILLED silhouette —
+    ; a solid rounded-rect core at full `a` plus a quadratic outward falloff — so
+    ; it reads as a shadow the box then paints over. Call it BEFORE the box fill.
+    fn shadowRoundRect:void (x:int y:int rw:int rh:int rad:int offX:int offY:int blur:int r:int g:int b:int a:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (a <= 0) { return }
+        def sx (x + offX)
+        def sy (y + offY)
+        ; solid (anti-aliased) core silhouette at the offset position.
+        this.fillRoundRectA(sx sy rw rh rad r g b a)
+        if (blur <= 0) { return }
+        ; soft outward falloff: 2px rounded rings growing outward from the core
+        ; edge, alpha fading quadratically so the shadow edge is diffuse.
+        def i 1
+        while (i <= blur) {
+            def num (blur - i + 1)
+            def den (blur + 1)
+            def ra (to_int (((a * num) * num) / (den * den)))
+            if (ra > 0) {
+                this.strokeRoundRectA((sx - i) (sy - i) (rw + (i * 2)) (rh + (i * 2)) (rad + i) 2 r g b ra)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Fill a polygon given as a flat [x0,y0,x1,y1,...] point list, even-odd rule,
+    ; via scanline rasterization. Honors the clip stack (goes through blendPixel).
+    ; Used to render <Path> elements (evg/ISSUES.md #3) — the caller flattens the
+    ; SVG path (SVGPathParser.flatten) and offsets/scales the points to the box.
+    fn fillPolygon:void (pts:[double] r:int g:int b:int a:int) {
+        def m:int (array_length pts)
+        def npts:int (idiv m 2)
+        if (npts < 3) { return }
+        def minY:double (itemAt pts 1)
+        def maxY:double (itemAt pts 1)
+        def k:int 0
+        while (k < npts) {
+            def yv:double (itemAt pts ((k * 2) + 1))
+            if (yv < minY) { minY = yv }
+            if (yv > maxY) { maxY = yv }
+            k = (k + 1)
+        }
+        def y:int (to_int minY)
+        def yEnd:int (to_int maxY)
+        while (y <= yEnd) {
+            def sy:double ((to_double y) + 0.5)
+            def xs:[double]
+            def e:int 0
+            while (e < npts) {
+                def ax:double (itemAt pts (e * 2))
+                def ay:double (itemAt pts ((e * 2) + 1))
+                def ni:int (e + 1)
+                if (ni >= npts) { ni = 0 }
+                def bx:double (itemAt pts (ni * 2))
+                def by:double (itemAt pts ((ni * 2) + 1))
+                def cross:boolean false
+                if ((ay <= sy) && (by > sy)) { cross = true }
+                if ((by <= sy) && (ay > sy)) { cross = true }
+                if cross {
+                    def tX:double (ax + (((sy - ay) / (by - ay)) * (bx - ax)))
+                    push xs tX
+                }
+                e = (e + 1)
+            }
+            ; insertion-sort the crossings ascending
+            def cnt:int (array_length xs)
+            def ii:int 1
+            while (ii < cnt) {
+                def keyv:double (itemAt xs ii)
+                def jj:int (ii - 1)
+                while ((jj >= 0) && ((itemAt xs jj) > keyv)) {
+                    set xs (jj + 1) (itemAt xs jj)
+                    jj = (jj - 1)
+                }
+                set xs (jj + 1) keyv
+                ii = (ii + 1)
+            }
+            ; fill spans between crossing pairs
+            def p:int 0
+            while ((p + 1) < cnt) {
+                def xa:double (itemAt xs p)
+                def xb:double (itemAt xs (p + 1))
+                def xi:int (to_int xa)
+                def xe:int (to_int xb)
+                def xx:int xi
+                while (xx <= xe) {
+                    this.blendPixel(xx y r g b a)
+                    xx = (xx + 1)
+                }
+                p = (p + 2)
+            }
+            y = (y + 1)
+        }
+    }
+
     ; --- text ------------------------------------------------------------------
     fn text:void (s:string x:int y:int size:double col:EVGColor) {
+        if (this.hasClipFlag) {
+            ; cached glyph bitmaps blit straight to the canvas (bypassing
+            ; blendPixel), so clip the blit to the clip bounding box rectangle.
+            tr.drawLineClipped(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)) this.clipX this.clipY this.clipW this.clipH)
+            return
+        }
         tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))
     }
 

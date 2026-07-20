@@ -28,6 +28,7 @@ Import "../scripting/wasm_ui_io.rgr"
 Import "../scripting/game_image_loader.rgr"
 Import "../evg/EVGLayout.rgr"
 Import "../evg/EVGElement.rgr"
+Import "../evg/SVGPathParser.rgr"
 
 ; -----------------------------------------------------------------------------
 ; Guest-driven effects: the WASM UI guest fires env.rg_ui_glow(node,dur,delay,tag)
@@ -480,6 +481,26 @@ class WasmUiRenderer {
 
         def rad:int (to_int ((to_double (this.radiusOf(el))) * vScale))
 
+        ; box-shadow (evg/ISSUES.md #4): a rounded drop shadow drawn BEHIND the
+        ; element (before its own fill, so the box paints over it). Gated on a real
+        ; shadow being declared (shadowColor set AND some offset or blur), so a UI
+        ; that declares no shadow renders byte-identically to before.
+        if el.shadowColor.isSet {
+            def soffX:int (to_int (el.shadowOffsetX.pixels * vScale))
+            def soffY:int (to_int (el.shadowOffsetY.pixels * vScale))
+            def sblur:int (to_int (el.shadowRadius.pixels * vScale))
+            def hasShadow:boolean false
+            if (soffX != 0) { hasShadow = true }
+            if (soffY != 0) { hasShadow = true }
+            if (sblur > 0) { hasShadow = true }
+            if hasShadow {
+                def sa:int (to_int ((el.shadowColor.alpha()) * 255.0))
+                if (sa > 0) {
+                    ctx.shadowRoundRect(x y rw rh rad soffX soffY sblur (el.shadowColor.red()) (el.shadowColor.green()) (el.shadowColor.blue()) sa)
+                }
+            }
+        }
+
         ; guest-driven animated glow halo (drawn behind the element's own fill).
         ; Two sources combined by max: a static intensity declared on the node in
         ; the RGU1 doc, and the live host-run UIAnimator effect (glow/pulse). When
@@ -507,10 +528,79 @@ class WasmUiRenderer {
             ctx.glowRoundRect((x - 3) (y - 3) (rw + 6) (rh + 6) (rad + 3) cr cg cb spread galpha)
         }
 
+        ; clip-path: an SVG-path silhouette (scaled to the box) clips this whole
+        ; element — background, border, text and descendants — to an arbitrary
+        ; shape. Pushed BEFORE the background so the fill itself is clipped; popped
+        ; after the children loop (ISSUES.md #6 clip-path remainder). Counted in
+        ; clipsPushed alongside the overflow clip.
+        def clipsPushed:int 0
+        if ((strlen el.clipPath) > 0) {
+            def cparser:SVGPathParser (new SVGPathParser)
+            cparser.parse(el.clipPath)
+            def cpb:PathBounds (cparser.getBounds())
+            def cpw2:double cpb.width
+            def cph2:double cpb.height
+            if (cpw2 <= 0.0) { cpw2 = 1.0 }
+            if (cph2 <= 0.0) { cph2 = 1.0 }
+            def craw:[double] (cparser.flatten(12))
+            if ((array_length craw) >= 6) {
+                def cpoly:[double]
+                def cnp:int (idiv (array_length craw) 2)
+                def cq:int 0
+                while (cq < cnp) {
+                    def cpx2:double (itemAt craw (cq * 2))
+                    def cpy2:double (itemAt craw ((cq * 2) + 1))
+                    def csx:double ((to_double x) + (((cpx2 - cpb.minX) / cpw2) * (to_double rw)))
+                    def csy:double ((to_double y) + (((cpy2 - cpb.minY) / cph2) * (to_double rh)))
+                    push cpoly csx
+                    push cpoly csy
+                    cq = (cq + 1)
+                }
+                ctx.pushClipPoly(cpoly)
+                clipsPushed = (clipsPushed + 1)
+            }
+        }
+
         ; fill priority: guest-declared background image (clipped to the rounded
         ; box) > 2-stop linear gradient > solid backgroundColor. A missing/invalid
         ; image falls through so the panel still draws.
         def bgDrawn:boolean false
+        ; <Path> element: fill the SVG path (scaled to the box) with the
+        ; backgroundColor, in place of the rectangular background (ISSUES.md #3).
+        if ((strlen el.svgPath) > 0) {
+            def parser:SVGPathParser (new SVGPathParser)
+            parser.parse(el.svgPath)
+            def pb:PathBounds (parser.getBounds())
+            def pw:double pb.width
+            def ph:double pb.height
+            if (pw <= 0.0) { pw = 1.0 }
+            if (ph <= 0.0) { ph = 1.0 }
+            def raw:[double] (parser.flatten(12))
+            def sp:[double]
+            def np:int (idiv (array_length raw) 2)
+            def q:int 0
+            while (q < np) {
+                def px:double (itemAt raw (q * 2))
+                def py:double (itemAt raw ((q * 2) + 1))
+                def sxp:double ((to_double x) + (((px - pb.minX) / pw) * (to_double rw)))
+                def syp:double ((to_double y) + (((py - pb.minY) / ph) * (to_double rh)))
+                push sp sxp
+                push sp syp
+                q = (q + 1)
+            }
+            def fr:int 0
+            def fg:int 0
+            def fb:int 0
+            def fa:int 255
+            if el.backgroundColor.isSet {
+                fr = (el.backgroundColor.red())
+                fg = (el.backgroundColor.green())
+                fb = (el.backgroundColor.blue())
+                fa = (to_int ((el.backgroundColor.alpha()) * 255.0))
+            }
+            ctx.fillPolygon(sp fr fg fb fa)
+            bgDrawn = true
+        }
         if el.bgImageSet {
             def img:ImageBuffer (this.bgImageFor(el.bgImagePath))
             if (imgLoader.isValidImage(img)) {
@@ -545,6 +635,23 @@ class WasmUiRenderer {
             }
         }
 
+        ; overflow:hidden (anything other than the default "visible") clips this
+        ; element's own text and all descendants to its padding box, honouring the
+        ; corner radius (inner radius = outer - border). The background/border
+        ; above are drawn first so they define the box and are NOT clipped by it;
+        ; the glow halo is intentionally outside the box too. Pushed here, popped
+        ; after the children loop. Nested overflow boxes intersect automatically.
+        if ((el.overflow == "visible") == false) {
+            def cpx:int (x + bpx)
+            def cpy:int (y + bpx)
+            def cpw:int (rw - (bpx * 2))
+            def cph:int (rh - (bpx * 2))
+            def crad:int (rad - bpx)
+            if (crad < 0) { crad = 0 }
+            ctx.pushClip(cpx cpy cpw cph crad)
+            clipsPushed = (clipsPushed + 1)
+        }
+
         def txt:string el.textContent
         if ((strlen txt) > 0) {
             def fs:double el.inheritedFontSize
@@ -576,6 +683,17 @@ class WasmUiRenderer {
                 tx = (contentX + (contentW - tw))
             }
             def ty:int (contentY + (to_int ((contentH - lh) / 2)))
+            ; text drop-shadow (evg/ISSUES.md #4, secondary): draw the glyph
+            ; silhouette in the shadow colour at the declared offset first, then the
+            ; real text over it. Gated on shadowColor so no-shadow text is unchanged.
+            if el.shadowColor.isSet {
+                def tsx:int (to_int (el.shadowOffsetX.pixels * vScale))
+                def tsy:int (to_int (el.shadowOffsetY.pixels * vScale))
+                if ((tsx != 0) || (tsy != 0)) {
+                    def scol:EVGColor (EVGColor.rgba((el.shadowColor.red()) (el.shadowColor.green()) (el.shadowColor.blue()) (el.shadowColor.alpha())))
+                    ctx.text(txt (tx + tsx) (ty + tsy) fs scol)
+                }
+            }
             ctx.text(txt tx ty fs col)
         }
 
@@ -585,6 +703,12 @@ class WasmUiRenderer {
             def child:EVGElement (itemAt el.children i)
             this.drawElement(ctx child)
             i = (i + 1)
+        }
+
+        def pc:int 0
+        while (pc < clipsPushed) {
+            ctx.popClip()
+            pc = (pc + 1)
         }
     }
 

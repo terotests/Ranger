@@ -53,7 +53,13 @@ class __RgInput {
 
 class AudioClip {
   id = 0;
-  constructor() { this.id = rgcore_audio_clip_create(); }
+  // A clip carries a synth spec (freqHz, durationMs, volume, wave). The spec is
+  // optional so existing createClip() callers keep a neutral default tone, while
+  // a game can pass a real sound: createClip({ freqHz: 660, durationMs: 220 }).
+  constructor(spec) {
+    const s = spec || {};
+    this.id = rgcore_audio_clip_create(s.freqHz || 440, s.durationMs || 80, s.volume || 0.35, s.wave || 0);
+  }
 }
 
 class AudioSource {
@@ -75,7 +81,7 @@ class __RgMusic {
 class __RgAudio {
   vocal = new __RgVocal();
   music = new __RgMusic();
-  createClip() { return new AudioClip(); }
+  createClip(spec) { return new AudioClip(spec); }
   createSource(clip) { return new AudioSource(clip); }
 }
 

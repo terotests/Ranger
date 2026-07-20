@@ -27,6 +27,7 @@ Import "../../registry/codegen/RgCodegen.rgr"
 Import "../../modules/ranger_2d/RgRanger2D.rgr"
 Import "../../modules/ranger_three/RgRangerThree.rgr"
 Import "../../modules/ranger_core/RgAudio.rgr"
+Import "../../audio/game_audio.rgr"
 Import "../../modules/ranger_core/RgInputSurface.rgr"
 Import "../../modules/ranger_core/RgRuntime.rgr"
 Import "../../three/port/src/three_gltf_file.rgr"
@@ -75,6 +76,34 @@ class RgDecodedArgs {
     fn guestIdAt:int (i:int) { return (itemAt this.guestIds i) }
 }
 
+; Captures the last synth burst pushed by GameAudio so the one-shot PCM path is
+; observable from the bridge (and asserted by tests): a v1-faithful one-shot
+; must yield REAL, non-silent PCM, not a silent lifecycle probe.
+class CapturingAudioSink extends GameAudioSink {
+    def lastSampleCount:int 0
+    def lastNonZero:int 0
+    def synthCount:int 0
+
+    fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
+        this.lastSampleCount = sampleCount
+        this.synthCount = (this.synthCount + 1)
+        def nz 0
+        def bytes:int (buffer_length pcm)
+        def frames:int (to_int (bytes / 2))
+        def i 0
+        while (i < frames) {
+            def off:int (i * 2)
+            def lo:int (buffer_get pcm off)
+            def hi:int (buffer_get pcm (off + 1))
+            def v:int (lo + (hi * 256))
+            if (v >= 32768) { v = (v - 65536) }
+            if (v != 0) { nz = (nz + 1) }
+            i = (i + 1)
+        }
+        this.lastNonZero = nz
+    }
+}
+
 class RgRegistryBridge extends EvalNativeBridge {
     ; the ONE command table (generated from the authored module schemas)
     def table:[RgCommand]
@@ -83,6 +112,9 @@ class RgRegistryBridge extends EvalNativeBridge {
     def d2:RgRanger2D (new RgRanger2D)
     def d3:RgRangerThree (new RgRangerThree)
     def audio:RgAudio (new RgAudio)
+    ; the tone synth + a capturing sink: one-shots synthesise REAL PCM here.
+    def gameAudio:GameAudio (new GameAudio)
+    def audioSink:CapturingAudioSink (new CapturingAudioSink)
     ; Default host capacity for logical players (not a title-specific count).
     ; Guests that need fewer simply leave slots unused; hosts that need more
     ; construct the bridge with a larger RgInput before install.
@@ -115,8 +147,17 @@ class RgRegistryBridge extends EvalNativeBridge {
         def three:RgSchema (ThreeSchema.build())
         def base:[RgCommand] (RgCodegen.tableUnion(core twoD))
         b.table = (RgCodegen.tableAppend(base three))
+        ; build the synth tables (sine/midi) and wire the capturing sink so the
+        ; one-shot path can synthesise real PCM the moment a guest plays it.
+        b.gameAudio.init()
+        b.gameAudio.setSink(b.audioSink)
         return b
     }
+
+    ; one-shot PCM observability (asserted by tests/unit/audio/one_shot_pcm_test):
+    ; the sample count and non-zero-sample count of the last synthesised burst.
+    fn lastOneShotSampleCount:int () { return this.audioSink.lastSampleCount }
+    fn lastOneShotNonZero:int () { return this.audioSink.lastNonZero }
 
     fn clearPasses:void () {
         def empty:[RgFramePass]
@@ -940,7 +981,7 @@ class RgRegistryBridge extends EvalNativeBridge {
             return (RgRegistryBridge.retI(atlasId))
         }
         if (row.name == "rgcore_audio_clip_create") {
-            def o:OwnedHandle (this.audio.clipCreate())
+            def o:OwnedHandle (this.audio.clipCreate((a.dblAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.intAt(3))))
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
@@ -953,6 +994,15 @@ class RgRegistryBridge extends EvalNativeBridge {
             def vh:RgHandle (this.audio.sourcePlayOneShot((a.handleAt(0))))
             this.audio.markVoiceDone(vh)   ; headless mixer: completes this frame
             this.oneShotCount = (this.oneShotCount + 1)
+            ; v1-faithful: synthesise the source's clip tone into REAL PCM and push
+            ; it through the capturing sink (SDL sink queues it; tests observe it).
+            def clip:RgAudioClip (this.audio.sourceClip((a.handleAt(0))))
+            def spec:SynthToneSpec (new SynthToneSpec)
+            spec.freqHz = clip.freqHz
+            spec.durationMs = clip.durationMs
+            spec.volume = clip.volume
+            spec.wave = clip.wave
+            this.gameAudio.queueSpec("oneshot" spec)
             return (EvalValue.null())
         }
         if (row.name == "rgcore_vocal") {

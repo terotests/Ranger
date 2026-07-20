@@ -1,0 +1,150 @@
+; ==============================================================================
+; ylos3d_wasm_conformance_test — a Rust->wasm32 guest drives the GENERIC bridge
+; through the GENERIC, schema-driven wasm32 dispatcher (BRIDGES steps 4/5 + the
+; return-value round-trip).
+; ==============================================================================
+; A real Rust module compiled to wasm32 (bridge/wasm/conformance/ylos3d_slice)
+; builds a 3D scene by writing an RGC1 command buffer into its own linear memory.
+; The host drains it with RgWasmCmdDispatch — a PURELY TABLE-DRIVEN lowering that
+; decodes each record's args straight from the command row's semantic argSpec and
+; dispatches through RgRegistryBridge.invoke -> dispatchRow (the ONE generic
+; bridge). No per-command host code: adding a command is a schema edit + one
+; opcode binding in the wasm32 profile (RgWasm3dProfile).
+;
+; Also proves the RETURN-VALUE ROUND-TRIP: the dispatcher writes each minted host
+; id back into the guest's result region; a second guest frame (frame2) reads its
+; mesh handle back and only then emits a follow-up transform — so the guest
+; observed a host-written handle and acted on it across a frame boundary.
+;
+; Asserts: every command dispatched without error, the arena created the
+; geometry/material/mesh, the mesh is parented to the scene (D-SYNC across
+; wasm32), guest ids resolve to distinct valid host handles (D-IDENTITY), the
+; host id round-tripped into guest memory, and frame2's follow-up applied to the
+; SAME mesh.
+;
+; The .wasm is committed; rebuild with:
+;   (cd gallery/game_engine/v2/bridge/wasm/conformance/ylos3d_slice && \
+;    cargo build --release --target wasm32-unknown-unknown && \
+;    cp target/wasm32-unknown-unknown/release/ylos3d_slice.wasm ylos3d_slice.wasm)
+; ==============================================================================
+
+Import "../../RgWasmCmdDispatch.rgr"
+Import "../../../../tests/harness/RgTest.rgr"
+
+class Ylos3dWasmConformanceTest {
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("bridge/wasm/ylos3d_conformance (Rust->wasm32 -> generic dispatch)"))
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+        def prof:RgWasmProfile (RgWasm3dProfile.build())
+        def disp:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        disp.init(b prof)
+
+        def path:string "gallery/game_engine/v2/bridge/wasm/conformance/ylos3d_slice/ylos3d_slice.wasm"
+        def h:int (wasm_load path)
+        t.ok("Rust ylos3d-slice guest loaded" (h >= 1))
+        t.eqInt("guest exports frame()" (wasm_has_export h "frame") 1)
+        t.eqInt("guest exports result_ptr()" (wasm_has_export h "result_ptr") 1)
+
+        ; ---- frame 1: guest writes commands; generic dispatcher drains them ----
+        def n:int (wasm_call_i32 h "frame" 0 0 0 0 0 0)
+        def base:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        def resBase:int (wasm_call_i32 h "result_ptr" 0 0 0 0 0 0)
+        t.eqInt("guest emitted 7 commands" n 7)
+
+        ; drainDoc validates the RGC1 header (MAGIC + profile MAJOR) before dispatch
+        def got:int (disp.drainDoc(h base resBase))
+        t.ok("RGC1 header validated — ABI major matches" (disp.abiError == false))
+        t.eqInt("all 7 wasm commands dispatched" got 7)
+        t.eqInt("no bridge errors through the generic dispatcher" b.errorCount 0)
+
+        ; FORWARD-COMPAT: the host's command table is far larger than the 7 the
+        ; guest uses — additive headroom. Because the guest encodes by stable
+        ; SCHEMA id, those extra host commands never outdate it (it fully drained).
+        t.ok("host exposes many more commands than the guest uses (additive headroom)"
+            ((array_length b.table) > 20))
+        t.eqInt("host created 1 box geometry" (b.d3.host.geometryCount()) 1)
+        t.eqInt("host created 1 material" (b.d3.host.materialCount()) 1)
+        t.eqInt("host created 1 entity (the mesh)" (b.d3.host.entityCount()) 1)
+
+        ; D-SYNC: the mesh is a child of the scene (scene.add crossed wasm32)
+        def sceneH:RgHandle (b.resolveGuestId((disp.hostId(1))))
+        t.eqInt("mesh is parented to the scene" (b.d3.sceneChildCount(sceneH)) 1)
+
+        ; D-IDENTITY: distinct guest ids -> distinct valid host handles
+        def meshH:RgHandle (b.resolveGuestId((disp.hostId(5))))
+        t.ok("scene guest id -> valid host handle" (sceneH.isValid()))
+        t.ok("mesh guest id -> valid host handle" (meshH.isValid()))
+        t.ok("distinct guest ids map to distinct host ids" ((disp.hostId(1)) != (disp.hostId(5))))
+
+        ; ---- return-value round-trip: host id written back into guest memory ----
+        def meshResult:int (wasm_mem_i32 h (resBase + (5 * 4)))
+        t.eqInt("mesh host id round-tripped into guest memory" meshResult (disp.hostId(5)))
+
+        ; ---- frame 2: guest reads its handle back and acts on it ---------------
+        def n2:int (wasm_call_i32 h "frame2" 0 0 0 0 0 0)
+        t.eqInt("frame2 emitted a follow-up (guest saw its handle)" n2 1)
+        def base2:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        def got2:int (disp.drainDoc(h base2 0))
+
+        t.eqInt("follow-up transform dispatched" got2 1)
+        t.eqInt("still no bridge errors after the round-trip frame" b.errorCount 0)
+        t.eqInt("follow-up applied to the SAME mesh (still 1 entity)" (b.d3.host.entityCount()) 1)
+
+        ; ---- string / asset args cross wasm32 (the `s` argSpec) ---------------
+        ; A record carries a (ptr,len) into the guest's memory; the dispatcher
+        ; reads the bytes back into a string. Proven two ways: a vocal cue echoed
+        ; verbatim, and a REAL GLB loaded by its path string.
+        b.packageDir = "gallery/game_engine/v2/games/ylos3d"
+        def nm:int (wasm_call_i32 h "frame_model" 0 0 0 0 0 0)
+        t.eqInt("model frame emitted 2 commands (vocal + model_load)" nm 2)
+        def baseM:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        def gotM:int (disp.drainDoc(h baseM resBase))
+        t.eqInt("string/asset commands dispatched" gotM 2)
+        t.eqInt("no error decoding the string args + loading the model" b.errorCount 0)
+        t.ok("a vocal cue was recorded" ((array_length b.vocalCues) >= 1))
+        t.eqStr("guest string arg reached the host verbatim" (itemAt b.vocalCues 0) "cue-42")
+        t.ok("real GLB loaded via the path string (model handle > 0)" ((disp.hostId(6)) > 0))
+
+        ; ---- ADDING interfaces does NOT outdate this guest --------------------
+        ; A newer host with extra commands is modelled by the same table (its ids
+        ; are a superset); the guest re-emits its unchanged buffer and still fully
+        ; dispatches — no recompile needed.
+        wasm_call_i32 h "frame" 0 0 0 0 0 0
+        def baseA:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        def dispA:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        dispA.init(b (RgWasm3dProfile.build()))
+        def gotA:int (dispA.drainDoc(h baseA 0))
+        t.ok("old guest accepted on a host with more commands (no ABI error)" (dispA.abiError == false))
+        t.eqInt("old guest still fully dispatches (7)" gotA 7)
+
+        ; ---- BREAKING change (MAJOR bump) REJECTS the old guest ---------------
+        ; (answers "will already-compiled apps be outdated if the ABI changes?":
+        ; only a breaking change to an EXISTING command does — the host detects it
+        ; instead of silently misdispatching; additive changes above do not.)
+        def stale:RgWasmProfile (RgWasm3dProfile.build())
+        stale.major = (stale.major + 1)                 ; host made a breaking change
+        def disp2:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        disp2.init(b stale)
+        wasm_call_i32 h "frame" 0 0 0 0 0 0
+        def base3:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        def got3:int (disp2.drainDoc(h base3 0))
+        t.ok("breaking ABI major bump is detected" (disp2.abiError))
+        t.eqInt("nothing dispatched from a now-incompatible guest" got3 0)
+
+        ; ---- a guest referencing a command the host LACKS is refused fail-closed
+        ; (a newer guest on an older host). Simulate by patching one record's
+        ; command id to an id no module owns; the whole buffer is rejected.
+        def disp3:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        disp3.init(b (RgWasm3dProfile.build()))
+        wasm_call_i32 h "frame" 0 0 0 0 0 0
+        def base4:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        wasm_mem_set_i32 h (base4 + 16) 999999          ; first record -> unknown command id
+        def got4:int (disp3.drainDoc(h base4 0))
+        t.ok("unknown command id is detected" (disp3.abiError))
+        t.eqInt("the unknown id is reported" disp3.unknownId 999999)
+        t.eqInt("nothing dispatched when a command is unknown (fail-closed)" got4 0)
+
+        wasm_close h
+        t.summary()
+    }
+}

@@ -1,0 +1,70 @@
+; ==============================================================================
+; svg_path_test — a <Path> element fills its SVG path into real pixels.
+; ==============================================================================
+; Before this increment, an element with SVG path data (`d`) rendered as an empty
+; rectangle — SVGPathParser existed but nothing rasterized a filled path
+; (evg/ISSUES.md #3). This drives the real render path: an EVGElement carrying
+; `svgPath` (a triangle) is filled by WasmUiRenderer.drawElement via
+; SVGPathParser.flatten -> UIContext.fillPolygon, scaled into the element box.
+; Asserts, by reading canvas pixels, that the triangle interior is the fill
+; colour, that a corner clearly OUTSIDE the triangle is background, and that a
+; plain (no-path) element still fills its rectangle (no regression).
+; ==============================================================================
+
+Import "../WasmUiSelect.rgr"
+Import "../../tests/harness/RgTest.rgr"
+
+class SvgPathTest {
+    sfn isColor:boolean (ctx:UIContext x:int y:int r:int g:int b:int) {
+        if ((ctx.canvas.pixelR(x y)) != r) { return false }
+        if ((ctx.canvas.pixelG(x y)) != g) { return false }
+        if ((ctx.canvas.pixelB(x y)) != b) { return false }
+        return true
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("ui/svg_path (D-PATH filled <Path>)"))
+
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(100 100)
+        def ctx:UIContext (new UIContext)
+        ctx.attach(canvas)
+        ctx.fillRectA(0 0 100 100 0 0 255 255)              ; blue background
+
+        ; a downward triangle in a 0..100 path space, filled green, in a 100x100 box
+        def tri:EVGElement (new EVGElement)
+        tri.calculatedX = 0.0
+        tri.calculatedY = 0.0
+        tri.calculatedWidth = 100.0
+        tri.calculatedHeight = 100.0
+        tri.svgPath = "M 10 10 L 90 10 L 50 90 Z"
+        tri.backgroundColor = (EVGColor.rgb(0 255 0))
+        def r:WasmUiRenderer (new WasmUiRenderer)
+        r.draw(ctx tri)
+
+        ; interior of the triangle (near the top-centre) is filled green
+        t.ok("triangle interior is filled" (SvgPathTest.isColor(ctx 50 30 0 255 0)))
+        ; bottom-left corner is well OUTSIDE the triangle -> background
+        t.ok("outside-the-triangle corner is background" (SvgPathTest.isColor(ctx 12 88 0 0 255)))
+        ; bottom-right corner is outside (right of the right edge) -> background
+        t.ok("bottom-right corner is background" (SvgPathTest.isColor(ctx 88 88 0 0 255)))
+
+        ; regression: a plain element (no path) still fills its rectangle
+        def canvas2:SoftCanvas (new SoftCanvas)
+        canvas2.init(40 40)
+        def ctx2:UIContext (new UIContext)
+        ctx2.attach(canvas2)
+        ctx2.fillRectA(0 0 40 40 0 0 0 255)
+        def box:EVGElement (new EVGElement)
+        box.calculatedX = 5.0
+        box.calculatedY = 5.0
+        box.calculatedWidth = 20.0
+        box.calculatedHeight = 20.0
+        box.backgroundColor = (EVGColor.rgb(255 0 0))
+        def r2:WasmUiRenderer (new WasmUiRenderer)
+        r2.draw(ctx2 box)
+        t.ok("plain element still fills its rect" (SvgPathTest.isColor(ctx2 15 15 255 0 0)))
+
+        t.summary()
+    }
+}

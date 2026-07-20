@@ -369,11 +369,16 @@ class WasmUiEvgBuilder {
         return el
     }
 
-    ; RgUiAlign enum (0 start,1 center,2 end,3 space-between) -> EVG string.
+    ; RgUiAlign enum -> EVG string. 0 start,1 center,2 end,3 space-between,
+    ; 4 space-around,5 space-evenly,6 stretch (the last three were previously
+    ; unreachable through the RGU1 byte path even though EVGLayout supports them).
     fn alignName:string (v:int) {
         if (v == 1) { return "center" }
         if (v == 2) { return "flex-end" }
         if (v == 3) { return "space-between" }
+        if (v == 4) { return "space-around" }
+        if (v == 5) { return "space-evenly" }
+        if (v == 6) { return "stretch" }
         return "flex-start"
     }
 
@@ -450,6 +455,16 @@ class WasmUiEvgBuilder {
             if (key == 24) {                ; TEXT_ALIGN (0 left,1 center,2 right)
                 el.textAlign = (this.textAlignName((doc.propValueA(idx))))
             }
+            if (key == 25) {                ; GAP (px between flex children)
+                el.gap = (this.pxUnit((doc.propValueA(idx))))
+            }
+            if (key == 26) {                ; FLEX_WRAP (0 nowrap, 1 wrap)
+                if ((doc.propValueA(idx)) == 0) {
+                    el.flexWrap = "nowrap"
+                } {
+                    el.flexWrap = "wrap"
+                }
+            }
             if (key == 50) {                ; GRAD_FROM (linear-gradient start color)
                 el.gradientFrom = (doc.colorAt(idx))
                 el.gradientSet = true
@@ -480,6 +495,18 @@ class WasmUiEvgBuilder {
                     el.bgImagePath = bp
                     el.bgImageSet = true
                 }
+            }
+            if (key == 57) {                ; SHADOW_COLOR (drop-shadow tint)
+                el.shadowColor = (doc.colorAt(idx))
+            }
+            if (key == 58) {                ; SHADOW_BLUR (px softening radius)
+                el.shadowRadius = (this.pxUnit((doc.propValueA(idx))))
+            }
+            if (key == 59) {                ; SHADOW_OFFSET_X (px)
+                el.shadowOffsetX = (this.pxUnit((doc.propValueA(idx))))
+            }
+            if (key == 60) {                ; SHADOW_OFFSET_Y (px)
+                el.shadowOffsetY = (this.pxUnit((doc.propValueA(idx))))
             }
             p = (p + 1)
         }

@@ -14,7 +14,12 @@ operators {
             cpp ( "rg_wasm_load(" (e 1) ".c_str())"
                   (imp "<rg_wasm_bridge.h>")
                   (imp "<string>") )
-            es6 ( "0" )
+            ; Headless node loader: instantiate the .wasm with node's WebAssembly
+            ; and register it in a global module table keyed by handle. The import
+            ; object provides only env.abort/rg_log — the conformance guests use
+            ; the command-buffer model (write records into their own memory), so
+            ; they need no host-call imports. Returns handle (>=1) or 0 on failure.
+            es6 ( "(function(p){var H=(globalThis.__rgwasm||(globalThis.__rgwasm={next:1,mods:{}}));try{var by=require('fs').readFileSync(p);var mod=new WebAssembly.Module(by);var env={abort:function(){},rg_log:function(){}};var inst=new WebAssembly.Instance(mod,{env:env});var h=H.next++;H.mods[h]={inst:inst,mem:inst.exports.memory};return h;}catch(e){return 0;}})(" (e 1) ")" )
             ranger ( "0" )
         }
     }
@@ -22,7 +27,7 @@ operators {
     wasm_close _:void (handle:int) {
         templates {
             cpp ( "rg_wasm_close(" (e 1) ")" (imp "<rg_wasm_bridge.h>") )
-            es6 ( "void 0" )
+            es6 ( "(function(h){var H=globalThis.__rgwasm;if(H&&H.mods[h]){delete H.mods[h];}})(" (e 1) ")" )
             ranger ( "void" )
         }
     }
@@ -34,7 +39,7 @@ operators {
                   (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", " (e 8) ")"
                   (imp "<rg_wasm_bridge.h>")
                   (imp "<string>") )
-            es6 ( "0" )
+            es6 ( "(function(h,n,na,a0,a1,a2,a3,a4){var H=globalThis.__rgwasm;var m=H&&H.mods[h];if(!m)return 0;var f=m.inst.exports[n];if(!f)return 0;var A=[a0,a1,a2,a3,a4].slice(0,na);return (f.apply(null,A))|0;})(" (e 1) "," (e 2) "," (e 3) "," (e 4) "," (e 5) "," (e 6) "," (e 7) "," (e 8) ")" )
             ranger ( "0" )
         }
     }
@@ -45,7 +50,7 @@ operators {
                   (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", " (e 8) ")"
                   (imp "<rg_wasm_bridge.h>")
                   (imp "<string>") )
-            es6 ( "void 0" )
+            es6 ( "(function(h,n,na,a0,a1,a2,a3,a4){var H=globalThis.__rgwasm;var m=H&&H.mods[h];if(!m)return;var f=m.inst.exports[n];if(!f)return;var A=[a0,a1,a2,a3,a4].slice(0,na);f.apply(null,A);})(" (e 1) "," (e 2) "," (e 3) "," (e 4) "," (e 5) "," (e 6) "," (e 7) "," (e 8) ")" )
             ranger ( "void" )
         }
     }
@@ -67,7 +72,7 @@ operators {
             cpp ( "rg_wasm_has_export(" (e 1) ", " (e 2) ".c_str())"
                   (imp "<rg_wasm_bridge.h>")
                   (imp "<string>") )
-            es6 ( "0" )
+            es6 ( "(function(h,n){var H=globalThis.__rgwasm;var m=H&&H.mods[h];if(!m)return 0;return (m.inst.exports[n]?1:0);})(" (e 1) "," (e 2) ")" )
             ranger ( "0" )
         }
     }
@@ -76,7 +81,7 @@ operators {
         templates {
             cpp ( "rg_wasm_mem_read_i32(" (e 1) ", (uint32_t)(" (e 2) "))"
                   (imp "<rg_wasm_bridge.h>") )
-            es6 ( "0" )
+            es6 ( "(function(h,o){var H=globalThis.__rgwasm;var m=H&&H.mods[h];if(!m||!m.mem)return 0;return (new DataView(m.mem.buffer)).getInt32(o,true);})(" (e 1) "," (e 2) ")" )
             ranger ( "0" )
         }
     }
@@ -85,8 +90,19 @@ operators {
         templates {
             cpp ( "rg_wasm_mem_write_i32(" (e 1) ", (uint32_t)(" (e 2) "), " (e 3) ")"
                   (imp "<rg_wasm_bridge.h>") )
-            es6 ( "void 0" )
+            es6 ( "(function(h,o,v){var H=globalThis.__rgwasm;var m=H&&H.mods[h];if(!m||!m.mem)return;(new DataView(m.mem.buffer)).setInt32(o,v,true);})(" (e 1) "," (e 2) "," (e 3) ")" )
             ranger ( "void" )
+        }
+    }
+
+    ; Read `len` bytes of guest linear memory at byte offset `off` as a string
+    ; (used to lower an `s`/string command arg — a ptr+len in the guest's memory).
+    ; ASCII/UTF-8 paths; the native path is a follow-up (returns "" for now).
+    wasm_mem_str _:string (handle:int off:int len:int) {
+        templates {
+            cpp ( "std::string()" (imp "<string>") )
+            es6 ( "(function(h,o,l){var H=globalThis.__rgwasm;var m=H&&H.mods[h];if(!m||!m.mem||l<=0)return '';var u=new Uint8Array(m.mem.buffer,o,l);var s='';for(var i=0;i<l;i++){s+=String.fromCharCode(u[i]);}return s;})(" (e 1) "," (e 2) "," (e 3) ")" )
+            ranger ( "\"\"" )
         }
     }
 

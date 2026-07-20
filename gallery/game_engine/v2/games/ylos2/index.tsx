@@ -13,10 +13,15 @@
 // diamond → super mode, enemy stomp/hurt, named SFX sends, summit dance.
 //
 // RENDERING follows v1's model (createStaticBg + sprites()): the static
-// environment — sky gradient, 3-tone platforms, clouds, goal flag, diamond
-// bitmap glyphs — is painted every frame in WORLD coordinates through the
-// renderer's immediate fillRect / fillCircle. Players (walk + super sheets)
-// and enemies are retained sprites.
+// environment — sky gradient, 3-tone platforms (body + light top edge + dark
+// bottom edge), clouds, goal flag, the diamond bitmap glyph — is painted every
+// frame in WORLD coordinates through the renderer's immediate fillRect /
+// fillCircle (the v2 equivalent of bgFillRect / bgFillCircle), rasterised by
+// the backend through each pane's camera. Players (walk + super sheets) and
+// enemies are retained sprites. Art here is the REAL v1 LPC PNG walk sheets
+// (p1/p2/enemy_walk.png, decoded via each .atlas `image` line and sampled as
+// 64x64 sheet cells) — not placeholder pixels.
+// Out of scope for this port: bullets, fruits.
 // ============================================================================
 
 import { runtime } from "ranger:core";
@@ -350,7 +355,9 @@ class Ylos2Game {
     this.cam2 = new TWO.Camera2D();
     this.renderer = new TWO.Renderer2D();
     runtime.surface.attachRenderer(this.renderer);
-    const clip = runtime.audio.createClip();
+    // clip ≠ source (D-LIFE): the source is created from an explicit clip. The
+    // clip carries a synth spec, so the one-shot is a REAL celebratory ding.
+    const clip = runtime.audio.createClip({ freqHz: 660, durationMs: 220, volume: 0.4 });
     this.celebrateSfx = runtime.audio.createSource(clip);
 
     let i = 0;

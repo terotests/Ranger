@@ -121,6 +121,42 @@ class UITextRenderer {
         }
     }
 
+    ; drawLine, but clipped to the rectangle [cx,cy,cw,ch]: only the portion of
+    ; the glyph line that overlaps the clip box is blitted (via a sub-rect blit).
+    ; Used by UIContext.text when an overflow:hidden clip is active — cached
+    ; glyph bitmaps blit straight to the canvas and so bypass the clip test that
+    ; guards blendPixel. Rectangular clip only (rounded corners aren't applied to
+    ; glyphs — a negligible visual difference for text near a rounded edge).
+    fn drawLineClipped:void (canvas:SoftCanvas text:string x:int y:int size:double r:int g:int b:int a:int cx:int cy:int cw:int ch:int) {
+        if ((strlen text) == 0) {
+            return
+        }
+        if (hasFont == false) {
+            ; bitmap fallback path is rare (no TTF loaded); draw unclipped.
+            def scale:int (this.bmScaleFor(size))
+            this.bitmapDrawLine(canvas x y scale text r g b)
+            return
+        }
+        def line:UICachedLine (this.getCachedLine(text size r g b a))
+        if (line.w <= 0) {
+            return
+        }
+        ; intersect the glyph rect [x,y,line.w,line.h] with the clip box.
+        def x0:int x
+        def y0:int y
+        def x1:int (x + line.w)
+        def y1:int (y + line.h)
+        if (x0 < cx) { x0 = cx }
+        if (y0 < cy) { y0 = cy }
+        if (x1 > (cx + cw)) { x1 = (cx + cw) }
+        if (y1 > (cy + ch)) { y1 = (cy + ch) }
+        def vw:int (x1 - x0)
+        def vh:int (y1 - y0)
+        if (vw <= 0) { return }
+        if (vh <= 0) { return }
+        canvas.blitImageRect(line.img (x0 - x) (y0 - y) vw vh x0 y0)
+    }
+
     ; Draw text, word-wrapped to maxWidth (<= 0 = single line, no wrapping).
     ; Returns the total height consumed (so callers can stack content).
     fn drawText:int (canvas:SoftCanvas text:string x:int y:int size:double maxWidth:double r:int g:int b:int a:int) {

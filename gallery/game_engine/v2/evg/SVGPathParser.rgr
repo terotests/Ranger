@@ -488,7 +488,81 @@ class SVGPathParser {
             push scaled newCmd
             i = i + 1
         }
-        
+
         return scaled
+    }
+
+    ; Flatten the path to a polygon outline: a flat [x0,y0,x1,y1,...] list of
+    ; points, sampling C/Q curves into `steps` segments each and approximating A
+    ; arcs as a straight line to the endpoint. M starts a new point, Z closes the
+    ; ring (the fill closes implicitly, so Z adds no point). Used by a filled-path
+    ; renderer (UIContext.fillPolygon) to rasterize <Path> elements.
+    fn flatten:[double] (steps:int) {
+        def pts:[double]
+        def cx:double 0.0
+        def cy:double 0.0
+        def n:int (array_length commands)
+        def i:int 0
+        while (i < n) {
+            def cmd:PathCommand (itemAt commands i)
+            if (cmd.type == "M") {
+                cx = cmd.x
+                cy = cmd.y
+                push pts cx
+                push pts cy
+            }
+            if (cmd.type == "L") {
+                cx = cmd.x
+                cy = cmd.y
+                push pts cx
+                push pts cy
+            }
+            if (cmd.type == "C") {
+                def s:int 1
+                while (s <= steps) {
+                    def tt:double ((to_double s) / (to_double steps))
+                    def u:double (1.0 - tt)
+                    ; cubic Bezier: u^3 P0 + 3u^2 t C1 + 3u t^2 C2 + t^3 P1
+                    def b0:double (((u * u) * u))
+                    def b1:double ((((3.0 * u) * u) * tt))
+                    def b2:double ((((3.0 * u) * tt) * tt))
+                    def b3:double (((tt * tt) * tt))
+                    def px:double ((((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x2)) + (b3 * cmd.x))
+                    def py:double ((((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y2)) + (b3 * cmd.y))
+                    push pts px
+                    push pts py
+                    s = (s + 1)
+                }
+                cx = cmd.x
+                cy = cmd.y
+            }
+            if (cmd.type == "Q") {
+                def s:int 1
+                while (s <= steps) {
+                    def tt:double ((to_double s) / (to_double steps))
+                    def u:double (1.0 - tt)
+                    ; quadratic Bezier: u^2 P0 + 2u t C + t^2 P1
+                    def b0:double ((u * u))
+                    def b1:double (((2.0 * u) * tt))
+                    def b2:double ((tt * tt))
+                    def px:double (((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x))
+                    def py:double (((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y))
+                    push pts px
+                    push pts py
+                    s = (s + 1)
+                }
+                cx = cmd.x
+                cy = cmd.y
+            }
+            if (cmd.type == "A") {
+                ; arc approximated as a straight segment to the endpoint.
+                cx = cmd.x
+                cy = cmd.y
+                push pts cx
+                push pts cy
+            }
+            i = (i + 1)
+        }
+        return pts
     }
 }

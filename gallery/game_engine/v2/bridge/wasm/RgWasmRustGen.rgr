@@ -1,0 +1,147 @@
+; ==============================================================================
+; RgWasmRustGen — emit a Rust wasm32 guest binding FROM the schema (BRIDGES 4/6).
+; ==============================================================================
+; Makes the schema the ENFORCED source of truth for a wasm32 guest. Emits, from
+; the command table:
+;   * the RGC1 wire constants,
+;   * one `pub const <UPPER_NAME>: i32` per live command id, and
+;   * a typed `RgCmdBuf` builder with one method per command (i/d/h args) — a
+;     CHECKED API (`cb.rg3d_geometry_box(3, 2.0, 2.0, 2.0)`) instead of raw
+;     `put(id, dst, &[..])`, so a guest can't mis-order or mis-encode args.
+; A guest `use`s the generated module, so its ids + encodings ARE the schema's; a
+; freshness test (regenerate == committed) makes drift a gate failure.
+; ==============================================================================
+
+Import "../../registry/codegen/RgCodegen.rgr"
+
+class RgWasmRustGen {
+    ; true if every argSpec token is one the typed builder can encode (i/d/h/s).
+    sfn encodable:boolean (argSpec:string) {
+        if (argSpec == "") { return true }
+        def toks:[string] (strsplit argSpec ":")
+        def k 0
+        while (k < (array_length toks)) {
+            def tk:string (itemAt toks k)
+            def ok:boolean false
+            if (tk == "i") { ok = true }
+            if (tk == "d") { ok = true }
+            if (tk == "h") { ok = true }
+            if (tk == "s") { ok = true }
+            if (ok == false) { return false }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    ; Rust param type for an argSpec token.
+    sfn paramType:string (tk:string) {
+        if (tk == "d") { return "f32" }
+        return "i32"
+    }
+
+    ; Emit the `pub const`s (RGC1 wire constants + one per live command id).
+    sfn emitConsts:string (cmds:[RgCommand] major:int magic:int words:int fixed:int) {
+        def s:string ""
+        s = (s + "// GENERATED from registry/schema by RgWasmRustGen - do not edit by hand.\n")
+        s = (s + "// The schema is the ABI; regenerate via bridge/wasm/tools/gen_rust_abi.\n")
+        s = (s + "#![allow(dead_code)]\n")
+        s = (s + "\n")
+        s = (s + ("pub const RGC1_MAGIC: i32 = " + ((to_string magic) + ";\n")))
+        s = (s + ("pub const RGC1_MAJOR: i32 = " + ((to_string major) + ";\n")))
+        s = (s + ("pub const RGC1_FIXED: i32 = " + ((to_string fixed) + ";\n")))
+        s = (s + ("pub const RGC1_WORDS: usize = " + ((to_string words) + ";\n")))
+        s = (s + "pub const RGC1_HDR: usize = 4;\n")
+        s = (s + "\n")
+        def i 0
+        while (i < (array_length cmds)) {
+            def c:RgCommand (itemAt cmds i)
+            if (c.tombstone == false) {
+                if ((strlen c.name) > 0) {
+                    s = (s + ("pub const " + ((to_uppercase c.name) + (": i32 = " + ((to_string c.id) + ";\n")))))
+                }
+            }
+            i = (i + 1)
+        }
+        return s
+    }
+
+    ; Emit the typed RgCmdBuf builder (fixed prelude + one method per i/d/h cmd).
+    sfn emitBuilder:string (cmds:[RgCommand]) {
+        def s:string ""
+        s = (s + "\n")
+        s = (s + "// Typed command-buffer builder - one checked method per command.\n")
+        s = (s + "pub struct RgCmdBuf<'a> { buf: &'a mut [i32], count: usize }\n")
+        s = (s + "impl<'a> RgCmdBuf<'a> {\n")
+        s = (s + "    pub fn new(buf: &'a mut [i32]) -> Self { RgCmdBuf { buf, count: 0 } }\n")
+        s = (s + "    fn put(&mut self, id: i32, dst: i32, args: &[i32]) {\n")
+        s = (s + "        let base = RGC1_HDR + self.count * RGC1_WORDS;\n")
+        s = (s + "        self.buf[base] = id; self.buf[base + 1] = dst;\n")
+        s = (s + "        let mut i = 0; while i < args.len() && i < RGC1_WORDS - 2 { self.buf[base + 2 + i] = args[i]; i += 1; }\n")
+        s = (s + "        self.count += 1;\n")
+        s = (s + "    }\n")
+        s = (s + "    /// Write the RGC1 header; returns the record count.\n")
+        s = (s + "    pub fn finish(&mut self) -> i32 {\n")
+        s = (s + "        self.buf[0] = RGC1_MAGIC; self.buf[1] = RGC1_MAJOR;\n")
+        s = (s + "        self.buf[2] = self.count as i32; self.buf[3] = 0; self.count as i32\n")
+        s = (s + "    }\n")
+        def i 0
+        while (i < (array_length cmds)) {
+            def c:RgCommand (itemAt cmds i)
+            if (c.tombstone == false) {
+                if ((strlen c.name) > 0) {
+                    if (RgWasmRustGen.encodable(c.argSpec)) {
+                        s = (s + (RgWasmRustGen.emitMethod(c)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        s = (s + "}\n")
+        return s
+    }
+
+    ; One builder method for a command with i/d/h args.
+    sfn emitMethod:string (c:RgCommand) {
+        def isCreate:boolean (c.retSpec == "h")
+        def params:string ""
+        if isCreate {
+            params = "dst: i32"
+        }
+        def encoded:string ""            ; the &[ ... ] arg list
+        def toks:[string]
+        if (c.argSpec != "") {
+            toks = (strsplit c.argSpec ":")
+        }
+        def k 0
+        while (k < (array_length toks)) {
+            def tk:string (itemAt toks k)
+            def an:string ("a" + (to_string k))
+            if (tk == "s") {
+                ; a string is a (ptr, len) pair of i32 slots.
+                if ((strlen params) > 0) { params = (params + ", ") }
+                params = (params + (an + ("_ptr: i32, " + (an + "_len: i32"))))
+                if ((strlen encoded) > 0) { encoded = (encoded + ", ") }
+                encoded = (encoded + (an + ("_ptr, " + (an + "_len"))))
+            } {
+                if ((strlen params) > 0) { params = (params + ", ") }
+                params = (params + (an + (": " + (RgWasmRustGen.paramType(tk)))))
+                if ((strlen encoded) > 0) { encoded = (encoded + ", ") }
+                if (tk == "d") {
+                    encoded = (encoded + ("((" + (an + " * RGC1_FIXED as f32) as i32)")))
+                } {
+                    encoded = (encoded + an)
+                }
+            }
+            k = (k + 1)
+        }
+        def dstArg:string "0"
+        if isCreate { dstArg = "dst" }
+        def body:string ("        self.put(" + ((to_uppercase c.name) + (", " + (dstArg + (", &[" + (encoded + "]);\n"))))))
+        return ("    pub fn " + (c.name + ("(&mut self, " + (params + (") {\n" + (body + "    }\n")))))))
+    }
+
+    ; The full binding: consts + typed builder.
+    sfn emit:string (cmds:[RgCommand] major:int magic:int words:int fixed:int) {
+        return ((RgWasmRustGen.emitConsts(cmds major magic words fixed)) + (RgWasmRustGen.emitBuilder(cmds)))
+    }
+}

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ylos2 — the LIVE ranger:2d climber, software-rendered in-browser</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧗</text></svg>"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c1020; --panel: #151a2e; --ink: #e6e9f3; --muted: #97a0bd; --accent: #6ea8ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; color: var(--ink);
+        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: radial-gradient(1200px 600px at 50% -10%, #1b2140, var(--bg));
+        display: flex; flex-direction: column; align-items: center; padding: 32px 16px 64px;
+      }
+      h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -0.02em; }
+      .sub { color: var(--muted); margin: 0 0 22px; text-align: center; max-width: 660px; }
+      .sub code { color: var(--accent); }
+      .stage { background: var(--panel); border: 1px solid #262d47; border-radius: 14px; padding: 18px; box-shadow: 0 20px 60px -20px #000a; }
+      canvas { display: block; width: 720px; max-width: 92vw; height: auto; aspect-ratio: 480 / 270; border-radius: 8px; background: #000; touch-action: none; image-rendering: pixelated; }
+      .status { color: var(--muted); font-size: 13px; min-height: 1.2em; margin-top: 12px; text-align: center; }
+      footer { margin-top: 26px; color: var(--muted); font-size: 12.5px; text-align: center; max-width: 660px; }
+      footer code { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <h1>ylos2 — the LIVE climber</h1>
+    <p class="sub">
+      The real <strong>ylos2</strong> game booted on the generic
+      <code>RgGameHost</code> — <code>import { runtime } from "ranger:core"</code>,
+      <code>import * as TWO from "ranger:2d"</code> — its LPC walk sheets sampled
+      over the v1 static environment and software-rendered to this canvas.
+      <strong>Arrow keys</strong> / <strong>space</strong> drive player 1.
+    </p>
+
+    <div class="stage">
+      <canvas id="screen" tabindex="0"></canvas>
+      <div class="status" id="status">loading…</div>
+    </div>
+
+    <footer>
+      <code>ComponentEngine</code> (interpreter) → <code>RgRegistryBridge</code>
+      (LIVE transport) → <code>Rg2DPresenter.presentTextured</code>
+      (sampling backend) → RGB buffer → 2D canvas, all Ranger, running client-side.
+    </footer>
+
+    <script src="./vfs.js"></script>
+    <script src="./engine-host.js"></script>
+    <script src="./live2d-viewer.js"></script>
+    <script>
+      const statusEl = document.getElementById("status");
+      const canvas = document.getElementById("screen");
+      const setStatus = (m) => (statusEl.textContent = m);
+      async function fetchText(u) { const r = await fetch(u); if (!r.ok) throw new Error(u + " " + r.status); return r.text(); }
+      async function fetchBuffer(u) { const r = await fetch(u); if (!r.ok) throw new Error(u + " " + r.status); return r.arrayBuffer(); }
+
+      async function boot() {
+        try {
+          const bundleSource = await fetchText("./live2d.bundle.js");
+          const zipBuffer = await fetchBuffer("./scene.zip");
+          const scene = JSON.parse(await fetchText("./scene.json"));
+          await window.RangerLive2d.launch({
+            bundleSource, zipBuffer, canvas,
+            width: scene.width || 480, height: scene.height || 270,
+            gameDir: scene.gameDir, gameFile: scene.gameFile,
+          });
+          canvas.focus();
+          setStatus("rendering — the LIVE ylos2 climber (arrows / space = player 1)");
+        } catch (e) {
+          setStatus("error: " + e.message);
+          console.error(e);
+        }
+      }
+      boot();
+    </script>
+  </body>
+</html>

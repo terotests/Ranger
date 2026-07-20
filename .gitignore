@@ -61,3 +61,12 @@ gallery/pdf_writer/bin/evg_component_tool_go
 
 
 gallery/game_engine/scripting/cannon_showcase_demo.js
+
+# Ranger v2 engine transient test/build output dirs
+.v2_test_out/
+.v2_layout_out/
+.v2raster/
+.v2_raster_out/
+
+# Rust wasm conformance guests — build output (committed .wasm is kept explicitly)
+gallery/game_engine/v2/bridge/wasm/conformance/**/target/

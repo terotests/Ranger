@@ -8,7 +8,8 @@ driver and the roadmap below over that checklist.
 
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
-| Headless gate | `npm run engine:v2:test` → 88 suites + boundary gate | — |
+| Headless gate | `npm run engine:v2:test` → 91 suites + boundary gate | — |
+| Live 3D web demos | `ranger:three` cube / teapot / courtyard / real glTF model, **browser-verified** in headless Chromium (`web/tests/browser_smoke.mjs`) | sky/GI/first-person/textures polish |
 | Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — live-path demos (cube, teapot, a procedural courtyard, and a real glTF model — NOT the Sponza atrium) re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
@@ -423,11 +424,79 @@ Contract: [`BRIDGES.md`](./BRIDGES.md) rev 2. Today steps 1–2 are done
 |------|------|--------|
 | 1–2 | Interpreter profile table + generic bridge + coverage | done (not a published ABI) |
 | 3 | Real TSX guests (ylos2 / ylos3d / launcher) | in progress |
-| **4** | **IDL extraction** — full types, identities, capabilities; regen interpreter table from IDL × profile | **not started — next** |
-| **5** | **wasm32 profile** — token/epoch lowering; golden **wire vectors** | not started |
-| **5b** | **Rust→wasm32 `ylos3d` conformance guest** — reference implementation covering hybrid use cases | **elevate** |
+| **5b** | **Rust→wasm32 conformance guest** — a real Rust guest drives the GENERIC bridge | **fail-fast slice PROVEN** ✓ |
+| **4** | **IDL extraction** — full types, identities, capabilities; regen interpreter table from IDL × profile | **started**: table-driven wasm32 dispatch off argSpec (below) |
+| **5** | **wasm32 profile** — token/epoch lowering; golden **wire vectors** | in progress: `RgWasm3dProfile` opcode map + RGC1 record format |
 | 6 | Extend IDL to three + cannon; dispatcher emitter; generated façades | after 5 |
 | 7 | **Golden freeze** only when TSX + Rust guests both pass on one host | gated |
+
+**Fail-fast proof landed (July 19, 2026).** A real Rust module compiled to
+`wasm32-unknown-unknown` (`bridge/wasm/conformance/ylos3d_slice`) builds a 3D
+scene — scene, camera, box geometry, lambert material, mesh, `scene.add`,
+transform — by writing an RGC1 command buffer into its own linear memory; the
+host drains it and replays each record through **`RgRegistryBridge.invoke →
+dispatchRow` (the ONE generic bridge, not a hand-linked C ABI)**, mapping
+guest-local ids → host handles. `bridge/wasm/conformance/tests/
+ylos3d_wasm_conformance_test` (13 asserts) confirms zero dispatch errors, the
+arena actually created the geometry/material/mesh, the mesh is parented to the
+scene (**D-SYNC across wasm32**), and distinct guest ids resolve to distinct
+valid host handles (**D-IDENTITY**). Runs headlessly in the node gate via a new
+`WebAssembly` loader (the `wasm_*` es6 templates were stubs before). This
+retires the biggest architecture risk: the generic bridge *can* host a
+second-language guest. The command-buffer model deliberately mirrors the
+existing RGU1/RGX1 shared-block guests (no host-call imports).
+
+**Follow-ups landed (July 19, 2026):**
+- **Generic table-driven dispatch (step 4 start).** The hand-written per-command
+  if-chain is replaced by `bridge/wasm/RgWasmCmdDispatch` — it decodes each RGC1
+  record's args straight from the command row's SEMANTIC `argSpec` (`i`/`d`/`h`,
+  doubles as ×1000 fixed-point) and dispatches through `RgRegistryBridge.invoke`.
+  No per-command host code: adding a command is a schema edit + one opcode
+  binding in the wasm32 profile (`RgWasm3dProfile`, opcode → command name).
+- **Return-value round-trip.** The dispatcher writes each minted host id back into
+  the guest's result region (`result_ptr[dst]`); the guest's `frame2()` reads its
+  mesh handle back and only then emits a follow-up transform — the guest observed
+  a host-written handle and acted on it across a frame boundary.
+- Conformance test now 18 asserts (was 13), all through the generic dispatcher.
+
+**ABI versioning & forward compatibility (guest/host).** A guest encodes each
+command by its **schema id** — the ONE stable, per-module-ranged (core 1000s /
+2d 2000s / three 3000s), golden-frozen, tombstoned id space — NOT a private
+opcode table. RGC1 carries `[MAGIC, MAJOR, COUNT, RESERVED]`;
+`RgWasmCmdDispatch.drainDoc` validates MAGIC + the profile `major`, then
+pre-checks every record's id against the host table (fail-closed) before
+dispatching. Consequences (all gated by the 27-assert conformance test):
+- **Adding interfaces does NOT outdate compiled guests.** New commands are new
+  ids in a module's free range; existing ids are immutable (golden), so an old
+  guest — which only emits old ids the host still has — keeps working, no
+  recompile. Proven: the same guest fully dispatches against a host table far
+  larger than the 7 commands it uses.
+- **A newer guest on an older host** (references an id the host lacks) or a
+  **tombstoned/retired id** → whole buffer refused (`abiError` + `unknownId`),
+  never half-applied.
+- **Only a breaking change to an EXISTING command bumps `major`** and rejects old
+  guests — and policy prefers retire(tombstone)+new-id so even "changing" a
+  command stays additive. Bumped major → 0 dispatched.
+- **Residual (per BRIDGES step 7, before any freeze):** `major` is still a
+  hand-set coarse gate; the finer guard is the existing golden-id immutability +
+  a per-profile ABI-compatibility golden and wire vectors. The profile is
+  deliberately NOT frozen (BRIDGES: no published ABI until TSX + Rust both pass).
+
+**Guest binding generated from the schema (step 4/6, landed).** The guest no
+longer hand-copies ids: `bridge/wasm/RgWasmRustGen` emits a Rust module
+(`rg_abi.rs`: RGC1 wire constants + a `pub const` per live command id) straight
+from the command table; `bridge/wasm/tools/gen_rust_abi` regenerates it and the
+guest `use`s it, so its ids ARE the schema's ids. `wasm_abi_binding_test` (7
+asserts) checks the generator is schema-faithful AND that the committed
+`rg_abi.rs` matches a fresh generation — a schema id change without regeneration
+fails the gate (no silent guest drift). The schema is now the *enforced* source
+of truth, not agreement-by-hand.
+
+**Remaining toward a full Rust ylos3d:** strings/assets (`rg3d_model_load` — the
+`s` argSpec needs a ptr+len decode from guest memory), the 2D + RTT + input +
+audio surface (more command ids, all already generated into the binding), and
+emitting typed Rust wrappers (not just id consts) from the schema so guests get
+a checked API, plus a per-profile ABI-compatibility golden before any freeze.
 
 ### Why Rust `ylos3d` (not a toy, not Chess first)
 
@@ -488,7 +557,7 @@ rumble, vocal FX, music score, LPC/bitmap assets.
 |------------|:-------------:|:---------:|:--------:|:-----------:|
 | ylos2 loads | ✓ e2e | [ ] | [ ] | N/A (2D-only TSX first) |
 | ylos3d loads | ✓ e2e | [ ] | [ ] | [ ] **PoC** |
-| Assets resolve | partial | [ ] | [ ] | [ ] |
+| Assets resolve | ✓ gated (real LPC PNG) | [ ] | [ ] | [ ] |
 | 1-player input | ✓ / attract | [ ] | [ ] | [ ] |
 | 2-player input | ✓ e2e | [ ] | [ ] | [ ] |
 | Split panes | ✓ e2e | [ ] | [ ] | [ ] |
@@ -503,8 +572,44 @@ rumble, vocal FX, music score, LPC/bitmap assets.
 - [ ] Honest launcher catalog — only existing packages; no fake Chess/Breakout
       entries.
 - [ ] Close ylos2 bar ([`QUESTIONS.md`](./QUESTIONS.md) Q4–Q7); extend e2e.
-- [ ] Real atlas pixels + LPC decoder suite.
-- [ ] Vocals / one-shots → real audio sink.
+- [x] Real atlas pixels + LPC decoder suite — `lpc/tests/png_decoder_test` (decode)
+      + `tests/render/ylos2_textured_test` (ylos2's real LPC sheets decode →
+      texture store → sampled sprite render, gated). Also **`web/web_live2d_host.rgr`**
+      runs ylos2 in the browser with real LPC sprites (browser-verified via
+      `web/tests/browser_smoke.mjs`).
+- [x] **One-shots → real audio sink** (`tests/unit/audio/one_shot_pcm_test`, 6
+      asserts). `AudioClip` now carries a synth spec (`freqHz/durationMs/volume/
+      wave`); `rgcore_audio_one_shot` synthesises the source's clip tone into
+      REAL, non-silent PCM through the `GameAudio` additive synth and pushes it
+      to a capturing sink (the SDL sink queues the same PCM). ylos2's celebrate
+      SFX is a real 660Hz/220ms ding. No-arg `createClip()` callers keep a
+      neutral default tone. Gate 91/91.
+- [ ] **Vocals → real audio sink** (follow-up). `rgcore_vocal` is still a
+      cue/counter recorder (`push vocalCues`); route it through the same synth
+      spec → `GameAudio` → capturing sink path the one-shots now use, and gate
+      non-silent output.
+- [x] **EVG render/layout parity — DONE** (see [`evg/ISSUES.md`](./evg/ISSUES.md),
+      all issues #1–#8 resolved July 19, 2026; verified-correct up front: text
+      centering H+V, glow, border rounding, row flex grow, justifyContent math).
+      - **#6** clipping: `UIContext` clip stack (rect/rounded via `pushClip` +
+        arbitrary polygon via `pushClipPoly`/`pointInPoly`) honored by
+        `blendPixel`; `drawElement` clips descendants on `overflow!="visible"`
+        and clips the whole element on `clipPath` (SVG-path silhouette). Gated by
+        `ui/tests/clip_overflow_test`, `ui/tests/clip_path_test`.
+      - **#4** box + text shadow: `UIContext.shadowRoundRect` +
+        `drawElement`/RGU1 keys 57-60 — `ui/tests/box_shadow_test`.
+      - **#5** corner anti-aliasing: `roundedCoverage`/`covAlpha` —
+        `ui/tests/rounded_aa_test`.
+      - **#7** `gap` applied on the main axis (row+col) + RGU1 key 25.
+      - **#8** flex: column grow, shrink (nowrap), `alignItems:stretch`,
+        `flexWrap` + RGU1 (`alignName` extended for space-around/evenly/stretch,
+        key 26). Deliberately kept for parity: `flexDirection` default "column"
+        and the dead `direction` field (both documented).
+      - **#3** filled `<Path>` (SVGPathParser.flatten + `UIContext.fillPolygon`)
+        — `ui/tests/svg_path_test`; **#1** text intrinsic width confirmed +
+        `testTextIntrinsicWidth`. `evg_test.rgr` grew 73→102 asserts.
+      Remaining micro-note: glyph clipping is rectangular only (cached text
+      bitmaps aren't rounded/polygon-clipped — negligible).
 - [ ] **Chess port** — after W is green (not the current critical path).
 
 ### Open decisions (still block a crisp “done”)

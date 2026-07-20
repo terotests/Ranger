@@ -1,0 +1,63 @@
+; ==============================================================================
+; one_shot_pcm_test — a v1-faithful audio one-shot produces REAL, non-silent PCM.
+; ==============================================================================
+; Before this increment, a clip was created empty and playOneShot() only did
+; voice bookkeeping (oneShotCount++), so a one-shot emitted NO audio — a silent
+; lifecycle probe. This drives the whole guest→bridge→synth path:
+;   * rgcore_audio_clip_create carries a synth spec (freqHz, durationMs, ...)
+;   * rgcore_audio_source_create retains the clip
+;   * rgcore_audio_one_shot synthesises the clip's tone into REAL PCM which the
+;     bridge's capturing sink records (sample count + non-zero-sample count).
+; Asserts: no typed errors, the expected sample count for the clip's duration,
+; the PCM is NON-silent, and the back-compat one-shot counter still increments.
+; ==============================================================================
+
+Import "../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../harness/RgTest.rgr"
+
+class OneShotPcmTest {
+    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/unit/audio/one_shot_pcm"))
+        def self:OneShotPcmTest (new OneShotPcmTest)
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+
+        ; ---- clip carries a synth spec (freqHz, durationMs, volume, wave) -----
+        def clipArgs:[EvalValue]
+        push clipArgs (self.num(660.0))
+        push clipArgs (self.num(220.0))
+        push clipArgs (self.num(0.4))
+        push clipArgs (self.num(0.0))
+        def clipRes:EvalValue (b.invoke("rgcore_audio_clip_create" clipArgs))
+        def clipH:int (to_int clipRes.numberValue)
+        t.ok("clip handle minted" (clipH > 0))
+
+        ; ---- source retains the clip -----------------------------------------
+        def srcArgs:[EvalValue]
+        push srcArgs (self.num((to_double clipH)))
+        def srcRes:EvalValue (b.invoke("rgcore_audio_source_create" srcArgs))
+        def srcH:int (to_int srcRes.numberValue)
+        t.ok("source handle minted" (srcH > 0))
+
+        ; ---- one-shot → synthesises real PCM through the capturing sink ------
+        def osArgs:[EvalValue]
+        push osArgs (self.num((to_double srcH)))
+        b.invoke("rgcore_audio_one_shot" osArgs)
+
+        ; (i) no typed errors anywhere on the path
+        t.eqInt("no bridge errors" b.errorCount 0)
+
+        ; (ii) the sink synthesised exactly one 220ms burst
+        def expected:int (to_int (((220.0 * (to_double b.gameAudio.sampleRate)) / 1000.0)))
+        t.eqInt("one-shot synthesised 220ms of PCM" (b.lastOneShotSampleCount()) expected)
+
+        ; (iii) the PCM is NON-silent (a silent/empty buffer would be 0)
+        t.ok("one-shot PCM is non-silent" ((b.lastOneShotNonZero()) > 0))
+
+        ; (iv) back-compat: the one-shot voice bookkeeping still counts
+        t.eqInt("one-shot counter still increments" b.oneShotCount 1)
+
+        t.summary()
+    }
+}

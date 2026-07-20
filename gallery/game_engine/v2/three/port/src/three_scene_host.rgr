@@ -561,4 +561,9 @@ class ThreeSceneHost {
     fn entityCount:int () { return (array_length entities) }
     fn geometryCount:int () { return (array_length geometries) }
     fn materialCount:int () { return (array_length materials) }
+    ; number of direct children a scene holds (D-SYNC membership inspection).
+    fn sceneChildCount:int (sceneH:int) {
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        return (sc.childCount())
+    }
 }

@@ -1,0 +1,192 @@
+; ==============================================================================
+; RgWasmCmdDispatch — generic, schema-driven wasm32 command lowering (BRIDGES 4/5)
+; ==============================================================================
+; The wasm32 profile binding: a guest compiled to wasm32 writes an RGC1 command
+; buffer into its own linear memory; this drains it and dispatches each record
+; through the ONE generic bridge (RgRegistryBridge.invoke -> dispatchRow). It is
+; PURELY TABLE-DRIVEN — no per-command code and NO SEPARATE OPCODE TABLE. A record
+; encodes its command by the command's SCHEMA id (the stable, per-module-ranged,
+; golden-frozen, tombstoned id authored in the schema — the ONE id space), and
+; its args are decoded straight from that row's SEMANTIC argSpec. Adding a command
+; is a schema edit, nothing here.
+;
+; Forward/backward compatibility (the point of using the schema id space):
+;   * ADDITIVE (a new command = a new id in the module's free range) never
+;     disturbs existing ids, so an OLD guest — which only emits old ids the host
+;     still has — KEEPS WORKING with no recompile.
+;   * A guest that references an id the host does NOT have (a newer guest on an
+;     older host) or a TOMBSTONED (retired) id is REJECTED, fail-closed: the whole
+;     buffer is refused (abiError) so a half-understood frame never half-applies.
+;   * `major` bumps only on a genuinely breaking change to an EXISTING command
+;     (renumbering, or an argSpec change not done via retire+new-id). Old guests'
+;     major no longer matches -> rejected. Prefer retire(tombstone)+new-id so even
+;     "changing" a command stays additive and old guests keep calling the old id.
+;
+; Wire format (RGC1): a 4-int32 header then fixed WORDS-int32 records:
+;   header: [MAGIC 'RGC1', MAJOR, COUNT, RESERVED]
+;   record: [cmdId, dst, a0, a1, ... a(WORDS-3)]
+;   cmdId = the command's SCHEMA id; dst = guest-local id to bind a created handle
+;   (0 = none); args in argSpec order; doubles are fixed-point (value * FIXED).
+; Same magic+version discipline as the sibling RGU1/RGX1 shared-block guests.
+; ==============================================================================
+
+Import "../../interp/engine/RgRegistryBridge.rgr"
+Import "../../scripting/wasm_runtime.rgr"
+
+; An authored wasm32 ABI profile. The semantic id space IS the schema's command
+; ids, so a profile carries no opcode table — only the ABI `major` (bumped on a
+; breaking change to an existing command) and a human label.
+class RgWasmProfile {
+    def major:int 1
+    def label:string ""
+}
+
+; The ranger:three wasm32 profile anchor (major 1). No opcode bindings: guests
+; encode commands by their schema id (rg3d_* live in the 3000 block).
+class RgWasm3dProfile {
+    sfn build:RgWasmProfile () {
+        def p:RgWasmProfile (new RgWasmProfile)
+        p.major = 1
+        p.label = "ranger:three@1"
+        return p
+    }
+}
+
+class RgWasmCmdDispatch {
+    ; RGC1 command-buffer magic ('R','G','C','1' as a shared little-endian i32).
+    sfn magic:int () { return 1380401969 }
+
+    def bridge:RgRegistryBridge
+    def profile:RgWasmProfile
+    ; guest-local id -> minted host id (persistent across frames)
+    def map:[int]
+    def words:int 12
+    def fixed:double 1000.0
+    def dispatched:int 0
+    ; set true when a drained buffer is incompatible (bad magic, wrong major, or
+    ; an unknown/tombstoned command id) — nothing from it is dispatched.
+    def abiError:boolean false
+    ; the offending command id when abiError is due to an unknown/retired op.
+    def unknownId:int 0
+
+    fn init:void (b:RgRegistryBridge p:RgWasmProfile) {
+        this.bridge = b
+        this.profile = p
+        this.map = (make _:[int] 256 0)
+    }
+
+    ; Decode one record's args from wasm memory per the row's semantic argSpec.
+    ; A `slot` cursor advances by 1 for i/d/h and by 2 for s (a string is a
+    ; ptr+len pair of slots), so the record layout stays argSpec-driven.
+    fn decodeArgs:[EvalValue] (h:int rb:int row:RgCommand) {
+        def args:[EvalValue]
+        if (row.argSpec == "") { return args }
+        def toks:[string] (strsplit row.argSpec ":")
+        def slot:int 0
+        def k 0
+        while (k < (array_length toks)) {
+            def tk:string (itemAt toks k)
+            def raw:int (wasm_mem_i32 h (rb + (8 + (slot * 4))))
+            if (tk == "i") {
+                push args (EvalValue.number((to_double raw)))
+                slot = (slot + 1)
+            }
+            if (tk == "d") {
+                push args (EvalValue.number(((to_double raw) / this.fixed)))
+                slot = (slot + 1)
+            }
+            if (tk == "h") {
+                push args (EvalValue.number((to_double (itemAt this.map raw))))
+                slot = (slot + 1)
+            }
+            if (tk == "s") {
+                def slen:int (wasm_mem_i32 h (rb + (8 + ((slot + 1) * 4))))
+                push args (EvalValue.string((wasm_mem_str h raw slen)))
+                slot = (slot + 2)
+            }
+            k = (k + 1)
+        }
+        return args
+    }
+
+    ; Pre-validate every record's command id against the host's table BEFORE
+    ; dispatching anything (fail-closed): unknown id => host is older than the
+    ; guest; tombstoned id => the guest uses a retired command. Either way we
+    ; refuse the whole buffer so a partly-understood frame never half-applies.
+    fn validateIds:boolean (h:int recBase:int count:int) {
+        def i 0
+        while (i < count) {
+            def rb:int (recBase + ((i * this.words) * 4))
+            def id:int (wasm_mem_i32 h rb)
+            def row:RgCommand (RgCodegen.findById(this.bridge.table id))
+            if (row.id == (0 - 1)) {
+                this.unknownId = id
+                return false
+            }
+            if (row.tombstone) {
+                this.unknownId = id
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Dispatch `count` records at `recBase` (already validated). Writes minted
+    ; host ids back into the guest result region at `resBase` (0 = skip).
+    fn dispatchRecords:void (h:int recBase:int count:int resBase:int) {
+        def i 0
+        while (i < count) {
+            def rb:int (recBase + ((i * this.words) * 4))
+            def id:int (wasm_mem_i32 h rb)
+            def dst:int (wasm_mem_i32 h (rb + 4))
+            def row:RgCommand (RgCodegen.findById(this.bridge.table id))
+            def args:[EvalValue] (this.decodeArgs(h rb row))
+            def res:EvalValue (this.bridge.invoke(row.name args))
+            this.dispatched = (this.dispatched + 1)
+            if (row.retSpec == "h") {
+                def gid:int (to_int res.numberValue)
+                set this.map dst gid
+                if (resBase > 0) {
+                    wasm_mem_set_i32 h (resBase + (dst * 4)) gid
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Validate an RGC1 buffer header at `base` (MAGIC + profile MAJOR), pre-check
+    ; every command id, then dispatch its COUNT records (after the 4-int32
+    ; header). Refuses everything (sets abiError) on any incompatibility. Returns
+    ; the number of records dispatched from this buffer (0 when rejected).
+    fn drainDoc:int (h:int base:int resBase:int) {
+        this.abiError = false
+        this.unknownId = 0
+        def magic:int (wasm_mem_i32 h base)
+        if (magic != (RgWasmCmdDispatch.magic())) {
+            this.abiError = true
+            return 0
+        }
+        def gMajor:int (wasm_mem_i32 h (base + 4))
+        if (gMajor != this.profile.major) {
+            this.abiError = true
+            return 0
+        }
+        def count:int (wasm_mem_i32 h (base + 8))
+        def recBase:int (base + 16)
+        if ((this.validateIds(h recBase count)) == false) {
+            this.abiError = true
+            return 0
+        }
+        def before:int this.dispatched
+        this.dispatchRecords(h recBase count resBase)
+        return (this.dispatched - before)
+    }
+
+    ; the minted host id bound to a guest-local id (0 if unset).
+    fn hostId:int (guestLocal:int) {
+        if (guestLocal < 0) { return 0 }
+        if (guestLocal >= (array_length this.map)) { return 0 }
+        return (itemAt this.map guestLocal)
+    }
+}

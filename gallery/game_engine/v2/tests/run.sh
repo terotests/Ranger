@@ -104,6 +104,15 @@ run_suite interp/adapter/tests/adapter_hybrid_test
 run_suite tests/unit/interp/adapter_churn_test
 
 # ---- Phase 5 — WASM bridge (D-WASM / D-WASM-MEM / D-ASYNC) --------------------
+# node WebAssembly loader: a real Rust->wasm32 module runs headlessly (the
+# foundation for the wasm-guest conformance slice below)
+run_suite bridge/wasm/conformance/tests/wasm_loader_smoke_test
+# fail-fast architecture proof: a Rust->wasm32 guest builds a 3D scene by driving
+# the GENERIC RgRegistryBridge (command-buffer -> dispatchRow), preserving
+# D-IDENTITY (guest ids -> host handles) + D-SYNC (mesh parented to the scene)
+run_suite bridge/wasm/conformance/tests/ylos3d_wasm_conformance_test
+# the guest's Rust ABI binding is GENERATED from the schema (drift guard)
+run_suite bridge/wasm/conformance/tests/wasm_abi_binding_test
 run_suite bridge/wasm/tests/create_free/create_free_test
 run_suite bridge/wasm/tests/retain_release/retain_release_test
 run_suite bridge/wasm/tests/async_poll/async_poll_test
@@ -143,6 +152,8 @@ run_suite render/tests/software_present2d_test
 # texture pixel store + sampling backend (real texels, sprite size/z/flip)
 run_suite modules/ranger_2d/tests/texture_store_test
 run_suite tests/render/textured_render_test
+# real committed LPC PNG sheets (ylos2) decode + sample through the same backend
+run_suite tests/render/ylos2_textured_test
 # native SDL host — testable seams (framebuffer->RGBA pack, input map); the
 # import also compile-checks the whole native driver against the gfx_* stubs
 run_suite tests/sdl/sdl_host_test
@@ -194,6 +205,8 @@ run_suite modules/ranger_core/tests/devices_test
 # headless music: score parse -> beat schedule -> equal-tempered PCM synth
 # (self-contained under v2/audio; the SDL gfx_audio_* sink consumes this PCM)
 run_suite audio/tests/audio_score_test
+# a v1-faithful one-shot: clip synth-spec → bridge → GameAudio → REAL, non-silent PCM
+run_suite tests/unit/audio/one_shot_pcm_test
 
 # ---- BRIDGES.md steps 1–2 — schema rows + generic registry bridge ------------
 run_suite registry/schema/tests/bridge_schema_test
@@ -206,6 +219,16 @@ run_suite tests/unit/three/orbit_controls_test
 run_suite menu/tests/launcher_ui_test
 # EVG layout/color/text/path primitives that back the launcher UI
 run_suite evg/evg_test
+# D-CLIP: overflow:hidden clips descendants to the (rounded) padding box
+run_suite ui/tests/clip_overflow_test
+# box/text shadow render (drop shadow silhouette + falloff)
+run_suite ui/tests/box_shadow_test
+# rounded-corner anti-aliasing (sub-pixel coverage on fills/strokes)
+run_suite ui/tests/rounded_aa_test
+# filled <Path> elements (SVG path -> flatten -> scanline polygon fill)
+run_suite ui/tests/svg_path_test
+# clip-path: arbitrary polygon (SVG-path silhouette) clips an element's render
+run_suite ui/tests/clip_path_test
 # ui widget/layout logic (headless)
 run_suite ui/tests/UITest
 

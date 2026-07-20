@@ -38,7 +38,9 @@ class CoreSchema {
 
         ; ---- Audio (12) — clip ≠ source ≠ voice + vocal/music facades --------
         def audio:RgClassDef (RgClassDef.of(12 "Audio"))
-        audio.addMethod((RgMethodDef.cmd(1020 "rgcore_audio_clip_create" "rgcore_audio_clip_create" "" "h" "create")))
+        ; a clip carries a synth-spec (freqHz, durationMs, volume, wave) so a
+        ; v1-faithful one-shot produces REAL PCM through GameAudio's tone synth.
+        audio.addMethod((RgMethodDef.cmd(1020 "rgcore_audio_clip_create" "rgcore_audio_clip_create" "d:i:d:i" "h" "create")))
         audio.addMethod((RgMethodDef.cmd(1021 "rgcore_audio_source_create" "rgcore_audio_source_create" "h" "h" "create")))
         audio.addMethod((RgMethodDef.cmd(1022 "rgcore_audio_one_shot" "rgcore_audio_one_shot" "h" "v" "none")))
         audio.addMethod((RgMethodDef.cmd(1023 "rgcore_vocal" "rgcore_vocal" "s" "v" "none")))

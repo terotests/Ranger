@@ -19,7 +19,7 @@ class DevicesTest {
 
         ; ================= AUDIO (D-OWN) ====================================
         def au:RgAudio (new RgAudio)
-        def clip:OwnedHandle (au.clipCreate())
+        def clip:OwnedHandle (au.clipCreate(440.0 80 0.35 0))
         t.eqInt("clip refcount 1" (au.refcount(clip.handle)) 1)
 
         ; createSource retains the clip

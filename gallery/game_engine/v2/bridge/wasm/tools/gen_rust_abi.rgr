@@ -1,0 +1,24 @@
+; ==============================================================================
+; gen_rust_abi — regenerate the Rust wasm32 guest ABI binding from the schema.
+; ==============================================================================
+; Prints the generated Rust module (RGC1 wire constants + a const per live
+; command id) to stdout. Regenerate a guest crate's committed binding with:
+;   node bin/output.js -es6 <this-file> -d=/tmp -o=gen.js \
+;        && node /tmp/gen.js > <guest-crate>/src/rg_abi.rs
+; The freshness gate (a *_test.rgr under bridge/wasm) fails if a committed file
+; drifts from a fresh generation.
+; ==============================================================================
+
+Import "../RgWasmRustGen.rgr"
+Import "../RgWasmCmdDispatch.rgr"
+
+class GenRustAbi {
+    sfn m@(main):void () {
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+        def prof:RgWasmProfile (RgWasm3dProfile.build())
+        def disp:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        disp.init(b prof)
+        def src:string (RgWasmRustGen.emit(b.table prof.major (RgWasmCmdDispatch.magic()) disp.words (to_int disp.fixed)))
+        print src
+    }
+}
