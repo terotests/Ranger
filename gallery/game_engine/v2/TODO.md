@@ -8,14 +8,15 @@ driver and the roadmap below over that checklist.
 
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
-| Headless gate | `npm run engine:v2:test` → 91 suites + boundary gate | — |
+| Headless gate | `npm run engine:v2:test` → 101 suites + boundary gate | — |
 | Live 3D web demos | `ranger:three` cube / teapot / courtyard / real glTF model, **browser-verified** in headless Chromium (`web/tests/browser_smoke.mjs`) | sky/GI/first-person/textures polish |
 | Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — live-path demos (cube, teapot, a procedural courtyard, and a real glTF model — NOT the Sponza atrium) re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
 | Native SDL | `RgSdlGameHost` + `build-sdl-v2.sh` + `engine:game-sdl:launcher:v2` (macOS-oriented today) | **Pi 5 arm64** build/smoke; cross-platform `pkg-config`; live CI |
-| WASM32 / Rust | create/free/parity **fixtures** only | IDL + wasm32 profile + **Rust ylos3d** conformance guest + wire vectors |
+| WASM32 / Rust | **merged** (PR #444): `RgWasmGameHost` runs a wasm32 game like a `.tsx` game; `games/ylos3d_wasm` builds + renders 3D→RT→pane (real pixels in the gate); launcher routes `engine=wasm`→`runWasm` | on-device SDL run (macOS/Pi); `wasm_mem_str` cpp template (string/asset args) still a stub |
+| Physics / Cannon | full **Cannon.js port** green (`cannon_suite_test`, 89 asserts) + host-wired toy world (`RgPhysicsWorld`) + **three+cannon seam** (`three_cannon_sync_test`: real `CannonPhysicsWorld` drives a Three mesh pose) | `ranger:cannon` schema + bridge dispatch + guest module (all scaffold); a visible three+cannon demo game |
 | v1 | still **runnable legacy** (~many titles under `games/`) | archival only at an explicit milestone (not Phase 12) |
 
 **Docs inconsistency:** README / older notes still say “no SDL window”;
