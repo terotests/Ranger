@@ -69,17 +69,26 @@ pad through `gfx_rumble_pad`.
 
 ## Audio
 
-A guest's `runtime.audio.music.play(score)` is recorded on the bridge
-(`rgcore_music_play`); the host owns playback. `initAudio()` opens the SDL audio
-device and builds the synth; `pumpAudio(dt)` (called each game frame) picks up a
-newly-played score, ticks its beat schedule, and each due note synthesises PCM
-that `RgSdlAudioSink` queues via `gfx_audio_queue`. The synth/parser stack lives
-under `v2/audio` (`game_soundscore` + `game_audio`, self-contained). The guest
-only ever said "play" — the schedule clock, synth, and device are all host-side.
+A guest's `runtime.audio.music.play(score)` and `runtime.audio.vocal.play(id)`
+are recorded on the bridge (`rgcore_music_play` / `rgcore_vocal`); the host owns
+playback — same split as v1 (`playSound` → `GameAudio`, `playVoice` →
+`GameVocalFx`, music → score player). `initAudio()` opens the SDL audio device
+and builds the synth; `pumpAudio(dt)` (called each game frame) drains new vocal
+cues: catalogue voices (`cheer`/`chuckle`/`gasp`/…) through `GameVocalFx`,
+palette SFX (`bounce`/`brick`/`wall`/`celebrate`/…) through `GameAudio.play`,
+then ticks any playing score. PCM goes to `RgSdlAudioSink` → `gfx_audio_queue`.
+Stack under `v2/audio` (`game_soundscore` + `game_audio` + `game_vocal_fx`).
+
+Device open notes (macOS): default `SDL_AUDIODRIVER=coreaudio`; empty
+`SDL_GetNumAudioDevices` is not fatal (open system default via `NULL`);
+frequency/channel negotiation is allowed; host adopts `gfx_audio_sample_rate()`
+and retunes `GameVocalFx` to match. `gfx_close` clears `audioReady` so a
+launcher → game → launcher relaunch reopens the device.
 
 > The final SDL2 **link** needs SDL2 headers, which are absent in CI — so the
 > headless suite compile-checks the host, validates the Ranger→C++ codegen, and
 > tests its pure seams (`tests/sdl/sdl_host_test`: framebuffer→RGBA pack, input
-> map, launcher-nav edges, the music pump; `menu/tests/launcher_ui_test`: the
-> rendered launcher screen; `audio/tests/audio_score_test`: parse→schedule→PCM).
-> The live window + audible output happen on a machine with SDL2.
+> map, launcher-nav edges, the music + vocal pumps; `menu/tests/launcher_ui_test`:
+> the rendered launcher screen; `audio/tests/audio_score_test`:
+> parse→schedule→PCM). The live window + audible output happen on a machine with
+> SDL2.

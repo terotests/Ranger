@@ -1,0 +1,16 @@
+; ES6/Bun: Function.name is non-writable on the constructor. Static `sfn name`
+; must be emitted via Object.defineProperty so Bun (and Node callers) can use it.
+
+class NameProbe {
+    sfn name:string (code:int) {
+        if (code == 0) {
+            return "OK"
+        }
+        return "OTHER"
+    }
+
+    sfn m@(main):void () {
+        print (NameProbe.name(0))
+        print (NameProbe.name(1))
+    }
+}

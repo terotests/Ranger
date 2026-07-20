@@ -14,6 +14,16 @@ Import "../../runtime/game_host/RgAttractDriver.rgr"
 Import "../harness/RgTest.rgr"
 
 class Ylos2E2ETest {
+    sfn countCue:int (cues:[string] name:string) {
+        def n 0
+        def i 0
+        while (i < (array_length cues)) {
+            if ((itemAt cues i) == name) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn m@(main):void () {
         def t:RgTest (RgTest.forSuite("tests/e2e/ylos2 (generic host, TSX-only game)"))
         def host:RgGameHost (new RgGameHost)
@@ -26,18 +36,18 @@ class Ylos2E2ETest {
         t.ok("test fixture loaded"
             (host.loadFixture("gallery/game_engine/v2/games/ylos2/tests" "probe.tsx")))
 
-        ; the guest's creations are REAL host arena state. Following v1's model,
-        ; the static environment (platforms, sky, flag, diamond) is immediate
-        ; world-space draw — NOT retained sprites; the retained sprites are the
-        ; two players + twelve skeleton enemies, each an LPC walk sheet.
-        t.eqInt("14 retained sprites (2 players + 12 skeleton enemies)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 14)
-        t.eqInt("three sheet atlases (p1 + p2 + enemy)"
-            (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 3)
+        ; retained sprites: walk + super per player, twelve skeleton enemies.
+        ; Diamonds stay immediate-draw bitmap glyphs (not retained sprites).
+        t.eqInt("16 retained sprites (2+2 players + 12 skeleton enemies)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 16)
+        t.eqInt("five sheet atlases (p1 + p2 + supers + enemy)"
+            (host.bridge.d2.liveOfType((Rg2DType.atlas()))) 5)
         t.eqInt("two cameras (one per pane)" (host.bridge.d2.liveOfType((Rg2DType.camera()))) 2)
         t.eqInt("split-screen: two panes" (host.bridge.surface.paneCount()) 2)
         t.eqInt("pane 0 routes player 0" (host.bridge.surface.panePlayer(0)) 0)
         t.eqInt("pane 1 routes player 1" (host.bridge.surface.panePlayer(1)) 1)
+        t.eqInt("five diamond probes" (to_int (host.callSlot("diamondCount" 0))) 5)
+        t.eqInt("twelve enemy probes" (to_int (host.callSlot("enemyCount" 0))) 12)
 
         def startY1:double (host.callSlot("playerY" 0))
         def sprite1IdA:int (to_int (host.callSlot("playerSpriteId" 0)))
@@ -65,16 +75,24 @@ class Ylos2E2ETest {
         t.ok("P2 climbed too" (endY2 < 1400.0))
         t.ok("P1 reached the goal platform" (goalFrame > 0))
 
-        ; ---- celebration through ranger:core (both players finish) ----------
-        t.eqInt("celebrate one-shots (both players)" host.bridge.oneShotCount 2)
-        t.eqInt("vocal cues (both players)" (array_length host.bridge.vocalCues) 2)
-        t.eqStr("vocal cue is the cheer" (itemAt host.bridge.vocalCues 0) "cheer")
+        ; ---- celebration through ranger:core (finish FSM + SFX vocabulary) --
+        t.ok("celebrate one-shots fired" (host.bridge.oneShotCount >= 1))
+        def cheers:int (Ylos2E2ETest.countCue(host.bridge.vocalCues "cheer"))
+        t.ok("cheer vocal cue sent" (cheers >= 1))
+        t.ok("SFX vocabulary sent during climb (bounce/etc)"
+            ((array_length host.bridge.vocalCues) > cheers))
         t.ok("summit music playing" host.bridge.musicPlaying)
-        ; v1 score uses duration:pitch tokens — bare "E4 G4 …" stubs parse as silence
         t.ok("summit score has timed melody tokens"
             (contains host.bridge.musicScore "0.5:E4"))
         t.ok("summit score keeps the full four-phrase tune"
             (contains host.bridge.musicScore "1:C5"))
+        t.ok("P1 finish dance active or done" ((host.callSlot("playerDone" 0)) > 0.5))
+
+        ; ---- direct gameplay probes (super / stomp) after the climb --------
+        ; Reset-ish probes on P2 so we do not disturb P1's finished state.
+        def superMs:double (host.callSlot("probeCollectDiamond" 1))
+        t.ok("diamond pickup grants super timer" (superMs > 7000.0))
+        t.eqInt("stomp clears enemy 0" (to_int (host.callSlot("probeStompEnemy" 1))) 0)
 
         ; ---- identity across the whole game ---------------------------------
         def sprite1IdB:int (to_int (host.callSlot("playerSpriteId" 0)))
@@ -83,14 +101,10 @@ class Ylos2E2ETest {
         t.ok("player sprite handle live in the arena" (host.bridge.d2.isLive(sh)))
 
         ; ---- split-screen present from host-owned pane views ----------------
-        ; the world is 480 wide and fills each pane (fixed camera X); present
-        ; both panes and confirm each draws sprites.
         def fbL:RgFramebuffer (RgFramebuffer.create(480 270))
         def fbR:RgFramebuffer (RgFramebuffer.create(480 270))
         t.ok("left pane drew sprites" ((Rg2DPresenter.present(host.bridge 0 fbL)) > 0))
         t.ok("right pane drew sprites" ((Rg2DPresenter.present(host.bridge 1 fbR)) > 0))
-        ; split-screen ownership: each player is drawn ONLY in its own pane
-        ; (v1 hides the other player locally); enemies/world stay in both.
         def sh0:RgHandle (host.bridge.resolveGuestId((to_int (host.callSlot("playerSpriteId" 0)))))
         def sh1:RgHandle (host.bridge.resolveGuestId((to_int (host.callSlot("playerSpriteId" 1)))))
         t.eqInt("P1 sprite owned by pane 0" (host.bridge.d2.spritePaneOwner(sh0)) 0)

@@ -9,18 +9,19 @@
 //
 // Faithful v1 pieces: full BASE_PLATFORMS / BASE_MOVING_PLATFORMS tables,
 // GRAV / MOVE / JUMP_* constants (px/ms), variable-height jump, land-on-top
-// collision, per-player camera scroll, goal → celebration, split-screen.
+// collision, per-player camera scroll, goal → celebration, split-screen,
+// diamond → super mode, enemy stomp/hurt, named SFX sends, summit dance.
 //
 // RENDERING follows v1's model (createStaticBg + sprites()): the static
 // environment — sky gradient, 3-tone platforms (body + light top edge + dark
 // bottom edge), clouds, goal flag, the diamond bitmap glyph — is painted every
 // frame in WORLD coordinates through the renderer's immediate fillRect /
 // fillCircle (the v2 equivalent of bgFillRect / bgFillCircle), rasterised by
-// the backend through each pane's camera UNDER the players. Only the players
-// are retained sprites (v1's "sheet" characters). Art here is the REAL v1
-// LPC PNG walk sheets (p1/p2/enemy_walk.png, decoded via each .atlas `image`
-// line and sampled as 64x64 sheet cells) — not placeholder pixels.
-// Out of scope for this port: bullets, fruits, super mode.
+// the backend through each pane's camera. Players (walk + super sheets) and
+// enemies are retained sprites. Art here is the REAL v1 LPC PNG walk sheets
+// (p1/p2/enemy_walk.png, decoded via each .atlas `image` line and sampled as
+// 64x64 sheet cells) — not placeholder pixels.
+// Out of scope for this port: bullets, fruits.
 // ============================================================================
 
 import { runtime } from "ranger:core";
@@ -32,12 +33,23 @@ const GRAV = 0.00045;          // px/ms^2
 const MOVE = 0.22;             // px/ms
 const JUMP_MIN_V = 0.28;
 const JUMP_MAX_V = 0.38;
+const JUMP_SUPER_MAX_V = 0.52;
 const JUMP_HOLD_LIFT = 0.00062;
 const JUMP_CUT = 0.42;
 const JUMP_HOLD_MAX_MS = 400;
+const JUMP_HOLD_MAX_SUPER_MS = 700;
 const MOVING_PLAT_SPEED = 0.06;
 const PLAYER_W = 26;
 const PLAYER_H = 44;
+
+const SUPER_MS = 8000;
+const SUPER_WARN_MS = 2500;
+const SUPER_BLINK_MS = 200;
+const CELEBRATE_INTERVAL = 520;
+const FINISH_PARTICLE_MS = 2000;
+const FINISH_CELEBRATE_MS = 3000;
+const FINISH_WALK_MS = 4500;
+const FINISH_PHASE_DONE = FINISH_CELEBRATE_MS + FINISH_WALK_MS;
 
 // v1 static-environment palette (createStaticBg)
 const PLAT_EDGE_H = 4;
@@ -46,12 +58,17 @@ const PLAT_TOP_R = 110; const PLAT_TOP_G = 190; const PLAT_TOP_B = 86;
 const PLAT_BOT_R = 42; const PLAT_BOT_G = 96; const PLAT_BOT_B = 38;
 
 // v1 diamond glyph (DIAMOND_A) — a kind:"bitmap" sprite, rasterised as px-sized
-// cells per 'X', body cyan over white edge. One decorative diamond for show.
+// cells per 'X', body cyan. Collectible spots grant SUPER_MS.
 const DIAMOND_A = ["..XX..", ".XXXX.", "XXXXXX", ".XXXX.", "..XX.."];
+const BASE_DIAMOND_DEFS = [
+  { x: 420, y: 1775, respawn: 1 },
+  { x: 300, y: 1455, respawn: 1 },
+  { x: 130, y: 1125, respawn: 0 },
+  { x: 300, y: 715, respawn: 0 },
+  { x: 200, y: 475, respawn: 0 }
+];
 
 // v1 score verbatim (game_soundscore: duration:pitch tokens, newline headers).
-// The previous one-liner stub dropped durations and three of four phrases, so
-// the real parser heard nothing useful / a different tune.
 const SUMMIT_MUSIC =
   "tempo 152\n" +
   "beats 4/4\n" +
@@ -109,10 +126,8 @@ const BASE_ENEMY_DEFS = [
 ];
 const ENEMY_WALK_FRAMES = 9;
 
-// logical view height (v1 VIEW_H) — the camera clamps to the world floor so
-// the ground band sits as a thin strip at the bottom, exactly like v1.
 const VIEW_H = 270;
-const CAM_LEAD = 120;   // v1 computeCamera: player feet sit CAM_LEAD from the top
+const CAM_LEAD = 120;
 
 function overlapsX(px, pw, plat) {
   if (px + pw <= plat.x) { return false; }
@@ -120,12 +135,58 @@ function overlapsX(px, pw, plat) {
   return true;
 }
 
+function jumpMaxV(superMs) {
+  if (superMs > 0) { return JUMP_SUPER_MAX_V; }
+  return JUMP_MAX_V;
+}
+
+function jumpHoldMaxMs(superMs) {
+  if (superMs > 0) { return JUMP_HOLD_MAX_SUPER_MS; }
+  return JUMP_HOLD_MAX_MS;
+}
+
+function showSuperSprite(pl) {
+  if (pl.superMs <= 0) { return false; }
+  if (pl.superMs > SUPER_WARN_MS) { return true; }
+  const phase = (pl.superMs / SUPER_BLINK_MS) | 0;
+  if (phase % 2 == 1) { return true; }
+  return false;
+}
+
+function celebrateYOffset(animTick) {
+  const t = animTick / 200;
+  return Math.sin(t) * 12 + Math.sin(t * 2.7) * 5;
+}
+
+function hitPickup(px, py, fx, fy) {
+  const dx = px - fx;
+  const dy = py - fy;
+  if (dx * dx + dy * dy > 18 * 18) { return false; }
+  return true;
+}
+
+function enemyCollisionKind(px, py, pvy, ex, ey) {
+  const dx = px - ex;
+  const dy = py - ey;
+  if (dx < -18) { return "none"; }
+  if (dx > 18) { return "none"; }
+  if (dy < -16) { return "none"; }
+  if (dy > 16) { return "none"; }
+  if (pvy > 0) {
+    if (py < ey + 16) { return "stomp"; }
+  }
+  return "hurt";
+}
+
+function playSfx(id) {
+  runtime.audio.vocal.play(id);
+}
+
 // LPC walk sheet rows: 0=up 1=left 2=down 3=right (v1 sheetFrameForPlayer)
 const SHEET_ROW_RIGHT = 3;
 const SHEET_ROW_LEFT = 1;
 const SHEET_JUMP_COL = 3;
 
-// original 3x5 numeral glyphs for the HUD (X = lit cell)
 const HUD_DIGITS = [
   ["XXX", "X.X", "X.X", "X.X", "XXX"],
   [".X.", "XX.", ".X.", ".X.", "XXX"],
@@ -148,12 +209,14 @@ class Ylos2Game {
   movingPlats = [];
   players = [];
   enemies = [];
+  diamonds = [];
+  fx = [];
   enemyAtlas = null;
   nowMs = 0;
   goalIndex = 16;
   summitMusicStarted = 0;
 
-  makePlayer(slot, startX, atlas) {
+  makePlayer(slot, startX, atlas, superAtlas) {
     return {
       slot: slot,
       x: startX, y: 1830 - PLAYER_H, vx: 0, vy: 0,
@@ -162,13 +225,127 @@ class Ylos2Game {
       jumpHeld: 0,
       lastGroundFeet: 1830,
       reachedGoal: 0,
+      done: 0,
+      finishMs: 0,
+      finishPulseMs: 0,
+      celebrateBursts: 0,
+      superMs: 0,
       onMover: -1,
-      atlas: atlas, sprite: null, animTick: 0
+      atlas: atlas,
+      superAtlas: superAtlas,
+      sprite: null,
+      superSprite: null,
+      animTick: 0
     };
   }
 
+  playVoice(name) {
+    runtime.audio.vocal.play(name);
+  }
+
+  rumble(slot, ms, strength) {
+    runtime.input.player(slot).rumble(strength, ms);
+  }
+
+  spawnBurst(x, y, count, r, g, b) {
+    let i = 0;
+    while (i < count) {
+      const ang = (i / count) * 6.28318;
+      this.fx.push({
+        x: x + Math.cos(ang) * 6,
+        y: y + Math.sin(ang) * 4,
+        vx: Math.cos(ang) * 0.06,
+        vy: Math.sin(ang) * 0.04 - 0.05,
+        life: 420,
+        rad: 3 + (i % 3),
+        r: r, g: g, b: b
+      });
+      i = i + 1;
+    }
+  }
+
+  spawnFinishParticles(x, y) {
+    this.spawnBurst(x, y - 32, 10, 255, 220, 90);
+    this.spawnBurst(x - 22, y - 16, 6, 255, 160, 80);
+    this.spawnBurst(x + 22, y - 16, 6, 120, 220, 255);
+  }
+
+  spawnCelebratePulse(pl, burst) {
+    const phase = burst % 4;
+    const hop = pl.finishMs < FINISH_CELEBRATE_MS ? celebrateYOffset(pl.animTick) : 0;
+    const px = pl.x + PLAYER_W / 2;
+    const py = pl.y + PLAYER_H - hop;
+    if (phase == 0) {
+      this.spawnBurst(px, py - 30, 8, 255, 230, 120);
+    } else if (phase == 1) {
+      this.spawnBurst(px - 18, py - 22, 5, 255, 140, 90);
+      this.spawnBurst(px + 18, py - 22, 5, 255, 140, 90);
+    } else if (phase == 2) {
+      this.spawnBurst(px - 10, py - 26, 5, 140, 230, 255);
+      this.spawnBurst(px + 10, py - 26, 5, 140, 230, 255);
+    } else {
+      this.spawnBurst(px, py - 34, 6, 255, 255, 180);
+    }
+  }
+
+  updateFx(dt) {
+    const kept = [];
+    let i = 0;
+    while (i < this.fx.length) {
+      const p = this.fx[i];
+      p.life = p.life - dt;
+      if (p.life > 0) {
+        p.x = p.x + p.vx * dt;
+        p.y = p.y + p.vy * dt;
+        p.vy = p.vy + 0.0002 * dt;
+        kept.push(p);
+      }
+      i = i + 1;
+    }
+    this.fx = kept;
+  }
+
+  drawFx() {
+    const r = this.renderer;
+    let i = 0;
+    while (i < this.fx.length) {
+      const p = this.fx[i];
+      r.fillCircle(p.x, p.y, p.rad, p.r, p.g, p.b);
+      i = i + 1;
+    }
+  }
+
+  seatPlayerSprites(pl) {
+    const sx = pl.x + PLAYER_W / 2;
+    const sy = pl.y + PLAYER_H / 2 + 3;
+    const superOn = showSuperSprite(pl) ? 1 : 0;
+    if (superOn == 1) {
+      pl.sprite.setPos(-1000, -1000);
+      pl.superSprite.setPos(sx, sy);
+    } else {
+      pl.sprite.setPos(sx, sy);
+      pl.superSprite.setPos(-1000, -1000);
+    }
+    const row = pl.facing < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT;
+    let col = 0;
+    if (pl.done == 1) {
+      if (pl.finishMs < FINISH_CELEBRATE_MS) {
+        col = Math.floor(pl.animTick / 90) % 9;
+      } else if (pl.finishMs < FINISH_PHASE_DONE) {
+        col = Math.floor(pl.animTick / 70) % 9;
+      } else {
+        col = 0;
+      }
+    } else if (pl.grounded == 0) {
+      col = SHEET_JUMP_COL;
+    } else if (pl.vx != 0) {
+      col = Math.floor(pl.animTick / 70) % 9;
+    }
+    pl.sprite.setCell(col, row);
+    pl.superSprite.setCell(col, row);
+  }
+
   init() {
-    // split-screen through the surface capability (v1 splitScreen=auto)
     runtime.surface.setLayout("split-vertical");
     runtime.surface.pane(0).assignPlayer(0);
     runtime.surface.pane(1).assignPlayer(1);
@@ -183,7 +360,6 @@ class Ylos2Game {
     const clip = runtime.audio.createClip({ freqHz: 660, durationMs: 220, volume: 0.4 });
     this.celebrateSfx = runtime.audio.createSource(clip);
 
-    // moving platforms are immediate-drawn each frame (v1 entities), not sprites
     let i = 0;
     while (i < BASE_MOVING_PLATFORMS.length) {
       const m = BASE_MOVING_PLATFORMS[i];
@@ -194,32 +370,35 @@ class Ylos2Game {
       i = i + 1;
     }
 
-    // players are the retained sprites — each its own LPC walk sheet (v1 sheet)
     const a1 = runtime.assets.loadSpriteAtlas("pkg://p1.atlas");
     const a2 = runtime.assets.loadSpriteAtlas("pkg://p2.atlas");
-    const p1 = this.makePlayer(0, 120, a1);
-    const p2 = this.makePlayer(1, 330, a2);
+    const s1 = runtime.assets.loadSpriteAtlas("pkg://p1_super.atlas");
+    const s2 = runtime.assets.loadSpriteAtlas("pkg://p2_super.atlas");
+    const p1 = this.makePlayer(0, 120, a1, s1);
+    const p2 = this.makePlayer(1, 330, a2, s2);
     p1.facing = 1; p2.facing = -1;
     const starts = [p1, p2];
     let k = 0;
     while (k < starts.length) {
       const pl = starts[k];
       pl.sprite = new TWO.Sprite2D(pl.atlas, 0);
-      // sheet cell is the character's on-screen box (feet-ish placement); a
-      // 64px LPC frame drawn ~PLAYER_H tall.
       pl.sprite.setSize(PLAYER_H, PLAYER_H);
       pl.sprite.setZ(3);
       pl.sprite.setCell(0, pl.facing < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT);
-      // split-screen: this player is drawn ONLY in its own pane (v1 hides the
-      // other player in the local view); world objects stay in both panes.
       pl.sprite.setPane(pl.slot);
       this.layer.add(pl.sprite);
+
+      pl.superSprite = new TWO.Sprite2D(pl.superAtlas, 0);
+      pl.superSprite.setSize(PLAYER_H, PLAYER_H);
+      pl.superSprite.setZ(3);
+      pl.superSprite.setCell(0, pl.facing < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT);
+      pl.superSprite.setPane(pl.slot);
+      pl.superSprite.setPos(-1000, -1000);
+      this.layer.add(pl.superSprite);
       k = k + 1;
     }
     this.players = starts;
 
-    // enemies — skeleton patrols on the platforms (v1 makeEnemies). One shared
-    // LPC skeleton sheet; each enemy is a retained sprite drawn feet-on-platform.
     this.enemyAtlas = runtime.assets.loadSpriteAtlas("pkg://enemy.atlas");
     let ei = 0;
     while (ei < BASE_ENEMY_DEFS.length) {
@@ -230,11 +409,23 @@ class Ylos2Game {
       let row = d.dir > 0 ? SHEET_ROW_RIGHT : SHEET_ROW_LEFT;
       spr.setCell(0, row);
       this.layer.add(spr);
-      this.enemies.push({ x: d.x, y: d.y, dir: d.dir, min: d.min, max: d.max, tick: 0, sprite: spr });
+      this.enemies.push({
+        x: d.x, y: d.y, dir: d.dir, min: d.min, max: d.max,
+        tick: 0, alive: 1, sprite: spr
+      });
       ei = ei + 1;
     }
 
-    runtime.log.info("ylos2-v2 init: LPC sheets + immediate static env");
+    let di = 0;
+    while (di < BASE_DIAMOND_DEFS.length) {
+      const spot = BASE_DIAMOND_DEFS[di];
+      this.diamonds.push({
+        x: spot.x, y: spot.y, respawn: spot.respawn, taken: 0
+      });
+      di = di + 1;
+    }
+
+    runtime.log.info("ylos2-v2 init: LPC + super/stomp/celebrate");
     return 1;
   }
 
@@ -242,20 +433,22 @@ class Ylos2Game {
     let i = 0;
     while (i < this.enemies.length) {
       const e = this.enemies[i];
-      e.x = e.x + e.dir * dt * 0.08;
-      if (e.x < e.min) { e.x = e.min; e.dir = 1; }
-      if (e.x > e.max) { e.x = e.max; e.dir = -1; }
-      e.tick = e.tick + dt;
-      const anim = Math.floor(e.tick / 110) % ENEMY_WALK_FRAMES;
-      const row = e.dir < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT;
-      // feet at (x,y): seat the 40px frame a little above the platform surface
-      e.sprite.setPos(e.x, e.y - 14);
-      e.sprite.setCell(anim, row);
+      if (e.alive == 0) {
+        e.sprite.setPos(-1000, -1000);
+      } else {
+        e.x = e.x + e.dir * dt * 0.08;
+        if (e.x < e.min) { e.x = e.min; e.dir = 1; }
+        if (e.x > e.max) { e.x = e.max; e.dir = -1; }
+        e.tick = e.tick + dt;
+        const anim = Math.floor(e.tick / 110) % ENEMY_WALK_FRAMES;
+        const row = e.dir < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT;
+        e.sprite.setPos(e.x, e.y - 14);
+        e.sprite.setCell(anim, row);
+      }
       i = i + 1;
     }
   }
 
-  // ---- static environment (v1 createStaticBg, immediate world-space) --------
   drawPlatform(x, y, w, h) {
     const r = this.renderer;
     r.fillRect(x, y, w, h, PLAT_BODY_R, PLAT_BODY_G, PLAT_BODY_B);
@@ -295,7 +488,6 @@ class Ylos2Game {
   drawStaticEnv() {
     const r = this.renderer;
     r.beginBackground();
-    // sky gradient bands (v1 drawSkyGradient), world space, wide cover
     let y = 0;
     while (y < WORLD_H) {
       const t = y / WORLD_H;
@@ -310,28 +502,33 @@ class Ylos2Game {
     this.drawCloud(120, 980);
     this.drawCloud(300, 560);
     this.drawCloud(90, 300);
-    // static platforms (v1 createStaticBg)
     let i = 0;
     while (i < BASE_PLATFORMS.length) {
       const p = BASE_PLATFORMS[i];
       this.drawPlatform(p.x, p.y, p.w, p.h);
       i = i + 1;
     }
-    // moving platforms (redrawn per frame at live x)
     i = 0;
     while (i < this.movingPlats.length) {
       const m = this.movingPlats[i];
       this.drawPlatform(m.x, m.y, m.w, m.h);
       i = i + 1;
     }
-    // goal flag (v1 createStaticBg)
     const gp = BASE_PLATFORMS[this.goalIndex];
     const fx = gp.x + gp.w / 2;
     r.fillRect(fx - 2, gp.y - 44, 4, 44, 160, 120, 70);
     r.fillRect(fx + 2, gp.y - 44, 24, 14, 255, 90, 90);
     r.fillRect(fx + 2, gp.y - 30, 20, 8, 255, 210, 60);
-    // a diamond (v1 bitmap glyph)
-    this.drawDiamond(420, 1775);
+    // collectible diamonds (untaken only)
+    i = 0;
+    while (i < this.diamonds.length) {
+      const gem = this.diamonds[i];
+      if (gem.taken == 0) {
+        this.drawDiamond(gem.x, gem.y);
+      }
+      i = i + 1;
+    }
+    this.drawFx();
   }
 
   tryStartSummitMusic() {
@@ -340,19 +537,193 @@ class Ylos2Game {
     runtime.audio.music.play(SUMMIT_MUSIC);
   }
 
-  markGoal(pl) {
-    if (pl.reachedGoal == 1) { return; }
+  goalPlatform() {
+    return BASE_PLATFORMS[this.goalIndex];
+  }
+
+  celebrateXFor(slot) {
+    const gp = this.goalPlatform();
+    if (slot == 1) {
+      return gp.x + gp.w * 0.62 - PLAYER_W / 2;
+    }
+    return gp.x + gp.w * 0.38 - PLAYER_W / 2;
+  }
+
+  enterFinish(pl) {
+    if (pl.done == 1) { return; }
+    const gp = this.goalPlatform();
+    const feetY = gp.y;
+    const cx = this.celebrateXFor(pl.slot);
+    pl.x = cx;
+    pl.y = feetY - PLAYER_H;
+    pl.vx = 0;
+    pl.vy = 0;
+    pl.grounded = 1;
+    pl.onMover = -1;
+    pl.jumpHoldMs = -1;
+    pl.facing = pl.slot == 1 ? -1 : 1;
+    pl.done = 1;
     pl.reachedGoal = 1;
+    pl.finishMs = 0;
+    pl.finishPulseMs = 0;
+    pl.celebrateBursts = 0;
     this.celebrateSfx.playOneShot();
-    runtime.audio.vocal.play("cheer");
+    playSfx("celebrate");
+    this.playVoice("cheer");
+    this.rumble(pl.slot, 220, 125);
+    this.spawnFinishParticles(cx + PLAYER_W / 2, feetY);
     this.tryStartSummitMusic();
+  }
+
+  tickGoalWalk(pl, dt) {
+    const gp = this.goalPlatform();
+    const minX = gp.x + 18;
+    const maxX = gp.x + gp.w - 18 - PLAYER_W;
+    let x = pl.x;
+    let face = pl.facing;
+    if (face == 0) { face = 1; }
+    const speed = MOVE * 0.9;
+    x = x + face * speed * dt;
+    if (x < minX) { x = minX; face = 1; }
+    if (x > maxX) { x = maxX; face = -1; }
+    pl.x = x;
+    pl.facing = face;
+  }
+
+  tickFinishPlayer(pl, dt) {
+    pl.finishMs = pl.finishMs + dt;
+    pl.animTick = pl.animTick + dt;
+    if (pl.finishMs <= FINISH_PARTICLE_MS) {
+      pl.finishPulseMs = pl.finishPulseMs + dt;
+      if (pl.finishPulseMs >= CELEBRATE_INTERVAL) {
+        pl.finishPulseMs = 0;
+        pl.celebrateBursts = pl.celebrateBursts + 1;
+        this.spawnCelebratePulse(pl, pl.celebrateBursts);
+      }
+    } else {
+      pl.finishPulseMs = 0;
+    }
+
+    const feetY = this.goalPlatform().y;
+    if (pl.finishMs < FINISH_CELEBRATE_MS) {
+      pl.y = feetY - PLAYER_H - celebrateYOffset(pl.animTick);
+      pl.vx = 0;
+    } else if (pl.finishMs < FINISH_PHASE_DONE) {
+      this.tickGoalWalk(pl, dt);
+      pl.y = feetY - PLAYER_H;
+      pl.vx = MOVE * 0.9 * pl.facing;
+    } else {
+      pl.y = feetY - PLAYER_H;
+      pl.vx = 0;
+    }
+    pl.vy = 0;
+    pl.grounded = 1;
+    this.seatPlayerSprites(pl);
+  }
+
+  markGoal(pl) {
+    this.enterFinish(pl);
+  }
+
+  respawnPlayer(pl) {
+    const startX = pl.slot == 0 ? 120 : 330;
+    pl.x = startX;
+    pl.y = 1830 - PLAYER_H;
+    pl.vx = 0;
+    pl.vy = 0;
+    pl.grounded = 1;
+    pl.facing = pl.slot == 0 ? 1 : -1;
+    pl.jumpHoldMs = -1;
+    pl.jumpHeld = 0;
+    pl.lastGroundFeet = 1830;
+    pl.onMover = -1;
+    pl.superMs = 0;
+    pl.animTick = 0;
+  }
+
+  respawnMarkedDiamonds() {
+    let i = 0;
+    while (i < this.diamonds.length) {
+      const gem = this.diamonds[i];
+      if (gem.respawn == 1 && gem.taken == 1) {
+        gem.taken = 0;
+      }
+      i = i + 1;
+    }
+  }
+
+  stompBounce(pl, ey) {
+    pl.y = ey - 2 - PLAYER_H;
+    pl.vy = 0 - JUMP_MAX_V * 0.55;
+    pl.grounded = 0;
+    pl.onMover = -1;
+    pl.jumpHoldMs = 0;
+  }
+
+  applyEnemyHits(pl) {
+    if (pl.done == 1) { return 0; }
+    const px = pl.x + PLAYER_W / 2;
+    const py = pl.y + PLAYER_H;
+    let died = 0;
+    let ei = 0;
+    while (ei < this.enemies.length) {
+      const e = this.enemies[ei];
+      if (e.alive == 1) {
+        const kind = enemyCollisionKind(px, py, pl.vy, e.x, e.y);
+        if (kind == "stomp") {
+          e.alive = 0;
+          this.stompBounce(pl, e.y);
+          playSfx("brick");
+          playSfx("bounce");
+          this.playVoice("chuckle");
+          this.rumble(pl.slot, 90, 70);
+          this.spawnBurst(e.x, e.y - 10, 6, 220, 220, 220);
+        } else if (kind == "hurt") {
+          if (pl.superMs > 0) {
+            e.alive = 0;
+            playSfx("brick");
+            this.rumble(pl.slot, 60, 47);
+            this.spawnBurst(e.x, e.y - 10, 8, 120, 230, 255);
+          } else {
+            this.respawnPlayer(pl);
+            this.respawnMarkedDiamonds();
+            died = 1;
+            playSfx("lose");
+            this.playVoice("gasp");
+            this.rumble(pl.slot, 280, 156);
+            break;
+          }
+        }
+      }
+      ei = ei + 1;
+    }
+    return died;
+  }
+
+  collectDiamonds(pl) {
+    if (pl.done == 1) { return; }
+    const px = pl.x + PLAYER_W / 2;
+    const py = pl.y + PLAYER_H;
+    let i = 0;
+    while (i < this.diamonds.length) {
+      const gem = this.diamonds[i];
+      if (gem.taken == 0) {
+        if (hitPickup(px, py, gem.x, gem.y)) {
+          gem.taken = 1;
+          pl.superMs = SUPER_MS;
+          playSfx("win");
+          this.rumble(pl.slot, 160, 110);
+          this.spawnBurst(gem.x, gem.y, 10, 120, 230, 255);
+        }
+      }
+      i = i + 1;
+    }
   }
 
   updateMovers(dt) {
     let i = 0;
     while (i < this.movingPlats.length) {
       const m = this.movingPlats[i];
-      // v1 clamps the *right edge* to max (x + w <= max), not the left edge.
       m.x = m.x + MOVING_PLAT_SPEED * m.dir * dt;
       if (m.x < m.min) { m.x = m.min; m.dir = 1; }
       if (m.x + m.w > m.max) { m.x = m.max - m.w; m.dir = -1; }
@@ -367,6 +738,14 @@ class Ylos2Game {
     const right = pad.isDown("right");
     const jump = pad.isDown("jump");
 
+    if (pl.superMs > 0) {
+      pl.superMs = pl.superMs - dt;
+      if (pl.superMs < 0) { pl.superMs = 0; }
+    }
+    const plSuper = pl.superMs | 0;
+    const maxV = jumpMaxV(plSuper);
+    const holdMax = jumpHoldMaxMs(plSuper);
+
     pl.vx = 0;
     if (left) { pl.vx = 0 - MOVE; pl.facing = -1; }
     if (right) { pl.vx = MOVE; pl.facing = 1; }
@@ -375,8 +754,8 @@ class Ylos2Game {
     if (pl.x > BASE_W - PLAYER_W) { pl.x = BASE_W - PLAYER_W; }
 
     pl.vy = pl.vy + GRAV * dt;
+    const fallVy = pl.vy;
 
-    // v1 edge-triggers grounded jumps (hold does not auto-rejump on land).
     if (jump) {
       if (pl.grounded == 1) {
         if (pl.jumpHeld == 0) {
@@ -384,10 +763,11 @@ class Ylos2Game {
           pl.grounded = 0;
           pl.onMover = -1;
           pl.jumpHoldMs = 0;
+          playSfx("bounce");
         }
-      } else if (pl.jumpHoldMs >= 0 && pl.jumpHoldMs < JUMP_HOLD_MAX_MS && pl.vy < 0) {
+      } else if (pl.jumpHoldMs >= 0 && pl.jumpHoldMs < holdMax && pl.vy < 0) {
         pl.vy = pl.vy - JUMP_HOLD_LIFT * dt;
-        if (pl.vy < 0 - JUMP_MAX_V) { pl.vy = 0 - JUMP_MAX_V; }
+        if (pl.vy < 0 - maxV) { pl.vy = 0 - maxV; }
         pl.jumpHoldMs = pl.jumpHoldMs + dt;
       }
     } else {
@@ -399,9 +779,9 @@ class Ylos2Game {
     const prevFeet = pl.y + PLAYER_H;
     let newY = pl.y + pl.vy * dt;
     const newFeet = newY + PLAYER_H;
+    const wasAirborne = pl.grounded == 0 ? 1 : 0;
     pl.grounded = 0;
     pl.onMover = -1;
-    // Landing slack matches v1 (prevFeet <= plat.y + 4).
     if (pl.vy >= 0) {
       let i = 0;
       while (i < BASE_PLATFORMS.length) {
@@ -412,7 +792,7 @@ class Ylos2Game {
             pl.vy = 0;
             pl.grounded = 1;
             pl.lastGroundFeet = p.y;
-            if (i == this.goalIndex) { this.markGoal(pl); }
+            if (i == this.goalIndex) { this.enterFinish(pl); }
           }
         }
         i = i + 1;
@@ -434,7 +814,6 @@ class Ylos2Game {
     }
     pl.y = newY;
 
-    // Ride moving platforms (v1 carryVx).
     if (pl.grounded == 1 && pl.onMover >= 0) {
       const m = this.movingPlats[pl.onMover];
       pl.x = pl.x + m.vx * dt;
@@ -446,36 +825,29 @@ class Ylos2Game {
       }
     }
 
-    // v1 also finishes by proximity (feet near goal), not only by landing.
-    if (pl.reachedGoal == 0) {
-      if (pl.y + PLAYER_H <= BASE_PLATFORMS[this.goalIndex].y + 22) {
-        this.markGoal(pl);
+    if (pl.grounded == 1 && wasAirborne == 1) {
+      if (fallVy > 0.12) {
+        playSfx("wall");
       }
     }
 
-    if (pl.y > WORLD_H) { pl.y = 1830 - PLAYER_H; pl.vy = 0; }
-
-    // Seat the character on the platform: the LPC frame has transparent foot
-    // padding, so nudge the sprite centre down until the drawn feet meet the
-    // surface (v1 feetTrim / feet-at-y placement).
-    pl.sprite.setPos(pl.x + PLAYER_W / 2, pl.y + PLAYER_H / 2 + 3);
-
-    // v1 sheetFrameForPlayer: row = facing; col = walk-cycle frame (or the
-    // jump frame while airborne); idle rests on col 0.
-    if (pl.vx != 0) { pl.animTick = pl.animTick + dt; }
-    const row = pl.facing < 0 ? SHEET_ROW_LEFT : SHEET_ROW_RIGHT;
-    let col = 0;
-    if (pl.grounded == 0) {
-      col = SHEET_JUMP_COL;
-    } else if (pl.vx != 0) {
-      col = Math.floor(pl.animTick / 70) % 9;
+    if (pl.done == 0) {
+      if (pl.y + PLAYER_H <= this.goalPlatform().y + 22) {
+        this.enterFinish(pl);
+      }
     }
-    pl.sprite.setCell(col, row);
+
+    if (pl.y > WORLD_H) {
+      this.respawnPlayer(pl);
+      this.respawnMarkedDiamonds();
+      playSfx("lose");
+      this.playVoice("gasp");
+    }
+
+    if (pl.vx != 0) { pl.animTick = pl.animTick + dt; }
+    this.seatPlayerSprites(pl);
   }
 
-  // v1 computeCamera: the camera top follows the player's feet, held CAM_LEAD
-  // from the top, then CLAMPED to [0, WORLD_H - VIEW_H] so it never scrolls past
-  // the floor. The camera returns the world Y mapped to the pane centre.
   camCenterY(pl) {
     const feet = pl.y + PLAYER_H;
     let top = feet - CAM_LEAD;
@@ -488,9 +860,6 @@ class Ylos2Game {
   updateCameras() {
     const p1 = this.players[0];
     const p2 = this.players[1];
-    // camera X is FIXED at the world centre so each pane shows the full world
-    // width (v1: the 480-wide world fills the pane, no horizontal scroll); only
-    // the vertical follows the local player (clamped at the floor).
     const cx = BASE_W / 2;
     this.cam1.set(cx, this.camCenterY(p1), 1, 0);
     this.cam2.set(cx, this.camCenterY(p2), 1, 0);
@@ -501,31 +870,39 @@ class Ylos2Game {
     this.nowMs = this.nowMs + dt;
     this.updateMovers(dt);
     this.updateEnemies(dt);
-    this.updatePlayer(this.players[0], dt);
-    this.updatePlayer(this.players[1], dt);
+    this.updateFx(dt);
+
+    let si = 0;
+    while (si < this.players.length) {
+      const pl = this.players[si];
+      if (pl.done == 1) {
+        this.tickFinishPlayer(pl, dt);
+      } else {
+        this.updatePlayer(pl, dt);
+        if (pl.done == 0) {
+          this.applyEnemyHits(pl);
+          this.collectDiamonds(pl);
+        }
+      }
+      si = si + 1;
+    }
+
     this.updateCameras();
-    // paint the static environment once (world space), then bind each pane's
-    // view; the backend rasterises the environment through that pane's camera
-    // under the players (v1 createStaticBg + split-screen present).
     this.drawStaticEnv();
     this.renderer.render(this.layer, this.cam1, 0);
     this.renderer.render(this.layer, this.cam2, 1);
-    // HUD (screen-space overlay): each pane shows its player's climb score.
     this.renderer.beginOverlay();
     this.drawNumber(this.climbScore(this.players[0]), 0.42, 0.9, 0.016, 0.02, 0);
     this.drawNumber(this.climbScore(this.players[1]), 0.42, 0.9, 0.016, 0.02, 1);
     return 1;
   }
 
-  // climb score: how far above the floor the player has reached (~0 at the
-  // start, ~60 at the summit — the v1 HUD number).
   climbScore(pl) {
     let s = Math.floor((1830 - pl.y) / 28);
     if (s < 0) { s = 0; }
     return s;
   }
 
-  // ---- HUD numerals (screen-space overlay, normalised pane coords) ----------
   drawDigit(dgt, nx, ny, cw, ch, pane) {
     const g = HUD_DIGITS[dgt];
     let ry = 0;
@@ -555,8 +932,6 @@ class Ylos2Game {
     }
   }
 
-  // attract-mode target: the closest platform above the last grounded height
-  // (locked at launch — re-picking mid-flight causes a limit cycle)
   nextTargetAbove(pl) {
     const feet = pl.lastGroundFeet;
     let best = null;
@@ -575,6 +950,33 @@ class Ylos2Game {
     }
     return best;
   }
+
+  // Attract helper: nearest live enemy at roughly the same feet height.
+  nearbyEnemyThreat(pl) {
+    const px = pl.x + PLAYER_W / 2;
+    const py = pl.y + PLAYER_H;
+    let best = null;
+    let bestAbs = 100000;
+    let i = 0;
+    while (i < this.enemies.length) {
+      const e = this.enemies[i];
+      if (e.alive == 1) {
+        const dy = py - e.y;
+        if (dy > -24 && dy < 24) {
+          let dx = px - e.x;
+          if (dx < 0) { dx = 0 - dx; }
+          if (dx < 48) {
+            if (dx < bestAbs) {
+              bestAbs = dx;
+              best = e;
+            }
+          }
+        }
+      }
+      i = i + 1;
+    }
+    return best;
+  }
 }
 
 const __game = new Ylos2Game();
@@ -583,8 +985,20 @@ runtime.start(__game);
 // ---- attract mode (game feature): suggest input as bits left=1 right=2 jump=4
 // Jump must be pulsed: grounded jumps are edge-triggered (v1 jumpHold), so a
 // held jump bit across landing would never leave the ground again.
+// When an enemy is close on the same ledge, prefer a stomp jump over walking in.
 function autopilotBits(slot) {
   const pl = __game.players[slot];
+  if (pl.done == 1) { return 0; }
+
+  const threat = __game.nearbyEnemyThreat(pl);
+  if (threat != null) {
+    let bits = 4;
+    const cx = pl.x + PLAYER_W / 2;
+    if (cx < threat.x - 2) { bits = bits + 2; }
+    if (cx > threat.x + 2) { bits = bits + 1; }
+    return bits;
+  }
+
   const target = __game.nextTargetAbove(pl);
   if (target == null) { return 0; }
   let bits = 0;

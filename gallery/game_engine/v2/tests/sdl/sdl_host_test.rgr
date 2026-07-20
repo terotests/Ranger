@@ -62,22 +62,20 @@ class SdlHostTest {
         ; ---- launcher menu driven purely by input-mask edges ---------------
         def ui:RgLauncherUi (new RgLauncherUi)
         ui.init(480 270)
-        ; right edge (32) moves the category selection Games -> Tests
+        ; the catalog is discovered from the real v2/games folder (one Games
+        ; category with Pomppija); moving on a single category clamps, no launch
         def s0:int (sdl.launcherStep(0 32 ui))
         t.eqInt("moving selection does not launch" s0 0)
-        t.eqStr("right edge selected Tests" (ui.selectedLabel()) "Tests")
-        ; left edge (16) moves back to Games
-        def s1:int (sdl.launcherStep(0 16 ui))
-        t.eqStr("left edge selected Games" (ui.selectedLabel()) "Games")
+        t.eqStr("selection stays on the Games category" (ui.selectedLabel()) "Games")
         ; action edge (4) enters the Games category (page 1), no launch yet
         def s2:int (sdl.launcherStep(0 4 ui))
         t.eqInt("entering a category is not a launch" s2 0)
-        t.eqInt("now on the entries page" (ui.currentPage()) 1)
-        t.eqStr("first entry is Pomppija" (ui.selectedLabel()) "Pomppija")
-        ; action edge (4) on an entry hands off -> returns 1 with a target
+        t.eqInt("now on the games page" (ui.currentPage()) 1)
+        t.eqStr("the discovered game is Pomppija" (ui.selectedLabel()) "Pomppija")
+        ; action edge (4) on a game hands off -> returns 1 with a target
         def s3:int (sdl.launcherStep(0 4 ui))
-        t.eqInt("activating an entry hands off" s3 1)
-        t.eqStr("handoff dir is the game folder" (ui.selectedDir()) "gallery/game_engine/v2/games/ylos2")
+        t.eqInt("activating a game hands off" s3 1)
+        t.eqStr("handoff dir is the real game folder" (ui.selectedDir()) "gallery/game_engine/v2/games/ylos2")
         ; down edge (2) goes back to the category page
         def s4:int (sdl.launcherStep(0 2 ui))
         t.eqInt("back is not a launch" s4 0)
@@ -105,6 +103,40 @@ class SdlHostTest {
         snd.host.bridge.musicPlaying = false
         def _p:int (snd.pumpAudio(33))
         t.ok("host music stops when the guest stops" ((snd.music.isPlaying()) == false))
+
+        ; ---- host vocal/SFX pump (v1 parity: palette + GameVocalFx) ----------
+        ; The bridge accumulates cue strings (rgcore_vocal); the host drains
+        ; palette ids through GameAudio and voice ids through GameVocalFx.
+        def sfx:RgSdlGameHost (new RgSdlGameHost)
+        sfx.initAudio()
+        t.eqInt("no vocals before any cue" (sfx.pumpVocals()) 0)
+        push sfx.host.bridge.vocalCues "bounce"
+        push sfx.host.bridge.vocalCues "brick"
+        push sfx.host.bridge.vocalCues "cheer"
+        t.eqInt("three vocal cues synthesised" (sfx.pumpVocals()) 3)
+        ; bounce/brick hit GameAudio; cheer is a GameVocalFx catalogue id
+        t.eqStr("last palette id is brick" sfx.musicAudio.lastId "brick")
+        t.eqInt("two palette SFX synthesised" sfx.musicAudio.playCount 2)
+        t.eqStr("cheer went through GameVocalFx" sfx.vocalFx.lastId "cheer")
+        t.eqInt("one voice effect synthesised" sfx.vocalFx.playCount 1)
+        ; a second pump must not re-fire already-drained cues
+        t.eqInt("drained cues are not replayed" (sfx.pumpVocals()) 0)
+        ; a new cue after drain is still picked up (rising-edge index)
+        push sfx.host.bridge.vocalCues "wall"
+        def _n:int (sfx.pumpAudio(33))
+        t.eqInt("pumpAudio drains a new palette vocal too" sfx.musicAudio.playCount 3)
+        t.eqStr("newest palette id is wall" sfx.musicAudio.lastId "wall")
+        ; chuckle (voice) vs bounce (palette) in one pump
+        push sfx.host.bridge.vocalCues "chuckle"
+        push sfx.host.bridge.vocalCues "bounce"
+        t.eqInt("mixed voice+sfx pump" (sfx.pumpVocals()) 2)
+        t.eqStr("chuckle via GameVocalFx" sfx.vocalFx.lastId "chuckle")
+        t.eqInt("voice playCount is 2" sfx.vocalFx.playCount 2)
+        t.eqInt("palette playCount is 4" sfx.musicAudio.playCount 4)
+        ; relaunch must reopen the device flag (gfx_close clears it)
+        sfx.audioReady = true
+        sfx.resetAudioDevice()
+        t.no("resetAudioDevice clears audioReady" sfx.audioReady)
 
         t.summary()
     }

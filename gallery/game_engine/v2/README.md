@@ -25,21 +25,23 @@ There is **no SDL window** yet. Everything green below is the same stack:
 
 | Layer | What runs it | Notes |
 |-------|--------------|-------|
-| Host (`RgGameHost`, e2e, screenshot tools) | **Node.js** after Ranger→ES6 | `tests/run.sh` and `engine:v2:shot:*` both use `-es6` |
+| Host (`RgGameHost`, e2e, screenshot tools) | **Bun** (fallback Node) after Ranger→ES6 | `tests/run.sh` prefers Bun when on `PATH`; override with `V2_JS_RUNTIME=node` |
 | Guest game (`games/*/index.tsx`) | **TSX interpreter** (`interp/migrate/src/ComponentEngine.rgr`) | Loaded at runtime via `host.load(dir, file)`; registry commands hit real host arenas |
 | Pixels | **Software / textured CPU present** → in-memory `RgFramebuffer` | No `gfx_sdl`, no GL window; shots dump RGB text → PNG |
 
-So: yes, the process is fully a Node backend today; yes, the game still runs through the **TSX interpreter** (not as native Node/TS modules). Node only hosts the compiled Ranger engine.
+So: yes, the process is a JS-host backend today; yes, the game still runs through the **TSX interpreter** (not as native Node/TS modules). The JS runtime only hosts the compiled Ranger engine.
 
 ### Unit / contract tests
 
 ```bash
 npm run engine:v2:test
 # same as: bash gallery/game_engine/v2/tests/run.sh
+# force Node: V2_JS_RUNTIME=node bash gallery/game_engine/v2/tests/run.sh
 ```
 
-Compiles every registered suite to ES6, runs it under Node, and prints
-`v2 ALL GREEN — N/N suites passed` (non-zero exit on any failure).
+Compiles every registered suite to ES6, runs it under Bun when available
+(otherwise Node), and prints `v2 ALL GREEN — N/N suites passed` (non-zero exit
+on any failure).
 
 - `tests/unit/*` and `tests/contract/*` are the cross-cutting gates
 - Folder-local `*_test.rgr` suites under interp/host/bridge/… are wired into

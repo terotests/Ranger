@@ -4,10 +4,14 @@
 # ==============================================================================
 # Each suite prints "  PASS <name>" / "  FAIL <name>" and a grep-able summary
 # line ("ALL PASS" / "SOME FAILED"). This driver compiles every registered
-# suite, runs it under Node, and prints a final ALL-GREEN / FAILURES banner with
-# an aggregate pass/fail count. Run from anywhere.
+# suite, runs it under Bun when available (falls back to Node), and prints a
+# final ALL-GREEN / FAILURES banner with an aggregate pass/fail count. Run from
+# anywhere.
 #
 #   bash gallery/game_engine/v2/tests/run.sh
+#
+# Runtime selection (compile + run share the same JS engine):
+#   V2_JS_RUNTIME=bun|node   force a runtime (default: bun if on PATH, else node)
 #
 # Exit code is non-zero if any suite fails to compile or reports SOME FAILED,
 # or if the post-suite boundary gate fails (out-of-v2 Imports / game-name leaks).
@@ -19,7 +23,31 @@ cd "$ROOT"
 OUT=".v2_test_out"
 mkdir -p "$OUT"
 trap 'rm -rf "$OUT"' EXIT
-RGRC="node bin/output.js -es6"
+
+# Prefer Bun: Ranger compile (bin/output.js) is ~98% of suite wall time and runs
+# substantially faster under Bun than Node. Override with V2_JS_RUNTIME=node.
+JS_RUNTIME="${V2_JS_RUNTIME:-}"
+if [ -z "$JS_RUNTIME" ]; then
+  if command -v bun >/dev/null 2>&1; then
+    JS_RUNTIME="bun"
+  else
+    JS_RUNTIME="node"
+  fi
+fi
+case "$JS_RUNTIME" in
+  bun|node) ;;
+  *)
+    echo "v2 run.sh: unknown V2_JS_RUNTIME='$JS_RUNTIME' (want bun or node)" >&2
+    exit 2
+    ;;
+esac
+if ! command -v "$JS_RUNTIME" >/dev/null 2>&1; then
+  echo "v2 run.sh: '$JS_RUNTIME' not found on PATH" >&2
+  exit 2
+fi
+echo "v2 run.sh: using $JS_RUNTIME ($("$JS_RUNTIME" --version 2>/dev/null | head -1))"
+
+RGRC="$JS_RUNTIME bin/output.js -es6"
 V2="gallery/game_engine/v2"
 
 TOTAL_SUITES=0
@@ -41,7 +69,7 @@ run_suite() {
     return
   fi
   local run_out
-  run_out="$(node "$OUT/${name}.js" 2>&1)"
+  run_out="$("$JS_RUNTIME" "$OUT/${name}.js" 2>&1)"
   echo "$run_out" | grep -E "PASS |FAIL |ALL PASS|SOME FAILED|passed="
   if ! echo "$run_out" | grep -q "ALL PASS"; then
     FAILED_SUITES=$((FAILED_SUITES + 1))
