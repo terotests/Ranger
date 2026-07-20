@@ -156,9 +156,6 @@ class EVGElement {
     
     ; Clip path (for any element)
     def clipPath:string ""
-    ; SVG path data (the `d` attribute) for a <Path> element — filled with
-    ; backgroundColor, scaled to the element box (evg/ISSUES.md #3).
-    def svgPath:string ""
 
     ; CSS class (for reference)
     def className:string ""
@@ -274,7 +271,10 @@ class EVGElement {
     }
     
     fn addChild:void (child:EVGElement) {
-        child.parent = this
+        ; NOTE: no `child.parent = this` back-reference — it was write-only (never
+        ; read) and, in the C++ backend, assigning `this` to a shared_ptr field
+        ; forces enable_shared_from_this on EVGElement, which broke the native
+        ; build. Children are tracked by `children[]` (forward edges) only.
         push children child
     }
     
