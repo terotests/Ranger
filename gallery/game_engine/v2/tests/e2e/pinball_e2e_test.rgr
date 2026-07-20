@@ -1,0 +1,84 @@
+; ==============================================================================
+; pinball_e2e_test — the physics pinball table runs through RgGameHost.
+; ==============================================================================
+; Loads games/pinball through the generic tsx host and asserts the SAME bridge a
+; player would drive: one cannon ball body, a single pane, a rendered playfield,
+; and a ball that MOVES under gravity/collisions (the framebuffer changes as it
+; travels). Input dispatches cleanly (flippers). Only the SDL blit is untestable.
+; ==============================================================================
+
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+Import "../harness/RgTest.rgr"
+
+class PinballE2eTest {
+    sfn nonClear:int (fb:RgFramebuffer) {
+        def n 0
+        def y 0
+        while (y < 270) {
+            def x 0
+            while (x < 480) {
+                if ((fb.at(x y)) != 0) { n = (n + 1) }
+                x = (x + 6)
+            }
+            y = (y + 6)
+        }
+        return n
+    }
+    sfn diff:int (a:RgFramebuffer b:RgFramebuffer) {
+        def n 0
+        def y 0
+        while (y < 270) {
+            def x 0
+            while (x < 480) {
+                if ((a.at(x y)) != (b.at(x y))) { n = (n + 1) }
+                x = (x + 6)
+            }
+            y = (y + 6)
+        }
+        return n
+    }
+    sfn stepN:void (host:RgGameHost n:int) {
+        def i 0
+        while (i < n) {
+            host.frame(16.667)
+            i = (i + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("games/pinball (physics pinball via RgGameHost)"))
+        def host:RgGameHost (new RgGameHost)
+
+        def ok:boolean (host.load("gallery/game_engine/v2/games/pinball" "index.tsx"))
+        t.ok("pinball loaded + init ran" ok)
+        t.eqInt("no bridge errors after init" host.bridge.errorCount 0)
+        t.eqInt("single pane table" (host.bridge.surface.paneCount()) 1)
+        t.eqInt("one cannon ball body in the physics arena" (host.bridge.phys.liveCount()) 1)
+
+        ; ---- a couple frames, then present the playfield ---------------------
+        PinballE2eTest.stepN(host 2)
+        def fb1:RgFramebuffer (RgFramebuffer.create(480 270))
+        def drawn:int (Rg2DPresenter.presentTextured(host.bridge 0 fb1 0))
+        t.ok("pane 0 composites the table" (drawn >= 0))
+        t.ok("the playfield rendered (non-clear pixels)"
+            ((PinballE2eTest.nonClear(fb1)) > 0))
+
+        ; ---- the ball travels under gravity: the picture changes ------------
+        PinballE2eTest.stepN(host 16)
+        def fb2:RgFramebuffer (RgFramebuffer.create(480 270))
+        def drawn2:int (Rg2DPresenter.presentTextured(host.bridge 0 fb2 0))
+        t.ok("the ball moved (framebuffer changed as it travelled)"
+            ((PinballE2eTest.diff(fb1 fb2)) > 0))
+        t.eqInt("still exactly one ball (drains reset, not leak)" (host.bridge.phys.liveCount()) 1)
+
+        ; ---- flippers: input dispatches cleanly -----------------------------
+        host.bridge.input.setAction(0 "left" true)
+        host.bridge.input.setAction(0 "right" true)
+        PinballE2eTest.stepN(host 6)
+        t.eqInt("flipper input dispatched with no errors" host.bridge.errorCount 0)
+        t.eqInt("no unhandled commands across the run" host.bridge.unhandledCount 0)
+
+        t.summary()
+    }
+}

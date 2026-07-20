@@ -1,0 +1,46 @@
+; pinball_screenshot — render a pinball frame to RGB text (-> dump_rgb_to_png.js).
+Import "../../runtime/game_host/RgGameHost.rgr"
+Import "../../runtime/game_host/Rg2DPresenter.rgr"
+
+class PinballScreenshot {
+    sfn hex2:string (v:int) {
+        def d:string "0123456789abcdef"
+        def hi:int (idiv v 16)
+        def lo:int (v - (hi * 16))
+        return ((substring d hi (hi + 1)) + (substring d lo (lo + 1)))
+    }
+    sfn hex6:string (rgb:int) {
+        def r:int (idiv rgb 65536)
+        def g:int (idiv (rgb - (r * 65536)) 256)
+        def b:int ((rgb - (r * 65536)) - (g * 256))
+        return (((PinballScreenshot.hex2(r)) + (PinballScreenshot.hex2(g))) + (PinballScreenshot.hex2(b)))
+    }
+    sfn m@(main):void () {
+        def host:RgGameHost (new RgGameHost)
+        if ((host.load("gallery/game_engine/v2/games/pinball" "index.tsx")) == false) {
+            print "ERROR: pinball failed to load"
+            return
+        }
+        def f 0
+        while (f < 34) {
+            host.frame(16.667)
+            f = (f + 1)
+        }
+        def paneW:int 480
+        def paneH:int 270
+        def fb:RgFramebuffer (RgFramebuffer.create(paneW paneH))
+        def drawn:int (Rg2DPresenter.presentTextured(host.bridge 0 fb 0))
+        print ("RGBSHOT " + ((to_string paneW) + (" " + (to_string paneH))))
+        def y 0
+        while (y < paneH) {
+            def line:string ""
+            def x 0
+            while (x < paneW) {
+                line = (line + (PinballScreenshot.hex6((fb.at(x y)))))
+                x = (x + 1)
+            }
+            print line
+            y = (y + 1)
+        }
+    }
+}
