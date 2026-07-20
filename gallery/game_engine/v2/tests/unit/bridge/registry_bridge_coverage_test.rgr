@@ -402,6 +402,10 @@ class RegistryBridgeCoverageTest {
         push phA (s.num(16777215.0))
         push phA (s.num(40.0))
         def matPhong:int (s.callI("rg3d_material_phong" phA))
+        def mmA:[EvalValue]
+        push mmA (s.num((to_double matPhong)))
+        push mmA (s.str("pkg://nope.png"))
+        s.callN("rg3d_material_map" mmA)
         def opacA:[EvalValue]
         push opacA (s.num((to_double matLambert)))
         push opacA (s.num(0.72))

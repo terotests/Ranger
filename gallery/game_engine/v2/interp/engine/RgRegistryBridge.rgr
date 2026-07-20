@@ -866,6 +866,22 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
+        if (row.name == "rg3d_material_map") {
+            def rel:string (a.strAt(1))
+            if ((indexOf rel "pkg://") == 0) { rel = (substring rel 6) }
+            if (this.packageDir != "") {
+                if (file_exists this.packageDir rel) {
+                    def dec:PNGDecoder (new PNGDecoder)
+                    def img:ImageBuffer (dec.decode(this.packageDir rel))
+                    if ((img.width > 0) && (img.height > 0)) {
+                        def mh:int (this.d3.materialH((a.handleAt(0))))
+                        this.d3.host.setTexture(rel img.pixels img.width img.height)
+                        this.d3.host.materialMap(mh rel)
+                    }
+                }
+            }
+            return (EvalValue.null())
+        }
         if (row.name == "rg3d_material_set_opacity") {
             this.d3.clearErr()
             if ((this.d3.materialSetOpacity((a.handleAt(0)) (a.dblAt(1)))) == false) {

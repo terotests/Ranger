@@ -67,6 +67,7 @@ pub const RG3D_MATERIAL_BASIC: i32 = 3020;
 pub const RG3D_MATERIAL_LAMBERT: i32 = 3021;
 pub const RG3D_MATERIAL_SET_OPACITY: i32 = 3022;
 pub const RG3D_MATERIAL_PHONG: i32 = 3023;
+pub const RG3D_MATERIAL_MAP: i32 = 3024;
 pub const RG3D_MESH_CREATE: i32 = 3030;
 pub const RG3D_MESH_TRANSFORM: i32 = 3031;
 pub const RG3D_MESH_SET_SCALE: i32 = 3032;
@@ -282,6 +283,9 @@ impl<'a> RgCmdBuf<'a> {
     }
     pub fn rg3d_material_phong(&mut self, dst: i32, a0: i32, a1: i32, a2: f32) {
         self.put(RG3D_MATERIAL_PHONG, dst, &[a0, a1, ((a2 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_material_map(&mut self, a0: i32, a1_ptr: i32, a1_len: i32) {
+        self.put(RG3D_MATERIAL_MAP, 0, &[a0, a1_ptr, a1_len]);
     }
     pub fn rg3d_mesh_create(&mut self, dst: i32, a0: i32, a1: i32) {
         self.put(RG3D_MESH_CREATE, dst, &[a0, a1]);

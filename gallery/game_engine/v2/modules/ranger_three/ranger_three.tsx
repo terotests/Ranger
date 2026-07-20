@@ -89,6 +89,8 @@ class MeshPhongMaterial {
   constructor(colorHex, specularHex, shininess) {
     this.id = rg3d_material_phong(colorHex, specularHex, shininess);
   }
+  // apply a diffuse texture from a pkg-relative PNG (e.g. printed art)
+  setMap(path) { rg3d_material_map(this.id, path); }
 }
 
 class MeshLambertMaterial {
@@ -97,6 +99,7 @@ class MeshLambertMaterial {
   setOpacity(opacity) {
     rg3d_material_set_opacity(this.id, opacity);
   }
+  setMap(path) { rg3d_material_map(this.id, path); }
 }
 
 // D-SYNC: create the light DETACHED (no scene membership). Establish membership

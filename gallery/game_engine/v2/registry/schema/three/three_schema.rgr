@@ -51,6 +51,8 @@ class ThreeSchema {
         mat.addMethod((RgMethodDef.cmd(3022 "rg3d_material_set_opacity" "rg3d_material_set_opacity" "h:d" "v" "none")))
         ; Phong (smooth-shaded, specular): colour(i), specularColour(i), shininess(d).
         mat.addMethod((RgMethodDef.cmd(3023 "rg3d_material_phong" "rg3d_material_phong" "i:i:d" "h" "create")))
+        ; Diffuse texture map from a pkg-relative PNG (printed playfield art etc.).
+        mat.addMethod((RgMethodDef.cmd(3024 "rg3d_material_map" "rg3d_material_map" "h:s" "v" "none")))
         s.addClass(mat)
 
         ; ---- Mesh3D (34) -----------------------------------------------------
