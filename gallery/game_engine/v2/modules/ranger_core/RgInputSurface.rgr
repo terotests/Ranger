@@ -50,6 +50,40 @@ class RgPlayerInput {
         push this.wasPressed false
         return ((array_length this.actions) - 1)
     }
+
+    ; ---- packed masks (for passing input to a wasm guest) -------------------
+    ; Standard action bits: LEFT 1 · RIGHT 2 · JUMP 4 · UP 8 · DOWN 16 · ACTION 32.
+    ; A guest reads these two i32s (held / edge-pressed) from its input region.
+    fn downBit:int (name:string bit:int) {
+        def idx:int (this.findAction(name))
+        if (idx < 0) { return 0 }
+        if (itemAt this.isDown idx) { return bit }
+        return 0
+    }
+    fn pressedBit:int (name:string bit:int) {
+        def idx:int (this.findAction(name))
+        if (idx < 0) { return 0 }
+        if (itemAt this.wasPressed idx) { return bit }
+        return 0
+    }
+    fn downMask:int () {
+        def m:int (this.downBit("left" 1))
+        m = (m + (this.downBit("right" 2)))
+        m = (m + (this.downBit("jump" 4)))
+        m = (m + (this.downBit("up" 8)))
+        m = (m + (this.downBit("down" 16)))
+        m = (m + (this.downBit("action" 32)))
+        return m
+    }
+    fn pressedMask:int () {
+        def m:int (this.pressedBit("left" 1))
+        m = (m + (this.pressedBit("right" 2)))
+        m = (m + (this.pressedBit("jump" 4)))
+        m = (m + (this.pressedBit("up" 8)))
+        m = (m + (this.pressedBit("down" 16)))
+        m = (m + (this.pressedBit("action" 32)))
+        return m
+    }
 }
 
 class RgInput {
