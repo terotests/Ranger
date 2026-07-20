@@ -90,6 +90,21 @@ class Ylos3dWasmConformanceTest {
         t.eqInt("still no bridge errors after the round-trip frame" b.errorCount 0)
         t.eqInt("follow-up applied to the SAME mesh (still 1 entity)" (b.d3.host.entityCount()) 1)
 
+        ; ---- string / asset args cross wasm32 (the `s` argSpec) ---------------
+        ; A record carries a (ptr,len) into the guest's memory; the dispatcher
+        ; reads the bytes back into a string. Proven two ways: a vocal cue echoed
+        ; verbatim, and a REAL GLB loaded by its path string.
+        b.packageDir = "gallery/game_engine/v2/games/ylos3d"
+        def nm:int (wasm_call_i32 h "frame_model" 0 0 0 0 0 0)
+        t.eqInt("model frame emitted 2 commands (vocal + model_load)" nm 2)
+        def baseM:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        def gotM:int (disp.drainDoc(h baseM resBase))
+        t.eqInt("string/asset commands dispatched" gotM 2)
+        t.eqInt("no error decoding the string args + loading the model" b.errorCount 0)
+        t.ok("a vocal cue was recorded" ((array_length b.vocalCues) >= 1))
+        t.eqStr("guest string arg reached the host verbatim" (itemAt b.vocalCues 0) "cue-42")
+        t.ok("real GLB loaded via the path string (model handle > 0)" ((disp.hostId(6)) > 0))
+
         ; ---- ADDING interfaces does NOT outdate this guest --------------------
         ; A newer host with extra commands is modelled by the same table (its ids
         ; are a superset); the guest re-emits its unchanged buffer and still fully

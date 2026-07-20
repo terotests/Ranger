@@ -81,3 +81,233 @@ pub const RG3D_ORBIT_POINTER: i32 = 3073;
 pub const RG3D_ORBIT_WHEEL: i32 = 3074;
 pub const RG3D_ORBIT_APPLY: i32 = 3075;
 
+// Typed command-buffer builder - one checked method per command.
+pub struct RgCmdBuf<'a> { buf: &'a mut [i32], count: usize }
+impl<'a> RgCmdBuf<'a> {
+    pub fn new(buf: &'a mut [i32]) -> Self { RgCmdBuf { buf, count: 0 } }
+    fn put(&mut self, id: i32, dst: i32, args: &[i32]) {
+        let base = RGC1_HDR + self.count * RGC1_WORDS;
+        self.buf[base] = id; self.buf[base + 1] = dst;
+        let mut i = 0; while i < args.len() && i < RGC1_WORDS - 2 { self.buf[base + 2 + i] = args[i]; i += 1; }
+        self.count += 1;
+    }
+    /// Write the RGC1 header; returns the record count.
+    pub fn finish(&mut self) -> i32 {
+        self.buf[0] = RGC1_MAGIC; self.buf[1] = RGC1_MAJOR;
+        self.buf[2] = self.count as i32; self.buf[3] = 0; self.count as i32
+    }
+    pub fn rgcore_input_is_down(&mut self, a0: i32, a1_ptr: i32, a1_len: i32) {
+        self.put(RGCORE_INPUT_IS_DOWN, 0, &[a0, a1_ptr, a1_len]);
+    }
+    pub fn rgcore_input_was_pressed(&mut self, a0: i32, a1_ptr: i32, a1_len: i32) {
+        self.put(RGCORE_INPUT_WAS_PRESSED, 0, &[a0, a1_ptr, a1_len]);
+    }
+    pub fn rgcore_input_rumble(&mut self, a0: i32, a1: i32, a2: i32) {
+        self.put(RGCORE_INPUT_RUMBLE, 0, &[a0, a1, a2]);
+    }
+    pub fn rgcore_surface_set_layout(&mut self, a0: i32) {
+        self.put(RGCORE_SURFACE_SET_LAYOUT, 0, &[a0]);
+    }
+    pub fn rgcore_surface_pane_player(&mut self, a0: i32, a1: i32) {
+        self.put(RGCORE_SURFACE_PANE_PLAYER, 0, &[a0, a1]);
+    }
+    pub fn rgcore_surface_pane_view(&mut self, a0: i32, a1: i32, a2: i32) {
+        self.put(RGCORE_SURFACE_PANE_VIEW, 0, &[a0, a1, a2]);
+    }
+    pub fn rgcore_audio_clip_create(&mut self, dst: i32, a0: f32, a1: i32, a2: f32, a3: i32) {
+        self.put(RGCORE_AUDIO_CLIP_CREATE, dst, &[((a0 * RGC1_FIXED as f32) as i32), a1, ((a2 * RGC1_FIXED as f32) as i32), a3]);
+    }
+    pub fn rgcore_audio_source_create(&mut self, dst: i32, a0: i32) {
+        self.put(RGCORE_AUDIO_SOURCE_CREATE, dst, &[a0]);
+    }
+    pub fn rgcore_audio_one_shot(&mut self, a0: i32) {
+        self.put(RGCORE_AUDIO_ONE_SHOT, 0, &[a0]);
+    }
+    pub fn rgcore_vocal(&mut self, a0_ptr: i32, a0_len: i32) {
+        self.put(RGCORE_VOCAL, 0, &[a0_ptr, a0_len]);
+    }
+    pub fn rgcore_music_play(&mut self, a0_ptr: i32, a0_len: i32) {
+        self.put(RGCORE_MUSIC_PLAY, 0, &[a0_ptr, a0_len]);
+    }
+    pub fn rgcore_music_stop(&mut self, ) {
+        self.put(RGCORE_MUSIC_STOP, 0, &[]);
+    }
+    pub fn rgcore_assets_load_atlas(&mut self, dst: i32, a0_ptr: i32, a0_len: i32) {
+        self.put(RGCORE_ASSETS_LOAD_ATLAS, dst, &[a0_ptr, a0_len]);
+    }
+    pub fn rgcore_time_now(&mut self, ) {
+        self.put(RGCORE_TIME_NOW, 0, &[]);
+    }
+    pub fn rgcore_log(&mut self, a0_ptr: i32, a0_len: i32) {
+        self.put(RGCORE_LOG, 0, &[a0_ptr, a0_len]);
+    }
+    pub fn rgcore_launch(&mut self, a0_ptr: i32, a0_len: i32) {
+        self.put(RGCORE_LAUNCH, 0, &[a0_ptr, a0_len]);
+    }
+    pub fn rgcore_graphics_rt_create(&mut self, dst: i32, a0: i32, a1: i32) {
+        self.put(RGCORE_GRAPHICS_RT_CREATE, dst, &[a0, a1]);
+    }
+    pub fn rg2d_texture_create(&mut self, dst: i32, a0: i32, a1: i32) {
+        self.put(RG2D_TEXTURE_CREATE, dst, &[a0, a1]);
+    }
+    pub fn rg2d_atlas_create(&mut self, dst: i32, a0: i32) {
+        self.put(RG2D_ATLAS_CREATE, dst, &[a0]);
+    }
+    pub fn rg2d_atlas_add_region(&mut self, a0: i32, a1_ptr: i32, a1_len: i32, a2: i32, a3: i32, a4: i32, a5: i32) {
+        self.put(RG2D_ATLAS_ADD_REGION, 0, &[a0, a1_ptr, a1_len, a2, a3, a4, a5]);
+    }
+    pub fn rg2d_atlas_region_index(&mut self, a0: i32, a1_ptr: i32, a1_len: i32) {
+        self.put(RG2D_ATLAS_REGION_INDEX, 0, &[a0, a1_ptr, a1_len]);
+    }
+    pub fn rg2d_sprite_create(&mut self, dst: i32, a0: i32, a1: i32) {
+        self.put(RG2D_SPRITE_CREATE, dst, &[a0, a1]);
+    }
+    pub fn rg2d_sprite_set_pos(&mut self, a0: i32, a1: f32, a2: f32) {
+        self.put(RG2D_SPRITE_SET_POS, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg2d_sprite_set_region(&mut self, a0: i32, a1: i32) {
+        self.put(RG2D_SPRITE_SET_REGION, 0, &[a0, a1]);
+    }
+    pub fn rg2d_sprite_release(&mut self, a0: i32) {
+        self.put(RG2D_SPRITE_RELEASE, 0, &[a0]);
+    }
+    pub fn rg2d_sprite_set_size(&mut self, a0: i32, a1: f32, a2: f32) {
+        self.put(RG2D_SPRITE_SET_SIZE, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg2d_sprite_set_z(&mut self, a0: i32, a1: i32) {
+        self.put(RG2D_SPRITE_SET_Z, 0, &[a0, a1]);
+    }
+    pub fn rg2d_sprite_set_flip(&mut self, a0: i32, a1: i32) {
+        self.put(RG2D_SPRITE_SET_FLIP, 0, &[a0, a1]);
+    }
+    pub fn rg2d_sprite_set_cell(&mut self, a0: i32, a1: i32, a2: i32) {
+        self.put(RG2D_SPRITE_SET_CELL, 0, &[a0, a1, a2]);
+    }
+    pub fn rg2d_sprite_set_pane(&mut self, a0: i32, a1: i32) {
+        self.put(RG2D_SPRITE_SET_PANE, 0, &[a0, a1]);
+    }
+    pub fn rg2d_sprite_create_tex(&mut self, dst: i32, a0: i32) {
+        self.put(RG2D_SPRITE_CREATE_TEX, dst, &[a0]);
+    }
+    pub fn rg2d_layer_create(&mut self, dst: i32) {
+        self.put(RG2D_LAYER_CREATE, dst, &[]);
+    }
+    pub fn rg2d_layer_add(&mut self, a0: i32, a1: i32) {
+        self.put(RG2D_LAYER_ADD, 0, &[a0, a1]);
+    }
+    pub fn rg2d_layer_remove(&mut self, a0: i32) {
+        self.put(RG2D_LAYER_REMOVE, 0, &[a0]);
+    }
+    pub fn rg2d_camera_create(&mut self, dst: i32) {
+        self.put(RG2D_CAMERA_CREATE, dst, &[]);
+    }
+    pub fn rg2d_camera_set(&mut self, a0: i32, a1: f32, a2: f32, a3: f32, a4: f32) {
+        self.put(RG2D_CAMERA_SET, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), ((a4 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg2d_render(&mut self, a0: i32, a1: i32, a2: i32) {
+        self.put(RG2D_RENDER, 0, &[a0, a1, a2]);
+    }
+    pub fn rg2d_player_create(&mut self, dst: i32, a0: i32, a1: i32) {
+        self.put(RG2D_PLAYER_CREATE, dst, &[a0, a1]);
+    }
+    pub fn rg2d_player_frame_at(&mut self, a0: i32, a1: f32) {
+        self.put(RG2D_PLAYER_FRAME_AT, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg2d_bg_begin(&mut self, ) {
+        self.put(RG2D_BG_BEGIN, 0, &[]);
+    }
+    pub fn rg2d_bg_rect(&mut self, a0: f32, a1: f32, a2: f32, a3: f32, a4: i32, a5: i32, a6: i32) {
+        self.put(RG2D_BG_RECT, 0, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), a4, a5, a6]);
+    }
+    pub fn rg2d_bg_circle(&mut self, a0: f32, a1: f32, a2: f32, a3: i32, a4: i32, a5: i32) {
+        self.put(RG2D_BG_CIRCLE, 0, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), a3, a4, a5]);
+    }
+    pub fn rg2d_ov_begin(&mut self, ) {
+        self.put(RG2D_OV_BEGIN, 0, &[]);
+    }
+    pub fn rg2d_ov_rect(&mut self, a0: f32, a1: f32, a2: f32, a3: f32, a4: i32, a5: i32, a6: i32, a7: i32) {
+        self.put(RG2D_OV_RECT, 0, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), a4, a5, a6, a7]);
+    }
+    pub fn rg3d_scene_create(&mut self, dst: i32) {
+        self.put(RG3D_SCENE_CREATE, dst, &[]);
+    }
+    pub fn rg3d_camera_create(&mut self, dst: i32) {
+        self.put(RG3D_CAMERA_CREATE, dst, &[]);
+    }
+    pub fn rg3d_camera_set(&mut self, a0: i32, a1: f32, a2: f32, a3: f32, a4: f32) {
+        self.put(RG3D_CAMERA_SET, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), ((a4 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_camera_pose(&mut self, a0: i32, a1: f32, a2: f32, a3: f32, a4: f32, a5: f32, a6: f32) {
+        self.put(RG3D_CAMERA_POSE, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), ((a4 * RGC1_FIXED as f32) as i32), ((a5 * RGC1_FIXED as f32) as i32), ((a6 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_geometry_box(&mut self, dst: i32, a0: f32, a1: f32, a2: f32) {
+        self.put(RG3D_GEOMETRY_BOX, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_geometry_octahedron(&mut self, dst: i32, a0: f32) {
+        self.put(RG3D_GEOMETRY_OCTAHEDRON, dst, &[((a0 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_geometry_teapot(&mut self, dst: i32, a0: f32, a1: i32, a2: i32, a3: i32, a4: i32, a5: i32, a6: i32) {
+        self.put(RG3D_GEOMETRY_TEAPOT, dst, &[((a0 * RGC1_FIXED as f32) as i32), a1, a2, a3, a4, a5, a6]);
+    }
+    pub fn rg3d_geometry_plane(&mut self, dst: i32, a0: f32, a1: f32, a2: i32, a3: i32) {
+        self.put(RG3D_GEOMETRY_PLANE, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), a2, a3]);
+    }
+    pub fn rg3d_material_basic(&mut self, dst: i32, a0: i32) {
+        self.put(RG3D_MATERIAL_BASIC, dst, &[a0]);
+    }
+    pub fn rg3d_material_lambert(&mut self, dst: i32, a0: i32) {
+        self.put(RG3D_MATERIAL_LAMBERT, dst, &[a0]);
+    }
+    pub fn rg3d_material_set_opacity(&mut self, a0: i32, a1: f32) {
+        self.put(RG3D_MATERIAL_SET_OPACITY, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_mesh_create(&mut self, dst: i32, a0: i32, a1: i32) {
+        self.put(RG3D_MESH_CREATE, dst, &[a0, a1]);
+    }
+    pub fn rg3d_mesh_transform(&mut self, a0: i32, a1: f32, a2: f32, a3: f32, a4: f32, a5: f32, a6: f32) {
+        self.put(RG3D_MESH_TRANSFORM, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), ((a4 * RGC1_FIXED as f32) as i32), ((a5 * RGC1_FIXED as f32) as i32), ((a6 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_mesh_set_scale(&mut self, a0: i32, a1: f32, a2: f32, a3: f32) {
+        self.put(RG3D_MESH_SET_SCALE, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_entity_set_parent(&mut self, a0: i32, a1: i32) {
+        self.put(RG3D_ENTITY_SET_PARENT, 0, &[a0, a1]);
+    }
+    pub fn rg3d_entity_remove(&mut self, a0: i32, a1: i32) {
+        self.put(RG3D_ENTITY_REMOVE, 0, &[a0, a1]);
+    }
+    pub fn rg3d_group_create(&mut self, dst: i32) {
+        self.put(RG3D_GROUP_CREATE, dst, &[]);
+    }
+    pub fn rg3d_render_to(&mut self, a0: i32, a1: i32, a2: i32, a3: i32, a4: i32) {
+        self.put(RG3D_RENDER_TO, 0, &[a0, a1, a2, a3, a4]);
+    }
+    pub fn rg3d_light_ambient(&mut self, dst: i32, a0: i32, a1: f32) {
+        self.put(RG3D_LIGHT_AMBIENT, dst, &[a0, ((a1 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_light_directional(&mut self, dst: i32, a0: i32, a1: f32, a2: f32, a3: f32, a4: f32) {
+        self.put(RG3D_LIGHT_DIRECTIONAL, dst, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), ((a4 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_model_load(&mut self, dst: i32, a0_ptr: i32, a0_len: i32) {
+        self.put(RG3D_MODEL_LOAD, dst, &[a0_ptr, a0_len]);
+    }
+    pub fn rg3d_orbit_create(&mut self, dst: i32, a0: i32) {
+        self.put(RG3D_ORBIT_CREATE, dst, &[a0]);
+    }
+    pub fn rg3d_orbit_viewport(&mut self, a0: i32, a1: i32, a2: i32) {
+        self.put(RG3D_ORBIT_VIEWPORT, 0, &[a0, a1, a2]);
+    }
+    pub fn rg3d_orbit_target(&mut self, a0: i32, a1: f32, a2: f32, a3: f32) {
+        self.put(RG3D_ORBIT_TARGET, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_orbit_pointer(&mut self, a0: i32, a1: i32, a2: f32, a3: f32, a4: i32) {
+        self.put(RG3D_ORBIT_POINTER, 0, &[a0, a1, ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32), a4]);
+    }
+    pub fn rg3d_orbit_wheel(&mut self, a0: i32, a1: f32) {
+        self.put(RG3D_ORBIT_WHEEL, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_orbit_apply(&mut self, a0: i32) {
+        self.put(RG3D_ORBIT_APPLY, 0, &[a0]);
+    }
+}
+

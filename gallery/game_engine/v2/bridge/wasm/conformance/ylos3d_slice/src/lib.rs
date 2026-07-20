@@ -29,29 +29,15 @@ use rg_abi::*;
 const MAX_REC: usize = 32;
 static mut BUF: [i32; RGC1_HDR + RGC1_WORDS * MAX_REC] = [0; RGC1_HDR + RGC1_WORDS * MAX_REC];
 
-// Write the RGC1 header ([MAGIC, MAJOR, COUNT, RESERVED]) with `count` records.
-unsafe fn header(count: i32) {
-    BUF[0] = RGC1_MAGIC;
-    BUF[1] = RGC1_MAJOR;
-    BUF[2] = count;
-    BUF[3] = 0;
-}
-
 // Result region: the host writes the minted host id of each created object here,
 // indexed by the guest-local id it was created with (the return-value round-trip).
 const MAX_ID: usize = 64;
 static mut RESULT: [i32; MAX_ID] = [0; MAX_ID];
 
-unsafe fn put(rec: usize, op: i32, dst: i32, args: &[i32]) {
-    let base = RGC1_HDR + rec * RGC1_WORDS;
-    BUF[base] = op;
-    BUF[base + 1] = dst;
-    let mut i = 0;
-    while i < args.len() && i < RGC1_WORDS - 2 {
-        BUF[base + 2 + i] = args[i];
-        i += 1;
-    }
-}
+// String/asset args live in the guest's own memory; a record carries a (ptr,len)
+// into them. These are ASCII byte literals in the guest's rodata.
+static VOCAL_CUE: &[u8] = b"cue-42";
+static MODEL_PATH: &[u8] = b"models/diamond.glb";
 
 #[no_mangle]
 pub extern "C" fn cmd_ptr() -> i32 {
@@ -65,17 +51,17 @@ pub extern "C" fn result_ptr() -> i32 {
 
 #[no_mangle]
 pub extern "C" fn frame() -> i32 {
-    unsafe {
-        put(0, RG3D_SCENE_CREATE, 1, &[]);                              // scene        -> id 1
-        put(1, RG3D_CAMERA_CREATE, 2, &[]);                             // camera       -> id 2
-        put(2, RG3D_GEOMETRY_BOX, 3, &[2000, 2000, 2000]);          // box 2x2x2     -> id 3
-        put(3, RG3D_MATERIAL_LAMBERT, 4, &[0x33_aa_ff]);                // lambert color -> id 4
-        put(4, RG3D_MESH_CREATE, 5, &[3, 4]);                          // mesh(3,4)     -> id 5
-        put(5, RG3D_ENTITY_SET_PARENT, 0, &[5, 1]);                           // scene.add(mesh 5 -> scene 1)
-        put(6, RG3D_MESH_TRANSFORM, 0, &[5, 1500, 0, -3000, 0, 0, 0]); // mesh 5 pos(1.5,0,-3)
-        header(7);
-        7
-    }
+    // Typed, schema-generated builder — the guest can't mis-order or mis-encode
+    // args (geometry_box takes f32s, fixed-point is applied for us, etc.).
+    let mut cb = RgCmdBuf::new(unsafe { &mut BUF });
+    cb.rg3d_scene_create(1); //                             scene        -> id 1
+    cb.rg3d_camera_create(2); //                            camera       -> id 2
+    cb.rg3d_geometry_box(3, 2.0, 2.0, 2.0); //              box 2x2x2    -> id 3
+    cb.rg3d_material_lambert(4, 0x33_aa_ff); //             lambert      -> id 4
+    cb.rg3d_mesh_create(5, 3, 4); //                        mesh(3,4)    -> id 5
+    cb.rg3d_entity_set_parent(5, 1); //                     scene.add(mesh 5 -> scene 1)
+    cb.rg3d_mesh_transform(5, 1.5, 0.0, -3.0, 0.0, 0.0, 0.0); // mesh 5 pos(1.5,0,-3)
+    cb.finish()
 }
 
 /// A second frame that depends on the return-value round-trip: the guest reads
@@ -86,14 +72,26 @@ pub extern "C" fn frame() -> i32 {
 /// Returns the number of records emitted (0 if no handle came back).
 #[no_mangle]
 pub extern "C" fn frame2() -> i32 {
-    unsafe {
-        let mesh_host = RESULT[5];
-        if mesh_host == 0 {
-            header(0);
-            return 0; // no round-trip -> nothing to do
-        }
-        put(0, RG3D_MESH_TRANSFORM, 0, &[5, 500, 500, -2000, 0, 0, 0]); // move mesh 5
-        header(1);
-        1
+    let mesh_host = unsafe { RESULT[5] };
+    let mut cb = RgCmdBuf::new(unsafe { &mut BUF });
+    if mesh_host == 0 {
+        return cb.finish(); // no round-trip -> 0 records
     }
+    cb.rg3d_mesh_transform(5, 0.5, 0.5, -2.0, 0.0, 0.0, 0.0); // move mesh 5
+    cb.finish()
+}
+
+/// String / asset args: send a vocal-cue string (echoed by the host) and load a
+/// real GLB by path. Both args are (ptr,len) into the guest's own memory; the
+/// model handle is bound to guest-local id 6.
+#[no_mangle]
+pub extern "C" fn frame_model() -> i32 {
+    let vp = VOCAL_CUE.as_ptr() as i32;
+    let vl = VOCAL_CUE.len() as i32;
+    let mp = MODEL_PATH.as_ptr() as i32;
+    let ml = MODEL_PATH.len() as i32;
+    let mut cb = RgCmdBuf::new(unsafe { &mut BUF });
+    cb.rgcore_vocal(vp, vl); //          string arg -> host vocal cues (verbatim)
+    cb.rg3d_model_load(6, mp, ml); //    load a real GLB via the path string -> id 6
+    cb.finish()
 }

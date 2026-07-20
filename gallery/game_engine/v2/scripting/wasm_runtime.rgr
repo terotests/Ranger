@@ -95,6 +95,17 @@ operators {
         }
     }
 
+    ; Read `len` bytes of guest linear memory at byte offset `off` as a string
+    ; (used to lower an `s`/string command arg — a ptr+len in the guest's memory).
+    ; ASCII/UTF-8 paths; the native path is a follow-up (returns "" for now).
+    wasm_mem_str _:string (handle:int off:int len:int) {
+        templates {
+            cpp ( "std::string()" (imp "<string>") )
+            es6 ( "(function(h,o,l){var H=globalThis.__rgwasm;var m=H&&H.mods[h];if(!m||!m.mem||l<=0)return '';var u=new Uint8Array(m.mem.buffer,o,l);var s='';for(var i=0;i<l;i++){s+=String.fromCharCode(u[i]);}return s;})(" (e 1) "," (e 2) "," (e 3) ")" )
+            ranger ( "\"\"" )
+        }
+    }
+
     ; Handle of the one worker a module spawned via env.rg_spawn_worker (0 = none).
     wasm_spawned_child _:int (handle:int) {
         templates {
