@@ -459,19 +459,28 @@ existing RGU1/RGX1 shared-block guests (no host-call imports).
   a host-written handle and acted on it across a frame boundary.
 - Conformance test now 18 asserts (was 13), all through the generic dispatcher.
 
-**ABI versioning (guest/host compatibility).** RGC1 now carries a header
-`[MAGIC, EPOCH, COUNT, RESERVED]`; `RgWasmCmdDispatch.drainDoc` validates MAGIC +
-the profile's `epoch` before dispatching anything, so a guest compiled against a
-different ABI is **rejected** (`abiError`), not silently misdispatched — the same
-discipline as the sibling RGU1/RGX1 blocks. Gated by the conformance test
-(matched epoch dispatches; bumped epoch → 0 dispatched). **Residual risk:** the
-epoch is bumped by hand, so an argSpec change without an epoch bump would slip
-through — a stronger guard would DERIVE the epoch from a hash of the profile's
-command signatures (auto-invalidates old .wasm on any signature change). Still
-open per BRIDGES step 7: semantic-id / interface-compatibility golden, golden
-wire vectors, and an explicit old-guest/new-host compatibility run. The profile
-is deliberately NOT frozen yet (BRIDGES: no published ABI until TSX + Rust both
-pass), so today's break-on-change is acceptable — the guard just makes it loud.
+**ABI versioning & forward compatibility (guest/host).** A guest encodes each
+command by its **schema id** — the ONE stable, per-module-ranged (core 1000s /
+2d 2000s / three 3000s), golden-frozen, tombstoned id space — NOT a private
+opcode table. RGC1 carries `[MAGIC, MAJOR, COUNT, RESERVED]`;
+`RgWasmCmdDispatch.drainDoc` validates MAGIC + the profile `major`, then
+pre-checks every record's id against the host table (fail-closed) before
+dispatching. Consequences (all gated by the 27-assert conformance test):
+- **Adding interfaces does NOT outdate compiled guests.** New commands are new
+  ids in a module's free range; existing ids are immutable (golden), so an old
+  guest — which only emits old ids the host still has — keeps working, no
+  recompile. Proven: the same guest fully dispatches against a host table far
+  larger than the 7 commands it uses.
+- **A newer guest on an older host** (references an id the host lacks) or a
+  **tombstoned/retired id** → whole buffer refused (`abiError` + `unknownId`),
+  never half-applied.
+- **Only a breaking change to an EXISTING command bumps `major`** and rejects old
+  guests — and policy prefers retire(tombstone)+new-id so even "changing" a
+  command stays additive. Bumped major → 0 dispatched.
+- **Residual (per BRIDGES step 7, before any freeze):** `major` is still a
+  hand-set coarse gate; the finer guard is the existing golden-id immutability +
+  a per-profile ABI-compatibility golden and wire vectors. The profile is
+  deliberately NOT frozen (BRIDGES: no published ABI until TSX + Rust both pass).
 
 **Remaining toward a full Rust ylos3d:** strings/assets (`rg3d_model_load` — the
 `s` argSpec needs a ptr+len decode from guest memory), the 2D + RTT + input +

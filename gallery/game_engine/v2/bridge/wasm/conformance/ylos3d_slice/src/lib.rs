@@ -20,10 +20,12 @@
 #[panic_handler]
 fn ph(_: &core::panic::PanicInfo) -> ! { loop {} }
 
-// RGC1 header (4 i32): [MAGIC, EPOCH, COUNT, RESERVED], then records follow.
-// MAGIC and EPOCH must match the host's wasm32 profile or the host rejects us.
+// RGC1 header (4 i32): [MAGIC, MAJOR, COUNT, RESERVED], then records follow.
+// MAGIC and the ABI MAJOR must match the host's wasm32 profile or the host
+// rejects us. Commands are encoded by their SCHEMA id (below), not a separate
+// opcode space — so new host commands (new ids) never outdate this guest.
 const RGC1_MAGIC: i32 = 0x5247_4331; // 1380401969
-const RGC1_EPOCH: i32 = 1;
+const RGC1_MAJOR: i32 = 1;
 const HDR: usize = 4;
 
 const WORDS: usize = 12;
@@ -33,7 +35,7 @@ static mut BUF: [i32; HDR + WORDS * MAX_REC] = [0; HDR + WORDS * MAX_REC];
 // Write the RGC1 header with `count` records that follow it.
 unsafe fn header(count: i32) {
     BUF[0] = RGC1_MAGIC;
-    BUF[1] = RGC1_EPOCH;
+    BUF[1] = RGC1_MAJOR;
     BUF[2] = count;
     BUF[3] = 0;
 }
@@ -43,14 +45,15 @@ unsafe fn header(count: i32) {
 const MAX_ID: usize = 64;
 static mut RESULT: [i32; MAX_ID] = [0; MAX_ID];
 
-// opcodes
-const OP_SCENE: i32 = 1;      // -> rg3d_scene_create()
-const OP_CAMERA: i32 = 2;     // -> rg3d_camera_create()
-const OP_GEOM_BOX: i32 = 3;   // a0,a1,a2 = w,h,d (x1000) -> rg3d_geometry_box
-const OP_MATERIAL: i32 = 4;   // a0 = colorRGB -> rg3d_material_lambert
-const OP_MESH: i32 = 5;       // a0,a1 = geom id, mat id -> rg3d_mesh_create
-const OP_ADD: i32 = 6;        // a0,a1 = child id, parent id -> rg3d_entity_set_parent
-const OP_TRANSFORM: i32 = 7;  // a0=mesh id, a1..a6 = px,py,pz,rx,ry,rz (x1000)
+// Commands are encoded by their SCHEMA id (registry/schema/three), the one
+// stable id space — not a private opcode table.
+const OP_SCENE: i32 = 3000;     // rg3d_scene_create()
+const OP_CAMERA: i32 = 3001;    // rg3d_camera_create()
+const OP_GEOM_BOX: i32 = 3010;  // a0,a1,a2 = w,h,d (x1000) -> rg3d_geometry_box
+const OP_MATERIAL: i32 = 3021;  // a0 = colorRGB -> rg3d_material_lambert
+const OP_MESH: i32 = 3030;      // a0,a1 = geom id, mat id -> rg3d_mesh_create
+const OP_ADD: i32 = 3033;       // a0,a1 = child id, parent id -> rg3d_entity_set_parent
+const OP_TRANSFORM: i32 = 3031; // a0=mesh id, a1..a6 = px,py,pz,rx,ry,rz (x1000)
 
 unsafe fn put(rec: usize, op: i32, dst: i32, args: &[i32]) {
     let base = HDR + rec * WORDS;

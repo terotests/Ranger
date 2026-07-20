@@ -51,11 +51,17 @@ class Ylos3dWasmConformanceTest {
         def resBase:int (wasm_call_i32 h "result_ptr" 0 0 0 0 0 0)
         t.eqInt("guest emitted 7 commands" n 7)
 
-        ; drainDoc validates the RGC1 header (MAGIC + profile EPOCH) before dispatch
+        ; drainDoc validates the RGC1 header (MAGIC + profile MAJOR) before dispatch
         def got:int (disp.drainDoc(h base resBase))
-        t.ok("RGC1 header validated — ABI epoch matches" (disp.abiError == false))
+        t.ok("RGC1 header validated — ABI major matches" (disp.abiError == false))
         t.eqInt("all 7 wasm commands dispatched" got 7)
         t.eqInt("no bridge errors through the generic dispatcher" b.errorCount 0)
+
+        ; FORWARD-COMPAT: the host's command table is far larger than the 7 the
+        ; guest uses — additive headroom. Because the guest encodes by stable
+        ; SCHEMA id, those extra host commands never outdate it (it fully drained).
+        t.ok("host exposes many more commands than the guest uses (additive headroom)"
+            ((array_length b.table) > 20))
         t.eqInt("host created 1 box geometry" (b.d3.host.geometryCount()) 1)
         t.eqInt("host created 1 material" (b.d3.host.materialCount()) 1)
         t.eqInt("host created 1 entity (the mesh)" (b.d3.host.entityCount()) 1)
@@ -84,18 +90,44 @@ class Ylos3dWasmConformanceTest {
         t.eqInt("still no bridge errors after the round-trip frame" b.errorCount 0)
         t.eqInt("follow-up applied to the SAME mesh (still 1 entity)" (b.d3.host.entityCount()) 1)
 
-        ; ---- ABI guard: a guest compiled against a different epoch is REFUSED ----
-        ; (answers "will already-compiled apps be outdated if the ABI changes?" —
-        ; yes, and the host DETECTS it instead of silently misdispatching.)
+        ; ---- ADDING interfaces does NOT outdate this guest --------------------
+        ; A newer host with extra commands is modelled by the same table (its ids
+        ; are a superset); the guest re-emits its unchanged buffer and still fully
+        ; dispatches — no recompile needed.
+        wasm_call_i32 h "frame" 0 0 0 0 0 0
+        def baseA:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        def dispA:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        dispA.init(b (RgWasm3dProfile.build()))
+        def gotA:int (dispA.drainDoc(h baseA 0))
+        t.ok("old guest accepted on a host with more commands (no ABI error)" (dispA.abiError == false))
+        t.eqInt("old guest still fully dispatches (7)" gotA 7)
+
+        ; ---- BREAKING change (MAJOR bump) REJECTS the old guest ---------------
+        ; (answers "will already-compiled apps be outdated if the ABI changes?":
+        ; only a breaking change to an EXISTING command does — the host detects it
+        ; instead of silently misdispatching; additive changes above do not.)
         def stale:RgWasmProfile (RgWasm3dProfile.build())
-        stale.epoch = (stale.epoch + 1)                 ; host advanced its ABI
+        stale.major = (stale.major + 1)                 ; host made a breaking change
         def disp2:RgWasmCmdDispatch (new RgWasmCmdDispatch)
         disp2.init(b stale)
-        wasm_call_i32 h "frame" 0 0 0 0 0 0             ; guest re-emits its (old-epoch) buffer
+        wasm_call_i32 h "frame" 0 0 0 0 0 0
         def base3:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
         def got3:int (disp2.drainDoc(h base3 0))
-        t.ok("mismatched ABI epoch is detected" (disp2.abiError))
-        t.eqInt("nothing is dispatched from a stale guest" got3 0)
+        t.ok("breaking ABI major bump is detected" (disp2.abiError))
+        t.eqInt("nothing dispatched from a now-incompatible guest" got3 0)
+
+        ; ---- a guest referencing a command the host LACKS is refused fail-closed
+        ; (a newer guest on an older host). Simulate by patching one record's
+        ; command id to an id no module owns; the whole buffer is rejected.
+        def disp3:RgWasmCmdDispatch (new RgWasmCmdDispatch)
+        disp3.init(b (RgWasm3dProfile.build()))
+        wasm_call_i32 h "frame" 0 0 0 0 0 0
+        def base4:int (wasm_call_i32 h "cmd_ptr" 0 0 0 0 0 0)
+        wasm_mem_set_i32 h (base4 + 16) 999999          ; first record -> unknown command id
+        def got4:int (disp3.drainDoc(h base4 0))
+        t.ok("unknown command id is detected" (disp3.abiError))
+        t.eqInt("the unknown id is reported" disp3.unknownId 999999)
+        t.eqInt("nothing dispatched when a command is unknown (fail-closed)" got4 0)
 
         wasm_close h
         t.summary()
