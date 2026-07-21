@@ -94,6 +94,39 @@ Apply the calibration to every measured px:
 
 ---
 
+## 4b. 2D → 3D construction methods (SIGGRAPH lineage)
+
+The chart is a plan (top-down, orthographic) view, so construction is a
+2D-outline → 3D-solid problem. Four classic operators cover every part; pick per
+part by its real geometry:
+
+| Operator | Method / reference | Use for |
+|---|---|---|
+| **Inflate** | Triangulate the outline → medial/**chordal axis** spine (Teddy, Igarashi '99) → height by **Poisson** `∇²h=−c`, `h=0` on boundary, then **sqrt/circular remap** (Baran & Lehtinen '09); front + mirrored back = closed solid (Monster Mash '20) | organically rounded solids seen from above: flipper bat/rubber, bumper skirts, target blades |
+| **Lathe** | Revolve a measured radial profile about a vertical axis | axisymmetric caps: mushroom **bumper caps**, the **ball** |
+| **Sweep** | Circular section along a centerline spline = `TubeGeometry` | **guide wires** (14/15/16), spinner shaft, rails |
+| **Extrude** | Constant height from the outline | cabinet, posts, drop-target bodies |
+
+**Medial axis unifies three things** (key insight, Teddy + Monster Mash): for a
+flipper the pivot→tip **spine** is simultaneously (1) the axis to inflate along,
+(2) the **orientation** (its direction), and (3) the **physics collider** segment.
+So measuring the shaft-hole center (pivot) and the tip center is not just
+placement — it defines the shape's spine, its angle, and its collider at once. The
+pivot is Monster Mash's in-plane rigid handle: actuation = rigid rotation about it.
+
+**Calibration is the planar-mapping step.** General case = a **homography** (4+
+point correspondences, perspective photo); an orthographic scan (this chart)
+degenerates to a **similarity** (uniform scale + rotation + translation, 2+
+correspondences). The uniform scale (Section 2) is what keeps circles round.
+
+**Implementation tiers** (choose per part; start low, escalate only if validation
+fails):
+- **T1 — parametric primitive/sweep** driven by the measured spine + radii
+  (`TubeGeometry` outline, `Cylinder`, lathe profile). Cheap; already in the port.
+- **T2 — true silhouette inflation**: a general geometry generator
+  (constrained-Delaunay triangulation + discrete Poisson solve + sqrt remap) added
+  to the three port. Faithful to any outline; a real engine feature (larger lift).
+
 ## 5. Construct & place
 
 - Build the geometry in **local frame** (pivot at origin, principal axis +X):
@@ -117,17 +150,24 @@ Apply the calibration to every measured px:
      `W`, at 50 % opacity.
    - Draw the **render** on top (wireframe).
    - The two should coincide. Emit `overlay_<part>.png` for visual check.
-3. **Quantitative error** per part:
-   - Color-key the part in the render (give the part-under-test a unique wire
-     color; mask those pixels).
-   - Compute the masked pixels' **centroid** and principal-axis **angle** (PCA)
-     in render-px → convert to world via the known inverse projection.
-   - `err_pos = |centroidWorld − measuredCentroidWorld|`;
-     `err_ang = |angle − measuredAngle|`.
-   - Measured centroid/angle come from the chart px (Section 3–4) through the
-     same calibration, so both sides live in one world frame.
-4. **Pass/fail**: accept if `err_pos < 0.15` wu and `err_ang < 4°`. Otherwise
-   adjust ONLY the offending measurement/param, rebuild, re-validate. Loop.
+3. **Quantitative error** per part (shape-from-silhouette consistency — the
+   analysis-by-synthesis check from the inflation literature):
+   - Color-key the part in the render (unique wire color); mask those pixels to a
+     **rendered silhouette** `S_r`.
+   - Rasterize the **chart outline** for the same part into the same window = the
+     reference silhouette `S_c`.
+   - **Primary metric — silhouette IoU**: `IoU = |S_r ∩ S_c| / |S_r ∪ S_c|`
+     (Jaccard). Captures position AND shape AND size in one number.
+   - **Secondary** — centroid + principal-axis (PCA) angle of the mask → world:
+     `err_pos = |centroidWorld − measuredCentroidWorld|`,
+     `err_ang = |angle − measuredAngle|`. Localizes WHY IoU is low
+     (offset vs. rotated vs. mis-sized).
+   - Both silhouettes live in one world frame via the same calibration.
+4. **Pass/fail**: accept if `IoU ≥ 0.85` AND `err_pos < 0.15` wu AND
+   `err_ang < 4°`. Otherwise the secondary metrics say what to fix: `err_pos` high
+   → reposition; `err_ang` high → re-measure tip; IoU low but pos/ang ok → wrong
+   shape/size (re-measure radii, or escalate T1→T2 inflation). Fix ONE thing,
+   rebuild, re-validate. Loop.
 5. Log each part's `err_pos`, `err_ang`, pass/fail to `tmp/measure/report.txt`.
 
 ---
@@ -158,6 +198,18 @@ tmp/measure/report.txt              per-part error + pass/fail log
 ```
 
 ---
+
+## References (2D → 3D)
+
+- Igarashi, Matsuoka, Tanaka. **Teddy: A Sketching Interface for 3D Freeform
+  Design.** SIGGRAPH 1999. — silhouette inflation via the chordal axis transform.
+- Baran, Lehtinen. **Notes on Inflating Curves.** 2009. — Poisson height field +
+  sqrt/circular remap; the clean inflation formulation.
+- Dvorožňák et al. **Monster Mash: A Single-View Approach to Casual 3D Modeling
+  and Animation.** ACM TOG 39(6), SIGGRAPH Asia 2020. — single-view inflation +
+  ARAP-L; in-plane rigid handles = pivots.
+- (impl. reference) `unclearness/inflation_py` — triangulate → Poisson → sqrt →
+  mesh, a concrete inflation pipeline.
 
 ## 9. Acceptance criteria
 
