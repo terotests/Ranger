@@ -106,7 +106,9 @@ for (const t of TEXTURES) fs.copyFileSync(path.join(GAME_DIR, t.file), path.join
 fs.writeFileSync(path.join(OUT, "scene.json"), JSON.stringify(
   { dir: VFS_DIR, facade: FACADE, script: SCRIPT,
     textures: TEXTURES.map((t) => ({ path: t.path, url: t.file })),
-    environment: 64 }, null, 2));
+    // env skybox off while the scene is in WIRE/blueprint mode (flat background);
+    // set back to 64 for the shaded hero render (chrome-ball reflections).
+    environment: 0 }, null, 2));
 log("packaged façade + pinball scene + " + TEXTURES.length + " textures");
 
 // Runtime + page.

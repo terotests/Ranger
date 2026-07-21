@@ -26,12 +26,18 @@ let camera, scene, renderer;
 let ball, keyLight;
 
 const TOPDOWN = true;   // plan view for cross-referencing the playfield chart
+const WIRE = true;      // wireframe / blueprint mode (no art, flat bg) for chart overlay
+const WIRE_COL = 0xcfe0ff;
 const ENV = new THREE.CubeTexture();
 
+// unlit wireframe line material (blueprint look) used for every part in WIRE mode
+function wmat(colorHex) { return new THREE.MeshBasicMaterial({ color: WIRE ? WIRE_COL : colorHex, wireframe: true }); }
 function phong(colorHex, specHex, shininess) {
+  if (WIRE) return wmat(colorHex);
   return new THREE.MeshPhongMaterial({ color: colorHex, specular: specHex, shininess: shininess });
 }
 function chrome(colorHex, specHex, shininess) {
+  if (WIRE) return wmat(colorHex);
   return new THREE.MeshPhongMaterial({ color: colorHex, specular: specHex, shininess: shininess, envMap: ENV });
 }
 function sized(w, h, d) { const g = new THREE.BoxGeometry(); g.width = w; g.height = h; g.depth = d; return g; }
@@ -65,7 +71,7 @@ let spinner = null;
 
 export function init() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x05070f);
+  scene.background = new THREE.Color(WIRE ? 0x070b16 : 0x05070f);
 
   // Camera: TOPDOWN gives a straight-down plan view (top of table = top of
   // screen, like the playfield chart) for cross-referencing part shapes/positions;
@@ -80,10 +86,16 @@ export function init() {
   }
 
   // ---- playfield -------------------------------------------------------------
-  const tex = new THREE.TextureLoader().load('playfield.png');
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const pf = new THREE.Mesh(new THREE.PlaneGeometry(10.0, 17.0, 8, 14),
-    new THREE.MeshPhongMaterial({ map: tex, color: 0x9a9aa8, specular: 0x0a0c14, shininess: 8 }));
+  // WIRE: a plain wireframe grid (no printed art) as a reference frame.
+  let pfMat;
+  if (WIRE) {
+    pfMat = new THREE.MeshBasicMaterial({ color: 0x35507e, wireframe: true });
+  } else {
+    const tex = new THREE.TextureLoader().load('playfield.png');
+    tex.colorSpace = THREE.SRGBColorSpace;
+    pfMat = new THREE.MeshPhongMaterial({ map: tex, color: 0x9a9aa8, specular: 0x0a0c14, shininess: 8 });
+  }
+  const pf = new THREE.Mesh(new THREE.PlaneGeometry(10.0, 17.0, 10, 17), pfMat);
   pf.rotation.set(-1.5707963, 0, 0); scene.add(pf);
 
   // ---- cabinet frame ---------------------------------------------------------
@@ -97,9 +109,14 @@ export function init() {
   const boxMat = phong(0x0a0b13, 0x2b3252, 22);
   addBox(7.4, 3.6, 0.7, boxMat, 0, 1.5, -9.7, 0);
   addBox(7.8, 0.5, 1.0, boxMat, 0, 3.35, -9.55, 0);
-  const dmdTex = new THREE.TextureLoader().load('dmd.png');
-  dmdTex.colorSpace = THREE.SRGBColorSpace;
-  const dmd = new THREE.Mesh(new THREE.PlaneGeometry(5.7, 2.14, 1, 1), new THREE.MeshBasicMaterial({ map: dmdTex }));
+  let dmdMat;
+  if (WIRE) { dmdMat = wmat(0xffaa33); }
+  else {
+    const dmdTex = new THREE.TextureLoader().load('dmd.png');
+    dmdTex.colorSpace = THREE.SRGBColorSpace;
+    dmdMat = new THREE.MeshBasicMaterial({ map: dmdTex });
+  }
+  const dmd = new THREE.Mesh(new THREE.PlaneGeometry(5.7, 2.14, 1, 1), dmdMat);
   dmd.position.set(0, 2.15, -9.28); dmd.rotation.set(-0.46, 0, 0); scene.add(dmd);
 
   // ---- pop bumpers: mushroom cap on a skirt, diamond cluster (chart 11/12) ----
@@ -167,8 +184,8 @@ export function init() {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.shadowMap.enabled = !WIRE;
+  renderer.toneMapping = WIRE ? 0 : THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.95;
   renderer.setAnimationLoop(animate);
 }
