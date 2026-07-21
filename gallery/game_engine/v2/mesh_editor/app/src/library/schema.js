@@ -1,45 +1,27 @@
 // ============================================================================
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
-// On-disk layout (default):
-//   mesh_editor/library/projects/<slug>/project.json
-// Optional binary textures (future / upload):
-//   mesh_editor/library/projects/<slug>/assets/<name>.png
-//
-// Bump CURRENT_SCHEMA_VERSION when the document shape changes and add a
-// migration step in migrations.js. loadProject() always returns the current
-// version so older folders remain readable.
-// ============================================================================
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
-/** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} KnotV2 */
-/** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureAsset?: string|null }} SegmentV2 */
-
 /**
- * @typedef {object} SplineProjectV2
- * @property {typeof SCHEMA_KIND} kind
- * @property {2} schemaVersion
- * @property {string} id
- * @property {string} slug
+ * @typedef {object} ChildInstanceV3
+ * @property {string} instanceGuid
+ * @property {string} contentGuid  // shared → linked; unique copy → independent
+ * @property {'copy'|'link'} mode
  * @property {string} name
- * @property {string} [description]
- * @property {string[]} [tags]
- * @property {string} createdAt
- * @property {string} updatedAt
+ * @property {string|null} [sourceId]
+ * @property {string|null} [sourceSlug]
  * @property {{
- *   curveType: number,
- *   pathSegments: number,
- *   angularSteps: number,
- *   revolutionDeg: number,
- *   materialMode: number,
- *   symmetry: boolean,
- *   viewMode?: 'profile'|'orbit'
- * }} editor
- * @property {{ knots: KnotV2[], segments: SegmentV2[] }} profile
- * @property {{ knots: KnotV2[], segments: SegmentV2[] }} orbit
+ *   x: number, y: number,
+ *   rotationYDeg: number,
+ *   scale: number,
+ *   useSymmetry: boolean,
+ *   snapCenterline: boolean
+ * }} transform
+ * @property {boolean} [visible]
  */
 
 export function nowIso() {
@@ -60,7 +42,6 @@ export function newId() {
   return "sp_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-/** Strip non-JSON-friendly fields (e.g. in-memory textureData buffers). */
 export function serializeSegment(seg) {
   return {
     fromId: seg.fromId,
@@ -85,25 +66,64 @@ export function serializeKnot(k) {
   };
 }
 
+function serializeBodyContent(body) {
+  return {
+    assetGuid: body.assetGuid,
+    name: body.name || "asset",
+    curveType: body.curveType | 0,
+    pathSegments: body.pathSegments | 0,
+    angularSteps: body.angularSteps | 0,
+    revolutionDeg: body.revolutionDeg | 0,
+    objectMaterial: {
+      color: body.objectMaterial?.color ?? null,
+      roughness: Number(body.objectMaterial?.roughness ?? 0.4),
+      metalness: Number(body.objectMaterial?.metalness ?? 0),
+      opacity: Number(body.objectMaterial?.opacity ?? 1),
+      texture: body.objectMaterial?.texture || "gradient",
+    },
+    knots: (body.knots || []).map(serializeKnot),
+    segments: (body.segments || []).map(serializeSegment),
+    orbitKnots: (body.orbitKnots || []).map(serializeKnot),
+    orbitSegments: (body.orbitSegments || []).map(serializeSegment),
+  };
+}
+
+function serializeChild(ch) {
+  return {
+    instanceGuid: ch.instanceGuid,
+    contentGuid: ch.contentGuid,
+    mode: ch.mode === "link" ? "link" : "copy",
+    name: ch.name || "Sub-object",
+    sourceId: ch.sourceId || null,
+    sourceSlug: ch.sourceSlug || null,
+    transform: {
+      x: Number(ch.transform?.x ?? 0.45),
+      y: Number(ch.transform?.y ?? 0.35),
+      rotationYDeg: Number(ch.transform?.rotationYDeg ?? 0),
+      scale: Number(ch.transform?.scale ?? 0.28),
+      useSymmetry: !!ch.transform?.useSymmetry,
+      snapCenterline: !!ch.transform?.snapCenterline,
+    },
+    visible: ch.visible !== false,
+  };
+}
+
 /**
  * Build a current-version project document from the live editor state.
- * @param {object} opts
- * @param {object} opts.state - useSplineEditor reactive state (or snapshotState())
- * @param {string} opts.name
- * @param {string} [opts.id]
- * @param {string} [opts.slug]
- * @param {string} [opts.description]
- * @param {string[]} [opts.tags]
- * @param {string} [opts.createdAt]
  */
 export function buildProjectDocument(opts) {
   const st = opts.state;
   const name = String(opts.name || "Untitled spline").trim() || "Untitled spline";
   const createdAt = opts.createdAt || nowIso();
+  const embedded = {};
+  for (const [guid, body] of Object.entries(st.embeddedAssets || {})) {
+    embedded[guid] = serializeBodyContent(body);
+  }
   return {
     kind: SCHEMA_KIND,
     schemaVersion: CURRENT_SCHEMA_VERSION,
     id: opts.id || newId(),
+    assetGuid: st.assetGuid || newId(),
     slug: opts.slug || slugify(name),
     name,
     description: opts.description || "",
@@ -119,6 +139,13 @@ export function buildProjectDocument(opts) {
       symmetry: !!st.symmetry,
       viewMode: st.viewMode === "orbit" ? "orbit" : "profile",
     },
+    objectMaterial: {
+      color: st.objectMaterial?.color ?? null,
+      roughness: Number(st.objectMaterial?.roughness ?? 0.4),
+      metalness: Number(st.objectMaterial?.metalness ?? 0),
+      opacity: Number(st.objectMaterial?.opacity ?? 1),
+      texture: st.objectMaterial?.texture || "gradient",
+    },
     profile: {
       knots: (st.knots || []).map(serializeKnot),
       segments: (st.segments || []).map(serializeSegment),
@@ -127,6 +154,8 @@ export function buildProjectDocument(opts) {
       knots: (st.orbitKnots || []).map(serializeKnot),
       segments: (st.orbitSegments || []).map(serializeSegment),
     },
+    embeddedAssets: embedded,
+    children: (st.children || []).map(serializeChild),
   };
 }
 
@@ -149,6 +178,10 @@ export function validateProject(doc) {
     if (doc.orbit && doc.orbit.knots && doc.orbit.knots.length < 3) {
       errors.push("orbit.knots needs at least 3 points");
     }
+  }
+  if (doc.schemaVersion >= 3) {
+    if (!doc.assetGuid) errors.push("missing assetGuid");
+    if (doc.children && !Array.isArray(doc.children)) errors.push("children must be an array");
   }
   return errors;
 }

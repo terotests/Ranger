@@ -1,8 +1,15 @@
 import { reactive, computed, watch } from "vue";
-import { SplineLathe, SplineKnot } from "@tessellate";
+import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
+import { tessellateBody } from "../lib/latheTessellate.js";
+import { transformPart } from "../lib/meshTransform.js";
+import {
+  newGuid,
+  cloneBodyContent,
+  defaultChildTransform,
+} from "../lib/assetClone.js";
 
 /** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} Knot */
-/** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureData: { rgba: Uint8Array, w: number, h: number, name: string }|null, textureAsset?: string|null }} Segment */
+/** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureData: any, textureAsset?: string|null }} Segment */
 
 function uid() {
   return "k" + Math.random().toString(36).slice(2, 9);
@@ -11,8 +18,7 @@ function uid() {
 const DEFAULT_COLORS = ["#7ecf6a", "#6ec8ff", "#ffb454", "#e87ac8", "#c8e87a", "#ff7a6a"];
 
 function defaultKnots() {
-  const raw = SplineLathe.defaultKnots();
-  return raw.map((k, i) => ({
+  return SplineLathe.defaultKnots().map((k, i) => ({
     id: uid(),
     x: k.x,
     y: k.y,
@@ -23,8 +29,7 @@ function defaultKnots() {
 }
 
 function defaultOrbitKnots() {
-  const raw = SplineLathe.defaultOrbitKnots();
-  return raw.map((k, i) => ({
+  return SplineLathe.defaultOrbitKnots().map((k, i) => ({
     id: uid(),
     x: k.x,
     y: k.y,
@@ -48,166 +53,48 @@ function defaultSegment(fromId, toId) {
   };
 }
 
-function hexToRgb(hex) {
-  const h = String(hex || "#ffffff").replace("#", "");
-  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h.padStart(6, "0");
-  const n = parseInt(full.slice(0, 6), 16);
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-}
-
-function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-function mixHex(a, b, t) {
-  const A = hexToRgb(a);
-  const B = hexToRgb(b);
-  const r = Math.round(lerp(A.r, B.r, t));
-  const g = Math.round(lerp(A.g, B.g, t));
-  const b_ = Math.round(lerp(A.b, B.b, t));
-  return (r << 16) | (g << 8) | b_;
-}
-
-function hexToInt(hex) {
-  const c = hexToRgb(hex);
-  return (c.r << 16) | (c.g << 8) | c.b;
-}
-
-function mulColorHex(a, b) {
-  if (a === 0xffffff) return b;
-  if (b === 0xffffff) return a;
-  const ar = (a >> 16) & 255;
-  const ag = (a >> 8) & 255;
-  const ab = a & 255;
-  const br = (b >> 16) & 255;
-  const bg = (b >> 8) & 255;
-  const bb = b & 255;
-  return (((ar * br) / 255) | 0) << 16 | (((ag * bg) / 255) | 0) << 8 | (((ab * bb) / 255) | 0);
-}
-
-function roughnessToShininess(r) {
-  const t = Math.min(1, Math.max(0, r));
-  return lerp(280, 6, t);
-}
-
-function makeGradientRgba(hexA, hexB, w = 4, h = 64) {
-  const A = hexToRgb(hexA);
-  const B = hexToRgb(hexB);
-  const rgba = new Uint8Array(w * h * 4);
-  for (let y = 0; y < h; y++) {
-    const t = y / Math.max(1, h - 1);
-    const r = Math.round(lerp(A.r, B.r, t));
-    const g = Math.round(lerp(A.g, B.g, t));
-    const b = Math.round(lerp(A.b, B.b, t));
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      rgba[i] = r;
-      rgba[i + 1] = g;
-      rgba[i + 2] = b;
-      rgba[i + 3] = 255;
-    }
-  }
-  return { rgba, w, h };
-}
-
-function makeCheckerRgba(size = 64) {
-  const rgba = new Uint8Array(size * size * 4);
-  const cell = size / 8;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const odd = (((x / cell) | 0) + ((y / cell) | 0)) & 1;
-      const i = (y * size + x) * 4;
-      rgba[i] = odd ? 90 : 220;
-      rgba[i + 1] = odd ? 120 : 220;
-      rgba[i + 2] = odd ? 160 : 210;
-      rgba[i + 3] = 255;
-    }
-  }
-  return { rgba, w: size, h: size };
-}
-
-function makeStripesRgba(size = 64) {
-  const rgba = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const odd = ((y / 6) | 0) & 1;
-      const i = (y * size + x) * 4;
-      rgba[i] = odd ? 40 : 230;
-      rgba[i + 1] = odd ? 160 : 210;
-      rgba[i + 2] = odd ? 120 : 90;
-      rgba[i + 3] = 255;
-    }
-  }
-  return { rgba, w: size, h: size };
+function defaultObjectMaterial() {
+  return { color: null, roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient" };
 }
 
 function cloneSeg(s, fromId, toId) {
-  return {
-    ...s,
-    fromId,
-    toId,
-    textureData: s.textureData || null,
-  };
+  return { ...s, fromId, toId, textureData: s.textureData || null };
 }
 
-/**
- * Split a full-orbit lathe band into per-orbit-segment parts (own vertex buffers).
- */
-function splitMeshByOrbitSegments(mesh, steps, oSeg, numOrbitSegs, closed) {
-  const vertCount = (mesh.positions.length / 3) | 0;
-  if (steps < 2 || vertCount < steps * 2) return [];
-  const rows = (vertCount / steps) | 0;
-  const out = [];
-
-  for (let oi = 0; oi < numOrbitSegs; oi++) {
-    const faces = [];
-    for (let r = 0; r < rows - 1; r++) {
-      const colMax = closed ? steps : steps - 1;
-      for (let c = 0; c < colMax; c++) {
-        if ((oSeg[c] | 0) !== oi) continue;
-        const cNext = c + 1 >= steps ? 0 : c + 1;
-        const a = r * steps + c;
-        const b = r * steps + cNext;
-        const cc = (r + 1) * steps + cNext;
-        const d = (r + 1) * steps + c;
-        faces.push(a, d, b, b, d, cc);
-      }
-    }
-    if (!faces.length) continue;
-
-    const used = new Map();
-    const positions = [];
-    const normals = [];
-    const uvs = [];
-    const indices = [];
-    const mapV = (g) => {
-      let local = used.get(g);
-      if (local != null) return local;
-      local = used.size;
-      used.set(g, local);
-      const i3 = g * 3;
-      const i2 = g * 2;
-      positions.push(mesh.positions[i3], mesh.positions[i3 + 1], mesh.positions[i3 + 2]);
-      normals.push(mesh.normals[i3], mesh.normals[i3 + 1], mesh.normals[i3 + 2]);
-      uvs.push(mesh.uvs[i2], mesh.uvs[i2 + 1]);
-      return local;
-    };
-    for (let i = 0; i < faces.length; i++) indices.push(mapV(faces[i]));
-    out.push({ orbitSeg: oi, positions, normals, uvs, indices });
-  }
-  return out;
+function projectDocToBody(doc, { newGuidForCopy = true } = {}) {
+  return cloneBodyContent(
+    {
+      assetGuid: doc.assetGuid,
+      name: doc.name,
+      profile: doc.profile,
+      orbit: doc.orbit,
+      editor: doc.editor,
+      objectMaterial: doc.objectMaterial,
+      knots: doc.profile?.knots,
+      segments: doc.profile?.segments,
+      orbitKnots: doc.orbit?.knots,
+      orbitSegments: doc.orbit?.segments,
+    },
+    {
+      preserveGuid: !newGuidForCopy && !!doc.assetGuid,
+      name: doc.name || "Sub-object",
+    },
+  );
 }
 
 export function useSplineEditor() {
   const state = reactive({
-    viewMode: "profile", // profile | orbit
+    assetGuid: newGuid(),
+    viewMode: "profile",
     knots: defaultKnots(),
     segments: /** @type {Segment[]} */ ([]),
     orbitKnots: defaultOrbitKnots(),
     orbitSegments: /** @type {Segment[]} */ ([]),
+    objectMaterial: defaultObjectMaterial(),
     selectedId: null,
+    selectedIds: /** @type {string[]} */ ([]),
     selectedSegmentIndex: -1,
-    toolMode: "edit", // edit | add | color
+    toolMode: "edit",
     curveType: 0,
     pathSegments: 12,
     angularSteps: 24,
@@ -215,59 +102,98 @@ export function useSplineEditor() {
     materialMode: 3,
     symmetry: true,
     viewport: { min: -1.1, max: 1.1 },
+    /** @type {Record<string, any>} */
+    embeddedAssets: {},
+    /** @type {any[]} */
+    children: [],
+    selectedChildGuid: null,
+    /** 'root' | contentGuid */
+    editTarget: "root",
+    bulkColor: "#7ecf6a",
     mesh: null,
     stats: { verts: 0, tris: 0, profile: 0, parts: 0 },
-    status: "Edit mode — drag points. Switch view to edit the orbit path.",
+    status: "Edit mode — drag points. Sub-objects attach in Profile view.",
   });
 
   function isOrbit() {
     return state.viewMode === "orbit";
   }
 
+  function isEditingChild() {
+    return state.editTarget !== "root" && !!state.embeddedAssets[state.editTarget];
+  }
+
+  function bodyRef() {
+    if (isEditingChild()) return state.embeddedAssets[state.editTarget];
+    return null;
+  }
+
   function activeKnots() {
+    const b = bodyRef();
+    if (b) return isOrbit() ? b.orbitKnots : b.knots;
     return isOrbit() ? state.orbitKnots : state.knots;
   }
 
   function activeSegments() {
+    const b = bodyRef();
+    if (b) return isOrbit() ? b.orbitSegments : b.segments;
     return isOrbit() ? state.orbitSegments : state.segments;
   }
 
-  function syncOpenSegments() {
-    const byPair = new Map();
-    for (const s of state.segments) byPair.set(s.fromId + ">" + s.toId, s);
-    const next = [];
-    for (let i = 0; i < state.knots.length - 1; i++) {
-      const fromId = state.knots[i].id;
-      const toId = state.knots[i + 1].id;
-      const exact = byPair.get(fromId + ">" + toId);
-      next.push(exact ? cloneSeg(exact, fromId, toId) : defaultSegment(fromId, toId));
-    }
-    state.segments = next;
-    if (!isOrbit() && state.selectedSegmentIndex >= next.length) {
-      state.selectedSegmentIndex = next.length - 1;
-    }
+  function activeObjectMaterial() {
+    const b = bodyRef();
+    return b ? b.objectMaterial : state.objectMaterial;
   }
 
-  function syncOrbitSegments() {
+  function activeCurveType() {
+    const b = bodyRef();
+    return b ? b.curveType : state.curveType;
+  }
+
+  function setActiveCurveType(v) {
+    const b = bodyRef();
+    if (b) b.curveType = v;
+    else state.curveType = v;
+  }
+
+  function syncOpenSegmentsOn(knots, segments) {
     const byPair = new Map();
-    for (const s of state.orbitSegments) byPair.set(s.fromId + ">" + s.toId, s);
+    for (const s of segments) byPair.set(s.fromId + ">" + s.toId, s);
     const next = [];
-    const n = state.orbitKnots.length;
-    for (let i = 0; i < n; i++) {
-      const fromId = state.orbitKnots[i].id;
-      const toId = state.orbitKnots[(i + 1) % n].id;
+    for (let i = 0; i < knots.length - 1; i++) {
+      const fromId = knots[i].id;
+      const toId = knots[i + 1].id;
       const exact = byPair.get(fromId + ">" + toId);
       next.push(exact ? cloneSeg(exact, fromId, toId) : defaultSegment(fromId, toId));
     }
-    state.orbitSegments = next;
-    if (isOrbit() && state.selectedSegmentIndex >= next.length) {
-      state.selectedSegmentIndex = next.length - 1;
+    return next;
+  }
+
+  function syncOrbitSegmentsOn(knots, segments) {
+    const byPair = new Map();
+    for (const s of segments) byPair.set(s.fromId + ">" + s.toId, s);
+    const next = [];
+    const n = knots.length;
+    for (let i = 0; i < n; i++) {
+      const fromId = knots[i].id;
+      const toId = knots[(i + 1) % n].id;
+      const exact = byPair.get(fromId + ">" + toId);
+      next.push(exact ? cloneSeg(exact, fromId, toId) : defaultSegment(fromId, toId));
     }
+    return next;
   }
 
   function syncSegments() {
-    syncOpenSegments();
-    syncOrbitSegments();
+    const b = bodyRef();
+    if (b) {
+      b.segments = syncOpenSegmentsOn(b.knots, b.segments);
+      b.orbitSegments = syncOrbitSegmentsOn(b.orbitKnots, b.orbitSegments);
+    } else {
+      state.segments = syncOpenSegmentsOn(state.knots, state.segments);
+      state.orbitSegments = syncOrbitSegmentsOn(state.orbitKnots, state.orbitSegments);
+    }
+    const segs = activeSegments();
+    if (state.selectedSegmentIndex >= segs.length) state.selectedSegmentIndex = segs.length - 1;
   }
 
   syncSegments();
@@ -280,40 +206,59 @@ export function useSplineEditor() {
   function setViewMode(mode) {
     state.viewMode = mode === "orbit" ? "orbit" : "profile";
     state.selectedId = null;
+    state.selectedIds = [];
     state.selectedSegmentIndex = -1;
-    const knots = activeKnots();
-    state.selectedId = knots[0]?.id || null;
+    state.selectedId = activeKnots()[0]?.id || null;
     state.status =
       state.viewMode === "orbit"
-        ? "Orbit view — closed Bezier path replaces cos/sin for the lathe."
-        : "Profile view — right-half silhouette (x ≥ 0), lathed around Y.";
+        ? "Orbit view — closed Bezier path replaces cos/sin."
+        : "Profile view — attach sub-objects here (boxes on the silhouette).";
   }
 
   function setToolMode(mode) {
     state.toolMode = mode;
     if (mode === "edit") state.status = "Edit mode — drag knots and Bezier handles.";
     if (mode === "add") state.status = "Add mode — click the curve to insert a knot.";
-    if (mode === "color") state.status = "Coloring — pick a knot or segment in the canvas / list.";
+    if (mode === "color") {
+      state.status = "Coloring — click points (Shift = multi-select). Use bulk apply for all / selection.";
+    }
   }
 
-  function select(id) {
-    state.selectedId = id;
+  function select(id, { additive = false } = {}) {
     state.selectedSegmentIndex = -1;
+    if (additive && state.toolMode === "color") {
+      const set = new Set(state.selectedIds);
+      if (set.has(id)) set.delete(id);
+      else set.add(id);
+      state.selectedIds = [...set];
+      state.selectedId = id;
+    } else {
+      state.selectedId = id;
+      state.selectedIds = id ? [id] : [];
+    }
   }
 
   function selectSegment(index) {
     state.selectedSegmentIndex = index;
     state.selectedId = null;
+    state.selectedIds = [];
   }
 
   function resetDefaults() {
+    state.assetGuid = newGuid();
     state.knots = defaultKnots();
     state.segments = [];
     state.orbitKnots = defaultOrbitKnots();
     state.orbitSegments = [];
+    state.objectMaterial = defaultObjectMaterial();
+    state.embeddedAssets = {};
+    state.children = [];
+    state.editTarget = "root";
+    state.selectedChildGuid = null;
     syncSegments();
     state.viewMode = "profile";
     state.selectedId = state.knots[1]?.id || null;
+    state.selectedIds = [];
     state.selectedSegmentIndex = -1;
     state.mesh = null;
     state.status = "Reset to default silhouette + unit-circle orbit.";
@@ -326,6 +271,7 @@ export function useSplineEditor() {
     const idx = knots.findIndex((k) => k.id === id);
     if (idx < 0) return;
     knots.splice(idx, 1);
+    state.selectedIds = state.selectedIds.filter((x) => x !== id);
     syncSegments();
     state.selectedId = knots[Math.min(idx, knots.length - 1)]?.id || null;
     state.selectedSegmentIndex = -1;
@@ -348,8 +294,39 @@ export function useSplineEditor() {
     Object.assign(s, patch);
   }
 
-  function toRangerKnots(list) {
-    return list.map((k) => SplineKnot.of(k.x, k.y, k.hx, k.hy));
+  function applyColorToKnots(ids, color) {
+    const knots = activeKnots();
+    for (const id of ids) {
+      const k = knots.find((n) => n.id === id);
+      if (k) k.color = color;
+    }
+  }
+
+  /** Bulk: whole active body (knots + segment solids + object material). */
+  function applyMaterialToWhole(patch) {
+    const mat = activeObjectMaterial();
+    Object.assign(mat, patch);
+    const knots = activeKnots();
+    const segs = activeSegments();
+    if (patch.color != null) {
+      for (const k of knots) k.color = patch.color;
+      for (const s of segs) s.color = patch.color;
+    }
+    if (patch.roughness != null) for (const s of segs) s.roughness = patch.roughness;
+    if (patch.metalness != null) for (const s of segs) s.metalness = patch.metalness;
+    if (patch.opacity != null) for (const s of segs) s.opacity = patch.opacity;
+    if (patch.texture != null) for (const s of segs) s.texture = patch.texture;
+    state.status = "Applied material to whole object.";
+  }
+
+  function applyColorToSelection(color) {
+    const ids = state.selectedIds.length ? state.selectedIds : state.selectedId ? [state.selectedId] : [];
+    if (!ids.length) {
+      state.status = "Select one or more points first (Shift+click in Coloring).";
+      return;
+    }
+    applyColorToKnots(ids, color);
+    state.status = `Colored ${ids.length} point(s).`;
   }
 
   function evalSpan(a, b, t, curveType) {
@@ -367,6 +344,7 @@ export function useSplineEditor() {
 
   function sampleCurvePoints(samplesPerSpan = 24) {
     const knots = activeKnots();
+    const ct = activeCurveType();
     const pts = [];
     if (isOrbit()) {
       const n = knots.length;
@@ -375,7 +353,7 @@ export function useSplineEditor() {
         const b = knots[(i + 1) % n];
         for (let s = 0; s < samplesPerSpan; s++) {
           const t = s / samplesPerSpan;
-          const { p } = evalSpan(a, b, t, state.curveType);
+          const { p } = evalSpan(a, b, t, ct);
           pts.push({ x: p.x, y: p.y, segmentIndex: i, t });
         }
       }
@@ -388,7 +366,7 @@ export function useSplineEditor() {
       const last = i < knots.length - 2 ? samplesPerSpan - 1 : samplesPerSpan;
       for (let s = 0; s <= last; s++) {
         const t = s / samplesPerSpan;
-        const { p } = evalSpan(a, b, t, state.curveType);
+        const { p } = evalSpan(a, b, t, ct);
         pts.push({ x: Math.max(0, p.x), y: p.y, segmentIndex: i, t });
       }
     }
@@ -397,7 +375,6 @@ export function useSplineEditor() {
 
   function findClosestOnCurve(wx, wy, maxDist = 0.12) {
     const pts = sampleCurvePoints(40);
-    // Ignore the duplicate closing sample when measuring
     const limit = isOrbit() && pts.length > 1 ? pts.length - 1 : pts.length;
     let best = null;
     let bestD = maxDist;
@@ -419,26 +396,25 @@ export function useSplineEditor() {
       return null;
     }
     const knots = activeKnots();
+    const segs = activeSegments();
     const segIndex = hit.segmentIndex;
     const n = knots.length;
     const a = knots[segIndex];
     const b = isOrbit() ? knots[(segIndex + 1) % n] : knots[segIndex + 1];
-    const segs = activeSegments();
     const oldSeg = segs[segIndex] ? { ...segs[segIndex] } : defaultSegment(a.id, b.id);
-    const { p, tan } = evalSpan(a, b, hit.t, state.curveType);
+    const { p, tan } = evalSpan(a, b, hit.t, activeCurveType());
     const tl = Math.hypot(tan.x, tan.y) || 1;
-    const scale = 0.14;
     const k = {
       id: uid(),
       x: isOrbit() ? p.x : Math.max(0, p.x),
       y: p.y,
-      hx: (tan.x / tl) * scale,
-      hy: (tan.y / tl) * scale,
+      hx: (tan.x / tl) * 0.14,
+      hy: (tan.y / tl) * 0.14,
       color: DEFAULT_COLORS[knots.length % DEFAULT_COLORS.length],
     };
 
     if (isOrbit()) {
-      const old = state.orbitSegments.slice();
+      const old = segs.slice();
       knots.splice(segIndex + 1, 0, k);
       const next = [];
       const nn = knots.length;
@@ -452,7 +428,9 @@ export function useSplineEditor() {
           next.push(cloneSeg(old[oldIdx] || oldSeg, fromId, toId));
         }
       }
-      state.orbitSegments = next;
+      const body = bodyRef();
+      if (body) body.orbitSegments = next;
+      else state.orbitSegments = next;
     } else {
       knots.splice(segIndex + 1, 0, k);
       const next = [];
@@ -462,149 +440,75 @@ export function useSplineEditor() {
         if (i === segIndex || i === segIndex + 1) {
           next.push({ ...oldSeg, fromId, toId, textureData: oldSeg.textureData });
         } else if (i < segIndex) {
-          next.push(cloneSeg(state.segments[i], fromId, toId));
+          next.push(cloneSeg(segs[i], fromId, toId));
         } else {
-          next.push(cloneSeg(state.segments[i - 1], fromId, toId));
+          next.push(cloneSeg(segs[i - 1], fromId, toId));
         }
       }
-      state.segments = next;
+      const body = bodyRef();
+      if (body) body.segments = next;
+      else state.segments = next;
     }
 
     state.selectedId = k.id;
+    state.selectedIds = [k.id];
     state.selectedSegmentIndex = -1;
-    state.status = isOrbit()
-      ? `Added orbit knot (segment ${segIndex + 1}).`
-      : `Added knot at y=${k.y.toFixed(2)} (between #${segIndex + 1} and #${segIndex + 2}).`;
+    state.status = `Added knot.`;
     return k;
   }
 
-  function resolvePartStyle(segIndex, which) {
-    const closed = which === "orbit";
-    const knots = closed ? state.orbitKnots : state.knots;
-    const segments = closed ? state.orbitSegments : state.segments;
-    const a = knots[segIndex];
-    const b = knots[closed ? (segIndex + 1) % knots.length : segIndex + 1];
-    const seg = segments[segIndex] || defaultSegment(a?.id, b?.id);
-    const colorA = a?.color || "#cccccc";
-    const colorB = b?.color || "#cccccc";
-    const solidHex = seg.color ? hexToInt(seg.color) : null;
-    const shininess = roughnessToShininess(seg.roughness ?? 0.4);
-    const reflectivity = Math.min(0.95, Math.max(0, seg.metalness ?? 0));
-    const opacity = seg.opacity ?? 1;
-
-    let map = null;
-    let colorHex = 0xffffff;
-    if (seg.texture === "upload" && seg.textureData) {
-      map = seg.textureData;
-      colorHex = 0xffffff;
-    } else if (seg.texture === "checker") {
-      map = makeCheckerRgba(64);
-      colorHex = solidHex != null ? solidHex : mixHex(colorA, colorB, 0.5);
-    } else if (seg.texture === "stripes") {
-      map = makeStripesRgba(64);
-      colorHex = solidHex != null ? solidHex : mixHex(colorA, colorB, 0.5);
-    } else if (seg.texture === "none" && solidHex != null) {
-      colorHex = solidHex;
-    } else {
-      const from = solidHex != null ? seg.color : colorA;
-      const to = solidHex != null ? seg.color : colorB;
-      map = makeGradientRgba(from, to, 4, 64);
-      colorHex = 0xffffff;
-    }
-
-    return { colorHex, shininess, reflectivity, opacity, map, midColor: mixHex(colorA, colorB, 0.5) };
-  }
-
-  function midColorInt(segIndex, which) {
-    const closed = which === "orbit";
-    const knots = closed ? state.orbitKnots : state.knots;
-    const segments = closed ? state.orbitSegments : state.segments;
-    const a = knots[segIndex];
-    const b = knots[closed ? (segIndex + 1) % knots.length : segIndex + 1];
-    const seg = segments[segIndex];
-    if (seg?.color) return hexToInt(seg.color);
-    return mixHex(a?.color || "#cccccc", b?.color || "#cccccc", 0.5);
-  }
-
-  function resolveCombinedStyle(pi, oi) {
-    const p = resolvePartStyle(pi, "profile");
-    const o = resolvePartStyle(oi, "orbit");
-    const pSeg = state.segments[pi];
-    const oSeg = state.orbitSegments[oi];
-    const map = p.map || o.map;
-    let colorHex;
-    if (map) {
-      // Texture from one dimension; tint with the other so both read in shading.
-      colorHex = p.map ? midColorInt(oi, "orbit") : midColorInt(pi, "profile");
-      if (colorHex === 0xffffff) colorHex = mulColorHex(p.colorHex, o.colorHex);
-    } else {
-      colorHex = mulColorHex(midColorInt(pi, "profile"), midColorInt(oi, "orbit"));
-    }
-    const rough = ((pSeg?.roughness ?? 0.4) + (oSeg?.roughness ?? 0.4)) / 2;
+  function rootBodySnapshot() {
     return {
-      colorHex,
-      shininess: roughnessToShininess(rough),
-      reflectivity: Math.min(0.95, Math.max(pSeg?.metalness ?? 0, oSeg?.metalness ?? 0)),
-      opacity: (pSeg?.opacity ?? 1) * (oSeg?.opacity ?? 1),
-      map,
+      assetGuid: state.assetGuid,
+      name: "root",
+      curveType: state.curveType,
+      pathSegments: state.pathSegments,
+      angularSteps: state.angularSteps,
+      revolutionDeg: state.revolutionDeg,
+      objectMaterial: state.objectMaterial,
+      knots: state.knots,
+      segments: state.segments,
+      orbitKnots: state.orbitKnots,
+      orbitSegments: state.orbitSegments,
     };
   }
 
-  function tessellate() {
-    const closed = state.revolutionDeg >= 359.9;
-    const nOrb = state.orbitKnots.length;
-    const perSpan = Math.max(3, Math.round(state.angularSteps / Math.max(1, nOrb)));
-    const sampled = SplineLathe.sampleClosedOrbit(
-      toRangerKnots(state.orbitKnots),
-      state.curveType,
-      perSpan,
-    );
-    let ox = sampled.orbitX.slice();
-    let oy = sampled.orbitY.slice();
-    let oSeg = sampled.profileX.map((x) => x | 0);
-
-    if (!closed) {
-      const half = Math.max(3, Math.floor(ox.length / 2) + 1);
-      ox = ox.slice(0, half);
-      oy = oy.slice(0, half);
-      oSeg = oSeg.slice(0, half);
-    }
-
-    const steps = ox.length;
-    const parts = [];
-    let totalV = 0;
-    let totalT = 0;
-
-    for (let pi = 0; pi < state.knots.length - 1; pi++) {
-      const pair = [state.knots[pi], state.knots[pi + 1]];
-      const mesh = SplineLathe.sampleAndLatheOrbit(
-        toRangerKnots(pair),
-        state.curveType,
-        state.pathSegments,
-        ox,
-        oy,
-        0,
-        steps,
-        closed,
+  function pushTransformedParts(parts, childParts, xf, mirrorX) {
+    for (const p of childParts) {
+      parts.push(
+        transformPart(p, {
+          x: xf.x,
+          y: xf.y,
+          rotationYDeg: xf.rotationYDeg,
+          scale: xf.scale,
+          snapCenterline: xf.snapCenterline,
+          mirrorX,
+        }),
       );
-      const pieces = splitMeshByOrbitSegments(mesh, steps, oSeg, nOrb, closed);
-      for (const piece of pieces) {
-        const style = resolveCombinedStyle(pi, piece.orbitSeg);
-        parts.push({
-          positions: piece.positions,
-          normals: piece.normals,
-          uvs: piece.uvs,
-          indices: piece.indices,
-          colorHex: style.colorHex,
-          shininess: style.shininess,
-          reflectivity: style.reflectivity,
-          opacity: style.opacity,
-          mapRgba: style.map ? Array.from(style.map.rgba) : null,
-          mapW: style.map ? style.map.w : 0,
-          mapH: style.map ? style.map.h : 0,
-        });
-        totalV += (piece.positions.length / 3) | 0;
-        totalT += (piece.indices.length / 3) | 0;
+    }
+  }
+
+  function tessellate() {
+    // Always assemble from ROOT + children (preview shows full object even when editing a child).
+    const root = tessellateBody(rootBodySnapshot());
+    const parts = root.parts.slice();
+    let totalV = root.verts;
+    let totalT = root.tris;
+
+    for (const ch of state.children) {
+      if (ch.visible === false) continue;
+      const body = state.embeddedAssets[ch.contentGuid];
+      if (!body || body.knots.length < 2 || body.orbitKnots.length < 3) continue;
+      const child = tessellateBody(body);
+      const xf = ch.transform || defaultChildTransform();
+      pushTransformedParts(parts, child.parts, xf, false);
+      totalV += child.verts;
+      totalT += child.tris;
+      // Symmetry: same content, mirrored placement (linked eyes without a second instance).
+      if (xf.useSymmetry && !xf.snapCenterline && Math.abs(xf.x) > 0.001) {
+        pushTransformedParts(parts, child.parts, xf, true);
+        totalV += child.verts;
+        totalT += child.tris;
       }
     }
 
@@ -615,13 +519,165 @@ export function useSplineEditor() {
       profile: state.knots.length,
       parts: parts.length,
     };
-    state.status = `Tessellated ${parts.length} parts (profile × orbit) · ${totalV} verts / ${totalT} tris · ${steps} orbit cols.`;
+    const focus = isEditingChild()
+      ? `editing sub “${state.embeddedAssets[state.editTarget]?.name || state.editTarget.slice(0, 8)}”`
+      : "editing root";
+    state.status = `Assembly · ${parts.length} parts · ${totalV}v / ${totalT}t · ${focus}`;
     return state.mesh;
+  }
+
+  function selectChild(instanceGuid) {
+    state.selectedChildGuid = instanceGuid;
+  }
+
+  function editRoot() {
+    state.editTarget = "root";
+    state.selectedId = state.knots[0]?.id || null;
+    state.selectedIds = [];
+    state.status = "Editing root body — preview shows full assembly.";
+  }
+
+  function editChildContent(instanceGuid) {
+    const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
+    if (!ch) return;
+    const body = state.embeddedAssets[ch.contentGuid];
+    if (!body) {
+      state.status = "Missing embedded content for this sub-object.";
+      return;
+    }
+    state.selectedChildGuid = instanceGuid;
+    state.editTarget = ch.contentGuid;
+    state.viewMode = "profile";
+    state.selectedId = body.knots[0]?.id || null;
+    state.selectedIds = [];
+    state.status = `Editing “${ch.name}” (GUID ${ch.contentGuid.slice(0, 8)}…) — linked instances share this content. Preview = full assembly.`;
+  }
+
+  function updateChildTransform(instanceGuid, patch) {
+    const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
+    if (!ch) return;
+    Object.assign(ch.transform, patch);
+    if (patch.snapCenterline) {
+      ch.transform.x = 0;
+      ch.transform.useSymmetry = false;
+    }
+  }
+
+  function removeChild(instanceGuid) {
+    const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
+    if (!ch) return;
+    state.children = state.children.filter((c) => c.instanceGuid !== instanceGuid);
+    const stillUsed = state.children.some((c) => c.contentGuid === ch.contentGuid);
+    if (!stillUsed && ch.mode === "copy") {
+      delete state.embeddedAssets[ch.contentGuid];
+    }
+    if (state.selectedChildGuid === instanceGuid) state.selectedChildGuid = null;
+    if (state.editTarget === ch.contentGuid && !stillUsed) editRoot();
+    state.status = `Removed sub-object “${ch.name}”.`;
+  }
+
+  function centerChildOnAxis(instanceGuid) {
+    updateChildTransform(instanceGuid, { snapCenterline: true, x: 0, useSymmetry: false });
+    state.status = "Centered sub-object on the symmetry axis.";
+  }
+
+  /**
+   * Attach a library/project document as a sub-object.
+   * mode 'copy' → new assetGuid (Save of original won't affect this).
+   * mode 'link' → keep source assetGuid so edits stay linked.
+   * symmetric → also add a mirrored instance sharing the same contentGuid.
+   */
+  function attachFromProject(doc, { mode = "copy", symmetric = false, name } = {}) {
+    if (!doc?.profile?.knots || !doc?.orbit?.knots) {
+      state.status = "Project needs profile + orbit to attach.";
+      return null;
+    }
+    const asCopy = mode !== "link";
+    let contentGuid;
+    let bodyName = name || doc.name || "Sub-object";
+
+    if (!asCopy && doc.assetGuid && state.embeddedAssets[doc.assetGuid]) {
+      contentGuid = doc.assetGuid;
+      bodyName = state.embeddedAssets[contentGuid].name || bodyName;
+    } else {
+      const body = projectDocToBody(doc, { newGuidForCopy: asCopy });
+      if (!asCopy && doc.assetGuid) body.assetGuid = doc.assetGuid;
+      body.name = bodyName;
+      state.embeddedAssets[body.assetGuid] = body;
+      contentGuid = body.assetGuid;
+    }
+
+    const makeInst = (xf, label) => ({
+      instanceGuid: newGuid(),
+      contentGuid,
+      mode: asCopy ? "copy" : "link",
+      name: label,
+      sourceId: doc.id || null,
+      sourceSlug: doc.slug || null,
+      transform: defaultChildTransform(xf),
+      visible: true,
+    });
+
+    const primary = makeInst(
+      { x: 0.45, y: 0.35, useSymmetry: false },
+      bodyName + (symmetric ? " (R)" : ""),
+    );
+    state.children.push(primary);
+    if (symmetric) {
+      state.children.push(
+        makeInst(
+          { x: -0.45, y: 0.35, rotationYDeg: 0, useSymmetry: false },
+          bodyName + " (L)",
+        ),
+      );
+    }
+
+    state.selectedChildGuid = primary.instanceGuid;
+    state.status = asCopy
+      ? `Attached copy “${bodyName}” (new GUID ${contentGuid.slice(0, 8)}…).`
+      : `Attached link “${bodyName}” (shared GUID ${contentGuid.slice(0, 8)}…).`;
+    return primary;
+  }
+
+  /** Toggle symmetry flag on an instance (mirror render without second instance). */
+  function toggleChildSymmetry(instanceGuid) {
+    const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
+    if (!ch) return;
+    ch.transform.useSymmetry = !ch.transform.useSymmetry;
+    if (ch.transform.useSymmetry) ch.transform.snapCenterline = false;
+    state.status = ch.transform.useSymmetry
+      ? "Symmetry on — mirrored twin uses the same content GUID."
+      : "Symmetry off.";
+  }
+
+  /** Add a mirrored instance sharing content (separate transform, linked edits). */
+  function addSymmetricTwin(instanceGuid) {
+    const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
+    if (!ch) return;
+    const twin = {
+      instanceGuid: newGuid(),
+      contentGuid: ch.contentGuid,
+      mode: ch.mode,
+      name: ch.name.replace(/ \(R\)$/, "") + " (L)",
+      sourceId: ch.sourceId,
+      sourceSlug: ch.sourceSlug,
+      transform: {
+        ...ch.transform,
+        x: -Math.abs(ch.transform.x || 0.45),
+        useSymmetry: false,
+        snapCenterline: false,
+      },
+      visible: true,
+    };
+    state.children.push(twin);
+    state.status = `Added symmetric twin — shared content GUID ${ch.contentGuid.slice(0, 8)}…`;
+    return twin;
   }
 
   function applyProject(doc) {
     if (!doc?.profile?.knots) return false;
     const ed = doc.editor || {};
+    state.assetGuid = doc.assetGuid || newGuid();
     state.curveType = ed.curveType | 0;
     state.pathSegments = ed.pathSegments || 12;
     state.angularSteps = ed.angularSteps || 24;
@@ -629,43 +685,23 @@ export function useSplineEditor() {
     state.materialMode = ed.materialMode ?? 3;
     state.symmetry = ed.symmetry !== false;
     state.viewMode = ed.viewMode === "orbit" ? "orbit" : "profile";
-    state.knots = doc.profile.knots.map((k) => ({
-      id: k.id,
-      x: k.x,
-      y: k.y,
-      hx: k.hx,
-      hy: k.hy,
-      color: k.color || "#cccccc",
-    }));
+    state.objectMaterial = {
+      color: doc.objectMaterial?.color ?? null,
+      roughness: doc.objectMaterial?.roughness ?? 0.4,
+      metalness: doc.objectMaterial?.metalness ?? 0,
+      opacity: doc.objectMaterial?.opacity ?? 1,
+      texture: doc.objectMaterial?.texture || "gradient",
+    };
+    state.knots = doc.profile.knots.map((k) => ({ ...k }));
     state.segments = (doc.profile.segments || []).map((s) => ({
-      fromId: s.fromId,
-      toId: s.toId,
-      color: s.color == null ? null : s.color,
-      roughness: s.roughness ?? 0.4,
-      metalness: s.metalness ?? 0,
-      opacity: s.opacity ?? 1,
-      texture: s.texture || "gradient",
+      ...s,
       textureData: null,
       textureAsset: s.textureAsset || null,
     }));
-
     if (doc.orbit?.knots?.length >= 3) {
-      state.orbitKnots = doc.orbit.knots.map((k) => ({
-        id: k.id,
-        x: k.x,
-        y: k.y,
-        hx: k.hx,
-        hy: k.hy,
-        color: k.color || "#cccccc",
-      }));
+      state.orbitKnots = doc.orbit.knots.map((k) => ({ ...k }));
       state.orbitSegments = (doc.orbit.segments || []).map((s) => ({
-        fromId: s.fromId,
-        toId: s.toId,
-        color: s.color == null ? null : s.color,
-        roughness: s.roughness ?? 0.4,
-        metalness: s.metalness ?? 0,
-        opacity: s.opacity ?? 1,
-        texture: s.texture || "gradient",
+        ...s,
         textureData: null,
         textureAsset: s.textureAsset || null,
       }));
@@ -674,16 +710,68 @@ export function useSplineEditor() {
       state.orbitSegments = [];
     }
 
+    state.embeddedAssets = {};
+    for (const [guid, body] of Object.entries(doc.embeddedAssets || {})) {
+      state.embeddedAssets[guid] = {
+        ...body,
+        knots: (body.knots || []).map((k) => ({ ...k })),
+        segments: (body.segments || []).map((s) => ({ ...s, textureData: null })),
+        orbitKnots: (body.orbitKnots || []).map((k) => ({ ...k })),
+        orbitSegments: (body.orbitSegments || []).map((s) => ({ ...s, textureData: null })),
+        objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
+      };
+    }
+    state.children = (doc.children || []).map((ch) => ({
+      ...ch,
+      transform: { ...defaultChildTransform(), ...(ch.transform || {}) },
+    }));
+    state.editTarget = "root";
+    state.selectedChildGuid = null;
     syncSegments();
-    const knots = activeKnots();
-    state.selectedId = knots[0]?.id || null;
+    state.selectedId = state.knots[1]?.id || state.knots[0]?.id || null;
+    state.selectedIds = [];
     state.selectedSegmentIndex = -1;
-    state.status = `Loaded “${doc.name}” (schema v${doc.schemaVersion}).`;
+    state.status = `Loaded “${doc.name}” (schema v${doc.schemaVersion}, GUID ${state.assetGuid.slice(0, 8)}…).`;
     return true;
   }
 
   function snapshotState() {
+    const embedded = {};
+    for (const [guid, body] of Object.entries(state.embeddedAssets)) {
+      embedded[guid] = {
+        assetGuid: body.assetGuid,
+        name: body.name,
+        curveType: body.curveType,
+        pathSegments: body.pathSegments,
+        angularSteps: body.angularSteps,
+        revolutionDeg: body.revolutionDeg,
+        objectMaterial: { ...body.objectMaterial },
+        knots: body.knots.map((k) => ({ ...k })),
+        segments: body.segments.map((s) => ({
+          fromId: s.fromId,
+          toId: s.toId,
+          color: s.color,
+          roughness: s.roughness,
+          metalness: s.metalness,
+          opacity: s.opacity,
+          texture: s.texture,
+          textureAsset: s.textureAsset || null,
+        })),
+        orbitKnots: body.orbitKnots.map((k) => ({ ...k })),
+        orbitSegments: body.orbitSegments.map((s) => ({
+          fromId: s.fromId,
+          toId: s.toId,
+          color: s.color,
+          roughness: s.roughness,
+          metalness: s.metalness,
+          opacity: s.opacity,
+          texture: s.texture,
+          textureAsset: s.textureAsset || null,
+        })),
+      };
+    }
     return {
+      assetGuid: state.assetGuid,
       curveType: state.curveType,
       pathSegments: state.pathSegments,
       angularSteps: state.angularSteps,
@@ -691,6 +779,7 @@ export function useSplineEditor() {
       materialMode: state.materialMode,
       symmetry: state.symmetry,
       viewMode: state.viewMode,
+      objectMaterial: { ...state.objectMaterial },
       knots: state.knots.map((k) => ({ ...k })),
       segments: state.segments.map((s) => ({
         fromId: s.fromId,
@@ -713,15 +802,32 @@ export function useSplineEditor() {
         texture: s.texture,
         textureAsset: s.textureAsset || null,
       })),
+      embeddedAssets: embedded,
+      children: state.children.map((c) => ({
+        instanceGuid: c.instanceGuid,
+        contentGuid: c.contentGuid,
+        mode: c.mode,
+        name: c.name,
+        sourceId: c.sourceId,
+        sourceSlug: c.sourceSlug,
+        transform: { ...c.transform },
+        visible: c.visible !== false,
+      })),
     };
   }
 
   if (!state.selectedId && state.knots.length) {
     state.selectedId = state.knots[1].id;
+    state.selectedIds = [state.selectedId];
   }
 
   watch(
-    () => [state.knots.length, state.orbitKnots.length],
+    () => [
+      state.knots.length,
+      state.orbitKnots.length,
+      state.editTarget,
+      Object.keys(state.embeddedAssets).length,
+    ],
     () => syncSegments(),
   );
 
@@ -729,6 +835,12 @@ export function useSplineEditor() {
     state,
     selected,
     selectedSegment,
+    activeKnots,
+    activeSegments,
+    activeObjectMaterial,
+    activeCurveType,
+    setActiveCurveType,
+    isEditingChild,
     setViewMode,
     setToolMode,
     select,
@@ -738,6 +850,8 @@ export function useSplineEditor() {
     removeSelected,
     updateKnot,
     updateSegment,
+    applyMaterialToWhole,
+    applyColorToSelection,
     sampleCurvePoints,
     findClosestOnCurve,
     insertKnotOnCurve,
@@ -745,5 +859,14 @@ export function useSplineEditor() {
     syncSegments,
     applyProject,
     snapshotState,
+    attachFromProject,
+    selectChild,
+    editRoot,
+    editChildContent,
+    updateChildTransform,
+    removeChild,
+    centerChildOnAxis,
+    toggleChildSymmetry,
+    addSymmetricTwin,
   };
 }

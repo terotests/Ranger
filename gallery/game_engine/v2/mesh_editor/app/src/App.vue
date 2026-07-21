@@ -4,11 +4,15 @@ import SplineCanvas from "./components/SplineCanvas.vue";
 import PointEditor from "./components/PointEditor.vue";
 import Preview3D from "./components/Preview3D.vue";
 import LibraryPanel from "./components/LibraryPanel.vue";
+import ChildrenPanel from "./components/ChildrenPanel.vue";
 import { useSplineEditor } from "./composables/useSplineEditor.js";
 import { useLibrary } from "./composables/useLibrary.js";
+import * as api from "./library/api.js";
 
 const {
   state,
+  activeKnots,
+  activeSegments,
   setViewMode,
   setToolMode,
   select,
@@ -18,12 +22,24 @@ const {
   removeSelected,
   updateKnot,
   updateSegment,
+  applyMaterialToWhole,
+  applyColorToSelection,
   sampleCurvePoints,
   findClosestOnCurve,
   insertKnotOnCurve,
   tessellate,
   applyProject,
   snapshotState,
+  attachFromProject,
+  selectChild,
+  editRoot,
+  editChildContent,
+  updateChildTransform,
+  removeChild,
+  centerChildOnAxis,
+  toggleChildSymmetry,
+  addSymmetricTwin,
+  isEditingChild,
 } = useSplineEditor();
 
 const { lib, refresh, load, save, saveAs, remove, exportJson, importJsonFile } = useLibrary({
@@ -51,11 +67,12 @@ const views = [
   { id: "orbit", label: "Orbit" },
 ];
 
-const activeKnots = computed(() =>
-  state.viewMode === "orbit" ? state.orbitKnots : state.knots,
-);
-const activeSegments = computed(() =>
-  state.viewMode === "orbit" ? state.orbitSegments : state.segments,
+const knots = computed(() => activeKnots());
+const segments = computed(() => activeSegments());
+const editingLabel = computed(() =>
+  isEditingChild()
+    ? state.embeddedAssets[state.editTarget]?.name || "sub-object"
+    : "root",
 );
 
 function onTessellate() {
@@ -89,6 +106,40 @@ function onListCommit() {
   tessellate();
 }
 
+function onSelect(id, opts) {
+  select(id, opts || {});
+}
+
+function onBulkWhole() {
+  applyMaterialToWhole({
+    color: state.bulkColor,
+    roughness: state.objectMaterial.roughness,
+    metalness: state.objectMaterial.metalness,
+    opacity: state.objectMaterial.opacity,
+    texture: state.objectMaterial.texture,
+  });
+  tessellate();
+}
+
+function onBulkSelection() {
+  applyColorToSelection(state.bulkColor);
+  tessellate();
+}
+
+function onMoveChild(guid, patch) {
+  updateChildTransform(guid, patch);
+}
+
+async function onAttach({ slug, mode, symmetric }) {
+  try {
+    const doc = await api.loadProject(slug);
+    attachFromProject(doc, { mode, symmetric });
+    tessellate();
+  } catch (err) {
+    state.status = "Attach failed: " + (err.message || err);
+  }
+}
+
 onMounted(() => {
   tessellate();
 });
@@ -101,8 +152,8 @@ onMounted(() => {
         <p class="eyebrow">Ranger · gallery/game_engine/v2</p>
         <h1>Spline Mesh Editor</h1>
         <p class="lede">
-          Bezier profile + editable orbit path (replaces cos/sin) lathed into a mesh with Ranger
-          Three — Edit / Add / Coloring on either view.
+          Profile + orbit lathe, bulk colouring, and sub-objects (copy / link GUIDs) with assembly
+          preview — editing <strong>{{ editingLabel }}</strong>.
         </p>
       </div>
       <div class="actions">
@@ -172,47 +223,111 @@ onMounted(() => {
           </button>
         </div>
       </div>
+      <div class="bulk">
+        <span>Bulk colour</span>
+        <div class="bulk-row">
+          <input v-model="state.bulkColor" type="color" />
+          <button type="button" @click="onBulkWhole">Whole object</button>
+          <button type="button" @click="onBulkSelection">Selection</button>
+        </div>
+      </div>
       <p class="status">
         {{ state.status }} · {{ state.stats.parts || 0 }} parts · {{ state.stats.verts }}v /
-        {{ state.stats.tris }}t
+        {{ state.stats.tris }}t · GUID {{ state.assetGuid.slice(0, 8) }}…
       </p>
     </section>
 
     <main class="workspace">
       <SplineCanvas
-        :knots="activeKnots"
-        :segments="activeSegments"
+        :knots="knots"
+        :segments="segments"
         :selected-id="state.selectedId"
+        :selected-ids="state.selectedIds"
         :selected-segment-index="state.selectedSegmentIndex"
         :curve-type="state.curveType"
         :symmetry="state.symmetry"
         :tool-mode="state.toolMode"
         :view-mode="state.viewMode"
+        :children="state.children"
+        :selected-child-guid="state.selectedChildGuid"
+        :edit-target="state.editTarget"
         :viewport="state.viewport"
         :sample-curve-points="sampleCurvePoints"
         :find-closest-on-curve="findClosestOnCurve"
-        @select="select"
+        @select="onSelect"
         @select-segment="selectSegment"
         @update-knot="onUpdateKnot"
         @add-on-curve="onAddOnCurve"
         @drag-end="onDragEnd"
+        @select-child="selectChild"
+        @move-child="onMoveChild"
       />
       <PointEditor
-        :knots="activeKnots"
-        :segments="activeSegments"
+        :knots="knots"
+        :segments="segments"
         :selected-id="state.selectedId"
         :selected-segment-index="state.selectedSegmentIndex"
         :curve-type="state.curveType"
         :tool-mode="state.toolMode"
         :view-mode="state.viewMode"
-        @select="select"
+        @select="onSelect"
         @select-segment="selectSegment"
         @update-knot="onUpdateKnot"
         @update-segment="onUpdateSegment"
         @remove-knot="onRemoveKnot"
         @commit="onListCommit"
       />
-      <Preview3D :mesh="state.mesh" :material-mode="state.materialMode" />
+      <div class="side-stack">
+        <Preview3D :mesh="state.mesh" :material-mode="state.materialMode" />
+        <ChildrenPanel
+          :children="state.children"
+          :embedded-assets="state.embeddedAssets"
+          :selected-child-guid="state.selectedChildGuid"
+          :edit-target="state.editTarget"
+          :projects="lib.projects"
+          :asset-guid="state.assetGuid"
+          @select-child="selectChild"
+          @edit-child="
+            (g) => {
+              editChildContent(g);
+              tessellate();
+            }
+          "
+          @edit-root="
+            () => {
+              editRoot();
+              tessellate();
+            }
+          "
+          @update-transform="updateChildTransform"
+          @remove-child="
+            (g) => {
+              removeChild(g);
+              tessellate();
+            }
+          "
+          @center="
+            (g) => {
+              centerChildOnAxis(g);
+              tessellate();
+            }
+          "
+          @toggle-symmetry="
+            (g) => {
+              toggleChildSymmetry(g);
+              tessellate();
+            }
+          "
+          @add-twin="
+            (g) => {
+              addSymmetricTwin(g);
+              tessellate();
+            }
+          "
+          @attach="onAttach"
+          @tessellate="onTessellate"
+        />
+      </div>
       <LibraryPanel
         :lib="lib"
         @refresh="refresh"
@@ -264,7 +379,7 @@ h1 {
 
 .lede {
   margin: 0;
-  max-width: 38rem;
+  max-width: 42rem;
   color: var(--ink-dim);
   font-size: 0.95rem;
   line-height: 1.45;
@@ -289,7 +404,7 @@ h1 {
 
 .toolbar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) 1.4fr;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) 1.2fr 1fr;
   gap: 0.75rem;
   align-items: end;
   padding: 0.85rem 1rem;
@@ -308,17 +423,28 @@ h1 {
   opacity: 0.45;
 }
 
-.mats span {
+.mats span,
+.bulk span {
   display: block;
   font-size: 0.78rem;
   color: var(--ink-dim);
   margin-bottom: 0.3rem;
 }
 
-.mat-row {
+.mat-row,
+.bulk-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  align-items: center;
+}
+
+.bulk-row input[type="color"] {
+  width: 2rem;
+  height: 1.6rem;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 .status {
@@ -331,22 +457,26 @@ h1 {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.75fr) minmax(240px, 0.8fr) minmax(220px, 0.7fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.75fr) minmax(260px, 0.95fr) minmax(
+      200px,
+      0.7fr
+    );
   gap: 1rem;
   min-height: 0;
   align-items: stretch;
 }
 
-@media (max-width: 1280px) {
+.side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+@media (max-width: 1200px) {
   .toolbar {
     grid-template-columns: 1fr 1fr;
   }
-  .workspace {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-@media (max-width: 800px) {
   .workspace {
     grid-template-columns: 1fr;
   }
