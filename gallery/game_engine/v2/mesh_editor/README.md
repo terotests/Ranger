@@ -58,11 +58,18 @@ mesh_editor/
 
 ## Tessellate
 
+Two modes (`editor.tessellationMode`):
+
+| Mode | Behaviour |
+|------|-----------|
+| **Rotation** (default) | Classic lathe: profile revolved using orbit as direction scales `(r·ox, y, r·oy)`, optionally along a spine centerline |
+| **Torus** | Profile is swept as a tube cross-section along the **orbit path** (major ring). The ring is **unit-sized**: profile + major radius are scaled so outer ≈ 1. Spine modulates major radius (profile-spine X) and lifts the ring (orbit-spine X → Y) |
+
+Shared steps:
+
 1. Sample the **profile** curve (Bezier default, or Catmull-Rom)
-2. Sample the closed **orbit** path; each sample `(ox, oy)` replaces `(cos θ, sin θ)`
-3. Sample **spineProfile** + **spineOrbit** along profile height `u`; center
-   `(spineX, spineY, spineZ)` with frames → place `radius · orbit` in the local N/B plane
-   (straight spines ⇒ classic `(r·ox, y, r·oy)`)
+2. Sample the closed **orbit** path
+3. Apply the active mode kernel (rotation lathe or torus sweep), with optional spines
 4. **Orbit samples N** is distributed across orbit spans (`≈ N / orbitKnots`)
 5. **360° closed**: faces wrap the last orbit column to the first
 6. **180°**: use the first half of the orbit samples; faces do **not** wrap

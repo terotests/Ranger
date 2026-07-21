@@ -86,6 +86,7 @@ export function cloneBodyContent(src, { preserveGuid = false, name = "Sub-object
     pathSegments: ed.pathSegments || 12,
     angularSteps: ed.angularSteps || 24,
     revolutionDeg: ed.revolutionDeg || 360,
+    tessellationMode: ed.tessellationMode === "torus" || src.tessellationMode === "torus" ? "torus" : "rotation",
     objectMaterial: src.objectMaterial
       ? { ...src.objectMaterial }
       : { color: null, roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient" },
@@ -109,6 +110,7 @@ export function snapshotRootAsBody(state) {
     pathSegments: state.pathSegments,
     angularSteps: state.angularSteps,
     revolutionDeg: state.revolutionDeg,
+    tessellationMode: state.tessellationMode === "torus" ? "torus" : "rotation",
     objectMaterial: { ...state.objectMaterial },
     knots: state.knots.map((k) => ({ ...k })),
     segments: state.segments.map((s) => ({

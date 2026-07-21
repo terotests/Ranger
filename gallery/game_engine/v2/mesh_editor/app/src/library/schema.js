@@ -2,7 +2,7 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
@@ -87,6 +87,7 @@ function serializeBodyContent(body) {
     pathSegments: body.pathSegments | 0,
     angularSteps: body.angularSteps | 0,
     revolutionDeg: body.revolutionDeg | 0,
+    tessellationMode: body.tessellationMode === "torus" ? "torus" : "rotation",
     objectMaterial: {
       color: body.objectMaterial?.color ?? null,
       roughness: Number(body.objectMaterial?.roughness ?? 0.4),
@@ -152,6 +153,7 @@ export function buildProjectDocument(opts) {
       pathSegments: st.pathSegments | 0,
       angularSteps: st.angularSteps | 0,
       revolutionDeg: st.revolutionDeg | 0,
+      tessellationMode: st.tessellationMode === "torus" ? "torus" : "rotation",
       materialMode: st.materialMode | 0,
       symmetry: !!st.symmetry,
       viewMode:
@@ -236,6 +238,12 @@ export function validateProject(doc) {
       } else if (Math.hypot(ex - sx, ey - sy) < 1e-9) {
         errors.push("placementNormal start and end must differ");
       }
+    }
+  }
+  if (doc.schemaVersion >= 7) {
+    const m = doc.editor?.tessellationMode;
+    if (m != null && m !== "rotation" && m !== "torus") {
+      errors.push('editor.tessellationMode must be "rotation" or "torus"');
     }
   }
   return errors;

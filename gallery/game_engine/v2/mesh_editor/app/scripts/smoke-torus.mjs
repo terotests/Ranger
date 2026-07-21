@@ -1,61 +1,95 @@
 #!/usr/bin/env node
-// Smoke: placement normal defaults, alignment rotation, migration v5→v6.
+// Smoke: torus unit-fit, ring topology, spine radius mod, v6→v7 migration.
 import assert from "node:assert/strict";
 import {
-  defaultPlacementNormal,
-  normalizePlacementNormal,
-  placementNormalDirection3,
-  rotationAligning,
-  orientMeshToPlacementNormal,
-  rotateFlatXyz,
-} from "../src/lib/placementNormal.js";
+  latheProfileAsTorusOnSpine,
+  torusUnitFitScale,
+  defaultSpineKnots,
+  defaultSpineSegments,
+} from "../src/lib/spineLathe.js";
 import { migrateProject } from "../src/library/migrations.js";
 import { CURRENT_SCHEMA_VERSION, validateProject } from "../src/library/schema.js";
 
-const d = defaultPlacementNormal();
-assert.deepEqual(d.start, { x: 0, y: -1 });
-assert.deepEqual(d.end, { x: 0, y: 1 });
-const dir = placementNormalDirection3(d);
-assert.ok(Math.abs(dir.x) < 1e-9 && dir.y > 0.99 && Math.abs(dir.z) < 1e-9);
+function discProfile() {
+  return [
+    { x: 0, y: -0.4, tx: 0, ty: 1, segmentIndex: 0 },
+    { x: 0.35, y: 0, tx: 1, ty: 0, segmentIndex: 0 },
+    { x: 0, y: 0.4, tx: 0, ty: 1, segmentIndex: 0 },
+  ];
+}
 
-// Align +X → +Y
-const m = rotationAligning({ x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 });
-const p = rotateFlatXyz([1, 0, 0], m);
-assert.ok(Math.abs(p[0]) < 1e-6 && Math.abs(p[1] - 1) < 1e-6 && Math.abs(p[2]) < 1e-6);
+function unitOrbit(n = 16) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * Math.PI * 2;
+    pts.push({
+      x: Math.cos(t),
+      y: Math.sin(t),
+      tx: -Math.sin(t),
+      ty: Math.cos(t),
+      segmentIndex: 0,
+    });
+  }
+  return pts;
+}
 
-// Mesh with point on +X should flip to +Y when normal is +X
-const mesh = {
-  parts: [
-    {
-      positions: [0.5, 0, 0, 0.5, 0, 0.1],
-      normals: [1, 0, 0, 1, 0, 0],
-      uvs: [],
-      indices: [0, 1, 0],
-    },
-  ],
-};
-const oriented = orientMeshToPlacementNormal(mesh, {
-  start: { x: 0, y: 0 },
-  end: { x: 1, y: 0 },
-});
-assert.ok(Math.abs(oriented.parts[0].positions[0]) < 1e-6);
-assert.ok(Math.abs(oriented.parts[0].positions[1] - 0.5) < 1e-6);
+const profile = discProfile();
+const orbit = unitOrbit(24);
+const { scale, majorR, tubeR } = torusUnitFitScale(profile, orbit);
+assert.ok(Math.abs(majorR - 1) < 1e-6);
+assert.ok(tubeR > 0.3);
+assert.ok(Math.abs(scale * (majorR + tubeR) - 1) < 1e-6);
 
-// Default normal → identity (same positions)
-const same = orientMeshToPlacementNormal(mesh, defaultPlacementNormal());
-assert.equal(same.parts[0].positions[0], 0.5);
+const straightK = defaultSpineKnots(() => "t" + Math.random().toString(36).slice(2, 6));
+const straightS = defaultSpineSegments(straightK);
+const mesh = latheProfileAsTorusOnSpine(
+  profile,
+  orbit,
+  true,
+  { knots: straightK, segments: straightS },
+  { knots: straightK, segments: straightS },
+);
 
-const n = normalizePlacementNormal({ start: { x: "nope" }, end: {} });
-assert.equal(n.start.y, -1);
-assert.equal(n.end.y, 1);
+assert.equal(mesh.rows, profile.length);
+assert.equal(mesh.steps, orbit.length);
+assert.equal(mesh.positions.length, profile.length * orbit.length * 3);
 
-const v5 = {
+// Outer radius should be ~1 (unit torus)
+let maxR = 0;
+for (let i = 0; i < mesh.positions.length; i += 3) {
+  maxR = Math.max(
+    maxR,
+    Math.hypot(mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]),
+  );
+}
+assert.ok(maxR > 0.85 && maxR < 1.15, `unit outer radius expected ~1, got ${maxR}`);
+
+// Bent profile-spine should change major radius
+const bentK = [
+  { id: "b0", x: 0, y: -1, hx: 0, hy: 0, color: "#fff" },
+  { id: "b1", x: 0.4, y: 0, hx: 0, hy: 0, color: "#fff" },
+  { id: "b2", x: 0, y: 1, hx: 0, hy: 0, color: "#fff" },
+];
+const bent = latheProfileAsTorusOnSpine(
+  profile,
+  orbit,
+  true,
+  { knots: bentK, segments: defaultSpineSegments(bentK) },
+  { knots: straightK, segments: straightS },
+);
+let moved = 0;
+for (let i = 0; i < mesh.positions.length; i++) {
+  moved = Math.max(moved, Math.abs(bent.positions[i] - mesh.positions[i]));
+}
+assert.ok(moved > 0.02, `spine should modulate torus (moved=${moved})`);
+
+const v6 = {
   kind: "ranger.splineProject",
-  schemaVersion: 5,
+  schemaVersion: 6,
   id: "t1",
   assetGuid: "g1",
-  slug: "smoke-normal",
-  name: "Smoke normal",
+  slug: "smoke-torus",
+  name: "Smoke torus",
   description: "",
   tags: [],
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -71,6 +105,7 @@ const v5 = {
     spineSource: "profile",
   },
   objectMaterial: { color: null, roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient" },
+  placementNormal: { start: { x: 0, y: -1 }, end: { x: 0, y: 1 } },
   profile: {
     knots: [
       { id: "p0", x: 0, y: -1, hx: 0, hy: 0, color: "#7ecf6a" },
@@ -118,14 +153,12 @@ const v5 = {
   children: [],
 };
 
-const mig = migrateProject(v5);
+const mig = migrateProject(v6);
 assert.equal(mig.ok, true, mig.errors?.join("; "));
 assert.equal(mig.doc.schemaVersion, CURRENT_SCHEMA_VERSION);
 assert.equal(CURRENT_SCHEMA_VERSION, 7);
-assert.deepEqual(mig.doc.placementNormal.start, { x: 0, y: -1 });
-assert.deepEqual(mig.doc.placementNormal.end, { x: 0, y: 1 });
 assert.equal(mig.doc.editor.tessellationMode, "rotation");
 const errs = validateProject(mig.doc);
 assert.equal(errs.length, 0, errs.join("; "));
 
-console.log("smoke-placement-normal: ok", { schema: mig.doc.schemaVersion });
+console.log("smoke-torus: ok", { maxR, moved, schema: mig.doc.schemaVersion, scale });
