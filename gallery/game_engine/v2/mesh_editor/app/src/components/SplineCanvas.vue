@@ -14,7 +14,7 @@ const props = defineProps({
   findClosestOnCurve: { type: Function, required: true },
 });
 
-const emit = defineEmits(["select", "select-segment", "update-knot", "add-on-curve"]);
+const emit = defineEmits(["select", "select-segment", "update-knot", "add-on-curve", "drag-end"]);
 
 const canvasRef = ref(null);
 const size = 560;
@@ -291,6 +291,9 @@ function onPointerMove(e) {
 }
 
 function onPointerUp() {
+  if (dragging && props.toolMode === "edit") {
+    emit("drag-end");
+  }
   dragging = null;
 }
 

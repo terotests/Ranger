@@ -136,15 +136,21 @@ export function useSplineEditor() {
   });
 
   function syncSegments() {
+    const byPair = new Map();
+    for (const s of state.segments) {
+      byPair.set(s.fromId + ">" + s.toId, s);
+    }
     const next = [];
     for (let i = 0; i < state.knots.length - 1; i++) {
       const fromId = state.knots[i].id;
       const toId = state.knots[i + 1].id;
-      const prev =
-        state.segments.find((s) => s.fromId === fromId && s.toId === toId) ||
-        state.segments.find((s) => s.fromId === fromId) ||
-        state.segments.find((s) => s.toId === toId);
-      next.push(prev ? { ...prev, fromId, toId } : defaultSegment(fromId, toId));
+      const key = fromId + ">" + toId;
+      const exact = byPair.get(key);
+      if (exact) {
+        next.push({ ...exact, fromId, toId });
+      } else {
+        next.push(defaultSegment(fromId, toId));
+      }
     }
     state.segments = next;
     if (state.selectedSegmentIndex >= next.length) state.selectedSegmentIndex = next.length - 1;
@@ -264,8 +270,12 @@ export function useSplineEditor() {
       state.status = "Click closer to the curve to add a point.";
       return null;
     }
-    const a = state.knots[hit.segmentIndex];
-    const b = state.knots[hit.segmentIndex + 1];
+    const segIndex = hit.segmentIndex;
+    const a = state.knots[segIndex];
+    const b = state.knots[segIndex + 1];
+    const oldSeg = state.segments[segIndex]
+      ? { ...state.segments[segIndex] }
+      : defaultSegment(a.id, b.id);
     const { p, tan } = evalSpan(a, b, hit.t, state.curveType);
     const tl = Math.hypot(tan.x, tan.y) || 1;
     const scale = 0.14;
@@ -277,11 +287,30 @@ export function useSplineEditor() {
       hy: (tan.y / tl) * scale,
       color: DEFAULT_COLORS[state.knots.length % DEFAULT_COLORS.length],
     };
-    state.knots.splice(hit.segmentIndex + 1, 0, k);
-    syncSegments();
+    // Insert knot, then rebuild segments with the split styles in the correct slots.
+    state.knots.splice(segIndex + 1, 0, k);
+    const next = [];
+    for (let i = 0; i < state.knots.length - 1; i++) {
+      const fromId = state.knots[i].id;
+      const toId = state.knots[i + 1].id;
+      if (i === segIndex || i === segIndex + 1) {
+        next.push({
+          ...oldSeg,
+          fromId,
+          toId,
+          textureData: oldSeg.textureData,
+        });
+      } else if (i < segIndex) {
+        next.push({ ...state.segments[i], fromId, toId });
+      } else {
+        // i >= segIndex + 2 → old segment index was i - 1
+        next.push({ ...state.segments[i - 1], fromId, toId });
+      }
+    }
+    state.segments = next;
     state.selectedId = k.id;
     state.selectedSegmentIndex = -1;
-    state.status = `Added knot #${hit.segmentIndex + 2} on the curve.`;
+    state.status = `Added knot at y=${k.y.toFixed(2)} (between #${segIndex + 1} and #${segIndex + 2}).`;
     return k;
   }
 
