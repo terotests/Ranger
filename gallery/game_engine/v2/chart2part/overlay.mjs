@@ -41,8 +41,19 @@ function flipperWorldOutline(p, n) {
   return loc.map(([lx, lz]) => [p.pivot.x + lx * c + lz * s, p.pivot.z - lx * s + lz * c]);
 }
 
+// disc footprint outline (bumper skirt etc.)
+function discWorldOutline(p, n) {
+  const out = [];
+  for (let k = 0; k < n; k++) { const a = (k / n) * 2 * Math.PI; out.push([p.center.x + p.r * Math.cos(a), p.center.z + p.r * Math.sin(a)]); }
+  return out;
+}
+function partOutline(p, n) {
+  if (p.type === "flipper") return flipperWorldOutline(p, n);
+  if (p.type === "disc") return discWorldOutline(p, n);
+  return null;
+}
 const worldPolys = Object.fromEntries(Object.entries(D.parts)
-  .filter(([, p]) => p.type === "flipper").map(([n, p]) => [n, flipperWorldOutline(p, 22)]));
+  .map(([n, p]) => [n, partOutline(p, 28)]).filter(([, o]) => o));
 
 const b64 = (f) => fs.readFileSync(f).toString("base64");
 const browser = await chromium.launch({ executablePath: CHROME });

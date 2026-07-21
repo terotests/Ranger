@@ -64,9 +64,9 @@ let bx = 4.2, bz = 5.2, vx = 0.0, vz = -0.85;
 let by = R, spin = 0;
 
 // Table dimensions come from the chart calibration (chart2part/transform.mjs
-// injects CHART at build time). FLIPPERS_ONLY renders just the calibrated
-// playfield + the measured flippers — the clean scene the validator checks.
-const FLIPPERS_ONLY = true;
+// injects CHART at build time). VALIDATE renders the calibrated playfield + every
+// measured part (keyed red) + corner fiducials — the scene the validator checks.
+const VALIDATE = true;
 const PW = CHART.cal.width, PL = CHART.cal.length;
 
 let flippers = [];   // {side, px, pz, rest, ang, length, baseR, tipR, mesh}
@@ -108,15 +108,13 @@ export function init() {
   addBox(0.7, 1.4, PL + 0.7, rail, -rx, 0.55, 0, 0);
   addBox(0.7, 1.4, PL + 0.7, rail, rx, 0.55, 0, 0);
   addBox(PW + 1.4, 1.4, 0.7, rail, 0, 0.55, -rz, 0);
-  // ---- flippers (measured off the chart via CHART.parts) ---------------------
-  // keyed SOLID red (even in WIRE) so the validator can mask a filled flipper
-  // silhouette for IoU, and it reads clearly over the chart in the overlay.
-  const flipMat = WIRE ? new THREE.MeshBasicMaterial({ color: 0xff2a3a })
-    : phong(0xe8443f, 0xffd0c0, 44);
-  addFlipperC("flipperLeft", 1, flipMat);
-  addFlipperC("flipperRight", -1, flipMat);
-
-  if (FLIPPERS_ONLY) {
+  if (VALIDATE) {
+    // build EVERY measured part from CHART, keyed SOLID red so the validator can
+    // mask each filled silhouette for IoU (and they read over the chart).
+    const keyMat = new THREE.MeshBasicMaterial({ color: 0xff2a3a });
+    const names = Object.keys(CHART.parts);
+    let ni = 0;
+    while (ni < names.length) { buildPartC(names[ni], keyMat); ni = ni + 1; }
     // green fiducials at the table-plane corners (known world coords) so the
     // validator can solve the EXACT world→pixel map from the render itself.
     const fmat = new THREE.MeshBasicMaterial({ color: 0x00ff66 });
@@ -136,6 +134,9 @@ export function init() {
     renderer.setAnimationLoop(animate);
     return;
   }
+  const flipMat = phong(0xe8443f, 0xffd0c0, 44);
+  addFlipperC("flipperLeft", 1, flipMat);
+  addFlipperC("flipperRight", -1, flipMat);
   addBox(PW + 1.4, 1.1, 0.7, rail, 0, 0.4, rz, 0);
   addBox(11.4, 1.1, 0.7, rail, 0, 0.4, 8.75, 0);
 
@@ -295,6 +296,17 @@ function addFlipperC(name, side, mat) {
     length: p.length, baseR: p.baseR, tipR: p.tipR, y: yB, discs: discs };
   flippers.push(fl); placeFlipper(fl);
 }
+// dispatch a measured CHART part to its construction operator (validation shapes,
+// keyed with mat). Grows as more part types are measured.
+function buildPartC(name, mat) {
+  const p = CHART.parts[name];
+  if (p.type === "flipper") { addFlipperC(name, 1, mat); return; }
+  if (p.type === "disc") {
+    // top-down footprint = a disc of the measured radius (bumper skirt etc.)
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r, 0.16, 30), mat);
+    m.position.set(p.center.x, 0.12, p.center.z); scene.add(m); return;
+  }
+}
 function flipTip(fl) {
   return { x: fl.px + fl.length * Math.cos(fl.ang), z: fl.pz - fl.length * Math.sin(fl.ang) };
 }
@@ -321,7 +333,7 @@ function reflect(nx, nz, restitution) {
 }
 
 function animate() {
-  if (FLIPPERS_ONLY) { renderer.render(scene, camera); return; }
+  if (VALIDATE) { renderer.render(scene, camera); return; }
   // flipper actuation
   let fi = 0;
   while (fi < flippers.length) {

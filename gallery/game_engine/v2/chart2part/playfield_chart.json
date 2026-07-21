@@ -21,6 +21,10 @@
       "baseDiaPx": 18,
       "tipDiaPx": 14,
       "y": 0.18
-    }
+    },
+    "bumperTL": { "type": "disc", "centerPx": [258, 553], "diaPx": 87, "y": 0.1, "_chart": "11 red" },
+    "bumperTR": { "type": "disc", "centerPx": [434, 601], "diaPx": 88, "y": 0.1, "_chart": "12 yellow" },
+    "bumperML": { "type": "disc", "centerPx": [234, 676], "diaPx": 88, "y": 0.1, "_chart": "12 yellow" },
+    "bumperMR": { "type": "disc", "centerPx": [452, 717], "diaPx": 92, "y": 0.1, "_chart": "11 red" }
   }
 }
