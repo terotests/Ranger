@@ -42,6 +42,8 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
   preview orientation and future assembly (default `(0,-1)→(0,1)`)
 - v7 adds `editor.tessellationMode`: `rotation` (classic lathe) or `torus` (profile
   swept along orbit as a unit-sized ring)
+- v8 extends child `transform` with optional surface placement (`z`, `nx/ny/nz`,
+  `surface`) for 3D preview raycast attach
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.

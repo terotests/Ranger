@@ -356,6 +356,32 @@ function normalizeV7(doc) {
   return v6;
 }
 
+function normalizeChildTransformV8(t) {
+  return {
+    x: Number(t?.x ?? 0.45),
+    y: Number(t?.y ?? 0.35),
+    z: Number(t?.z ?? 0),
+    nx: Number.isFinite(Number(t?.nx)) ? Number(t.nx) : 0,
+    ny: Number.isFinite(Number(t?.ny)) ? Number(t.ny) : 1,
+    nz: Number.isFinite(Number(t?.nz)) ? Number(t.nz) : 0,
+    surface: !!t?.surface,
+    rotationYDeg: Number(t?.rotationYDeg ?? 0),
+    scale: Number(t?.scale ?? 0.28),
+    useSymmetry: !!t?.useSymmetry,
+    snapCenterline: !!t?.snapCenterline,
+  };
+}
+
+function normalizeV8(doc) {
+  const v7 = normalizeV7(doc);
+  v7.schemaVersion = 8;
+  v7.children = (v7.children || []).map((ch) => ({
+    ...ch,
+    transform: normalizeChildTransformV8(ch.transform),
+  }));
+  return v7;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -382,6 +408,10 @@ const STEPS = {
   // 6 → 7: tessellationMode rotation | torus
   7(doc) {
     return normalizeV7(doc);
+  },
+  // 7 → 8: child surface placement (z + normal + surface flag)
+  8(doc) {
+    return normalizeV8(doc);
   },
 };
 

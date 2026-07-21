@@ -8,6 +8,8 @@ const props = defineProps({
   editTarget: { type: String, default: "root" },
   projects: { type: Array, default: () => [] },
   assetGuid: { type: String, default: "" },
+  placeMode: { type: Boolean, default: false },
+  placeLabel: { type: String, default: "" },
 });
 
 const emit = defineEmits([
@@ -19,7 +21,8 @@ const emit = defineEmits([
   "center",
   "toggle-symmetry",
   "add-twin",
-  "attach",
+  "begin-place",
+  "cancel-place",
   "tessellate",
 ]);
 
@@ -32,7 +35,8 @@ function shortGuid(g) {
 }
 
 function onAttach(slug, mode, symmetric) {
-  emit("attach", { slug, mode, symmetric });
+  // Enter 3D surface-place mode (Copy / Link); panel no longer dumps at default (0.45,0.35).
+  emit("begin-place", { slug, mode, symmetric });
 }
 </script>
 
@@ -146,12 +150,26 @@ function onAttach(slug, mode, symmetric) {
 
     <div class="attach">
       <h3>Attach from library</h3>
+      <p class="hint">
+        Pick Copy / Link, then click the root surface in the 3D preview. The sub-object’s placement
+        normal aligns to the hit normal.
+      </p>
+      <p v-if="placeMode" class="placing">
+        Placing {{ placeLabel }}…
+        <button type="button" @click="emit('cancel-place')">Cancel</button>
+      </p>
       <p v-if="!projects.length" class="hint">Save another spline first, then attach it here.</p>
       <div v-for="p in projects" :key="p.slug" class="proj">
         <span>{{ p.name || p.slug }}</span>
-        <button type="button" @click="onAttach(p.slug, 'copy', false)">Copy</button>
-        <button type="button" @click="onAttach(p.slug, 'copy', true)">Copy×2</button>
-        <button type="button" @click="onAttach(p.slug, 'link', false)">Link</button>
+        <button type="button" :disabled="placeMode" @click="onAttach(p.slug, 'copy', false)">
+          Copy
+        </button>
+        <button type="button" :disabled="placeMode" @click="onAttach(p.slug, 'copy', true)">
+          Copy×2
+        </button>
+        <button type="button" :disabled="placeMode" @click="onAttach(p.slug, 'link', false)">
+          Link
+        </button>
       </div>
     </div>
   </aside>
@@ -280,5 +298,13 @@ code {
 }
 button.active {
   border-color: rgba(126, 207, 106, 0.6);
+}
+.placing {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  color: #93c5fd;
+  font-size: 0.72rem;
 }
 </style>

@@ -145,15 +145,16 @@ Edits push immutable shape snapshots into an in-memory buffer (no Zustand depend
 Toolbar **Bulk colour** → *Whole object* paints every knot/segment (+ object material) on the
 active edit target; *Selection* paints only the multi-selected points.
 
-### Sub-objects (schema v3)
+### Sub-objects (schema v3+)
 
-- Attach another library project as a **copy** (new `assetGuid`, independent of later Saves of the source) or **link** (shared `assetGuid`)
-- **Copy×2** / **Twin** / **Sym** for mirrored pairs that share content (e.g. two eyes)
-- Placement: `(x,y)` on the profile plane, Y-rotation, **bbox scale**, **Center** on the axis
-- **Edit** a sub-object to load it large in the canvas; the 3D preview always shows the **full assembly**
-- Instance GUID ≠ content GUID: instances can differ in transform while linked content stays in sync
+Attach another library project as a child (**Copy** = new GUID, **Link** = shared GUID).
 
-Profile list is **top → bottom**. Orbit list follows knot order around the loop.
+1. Click **Copy** / **Copy×2** / **Link** in Sub-objects
+2. Move over the **3D preview** (cursor = copy/+) — raycast hits the **root** surface
+3. Click to place: the child’s **placement normal** aligns to the hit surface normal
+4. Esc cancels; right-drag still orbits the preview
+
+Also: **Twin** / **Sym** for mirrored pairs; Profile attach boxes for non-surface nudging; **Edit** loads a child large while the preview stays the full assembly.
 
 ## Shading base
 

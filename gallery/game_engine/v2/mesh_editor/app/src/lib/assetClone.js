@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { defaultSpineKnots, defaultSpineSegments } from "./spineLathe.js";
+import { normalizePlacementNormal } from "./placementNormal.js";
 
 export function newGuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
@@ -98,6 +99,7 @@ export function cloneBodyContent(src, { preserveGuid = false, name = "Sub-object
     spineProfileSegments,
     spineOrbitKnots,
     spineOrbitSegments,
+    placementNormal: normalizePlacementNormal(src.placementNormal),
   };
 }
 
@@ -173,6 +175,11 @@ export function defaultChildTransform(overrides = {}) {
   return {
     x: 0.45,
     y: 0.35,
+    z: 0,
+    nx: 0,
+    ny: 1,
+    nz: 0,
+    surface: false,
     rotationYDeg: 0,
     scale: 0.28,
     useSymmetry: false,

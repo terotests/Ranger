@@ -113,6 +113,34 @@ class ThreeOrbitControls {
         camera.lookAt(targetX targetY targetZ)
     }
 
+    ; Readouts for JS raycasting (camera at target + spherical offset).
+    fn camX:double () {
+        def sp:double (sin phi)
+        return (targetX + ((radius * sp) * (sin theta)))
+    }
+    fn camY:double () {
+        return (targetY + (radius * (cos phi)))
+    }
+    fn camZ:double () {
+        def sp:double (sin phi)
+        return (targetZ + ((radius * sp) * (cos theta)))
+    }
+    fn getTargetX:double () {
+        return targetX
+    }
+    fn getTargetY:double () {
+        return targetY
+    }
+    fn getTargetZ:double () {
+        return targetZ
+    }
+    fn getFov:double () {
+        if (hasCamera == false) {
+            return 45.0
+        }
+        return camera.fov
+    }
+
     fn pointerDown:void (x:double y:double button:int) {
         dragging = true
         if (button == 2) {

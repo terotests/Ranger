@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onBeforeUnmount } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import SplineCanvas from "./components/SplineCanvas.vue";
 import PointEditor from "./components/PointEditor.vue";
 import Preview3D from "./components/Preview3D.vue";
@@ -193,14 +193,50 @@ function onKeyDown(e) {
   }
 }
 
-async function onAttach({ slug, mode, symmetric }) {
+const placePending = ref(null); // { slug, mode, symmetric, doc }
+
+const placeLabel = computed(() => {
+  if (!placePending.value) return "";
+  const p = placePending.value;
+  return `${p.doc?.name || p.slug} (${p.mode}${p.symmetric ? " ×2" : ""})`;
+});
+
+async function onBeginPlace({ slug, mode, symmetric }) {
   try {
     const doc = await api.loadProject(slug);
-    attachFromProject(doc, { mode, symmetric });
-    tessellate();
+    placePending.value = { slug, mode, symmetric, doc };
+    state.status = `Place mode — click the root surface in 3D to attach “${doc.name || slug}”.`;
+    if (!state.rootMesh) tessellate();
   } catch (err) {
     state.status = "Attach failed: " + (err.message || err);
   }
+}
+
+function onCancelPlace() {
+  placePending.value = null;
+  state.status = "Place cancelled.";
+}
+
+function onPlaceCommit(hit) {
+  const pending = placePending.value;
+  if (!pending?.doc || !hit) return;
+  attachFromProject(pending.doc, {
+    mode: pending.mode,
+    symmetric: pending.symmetric,
+    transform: {
+      surface: true,
+      x: hit.point[0],
+      y: hit.point[1],
+      z: hit.point[2],
+      nx: hit.normal[0],
+      ny: hit.normal[1],
+      nz: hit.normal[2],
+      scale: 0.28,
+      rotationYDeg: 0,
+    },
+  });
+  placePending.value = null;
+  tessellate();
 }
 
 onMounted(() => {
@@ -426,8 +462,12 @@ onBeforeUnmount(() => {
       <div class="side-stack">
         <Preview3D
           :mesh="state.mesh"
+          :root-mesh="state.rootMesh"
           :material-mode="state.materialMode"
           :placement-normal="state.placementNormal"
+          :place-mode="!!placePending"
+          @place-commit="onPlaceCommit"
+          @place-cancel="onCancelPlace"
         />
         <ChildrenPanel
           :children="state.children"
@@ -436,6 +476,8 @@ onBeforeUnmount(() => {
           :edit-target="state.editTarget"
           :projects="lib.projects"
           :asset-guid="state.assetGuid"
+          :place-mode="!!placePending"
+          :place-label="placeLabel"
           @select-child="selectChild"
           @edit-child="
             (g) => {
@@ -474,7 +516,8 @@ onBeforeUnmount(() => {
               tessellate();
             }
           "
-          @attach="onAttach"
+          @begin-place="onBeginPlace"
+          @cancel-place="onCancelPlace"
           @tessellate="onTessellate"
         />
       </div>
