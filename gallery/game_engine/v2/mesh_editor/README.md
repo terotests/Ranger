@@ -50,14 +50,13 @@ npm run dev
 
 Open the printed local URL (default `http://localhost:5177`).
 
-## Materials
+## Tools
 
-Teapot-inspired modes exercised against Ranger Three:
+| Mode | Behaviour |
+|------|-----------|
+| **Edit** | Drag knots and Bezier handles |
+| **Add** | Click the profile curve to insert a knot (remove from the point list) |
+| **Coloring** | Per-knot colours form a linear height gradient; each segment can override colour, roughness, metalness, opacity, and texture (gradient / checker / stripes / upload) |
 
-| Mode | Material |
-|------|----------|
-| Wire | MeshBasic wireframe |
-| Flat | Phong + flatShading |
-| Smooth | Lambert |
-| Glossy | Phong specular |
-| Reflective | Phong + studio environment cube |
+Segment styles are lathed as separate mesh parts and previewed through Ranger Three materials (shininess ← roughness, reflectivity ← metalness).
+

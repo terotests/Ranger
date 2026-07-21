@@ -1,10 +1,9 @@
 ; ==============================================================================
 ; web_mesh_editor_host — Ranger Three preview host for the spline mesh editor.
 ; ==============================================================================
-; Receives a tessellated BufferGeometry (flat arrays from the SplineLathe JS
-; module), assigns a material, and renders via ThreeSceneHost. Prefers the WebGL
-; backend when the browser canvas is available; falls back to the software
-; rasteriser (RGB buffer blitted by the Vue viewer).
+; Supports multi-part lathe meshes (one part per profile segment) with per-part
+; colour, shininess (from roughness), opacity, reflectivity (metalness), and an
+; optional RGBA texture map (gradient / procedural / upload).
 ; ==============================================================================
 
 Import "../../three/port/src/three_scene_host.rgr"
@@ -13,6 +12,7 @@ Import "../../three/port/src/three_gl_backend.rgr"
 Import "../../three/port/src/three_orbit_controls.rgr"
 Import "../../three/port/src/three_mesh.rgr"
 Import "../../three/port/src/three_material.rgr"
+Import "../../three/port/src/three_texture.rgr"
 
 class WebMeshEditorHost {
     def host:ThreeSceneHost (new ThreeSceneHost)
@@ -24,14 +24,12 @@ class WebMeshEditorHost {
     def h:int 480
     def sceneH:int 0
     def camH:int 0
-    def meshH:int 0
-    def matH:int 0
-    def geoH:int 0
-    def hasMesh:boolean false
+    def meshHs:[int]
     def matMode:int 3
     def autoRotate:boolean true
     def angle:double 0.4
     def outBuf:buffer (buffer_alloc 0)
+    def lastMatH:int 0
 
     fn setupGL:boolean (canvasId:string) {
         def ok:boolean (gl.init(canvasId))
@@ -52,8 +50,8 @@ class WebMeshEditorHost {
         camH = (host.cameraNew())
         host.cameraSet(camH 45.0 ((to_double w) / (to_double h)) 0.1 100.0)
         host.cameraPose(camH 2.6 1.4 3.2 0.0 0.0 0.0)
-        host.lightAmbient(sceneH 16777215 0.35)
-        host.lightDirectional(sceneH 16777215 1.15 0.45 0.85 0.35 false 0)
+        host.lightAmbient(sceneH 16777215 0.4)
+        host.lightDirectional(sceneH 16777215 1.2 0.45 0.85 0.35 false 0)
         controls.setCamera((host.cameraAt(camH)))
         controls.setViewport(w h)
         controls.setTarget(0.0 0.0 0.0)
@@ -62,50 +60,47 @@ class WebMeshEditorHost {
         ready = true
     }
 
-    ; Material modes (teapot-inspired): 0 wire, 1 flat, 2 smooth, 3 glossy, 4 reflective.
-    fn buildMaterial:int (mode:int) {
+    fn clearParts:void () {
+        def i:int 0
+        while (i < (array_length meshHs)) {
+            def mh:int (itemAt meshHs i)
+            if (mh > 0) {
+                host.entityRemove(sceneH mh)
+            }
+            i = (i + 1)
+        }
+        clear meshHs
+    }
+
+    ; Build a Phong material tinted by colourHex; shininess/opacity/reflectivity
+    ; come from the segment style. matMode 0 forces wireframe basic.
+    fn buildPartMaterial:int (colorHex:int shininess:double opacity:double reflectivity:double) {
         def side:int 2
-        if (mode == 0) {
-            return (host.materialBasic(12632256 side true))
+        if (matMode == 0) {
+            def wb:int (host.materialBasic(colorHex side true))
+            host.materialSetOpacity(wb opacity)
+            return wb
         }
-        if (mode == 1) {
-            return (host.materialPhong(12632256 0 30.0 true side))
+        def flat:boolean false
+        if (matMode == 1) {
+            flat = true
         }
-        if (mode == 2) {
-            return (host.materialLambert(3512575 side))
-        }
-        if (mode == 4) {
-            def m:int (host.materialPhong(12632256 4210752 300.0 false side))
-            host.materialReflective(m 0.95)
+        def m:int (host.materialPhong(colorHex 4210752 shininess flat side))
+        host.materialSetOpacity(m opacity)
+        if ((reflectivity > 0.05) || (matMode == 4)) {
+            def r:double reflectivity
+            if (matMode == 4) {
+                if (r < 0.5) {
+                    r = 0.85
+                }
+            }
+            host.materialReflective(m r)
             host.sceneEnvironmentStudio(sceneH 64)
-            return m
         }
-        ; glossy default
-        return (host.materialPhong(12632256 4210752 220.0 false side))
+        return m
     }
 
-    fn setMaterialMode:void (mode:int) {
-        matMode = mode
-        if (hasMesh == false) {
-            return
-        }
-        if (meshH > 0) {
-            host.entityRemove(sceneH meshH)
-        }
-        matH = (this.buildMaterial(mode))
-        meshH = (host.meshNew(sceneH geoH matH))
-        host.entityTransform(meshH 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
-    }
-
-    ; Replace the preview mesh from flat BufferGeometry arrays.
-    fn setMesh:void (positions:[double] normals:[double] uvs:[double] indices:[int]) {
-        if (ready == false) {
-            return
-        }
-        if (hasMesh) {
-            host.entityRemove(sceneH meshH)
-            hasMesh = false
-        }
+    fn fillGeometry:ThreeBufferGeometry (positions:[double] normals:[double] uvs:[double] indices:[int]) {
         def g:ThreeBufferGeometry (new ThreeBufferGeometry)
         def vc:int (idiv (array_length positions) 3)
         def i:int 0
@@ -138,12 +133,53 @@ class WebMeshEditorHost {
             g.pushIndex((itemAt indices ii))
             ii = (ii + 1)
         }
+        return g
+    }
+
+    fn bytesToBuffer:buffer (bytes:[int]) {
+        def n:int (array_length bytes)
+        def buf:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set buf i (itemAt bytes i)
+            i = (i + 1)
+        }
+        return buf
+    }
+
+    ; Add one lathed segment. mapBytes empty => no texture.
+    fn addPart:void (positions:[double] normals:[double] uvs:[double] indices:[int] colorHex:int shininess:double opacity:double reflectivity:double mapBytes:[int] mapW:int mapH:int) {
+        if (ready == false) {
+            return
+        }
+        def g:ThreeBufferGeometry (this.fillGeometry(positions normals uvs indices))
         push host.geometries g
-        geoH = (array_length host.geometries)
-        matH = (this.buildMaterial(matMode))
-        meshH = (host.meshNew(sceneH geoH matH))
+        def geoH:int (array_length host.geometries)
+        def matH:int (this.buildPartMaterial(colorHex shininess opacity reflectivity))
+        if (((array_length mapBytes) > 0) && (mapW > 0) && (mapH > 0)) {
+            def tex:ThreeTexture (new ThreeTexture)
+            tex.setImage((this.bytesToBuffer(mapBytes)) mapW mapH)
+            (host.materialAt(matH)).setMap(tex)
+        }
+        lastMatH = matH
+        def meshH:int (host.meshNew(sceneH geoH matH))
         host.entityTransform(meshH 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
-        hasMesh = true
+        push meshHs meshH
+    }
+
+    fn beginParts:void () {
+        this.clearParts()
+    }
+
+    fn setMaterialMode:void (mode:int) {
+        matMode = mode
+    }
+
+    ; Back-compat single-mesh path used by older callers.
+    fn setMesh:void (positions:[double] normals:[double] uvs:[double] indices:[int]) {
+        this.beginParts()
+        def emptyMap:[int]
+        this.addPart(positions normals uvs indices 12632256 220.0 1.0 0.0 emptyMap 0 0)
     }
 
     fn setAutoRotate:void (on:boolean) {
@@ -171,8 +207,10 @@ class WebMeshEditorHost {
         }
         if (autoRotate) {
             angle = (angle + (dtMs * 0.0009))
-            if (hasMesh) {
-                host.entityTransform(meshH 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
+            def i:int 0
+            while (i < (array_length meshHs)) {
+                host.entityTransform((itemAt meshHs i) 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
+                i = (i + 1)
             }
         }
         controls.applyToCamera()
@@ -180,7 +218,6 @@ class WebMeshEditorHost {
             host.render(sceneH camH w h)
             return
         }
-        ; software path: 2× supersample then box-downsample (same as live3d)
         def sw:int (w * 2)
         def sh:int (h * 2)
         host.renderer.setClearColor(0.12 0.13 0.16)
@@ -228,10 +265,7 @@ class WebMeshEditorHost {
         return useGL
     }
 
-    fn vertexHint:int () {
-        if (geoH <= 0) {
-            return 0
-        }
-        return ((host.geometryAt(geoH)).vertexCount())
+    fn partCount:int () {
+        return (array_length meshHs)
     }
 }
