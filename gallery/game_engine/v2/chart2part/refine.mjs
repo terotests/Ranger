@@ -84,15 +84,26 @@ const out = await page.evaluate(async (A) => {
     x.beginPath(); x.arc(r.cx, r.cy, r.dia / 2, 0, 2 * Math.PI); x.stroke();
     x.beginPath(); x.arc(r.cx, r.cy, 3, 0, 2 * Math.PI); x.fill();
   }
-  // crop to the disc bounding region for a readable view
-  const xs = Object.values(res); const minx = Math.min(...xs.map((r) => r.cx)) - 90, maxx = Math.max(...xs.map((r) => r.cx)) + 90;
-  const miny = Math.min(...xs.map((r) => r.cy)) - 90, maxy = Math.max(...xs.map((r) => r.cy)) + 90;
+  // triangle parts (blue outline + corner dots) for the same visual check
+  const allx = [], ally = [];
+  for (const [name, p] of A.triangles) {
+    x.strokeStyle = "#0060ff"; x.fillStyle = "#0060ff";
+    x.beginPath();
+    p.cornersPx.forEach((c, j) => { j ? x.lineTo(c[0], c[1]) : x.moveTo(c[0], c[1]); allx.push(c[0]); ally.push(c[1]); });
+    x.closePath(); x.stroke();
+    for (const c of p.cornersPx) { x.beginPath(); x.arc(c[0], c[1], 4, 0, 2 * Math.PI); x.fill(); }
+  }
+  // crop to cover all discs + triangles
+  const xs = Object.values(res);
+  for (const r of xs) { allx.push(r.cx); ally.push(r.cy); }
+  const minx = Math.min(...allx) - 90, maxx = Math.max(...allx) + 90;
+  const miny = Math.min(...ally) - 90, maxy = Math.max(...ally) + 90;
   const cw = maxx - minx, ch = maxy - miny;
   const oc = document.createElement("canvas"); oc.width = cw * 2; oc.height = ch * 2;
   const ox = oc.getContext("2d"); ox.imageSmoothingEnabled = false;
   ox.drawImage(c, minx, miny, cw, ch, 0, 0, cw * 2, ch * 2);
   return { res, mark: oc.toDataURL("image/png") };
-}, { uri: `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${b64}`, discs, win: WIN, rmin: 18, rmax: 50 });
+}, { uri: `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${b64}`, discs, triangles: Object.entries(chartJson.parts).filter(([, p]) => p.type === "triangle"), win: WIN, rmin: 18, rmax: 50 });
 
 fs.writeFileSync("/home/user/Ranger/tmp/measure/refine_mark.png", Buffer.from(out.mark.split(",")[1], "base64"));
 const res = out.res || out;
