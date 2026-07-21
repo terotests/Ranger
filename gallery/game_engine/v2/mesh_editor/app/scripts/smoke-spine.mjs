@@ -33,6 +33,23 @@ function sampleUnitOrbit() {
   return pts;
 }
 
+/** Non-unit ellipse — classic lathe must keep radius scale, not unitize positions. */
+function sampleScaledOrbit() {
+  const n = 8;
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * Math.PI * 2;
+    pts.push({
+      x: 1.5 * Math.cos(t),
+      y: 0.6 * Math.sin(t),
+      tx: -1.5 * Math.sin(t),
+      ty: 0.6 * Math.cos(t),
+      segmentIndex: 0,
+    });
+  }
+  return pts;
+}
+
 const profile = sampleDiscProfile();
 const orbit = sampleUnitOrbit();
 
@@ -54,6 +71,33 @@ for (let i = 0; i < straight.positions.length; i++) {
   maxDiff = Math.max(maxDiff, Math.abs(straight.positions[i] - classic.positions[i]));
 }
 assert.ok(maxDiff < 1e-4, `straight spine should match classic (maxDiff=${maxDiff})`);
+
+const scaled = sampleScaledOrbit();
+const classicScaled = latheProfileWithOrbitOnSpine(profile, scaled, true, null, null);
+const spineScaled = latheProfileWithOrbitOnSpine(
+  profile,
+  scaled,
+  true,
+  { knots: straightK, segments: straightS },
+  { knots: straightK, segments: straightS },
+);
+let scaledDiff = 0;
+for (let i = 0; i < classicScaled.positions.length; i++) {
+  scaledDiff = Math.max(
+    scaledDiff,
+    Math.abs(classicScaled.positions[i] - spineScaled.positions[i]),
+  );
+}
+assert.ok(
+  scaledDiff < 1e-4,
+  `straight spine must keep raw orbit scale (scaledDiff=${scaledDiff})`,
+);
+// Sanity: scaled orbit must actually stretch vs unit orbit
+let stretch = 0;
+for (let i = 0; i < classic.positions.length; i++) {
+  stretch = Math.max(stretch, Math.abs(classicScaled.positions[i] - classic.positions[i]));
+}
+assert.ok(stretch > 0.1, `scaled orbit should differ from unit (stretch=${stretch})`);
 
 const bentK = [
   { id: "b0", x: 0, y: -1, hx: 0, hy: 0, color: "#fff" },
@@ -153,6 +197,7 @@ assert.equal(errs.length, 0, errs.join("; "));
 
 console.log("smoke-spine: ok", {
   maxDiffStraight: maxDiff,
+  scaledOrbitDiff: scaledDiff,
   bentMoved: moved,
   schema: mig.doc.schemaVersion,
 });
