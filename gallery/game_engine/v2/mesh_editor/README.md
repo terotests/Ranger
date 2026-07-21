@@ -50,6 +50,23 @@ npm run dev
 
 Open the printed local URL (default `http://localhost:5177`).
 
+## Local library (filesystem “database”)
+
+While `npm run dev` is running, the Vite plugin exposes `/api/library` and
+writes versioned JSON projects under:
+
+```text
+gallery/game_engine/v2/mesh_editor/library/projects/<slug>/project.json
+```
+
+That tree is **gitignored** by default. Point elsewhere with
+`MESH_EDITOR_LIBRARY=/abs/or/rel/path`. Schema + migrations live in
+`app/src/library/` (`schemaVersion`, kind `ranger.splineProject`).
+
+Offline fallback: **Export JSON** / **Import JSON** in the Library panel.
+
+See [`library/README.md`](./library/README.md).
+
 ## Tools
 
 | Mode | Behaviour |

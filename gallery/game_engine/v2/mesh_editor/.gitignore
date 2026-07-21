@@ -4,5 +4,7 @@ app/dist/
 app/public/ranger/
 app/node_modules/
 tessellate/_raw/
+library/projects/*/
+!library/projects/.gitkeep
 *.log
 .DS_Store

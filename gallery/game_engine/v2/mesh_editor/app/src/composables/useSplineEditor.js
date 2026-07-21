@@ -392,6 +392,64 @@ export function useSplineEditor() {
     return state.mesh;
   }
 
+  function applyProject(doc) {
+    if (!doc?.profile?.knots) return false;
+    const ed = doc.editor || {};
+    state.curveType = ed.curveType | 0;
+    state.pathSegments = ed.pathSegments || 12;
+    state.angularSteps = ed.angularSteps || 24;
+    state.revolutionDeg = ed.revolutionDeg || 360;
+    state.materialMode = ed.materialMode ?? 3;
+    state.symmetry = ed.symmetry !== false;
+    state.knots = doc.profile.knots.map((k) => ({
+      id: k.id,
+      x: k.x,
+      y: k.y,
+      hx: k.hx,
+      hy: k.hy,
+      color: k.color || "#cccccc",
+    }));
+    state.segments = (doc.profile.segments || []).map((s) => ({
+      fromId: s.fromId,
+      toId: s.toId,
+      color: s.color == null ? null : s.color,
+      roughness: s.roughness ?? 0.4,
+      metalness: s.metalness ?? 0,
+      opacity: s.opacity ?? 1,
+      texture: s.texture || "gradient",
+      textureData: null,
+      textureAsset: s.textureAsset || null,
+    }));
+    syncSegments();
+    state.selectedId = state.knots[1]?.id || state.knots[0]?.id || null;
+    state.selectedSegmentIndex = -1;
+    state.status = `Loaded “${doc.name}” (schema v${doc.schemaVersion}).`;
+    return true;
+  }
+
+  /** Plain snapshot for library create/save (no reactive proxy / mesh buffers). */
+  function snapshotState() {
+    return {
+      curveType: state.curveType,
+      pathSegments: state.pathSegments,
+      angularSteps: state.angularSteps,
+      revolutionDeg: state.revolutionDeg,
+      materialMode: state.materialMode,
+      symmetry: state.symmetry,
+      knots: state.knots.map((k) => ({ ...k })),
+      segments: state.segments.map((s) => ({
+        fromId: s.fromId,
+        toId: s.toId,
+        color: s.color,
+        roughness: s.roughness,
+        metalness: s.metalness,
+        opacity: s.opacity,
+        texture: s.texture,
+        textureAsset: s.textureAsset || null,
+      })),
+    };
+  }
+
   if (!state.selectedId && state.knots.length) {
     state.selectedId = state.knots[1].id;
   }
@@ -418,5 +476,7 @@ export function useSplineEditor() {
     insertKnotOnCurve,
     tessellate,
     syncSegments,
+    applyProject,
+    snapshotState,
   };
 }
