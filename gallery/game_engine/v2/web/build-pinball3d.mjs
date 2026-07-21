@@ -18,6 +18,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { computeParts } from "../chart2part/transform.mjs";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 function findRoot(start) {
@@ -94,10 +95,26 @@ fs.writeFileSync(path.join(OUT, "tsx3d-gl.bundle.js"), src);
 fs.rmSync(rawDir, { recursive: true, force: true });
 log("wrote tsx3d-gl.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
 
-// Package the façade + the pinball scene at their VFS paths.
+// Transformer: compute world parts from the chart pixel measurements and inject
+// them into the guest, so the scene carries NO hand-typed coordinates — every
+// position comes from a chart pixel via chart2part/transform.mjs (see PROCESS.md).
+const chart = JSON.parse(fs.readFileSync(path.join(HERE, "../chart2part/playfield_chart.json"), "utf8"));
+const derived = computeParts(chart);
+const inject = {
+  cal: {
+    width: derived.calibration.width, length: derived.calibration.length,
+    halfW: derived.calibration.halfW, zMin: derived.calibration.zMin, zMax: derived.calibration.zMax,
+  },
+  parts: derived.parts,
+};
+const prelude = "const CHART = " + JSON.stringify(inject) + ";\n";
+log("injected CHART: table " + inject.cal.width.toFixed(1) + "x" + inject.cal.length.toFixed(1) +
+    ", " + Object.keys(inject.parts).length + " measured parts");
+
+// Package the façade + the pinball scene (prelude-injected) at their VFS paths.
 const entries = [
   { name: VFS_DIR + "/" + FACADE, bytes: fs.readFileSync(FACADE_ABS) },
-  { name: VFS_DIR + "/" + SCRIPT, bytes: fs.readFileSync(SCRIPT_ABS) },
+  { name: VFS_DIR + "/" + SCRIPT, bytes: Buffer.from(prelude + fs.readFileSync(SCRIPT_ABS, "utf8"), "utf8") },
 ];
 fs.writeFileSync(path.join(OUT, "scene.zip"), makeStoredZip(entries));
 

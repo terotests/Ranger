@@ -63,8 +63,13 @@ const WALL_X = 4.45, TOP_Z = -7.6, DRAIN_Z = 6.6;
 let bx = 4.2, bz = 5.2, vx = 0.0, vz = -0.85;
 let by = R, spin = 0;
 
-const FLEN = 1.8, FHW = 0.32;
-let flippers = [];   // {side, px, pz, phi, target, dphi, base, body, tip}
+// Table dimensions come from the chart calibration (chart2part/transform.mjs
+// injects CHART at build time). FLIPPERS_ONLY renders just the calibrated
+// playfield + the measured flippers — the clean scene the validator checks.
+const FLIPPERS_ONLY = true;
+const PW = CHART.cal.width, PL = CHART.cal.length;
+
+let flippers = [];   // {side, px, pz, rest, ang, length, baseR, tipR, mesh}
 let bumpers = [];    // {x, z, r, mesh, base, flash}
 let slings = [];     // {ax, az, bx, bz, mesh, flash}
 let spinner = null;
@@ -73,20 +78,19 @@ export function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(WIRE ? 0x070b16 : 0x05070f);
 
-  // Camera: TOPDOWN gives a straight-down plan view (top of table = top of
-  // screen, like the playfield chart) for cross-referencing part shapes/positions;
-  // otherwise the angled 3/4 cabinet hero view.
-  camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.5, 200);
+  // Camera: TOPDOWN = straight-down plan view framed to the calibrated table
+  // (top of table = top of screen, like the chart); else the 3/4 hero view.
+  camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.5, 400);
   if (TOPDOWN) {
-    camera.position.set(0, 21.0, -0.4);
+    const H = (PL * 0.52) / Math.tan(24 * Math.PI / 180);   // fit the table length
+    camera.position.set(0, H, 0.0);
     camera.rotation.set(-1.5707963, 0, 0);
   } else {
     camera.position.set(0, 12.6, 15.0);
     camera.rotation.set(-0.64, 0, 0);
   }
 
-  // ---- playfield -------------------------------------------------------------
-  // WIRE: a plain wireframe grid (no printed art) as a reference frame.
+  // ---- playfield (sized from the calibration) --------------------------------
   let pfMat;
   if (WIRE) {
     pfMat = new THREE.MeshBasicMaterial({ color: 0x35507e, wireframe: true });
@@ -95,14 +99,44 @@ export function init() {
     tex.colorSpace = THREE.SRGBColorSpace;
     pfMat = new THREE.MeshPhongMaterial({ map: tex, color: 0x9a9aa8, specular: 0x0a0c14, shininess: 8 });
   }
-  const pf = new THREE.Mesh(new THREE.PlaneGeometry(10.0, 17.0, 10, 17), pfMat);
+  const pf = new THREE.Mesh(new THREE.PlaneGeometry(PW, PL, 10, 20), pfMat);
   pf.rotation.set(-1.5707963, 0, 0); scene.add(pf);
 
-  // ---- cabinet frame ---------------------------------------------------------
+  // ---- cabinet frame (sized from the calibration) ----------------------------
   const rail = phong(0x10131f, 0x3a4260, 20);
-  addBox(0.7, 1.4, 17.6, rail, -5.35, 0.55, 0, 0);
-  addBox(0.7, 1.4, 17.6, rail, 5.35, 0.55, 0, 0);
-  addBox(11.4, 1.4, 0.7, rail, 0, 0.55, -8.75, 0);
+  const rx = PW / 2 + 0.35, rz = PL / 2 + 0.35;
+  addBox(0.7, 1.4, PL + 0.7, rail, -rx, 0.55, 0, 0);
+  addBox(0.7, 1.4, PL + 0.7, rail, rx, 0.55, 0, 0);
+  addBox(PW + 1.4, 1.4, 0.7, rail, 0, 0.55, -rz, 0);
+  // ---- flippers (measured off the chart via CHART.parts) ---------------------
+  // keyed SOLID red (even in WIRE) so the validator can mask a filled flipper
+  // silhouette for IoU, and it reads clearly over the chart in the overlay.
+  const flipMat = WIRE ? new THREE.MeshBasicMaterial({ color: 0xff2a3a })
+    : phong(0xe8443f, 0xffd0c0, 44);
+  addFlipperC("flipperLeft", 1, flipMat);
+  addFlipperC("flipperRight", -1, flipMat);
+
+  if (FLIPPERS_ONLY) {
+    // green fiducials at the table-plane corners (known world coords) so the
+    // validator can solve the EXACT world→pixel map from the render itself.
+    const fmat = new THREE.MeshBasicMaterial({ color: 0x00ff66 });
+    const corners = [[-PW / 2, -PL / 2], [PW / 2, -PL / 2], [-PW / 2, PL / 2], [PW / 2, PL / 2]];
+    let fi = 0;
+    while (fi < corners.length) {
+      const f = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), fmat);
+      f.position.set(corners[fi][0], 0.15, corners[fi][1]); scene.add(f);
+      fi = fi + 1;
+    }
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = false;
+    renderer.toneMapping = 0;
+    renderer.setAnimationLoop(animate);
+    return;
+  }
+  addBox(PW + 1.4, 1.1, 0.7, rail, 0, 0.4, rz, 0);
   addBox(11.4, 1.1, 0.7, rail, 0, 0.4, 8.75, 0);
 
   // ---- backbox + DMD ---------------------------------------------------------
@@ -150,11 +184,6 @@ export function init() {
   const slMat = phong(0xff8a1e, 0xffffff, 40);
   addSling(-1, -3.05, 3.4, -2.1, 2.5, -3.4, 4.7);   // left: inner face A→B
   addSling(1, 3.05, 3.4, 2.1, 2.5, 3.4, 4.7);        // right (mirrored)
-
-  // ---- flippers: base disc + tapered body + tip disc, pivoting (chart 20) -----
-  const flipMat = phong(0xe8443f, 0xffd0c0, 44);
-  addFlipper(1, -2.2, 5.4, flipMat);   // chart-measured pivots
-  addFlipper(-1, 2.2, 5.4, flipMat);
 
   // ---- guide rails: thin wireform rails (chart 14/15/16) ----------------------
   const wire = phong(0xc9d2e6, 0xffffff, 80);
@@ -240,25 +269,44 @@ function flipperOutline(L, rB, rT, yB, n) {
   return pts;
 }
 
-function addFlipper(side, px, pz, mat) {
-  // rubber edge swept as a TubeGeometry around the bat outline (base rB > tip rT)
-  const pts = flipperOutline(FLEN, 0.42, 0.22, 0.30, 16);
-  const m = new THREE.Mesh(new THREE.TubeGeometry(pts, 0.08, 8, true), mat);
-  scene.add(m);
-  const bush = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.5, 18), phong(0x141824, 0x8090b0, 40));
-  bush.position.set(px, 0.24, pz); scene.add(bush);
-  const fl = { side: side, px: px, pz: pz, phi: -0.5, target: -0.5, dphi: 0, mesh: m };
+// Build a flipper from a measured CHART part: TubeGeometry sweeping the bat
+// outline (base rB > tip rT) in local frame, positioned at the measured pivot
+// and rotated to the measured rest angle. The pivot→tip spine drives the
+// collider too, so the visual and physical shapes cannot drift.
+// FILLED tapered bat as a disc chain: the convex hull of the base+tip circles is
+// exactly the union of discs centered on the pivot→tip spine with radius lerped
+// baseR→tipR. So a dense chain reproduces the true flipper silhouette from the
+// measurements, pivoting about the measured shaft.
+const FLIP_DISCS = 9;
+function addFlipperC(name, side, mat) {
+  const p = CHART.parts[name];
+  const yB = p.y != null ? p.y : 0.12;
+  const discs = [];
+  let k = 0;
+  while (k <= FLIP_DISCS) {
+    const t = k / FLIP_DISCS;
+    const r = p.baseR + (p.tipR - p.baseR) * t;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.14, 16), mat);
+    scene.add(m);
+    discs.push({ t: t, mesh: m });
+    k = k + 1;
+  }
+  const fl = { side: side, px: p.pivot.x, pz: p.pivot.z, rest: p.angle, ang: p.angle,
+    length: p.length, baseR: p.baseR, tipR: p.tipR, y: yB, discs: discs };
   flippers.push(fl); placeFlipper(fl);
 }
 function flipTip(fl) {
-  return { x: fl.px + fl.side * FLEN * Math.cos(fl.phi), z: fl.pz - FLEN * Math.sin(fl.phi) };
+  return { x: fl.px + fl.length * Math.cos(fl.ang), z: fl.pz - fl.length * Math.sin(fl.ang) };
 }
-// pivot the whole bat about its shaft: position at the pivot, rotate so local +X
-// (the outline's tip direction) points at the current tip.
+// pivot the whole bat about its shaft: slide each disc along the pivot→tip spine.
 function placeFlipper(fl) {
   const t = flipTip(fl);
-  fl.mesh.position.set(fl.px, 0.32, fl.pz);
-  fl.mesh.rotation.set(0, Math.atan2(-(t.z - fl.pz), t.x - fl.px), 0);
+  let k = 0;
+  while (k < fl.discs.length) {
+    const d = fl.discs[k];
+    d.mesh.position.set(fl.px + (t.x - fl.px) * d.t, fl.y, fl.pz + (t.z - fl.pz) * d.t);
+    k = k + 1;
+  }
 }
 
 function closestOnSeg(ax, az, bx2, bz2, px, pz) {
@@ -273,6 +321,7 @@ function reflect(nx, nz, restitution) {
 }
 
 function animate() {
+  if (FLIPPERS_ONLY) { renderer.render(scene, camera); return; }
   // flipper actuation
   let fi = 0;
   while (fi < flippers.length) {
