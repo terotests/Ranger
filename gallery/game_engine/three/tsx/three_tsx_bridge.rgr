@@ -73,6 +73,11 @@ class ThreeTsxBridge {
     def scene:ThreeScene (new ThreeScene)
     def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    ; optional dark-studio environment (chrome reflections + moody skybox): a host
+    ; requests it via enableEnvironment(); it is applied once the scene exists.
+    def wantEnv:boolean false
+    def envApplied:boolean false
+    def envSize:int 64
 
     ; the host ENTITY HANDLES for each façade scene.children[i] (index-keyed).
     def nodeHandles:[int]
@@ -705,7 +710,32 @@ class ThreeTsxBridge {
         if (this.flagOn(geoV "isTorusKnotGeometry")) {
             return ("tk" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "tube" 0.4))) + "," + (to_string (this.numOr(geoV "tubularSegments" 64.0))) + "," + (to_string (this.numOr(geoV "radialSegments" 8.0))) + "," + (to_string (this.numOr(geoV "p" 2.0))) + "," + (to_string (this.numOr(geoV "q" 3.0))))
         }
+        if (this.flagOn(geoV "isTubeGeometry")) {
+            def pv:EvalValue (geoV.getMember("points"))
+            def pn:int 0
+            if (pv.isArray()) { pn = (array_length pv.arrayValue) }
+            return ("tb" + (to_string (this.numOr(geoV "radius" 0.1))) + "," + (to_string (this.numOr(geoV "radialSegments" 8.0))) + "," + (to_string (this.boolOr(geoV "closed" false))) + ",n" + (to_string pn))
+        }
+        if (this.flagOn(geoV "isPrismGeometry")) {
+            def pv2:EvalValue (geoV.getMember("points"))
+            def pn2:int 0
+            if (pv2.isArray()) { pn2 = (array_length pv2.arrayValue) }
+            return ("pr" + (to_string (this.numOr(geoV "depth" 0.2))) + ",n" + (to_string pn2))
+        }
         return ("b" + (to_string (this.numOr(geoV "width" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "depth" 1.0))))
+    }
+
+    ; read a façade member that is a flat number array → [double]
+    fn numArrayOf:[double] (geoV:EvalValue key:string) {
+        def out:[double]
+        def av:EvalValue (geoV.getMember(key))
+        if (av.isArray() == false) { return out }
+        def i:int 0
+        while (i < (array_length av.arrayValue)) {
+            push out ((itemAt av.arrayValue i).toNumber())
+            i = (i + 1)
+        }
+        return out
     }
 
     ; A change-detection signature over the façade mesh's geometry + material params
@@ -786,6 +816,13 @@ class ThreeTsxBridge {
                 return (host.geometryTorusKnot((this.numOr(geoV "radius" 1.0)) (this.numOr(geoV "tube" 0.4))
                     (to_int (this.numOr(geoV "tubularSegments" 64.0))) (to_int (this.numOr(geoV "radialSegments" 8.0)))
                     (to_int (this.numOr(geoV "p" 2.0))) (to_int (this.numOr(geoV "q" 3.0)))))
+            }
+            if (this.flagOn(geoV "isTubeGeometry")) {
+                return (host.geometryTube((this.numArrayOf(geoV "points")) (this.numOr(geoV "radius" 0.1))
+                    (to_int (this.numOr(geoV "radialSegments" 8.0))) (this.boolOr(geoV "closed" false))))
+            }
+            if (this.flagOn(geoV "isPrismGeometry")) {
+                return (host.geometryPrism((this.numArrayOf(geoV "points")) (this.numOr(geoV "depth" 0.2))))
             }
             if ((this.flagOn(geoV "isBoxGeometry")) == false) {
                 ; unknown geometry object — loud, not a silent box.
@@ -1097,8 +1134,23 @@ class ThreeTsxBridge {
     }
 
     ; Reconcile the current façade scene and draw one frame at w*h.
+    ; Request a dark-studio environment cube. Applied lazily in renderFrame once
+    ; the scene has been reconciled (sceneH is 0 until the first reconcile).
+    fn enableEnvironment:void (size:int) {
+        this.wantEnv = true
+        this.envSize = size
+    }
+
     fn renderFrame:void (w:int h:int) {
         this.reconcile(w h)
+        if (this.wantEnv) {
+            if (this.envApplied == false) {
+                if (this.sceneH > 0) {
+                    host.sceneEnvironmentStudio(this.sceneH this.envSize)
+                    this.envApplied = true
+                }
+            }
+        }
         this.present()
     }
 

@@ -101,6 +101,13 @@ class CannonPhysicsWorld extends PhysicsWorld {
         b.velocity.set(vx vy vz)
     }
 
+    ; Teleport a body (and stop it) — used to reset a ball to the plunger.
+    fn setBodyPosition:void (id:int x:double y:double z:double) {
+        def b:CannonBody (itemAt this.bodies id)
+        b.position.set(x y z)
+        b.velocity.set(0.0 0.0 0.0)
+    }
+
     fn bodyPosX:double (id:int) {
         def b:CannonBody (itemAt this.bodies id)
         return b.position.x

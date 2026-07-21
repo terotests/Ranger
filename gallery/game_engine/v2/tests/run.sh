@@ -254,6 +254,8 @@ run_suite tests/e2e/ylos3d_e2e_test
 run_suite tests/e2e/ylos3d_wasm_e2e_test
 # three + cannon demo game (ranger:cannon physics drives ranger:three meshes)
 run_suite tests/e2e/cannon3d_e2e_test
+# physics pinball table (ranger:cannon ball + 2D playfield + audio)
+run_suite tests/e2e/pinball_e2e_test
 run_suite tests/e2e/launcher_e2e_test
 
 # ---- Boundary gate (static) — after suites; cheap Import / title scan --------

@@ -1,0 +1,104 @@
+; ==============================================================================
+; three_tube_geometry_test — TubeGeometry (polyline-swept tube) checks.
+; ==============================================================================
+
+Import "three_primitive_geometries.rgr"
+
+class ThreeTubeCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class ThreeTubeGeometryTest {
+    sfn m@(main):void () {
+        def ck:ThreeTubeCheck (new ThreeTubeCheck)
+        print "== ThreeTubeGeometry (polyline-swept tube) =="
+
+        ; a closed unit square loop in the XZ plane (4 path points)
+        def pts:[double]
+        push pts 1.0
+        push pts 0.0
+        push pts 1.0
+        push pts (0.0 - 1.0)
+        push pts 0.0
+        push pts 1.0
+        push pts (0.0 - 1.0)
+        push pts 0.0
+        push pts (0.0 - 1.0)
+        push pts 1.0
+        push pts 0.0
+        push pts (0.0 - 1.0)
+
+        def radialSeg:int 6
+        def radius:double 0.2
+        def g:ThreeTubeGeometry (new ThreeTubeGeometry)
+        g.build(pts radius radialSeg true)
+
+        def np:int 4
+        def r1:int (radialSeg + 1)
+        ck.ok("ring vertex count" ((g.vertexCount()) == (np * r1)))
+        ; closed loop → np segments, 2 tris each of radialSeg quads → np*radialSeg*6
+        ck.ok("index count" ((g.indexCount()) == ((np * radialSeg) * 6)))
+
+        def vc:int (g.vertexCount())
+        def nrmOk:boolean true
+        def radOk:boolean true
+        def i:int 0
+        while (i < vc) {
+            def nx:double (g.getNormal(i 0))
+            def ny:double (g.getNormal(i 1))
+            def nz:double (g.getNormal(i 2))
+            def nl:double (sqrt (((nx * nx) + (ny * ny)) + (nz * nz)))
+            if ((nl < 0.99) || (nl > 1.01)) { nrmOk = false }
+            ; each vertex lies within `radius` of the unit-square loop (|x|,|z| ~1)
+            def px:double (g.getPosition(i 0))
+            def pz:double (g.getPosition(i 2))
+            def ax:double px
+            if (ax < 0.0) { ax = (0.0 - ax) }
+            def az:double pz
+            if (az < 0.0) { az = (0.0 - az) }
+            def near1:double ax
+            if (az > near1) { near1 = az }
+            if ((near1 < (1.0 - radius - 0.01)) || (near1 > (1.0 + radius + 0.01))) { radOk = false }
+            i = (i + 1)
+        }
+        ck.ok("normals are unit vectors" nrmOk)
+        ck.ok("vertices within radius of the path" radOk)
+
+        def ic:int (g.indexCount())
+        def idxOk:boolean true
+        def k:int 0
+        while (k < ic) {
+            def idx:int (g.getIndex(k))
+            if ((idx < 0) || (idx >= vc)) { idxOk = false }
+            k = (k + 1)
+        }
+        ck.ok("indices in range" idxOk)
+
+        ; a degenerate (too-short) path yields an empty geometry, no crash
+        def empty:[double]
+        push empty 0.0
+        push empty 0.0
+        push empty 0.0
+        def g2:ThreeTubeGeometry (new ThreeTubeGeometry)
+        g2.build(empty radius radialSeg false)
+        ck.ok("single-point path is empty" ((g2.vertexCount()) == 0))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -206,6 +206,32 @@ class ConeGeometry {
   }
   dispose() { }
 }
+// Sweep a circular tube of `radius` along a polyline path. Unlike upstream
+// three.js (which takes a Curve), this port takes an explicit flat point array
+// `points` = [x0,y0,z0, x1,y1,z1, …] so a scene can build precise wireform /
+// outline shapes (e.g. a flipper's rubber edge). closed stitches the last ring
+// back to the first. The host (ThreeTubeGeometry) builds the real vertices.
+class TubeGeometry {
+  isTubeGeometry = true;
+  constructor(points, radius, radialSegments, closed) {
+    this.points = points;
+    this.radius = radius;
+    this.radialSegments = radialSegments;
+    this.closed = closed;
+  }
+  dispose() { }
+}
+// A flat 2D polygon (points = flat [x0,z0,x1,z1,…] in the XZ plane) extruded to
+// `depth` in +Y — a prism. For arbitrary flat parts (slingshot triangles,
+// irregular inserts) the regular-prism CylinderGeometry can't express.
+class PrismGeometry {
+  isPrismGeometry = true;
+  constructor(points, depth) {
+    this.points = points;
+    this.depth = depth;
+  }
+  dispose() { }
+}
 class TorusGeometry {
   isTorusGeometry = true;
   constructor(radius, tube, radialSegments, tubularSegments, arc) {

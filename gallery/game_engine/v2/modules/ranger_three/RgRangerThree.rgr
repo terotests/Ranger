@@ -252,6 +252,20 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
+    ; Smooth UV sphere (radius, widthSegments, heightSegments) — full sphere.
+    fn geometrySphere:OwnedHandle (radius:double wSeg:int hSeg:int) {
+        def th:int (this.host.geometrySphere(radius wSeg hSeg 0.0 6.2831853 0.0 3.14159265))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    ; Cylinder (radiusTop, radiusBottom, height, radialSegments) — capped.
+    fn geometryCylinder:OwnedHandle (rTop:double rBot:double height:double radialSeg:int) {
+        def th:int (this.host.geometryCylinder(rTop rBot height radialSeg 1 false 0.0 6.2831853))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
     fn materialBasic:OwnedHandle (colorHex:int) {
         def th:int (this.host.materialBasic(colorHex 0 false))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
@@ -260,6 +274,14 @@ class RgRangerThree {
 
     fn materialLambert:OwnedHandle (colorHex:int) {
         def th:int (this.host.materialLambert(colorHex 0))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    ; Phong material (colour, specular colour, shininess) — smooth-shaded with a
+    ; specular highlight, for shiny metal (the ball) and glossy caps.
+    fn materialPhong:OwnedHandle (colorHex:int specularHex:int shininess:double) {
+        def th:int (this.host.materialPhong(colorHex specularHex shininess false 0))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
         return (OwnedHandle.own(h))
     }

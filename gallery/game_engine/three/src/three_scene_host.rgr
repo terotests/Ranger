@@ -73,6 +73,13 @@ class ThreeSceneHost {
             sc.hasEnvCube = false
         }
     }
+    ; Attach a dark "studio" environment cube: reflective (envMap) materials sample
+    ; it for a chrome look, and it doubles as a moody dark skybox. size = per-face px.
+    fn sceneEnvironmentStudio:void (sceneH:int size:int) {
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        def cube:ThreeCubeTexture (ThreeCubeTexture.proceduralStudio(size))
+        sc.setEnvironmentMap(cube)
+    }
 
     ; --- camera ---------------------------------------------------------------
     fn cameraNew:int () {
@@ -151,6 +158,20 @@ class ThreeSceneHost {
     fn geometryTorusKnot:int (radius:double tube:double tubularSeg:int radialSeg:int p:int q:int) {
         def g:ThreeTorusKnotGeometry (new ThreeTorusKnotGeometry)
         g.build(radius tube tubularSeg radialSeg p q)
+        push geometries g
+        return (array_length geometries)
+    }
+    ; Tube swept along an explicit polyline path (flattened [x,y,z,…]).
+    fn geometryTube:int (points:[double] radius:double radialSeg:int closed:boolean) {
+        def g:ThreeTubeGeometry (new ThreeTubeGeometry)
+        g.build(points radius radialSeg closed)
+        push geometries g
+        return (array_length geometries)
+    }
+    ; Flat 2D polygon (flattened [x,z,…] in XZ) extruded to depth in +Y.
+    fn geometryPrism:int (points:[double] depth:double) {
+        def g:ThreePrismGeometry (new ThreePrismGeometry)
+        g.build(points depth)
         push geometries g
         return (array_length geometries)
     }

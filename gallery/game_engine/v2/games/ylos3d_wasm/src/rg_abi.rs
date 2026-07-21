@@ -61,9 +61,13 @@ pub const RG3D_GEOMETRY_BOX: i32 = 3010;
 pub const RG3D_GEOMETRY_OCTAHEDRON: i32 = 3011;
 pub const RG3D_GEOMETRY_TEAPOT: i32 = 3012;
 pub const RG3D_GEOMETRY_PLANE: i32 = 3013;
+pub const RG3D_GEOMETRY_SPHERE: i32 = 3014;
+pub const RG3D_GEOMETRY_CYLINDER: i32 = 3015;
 pub const RG3D_MATERIAL_BASIC: i32 = 3020;
 pub const RG3D_MATERIAL_LAMBERT: i32 = 3021;
 pub const RG3D_MATERIAL_SET_OPACITY: i32 = 3022;
+pub const RG3D_MATERIAL_PHONG: i32 = 3023;
+pub const RG3D_MATERIAL_MAP: i32 = 3024;
 pub const RG3D_MESH_CREATE: i32 = 3030;
 pub const RG3D_MESH_TRANSFORM: i32 = 3031;
 pub const RG3D_MESH_SET_SCALE: i32 = 3032;
@@ -86,6 +90,7 @@ pub const CANNON_BODY_SPHERE: i32 = 4010;
 pub const CANNON_BODY_BOX: i32 = 4011;
 pub const CANNON_BODY_STATIC_PLANE: i32 = 4012;
 pub const CANNON_BODY_SET_VELOCITY: i32 = 4013;
+pub const CANNON_BODY_SET_POSITION: i32 = 4017;
 pub const CANNON_BODY_POS_X: i32 = 4014;
 pub const CANNON_BODY_POS_Y: i32 = 4015;
 pub const CANNON_BODY_POS_Z: i32 = 4016;
@@ -261,6 +266,12 @@ impl<'a> RgCmdBuf<'a> {
     pub fn rg3d_geometry_plane(&mut self, dst: i32, a0: f32, a1: f32, a2: i32, a3: i32) {
         self.put(RG3D_GEOMETRY_PLANE, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), a2, a3]);
     }
+    pub fn rg3d_geometry_sphere(&mut self, dst: i32, a0: f32, a1: i32, a2: i32) {
+        self.put(RG3D_GEOMETRY_SPHERE, dst, &[((a0 * RGC1_FIXED as f32) as i32), a1, a2]);
+    }
+    pub fn rg3d_geometry_cylinder(&mut self, dst: i32, a0: f32, a1: f32, a2: f32, a3: i32) {
+        self.put(RG3D_GEOMETRY_CYLINDER, dst, &[((a0 * RGC1_FIXED as f32) as i32), ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), a3]);
+    }
     pub fn rg3d_material_basic(&mut self, dst: i32, a0: i32) {
         self.put(RG3D_MATERIAL_BASIC, dst, &[a0]);
     }
@@ -269,6 +280,12 @@ impl<'a> RgCmdBuf<'a> {
     }
     pub fn rg3d_material_set_opacity(&mut self, a0: i32, a1: f32) {
         self.put(RG3D_MATERIAL_SET_OPACITY, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_material_phong(&mut self, dst: i32, a0: i32, a1: i32, a2: f32) {
+        self.put(RG3D_MATERIAL_PHONG, dst, &[a0, a1, ((a2 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_material_map(&mut self, a0: i32, a1_ptr: i32, a1_len: i32) {
+        self.put(RG3D_MATERIAL_MAP, 0, &[a0, a1_ptr, a1_len]);
     }
     pub fn rg3d_mesh_create(&mut self, dst: i32, a0: i32, a1: i32) {
         self.put(RG3D_MESH_CREATE, dst, &[a0, a1]);
@@ -335,6 +352,9 @@ impl<'a> RgCmdBuf<'a> {
     }
     pub fn cannon_body_set_velocity(&mut self, a0: i32, a1: f32, a2: f32, a3: f32) {
         self.put(CANNON_BODY_SET_VELOCITY, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn cannon_body_set_position(&mut self, a0: i32, a1: f32, a2: f32, a3: f32) {
+        self.put(CANNON_BODY_SET_POSITION, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32)]);
     }
     pub fn cannon_body_pos_x(&mut self, a0: i32) {
         self.put(CANNON_BODY_POS_X, 0, &[a0]);

@@ -834,6 +834,16 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
+        if (row.name == "rg3d_geometry_sphere") {
+            def o:OwnedHandle (this.d3.geometrySphere((a.dblAt(0)) (a.intAt(1)) (a.intAt(2))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_geometry_cylinder") {
+            def o:OwnedHandle (this.d3.geometryCylinder((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.intAt(3))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
         if (row.name == "rg3d_geometry_teapot") {
             ; the 5 shape flags are carried as i32 0/1 (schema argSpec has no bool
             ; code) — decode them back to booleans for the host signature.
@@ -850,6 +860,27 @@ class RgRegistryBridge extends EvalNativeBridge {
             def o:OwnedHandle (this.d3.materialLambert((a.intAt(0))))
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_phong") {
+            def o:OwnedHandle (this.d3.materialPhong((a.intAt(0)) (a.intAt(1)) (a.dblAt(2))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_map") {
+            def rel:string (a.strAt(1))
+            if ((indexOf rel "pkg://") == 0) { rel = (substring rel 6) }
+            if (this.packageDir != "") {
+                if (file_exists this.packageDir rel) {
+                    def dec:PNGDecoder (new PNGDecoder)
+                    def img:ImageBuffer (dec.decode(this.packageDir rel))
+                    if ((img.width > 0) && (img.height > 0)) {
+                        def mh:int (this.d3.materialH((a.handleAt(0))))
+                        this.d3.host.setTexture(rel img.pixels img.width img.height)
+                        this.d3.host.materialMap(mh rel)
+                    }
+                }
+            }
+            return (EvalValue.null())
         }
         if (row.name == "rg3d_material_set_opacity") {
             this.d3.clearErr()
@@ -1066,6 +1097,10 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "cannon_body_set_velocity") {
             this.phys.setVelocity((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))
+            return (EvalValue.null())
+        }
+        if (row.name == "cannon_body_set_position") {
+            this.phys.setPosition((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))
             return (EvalValue.null())
         }
         if (row.name == "cannon_body_pos_x") {

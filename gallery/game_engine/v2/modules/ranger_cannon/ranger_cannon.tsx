@@ -25,6 +25,7 @@ class Body {
   id = 0;
   constructor(id) { this.id = id; }
   setVelocity(vx, vy, vz) { cannon_body_set_velocity(this.id, vx, vy, vz); }
+  setPosition(x, y, z) { cannon_body_set_position(this.id, x, y, z); }
   posX() { return cannon_body_pos_x(this.id); }
   posY() { return cannon_body_pos_y(this.id); }
   posZ() { return cannon_body_pos_z(this.id); }

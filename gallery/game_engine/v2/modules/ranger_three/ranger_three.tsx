@@ -41,6 +41,22 @@ class OctahedronGeometry {
   constructor(radius) { this.id = rg3d_geometry_octahedron(radius); }
 }
 
+// Smooth UV sphere. widthSegments/heightSegments default to a round 24x16.
+class SphereGeometry {
+  id = 0;
+  constructor(radius, wSeg, hSeg) {
+    this.id = rg3d_geometry_sphere(radius, wSeg || 24, hSeg || 16);
+  }
+}
+
+// Cylinder (radiusTop, radiusBottom, height, radialSegments default 24).
+class CylinderGeometry {
+  id = 0;
+  constructor(radiusTop, radiusBottom, height, radialSeg) {
+    this.id = rg3d_geometry_cylinder(radiusTop, radiusBottom, height, radialSeg || 24);
+  }
+}
+
 // Flat plane primitive (floor). width/height, then optional segment counts.
 class PlaneGeometry {
   id = 0;
@@ -67,12 +83,23 @@ class MeshBasicMaterial {
   constructor(colorHex) { this.id = rg3d_material_basic(colorHex); }
 }
 
+// Smooth-shaded material with a specular highlight (shiny metal / glossy caps).
+class MeshPhongMaterial {
+  id = 0;
+  constructor(colorHex, specularHex, shininess) {
+    this.id = rg3d_material_phong(colorHex, specularHex, shininess);
+  }
+  // apply a diffuse texture from a pkg-relative PNG (e.g. printed art)
+  setMap(path) { rg3d_material_map(this.id, path); }
+}
+
 class MeshLambertMaterial {
   id = 0;
   constructor(colorHex) { this.id = rg3d_material_lambert(colorHex); }
   setOpacity(opacity) {
     rg3d_material_set_opacity(this.id, opacity);
   }
+  setMap(path) { rg3d_material_map(this.id, path); }
 }
 
 // D-SYNC: create the light DETACHED (no scene membership). Establish membership

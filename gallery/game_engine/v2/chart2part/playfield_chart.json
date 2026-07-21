@@ -1,0 +1,32 @@
+{
+  "chart": "little_joe_playfield_chart_p131",
+  "note": "Pixel measurements read off the chart via chartmeasure.mjs. Only pixels + calibration live here; world values are derived by transform.mjs. See PROCESS.md.",
+  "calibration": {
+    "xL": 89, "xR": 597, "yT": 152, "yB": 1258, "worldW": 9.2,
+    "_landmarks": "playfield inner-wall box: left/right straight walls, top arch apex, bottom edge"
+  },
+  "parts": {
+    "flipperLeft": {
+      "type": "flipper",
+      "pivotPx": [242, 1121],
+      "tipPx": [300, 1151],
+      "baseDiaPx": 18,
+      "tipDiaPx": 14,
+      "y": 0.18
+    },
+    "flipperRight": {
+      "type": "flipper",
+      "pivotPx": [432, 1121],
+      "tipPx": [366, 1151],
+      "baseDiaPx": 18,
+      "tipDiaPx": 14,
+      "y": 0.18
+    },
+    "bumperTL": { "type": "disc", "centerPx": [264, 557], "diaPx": 84, "y": 0.1, "_chart": "11 red (Hough)" },
+    "bumperTR": { "type": "disc", "centerPx": [385, 599], "diaPx": 84, "y": 0.1, "_chart": "12 yellow (Hough)" },
+    "bumperML": { "type": "disc", "centerPx": [276, 684], "diaPx": 84, "y": 0.1, "_chart": "12 yellow (Hough)" },
+    "bumperMR": { "type": "disc", "centerPx": [395, 731], "diaPx": 84, "y": 0.1, "_chart": "11 red (Hough)" },
+    "slingL": { "type": "triangle", "cornersPx": [[240, 1015], [300, 1240], [130, 1235]], "y": 0.08, "_chart": "E rebound L (APPROX — corners not yet reliably measured off the blurry chart)" },
+    "slingR": { "type": "triangle", "cornersPx": [[560, 1015], [500, 1240], [670, 1235]], "y": 0.08, "_chart": "E rebound R (APPROX — corners not yet reliably measured off the blurry chart)" }
+  }
+}
