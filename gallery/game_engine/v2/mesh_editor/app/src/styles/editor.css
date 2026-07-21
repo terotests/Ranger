@@ -1,0 +1,89 @@
+:root {
+  --bg-0: #0e1210;
+  --bg-1: #161c18;
+  --bg-2: #1e2720;
+  --ink: #e8efe6;
+  --ink-dim: #9aab9c;
+  --line: rgba(180, 210, 170, 0.16);
+  --accent: #7ecf6a;
+  --accent-2: #c8e87a;
+  --curve: #6ec8ff;
+  --handle: #ffb454;
+  --mirror: rgba(110, 200, 255, 0.35);
+  --danger: #ff7a6a;
+  --panel: rgba(18, 24, 20, 0.82);
+  --radius: 10px;
+  --font-ui: "DM Sans", system-ui, sans-serif;
+  --font-display: "Instrument Serif", Georgia, serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+  height: 100%;
+  background:
+    radial-gradient(1200px 700px at 12% -10%, rgba(126, 207, 106, 0.14), transparent 55%),
+    radial-gradient(900px 600px at 90% 10%, rgba(110, 200, 255, 0.1), transparent 50%),
+    linear-gradient(165deg, var(--bg-0), var(--bg-1) 45%, #101612);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+button:hover {
+  border-color: rgba(126, 207, 106, 0.45);
+}
+
+button.primary {
+  background: linear-gradient(135deg, rgba(126, 207, 106, 0.95), rgba(200, 232, 122, 0.85));
+  color: #102010;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+button.primary:hover {
+  transform: translateY(-1px);
+}
+
+button.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(126, 207, 106, 0.35);
+}
+
+input[type="number"],
+select {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+}
+
+label.field {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+  letter-spacing: 0.02em;
+}

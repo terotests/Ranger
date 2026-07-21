@@ -31,6 +31,17 @@ There is **no SDL window** yet. Everything green below is the same stack:
 
 So: yes, the process is a JS-host backend today; yes, the game still runs through the **TSX interpreter** (not as native Node/TS modules). The JS runtime only hosts the compiled Ranger engine.
 
+### Spline mesh editor (Vite + Vue)
+
+Interactive Bezier/Catmull profile → Y-axis lathe → Ranger Three preview:
+
+```bash
+cd gallery/game_engine/v2/mesh_editor/app && npm install && npm run dev
+# smoke: node gallery/game_engine/v2/mesh_editor/smoke.mjs
+```
+
+See [`mesh_editor/README.md`](./mesh_editor/README.md).
+
 ### Unit / contract tests
 
 ```bash
