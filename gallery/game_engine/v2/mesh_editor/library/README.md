@@ -33,6 +33,7 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
 - Kind: `ranger.splineProject`
 - Current version: see `app/src/library/schema.js` (`CURRENT_SCHEMA_VERSION`)
 - Migrations: `app/src/library/migrations.js` — every load upgrades to current
+- v2 adds a closed `orbit` Bezier path (unit circle by default) alongside `profile`
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.
