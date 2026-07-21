@@ -34,6 +34,8 @@ class SplineMesh  {
     this.indices = [];
     this.profileX = [];
     this.profileY = [];
+    this.orbitX = [];
+    this.orbitY = [];
   }
 }
 class SplineLathe  {
@@ -292,6 +294,220 @@ SplineLathe.defaultKnots = function() {
   knots.push(SplineKnot.of(0.5, 0.0, 0.0, 0.28));
   knots.push(SplineKnot.of(0.0, 1.0, (0.0 - 0.22), 0.0));
   return knots;
+};
+SplineLathe.defaultOrbitKnots = function() {
+  const k = 0.5522847498307936;
+  let knots = [];
+  knots.push(SplineKnot.of(1.0, 0.0, 0.0, k));
+  knots.push(SplineKnot.of(0.0, 1.0, (0.0 - k), 0.0));
+  knots.push(SplineKnot.of((0.0 - 1.0), 0.0, 0.0, (0.0 - k)));
+  knots.push(SplineKnot.of(0.0, (0.0 - 1.0), k, 0.0));
+  return knots;
+};
+SplineLathe.sampleClosedOrbit = function(knots, curveType, segmentsPerSpan) {
+  const out = new SplineMesh();
+  const n = knots.length;
+  if ( n < 2 ) {
+    return out;
+  }
+  let seg = segmentsPerSpan;
+  if ( seg < 1 ) {
+    seg = 1;
+  }
+  let i = 0;
+  while (i < n) {
+    const a = knots[i];
+    let ni = i + 1;
+    if ( ni >= n ) {
+      ni = 0;
+    }
+    const b = knots[ni];
+    let s = 0;
+    while (s < seg) {
+      const t = (s) / (seg);
+      let p = new SplineVec2();
+      if ( curveType == 0 ) {
+        const c0x = a.x + a.hx;
+        const c0y = a.y + a.hy;
+        const c1x = b.x - b.hx;
+        const c1y = b.y - b.hy;
+        p = SplineLathe.bezierPoint(a.x, a.y, c0x, c0y, c1x, c1y, b.x, b.y, t);
+      } else {
+        let i0 = i - 1;
+        if ( i0 < 0 ) {
+          i0 = n - 1;
+        }
+        let i3 = ni + 1;
+        if ( i3 >= n ) {
+          i3 = 0;
+        }
+        const p0 = knots[i0];
+        const p3 = knots[i3];
+        p = SplineLathe.catmullPoint(p0.x, p0.y, a.x, a.y, b.x, b.y, p3.x, p3.y, t);
+      }
+      out.orbitX.push(p.x);
+      out.orbitY.push(p.y);
+      out.profileX.push(i);
+      s = s + 1;
+    };
+    i = i + 1;
+  };
+  return out;
+};
+SplineLathe.sampleAndLatheOrbit = function(knots, curveType, pathSegments, orbitX, orbitY, colStart, colCount, closed) {
+  const mesh = new SplineMesh();
+  const n = knots.length;
+  const oLen = orbitX.length;
+  if ( (n < 2) || (oLen < 3) ) {
+    return mesh;
+  }
+  let steps = colCount;
+  if ( steps < 1 ) {
+    steps = 1;
+  }
+  if ( (colStart + steps) > oLen ) {
+    steps = oLen - colStart;
+  }
+  if ( steps < 1 ) {
+    return mesh;
+  }
+  let seg = pathSegments;
+  if ( seg < 1 ) {
+    seg = 1;
+  }
+  let px = [];
+  let py = [];
+  let tx = [];
+  let ty = [];
+  let i = 0;
+  while (i < (n - 1)) {
+    const a = knots[i];
+    const b = knots[(i + 1)];
+    let s = 0;
+    let last = seg;
+    if ( i < (n - 2) ) {
+      last = seg - 1;
+    }
+    while (s <= last) {
+      const t = (s) / (seg);
+      let p = new SplineVec2();
+      let tan = new SplineVec2();
+      if ( curveType == 0 ) {
+        const c0x = a.x + a.hx;
+        const c0y = a.y + a.hy;
+        const c1x = b.x - b.hx;
+        const c1y = b.y - b.hy;
+        p = SplineLathe.bezierPoint(a.x, a.y, c0x, c0y, c1x, c1y, b.x, b.y, t);
+        tan = SplineLathe.bezierTangent(a.x, a.y, c0x, c0y, c1x, c1y, b.x, b.y, t);
+      } else {
+        let i0 = i - 1;
+        if ( i0 < 0 ) {
+          i0 = 0;
+        }
+        let i3 = i + 2;
+        if ( i3 >= n ) {
+          i3 = n - 1;
+        }
+        const p0 = knots[i0];
+        const p3 = knots[i3];
+        p = SplineLathe.catmullPoint(p0.x, p0.y, a.x, a.y, b.x, b.y, p3.x, p3.y, t);
+        tan = SplineLathe.catmullTangent(p0.x, p0.y, a.x, a.y, b.x, b.y, p3.x, p3.y, t);
+      }
+      px.push(SplineLathe.clampRadius(p.x));
+      py.push(p.y);
+      tx.push(tan.x);
+      ty.push(tan.y);
+      s = s + 1;
+    };
+    i = i + 1;
+  };
+  const rows = px.length;
+  if ( rows < 2 ) {
+    return mesh;
+  }
+  mesh.profileX = px;
+  mesh.profileY = py;
+  let row = 0;
+  while (row < rows) {
+    const radius = px[row];
+    const yy = py[row];
+    const tdx = tx[row];
+    const tdy = ty[row];
+    let pnx = tdy;
+    let pny = 0.0 - tdx;
+    let pnl = Math.sqrt(((pnx * pnx) + (pny * pny)));
+    if ( pnl < 1e-9 ) {
+      pnx = 1.0;
+      pny = 0.0;
+      pnl = 1.0;
+    }
+    pnx = pnx / pnl;
+    pny = pny / pnl;
+    if ( pnx < 0.0 ) {
+      pnx = 0.0 - pnx;
+      pny = 0.0 - pny;
+    }
+    let col = 0;
+    while (col < steps) {
+      const oi = colStart + col;
+      const ct = orbitX[oi];
+      const st = orbitY[oi];
+      const olen = Math.sqrt(((ct * ct) + (st * st)));
+      let nct = ct;
+      let nst = st;
+      if ( olen < 1e-9 ) {
+        nct = 1.0;
+        nst = 0.0;
+      } else {
+        nct = ct / olen;
+        nst = st / olen;
+      }
+      const u = (oi) / (oLen);
+      mesh.positions.push(radius * ct);
+      mesh.positions.push(yy);
+      mesh.positions.push(radius * st);
+      mesh.normals.push(pnx * nct);
+      mesh.normals.push(pny);
+      mesh.normals.push(pnx * nst);
+      mesh.uvs.push(u);
+      mesh.uvs.push((row) / ((rows - 1)));
+      col = col + 1;
+    };
+    row = row + 1;
+  };
+  let oi2 = 0;
+  while (oi2 < oLen) {
+    mesh.orbitX.push(orbitX[oi2]);
+    mesh.orbitY.push(orbitY[oi2]);
+    oi2 = oi2 + 1;
+  };
+  let r2 = 0;
+  while (r2 < (rows - 1)) {
+    let c2 = 0;
+    let colMax = steps;
+    if ( closed == false ) {
+      colMax = steps - 1;
+    }
+    while (c2 < colMax) {
+      const a2 = (r2 * steps) + c2;
+      let cNext = c2 + 1;
+      if ( cNext >= steps ) {
+        cNext = 0;
+      }
+      const b2 = (r2 * steps) + cNext;
+      const c3 = ((r2 + 1) * steps) + cNext;
+      const d3 = ((r2 + 1) * steps) + c2;
+      mesh.indices.push(a2);
+      mesh.indices.push(d3);
+      mesh.indices.push(b2);
+      mesh.indices.push(b2);
+      mesh.indices.push(d3);
+      mesh.indices.push(c3);
+      c2 = c2 + 1;
+    };
+    r2 = r2 + 1;
+  };
+  return mesh;
 };
 
 export { SplineVec2, SplineKnot, SplineMesh, SplineLathe };

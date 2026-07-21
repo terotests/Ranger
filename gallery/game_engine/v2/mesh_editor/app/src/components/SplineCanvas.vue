@@ -9,6 +9,7 @@ const props = defineProps({
   curveType: { type: Number, default: 0 },
   symmetry: { type: Boolean, default: true },
   toolMode: { type: String, default: "edit" },
+  viewMode: { type: String, default: "profile" },
   viewport: { type: Object, required: true },
   sampleCurvePoints: { type: Function, required: true },
   findClosestOnCurve: { type: Function, required: true },
@@ -22,6 +23,7 @@ let dragging = null;
 let raf = 0;
 const hoverAdd = ref(null);
 
+const isOrbit = computed(() => props.viewMode === "orbit");
 const curvePts = computed(() => props.sampleCurvePoints(28));
 
 function worldToScreen(x, y, w, h) {
@@ -53,8 +55,24 @@ function segmentColor(segIndex) {
   const seg = props.segments[segIndex];
   if (seg?.color) return seg.color;
   const a = props.knots[segIndex];
-  const b = props.knots[segIndex + 1];
+  const b = props.knots[isOrbit.value ? (segIndex + 1) % props.knots.length : segIndex + 1];
   return a?.color || "#6ec8ff";
+}
+
+function drawUnitCircle(ctx, w, h) {
+  const steps = 64;
+  ctx.strokeStyle = "rgba(200,232,122,0.22)";
+  ctx.lineWidth = 1.25;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * Math.PI * 2;
+    const [sx, sy] = worldToScreen(Math.cos(t), Math.sin(t), w, h);
+    if (i === 0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 function draw() {
@@ -97,18 +115,35 @@ function draw() {
     ctx.stroke();
   }
 
-  const [ax0, ay0] = worldToScreen(0, -1, w, h);
-  const [ax1, ay1] = worldToScreen(0, 1, w, h);
-  ctx.strokeStyle = "rgba(200,232,122,0.55)";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(ax0, ay0);
-  ctx.lineTo(ax1, ay1);
-  ctx.stroke();
+  if (isOrbit.value) {
+    // XZ plane: canvas x → world X, canvas y → world Z
+    const [ax0, ay0] = worldToScreen(-1, 0, w, h);
+    const [ax1, ay1] = worldToScreen(1, 0, w, h);
+    const [az0, az1y] = worldToScreen(0, -1, w, h);
+    const [az1, az0y] = worldToScreen(0, 1, w, h);
+    ctx.strokeStyle = "rgba(200,232,122,0.45)";
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.moveTo(ax0, ay0);
+    ctx.lineTo(ax1, ay1);
+    ctx.moveTo(az0, az0y);
+    ctx.lineTo(az1, az1y);
+    ctx.stroke();
+    drawUnitCircle(ctx, w, h);
+  } else {
+    const [ax0, ay0] = worldToScreen(0, -1, w, h);
+    const [ax1, ay1] = worldToScreen(0, 1, w, h);
+    ctx.strokeStyle = "rgba(200,232,122,0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(ax0, ay0);
+    ctx.lineTo(ax1, ay1);
+    ctx.stroke();
+  }
 
   const pts = curvePts.value;
 
-  if (props.symmetry && pts.length > 1) {
+  if (!isOrbit.value && props.symmetry && pts.length > 1) {
     ctx.lineWidth = 2;
     drawGradientStroke(
       ctx,
@@ -137,9 +172,9 @@ function draw() {
     );
   }
 
-  // segment hit markers in color mode
+  const segCount = isOrbit.value ? props.knots.length : props.knots.length - 1;
   if (props.toolMode === "color") {
-    for (let i = 0; i < props.knots.length - 1; i++) {
+    for (let i = 0; i < segCount; i++) {
       const mid = evalMid(i);
       if (!mid) continue;
       const [sx, sy] = worldToScreen(mid.x, mid.y, w, h);
@@ -153,7 +188,7 @@ function draw() {
     }
   }
 
-  props.knots.forEach((k, i) => {
+  props.knots.forEach((k) => {
     const [sx, sy] = worldToScreen(k.x, k.y, w, h);
     if (props.curveType === 0 && props.toolMode === "edit") {
       const [hx, hy] = worldToScreen(k.x + k.hx, k.y + k.hy, w, h);
@@ -169,7 +204,7 @@ function draw() {
     }
     drawPoint(ctx, sx, sy, k.id === props.selectedId, k.color);
 
-    if (props.symmetry && k.x > 0.001) {
+    if (!isOrbit.value && props.symmetry && k.x > 0.001) {
       const [mx, my] = worldToScreen(-k.x, k.y, w, h);
       ctx.fillStyle = "rgba(110,200,255,0.35)";
       ctx.beginPath();
@@ -227,7 +262,8 @@ function hitTestPoint(sx, sy) {
 
 function hitTestSegment(sx, sy) {
   const thresh = 12;
-  for (let i = 0; i < props.knots.length - 1; i++) {
+  const segCount = isOrbit.value ? props.knots.length : props.knots.length - 1;
+  for (let i = 0; i < segCount; i++) {
     const mid = evalMid(i);
     if (!mid) continue;
     const [mx, my] = worldToScreen(mid.x, mid.y, size, size);
@@ -243,7 +279,7 @@ function onPointerDown(e) {
   const [wx, wy] = screenToWorld(sx, sy, size, size);
 
   if (props.toolMode === "add") {
-    emit("add-on-curve", Math.max(0, wx), wy);
+    emit("add-on-curve", isOrbit.value ? wx : Math.max(0, wx), wy);
     return;
   }
 
@@ -275,7 +311,7 @@ function onPointerMove(e) {
   const [wx, wy] = screenToWorld(sx, sy, size, size);
 
   if (props.toolMode === "add") {
-    hoverAdd.value = props.findClosestOnCurve(Math.max(0, wx), wy, 0.14);
+    hoverAdd.value = props.findClosestOnCurve(isOrbit.value ? wx : Math.max(0, wx), wy, 0.14);
     schedule();
     return;
   }
@@ -284,7 +320,7 @@ function onPointerMove(e) {
   const k = props.knots.find((n) => n.id === dragging.id);
   if (!k) return;
   if (dragging.mode === "point") {
-    emit("update-knot", dragging.id, { x: Math.max(0, wx), y: wy });
+    emit("update-knot", dragging.id, isOrbit.value ? { x: wx, y: wy } : { x: Math.max(0, wx), y: wy });
   } else {
     emit("update-knot", dragging.id, { hx: wx - k.x, hy: wy - k.y });
   }
@@ -311,6 +347,7 @@ watch(
     props.curveType,
     props.symmetry,
     props.toolMode,
+    props.viewMode,
     curvePts.value,
     hoverAdd.value,
   ],
@@ -334,16 +371,23 @@ onBeforeUnmount(() => {
     <canvas
       ref="canvasRef"
       class="spline-canvas"
-      :class="toolMode"
+      :class="[toolMode, viewMode]"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
     />
     <div class="legend">
-      <span class="dot axis" /> axis
-      <span class="dot curve" /> profile / gradient
-      <span class="dot handle" /> Bezier handle
+      <template v-if="viewMode === 'orbit'">
+        <span class="dot axis" /> XZ axes
+        <span class="dot curve" /> orbit path
+        <span class="dot handle" /> unit circle
+      </template>
+      <template v-else>
+        <span class="dot axis" /> axis
+        <span class="dot curve" /> profile / gradient
+        <span class="dot handle" /> Bezier handle
+      </template>
     </div>
   </div>
 </template>

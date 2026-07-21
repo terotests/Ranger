@@ -41,6 +41,30 @@ if (full.positions.length < 30 || half.indices.length >= full.indices.length) {
   throw new Error("unexpected tessellation sizes");
 }
 
+const orbitKnots = SplineLathe.defaultOrbitKnots();
+const orbit = SplineLathe.sampleClosedOrbit(orbitKnots, 0, 8);
+const viaOrbit = SplineLathe.sampleAndLatheOrbit(
+  knots,
+  0,
+  8,
+  orbit.orbitX,
+  orbit.orbitY,
+  0,
+  orbit.orbitX.length,
+  true,
+);
+const classicMatch = SplineLathe.sampleAndLatheEx(knots, 0, 8, orbit.orbitX.length, Math.PI * 2, true);
+let maxAbs = 0;
+for (let i = 0; i < classicMatch.positions.length; i++) {
+  maxAbs = Math.max(maxAbs, Math.abs(classicMatch.positions[i] - viaOrbit.positions[i]));
+}
+if (maxAbs > 0.02) {
+  throw new Error("orbit unit-circle lathe diverges from cos/sin: maxAbs=" + maxAbs);
+}
+if (viaOrbit.orbitX.length !== orbit.orbitX.length) {
+  throw new Error("orbit samples not stashed on mesh");
+}
+
 const host = loadRuntime();
 host.init(96, 96);
 host.beginParts();
@@ -75,6 +99,8 @@ if (host.partCount() !== 2) throw new Error("expected 2 parts, got " + host.part
 
 console.log("[mesh-editor smoke] OK", {
   fullVerts: (full.positions.length / 3) | 0,
+  orbitVerts: (viaOrbit.positions.length / 3) | 0,
+  orbitMaxAbsDiff: maxAbs,
   parts: host.partCount(),
   litPixels: lit,
 });
