@@ -131,7 +131,8 @@ export function buildSpineFrames(centers) {
 }
 
 /**
- * Lathe along spine. When spines are straight x=0, matches classic (r·ox, y, r·oy).
+ * Lathe along spine. When spines are straight x=0, matches classic
+ * `(r·ox, y, r·oy)` — orbit is a scale on positions; only normals unitize.
  */
 export function latheProfileWithOrbitOnSpine(profilePts, orbitPts, closed, spineProfile, spineOrbit) {
   const rows = profilePts.length;
@@ -204,13 +205,15 @@ export function latheProfileWithOrbitOnSpine(profilePts, orbitPts, closed, spine
       const o = orbitPts[col];
       const ct = o.x;
       const st = o.y;
+      // Positions use raw orbit as a scale (same as classic lathe / Ranger).
+      // Normals use the unit direction so non-circular orbits still shade cleanly.
       const olen = Math.hypot(ct, st);
       const nct = olen < 1e-9 ? 1 : ct / olen;
       const nst = olen < 1e-9 ? 0 : st / olen;
 
-      const ox = fr.N.x * (radius * nct) + fr.B.x * (radius * nst);
-      const oy = fr.N.y * (radius * nct) + fr.B.y * (radius * nst);
-      const oz = fr.N.z * (radius * nct) + fr.B.z * (radius * nst);
+      const ox = fr.N.x * (radius * ct) + fr.B.x * (radius * st);
+      const oy = fr.N.y * (radius * ct) + fr.B.y * (radius * st);
+      const oz = fr.N.z * (radius * ct) + fr.B.z * (radius * st);
       positions.push(fr.C.x + ox, fr.C.y + oy, fr.C.z + oz);
 
       const nx = fr.N.x * (pnx * nct) + fr.T.x * pny + fr.B.x * (pnx * nst);
