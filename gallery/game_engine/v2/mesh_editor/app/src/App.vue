@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
 import SplineCanvas from "./components/SplineCanvas.vue";
 import PointEditor from "./components/PointEditor.vue";
 import Preview3D from "./components/Preview3D.vue";
@@ -9,6 +9,7 @@ import { useLibrary } from "./composables/useLibrary.js";
 
 const {
   state,
+  setViewMode,
   setToolMode,
   select,
   selectSegment,
@@ -44,6 +45,18 @@ const tools = [
   { id: "add", label: "Add" },
   { id: "color", label: "Coloring" },
 ];
+
+const views = [
+  { id: "profile", label: "Profile" },
+  { id: "orbit", label: "Orbit" },
+];
+
+const activeKnots = computed(() =>
+  state.viewMode === "orbit" ? state.orbitKnots : state.knots,
+);
+const activeSegments = computed(() =>
+  state.viewMode === "orbit" ? state.orbitSegments : state.segments,
+);
 
 function onTessellate() {
   tessellate();
@@ -88,11 +101,21 @@ onMounted(() => {
         <p class="eyebrow">Ranger · gallery/game_engine/v2</p>
         <h1>Spline Mesh Editor</h1>
         <p class="lede">
-          Symmetrical Bezier profiles around the Y axis, lathed into a 3D mesh and rendered with
-          Ranger Three — with Edit / Add / Coloring tools.
+          Bezier profile + editable orbit path (replaces cos/sin) lathed into a mesh with Ranger
+          Three — Edit / Add / Coloring on either view.
         </p>
       </div>
       <div class="actions">
+        <div class="tool-row">
+          <button
+            v-for="v in views"
+            :key="v.id"
+            :class="{ active: state.viewMode === v.id, primary: state.viewMode === v.id }"
+            @click="setViewMode(v.id)"
+          >
+            {{ v.label }}
+          </button>
+        </div>
         <div class="tool-row">
           <button
             v-for="t in tools"
@@ -122,18 +145,18 @@ onMounted(() => {
         <input v-model.number="state.pathSegments" type="number" min="2" max="64" />
       </label>
       <label class="field">
-        Angular steps N
-        <input v-model.number="state.angularSteps" type="number" min="3" max="64" />
+        Orbit samples N
+        <input v-model.number="state.angularSteps" type="number" min="3" max="96" />
       </label>
       <label class="field">
         Revolution
-        <select v-model.number="state.revolutionDeg">
+        <select v-model.number="state.revolutionDeg" @change="onTessellate">
           <option :value="360">360° closed</option>
-          <option :value="180">180° (skip last)</option>
+          <option :value="180">180° (half orbit)</option>
         </select>
       </label>
-      <label class="field check">
-        <input v-model="state.symmetry" type="checkbox" />
+      <label class="field check" :class="{ dim: state.viewMode === 'orbit' }">
+        <input v-model="state.symmetry" type="checkbox" :disabled="state.viewMode === 'orbit'" />
         Show mirror
       </label>
       <div class="mats">
@@ -157,13 +180,14 @@ onMounted(() => {
 
     <main class="workspace">
       <SplineCanvas
-        :knots="state.knots"
-        :segments="state.segments"
+        :knots="activeKnots"
+        :segments="activeSegments"
         :selected-id="state.selectedId"
         :selected-segment-index="state.selectedSegmentIndex"
         :curve-type="state.curveType"
         :symmetry="state.symmetry"
         :tool-mode="state.toolMode"
+        :view-mode="state.viewMode"
         :viewport="state.viewport"
         :sample-curve-points="sampleCurvePoints"
         :find-closest-on-curve="findClosestOnCurve"
@@ -174,12 +198,13 @@ onMounted(() => {
         @drag-end="onDragEnd"
       />
       <PointEditor
-        :knots="state.knots"
-        :segments="state.segments"
+        :knots="activeKnots"
+        :segments="activeSegments"
         :selected-id="state.selectedId"
         :selected-segment-index="state.selectedSegmentIndex"
         :curve-type="state.curveType"
         :tool-mode="state.toolMode"
+        :view-mode="state.viewMode"
         @select="select"
         @select-segment="selectSegment"
         @update-knot="onUpdateKnot"
@@ -278,6 +303,9 @@ h1 {
   align-items: center;
   gap: 0.45rem;
   padding-bottom: 0.35rem;
+}
+.check.dim {
+  opacity: 0.45;
 }
 
 .mats span {

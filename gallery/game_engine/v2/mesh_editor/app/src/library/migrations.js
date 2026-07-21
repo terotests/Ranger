@@ -2,6 +2,7 @@
 // migrations.js — upgrade on-disk spline projects to CURRENT_SCHEMA_VERSION.
 // ============================================================================
 
+import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
 import {
   CURRENT_SCHEMA_VERSION,
   SCHEMA_KIND,
@@ -11,42 +12,32 @@ import {
   validateProject,
 } from "./schema.js";
 
-/** @type {Record<number, (doc: any) => any>} */
-const STEPS = {
-  // 0 / missing → 1: wrap a loose editor dump into the semantic envelope.
-  1(doc) {
-    if (doc && doc.schemaVersion === 1 && doc.kind === SCHEMA_KIND) {
-      return normalizeV1(doc);
-    }
-    // Accept earlier ad-hoc shapes: { knots, segments, ...editor fields }
-    const knots = doc.profile?.knots || doc.knots || [];
-    const segments = doc.profile?.segments || doc.segments || [];
-    const name = doc.name || "Migrated spline";
-    return normalizeV1({
-      kind: SCHEMA_KIND,
-      schemaVersion: 1,
-      id: doc.id || newId(),
-      slug: doc.slug || slugify(name),
-      name,
-      description: doc.description || "",
-      tags: doc.tags || [],
-      createdAt: doc.createdAt || nowIso(),
-      updatedAt: doc.updatedAt || nowIso(),
-      editor: {
-        curveType: doc.editor?.curveType ?? doc.curveType ?? 0,
-        pathSegments: doc.editor?.pathSegments ?? doc.pathSegments ?? 12,
-        angularSteps: doc.editor?.angularSteps ?? doc.angularSteps ?? 24,
-        revolutionDeg: doc.editor?.revolutionDeg ?? doc.revolutionDeg ?? 360,
-        materialMode: doc.editor?.materialMode ?? doc.materialMode ?? 3,
-        symmetry: doc.editor?.symmetry ?? doc.symmetry ?? true,
-      },
-      profile: { knots, segments },
-    });
-  },
-};
+function defaultOrbitDoc() {
+  const raw = SplineLathe.defaultOrbitKnots();
+  const colors = ["#ffb454", "#e87ac8", "#c8e87a", "#ff7a6a"];
+  const knots = raw.map((k, i) => ({
+    id: `o${i}`,
+    x: k.x,
+    y: k.y,
+    hx: k.hx,
+    hy: k.hy,
+    color: colors[i % colors.length],
+  }));
+  const segments = knots.map((k, i) => ({
+    fromId: k.id,
+    toId: knots[(i + 1) % knots.length].id,
+    color: null,
+    roughness: 0.4,
+    metalness: 0,
+    opacity: 1,
+    texture: "gradient",
+    textureAsset: null,
+  }));
+  return { knots, segments };
+}
 
-function normalizeV1(doc) {
-  const knots = (doc.profile?.knots || []).map((k, i) => ({
+function mapKnots(list) {
+  return (list || []).map((k, i) => ({
     id: k.id || `k${i}`,
     x: Number(k.x) || 0,
     y: Number(k.y) || 0,
@@ -54,9 +45,17 @@ function normalizeV1(doc) {
     hy: Number(k.hy) || 0,
     color: k.color || "#cccccc",
   }));
-  const segments = (doc.profile?.segments || []).map((s, i) => ({
+}
+
+function mapSegments(list, knots, closed) {
+  const n = knots.length;
+  const want = closed ? n : Math.max(0, n - 1);
+  const segments = (list || []).map((s, i) => ({
     fromId: s.fromId || knots[i]?.id || `k${i}`,
-    toId: s.toId || knots[i + 1]?.id || `k${i + 1}`,
+    toId:
+      s.toId ||
+      knots[closed ? (i + 1) % n : i + 1]?.id ||
+      `k${i + 1}`,
     color: s.color == null ? null : s.color,
     roughness: Number(s.roughness ?? 0.4),
     metalness: Number(s.metalness ?? 0),
@@ -64,12 +63,13 @@ function normalizeV1(doc) {
     texture: s.texture || "gradient",
     textureAsset: s.textureAsset || null,
   }));
-  // Ensure segment count matches knot spans.
-  while (segments.length < Math.max(0, knots.length - 1)) {
+  while (segments.length < want) {
     const i = segments.length;
+    const fromId = knots[i].id;
+    const toId = knots[closed ? (i + 1) % n : i + 1].id;
     segments.push({
-      fromId: knots[i].id,
-      toId: knots[i + 1].id,
+      fromId,
+      toId,
       color: null,
       roughness: 0.4,
       metalness: 0,
@@ -78,6 +78,12 @@ function normalizeV1(doc) {
       textureAsset: null,
     });
   }
+  return segments.slice(0, want);
+}
+
+function normalizeV1(doc) {
+  const knots = mapKnots(doc.profile?.knots || doc.knots);
+  const segments = mapSegments(doc.profile?.segments || doc.segments, knots, false);
   return {
     kind: SCHEMA_KIND,
     schemaVersion: 1,
@@ -89,21 +95,58 @@ function normalizeV1(doc) {
     createdAt: doc.createdAt || nowIso(),
     updatedAt: doc.updatedAt || nowIso(),
     editor: {
-      curveType: Number(doc.editor?.curveType ?? 0),
-      pathSegments: Number(doc.editor?.pathSegments ?? 12),
-      angularSteps: Number(doc.editor?.angularSteps ?? 24),
-      revolutionDeg: Number(doc.editor?.revolutionDeg ?? 360),
-      materialMode: Number(doc.editor?.materialMode ?? 3),
-      symmetry: doc.editor?.symmetry !== false,
+      curveType: Number(doc.editor?.curveType ?? doc.curveType ?? 0),
+      pathSegments: Number(doc.editor?.pathSegments ?? doc.pathSegments ?? 12),
+      angularSteps: Number(doc.editor?.angularSteps ?? doc.angularSteps ?? 24),
+      revolutionDeg: Number(doc.editor?.revolutionDeg ?? doc.revolutionDeg ?? 360),
+      materialMode: Number(doc.editor?.materialMode ?? doc.materialMode ?? 3),
+      symmetry: doc.editor?.symmetry !== false && doc.symmetry !== false,
     },
-    profile: { knots, segments: segments.slice(0, Math.max(0, knots.length - 1)) },
+    profile: { knots, segments },
   };
 }
+
+function normalizeV2(doc) {
+  const v1 = normalizeV1(doc);
+  const orbitSrc = doc.orbit?.knots?.length >= 3 ? doc.orbit : defaultOrbitDoc();
+  const orbitKnots = mapKnots(orbitSrc.knots);
+  // Re-id default orbit if colliding with profile ids
+  const used = new Set(v1.profile.knots.map((k) => k.id));
+  for (const k of orbitKnots) {
+    if (used.has(k.id)) k.id = `o_${k.id}_${Math.random().toString(36).slice(2, 6)}`;
+    used.add(k.id);
+  }
+  const orbitSegments = mapSegments(orbitSrc.segments, orbitKnots, true);
+  return {
+    ...v1,
+    schemaVersion: 2,
+    editor: {
+      ...v1.editor,
+      viewMode: doc.editor?.viewMode === "orbit" ? "orbit" : "profile",
+    },
+    orbit: { knots: orbitKnots, segments: orbitSegments },
+  };
+}
+
+/** @type {Record<number, (doc: any) => any>} */
+const STEPS = {
+  // 0 / missing → 1
+  1(doc) {
+    if (doc && doc.schemaVersion === 1 && doc.kind === SCHEMA_KIND && doc.profile) {
+      return normalizeV1(doc);
+    }
+    return normalizeV1(doc);
+  },
+  // 1 → 2: add closed orbit path (unit circle Bezier) + viewMode
+  2(doc) {
+    return normalizeV2(doc);
+  },
+};
 
 /**
  * Migrate any readable project blob to the current schema version.
  * @param {any} raw
- * @returns {{ ok: true, doc: import('./schema.js').SplineProjectV1 } | { ok: false, errors: string[] }}
+ * @returns {{ ok: true, doc: object } | { ok: false, errors: string[] }}
  */
 export function migrateProject(raw) {
   if (raw == null || typeof raw !== "object") {

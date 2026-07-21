@@ -8,6 +8,7 @@ const props = defineProps({
   selectedSegmentIndex: { type: Number, default: -1 },
   curveType: { type: Number, default: 0 },
   toolMode: { type: String, default: "edit" },
+  viewMode: { type: String, default: "profile" },
 });
 
 const emit = defineEmits([
@@ -19,9 +20,20 @@ const emit = defineEmits([
   "commit",
 ]);
 
-/** Top-of-canvas first so a newly added high point appears near the top of the list. */
+const closed = computed(() => props.viewMode === "orbit");
+const minKnots = computed(() => (closed.value ? 3 : 2));
+
+/** Profile: top→bottom. Orbit: around the closed loop in knot order. */
 const rows = computed(() => {
   const out = [];
+  if (closed.value) {
+    const n = props.knots.length;
+    for (let i = 0; i < n; i++) {
+      out.push({ kind: "knot", index: i, knot: props.knots[i] });
+      out.push({ kind: "segment", index: i });
+    }
+    return out;
+  }
   for (let i = props.knots.length - 1; i >= 0; i--) {
     out.push({ kind: "knot", index: i, knot: props.knots[i] });
     if (i > 0) out.push({ kind: "segment", index: i - 1 });
@@ -75,17 +87,33 @@ async function onTextureFile(index, ev) {
 }
 
 function knotLabel(i) {
+  if (closed.value) {
+    if (i === 0) return "+X";
+    return "pt";
+  }
   if (i === 0) return "bottom";
   if (i === props.knots.length - 1) return "top";
   return "mid";
+}
+
+function segLabel(i) {
+  if (!closed.value) return `seg ${i + 1}→${i + 2}`;
+  const n = props.knots.length;
+  const to = (i + 1) % n;
+  return `seg ${i + 1}→${to + 1}`;
 }
 </script>
 
 <template>
   <div class="point-editor">
     <header>
-      <h2>{{ toolMode === "color" ? "Coloring" : "Points" }}</h2>
-      <p>Top → bottom (matches the canvas). Color always editable; Details for numbers.</p>
+      <h2>
+        {{ toolMode === "color" ? "Coloring" : viewMode === "orbit" ? "Orbit points" : "Points" }}
+      </h2>
+      <p v-if="viewMode === 'orbit'">
+        Closed loop (canvas X→world X, Y→world Z). Color always editable; Details for numbers.
+      </p>
+      <p v-else>Top → bottom (matches the canvas). Color always editable; Details for numbers.</p>
     </header>
 
     <ul>
@@ -135,7 +163,7 @@ function knotLabel(i) {
             <button
               type="button"
               class="danger icon"
-              :disabled="knots.length <= 2"
+              :disabled="knots.length <= minKnots"
               title="Remove"
               @click.stop="emit('remove-knot', row.knot.id)"
             >
@@ -203,7 +231,7 @@ function knotLabel(i) {
               />
             </label>
             <div class="meta">
-              <strong>seg {{ row.index + 1 }}→{{ row.index + 2 }}</strong>
+              <strong>{{ segLabel(row.index) }}</strong>
               <span>{{ segments[row.index]?.texture || "gradient" }}</span>
             </div>
             <button

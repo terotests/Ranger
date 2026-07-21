@@ -11,17 +11,17 @@
 // version so older folders remain readable.
 // ============================================================================
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
-/** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} KnotV1 */
-/** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureAsset?: string|null }} SegmentV1 */
+/** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} KnotV2 */
+/** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureAsset?: string|null }} SegmentV2 */
 
 /**
- * @typedef {object} SplineProjectV1
+ * @typedef {object} SplineProjectV2
  * @property {typeof SCHEMA_KIND} kind
- * @property {1} schemaVersion
+ * @property {2} schemaVersion
  * @property {string} id
  * @property {string} slug
  * @property {string} name
@@ -35,9 +35,11 @@ export const SCHEMA_KIND = "ranger.splineProject";
  *   angularSteps: number,
  *   revolutionDeg: number,
  *   materialMode: number,
- *   symmetry: boolean
+ *   symmetry: boolean,
+ *   viewMode?: 'profile'|'orbit'
  * }} editor
- * @property {{ knots: KnotV1[], segments: SegmentV1[] }} profile
+ * @property {{ knots: KnotV2[], segments: SegmentV2[] }} profile
+ * @property {{ knots: KnotV2[], segments: SegmentV2[] }} orbit
  */
 
 export function nowIso() {
@@ -84,9 +86,9 @@ export function serializeKnot(k) {
 }
 
 /**
- * Build a v1 project document from the live editor state.
+ * Build a current-version project document from the live editor state.
  * @param {object} opts
- * @param {object} opts.state - useSplineEditor reactive state
+ * @param {object} opts.state - useSplineEditor reactive state (or snapshotState())
  * @param {string} opts.name
  * @param {string} [opts.id]
  * @param {string} [opts.slug]
@@ -115,10 +117,15 @@ export function buildProjectDocument(opts) {
       revolutionDeg: st.revolutionDeg | 0,
       materialMode: st.materialMode | 0,
       symmetry: !!st.symmetry,
+      viewMode: st.viewMode === "orbit" ? "orbit" : "profile",
     },
     profile: {
       knots: (st.knots || []).map(serializeKnot),
       segments: (st.segments || []).map(serializeSegment),
+    },
+    orbit: {
+      knots: (st.orbitKnots || []).map(serializeKnot),
+      segments: (st.orbitSegments || []).map(serializeSegment),
     },
   };
 }
@@ -136,6 +143,12 @@ export function validateProject(doc) {
   if (!doc.profile || !Array.isArray(doc.profile.knots)) errors.push("missing profile.knots");
   if (doc.profile && doc.profile.knots && doc.profile.knots.length < 2) {
     errors.push("profile.knots needs at least 2 points");
+  }
+  if (doc.schemaVersion >= 2) {
+    if (!doc.orbit || !Array.isArray(doc.orbit.knots)) errors.push("missing orbit.knots");
+    if (doc.orbit && doc.orbit.knots && doc.orbit.knots.length < 3) {
+      errors.push("orbit.knots needs at least 3 points");
+    }
   }
   return errors;
 }
