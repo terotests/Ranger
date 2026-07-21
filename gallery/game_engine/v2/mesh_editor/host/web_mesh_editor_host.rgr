@@ -1,0 +1,237 @@
+; ==============================================================================
+; web_mesh_editor_host — Ranger Three preview host for the spline mesh editor.
+; ==============================================================================
+; Receives a tessellated BufferGeometry (flat arrays from the SplineLathe JS
+; module), assigns a material, and renders via ThreeSceneHost. Prefers the WebGL
+; backend when the browser canvas is available; falls back to the software
+; rasteriser (RGB buffer blitted by the Vue viewer).
+; ==============================================================================
+
+Import "../../three/port/src/three_scene_host.rgr"
+Import "../../three/port/src/three_buffer_geometry.rgr"
+Import "../../three/port/src/three_gl_backend.rgr"
+Import "../../three/port/src/three_orbit_controls.rgr"
+Import "../../three/port/src/three_mesh.rgr"
+Import "../../three/port/src/three_material.rgr"
+
+class WebMeshEditorHost {
+    def host:ThreeSceneHost (new ThreeSceneHost)
+    def gl:ThreeGLBackend (new ThreeGLBackend)
+    def controls:ThreeOrbitControls (new ThreeOrbitControls)
+    def useGL:boolean false
+    def ready:boolean false
+    def w:int 480
+    def h:int 480
+    def sceneH:int 0
+    def camH:int 0
+    def meshH:int 0
+    def matH:int 0
+    def geoH:int 0
+    def hasMesh:boolean false
+    def matMode:int 3
+    def autoRotate:boolean true
+    def angle:double 0.4
+    def outBuf:buffer (buffer_alloc 0)
+
+    fn setupGL:boolean (canvasId:string) {
+        def ok:boolean (gl.init(canvasId))
+        if (ok == false) {
+            useGL = false
+            return false
+        }
+        host.useBackend(gl)
+        useGL = true
+        return true
+    }
+
+    fn init:void (winW:int winH:int) {
+        w = winW
+        h = winH
+        sceneH = (host.sceneNew())
+        host.sceneBackground(sceneH 0.12 0.13 0.16)
+        camH = (host.cameraNew())
+        host.cameraSet(camH 45.0 ((to_double w) / (to_double h)) 0.1 100.0)
+        host.cameraPose(camH 2.6 1.4 3.2 0.0 0.0 0.0)
+        host.lightAmbient(sceneH 16777215 0.35)
+        host.lightDirectional(sceneH 16777215 1.15 0.45 0.85 0.35 false 0)
+        controls.setCamera((host.cameraAt(camH)))
+        controls.setViewport(w h)
+        controls.setTarget(0.0 0.0 0.0)
+        controls.setDistanceRange(1.2 20.0)
+        controls.applyToCamera()
+        ready = true
+    }
+
+    ; Material modes (teapot-inspired): 0 wire, 1 flat, 2 smooth, 3 glossy, 4 reflective.
+    fn buildMaterial:int (mode:int) {
+        def side:int 2
+        if (mode == 0) {
+            return (host.materialBasic(12632256 side true))
+        }
+        if (mode == 1) {
+            return (host.materialPhong(12632256 0 30.0 true side))
+        }
+        if (mode == 2) {
+            return (host.materialLambert(3512575 side))
+        }
+        if (mode == 4) {
+            def m:int (host.materialPhong(12632256 4210752 300.0 false side))
+            host.materialReflective(m 0.95)
+            host.sceneEnvironmentStudio(sceneH 64)
+            return m
+        }
+        ; glossy default
+        return (host.materialPhong(12632256 4210752 220.0 false side))
+    }
+
+    fn setMaterialMode:void (mode:int) {
+        matMode = mode
+        if (hasMesh == false) {
+            return
+        }
+        if (meshH > 0) {
+            host.entityRemove(sceneH meshH)
+        }
+        matH = (this.buildMaterial(mode))
+        meshH = (host.meshNew(sceneH geoH matH))
+        host.entityTransform(meshH 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
+    }
+
+    ; Replace the preview mesh from flat BufferGeometry arrays.
+    fn setMesh:void (positions:[double] normals:[double] uvs:[double] indices:[int]) {
+        if (ready == false) {
+            return
+        }
+        if (hasMesh) {
+            host.entityRemove(sceneH meshH)
+            hasMesh = false
+        }
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def vc:int (idiv (array_length positions) 3)
+        def i:int 0
+        while (i < vc) {
+            def b:int (i * 3)
+            def ub:int (i * 2)
+            def px:double (itemAt positions b)
+            def py:double (itemAt positions (b + 1))
+            def pz:double (itemAt positions (b + 2))
+            def nx:double 0.0
+            def ny:double 1.0
+            def nz:double 0.0
+            if ((b + 2) < (array_length normals)) {
+                nx = (itemAt normals b)
+                ny = (itemAt normals (b + 1))
+                nz = (itemAt normals (b + 2))
+            }
+            def uu:double 0.0
+            def vv:double 0.0
+            if ((ub + 1) < (array_length uvs)) {
+                uu = (itemAt uvs ub)
+                vv = (itemAt uvs (ub + 1))
+            }
+            g.pushVertex(px py pz nx ny nz uu vv)
+            i = (i + 1)
+        }
+        def ii:int 0
+        def ic:int (array_length indices)
+        while (ii < ic) {
+            g.pushIndex((itemAt indices ii))
+            ii = (ii + 1)
+        }
+        push host.geometries g
+        geoH = (array_length host.geometries)
+        matH = (this.buildMaterial(matMode))
+        meshH = (host.meshNew(sceneH geoH matH))
+        host.entityTransform(meshH 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
+        hasMesh = true
+    }
+
+    fn setAutoRotate:void (on:boolean) {
+        autoRotate = on
+    }
+
+    fn pointerDown:void (x:double y:double button:int) {
+        controls.pointerDown(x y button)
+        autoRotate = false
+    }
+    fn pointerMove:void (x:double y:double) {
+        controls.pointerMove(x y)
+    }
+    fn pointerUp:void () {
+        controls.pointerUp()
+    }
+    fn wheel:void (delta:double) {
+        controls.wheel(delta)
+        autoRotate = false
+    }
+
+    fn frame:void (dtMs:double) {
+        if (ready == false) {
+            return
+        }
+        if (autoRotate) {
+            angle = (angle + (dtMs * 0.0009))
+            if (hasMesh) {
+                host.entityTransform(meshH 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
+            }
+        }
+        controls.applyToCamera()
+        if (useGL) {
+            host.render(sceneH camH w h)
+            return
+        }
+        ; software path: 2× supersample then box-downsample (same as live3d)
+        def sw:int (w * 2)
+        def sh:int (h * 2)
+        host.renderer.setClearColor(0.12 0.13 0.16)
+        host.render(sceneH camH sw sh)
+        def raw:buffer (host.raw())
+        def total:int ((w * h) * 3)
+        def out:buffer (buffer_alloc total)
+        def y:int 0
+        while (y < h) {
+            def x:int 0
+            while (x < w) {
+                def sumR:int 0
+                def sumG:int 0
+                def sumB:int 0
+                def dy:int 0
+                while (dy < 2) {
+                    def dx:int 0
+                    while (dx < 2) {
+                        def sx:int ((x * 2) + dx)
+                        def sy:int ((y * 2) + dy)
+                        def o:int (((sy * sw) + sx) * 3)
+                        sumR = (sumR + (buffer_get raw o))
+                        sumG = (sumG + (buffer_get raw (o + 1)))
+                        sumB = (sumB + (buffer_get raw (o + 2)))
+                        dx = (dx + 1)
+                    }
+                    dy = (dy + 1)
+                }
+                def d:int (((y * w) + x) * 3)
+                buffer_set out d (idiv sumR 4)
+                buffer_set out (d + 1) (idiv sumG 4)
+                buffer_set out (d + 2) (idiv sumB 4)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        outBuf = out
+    }
+
+    fn framePixels:buffer () {
+        return outBuf
+    }
+
+    fn usingGL:boolean () {
+        return useGL
+    }
+
+    fn vertexHint:int () {
+        if (geoH <= 0) {
+            return 0
+        }
+        return ((host.geometryAt(geoH)).vertexCount())
+    }
+}

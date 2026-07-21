@@ -1,0 +1,337 @@
+; ==============================================================================
+; spline_lathe — portable Bezier / Catmull-Rom profile + Y-axis lathe tessellator.
+; ==============================================================================
+; Pure Ranger math module. Compiles to a standalone ES module for the Vite editor
+; and can also be Import'd by the mesh-editor host. No Three / UI dependencies.
+;
+; Profile is the RIGHT-side silhouette (x = radius >= 0, y = height). Symmetry
+; around the Y axis is an editor concern; lathe revolves that profile 360° in N
+; angular steps (the duplicate closing ring at 2π is omitted — faces wrap).
+; ==============================================================================
+
+class SplineVec2 {
+    def x:double 0.0
+    def y:double 0.0
+
+    sfn of:SplineVec2 (x:double y:double) {
+        def v:SplineVec2 (new SplineVec2)
+        v.x = x
+        v.y = y
+        return v
+    }
+}
+
+; One editable knot on the profile. For Bezier, hx/hy are the OUTGOING handle
+; relative to (x,y). The previous knot's handle forms the segment's C1.
+class SplineKnot {
+    def x:double 0.0
+    def y:double 0.0
+    def hx:double 0.0
+    def hy:double 0.0
+
+    sfn of:SplineKnot (x:double y:double hx:double hy:double) {
+        def k:SplineKnot (new SplineKnot)
+        k.x = x
+        k.y = y
+        k.hx = hx
+        k.hy = hy
+        return k
+    }
+}
+
+; Tessellation result as flat arrays (Three.js BufferGeometry layout).
+class SplineMesh {
+    def positions:[double]
+    def normals:[double]
+    def uvs:[double]
+    def indices:[int]
+    def profileX:[double]
+    def profileY:[double]
+}
+
+class SplineLathe {
+    ; --- cubic Bezier ---------------------------------------------------------
+    sfn bezierPoint:SplineVec2 (p0x:double p0y:double c0x:double c0y:double c1x:double c1y:double p1x:double p1y:double t:double) {
+        def u:double (1.0 - t)
+        def uu:double (u * u)
+        def uuu:double (uu * u)
+        def tt:double (t * t)
+        def ttt:double (tt * t)
+        def x:double ((((uuu * p0x) + (((3.0 * uu) * t) * c0x)) + (((3.0 * u) * tt) * c1x)) + (ttt * p1x))
+        def y:double ((((uuu * p0y) + (((3.0 * uu) * t) * c0y)) + (((3.0 * u) * tt) * c1y)) + (ttt * p1y))
+        return (SplineVec2.of(x y))
+    }
+
+    sfn bezierTangent:SplineVec2 (p0x:double p0y:double c0x:double c0y:double c1x:double c1y:double p1x:double p1y:double t:double) {
+        def u:double (1.0 - t)
+        ; dB/dt = 3(1-t)^2 (C0-P0) + 6(1-t)t (C1-C0) + 3 t^2 (P1-C1)
+        def ax:double (c0x - p0x)
+        def ay:double (c0y - p0y)
+        def bx:double (c1x - c0x)
+        def by:double (c1y - c0y)
+        def cx:double (p1x - c1x)
+        def cy:double (p1y - c1y)
+        def x:double (((((3.0 * u) * u) * ax) + (((6.0 * u) * t) * bx)) + (((3.0 * t) * t) * cx))
+        def y:double (((((3.0 * u) * u) * ay) + (((6.0 * u) * t) * by)) + (((3.0 * t) * t) * cy))
+        return (SplineVec2.of(x y))
+    }
+
+    ; --- Catmull-Rom (uniform; tension 0.5) ------------------------------------
+    sfn catmullPoint:SplineVec2 (p0x:double p0y:double p1x:double p1y:double p2x:double p2y:double p3x:double p3y:double t:double) {
+        def t2:double (t * t)
+        def t3:double (t2 * t)
+        def a1x:double (2.0 * p1x)
+        def a1y:double (2.0 * p1y)
+        def b1x:double ((0.0 - p0x) + p2x)
+        def b1y:double ((0.0 - p0y) + p2y)
+        def c1x:double ((((2.0 * p0x) - (5.0 * p1x)) + (4.0 * p2x)) - p3x)
+        def c1y:double ((((2.0 * p0y) - (5.0 * p1y)) + (4.0 * p2y)) - p3y)
+        def d1x:double ((((0.0 - p0x) + (3.0 * p1x)) - (3.0 * p2x)) + p3x)
+        def d1y:double ((((0.0 - p0y) + (3.0 * p1y)) - (3.0 * p2y)) + p3y)
+        def x:double (0.5 * (((a1x + (b1x * t)) + (c1x * t2)) + (d1x * t3)))
+        def y:double (0.5 * (((a1y + (b1y * t)) + (c1y * t2)) + (d1y * t3)))
+        return (SplineVec2.of(x y))
+    }
+
+    sfn catmullTangent:SplineVec2 (p0x:double p0y:double p1x:double p1y:double p2x:double p2y:double p3x:double p3y:double t:double) {
+        def t2:double (t * t)
+        def b1x:double ((0.0 - p0x) + p2x)
+        def b1y:double ((0.0 - p0y) + p2y)
+        def c1x:double ((((2.0 * p0x) - (5.0 * p1x)) + (4.0 * p2x)) - p3x)
+        def c1y:double ((((2.0 * p0y) - (5.0 * p1y)) + (4.0 * p2y)) - p3y)
+        def d1x:double ((((0.0 - p0x) + (3.0 * p1x)) - (3.0 * p2x)) + p3x)
+        def d1y:double ((((0.0 - p0y) + (3.0 * p1y)) - (3.0 * p2y)) + p3y)
+        def x:double (0.5 * ((b1x + ((2.0 * c1x) * t)) + ((3.0 * d1x) * t2)))
+        def y:double (0.5 * ((b1y + ((2.0 * c1y) * t)) + ((3.0 * d1y) * t2)))
+        return (SplineVec2.of(x y))
+    }
+
+    sfn clampRadius:double (x:double) {
+        if (x < 0.0) {
+            return 0.0
+        }
+        return x
+    }
+
+    ; Sample a knot polyline into a dense profile. curveType: 0=Bezier, 1=Catmull.
+    ; segmentsPerSpan = samples between consecutive knots (inclusive of end).
+    sfn sampleProfile:SplineMesh (knots:[SplineKnot] curveType:int segmentsPerSpan:int) {
+        def out:SplineMesh (new SplineMesh)
+        def n:int (array_length knots)
+        if (n < 2) {
+            return out
+        }
+        def seg:int segmentsPerSpan
+        if (seg < 1) {
+            seg = 1
+        }
+        def i:int 0
+        while (i < (n - 1)) {
+            def a:SplineKnot (itemAt knots i)
+            def b:SplineKnot (itemAt knots (i + 1))
+            def s:int 0
+            def last:int seg
+            if (i < (n - 2)) {
+                last = (seg - 1)
+            }
+            while (s <= last) {
+                def t:double ((to_double s) / (to_double seg))
+                def p:SplineVec2 (new SplineVec2)
+                def tan:SplineVec2 (new SplineVec2)
+                if (curveType == 0) {
+                    def c0x:double (a.x + a.hx)
+                    def c0y:double (a.y + a.hy)
+                    def c1x:double (b.x - b.hx)
+                    def c1y:double (b.y - b.hy)
+                    p = (SplineLathe.bezierPoint(a.x a.y c0x c0y c1x c1y b.x b.y t))
+                    tan = (SplineLathe.bezierTangent(a.x a.y c0x c0y c1x c1y b.x b.y t))
+                } {
+                    def i0:int (i - 1)
+                    if (i0 < 0) {
+                        i0 = 0
+                    }
+                    def i3:int (i + 2)
+                    if (i3 >= n) {
+                        i3 = (n - 1)
+                    }
+                    def p0:SplineKnot (itemAt knots i0)
+                    def p3:SplineKnot (itemAt knots i3)
+                    p = (SplineLathe.catmullPoint(p0.x p0.y a.x a.y b.x b.y p3.x p3.y t))
+                    tan = (SplineLathe.catmullTangent(p0.x p0.y a.x a.y b.x b.y p3.x p3.y t))
+                }
+                push out.profileX (SplineLathe.clampRadius(p.x))
+                push out.profileY p.y
+                ; stash 2D tangent in normals temporarily as (tx, ty) pairs via
+                ; positions unused — caller uses sampleAndLathe which recomputes.
+                s = (s + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Sample + revolve around Y.
+    ; angularSteps = N rings across phiLength radians (default full turn 2π).
+    ; The duplicate end ring at phiLength is omitted when closed==true (faces wrap);
+    ; when closed==false (e.g. 180° cutaway) faces do not wrap.
+    sfn sampleAndLathe:SplineMesh (knots:[SplineKnot] curveType:int pathSegments:int angularSteps:int) {
+        return (SplineLathe.sampleAndLatheEx(knots curveType pathSegments angularSteps 6.283185307179586 true))
+    }
+
+    sfn sampleAndLatheEx:SplineMesh (knots:[SplineKnot] curveType:int pathSegments:int angularSteps:int phiLength:double closed:boolean) {
+        def mesh:SplineMesh (new SplineMesh)
+        def n:int (array_length knots)
+        if (n < 2) {
+            return mesh
+        }
+        def steps:int angularSteps
+        if (steps < 3) {
+            steps = 3
+        }
+        def seg:int pathSegments
+        if (seg < 1) {
+            seg = 1
+        }
+        def phi:double phiLength
+        if (phi < 0.0001) {
+            phi = 6.283185307179586
+        }
+
+        ; --- build profile + 2D tangents ------------------------------------
+        def px:[double]
+        def py:[double]
+        def tx:[double]
+        def ty:[double]
+        def i:int 0
+        while (i < (n - 1)) {
+            def a:SplineKnot (itemAt knots i)
+            def b:SplineKnot (itemAt knots (i + 1))
+            def s:int 0
+            def last:int seg
+            if (i < (n - 2)) {
+                last = (seg - 1)
+            }
+            while (s <= last) {
+                def t:double ((to_double s) / (to_double seg))
+                def p:SplineVec2 (new SplineVec2)
+                def tan:SplineVec2 (new SplineVec2)
+                if (curveType == 0) {
+                    def c0x:double (a.x + a.hx)
+                    def c0y:double (a.y + a.hy)
+                    def c1x:double (b.x - b.hx)
+                    def c1y:double (b.y - b.hy)
+                    p = (SplineLathe.bezierPoint(a.x a.y c0x c0y c1x c1y b.x b.y t))
+                    tan = (SplineLathe.bezierTangent(a.x a.y c0x c0y c1x c1y b.x b.y t))
+                } {
+                    def i0:int (i - 1)
+                    if (i0 < 0) {
+                        i0 = 0
+                    }
+                    def i3:int (i + 2)
+                    if (i3 >= n) {
+                        i3 = (n - 1)
+                    }
+                    def p0:SplineKnot (itemAt knots i0)
+                    def p3:SplineKnot (itemAt knots i3)
+                    p = (SplineLathe.catmullPoint(p0.x p0.y a.x a.y b.x b.y p3.x p3.y t))
+                    tan = (SplineLathe.catmullTangent(p0.x p0.y a.x a.y b.x b.y p3.x p3.y t))
+                }
+                push px (SplineLathe.clampRadius(p.x))
+                push py p.y
+                push tx tan.x
+                push ty tan.y
+                s = (s + 1)
+            }
+            i = (i + 1)
+        }
+
+        def rows:int (array_length px)
+        if (rows < 2) {
+            return mesh
+        }
+
+        mesh.profileX = px
+        mesh.profileY = py
+
+        ; --- revolve --------------------------------------------------------
+        def row:int 0
+        while (row < rows) {
+            def radius:double (itemAt px row)
+            def yy:double (itemAt py row)
+            def tdx:double (itemAt tx row)
+            def tdy:double (itemAt ty row)
+            ; profile normal in XY: rotate tangent 90° toward +X exterior
+            def pnx:double tdy
+            def pny:double (0.0 - tdx)
+            def pnl:double (sqrt((pnx * pnx) + (pny * pny)))
+            if (pnl < 0.000000001) {
+                pnx = 1.0
+                pny = 0.0
+                pnl = 1.0
+            }
+            pnx = (pnx / pnl)
+            pny = (pny / pnl)
+            if (pnx < 0.0) {
+                pnx = (0.0 - pnx)
+                pny = (0.0 - pny)
+            }
+
+            def col:int 0
+            while (col < steps) {
+                def u:double ((to_double col) / (to_double steps))
+                def theta:double (u * phi)
+                def ct:double (cos(theta))
+                def st:double (sin(theta))
+                ; start at z=0, x=radius (theta=0)
+                push mesh.positions (radius * ct)
+                push mesh.positions yy
+                push mesh.positions (radius * st)
+                push mesh.normals (pnx * ct)
+                push mesh.normals pny
+                push mesh.normals (pnx * st)
+                push mesh.uvs u
+                push mesh.uvs ((to_double row) / (to_double (rows - 1)))
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+
+        ; --- faces: last angular sample omitted; wrap only when closed --------
+        def r2:int 0
+        while (r2 < (rows - 1)) {
+            def c2:int 0
+            def colMax:int steps
+            if (closed == false) {
+                colMax = (steps - 1)
+            }
+            while (c2 < colMax) {
+                def a2:int ((r2 * steps) + c2)
+                def cNext:int (c2 + 1)
+                if (cNext >= steps) {
+                    cNext = 0
+                }
+                def b2:int ((r2 * steps) + cNext)
+                def c3:int (((r2 + 1) * steps) + cNext)
+                def d3:int (((r2 + 1) * steps) + c2)
+                push mesh.indices a2
+                push mesh.indices d3
+                push mesh.indices b2
+                push mesh.indices b2
+                push mesh.indices d3
+                push mesh.indices c3
+                c2 = (c2 + 1)
+            }
+            r2 = (r2 + 1)
+        }
+        return mesh
+    }
+
+    ; Default vase-like silhouette: bottom/mid/top on the right half.
+    sfn defaultKnots:[SplineKnot] () {
+        def knots:[SplineKnot]
+        push knots (SplineKnot.of(0.0 (0.0 - 1.0) 0.22 0.0))
+        push knots (SplineKnot.of(0.5 0.0 0.0 0.28))
+        push knots (SplineKnot.of(0.0 1.0 (0.0 - 0.22) 0.0))
+        return knots
+    }
+}
