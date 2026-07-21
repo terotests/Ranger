@@ -60,3 +60,13 @@ Open the printed local URL (default `http://localhost:5177`).
 
 Segment styles are lathed as separate mesh parts and previewed through Ranger Three materials (shininess ← roughness, reflectivity ← metalness).
 
+## Shading base
+
+Teapot-inspired modes exercised against Ranger Three:
+
+| Mode | Material |
+|------|----------|
+| Wire | MeshBasic wireframe |
+| Flat | Phong + flatShading |
+| Smooth / Glossy / Reflective | Phong (+ studio env when reflective/metal) |
+
