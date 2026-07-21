@@ -17,12 +17,17 @@ const props = defineProps({
   viewport: { type: Object, required: true },
   sampleCurvePoints: { type: Function, required: true },
   findClosestOnCurve: { type: Function, required: true },
+  placementNormal: {
+    type: Object,
+    default: () => ({ start: { x: 0, y: -1 }, end: { x: 0, y: 1 } }),
+  },
 });
 
 const emit = defineEmits([
   "select",
   "select-segment",
   "update-knot",
+  "update-placement-normal",
   "add-on-curve",
   "drag-end",
   "select-child",
@@ -33,12 +38,14 @@ const canvasRef = ref(null);
 const size = 560;
 let dragging = null;
 let draggingChild = null;
+let draggingNormal = null; // 'start' | 'end'
 let raf = 0;
 const hoverAdd = ref(null);
 
 const isOrbit = computed(() => props.viewMode === "orbit");
 const isSpine = computed(() => props.viewMode === "spine");
 const allowSignedX = computed(() => isOrbit.value || isSpine.value);
+const showPlacementNormal = computed(() => props.viewMode === "profile" || props.viewMode === "orbit");
 const showAttachments = computed(
   () => !isOrbit.value && !isSpine.value && props.editTarget === "root" && props.children?.length,
 );
@@ -112,6 +119,70 @@ function drawUnitCircle(ctx, w, h) {
   }
   ctx.stroke();
   ctx.setLineDash([]);
+}
+
+/** Big blue placement-normal arrow (profile-plane coords in Profile + Orbit). */
+function drawPlacementNormal(ctx, w, h) {
+  if (!showPlacementNormal.value || !props.placementNormal) return;
+  const s = props.placementNormal.start;
+  const e = props.placementNormal.end;
+  if (!s || !e) return;
+  const [x0, y0] = worldToScreen(s.x, s.y, w, h);
+  const [x1, y1] = worldToScreen(e.x, e.y, w, h);
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const L = Math.hypot(dx, dy) || 1;
+  const ux = dx / L;
+  const uy = dy / L;
+  const px = -uy;
+  const py = ux;
+  const headLen = Math.min(28, L * 0.28);
+  const headW = 14;
+
+  ctx.strokeStyle = "#3b82f6";
+  ctx.fillStyle = "#3b82f6";
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1 - ux * headLen * 0.55, y1 - uy * headLen * 0.55);
+  ctx.stroke();
+
+  // Arrow head
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - ux * headLen + px * headW, y1 - uy * headLen + py * headW);
+  ctx.lineTo(x1 - ux * headLen - px * headW, y1 - uy * headLen - py * headW);
+  ctx.closePath();
+  ctx.fill();
+
+  // Endpoint grips
+  ctx.beginPath();
+  ctx.arc(x0, y0, 7, 0, Math.PI * 2);
+  ctx.fillStyle = "#60a5fa";
+  ctx.fill();
+  ctx.strokeStyle = "#1e3a8a";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(x1, y1, 8, 0, Math.PI * 2);
+  ctx.fillStyle = "#2563eb";
+  ctx.fill();
+  ctx.strokeStyle = "#eff6ff";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function hitTestPlacementNormal(sx, sy) {
+  if (!showPlacementNormal.value || !props.placementNormal) return null;
+  const s = props.placementNormal.start;
+  const e = props.placementNormal.end;
+  const [x0, y0] = worldToScreen(s.x, s.y, size, size);
+  const [x1, y1] = worldToScreen(e.x, e.y, size, size);
+  if (Math.hypot(x1 - sx, y1 - sy) <= 14) return "end";
+  if (Math.hypot(x0 - sx, y0 - sy) <= 14) return "start";
+  return null;
 }
 
 function draw() {
@@ -291,6 +362,9 @@ function draw() {
     ctx.strokeStyle = "#7ecf6a";
     ctx.stroke();
   }
+
+  // Placement normal on top in Profile / Orbit so it stays obvious.
+  drawPlacementNormal(ctx, w, h);
 }
 
 function evalMid(segIndex) {
@@ -388,6 +462,15 @@ function onPointerDown(e) {
     return;
   }
 
+  if (props.toolMode === "edit" && showPlacementNormal.value) {
+    const nh = hitTestPlacementNormal(sx, sy);
+    if (nh) {
+      draggingNormal = nh;
+      canvasRef.value.setPointerCapture(e.pointerId);
+      return;
+    }
+  }
+
   if (props.toolMode === "edit" && showAttachments.value) {
     const cid = hitTestChild(sx, sy);
     if (cid) {
@@ -431,6 +514,15 @@ function onPointerMove(e) {
     return;
   }
 
+  if (draggingNormal && props.toolMode === "edit") {
+    if (draggingNormal === "start") {
+      emit("update-placement-normal", { start: { x: wx, y: wy } });
+    } else {
+      emit("update-placement-normal", { end: { x: wx, y: wy } });
+    }
+    return;
+  }
+
   if (draggingChild && props.toolMode === "edit") {
     emit("move-child", draggingChild, {
       x: Math.max(0, wx),
@@ -451,11 +543,12 @@ function onPointerMove(e) {
 }
 
 function onPointerUp() {
-  if ((dragging || draggingChild) && props.toolMode === "edit") {
+  if ((dragging || draggingChild || draggingNormal) && props.toolMode === "edit") {
     emit("drag-end");
   }
   dragging = null;
   draggingChild = null;
+  draggingNormal = null;
 }
 
 function schedule() {
@@ -477,6 +570,7 @@ watch(
     props.children,
     props.selectedChildGuid,
     props.editTarget,
+    props.placementNormal,
     curvePts.value,
     hoverAdd.value,
   ],
@@ -510,7 +604,7 @@ onBeforeUnmount(() => {
       <template v-if="viewMode === 'orbit'">
         <span class="dot axis" /> XZ axes
         <span class="dot curve" /> orbit path
-        <span class="dot handle" /> unit circle
+        <span class="dot normal" /> placement normal
       </template>
       <template v-else-if="viewMode === 'spine'">
         <span class="dot axis" /> straight guide
@@ -520,7 +614,7 @@ onBeforeUnmount(() => {
       <template v-else>
         <span class="dot axis" /> axis
         <span class="dot curve" /> profile / gradient
-        <span class="dot handle" /> Bezier handle
+        <span class="dot normal" /> placement normal
       </template>
     </div>
   </div>
@@ -575,5 +669,8 @@ onBeforeUnmount(() => {
 }
 .dot.handle {
   background: var(--handle);
+}
+.dot.normal {
+  background: #3b82f6;
 }
 </style>

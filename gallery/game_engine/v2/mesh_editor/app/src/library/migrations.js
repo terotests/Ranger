@@ -313,6 +313,30 @@ function normalizeV5(doc) {
   return v4;
 }
 
+function normalizeV6(doc) {
+  const v5 = normalizeV5(doc);
+  v5.schemaVersion = 6;
+  const src = doc.placementNormal || v5.placementNormal;
+  const sx = Number(src?.start?.x);
+  const sy = Number(src?.start?.y);
+  const ex = Number(src?.end?.x);
+  const ey = Number(src?.end?.y);
+  const start = {
+    x: Number.isFinite(sx) ? sx : 0,
+    y: Number.isFinite(sy) ? sy : -1,
+  };
+  const end = {
+    x: Number.isFinite(ex) ? ex : 0,
+    y: Number.isFinite(ey) ? ey : 1,
+  };
+  if (Math.hypot(end.x - start.x, end.y - start.y) < 1e-9) {
+    end.x = start.x;
+    end.y = start.y + 2;
+  }
+  v5.placementNormal = { start, end };
+  return v5;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -331,6 +355,10 @@ const STEPS = {
   // 4 → 5: spineProfile + spineOrbit centerline paths
   5(doc) {
     return normalizeV5(doc);
+  },
+  // 5 → 6: placementNormal (object “up” segment for preview / assembly)
+  6(doc) {
+    return normalizeV6(doc);
   },
 };
 

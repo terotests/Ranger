@@ -38,6 +38,8 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
 - v4 adds per-segment `pathType` (`bezier` \| `line` \| `arc`) and optional `arcBulge`
 - v5 adds `spineProfile` + `spineOrbit` open paths (signed lateral offset vs height) that
   curve the lathe centerline; default is a straight vertical line (`pathType: line`)
+- v6 adds `placementNormal` `{ start:{x,y}, end:{x,y} }` — object “up” segment for
+  preview orientation and future assembly (default `(0,-1)→(0,1)`)
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.

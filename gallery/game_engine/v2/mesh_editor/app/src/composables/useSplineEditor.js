@@ -10,6 +10,10 @@ import {
   defaultChildTransform,
 } from "../lib/assetClone.js";
 import { defaultSpineKnots, defaultSpineSegments } from "../lib/spineLathe.js";
+import {
+  defaultPlacementNormal,
+  normalizePlacementNormal,
+} from "../lib/placementNormal.js";
 
 /** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} Knot */
 /** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureData: any, textureAsset?: string|null, pathType?: string, arcBulge?: number|null }} Segment */
@@ -145,6 +149,7 @@ export function useSplineEditor() {
     spineProfileSegments: /** @type {Segment[]} */ ([]),
     spineOrbitKnots: defaultSpineKnots(),
     spineOrbitSegments: /** @type {Segment[]} */ ([]),
+    placementNormal: defaultPlacementNormal(),
     objectMaterial: defaultObjectMaterial(),
     selectedId: null,
     selectedIds: /** @type {string[]} */ ([]),
@@ -196,6 +201,7 @@ export function useSplineEditor() {
         spineProfileSegments: state.spineProfileSegments.map(mapSegSnapshot),
         spineOrbitKnots: state.spineOrbitKnots,
         spineOrbitSegments: state.spineOrbitSegments.map(mapSegSnapshot),
+        placementNormal: normalizePlacementNormal(state.placementNormal),
         objectMaterial: state.objectMaterial,
         embeddedAssets: state.embeddedAssets,
         children: state.children,
@@ -229,6 +235,7 @@ export function useSplineEditor() {
     state.spineProfileSegments = sp.segments;
     state.spineOrbitKnots = so.knots;
     state.spineOrbitSegments = so.segments;
+    state.placementNormal = normalizePlacementNormal(snap.placementNormal);
     state.objectMaterial = { ...defaultObjectMaterial(), ...(snap.objectMaterial || {}) };
     state.embeddedAssets = {};
     for (const [guid, body] of Object.entries(snap.embeddedAssets || {})) {
@@ -551,6 +558,7 @@ export function useSplineEditor() {
     state.spineOrbitKnots = defaultSpineKnots();
     state.spineOrbitSegments = [];
     state.spineSource = "profile";
+    state.placementNormal = defaultPlacementNormal();
     state.objectMaterial = defaultObjectMaterial();
     state.embeddedAssets = {};
     state.children = [];
@@ -603,6 +611,38 @@ export function useSplineEditor() {
     const s = activeSegments()[index];
     if (!s) return;
     Object.assign(s, patch);
+  }
+
+  function updatePlacementNormal(patch) {
+    const moving =
+      patch?.start != null ||
+      patch?.end != null ||
+      patch?.startX != null ||
+      patch?.startY != null ||
+      patch?.endX != null ||
+      patch?.endY != null;
+    if (moving) beginGesture("move-normal");
+    else commitToHistory("placement-normal");
+    const cur = normalizePlacementNormal(state.placementNormal);
+    const next = {
+      start: { ...cur.start, ...(patch.start || {}) },
+      end: { ...cur.end, ...(patch.end || {}) },
+    };
+    if (patch.startX != null) next.start.x = Number(patch.startX);
+    if (patch.startY != null) next.start.y = Number(patch.startY);
+    if (patch.endX != null) next.end.x = Number(patch.endX);
+    if (patch.endY != null) next.end.y = Number(patch.endY);
+    // Keep a non-zero length
+    if (Math.hypot(next.end.x - next.start.x, next.end.y - next.start.y) < 1e-6) {
+      next.end.y = next.start.y + 0.01;
+    }
+    state.placementNormal = next;
+  }
+
+  function resetPlacementNormal() {
+    commitToHistory("reset-normal");
+    state.placementNormal = defaultPlacementNormal();
+    state.status = "Placement normal reset to bottom→top (0,-1)→(0,1).";
   }
 
   function applyColorToKnots(ids, color) {
@@ -1071,6 +1111,7 @@ export function useSplineEditor() {
       state.spineOrbitKnots = so.knots;
       state.spineOrbitSegments = so.segments;
     }
+    state.placementNormal = normalizePlacementNormal(doc.placementNormal);
 
     state.embeddedAssets = {};
     for (const [guid, body] of Object.entries(doc.embeddedAssets || {})) {
@@ -1152,6 +1193,7 @@ export function useSplineEditor() {
       spineProfileSegments: state.spineProfileSegments.map(mapSegSnapshot),
       spineOrbitKnots: state.spineOrbitKnots.map((k) => ({ ...k })),
       spineOrbitSegments: state.spineOrbitSegments.map(mapSegSnapshot),
+      placementNormal: normalizePlacementNormal(state.placementNormal),
       embeddedAssets: embedded,
       children: state.children.map((c) => ({
         instanceGuid: c.instanceGuid,
@@ -1200,6 +1242,8 @@ export function useSplineEditor() {
     selectSegment,
     resetDefaults,
     resetSpine,
+    resetPlacementNormal,
+    updatePlacementNormal,
     removeKnot,
     removeSelected,
     updateKnot,
