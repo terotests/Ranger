@@ -25,6 +25,7 @@ import * as THREE from 'three';
 let camera, scene, renderer;
 let ball, keyLight;
 
+const TOPDOWN = true;   // plan view for cross-referencing the playfield chart
 const ENV = new THREE.CubeTexture();
 
 function phong(colorHex, specHex, shininess) {
@@ -66,9 +67,17 @@ export function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x05070f);
 
-  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.5, 200);
-  camera.position.set(0, 12.6, 15.0);
-  camera.rotation.set(-0.64, 0, 0);
+  // Camera: TOPDOWN gives a straight-down plan view (top of table = top of
+  // screen, like the playfield chart) for cross-referencing part shapes/positions;
+  // otherwise the angled 3/4 cabinet hero view.
+  camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.5, 200);
+  if (TOPDOWN) {
+    camera.position.set(0, 21.0, -0.4);
+    camera.rotation.set(-1.5707963, 0, 0);
+  } else {
+    camera.position.set(0, 12.6, 15.0);
+    camera.rotation.set(-0.64, 0, 0);
+  }
 
   // ---- playfield -------------------------------------------------------------
   const tex = new THREE.TextureLoader().load('playfield.png');
