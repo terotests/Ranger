@@ -394,3 +394,72 @@ class ThreeTorusKnotGeometry extends ThreeBufferGeometry {
         return this
     }
 }
+
+; Sweep a circular tube of `radius` along an explicit polyline path. `points` is
+; a flattened [x0,y0,z0, x1,y1,z1, …] array; `closed` stitches the last ring back
+; to the first (for outline loops like a flipper's rubber edge). The frame is
+; planar-stable: B = world up (0,1,0), N = normalize(T × up), so a path in the XZ
+; plane sweeps a clean tube whose cross-section stands up out of the plane.
+class ThreeTubeGeometry extends ThreeBufferGeometry {
+    def isTubeGeometry:boolean true
+
+    fn build:ThreeTubeGeometry (points:[double] radius:double radialSeg:int closed:boolean) {
+        def twoPi:double 6.283185307179586
+        def np:int (idiv (array_length points) 3)
+        if (np < 2) { return this }
+        def i:int 0
+        while (i < np) {
+            def px:double (itemAt points (i * 3))
+            def py:double (itemAt points ((i * 3) + 1))
+            def pz:double (itemAt points ((i * 3) + 2))
+            ; tangent from neighbours (wrap when closed, clamp when open)
+            def i0:int (i - 1)
+            def i1:int (i + 1)
+            if (i0 < 0) { if closed { i0 = (np - 1) } { i0 = 0 } }
+            if (i1 >= np) { if closed { i1 = 0 } { i1 = (np - 1) } }
+            def tx:double ((itemAt points (i1 * 3)) - (itemAt points (i0 * 3)))
+            def tz:double ((itemAt points ((i1 * 3) + 2)) - (itemAt points ((i0 * 3) + 2)))
+            def tl:double (sqrt((tx * tx) + (tz * tz)))
+            if (tl < 0.000001) { tl = 1.0 }
+            tx = (tx / tl)
+            tz = (tz / tl)
+            ; N = T × up = (-tz, 0, tx) ; B = up = (0,1,0)
+            def nx:double (0.0 - tz)
+            def nz:double tx
+            def j:int 0
+            while (j <= radialSeg) {
+                def v:double (((to_double j) / (to_double radialSeg)) * twoPi)
+                def cv:double (cos(v))
+                def sv:double (sin(v))
+                def ox:double (radius * (cv * nx))
+                def oy:double (radius * sv)
+                def oz:double (radius * (cv * nz))
+                def ol:double (sqrt(((ox * ox) + (oy * oy)) + (oz * oz)))
+                if (ol < 0.000001) { ol = 1.0 }
+                this.pushVertex((px + ox) (py + oy) (pz + oz)  (ox / ol) (oy / ol) (oz / ol)  ((to_double i) / (to_double np)) ((to_double j) / (to_double radialSeg)))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        def r1:int (radialSeg + 1)
+        def segs:int (np - 1)
+        if closed { segs = np }
+        def jj:int 0
+        while (jj < segs) {
+            def jn:int (jj + 1)
+            if (jn >= np) { jn = 0 }
+            def ii:int 0
+            while (ii < radialSeg) {
+                def a:int ((r1 * jj) + ii)
+                def b:int ((r1 * jn) + ii)
+                def c:int ((r1 * jn) + (ii + 1))
+                def d:int ((r1 * jj) + (ii + 1))
+                this.pushTriangle(a b d)
+                this.pushTriangle(b c d)
+                ii = (ii + 1)
+            }
+            jj = (jj + 1)
+        }
+        return this
+    }
+}

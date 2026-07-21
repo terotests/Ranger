@@ -63,7 +63,7 @@ const WALL_X = 4.45, TOP_Z = -7.6, DRAIN_Z = 6.6;
 let bx = 4.2, bz = 5.2, vx = 0.0, vz = -0.85;
 let by = R, spin = 0;
 
-const FLEN = 1.75, FHW = 0.32;
+const FLEN = 1.8, FHW = 0.32;
 let flippers = [];   // {side, px, pz, phi, target, dphi, base, body, tip}
 let bumpers = [];    // {x, z, r, mesh, base, flash}
 let slings = [];     // {ax, az, bx, bz, mesh, flash}
@@ -153,8 +153,8 @@ export function init() {
 
   // ---- flippers: base disc + tapered body + tip disc, pivoting (chart 20) -----
   const flipMat = phong(0xe8443f, 0xffd0c0, 44);
-  addFlipper(1, -1.75, 5.0, flipMat);
-  addFlipper(-1, 1.75, 5.0, flipMat);
+  addFlipper(1, -2.2, 5.4, flipMat);   // chart-measured pivots
+  addFlipper(-1, 2.2, 5.4, flipMat);
 
   // ---- guide rails: thin wireform rails (chart 14/15/16) ----------------------
   const wire = phong(0xc9d2e6, 0xffffff, 80);
@@ -216,23 +216,49 @@ function addSling(side, ax, az, bx2, bz2, cx, cz) {
   slings.push({ ax: ax, az: az, bx: bx2, bz: bz2, mesh: m, flash: 0 });
 }
 
+// The flipper bat silhouette: the convex hull of a big pivot circle (rB) and a
+// small tip circle (rT) L apart — a tapered, asymmetric-ended bat. Returned as a
+// closed polyline in the flipper's LOCAL frame (pivot at origin, tip toward +X),
+// flattened [x,y,z,…] for TubeGeometry. yB is the sweep height on the playfield.
+function flipperOutline(L, rB, rT, yB, n) {
+  const beta = Math.asin((rB - rT) / L);
+  const aUp = Math.PI / 2 + beta;
+  const aLo = -(Math.PI / 2 + beta);
+  const pts = [];
+  let k = 0;
+  while (k <= n) {                                   // base: major (back) arc
+    const a = aUp + (k / n) * ((aLo + 2 * Math.PI) - aUp);
+    pts.push(rB * Math.cos(a), yB, rB * Math.sin(a));
+    k = k + 1;
+  }
+  k = 0;
+  while (k <= n) {                                   // tip: minor (front) arc
+    const a = aLo + (k / n) * (aUp - aLo);
+    pts.push(L + rT * Math.cos(a), yB, rT * Math.sin(a));
+    k = k + 1;
+  }
+  return pts;
+}
+
 function addFlipper(side, px, pz, mat) {
-  const base = disc(0.44, 0.44, mat, px, 0.32, pz);
-  const body = new THREE.Mesh(sized(FLEN, 0.42, 0.5), mat); scene.add(body);
-  const tip = disc(0.2, 0.44, mat, px, 0.32, pz);
-  const bush = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.5, 20), phong(0x141824, 0x8090b0, 40));
+  // rubber edge swept as a TubeGeometry around the bat outline (base rB > tip rT)
+  const pts = flipperOutline(FLEN, 0.42, 0.22, 0.30, 16);
+  const m = new THREE.Mesh(new THREE.TubeGeometry(pts, 0.08, 8, true), mat);
+  scene.add(m);
+  const bush = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.5, 18), phong(0x141824, 0x8090b0, 40));
   bush.position.set(px, 0.24, pz); scene.add(bush);
-  const fl = { side: side, px: px, pz: pz, phi: -0.5, target: -0.5, dphi: 0, base: base, body: body, tip: tip };
+  const fl = { side: side, px: px, pz: pz, phi: -0.5, target: -0.5, dphi: 0, mesh: m };
   flippers.push(fl); placeFlipper(fl);
 }
 function flipTip(fl) {
   return { x: fl.px + fl.side * FLEN * Math.cos(fl.phi), z: fl.pz - FLEN * Math.sin(fl.phi) };
 }
+// pivot the whole bat about its shaft: position at the pivot, rotate so local +X
+// (the outline's tip direction) points at the current tip.
 function placeFlipper(fl) {
   const t = flipTip(fl);
-  fl.tip.position.set(t.x, 0.32, t.z);
-  fl.body.position.set((fl.px + t.x) * 0.5, 0.32, (fl.pz + t.z) * 0.5);
-  fl.body.rotation.set(0, Math.atan2(-(t.z - fl.pz), t.x - fl.px), 0);
+  fl.mesh.position.set(fl.px, 0.32, fl.pz);
+  fl.mesh.rotation.set(0, Math.atan2(-(t.z - fl.pz), t.x - fl.px), 0);
 }
 
 function closestOnSeg(ax, az, bx2, bz2, px, pz) {

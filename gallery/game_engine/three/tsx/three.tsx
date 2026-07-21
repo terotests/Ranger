@@ -206,6 +206,21 @@ class ConeGeometry {
   }
   dispose() { }
 }
+// Sweep a circular tube of `radius` along a polyline path. Unlike upstream
+// three.js (which takes a Curve), this port takes an explicit flat point array
+// `points` = [x0,y0,z0, x1,y1,z1, …] so a scene can build precise wireform /
+// outline shapes (e.g. a flipper's rubber edge). closed stitches the last ring
+// back to the first. The host (ThreeTubeGeometry) builds the real vertices.
+class TubeGeometry {
+  isTubeGeometry = true;
+  constructor(points, radius, radialSegments, closed) {
+    this.points = points;
+    this.radius = radius;
+    this.radialSegments = radialSegments;
+    this.closed = closed;
+  }
+  dispose() { }
+}
 class TorusGeometry {
   isTorusGeometry = true;
   constructor(radius, tube, radialSegments, tubularSegments, arc) {

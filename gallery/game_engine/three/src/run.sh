@@ -55,6 +55,7 @@ run_suite three_directional_light_shadow_test
 run_suite three_tone_mapping_test
 run_suite three_perspective_camera_test
 run_suite three_box_geometry_test
+run_suite three_tube_geometry_test
 run_suite three_gltf_loader_test
 run_suite three_gltf_file_test
 run_suite three_json_test
