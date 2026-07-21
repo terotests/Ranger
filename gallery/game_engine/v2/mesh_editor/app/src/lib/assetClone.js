@@ -37,6 +37,8 @@ function remapSegments(segments, idMap) {
     texture: s.texture || "gradient",
     textureAsset: s.textureAsset || null,
     textureData: null,
+    pathType: s.pathType === "line" || s.pathType === "arc" ? s.pathType : "bezier",
+    arcBulge: s.arcBulge == null || s.arcBulge === "" ? null : Number(s.arcBulge),
   }));
 }
 

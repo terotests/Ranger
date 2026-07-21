@@ -73,12 +73,30 @@ gallery/game_engine/v2/mesh_editor/library/projects/<slug>/project.json
 
 That tree is **gitignored** by default. Point elsewhere with
 `MESH_EDITOR_LIBRARY=/abs/or/rel/path`. Schema + migrations live in
-`app/src/library/` (`schemaVersion` 3+, kind `ranger.splineProject`, with
-`profile`, closed `orbit`, `assetGuid`, `embeddedAssets`, and `children`).
+`app/src/library/` (`schemaVersion` 4+, kind `ranger.splineProject`, with
+`profile`, closed `orbit`, per-segment `pathType`, `assetGuid`, `embeddedAssets`, and `children`).
 
 Offline fallback: **Export JSON** / **Import JSON** in the Library panel.
 
 See [`library/README.md`](./library/README.md).
+
+## Path types (SVG-style segments)
+
+Each profile / orbit **segment** can be independently:
+
+| Type | Behaviour |
+|------|-----------|
+| **Bezier** | Cubic with knot handles (default) |
+| **Line** | Straight chord between endpoints |
+| **Arc** | Circular arc; optional **bulge** (signed sagitta), else auto ≈ ¼ chord |
+
+Mix freely along a path (Bezier → line → arc…), like SVG subpaths. Choose the type
+in the segment **Details** menu.
+
+## Undo / redo
+
+Edits push immutable shape snapshots into an in-memory buffer (no Zustand dependency).
+**Undo** / **Redo** in the toolbar, or `Ctrl+Z` / `Ctrl+Shift+Z` (`Ctrl+Y`).
 
 ## Views & tools
 

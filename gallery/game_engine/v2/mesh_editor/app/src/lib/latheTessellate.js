@@ -1,8 +1,14 @@
 // ============================================================================
 // latheTessellate.js — profile×orbit lathe for one body (root or embedded asset).
+// Per-segment pathType: bezier | line | arc (SVG-path style mixes).
 // ============================================================================
 
-import { SplineLathe, SplineKnot } from "../../../tessellate/spline_lathe.mjs";
+import {
+  sampleOpenPath,
+  sampleClosedPath,
+  latheProfileWithOrbit,
+  splitLatheBySegments,
+} from "./pathSample.js";
 
 function hexToRgb(hex) {
   const h = String(hex || "#ffffff").replace("#", "");
@@ -107,56 +113,9 @@ function defaultSegment(fromId, toId) {
     opacity: 1,
     texture: "gradient",
     textureData: null,
+    pathType: "bezier",
+    arcBulge: null,
   };
-}
-
-function toRangerKnots(list) {
-  return list.map((k) => SplineKnot.of(k.x, k.y, k.hx, k.hy));
-}
-
-function splitMeshByOrbitSegments(mesh, steps, oSeg, numOrbitSegs, closed) {
-  const vertCount = (mesh.positions.length / 3) | 0;
-  if (steps < 2 || vertCount < steps * 2) return [];
-  const rows = (vertCount / steps) | 0;
-  const out = [];
-
-  for (let oi = 0; oi < numOrbitSegs; oi++) {
-    const faces = [];
-    for (let r = 0; r < rows - 1; r++) {
-      const colMax = closed ? steps : steps - 1;
-      for (let c = 0; c < colMax; c++) {
-        if ((oSeg[c] | 0) !== oi) continue;
-        const cNext = c + 1 >= steps ? 0 : c + 1;
-        const a = r * steps + c;
-        const b = r * steps + cNext;
-        const cc = (r + 1) * steps + cNext;
-        const d = (r + 1) * steps + c;
-        faces.push(a, d, b, b, d, cc);
-      }
-    }
-    if (!faces.length) continue;
-
-    const used = new Map();
-    const positions = [];
-    const normals = [];
-    const uvs = [];
-    const indices = [];
-    const mapV = (g) => {
-      let local = used.get(g);
-      if (local != null) return local;
-      local = used.size;
-      used.set(g, local);
-      const i3 = g * 3;
-      const i2 = g * 2;
-      positions.push(mesh.positions[i3], mesh.positions[i3 + 1], mesh.positions[i3 + 2]);
-      normals.push(mesh.normals[i3], mesh.normals[i3 + 1], mesh.normals[i3 + 2]);
-      uvs.push(mesh.uvs[i2], mesh.uvs[i2 + 1]);
-      return local;
-    };
-    for (let i = 0; i < faces.length; i++) indices.push(mapV(faces[i]));
-    out.push({ orbitSeg: oi, positions, normals, uvs, indices });
-  }
-  return out;
 }
 
 function resolvePartStyle(body, segIndex, which) {
@@ -187,7 +146,7 @@ function resolvePartStyle(body, segIndex, which) {
     const to = solidHex != null ? seg.color : colorB;
     map = makeGradientRgba(from, to, 4, 64);
   }
-  return { colorHex, map, colorA, colorB, seg };
+  return { colorHex, map };
 }
 
 function midColorInt(body, segIndex, which) {
@@ -214,7 +173,6 @@ function resolveCombinedStyle(body, pi, oi) {
   } else {
     colorHex = mulColorHex(midColorInt(body, pi, "profile"), midColorInt(body, oi, "orbit"));
   }
-  // Object-level material tint (bulk default)
   const om = body.objectMaterial;
   if (om?.color) {
     colorHex = mulColorHex(colorHex === 0xffffff ? 0xffffff : colorHex, hexToInt(om.color));
@@ -223,8 +181,7 @@ function resolveCombinedStyle(body, pi, oi) {
   const rough =
     ((pSeg?.roughness ?? om?.roughness ?? 0.4) + (oSeg?.roughness ?? om?.roughness ?? 0.4)) / 2;
   const metal = Math.max(pSeg?.metalness ?? 0, oSeg?.metalness ?? 0, om?.metalness ?? 0);
-  const opacity =
-    (pSeg?.opacity ?? 1) * (oSeg?.opacity ?? 1) * (om?.opacity ?? 1);
+  const opacity = (pSeg?.opacity ?? 1) * (oSeg?.opacity ?? 1) * (om?.opacity ?? 1);
   return {
     colorHex,
     shininess: roughnessToShininess(rough),
@@ -235,13 +192,7 @@ function resolveCombinedStyle(body, pi, oi) {
 }
 
 /**
- * Tessellate one spline body into mesh parts.
- * @param {{
- *   knots: any[], segments: any[],
- *   orbitKnots: any[], orbitSegments: any[],
- *   curveType?: number, pathSegments?: number, angularSteps?: number, revolutionDeg?: number,
- *   objectMaterial?: object
- * }} body
+ * Tessellate one spline body into mesh parts (mixed path types per segment).
  */
 export function tessellateBody(body) {
   const curveType = body.curveType | 0;
@@ -251,59 +202,47 @@ export function tessellateBody(body) {
   const closed = revolutionDeg >= 359.9;
   const nOrb = body.orbitKnots.length;
   const perSpan = Math.max(3, Math.round(angularSteps / Math.max(1, nOrb)));
-  const sampled = SplineLathe.sampleClosedOrbit(
-    toRangerKnots(body.orbitKnots),
-    curveType,
-    perSpan,
-  );
-  let ox = sampled.orbitX.slice();
-  let oy = sampled.orbitY.slice();
-  let oSeg = sampled.profileX.map((x) => x | 0);
 
+  let orbitPts = sampleClosedPath(body.orbitKnots, body.orbitSegments, perSpan, curveType);
   if (!closed) {
-    const half = Math.max(3, Math.floor(ox.length / 2) + 1);
-    ox = ox.slice(0, half);
-    oy = oy.slice(0, half);
-    oSeg = oSeg.slice(0, half);
+    const half = Math.max(3, Math.floor(orbitPts.length / 2) + 1);
+    orbitPts = orbitPts.slice(0, half);
   }
 
-  const steps = ox.length;
+  const profilePts = sampleOpenPath(body.knots, body.segments, pathSegments, curveType);
+  if (profilePts.length < 2 || orbitPts.length < 3) {
+    return { parts: [], verts: 0, tris: 0, orbitCols: 0 };
+  }
+
+  const mesh = latheProfileWithOrbit(profilePts, orbitPts, closed);
+  const pieces = splitLatheBySegments(
+    mesh,
+    Math.max(0, body.knots.length - 1),
+    nOrb,
+    closed,
+  );
+
   const parts = [];
   let totalV = 0;
   let totalT = 0;
-
-  for (let pi = 0; pi < body.knots.length - 1; pi++) {
-    const pair = [body.knots[pi], body.knots[pi + 1]];
-    const mesh = SplineLathe.sampleAndLatheOrbit(
-      toRangerKnots(pair),
-      curveType,
-      pathSegments,
-      ox,
-      oy,
-      0,
-      steps,
-      closed,
-    );
-    const pieces = splitMeshByOrbitSegments(mesh, steps, oSeg, nOrb, closed);
-    for (const piece of pieces) {
-      const style = resolveCombinedStyle(body, pi, piece.orbitSeg);
-      parts.push({
-        positions: piece.positions,
-        normals: piece.normals,
-        uvs: piece.uvs,
-        indices: piece.indices,
-        colorHex: style.colorHex,
-        shininess: style.shininess,
-        reflectivity: style.reflectivity,
-        opacity: style.opacity,
-        mapRgba: style.map ? Array.from(style.map.rgba) : null,
-        mapW: style.map ? style.map.w : 0,
-        mapH: style.map ? style.map.h : 0,
-      });
-      totalV += (piece.positions.length / 3) | 0;
-      totalT += (piece.indices.length / 3) | 0;
-    }
+  for (const piece of pieces) {
+    const style = resolveCombinedStyle(body, piece.profileSeg, piece.orbitSeg);
+    parts.push({
+      positions: piece.positions,
+      normals: piece.normals,
+      uvs: piece.uvs,
+      indices: piece.indices,
+      colorHex: style.colorHex,
+      shininess: style.shininess,
+      reflectivity: style.reflectivity,
+      opacity: style.opacity,
+      mapRgba: style.map ? Array.from(style.map.rgba) : null,
+      mapW: style.map ? style.map.w : 0,
+      mapH: style.map ? style.map.h : 0,
+    });
+    totalV += (piece.positions.length / 3) | 0;
+    totalT += (piece.indices.length / 3) | 0;
   }
 
-  return { parts, verts: totalV, tris: totalT, orbitCols: steps };
+  return { parts, verts: totalV, tris: totalT, orbitCols: orbitPts.length };
 }
