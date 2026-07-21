@@ -146,4 +146,39 @@ assert.equal(mig.doc.schemaVersion, 8);
 assert.equal(mig.doc.children[0].transform.surface, false);
 assert.equal(mig.doc.children[0].transform.z, 0);
 
+// Save path re-runs migrate on an already-v8 doc — surface pose must survive.
+const v8Surface = {
+  ...mig.doc,
+  schemaVersion: 8,
+  children: [
+    {
+      ...mig.doc.children[0],
+      transform: {
+        x: 0.12,
+        y: -0.34,
+        z: 0.56,
+        nx: 0.1,
+        ny: 0.9,
+        nz: 0.2,
+        surface: true,
+        rotationYDeg: 15,
+        scale: 0.22,
+        useSymmetry: false,
+        snapCenterline: false,
+      },
+    },
+  ],
+};
+const roundTrip = migrateProject(v8Surface);
+assert.equal(roundTrip.ok, true, roundTrip.errors?.join("; "));
+const xf = roundTrip.doc.children[0].transform;
+assert.equal(xf.surface, true);
+assert.ok(Math.abs(xf.x - 0.12) < 1e-9);
+assert.ok(Math.abs(xf.y - -0.34) < 1e-9);
+assert.ok(Math.abs(xf.z - 0.56) < 1e-9);
+assert.ok(Math.abs(xf.nx - 0.1) < 1e-9);
+assert.ok(Math.abs(xf.ny - 0.9) < 1e-9);
+assert.ok(Math.abs(xf.nz - 0.2) < 1e-9);
+assert.ok(Math.abs(xf.scale - 0.22) < 1e-9);
+
 console.log("smoke-mesh-pick: ok");
