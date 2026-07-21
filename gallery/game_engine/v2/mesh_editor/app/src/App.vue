@@ -50,11 +50,19 @@ function onRemoveKnot(id) {
 
 function onUpdateKnot(id, patch) {
   updateKnot(id, patch);
-  if (patch && patch.color) tessellate();
+  if (patch && patch.color != null) tessellate();
 }
 
 function onUpdateSegment(index, patch) {
   updateSegment(index, patch);
+  tessellate();
+}
+
+function onDragEnd() {
+  tessellate();
+}
+
+function onListCommit() {
   tessellate();
 }
 
@@ -153,6 +161,7 @@ onMounted(() => {
         @select-segment="selectSegment"
         @update-knot="onUpdateKnot"
         @add-on-curve="onAddOnCurve"
+        @drag-end="onDragEnd"
       />
       <PointEditor
         :knots="state.knots"
@@ -166,6 +175,7 @@ onMounted(() => {
         @update-knot="onUpdateKnot"
         @update-segment="onUpdateSegment"
         @remove-knot="onRemoveKnot"
+        @commit="onListCommit"
       />
       <Preview3D :mesh="state.mesh" :material-mode="state.materialMode" />
     </main>

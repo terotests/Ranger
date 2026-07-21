@@ -54,11 +54,11 @@ Open the printed local URL (default `http://localhost:5177`).
 
 | Mode | Behaviour |
 |------|-----------|
-| **Edit** | Drag knots and Bezier handles |
+| **Edit** | Drag knots / Bezier handles; mesh refreshes when the drag ends |
 | **Add** | Click the profile curve to insert a knot (remove from the point list) |
-| **Coloring** | Per-knot colours form a linear height gradient; each segment can override colour, roughness, metalness, opacity, and texture (gradient / checker / stripes / upload) |
+| **Coloring** | Per-knot / per-segment colours & materials |
 
-Segment styles are lathed as separate mesh parts and previewed through Ranger Three materials (shininess ← roughness, reflectivity ← metalness).
+The point list is **top → bottom** (matches the canvas). Rows stay compact; **Details** expands numeric / material fields. Colour swatches are always available.
 
 ## Shading base
 
