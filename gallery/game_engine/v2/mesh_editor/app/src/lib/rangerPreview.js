@@ -25,6 +25,8 @@ export async function createPreviewSession(canvas, size = 420) {
   let raf = 0;
   let last = performance.now();
   let running = false;
+  let lastMesh = null;
+  let lastMode = 3;
 
   function blit() {
     if (useGL || !ctx || !image) return;
@@ -61,17 +63,53 @@ export async function createPreviewSession(canvas, size = 420) {
     raf = 0;
   }
 
-  function setMesh(mesh) {
+  function pushMesh(mesh) {
     if (!mesh) return;
-    host.setMesh(mesh.positions, mesh.normals, mesh.uvs, mesh.indices);
-    host.frame(0);
-    blit();
+    host.setMaterialMode(lastMode | 0);
+    // New multi-part format
+    if (mesh.parts && mesh.parts.length) {
+      host.beginParts();
+      for (const part of mesh.parts) {
+        const mapBytes = part.mapRgba && part.mapRgba.length ? part.mapRgba : [];
+        host.addPart(
+          part.positions,
+          part.normals,
+          part.uvs,
+          part.indices,
+          part.colorHex | 0,
+          part.shininess || 120,
+          part.opacity == null ? 1 : part.opacity,
+          part.reflectivity || 0,
+          mapBytes,
+          part.mapW | 0,
+          part.mapH | 0,
+        );
+      }
+      host.frame(0);
+      blit();
+      return;
+    }
+    // Legacy single mesh
+    if (mesh.positions) {
+      host.setMesh(mesh.positions, mesh.normals, mesh.uvs, mesh.indices);
+      host.frame(0);
+      blit();
+    }
+  }
+
+  function setMesh(mesh) {
+    lastMesh = mesh;
+    pushMesh(mesh);
   }
 
   function setMaterialMode(mode) {
-    host.setMaterialMode(mode | 0);
-    host.frame(0);
-    blit();
+    lastMode = mode | 0;
+    host.setMaterialMode(lastMode);
+    if (lastMesh) pushMesh(lastMesh);
+    else {
+      host.frame(0);
+      blit();
+    }
   }
 
   function wirePointer() {

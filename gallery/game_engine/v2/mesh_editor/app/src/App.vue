@@ -7,12 +7,17 @@ import { useSplineEditor } from "./composables/useSplineEditor.js";
 
 const {
   state,
+  setToolMode,
   select,
+  selectSegment,
   resetDefaults,
-  addKnot,
+  removeKnot,
   removeSelected,
   updateKnot,
+  updateSegment,
   sampleCurvePoints,
+  findClosestOnCurve,
+  insertKnotOnCurve,
   tessellate,
 } = useSplineEditor();
 
@@ -24,7 +29,32 @@ const materials = [
   { id: 4, label: "Reflective" },
 ];
 
+const tools = [
+  { id: "edit", label: "Edit" },
+  { id: "add", label: "Add" },
+  { id: "color", label: "Coloring" },
+];
+
 function onTessellate() {
+  tessellate();
+}
+
+function onAddOnCurve(x, y) {
+  if (insertKnotOnCurve(x, y)) tessellate();
+}
+
+function onRemoveKnot(id) {
+  removeKnot(id);
+  tessellate();
+}
+
+function onUpdateKnot(id, patch) {
+  updateKnot(id, patch);
+  if (patch && patch.color) tessellate();
+}
+
+function onUpdateSegment(index, patch) {
+  updateSegment(index, patch);
   tessellate();
 }
 
@@ -41,13 +71,22 @@ onMounted(() => {
         <h1>Spline Mesh Editor</h1>
         <p class="lede">
           Symmetrical Bezier profiles around the Y axis, lathed into a 3D mesh and rendered with
-          Ranger Three.
+          Ranger Three — with Edit / Add / Coloring tools.
         </p>
       </div>
       <div class="actions">
+        <div class="tool-row">
+          <button
+            v-for="t in tools"
+            :key="t.id"
+            :class="{ active: state.toolMode === t.id, primary: state.toolMode === t.id }"
+            @click="setToolMode(t.id)"
+          >
+            {{ t.label }}
+          </button>
+        </div>
         <button @click="resetDefaults">Reset</button>
-        <button @click="addKnot">Add point</button>
-        <button @click="removeSelected">Remove</button>
+        <button @click="removeSelected" :disabled="!state.selectedId">Remove</button>
         <button class="primary" @click="onTessellate">Tessellate</button>
       </div>
     </header>
@@ -80,7 +119,7 @@ onMounted(() => {
         Show mirror
       </label>
       <div class="mats">
-        <span>Material</span>
+        <span>Shading base</span>
         <div class="mat-row">
           <button
             v-for="m in materials"
@@ -92,26 +131,41 @@ onMounted(() => {
           </button>
         </div>
       </div>
-      <p class="status">{{ state.status }} · {{ state.stats.verts }}v / {{ state.stats.tris }}t</p>
+      <p class="status">
+        {{ state.status }} · {{ state.stats.parts || 0 }} parts · {{ state.stats.verts }}v /
+        {{ state.stats.tris }}t
+      </p>
     </section>
 
     <main class="workspace">
       <SplineCanvas
         :knots="state.knots"
+        :segments="state.segments"
         :selected-id="state.selectedId"
+        :selected-segment-index="state.selectedSegmentIndex"
         :curve-type="state.curveType"
         :symmetry="state.symmetry"
+        :tool-mode="state.toolMode"
         :viewport="state.viewport"
         :sample-curve-points="sampleCurvePoints"
+        :find-closest-on-curve="findClosestOnCurve"
         @select="select"
-        @update-knot="updateKnot"
+        @select-segment="selectSegment"
+        @update-knot="onUpdateKnot"
+        @add-on-curve="onAddOnCurve"
       />
       <PointEditor
         :knots="state.knots"
+        :segments="state.segments"
         :selected-id="state.selectedId"
+        :selected-segment-index="state.selectedSegmentIndex"
         :curve-type="state.curveType"
+        :tool-mode="state.toolMode"
         @select="select"
-        @update-knot="updateKnot"
+        @select-segment="selectSegment"
+        @update-knot="onUpdateKnot"
+        @update-segment="onUpdateSegment"
+        @remove-knot="onRemoveKnot"
       />
       <Preview3D :mesh="state.mesh" :material-mode="state.materialMode" />
     </main>
@@ -165,6 +219,17 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: center;
+}
+
+.tool-row {
+  display: flex;
+  gap: 0.35rem;
+  margin-right: 0.35rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .toolbar {
@@ -208,7 +273,7 @@ h1 {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.7fr) minmax(260px, 0.9fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.85fr) minmax(260px, 0.9fr);
   gap: 1rem;
   min-height: 0;
   align-items: stretch;
