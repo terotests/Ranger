@@ -14,9 +14,12 @@ ComponentEngine + ThreeTsxBridge + **ThreeGLBackend** — real WebGL on a
 no three.js JavaScript (the 3D engine is Ranger; the same backend compiles to
 native GL too).
 
-- **pinball on the GPU** — the same table the software v2 game draws (playfield
-  art, pop bumpers, spinner, targets, flippers, chrome ball), rendered with real
-  WebGL shadows + tone mapping:
+- **pinball on the GPU** — a full cabinet (playfield art, DMD backbox, pop
+  bumpers, spinner, targets, slingshots, flippers, chrome ball) rendered with
+  real WebGL shadows + tone mapping + a studio env cube. The parts also have a
+  working MECHANISM: attract-mode physics pivots the flippers on their shafts and
+  kicks the ball, pops the bumpers, fires the slingshots, spins the spinner, and
+  re-plunges on drain — the table plays itself:
 
   ```
   npm run engine:v2:pinball3d:build   # -> dist/pinball3d (open index.html)
