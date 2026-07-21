@@ -1,7 +1,7 @@
 import { reactive, computed, watch } from "vue";
 import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
 import { tessellateBody } from "../lib/latheTessellate.js";
-import { transformPart } from "../lib/meshTransform.js";
+import { transformParts } from "../lib/meshTransform.js";
 import {
   newGuid,
   cloneBodyContent,
@@ -474,18 +474,15 @@ export function useSplineEditor() {
   }
 
   function pushTransformedParts(parts, childParts, xf, mirrorX) {
-    for (const p of childParts) {
-      parts.push(
-        transformPart(p, {
-          x: xf.x,
-          y: xf.y,
-          rotationYDeg: xf.rotationYDeg,
-          scale: xf.scale,
-          snapCenterline: xf.snapCenterline,
-          mirrorX,
-        }),
-      );
-    }
+    const placed = transformParts(childParts, {
+      x: xf.x,
+      y: xf.y,
+      rotationYDeg: xf.rotationYDeg,
+      scale: xf.scale,
+      snapCenterline: xf.snapCenterline,
+      mirrorX,
+    });
+    for (const p of placed) parts.push(p);
   }
 
   function tessellate() {

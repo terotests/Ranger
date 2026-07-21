@@ -43,25 +43,37 @@ export function computeBBox(positions) {
   };
 }
 
+/** Union AABB of many parts (must use one shared center when placing a child). */
+export function partsBBox(parts) {
+  const all = [];
+  for (const p of parts || []) {
+    const pos = p.positions || [];
+    for (let i = 0; i < pos.length; i++) all.push(pos[i]);
+  }
+  return computeBBox(all);
+}
+
+function reverseWinding(indices) {
+  const out = indices.slice();
+  for (let i = 0; i + 2 < out.length; i += 3) {
+    const t = out[i + 1];
+    out[i + 1] = out[i + 2];
+    out[i + 2] = t;
+  }
+  return out;
+}
+
 /**
- * Bake TRS into a part (positions + normals). Attachment is in profile space:
- * x = radial (+X), y = height. Optional mirror across the Y axis (x → −x).
- *
- * @param {object} part
- * @param {{
- *   x: number, y: number,
- *   rotationYDeg?: number,
- *   scale?: number,
- *   snapCenterline?: boolean,
- *   mirrorX?: boolean,
- * }} xf
+ * Bake TRS into one part using a SHARED object-space center (not this part's bbox).
+ * Centering each profile×orbit wedge on its own AABB tears the child mesh apart.
  */
-export function transformPart(part, xf) {
+export function transformPart(part, xf, sharedCenter) {
   const positions = part.positions.slice();
   const normals = part.normals ? part.normals.slice() : null;
-  const bbox = computeBBox(positions);
-  const extent = Math.max(1e-6, bbox.maxExtent);
-  // scale: user bbox size multiplier — 1 keeps natural size; typical sub-object ~0.2–0.5
+  const indices = part.indices ? part.indices.slice() : [];
+  const cx = sharedCenter?.[0] ?? 0;
+  const cy = sharedCenter?.[1] ?? 0;
+  const cz = sharedCenter?.[2] ?? 0;
   const s = Math.max(0.001, xf.scale ?? 1);
   const ax = xf.snapCenterline ? 0 : Number(xf.x) || 0;
   const ay = Number(xf.y) || 0;
@@ -71,12 +83,10 @@ export function transformPart(part, xf) {
   const sr = Math.sin(rot);
 
   for (let i = 0; i < positions.length; i += 3) {
-    // Center on bbox, then uniform scale
-    let x = (positions[i] - bbox.center[0]) * s;
-    let y = (positions[i + 1] - bbox.center[1]) * s;
-    let z = (positions[i + 2] - bbox.center[2]) * s;
+    let x = (positions[i] - cx) * s;
+    let y = (positions[i + 1] - cy) * s;
+    let z = (positions[i + 2] - cz) * s;
 
-    // Rotate around Y
     const rx = x * cr + z * sr;
     const rz = -x * sr + z * cr;
     x = rx;
@@ -84,6 +94,7 @@ export function transformPart(part, xf) {
 
     if (mirror) x = -x;
 
+    // Place at ±attach: mirrored copies go to the opposite side of the axis.
     positions[i] = x + (mirror ? -ax : ax);
     positions[i + 1] = y + ay;
     positions[i + 2] = z;
@@ -110,14 +121,20 @@ export function transformPart(part, xf) {
     ...part,
     positions,
     normals: normals || part.normals,
+    // Mirroring flips triangle winding — reverse so fronts stay outward.
+    indices: mirror ? reverseWinding(indices) : indices,
+    // Defensive copies so mirrored pass never shares buffers with the primary.
+    uvs: part.uvs ? part.uvs.slice() : part.uvs,
+    mapRgba: part.mapRgba ? part.mapRgba.slice() : part.mapRgba,
   };
 }
 
-/** Union bbox of many parts (for UI readout). */
-export function partsBBox(parts) {
-  const all = [];
-  for (const p of parts || []) {
-    for (let i = 0; i < p.positions.length; i++) all.push(p.positions[i]);
-  }
-  return computeBBox(all);
+/**
+ * Transform every part of a child mesh with one shared bbox center so wedges
+ * stay welded. Returns new part objects (never mutates inputs).
+ */
+export function transformParts(parts, xf) {
+  if (!parts?.length) return [];
+  const bbox = partsBBox(parts);
+  return parts.map((p) => transformPart(p, xf, bbox.center));
 }
