@@ -62,6 +62,8 @@ function mapSegments(list, knots, closed) {
     opacity: Number(s.opacity ?? 1),
     texture: s.texture || "gradient",
     textureAsset: s.textureAsset || null,
+    pathType: s.pathType === "line" || s.pathType === "arc" ? s.pathType : "bezier",
+    arcBulge: s.arcBulge == null || s.arcBulge === "" ? null : Number(s.arcBulge),
   }));
   while (segments.length < want) {
     const i = segments.length;
@@ -76,6 +78,8 @@ function mapSegments(list, knots, closed) {
       opacity: 1,
       texture: "gradient",
       textureAsset: null,
+      pathType: "bezier",
+      arcBulge: null,
     });
   }
   return segments.slice(0, want);
@@ -195,6 +199,37 @@ function normalizeV3(doc) {
   };
 }
 
+function ensureSegPathTypes(segments) {
+  return (segments || []).map((s) => ({
+    ...s,
+    pathType: s.pathType === "line" || s.pathType === "arc" ? s.pathType : "bezier",
+    arcBulge: s.arcBulge == null || s.arcBulge === "" ? null : Number(s.arcBulge),
+  }));
+}
+
+function normalizeV4(doc) {
+  const v3 = normalizeV3(doc);
+  v3.schemaVersion = 4;
+  v3.profile = {
+    ...v3.profile,
+    segments: ensureSegPathTypes(v3.profile.segments),
+  };
+  v3.orbit = {
+    ...v3.orbit,
+    segments: ensureSegPathTypes(v3.orbit.segments),
+  };
+  const emb = {};
+  for (const [guid, body] of Object.entries(v3.embeddedAssets || {})) {
+    emb[guid] = {
+      ...body,
+      segments: ensureSegPathTypes(body.segments),
+      orbitSegments: ensureSegPathTypes(body.orbitSegments),
+    };
+  }
+  v3.embeddedAssets = emb;
+  return v3;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -203,9 +238,12 @@ const STEPS = {
   2(doc) {
     return normalizeV2(doc);
   },
-  // 2 → 3: assetGuid, objectMaterial, embeddedAssets, children
   3(doc) {
     return normalizeV3(doc);
+  },
+  // 3 → 4: per-segment pathType (bezier|line|arc) + optional arcBulge
+  4(doc) {
+    return normalizeV4(doc);
   },
 };
 

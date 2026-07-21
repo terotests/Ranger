@@ -2,7 +2,7 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
@@ -43,6 +43,8 @@ export function newId() {
 }
 
 export function serializeSegment(seg) {
+  const pathType =
+    seg.pathType === "line" || seg.pathType === "arc" ? seg.pathType : "bezier";
   return {
     fromId: seg.fromId,
     toId: seg.toId,
@@ -52,6 +54,8 @@ export function serializeSegment(seg) {
     opacity: Number(seg.opacity ?? 1),
     texture: seg.texture || "gradient",
     textureAsset: seg.textureAsset || null,
+    pathType,
+    arcBulge: seg.arcBulge == null || seg.arcBulge === "" ? null : Number(seg.arcBulge),
   };
 }
 

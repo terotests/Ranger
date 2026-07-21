@@ -75,6 +75,23 @@ function segmentColor(segIndex) {
   return a?.color || "#6ec8ff";
 }
 
+function knotUsesBezierHandles(knotIndex) {
+  // Show handles if any adjacent segment is bezier (SVG-style mix).
+  const segs = props.segments || [];
+  if (isOrbit.value) {
+    const n = props.knots.length;
+    const prev = segs[(knotIndex - 1 + n) % n];
+    const next = segs[knotIndex];
+    return (prev?.pathType || "bezier") === "bezier" || (next?.pathType || "bezier") === "bezier";
+  }
+  const prev = knotIndex > 0 ? segs[knotIndex - 1] : null;
+  const next = knotIndex < props.knots.length - 1 ? segs[knotIndex] : null;
+  return (
+    (prev && (prev.pathType || "bezier") === "bezier") ||
+    (next && (next.pathType || "bezier") === "bezier")
+  );
+}
+
 function drawUnitCircle(ctx, w, h) {
   const steps = 64;
   ctx.strokeStyle = "rgba(200,232,122,0.22)";
@@ -204,9 +221,13 @@ function draw() {
     }
   }
 
-  props.knots.forEach((k) => {
+  props.knots.forEach((k, ki) => {
     const [sx, sy] = worldToScreen(k.x, k.y, w, h);
-    if (props.curveType === 0 && props.toolMode === "edit") {
+    const showHandles =
+      props.curveType === 0 &&
+      props.toolMode === "edit" &&
+      knotUsesBezierHandles(ki);
+    if (showHandles) {
       const [hx, hy] = worldToScreen(k.x + k.hx, k.y + k.hy, w, h);
       const [ix, iy] = worldToScreen(k.x - k.hx, k.y - k.hy, w, h);
       ctx.strokeStyle = "rgba(255,180,84,0.75)";
@@ -296,8 +317,9 @@ function drawHandle(ctx, x, y, selected) {
 
 function hitTestPoint(sx, sy) {
   const thresh = 10;
-  for (const k of props.knots) {
-    if (props.curveType === 0 && props.toolMode === "edit") {
+  for (let ki = 0; ki < props.knots.length; ki++) {
+    const k = props.knots[ki];
+    if (props.curveType === 0 && props.toolMode === "edit" && knotUsesBezierHandles(ki)) {
       const [hx, hy] = worldToScreen(k.x + k.hx, k.y + k.hy, size, size);
       if (Math.hypot(hx - sx, hy - sy) <= thresh) return { id: k.id, mode: "handle" };
     }

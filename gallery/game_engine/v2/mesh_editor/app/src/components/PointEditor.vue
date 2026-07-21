@@ -232,7 +232,10 @@ function segLabel(i) {
             </label>
             <div class="meta">
               <strong>{{ segLabel(row.index) }}</strong>
-              <span>{{ segments[row.index]?.texture || "gradient" }}</span>
+              <span
+                >{{ segments[row.index]?.pathType || "bezier" }} ·
+                {{ segments[row.index]?.texture || "gradient" }}</span
+              >
             </div>
             <button
               type="button"
@@ -252,6 +255,39 @@ function segLabel(i) {
 
           <div v-if="expandedKey === 'seg:' + row.index" class="details" @click.stop>
             <div class="grid">
+              <label class="field wide">
+                Path type
+                <select
+                  :value="segments[row.index]?.pathType || 'bezier'"
+                  @change="
+                    emit('update-segment', row.index, { pathType: $event.target.value });
+                    emit('commit');
+                  "
+                >
+                  <option value="bezier">Bezier (cubic)</option>
+                  <option value="line">Straight line</option>
+                  <option value="arc">Circular arc</option>
+                </select>
+              </label>
+              <label
+                v-if="(segments[row.index]?.pathType || 'bezier') === 'arc'"
+                class="field"
+              >
+                Arc bulge
+                <input
+                  type="number"
+                  step="0.05"
+                  :value="segments[row.index]?.arcBulge ?? ''"
+                  placeholder="auto"
+                  @change="
+                    emit('update-segment', row.index, {
+                      arcBulge:
+                        $event.target.value === '' ? null : Number($event.target.value),
+                    });
+                    emit('commit');
+                  "
+                />
+              </label>
               <label class="field">
                 Roughness
                 <input

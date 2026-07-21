@@ -2,6 +2,8 @@ import { reactive, computed, watch } from "vue";
 import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
 import { tessellateBody } from "../lib/latheTessellate.js";
 import { transformParts } from "../lib/meshTransform.js";
+import { evalSpan as evalPathSpan } from "../lib/pathSample.js";
+import { createEditHistory } from "../lib/editHistory.js";
 import {
   newGuid,
   cloneBodyContent,
@@ -9,7 +11,7 @@ import {
 } from "../lib/assetClone.js";
 
 /** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} Knot */
-/** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureData: any, textureAsset?: string|null }} Segment */
+/** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureData: any, textureAsset?: string|null, pathType?: string, arcBulge?: number|null }} Segment */
 
 function uid() {
   return "k" + Math.random().toString(36).slice(2, 9);
@@ -50,6 +52,8 @@ function defaultSegment(fromId, toId) {
     texture: "gradient",
     textureData: null,
     textureAsset: null,
+    pathType: "bezier",
+    arcBulge: null,
   };
 }
 
@@ -58,7 +62,14 @@ function defaultObjectMaterial() {
 }
 
 function cloneSeg(s, fromId, toId) {
-  return { ...s, fromId, toId, textureData: s.textureData || null };
+  return {
+    ...s,
+    fromId,
+    toId,
+    textureData: s.textureData || null,
+    pathType: s.pathType === "line" || s.pathType === "arc" ? s.pathType : "bezier",
+    arcBulge: s.arcBulge ?? null,
+  };
 }
 
 function projectDocToBody(doc, { newGuidForCopy = true } = {}) {
@@ -113,7 +124,135 @@ export function useSplineEditor() {
     mesh: null,
     stats: { verts: 0, tris: 0, profile: 0, parts: 0 },
     status: "Edit mode — drag points. Sub-objects attach in Profile view.",
+    history: { canUndo: false, canRedo: false, past: 0, future: 0 },
   });
+
+  const history = createEditHistory({ limit: 80 });
+
+  function refreshHistoryFlags() {
+    const info = history.info();
+    state.history.canUndo = info.canUndo;
+    state.history.canRedo = info.canRedo;
+    state.history.past = info.past;
+    state.history.future = info.future;
+  }
+
+  /** Shape-only snapshot for the undo buffer (immutable clone). */
+  function snapshotShape() {
+    return JSON.parse(
+      JSON.stringify({
+        editTarget: state.editTarget,
+        viewMode: state.viewMode,
+        knots: state.knots,
+        segments: state.segments.map((s) => ({
+          fromId: s.fromId,
+          toId: s.toId,
+          color: s.color,
+          roughness: s.roughness,
+          metalness: s.metalness,
+          opacity: s.opacity,
+          texture: s.texture,
+          textureAsset: s.textureAsset || null,
+          pathType: s.pathType || "bezier",
+          arcBulge: s.arcBulge ?? null,
+        })),
+        orbitKnots: state.orbitKnots,
+        orbitSegments: state.orbitSegments.map((s) => ({
+          fromId: s.fromId,
+          toId: s.toId,
+          color: s.color,
+          roughness: s.roughness,
+          metalness: s.metalness,
+          opacity: s.opacity,
+          texture: s.texture,
+          textureAsset: s.textureAsset || null,
+          pathType: s.pathType || "bezier",
+          arcBulge: s.arcBulge ?? null,
+        })),
+        objectMaterial: state.objectMaterial,
+        embeddedAssets: state.embeddedAssets,
+        children: state.children,
+        selectedId: state.selectedId,
+        selectedIds: state.selectedIds,
+        selectedSegmentIndex: state.selectedSegmentIndex,
+        selectedChildGuid: state.selectedChildGuid,
+      }),
+    );
+  }
+
+  function restoreShape(snap) {
+    if (!snap) return;
+    state.editTarget = snap.editTarget || "root";
+    state.viewMode = snap.viewMode === "orbit" ? "orbit" : "profile";
+    state.knots = (snap.knots || []).map((k) => ({ ...k }));
+    state.segments = (snap.segments || []).map((s) => ({ ...s, textureData: null }));
+    state.orbitKnots = (snap.orbitKnots || []).map((k) => ({ ...k }));
+    state.orbitSegments = (snap.orbitSegments || []).map((s) => ({ ...s, textureData: null }));
+    state.objectMaterial = { ...defaultObjectMaterial(), ...(snap.objectMaterial || {}) };
+    state.embeddedAssets = {};
+    for (const [guid, body] of Object.entries(snap.embeddedAssets || {})) {
+      state.embeddedAssets[guid] = {
+        ...body,
+        knots: (body.knots || []).map((k) => ({ ...k })),
+        segments: (body.segments || []).map((s) => ({ ...s, textureData: null })),
+        orbitKnots: (body.orbitKnots || []).map((k) => ({ ...k })),
+        orbitSegments: (body.orbitSegments || []).map((s) => ({ ...s, textureData: null })),
+        objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
+      };
+    }
+    state.children = (snap.children || []).map((c) => ({
+      ...c,
+      transform: { ...defaultChildTransform(), ...(c.transform || {}) },
+    }));
+    state.selectedId = snap.selectedId || null;
+    state.selectedIds = snap.selectedIds || [];
+    state.selectedSegmentIndex = snap.selectedSegmentIndex ?? -1;
+    state.selectedChildGuid = snap.selectedChildGuid || null;
+    syncSegments();
+  }
+
+  /** Push current shape onto the undo buffer before a mutating edit. */
+  function commitToHistory(label = "") {
+    history.push(snapshotShape(), label);
+    refreshHistoryFlags();
+  }
+
+  function undo() {
+    const prev = history.undo(snapshotShape());
+    if (!prev) {
+      state.status = "Nothing to undo.";
+      return false;
+    }
+    restoreShape(prev);
+    refreshHistoryFlags();
+    state.status = `Undo (${state.history.past} left).`;
+    return true;
+  }
+
+  function redo() {
+    const next = history.redo(snapshotShape());
+    if (!next) {
+      state.status = "Nothing to redo.";
+      return false;
+    }
+    restoreShape(next);
+    refreshHistoryFlags();
+    state.status = `Redo (${state.history.future} ahead).`;
+    return true;
+  }
+
+  let gestureOpen = false;
+  function beginGesture(label = "edit") {
+    if (gestureOpen) return;
+    commitToHistory(label);
+    gestureOpen = true;
+  }
+  function endGesture() {
+    if (!gestureOpen) return;
+    gestureOpen = false;
+    history.baseline(snapshotShape());
+    refreshHistoryFlags();
+  }
 
   function isOrbit() {
     return state.viewMode === "orbit";
@@ -245,6 +384,7 @@ export function useSplineEditor() {
   }
 
   function resetDefaults() {
+    commitToHistory("reset");
     state.assetGuid = newGuid();
     state.knots = defaultKnots();
     state.segments = [];
@@ -261,6 +401,9 @@ export function useSplineEditor() {
     state.selectedIds = [];
     state.selectedSegmentIndex = -1;
     state.mesh = null;
+    history.clear();
+    history.baseline(snapshotShape());
+    refreshHistoryFlags();
     state.status = "Reset to default silhouette + unit-circle orbit.";
   }
 
@@ -268,6 +411,7 @@ export function useSplineEditor() {
     const knots = activeKnots();
     const min = isOrbit() ? 3 : 2;
     if (knots.length <= min) return;
+    commitToHistory("remove-knot");
     const idx = knots.findIndex((k) => k.id === id);
     if (idx < 0) return;
     knots.splice(idx, 1);
@@ -282,6 +426,10 @@ export function useSplineEditor() {
   }
 
   function updateKnot(id, patch) {
+    const moving =
+      patch.x != null || patch.y != null || patch.hx != null || patch.hy != null;
+    if (moving) beginGesture("move-knot");
+    else commitToHistory("knot");
     const k = activeKnots().find((n) => n.id === id);
     if (!k) return;
     Object.assign(k, patch);
@@ -289,6 +437,7 @@ export function useSplineEditor() {
   }
 
   function updateSegment(index, patch) {
+    commitToHistory("segment");
     const s = activeSegments()[index];
     if (!s) return;
     Object.assign(s, patch);
@@ -304,6 +453,7 @@ export function useSplineEditor() {
 
   /** Bulk: whole active body (knots + segment solids + object material). */
   function applyMaterialToWhole(patch) {
+    commitToHistory("bulk-material");
     const mat = activeObjectMaterial();
     Object.assign(mat, patch);
     const knots = activeKnots();
@@ -325,35 +475,32 @@ export function useSplineEditor() {
       state.status = "Select one or more points first (Shift+click in Coloring).";
       return;
     }
+    commitToHistory("color-selection");
     applyColorToKnots(ids, color);
     state.status = `Colored ${ids.length} point(s).`;
   }
 
-  function evalSpan(a, b, t, curveType) {
-    if (curveType === 0) {
-      return {
-        p: SplineLathe.bezierPoint(a.x, a.y, a.x + a.hx, a.y + a.hy, b.x - b.hx, b.y - b.hy, b.x, b.y, t),
-        tan: SplineLathe.bezierTangent(a.x, a.y, a.x + a.hx, a.y + a.hy, b.x - b.hx, b.y - b.hy, b.x, b.y, t),
-      };
-    }
-    return {
-      p: SplineLathe.catmullPoint(a.x, a.y, a.x, a.y, b.x, b.y, b.x, b.y, t),
-      tan: SplineLathe.catmullTangent(a.x, a.y, a.x, a.y, b.x, b.y, b.x, b.y, t),
-    };
+  function evalSpan(a, b, t, pathType = "bezier", arcBulge = null) {
+    return evalPathSpan(a, b, t, {
+      pathType,
+      curveType: activeCurveType(),
+      arcBulge,
+    });
   }
 
   function sampleCurvePoints(samplesPerSpan = 24) {
     const knots = activeKnots();
-    const ct = activeCurveType();
+    const segs = activeSegments();
     const pts = [];
     if (isOrbit()) {
       const n = knots.length;
       for (let i = 0; i < n; i++) {
         const a = knots[i];
         const b = knots[(i + 1) % n];
+        const seg = segs[i];
         for (let s = 0; s < samplesPerSpan; s++) {
           const t = s / samplesPerSpan;
-          const { p } = evalSpan(a, b, t, ct);
+          const { p } = evalSpan(a, b, t, seg?.pathType || "bezier", seg?.arcBulge);
           pts.push({ x: p.x, y: p.y, segmentIndex: i, t });
         }
       }
@@ -363,10 +510,11 @@ export function useSplineEditor() {
     for (let i = 0; i < knots.length - 1; i++) {
       const a = knots[i];
       const b = knots[i + 1];
+      const seg = segs[i];
       const last = i < knots.length - 2 ? samplesPerSpan - 1 : samplesPerSpan;
       for (let s = 0; s <= last; s++) {
         const t = s / samplesPerSpan;
-        const { p } = evalSpan(a, b, t, ct);
+        const { p } = evalSpan(a, b, t, seg?.pathType || "bezier", seg?.arcBulge);
         pts.push({ x: Math.max(0, p.x), y: p.y, segmentIndex: i, t });
       }
     }
@@ -395,6 +543,7 @@ export function useSplineEditor() {
       state.status = "Click closer to the curve to add a point.";
       return null;
     }
+    commitToHistory("add-knot");
     const knots = activeKnots();
     const segs = activeSegments();
     const segIndex = hit.segmentIndex;
@@ -402,7 +551,13 @@ export function useSplineEditor() {
     const a = knots[segIndex];
     const b = isOrbit() ? knots[(segIndex + 1) % n] : knots[segIndex + 1];
     const oldSeg = segs[segIndex] ? { ...segs[segIndex] } : defaultSegment(a.id, b.id);
-    const { p, tan } = evalSpan(a, b, hit.t, activeCurveType());
+    const { p, tan } = evalSpan(
+      a,
+      b,
+      hit.t,
+      oldSeg.pathType || "bezier",
+      oldSeg.arcBulge,
+    );
     const tl = Math.hypot(tan.x, tan.y) || 1;
     const k = {
       id: uid(),
@@ -553,6 +708,9 @@ export function useSplineEditor() {
   function updateChildTransform(instanceGuid, patch) {
     const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
     if (!ch) return;
+    const moving = patch.x != null || patch.y != null;
+    if (moving) beginGesture("move-child");
+    else commitToHistory("child-transform");
     Object.assign(ch.transform, patch);
     if (patch.snapCenterline) {
       ch.transform.x = 0;
@@ -563,6 +721,7 @@ export function useSplineEditor() {
   function removeChild(instanceGuid) {
     const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
     if (!ch) return;
+    commitToHistory("remove-child");
     state.children = state.children.filter((c) => c.instanceGuid !== instanceGuid);
     const stillUsed = state.children.some((c) => c.contentGuid === ch.contentGuid);
     if (!stillUsed && ch.mode === "copy") {
@@ -574,7 +733,12 @@ export function useSplineEditor() {
   }
 
   function centerChildOnAxis(instanceGuid) {
-    updateChildTransform(instanceGuid, { snapCenterline: true, x: 0, useSymmetry: false });
+    const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
+    if (!ch) return;
+    commitToHistory("center-child");
+    ch.transform.snapCenterline = true;
+    ch.transform.x = 0;
+    ch.transform.useSymmetry = false;
     state.status = "Centered sub-object on the symmetry axis.";
   }
 
@@ -589,6 +753,7 @@ export function useSplineEditor() {
       state.status = "Project needs profile + orbit to attach.";
       return null;
     }
+    commitToHistory("attach");
     const asCopy = mode !== "link";
     let contentGuid;
     let bodyName = name || doc.name || "Sub-object";
@@ -640,6 +805,7 @@ export function useSplineEditor() {
   function toggleChildSymmetry(instanceGuid) {
     const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
     if (!ch) return;
+    commitToHistory("child-sym");
     ch.transform.useSymmetry = !ch.transform.useSymmetry;
     if (ch.transform.useSymmetry) ch.transform.snapCenterline = false;
     state.status = ch.transform.useSymmetry
@@ -651,6 +817,7 @@ export function useSplineEditor() {
   function addSymmetricTwin(instanceGuid) {
     const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
     if (!ch) return;
+    commitToHistory("twin");
     const twin = {
       instanceGuid: newGuid(),
       contentGuid: ch.contentGuid,
@@ -694,6 +861,8 @@ export function useSplineEditor() {
       ...s,
       textureData: null,
       textureAsset: s.textureAsset || null,
+      pathType: s.pathType === "line" || s.pathType === "arc" ? s.pathType : "bezier",
+      arcBulge: s.arcBulge ?? null,
     }));
     if (doc.orbit?.knots?.length >= 3) {
       state.orbitKnots = doc.orbit.knots.map((k) => ({ ...k }));
@@ -701,6 +870,8 @@ export function useSplineEditor() {
         ...s,
         textureData: null,
         textureAsset: s.textureAsset || null,
+        pathType: s.pathType === "line" || s.pathType === "arc" ? s.pathType : "bezier",
+        arcBulge: s.arcBulge ?? null,
       }));
     } else {
       state.orbitKnots = defaultOrbitKnots();
@@ -728,6 +899,9 @@ export function useSplineEditor() {
     state.selectedId = state.knots[1]?.id || state.knots[0]?.id || null;
     state.selectedIds = [];
     state.selectedSegmentIndex = -1;
+    history.clear();
+    history.baseline(snapshotShape());
+    refreshHistoryFlags();
     state.status = `Loaded “${doc.name}” (schema v${doc.schemaVersion}, GUID ${state.assetGuid.slice(0, 8)}…).`;
     return true;
   }
@@ -753,6 +927,8 @@ export function useSplineEditor() {
           opacity: s.opacity,
           texture: s.texture,
           textureAsset: s.textureAsset || null,
+          pathType: s.pathType || "bezier",
+          arcBulge: s.arcBulge ?? null,
         })),
         orbitKnots: body.orbitKnots.map((k) => ({ ...k })),
         orbitSegments: body.orbitSegments.map((s) => ({
@@ -764,6 +940,8 @@ export function useSplineEditor() {
           opacity: s.opacity,
           texture: s.texture,
           textureAsset: s.textureAsset || null,
+          pathType: s.pathType || "bezier",
+          arcBulge: s.arcBulge ?? null,
         })),
       };
     }
@@ -787,6 +965,8 @@ export function useSplineEditor() {
         opacity: s.opacity,
         texture: s.texture,
         textureAsset: s.textureAsset || null,
+        pathType: s.pathType || "bezier",
+        arcBulge: s.arcBulge ?? null,
       })),
       orbitKnots: state.orbitKnots.map((k) => ({ ...k })),
       orbitSegments: state.orbitSegments.map((s) => ({
@@ -798,6 +978,8 @@ export function useSplineEditor() {
         opacity: s.opacity,
         texture: s.texture,
         textureAsset: s.textureAsset || null,
+        pathType: s.pathType || "bezier",
+        arcBulge: s.arcBulge ?? null,
       })),
       embeddedAssets: embedded,
       children: state.children.map((c) => ({
@@ -817,6 +999,9 @@ export function useSplineEditor() {
     state.selectedId = state.knots[1].id;
     state.selectedIds = [state.selectedId];
   }
+
+  history.baseline(snapshotShape());
+  refreshHistoryFlags();
 
   watch(
     () => [
@@ -865,5 +1050,10 @@ export function useSplineEditor() {
     centerChildOnAxis,
     toggleChildSymmetry,
     addSymmetricTwin,
+    undo,
+    redo,
+    beginGesture,
+    endGesture,
+    commitToHistory,
   };
 }

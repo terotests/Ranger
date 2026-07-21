@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted } from "vue";
+import { computed, onMounted, onBeforeUnmount } from "vue";
 import SplineCanvas from "./components/SplineCanvas.vue";
 import PointEditor from "./components/PointEditor.vue";
 import Preview3D from "./components/Preview3D.vue";
@@ -39,6 +39,9 @@ const {
   centerChildOnAxis,
   toggleChildSymmetry,
   addSymmetricTwin,
+  undo,
+  redo,
+  endGesture,
   isEditingChild,
 } = useSplineEditor();
 
@@ -99,10 +102,12 @@ function onUpdateSegment(index, patch) {
 }
 
 function onDragEnd() {
+  endGesture();
   tessellate();
 }
 
 function onListCommit() {
+  endGesture();
   tessellate();
 }
 
@@ -130,6 +135,27 @@ function onMoveChild(guid, patch) {
   updateChildTransform(guid, patch);
 }
 
+function onUndo() {
+  if (undo()) tessellate();
+}
+
+function onRedo() {
+  if (redo()) tessellate();
+}
+
+function onKeyDown(e) {
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod) return;
+  const key = e.key.toLowerCase();
+  if (key === "z" && !e.shiftKey) {
+    e.preventDefault();
+    onUndo();
+  } else if ((key === "z" && e.shiftKey) || key === "y") {
+    e.preventDefault();
+    onRedo();
+  }
+}
+
 async function onAttach({ slug, mode, symmetric }) {
   try {
     const doc = await api.loadProject(slug);
@@ -142,6 +168,11 @@ async function onAttach({ slug, mode, symmetric }) {
 
 onMounted(() => {
   tessellate();
+  window.addEventListener("keydown", onKeyDown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeyDown);
 });
 </script>
 
@@ -178,6 +209,10 @@ onMounted(() => {
           </button>
         </div>
         <button @click="resetDefaults">Reset</button>
+        <button @click="onUndo" :disabled="!state.history.canUndo" title="Ctrl+Z">Undo</button>
+        <button @click="onRedo" :disabled="!state.history.canRedo" title="Ctrl+Shift+Z">
+          Redo
+        </button>
         <button @click="removeSelected" :disabled="!state.selectedId">Remove</button>
         <button class="primary" @click="onTessellate">Tessellate</button>
       </div>
