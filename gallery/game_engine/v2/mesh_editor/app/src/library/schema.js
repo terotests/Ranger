@@ -103,6 +103,7 @@ function serializeBodyContent(body) {
     spineProfileSegments: (body.spineProfileSegments || []).map(serializeSegment),
     spineOrbitKnots: (body.spineOrbitKnots || []).map(serializeKnot),
     spineOrbitSegments: (body.spineOrbitSegments || []).map(serializeSegment),
+    placementNormal: serializePlacementNormal(body.placementNormal),
   };
 }
 

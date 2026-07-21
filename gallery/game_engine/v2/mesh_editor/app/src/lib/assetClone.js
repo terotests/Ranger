@@ -168,6 +168,7 @@ export function snapshotRootAsBody(state) {
       pathType: s.pathType || "line",
       arcBulge: s.arcBulge ?? null,
     })),
+    placementNormal: normalizePlacementNormal(state.placementNormal),
   };
 }
 

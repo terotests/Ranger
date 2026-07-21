@@ -43,7 +43,9 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
 - v7 adds `editor.tessellationMode`: `rotation` (classic lathe) or `torus` (profile
   swept along orbit as a unit-sized ring)
 - v8 extends child `transform` with optional surface placement (`z`, `nx/ny/nz`,
-  `surface`) for 3D preview raycast attach and surface-drag while editing a child
+  `surface`) for 3D preview raycast attach and surface-drag while editing a child.
+  Embedded assets also persist `spineProfileKnots` / `spineOrbitKnots` and
+  `placementNormal` (shortened child spines must not reset on save).
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.

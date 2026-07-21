@@ -46,6 +46,7 @@ const {
   redo,
   endGesture,
   isEditingChild,
+  activePlacementNormal,
 } = useSplineEditor();
 
 const { lib, refresh, load, save, saveAs, remove, exportJson, importJsonFile } = useLibrary({
@@ -109,6 +110,7 @@ function onNormalNum(which, axis, ev) {
 
 const knots = computed(() => activeKnots());
 const segments = computed(() => activeSegments());
+const placementNormal = computed(() => activePlacementNormal());
 const editingLabel = computed(() =>
   isEditingChild()
     ? state.embeddedAssets[state.editTarget]?.name || "sub-object"
@@ -404,13 +406,13 @@ onBeforeUnmount(() => {
             <input
               type="number"
               step="0.05"
-              :value="state.placementNormal.start.x"
+              :value="placementNormal.start.x"
               @change="onNormalNum('start', 'x', $event)"
             />
             <input
               type="number"
               step="0.05"
-              :value="state.placementNormal.start.y"
+              :value="placementNormal.start.y"
               @change="onNormalNum('start', 'y', $event)"
             />
           </label>
@@ -419,13 +421,13 @@ onBeforeUnmount(() => {
             <input
               type="number"
               step="0.05"
-              :value="state.placementNormal.end.x"
+              :value="placementNormal.end.x"
               @change="onNormalNum('end', 'x', $event)"
             />
             <input
               type="number"
               step="0.05"
-              :value="state.placementNormal.end.y"
+              :value="placementNormal.end.y"
               @change="onNormalNum('end', 'y', $event)"
             />
           </label>
@@ -455,7 +457,7 @@ onBeforeUnmount(() => {
         :selected-child-guid="state.selectedChildGuid"
         :edit-target="state.editTarget"
         :viewport="state.viewport"
-        :placement-normal="state.placementNormal"
+        :placement-normal="placementNormal"
         :sample-curve-points="sampleCurvePoints"
         :find-closest-on-curve="findClosestOnCurve"
         @select="onSelect"
