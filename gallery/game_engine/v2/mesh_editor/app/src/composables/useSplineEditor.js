@@ -9,6 +9,7 @@ import {
   cloneBodyContent,
   defaultChildTransform,
 } from "../lib/assetClone.js";
+import { defaultSpineKnots, defaultSpineSegments } from "../lib/spineLathe.js";
 
 /** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} Knot */
 /** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureData: any, textureAsset?: string|null, pathType?: string, arcBulge?: number|null }} Segment */
@@ -41,7 +42,7 @@ function defaultOrbitKnots() {
   }));
 }
 
-function defaultSegment(fromId, toId) {
+function defaultSegment(fromId, toId, pathType = "bezier") {
   return {
     fromId,
     toId,
@@ -52,7 +53,7 @@ function defaultSegment(fromId, toId) {
     texture: "gradient",
     textureData: null,
     textureAsset: null,
-    pathType: "bezier",
+    pathType: pathType === "line" || pathType === "arc" ? pathType : "bezier",
     arcBulge: null,
   };
 }
@@ -79,12 +80,18 @@ function projectDocToBody(doc, { newGuidForCopy = true } = {}) {
       name: doc.name,
       profile: doc.profile,
       orbit: doc.orbit,
+      spineProfile: doc.spineProfile,
+      spineOrbit: doc.spineOrbit,
       editor: doc.editor,
       objectMaterial: doc.objectMaterial,
       knots: doc.profile?.knots,
       segments: doc.profile?.segments,
       orbitKnots: doc.orbit?.knots,
       orbitSegments: doc.orbit?.segments,
+      spineProfileKnots: doc.spineProfile?.knots,
+      spineProfileSegments: doc.spineProfile?.segments,
+      spineOrbitKnots: doc.spineOrbit?.knots,
+      spineOrbitSegments: doc.spineOrbit?.segments,
     },
     {
       preserveGuid: !newGuidForCopy && !!doc.assetGuid,
@@ -93,14 +100,51 @@ function projectDocToBody(doc, { newGuidForCopy = true } = {}) {
   );
 }
 
+function mapSegSnapshot(s) {
+  return {
+    fromId: s.fromId,
+    toId: s.toId,
+    color: s.color,
+    roughness: s.roughness,
+    metalness: s.metalness,
+    opacity: s.opacity,
+    texture: s.texture,
+    textureAsset: s.textureAsset || null,
+    pathType: s.pathType || "bezier",
+    arcBulge: s.arcBulge ?? null,
+  };
+}
+
+function loadSpineBlock(block, fallbackKnots) {
+  if (block?.knots?.length >= 2) {
+    return {
+      knots: block.knots.map((k) => ({ ...k })),
+      segments: (block.segments || []).map((s) => ({
+        ...s,
+        textureData: null,
+        textureAsset: s.textureAsset || null,
+        pathType: s.pathType === "line" || s.pathType === "arc" ? s.pathType : "bezier",
+        arcBulge: s.arcBulge ?? null,
+      })),
+    };
+  }
+  const knots = fallbackKnots();
+  return { knots, segments: defaultSpineSegments(knots) };
+}
+
 export function useSplineEditor() {
   const state = reactive({
     assetGuid: newGuid(),
-    viewMode: "profile",
+    viewMode: "profile", // profile | orbit | spine
+    spineSource: "profile", // which spine plane Spine view edits
     knots: defaultKnots(),
     segments: /** @type {Segment[]} */ ([]),
     orbitKnots: defaultOrbitKnots(),
     orbitSegments: /** @type {Segment[]} */ ([]),
+    spineProfileKnots: defaultSpineKnots(),
+    spineProfileSegments: /** @type {Segment[]} */ ([]),
+    spineOrbitKnots: defaultSpineKnots(),
+    spineOrbitSegments: /** @type {Segment[]} */ ([]),
     objectMaterial: defaultObjectMaterial(),
     selectedId: null,
     selectedIds: /** @type {string[]} */ ([]),
@@ -143,32 +187,15 @@ export function useSplineEditor() {
       JSON.stringify({
         editTarget: state.editTarget,
         viewMode: state.viewMode,
+        spineSource: state.spineSource,
         knots: state.knots,
-        segments: state.segments.map((s) => ({
-          fromId: s.fromId,
-          toId: s.toId,
-          color: s.color,
-          roughness: s.roughness,
-          metalness: s.metalness,
-          opacity: s.opacity,
-          texture: s.texture,
-          textureAsset: s.textureAsset || null,
-          pathType: s.pathType || "bezier",
-          arcBulge: s.arcBulge ?? null,
-        })),
+        segments: state.segments.map(mapSegSnapshot),
         orbitKnots: state.orbitKnots,
-        orbitSegments: state.orbitSegments.map((s) => ({
-          fromId: s.fromId,
-          toId: s.toId,
-          color: s.color,
-          roughness: s.roughness,
-          metalness: s.metalness,
-          opacity: s.opacity,
-          texture: s.texture,
-          textureAsset: s.textureAsset || null,
-          pathType: s.pathType || "bezier",
-          arcBulge: s.arcBulge ?? null,
-        })),
+        orbitSegments: state.orbitSegments.map(mapSegSnapshot),
+        spineProfileKnots: state.spineProfileKnots,
+        spineProfileSegments: state.spineProfileSegments.map(mapSegSnapshot),
+        spineOrbitKnots: state.spineOrbitKnots,
+        spineOrbitSegments: state.spineOrbitSegments.map(mapSegSnapshot),
         objectMaterial: state.objectMaterial,
         embeddedAssets: state.embeddedAssets,
         children: state.children,
@@ -183,20 +210,46 @@ export function useSplineEditor() {
   function restoreShape(snap) {
     if (!snap) return;
     state.editTarget = snap.editTarget || "root";
-    state.viewMode = snap.viewMode === "orbit" ? "orbit" : "profile";
+    state.viewMode =
+      snap.viewMode === "orbit" || snap.viewMode === "spine" ? snap.viewMode : "profile";
+    state.spineSource = snap.spineSource === "orbit" ? "orbit" : "profile";
     state.knots = (snap.knots || []).map((k) => ({ ...k }));
     state.segments = (snap.segments || []).map((s) => ({ ...s, textureData: null }));
     state.orbitKnots = (snap.orbitKnots || []).map((k) => ({ ...k }));
     state.orbitSegments = (snap.orbitSegments || []).map((s) => ({ ...s, textureData: null }));
+    const sp = loadSpineBlock(
+      { knots: snap.spineProfileKnots, segments: snap.spineProfileSegments },
+      defaultSpineKnots,
+    );
+    const so = loadSpineBlock(
+      { knots: snap.spineOrbitKnots, segments: snap.spineOrbitSegments },
+      defaultSpineKnots,
+    );
+    state.spineProfileKnots = sp.knots;
+    state.spineProfileSegments = sp.segments;
+    state.spineOrbitKnots = so.knots;
+    state.spineOrbitSegments = so.segments;
     state.objectMaterial = { ...defaultObjectMaterial(), ...(snap.objectMaterial || {}) };
     state.embeddedAssets = {};
     for (const [guid, body] of Object.entries(snap.embeddedAssets || {})) {
+      const bsp = loadSpineBlock(
+        { knots: body.spineProfileKnots, segments: body.spineProfileSegments },
+        defaultSpineKnots,
+      );
+      const bso = loadSpineBlock(
+        { knots: body.spineOrbitKnots, segments: body.spineOrbitSegments },
+        defaultSpineKnots,
+      );
       state.embeddedAssets[guid] = {
         ...body,
         knots: (body.knots || []).map((k) => ({ ...k })),
         segments: (body.segments || []).map((s) => ({ ...s, textureData: null })),
         orbitKnots: (body.orbitKnots || []).map((k) => ({ ...k })),
         orbitSegments: (body.orbitSegments || []).map((s) => ({ ...s, textureData: null })),
+        spineProfileKnots: bsp.knots,
+        spineProfileSegments: bsp.segments,
+        spineOrbitKnots: bso.knots,
+        spineOrbitSegments: bso.segments,
         objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
       };
     }
@@ -258,6 +311,10 @@ export function useSplineEditor() {
     return state.viewMode === "orbit";
   }
 
+  function isSpine() {
+    return state.viewMode === "spine";
+  }
+
   function isEditingChild() {
     return state.editTarget !== "root" && !!state.embeddedAssets[state.editTarget];
   }
@@ -269,12 +326,26 @@ export function useSplineEditor() {
 
   function activeKnots() {
     const b = bodyRef();
+    if (isSpine()) {
+      if (b) {
+        return state.spineSource === "orbit" ? b.spineOrbitKnots : b.spineProfileKnots;
+      }
+      return state.spineSource === "orbit" ? state.spineOrbitKnots : state.spineProfileKnots;
+    }
     if (b) return isOrbit() ? b.orbitKnots : b.knots;
     return isOrbit() ? state.orbitKnots : state.knots;
   }
 
   function activeSegments() {
     const b = bodyRef();
+    if (isSpine()) {
+      if (b) {
+        return state.spineSource === "orbit" ? b.spineOrbitSegments : b.spineProfileSegments;
+      }
+      return state.spineSource === "orbit"
+        ? state.spineOrbitSegments
+        : state.spineProfileSegments;
+    }
     if (b) return isOrbit() ? b.orbitSegments : b.segments;
     return isOrbit() ? state.orbitSegments : state.segments;
   }
@@ -295,7 +366,7 @@ export function useSplineEditor() {
     else state.curveType = v;
   }
 
-  function syncOpenSegmentsOn(knots, segments) {
+  function syncOpenSegmentsOn(knots, segments, defaultPathType = "bezier") {
     const byPair = new Map();
     for (const s of segments) byPair.set(s.fromId + ">" + s.toId, s);
     const next = [];
@@ -303,7 +374,9 @@ export function useSplineEditor() {
       const fromId = knots[i].id;
       const toId = knots[i + 1].id;
       const exact = byPair.get(fromId + ">" + toId);
-      next.push(exact ? cloneSeg(exact, fromId, toId) : defaultSegment(fromId, toId));
+      next.push(
+        exact ? cloneSeg(exact, fromId, toId) : defaultSegment(fromId, toId, defaultPathType),
+      );
     }
     return next;
   }
@@ -325,11 +398,49 @@ export function useSplineEditor() {
   function syncSegments() {
     const b = bodyRef();
     if (b) {
-      b.segments = syncOpenSegmentsOn(b.knots, b.segments);
-      b.orbitSegments = syncOrbitSegmentsOn(b.orbitKnots, b.orbitSegments);
+      b.segments = syncOpenSegmentsOn(b.knots, b.segments || []);
+      b.orbitSegments = syncOrbitSegmentsOn(b.orbitKnots, b.orbitSegments || []);
+      if (!b.spineProfileKnots?.length) {
+        b.spineProfileKnots = defaultSpineKnots();
+        b.spineProfileSegments = defaultSpineSegments(b.spineProfileKnots);
+      } else {
+        b.spineProfileSegments = syncOpenSegmentsOn(
+          b.spineProfileKnots,
+          b.spineProfileSegments || [],
+          "line",
+        );
+      }
+      if (!b.spineOrbitKnots?.length) {
+        b.spineOrbitKnots = defaultSpineKnots();
+        b.spineOrbitSegments = defaultSpineSegments(b.spineOrbitKnots);
+      } else {
+        b.spineOrbitSegments = syncOpenSegmentsOn(
+          b.spineOrbitKnots,
+          b.spineOrbitSegments || [],
+          "line",
+        );
+      }
     } else {
       state.segments = syncOpenSegmentsOn(state.knots, state.segments);
       state.orbitSegments = syncOrbitSegmentsOn(state.orbitKnots, state.orbitSegments);
+      if (!state.spineProfileSegments.length) {
+        state.spineProfileSegments = defaultSpineSegments(state.spineProfileKnots);
+      } else {
+        state.spineProfileSegments = syncOpenSegmentsOn(
+          state.spineProfileKnots,
+          state.spineProfileSegments,
+          "line",
+        );
+      }
+      if (!state.spineOrbitSegments.length) {
+        state.spineOrbitSegments = defaultSpineSegments(state.spineOrbitKnots);
+      } else {
+        state.spineOrbitSegments = syncOpenSegmentsOn(
+          state.spineOrbitKnots,
+          state.spineOrbitSegments,
+          "line",
+        );
+      }
     }
     const segs = activeSegments();
     if (state.selectedSegmentIndex >= segs.length) state.selectedSegmentIndex = segs.length - 1;
@@ -343,15 +454,60 @@ export function useSplineEditor() {
   );
 
   function setViewMode(mode) {
-    state.viewMode = mode === "orbit" ? "orbit" : "profile";
+    if (mode === "orbit") {
+      state.spineSource = "orbit";
+      state.viewMode = "orbit";
+    } else if (mode === "spine") {
+      state.viewMode = "spine";
+    } else {
+      state.spineSource = "profile";
+      state.viewMode = "profile";
+    }
     state.selectedId = null;
     state.selectedIds = [];
     state.selectedSegmentIndex = -1;
     state.selectedId = activeKnots()[0]?.id || null;
-    state.status =
-      state.viewMode === "orbit"
-        ? "Orbit view — closed Bezier path replaces cos/sin."
-        : "Profile view — attach sub-objects here (boxes on the silhouette).";
+    if (state.viewMode === "spine") {
+      state.status = `Spine (${state.spineSource}) — bend the tessellation centerline. Does not change Profile/Orbit editors.`;
+    } else if (state.viewMode === "orbit") {
+      state.status = "Orbit view — closed Bezier path replaces cos/sin.";
+    } else {
+      state.status = "Profile view — attach sub-objects here (boxes on the silhouette).";
+    }
+  }
+
+  function resetSpine(which = "active") {
+    commitToHistory("reset-spine");
+    const body = bodyRef();
+    const resetOne = (target) => {
+      const knots = defaultSpineKnots();
+      const segs = defaultSpineSegments(knots);
+      if (body) {
+        if (target === "profile") {
+          body.spineProfileKnots = knots;
+          body.spineProfileSegments = segs;
+        } else {
+          body.spineOrbitKnots = knots;
+          body.spineOrbitSegments = segs;
+        }
+      } else if (target === "profile") {
+        state.spineProfileKnots = knots;
+        state.spineProfileSegments = segs;
+      } else {
+        state.spineOrbitKnots = knots;
+        state.spineOrbitSegments = segs;
+      }
+    };
+    if (which === "both") {
+      resetOne("profile");
+      resetOne("orbit");
+    } else {
+      resetOne(state.spineSource === "orbit" ? "orbit" : "profile");
+    }
+    state.selectedId = activeKnots()[0]?.id || null;
+    state.selectedIds = [];
+    state.selectedSegmentIndex = -1;
+    state.status = `Spine (${state.spineSource}) reset to a straight vertical centerline.`;
   }
 
   function setToolMode(mode) {
@@ -390,6 +546,11 @@ export function useSplineEditor() {
     state.segments = [];
     state.orbitKnots = defaultOrbitKnots();
     state.orbitSegments = [];
+    state.spineProfileKnots = defaultSpineKnots();
+    state.spineProfileSegments = [];
+    state.spineOrbitKnots = defaultSpineKnots();
+    state.spineOrbitSegments = [];
+    state.spineSource = "profile";
     state.objectMaterial = defaultObjectMaterial();
     state.embeddedAssets = {};
     state.children = [];
@@ -404,7 +565,7 @@ export function useSplineEditor() {
     history.clear();
     history.baseline(snapshotShape());
     refreshHistoryFlags();
-    state.status = "Reset to default silhouette + unit-circle orbit.";
+    state.status = "Reset to default silhouette + unit-circle orbit + straight spines.";
   }
 
   function removeKnot(id) {
@@ -433,7 +594,8 @@ export function useSplineEditor() {
     const k = activeKnots().find((n) => n.id === id);
     if (!k) return;
     Object.assign(k, patch);
-    if (!isOrbit() && typeof patch.x === "number") k.x = Math.max(0, patch.x);
+    // Profile radius stays ≥0; orbit + spine allow signed offsets.
+    if (!isOrbit() && !isSpine() && typeof patch.x === "number") k.x = Math.max(0, patch.x);
   }
 
   function updateSegment(index, patch) {
@@ -507,6 +669,7 @@ export function useSplineEditor() {
       if (pts.length) pts.push({ ...pts[0], t: 1 });
       return pts;
     }
+    // profile or spine (open path); spine keeps signed x
     for (let i = 0; i < knots.length - 1; i++) {
       const a = knots[i];
       const b = knots[i + 1];
@@ -514,8 +677,19 @@ export function useSplineEditor() {
       const last = i < knots.length - 2 ? samplesPerSpan - 1 : samplesPerSpan;
       for (let s = 0; s <= last; s++) {
         const t = s / samplesPerSpan;
-        const { p } = evalSpan(a, b, t, seg?.pathType || "bezier", seg?.arcBulge);
-        pts.push({ x: Math.max(0, p.x), y: p.y, segmentIndex: i, t });
+        const { p } = evalSpan(
+          a,
+          b,
+          t,
+          seg?.pathType || (isSpine() ? "line" : "bezier"),
+          seg?.arcBulge,
+        );
+        pts.push({
+          x: isSpine() ? p.x : Math.max(0, p.x),
+          y: p.y,
+          segmentIndex: i,
+          t,
+        });
       }
     }
     return pts;
@@ -555,13 +729,13 @@ export function useSplineEditor() {
       a,
       b,
       hit.t,
-      oldSeg.pathType || "bezier",
+      oldSeg.pathType || (isSpine() ? "line" : "bezier"),
       oldSeg.arcBulge,
     );
     const tl = Math.hypot(tan.x, tan.y) || 1;
     const k = {
       id: uid(),
-      x: isOrbit() ? p.x : Math.max(0, p.x),
+      x: isOrbit() || isSpine() ? p.x : Math.max(0, p.x),
       y: p.y,
       hx: (tan.x / tl) * 0.14,
       hy: (tan.y / tl) * 0.14,
@@ -601,7 +775,13 @@ export function useSplineEditor() {
         }
       }
       const body = bodyRef();
-      if (body) body.segments = next;
+      if (isSpine()) {
+        if (state.spineSource === "orbit") {
+          if (body) body.spineOrbitSegments = next;
+          else state.spineOrbitSegments = next;
+        } else if (body) body.spineProfileSegments = next;
+        else state.spineProfileSegments = next;
+      } else if (body) body.segments = next;
       else state.segments = next;
     }
 
@@ -625,6 +805,10 @@ export function useSplineEditor() {
       segments: state.segments,
       orbitKnots: state.orbitKnots,
       orbitSegments: state.orbitSegments,
+      spineProfileKnots: state.spineProfileKnots,
+      spineProfileSegments: state.spineProfileSegments,
+      spineOrbitKnots: state.spineOrbitKnots,
+      spineOrbitSegments: state.spineOrbitSegments,
     };
   }
 
@@ -848,7 +1032,9 @@ export function useSplineEditor() {
     state.revolutionDeg = ed.revolutionDeg || 360;
     state.materialMode = ed.materialMode ?? 3;
     state.symmetry = ed.symmetry !== false;
-    state.viewMode = ed.viewMode === "orbit" ? "orbit" : "profile";
+    state.viewMode =
+      ed.viewMode === "orbit" || ed.viewMode === "spine" ? ed.viewMode : "profile";
+    state.spineSource = ed.spineSource === "orbit" ? "orbit" : "profile";
     state.objectMaterial = {
       color: doc.objectMaterial?.color ?? null,
       roughness: doc.objectMaterial?.roughness ?? 0.4,
@@ -877,15 +1063,35 @@ export function useSplineEditor() {
       state.orbitKnots = defaultOrbitKnots();
       state.orbitSegments = [];
     }
+    {
+      const sp = loadSpineBlock(doc.spineProfile, defaultSpineKnots);
+      const so = loadSpineBlock(doc.spineOrbit, defaultSpineKnots);
+      state.spineProfileKnots = sp.knots;
+      state.spineProfileSegments = sp.segments;
+      state.spineOrbitKnots = so.knots;
+      state.spineOrbitSegments = so.segments;
+    }
 
     state.embeddedAssets = {};
     for (const [guid, body] of Object.entries(doc.embeddedAssets || {})) {
+      const bsp = loadSpineBlock(
+        { knots: body.spineProfileKnots, segments: body.spineProfileSegments },
+        defaultSpineKnots,
+      );
+      const bso = loadSpineBlock(
+        { knots: body.spineOrbitKnots, segments: body.spineOrbitSegments },
+        defaultSpineKnots,
+      );
       state.embeddedAssets[guid] = {
         ...body,
         knots: (body.knots || []).map((k) => ({ ...k })),
         segments: (body.segments || []).map((s) => ({ ...s, textureData: null })),
         orbitKnots: (body.orbitKnots || []).map((k) => ({ ...k })),
         orbitSegments: (body.orbitSegments || []).map((s) => ({ ...s, textureData: null })),
+        spineProfileKnots: bsp.knots,
+        spineProfileSegments: bsp.segments,
+        spineOrbitKnots: bso.knots,
+        spineOrbitSegments: bso.segments,
         objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
       };
     }
@@ -918,31 +1124,13 @@ export function useSplineEditor() {
         revolutionDeg: body.revolutionDeg,
         objectMaterial: { ...body.objectMaterial },
         knots: body.knots.map((k) => ({ ...k })),
-        segments: body.segments.map((s) => ({
-          fromId: s.fromId,
-          toId: s.toId,
-          color: s.color,
-          roughness: s.roughness,
-          metalness: s.metalness,
-          opacity: s.opacity,
-          texture: s.texture,
-          textureAsset: s.textureAsset || null,
-          pathType: s.pathType || "bezier",
-          arcBulge: s.arcBulge ?? null,
-        })),
+        segments: body.segments.map(mapSegSnapshot),
         orbitKnots: body.orbitKnots.map((k) => ({ ...k })),
-        orbitSegments: body.orbitSegments.map((s) => ({
-          fromId: s.fromId,
-          toId: s.toId,
-          color: s.color,
-          roughness: s.roughness,
-          metalness: s.metalness,
-          opacity: s.opacity,
-          texture: s.texture,
-          textureAsset: s.textureAsset || null,
-          pathType: s.pathType || "bezier",
-          arcBulge: s.arcBulge ?? null,
-        })),
+        orbitSegments: body.orbitSegments.map(mapSegSnapshot),
+        spineProfileKnots: (body.spineProfileKnots || []).map((k) => ({ ...k })),
+        spineProfileSegments: (body.spineProfileSegments || []).map(mapSegSnapshot),
+        spineOrbitKnots: (body.spineOrbitKnots || []).map((k) => ({ ...k })),
+        spineOrbitSegments: (body.spineOrbitSegments || []).map(mapSegSnapshot),
       };
     }
     return {
@@ -954,33 +1142,16 @@ export function useSplineEditor() {
       materialMode: state.materialMode,
       symmetry: state.symmetry,
       viewMode: state.viewMode,
+      spineSource: state.spineSource,
       objectMaterial: { ...state.objectMaterial },
       knots: state.knots.map((k) => ({ ...k })),
-      segments: state.segments.map((s) => ({
-        fromId: s.fromId,
-        toId: s.toId,
-        color: s.color,
-        roughness: s.roughness,
-        metalness: s.metalness,
-        opacity: s.opacity,
-        texture: s.texture,
-        textureAsset: s.textureAsset || null,
-        pathType: s.pathType || "bezier",
-        arcBulge: s.arcBulge ?? null,
-      })),
+      segments: state.segments.map(mapSegSnapshot),
       orbitKnots: state.orbitKnots.map((k) => ({ ...k })),
-      orbitSegments: state.orbitSegments.map((s) => ({
-        fromId: s.fromId,
-        toId: s.toId,
-        color: s.color,
-        roughness: s.roughness,
-        metalness: s.metalness,
-        opacity: s.opacity,
-        texture: s.texture,
-        textureAsset: s.textureAsset || null,
-        pathType: s.pathType || "bezier",
-        arcBulge: s.arcBulge ?? null,
-      })),
+      orbitSegments: state.orbitSegments.map(mapSegSnapshot),
+      spineProfileKnots: state.spineProfileKnots.map((k) => ({ ...k })),
+      spineProfileSegments: state.spineProfileSegments.map(mapSegSnapshot),
+      spineOrbitKnots: state.spineOrbitKnots.map((k) => ({ ...k })),
+      spineOrbitSegments: state.spineOrbitSegments.map(mapSegSnapshot),
       embeddedAssets: embedded,
       children: state.children.map((c) => ({
         instanceGuid: c.instanceGuid,
@@ -1028,6 +1199,7 @@ export function useSplineEditor() {
     select,
     selectSegment,
     resetDefaults,
+    resetSpine,
     removeKnot,
     removeSelected,
     updateKnot,

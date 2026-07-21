@@ -38,16 +38,28 @@ mesh_editor/
 - Dashed unit circle guide shows the classic cos/sin path
 - Knot / segment colours and materials apply to angular wedges of the mesh
 
+### Spine view
+
+- Edits the **tessellation centerline** (does **not** change Profile / Orbit 2D editors)
+- Choose **Profile** or **Orbit** first — that sets which plane Spine edits (`spineSource`)
+  - **Profile plane**: signed X offset vs Y (world X bend)
+  - **Orbit plane**: signed X offset vs Y mapped to world Z bend
+- Default is a straight vertical line (`x = 0`); add control points to curve it
+- Lateral offsets are projected along the Frenet/parallel-transport frame during lathe
+- **Reset spine** / **Reset both spines** restore a straight centerline
+
 ## Tessellate
 
 1. Sample the **profile** curve (Bezier default, or Catmull-Rom)
 2. Sample the closed **orbit** path; each sample `(ox, oy)` replaces `(cos θ, sin θ)`
-   so `position = (r·ox, y, r·oy)`. Unit circle ⇒ nearly identical to classic lathe
-3. **Orbit samples N** is distributed across orbit spans (`≈ N / orbitKnots`)
-4. **360° closed**: faces wrap the last orbit column to the first
-5. **180°**: use the first half of the orbit samples; faces do **not** wrap
-6. Mesh parts are **profile segment × orbit segment** so both colourings affect shading
-7. Draw with Ranger Three (WebGL if available, else software)
+3. Sample **spineProfile** + **spineOrbit** along profile height `u`; center
+   `(spineX, spineY, spineZ)` with frames → place `radius · orbit` in the local N/B plane
+   (straight spines ⇒ classic `(r·ox, y, r·oy)`)
+4. **Orbit samples N** is distributed across orbit spans (`≈ N / orbitKnots`)
+5. **360° closed**: faces wrap the last orbit column to the first
+6. **180°**: use the first half of the orbit samples; faces do **not** wrap
+7. Mesh parts are **profile segment × orbit segment** so both colourings affect shading
+8. Draw with Ranger Three (WebGL if available, else software)
 
 ## Run
 
@@ -74,7 +86,8 @@ gallery/game_engine/v2/mesh_editor/library/projects/<slug>/project.json
 That tree is **gitignored** by default. Point elsewhere with
 `MESH_EDITOR_LIBRARY=/abs/or/rel/path`. Schema + migrations live in
 `app/src/library/` (`schemaVersion` 4+, kind `ranger.splineProject`, with
-`profile`, closed `orbit`, per-segment `pathType`, `assetGuid`, `embeddedAssets`, and `children`).
+`profile`, closed `orbit`, per-segment `pathType`, `spineProfile` / `spineOrbit`,
+`assetGuid`, `embeddedAssets`, and `children`).
 
 Offline fallback: **Export JSON** / **Import JSON** in the Library panel.
 
@@ -104,6 +117,7 @@ Edits push immutable shape snapshots into an in-memory buffer (no Zustand depend
 |------|-----------|
 | **Profile** | Edit the Y-up silhouette (right half); place **sub-object** attach boxes |
 | **Orbit** | Edit the closed XZ rotation path that replaces cos/sin |
+| **Spine** | Edit the tessellation centerline bend for the plane last chosen via Profile/Orbit |
 
 | Mode | Behaviour |
 |------|-----------|

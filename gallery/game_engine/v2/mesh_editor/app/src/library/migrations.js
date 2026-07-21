@@ -230,6 +230,89 @@ function normalizeV4(doc) {
   return v3;
 }
 
+function defaultStraightSpine() {
+  const knots = [
+    { id: "sp0", x: 0, y: -1, hx: 0, hy: 0, color: "#c8e87a" },
+    { id: "sp1", x: 0, y: 0, hx: 0, hy: 0, color: "#7ecf6a" },
+    { id: "sp2", x: 0, y: 1, hx: 0, hy: 0, color: "#6ec8ff" },
+  ];
+  return {
+    knots,
+    segments: ensureSegPathTypes(
+      knots.slice(0, -1).map((k, i) => ({
+        fromId: k.id,
+        toId: knots[i + 1].id,
+        color: null,
+        roughness: 0.4,
+        metalness: 0,
+        opacity: 1,
+        texture: "gradient",
+        pathType: "line",
+        arcBulge: null,
+      })),
+    ),
+  };
+}
+
+function normalizeSpineBlock(block, idPrefix) {
+  if (block?.knots?.length >= 2) {
+    const knots = mapKnots(block.knots);
+    for (let i = 0; i < knots.length; i++) {
+      if (!knots[i].id.startsWith(idPrefix)) {
+        // keep ids; only fix empties via mapKnots
+      }
+    }
+    return {
+      knots,
+      segments: ensureSegPathTypes(mapSegments(block.segments, knots, false)),
+    };
+  }
+  const d = defaultStraightSpine();
+  return {
+    knots: d.knots.map((k, i) => ({ ...k, id: `${idPrefix}${i}` })),
+    segments: d.segments.map((s, i) => ({
+      ...s,
+      fromId: `${idPrefix}${i}`,
+      toId: `${idPrefix}${i + 1}`,
+    })),
+  };
+}
+
+function normalizeV5(doc) {
+  const v4 = normalizeV4(doc);
+  v4.schemaVersion = 5;
+  v4.editor = {
+    ...v4.editor,
+    spineSource: doc.editor?.spineSource === "orbit" ? "orbit" : "profile",
+    viewMode:
+      doc.editor?.viewMode === "orbit" || doc.editor?.viewMode === "spine"
+        ? doc.editor.viewMode
+        : v4.editor.viewMode || "profile",
+  };
+  v4.spineProfile = normalizeSpineBlock(doc.spineProfile, "spp");
+  v4.spineOrbit = normalizeSpineBlock(doc.spineOrbit, "spo");
+  const emb = {};
+  for (const [guid, body] of Object.entries(v4.embeddedAssets || {})) {
+    const sp = normalizeSpineBlock(
+      { knots: body.spineProfileKnots, segments: body.spineProfileSegments },
+      "spp",
+    );
+    const so = normalizeSpineBlock(
+      { knots: body.spineOrbitKnots, segments: body.spineOrbitSegments },
+      "spo",
+    );
+    emb[guid] = {
+      ...body,
+      spineProfileKnots: sp.knots,
+      spineProfileSegments: sp.segments,
+      spineOrbitKnots: so.knots,
+      spineOrbitSegments: so.segments,
+    };
+  }
+  v4.embeddedAssets = emb;
+  return v4;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -244,6 +327,10 @@ const STEPS = {
   // 3 → 4: per-segment pathType (bezier|line|arc) + optional arcBulge
   4(doc) {
     return normalizeV4(doc);
+  },
+  // 4 → 5: spineProfile + spineOrbit centerline paths
+  5(doc) {
+    return normalizeV5(doc);
   },
 };
 

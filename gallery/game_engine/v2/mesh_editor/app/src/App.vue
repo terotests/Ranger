@@ -18,6 +18,7 @@ const {
   select,
   selectSegment,
   resetDefaults,
+  resetSpine,
   removeKnot,
   removeSelected,
   updateKnot,
@@ -68,7 +69,22 @@ const tools = [
 const views = [
   { id: "profile", label: "Profile" },
   { id: "orbit", label: "Orbit" },
+  { id: "spine", label: "Spine" },
 ];
+
+const spinePlaneLabel = computed(() =>
+  state.spineSource === "orbit" ? "Orbit plane (Z)" : "Profile plane (X)",
+);
+
+function onResetSpine() {
+  resetSpine("active");
+  tessellate();
+}
+
+function onResetSpineBoth() {
+  resetSpine("both");
+  tessellate();
+}
 
 const knots = computed(() => activeKnots());
 const segments = computed(() => activeSegments());
@@ -183,8 +199,9 @@ onBeforeUnmount(() => {
         <p class="eyebrow">Ranger · gallery/game_engine/v2</p>
         <h1>Spline Mesh Editor</h1>
         <p class="lede">
-          Profile + orbit lathe, bulk colouring, and sub-objects (copy / link GUIDs) with assembly
-          preview — editing <strong>{{ editingLabel }}</strong>.
+          Profile + orbit lathe with an optional curved
+          <strong>spine</strong> centerline, bulk colouring, and sub-objects — editing
+          <strong>{{ editingLabel }}</strong>.
         </p>
       </div>
       <div class="actions">
@@ -198,6 +215,9 @@ onBeforeUnmount(() => {
             {{ v.label }}
           </button>
         </div>
+        <p v-if="state.viewMode === 'spine'" class="spine-hint">
+          Editing {{ spinePlaneLabel }} · pick Profile/Orbit first to choose which bend
+        </p>
         <div class="tool-row">
           <button
             v-for="t in tools"
@@ -209,6 +229,22 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <button @click="resetDefaults">Reset</button>
+        <button
+          v-if="state.viewMode === 'spine'"
+          type="button"
+          title="Straighten the active spine plane"
+          @click="onResetSpine"
+        >
+          Reset spine
+        </button>
+        <button
+          v-if="state.viewMode === 'spine'"
+          type="button"
+          title="Straighten both spine planes"
+          @click="onResetSpineBoth"
+        >
+          Reset both spines
+        </button>
         <button @click="onUndo" :disabled="!state.history.canUndo" title="Ctrl+Z">Undo</button>
         <button @click="onRedo" :disabled="!state.history.canRedo" title="Ctrl+Shift+Z">
           Redo
@@ -241,8 +277,15 @@ onBeforeUnmount(() => {
           <option :value="180">180° (half orbit)</option>
         </select>
       </label>
-      <label class="field check" :class="{ dim: state.viewMode === 'orbit' }">
-        <input v-model="state.symmetry" type="checkbox" :disabled="state.viewMode === 'orbit'" />
+      <label
+        class="field check"
+        :class="{ dim: state.viewMode === 'orbit' || state.viewMode === 'spine' }"
+      >
+        <input
+          v-model="state.symmetry"
+          type="checkbox"
+          :disabled="state.viewMode === 'orbit' || state.viewMode === 'spine'"
+        />
         Show mirror
       </label>
       <div class="mats">
@@ -435,6 +478,13 @@ h1 {
   border-radius: 10px;
   border: 1px solid var(--line);
   background: rgba(0, 0, 0, 0.2);
+}
+
+.spine-hint {
+  margin: 0;
+  width: 100%;
+  font-size: 0.72rem;
+  color: var(--ink-dim);
 }
 
 .toolbar {

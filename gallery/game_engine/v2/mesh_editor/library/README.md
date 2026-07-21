@@ -36,6 +36,8 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
 - v2 adds a closed `orbit` Bezier path (unit circle by default) alongside `profile`
 - v3 adds `assetGuid`, `objectMaterial`, `embeddedAssets`, and `children` (sub-object instances)
 - v4 adds per-segment `pathType` (`bezier` \| `line` \| `arc`) and optional `arcBulge`
+- v5 adds `spineProfile` + `spineOrbit` open paths (signed lateral offset vs height) that
+  curve the lathe centerline; default is a straight vertical line (`pathType: line`)
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.
