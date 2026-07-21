@@ -1,0 +1,26 @@
+{
+  "chart": "little_joe_playfield_chart_p131",
+  "note": "Pixel measurements read off the chart via chartmeasure.mjs. Only pixels + calibration live here; world values are derived by transform.mjs. See PROCESS.md.",
+  "calibration": {
+    "xL": 89, "xR": 597, "yT": 152, "yB": 1258, "worldW": 9.2,
+    "_landmarks": "playfield inner-wall box: left/right straight walls, top arch apex, bottom edge"
+  },
+  "parts": {
+    "flipperLeft": {
+      "type": "flipper",
+      "pivotPx": [242, 1121],
+      "tipPx": [300, 1151],
+      "baseDiaPx": 18,
+      "tipDiaPx": 14,
+      "y": 0.18
+    },
+    "flipperRight": {
+      "type": "flipper",
+      "pivotPx": [432, 1121],
+      "tipPx": [366, 1151],
+      "baseDiaPx": 18,
+      "tipDiaPx": 14,
+      "y": 0.18
+    }
+  }
+}
