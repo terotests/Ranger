@@ -176,6 +176,13 @@ function normalizeV3(doc) {
     transform: {
       x: Number(ch.transform?.x ?? 0.45),
       y: Number(ch.transform?.y ?? 0.35),
+      // Forward-compat: v8 surface fields must survive the v3 whitelist when
+      // migrateProject re-runs STEPS[CURRENT] on an already-current document.
+      z: Number(ch.transform?.z ?? 0),
+      nx: Number.isFinite(Number(ch.transform?.nx)) ? Number(ch.transform.nx) : 0,
+      ny: Number.isFinite(Number(ch.transform?.ny)) ? Number(ch.transform.ny) : 1,
+      nz: Number.isFinite(Number(ch.transform?.nz)) ? Number(ch.transform.nz) : 0,
+      surface: !!ch.transform?.surface,
       rotationYDeg: Number(ch.transform?.rotationYDeg ?? 0),
       scale: Number(ch.transform?.scale ?? 0.28),
       useSymmetry: !!ch.transform?.useSymmetry,
@@ -375,9 +382,20 @@ function normalizeChildTransformV8(t) {
 function normalizeV8(doc) {
   const v7 = normalizeV7(doc);
   v7.schemaVersion = 8;
+  // normalizeV7→V3 historically rebuilt child transforms without surface fields.
+  // Prefer the input document's transforms (by instanceGuid) so save/load keeps
+  // surface placement (x,y,z + normal) instead of resetting to profile-plane defaults.
+  const origXf = new Map(
+    (doc.children || [])
+      .filter((ch) => ch?.instanceGuid)
+      .map((ch) => [ch.instanceGuid, ch.transform || {}]),
+  );
   v7.children = (v7.children || []).map((ch) => ({
     ...ch,
-    transform: normalizeChildTransformV8(ch.transform),
+    transform: normalizeChildTransformV8({
+      ...ch.transform,
+      ...(origXf.get(ch.instanceGuid) || {}),
+    }),
   }));
   return v7;
 }
