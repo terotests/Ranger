@@ -50,6 +50,7 @@ function discWorldOutline(p, n) {
 function partOutline(p, n) {
   if (p.type === "flipper") return flipperWorldOutline(p, n);
   if (p.type === "disc") return discWorldOutline(p, n);
+  if (p.type === "triangle") return p.corners.map((c) => [c.x, c.z]);
   return null;
 }
 const worldPolys = Object.fromEntries(Object.entries(D.parts)
@@ -113,13 +114,18 @@ const result = await page.evaluate(async (A) => {
   const names = Object.keys(A.polys);
   const refs = {};
   for (const name of names) { const m = fillPoly(A.polys[name].map(([x, z]) => w2r(x, z))); refs[name] = { mask: m, s: stats(m) }; }
-  // assign each rendered-red pixel to its NEAREST reference centroid (separates
-  // the two flippers cleanly regardless of how close they are)
+  // assign each rendered-red pixel to the part whose REFERENCE MASK contains it
+  // (parts don't overlap, so this separates even large adjacent parts cleanly);
+  // fringe pixels just outside all refs go to the nearest centroid within a small
+  // radius (recovers the anti-aliased edge without cross-contaminating neighbours).
   const locals = {}; names.forEach((n) => locals[n] = new Uint8Array(N * N));
-  const maxR = N * 0.14;
+  const fringe = N * 0.03;
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
     const i = y * N + x; if (!red[i]) continue;
-    let best = null, bd = maxR;
+    let inside = null;
+    for (const n of names) { if (refs[n].mask[i]) { inside = n; break; } }
+    if (inside) { locals[inside][i] = 1; continue; }
+    let best = null, bd = fringe;
     for (const n of names) { const dd = Math.hypot(x - refs[n].s.cx, y - refs[n].s.cy); if (dd < bd) { bd = dd; best = n; } }
     if (best) locals[best][i] = 1;
   }

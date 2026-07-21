@@ -25,6 +25,8 @@
     "bumperTL": { "type": "disc", "centerPx": [258, 553], "diaPx": 87, "y": 0.1, "_chart": "11 red" },
     "bumperTR": { "type": "disc", "centerPx": [434, 601], "diaPx": 88, "y": 0.1, "_chart": "12 yellow" },
     "bumperML": { "type": "disc", "centerPx": [234, 676], "diaPx": 88, "y": 0.1, "_chart": "12 yellow" },
-    "bumperMR": { "type": "disc", "centerPx": [452, 717], "diaPx": 92, "y": 0.1, "_chart": "11 red" }
+    "bumperMR": { "type": "disc", "centerPx": [452, 717], "diaPx": 92, "y": 0.1, "_chart": "11 red" },
+    "slingL": { "type": "triangle", "cornersPx": [[131, 966], [107, 1100], [350, 1094]], "y": 0.08, "_chart": "E rebound L" },
+    "slingR": { "type": "triangle", "cornersPx": [[535, 963], [549, 1089], [299, 1088]], "y": 0.08, "_chart": "E rebound R" }
   }
 }

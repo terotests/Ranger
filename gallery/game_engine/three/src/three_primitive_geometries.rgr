@@ -463,3 +463,45 @@ class ThreeTubeGeometry extends ThreeBufferGeometry {
         return this
     }
 }
+
+; A flat 2D polygon (points in the XZ plane, flattened [x0,z0,x1,z1,…]) extruded
+; to `depth` in +Y — a prism. Fan-triangulated top + bottom + side quads. Used for
+; arbitrary flat parts (slingshot/rebound triangles, irregular inserts) that the
+; regular-prism CylinderGeometry can't express. Assumes a simple convex-ish
+; polygon (fan from vertex 0).
+class ThreePrismGeometry extends ThreeBufferGeometry {
+    def isPrismGeometry:boolean true
+
+    fn build:ThreePrismGeometry (points:[double] depth:double) {
+        def np:int (idiv (array_length points) 2)
+        if (np < 3) { return this }
+        ; top ring (y=depth, normal up) then bottom ring (y=0, normal down)
+        def i:int 0
+        while (i < np) {
+            this.pushVertex((itemAt points (i * 2)) depth (itemAt points ((i * 2) + 1))  0.0 1.0 0.0  0.0 0.0)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < np) {
+            this.pushVertex((itemAt points (i * 2)) 0.0 (itemAt points ((i * 2) + 1))  0.0 (0.0 - 1.0) 0.0  0.0 0.0)
+            i = (i + 1)
+        }
+        ; top fan (up-facing), bottom fan (down-facing, reversed)
+        def k:int 1
+        while (k < (np - 1)) {
+            this.pushTriangle(0 k (k + 1))
+            this.pushTriangle(np (np + (k + 1)) (np + k))
+            k = (k + 1)
+        }
+        ; side quads
+        i = 0
+        while (i < np) {
+            def j:int (i + 1)
+            if (j >= np) { j = 0 }
+            this.pushTriangle(i (np + i) j)
+            this.pushTriangle(j (np + i) (np + j))
+            i = (i + 1)
+        }
+        return this
+    }
+}

@@ -56,6 +56,15 @@ export function liftDisc(cal, m) {
   };
 }
 
+// A triangle / polygon part (slingshot rebound): corner px → world corners.
+export function liftTriangle(cal, m) {
+  return {
+    type: "triangle",
+    corners: m.cornersPx.map((p) => ({ x: cal.worldX(p[0]), z: cal.worldZ(p[1]) })),
+    y: m.y != null ? m.y : 0.0,
+  };
+}
+
 // A polyline (guide wire / rail): each px point → world.
 export function liftPolyline(cal, m) {
   return {
@@ -65,7 +74,7 @@ export function liftPolyline(cal, m) {
   };
 }
 
-const LIFTERS = { flipper: liftFlipper, disc: liftDisc, polyline: liftPolyline };
+const LIFTERS = { flipper: liftFlipper, disc: liftDisc, triangle: liftTriangle, polyline: liftPolyline };
 
 // Compute every part in a chart file to world space.
 // chart = { calibration:{…}, parts:{ name:{ type, …px… } } }

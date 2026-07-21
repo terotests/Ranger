@@ -23,6 +23,8 @@ await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
 const browser = await chromium.launch({ executablePath: CHROME, args: ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: 520, height: 520 }, deviceScaleFactor: DPR });
+page.on("console", (m) => { const t = m.text(); if (/error|fail|undefined|not a|cannot/i.test(t)) console.log("[page]", t); });
+page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 await page.goto(`http://localhost:${port}/index.html`, { waitUntil: "load" });
 await page.waitForTimeout(MS);
 const el = await page.$("#screen");

@@ -111,7 +111,8 @@ export function init() {
   if (VALIDATE) {
     // build EVERY measured part from CHART, keyed SOLID red so the validator can
     // mask each filled silhouette for IoU (and they read over the chart).
-    const keyMat = new THREE.MeshBasicMaterial({ color: 0xff2a3a });
+    // DoubleSide so flat prisms render regardless of polygon winding.
+    const keyMat = new THREE.MeshBasicMaterial({ color: 0xff2a3a, side: 2 });
     const names = Object.keys(CHART.parts);
     let ni = 0;
     while (ni < names.length) { buildPartC(names[ni], keyMat); ni = ni + 1; }
@@ -305,6 +306,23 @@ function buildPartC(name, mat) {
     // top-down footprint = a disc of the measured radius (bumper skirt etc.)
     const m = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r, 0.16, 30), mat);
     m.position.set(p.center.x, 0.12, p.center.z); scene.add(m); return;
+  }
+  if (p.type === "triangle") {
+    // filled polygon prism; build the geometry CENTERED at the corners' centroid
+    // and place the mesh there (keeps geometry local, like the other parts).
+    let cxw = 0, czw = 0, ci = 0;
+    while (ci < p.corners.length) { cxw = cxw + p.corners[ci].x; czw = czw + p.corners[ci].z; ci = ci + 1; }
+    cxw = cxw / p.corners.length; czw = czw / p.corners.length;
+    const pts = [];
+    ci = 0;
+    while (ci < p.corners.length) {
+      pts.push(p.corners[ci].x - cxw);
+      pts.push(p.corners[ci].z - czw);
+      ci = ci + 1;
+    }
+    // thin + near the fiducial plane so the top-down projection matches the check
+    const m = new THREE.Mesh(new THREE.PrismGeometry(pts, 0.08), mat);
+    m.position.set(cxw, 0.11, czw); scene.add(m); return;
   }
 }
 function flipTip(fl) {

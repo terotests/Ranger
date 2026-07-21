@@ -168,6 +168,13 @@ class ThreeSceneHost {
         push geometries g
         return (array_length geometries)
     }
+    ; Flat 2D polygon (flattened [x,z,…] in XZ) extruded to depth in +Y.
+    fn geometryPrism:int (points:[double] depth:double) {
+        def g:ThreePrismGeometry (new ThreePrismGeometry)
+        g.build(points depth)
+        push geometries g
+        return (array_length geometries)
+    }
 
     ; --- material (resources) -------------------------------------------------
     fn materialBasic:int (colorHex:int side:int wireframe:boolean) {
