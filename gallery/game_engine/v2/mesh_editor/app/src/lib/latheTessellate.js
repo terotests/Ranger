@@ -6,9 +6,9 @@
 import {
   sampleOpenPath,
   sampleClosedPath,
-  latheProfileWithOrbit,
   splitLatheBySegments,
 } from "./pathSample.js";
+import { latheProfileWithOrbitOnSpine } from "./spineLathe.js";
 
 function hexToRgb(hex) {
   const h = String(hex || "#ffffff").replace("#", "");
@@ -214,7 +214,22 @@ export function tessellateBody(body) {
     return { parts: [], verts: 0, tris: 0, orbitCols: 0 };
   }
 
-  const mesh = latheProfileWithOrbit(profilePts, orbitPts, closed);
+  const spineProfile = {
+    knots: body.spineProfileKnots || [],
+    segments: body.spineProfileSegments || [],
+  };
+  const spineOrbit = {
+    knots: body.spineOrbitKnots || [],
+    segments: body.spineOrbitSegments || [],
+  };
+  // Fall back to straight vertical if spines missing
+  const mesh = latheProfileWithOrbitOnSpine(
+    profilePts,
+    orbitPts,
+    closed,
+    spineProfile.knots.length >= 2 ? spineProfile : null,
+    spineOrbit.knots.length >= 2 ? spineOrbit : null,
+  );
   const pieces = splitLatheBySegments(
     mesh,
     Math.max(0, body.knots.length - 1),

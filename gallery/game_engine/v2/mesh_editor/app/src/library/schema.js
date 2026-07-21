@@ -2,7 +2,7 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
@@ -89,6 +89,10 @@ function serializeBodyContent(body) {
     segments: (body.segments || []).map(serializeSegment),
     orbitKnots: (body.orbitKnots || []).map(serializeKnot),
     orbitSegments: (body.orbitSegments || []).map(serializeSegment),
+    spineProfileKnots: (body.spineProfileKnots || []).map(serializeKnot),
+    spineProfileSegments: (body.spineProfileSegments || []).map(serializeSegment),
+    spineOrbitKnots: (body.spineOrbitKnots || []).map(serializeKnot),
+    spineOrbitSegments: (body.spineOrbitSegments || []).map(serializeSegment),
   };
 }
 
@@ -141,7 +145,9 @@ export function buildProjectDocument(opts) {
       revolutionDeg: st.revolutionDeg | 0,
       materialMode: st.materialMode | 0,
       symmetry: !!st.symmetry,
-      viewMode: st.viewMode === "orbit" ? "orbit" : "profile",
+      viewMode:
+        st.viewMode === "orbit" || st.viewMode === "spine" ? st.viewMode : "profile",
+      spineSource: st.spineSource === "orbit" ? "orbit" : "profile",
     },
     objectMaterial: {
       color: st.objectMaterial?.color ?? null,
@@ -157,6 +163,14 @@ export function buildProjectDocument(opts) {
     orbit: {
       knots: (st.orbitKnots || []).map(serializeKnot),
       segments: (st.orbitSegments || []).map(serializeSegment),
+    },
+    spineProfile: {
+      knots: (st.spineProfileKnots || []).map(serializeKnot),
+      segments: (st.spineProfileSegments || []).map(serializeSegment),
+    },
+    spineOrbit: {
+      knots: (st.spineOrbitKnots || []).map(serializeKnot),
+      segments: (st.spineOrbitSegments || []).map(serializeSegment),
     },
     embeddedAssets: embedded,
     children: (st.children || []).map(serializeChild),
@@ -186,6 +200,18 @@ export function validateProject(doc) {
   if (doc.schemaVersion >= 3) {
     if (!doc.assetGuid) errors.push("missing assetGuid");
     if (doc.children && !Array.isArray(doc.children)) errors.push("children must be an array");
+  }
+  if (doc.schemaVersion >= 5) {
+    if (!doc.spineProfile || !Array.isArray(doc.spineProfile.knots)) {
+      errors.push("missing spineProfile.knots");
+    } else if (doc.spineProfile.knots.length < 2) {
+      errors.push("spineProfile.knots needs at least 2 points");
+    }
+    if (!doc.spineOrbit || !Array.isArray(doc.spineOrbit.knots)) {
+      errors.push("missing spineOrbit.knots");
+    } else if (doc.spineOrbit.knots.length < 2) {
+      errors.push("spineOrbit.knots needs at least 2 points");
+    }
   }
   return errors;
 }

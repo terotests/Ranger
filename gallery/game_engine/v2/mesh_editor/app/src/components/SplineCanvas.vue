@@ -37,10 +37,16 @@ let raf = 0;
 const hoverAdd = ref(null);
 
 const isOrbit = computed(() => props.viewMode === "orbit");
+const isSpine = computed(() => props.viewMode === "spine");
+const allowSignedX = computed(() => isOrbit.value || isSpine.value);
 const showAttachments = computed(
-  () => !isOrbit.value && props.editTarget === "root" && props.children?.length,
+  () => !isOrbit.value && !isSpine.value && props.editTarget === "root" && props.children?.length,
 );
 const curvePts = computed(() => props.sampleCurvePoints(28));
+
+function clampWorldX(wx) {
+  return allowSignedX.value ? wx : Math.max(0, wx);
+}
 
 function worldToScreen(x, y, w, h) {
   const { min, max } = props.viewport;
@@ -163,6 +169,18 @@ function draw() {
     ctx.lineTo(az1, az1y);
     ctx.stroke();
     drawUnitCircle(ctx, w, h);
+  } else if (isSpine.value) {
+    // Straight-centerline guide (reset target); editable spine may bend away.
+    const [ax0, ay0] = worldToScreen(0, -1, w, h);
+    const [ax1, ay1] = worldToScreen(0, 1, w, h);
+    ctx.strokeStyle = "rgba(200,232,122,0.35)";
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(ax0, ay0);
+    ctx.lineTo(ax1, ay1);
+    ctx.stroke();
+    ctx.setLineDash([]);
   } else {
     const [ax0, ay0] = worldToScreen(0, -1, w, h);
     const [ax1, ay1] = worldToScreen(0, 1, w, h);
@@ -176,7 +194,7 @@ function draw() {
 
   const pts = curvePts.value;
 
-  if (!isOrbit.value && props.symmetry && pts.length > 1) {
+  if (!isOrbit.value && !isSpine.value && props.symmetry && pts.length > 1) {
     ctx.lineWidth = 2;
     drawGradientStroke(
       ctx,
@@ -242,7 +260,7 @@ function draw() {
     const multi = props.selectedIds?.includes(k.id);
     drawPoint(ctx, sx, sy, k.id === props.selectedId || multi, k.color, multi);
 
-    if (!isOrbit.value && props.symmetry && k.x > 0.001) {
+    if (!isOrbit.value && !isSpine.value && props.symmetry && k.x > 0.001) {
       const [mx, my] = worldToScreen(-k.x, k.y, w, h);
       ctx.fillStyle = "rgba(110,200,255,0.35)";
       ctx.beginPath();
@@ -366,7 +384,7 @@ function onPointerDown(e) {
   const [wx, wy] = screenToWorld(sx, sy, size, size);
 
   if (props.toolMode === "add") {
-    emit("add-on-curve", isOrbit.value ? wx : Math.max(0, wx), wy);
+    emit("add-on-curve", clampWorldX(wx), wy);
     return;
   }
 
@@ -408,7 +426,7 @@ function onPointerMove(e) {
   const [wx, wy] = screenToWorld(sx, sy, size, size);
 
   if (props.toolMode === "add") {
-    hoverAdd.value = props.findClosestOnCurve(isOrbit.value ? wx : Math.max(0, wx), wy, 0.14);
+    hoverAdd.value = props.findClosestOnCurve(clampWorldX(wx), wy, 0.14);
     schedule();
     return;
   }
@@ -426,7 +444,7 @@ function onPointerMove(e) {
   const k = props.knots.find((n) => n.id === dragging.id);
   if (!k) return;
   if (dragging.mode === "point") {
-    emit("update-knot", dragging.id, isOrbit.value ? { x: wx, y: wy } : { x: Math.max(0, wx), y: wy });
+    emit("update-knot", dragging.id, { x: clampWorldX(wx), y: wy });
   } else {
     emit("update-knot", dragging.id, { hx: wx - k.x, hy: wy - k.y });
   }
@@ -493,6 +511,11 @@ onBeforeUnmount(() => {
         <span class="dot axis" /> XZ axes
         <span class="dot curve" /> orbit path
         <span class="dot handle" /> unit circle
+      </template>
+      <template v-else-if="viewMode === 'spine'">
+        <span class="dot axis" /> straight guide
+        <span class="dot curve" /> spine bend
+        <span class="dot handle" /> Bezier handle
       </template>
       <template v-else>
         <span class="dot axis" /> axis

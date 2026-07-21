@@ -21,7 +21,15 @@ const emit = defineEmits([
 ]);
 
 const closed = computed(() => props.viewMode === "orbit");
+const isSpine = computed(() => props.viewMode === "spine");
 const minKnots = computed(() => (closed.value ? 3 : 2));
+
+function viewTitle() {
+  if (props.toolMode === "color") return "Coloring";
+  if (props.viewMode === "orbit") return "Orbit points";
+  if (props.viewMode === "spine") return "Spine points";
+  return "Points";
+}
 
 /** Profile: top→bottom. Orbit: around the closed loop in knot order. */
 const rows = computed(() => {
@@ -91,6 +99,11 @@ function knotLabel(i) {
     if (i === 0) return "+X";
     return "pt";
   }
+  if (isSpine.value) {
+    if (i === 0) return "bottom";
+    if (i === props.knots.length - 1) return "top";
+    return "bend";
+  }
   if (i === 0) return "bottom";
   if (i === props.knots.length - 1) return "top";
   return "mid";
@@ -107,11 +120,13 @@ function segLabel(i) {
 <template>
   <div class="point-editor">
     <header>
-      <h2>
-        {{ toolMode === "color" ? "Coloring" : viewMode === "orbit" ? "Orbit points" : "Points" }}
-      </h2>
+      <h2>{{ viewTitle() }}</h2>
       <p v-if="viewMode === 'orbit'">
         Closed loop (canvas X→world X, Y→world Z). Color always editable; Details for numbers.
+      </p>
+      <p v-else-if="viewMode === 'spine'">
+        Tessellation centerline bend (signed offset from the dashed guide). Does not change Profile /
+        Orbit editors. Color always editable; Details for numbers.
       </p>
       <p v-else>Top → bottom (matches the canvas). Color always editable; Details for numbers.</p>
     </header>

@@ -2,6 +2,8 @@
 // assetClone.js — deep-clone spline body content with remapped ids + new GUID.
 // ============================================================================
 
+import { defaultSpineKnots, defaultSpineSegments } from "./spineLathe.js";
+
 export function newGuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "g_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -53,6 +55,29 @@ export function cloneBodyContent(src, { preserveGuid = false, name = "Sub-object
   const orbitMap = new Map();
   const orbitKnots = remapKnots(src.orbit?.knots || src.orbitKnots, orbitMap);
   const orbitSegments = remapSegments(src.orbit?.segments || src.orbitSegments, orbitMap);
+  const spinePMap = new Map();
+  let spineProfileKnots = remapKnots(
+    src.spineProfile?.knots || src.spineProfileKnots,
+    spinePMap,
+  );
+  let spineProfileSegments = remapSegments(
+    src.spineProfile?.segments || src.spineProfileSegments,
+    spinePMap,
+  );
+  if (spineProfileKnots.length < 2) {
+    spineProfileKnots = defaultSpineKnots();
+    spineProfileSegments = defaultSpineSegments(spineProfileKnots);
+  }
+  const spineOMap = new Map();
+  let spineOrbitKnots = remapKnots(src.spineOrbit?.knots || src.spineOrbitKnots, spineOMap);
+  let spineOrbitSegments = remapSegments(
+    src.spineOrbit?.segments || src.spineOrbitSegments,
+    spineOMap,
+  );
+  if (spineOrbitKnots.length < 2) {
+    spineOrbitKnots = defaultSpineKnots();
+    spineOrbitSegments = defaultSpineSegments(spineOrbitKnots);
+  }
   const ed = src.editor || src;
   return {
     assetGuid: preserveGuid && src.assetGuid ? src.assetGuid : newGuid(),
@@ -68,6 +93,10 @@ export function cloneBodyContent(src, { preserveGuid = false, name = "Sub-object
     segments: profileSegments,
     orbitKnots,
     orbitSegments,
+    spineProfileKnots,
+    spineProfileSegments,
+    spineOrbitKnots,
+    spineOrbitSegments,
   };
 }
 
@@ -104,6 +133,36 @@ export function snapshotRootAsBody(state) {
       texture: s.texture,
       textureAsset: s.textureAsset || null,
       textureData: null,
+      pathType: s.pathType || "bezier",
+      arcBulge: s.arcBulge ?? null,
+    })),
+    spineProfileKnots: (state.spineProfileKnots || []).map((k) => ({ ...k })),
+    spineProfileSegments: (state.spineProfileSegments || []).map((s) => ({
+      fromId: s.fromId,
+      toId: s.toId,
+      color: s.color,
+      roughness: s.roughness,
+      metalness: s.metalness,
+      opacity: s.opacity,
+      texture: s.texture,
+      textureAsset: s.textureAsset || null,
+      textureData: null,
+      pathType: s.pathType || "line",
+      arcBulge: s.arcBulge ?? null,
+    })),
+    spineOrbitKnots: (state.spineOrbitKnots || []).map((k) => ({ ...k })),
+    spineOrbitSegments: (state.spineOrbitSegments || []).map((s) => ({
+      fromId: s.fromId,
+      toId: s.toId,
+      color: s.color,
+      roughness: s.roughness,
+      metalness: s.metalness,
+      opacity: s.opacity,
+      texture: s.texture,
+      textureAsset: s.textureAsset || null,
+      textureData: null,
+      pathType: s.pathType || "line",
+      arcBulge: s.arcBulge ?? null,
     })),
   };
 }
