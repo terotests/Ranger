@@ -154,6 +154,10 @@ Attach another library project as a child (**Copy** = new GUID, **Link** = share
 3. Click to place: the child’s **placement normal** aligns to the hit surface normal
 4. Esc cancels; right-drag still orbits the preview
 
+**Surface drag (sub-object edit):** open **Edit** on a child, then in the 3D preview
+hover that instance (grab cursor) and drag — it slides on the root surface, staying
+aligned to the hit normal (profile-plane children convert to surface placement on drag).
+
 Also: **Twin** / **Sym** for mirrored pairs; Profile attach boxes for non-surface nudging; **Edit** loads a child large while the preview stays the full assembly.
 
 ## Shading base

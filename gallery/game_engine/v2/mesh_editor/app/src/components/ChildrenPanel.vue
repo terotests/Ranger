@@ -152,7 +152,8 @@ function onAttach(slug, mode, symmetric) {
       <h3>Attach from library</h3>
       <p class="hint">
         Pick Copy / Link, then click the root surface in the 3D preview. The sub-object’s placement
-        normal aligns to the hit normal.
+        normal aligns to the hit normal. While editing a sub-object, drag it in 3D along that
+        surface.
       </p>
       <p v-if="placeMode" class="placing">
         Placing {{ placeLabel }}…

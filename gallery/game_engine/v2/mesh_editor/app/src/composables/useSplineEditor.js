@@ -859,7 +859,7 @@ export function useSplineEditor() {
     };
   }
 
-  function pushTransformedParts(parts, childParts, xf, mirrorX, body) {
+  function pushTransformedParts(parts, childParts, xf, mirrorX, body, instanceGuid) {
     const pn = normalizePlacementNormal(body?.placementNormal);
     const up = placementNormalDirection3(pn);
     const pivot = [pn.start.x, pn.start.y, 0];
@@ -887,7 +887,9 @@ export function useSplineEditor() {
           mirrorX,
         };
     const placed = transformParts(childParts, surfaceXf, xf.surface ? pivot : undefined);
-    for (const p of placed) parts.push(p);
+    for (const p of placed) {
+      parts.push(instanceGuid ? { ...p, instanceGuid } : p);
+    }
   }
 
   function tessellate() {
@@ -904,12 +906,12 @@ export function useSplineEditor() {
       if (!body || body.knots.length < 2 || body.orbitKnots.length < 3) continue;
       const child = tessellateBody(body);
       const xf = ch.transform || defaultChildTransform();
-      pushTransformedParts(parts, child.parts, xf, false, body);
+      pushTransformedParts(parts, child.parts, xf, false, body, ch.instanceGuid);
       totalV += child.verts;
       totalT += child.tris;
       // Symmetry: same content, mirrored placement (linked eyes without a second instance).
       if (xf.useSymmetry && !xf.snapCenterline && !xf.surface && Math.abs(xf.x) > 0.001) {
-        pushTransformedParts(parts, child.parts, xf, true, body);
+        pushTransformedParts(parts, child.parts, xf, true, body, ch.instanceGuid);
         totalV += child.verts;
         totalT += child.tris;
       }
@@ -959,12 +961,23 @@ export function useSplineEditor() {
   function updateChildTransform(instanceGuid, patch) {
     const ch = state.children.find((c) => c.instanceGuid === instanceGuid);
     if (!ch) return;
-    const moving = patch.x != null || patch.y != null;
+    const moving =
+      patch.x != null ||
+      patch.y != null ||
+      patch.z != null ||
+      patch.nx != null ||
+      patch.ny != null ||
+      patch.nz != null ||
+      patch.surface != null;
     if (moving) beginGesture("move-child");
     else commitToHistory("child-transform");
     Object.assign(ch.transform, patch);
     if (patch.snapCenterline) {
       ch.transform.x = 0;
+      ch.transform.useSymmetry = false;
+    }
+    if (patch.surface) {
+      ch.transform.snapCenterline = false;
       ch.transform.useSymmetry = false;
     }
   }

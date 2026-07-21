@@ -239,6 +239,29 @@ function onPlaceCommit(hit) {
   tessellate();
 }
 
+const surfaceDragContentGuid = computed(() =>
+  isEditingChild() ? state.editTarget : null,
+);
+
+function onSurfaceDrag({ instanceGuid, point, normal }) {
+  if (!instanceGuid || !point || !normal) return;
+  updateChildTransform(instanceGuid, {
+    surface: true,
+    x: point[0],
+    y: point[1],
+    z: point[2],
+    nx: normal[0],
+    ny: normal[1],
+    nz: normal[2],
+  });
+  tessellate();
+}
+
+function onSurfaceDragEnd() {
+  endGesture();
+  tessellate();
+}
+
 onMounted(() => {
   tessellate();
   window.addEventListener("keydown", onKeyDown);
@@ -466,8 +489,13 @@ onBeforeUnmount(() => {
           :material-mode="state.materialMode"
           :placement-normal="state.placementNormal"
           :place-mode="!!placePending"
+          :surface-drag-content-guid="surfaceDragContentGuid"
+          :children="state.children"
           @place-commit="onPlaceCommit"
           @place-cancel="onCancelPlace"
+          @surface-drag="onSurfaceDrag"
+          @surface-drag-end="onSurfaceDragEnd"
+          @select-child="selectChild"
         />
         <ChildrenPanel
           :children="state.children"

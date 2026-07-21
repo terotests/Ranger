@@ -33,6 +33,10 @@ assert.ok(hit);
 assert.ok(Math.abs(hit.point[2]) < 1e-5);
 assert.ok(hit.normal[2] > 0.9);
 
+const tagged = [{ ...parts[0], instanceGuid: "child-a" }];
+const hitTagged = raycastMeshParts([0, 0, 3], [0, 0, -1], tagged);
+assert.equal(hitTagged?.instanceGuid, "child-a");
+
 const view = {
   cam: [0, 0, 4],
   target: [0, 0, 0],

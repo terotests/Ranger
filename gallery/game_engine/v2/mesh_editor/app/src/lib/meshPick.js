@@ -116,7 +116,7 @@ export function intersectTriangle(origin, dir, v0, v1, v2) {
 
 /**
  * Raycast mesh parts in the same space as the ray.
- * @returns {{ point:[number,number,number], normal:[number,number,number], t:number } | null}
+ * @returns {{ point:[number,number,number], normal:[number,number,number], t:number, instanceGuid?:string } | null}
  */
 export function raycastMeshParts(origin, dir, parts) {
   let bestT = Infinity;
@@ -147,6 +147,7 @@ export function raycastMeshParts(origin, dir, parts) {
         point: add3(origin, mul3(dir, t)),
         normal: n,
         t,
+        instanceGuid: part.instanceGuid || undefined,
       };
     }
   }
