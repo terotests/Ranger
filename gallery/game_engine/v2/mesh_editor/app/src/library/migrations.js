@@ -128,18 +128,84 @@ function normalizeV2(doc) {
   };
 }
 
+function normalizeEmbeddedBody(body, fallbackGuid) {
+  if (!body) return null;
+  const knots = mapKnots(body.knots);
+  const orbitKnots = mapKnots(body.orbitKnots || body.orbit?.knots);
+  if (orbitKnots.length < 3) return null;
+  return {
+    assetGuid: body.assetGuid || fallbackGuid || newId(),
+    name: body.name || "Sub-object",
+    curveType: Number(body.curveType ?? 0),
+    pathSegments: Number(body.pathSegments ?? 12),
+    angularSteps: Number(body.angularSteps ?? 24),
+    revolutionDeg: Number(body.revolutionDeg ?? 360),
+    objectMaterial: {
+      color: body.objectMaterial?.color ?? null,
+      roughness: Number(body.objectMaterial?.roughness ?? 0.4),
+      metalness: Number(body.objectMaterial?.metalness ?? 0),
+      opacity: Number(body.objectMaterial?.opacity ?? 1),
+      texture: body.objectMaterial?.texture || "gradient",
+    },
+    knots,
+    segments: mapSegments(body.segments, knots, false),
+    orbitKnots,
+    orbitSegments: mapSegments(body.orbitSegments || body.orbit?.segments, orbitKnots, true),
+  };
+}
+
+function normalizeV3(doc) {
+  const v2 = normalizeV2(doc);
+  const embeddedAssets = {};
+  const rawEmb = doc.embeddedAssets || {};
+  for (const [guid, body] of Object.entries(rawEmb)) {
+    const n = normalizeEmbeddedBody(body, guid);
+    if (n) embeddedAssets[n.assetGuid] = n;
+  }
+  const children = (doc.children || []).map((ch, i) => ({
+    instanceGuid: ch.instanceGuid || newId(),
+    contentGuid: ch.contentGuid || ch.assetGuid || `missing_${i}`,
+    mode: ch.mode === "link" ? "link" : "copy",
+    name: ch.name || "Sub-object",
+    sourceId: ch.sourceId || null,
+    sourceSlug: ch.sourceSlug || null,
+    transform: {
+      x: Number(ch.transform?.x ?? 0.45),
+      y: Number(ch.transform?.y ?? 0.35),
+      rotationYDeg: Number(ch.transform?.rotationYDeg ?? 0),
+      scale: Number(ch.transform?.scale ?? 0.28),
+      useSymmetry: !!ch.transform?.useSymmetry,
+      snapCenterline: !!ch.transform?.snapCenterline,
+    },
+    visible: ch.visible !== false,
+  }));
+  return {
+    ...v2,
+    schemaVersion: 3,
+    assetGuid: doc.assetGuid || v2.id || newId(),
+    objectMaterial: {
+      color: doc.objectMaterial?.color ?? null,
+      roughness: Number(doc.objectMaterial?.roughness ?? 0.4),
+      metalness: Number(doc.objectMaterial?.metalness ?? 0),
+      opacity: Number(doc.objectMaterial?.opacity ?? 1),
+      texture: doc.objectMaterial?.texture || "gradient",
+    },
+    embeddedAssets,
+    children,
+  };
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
-  // 0 / missing → 1
   1(doc) {
-    if (doc && doc.schemaVersion === 1 && doc.kind === SCHEMA_KIND && doc.profile) {
-      return normalizeV1(doc);
-    }
     return normalizeV1(doc);
   },
-  // 1 → 2: add closed orbit path (unit circle Bezier) + viewMode
   2(doc) {
     return normalizeV2(doc);
+  },
+  // 2 → 3: assetGuid, objectMaterial, embeddedAssets, children
+  3(doc) {
+    return normalizeV3(doc);
   },
 };
 

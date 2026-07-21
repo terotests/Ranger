@@ -5,25 +5,41 @@ const props = defineProps({
   knots: { type: Array, required: true },
   segments: { type: Array, default: () => [] },
   selectedId: { type: String, default: null },
+  selectedIds: { type: Array, default: () => [] },
   selectedSegmentIndex: { type: Number, default: -1 },
   curveType: { type: Number, default: 0 },
   symmetry: { type: Boolean, default: true },
   toolMode: { type: String, default: "edit" },
   viewMode: { type: String, default: "profile" },
+  children: { type: Array, default: () => [] },
+  selectedChildGuid: { type: String, default: null },
+  editTarget: { type: String, default: "root" },
   viewport: { type: Object, required: true },
   sampleCurvePoints: { type: Function, required: true },
   findClosestOnCurve: { type: Function, required: true },
 });
 
-const emit = defineEmits(["select", "select-segment", "update-knot", "add-on-curve", "drag-end"]);
+const emit = defineEmits([
+  "select",
+  "select-segment",
+  "update-knot",
+  "add-on-curve",
+  "drag-end",
+  "select-child",
+  "move-child",
+]);
 
 const canvasRef = ref(null);
 const size = 560;
 let dragging = null;
+let draggingChild = null;
 let raf = 0;
 const hoverAdd = ref(null);
 
 const isOrbit = computed(() => props.viewMode === "orbit");
+const showAttachments = computed(
+  () => !isOrbit.value && props.editTarget === "root" && props.children?.length,
+);
 const curvePts = computed(() => props.sampleCurvePoints(28));
 
 function worldToScreen(x, y, w, h) {
@@ -202,7 +218,8 @@ function draw() {
       drawHandle(ctx, hx, hy, k.id === props.selectedId);
       drawHandle(ctx, ix, iy, false);
     }
-    drawPoint(ctx, sx, sy, k.id === props.selectedId, k.color);
+    const multi = props.selectedIds?.includes(k.id);
+    drawPoint(ctx, sx, sy, k.id === props.selectedId || multi, k.color, multi);
 
     if (!isOrbit.value && props.symmetry && k.x > 0.001) {
       const [mx, my] = worldToScreen(-k.x, k.y, w, h);
@@ -212,6 +229,19 @@ function draw() {
       ctx.fill();
     }
   });
+
+  if (showAttachments.value) {
+    for (const ch of props.children) {
+      if (ch.visible === false) continue;
+      const ax = ch.transform.snapCenterline ? 0 : ch.transform.x;
+      const ay = ch.transform.y;
+      const half = 0.06 * Math.max(0.5, ch.transform.scale / 0.28);
+      drawAttachBox(ctx, ax, ay, half, ch.instanceGuid === props.selectedChildGuid, w, h, ch.name);
+      if (ch.transform.useSymmetry && !ch.transform.snapCenterline && Math.abs(ax) > 0.001) {
+        drawAttachBox(ctx, -ax, ay, half, false, w, h, "");
+      }
+    }
+  }
 
   if (props.toolMode === "add" && hoverAdd.value) {
     const [sx, sy] = worldToScreen(hoverAdd.value.x, hoverAdd.value.y, w, h);
@@ -230,14 +260,31 @@ function evalMid(segIndex) {
   return pts[(pts.length / 2) | 0];
 }
 
-function drawPoint(ctx, x, y, selected, color) {
+function drawPoint(ctx, x, y, selected, color, multi = false) {
   ctx.beginPath();
   ctx.arc(x, y, selected ? 8 : 6, 0, Math.PI * 2);
   ctx.fillStyle = color || (selected ? "#c8e87a" : "#e8efe6");
   ctx.fill();
-  ctx.strokeStyle = selected ? "#ffffff" : "rgba(0,0,0,0.45)";
-  ctx.lineWidth = selected ? 2 : 1.5;
+  ctx.strokeStyle = multi ? "#ffe08a" : selected ? "#ffffff" : "rgba(0,0,0,0.45)";
+  ctx.lineWidth = selected || multi ? 2 : 1.5;
   ctx.stroke();
+}
+
+function drawAttachBox(ctx, ax, ay, half, selected, w, h, label) {
+  const [x0, y0] = worldToScreen(ax - half, ay + half, w, h);
+  const [x1, y1] = worldToScreen(ax + half, ay - half, w, h);
+  ctx.strokeStyle = selected ? "#c8e87a" : "rgba(232,122,200,0.85)";
+  ctx.fillStyle = selected ? "rgba(200,232,122,0.18)" : "rgba(232,122,200,0.12)";
+  ctx.lineWidth = selected ? 2 : 1.25;
+  ctx.beginPath();
+  ctx.rect(x0, y0, x1 - x0, y1 - y0);
+  ctx.fill();
+  ctx.stroke();
+  if (label) {
+    ctx.fillStyle = "rgba(232,200,220,0.9)";
+    ctx.font = "11px sans-serif";
+    ctx.fillText(label.slice(0, 18), x0, y0 - 4);
+  }
 }
 
 function drawHandle(ctx, x, y, selected) {
@@ -272,6 +319,24 @@ function hitTestSegment(sx, sy) {
   return -1;
 }
 
+function hitTestChild(sx, sy) {
+  if (!showAttachments.value) return null;
+  for (const ch of props.children) {
+    if (ch.visible === false) continue;
+    const ax = ch.transform.snapCenterline ? 0 : ch.transform.x;
+    const ay = ch.transform.y;
+    const half = 0.06 * Math.max(0.5, ch.transform.scale / 0.28);
+    const [x0, y0] = worldToScreen(ax - half, ay + half, size, size);
+    const [x1, y1] = worldToScreen(ax + half, ay - half, size, size);
+    const left = Math.min(x0, x1);
+    const right = Math.max(x0, x1);
+    const top = Math.min(y0, y1);
+    const bottom = Math.max(y0, y1);
+    if (sx >= left && sx <= right && sy >= top && sy <= bottom) return ch.instanceGuid;
+  }
+  return null;
+}
+
 function onPointerDown(e) {
   const rect = canvasRef.value.getBoundingClientRect();
   const sx = e.clientX - rect.left;
@@ -283,10 +348,20 @@ function onPointerDown(e) {
     return;
   }
 
+  if (props.toolMode === "edit" && showAttachments.value) {
+    const cid = hitTestChild(sx, sy);
+    if (cid) {
+      draggingChild = cid;
+      emit("select-child", cid);
+      canvasRef.value.setPointerCapture(e.pointerId);
+      return;
+    }
+  }
+
   if (props.toolMode === "color") {
     const pt = hitTestPoint(sx, sy);
     if (pt) {
-      emit("select", pt.id);
+      emit("select", pt.id, { additive: !!(e.shiftKey || e.metaKey) });
       return;
     }
     const seg = hitTestSegment(sx, sy);
@@ -316,6 +391,15 @@ function onPointerMove(e) {
     return;
   }
 
+  if (draggingChild && props.toolMode === "edit") {
+    emit("move-child", draggingChild, {
+      x: Math.max(0, wx),
+      y: wy,
+      snapCenterline: false,
+    });
+    return;
+  }
+
   if (!dragging || props.toolMode !== "edit") return;
   const k = props.knots.find((n) => n.id === dragging.id);
   if (!k) return;
@@ -327,10 +411,11 @@ function onPointerMove(e) {
 }
 
 function onPointerUp() {
-  if (dragging && props.toolMode === "edit") {
+  if ((dragging || draggingChild) && props.toolMode === "edit") {
     emit("drag-end");
   }
   dragging = null;
+  draggingChild = null;
 }
 
 function schedule() {
@@ -343,11 +428,15 @@ watch(
     props.knots,
     props.segments,
     props.selectedId,
+    props.selectedIds,
     props.selectedSegmentIndex,
     props.curveType,
     props.symmetry,
     props.toolMode,
     props.viewMode,
+    props.children,
+    props.selectedChildGuid,
+    props.editTarget,
     curvePts.value,
     hoverAdd.value,
   ],

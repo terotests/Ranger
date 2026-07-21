@@ -73,8 +73,8 @@ gallery/game_engine/v2/mesh_editor/library/projects/<slug>/project.json
 
 That tree is **gitignored** by default. Point elsewhere with
 `MESH_EDITOR_LIBRARY=/abs/or/rel/path`. Schema + migrations live in
-`app/src/library/` (`schemaVersion` 2+, kind `ranger.splineProject`, with
-`profile` + closed `orbit` paths).
+`app/src/library/` (`schemaVersion` 3+, kind `ranger.splineProject`, with
+`profile`, closed `orbit`, `assetGuid`, `embeddedAssets`, and `children`).
 
 Offline fallback: **Export JSON** / **Import JSON** in the Library panel.
 
@@ -84,17 +84,29 @@ See [`library/README.md`](./library/README.md).
 
 | View | Behaviour |
 |------|-----------|
-| **Profile** | Edit the Y-up silhouette (right half) |
+| **Profile** | Edit the Y-up silhouette (right half); place **sub-object** attach boxes |
 | **Orbit** | Edit the closed XZ rotation path that replaces cos/sin |
 
 | Mode | Behaviour |
 |------|-----------|
-| **Edit** | Drag knots / Bezier handles; mesh refreshes when the drag ends |
+| **Edit** | Drag knots / Bezier handles / attach boxes; mesh refreshes on drag end |
 | **Add** | Click the active curve to insert a knot |
-| **Coloring** | Per-knot / per-segment colours & materials (profile or orbit) |
+| **Coloring** | Per-knot / segment colours; **Shift+click** multi-select; bulk whole / selection |
+
+### Bulk colour
+
+Toolbar **Bulk colour** → *Whole object* paints every knot/segment (+ object material) on the
+active edit target; *Selection* paints only the multi-selected points.
+
+### Sub-objects (schema v3)
+
+- Attach another library project as a **copy** (new `assetGuid`, independent of later Saves of the source) or **link** (shared `assetGuid`)
+- **Copy×2** / **Twin** / **Sym** for mirrored pairs that share content (e.g. two eyes)
+- Placement: `(x,y)` on the profile plane, Y-rotation, **bbox scale**, **Center** on the axis
+- **Edit** a sub-object to load it large in the canvas; the 3D preview always shows the **full assembly**
+- Instance GUID ≠ content GUID: instances can differ in transform while linked content stays in sync
 
 Profile list is **top → bottom**. Orbit list follows knot order around the loop.
-Rows stay compact; **Details** expands numeric / material fields.
 
 ## Shading base
 
