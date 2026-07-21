@@ -158,6 +158,10 @@ Attach another library project as a child (**Copy** = new GUID, **Link** = share
 hover that instance (grab cursor) and drag — it slides on the root surface, staying
 aligned to the hit normal (profile-plane children convert to surface placement on drag).
 
+Editing the root **spine** (or profile) re-seats surface-placed children on the updated
+root mesh along their stored parent normal. Child spines and placement normals are
+stored on the embedded asset and survive save/load.
+
 Also: **Twin** / **Sym** for mirrored pairs; Profile attach boxes for non-surface nudging; **Edit** loads a child large while the preview stays the full assembly.
 
 ## Shading base

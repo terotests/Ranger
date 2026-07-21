@@ -15,6 +15,7 @@ import {
   normalizePlacementNormal,
   placementNormalDirection3,
 } from "../lib/placementNormal.js";
+import { raycastMeshParts } from "../lib/meshPick.js";
 
 /** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} Knot */
 /** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureData: any, textureAsset?: string|null, pathType?: string, arcBulge?: number|null }} Segment */
@@ -262,6 +263,7 @@ export function useSplineEditor() {
         spineProfileSegments: bsp.segments,
         spineOrbitKnots: bso.knots,
         spineOrbitSegments: bso.segments,
+        placementNormal: normalizePlacementNormal(body.placementNormal),
         objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
       };
     }
@@ -619,6 +621,12 @@ export function useSplineEditor() {
     Object.assign(s, patch);
   }
 
+  function activePlacementNormal() {
+    const b = bodyRef();
+    if (b) return normalizePlacementNormal(b.placementNormal);
+    return normalizePlacementNormal(state.placementNormal);
+  }
+
   function updatePlacementNormal(patch) {
     const moving =
       patch?.start != null ||
@@ -629,7 +637,10 @@ export function useSplineEditor() {
       patch?.endY != null;
     if (moving) beginGesture("move-normal");
     else commitToHistory("placement-normal");
-    const cur = normalizePlacementNormal(state.placementNormal);
+    const target = bodyRef();
+    const cur = normalizePlacementNormal(
+      target ? target.placementNormal : state.placementNormal,
+    );
     const next = {
       start: { ...cur.start, ...(patch.start || {}) },
       end: { ...cur.end, ...(patch.end || {}) },
@@ -642,12 +653,15 @@ export function useSplineEditor() {
     if (Math.hypot(next.end.x - next.start.x, next.end.y - next.start.y) < 1e-6) {
       next.end.y = next.start.y + 0.01;
     }
-    state.placementNormal = next;
+    if (target) target.placementNormal = next;
+    else state.placementNormal = next;
   }
 
   function resetPlacementNormal() {
     commitToHistory("reset-normal");
-    state.placementNormal = defaultPlacementNormal();
+    const target = bodyRef();
+    if (target) target.placementNormal = defaultPlacementNormal();
+    else state.placementNormal = defaultPlacementNormal();
     state.status = "Placement normal reset to bottom→top (0,-1)→(0,1).";
   }
 
@@ -892,10 +906,49 @@ export function useSplineEditor() {
     }
   }
 
+  /**
+   * Keep surface-placed children seated on the root: raycast along the stored
+   * parent normal through the attach point and refresh point + normal.
+   * Called after root (re)tessellation so spine/profile edits re-align subs.
+   */
+  function resnapSurfaceChildren(rootParts) {
+    if (!rootParts?.length) return;
+    for (const ch of state.children) {
+      const xf = ch.transform;
+      if (!xf?.surface) continue;
+      const nx = Number(xf.nx) || 0;
+      const ny = Number(xf.ny) || 1;
+      const nz = Number(xf.nz) || 0;
+      const L = Math.hypot(nx, ny, nz) || 1;
+      const n = [nx / L, ny / L, nz / L];
+      const px = Number(xf.x) || 0;
+      const py = Number(xf.y) || 0;
+      const pz = Number(xf.z) || 0;
+      const origin = [px + n[0] * 0.75, py + n[1] * 0.75, pz + n[2] * 0.75];
+      let hit = raycastMeshParts(origin, [-n[0], -n[1], -n[2]], rootParts);
+      if (!hit) {
+        hit = raycastMeshParts(
+          [px - n[0] * 0.75, py - n[1] * 0.75, pz - n[2] * 0.75],
+          n,
+          rootParts,
+        );
+      }
+      if (!hit) continue;
+      xf.x = hit.point[0];
+      xf.y = hit.point[1];
+      xf.z = hit.point[2];
+      xf.nx = hit.normal[0];
+      xf.ny = hit.normal[1];
+      xf.nz = hit.normal[2];
+    }
+  }
+
   function tessellate() {
     // Always assemble from ROOT + children (preview shows full object even when editing a child).
     const root = tessellateBody(rootBodySnapshot());
     state.rootMesh = { parts: root.parts.slice() };
+    // Spine / profile edits move the root surface — re-seat surface children on it.
+    resnapSurfaceChildren(state.rootMesh.parts);
     const parts = root.parts.slice();
     let totalV = root.verts;
     let totalT = root.tris;
@@ -950,6 +1003,7 @@ export function useSplineEditor() {
       state.status = "Missing embedded content for this sub-object.";
       return;
     }
+    if (!body.placementNormal) body.placementNormal = defaultPlacementNormal();
     state.selectedChildGuid = instanceGuid;
     state.editTarget = ch.contentGuid;
     state.viewMode = "profile";
@@ -1200,6 +1254,7 @@ export function useSplineEditor() {
         spineProfileSegments: bsp.segments,
         spineOrbitKnots: bso.knots,
         spineOrbitSegments: bso.segments,
+        placementNormal: normalizePlacementNormal(body.placementNormal),
         objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
       };
     }
@@ -1240,6 +1295,7 @@ export function useSplineEditor() {
         spineProfileSegments: (body.spineProfileSegments || []).map(mapSegSnapshot),
         spineOrbitKnots: (body.spineOrbitKnots || []).map((k) => ({ ...k })),
         spineOrbitSegments: (body.spineOrbitSegments || []).map(mapSegSnapshot),
+        placementNormal: normalizePlacementNormal(body.placementNormal),
       };
     }
     return {
@@ -1303,6 +1359,7 @@ export function useSplineEditor() {
     activeSegments,
     activeObjectMaterial,
     activeCurveType,
+    activePlacementNormal,
     setActiveCurveType,
     isEditingChild,
     setViewMode,

@@ -137,6 +137,10 @@ function normalizeEmbeddedBody(body, fallbackGuid) {
   const knots = mapKnots(body.knots);
   const orbitKnots = mapKnots(body.orbitKnots || body.orbit?.knots);
   if (orbitKnots.length < 3) return null;
+  // Forward-compat: keep spine + placementNormal through the v3 whitelist so
+  // migrateProject's final STEPS[CURRENT] re-normalize does not wipe them.
+  const spineProfileKnots = mapKnots(body.spineProfileKnots);
+  const spineOrbitKnots = mapKnots(body.spineOrbitKnots);
   return {
     assetGuid: body.assetGuid || fallbackGuid || newId(),
     name: body.name || "Sub-object",
@@ -155,6 +159,26 @@ function normalizeEmbeddedBody(body, fallbackGuid) {
     segments: mapSegments(body.segments, knots, false),
     orbitKnots,
     orbitSegments: mapSegments(body.orbitSegments || body.orbit?.segments, orbitKnots, true),
+    spineProfileKnots,
+    spineProfileSegments: spineProfileKnots.length
+      ? mapSegments(body.spineProfileSegments, spineProfileKnots, false)
+      : [],
+    spineOrbitKnots,
+    spineOrbitSegments: spineOrbitKnots.length
+      ? mapSegments(body.spineOrbitSegments, spineOrbitKnots, false)
+      : [],
+    placementNormal: body.placementNormal
+      ? {
+          start: {
+            x: Number(body.placementNormal.start?.x) || 0,
+            y: Number(body.placementNormal.start?.y) || 0,
+          },
+          end: {
+            x: Number(body.placementNormal.end?.x) || 0,
+            y: Number(body.placementNormal.end?.y) || 0,
+          },
+        }
+      : undefined,
   };
 }
 
@@ -299,21 +323,43 @@ function normalizeV5(doc) {
   v4.spineProfile = normalizeSpineBlock(doc.spineProfile, "spp");
   v4.spineOrbit = normalizeSpineBlock(doc.spineOrbit, "spo");
   const emb = {};
+  // Prefer spines from the *input* doc — normalizeV3 historically rebuilt
+  // embedded bodies without spine fields, which reset shortened child spines
+  // to the default full-length (-1…1) centerline on every save/migrate.
+  const origEmb = doc.embeddedAssets || {};
   for (const [guid, body] of Object.entries(v4.embeddedAssets || {})) {
+    const src =
+      origEmb[guid] ||
+      origEmb[body.assetGuid] ||
+      Object.values(origEmb).find((b) => b?.assetGuid === body.assetGuid) ||
+      body;
     const sp = normalizeSpineBlock(
-      { knots: body.spineProfileKnots, segments: body.spineProfileSegments },
+      { knots: src.spineProfileKnots, segments: src.spineProfileSegments },
       "spp",
     );
     const so = normalizeSpineBlock(
-      { knots: body.spineOrbitKnots, segments: body.spineOrbitSegments },
+      { knots: src.spineOrbitKnots, segments: src.spineOrbitSegments },
       "spo",
     );
+    const pnSrc = src.placementNormal || body.placementNormal;
     emb[guid] = {
       ...body,
       spineProfileKnots: sp.knots,
       spineProfileSegments: sp.segments,
       spineOrbitKnots: so.knots,
       spineOrbitSegments: so.segments,
+      placementNormal: pnSrc
+        ? {
+            start: {
+              x: Number(pnSrc.start?.x) || 0,
+              y: Number(pnSrc.start?.y) || 0,
+            },
+            end: {
+              x: Number(pnSrc.end?.x) || 0,
+              y: Number(pnSrc.end?.y) || 0,
+            },
+          }
+        : body.placementNormal,
     };
   }
   v4.embeddedAssets = emb;

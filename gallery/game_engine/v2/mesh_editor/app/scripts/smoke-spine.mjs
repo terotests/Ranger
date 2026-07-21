@@ -195,9 +195,93 @@ assert.ok(mig.doc.spineProfile.knots.every((k) => Math.abs(k.x) < 1e-9));
 const errs = validateProject(mig.doc);
 assert.equal(errs.length, 0, errs.join("; "));
 
+// Embedded child spines must survive save re-migrate (not reset to y=-1…1).
+const shortSpine = [
+  { id: "sp0", x: 0, y: -0.2, hx: 0, hy: 0, color: "#fff" },
+  { id: "sp1", x: 0, y: 0, hx: 0, hy: 0, color: "#fff" },
+  { id: "sp2", x: 0, y: 0.25, hx: 0, hy: 0, color: "#fff" },
+];
+const shortSegs = [
+  {
+    fromId: "sp0",
+    toId: "sp1",
+    pathType: "line",
+    roughness: 0.4,
+    metalness: 0,
+    opacity: 1,
+    texture: "gradient",
+    color: null,
+  },
+  {
+    fromId: "sp1",
+    toId: "sp2",
+    pathType: "line",
+    roughness: 0.4,
+    metalness: 0,
+    opacity: 1,
+    texture: "gradient",
+    color: null,
+  },
+];
+const v8Child = {
+  ...mig.doc,
+  schemaVersion: 8,
+  embeddedAssets: {
+    c1: {
+      assetGuid: "c1",
+      name: "Eye",
+      curveType: 0,
+      pathSegments: 12,
+      angularSteps: 24,
+      revolutionDeg: 360,
+      tessellationMode: "rotation",
+      objectMaterial: mig.doc.objectMaterial,
+      knots: mig.doc.profile.knots,
+      segments: mig.doc.profile.segments,
+      orbitKnots: mig.doc.orbit.knots,
+      orbitSegments: mig.doc.orbit.segments,
+      spineProfileKnots: shortSpine,
+      spineProfileSegments: shortSegs,
+      spineOrbitKnots: shortSpine,
+      spineOrbitSegments: shortSegs,
+      placementNormal: { start: { x: 0, y: -0.2 }, end: { x: 0, y: 0.25 } },
+    },
+  },
+  children: [
+    {
+      instanceGuid: "i1",
+      contentGuid: "c1",
+      mode: "copy",
+      name: "Eye",
+      transform: {
+        x: 0.1,
+        y: 0.2,
+        z: 0.3,
+        nx: 0,
+        ny: 1,
+        nz: 0,
+        surface: true,
+        scale: 0.2,
+        rotationYDeg: 0,
+        useSymmetry: false,
+        snapCenterline: false,
+      },
+      visible: true,
+    },
+  ],
+};
+const childRound = migrateProject(v8Child);
+assert.equal(childRound.ok, true, childRound.errors?.join("; "));
+const emb = childRound.doc.embeddedAssets.c1;
+assert.ok(emb, "embedded asset kept");
+assert.ok(Math.abs(emb.spineProfileKnots[0].y - -0.2) < 1e-9, "short spine start kept");
+assert.ok(Math.abs(emb.spineProfileKnots[2].y - 0.25) < 1e-9, "short spine end kept");
+assert.ok(Math.abs(emb.placementNormal.start.y - -0.2) < 1e-9, "child placementNormal kept");
+
 console.log("smoke-spine: ok", {
   maxDiffStraight: maxDiff,
   scaledOrbitDiff: scaledDiff,
   bentMoved: moved,
   schema: mig.doc.schemaVersion,
+  childSpineY: [emb.spineProfileKnots[0].y, emb.spineProfileKnots[2].y],
 });
