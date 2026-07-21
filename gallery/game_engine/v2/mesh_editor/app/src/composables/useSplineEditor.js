@@ -13,6 +13,7 @@ import { defaultSpineKnots, defaultSpineSegments } from "../lib/spineLathe.js";
 import {
   defaultPlacementNormal,
   normalizePlacementNormal,
+  placementNormalDirection3,
 } from "../lib/placementNormal.js";
 
 /** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} Knot */
@@ -86,6 +87,7 @@ function projectDocToBody(doc, { newGuidForCopy = true } = {}) {
       orbit: doc.orbit,
       spineProfile: doc.spineProfile,
       spineOrbit: doc.spineOrbit,
+      placementNormal: doc.placementNormal,
       editor: doc.editor,
       objectMaterial: doc.objectMaterial,
       knots: doc.profile?.knots,
@@ -172,6 +174,8 @@ export function useSplineEditor() {
     editTarget: "root",
     bulkColor: "#7ecf6a",
     mesh: null,
+    /** Root-only mesh parts for surface raycasting (no children). */
+    rootMesh: null,
     stats: { verts: 0, tris: 0, profile: 0, parts: 0 },
     status: "Edit mode — drag points. Sub-objects attach in Profile view.",
     history: { canUndo: false, canRedo: false, past: 0, future: 0 },
@@ -855,21 +859,41 @@ export function useSplineEditor() {
     };
   }
 
-  function pushTransformedParts(parts, childParts, xf, mirrorX) {
-    const placed = transformParts(childParts, {
-      x: xf.x,
-      y: xf.y,
-      rotationYDeg: xf.rotationYDeg,
-      scale: xf.scale,
-      snapCenterline: xf.snapCenterline,
-      mirrorX,
-    });
+  function pushTransformedParts(parts, childParts, xf, mirrorX, body) {
+    const pn = normalizePlacementNormal(body?.placementNormal);
+    const up = placementNormalDirection3(pn);
+    const pivot = [pn.start.x, pn.start.y, 0];
+    const surfaceXf = xf.surface
+      ? {
+          ...xf,
+          x: mirrorX ? -xf.x : xf.x,
+          nx: mirrorX ? -xf.nx : xf.nx,
+          ny: xf.ny,
+          nz: xf.nz,
+          mirrorX: false,
+          childUpX: up.x,
+          childUpY: up.y,
+          childUpZ: up.z,
+          pivotX: pivot[0],
+          pivotY: pivot[1],
+          pivotZ: pivot[2],
+        }
+      : {
+          x: xf.x,
+          y: xf.y,
+          rotationYDeg: xf.rotationYDeg,
+          scale: xf.scale,
+          snapCenterline: xf.snapCenterline,
+          mirrorX,
+        };
+    const placed = transformParts(childParts, surfaceXf, xf.surface ? pivot : undefined);
     for (const p of placed) parts.push(p);
   }
 
   function tessellate() {
     // Always assemble from ROOT + children (preview shows full object even when editing a child).
     const root = tessellateBody(rootBodySnapshot());
+    state.rootMesh = { parts: root.parts.slice() };
     const parts = root.parts.slice();
     let totalV = root.verts;
     let totalT = root.tris;
@@ -880,12 +904,12 @@ export function useSplineEditor() {
       if (!body || body.knots.length < 2 || body.orbitKnots.length < 3) continue;
       const child = tessellateBody(body);
       const xf = ch.transform || defaultChildTransform();
-      pushTransformedParts(parts, child.parts, xf, false);
+      pushTransformedParts(parts, child.parts, xf, false, body);
       totalV += child.verts;
       totalT += child.tris;
       // Symmetry: same content, mirrored placement (linked eyes without a second instance).
-      if (xf.useSymmetry && !xf.snapCenterline && Math.abs(xf.x) > 0.001) {
-        pushTransformedParts(parts, child.parts, xf, true);
+      if (xf.useSymmetry && !xf.snapCenterline && !xf.surface && Math.abs(xf.x) > 0.001) {
+        pushTransformedParts(parts, child.parts, xf, true, body);
         totalV += child.verts;
         totalT += child.tris;
       }
@@ -975,7 +999,7 @@ export function useSplineEditor() {
    * mode 'link' → keep source assetGuid so edits stay linked.
    * symmetric → also add a mirrored instance sharing the same contentGuid.
    */
-  function attachFromProject(doc, { mode = "copy", symmetric = false, name } = {}) {
+  function attachFromProject(doc, { mode = "copy", symmetric = false, name, transform } = {}) {
     if (!doc?.profile?.knots || !doc?.orbit?.knots) {
       state.status = "Project needs profile + orbit to attach.";
       return null;
@@ -992,6 +1016,7 @@ export function useSplineEditor() {
       const body = projectDocToBody(doc, { newGuidForCopy: asCopy });
       if (!asCopy && doc.assetGuid) body.assetGuid = doc.assetGuid;
       body.name = bodyName;
+      body.placementNormal = normalizePlacementNormal(doc.placementNormal);
       state.embeddedAssets[body.assetGuid] = body;
       contentGuid = body.assetGuid;
     }
@@ -1007,18 +1032,43 @@ export function useSplineEditor() {
       visible: true,
     });
 
+    const baseXf = transform?.surface
+      ? {
+          x: transform.x,
+          y: transform.y,
+          z: transform.z ?? 0,
+          nx: transform.nx ?? 0,
+          ny: transform.ny ?? 1,
+          nz: transform.nz ?? 0,
+          surface: true,
+          scale: transform.scale ?? 0.28,
+          rotationYDeg: transform.rotationYDeg ?? 0,
+          useSymmetry: false,
+          snapCenterline: false,
+        }
+      : { x: 0.45, y: 0.35, useSymmetry: false };
+
     const primary = makeInst(
-      { x: 0.45, y: 0.35, useSymmetry: false },
+      baseXf,
       bodyName + (symmetric ? " (R)" : ""),
     );
     state.children.push(primary);
     if (symmetric) {
-      state.children.push(
-        makeInst(
-          { x: -0.45, y: 0.35, rotationYDeg: 0, useSymmetry: false },
-          bodyName + " (L)",
-        ),
-      );
+      if (transform?.surface) {
+        state.children.push(
+          makeInst(
+            { ...baseXf, x: -baseXf.x, nx: -baseXf.nx },
+            bodyName + " (L)",
+          ),
+        );
+      } else {
+        state.children.push(
+          makeInst(
+            { x: -0.45, y: 0.35, rotationYDeg: 0, useSymmetry: false },
+            bodyName + " (L)",
+          ),
+        );
+      }
     }
 
     state.selectedChildGuid = primary.instanceGuid;

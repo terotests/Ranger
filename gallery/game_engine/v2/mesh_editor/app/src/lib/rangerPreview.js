@@ -1,6 +1,6 @@
 /** Boot / drive WebMeshEditorHost for the 3D preview canvas. */
 
-export async function createPreviewSession(canvas, size = 420) {
+export async function createPreviewSession(canvas, size = 420, opts = {}) {
   const bundleSource = await fetch("/ranger/mesh_editor.bundle.js").then((r) => r.text());
   const vfs = new window.RangerVFS();
   const engine = window.RangerEngineHost.createEngine(bundleSource, vfs, {});
@@ -27,6 +27,7 @@ export async function createPreviewSession(canvas, size = 420) {
   let running = false;
   let lastMesh = null;
   let lastMode = 3;
+  const placeModeGetter = opts.placeModeGetter || (() => false);
 
   function blit() {
     if (useGL || !ctx || !image) return;
@@ -66,7 +67,6 @@ export async function createPreviewSession(canvas, size = 420) {
   function pushMesh(mesh) {
     if (!mesh) return;
     host.setMaterialMode(lastMode | 0);
-    // New multi-part format
     if (mesh.parts && mesh.parts.length) {
       host.beginParts();
       for (const part of mesh.parts) {
@@ -89,7 +89,6 @@ export async function createPreviewSession(canvas, size = 420) {
       blit();
       return;
     }
-    // Legacy single mesh
     if (mesh.positions) {
       host.setMesh(mesh.positions, mesh.normals, mesh.uvs, mesh.indices);
       host.frame(0);
@@ -112,12 +111,37 @@ export async function createPreviewSession(canvas, size = 420) {
     }
   }
 
+  function setAutoRotate(on) {
+    host.setAutoRotate?.(!!on);
+  }
+
+  function getView() {
+    try {
+      return {
+        cam: [host.viewCamX(), host.viewCamY(), host.viewCamZ()],
+        target: [host.viewTargetX(), host.viewTargetY(), host.viewTargetZ()],
+        fovDeg: host.viewFov(),
+        width: host.viewWidth(),
+        height: host.viewHeight(),
+        meshAngle: host.viewMeshAngle(),
+        meshTilt: host.viewMeshTilt(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   function wirePointer() {
     const onDown = (e) => {
+      // In place mode, Preview3D capture handlers own left-click; still allow right orbit via host.
+      if (placeModeGetter() && e.button === 0) return;
       canvas.setPointerCapture(e.pointerId);
       host.pointerDown(e.offsetX, e.offsetY, e.button);
     };
-    const onMove = (e) => host.pointerMove(e.offsetX, e.offsetY);
+    const onMove = (e) => {
+      if (placeModeGetter() && e.buttons === 1) return;
+      host.pointerMove(e.offsetX, e.offsetY);
+    };
     const onUp = () => host.pointerUp();
     const onWheel = (e) => {
       e.preventDefault();
@@ -143,6 +167,8 @@ export async function createPreviewSession(canvas, size = 420) {
     useGL,
     setMesh,
     setMaterialMode,
+    setAutoRotate,
+    getView,
     start,
     stop,
     dispose() {

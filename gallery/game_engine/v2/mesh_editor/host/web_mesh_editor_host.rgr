@@ -186,6 +186,41 @@ class WebMeshEditorHost {
         autoRotate = on
     }
 
+    ; View state for JS surface picking (camera + mesh yaw/tilt).
+    fn viewCamX:double () {
+        return (controls.camX())
+    }
+    fn viewCamY:double () {
+        return (controls.camY())
+    }
+    fn viewCamZ:double () {
+        return (controls.camZ())
+    }
+    fn viewTargetX:double () {
+        return (controls.getTargetX())
+    }
+    fn viewTargetY:double () {
+        return (controls.getTargetY())
+    }
+    fn viewTargetZ:double () {
+        return (controls.getTargetZ())
+    }
+    fn viewFov:double () {
+        return (controls.getFov())
+    }
+    fn viewMeshAngle:double () {
+        return angle
+    }
+    fn viewMeshTilt:double () {
+        return 0.12
+    }
+    fn viewWidth:double () {
+        return (to_double w)
+    }
+    fn viewHeight:double () {
+        return (to_double h)
+    }
+
     fn pointerDown:void (x:double y:double button:int) {
         controls.pointerDown(x y button)
         autoRotate = false

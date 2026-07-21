@@ -2,7 +2,7 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
@@ -117,6 +117,11 @@ function serializeChild(ch) {
     transform: {
       x: Number(ch.transform?.x ?? 0.45),
       y: Number(ch.transform?.y ?? 0.35),
+      z: Number(ch.transform?.z ?? 0),
+      nx: Number(ch.transform?.nx ?? 0),
+      ny: Number(ch.transform?.ny ?? 1),
+      nz: Number(ch.transform?.nz ?? 0),
+      surface: !!ch.transform?.surface,
       rotationYDeg: Number(ch.transform?.rotationYDeg ?? 0),
       scale: Number(ch.transform?.scale ?? 0.28),
       useSymmetry: !!ch.transform?.useSymmetry,
