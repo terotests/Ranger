@@ -292,6 +292,13 @@ onBeforeUnmount(() => {
         <input v-model.number="state.angularSteps" type="number" min="3" max="96" />
       </label>
       <label class="field">
+        Tessellation
+        <select v-model="state.tessellationMode" @change="onTessellate">
+          <option value="rotation">Rotation (lathe)</option>
+          <option value="torus">Torus (ring sweep)</option>
+        </select>
+      </label>
+      <label class="field">
         Revolution
         <select v-model.number="state.revolutionDeg" @change="onTessellate">
           <option :value="360">360° closed</option>

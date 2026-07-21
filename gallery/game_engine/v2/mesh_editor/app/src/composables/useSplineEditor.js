@@ -159,6 +159,7 @@ export function useSplineEditor() {
     pathSegments: 12,
     angularSteps: 24,
     revolutionDeg: 360,
+    tessellationMode: "rotation", // rotation | torus
     materialMode: 3,
     symmetry: true,
     viewport: { min: -1.1, max: 1.1 },
@@ -559,6 +560,7 @@ export function useSplineEditor() {
     state.spineOrbitSegments = [];
     state.spineSource = "profile";
     state.placementNormal = defaultPlacementNormal();
+    state.tessellationMode = "rotation";
     state.objectMaterial = defaultObjectMaterial();
     state.embeddedAssets = {};
     state.children = [];
@@ -840,6 +842,7 @@ export function useSplineEditor() {
       pathSegments: state.pathSegments,
       angularSteps: state.angularSteps,
       revolutionDeg: state.revolutionDeg,
+      tessellationMode: state.tessellationMode === "torus" ? "torus" : "rotation",
       objectMaterial: state.objectMaterial,
       knots: state.knots,
       segments: state.segments,
@@ -1070,6 +1073,7 @@ export function useSplineEditor() {
     state.pathSegments = ed.pathSegments || 12;
     state.angularSteps = ed.angularSteps || 24;
     state.revolutionDeg = ed.revolutionDeg || 360;
+    state.tessellationMode = ed.tessellationMode === "torus" ? "torus" : "rotation";
     state.materialMode = ed.materialMode ?? 3;
     state.symmetry = ed.symmetry !== false;
     state.viewMode =
@@ -1163,6 +1167,7 @@ export function useSplineEditor() {
         pathSegments: body.pathSegments,
         angularSteps: body.angularSteps,
         revolutionDeg: body.revolutionDeg,
+        tessellationMode: body.tessellationMode === "torus" ? "torus" : "rotation",
         objectMaterial: { ...body.objectMaterial },
         knots: body.knots.map((k) => ({ ...k })),
         segments: body.segments.map(mapSegSnapshot),
@@ -1180,6 +1185,7 @@ export function useSplineEditor() {
       pathSegments: state.pathSegments,
       angularSteps: state.angularSteps,
       revolutionDeg: state.revolutionDeg,
+      tessellationMode: state.tessellationMode === "torus" ? "torus" : "rotation",
       materialMode: state.materialMode,
       symmetry: state.symmetry,
       viewMode: state.viewMode,

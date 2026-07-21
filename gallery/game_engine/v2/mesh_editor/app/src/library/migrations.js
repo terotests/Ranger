@@ -337,6 +337,25 @@ function normalizeV6(doc) {
   return v5;
 }
 
+function normalizeV7(doc) {
+  const v6 = normalizeV6(doc);
+  v6.schemaVersion = 7;
+  const mode =
+    doc.editor?.tessellationMode === "torus" || v6.editor?.tessellationMode === "torus"
+      ? "torus"
+      : "rotation";
+  v6.editor = { ...v6.editor, tessellationMode: mode };
+  const emb = {};
+  for (const [guid, body] of Object.entries(v6.embeddedAssets || {})) {
+    emb[guid] = {
+      ...body,
+      tessellationMode: body.tessellationMode === "torus" ? "torus" : "rotation",
+    };
+  }
+  v6.embeddedAssets = emb;
+  return v6;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -359,6 +378,10 @@ const STEPS = {
   // 5 → 6: placementNormal (object “up” segment for preview / assembly)
   6(doc) {
     return normalizeV6(doc);
+  },
+  // 6 → 7: tessellationMode rotation | torus
+  7(doc) {
+    return normalizeV7(doc);
   },
 };
 

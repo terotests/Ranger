@@ -8,7 +8,7 @@ import {
   sampleClosedPath,
   splitLatheBySegments,
 } from "./pathSample.js";
-import { latheProfileWithOrbitOnSpine } from "./spineLathe.js";
+import { latheProfileWithOrbitOnSpine, latheProfileAsTorusOnSpine } from "./spineLathe.js";
 
 function hexToRgb(hex) {
   const h = String(hex || "#ffffff").replace("#", "");
@@ -223,13 +223,13 @@ export function tessellateBody(body) {
     segments: body.spineOrbitSegments || [],
   };
   // Fall back to straight vertical if spines missing
-  const mesh = latheProfileWithOrbitOnSpine(
-    profilePts,
-    orbitPts,
-    closed,
-    spineProfile.knots.length >= 2 ? spineProfile : null,
-    spineOrbit.knots.length >= 2 ? spineOrbit : null,
-  );
+  const mode = body.tessellationMode === "torus" ? "torus" : "rotation";
+  const spIn = spineProfile.knots.length >= 2 ? spineProfile : null;
+  const soIn = spineOrbit.knots.length >= 2 ? spineOrbit : null;
+  const mesh =
+    mode === "torus"
+      ? latheProfileAsTorusOnSpine(profilePts, orbitPts, closed, spIn, soIn)
+      : latheProfileWithOrbitOnSpine(profilePts, orbitPts, closed, spIn, soIn);
   const pieces = splitLatheBySegments(
     mesh,
     Math.max(0, body.knots.length - 1),

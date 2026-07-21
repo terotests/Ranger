@@ -239,3 +239,137 @@ export function latheProfileWithOrbitOnSpine(profilePts, orbitPts, closed, spine
 
   return { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps };
 }
+
+/**
+ * Unit-fit scale so major orbit radius R plus profile extent r fits in ~unit ball:
+ * s = 1 / (R + r).
+ */
+export function torusUnitFitScale(profilePts, orbitPts) {
+  let R = 0;
+  let n = 0;
+  for (const o of orbitPts || []) {
+    const L = Math.hypot(o.x, o.y);
+    if (L > 1e-9) {
+      R += L;
+      n++;
+    }
+  }
+  R = n ? R / n : 1;
+  let r = 0;
+  for (const p of profilePts || []) {
+    r = Math.max(r, Math.hypot(Math.max(0, p.x), p.y));
+  }
+  if (r < 1e-9) r = 0.25;
+  return { scale: 1 / (R + r), majorR: R, tubeR: r };
+}
+
+/**
+ * Torus / tube-sweep mode: profile travels along the orbit path as a ring.
+ * Orbit = major path (XZ). Profile = tube cross-section in the path normal plane (N,B).
+ * Everything is scaled so R_major + r_profile ≈ 1 (unit torus).
+ * Spine modulates major radius (profile-spine.x) and lifts the ring (orbit-spine.x → Y).
+ */
+export function latheProfileAsTorusOnSpine(
+  profilePts,
+  orbitPts,
+  closed,
+  spineProfile,
+  spineOrbit,
+) {
+  const rows = profilePts.length;
+  const steps = orbitPts.length;
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+  const rowSeg = profilePts.map((p) => p.segmentIndex | 0);
+  const colSeg = orbitPts.map((p) => p.segmentIndex | 0);
+
+  const { scale: fit } = torusUnitFitScale(profilePts, orbitPts);
+  const pk = spineProfile?.knots || [];
+  const ps = spineProfile?.segments || [];
+  const ok = spineOrbit?.knots || [];
+  const os = spineOrbit?.segments || [];
+  const hasSp = pk.length >= 2;
+  const hasSo = ok.length >= 2;
+
+  // Major-path centers in XZ, unit-fit scaled; spine adjusts radius + lift.
+  const centers = [];
+  for (let col = 0; col < steps; col++) {
+    const o = orbitPts[col];
+    const u = steps <= 1 ? 0 : col / (steps - 1);
+    let radialMul = 1;
+    let liftY = 0;
+    if (hasSp) {
+      const sp = sampleSpineAt(pk, ps, u);
+      radialMul = 1 + sp.x;
+      if (radialMul < 0.05) radialMul = 0.05;
+    }
+    if (hasSo) {
+      const so = sampleSpineAt(ok, os, u);
+      liftY = so.x * fit;
+    }
+    centers.push({
+      x: o.x * fit * radialMul,
+      y: liftY,
+      z: o.y * fit * radialMul,
+    });
+  }
+  const frames = buildSpineFrames(centers);
+
+  for (let row = 0; row < rows; row++) {
+    const pr = profilePts[row];
+    const px = Math.max(0, pr.x) * fit;
+    const py = pr.y * fit;
+    // Profile normal in the N–B plane (same 2D construction as lathe silhouette).
+    let pnx = pr.ty;
+    let pny = -pr.tx;
+    let pnl = Math.hypot(pnx, pny);
+    if (pnl < 1e-9) {
+      pnx = 1;
+      pny = 0;
+      pnl = 1;
+    }
+    pnx /= pnl;
+    pny /= pnl;
+    if (pnx < 0) {
+      pnx = -pnx;
+      pny = -pny;
+    }
+
+    for (let col = 0; col < steps; col++) {
+      const fr = frames[col] || {
+        C: centers[col] || { x: 0, y: 0, z: 0 },
+        T: { x: 0, y: 0, z: 1 },
+        N: { x: 1, y: 0, z: 0 },
+        B: { x: 0, y: 1, z: 0 },
+      };
+      // Tube cross-section: N·px + B·py (travels along T / orbit).
+      const ox = fr.N.x * px + fr.B.x * py;
+      const oy = fr.N.y * px + fr.B.y * py;
+      const oz = fr.N.z * px + fr.B.z * py;
+      positions.push(fr.C.x + ox, fr.C.y + oy, fr.C.z + oz);
+
+      const nx = fr.N.x * pnx + fr.B.x * pny;
+      const ny = fr.N.y * pnx + fr.B.y * pny;
+      const nz = fr.N.z * pnx + fr.B.z * pny;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      normals.push(nx / nl, ny / nl, nz / nl);
+      uvs.push(col / steps, rows <= 1 ? 0 : row / (rows - 1));
+    }
+  }
+
+  for (let r = 0; r < rows - 1; r++) {
+    const colMax = closed ? steps : steps - 1;
+    for (let c = 0; c < colMax; c++) {
+      const cNext = c + 1 >= steps ? 0 : c + 1;
+      const a = r * steps + c;
+      const b = r * steps + cNext;
+      const cc = (r + 1) * steps + cNext;
+      const d = (r + 1) * steps + c;
+      indices.push(a, d, b, b, d, cc);
+    }
+  }
+
+  return { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps };
+}

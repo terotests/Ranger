@@ -40,6 +40,8 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
   curve the lathe centerline; default is a straight vertical line (`pathType: line`)
 - v6 adds `placementNormal` `{ start:{x,y}, end:{x,y} }` — object “up” segment for
   preview orientation and future assembly (default `(0,-1)→(0,1)`)
+- v7 adds `editor.tessellationMode`: `rotation` (classic lathe) or `torus` (profile
+  swept along orbit as a unit-sized ring)
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.
