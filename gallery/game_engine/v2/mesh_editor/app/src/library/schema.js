@@ -2,7 +2,7 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
@@ -67,6 +67,15 @@ export function serializeKnot(k) {
     hx: Number(k.hx),
     hy: Number(k.hy),
     color: k.color || "#cccccc",
+  };
+}
+
+export function serializePlacementNormal(pn) {
+  const start = pn?.start || {};
+  const end = pn?.end || {};
+  return {
+    start: { x: Number(start.x) || 0, y: Number(start.y) || 0 },
+    end: { x: Number(end.x) || 0, y: Number(end.y) || 0 },
   };
 }
 
@@ -172,6 +181,7 @@ export function buildProjectDocument(opts) {
       knots: (st.spineOrbitKnots || []).map(serializeKnot),
       segments: (st.spineOrbitSegments || []).map(serializeSegment),
     },
+    placementNormal: serializePlacementNormal(st.placementNormal),
     embeddedAssets: embedded,
     children: (st.children || []).map(serializeChild),
   };
@@ -211,6 +221,21 @@ export function validateProject(doc) {
       errors.push("missing spineOrbit.knots");
     } else if (doc.spineOrbit.knots.length < 2) {
       errors.push("spineOrbit.knots needs at least 2 points");
+    }
+  }
+  if (doc.schemaVersion >= 6) {
+    if (!doc.placementNormal?.start || !doc.placementNormal?.end) {
+      errors.push("missing placementNormal.start/end");
+    } else {
+      const sx = Number(doc.placementNormal.start.x);
+      const sy = Number(doc.placementNormal.start.y);
+      const ex = Number(doc.placementNormal.end.x);
+      const ey = Number(doc.placementNormal.end.y);
+      if (![sx, sy, ex, ey].every(Number.isFinite)) {
+        errors.push("placementNormal coordinates must be finite numbers");
+      } else if (Math.hypot(ex - sx, ey - sy) < 1e-9) {
+        errors.push("placementNormal start and end must differ");
+      }
     }
   }
   return errors;

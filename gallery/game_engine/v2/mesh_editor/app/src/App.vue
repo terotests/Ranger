@@ -19,6 +19,8 @@ const {
   selectSegment,
   resetDefaults,
   resetSpine,
+  resetPlacementNormal,
+  updatePlacementNormal,
   removeKnot,
   removeSelected,
   updateKnot,
@@ -84,6 +86,25 @@ function onResetSpine() {
 function onResetSpineBoth() {
   resetSpine("both");
   tessellate();
+}
+
+function onResetPlacementNormal() {
+  resetPlacementNormal();
+}
+
+function onUpdatePlacementNormal(patch) {
+  updatePlacementNormal(patch);
+}
+
+function onNormalNum(which, axis, ev) {
+  const v = Number(ev.target.value);
+  if (!Number.isFinite(v)) return;
+  if (which === "start") {
+    updatePlacementNormal({ start: { [axis]: v } });
+  } else {
+    updatePlacementNormal({ end: { [axis]: v } });
+  }
+  endGesture();
 }
 
 const knots = computed(() => activeKnots());
@@ -309,6 +330,44 @@ onBeforeUnmount(() => {
           <button type="button" @click="onBulkSelection">Selection</button>
         </div>
       </div>
+      <div class="normal-panel">
+        <span>Placement normal</span>
+        <div class="normal-row">
+          <label>
+            From
+            <input
+              type="number"
+              step="0.05"
+              :value="state.placementNormal.start.x"
+              @change="onNormalNum('start', 'x', $event)"
+            />
+            <input
+              type="number"
+              step="0.05"
+              :value="state.placementNormal.start.y"
+              @change="onNormalNum('start', 'y', $event)"
+            />
+          </label>
+          <label>
+            To
+            <input
+              type="number"
+              step="0.05"
+              :value="state.placementNormal.end.x"
+              @change="onNormalNum('end', 'x', $event)"
+            />
+            <input
+              type="number"
+              step="0.05"
+              :value="state.placementNormal.end.y"
+              @change="onNormalNum('end', 'y', $event)"
+            />
+          </label>
+          <button type="button" title="Reset to (0,-1)→(0,1)" @click="onResetPlacementNormal">
+            Reset ↑
+          </button>
+        </div>
+      </div>
       <p class="status">
         {{ state.status }} · {{ state.stats.parts || 0 }} parts · {{ state.stats.verts }}v /
         {{ state.stats.tris }}t · GUID {{ state.assetGuid.slice(0, 8) }}…
@@ -330,11 +389,13 @@ onBeforeUnmount(() => {
         :selected-child-guid="state.selectedChildGuid"
         :edit-target="state.editTarget"
         :viewport="state.viewport"
+        :placement-normal="state.placementNormal"
         :sample-curve-points="sampleCurvePoints"
         :find-closest-on-curve="findClosestOnCurve"
         @select="onSelect"
         @select-segment="selectSegment"
         @update-knot="onUpdateKnot"
+        @update-placement-normal="onUpdatePlacementNormal"
         @add-on-curve="onAddOnCurve"
         @drag-end="onDragEnd"
         @select-child="selectChild"
@@ -356,7 +417,11 @@ onBeforeUnmount(() => {
         @commit="onListCommit"
       />
       <div class="side-stack">
-        <Preview3D :mesh="state.mesh" :material-mode="state.materialMode" />
+        <Preview3D
+          :mesh="state.mesh"
+          :material-mode="state.materialMode"
+          :placement-normal="state.placementNormal"
+        />
         <ChildrenPanel
           :children="state.children"
           :embedded-assets="state.embeddedAssets"
@@ -530,6 +595,42 @@ h1 {
   padding: 0;
   border: none;
   background: transparent;
+}
+
+.normal-panel {
+  grid-column: span 2;
+}
+
+.normal-panel > span {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+  margin-bottom: 0.3rem;
+}
+
+.normal-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.normal-row label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+
+.normal-row input[type="number"] {
+  width: 4.2rem;
+  padding: 0.25rem 0.35rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ink);
 }
 
 .status {

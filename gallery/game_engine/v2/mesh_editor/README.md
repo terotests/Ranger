@@ -48,6 +48,14 @@ mesh_editor/
 - Lateral offsets are projected along the Frenet/parallel-transport frame during lathe
 - **Reset spine** / **Reset both spines** restore a straight centerline
 
+### Placement normal
+
+- Straight **blue arrow** in Profile and Orbit (not Spine): object “up” for placement
+- Default `(0, -1) → (0, 1)` (bottom → top); drag endpoints or edit From/To in the toolbar
+- Independent of spine / profile radius — used when combining or seating objects on a surface
+- **3D preview** rotates the mesh so this normal points world **+Y** whenever the object loads
+  or the normal changes (authoring mesh stays unrotated)
+
 ## Tessellate
 
 1. Sample the **profile** curve (Bezier default, or Catmull-Rom)
