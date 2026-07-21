@@ -1,0 +1,3 @@
+# Ignore local project data (keep the folder + README tracked).
+projects/*
+!projects/.gitkeep

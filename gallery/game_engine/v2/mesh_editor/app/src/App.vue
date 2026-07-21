@@ -3,7 +3,9 @@ import { onMounted } from "vue";
 import SplineCanvas from "./components/SplineCanvas.vue";
 import PointEditor from "./components/PointEditor.vue";
 import Preview3D from "./components/Preview3D.vue";
+import LibraryPanel from "./components/LibraryPanel.vue";
 import { useSplineEditor } from "./composables/useSplineEditor.js";
+import { useLibrary } from "./composables/useLibrary.js";
 
 const {
   state,
@@ -19,7 +21,15 @@ const {
   findClosestOnCurve,
   insertKnotOnCurve,
   tessellate,
+  applyProject,
+  snapshotState,
 } = useSplineEditor();
+
+const { lib, refresh, load, save, saveAs, remove, exportJson, importJsonFile } = useLibrary({
+  snapshotState,
+  applyProject,
+  tessellate,
+});
 
 const materials = [
   { id: 0, label: "Wire" },
@@ -178,6 +188,16 @@ onMounted(() => {
         @commit="onListCommit"
       />
       <Preview3D :mesh="state.mesh" :material-mode="state.materialMode" />
+      <LibraryPanel
+        :lib="lib"
+        @refresh="refresh"
+        @load="load"
+        @save="save"
+        @save-as="saveAs"
+        @remove="remove"
+        @export="exportJson"
+        @import-file="importJsonFile"
+      />
     </main>
   </div>
 </template>
@@ -283,16 +303,22 @@ h1 {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.85fr) minmax(260px, 0.9fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.75fr) minmax(240px, 0.8fr) minmax(220px, 0.7fr);
   gap: 1rem;
   min-height: 0;
   align-items: stretch;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .toolbar {
     grid-template-columns: 1fr 1fr;
   }
+  .workspace {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 800px) {
   .workspace {
     grid-template-columns: 1fr;
   }
