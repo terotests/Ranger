@@ -212,7 +212,9 @@ export function mirrorLayersX(layers) {
 /** Types that translate together when the root layer moves. */
 export function companionLayerTypes(type) {
   if (type === "eyeball") return ["iris", "pupil", "reflection", "eyelid"];
-  if (type === "iris") return ["pupil"];
+  // Iris move carries pupil + shine (reflection sits on the iris stack).
+  if (type === "iris") return ["pupil", "reflection"];
+  if (type === "pupil") return ["reflection"];
   return [];
 }
 

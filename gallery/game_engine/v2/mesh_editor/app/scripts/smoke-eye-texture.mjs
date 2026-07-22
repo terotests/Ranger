@@ -138,17 +138,20 @@ assert.ok(pointInPolygon(pc.x, pc.y, irisPoly), "pupil centroid inside iris afte
   assert.equal(lid2.color, "#aabbcc");
 }
 
-// Layer Move: translating iris also moves pupil
+// Layer Move: translating iris also moves pupil + reflection
 {
   const e2 = createDefaultEyeTexture({ name: "Move" });
   const iris = findLayer(e2, "iris");
   const pupil = findLayer(e2, "pupil");
+  const shine = findLayer(e2, "reflection");
   const ix = iris.knots[0].x;
   const px = pupil.knots[0].x;
+  const sx = shine.knots[0].x;
   translateLayerTree(e2.layers, iris.id, 0.1, 0);
   assert.ok(Math.abs(iris.knots[0].x - (ix + 0.1)) < 1e-6, "iris translated");
   assert.ok(Math.abs(pupil.knots[0].x - (px + 0.1)) < 1e-6, "pupil follows iris");
-  assert.deepEqual(companionLayerTypes("iris"), ["pupil"]);
+  assert.ok(Math.abs(shine.knots[0].x - (sx + 0.1)) < 1e-6, "reflection follows iris");
+  assert.deepEqual(companionLayerTypes("iris"), ["pupil", "reflection"]);
 }
 
 // Left/right pair: linked right is mirror; reset re-links
