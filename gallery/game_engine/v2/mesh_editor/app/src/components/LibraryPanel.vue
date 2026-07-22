@@ -5,6 +5,8 @@ const props = defineProps({
   lib: { type: Object, required: true },
   /** mesh | texture — filters the saved list + picks identity slot */
   projectKind: { type: String, default: "mesh" },
+  /** Extra disable for Save / Save as (e.g. while UV assign is baking). */
+  saveDisabled: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -71,14 +73,14 @@ function metaLine(p) {
       <button
         type="button"
         class="primary"
-        :disabled="lib.busy"
+        :disabled="lib.busy || saveDisabled"
         @click="emit('save-as', slot.saveAsName, kind)"
       >
         Save as
       </button>
       <button
         type="button"
-        :disabled="lib.busy || !slot.slug"
+        :disabled="lib.busy || saveDisabled || !slot.slug"
         @click="emit('save', kind)"
       >
         Save

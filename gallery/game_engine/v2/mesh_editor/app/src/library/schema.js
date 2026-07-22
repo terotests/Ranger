@@ -169,6 +169,30 @@ export function buildProjectDocument(opts) {
     embedded[guid] = serializeBodyContent(body);
   }
   const projectKind = normalizeProjectKind(opts.projectKind || st.projectKind || "mesh");
+  const textureAssets = {};
+  for (const [guid, tex] of Object.entries(st.textureAssets || {})) {
+    const s = serializeTextureAsset({ ...tex, assetGuid: tex.assetGuid || guid });
+    if (s) textureAssets[s.assetGuid] = s;
+  }
+  const assetKeys = Object.keys(textureAssets);
+  let texAsset = st.objectMaterial?.textureAsset || null;
+  let texAssign =
+    st.objectMaterial?.textureAssign === "eyePair"
+      ? "eyePair"
+      : st.objectMaterial?.textureAssign || null;
+  let texMode = st.objectMaterial?.texture || "gradient";
+  if (texAsset && !textureAssets[texAsset]) {
+    // Stale guid — fall back when there is exactly one embedded texture.
+    texAsset = assetKeys.length === 1 ? assetKeys[0] : null;
+  }
+  if (!texAsset && assetKeys.length && (texMode === "asset" || texAssign === "eyePair")) {
+    texAsset = assetKeys[0];
+    texAssign = texAssign || "eyePair";
+    texMode = "asset";
+  }
+  if (texAsset && !texAssign) texAssign = "eyePair";
+  if (texAsset && texMode !== "asset") texMode = "asset";
+
   return {
     kind: SCHEMA_KIND,
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -198,12 +222,9 @@ export function buildProjectDocument(opts) {
       roughness: Number(st.objectMaterial?.roughness ?? 0.4),
       metalness: Number(st.objectMaterial?.metalness ?? 0),
       opacity: Number(st.objectMaterial?.opacity ?? 1),
-      texture: st.objectMaterial?.texture || "gradient",
-      textureAsset: st.objectMaterial?.textureAsset || null,
-      textureAssign:
-        st.objectMaterial?.textureAssign === "eyePair"
-          ? "eyePair"
-          : st.objectMaterial?.textureAssign || null,
+      texture: texMode,
+      textureAsset: texAsset,
+      textureAssign: texAssign,
       textureUv: normalizeEyeUv(st.objectMaterial?.textureUv),
     },
     profile: {
@@ -225,14 +246,7 @@ export function buildProjectDocument(opts) {
     placementNormal: serializePlacementNormal(st.placementNormal),
     embeddedAssets: embedded,
     children: (st.children || []).map(serializeChild),
-    textureAssets: (() => {
-      const out = {};
-      for (const [guid, tex] of Object.entries(st.textureAssets || {})) {
-        const s = serializeTextureAsset({ ...tex, assetGuid: tex.assetGuid || guid });
-        if (s) out[s.assetGuid] = s;
-      }
-      return out;
-    })(),
+    textureAssets,
   };
 }
 

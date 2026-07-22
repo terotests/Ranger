@@ -475,14 +475,28 @@ function normalizeV10(doc) {
   if (!kind) kind = !hasMesh && texN > 0 ? "texture" : "mesh";
   v9.projectKind = normalizeProjectKind(kind);
   const om = v9.objectMaterial || {};
+  const assetKeys = Object.keys(v9.textureAssets || {});
+  let textureAsset = om.textureAsset || null;
+  let textureAssign = om.textureAssign === "eyePair" ? "eyePair" : om.textureAssign || null;
+  let texture = om.texture || "gradient";
+  if (textureAsset && !(v9.textureAssets || {})[textureAsset]) {
+    textureAsset = assetKeys.length === 1 ? assetKeys[0] : null;
+  }
+  if (!textureAsset && assetKeys.length && (texture === "asset" || textureAssign === "eyePair")) {
+    textureAsset = assetKeys[0];
+    textureAssign = textureAssign || "eyePair";
+    texture = "asset";
+  }
+  if (textureAsset && !textureAssign) textureAssign = "eyePair";
+  if (textureAsset && texture !== "asset") texture = "asset";
   v9.objectMaterial = {
     color: om.color ?? null,
     roughness: Number(om.roughness ?? 0.4),
     metalness: Number(om.metalness ?? 0),
     opacity: Number(om.opacity ?? 1),
-    texture: om.texture || "gradient",
-    textureAsset: om.textureAsset || null,
-    textureAssign: om.textureAssign === "eyePair" ? "eyePair" : om.textureAssign || null,
+    texture,
+    textureAsset,
+    textureAssign,
     textureUv: normalizeEyeUv(om.textureUv),
   };
   return v9;

@@ -81,4 +81,44 @@ assert.equal(doc.projectKind, "texture");
 assert.ok(doc.textureAssets.g1, "textureAssets must be serialized into JSON doc");
 assert.equal(doc.textureAssets.g1.name, "Eye");
 
+// Repair: texture:"asset" without textureAsset but assets present → fill guid
+const broken = buildProjectDocument({
+  projectKind: "mesh",
+  name: "kivinen",
+  state: {
+    knots: [
+      { id: "a", x: 0.2, y: -0.5, hx: 0, hy: 0, color: "#fff" },
+      { id: "b", x: 0.3, y: 0.5, hx: 0, hy: 0, color: "#fff" },
+    ],
+    segments: [],
+    orbitKnots: [
+      { id: "o0", x: 1, y: 0, hx: 0, hy: 0, color: "#fff" },
+      { id: "o1", x: 0, y: 1, hx: 0, hy: 0, color: "#fff" },
+      { id: "o2", x: -1, y: 0, hx: 0, hy: 0, color: "#fff" },
+    ],
+    orbitSegments: [],
+    objectMaterial: {
+      color: "#b5b5b5",
+      roughness: 0.4,
+      metalness: 0,
+      opacity: 1,
+      texture: "asset",
+      textureAsset: null,
+      textureAssign: null,
+      textureUv: { centerU: 0.5, centerV: 0.58, scale: 1, eyeSeparationU: null },
+    },
+    textureAssets: {
+      g1: {
+        assetGuid: "g1",
+        name: "Eye",
+        kind: "eye",
+        layers: [{ id: "l1", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+    },
+  },
+});
+assert.equal(broken.objectMaterial.textureAsset, "g1", "repair missing textureAsset on save");
+assert.equal(broken.objectMaterial.textureAssign, "eyePair");
+assert.equal(broken.objectMaterial.texture, "asset");
+
 console.log("smoke-library-safe: ok");
