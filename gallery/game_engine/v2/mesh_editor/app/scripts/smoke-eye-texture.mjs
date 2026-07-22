@@ -47,6 +47,7 @@ import {
 import {
   serializeTextureMap,
   normalizeTextureMap,
+  rgbaSourceToBytes,
 } from "../src/lib/texture/textureMapCodec.js";
 
 const eye = createDefaultEyeTexture({ name: "TestEye" });
@@ -514,6 +515,116 @@ assert.equal(mig10.doc.objectMaterial.textureMap, null);
     "Save must persist textureMap bake",
   );
   assert.ok(saveDoc.objectMaterial.textureMap.data.length > 100);
+}
+
+// ---------------------------------------------------------------------------
+// Assign → save → load identity: textureUv + atlas pixels must not drift.
+// Mirrors Save as / create: live TypedArray in state must survive JSON I/O.
+// ---------------------------------------------------------------------------
+{
+  const assignUv = normalizeEyeUv({
+    centerU: 0.27,
+    centerV: 0.61,
+    scale: 1.15,
+    eyeSeparationU: 0.13,
+  });
+  // Distinct pattern so reload cannot accidentally match a solid re-bake bg.
+  const liveRgba = new Uint8ClampedArray(32 * 32 * 4);
+  for (let i = 0; i < liveRgba.length; i += 4) {
+    liveRgba[i] = (i * 3) & 255;
+    liveRgba[i + 1] = (i * 5) & 255;
+    liveRgba[i + 2] = (i * 7) & 255;
+    liveRgba[i + 3] = 255;
+  }
+  const liveMap = { rgba: liveRgba, w: 32, h: 32, name: "eye-uv" };
+
+  const editorState = {
+    ...docWithBake,
+    objectMaterial: {
+      ...docWithBake.objectMaterial,
+      texture: "asset",
+      textureAsset: ser.assetGuid,
+      textureAssign: "eyePair",
+      textureUv: assignUv,
+      textureMap: liveMap,
+    },
+    textureAssets: { [ser.assetGuid]: ser },
+    knots: docWithBake.profile.knots,
+    segments: docWithBake.profile.segments,
+    orbitKnots: docWithBake.orbit.knots,
+    orbitSegments: docWithBake.orbit.segments,
+    spineProfileKnots: docWithBake.spineProfile.knots,
+    spineProfileSegments: docWithBake.spineProfile.segments,
+    spineOrbitKnots: docWithBake.spineOrbit.knots,
+    spineOrbitSegments: docWithBake.spineOrbit.segments,
+    placementNormal: docWithBake.placementNormal,
+    embeddedAssets: {},
+    children: [],
+    editor: docWithBake.editor,
+  };
+
+  // Correct client path (save / saveAs after fix): build doc, then JSON wire.
+  const savedDoc = buildProjectDocument({
+    state: editorState,
+    name: "Roundtrip eyes",
+    slug: "roundtrip-eyes",
+    projectKind: "mesh",
+  });
+  assert.ok(savedDoc.objectMaterial.textureMap?.data, "bake must be base64 before wire");
+  assert.deepEqual(savedDoc.objectMaterial.textureUv, assignUv, "textureUv saved as assigned");
+
+  const wire = JSON.parse(JSON.stringify(savedDoc));
+  const loaded = migrateProject(wire);
+  assert.equal(loaded.ok, true, loaded.errors?.join("; "));
+  assert.deepEqual(
+    loaded.doc.objectMaterial.textureUv,
+    assignUv,
+    "textureUv must match after load",
+  );
+  const loadedMap = normalizeTextureMap(loaded.doc.objectMaterial.textureMap);
+  assert.ok(loadedMap, "textureMap must survive save→load");
+  assert.equal(loadedMap.w, 32);
+  assert.equal(loadedMap.h, 32);
+  assert.equal(loadedMap.rgba.length, liveRgba.length);
+  for (let i = 0; i < liveRgba.length; i++) {
+    assert.equal(loadedMap.rgba[i], liveRgba[i], `pixel byte ${i} drifted`);
+  }
+
+  // Regression: raw create body { name, state } with TypedArray — JSON kills
+  // .length; codec must still recover so server buildProjectDocument keeps bake.
+  const createBody = JSON.parse(
+    JSON.stringify({
+      name: "Create raw state",
+      projectKind: "mesh",
+      state: editorState,
+    }),
+  );
+  assert.equal(
+    Array.isArray(createBody.state.objectMaterial.textureMap.rgba),
+    false,
+    "TypedArray becomes plain object on the wire",
+  );
+  assert.equal(
+    createBody.state.objectMaterial.textureMap.rgba.length,
+    undefined,
+    "revived rgba has no .length",
+  );
+  const recovered = rgbaSourceToBytes(createBody.state.objectMaterial.textureMap.rgba, 32 * 32 * 4);
+  assert.ok(recovered, "rgbaSourceToBytes recovers JSON-revived TypedArray");
+  const fromRawState = buildProjectDocument({
+    state: createBody.state,
+    name: createBody.name,
+    projectKind: createBody.projectKind,
+  });
+  assert.ok(
+    fromRawState.objectMaterial.textureMap?.encoding === "rgba8-base64",
+    "create {state} path must not drop bake after JSON revive",
+  );
+  assert.deepEqual(fromRawState.objectMaterial.textureUv, assignUv);
+  const rawRound = normalizeTextureMap(fromRawState.objectMaterial.textureMap);
+  for (let i = 0; i < liveRgba.length; i++) {
+    assert.equal(rawRound.rgba[i], liveRgba[i], `create-path pixel ${i}`);
+  }
 }
 
 console.log("smoke-eye-texture: ok", {

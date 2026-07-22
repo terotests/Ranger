@@ -159,14 +159,13 @@ assert.ok(regionSamplePoints(DEFAULT_ASSIGN_REGION, 3).length === 9);
   assert.ok(pinned);
   assert.ok(Math.abs(pinned.centerU - 0.25) < 1e-9, "centerHit pins U to front");
   assert.ok(Math.abs(pinned.centerV - 0.55) < 1e-9, "centerHit pins V");
-  // Front face: character left = higher U (toward −X), right = lower U (toward +X)
+  // Blit placement: character left = lower U, right = higher U (see eyeTexture.js).
   {
     const sep = 0.12;
     const cu = 0.25;
-    const leftU = ((cu + sep / 2) % 1 + 1) % 1;
-    const rightU = ((cu - sep / 2) % 1 + 1) % 1;
-    assert.ok(leftU > rightU, "left eye at higher U than right on front face");
-    assert.ok(Math.abs(leftU - 0.5) < Math.abs(rightU - 0.5), "left nearer −X");
+    const leftU = ((cu - sep / 2) % 1 + 1) % 1;
+    const rightU = ((cu + sep / 2) % 1 + 1) % 1;
+    assert.ok(leftU < rightU, "left eye at lower U than right");
   }
 }
 

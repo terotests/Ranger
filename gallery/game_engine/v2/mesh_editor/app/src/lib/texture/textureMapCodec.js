@@ -31,7 +31,40 @@ function base64ToBytes(b64) {
 }
 
 /**
- * Encode a live atlas for project.json.
+ * Coerce live / JSON-revived RGBA into a byte view of length >= need.
+ * JSON.stringify turns TypedArrays into `{ "0": n, "1": n, ... }` without
+ * `.length` — `new Uint8Array(that)` is empty, so we recover index-by-index.
+ * @param {unknown} src
+ * @param {number} need
+ * @returns {Uint8Array|null}
+ */
+export function rgbaSourceToBytes(src, need) {
+  const n = Math.max(0, need | 0);
+  if (!src || n <= 0) return null;
+  if (ArrayBuffer.isView(src)) {
+    const u8 = new Uint8Array(src.buffer, src.byteOffset, src.byteLength);
+    return u8.length >= n ? u8.subarray(0, n) : null;
+  }
+  if (Array.isArray(src)) {
+    if (src.length < n) return null;
+    return Uint8Array.from(src.slice(0, n));
+  }
+  if (typeof src === "object") {
+    let len = typeof src.length === "number" && Number.isFinite(src.length) ? src.length | 0 : -1;
+    if (len < 0) {
+      len = 0;
+      while (typeof src[len] === "number") len++;
+    }
+    if (len < n) return null;
+    const out = new Uint8Array(n);
+    for (let i = 0; i < n; i++) out[i] = src[i] & 255;
+    return out;
+  }
+  return null;
+}
+
+/**
+ * Encode a live atlas for project JSON.
  * @param {TextureMap|null|undefined} map
  * @returns {SerializedTextureMap|null}
  */
@@ -40,9 +73,8 @@ export function serializeTextureMap(map) {
   const w = Math.max(1, map.w | 0);
   const h = Math.max(1, map.h | 0);
   const need = w * h * 4;
-  const src = map.rgba;
-  if (!src || src.length < need) return null;
-  const bytes = src instanceof Uint8Array ? src.subarray(0, need) : new Uint8Array(src).subarray(0, need);
+  const bytes = rgbaSourceToBytes(map.rgba, need);
+  if (!bytes) return null;
   return {
     encoding: "rgba8-base64",
     w,
@@ -63,13 +95,17 @@ export function normalizeTextureMap(raw) {
   const h = Math.max(1, Number(raw.h) | 0);
   const need = w * h * 4;
 
-  // Already live (in-memory after assign)
-  if (raw.rgba && raw.rgba.length >= need && !raw.data) {
-    const rgba =
-      raw.rgba instanceof Uint8ClampedArray
-        ? raw.rgba
-        : new Uint8ClampedArray(raw.rgba);
-    return { rgba, w, h, name: raw.name };
+  // Already live (in-memory after assign), or JSON-revived TypedArray shape.
+  if (raw.rgba && !raw.data) {
+    const bytes = rgbaSourceToBytes(raw.rgba, need);
+    if (bytes) {
+      return {
+        rgba: new Uint8ClampedArray(bytes),
+        w,
+        h,
+        name: raw.name,
+      };
+    }
   }
 
   if (raw.encoding !== "rgba8-base64" || typeof raw.data !== "string" || !raw.data) {
