@@ -14,6 +14,7 @@ import {
   regionSamplePoints,
   eyeUvFromRegionSamples,
 } from "../lib/assignRegion.js";
+import { cubeSizeForView, makeSurfaceNormalCubePart } from "../lib/debugCube.js";
 
 const props = defineProps({
   mesh: { type: Object, default: null },
@@ -88,9 +89,75 @@ const regionStyle = computed(() => {
   };
 });
 
+/** Blue corner markers from the latest region raycasts (display-space parts). */
+let cornerMarkerParts = [];
+let markerRaf = 0;
+
 function pushDisplay() {
   if (!session) return;
-  if (displayMesh.value) session.setMesh(displayMesh.value);
+  const base = displayMesh.value;
+  if (!base) return;
+  if (props.regionMode && cornerMarkerParts.length) {
+    session.setMesh({ parts: [...(base.parts || []), ...cornerMarkerParts] });
+  } else {
+    session.setMesh(base);
+  }
+}
+
+/**
+ * Full surface hit at normalized overlay coords (for UV + corner markers).
+ * Prefer display-space root parts so marker cubes share the pushed mesh space.
+ */
+function pickHitAtNorm(nx, ny) {
+  const view = getView();
+  if (!view) return null;
+  const sx = nx * (view.width || 1);
+  const sy = ny * (view.height || 1);
+  const tilt = view.meshTilt;
+  const yaw = view.meshAngle;
+  const rootOnlyDisplay = (displayMesh.value?.parts || []).filter((p) => !p.instanceGuid);
+  if (rootOnlyDisplay.length) {
+    const hit = pickRootSurface(sx, sy, view, rootOnlyDisplay, tilt, yaw, null);
+    if (hit) return hit;
+  }
+  const rootParts = props.rootMesh?.parts;
+  if (rootParts?.length) {
+    const hit = pickRootSurface(sx, sy, view, rootParts, tilt, yaw, orientInv.value);
+    if (hit) return hit;
+    return pickRootSurface(sx, sy, view, rootParts, tilt, yaw, null);
+  }
+  return null;
+}
+
+function refreshCornerMarkers() {
+  if (!props.regionMode || !session) {
+    cornerMarkerParts = [];
+    return;
+  }
+  const view = getView();
+  if (!view) {
+    cornerMarkerParts = [];
+    return;
+  }
+  const edge = cubeSizeForView(view, 0.02);
+  const c = regionCorners(region);
+  const pts = [c.tl, c.tr, c.br, c.bl];
+  const parts = [];
+  for (const p of pts) {
+    const hit = pickHitAtNorm(p.x, p.y);
+    if (!hit?.point || !hit?.normal) continue;
+    parts.push(makeSurfaceNormalCubePart(hit.point, hit.normal, edge, 0x3b82f6));
+  }
+  cornerMarkerParts = parts;
+  pushDisplay();
+}
+
+function scheduleCornerMarkers() {
+  if (markerRaf) return;
+  markerRaf = requestAnimationFrame(() => {
+    markerRaf = 0;
+    refreshCornerMarkers();
+  });
 }
 
 function getView() {
@@ -185,16 +252,18 @@ function resetRegion() {
   Object.assign(region, clampAssignRegion(DEFAULT_ASSIGN_REGION));
   regionError.value = "";
   regionDrag = null;
+  scheduleCornerMarkers();
 }
 
 function applyRegionDrag(nx, ny) {
   if (!regionDrag) return;
   if (regionDrag === "center") {
     Object.assign(region, clampAssignRegion({ cx: nx, cy: ny, half: region.half }));
-    return;
+  } else {
+    const half = Math.max(Math.abs(nx - region.cx), Math.abs(ny - region.cy));
+    Object.assign(region, clampAssignRegion({ cx: region.cx, cy: region.cy, half }));
   }
-  const half = Math.max(Math.abs(nx - region.cx), Math.abs(ny - region.cy));
-  Object.assign(region, clampAssignRegion({ cx: region.cx, cy: region.cy, half }));
+  scheduleCornerMarkers();
 }
 
 function hitOnRegionHandle(nx, ny) {
@@ -258,36 +327,8 @@ function startRegionDrag(handle) {
   syncCursor();
 }
 
-/**
- * Pick UV at a normalized overlay point (0–1 over the canvas box).
- * Uses host meshTilt/meshAngle so picks follow the editor object spin
- * (WebMeshEditorHost entityTransform euler XYZ).
- */
 function pickUvAtNorm(nx, ny) {
-  const view = getView();
-  if (!view) return null;
-
-  const rootParts = props.rootMesh?.parts;
-  const rootOnlyDisplay = (displayMesh.value?.parts || []).filter((p) => !p.instanceGuid);
-  const sx = nx * (view.width || 1);
-  const sy = ny * (view.height || 1);
-  const tilt = view.meshTilt;
-  const yaw = view.meshAngle;
-
-  // Primary: authoring root + placement orient + host yaw/tilt
-  if (rootParts?.length) {
-    const hit = pickRootSurface(sx, sy, view, rootParts, tilt, yaw, orientInv.value);
-    if (hit?.uv) return hit.uv;
-    // Default placement normal is +Y (orient = I); still try without orientInv.
-    const hit2 = pickRootSurface(sx, sy, view, rootParts, tilt, yaw, null);
-    if (hit2?.uv) return hit2.uv;
-  }
-  // Fallback: displayed root parts (already placement-oriented)
-  if (rootOnlyDisplay.length) {
-    const hit = pickRootSurface(sx, sy, view, rootOnlyDisplay, tilt, yaw, null);
-    if (hit?.uv) return hit.uv;
-  }
-  return null;
+  return pickHitAtNorm(nx, ny)?.uv || null;
 }
 
 function confirmRegion() {
@@ -301,41 +342,20 @@ function confirmRegion() {
     return;
   }
 
-  const pts = regionSamplePoints(region, 5);
-  const samples = [];
-  let hitWithoutUv = false;
-  for (const p of pts) {
+  // Prefer the four square corners (matches the yellow overlay); fall back to a grid.
+  const c = regionCorners(region);
+  const cornerPts = [c.tl, c.tr, c.br, c.bl];
+  let samples = [];
+  for (const p of cornerPts) {
     const uv = pickUvAtNorm(p.x, p.y);
-    if (uv) {
-      samples.push(uv);
-      continue;
+    if (uv) samples.push(uv);
+  }
+  if (samples.length < 2) {
+    samples = [];
+    for (const p of regionSamplePoints(region, 5)) {
+      const uv = pickUvAtNorm(p.x, p.y);
+      if (uv) samples.push(uv);
     }
-    // Detect geometric hit without UV for a clearer error
-    const view = getView();
-    const el = canvasRef.value;
-    const sx = p.x * (view.width || 1);
-    const sy = p.y * (view.height || 1);
-    const probe =
-      (props.rootMesh?.parts?.length &&
-        pickRootSurface(
-          sx,
-          sy,
-          view,
-          props.rootMesh.parts,
-          view.meshTilt,
-          view.meshAngle,
-          orientInv.value,
-        )) ||
-      pickRootSurface(
-        sx,
-        sy,
-        view,
-        (displayMesh.value?.parts || []).filter((q) => !q.instanceGuid),
-        view.meshTilt,
-        view.meshAngle,
-        null,
-      );
-    if (probe && !probe.uv) hitWithoutUv = true;
   }
 
   const uniq = [];
@@ -347,9 +367,8 @@ function confirmRegion() {
 
   const textureUv = eyeUvFromRegionSamples(uniq, region);
   if (!textureUv) {
-    regionError.value = hitWithoutUv
-      ? "Mesh hit but has no UVs — tessellate the body and try again."
-      : "Could not hit the mesh under the square — orbit the face toward the camera, or shrink the square.";
+    regionError.value =
+      "Could not hit the mesh under the square — orbit the face toward the camera, or shrink the square.";
     return;
   }
   emit("region-confirm", { textureUv, region: { ...clampAssignRegion(region) } });
@@ -454,6 +473,7 @@ function onPointerUp(e) {
     if (draggingOrbit) {
       session?.host?.pointerUp?.();
       draggingOrbit = false;
+      scheduleCornerMarkers();
     }
     return;
   }
@@ -483,7 +503,7 @@ function onPointerUp(e) {
     surfaceDragging = false;
     dragGuid = null;
     blockHostOrbit = false;
-    session?.setAutoRotate?.(!surfacePickActive.value);
+    session?.setAutoRotate?.(false);
     emit("surface-drag-end");
     syncCursor();
   }
@@ -513,7 +533,7 @@ onMounted(async () => {
     backendLabel.value = session.useGL ? "Ranger Three · WebGL" : "Ranger Three · software";
     pushDisplay();
     session.setMaterialMode(props.materialMode);
-    session.setAutoRotate?.(true);
+    session.setAutoRotate?.(false);
   } catch (err) {
     backendLabel.value = "preview failed";
     console.error(err);
@@ -525,6 +545,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeyDown);
   endRegionDrag();
   if (dragRaf) cancelAnimationFrame(dragRaf);
+  if (markerRaf) cancelAnimationFrame(markerRaf);
   session?.dispose();
   session = null;
 });
@@ -541,12 +562,14 @@ watch(
 watch(
   () => [props.placeMode, props.regionMode],
   () => {
-    session?.setAutoRotate?.(!surfacePickActive.value && !surfaceDragging);
+    session?.setAutoRotate?.(false);
     hoverHit.value = null;
     hoverChildGuid.value = null;
     if (props.regionMode) {
       resetRegion();
-      // Re-push so host entityTransform matches the frozen yaw used by picking.
+      scheduleCornerMarkers();
+    } else {
+      cornerMarkerParts = [];
       pushDisplay();
     }
     syncCursor();
@@ -624,7 +647,7 @@ watch(
         </div>
         <div v-else-if="regionMode" class="place-banner region">
           <span>
-            Place the square over the eyes · drag center / corners · right-drag orbit
+            Fit the square · blue cubes = raycast corners · right-drag orbit · no autorotate
           </span>
           <button type="button" class="ban-btn" @click.stop="emit('region-cancel')">
             Cancel

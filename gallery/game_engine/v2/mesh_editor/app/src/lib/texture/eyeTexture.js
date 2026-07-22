@@ -730,6 +730,7 @@ export function unwrapUvPairU(u1, u2) {
 /**
  * Build eye-pair textureUv from two mesh UV corners (top-left then bottom-right).
  * Lathe: u around orbit, v along profile (higher v = higher on mesh).
+ * Scale is fit so the pair footprint stays inside the UV rect (not height-only).
  */
 export function eyeUvFromCorners(u1, v1, u2, v2, opts = {}) {
   const [uLo, uHi] = unwrapUvPairU(u1, u2);
@@ -743,20 +744,20 @@ export function eyeUvFromCorners(u1, v1, u2, v2, opts = {}) {
   const height = Math.max(0.02, vHi - vLo);
   const eyeWU = opts.eyeWidthU != null ? Number(opts.eyeWidthU) : EYE_UV_FOOTPRINT.eyeWidthU;
   const eyeHV = opts.eyeHeightV != null ? Number(opts.eyeHeightV) : EYE_UV_FOOTPRINT.eyeHeightV;
-  const scaleH = height / (eyeHV || 0.13);
+  const minSep = 0.04;
   const preferSep =
     opts.eyeSeparationU != null && Number.isFinite(Number(opts.eyeSeparationU))
       ? Number(opts.eyeSeparationU)
       : null;
-  let scale;
-  let eyeSeparationU;
-  if (preferSep != null) {
-    scale = (scaleH + width / (preferSep + eyeWU)) / 2;
-    eyeSeparationU = preferSep;
-  } else {
-    scale = scaleH;
-    eyeSeparationU = Math.min(0.45, Math.max(0.04, width - eyeWU * scale));
-  }
+  const sepHint = preferSep != null ? preferSep : Math.min(0.2, Math.max(minSep, width * 0.45));
+  const scaleV = height / (eyeHV || 0.13);
+  const scaleU = width / (eyeWU + sepHint);
+  // Fit inside the picked rect — height-only scale blew past and collapsed the gap.
+  const scale = Math.min(scaleV, scaleU);
+  const eyeSeparationU =
+    preferSep != null
+      ? preferSep
+      : Math.min(0.45, Math.max(minSep, width - eyeWU * scale));
   let centerU = (uLo + uHi) / 2;
   centerU = ((centerU % 1) + 1) % 1;
   const centerV = (vLo + vHi) / 2;
@@ -856,7 +857,8 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
 
   function blit(layers, uCenter) {
     const x = Math.round(uCenter * w - cellW / 2);
-    const y = Math.round((1 - centerV) * h - cellH / 2);
+    // Host samples atlas with v=0 at buffer row 0 (no V flip on upload).
+    const y = Math.round(centerV * h - cellH / 2);
     const off = document.createElement("canvas");
     off.width = cellW;
     off.height = cellH;
@@ -867,6 +869,8 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
     ctx.drawImage(off, x, y);
   }
 
+  // Screen-left on a front-facing lathe is higher U when viewing from +X/+Z;
+  // character "left" eye still uses lower U in atlas convention (centerU - sep/2).
   blit(left, centerU - sepU / 2);
   blit(right, centerU + sepU / 2);
 
@@ -937,7 +941,8 @@ export async function rasterizeEyePairUvMapAsync(tex, width = 512, height = 512,
 
   function blit(layers, uCenter) {
     const x = Math.round(uCenter * w - cellW / 2);
-    const y = Math.round((1 - centerV) * h - cellH / 2);
+    // Host samples atlas with v=0 at buffer row 0 (no V flip on upload).
+    const y = Math.round(centerV * h - cellH / 2);
     const off = document.createElement("canvas");
     off.width = cellW;
     off.height = cellH;

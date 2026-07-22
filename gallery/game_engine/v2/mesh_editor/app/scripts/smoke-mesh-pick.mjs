@@ -15,6 +15,7 @@ import {
   regionSamplePoints,
   DEFAULT_ASSIGN_REGION,
 } from "../src/lib/assignRegion.js";
+import { latheProfileWithOrbit } from "../src/lib/pathSample.js";
 import { migrateProject } from "../src/library/migrations.js";
 import { CURRENT_SCHEMA_VERSION } from "../src/library/schema.js";
 
@@ -51,10 +52,26 @@ const uvParts = [
     indices: [0, 1, 2, 0, 2, 3],
   },
 ];
-const uvHit = raycastMeshParts([0, 0, 3], [0, 0, -1], uvParts);
+const uvHit = raycastMeshParts([0.25, -0.25, 3], [0, 0, -1], uvParts);
 assert.ok(uvHit?.uv);
-assert.ok(Math.abs(uvHit.uv[0] - 0.5) < 0.05);
-assert.ok(Math.abs(uvHit.uv[1] - 0.5) < 0.05);
+assert.ok(uvHit.uv[0] > 0.5 && uvHit.uv[0] < 0.8, `u=${uvHit.uv[0]}`);
+assert.ok(uvHit.uv[1] > 0.2 && uvHit.uv[1] < 0.5, `v=${uvHit.uv[1]}`);
+
+// Seam face: U wraps 0.95 → 0.05 across a short 3D edge
+const seamParts = [
+  {
+    positions: [0.98, 0, 0.1, 0.98, 0, -0.1, 0.99, 0.2, 0],
+    normals: [1, 0, 0, 1, 0, 0, 1, 0, 0],
+    uvs: [0.95, 0.4, 0.05, 0.4, 0.95, 0.6],
+    indices: [0, 1, 2],
+  },
+];
+const seamHit = raycastMeshParts([2, 0.05, 0], [-1, 0, 0], seamParts);
+assert.ok(seamHit?.uv, "seam triangle hit");
+assert.ok(
+  seamHit.uv[0] > 0.85 || seamHit.uv[0] < 0.15,
+  `seam U stays near wrap, got ${seamHit.uv[0]}`,
+);
 
 const approx = approximateLatheUvFromPoint([0.5, 0, 0.5], [
   { positions: [-1, -1, -1, 1, 1, 1] },
@@ -70,6 +87,51 @@ const fromSamples = eyeUvFromRegionSamples(
 );
 assert.ok(fromSamples && fromSamples.scale > 0);
 assert.ok(regionSamplePoints(DEFAULT_ASSIGN_REGION, 3).length === 9);
+
+// Simple closed lathe: front (+Z) hit must be u≈0.25; region AABB center tracks the hit UV.
+{
+  const profile = [
+    { x: 0.4, y: -1, tx: 0, ty: 1, segmentIndex: 0 },
+    { x: 0.55, y: -0.2, tx: 0, ty: 1, segmentIndex: 0 },
+    { x: 0.5, y: 0.4, tx: 0, ty: 1, segmentIndex: 0 },
+    { x: 0.35, y: 1, tx: 0, ty: 1, segmentIndex: 0 },
+  ];
+  const steps = 24;
+  const orbit = [];
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    orbit.push({ x: Math.cos(a), y: Math.sin(a), segmentIndex: 0 });
+  }
+  const mesh = latheProfileWithOrbit(profile, orbit, true);
+  const latheParts = [
+    {
+      positions: mesh.positions,
+      normals: mesh.normals,
+      uvs: mesh.uvs,
+      indices: mesh.indices,
+    },
+  ];
+  const front = raycastMeshParts([0, 0.4, 3], [0, 0, -1], latheParts);
+  assert.ok(front?.uv, "lathe front hit has UV");
+  assert.ok(Math.abs(front.uv[0] - 0.25) < 1e-6, `front u≈0.25 got ${front.uv[0]}`);
+  const plusX = raycastMeshParts([3, 0.4, 0], [-1, 0, 0], latheParts);
+  assert.ok(plusX?.uv && Math.abs(plusX.uv[0]) < 1e-6, `+X u≈0 got ${plusX?.uv?.[0]}`);
+  const patch = [
+    [front.uv[0] - 0.05, front.uv[1] + 0.08],
+    [front.uv[0] + 0.05, front.uv[1] + 0.08],
+    [front.uv[0] + 0.05, front.uv[1] - 0.08],
+    [front.uv[0] - 0.05, front.uv[1] - 0.08],
+  ];
+  const placed = eyeUvFromRegionSamples(patch, DEFAULT_ASSIGN_REGION);
+  assert.ok(placed, "region samples → textureUv");
+  assert.ok(Math.abs(placed.centerU - front.uv[0]) < 1e-6, "centerU tracks front");
+  assert.ok(Math.abs(placed.centerV - front.uv[1]) < 1e-6, "centerV tracks front");
+  // Host sampleTex / GL upload: v=0 → buffer row 0 — atlas Y must not flip.
+  assert.ok(
+    Math.abs(placed.centerV - 0.6666666666666666) < 1e-6,
+    "default mid-face V stays high (not inverted to ~0.33)",
+  );
+}
 
 // pickRootSurface fills UV when vertex uvs are missing
 const pickView = {

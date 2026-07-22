@@ -327,8 +327,13 @@ assert.equal(normalizeEyeUv({ centerU: 0.4, eyeSeparationU: 0.14 }).eyeSeparatio
 const fromCorners = eyeUvFromCorners(0.35, 0.7, 0.65, 0.45);
 assert.ok(Math.abs(fromCorners.centerU - 0.5) < 1e-6);
 assert.ok(Math.abs(fromCorners.centerV - 0.575) < 1e-6);
-assert.ok(fromCorners.scale > 0.5);
+assert.ok(fromCorners.scale > 0.5 && fromCorners.scale < 3);
 assert.ok(fromCorners.eyeSeparationU > 0.02);
+// Tall UV rect must not explode scale past what width can hold
+const tall = eyeUvFromCorners(0.4, 0.9, 0.6, 0.2);
+assert.ok(tall.scale <= tall.eyeSeparationU / 0.01); // sanity
+assert.ok(tall.scale < 2.5, "scale fits width+height, not height-only");
+assert.ok(tall.eyeSeparationU >= 0.04);
 assert.deepEqual(unwrapUvPairU(0.9, 0.1)[0] <= unwrapUvPairU(0.9, 0.1)[1], true);
 const moved = eyeUvMoveCenter(fromCorners, 0.42, 0.55);
 assert.ok(Math.abs(moved.centerU - 0.42) < 1e-9);
