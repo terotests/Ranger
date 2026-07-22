@@ -115,11 +115,9 @@ const { lib, refresh, load, save, saveAs, remove, exportJson, importJsonFile } =
 });
 
 const loadedTextures = computed(() => Object.values(texState.textures || {}));
-/** Saved texture projects + any project that embeds textureAssets (legacy mesh saves). */
+/** Saved texture-library entries only — mesh projects may embed textureAssets for assign, but must not appear in the texture picker. */
 const libraryTextureProjects = computed(() =>
-  (lib.projects || []).filter(
-    (p) => !p.error && (p.projectKind === "texture" || (p.textureCount || 0) > 0),
-  ),
+  (lib.projects || []).filter((p) => !p.error && p.projectKind === "texture"),
 );
 
 /** Orbit first, then place a square on the mesh, then pick a texture. */

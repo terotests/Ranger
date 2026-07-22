@@ -47,6 +47,8 @@ const sources = computed(() => {
 
   for (const p of props.libraryProjects || []) {
     if (p.error) continue;
+    // Mesh projects often embed a copy of the assigned eye for reload — never list them here.
+    if (p.projectKind && p.projectKind !== "texture") continue;
     const texList = Array.isArray(p.textures) ? p.textures : [];
     if (texList.length) {
       for (const t of texList) {
@@ -64,7 +66,7 @@ const sources = computed(() => {
       continue;
     }
     const texN = p.textureCount || 0;
-    if (p.projectKind === "texture" || texN > 0) {
+    if (texN > 0 || p.projectKind === "texture") {
       rows.push({
         key: `lib:${p.slug}:`,
         label: `${p.name || p.slug}${texN ? ` · ${texN} tex` : ""} (saved)`,

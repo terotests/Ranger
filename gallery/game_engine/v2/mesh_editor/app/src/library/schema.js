@@ -178,6 +178,27 @@ export function serializeObjectMaterial(om, opts = {}) {
   return out;
 }
 
+function collectReferencedTextureGuids(st) {
+  const guids = new Set();
+  const add = (g) => {
+    if (g) guids.add(String(g));
+  };
+  const scanSegs = (segs) => {
+    for (const s of segs || []) add(s?.textureAsset);
+  };
+  const scanBody = (body) => {
+    if (!body) return;
+    add(body.objectMaterial?.textureAsset);
+    scanSegs(body.segments);
+    scanSegs(body.orbitSegments);
+    scanSegs(body.spineProfileSegments);
+    scanSegs(body.spineOrbitSegments);
+  };
+  scanBody(st);
+  for (const body of Object.values(st.embeddedAssets || {})) scanBody(body);
+  return guids;
+}
+
 /**
  * Build a current-version project document from the live editor state.
  */
@@ -214,6 +235,20 @@ export function buildProjectDocument(opts) {
   if (texAsset && !texAssign) texAssign = "eyePair";
   if (texAsset && texMode !== "asset") texMode = "asset";
 
+  // Mesh saves only keep textures actually assigned to the mesh — not every eye
+  // open in the Texture editor (those leaked into the assign picker as "Eye · meshName").
+  if (projectKind === "mesh") {
+    const keep = collectReferencedTextureGuids({
+      ...st,
+      objectMaterial: {
+        ...(st.objectMaterial || {}),
+        textureAsset: texAsset,
+      },
+    });
+    for (const guid of Object.keys(textureAssets)) {
+      if (!keep.has(guid)) delete textureAssets[guid];
+    }
+  }
   return {
     kind: SCHEMA_KIND,
     schemaVersion: CURRENT_SCHEMA_VERSION,
