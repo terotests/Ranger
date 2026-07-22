@@ -923,12 +923,11 @@ export function useSplineEditor() {
   }
 
   function resolveTextureMap(om) {
-    if (
-      pendingTextureMap &&
-      om?.textureAsset &&
-      om.textureAsset === pendingTextureMap.guid
-    ) {
-      return pendingTextureMap.map;
+    // Prefer the in-flight atlas from async assign (guid may be set on om in the same tick).
+    if (pendingTextureMap?.map && pendingTextureMap.guid) {
+      if (!om?.textureAsset || om.textureAsset === pendingTextureMap.guid) {
+        return pendingTextureMap.map;
+      }
     }
     if (!om) return null;
     const guid = om.textureAsset;
@@ -966,22 +965,30 @@ export function useSplineEditor() {
    * @param {{ recordHistory?: boolean }} [opts]
    */
   function assignEyeTextureToRoot(assetGuid, uv, opts = {}) {
-    if (!assetGuid) return false;
+    const guid = String(assetGuid || "").trim();
+    if (!guid) return false;
     const assets = textureAssetsProvider() || {};
-    if (!assets[assetGuid]) {
+    if (!assets[guid]) {
       state.status = "Texture asset not loaded — open it in Texture or import the project.";
       return false;
     }
     const record = opts.recordHistory !== false;
-    if (record) beginGesture("assign-eye-texture");
+    // Use a single history commit (not begin/end gesture) so a stuck open gesture
+    // cannot skip recording / leave objectMaterial half-updated.
+    if (record) commitToHistory("assign-eye-texture");
+    const prev = state.objectMaterial || defaultObjectMaterial();
+    const nextUv = normalizeEyeUv(uv || prev.textureUv);
+    // Plain object replace — explicit fields so textureAsset always serializes.
     state.objectMaterial = {
-      ...state.objectMaterial,
+      color: prev.color ?? null,
+      roughness: Number(prev.roughness ?? 0.4),
+      metalness: Number(prev.metalness ?? 0),
+      opacity: Number(prev.opacity ?? 1),
       texture: "asset",
-      textureAsset: assetGuid,
+      textureAsset: guid,
       textureAssign: "eyePair",
-      textureUv: normalizeEyeUv(uv || state.objectMaterial?.textureUv),
+      textureUv: nextUv,
     };
-    if (record) endGesture();
     if (record) state.status = "Assigned eye texture to mesh UVs (left + right).";
     return true;
   }
@@ -1389,6 +1396,20 @@ export function useSplineEditor() {
     return true;
   }
 
+  function snapshotObjectMaterial(om) {
+    const m = om || defaultObjectMaterial();
+    return {
+      color: m.color ?? null,
+      roughness: Number(m.roughness ?? 0.4),
+      metalness: Number(m.metalness ?? 0),
+      opacity: Number(m.opacity ?? 1),
+      texture: m.texture || "gradient",
+      textureAsset: m.textureAsset || null,
+      textureAssign: m.textureAssign === "eyePair" ? "eyePair" : m.textureAssign || null,
+      textureUv: normalizeEyeUv(m.textureUv),
+    };
+  }
+
   function snapshotState() {
     const embedded = {};
     for (const [guid, body] of Object.entries(state.embeddedAssets)) {
@@ -1400,7 +1421,7 @@ export function useSplineEditor() {
         angularSteps: body.angularSteps,
         revolutionDeg: body.revolutionDeg,
         tessellationMode: body.tessellationMode === "torus" ? "torus" : "rotation",
-        objectMaterial: { ...body.objectMaterial },
+        objectMaterial: snapshotObjectMaterial(body.objectMaterial),
         knots: body.knots.map((k) => ({ ...k })),
         segments: body.segments.map(mapSegSnapshot),
         orbitKnots: body.orbitKnots.map((k) => ({ ...k })),
@@ -1423,7 +1444,7 @@ export function useSplineEditor() {
       symmetry: state.symmetry,
       viewMode: state.viewMode,
       spineSource: state.spineSource,
-      objectMaterial: { ...state.objectMaterial },
+      objectMaterial: snapshotObjectMaterial(state.objectMaterial),
       knots: state.knots.map((k) => ({ ...k })),
       segments: state.segments.map(mapSegSnapshot),
       orbitKnots: state.orbitKnots.map((k) => ({ ...k })),

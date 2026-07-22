@@ -12,6 +12,7 @@ import AssignTextureDialog from "./components/AssignTextureDialog.vue";
 import { useSplineEditor } from "./composables/useSplineEditor.js";
 import { useTextureEditor } from "./composables/useTextureEditor.js";
 import { useLibrary } from "./composables/useLibrary.js";
+import { normalizeEyeUv } from "./lib/texture/eyeTexture.js";
 import * as api from "./library/api.js";
 
 const {
@@ -158,16 +159,32 @@ async function onAssignApply({ guid, uv, assets }) {
   try {
     await new Promise((r) => setTimeout(r, 0));
     mergeAssignAssets(assets);
+    const wantGuid = String(guid || "").trim();
+    if (!wantGuid || !tex.snapshotTextures()[wantGuid]) {
+      state.status = "Assign failed: texture asset not in editor after load.";
+      return;
+    }
     assignProgress.value = "Starting UV bake…";
-    const ok = await assignEyeTextureToRootAsync(guid, uv || assignRegionUv.value, {
+    const ok = await assignEyeTextureToRootAsync(wantGuid, uv || assignRegionUv.value, {
       onProgress: (label) => {
         assignProgress.value = label;
       },
     });
     if (ok) {
+      // Hard-verify persistence fields before closing the dialog.
+      if (state.objectMaterial?.textureAsset !== wantGuid) {
+        state.objectMaterial = {
+          ...state.objectMaterial,
+          texture: "asset",
+          textureAsset: wantGuid,
+          textureAssign: "eyePair",
+          textureUv: normalizeEyeUv(uv || assignRegionUv.value || state.objectMaterial?.textureUv),
+        };
+      }
       assignDialogOpen.value = false;
       assignRegionUv.value = null;
-      state.status = "Eye texture assigned.";
+      state.status = `Eye texture assigned (${wantGuid.slice(0, 8)}…).`;
+      tessellate();
     }
   } catch (err) {
     state.status = "Assign failed: " + (err.message || err);
@@ -851,10 +868,11 @@ onBeforeUnmount(() => {
       <LibraryPanel
         :lib="lib"
         project-kind="mesh"
+        :save-disabled="assignBusy"
         @refresh="refresh"
         @load="(slug) => load(slug, 'mesh')"
-        @save="() => save('mesh')"
-        @save-as="(name) => saveAs(name, 'mesh')"
+        @save="() => !assignBusy && save('mesh')"
+        @save-as="(name) => !assignBusy && saveAs(name, 'mesh')"
         @remove="(slug) => remove(slug, 'mesh')"
         @export="(name) => exportJson(name, 'mesh')"
         @import-file="(file) => importJsonFile(file, 'mesh')"
