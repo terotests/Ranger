@@ -824,7 +824,7 @@ export function layersWithEyeballColor(layers, color) {
  * top of the cell — flip vertically so the reflection sits toward higher mesh V.
  * Also draws at u±1 so a cell that straddles the 0/1 seam still appears.
  */
-export function blitEyeCellToAtlas(ctx, layers, uCenter, centerV, cellW, cellH, bg) {
+export function blitEyeCellToAtlas(ctx, layers, uCenter, centerV, cellW, cellH, _bg) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   const y = Math.round(centerV * h - cellH / 2);
@@ -832,8 +832,9 @@ export function blitEyeCellToAtlas(ctx, layers, uCenter, centerV, cellW, cellH, 
   off.width = cellW;
   off.height = cellH;
   const octx = off.getContext("2d");
-  octx.fillStyle = bg;
-  octx.fillRect(0, 0, cellW, cellH);
+  // Keep the cell transparent outside the drawn eye layers so the mesh
+  // material/vertex colors show through (renderer mixes on texel alpha).
+  octx.clearRect(0, 0, cellW, cellH);
   drawEyeLayers(octx, layers, cellW, cellH);
   const u0 = ((Number(uCenter) % 1) + 1) % 1;
   const xMain = Math.round(u0 * w - cellW / 2);
@@ -853,8 +854,8 @@ export function blitEyeCellToAtlas(ctx, layers, uCenter, centerV, cellW, cellH, 
 
 /**
  * Rasterize left+right eyes into a UV atlas.
- * Background defaults to mesh/vertex tint so non-eye UV areas match the body.
- * Eyeball sclera keeps its authored color (usually white/cream).
+ * Outside the eye artwork is transparent (alpha 0) so mesh segment/vertex
+ * colors show through. Eyeball sclera keeps its authored color (usually white).
  * Lathe UVs: u around orbit, v along profile.
  *
  * @returns {{ rgba: Uint8ClampedArray|number[], w: number, h: number, name: string } | null}
@@ -876,27 +877,16 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
   const tintSclera = opts.tintSclera === true;
 
   if (typeof document === "undefined") {
-    // Node smoke: solid bg map (assignment path is browser/WebGL).
+    // Node smoke: fully transparent atlas (browser path draws the eyes).
     const rgba = new Uint8ClampedArray(w * h * 4);
-    const hex = String(bg).replace("#", "");
-    const br = hex.length >= 6 ? parseInt(hex.slice(0, 2), 16) : 232;
-    const bg_ = hex.length >= 6 ? parseInt(hex.slice(2, 4), 16) : 228;
-    const bb = hex.length >= 6 ? parseInt(hex.slice(4, 6), 16) : 220;
-    for (let i = 0; i < rgba.length; i += 4) {
-      rgba[i] = br;
-      rgba[i + 1] = bg_;
-      rgba[i + 2] = bb;
-      rgba[i + 3] = 255;
-    }
     return { rgba, w, h, name: (tex?.name || "eye") + "-uv" };
   }
 
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
+  const ctx = canvas.getContext("2d", { alpha: true });
+  ctx.clearRect(0, 0, w, h);
 
   const cellW = Math.max(8, Math.round(eyeWU * w));
   const cellH = Math.max(8, Math.round(eyeHV * h));
@@ -965,9 +955,8 @@ export async function rasterizeEyePairUvMapAsync(tex, width = 512, height = 512,
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
+  const ctx = canvas.getContext("2d", { alpha: true });
+  ctx.clearRect(0, 0, w, h);
 
   const cellW = Math.max(8, Math.round(eyeWU * w));
   const cellH = Math.max(8, Math.round(eyeHV * h));

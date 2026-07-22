@@ -270,9 +270,12 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
                                 def tr:int (this.sampleTex(tex u v 0))
                                 def tg:int (this.sampleTex(tex u v 1))
                                 def tb:int (this.sampleTex(tex u v 2))
-                                cr = (idiv (r255 * tr) 255)
-                                cg = (idiv (g255 * tg) 255)
-                                cb = (idiv (b255 * tb) 255)
+                                def ta:int (this.sampleTex(tex u v 3))
+                                ; mix(material, tex.rgb, tex.a) — alpha 0 keeps body color
+                                ; (eye atlas cutout); opaque maps keep full texel RGB.
+                                cr = (idiv ((r255 * (255 - ta)) + (tr * ta)) 255)
+                                cg = (idiv ((g255 * (255 - ta)) + (tg * ta)) 255)
+                                cb = (idiv ((b255 * (255 - ta)) + (tb * ta)) 255)
                             }
                         }
                         def o:int (pidx * 3)
