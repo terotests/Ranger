@@ -80,16 +80,22 @@ const assignRegionUv = ref(null);
 
 setTextureAssetsProvider(() => tex.snapshotTextures());
 
-function snapshotState() {
+function snapshotState(kind) {
+  const k = kind === "texture" ? "texture" : "mesh";
   return {
     ...snapshotMeshState(),
     textureAssets: tex.snapshotTextures(),
-    projectKind: workspace.value === "texture" ? "texture" : "mesh",
+    projectKind: k,
   };
 }
 
-function applyProject(doc) {
-  const kind = doc?.projectKind === "texture" ? "texture" : "mesh";
+function applyProject(doc, kindHint) {
+  const kind =
+    kindHint === "texture" || kindHint === "mesh"
+      ? kindHint
+      : doc?.projectKind === "texture"
+        ? "texture"
+        : "mesh";
   workspace.value = kind;
   if (doc?.profile?.knots?.length >= 2) {
     applyMeshProject(doc);
@@ -163,6 +169,8 @@ async function onAssignApply({ guid, uv, assets }) {
       assignRegionUv.value = null;
       state.status = "Eye texture assigned.";
     }
+  } catch (err) {
+    state.status = "Assign failed: " + (err.message || err);
   } finally {
     assignBusy.value = false;
     assignProgress.value = "";
@@ -304,6 +312,7 @@ function onRedo() {
 }
 
 function onKeyDown(e) {
+  if (isEditableTarget(e.target)) return;
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
   const key = e.key.toLowerCase();
@@ -316,6 +325,15 @@ function onKeyDown(e) {
     if (workspace.value === "texture") tex.redo();
     else onRedo();
   }
+}
+
+function isEditableTarget(target) {
+  if (!target || typeof target !== "object") return false;
+  const el = /** @type {HTMLElement} */ (target);
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (el.isContentEditable) return true;
+  return !!el.closest?.("input, textarea, select, [contenteditable='true']");
 }
 
 const placePending = ref(null); // { slug, mode, symmetric, doc }
@@ -834,12 +852,12 @@ onBeforeUnmount(() => {
         :lib="lib"
         project-kind="mesh"
         @refresh="refresh"
-        @load="load"
-        @save="save"
-        @save-as="saveAs"
-        @remove="remove"
-        @export="exportJson"
-        @import-file="importJsonFile"
+        @load="(slug) => load(slug, 'mesh')"
+        @save="() => save('mesh')"
+        @save-as="(name) => saveAs(name, 'mesh')"
+        @remove="(slug) => remove(slug, 'mesh')"
+        @export="(name) => exportJson(name, 'mesh')"
+        @import-file="(file) => importJsonFile(file, 'mesh')"
       />
     </main>
 
@@ -926,12 +944,12 @@ onBeforeUnmount(() => {
         :lib="lib"
         project-kind="texture"
         @refresh="refresh"
-        @load="load"
-        @save="save"
-        @save-as="saveAs"
-        @remove="remove"
-        @export="exportJson"
-        @import-file="importJsonFile"
+        @load="(slug) => load(slug, 'texture')"
+        @save="() => save('texture')"
+        @save-as="(name) => saveAs(name, 'texture')"
+        @remove="(slug) => remove(slug, 'texture')"
+        @export="(name) => exportJson(name, 'texture')"
+        @import-file="(file) => importJsonFile(file, 'texture')"
       />
     </main>
     <AssignTextureDialog
