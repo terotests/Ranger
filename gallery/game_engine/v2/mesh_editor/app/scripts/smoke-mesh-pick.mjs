@@ -326,8 +326,8 @@ const v7 = {
 
 const mig = migrateProject(v7);
 assert.equal(mig.ok, true, mig.errors?.join("; "));
-assert.equal(CURRENT_SCHEMA_VERSION, 11);
-assert.equal(mig.doc.schemaVersion, 11);
+assert.equal(CURRENT_SCHEMA_VERSION, 12);
+assert.equal(mig.doc.schemaVersion, 12);
 assert.equal(mig.doc.children[0].transform.surface, false);
 assert.equal(mig.doc.children[0].transform.z, 0);
 
