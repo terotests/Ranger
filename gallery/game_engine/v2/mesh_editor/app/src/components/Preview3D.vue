@@ -550,7 +550,9 @@ onBeforeUnmount(() => {
   session = null;
 });
 
-watch(displayMesh, () => pushDisplay(), { deep: true });
+// Identity-only: tessellate() replaces the mesh root. Deep watch would traverse
+// every position/normal/uv/index/mapRgba element (seconds on large atlases).
+watch(displayMesh, () => pushDisplay());
 
 watch(
   () => props.materialMode,

@@ -1,5 +1,22 @@
 /** Boot / drive WebMeshEditorHost for the 3D preview canvas. */
 
+/**
+ * Build a Ranger ES6 `buffer` (ArrayBuffer + DataView) from RGBA bytes.
+ * One memcpy — avoids host.bytesToBuffer's per-element loop.
+ * @param {Uint8Array|Uint8ClampedArray|ArrayLike<number>} rgba
+ */
+function toRangerBuffer(rgba) {
+  const src = rgba instanceof Uint8Array ? rgba : new Uint8Array(rgba);
+  const ab = new ArrayBuffer(src.byteLength);
+  new Uint8Array(ab).set(src);
+  ab._view = new DataView(ab);
+  return ab;
+}
+
+function hasMap(part) {
+  return !!(part?.mapRgba && part.mapRgba.length && part.mapW > 0 && part.mapH > 0);
+}
+
 export async function createPreviewSession(canvas, size = 420, opts = {}) {
   const bundleSource = await fetch("/ranger/mesh_editor.bundle.js").then((r) => r.text());
   const vfs = new window.RangerVFS();
@@ -64,26 +81,79 @@ export async function createPreviewSession(canvas, size = 420, opts = {}) {
     raf = 0;
   }
 
+  /**
+   * Upload each distinct atlas once (by object identity), then addPart geometry.
+   * Empty mapBytes + hasPartMap on the host applies the shared ThreeTexture.
+   */
   function pushMesh(mesh) {
     if (!mesh) return;
     host.setMaterialMode(lastMode | 0);
     if (mesh.parts && mesh.parts.length) {
       host.beginParts();
+      let currentMap = null;
+      const emptyMap = [];
+      const canShare =
+        typeof host.setPartMapBuffer === "function" && typeof host.clearPartMap === "function";
+
       for (const part of mesh.parts) {
-        const mapBytes = part.mapRgba && part.mapRgba.length ? part.mapRgba : [];
-        host.addPart(
-          part.positions,
-          part.normals,
-          part.uvs,
-          part.indices,
-          part.colorHex | 0,
-          part.shininess || 120,
-          part.opacity == null ? 1 : part.opacity,
-          part.reflectivity || 0,
-          mapBytes,
-          part.mapW | 0,
-          part.mapH | 0,
-        );
+        if (hasMap(part)) {
+          if (canShare) {
+            if (part.mapRgba !== currentMap) {
+              host.setPartMapBuffer(toRangerBuffer(part.mapRgba), part.mapW | 0, part.mapH | 0);
+              currentMap = part.mapRgba;
+            }
+            host.addPart(
+              part.positions,
+              part.normals,
+              part.uvs,
+              part.indices,
+              part.colorHex | 0,
+              part.shininess || 120,
+              part.opacity == null ? 1 : part.opacity,
+              part.reflectivity || 0,
+              emptyMap,
+              part.mapW | 0,
+              part.mapH | 0,
+            );
+          } else {
+            // Older host bundle: fall back to per-part upload (still TypedArray-safe).
+            const mapBytes =
+              part.mapRgba instanceof Uint8Array
+                ? part.mapRgba
+                : Array.from(part.mapRgba);
+            host.addPart(
+              part.positions,
+              part.normals,
+              part.uvs,
+              part.indices,
+              part.colorHex | 0,
+              part.shininess || 120,
+              part.opacity == null ? 1 : part.opacity,
+              part.reflectivity || 0,
+              mapBytes,
+              part.mapW | 0,
+              part.mapH | 0,
+            );
+          }
+        } else {
+          if (canShare && currentMap !== null) {
+            host.clearPartMap();
+            currentMap = null;
+          }
+          host.addPart(
+            part.positions,
+            part.normals,
+            part.uvs,
+            part.indices,
+            part.colorHex | 0,
+            part.shininess || 120,
+            part.opacity == null ? 1 : part.opacity,
+            part.reflectivity || 0,
+            emptyMap,
+            0,
+            0,
+          );
+        }
       }
       host.frame(0);
       blit();

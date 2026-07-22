@@ -52,6 +52,14 @@ function roughnessToShininess(r) {
   return lerp(280, 6, t);
 }
 
+/** Keep atlas pixels as a TypedArray; never widen to a number[]. */
+function asRgbaBytes(map) {
+  if (!map?.rgba || !map.rgba.length) return null;
+  const src = map.rgba;
+  if (src instanceof Uint8Array) return src;
+  return new Uint8Array(src);
+}
+
 function makeGradientRgba(hexA, hexB, w = 4, h = 64) {
   const A = hexToRgb(hexA);
   const B = hexToRgb(hexB);
@@ -248,6 +256,8 @@ export function tessellateBody(body, opts = {}) {
   ) {
     bodyMap = opts.resolveTextureMap(om);
   }
+  // One typed-array view for the body atlas — shared by every part (no Array.from).
+  const bodyMapBytes = bodyMap ? asRgbaBytes(bodyMap) : null;
 
   const parts = [];
   let totalV = 0;
@@ -255,6 +265,7 @@ export function tessellateBody(body, opts = {}) {
   for (const piece of pieces) {
     const style = resolveCombinedStyle(body, piece.profileSeg, piece.orbitSeg);
     const map = bodyMap || style.map;
+    const mapBytes = bodyMap ? bodyMapBytes : map ? asRgbaBytes(map) : null;
     parts.push({
       positions: piece.positions,
       normals: piece.normals,
@@ -264,7 +275,7 @@ export function tessellateBody(body, opts = {}) {
       shininess: style.shininess,
       reflectivity: style.reflectivity,
       opacity: style.opacity,
-      mapRgba: map ? Array.from(map.rgba) : null,
+      mapRgba: mapBytes,
       mapW: map ? map.w : 0,
       mapH: map ? map.h : 0,
     });

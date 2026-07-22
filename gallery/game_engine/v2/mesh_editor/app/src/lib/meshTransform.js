@@ -141,7 +141,8 @@ export function transformPart(part, xf, sharedCenter, pivot) {
     normals: normals || part.normals,
     indices: mirror ? reverseWinding(indices) : indices,
     uvs: part.uvs ? part.uvs.slice() : part.uvs,
-    mapRgba: part.mapRgba ? part.mapRgba.slice() : part.mapRgba,
+    // Share atlas bytes by reference (immutable for preview upload).
+    mapRgba: part.mapRgba,
   };
 }
 
@@ -217,7 +218,8 @@ function transformPartSurface(part, xf, pivot) {
     normals: normals || part.normals,
     indices,
     uvs: part.uvs ? part.uvs.slice() : part.uvs,
-    mapRgba: part.mapRgba ? part.mapRgba.slice() : part.mapRgba,
+    // Share atlas bytes by reference (immutable for preview upload).
+    mapRgba: part.mapRgba,
   };
 }
 
