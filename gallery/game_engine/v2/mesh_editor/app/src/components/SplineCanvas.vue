@@ -44,12 +44,35 @@ const emit = defineEmits([
 ]);
 
 const canvasRef = ref(null);
-const size = 560;
+/** Fallback logical size when the canvas is not laid out yet. */
+const SIZE_FALLBACK = 560;
 let dragging = null;
 let draggingChild = null;
 let draggingNormal = null; // 'start' | 'end'
 let raf = 0;
 const hoverAdd = ref(null);
+
+/**
+ * CSS display size (not the hardcoded buffer). Texture layout scales the canvas
+ * below 560px — hit-tests must use clientWidth/Height or handles miss the cursor.
+ */
+function viewSize() {
+  const canvas = canvasRef.value;
+  if (!canvas) return { w: SIZE_FALLBACK, h: SIZE_FALLBACK };
+  const w = canvas.clientWidth || canvas.getBoundingClientRect().width || SIZE_FALLBACK;
+  const h = canvas.clientHeight || canvas.getBoundingClientRect().height || SIZE_FALLBACK;
+  return { w: Math.max(1, w), h: Math.max(1, h) };
+}
+
+/** Map pointer into the same CSS-pixel space used by draw/hit-test (border-safe). */
+function pointerLocal(e) {
+  const canvas = canvasRef.value;
+  const rect = canvas.getBoundingClientRect();
+  const { w, h } = viewSize();
+  const sx = rect.width > 0 ? ((e.clientX - rect.left) / rect.width) * w : 0;
+  const sy = rect.height > 0 ? ((e.clientY - rect.top) / rect.height) * h : 0;
+  return { sx, sy, w, h };
+}
 
 /** Orbit chrome (axes / unit circle) — mesh orbit view only. */
 const isOrbitView = computed(() => props.viewMode === "orbit");
@@ -210,10 +233,11 @@ function drawPlacementNormal(ctx, w, h) {
 
 function hitTestPlacementNormal(sx, sy) {
   if (!showPlacementNormal.value || !props.placementNormal) return null;
+  const { w, h } = viewSize();
   const s = props.placementNormal.start;
   const e = props.placementNormal.end;
-  const [x0, y0] = worldToScreen(s.x, s.y, size, size);
-  const [x1, y1] = worldToScreen(e.x, e.y, size, size);
+  const [x0, y0] = worldToScreen(s.x, s.y, w, h);
+  const [x1, y1] = worldToScreen(e.x, e.y, w, h);
   if (Math.hypot(x1 - sx, y1 - sy) <= 14) return "end";
   if (Math.hypot(x0 - sx, y0 - sy) <= 14) return "start";
   return null;
@@ -224,13 +248,13 @@ function draw() {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
-  const w = size;
-  const h = size;
-  if (canvas.width !== w * dpr) {
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
+  // Match backing store to CSS box — do not force style.width (breaks Texture layout).
+  const { w, h } = viewSize();
+  const bw = Math.round(w * dpr);
+  const bh = Math.round(h * dpr);
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
@@ -444,26 +468,35 @@ function drawHandle(ctx, x, y, selected) {
 }
 
 function hitTestPoint(sx, sy) {
+  const { w, h } = viewSize();
   const thresh = 10;
   for (let ki = 0; ki < props.knots.length; ki++) {
     const k = props.knots[ki];
     if (props.curveType === 0 && props.toolMode === "edit" && knotUsesBezierHandles(ki)) {
-      const [hx, hy] = worldToScreen(k.x + k.hx, k.y + k.hy, size, size);
-      if (Math.hypot(hx - sx, hy - sy) <= thresh) return { id: k.id, mode: "handle" };
+      // Both Bezier handle ends (outgoing + mirrored incoming)
+      const [hx, hy] = worldToScreen(k.x + k.hx, k.y + k.hy, w, h);
+      if (Math.hypot(hx - sx, hy - sy) <= thresh) {
+        return { id: k.id, mode: "handle", side: "out" };
+      }
+      const [ix, iy] = worldToScreen(k.x - k.hx, k.y - k.hy, w, h);
+      if (Math.hypot(ix - sx, iy - sy) <= thresh) {
+        return { id: k.id, mode: "handle", side: "in" };
+      }
     }
-    const [px, py] = worldToScreen(k.x, k.y, size, size);
+    const [px, py] = worldToScreen(k.x, k.y, w, h);
     if (Math.hypot(px - sx, py - sy) <= thresh) return { id: k.id, mode: "point" };
   }
   return null;
 }
 
 function hitTestSegment(sx, sy) {
+  const { w, h } = viewSize();
   const thresh = 12;
   const segCount = pathIsClosed.value ? props.knots.length : props.knots.length - 1;
   for (let i = 0; i < segCount; i++) {
     const mid = evalMid(i);
     if (!mid) continue;
-    const [mx, my] = worldToScreen(mid.x, mid.y, size, size);
+    const [mx, my] = worldToScreen(mid.x, mid.y, w, h);
     if (Math.hypot(mx - sx, my - sy) <= thresh) return i;
   }
   return -1;
@@ -471,13 +504,14 @@ function hitTestSegment(sx, sy) {
 
 function hitTestChild(sx, sy) {
   if (!showAttachments.value) return null;
+  const { w, h } = viewSize();
   for (const ch of props.children) {
     if (ch.visible === false) continue;
     const ax = ch.transform.snapCenterline ? 0 : ch.transform.x;
     const ay = ch.transform.y;
     const half = 0.06 * Math.max(0.5, ch.transform.scale / 0.28);
-    const [x0, y0] = worldToScreen(ax - half, ay + half, size, size);
-    const [x1, y1] = worldToScreen(ax + half, ay - half, size, size);
+    const [x0, y0] = worldToScreen(ax - half, ay + half, w, h);
+    const [x1, y1] = worldToScreen(ax + half, ay - half, w, h);
     const left = Math.min(x0, x1);
     const right = Math.max(x0, x1);
     const top = Math.min(y0, y1);
@@ -488,10 +522,8 @@ function hitTestChild(sx, sy) {
 }
 
 function onPointerDown(e) {
-  const rect = canvasRef.value.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
-  const [wx, wy] = screenToWorld(sx, sy, size, size);
+  const { sx, sy, w, h } = pointerLocal(e);
+  const [wx, wy] = screenToWorld(sx, sy, w, h);
 
   if (props.toolMode === "add") {
     emit("add-on-curve", clampWorldX(wx), wy);
@@ -539,10 +571,8 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
-  const rect = canvasRef.value.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
-  const [wx, wy] = screenToWorld(sx, sy, size, size);
+  const { sx, sy, w, h } = pointerLocal(e);
+  const [wx, wy] = screenToWorld(sx, sy, w, h);
 
   if (props.toolMode === "add") {
     hoverAdd.value = props.findClosestOnCurve(clampWorldX(wx), wy, 0.14);
@@ -573,6 +603,9 @@ function onPointerMove(e) {
   if (!k) return;
   if (dragging.mode === "point") {
     emit("update-knot", dragging.id, { x: clampWorldX(wx), y: wy });
+  } else if (dragging.side === "in") {
+    // Incoming handle is at (x - hx, y - hy)
+    emit("update-knot", dragging.id, { hx: k.x - wx, hy: k.y - wy });
   } else {
     emit("update-knot", dragging.id, { hx: wx - k.x, hy: wy - k.y });
   }
@@ -614,14 +647,25 @@ watch(
   { deep: true },
 );
 
+let resizeObserver = null;
+
 onMounted(() => {
   schedule();
   window.addEventListener("resize", schedule);
+  // Texture column CSS-scales the canvas; keep backing store + hit-tests in sync.
+  if (typeof ResizeObserver !== "undefined" && canvasRef.value) {
+    resizeObserver = new ResizeObserver(() => schedule());
+    resizeObserver.observe(canvasRef.value);
+  }
 });
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf);
   window.removeEventListener("resize", schedule);
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
 });
 </script>
 
