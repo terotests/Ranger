@@ -69,6 +69,22 @@ assert.ok(right2 && left, "left/right tips exist after symmetry rebuild");
 assert.ok(Math.abs(right2.x - ax - (ax - left.x)) < 1e-6, "left mirrors right about centroid");
 assert.ok(Math.abs(left.y - right2.y) < 1e-6, "left mirrors right y");
 
+// Handle-only edit + symmetry must keep hx/hy (no auto-smooth wipe)
+{
+  const circ = makeEllipsePath({ cx: 0, cy: 0, rx: 0.72, ry: 0.72, n: 4 });
+  const tip = circ.knots.find((k) => k.x > 0.5);
+  tip.hx = 0.12;
+  tip.hy = 0.55;
+  rebuildClosedYSymmetry(circ.knots);
+  const tip2 = circ.knots.find((k) => k.id === tip.id);
+  assert.ok(tip2, "edited knot id preserved");
+  assert.ok(Math.abs(tip2.hx - 0.12) < 1e-6, "handle hx survives symmetry");
+  assert.ok(Math.abs(tip2.hy - 0.55) < 1e-6, "handle hy survives symmetry");
+  const mir = circ.knots.find((k) => Math.abs(k.x + tip2.x) < 1e-3 && Math.abs(k.y - tip2.y) < 1e-3);
+  assert.ok(mir, "mirror knot exists");
+  assert.ok(Math.abs(mir.hx + tip2.hx) < 1e-6, "mirror hx negates");
+}
+
 // Move iris far outside, then constrain — centroid should land inside eyeball
 const iris = findLayer(eye, "iris");
 for (const k of iris.knots) {

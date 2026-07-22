@@ -100,17 +100,45 @@ export function usePathEditor(opts = {}) {
     }
   }
 
-  function loadPath(knots, segments, { closed } = {}) {
+  function loadPath(knots, segments, { closed, preserveSelection = false } = {}) {
     if (closed != null) state.closed = !!closed;
+    const prevSel = state.selectedId;
     state.knots = (knots || []).map((k) => ({ ...k }));
     state.segments = (segments || []).map((s) => ({ ...s, textureData: null }));
     syncSegments();
-    state.selectedId = state.knots[0]?.id || null;
-    state.selectedIds = state.selectedId ? [state.selectedId] : [];
-    state.selectedSegmentIndex = -1;
+    if (preserveSelection && prevSel && state.knots.some((k) => k.id === prevSel)) {
+      state.selectedId = prevSel;
+      state.selectedIds = [prevSel];
+    } else {
+      state.selectedId = state.knots[0]?.id || null;
+      state.selectedIds = state.selectedId ? [state.selectedId] : [];
+      state.selectedSegmentIndex = -1;
+    }
     history.clear();
     history.baseline(snapshot());
     refreshHistoryFlags();
+  }
+
+  /** Copy knot fields from an external list without resetting selection/history. */
+  function applyKnotsFrom(knots) {
+    if (!knots?.length) return;
+    const sameIds =
+      knots.length === state.knots.length && knots.every((k, i) => k.id === state.knots[i]?.id);
+    if (sameIds) {
+      for (let i = 0; i < state.knots.length; i++) Object.assign(state.knots[i], knots[i]);
+      return;
+    }
+    // Symmetry rebuild may reorder/add mirrors — replace in place, keep selection.
+    const prevSel = state.selectedId;
+    state.knots = knots.map((k) => ({ ...k }));
+    syncSegments();
+    if (prevSel && state.knots.some((k) => k.id === prevSel)) {
+      state.selectedId = prevSel;
+      state.selectedIds = [prevSel];
+    } else if (!state.knots.some((k) => k.id === state.selectedId)) {
+      state.selectedId = state.knots[0]?.id || null;
+      state.selectedIds = state.selectedId ? [state.selectedId] : [];
+    }
   }
 
   function sampleCurvePoints(n = 28) {
@@ -250,6 +278,7 @@ export function usePathEditor(opts = {}) {
       return state.closed;
     },
     loadPath,
+    applyKnotsFrom,
     syncSegments,
     sampleCurvePoints,
     findClosestOnCurve,

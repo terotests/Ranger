@@ -91,8 +91,10 @@ export function useTextureEditor() {
     layer.segments = path.state.segments.map((s) => ({ ...s }));
     layer.color = layer.color || path.state.knots[0]?.color || layer.color;
     constrainEyeLayer(tex, layer.id);
-    // If constrain moved knots, reload path editor
-    path.loadPath(layer.knots, layer.segments, { closed: layer.type !== "eyelid" });
+    // Sync constrain/symmetry results back without wiping selection mid-drag
+    // (full loadPath was resetting selectedId and fighting handle drags).
+    path.applyKnotsFrom(layer.knots);
+    layer.segments = path.state.segments.map((s) => ({ ...s }));
   }
 
   watch(
@@ -201,6 +203,9 @@ export function useTextureEditor() {
     return pathCentroid(knots).x;
   }
 
+  /** True if the current gesture moved a knot (not only Bezier handles). */
+  let gestureMovedPoint = false;
+
   function onPathKnotUpdate(id, patch) {
     // With symmetry, keep edits on the right half relative to path centroid.
     if (layerWantsSymmetry(selectedLayer.value) && patch.x != null) {
@@ -209,12 +214,15 @@ export function useTextureEditor() {
     }
     path.updateKnot(id, patch);
     const movedPoint = patch.x != null || patch.y != null;
+    if (movedPoint) gestureMovedPoint = true;
     pushPathToLayer({ movedPoint });
   }
 
   function onPathDragEnd() {
     path.endGesture();
-    pushPathToLayer({ movedPoint: true });
+    // Auto-smooth only after knot moves — handle-only drags must keep hx/hy.
+    pushPathToLayer({ movedPoint: gestureMovedPoint });
+    gestureMovedPoint = false;
   }
 
   function onPathAdd(x, y) {
