@@ -730,7 +730,9 @@ export function unwrapUvPairU(u1, u2) {
 /**
  * Build eye-pair textureUv from two mesh UV corners (top-left then bottom-right).
  * Lathe: u around orbit, v along profile (higher v = higher on mesh).
- * Scale is fit so the pair footprint stays inside the UV rect (not height-only).
+ * Scale fits the pair inside the UV rect. Separation is capped so both eyes
+ * stay on the same face — using the full rect width as gap pinned eyes to the
+ * U edges (often around the sides/back of a lathe → only one eye visible).
  */
 export function eyeUvFromCorners(u1, v1, u2, v2, opts = {}) {
   const [uLo, uHi] = unwrapUvPairU(u1, u2);
@@ -744,22 +746,26 @@ export function eyeUvFromCorners(u1, v1, u2, v2, opts = {}) {
   const height = Math.max(0.02, vHi - vLo);
   const eyeWU = opts.eyeWidthU != null ? Number(opts.eyeWidthU) : EYE_UV_FOOTPRINT.eyeWidthU;
   const eyeHV = opts.eyeHeightV != null ? Number(opts.eyeHeightV) : EYE_UV_FOOTPRINT.eyeHeightV;
-  const minSep = 0.04;
+  const minSep = 0.05;
+  /** ~58° of orbit — keeps a pair on one cheek of a closed lathe. */
+  const maxSep = opts.maxSeparationU != null ? Number(opts.maxSeparationU) : 0.16;
   const preferSep =
     opts.eyeSeparationU != null && Number.isFinite(Number(opts.eyeSeparationU))
       ? Number(opts.eyeSeparationU)
       : null;
-  // Gap ≈ half the rect so both eyes sit inside; then scale to fit width+height.
-  const sepHint =
-    preferSep != null ? preferSep : Math.min(0.35, Math.max(minSep, width * 0.5));
+  const sepTarget =
+    preferSep != null
+      ? preferSep
+      : Math.min(maxSep, Math.max(minSep, width * 0.38));
   const scaleV = height / (eyeHV || 0.13);
-  const scaleU = width / (eyeWU + sepHint);
+  const scaleU = Math.max(0.05, (width - sepTarget) / (eyeWU || 0.11));
   const scale = Math.min(scaleV, scaleU);
   const eyeW = eyeWU * scale;
+  // Final gap: at least a bit over one eye, but never wider than maxSep / rect.
   const eyeSeparationU =
     preferSep != null
       ? preferSep
-      : Math.min(0.45, Math.max(eyeW * 1.15, width - eyeW));
+      : Math.min(maxSep, Math.max(eyeW * 1.2, Math.min(sepTarget, width - eyeW)));
   let centerU = (uLo + uHi) / 2;
   centerU = ((centerU % 1) + 1) % 1;
   const centerV = (vLo + vHi) / 2;
@@ -815,11 +821,11 @@ export function layersWithEyeballColor(layers, color) {
  * Blit one eye cell into the UV atlas.
  * Host samples with v=0 at buffer row 0; canvas authoring has Y-up content at the
  * top of the cell — flip vertically so the reflection sits toward higher mesh V.
+ * Also draws at u±1 so a cell that straddles the 0/1 seam still appears.
  */
 export function blitEyeCellToAtlas(ctx, layers, uCenter, centerV, cellW, cellH, bg) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
-  const x = Math.round(uCenter * w - cellW / 2);
   const y = Math.round(centerV * h - cellH / 2);
   const off = document.createElement("canvas");
   off.width = cellW;
@@ -828,11 +834,20 @@ export function blitEyeCellToAtlas(ctx, layers, uCenter, centerV, cellW, cellH, 
   octx.fillStyle = bg;
   octx.fillRect(0, 0, cellW, cellH);
   drawEyeLayers(octx, layers, cellW, cellH);
-  ctx.save();
-  ctx.translate(x, y + cellH);
-  ctx.scale(1, -1);
-  ctx.drawImage(off, 0, 0);
-  ctx.restore();
+  const u0 = ((Number(uCenter) % 1) + 1) % 1;
+  const xMain = Math.round(u0 * w - cellW / 2);
+  // Only wrap-copy when the cell crosses the atlas edge (avoids seam streaks).
+  const us =
+    xMain < 0 || xMain + cellW > w ? [u0 - 1, u0, u0 + 1] : [u0];
+  for (const u of us) {
+    const x = Math.round(u * w - cellW / 2);
+    if (x + cellW <= 0 || x >= w) continue;
+    ctx.save();
+    ctx.translate(x, y + cellH);
+    ctx.scale(1, -1);
+    ctx.drawImage(off, 0, 0);
+    ctx.restore();
+  }
 }
 
 /**

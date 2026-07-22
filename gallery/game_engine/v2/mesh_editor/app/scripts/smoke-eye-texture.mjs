@@ -330,16 +330,16 @@ assert.ok(Math.abs(fromCorners.centerU - 0.5) < 1e-6);
 assert.ok(Math.abs(fromCorners.centerV - 0.575) < 1e-6);
 assert.ok(fromCorners.scale > 0.5 && fromCorners.scale < 3);
 assert.ok(fromCorners.eyeSeparationU > 0.02);
-// Eyes must stay separated (not collapsed into one disc)
-assert.ok(
-  fromCorners.eyeSeparationU >= fromCorners.scale * 0.11 * 1.1,
-  "gap at least ~eye width so both eyes show",
-);
+assert.ok(fromCorners.eyeSeparationU <= 0.16 + 1e-9, "pair gap capped for one face");
+// Wide UV span (cobra-like cheeks) must NOT pin eyes to the U edges
+const wide = eyeUvFromCorners(0.05, 0.7, 0.55, 0.45);
+assert.ok(wide.eyeSeparationU <= 0.16 + 1e-9, `sep capped, got ${wide.eyeSeparationU}`);
+assert.ok(wide.eyeSeparationU < 0.45, "must not use full rect width as gap");
+assert.ok(wide.eyeSeparationU >= 0.05, "eyes still separated");
 // Tall UV rect must not explode scale past what width can hold
 const tall = eyeUvFromCorners(0.4, 0.9, 0.6, 0.2);
-assert.ok(tall.scale <= tall.eyeSeparationU / 0.01); // sanity
 assert.ok(tall.scale < 2.5, "scale fits width+height, not height-only");
-assert.ok(tall.eyeSeparationU >= 0.04);
+assert.ok(tall.eyeSeparationU >= 0.04 && tall.eyeSeparationU <= 0.16 + 1e-9);
 // Sclera tint helper still available, but atlas default keeps authored white
 const tinted = layersWithEyeballColor(eye.layers, "#00ff00");
 assert.equal(tinted.find((L) => L.type === "eyeball")?.color, "#00ff00");
