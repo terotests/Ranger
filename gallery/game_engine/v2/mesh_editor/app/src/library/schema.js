@@ -224,10 +224,11 @@ export function buildProjectDocument(opts) {
       : st.objectMaterial?.textureAssign || null;
   let texMode = st.objectMaterial?.texture || "gradient";
   if (texAsset && !textureAssets[texAsset]) {
-    // Stale guid — fall back when there is exactly one embedded texture.
+    // Stale guid — only auto-repair when there is exactly one embed (never guess among many).
     texAsset = assetKeys.length === 1 ? assetKeys[0] : null;
   }
-  if (!texAsset && assetKeys.length && (texMode === "asset" || texAssign === "eyePair")) {
+  // Only invent a guid when the mesh clearly wants an asset and there is exactly one candidate.
+  if (!texAsset && assetKeys.length === 1 && (texMode === "asset" || texAssign === "eyePair")) {
     texAsset = assetKeys[0];
     texAssign = texAssign || "eyePair";
     texMode = "asset";
@@ -235,8 +236,7 @@ export function buildProjectDocument(opts) {
   if (texAsset && !texAssign) texAssign = "eyePair";
   if (texAsset && texMode !== "asset") texMode = "asset";
 
-  // Mesh saves only keep textures actually assigned to the mesh — not every eye
-  // open in the Texture editor (those leaked into the assign picker as "Eye · meshName").
+  // Mesh saves only keep textures actually assigned — not every eye open in Texture editor.
   if (projectKind === "mesh") {
     const keep = collectReferencedTextureGuids({
       ...st,

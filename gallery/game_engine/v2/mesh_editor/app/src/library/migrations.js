@@ -483,7 +483,8 @@ function normalizeV10(doc) {
   if (textureAsset && !(v9.textureAssets || {})[textureAsset]) {
     textureAsset = assetKeys.length === 1 ? assetKeys[0] : null;
   }
-  if (!textureAsset && assetKeys.length && (texture === "asset" || textureAssign === "eyePair")) {
+  // Never guess among multiple embeds — that saved the wrong eye on mesh projects.
+  if (!textureAsset && assetKeys.length === 1 && (texture === "asset" || textureAssign === "eyePair")) {
     textureAsset = assetKeys[0];
     textureAssign = textureAssign || "eyePair";
     texture = "asset";

@@ -122,7 +122,6 @@ assert.equal(broken.objectMaterial.textureAssign, "eyePair");
 assert.equal(broken.objectMaterial.texture, "asset");
 
 // Mesh save must not embed every open Texture-editor eye — only the assigned one.
-// (Otherwise assign picker showed "Eye · egghead" for each unused embed.)
 const meshEgg = buildProjectDocument({
   projectKind: "mesh",
   name: "egghead",
@@ -201,16 +200,115 @@ const texProj = buildProjectDocument({
 });
 assert.equal(Object.keys(texProj.textureAssets).length, 2);
 
+// Multiple open eyes + missing textureAsset must NOT invent assetKeys[0] (wrong eye).
+const ambiguous = buildProjectDocument({
+  projectKind: "mesh",
+  name: "egghead",
+  state: {
+    knots: [
+      { id: "a", x: 0.2, y: -0.5, hx: 0, hy: 0, color: "#fff" },
+      { id: "b", x: 0.3, y: 0.5, hx: 0, hy: 0, color: "#fff" },
+    ],
+    segments: [],
+    orbitKnots: [
+      { id: "o0", x: 1, y: 0, hx: 0, hy: 0, color: "#fff" },
+      { id: "o1", x: 0, y: 1, hx: 0, hy: 0, color: "#fff" },
+      { id: "o2", x: -1, y: 0, hx: 0, hy: 0, color: "#fff" },
+    ],
+    orbitSegments: [],
+    objectMaterial: {
+      color: "#9a9a9a",
+      roughness: 0.4,
+      metalness: 0,
+      opacity: 1,
+      texture: "asset",
+      textureAsset: null,
+      textureAssign: "eyePair",
+    },
+    textureAssets: {
+      wrong: {
+        assetGuid: "wrong",
+        name: "Eye",
+        kind: "eye",
+        layers: [{ id: "l1", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+      right: {
+        assetGuid: "right",
+        name: "Eye",
+        kind: "eye",
+        layers: [{ id: "l2", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+    },
+  },
+});
+assert.equal(ambiguous.objectMaterial.textureAsset, null, "do not guess among multiple eyes");
+assert.equal(Object.keys(ambiguous.textureAssets).length, 0, "mesh embeds nothing without a guid");
+
+// Assigned guid kept; unassigned open eyes pruned from mesh save
+const assigned = buildProjectDocument({
+  projectKind: "mesh",
+  name: "egghead",
+  state: {
+    knots: [
+      { id: "a", x: 0.2, y: -0.5, hx: 0, hy: 0, color: "#fff" },
+      { id: "b", x: 0.3, y: 0.5, hx: 0, hy: 0, color: "#fff" },
+    ],
+    segments: [],
+    orbitKnots: [
+      { id: "o0", x: 1, y: 0, hx: 0, hy: 0, color: "#fff" },
+      { id: "o1", x: 0, y: 1, hx: 0, hy: 0, color: "#fff" },
+      { id: "o2", x: -1, y: 0, hx: 0, hy: 0, color: "#fff" },
+    ],
+    orbitSegments: [],
+    objectMaterial: {
+      color: "#9a9a9a",
+      roughness: 0.4,
+      metalness: 0,
+      opacity: 1,
+      texture: "asset",
+      textureAsset: "right",
+      textureAssign: "eyePair",
+    },
+    textureAssets: {
+      wrong: {
+        assetGuid: "wrong",
+        name: "Eye",
+        kind: "eye",
+        layers: [{ id: "l1", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+      right: {
+        assetGuid: "right",
+        name: "Eye",
+        kind: "eye",
+        layers: [{ id: "l2", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+    },
+  },
+});
+assert.equal(assigned.objectMaterial.textureAsset, "right");
+assert.ok(assigned.textureAssets.right);
+assert.equal(assigned.textureAssets.wrong, undefined);
+
 // Assign picker filter: only projectKind===texture (mesh embeds must not appear)
 {
   const projects = [
-    { slug: "egghead", name: "egghead", projectKind: "mesh", textureCount: 2, textures: [
-      { assetGuid: "keep-me", name: "Eye" },
-      { assetGuid: "extra-open", name: "Eye" },
-    ]},
-    { slug: "eyes", name: "Eyes", projectKind: "texture", textureCount: 1, textures: [
-      { assetGuid: "tex1", name: "Eye" },
-    ]},
+    {
+      slug: "egghead",
+      name: "egghead",
+      projectKind: "mesh",
+      textureCount: 2,
+      textures: [
+        { assetGuid: "keep-me", name: "Eye" },
+        { assetGuid: "extra-open", name: "Eye" },
+      ],
+    },
+    {
+      slug: "eyes",
+      name: "Eyes",
+      projectKind: "texture",
+      textureCount: 1,
+      textures: [{ assetGuid: "tex1", name: "Eye" }],
+    },
   ];
   const forPicker = projects.filter((p) => p.projectKind === "texture");
   assert.equal(forPicker.length, 1);
