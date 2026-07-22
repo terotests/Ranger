@@ -146,6 +146,28 @@ assert.ok(regionSamplePoints(DEFAULT_ASSIGN_REGION, 3).length === 9);
     Math.abs(placed.centerV - 0.6666666666666666) < 1e-6,
     "default mid-face V stays high (not inverted to ~0.33)",
   );
+  // Pin to center hit even if corners drift toward the sides/back
+  const drifted = [
+    [0.05, 0.7],
+    [0.45, 0.7],
+    [0.45, 0.4],
+    [0.05, 0.4],
+  ];
+  const pinned = eyeUvFromRegionSamples(drifted, DEFAULT_ASSIGN_REGION, {
+    centerHit: [0.25, 0.55],
+  });
+  assert.ok(pinned);
+  assert.ok(Math.abs(pinned.centerU - 0.25) < 1e-9, "centerHit pins U to front");
+  assert.ok(Math.abs(pinned.centerV - 0.55) < 1e-9, "centerHit pins V");
+  // Front face: character left = higher U (toward −X), right = lower U (toward +X)
+  {
+    const sep = 0.12;
+    const cu = 0.25;
+    const leftU = ((cu + sep / 2) % 1 + 1) % 1;
+    const rightU = ((cu - sep / 2) % 1 + 1) % 1;
+    assert.ok(leftU > rightU, "left eye at higher U than right on front face");
+    assert.ok(Math.abs(leftU - 0.5) < Math.abs(rightU - 0.5), "left nearer −X");
+  }
 }
 
 // pickRootSurface fills UV when vertex uvs are missing

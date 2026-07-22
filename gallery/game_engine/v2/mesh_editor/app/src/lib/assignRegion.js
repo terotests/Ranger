@@ -2,7 +2,7 @@
 // assignRegion.js — screen-space square for eye UV placement on the 3D preview.
 // ============================================================================
 
-import { eyeUvFromCorners, normalizeEyeUv, unwrapUvPairU } from "./texture/eyeTexture.js";
+import { eyeUvFromCorners, normalizeEyeUv } from "./texture/eyeTexture.js";
 
 /** @typedef {{ cx: number, cy: number, half: number }} AssignRegion */
 
@@ -61,11 +61,12 @@ export function regionSamplePoints(r, grid = 5) {
 
 /**
  * Build textureUv from one or more UV samples under the screen square.
- * Prefer AABB of samples; if only one sample, derive scale from region.half.
+ * Prefer AABB of samples for scale/gap; pin center to opts.centerHit when given
+ * so corner rays that graze the sides/back do not drag placement off the face.
  *
  * @param {Array<[number, number]|{0:number,1:number}>} samples
  * @param {AssignRegion} region
- * @param {object} [opts]
+ * @param {{ centerHit?: [number, number], baseScale?: number, eyeSeparationU?: number }} [opts]
  */
 export function eyeUvFromRegionSamples(samples, region, opts = {}) {
   const list = (samples || [])
@@ -79,7 +80,13 @@ export function eyeUvFromRegionSamples(samples, region, opts = {}) {
   if (!list.length) return null;
 
   const reg = clampAssignRegion(region);
-  if (list.length === 1) {
+  const centerHit = opts.centerHit;
+  const hasCenter =
+    Array.isArray(centerHit) &&
+    Number.isFinite(Number(centerHit[0])) &&
+    Number.isFinite(Number(centerHit[1]));
+
+  if (list.length === 1 && !hasCenter) {
     const scale = Math.min(
       2.5,
       Math.max(0.35, (reg.half / DEFAULT_ASSIGN_REGION.half) * (opts.baseScale || 1)),
@@ -97,14 +104,12 @@ export function eyeUvFromRegionSamples(samples, region, opts = {}) {
   }
 
   // Unwrap U relative to the first sample so the AABB doesn't span the seam wrongly.
-  const u0 = list[0][0];
+  const u0 = hasCenter ? Number(centerHit[0]) : list[0][0];
   let uMin = Infinity;
   let uMax = -Infinity;
   let vMin = Infinity;
   let vMax = -Infinity;
   for (const [u, v] of list) {
-    const [lo, hi] = unwrapUvPairU(u0, u);
-    // unwrapUvPairU orders the pair; recover signed offset of u from u0
     let uu = ((u % 1) + 1) % 1;
     let base = ((u0 % 1) + 1) % 1;
     let d = uu - base;
@@ -114,9 +119,19 @@ export function eyeUvFromRegionSamples(samples, region, opts = {}) {
     uMax = Math.max(uMax, uu);
     vMin = Math.min(vMin, v);
     vMax = Math.max(vMax, v);
-    void lo;
-    void hi;
   }
-  // eyeUvFromCorners expects two corners; pass unwrapped extents
-  return eyeUvFromCorners(uMin, vMax, uMax, vMin, opts);
+  if (!Number.isFinite(uMin)) {
+    uMin = u0;
+    uMax = u0;
+    vMin = hasCenter ? Number(centerHit[1]) : list[0][1];
+    vMax = vMin;
+  }
+  const fromBox = eyeUvFromCorners(uMin, vMax, uMax, vMin, opts);
+  if (!hasCenter) return fromBox;
+  // Pin pair center to the square's center hit (the face the user aimed at).
+  return normalizeEyeUv({
+    ...fromBox,
+    centerU: ((Number(centerHit[0]) % 1) + 1) % 1,
+    centerV: Math.min(1, Math.max(0, Number(centerHit[1]))),
+  });
 }

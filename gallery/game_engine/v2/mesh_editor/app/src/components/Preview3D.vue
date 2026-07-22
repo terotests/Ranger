@@ -342,16 +342,18 @@ function confirmRegion() {
     return;
   }
 
-  // Prefer the four square corners (matches the yellow overlay); fall back to a grid.
+  // Prefer the square center (face aimed at), then corners for scale/gap.
   const c = regionCorners(region);
+  const centerHit = pickUvAtNorm(c.center.x, c.center.y);
   const cornerPts = [c.tl, c.tr, c.br, c.bl];
   let samples = [];
   for (const p of cornerPts) {
     const uv = pickUvAtNorm(p.x, p.y);
     if (uv) samples.push(uv);
   }
+  if (centerHit) samples.unshift(centerHit);
   if (samples.length < 2) {
-    samples = [];
+    samples = centerHit ? [centerHit] : [];
     for (const p of regionSamplePoints(region, 5)) {
       const uv = pickUvAtNorm(p.x, p.y);
       if (uv) samples.push(uv);
@@ -365,7 +367,9 @@ function confirmRegion() {
     }
   }
 
-  const textureUv = eyeUvFromRegionSamples(uniq, region);
+  const textureUv = eyeUvFromRegionSamples(uniq, region, {
+    centerHit: centerHit || undefined,
+  });
   if (!textureUv) {
     regionError.value =
       "Could not hit the mesh under the square — orbit the face toward the camera, or shrink the square.";
