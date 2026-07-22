@@ -749,15 +749,17 @@ export function eyeUvFromCorners(u1, v1, u2, v2, opts = {}) {
     opts.eyeSeparationU != null && Number.isFinite(Number(opts.eyeSeparationU))
       ? Number(opts.eyeSeparationU)
       : null;
-  const sepHint = preferSep != null ? preferSep : Math.min(0.2, Math.max(minSep, width * 0.45));
+  // Gap ≈ half the rect so both eyes sit inside; then scale to fit width+height.
+  const sepHint =
+    preferSep != null ? preferSep : Math.min(0.35, Math.max(minSep, width * 0.5));
   const scaleV = height / (eyeHV || 0.13);
   const scaleU = width / (eyeWU + sepHint);
-  // Fit inside the picked rect — height-only scale blew past and collapsed the gap.
   const scale = Math.min(scaleV, scaleU);
+  const eyeW = eyeWU * scale;
   const eyeSeparationU =
     preferSep != null
       ? preferSep
-      : Math.min(0.45, Math.max(minSep, width - eyeWU * scale));
+      : Math.min(0.45, Math.max(eyeW * 1.15, width - eyeW));
   let centerU = (uLo + uHi) / 2;
   centerU = ((centerU % 1) + 1) % 1;
   const centerV = (vLo + vHi) / 2;
@@ -797,7 +799,11 @@ export function averageKnotColorHex(knots, fallback = "#e8e4dc") {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 
-/** Clone layers with eyeball fill remapped (UV project uses mesh/vertex tint as sclera). */
+/**
+ * Clone layers with eyeball fill remapped.
+ * Optional — UV atlas keeps authored sclera by default so white eyeballs stay visible
+ * against a mesh-tinted background.
+ */
 export function layersWithEyeballColor(layers, color) {
   if (!color) return layers || [];
   return (layers || []).map((L) =>
@@ -806,8 +812,33 @@ export function layersWithEyeballColor(layers, color) {
 }
 
 /**
+ * Blit one eye cell into the UV atlas.
+ * Host samples with v=0 at buffer row 0; canvas authoring has Y-up content at the
+ * top of the cell — flip vertically so the reflection sits toward higher mesh V.
+ */
+export function blitEyeCellToAtlas(ctx, layers, uCenter, centerV, cellW, cellH, bg) {
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  const x = Math.round(uCenter * w - cellW / 2);
+  const y = Math.round(centerV * h - cellH / 2);
+  const off = document.createElement("canvas");
+  off.width = cellW;
+  off.height = cellH;
+  const octx = off.getContext("2d");
+  octx.fillStyle = bg;
+  octx.fillRect(0, 0, cellW, cellH);
+  drawEyeLayers(octx, layers, cellW, cellH);
+  ctx.save();
+  ctx.translate(x, y + cellH);
+  ctx.scale(1, -1);
+  ctx.drawImage(off, 0, 0);
+  ctx.restore();
+}
+
+/**
  * Rasterize left+right eyes into a UV atlas.
- * Background defaults to mesh/vertex tint (not pure white) so the atlas blends.
+ * Background defaults to mesh/vertex tint so non-eye UV areas match the body.
+ * Eyeball sclera keeps its authored color (usually white/cream).
  * Lathe UVs: u around orbit, v along profile.
  *
  * @returns {{ rgba: Uint8ClampedArray|number[], w: number, h: number, name: string } | null}
@@ -825,6 +856,8 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
   const eyeWU = (opts.eyeWidthU != null ? Number(opts.eyeWidthU) : 0.11) * scale;
   const eyeHV = (opts.eyeHeightV != null ? Number(opts.eyeHeightV) : 0.13) * scale;
   const bg = opts.background || "#e8e4dc";
+  // tintSclera: legacy option — paint eyeball with mesh bg (hides white sclera).
+  const tintSclera = opts.tintSclera === true;
 
   if (typeof document === "undefined") {
     // Node smoke: solid bg map (assignment path is browser/WebGL).
@@ -851,28 +884,14 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
 
   const cellW = Math.max(8, Math.round(eyeWU * w));
   const cellH = Math.max(8, Math.round(eyeHV * h));
-  // Eyeball sclera follows mesh/vertex tint so the UV patch is not a white disc.
-  const left = layersWithEyeballColor(tex.layers || [], bg);
-  const right = layersWithEyeballColor(rightEyeLayers(tex), bg);
+  const leftRaw = tex.layers || [];
+  const rightRaw = rightEyeLayers(tex);
+  const left = tintSclera ? layersWithEyeballColor(leftRaw, bg) : leftRaw;
+  const right = tintSclera ? layersWithEyeballColor(rightRaw, bg) : rightRaw;
 
-  function blit(layers, uCenter) {
-    const x = Math.round(uCenter * w - cellW / 2);
-    // Host samples atlas with v=0 at buffer row 0 (no V flip on upload).
-    const y = Math.round(centerV * h - cellH / 2);
-    const off = document.createElement("canvas");
-    off.width = cellW;
-    off.height = cellH;
-    const octx = off.getContext("2d");
-    octx.fillStyle = bg;
-    octx.fillRect(0, 0, cellW, cellH);
-    drawEyeLayers(octx, layers, cellW, cellH);
-    ctx.drawImage(off, x, y);
-  }
-
-  // Screen-left on a front-facing lathe is higher U when viewing from +X/+Z;
-  // character "left" eye still uses lower U in atlas convention (centerU - sep/2).
-  blit(left, centerU - sepU / 2);
-  blit(right, centerU + sepU / 2);
+  // Character left eye = lower U; right = higher U.
+  blitEyeCellToAtlas(ctx, left, centerU - sepU / 2, centerV, cellW, cellH, bg);
+  blitEyeCellToAtlas(ctx, right, centerU + sepU / 2, centerV, cellW, cellH, bg);
 
   const img = ctx.getImageData(0, 0, w, h);
   return {
@@ -936,30 +955,19 @@ export async function rasterizeEyePairUvMapAsync(tex, width = 512, height = 512,
 
   const cellW = Math.max(8, Math.round(eyeWU * w));
   const cellH = Math.max(8, Math.round(eyeHV * h));
-  const left = layersWithEyeballColor(tex.layers || [], bg);
-  const right = layersWithEyeballColor(rightEyeLayers(tex), bg);
-
-  function blit(layers, uCenter) {
-    const x = Math.round(uCenter * w - cellW / 2);
-    // Host samples atlas with v=0 at buffer row 0 (no V flip on upload).
-    const y = Math.round(centerV * h - cellH / 2);
-    const off = document.createElement("canvas");
-    off.width = cellW;
-    off.height = cellH;
-    const octx = off.getContext("2d");
-    octx.fillStyle = bg;
-    octx.fillRect(0, 0, cellW, cellH);
-    drawEyeLayers(octx, layers, cellW, cellH);
-    ctx.drawImage(off, x, y);
-  }
+  const tintSclera = opts.tintSclera === true;
+  const leftRaw = tex.layers || [];
+  const rightRaw = rightEyeLayers(tex);
+  const left = tintSclera ? layersWithEyeballColor(leftRaw, bg) : leftRaw;
+  const right = tintSclera ? layersWithEyeballColor(rightRaw, bg) : rightRaw;
 
   onProgress("left-eye");
   await yieldFn();
-  blit(left, centerU - sepU / 2);
+  blitEyeCellToAtlas(ctx, left, centerU - sepU / 2, centerV, cellW, cellH, bg);
 
   onProgress("right-eye");
   await yieldFn();
-  blit(right, centerU + sepU / 2);
+  blitEyeCellToAtlas(ctx, right, centerU + sepU / 2, centerV, cellW, cellH, bg);
 
   onProgress("readback");
   await yieldFn();
