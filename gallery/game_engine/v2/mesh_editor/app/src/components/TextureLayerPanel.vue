@@ -1,8 +1,11 @@
 <script setup>
+import { computed } from "vue";
+
 const props = defineProps({
   layers: { type: Array, default: () => [] },
   selectedLayerId: { type: String, default: null },
   textureKind: { type: String, default: "eye" },
+  layerMode: { type: String, default: "edit" },
 });
 
 const emit = defineEmits([
@@ -13,6 +16,8 @@ const emit = defineEmits([
   "add-layer",
   "remove-layer",
   "set-color",
+  "patch-layer",
+  "set-layer-mode",
 ]);
 
 const addTypes = [
@@ -21,6 +26,9 @@ const addTypes = [
   { id: "reflection", label: "+ Shine" },
   { id: "eyelid", label: "+ Eyelid" },
 ];
+
+const selected = computed(() => props.layers.find((L) => L.id === props.selectedLayerId) || null);
+const eyelidSelected = computed(() => selected.value?.type === "eyelid");
 </script>
 
 <template>
@@ -29,9 +37,26 @@ const addTypes = [
       <h2>Layers</h2>
       <span>{{ layers.length }}</span>
     </header>
+    <div class="mode-row">
+      <button
+        type="button"
+        :class="{ active: layerMode === 'edit', primary: layerMode === 'edit' }"
+        title="Edit knots and Bezier handles"
+        @click="emit('set-layer-mode', 'edit')"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        :class="{ active: layerMode === 'move', primary: layerMode === 'move' }"
+        title="Drag to translate the selected layer (iris also moves pupil)"
+        @click="emit('set-layer-mode', 'move')"
+      >
+        Move
+      </button>
+    </div>
     <p class="hint">
-      Named parts · enable/disable · reorder. Iris stays in the eyeball, pupil in the iris,
-      reflection in the eye; eyelid draws on top (clipped).
+      Edit = shape handles · Move = place layer (iris moves pupil with it). Reorder with ↑↓.
     </p>
     <ul class="list">
       <li
@@ -57,12 +82,13 @@ const addTypes = [
         <input
           class="swatch"
           type="color"
+          :title="L.type === 'eyelid' ? 'Fill color' : 'Color'"
           :value="L.color || '#ffffff'"
           @click.stop
           @input="emit('set-color', L.id, $event.target.value)"
         />
-        <button type="button" title="Move up" @click.stop="emit('move-layer', L.id, -1)">↑</button>
-        <button type="button" title="Move down" @click.stop="emit('move-layer', L.id, 1)">↓</button>
+        <button type="button" title="Order up" @click.stop="emit('move-layer', L.id, -1)">↑</button>
+        <button type="button" title="Order down" @click.stop="emit('move-layer', L.id, 1)">↓</button>
         <button
           type="button"
           class="danger"
@@ -74,6 +100,63 @@ const addTypes = [
         </button>
       </li>
     </ul>
+
+    <div v-if="eyelidSelected" class="lid-opts">
+      <p class="lid-title">Eyelid</p>
+      <label class="row">
+        Fill
+        <input
+          class="swatch"
+          type="color"
+          :value="selected.color || '#c4a484'"
+          @input="emit('patch-layer', selected.id, { color: $event.target.value })"
+        />
+      </label>
+      <label class="row check">
+        <input
+          type="checkbox"
+          :checked="!!selected.border"
+          @change="emit('patch-layer', selected.id, { border: $event.target.checked })"
+        />
+        Border
+      </label>
+      <template v-if="selected.border">
+        <label class="row">
+          Border color
+          <input
+            class="swatch"
+            type="color"
+            :value="selected.borderColor || '#6e4f38'"
+            @input="emit('patch-layer', selected.id, { borderColor: $event.target.value })"
+          />
+        </label>
+        <label class="row">
+          Width
+          <input
+            class="num"
+            type="number"
+            min="0.005"
+            max="0.25"
+            step="0.005"
+            :value="selected.borderWidth ?? 0.035"
+            @change="
+              emit('patch-layer', selected.id, { borderWidth: Number($event.target.value) })
+            "
+          />
+        </label>
+      </template>
+      <label class="row">
+        Fill side
+        <select
+          :value="selected.fillSide === 'below' ? 'below' : 'above'"
+          @change="emit('patch-layer', selected.id, { fillSide: $event.target.value })"
+        >
+          <option value="above">Above curve</option>
+          <option value="below">Below curve</option>
+        </select>
+      </label>
+    </div>
+
     <div v-if="textureKind === 'eye'" class="add-row">
       <button v-for="t in addTypes" :key="t.id" type="button" @click="emit('add-layer', t.id)">
         {{ t.label }}
@@ -181,5 +264,59 @@ button.danger:disabled {
 }
 .en {
   display: flex;
+}
+.mode-row {
+  display: flex;
+  gap: 0.35rem;
+}
+.mode-row button {
+  flex: 1;
+  font-size: 0.78rem;
+}
+.mode-row button.active {
+  outline: 1px solid rgba(126, 207, 106, 0.55);
+}
+.lid-opts {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.lid-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.lid-opts .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+}
+.lid-opts .row.check {
+  justify-content: flex-start;
+  gap: 0.4rem;
+}
+.lid-opts .num {
+  width: 4.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.75rem;
+  color: var(--ink);
+}
+.lid-opts select {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.75rem;
+  color: var(--ink);
 }
 </style>

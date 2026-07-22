@@ -2,6 +2,8 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
+import { serializeEyeTexture } from "../lib/texture/eyeTexture.js";
+
 export const CURRENT_SCHEMA_VERSION = 9;
 
 export const SCHEMA_KIND = "ranger.splineProject";
@@ -135,28 +137,18 @@ function serializeChild(ch) {
 /** Texture assets store editable params only (no baked pixels). */
 function serializeTextureAsset(tex) {
   if (!tex || typeof tex !== "object") return null;
-  const kind = tex.kind === "eye" ? "eye" : String(tex.kind || "eye");
-  const layers = (tex.layers || []).map((L) => ({
-    id: L.id,
-    type: L.type || "eyeball",
-    name: L.name || L.type || "layer",
-    enabled: L.enabled !== false,
-    color: L.color || "#ffffff",
-    closed: L.closed !== false && L.type !== "eyelid",
-    fillSide: L.fillSide === "below" ? "below" : L.type === "eyelid" ? "above" : null,
-    clipTo: L.clipTo || null,
-    knots: (L.knots || []).map(serializeKnot),
-    segments: (L.segments || []).map(serializeSegment),
-  }));
+  if (tex.kind === "eye" || !tex.kind) {
+    return serializeEyeTexture(tex);
+  }
   return {
     assetGuid: tex.assetGuid,
     name: tex.name || "Texture",
-    kind,
+    kind: String(tex.kind),
     width: Number(tex.width) || 256,
     height: Number(tex.height) || 256,
     backgroundFrom: tex.backgroundFrom === "solid" ? "solid" : "vertexColors",
     previewBackground: tex.previewBackground || "#6a8f6a",
-    layers,
+    layers: tex.layers || [],
   };
 }
 
