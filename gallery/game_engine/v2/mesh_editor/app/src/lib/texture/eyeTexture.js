@@ -683,3 +683,71 @@ export function rasterizeEyeTexture(tex, width, height) {
   renderEyeTexture(ctx, tex);
   return ctx.getImageData(0, 0, w, h);
 }
+
+/**
+ * Rasterize left+right eyes into a UV atlas (white background for multiply lighting).
+ * Lathe UVs: u around orbit, v along profile — eyes sit near the front of the head.
+ *
+ * @returns {{ rgba: Uint8ClampedArray|number[], w: number, h: number, name: string } | null}
+ */
+export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {}) {
+  const w = Math.max(64, width | 0);
+  const h = Math.max(64, height | 0);
+  const pair = normalizeEyePair(tex?.eyePair);
+  const centerU = opts.centerU != null ? Number(opts.centerU) : 0.5;
+  const centerV = opts.centerV != null ? Number(opts.centerV) : 0.58;
+  const sepU =
+    opts.eyeSeparationU != null
+      ? Number(opts.eyeSeparationU)
+      : 0.1 + pair.distance * 0.08;
+  const eyeWU = opts.eyeWidthU != null ? Number(opts.eyeWidthU) : 0.11;
+  const eyeHV = opts.eyeHeightV != null ? Number(opts.eyeHeightV) : 0.13;
+
+  if (typeof document === "undefined") {
+    // Node smoke: solid white map (assignment path is browser/WebGL).
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < rgba.length; i += 4) {
+      rgba[i] = 255;
+      rgba[i + 1] = 255;
+      rgba[i + 2] = 255;
+      rgba[i + 3] = 255;
+    }
+    return { rgba, w, h, name: (tex?.name || "eye") + "-uv" };
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+
+  const cellW = Math.max(8, Math.round(eyeWU * w));
+  const cellH = Math.max(8, Math.round(eyeHV * h));
+  const left = tex.layers || [];
+  const right = rightEyeLayers(tex);
+
+  function blit(layers, uCenter) {
+    const x = Math.round(uCenter * w - cellW / 2);
+    const y = Math.round((1 - centerV) * h - cellH / 2);
+    const off = document.createElement("canvas");
+    off.width = cellW;
+    off.height = cellH;
+    const octx = off.getContext("2d");
+    octx.fillStyle = "#ffffff";
+    octx.fillRect(0, 0, cellW, cellH);
+    drawEyeLayers(octx, layers, cellW, cellH);
+    ctx.drawImage(off, x, y);
+  }
+
+  blit(left, centerU - sepU / 2);
+  blit(right, centerU + sepU / 2);
+
+  const img = ctx.getImageData(0, 0, w, h);
+  return {
+    rgba: img.data,
+    w,
+    h,
+    name: (tex?.name || "eye") + "-uv",
+  };
+}

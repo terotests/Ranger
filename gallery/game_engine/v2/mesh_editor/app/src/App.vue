@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+// api used for assigning a library texture project onto the mesh without leaving Mesh mode
 import SplineCanvas from "./components/SplineCanvas.vue";
 import PointEditor from "./components/PointEditor.vue";
 import Preview3D from "./components/Preview3D.vue";
@@ -50,6 +51,9 @@ const {
   endGesture,
   isEditingChild,
   activePlacementNormal,
+  setTextureAssetsProvider,
+  assignEyeTextureToRoot,
+  clearAssignedTexture,
 } = useSplineEditor();
 
 const tex = useTextureEditor();
@@ -65,28 +69,80 @@ const texFlipX = tex.flipX;
 const texCanvasToolMode = tex.canvasToolMode;
 
 const workspace = ref("mesh"); // mesh | texture
+const assignTexGuid = ref("");
+const assignLibSlug = ref("");
+
+setTextureAssetsProvider(() => tex.snapshotTextures());
 
 function snapshotState() {
   return {
     ...snapshotMeshState(),
     textureAssets: tex.snapshotTextures(),
+    projectKind: workspace.value === "texture" ? "texture" : "mesh",
   };
 }
 
 function applyProject(doc) {
-  applyMeshProject(doc);
+  const kind = doc?.projectKind === "texture" ? "texture" : "mesh";
+  workspace.value = kind;
+  if (doc?.profile?.knots?.length >= 2) {
+    applyMeshProject(doc);
+  }
   tex.loadTextures(doc?.textureAssets || {});
+  const first = Object.keys(texState.textures)[0] || "";
+  assignTexGuid.value = state.objectMaterial?.textureAsset || first;
 }
 
 if (!Object.keys(texState.textures).length) {
   tex.createEye("Eye");
 }
+assignTexGuid.value = Object.keys(texState.textures)[0] || "";
 
 const { lib, refresh, load, save, saveAs, remove, exportJson, importJsonFile } = useLibrary({
   snapshotState,
   applyProject,
   tessellate,
 });
+
+const loadedTextures = computed(() => Object.values(texState.textures || {}));
+const libraryTextures = computed(() =>
+  (lib.projects || []).filter((p) => !p.error && p.projectKind === "texture"),
+);
+
+function onAssignLoadedTexture() {
+  const guid = assignTexGuid.value || loadedTextures.value[0]?.assetGuid;
+  if (!guid) {
+    state.status = "No eye texture loaded — create/open one in Texture mode.";
+    return;
+  }
+  if (assignEyeTextureToRoot(guid)) tessellate();
+}
+
+async function onAssignLibraryTexture() {
+  const slug = assignLibSlug.value;
+  if (!slug) {
+    state.status = "Pick a saved texture from the list.";
+    return;
+  }
+  try {
+    const doc = await api.loadProject(slug);
+    const incoming = doc?.textureAssets || {};
+    const merged = { ...tex.snapshotTextures(), ...incoming };
+    tex.loadTextures(merged);
+    const guid =
+      Object.keys(incoming)[0] || Object.keys(merged)[0] || "";
+    assignTexGuid.value = guid;
+    if (guid && assignEyeTextureToRoot(guid)) tessellate();
+    else state.status = "Texture project had no eye assets.";
+  } catch (err) {
+    state.status = "Assign failed: " + (err.message || err);
+  }
+}
+
+function onClearAssignedTexture() {
+  clearAssignedTexture();
+  tessellate();
+}
 
 const materials = [
   { id: 0, label: "Wire" },
@@ -548,6 +604,38 @@ onBeforeUnmount(() => {
         />
         Show mirror
       </label>
+      <label class="field">
+        Eye texture
+        <select v-model="assignTexGuid">
+          <option disabled value="">Loaded textures…</option>
+          <option v-for="t in loadedTextures" :key="t.assetGuid" :value="t.assetGuid">
+            {{ t.name }} ({{ t.kind || "eye" }})
+          </option>
+        </select>
+      </label>
+      <button type="button" class="primary" title="Map left+right eyes onto mesh UVs" @click="onAssignLoadedTexture">
+        Assign to mesh
+      </button>
+      <label class="field">
+        From library
+        <select v-model="assignLibSlug">
+          <option disabled value="">Saved textures…</option>
+          <option v-for="p in libraryTextures" :key="p.slug" :value="p.slug">
+            {{ p.name || p.slug }}
+          </option>
+        </select>
+      </label>
+      <button type="button" :disabled="!assignLibSlug" @click="onAssignLibraryTexture">
+        Assign saved
+      </button>
+      <button
+        type="button"
+        :disabled="!state.objectMaterial?.textureAsset"
+        title="Remove UV eye assignment"
+        @click="onClearAssignedTexture"
+      >
+        Clear texture
+      </button>
       <div class="mats">
         <span>Shading base</span>
         <div class="mat-row">
@@ -675,7 +763,7 @@ onBeforeUnmount(() => {
           :embedded-assets="state.embeddedAssets"
           :selected-child-guid="state.selectedChildGuid"
           :edit-target="state.editTarget"
-          :projects="lib.projects"
+          :projects="(lib.projects || []).filter((p) => !p.error && p.projectKind !== 'texture')"
           :asset-guid="state.assetGuid"
           :place-mode="!!placePending"
           :place-label="placeLabel"
@@ -724,6 +812,7 @@ onBeforeUnmount(() => {
       </div>
       <LibraryPanel
         :lib="lib"
+        project-kind="mesh"
         @refresh="refresh"
         @load="load"
         @save="save"
@@ -815,6 +904,7 @@ onBeforeUnmount(() => {
       </div>
       <LibraryPanel
         :lib="lib"
+        project-kind="texture"
         @refresh="refresh"
         @load="load"
         @save="save"

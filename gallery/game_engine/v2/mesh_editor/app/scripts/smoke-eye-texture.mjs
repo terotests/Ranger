@@ -15,6 +15,7 @@ import {
   editableLayers,
   restoreLayerToCircle,
   EYE_CIRCLE_RADII,
+  rasterizeEyePairUvMap,
 } from "../src/lib/texture/eyeTexture.js";
 import {
   pointInPolygon,
@@ -26,7 +27,11 @@ import {
   samplePath,
 } from "../src/lib/pathModel.js";
 import { migrateProject } from "../src/library/migrations.js";
-import { CURRENT_SCHEMA_VERSION, buildProjectDocument } from "../src/library/schema.js";
+import {
+  CURRENT_SCHEMA_VERSION,
+  buildProjectDocument,
+  validateProject,
+} from "../src/library/schema.js";
 
 const eye = createDefaultEyeTexture({ name: "TestEye" });
 assert.equal(eye.kind, "eye");
@@ -216,7 +221,6 @@ const doc = buildProjectDocument({
     symmetry: true,
     viewMode: "profile",
     spineSource: "profile",
-    objectMaterial: { color: null, roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient" },
     knots: [
       { id: "a", x: 0, y: -1, hx: 0, hy: 0, color: "#fff" },
       { id: "b", x: 0.4, y: 1, hx: 0, hy: 0, color: "#fff" },
@@ -263,20 +267,47 @@ const doc = buildProjectDocument({
     embeddedAssets: {},
     children: [],
     textureAssets: { [ser.assetGuid]: ser },
+    projectKind: "mesh",
+    objectMaterial: {
+      color: null,
+      roughness: 0.4,
+      metalness: 0,
+      opacity: 1,
+      texture: "asset",
+      textureAsset: ser.assetGuid,
+      textureAssign: "eyePair",
+    },
   },
   name: "With eye texture",
   slug: "with-eye",
+  projectKind: "mesh",
 });
-assert.equal(doc.schemaVersion, 9);
+assert.equal(doc.schemaVersion, 10);
+assert.equal(doc.projectKind, "mesh");
 assert.ok(doc.textureAssets[ser.assetGuid]);
+assert.equal(doc.objectMaterial.textureAssign, "eyePair");
 
 const mig = migrateProject(doc);
 assert.equal(mig.ok, true, mig.errors?.join("; "));
-assert.equal(CURRENT_SCHEMA_VERSION, 9);
-assert.equal(mig.doc.schemaVersion, 9);
+assert.equal(CURRENT_SCHEMA_VERSION, 10);
+assert.equal(mig.doc.schemaVersion, 10);
+assert.equal(mig.doc.projectKind, "mesh");
 assert.ok(mig.doc.textureAssets[ser.assetGuid].layers.length >= 4);
+
+// Texture-only library entry validates without mesh profile
+const texOnly = {
+  kind: "ranger.splineProject",
+  schemaVersion: 10,
+  projectKind: "texture",
+  name: "Eyes only",
+  textureAssets: { [ser.assetGuid]: ser },
+};
+assert.deepEqual(validateProject(texOnly), []);
+const uv = rasterizeEyePairUvMap(eye, 64, 64);
+assert.ok(uv && uv.w === 64 && uv.h === 64 && uv.rgba.length === 64 * 64 * 4);
 
 console.log("smoke-eye-texture: ok", {
   schema: mig.doc.schemaVersion,
+  projectKind: mig.doc.projectKind,
   layers: mig.doc.textureAssets[ser.assetGuid].layers.map((L) => L.type),
 });

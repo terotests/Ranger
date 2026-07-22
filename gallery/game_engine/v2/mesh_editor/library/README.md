@@ -49,6 +49,9 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
 - v9 adds `textureAssets` — params-only procedural textures (first kind: `eye`
   with named layers eyeball/iris/pupil/reflection/eyelid). No baked pixels;
   rasterize at runtime for animation / mesh assign later.
+- v10 adds `projectKind` (`mesh` | `texture`) so the library list filters by
+  workspace, plus optional `objectMaterial.textureAsset` / `textureAssign`
+  (`eyePair`) to map a saved eye texture onto lathe UVs (both eyes).
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.

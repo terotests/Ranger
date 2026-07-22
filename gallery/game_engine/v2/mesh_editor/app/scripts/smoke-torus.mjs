@@ -156,7 +156,7 @@ const v6 = {
 const mig = migrateProject(v6);
 assert.equal(mig.ok, true, mig.errors?.join("; "));
 assert.equal(mig.doc.schemaVersion, CURRENT_SCHEMA_VERSION);
-assert.equal(CURRENT_SCHEMA_VERSION, 9);
+assert.equal(CURRENT_SCHEMA_VERSION, 10);
 assert.equal(mig.doc.editor.tessellationMode, "rotation");
 const errs = validateProject(mig.doc);
 assert.equal(errs.length, 0, errs.join("; "));
