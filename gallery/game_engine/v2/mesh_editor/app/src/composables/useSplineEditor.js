@@ -9,6 +9,7 @@ import {
   averageKnotColorHex,
   DEFAULT_EYE_UV,
 } from "../lib/texture/eyeTexture.js";
+import { normalizeTextureMap } from "../lib/texture/textureMapCodec.js";
 import { transformParts } from "../lib/meshTransform.js";
 import { evalSpan as evalPathSpan } from "../lib/pathSample.js";
 import { createEditHistory } from "../lib/editHistory.js";
@@ -72,6 +73,7 @@ function defaultObjectMaterial() {
     textureAsset: null,
     textureAssign: null,
     textureUv: { ...DEFAULT_EYE_UV },
+    textureMap: null,
   };
 }
 
@@ -140,6 +142,29 @@ export function useSplineEditor() {
   let textureAssetsProvider = () => /** @type {Record<string, any>} */ ({});
   /** Pre-baked UV atlas for async assign: { guid, map } kept for one tessellate pass. */
   let pendingTextureMap = null;
+  /** Survives undo history (which omits large textureMap blobs). guid → live atlas. */
+  const bakedAtlasByGuid = new Map();
+
+  function rememberBakedAtlas(guid, map) {
+    const g = String(guid || "").trim();
+    const live = normalizeTextureMap(map);
+    if (!g || !live) return;
+    bakedAtlasByGuid.set(g, live);
+  }
+
+  function forgetBakedAtlas(guid = null) {
+    if (guid == null) bakedAtlasByGuid.clear();
+    else bakedAtlasByGuid.delete(String(guid));
+  }
+
+  function atlasForMaterial(om) {
+    if (!om) return null;
+    const fromOm = normalizeTextureMap(om.textureMap);
+    if (fromOm) return fromOm;
+    const guid = om.textureAsset;
+    if (guid && bakedAtlasByGuid.has(guid)) return bakedAtlasByGuid.get(guid);
+    return null;
+  }
 
   const state = reactive({
     assetGuid: newGuid(),
@@ -244,6 +269,13 @@ export function useSplineEditor() {
     state.spineOrbitSegments = so.segments;
     state.placementNormal = normalizePlacementNormal(snap.placementNormal);
     state.objectMaterial = { ...defaultObjectMaterial(), ...(snap.objectMaterial || {}) };
+    // History omits textureMap; reattach the last bake for this asset guid.
+    if (!state.objectMaterial.textureMap && state.objectMaterial.textureAsset) {
+      const cached = bakedAtlasByGuid.get(state.objectMaterial.textureAsset);
+      if (cached) state.objectMaterial.textureMap = cached;
+    } else if (state.objectMaterial.textureMap && state.objectMaterial.textureAsset) {
+      rememberBakedAtlas(state.objectMaterial.textureAsset, state.objectMaterial.textureMap);
+    }
     state.embeddedAssets = {};
     for (const [guid, body] of Object.entries(snap.embeddedAssets || {})) {
       const bsp = loadSpineBlock(
@@ -527,6 +559,8 @@ export function useSplineEditor() {
 
   function resetDefaults() {
     commitToHistory("reset");
+    forgetBakedAtlas();
+    setPendingTextureMap(null);
     state.assetGuid = newGuid();
     state.knots = defaultKnots();
     state.segments = [];
@@ -930,6 +964,10 @@ export function useSplineEditor() {
       }
     }
     if (!om) return null;
+    // Prefer the pre-baked atlas persisted at assign / load time so reload
+    // matches what the user saw (textureUv alone can re-rasterize differently).
+    const baked = atlasForMaterial(om);
+    if (baked) return baked;
     const guid = om.textureAsset;
     if (!guid) return null;
     if (om.texture !== "asset" && om.textureAssign !== "eyePair") return null;
@@ -978,6 +1016,7 @@ export function useSplineEditor() {
     if (record) commitToHistory("assign-eye-texture");
     const prev = state.objectMaterial || defaultObjectMaterial();
     const nextUv = normalizeEyeUv(uv || prev.textureUv);
+    const baked = normalizeTextureMap(opts.map) || null;
     // Plain object replace — explicit fields so textureAsset always serializes.
     state.objectMaterial = {
       color: prev.color ?? null,
@@ -988,7 +1027,12 @@ export function useSplineEditor() {
       textureAsset: guid,
       textureAssign: "eyePair",
       textureUv: nextUv,
+      // Keep the exact atlas pixels from the assign bake (or prior bake).
+      textureMap: baked || atlasForMaterial({ textureAsset: guid, textureMap: prev.textureMap }) || null,
     };
+    if (state.objectMaterial.textureMap) {
+      rememberBakedAtlas(guid, state.objectMaterial.textureMap);
+    }
     if (record) state.status = "Assigned eye texture to mesh UVs (left + right).";
     return true;
   }
@@ -1024,7 +1068,7 @@ export function useSplineEditor() {
     setPendingTextureMap(map, assetGuid);
     onProgress("Applying to mesh…");
     await new Promise((r) => setTimeout(r, 0));
-    if (!assignEyeTextureToRoot(assetGuid, nextUv)) {
+    if (!assignEyeTextureToRoot(assetGuid, nextUv, { map })) {
       setPendingTextureMap(null);
       return false;
     }
@@ -1046,13 +1090,17 @@ export function useSplineEditor() {
 
   function clearAssignedTexture() {
     beginGesture("clear-texture");
+    const prevGuid = state.objectMaterial?.textureAsset;
     state.objectMaterial = {
       ...state.objectMaterial,
       texture: "gradient",
       textureAsset: null,
       textureAssign: null,
       textureUv: { ...DEFAULT_EYE_UV },
+      textureMap: null,
     };
+    forgetBakedAtlas(prevGuid);
+    setPendingTextureMap(null);
     endGesture();
     state.status = "Cleared assigned body texture.";
   }
@@ -1299,6 +1347,8 @@ export function useSplineEditor() {
 
   function applyProject(doc) {
     if (!doc?.profile?.knots) return false;
+    forgetBakedAtlas();
+    setPendingTextureMap(null);
     const ed = doc.editor || {};
     state.assetGuid = doc.assetGuid || newGuid();
     state.curveType = ed.curveType | 0;
@@ -1323,7 +1373,11 @@ export function useSplineEditor() {
           ? "eyePair"
           : doc.objectMaterial?.textureAssign || null,
       textureUv: normalizeEyeUv(doc.objectMaterial?.textureUv),
+      textureMap: normalizeTextureMap(doc.objectMaterial?.textureMap),
     };
+    if (state.objectMaterial.textureMap && state.objectMaterial.textureAsset) {
+      rememberBakedAtlas(state.objectMaterial.textureAsset, state.objectMaterial.textureMap);
+    }
     state.knots = doc.profile.knots.map((k) => ({ ...k }));
     state.segments = (doc.profile.segments || []).map((s) => ({
       ...s,
@@ -1407,6 +1461,8 @@ export function useSplineEditor() {
       textureAsset: m.textureAsset || null,
       textureAssign: m.textureAssign === "eyePair" ? "eyePair" : m.textureAssign || null,
       textureUv: normalizeEyeUv(m.textureUv),
+      // Omit textureMap from undo history — atlases are large; reload uses saved bake.
+      textureMap: null,
     };
   }
 

@@ -3,8 +3,11 @@
 // ============================================================================
 
 import { serializeEyeTexture, normalizeEyeUv } from "../lib/texture/eyeTexture.js";
+import { serializeTextureMap, normalizeTextureMap } from "../lib/texture/textureMapCodec.js";
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
+
+export { serializeTextureMap, normalizeTextureMap };
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
@@ -95,13 +98,7 @@ function serializeBodyContent(body) {
     angularSteps: body.angularSteps | 0,
     revolutionDeg: body.revolutionDeg | 0,
     tessellationMode: body.tessellationMode === "torus" ? "torus" : "rotation",
-    objectMaterial: {
-      color: body.objectMaterial?.color ?? null,
-      roughness: Number(body.objectMaterial?.roughness ?? 0.4),
-      metalness: Number(body.objectMaterial?.metalness ?? 0),
-      opacity: Number(body.objectMaterial?.opacity ?? 1),
-      texture: body.objectMaterial?.texture || "gradient",
-    },
+    objectMaterial: serializeObjectMaterial(body.objectMaterial, { includeMap: false }),
     knots: (body.knots || []).map(serializeKnot),
     segments: (body.segments || []).map(serializeSegment),
     orbitKnots: (body.orbitKnots || []).map(serializeKnot),
@@ -155,6 +152,30 @@ function serializeTextureAsset(tex) {
     previewBackground: tex.previewBackground || "#6a8f6a",
     layers: tex.layers || [],
   };
+}
+
+/**
+ * Serialize objectMaterial for project JSON / embedded bodies.
+ * @param {object|null|undefined} om
+ * @param {{ includeMap?: boolean }} [opts] includeMap=true for root save (pre-baked UV atlas)
+ */
+export function serializeObjectMaterial(om, opts = {}) {
+  const includeMap = opts.includeMap !== false;
+  const out = {
+    color: om?.color ?? null,
+    roughness: Number(om?.roughness ?? 0.4),
+    metalness: Number(om?.metalness ?? 0),
+    opacity: Number(om?.opacity ?? 1),
+    texture: om?.texture || "gradient",
+    textureAsset: om?.textureAsset || null,
+    textureAssign:
+      om?.textureAssign === "eyePair" ? "eyePair" : om?.textureAssign || null,
+    textureUv: normalizeEyeUv(om?.textureUv),
+  };
+  if (includeMap) {
+    out.textureMap = serializeTextureMap(om?.textureMap);
+  }
+  return out;
 }
 
 /**
@@ -218,14 +239,15 @@ export function buildProjectDocument(opts) {
       spineSource: st.spineSource === "orbit" ? "orbit" : "profile",
     },
     objectMaterial: {
-      color: st.objectMaterial?.color ?? null,
-      roughness: Number(st.objectMaterial?.roughness ?? 0.4),
-      metalness: Number(st.objectMaterial?.metalness ?? 0),
-      opacity: Number(st.objectMaterial?.opacity ?? 1),
-      texture: texMode,
-      textureAsset: texAsset,
-      textureAssign: texAssign,
-      textureUv: normalizeEyeUv(st.objectMaterial?.textureUv),
+      ...serializeObjectMaterial(
+        {
+          ...(st.objectMaterial || {}),
+          texture: texMode,
+          textureAsset: texAsset,
+          textureAssign: texAssign,
+        },
+        { includeMap: true },
+      ),
     },
     profile: {
       knots: (st.knots || []).map(serializeKnot),
@@ -341,6 +363,16 @@ export function validateProject(doc) {
         }
         if (!Array.isArray(tex.layers)) errors.push(`textureAssets[${guid}].layers must be an array`);
       }
+    }
+  }
+  if (doc.schemaVersion >= 11 && doc.objectMaterial?.textureMap != null) {
+    const tm = doc.objectMaterial.textureMap;
+    if (typeof tm !== "object") {
+      errors.push("objectMaterial.textureMap must be an object or null");
+    } else if (tm.encoding !== "rgba8-base64") {
+      errors.push('objectMaterial.textureMap.encoding must be "rgba8-base64"');
+    } else if (!(tm.w > 0) || !(tm.h > 0) || typeof tm.data !== "string") {
+      errors.push("objectMaterial.textureMap needs w, h, and data");
     }
   }
   return errors;
