@@ -9,6 +9,14 @@ import {
   averageKnotColorHex,
   DEFAULT_EYE_UV,
 } from "../lib/texture/eyeTexture.js";
+import {
+  ANIM_CLASS_EMOTION,
+  ensureDemoAnimTargets,
+  listAnimTargets,
+  morphTextureAnim,
+  normalizeAnimClassId,
+  normalizeAnimTarget,
+} from "../lib/texture/eyeEmotion.js";
 import { normalizeTextureMap } from "../lib/texture/textureMapCodec.js";
 import { transformParts } from "../lib/meshTransform.js";
 import { evalSpan as evalPathSpan } from "../lib/pathSample.js";
@@ -1125,6 +1133,105 @@ export function useSplineEditor() {
     return true;
   }
 
+  /**
+   * Live-preview an animation-class morph (e.g. emotion A→B) on the assigned
+   * eye texture by re-baking the UV atlas. Does not alter authoring layers.
+   *
+   * @param {{
+   *   animClass?: string,
+   *   from: string,
+   *   to: string,
+   *   t?: number,
+   *   width?: number,
+   *   height?: number,
+   *   seedDemo?: boolean,
+   *   mutateSource?: (tex: object) => void,
+   * }} opts
+   * mutateSource — optional hook to persist seeded poses into the texture store
+   */
+  async function previewAssignedAnimMorph(opts = {}) {
+    const guid = String(state.objectMaterial?.textureAsset || "").trim();
+    if (!guid) {
+      state.status = "Assign an eye texture before anim morph preview.";
+      return false;
+    }
+    const assets = textureAssetsProvider() || {};
+    const raw = assets[guid];
+    if (!raw) {
+      state.status = "Assigned texture is not loaded in the Texture editor.";
+      return false;
+    }
+    const live = raw.kind === "eye" || !raw.kind ? normalizeEyeTexture(raw) : raw;
+    if (live.kind !== "eye") {
+      state.status = "Anim morph preview currently supports eye textures only.";
+      return false;
+    }
+
+    const animClass = normalizeAnimClassId(opts.animClass || ANIM_CLASS_EMOTION);
+    if (opts.seedDemo !== false && animClass === ANIM_CLASS_EMOTION) {
+      const before = listAnimTargets(live, animClass).length;
+      ensureDemoAnimTargets(live);
+      if (listAnimTargets(live, animClass).length > before && typeof opts.mutateSource === "function") {
+        opts.mutateSource(live);
+      } else if (listAnimTargets(live, animClass).length > before) {
+        // Best-effort: copy poses onto the provider's live object if same ref.
+        if (raw.poses !== live.poses) {
+          raw.poses = live.poses;
+          raw.topologyKey = live.topologyKey;
+        }
+      }
+    }
+
+    const from = normalizeAnimTarget(opts.from);
+    const to = normalizeAnimTarget(opts.to);
+    const t = Math.min(1, Math.max(0, Number(opts.t) || 0));
+    const targets = listAnimTargets(live, animClass);
+    if (!targets.includes(from) || !targets.includes(to)) {
+      state.status = `Missing ${animClass} targets (need “${from}” and “${to}”). Seed demo poses or capture poses first.`;
+      return false;
+    }
+
+    const morphed = morphTextureAnim(live, { animClass, from, to, t });
+    if (!morphed) {
+      state.status = "Could not morph poses — check topology match.";
+      return false;
+    }
+
+    const nextUv = normalizeEyeUv(state.objectMaterial?.textureUv);
+    const map = await rasterizeEyePairUvMapAsync(
+      morphed,
+      opts.width || 256,
+      opts.height || 256,
+      {
+        uv: nextUv,
+        background: meshBackgroundColor(),
+      },
+    );
+    if (!map) return false;
+
+    setPendingTextureMap(map, guid);
+    const prev = state.objectMaterial || defaultObjectMaterial();
+    state.objectMaterial = {
+      ...prev,
+      texture: "asset",
+      textureAsset: guid,
+      textureAssign: "eyePair",
+      textureUv: nextUv,
+      textureMap: sealTextureMap(map),
+    };
+    rememberBakedAtlas(guid, state.objectMaterial.textureMap);
+    try {
+      tessellate();
+    } catch (err) {
+      setPendingTextureMap(null);
+      state.status = "Tessellate after anim morph failed: " + (err.message || err);
+      return false;
+    }
+    setPendingTextureMap(null);
+    state.status = `Anim ${animClass}: ${from} → ${to} (${Math.round(t * 100)}%)`;
+    return true;
+  }
+
   function clearAssignedTexture() {
     beginGesture("clear-texture");
     const prevGuid = state.objectMaterial?.textureAsset;
@@ -1621,6 +1728,7 @@ export function useSplineEditor() {
     setTextureAssetsProvider,
     assignEyeTextureToRoot,
     assignEyeTextureToRootAsync,
+    previewAssignedAnimMorph,
     setPendingTextureMap,
     clearAssignedTexture,
     attachFromProject,

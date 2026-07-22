@@ -5,7 +5,7 @@
 import { serializeEyeTexture, normalizeEyeUv } from "../lib/texture/eyeTexture.js";
 import { serializeTextureMap, normalizeTextureMap } from "../lib/texture/textureMapCodec.js";
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 export { serializeTextureMap, normalizeTextureMap };
 
@@ -408,6 +408,24 @@ export function validateProject(doc) {
       errors.push('objectMaterial.textureMap.encoding must be "rgba8-base64"');
     } else if (!(tm.w > 0) || !(tm.h > 0) || typeof tm.data !== "string") {
       errors.push("objectMaterial.textureMap needs w, h, and data");
+    }
+  }
+  if (doc.schemaVersion >= 12 && doc.textureAssets) {
+    for (const [guid, tex] of Object.entries(doc.textureAssets)) {
+      if (!tex || typeof tex !== "object") continue;
+      if (tex.kind != null && tex.kind !== "eye") continue;
+      if (tex.poses != null && !Array.isArray(tex.poses)) {
+        errors.push(`textureAssets[${guid}].poses must be an array`);
+      }
+      if (tex.partClass != null && tex.partClass !== "eye") {
+        errors.push(`textureAssets[${guid}].partClass must be "eye" for eye textures`);
+      }
+      if (tex.topologyKey != null && typeof tex.topologyKey !== "string") {
+        errors.push(`textureAssets[${guid}].topologyKey must be a string`);
+      }
+      if (tex.emotion != null && typeof tex.emotion !== "string") {
+        errors.push(`textureAssets[${guid}].emotion must be a string`);
+      }
     }
   }
   return errors;

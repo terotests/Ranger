@@ -14,6 +14,13 @@ import {
   pathCentroid,
 } from "../pathModel.js";
 import { newGuid } from "../assetClone.js";
+import {
+  PART_CLASS_EYE,
+  normalizeEmotionTag,
+  eyeTopologyKey,
+  normalizeEyePoses,
+  serializeEyePoses,
+} from "./eyeEmotion.js";
 
 /** Default radii for “Restore to circle” (and createEyeLayer closed parts). */
 export const EYE_CIRCLE_RADII = {
@@ -146,10 +153,12 @@ export function createDefaultEyeTexture({ name = "Eye" } = {}) {
   // Optional eyelid starts disabled — user can enable
   const lid = layers.find((l) => l.type === "eyelid");
   if (lid) lid.enabled = false;
-  return {
+  const tex = {
     assetGuid: newGuid(),
     name,
     kind: "eye",
+    partClass: PART_CLASS_EYE,
+    emotion: "neutral",
     width: 256,
     height: 256,
     /** Background at mesh assign time comes from vertex colors; preview uses this fallback. */
@@ -159,7 +168,12 @@ export function createDefaultEyeTexture({ name = "Eye" } = {}) {
     /** Independent right-eye stack when eyePair.linked === false. */
     rightLayers: null,
     eyePair: { ...DEFAULT_EYE_PAIR },
+    /** Emotion pose snapshots (same topology as `layers`). */
+    poses: [],
+    activePoseId: null,
   };
+  tex.topologyKey = eyeTopologyKey(tex);
+  return tex;
 }
 
 export function normalizeEyePair(raw) {
@@ -383,17 +397,29 @@ function normalizeLayerRow(L) {
 
 export function serializeEyeTexture(tex) {
   const pair = normalizeEyePair(tex.eyePair);
+  const layers = (tex.layers || []).map(serializeLayerRow);
+  const topologyKey = eyeTopologyKey({ layers });
+  const poses = serializeEyePoses(normalizeEyePoses({ layers }, tex.poses));
+  const activePoseId =
+    typeof tex.activePoseId === "string" && poses.some((p) => p.id === tex.activePoseId)
+      ? tex.activePoseId
+      : null;
   const out = {
     assetGuid: tex.assetGuid,
     name: tex.name || "Eye",
     kind: "eye",
+    partClass: PART_CLASS_EYE,
+    emotion: normalizeEmotionTag(tex.emotion),
+    topologyKey,
     width: Number(tex.width) || 256,
     height: Number(tex.height) || 256,
     backgroundFrom: tex.backgroundFrom === "solid" ? "solid" : "vertexColors",
     previewBackground: tex.previewBackground || "#6a8f6a",
-    layers: (tex.layers || []).map(serializeLayerRow),
+    layers,
     eyePair: pair,
     rightLayers: null,
+    poses,
+    activePoseId,
   };
   if (!pair.linked && Array.isArray(tex.rightLayers) && tex.rightLayers.length) {
     out.rightLayers = tex.rightLayers.map(serializeLayerRow);
@@ -412,10 +438,19 @@ export function normalizeEyeTexture(raw) {
     rightLayers = raw.rightLayers.map(normalizeLayerRow);
   }
   if (pair.editSide === "both") pair.linked = true;
+  const draft = { layers };
+  const poses = normalizeEyePoses(draft, raw.poses);
+  const activePoseId =
+    typeof raw.activePoseId === "string" && poses.some((p) => p.id === raw.activePoseId)
+      ? raw.activePoseId
+      : null;
   return {
     assetGuid: raw.assetGuid || base.assetGuid,
     name: raw.name || base.name,
     kind: "eye",
+    partClass: PART_CLASS_EYE,
+    emotion: normalizeEmotionTag(raw.emotion),
+    topologyKey: eyeTopologyKey(draft),
     width: Number(raw.width) || 256,
     height: Number(raw.height) || 256,
     backgroundFrom: raw.backgroundFrom === "solid" ? "solid" : "vertexColors",
@@ -423,6 +458,8 @@ export function normalizeEyeTexture(raw) {
     layers,
     rightLayers,
     eyePair: pair,
+    poses,
+    activePoseId,
   };
 }
 

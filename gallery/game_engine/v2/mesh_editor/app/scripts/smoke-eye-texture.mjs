@@ -25,6 +25,29 @@ import {
   layersWithEyeballColor,
 } from "../src/lib/texture/eyeTexture.js";
 import {
+  PART_CLASS_EYE,
+  EYE_EMOTION_TAGS,
+  ANIM_CLASS_EMOTION,
+  normalizeEmotionTag,
+  eyeTopologyKey,
+  defaultEyeTopologyKey,
+  areEyeTexturesCompatible,
+  listCompatibleEyeTextures,
+  captureEyePose,
+  applyEyePose,
+  interpolateEyePose,
+  interpolateKnot,
+  validateEyePoseTopology,
+  upsertEyePose,
+  eyeLibraryTags,
+  compileEyeRig,
+  listAnimClassesForPart,
+  listAnimTargets,
+  ensureDemoAnimTargets,
+  morphTextureAnim,
+  getPoseForTarget,
+} from "../src/lib/texture/eyeEmotion.js";
+import {
   clampAssignRegion,
   regionCorners,
   DEFAULT_ASSIGN_REGION,
@@ -299,22 +322,22 @@ const doc = buildProjectDocument({
   slug: "with-eye",
   projectKind: "mesh",
 });
-assert.equal(doc.schemaVersion, 11);
+assert.equal(doc.schemaVersion, CURRENT_SCHEMA_VERSION);
 assert.equal(doc.projectKind, "mesh");
 assert.ok(doc.textureAssets[ser.assetGuid]);
 assert.equal(doc.objectMaterial.textureAssign, "eyePair");
 
 const mig = migrateProject(doc);
 assert.equal(mig.ok, true, mig.errors?.join("; "));
-assert.equal(CURRENT_SCHEMA_VERSION, 11);
-assert.equal(mig.doc.schemaVersion, 11);
+assert.equal(CURRENT_SCHEMA_VERSION, 12);
+assert.equal(mig.doc.schemaVersion, 12);
 assert.equal(mig.doc.projectKind, "mesh");
 assert.ok(mig.doc.textureAssets[ser.assetGuid].layers.length >= 4);
 
 // Texture-only library entry validates without mesh profile
 const texOnly = {
   kind: "ranger.splineProject",
-  schemaVersion: 11,
+  schemaVersion: CURRENT_SCHEMA_VERSION,
   projectKind: "texture",
   name: "Eyes only",
   textureAssets: { [ser.assetGuid]: ser },
@@ -467,7 +490,7 @@ const docWithBake = buildProjectDocument({
   slug: "baked-eyes",
   projectKind: "mesh",
 });
-assert.equal(docWithBake.schemaVersion, 11);
+assert.equal(docWithBake.schemaVersion, CURRENT_SCHEMA_VERSION);
 assert.ok(docWithBake.objectMaterial.textureMap?.encoding === "rgba8-base64");
 assert.deepEqual(validateProject(docWithBake), []);
 const migBake = migrateProject(JSON.parse(JSON.stringify(docWithBake)));
@@ -485,8 +508,132 @@ v10.schemaVersion = 10;
 delete v10.objectMaterial.textureMap;
 const mig10 = migrateProject(v10);
 assert.equal(mig10.ok, true, mig10.errors?.join("; "));
-assert.equal(mig10.doc.schemaVersion, 11);
+assert.equal(mig10.doc.schemaVersion, CURRENT_SCHEMA_VERSION);
 assert.equal(mig10.doc.objectMaterial.textureMap, null);
+
+// --- Emotion poses / topology compatibility (schema v12) ---
+{
+  assert.equal(normalizeEmotionTag(" Angry!! "), "angry");
+  assert.ok(EYE_EMOTION_TAGS.includes("neutral"));
+  assert.equal(eye.partClass, PART_CLASS_EYE);
+  assert.equal(eye.emotion, "neutral");
+  assert.equal(eye.topologyKey, defaultEyeTopologyKey());
+  assert.ok(eye.topologyKey.startsWith("eye:v1/eyeball:4c"));
+  assert.ok(eye.topologyKey.includes("eyelid:3o:fill=above:clip=eyeball"));
+
+  const tags = eyeLibraryTags({ emotion: "sad", topologyKey: eye.topologyKey });
+  assert.ok(tags.includes("part:eye"));
+  assert.ok(tags.includes("emotion:sad"));
+  assert.ok(tags.some((t) => t.startsWith("topo:")));
+
+  const neutral = captureEyePose(eye, { emotion: "neutral", name: "Neutral", id: "pose_neutral" });
+  assert.ok(neutral);
+  assert.equal(neutral.layers.eyeball.knots.length, 4);
+  assert.equal(neutral.layers.eyelid.knots.length, 3);
+  assert.deepEqual(validateEyePoseTopology(eye, neutral), { ok: true, errors: [] });
+
+  // Mutate eyelid into an "angry" shape (same knot count)
+  const lid = findLayer(eye, "eyelid");
+  lid.enabled = true;
+  lid.knots[0].y += 0.12;
+  lid.knots[1].y -= 0.08;
+  lid.knots[2].y += 0.12;
+  const angry = captureEyePose(eye, { emotion: "angry", name: "Angry", id: "pose_angry" });
+  upsertEyePose(eye, neutral);
+  upsertEyePose(eye, angry);
+  assert.equal(eye.poses.length, 2);
+  assert.equal(eye.activePoseId, "pose_angry");
+
+  const mid = interpolateEyePose(neutral, angry, 0.5);
+  assert.ok(mid);
+  assert.equal(mid.layers.eyelid.knots.length, 3);
+  const k0 = interpolateKnot(neutral.layers.eyelid.knots[0], angry.layers.eyelid.knots[0], 0.5);
+  assert.ok(Math.abs(mid.layers.eyelid.knots[0].y - k0.y) < 1e-9);
+
+  applyEyePose(eye, neutral);
+  assert.equal(eye.emotion, "neutral");
+  assert.ok(Math.abs(findLayer(eye, "eyelid").knots[0].y - neutral.layers.eyelid.knots[0].y) < 1e-9);
+
+  const twin = createDefaultEyeTexture({ name: "Twin" });
+  assert.ok(areEyeTexturesCompatible(eye, twin));
+  // Break topology: drop a pupil knot → incompatible
+  const broken = createDefaultEyeTexture({ name: "Broken" });
+  const pupil = findLayer(broken, "pupil");
+  pupil.knots.pop();
+  broken.topologyKey = eyeTopologyKey(broken);
+  assert.equal(areEyeTexturesCompatible(eye, broken), false);
+  assert.equal(listCompatibleEyeTextures([twin, broken], eye).length, 1);
+
+  // Incompatible pose is dropped on normalize
+  const badPose = {
+    id: "pose_bad",
+    emotion: "happy",
+    layers: { eyeball: { knots: [{ x: 0, y: 0, hx: 0, hy: 0 }] } },
+  };
+  const round = normalizeEyeTexture(serializeEyeTexture(eye));
+  assert.equal(round.poses.length, 2);
+  assert.equal(round.partClass, "eye");
+  assert.ok(round.topologyKey);
+  const dropped = normalizeEyeTexture({
+    ...serializeEyeTexture(eye),
+    poses: [...serializeEyeTexture(eye).poses, badPose],
+  });
+  assert.equal(dropped.poses.length, 2, "bad topology pose dropped");
+
+  const rig = compileEyeRig(eye, { samplesPerSpan: 8 });
+  assert.ok(rig);
+  assert.equal(rig.topologyKey, eye.topologyKey);
+  const eb = rig.layers.find((L) => L.role === "eyeball");
+  assert.ok(eb.poses.pose_neutral instanceof Float32Array);
+  assert.ok(eb.poses.pose_angry.length > 8);
+  assert.equal(eb.poses.pose_neutral.length, eb.poses.pose_angry.length);
+
+  // v11 → v12 migration fills emotion fields
+  const v11doc = JSON.parse(JSON.stringify(doc));
+  v11doc.schemaVersion = 11;
+  for (const t of Object.values(v11doc.textureAssets)) {
+    delete t.partClass;
+    delete t.emotion;
+    delete t.topologyKey;
+    delete t.poses;
+    delete t.activePoseId;
+  }
+  const mig12 = migrateProject(v11doc);
+  assert.equal(mig12.ok, true, mig12.errors?.join("; "));
+  assert.equal(mig12.doc.schemaVersion, 12);
+  const migratedEye = mig12.doc.textureAssets[ser.assetGuid];
+  assert.equal(migratedEye.partClass, "eye");
+  assert.equal(migratedEye.emotion, "neutral");
+  assert.ok(typeof migratedEye.topologyKey === "string");
+  assert.ok(Array.isArray(migratedEye.poses));
+
+  // Animation class + demo targets + morphTextureAnim (preview path)
+  const classes = listAnimClassesForPart(PART_CLASS_EYE);
+  assert.ok(classes.some((c) => c.id === ANIM_CLASS_EMOTION));
+  const demoTex = createDefaultEyeTexture({ name: "DemoAnim" });
+  const seeded = ensureDemoAnimTargets(demoTex);
+  assert.ok(seeded.includes("neutral"));
+  assert.ok(seeded.includes("angry"));
+  assert.ok(seeded.includes("sad"));
+  assert.equal(listAnimTargets(demoTex, ANIM_CLASS_EMOTION).length, seeded.length);
+  assert.ok(getPoseForTarget(demoTex, ANIM_CLASS_EMOTION, "angry")?.animClass === "emotion");
+  const morphed = morphTextureAnim(demoTex, {
+    animClass: ANIM_CLASS_EMOTION,
+    from: "neutral",
+    to: "angry",
+    t: 0.5,
+  });
+  assert.ok(morphed);
+  const lidY0 = getPoseForTarget(demoTex, "emotion", "neutral").layers.eyelid.knots[0].y;
+  const lidY1 = getPoseForTarget(demoTex, "emotion", "angry").layers.eyelid.knots[0].y;
+  const midY = findLayer(morphed, "eyelid").knots[0].y;
+  assert.ok(Math.abs(midY - (lidY0 + lidY1) * 0.5) < 1e-6);
+  // Source layers unchanged by morphTextureAnim
+  assert.ok(
+    Math.abs(findLayer(demoTex, "eyelid").knots[0].y - lidY0) < 1e-6 ||
+      findLayer(demoTex, "eyelid").enabled === false,
+  );
+}
 
 // Save path: buildProjectDocument must keep bake when state carries a live map
 {

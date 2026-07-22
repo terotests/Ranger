@@ -52,6 +52,11 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
 - v10 adds `projectKind` (`mesh` | `texture`) so the library list filters by
   workspace, plus optional `objectMaterial.textureAsset` / `textureAssign`
   (`eyePair`) to map a saved eye texture onto lathe UVs (both eyes).
+- v11 persists a pre-baked UV atlas on `objectMaterial.textureMap`.
+- v12 extends `kind: "eye"` textures with emotion-rig fields: `partClass`,
+  `emotion`, `topologyKey`, `poses[]`, `activePoseId`. Poses share one topology
+  so emotion A can morph to B; see
+  [`docs/EYE_EMOTION_RIG.md`](../docs/EYE_EMOTION_RIG.md).
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.

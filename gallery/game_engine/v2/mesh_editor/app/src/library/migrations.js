@@ -536,6 +536,24 @@ function normalizeV11(doc) {
   return v10;
 }
 
+function normalizeV12(doc) {
+  // Re-normalize eye textures so partClass / emotion / topologyKey / poses exist.
+  const v11 = normalizeV11(doc);
+  v11.schemaVersion = 12;
+  const src = doc.textureAssets || v11.textureAssets || {};
+  const textureAssets = {};
+  for (const [guid, raw] of Object.entries(src)) {
+    const tex = normalizeEyeTexture({
+      ...raw,
+      assetGuid: raw?.assetGuid || guid,
+      kind: raw?.kind || "eye",
+    });
+    textureAssets[tex.assetGuid] = tex;
+  }
+  v11.textureAssets = textureAssets;
+  return v11;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -578,6 +596,10 @@ const STEPS = {
   // 10 → 11: persist pre-baked UV atlas (objectMaterial.textureMap)
   11(doc) {
     return normalizeV11(doc);
+  },
+  // 11 → 12: eye emotion poses + topologyKey / partClass tags
+  12(doc) {
+    return normalizeV12(doc);
   },
 };
 
