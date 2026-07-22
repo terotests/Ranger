@@ -68,12 +68,16 @@ export function useTextureEditor() {
 
   function applyPathPolish({ movedPoint = false } = {}) {
     const closed = path.state.closed;
+    // Only rewrite handles after moving a knot — never while dragging Bezier handles.
     if (movedPoint && state.autoSmooth) {
       autoSmoothHandles(path.state.knots, { closed });
     }
     if (layerWantsSymmetry(selectedLayer.value) && closed) {
       rebuildClosedYSymmetry(path.state.knots);
-      if (state.autoSmooth) autoSmoothHandles(path.state.knots, { closed: true });
+      // Symmetry rebuild must not auto-smooth on handle edits (would wipe hx/hy).
+      if (movedPoint && state.autoSmooth) {
+        autoSmoothHandles(path.state.knots, { closed: true });
+      }
       path.syncSegments();
     }
   }
