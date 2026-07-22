@@ -731,6 +731,7 @@ onBeforeUnmount(() => {
         @add-layer="tex.addLayer"
         @remove-layer="tex.removeLayer"
         @set-color="tex.setLayerColor"
+        @patch-layer="tex.patchLayer"
       />
       <div class="side-stack">
         <TexturePreview :texture="texSelected" />

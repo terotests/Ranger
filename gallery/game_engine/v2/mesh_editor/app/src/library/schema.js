@@ -136,18 +136,28 @@ function serializeChild(ch) {
 function serializeTextureAsset(tex) {
   if (!tex || typeof tex !== "object") return null;
   const kind = tex.kind === "eye" ? "eye" : String(tex.kind || "eye");
-  const layers = (tex.layers || []).map((L) => ({
-    id: L.id,
-    type: L.type || "eyeball",
-    name: L.name || L.type || "layer",
-    enabled: L.enabled !== false,
-    color: L.color || "#ffffff",
-    closed: L.closed !== false && L.type !== "eyelid",
-    fillSide: L.fillSide === "below" ? "below" : L.type === "eyelid" ? "above" : null,
-    clipTo: L.clipTo || null,
-    knots: (L.knots || []).map(serializeKnot),
-    segments: (L.segments || []).map(serializeSegment),
-  }));
+  const layers = (tex.layers || []).map((L) => {
+    const type = L.type || "eyeball";
+    const row = {
+      id: L.id,
+      type,
+      name: L.name || L.type || "layer",
+      enabled: L.enabled !== false,
+      color: L.color || "#ffffff",
+      closed: L.closed !== false && type !== "eyelid",
+      fillSide: L.fillSide === "below" ? "below" : type === "eyelid" ? "above" : null,
+      clipTo: L.clipTo || null,
+      knots: (L.knots || []).map(serializeKnot),
+      segments: (L.segments || []).map(serializeSegment),
+    };
+    if (type === "eyelid") {
+      const w = Number(L.borderWidth);
+      row.border = !!L.border;
+      row.borderWidth = Number.isFinite(w) ? Math.min(0.25, Math.max(0.005, w)) : 0.035;
+      row.borderColor = L.borderColor || "#6e4f38";
+    }
+    return row;
+  });
   return {
     assetGuid: tex.assetGuid,
     name: tex.name || "Texture",

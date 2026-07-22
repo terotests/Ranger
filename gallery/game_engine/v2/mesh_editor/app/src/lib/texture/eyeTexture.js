@@ -59,14 +59,17 @@ export function createEyeLayer(type, overrides = {}) {
     }),
     eyelid: () => ({
       name: "Eyelid",
-      color: "#c4a484",
+      color: "#c4a484", // fill
       closed: false,
       fillSide: "above", // above | below — region clipped to eyeball
+      border: false,
+      borderWidth: 0.035, // authoring units → stroke in texture space
+      borderColor: "#6e4f38",
       ...makeOpenArcPath({ y: 0.12, halfWidth: 0.7, bulge: 0.28, color: "#c4a484" }),
     }),
   };
   const base = (defaults[type] || defaults.eyeball)();
-  return {
+  const layer = {
     id: layerId(),
     type,
     name: overrides.name || base.name,
@@ -78,6 +81,23 @@ export function createEyeLayer(type, overrides = {}) {
     segments: overrides.segments || base.segments,
     clipTo: EYE_CLIP_PARENT[type] ?? null,
   };
+  if (type === "eyelid") {
+    layer.border = overrides.border != null ? !!overrides.border : !!base.border;
+    layer.borderWidth =
+      overrides.borderWidth != null ? Number(overrides.borderWidth) : Number(base.borderWidth) || 0.035;
+    layer.borderColor = overrides.borderColor || base.borderColor || "#6e4f38";
+  }
+  return layer;
+}
+
+/** Clamp / normalize eyelid stroke fields (params only). */
+export function normalizeEyelidBorder(L) {
+  if (!L || L.type !== "eyelid") return L;
+  L.border = !!L.border;
+  const w = Number(L.borderWidth);
+  L.borderWidth = Number.isFinite(w) ? Math.min(0.25, Math.max(0.005, w)) : 0.035;
+  L.borderColor = typeof L.borderColor === "string" && L.borderColor ? L.borderColor : "#6e4f38";
+  return L;
 }
 
 export function createDefaultEyeTexture({ name = "Eye" } = {}) {
@@ -132,17 +152,27 @@ export function serializeEyeTexture(tex) {
     height: Number(tex.height) || 256,
     backgroundFrom: tex.backgroundFrom === "solid" ? "solid" : "vertexColors",
     previewBackground: tex.previewBackground || "#6a8f6a",
-    layers: (tex.layers || []).map((L) => ({
-      id: L.id,
-      type: EYE_LAYER_TYPES.includes(L.type) ? L.type : "eyeball",
-      name: L.name || L.type,
-      enabled: L.enabled !== false,
-      color: L.color || "#ffffff",
-      closed: L.closed !== false && L.type !== "eyelid",
-      fillSide: L.fillSide === "below" ? "below" : L.type === "eyelid" ? "above" : null,
-      clipTo: L.clipTo || EYE_CLIP_PARENT[L.type] || null,
-      ...serializePathBlock(L),
-    })),
+    layers: (tex.layers || []).map((L) => {
+      const type = EYE_LAYER_TYPES.includes(L.type) ? L.type : "eyeball";
+      const row = {
+        id: L.id,
+        type,
+        name: L.name || L.type,
+        enabled: L.enabled !== false,
+        color: L.color || "#ffffff",
+        closed: L.closed !== false && L.type !== "eyelid",
+        fillSide: L.fillSide === "below" ? "below" : type === "eyelid" ? "above" : null,
+        clipTo: L.clipTo || EYE_CLIP_PARENT[type] || null,
+        ...serializePathBlock(L),
+      };
+      if (type === "eyelid") {
+        const w = Number(L.borderWidth);
+        row.border = !!L.border;
+        row.borderWidth = Number.isFinite(w) ? Math.min(0.25, Math.max(0.005, w)) : 0.035;
+        row.borderColor = L.borderColor || "#6e4f38";
+      }
+      return row;
+    }),
   };
 }
 
@@ -156,7 +186,7 @@ export function normalizeEyeTexture(raw) {
       const type = EYE_LAYER_TYPES.includes(L.type) ? L.type : "eyeball";
       const def = createEyeLayer(type);
       const path = serializePathBlock(L.knots ? L : def);
-      return {
+      const row = {
         ...def,
         id: L.id || def.id,
         type,
@@ -172,6 +202,14 @@ export function normalizeEyeTexture(raw) {
             ? syncOpenSegments(path.knots, path.segments, "bezier")
             : syncClosedSegments(path.knots, path.segments, "bezier"),
       };
+      if (type === "eyelid") {
+        row.border = L.border != null ? !!L.border : !!def.border;
+        const bw = Number(L.borderWidth);
+        row.borderWidth = Number.isFinite(bw) ? bw : def.borderWidth;
+        row.borderColor = L.borderColor || def.borderColor;
+        normalizeEyelidBorder(row);
+      }
+      return row;
     });
   } else {
     layers = base.layers;
@@ -320,6 +358,26 @@ export function renderEyeTexture(ctx, tex, opts = {}) {
       ctx.closePath();
       ctx.fillStyle = layer.color || "#c4a484";
       ctx.fill();
+
+      // Optional crease stroke along the eyelid curve (separate border color)
+      if (layer.border) {
+        const pad = 0.08;
+        const worldSpan = 2 + 2 * pad;
+        const bw = Number(layer.borderWidth);
+        const worldW = Number.isFinite(bw) ? Math.min(0.25, Math.max(0.005, bw)) : 0.035;
+        const lineW = Math.max(1, (worldW / worldSpan) * w);
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        for (let i = 1; i < pts.length; i++) {
+          const [x, y] = worldToTex(pts[i].x, pts[i].y, w, h);
+          ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = layer.borderColor || "#6e4f38";
+        ctx.lineWidth = lineW;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke();
+      }
     } else {
       if (layer.type === "iris" || layer.type === "pupil") {
         const parentType = layer.clipTo;
