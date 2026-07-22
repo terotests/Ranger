@@ -36,16 +36,18 @@ class LauncherE2ETest {
         t.eqInt("select sfx one-shot fired" host.bridge.oneShotCount 1)
         t.ok("Pomppija selected" ((host.callSlot("selectedLabelIsPomppija" 0)) > 0.5))
 
-        ; ---- D-pad navigation on action EDGES (generic press) ---------------
-        host.press(0 "right")
-        t.eqInt("right moves selection" (to_int (host.callSlot("selectedIndex" 0))) 1)
-        ; edge, not level: holding must not repeat
+        ; ---- D-pad navigation on action EDGES (mid-list, so a false level
+        ;      repeat would still have room to advance) -----------------------
+        ; Rising edge moves once…
         host.bridge.input.setAction(0 "right" true)
         host.frame(33.333)
+        t.eqInt("right edge moves selection" (to_int (host.callSlot("selectedIndex" 0))) 1)
+        ; …and holding the same level must not keep stepping.
         host.frame(33.333)
-        host.bridge.input.setAction(0 "right" false)
         host.frame(33.333)
         t.eqInt("held key does not repeat" (to_int (host.callSlot("selectedIndex" 0))) 1)
+        host.bridge.input.setAction(0 "right" false)
+        host.frame(33.333)
         host.press(0 "left")
         t.eqInt("left moves back" (to_int (host.callSlot("selectedIndex" 0))) 0)
         t.ok("Pomppija selected again" ((host.callSlot("selectedLabelIsPomppija" 0)) > 0.5))
