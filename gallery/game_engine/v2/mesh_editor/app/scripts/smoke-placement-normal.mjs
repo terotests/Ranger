@@ -121,7 +121,7 @@ const v5 = {
 const mig = migrateProject(v5);
 assert.equal(mig.ok, true, mig.errors?.join("; "));
 assert.equal(mig.doc.schemaVersion, CURRENT_SCHEMA_VERSION);
-assert.equal(CURRENT_SCHEMA_VERSION, 10);
+assert.equal(CURRENT_SCHEMA_VERSION, 11);
 assert.deepEqual(mig.doc.placementNormal.start, { x: 0, y: -1 });
 assert.deepEqual(mig.doc.placementNormal.end, { x: 0, y: 1 });
 assert.equal(mig.doc.editor.tessellationMode, "rotation");

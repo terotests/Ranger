@@ -181,6 +181,9 @@ async function onAssignApply({ guid, uv, assets }) {
           textureUv: normalizeEyeUv(uv || assignRegionUv.value || state.objectMaterial?.textureUv),
         };
       }
+      if (!state.objectMaterial?.textureMap) {
+        state.status = "Assign warning: UV atlas bake missing from material — re-assign if eyes look wrong.";
+      }
       assignDialogOpen.value = false;
       assignRegionUv.value = null;
       state.status = `Eye texture assigned (${wantGuid.slice(0, 8)}…).`;

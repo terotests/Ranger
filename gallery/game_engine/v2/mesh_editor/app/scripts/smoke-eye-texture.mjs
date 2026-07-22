@@ -44,6 +44,10 @@ import {
   buildProjectDocument,
   validateProject,
 } from "../src/library/schema.js";
+import {
+  serializeTextureMap,
+  normalizeTextureMap,
+} from "../src/lib/texture/textureMapCodec.js";
 
 const eye = createDefaultEyeTexture({ name: "TestEye" });
 assert.equal(eye.kind, "eye");
@@ -294,22 +298,22 @@ const doc = buildProjectDocument({
   slug: "with-eye",
   projectKind: "mesh",
 });
-assert.equal(doc.schemaVersion, 10);
+assert.equal(doc.schemaVersion, 11);
 assert.equal(doc.projectKind, "mesh");
 assert.ok(doc.textureAssets[ser.assetGuid]);
 assert.equal(doc.objectMaterial.textureAssign, "eyePair");
 
 const mig = migrateProject(doc);
 assert.equal(mig.ok, true, mig.errors?.join("; "));
-assert.equal(CURRENT_SCHEMA_VERSION, 10);
-assert.equal(mig.doc.schemaVersion, 10);
+assert.equal(CURRENT_SCHEMA_VERSION, 11);
+assert.equal(mig.doc.schemaVersion, 11);
 assert.equal(mig.doc.projectKind, "mesh");
 assert.ok(mig.doc.textureAssets[ser.assetGuid].layers.length >= 4);
 
 // Texture-only library entry validates without mesh profile
 const texOnly = {
   kind: "ranger.splineProject",
-  schemaVersion: 10,
+  schemaVersion: 11,
   projectKind: "texture",
   name: "Eyes only",
   textureAssets: { [ser.assetGuid]: ser },
@@ -360,8 +364,119 @@ const asyncMap = await rasterizeEyePairUvMapAsync(eye, 64, 64, {
 assert.equal(asyncMap.w, 64);
 assert.equal(asyncMap.rgba.length, 64 * 64 * 4);
 
+// Pre-baked atlas codec + project JSON round-trip (reload must keep pixels)
+const enc = serializeTextureMap(asyncMap);
+assert.equal(enc.encoding, "rgba8-base64");
+assert.equal(enc.w, 64);
+assert.equal(enc.h, 64);
+assert.ok(typeof enc.data === "string" && enc.data.length > 100);
+const dec = normalizeTextureMap(enc);
+assert.equal(dec.w, 64);
+assert.equal(dec.h, 64);
+assert.equal(dec.rgba.length, 64 * 64 * 4);
+for (let i = 0; i < dec.rgba.length; i++) {
+  assert.equal(dec.rgba[i], asyncMap.rgba[i], `pixel byte ${i}`);
+}
+
+const docWithBake = buildProjectDocument({
+  state: {
+    assetGuid: "root-bake",
+    curveType: 0,
+    pathSegments: 12,
+    angularSteps: 24,
+    revolutionDeg: 360,
+    tessellationMode: "rotation",
+    materialMode: 3,
+    symmetry: true,
+    viewMode: "profile",
+    spineSource: "profile",
+    knots: [
+      { id: "a", x: 0, y: -1, hx: 0, hy: 0, color: "#fff" },
+      { id: "b", x: 0.4, y: 1, hx: 0, hy: 0, color: "#fff" },
+    ],
+    segments: [
+      {
+        fromId: "a",
+        toId: "b",
+        pathType: "line",
+        roughness: 0.4,
+        metalness: 0,
+        opacity: 1,
+        texture: "gradient",
+        color: null,
+      },
+    ],
+    orbitKnots: [
+      { id: "o0", x: 1, y: 0, hx: 0, hy: 0.55, color: "#fff" },
+      { id: "o1", x: 0, y: 1, hx: -0.55, hy: 0, color: "#fff" },
+      { id: "o2", x: -1, y: 0, hx: 0, hy: -0.55, color: "#fff" },
+      { id: "o3", x: 0, y: -1, hx: 0.55, hy: 0, color: "#fff" },
+    ],
+    orbitSegments: [
+      { fromId: "o0", toId: "o1", pathType: "bezier", roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient", color: null },
+      { fromId: "o1", toId: "o2", pathType: "bezier", roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient", color: null },
+      { fromId: "o2", toId: "o3", pathType: "bezier", roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient", color: null },
+      { fromId: "o3", toId: "o0", pathType: "bezier", roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient", color: null },
+    ],
+    spineProfileKnots: [
+      { id: "s0", x: 0, y: -1, hx: 0, hy: 0, color: "#fff" },
+      { id: "s1", x: 0, y: 1, hx: 0, hy: 0, color: "#fff" },
+    ],
+    spineProfileSegments: [
+      { fromId: "s0", toId: "s1", pathType: "line", roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient", color: null },
+    ],
+    spineOrbitKnots: [
+      { id: "t0", x: 0, y: -1, hx: 0, hy: 0, color: "#fff" },
+      { id: "t1", x: 0, y: 1, hx: 0, hy: 0, color: "#fff" },
+    ],
+    spineOrbitSegments: [
+      { fromId: "t0", toId: "t1", pathType: "line", roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient", color: null },
+    ],
+    placementNormal: { start: { x: 0, y: -1 }, end: { x: 0, y: 1 } },
+    embeddedAssets: {},
+    children: [],
+    textureAssets: { [ser.assetGuid]: ser },
+    projectKind: "mesh",
+    objectMaterial: {
+      color: null,
+      roughness: 0.4,
+      metalness: 0,
+      opacity: 1,
+      texture: "asset",
+      textureAsset: ser.assetGuid,
+      textureAssign: "eyePair",
+      textureUv: fromCorners,
+      textureMap: asyncMap,
+    },
+  },
+  name: "Baked eyes",
+  slug: "baked-eyes",
+  projectKind: "mesh",
+});
+assert.equal(docWithBake.schemaVersion, 11);
+assert.ok(docWithBake.objectMaterial.textureMap?.encoding === "rgba8-base64");
+assert.deepEqual(validateProject(docWithBake), []);
+const migBake = migrateProject(JSON.parse(JSON.stringify(docWithBake)));
+assert.equal(migBake.ok, true, migBake.errors?.join("; "));
+const restoredMap = normalizeTextureMap(migBake.doc.objectMaterial.textureMap);
+assert.ok(restoredMap);
+assert.equal(restoredMap.rgba[0], asyncMap.rgba[0]);
+assert.equal(
+  restoredMap.rgba[restoredMap.rgba.length - 1],
+  asyncMap.rgba[asyncMap.rgba.length - 1],
+);
+// v10 docs without textureMap still migrate
+const v10 = JSON.parse(JSON.stringify(doc));
+v10.schemaVersion = 10;
+delete v10.objectMaterial.textureMap;
+const mig10 = migrateProject(v10);
+assert.equal(mig10.ok, true, mig10.errors?.join("; "));
+assert.equal(mig10.doc.schemaVersion, 11);
+assert.equal(mig10.doc.objectMaterial.textureMap, null);
+
 console.log("smoke-eye-texture: ok", {
   schema: mig.doc.schemaVersion,
   projectKind: mig.doc.projectKind,
   layers: mig.doc.textureAssets[ser.assetGuid].layers.map((L) => L.type),
+  bakedBytes: enc.data.length,
 });

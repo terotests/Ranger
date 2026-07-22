@@ -13,6 +13,7 @@ import {
   normalizeProjectKind,
 } from "./schema.js";
 import { normalizeEyeTexture, normalizeEyeUv } from "../lib/texture/eyeTexture.js";
+import { normalizeTextureMap, serializeTextureMap } from "../lib/texture/textureMapCodec.js";
 
 function defaultOrbitDoc() {
   const raw = SplineLathe.defaultOrbitKnots();
@@ -502,6 +503,28 @@ function normalizeV10(doc) {
   return v9;
 }
 
+function normalizeV11(doc) {
+  // Capture bake before v10 rewrite (normalizeV10 rebuilds objectMaterial without textureMap).
+  const incomingMap = doc?.objectMaterial?.textureMap;
+  const v10 = normalizeV10(doc);
+  v10.schemaVersion = 11;
+  const om = v10.objectMaterial || {};
+  const baked = normalizeTextureMap(incomingMap);
+  v10.objectMaterial = {
+    color: om.color ?? null,
+    roughness: Number(om.roughness ?? 0.4),
+    metalness: Number(om.metalness ?? 0),
+    opacity: Number(om.opacity ?? 1),
+    texture: om.texture || "gradient",
+    textureAsset: om.textureAsset || null,
+    textureAssign:
+      om.textureAssign === "eyePair" ? "eyePair" : om.textureAssign || null,
+    textureUv: normalizeEyeUv(om.textureUv),
+    textureMap: serializeTextureMap(baked),
+  };
+  return v10;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -540,6 +563,10 @@ const STEPS = {
   // 9 → 10: projectKind mesh|texture + objectMaterial.textureAsset assign
   10(doc) {
     return normalizeV10(doc);
+  },
+  // 10 → 11: persist pre-baked UV atlas (objectMaterial.textureMap)
+  11(doc) {
+    return normalizeV11(doc);
   },
 };
 
