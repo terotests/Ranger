@@ -65,33 +65,64 @@ function mul3(a, s) {
   return [a[0] * s, a[1] * s, a[2] * s];
 }
 
-/** Rotate point by euler (rx, ry, 0) — matches preview entityTransform. */
+/**
+ * Rotate point by preview mesh euler (rx, ry, 0).
+ * Must match Three.js Object3D Euler order "XYZ" used by
+ * WebMeshEditorHost.entityTransform(..., tilt, yaw, 0): R = Rx * Ry
+ * (apply yaw around Y first, then tilt around X).
+ */
 export function applyPreviewEuler(p, rx, ry) {
   const cx = Math.cos(rx);
   const sx = Math.sin(rx);
   const cy = Math.cos(ry);
   const sy = Math.sin(ry);
-  // X then Y (XYZ euler with z=0)
-  let x = p[0];
-  let y = p[1] * cx - p[2] * sx;
-  let z = p[1] * sx + p[2] * cx;
-  const x2 = x * cy + z * sy;
-  const z2 = -x * sy + z * cy;
-  return [x2, y, z2];
+  // Y first
+  const x1 = p[0] * cy + p[2] * sy;
+  const y1 = p[1];
+  const z1 = -p[0] * sy + p[2] * cy;
+  // then X
+  return [x1, y1 * cx - z1 * sx, y1 * sx + z1 * cx];
 }
 
+/** Inverse of applyPreviewEuler (undo host mesh yaw/tilt into authoring space). */
 export function applyPreviewEulerInv(p, rx, ry) {
   const cx = Math.cos(rx);
   const sx = Math.sin(rx);
   const cy = Math.cos(ry);
   const sy = Math.sin(ry);
-  // inverse Y then inverse X
-  let x = p[0] * cy - p[2] * sy;
-  let y = p[1];
-  let z = p[0] * sy + p[2] * cy;
-  const y2 = y * cx + z * sx;
-  const z2 = -y * sx + z * cx;
-  return [x, y2, z2];
+  // Inv(Rx*Ry) = Ry^-1 * Rx^-1 → undo X, then undo Y
+  const x1 = p[0];
+  const y1 = p[1] * cx + p[2] * sx;
+  const z1 = -p[1] * sx + p[2] * cx;
+  return [x1 * cy - z1 * sy, y1, x1 * sy + z1 * cy];
+}
+
+/** Transform all part positions/normals by preview euler (world-space pick helper). */
+export function transformPartsByPreviewEuler(parts, rx, ry) {
+  return (parts || []).map((part) => {
+    const pos = part.positions;
+    const nrm = part.normals;
+    if (!pos?.length) return part;
+    const positions = new Array(pos.length);
+    for (let i = 0; i + 2 < pos.length; i += 3) {
+      const p = applyPreviewEuler([pos[i], pos[i + 1], pos[i + 2]], rx, ry);
+      positions[i] = p[0];
+      positions[i + 1] = p[1];
+      positions[i + 2] = p[2];
+    }
+    let normals = nrm;
+    if (nrm?.length) {
+      normals = new Array(nrm.length);
+      for (let i = 0; i + 2 < nrm.length; i += 3) {
+        const n = applyPreviewEuler([nrm[i], nrm[i + 1], nrm[i + 2]], rx, ry);
+        const L = Math.hypot(n[0], n[1], n[2]) || 1;
+        normals[i] = n[0] / L;
+        normals[i + 1] = n[1] / L;
+        normals[i + 2] = n[2] / L;
+      }
+    }
+    return { ...part, positions, normals };
+  });
 }
 
 /**
@@ -176,12 +207,41 @@ export function raycastMeshParts(origin, dir, parts) {
 }
 
 /**
- * Full pick: canvas → world ray → inverse preview euler → authoring ray → hit.
- * `orientInv` maps display(oriented) → authoring (3×3 row-major or null).
+ * Approximate lathe UV from a hit point when vertex UVs are missing.
+ * u = angle around Y, v = normalized height in the part's Y range.
+ */
+export function approximateLatheUvFromPoint(point, parts) {
+  if (!point) return null;
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  for (const part of parts || []) {
+    const pos = part.positions;
+    if (!pos?.length) continue;
+    for (let i = 1; i < pos.length; i += 3) {
+      const y = pos[i];
+      if (y < yMin) yMin = y;
+      if (y > yMax) yMax = y;
+    }
+  }
+  if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) return null;
+  const span = Math.max(1e-6, yMax - yMin);
+  const u = ((Math.atan2(point[0], point[2]) / (Math.PI * 2)) + 1) % 1;
+  const v = Math.min(1, Math.max(0, (point[1] - yMin) / span));
+  return [u, v];
+}
+
+/**
+ * Full pick against root parts in authoring space.
+ * Accounts for the preview host mesh yaw/tilt (entityTransform euler XYZ) by
+ * inverse-rotating the camera ray into authoring space — same rotation the
+ * editor applies when the object spins / is frozen after orbit.
+ *
+ * `orientInv` maps placement-oriented display → authoring (3×3 row-major or null).
+ * If the hit has no vertex UVs, fills `uv` via approximateLatheUvFromPoint.
  */
 export function pickRootSurface(sx, sy, view, rootParts, meshTilt, meshAngle, orientInvMat) {
   const { origin, dir } = rayFromCanvas(sx, sy, view);
-  // World (after euler) → pre-euler oriented space
+  // World (mesh rotated by host euler) → authoring / placement-oriented space
   const o1 = applyPreviewEulerInv(origin, meshTilt, meshAngle);
   const d1p = applyPreviewEulerInv(add3(origin, dir), meshTilt, meshAngle);
   let oA = o1;
@@ -191,7 +251,11 @@ export function pickRootSurface(sx, sy, view, rootParts, meshTilt, meshAngle, or
     const tip = mulMat3(orientInvMat, add3(o1, dA));
     dA = normalize3(sub3(tip, oA));
   }
-  return raycastMeshParts(oA, dA, rootParts);
+  const hit = raycastMeshParts(oA, dA, rootParts);
+  if (hit && !hit.uv) {
+    hit.uv = approximateLatheUvFromPoint(hit.point, rootParts);
+  }
+  return hit;
 }
 
 function mulMat3(m, v) {

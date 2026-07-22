@@ -120,7 +120,8 @@ function startAssignRegion() {
   placePending.value = null;
   assignDialogOpen.value = false;
   assignRegionUv.value = null;
-  if (!state.rootMesh) tessellate();
+  // Ensure rootMesh (+ UVs) exist for ray picks under the square.
+  tessellate();
   assignRegionMode.value = true;
   state.status =
     "Assign — orbit the mesh, fit the yellow square over the eyes, then OK.";

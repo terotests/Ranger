@@ -11,9 +11,9 @@ import {
   DEFAULT_ASSIGN_REGION,
   clampAssignRegion,
   regionCorners,
-  regionToCanvas,
+  regionSamplePoints,
+  eyeUvFromRegionSamples,
 } from "../lib/assignRegion.js";
-import { eyeUvFromCorners } from "../lib/texture/eyeTexture.js";
 
 const props = defineProps({
   mesh: { type: Object, default: null },
@@ -258,30 +258,101 @@ function startRegionDrag(handle) {
   syncCursor();
 }
 
+/**
+ * Pick UV at a normalized overlay point (0–1 over the canvas box).
+ * Uses host meshTilt/meshAngle so picks follow the editor object spin
+ * (WebMeshEditorHost entityTransform euler XYZ).
+ */
+function pickUvAtNorm(nx, ny) {
+  const view = getView();
+  if (!view) return null;
+
+  const rootParts = props.rootMesh?.parts;
+  const rootOnlyDisplay = (displayMesh.value?.parts || []).filter((p) => !p.instanceGuid);
+  const sx = nx * (view.width || 1);
+  const sy = ny * (view.height || 1);
+  const tilt = view.meshTilt;
+  const yaw = view.meshAngle;
+
+  // Primary: authoring root + placement orient + host yaw/tilt
+  if (rootParts?.length) {
+    const hit = pickRootSurface(sx, sy, view, rootParts, tilt, yaw, orientInv.value);
+    if (hit?.uv) return hit.uv;
+    // Default placement normal is +Y (orient = I); still try without orientInv.
+    const hit2 = pickRootSurface(sx, sy, view, rootParts, tilt, yaw, null);
+    if (hit2?.uv) return hit2.uv;
+  }
+  // Fallback: displayed root parts (already placement-oriented)
+  if (rootOnlyDisplay.length) {
+    const hit = pickRootSurface(sx, sy, view, rootOnlyDisplay, tilt, yaw, null);
+    if (hit?.uv) return hit.uv;
+  }
+  return null;
+}
+
 function confirmRegion() {
   regionError.value = "";
-  const el = canvasRef.value;
-  if (!el) {
+  if (!getView() || !canvasRef.value) {
     regionError.value = "Preview not ready.";
     return;
   }
-  const c = regionCorners(region);
-  const tlC = regionToCanvas(c.tl.x, c.tl.y, el);
-  const brC = regionToCanvas(c.br.x, c.br.y, el);
-  const tlHit = pickRoot(tlC.sx, tlC.sy);
-  const brHit = pickRoot(brC.sx, brC.sy);
-  if (!tlHit?.uv || !brHit?.uv) {
-    regionError.value =
-      "Square corners must sit on the mesh — rotate the view or move the square.";
+  if (!props.rootMesh?.parts?.length && !displayMesh.value?.parts?.length) {
+    regionError.value = "No mesh to pick — tessellate first.";
     return;
   }
-  const textureUv = eyeUvFromCorners(
-    tlHit.uv[0],
-    tlHit.uv[1],
-    brHit.uv[0],
-    brHit.uv[1],
-  );
-  emit("region-confirm", { textureUv, region: { ...region } });
+
+  const pts = regionSamplePoints(region, 5);
+  const samples = [];
+  let hitWithoutUv = false;
+  for (const p of pts) {
+    const uv = pickUvAtNorm(p.x, p.y);
+    if (uv) {
+      samples.push(uv);
+      continue;
+    }
+    // Detect geometric hit without UV for a clearer error
+    const view = getView();
+    const el = canvasRef.value;
+    const sx = p.x * (view.width || 1);
+    const sy = p.y * (view.height || 1);
+    const probe =
+      (props.rootMesh?.parts?.length &&
+        pickRootSurface(
+          sx,
+          sy,
+          view,
+          props.rootMesh.parts,
+          view.meshTilt,
+          view.meshAngle,
+          orientInv.value,
+        )) ||
+      pickRootSurface(
+        sx,
+        sy,
+        view,
+        (displayMesh.value?.parts || []).filter((q) => !q.instanceGuid),
+        view.meshTilt,
+        view.meshAngle,
+        null,
+      );
+    if (probe && !probe.uv) hitWithoutUv = true;
+  }
+
+  const uniq = [];
+  for (const uv of samples) {
+    if (!uniq.some((u) => Math.hypot(u[0] - uv[0], u[1] - uv[1]) < 1e-4)) {
+      uniq.push(uv);
+    }
+  }
+
+  const textureUv = eyeUvFromRegionSamples(uniq, region);
+  if (!textureUv) {
+    regionError.value = hitWithoutUv
+      ? "Mesh hit but has no UVs — tessellate the body and try again."
+      : "Could not hit the mesh under the square — orbit the face toward the camera, or shrink the square.";
+    return;
+  }
+  emit("region-confirm", { textureUv, region: { ...clampAssignRegion(region) } });
 }
 
 function onPointerDown(e) {
@@ -473,7 +544,11 @@ watch(
     session?.setAutoRotate?.(!surfacePickActive.value && !surfaceDragging);
     hoverHit.value = null;
     hoverChildGuid.value = null;
-    if (props.regionMode) resetRegion();
+    if (props.regionMode) {
+      resetRegion();
+      // Re-push so host entityTransform matches the frozen yaw used by picking.
+      pushDisplay();
+    }
     syncCursor();
   },
 );
@@ -508,54 +583,57 @@ watch(
       <span>{{ backendLabel }}</span>
     </header>
     <div class="view-wrap">
-      <canvas
-        ref="canvasRef"
-        class="view"
-        :class="{
-          place: placeMode,
-          grab: !!hoverChildGuid || surfaceDragging,
-        }"
-        @pointerdown.capture="onPointerDown"
-        @pointermove.capture="onPointerMove"
-        @pointerup.capture="onPointerUp"
-        @pointerleave="onPointerLeave"
-        @contextmenu="onContextMenu"
-      />
+      <!-- Stack keeps the region overlay pixel-aligned with the canvas box. -->
+      <div class="canvas-stack">
+        <canvas
+          ref="canvasRef"
+          class="view"
+          :class="{
+            place: placeMode,
+            grab: !!hoverChildGuid || surfaceDragging,
+          }"
+          @pointerdown.capture="onPointerDown"
+          @pointermove.capture="onPointerMove"
+          @pointerup.capture="onPointerUp"
+          @pointerleave="onPointerLeave"
+          @contextmenu="onContextMenu"
+        />
 
-      <div v-if="regionMode" class="region-layer" aria-hidden="true">
-        <div class="region-box" :style="regionStyle">
-          <button
-            type="button"
-            class="handle center"
-            title="Drag to move"
-            @pointerdown.stop.prevent="startRegionDrag('center')"
-          />
-          <button
-            v-for="h in ['tl', 'tr', 'bl', 'br']"
-            :key="h"
-            type="button"
-            class="handle corner"
-            :class="h"
-            title="Drag to resize"
-            @pointerdown.stop.prevent="startRegionDrag(h)"
-          />
+        <div v-if="regionMode" class="region-layer" aria-hidden="true">
+          <div class="region-box" :style="regionStyle">
+            <button
+              type="button"
+              class="handle center"
+              title="Drag to move"
+              @pointerdown.stop.prevent="startRegionDrag('center')"
+            />
+            <button
+              v-for="h in ['tl', 'tr', 'bl', 'br']"
+              :key="h"
+              type="button"
+              class="handle corner"
+              :class="h"
+              title="Drag to resize"
+              @pointerdown.stop.prevent="startRegionDrag(h)"
+            />
+          </div>
         </div>
-      </div>
 
-      <div v-if="placeMode" class="place-banner">
-        Place on surface · hover (+) · click to attach · Esc cancel · right-drag orbit
-      </div>
-      <div v-else-if="regionMode" class="place-banner region">
-        <span>
-          Place the square over the eyes · drag center / corners · right-drag orbit
-        </span>
-        <button type="button" class="ban-btn" @click.stop="emit('region-cancel')">
-          Cancel
-        </button>
-        <button type="button" class="ban-btn ok" @click.stop="confirmRegion">OK</button>
-      </div>
-      <div v-else-if="surfaceDragActive" class="place-banner drag">
-        Sub edit · hover sub-object · drag along surface · right-drag orbit
+        <div v-if="placeMode" class="place-banner">
+          Place on surface · hover (+) · click to attach · Esc cancel · right-drag orbit
+        </div>
+        <div v-else-if="regionMode" class="place-banner region">
+          <span>
+            Place the square over the eyes · drag center / corners · right-drag orbit
+          </span>
+          <button type="button" class="ban-btn" @click.stop="emit('region-cancel')">
+            Cancel
+          </button>
+          <button type="button" class="ban-btn ok" @click.stop="confirmRegion">OK</button>
+        </div>
+        <div v-else-if="surfaceDragActive" class="place-banner drag">
+          Sub edit · hover sub-object · drag along surface · right-drag orbit
+        </div>
       </div>
     </div>
     <p v-if="regionError" class="err">{{ regionError }}</p>
@@ -616,10 +694,13 @@ span {
 }
 
 .view-wrap {
-  position: relative;
   justify-self: center;
   width: 100%;
   max-width: 420px;
+}
+.canvas-stack {
+  position: relative;
+  width: 100%;
 }
 
 .view {
@@ -631,6 +712,7 @@ span {
   touch-action: none;
   cursor: crosshair;
   display: block;
+  vertical-align: top;
 }
 .view.place {
   cursor: copy;
