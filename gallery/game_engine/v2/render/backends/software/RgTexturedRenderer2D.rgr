@@ -157,6 +157,10 @@ class RgTexturedRenderer2D {
             def reg:RgSpriteRegion (d.spriteSrcRegion(sh))
             if (reg.w > 0) {
                 if (reg.h > 0) {
+                    ; Resolve the texture ONCE per sprite — texelA/texelRGB each
+                    ; re-run registry.resolveTyped, which blew the Pi 2D budget
+                    ; when done per output pixel.
+                    def tex:RgTexture2D (d.textureResolve(texH))
                     ; destination size in world units (native region if unset)
                     def dwW:double (d.spriteW(sh))
                     def dhW:double (d.spriteH(sh))
@@ -171,26 +175,29 @@ class RgTexturedRenderer2D {
                     def x0:int (scx - (idiv Ws 2))
                     def y0:int (scy - (idiv Hs 2))
                     def flip:boolean (d.spriteFlipX(sh))
+                    ; Incremental source stepping (avoid per-pixel divide+floor).
+                    def uStep:double ((to_double reg.w) / (to_double Ws))
+                    def vStep:double ((to_double reg.h) / (to_double Hs))
                     def py 0
+                    def vAcc:double (0.5 * vStep)
                     while (py < Hs) {
-                        def v:double (((to_double py) + 0.5) / (to_double Hs))
-                        def ly:int (floor (v * (to_double reg.h)))
+                        def ly:int (floor vAcc)
                         if (ly < 0) { ly = 0 }
                         if (ly >= reg.h) { ly = (reg.h - 1) }
                         def ty:int (reg.y + ly)
                         def dy:int (y0 + py)
                         def px 0
+                        def uAcc:double (0.5 * uStep)
                         while (px < Ws) {
-                            def u:double (((to_double px) + 0.5) / (to_double Ws))
-                            def lx:int (floor (u * (to_double reg.w)))
+                            def lx:int (floor uAcc)
                             if (lx < 0) { lx = 0 }
                             if (lx >= reg.w) { lx = (reg.w - 1) }
                             if flip { lx = ((reg.w - 1) - lx) }
                             def tx:int (reg.x + lx)
-                            def a:int (d.texelA(texH tx ty))
+                            def a:int (d.texelAOf(tex tx ty))
                             if (a > 0) {
                                 def dx:int (x0 + px)
-                                def srgb:int (d.texelRGB(texH tx ty))
+                                def srgb:int (d.texelRGBOf(tex tx ty))
                                 if (a >= 255) {
                                     fb.plot(dx dy srgb)
                                 } {
@@ -198,8 +205,10 @@ class RgTexturedRenderer2D {
                                     fb.plot(dx dy (RgTexturedRenderer2D.blend(srgb dstc a)))
                                 }
                             }
+                            uAcc = (uAcc + uStep)
                             px = (px + 1)
                         }
+                        vAcc = (vAcc + vStep)
                         py = (py + 1)
                     }
                     drawn = (drawn + 1)

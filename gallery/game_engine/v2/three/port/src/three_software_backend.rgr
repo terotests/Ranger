@@ -227,11 +227,13 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         def minY:double (this.dmin3(y0 y1 y2))
         def spanX:double (maxX - minX)
         def spanY:double (maxY - minY)
-        def lim:double ((to_double w) * 8.0)
-        if (spanX > lim) {
+        ; Guard each axis against 8× that axis's framebuffer size (not w for both).
+        def limX:double ((to_double w) * 8.0)
+        def limY:double ((to_double h) * 8.0)
+        if (spanX > limX) {
             return
         }
-        if (spanY > lim) {
+        if (spanY > limY) {
             return
         }
         def minx:int (to_int (this.dmin3(x0 x1 x2)))

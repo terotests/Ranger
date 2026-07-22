@@ -125,8 +125,10 @@ for (const f of FACADES) addRepoFile(f);
 for (const f of GAME_ASSETS) addRepoFile(f);
 
 fs.writeFileSync(path.join(OUT, "scene.zip"), makeStoredZip(entries));
+// Demo-side clear colour for this title (0x4f96cf). Kept in scene.json — not
+// baked into WebLive2dHost — so the engine host stays title-neutral.
 fs.writeFileSync(path.join(OUT, "scene.json"), JSON.stringify(
-  { gameDir: GAME_DIR, gameFile: GAME_FILE, width: WIDTH, height: HEIGHT }, null, 2));
+  { gameDir: GAME_DIR, gameFile: GAME_FILE, width: WIDTH, height: HEIGHT, clearRgb: 0x4f96cf }, null, 2));
 log("packaged " + FACADES.length + " façade(s) + game + assets (" + entries.length + " files)");
 for (const e of entries) log("  packaged:", e.name);
 

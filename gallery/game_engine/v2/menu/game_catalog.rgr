@@ -28,10 +28,10 @@ class GameCatalogEntry {
     ; perspective — the game itself does nothing. "never" = single pane.
     def splitScreen:string ""
     ; splitWorld: shared | separate — the world model behind a two-pane split.
-    ;   separate = two INDEPENDENT game sessions, one per pane (e.g. pinball: two
+    ;   separate = two INDEPENDENT game sessions, one per pane (e.g. two
     ;              unrelated boards). This is the default for tsx games.
     ;   shared   = ONE simulated world/physics viewed by two cameras following
-    ;              different players (e.g. autopeli: one road + physics, two views).
+    ;              different players (e.g. one road + physics, two views).
     ;              This is the default for wasm+physics games.
     ; When empty the host infers it from the backend (see resolveSplitWorld) to keep
     ; today's behaviour; setting it explicitly decouples the choice from the engine.
@@ -219,8 +219,8 @@ class GameCatalog {
     ; Resolve the world model for a two-pane split: "shared" (one world/physics,
     ; two cameras) or "separate" (two independent sessions). An explicit
     ; splitWorld= wins; otherwise infer from the backend to preserve today's
-    ; behaviour — wasm+physics games share a world (autopeli), everything else
-    ; runs separate sessions (pinball and the other tsx games).
+    ; behaviour — wasm+physics games share a world, everything else runs
+    ; separate sessions.
     fn resolveSplitWorld:string (entry:GameCatalogEntry) {
         if (entry.splitWorld == "shared") {
             return "shared"

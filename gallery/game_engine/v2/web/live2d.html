@@ -69,10 +69,11 @@
           await window.RangerLive2d.launch({
             bundleSource, zipBuffer, canvas,
             width: scene.width || 480, height: scene.height || 270,
+            clearRgb: scene.clearRgb || 0,
             gameDir: scene.gameDir, gameFile: scene.gameFile,
           });
           canvas.focus();
-          setStatus("rendering — the LIVE ylos2 climber (arrows / space = player 1)");
+          setStatus("rendering — live ranger:2d game (arrows / space = player 1)");
         } catch (e) {
           setStatus("error: " + e.message);
           console.error(e);

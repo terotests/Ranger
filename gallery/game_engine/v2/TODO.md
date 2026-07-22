@@ -68,8 +68,9 @@ handle → separate object / membership / GPU lifetimes) is now advancing on the
       tests, and the Sponza typed accessors. Full gate stays 89/89.
       Follow-ups (live-path polish, not blockers): sky/background, light-probe GI,
       first-person controls, material textures/PBR — all documented; the SW
-      rasteriser's `w*8` span guard still drops huge flat quads (subdivide meshes;
-      see the "remove the 8x span guard" item). A true **Sponza-atrium** live demo
+      rasteriser's 8× span guard (now axis-correct: limX=w*8, limY=h*8) still
+      drops huge flat quads (subdivide meshes; see "remove the 8x span guard").
+      A true **Sponza-atrium** live demo
       is also a follow-up — it needs a Sponza `.gltf`/`.glb` asset that is not
       in-tree (the current `courtyard_live` is procedural primitives, not Sponza).
 
@@ -1023,17 +1024,18 @@ Done since the first debt write-up:
 
 Still to clean up later:
 
+- [x] **`web/` + `menu/` gated** — `check_boundaries.py` `LIVE_PREFIXES` now
+      includes both (guests/tests excluded). Title list is derived from
+      `games/*/game.info` + classic forbidden names. `web/web_live2d_host.rgr`
+      no longer bakes a title sky colour (presenter `setClearRgb` / scene.json).
+- [x] **Menu catalog comments neutralized** — `menu/game_catalog.rgr` no longer
+      names titles; dual-fork merge (menu vs scripting copy) still open.
+- [x] **`menu/launcher.tsx` catalog honest** — drops phantom Chess / Breakout /
+      Sprites; lists the four real `game.info` packages. Still hardcoded in TSX
+      (not filesystem discovery) — generating from `game.info` remains open.
 - [ ] **Dual `game_catalog.rgr` fork** — `menu/game_catalog.rgr` and
-      `scripting/game_catalog.rgr` diverged. Scripting copy is gate-neutral;
-      menu copy still names `autopeli` in comments (menu/ is excluded from the
-      title-name check). Neutralize the menu comments (or delete the menu copy
-      and import the scripting one), then consider adding `menu/` to
-      `LIVE_PREFIXES`.
-- [ ] **`menu/launcher.tsx` still hardcodes a guest catalog** — Pomppija /
-      Chess / Breakout / Sprites paths in TSX (Chess/Breakout are not v2 games
-      today). Guest-side is allowed by the boundary map, but it should mirror
-      discovery (or a generated list) so the TSX menu and Ranger UI do not
-      disagree.
+      `scripting/game_catalog.rgr` diverged. Both are gate-neutral now; delete
+      the menu copy and import the scripting one when convenient.
 - [ ] **Default action-map conventions live in the SDL host** —
       `mapMask` hardwires `jump = up | action` and fixed bit→action names;
       `RgAttractDriver` hardwires left/right/jump bit packing. Document as the

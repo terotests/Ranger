@@ -438,10 +438,10 @@ class RgRanger2D {
         return tx.hasPixels
     }
 
-    ; Sample one texel (clamped). Returns 0xRRGGBB; a=0 (via texelA) means the
-    ; texel is transparent / out of a store-less texture.
-    fn texelRGB:int (textureH:RgHandle px:int py:int) {
-        def tx:RgTexture2D (this.textureResolve(textureH))
+    ; Sample one texel from an already-resolved texture (clamped). Hot blit
+    ; paths must resolve once per sprite and call these — not texelRGB/texelA,
+    ; which re-resolve the handle on every pixel.
+    fn texelRGBOf:int (tx:RgTexture2D px:int py:int) {
         if (tx.hasPixels == false) { return 0 }
         if (tx.width <= 0) { return 0 }
         if (tx.height <= 0) { return 0 }
@@ -456,8 +456,7 @@ class RgRanger2D {
         if (idx >= (array_length tx.rgb)) { return 0 }
         return (itemAt tx.rgb idx)
     }
-    fn texelA:int (textureH:RgHandle px:int py:int) {
-        def tx:RgTexture2D (this.textureResolve(textureH))
+    fn texelAOf:int (tx:RgTexture2D px:int py:int) {
         if (tx.hasPixels == false) { return 0 }
         if (tx.width <= 0) { return 0 }
         if (tx.height <= 0) { return 0 }
@@ -471,6 +470,15 @@ class RgRanger2D {
         if (idx < 0) { return 0 }
         if (idx >= (array_length tx.alpha)) { return 0 }
         return (itemAt tx.alpha idx)
+    }
+
+    ; Sample one texel (clamped). Returns 0xRRGGBB; a=0 (via texelA) means the
+    ; texel is transparent / out of a store-less texture.
+    fn texelRGB:int (textureH:RgHandle px:int py:int) {
+        return (this.texelRGBOf((this.textureResolve(textureH)) px py))
+    }
+    fn texelA:int (textureH:RgHandle px:int py:int) {
+        return (this.texelAOf((this.textureResolve(textureH)) px py))
     }
 
     ; atlas retains its texture (shared retain, D-OWN)
