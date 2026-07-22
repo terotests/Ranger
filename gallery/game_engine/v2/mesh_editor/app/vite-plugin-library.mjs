@@ -67,7 +67,13 @@ function listProjects(root) {
       }
       const d = mig.doc;
       const projectKind = d.projectKind === "texture" ? "texture" : "mesh";
-      const textureCount = Object.keys(d.textureAssets || {}).length;
+      const textureAssets = d.textureAssets || {};
+      const textures = Object.values(textureAssets).map((t) => ({
+        assetGuid: t.assetGuid,
+        name: t.name || "Texture",
+        kind: t.kind || "eye",
+      }));
+      const textureCount = textures.length;
       out.push({
         slug: d.slug || name,
         id: d.id,
@@ -79,6 +85,7 @@ function listProjects(root) {
         schemaVersion: d.schemaVersion,
         projectKind,
         textureCount,
+        textures,
         knotCount:
           projectKind === "texture"
             ? textureCount

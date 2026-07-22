@@ -26,12 +26,27 @@ const t = intersectTriangle(
   [1, -1, 0],
   [1, 1, 0],
 );
-assert.ok(t != null && Math.abs(t - 2) < 1e-6);
+assert.ok(t != null && Math.abs(t.t - 2) < 1e-6);
 
 const hit = raycastMeshParts([0, 0, 3], [0, 0, -1], parts);
 assert.ok(hit);
 assert.ok(Math.abs(hit.point[2]) < 1e-5);
 assert.ok(hit.normal[2] > 0.9);
+
+// UV interpolation at triangle centroid-ish (hit near origin on square)
+const uvParts = [
+  {
+    positions: [-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0],
+    normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+    // v0=(0,0) v1=(1,0) v2=(1,1) v3=(0,1)
+    uvs: [0, 0, 1, 0, 1, 1, 0, 1],
+    indices: [0, 1, 2, 0, 2, 3],
+  },
+];
+const uvHit = raycastMeshParts([0, 0, 3], [0, 0, -1], uvParts);
+assert.ok(uvHit?.uv);
+assert.ok(Math.abs(uvHit.uv[0] - 0.5) < 0.05);
+assert.ok(Math.abs(uvHit.uv[1] - 0.5) < 0.05);
 
 const tagged = [{ ...parts[0], instanceGuid: "child-a" }];
 const hitTagged = raycastMeshParts([0, 0, 3], [0, 0, -1], tagged);

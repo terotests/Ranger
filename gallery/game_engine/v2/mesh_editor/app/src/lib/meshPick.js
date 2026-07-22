@@ -94,7 +94,11 @@ export function applyPreviewEulerInv(p, rx, ry) {
   return [x, y2, z2];
 }
 
-/** Möller–Trumbore; returns t or null. */
+/**
+ * Möller–Trumbore; returns hit with barycentric (u,v) or null.
+ * Weights: w0 = 1-u-v (v0), w1 = u (v1), w2 = v (v2).
+ * @returns {{ t:number, u:number, v:number } | null}
+ */
 export function intersectTriangle(origin, dir, v0, v1, v2) {
   const eps = 1e-8;
   const e1 = sub3(v1, v0);
@@ -111,12 +115,13 @@ export function intersectTriangle(origin, dir, v0, v1, v2) {
   if (v < 0 || u + v > 1) return null;
   const t = dot3(e2, qvec) * invDet;
   if (t < eps) return null;
-  return t;
+  return { t, u, v };
 }
 
 /**
  * Raycast mesh parts in the same space as the ray.
- * @returns {{ point:[number,number,number], normal:[number,number,number], t:number, instanceGuid?:string } | null}
+ * When `part.uvs` is present, interpolates lathe UV at the hit.
+ * @returns {{ point:[number,number,number], normal:[number,number,number], t:number, uv?:[number,number], instanceGuid?:string } | null}
  */
 export function raycastMeshParts(origin, dir, parts) {
   let bestT = Infinity;
@@ -125,17 +130,21 @@ export function raycastMeshParts(origin, dir, parts) {
     const pos = part.positions;
     const idx = part.indices;
     const nrm = part.normals;
+    const uvs = part.uvs;
     if (!pos?.length || !idx?.length) continue;
     for (let i = 0; i + 2 < idx.length; i += 3) {
-      const i0 = idx[i] * 3;
-      const i1 = idx[i + 1] * 3;
-      const i2 = idx[i + 2] * 3;
+      const ia = idx[i];
+      const ib = idx[i + 1];
+      const ic = idx[i + 2];
+      const i0 = ia * 3;
+      const i1 = ib * 3;
+      const i2 = ic * 3;
       const v0 = [pos[i0], pos[i0 + 1], pos[i0 + 2]];
       const v1 = [pos[i1], pos[i1 + 1], pos[i1 + 2]];
       const v2 = [pos[i2], pos[i2 + 1], pos[i2 + 2]];
-      const t = intersectTriangle(origin, dir, v0, v1, v2);
-      if (t == null || t >= bestT) continue;
-      bestT = t;
+      const hitT = intersectTriangle(origin, dir, v0, v1, v2);
+      if (hitT == null || hitT.t >= bestT) continue;
+      bestT = hitT.t;
       let n = cross3(sub3(v1, v0), sub3(v2, v0));
       if (len3(n) < 1e-12 && nrm) {
         n = [nrm[i0], nrm[i0 + 1], nrm[i0 + 2]];
@@ -143,10 +152,22 @@ export function raycastMeshParts(origin, dir, parts) {
       n = normalize3(n);
       // Face toward the ray
       if (dot3(n, dir) > 0) n = mul3(n, -1);
+      let uv = undefined;
+      if (uvs && uvs.length >= (Math.max(ia, ib, ic) + 1) * 2) {
+        const bu = hitT.u;
+        const bv = hitT.v;
+        const bw = 1 - bu - bv;
+        const u =
+          bw * uvs[ia * 2] + bu * uvs[ib * 2] + bv * uvs[ic * 2];
+        const v =
+          bw * uvs[ia * 2 + 1] + bu * uvs[ib * 2 + 1] + bv * uvs[ic * 2 + 1];
+        uv = [u, v];
+      }
       best = {
-        point: add3(origin, mul3(dir, t)),
+        point: add3(origin, mul3(dir, hitT.t)),
         normal: n,
-        t,
+        t: hitT.t,
+        uv,
         instanceGuid: part.instanceGuid || undefined,
       };
     }

@@ -1,7 +1,13 @@
 import { reactive, computed, watch } from "vue";
 import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
 import { tessellateBody } from "../lib/latheTessellate.js";
-import { rasterizeEyePairUvMap, normalizeEyeTexture } from "../lib/texture/eyeTexture.js";
+import {
+  rasterizeEyePairUvMap,
+  normalizeEyeTexture,
+  normalizeEyeUv,
+  averageKnotColorHex,
+  DEFAULT_EYE_UV,
+} from "../lib/texture/eyeTexture.js";
 import { transformParts } from "../lib/meshTransform.js";
 import { evalSpan as evalPathSpan } from "../lib/pathSample.js";
 import { createEditHistory } from "../lib/editHistory.js";
@@ -64,6 +70,7 @@ function defaultObjectMaterial() {
     texture: "gradient",
     textureAsset: null,
     textureAssign: null,
+    textureUv: { ...DEFAULT_EYE_UV },
   };
 }
 
@@ -905,6 +912,13 @@ export function useSplineEditor() {
     }
   }
 
+  function meshBackgroundColor() {
+    // Prefer profile knot (vertex) colors so the UV atlas matches the painted mesh.
+    const fromKnots = averageKnotColorHex(state.knots, "");
+    if (fromKnots) return fromKnots;
+    return state.objectMaterial?.color || "#e8e4dc";
+  }
+
   function resolveTextureMap(om) {
     if (!om) return null;
     const guid = om.textureAsset;
@@ -915,7 +929,10 @@ export function useSplineEditor() {
     if (!raw) return null;
     const tex = raw.kind === "eye" || !raw.kind ? normalizeEyeTexture(raw) : raw;
     if (tex.kind === "eye" || om.textureAssign === "eyePair") {
-      return rasterizeEyePairUvMap(tex, 512, 512);
+      return rasterizeEyePairUvMap(tex, 512, 512, {
+        uv: normalizeEyeUv(om.textureUv),
+        background: meshBackgroundColor(),
+      });
     }
     return null;
   }
@@ -924,23 +941,30 @@ export function useSplineEditor() {
     textureAssetsProvider = typeof fn === "function" ? fn : () => ({});
   }
 
-  /** Assign a procedural eye texture (both eyes) onto the root mesh UV atlas. */
-  function assignEyeTextureToRoot(assetGuid) {
+  /**
+   * Assign a procedural eye texture (both eyes) onto the root mesh UV atlas.
+   * @param {string} assetGuid
+   * @param {object} [uv] centerU/centerV/scale/eyeSeparationU
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  function assignEyeTextureToRoot(assetGuid, uv, opts = {}) {
     if (!assetGuid) return false;
     const assets = textureAssetsProvider() || {};
     if (!assets[assetGuid]) {
       state.status = "Texture asset not loaded — open it in Texture or import the project.";
       return false;
     }
-    beginGesture("assign-eye-texture");
+    const record = opts.recordHistory !== false;
+    if (record) beginGesture("assign-eye-texture");
     state.objectMaterial = {
       ...state.objectMaterial,
       texture: "asset",
       textureAsset: assetGuid,
       textureAssign: "eyePair",
+      textureUv: normalizeEyeUv(uv || state.objectMaterial?.textureUv),
     };
-    endGesture();
-    state.status = "Assigned eye texture to mesh UVs (left + right).";
+    if (record) endGesture();
+    if (record) state.status = "Assigned eye texture to mesh UVs (left + right).";
     return true;
   }
 
@@ -951,6 +975,7 @@ export function useSplineEditor() {
       texture: "gradient",
       textureAsset: null,
       textureAssign: null,
+      textureUv: { ...DEFAULT_EYE_UV },
     };
     endGesture();
     state.status = "Cleared assigned body texture.";
@@ -1221,6 +1246,7 @@ export function useSplineEditor() {
         doc.objectMaterial?.textureAssign === "eyePair"
           ? "eyePair"
           : doc.objectMaterial?.textureAssign || null,
+      textureUv: normalizeEyeUv(doc.objectMaterial?.textureUv),
     };
     state.knots = doc.profile.knots.map((k) => ({ ...k }));
     state.segments = (doc.profile.segments || []).map((s) => ({
@@ -1416,6 +1442,7 @@ export function useSplineEditor() {
     addSymmetricTwin,
     undo,
     redo,
+    beginGesture,
     beginGesture,
     endGesture,
     commitToHistory,

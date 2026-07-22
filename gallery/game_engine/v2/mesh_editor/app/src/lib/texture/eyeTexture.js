@@ -684,9 +684,130 @@ export function rasterizeEyeTexture(tex, width, height) {
   return ctx.getImageData(0, 0, w, h);
 }
 
+/** Default UV placement for eye-pair assignment on a lathe mesh. */
+export const DEFAULT_EYE_UV = {
+  centerU: 0.5,
+  centerV: 0.58,
+  /** Uniform size multiplier for both eyes. */
+  scale: 1,
+  /** Gap between eye centers in U; null → derive from eyePair.distance. */
+  eyeSeparationU: null,
+};
+
+export function normalizeEyeUv(uv) {
+  const u = uv && typeof uv === "object" ? uv : {};
+  const centerU = Number(u.centerU);
+  const centerV = Number(u.centerV);
+  const scale = Number(u.scale);
+  const sep = u.eyeSeparationU == null ? null : Number(u.eyeSeparationU);
+  return {
+    centerU: Number.isFinite(centerU) ? Math.min(1, Math.max(0, centerU)) : DEFAULT_EYE_UV.centerU,
+    centerV: Number.isFinite(centerV) ? Math.min(1, Math.max(0, centerV)) : DEFAULT_EYE_UV.centerV,
+    scale: Number.isFinite(scale) ? Math.min(3, Math.max(0.25, scale)) : DEFAULT_EYE_UV.scale,
+    eyeSeparationU:
+      sep == null || !Number.isFinite(sep) ? null : Math.min(0.5, Math.max(0.02, sep)),
+  };
+}
+
+/** Default single-eye footprint in UV (before scale). */
+export const EYE_UV_FOOTPRINT = { eyeWidthU: 0.11, eyeHeightV: 0.13 };
+
 /**
- * Rasterize left+right eyes into a UV atlas (white background for multiply lighting).
- * Lathe UVs: u around orbit, v along profile — eyes sit near the front of the head.
+ * Unwrap a U pair across the 0–1 seam (shortest arc).
+ * @returns {[number, number]} ordered [uLo, uHi] (hi may be > 1)
+ */
+export function unwrapUvPairU(u1, u2) {
+  let a = ((Number(u1) % 1) + 1) % 1;
+  let b = ((Number(u2) % 1) + 1) % 1;
+  if (!Number.isFinite(a)) a = 0;
+  if (!Number.isFinite(b)) b = 0;
+  let d = b - a;
+  if (d > 0.5) b -= 1;
+  else if (d < -0.5) b += 1;
+  return a <= b ? [a, b] : [b, a];
+}
+
+/**
+ * Build eye-pair textureUv from two mesh UV corners (top-left then bottom-right).
+ * Lathe: u around orbit, v along profile (higher v = higher on mesh).
+ */
+export function eyeUvFromCorners(u1, v1, u2, v2, opts = {}) {
+  const [uLo, uHi] = unwrapUvPairU(u1, u2);
+  let vA = Number(v1);
+  let vB = Number(v2);
+  if (!Number.isFinite(vA)) vA = 0.5;
+  if (!Number.isFinite(vB)) vB = 0.5;
+  const vLo = Math.min(vA, vB);
+  const vHi = Math.max(vA, vB);
+  const width = Math.max(0.02, uHi - uLo);
+  const height = Math.max(0.02, vHi - vLo);
+  const eyeWU = opts.eyeWidthU != null ? Number(opts.eyeWidthU) : EYE_UV_FOOTPRINT.eyeWidthU;
+  const eyeHV = opts.eyeHeightV != null ? Number(opts.eyeHeightV) : EYE_UV_FOOTPRINT.eyeHeightV;
+  const scaleH = height / (eyeHV || 0.13);
+  const preferSep =
+    opts.eyeSeparationU != null && Number.isFinite(Number(opts.eyeSeparationU))
+      ? Number(opts.eyeSeparationU)
+      : null;
+  let scale;
+  let eyeSeparationU;
+  if (preferSep != null) {
+    scale = (scaleH + width / (preferSep + eyeWU)) / 2;
+    eyeSeparationU = preferSep;
+  } else {
+    scale = scaleH;
+    eyeSeparationU = Math.min(0.45, Math.max(0.04, width - eyeWU * scale));
+  }
+  let centerU = (uLo + uHi) / 2;
+  centerU = ((centerU % 1) + 1) % 1;
+  const centerV = (vLo + vHi) / 2;
+  return normalizeEyeUv({ centerU, centerV, scale, eyeSeparationU });
+}
+
+/** Move eye-pair center to a UV hit while keeping scale / gap. */
+export function eyeUvMoveCenter(uv, u, v) {
+  const cur = normalizeEyeUv(uv);
+  const cu = ((Number(u) % 1) + 1) % 1;
+  const cv = Number(v);
+  return normalizeEyeUv({
+    ...cur,
+    centerU: Number.isFinite(cu) ? cu : cur.centerU,
+    centerV: Number.isFinite(cv) ? Math.min(1, Math.max(0, cv)) : cur.centerV,
+  });
+}
+
+/** Average knot colors → hex (mesh “vertex” tint for UV atlas background). */
+export function averageKnotColorHex(knots, fallback = "#e8e4dc") {
+  const list = knots || [];
+  if (!list.length) return fallback;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let n = 0;
+  for (const k of list) {
+    const hex = String(k?.color || "").replace("#", "");
+    if (hex.length < 6) continue;
+    r += parseInt(hex.slice(0, 2), 16);
+    g += parseInt(hex.slice(2, 4), 16);
+    b += parseInt(hex.slice(4, 6), 16);
+    n += 1;
+  }
+  if (!n) return fallback;
+  const to = (v) => Math.round(v / n).toString(16).padStart(2, "0");
+  return `#${to(r)}${to(g)}${to(b)}`;
+}
+
+/** Clone layers with eyeball fill remapped (UV project uses mesh/vertex tint as sclera). */
+export function layersWithEyeballColor(layers, color) {
+  if (!color) return layers || [];
+  return (layers || []).map((L) =>
+    L?.type === "eyeball" ? { ...L, color } : L,
+  );
+}
+
+/**
+ * Rasterize left+right eyes into a UV atlas.
+ * Background defaults to mesh/vertex tint (not pure white) so the atlas blends.
+ * Lathe UVs: u around orbit, v along profile.
  *
  * @returns {{ rgba: Uint8ClampedArray|number[], w: number, h: number, name: string } | null}
  */
@@ -694,22 +815,27 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
   const w = Math.max(64, width | 0);
   const h = Math.max(64, height | 0);
   const pair = normalizeEyePair(tex?.eyePair);
-  const centerU = opts.centerU != null ? Number(opts.centerU) : 0.5;
-  const centerV = opts.centerV != null ? Number(opts.centerV) : 0.58;
+  const uv = normalizeEyeUv(opts.uv || opts);
+  const centerU = uv.centerU;
+  const centerV = uv.centerV;
+  const scale = uv.scale;
   const sepU =
-    opts.eyeSeparationU != null
-      ? Number(opts.eyeSeparationU)
-      : 0.1 + pair.distance * 0.08;
-  const eyeWU = opts.eyeWidthU != null ? Number(opts.eyeWidthU) : 0.11;
-  const eyeHV = opts.eyeHeightV != null ? Number(opts.eyeHeightV) : 0.13;
+    uv.eyeSeparationU != null ? uv.eyeSeparationU : 0.1 + pair.distance * 0.08;
+  const eyeWU = (opts.eyeWidthU != null ? Number(opts.eyeWidthU) : 0.11) * scale;
+  const eyeHV = (opts.eyeHeightV != null ? Number(opts.eyeHeightV) : 0.13) * scale;
+  const bg = opts.background || "#e8e4dc";
 
   if (typeof document === "undefined") {
-    // Node smoke: solid white map (assignment path is browser/WebGL).
+    // Node smoke: solid bg map (assignment path is browser/WebGL).
     const rgba = new Uint8ClampedArray(w * h * 4);
+    const hex = String(bg).replace("#", "");
+    const br = hex.length >= 6 ? parseInt(hex.slice(0, 2), 16) : 232;
+    const bg_ = hex.length >= 6 ? parseInt(hex.slice(2, 4), 16) : 228;
+    const bb = hex.length >= 6 ? parseInt(hex.slice(4, 6), 16) : 220;
     for (let i = 0; i < rgba.length; i += 4) {
-      rgba[i] = 255;
-      rgba[i + 1] = 255;
-      rgba[i + 2] = 255;
+      rgba[i] = br;
+      rgba[i + 1] = bg_;
+      rgba[i + 2] = bb;
       rgba[i + 3] = 255;
     }
     return { rgba, w, h, name: (tex?.name || "eye") + "-uv" };
@@ -719,13 +845,14 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
   const cellW = Math.max(8, Math.round(eyeWU * w));
   const cellH = Math.max(8, Math.round(eyeHV * h));
-  const left = tex.layers || [];
-  const right = rightEyeLayers(tex);
+  // Eyeball sclera follows mesh/vertex tint so the UV patch is not a white disc.
+  const left = layersWithEyeballColor(tex.layers || [], bg);
+  const right = layersWithEyeballColor(rightEyeLayers(tex), bg);
 
   function blit(layers, uCenter) {
     const x = Math.round(uCenter * w - cellW / 2);
@@ -734,7 +861,7 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
     off.width = cellW;
     off.height = cellH;
     const octx = off.getContext("2d");
-    octx.fillStyle = "#ffffff";
+    octx.fillStyle = bg;
     octx.fillRect(0, 0, cellW, cellH);
     drawEyeLayers(octx, layers, cellW, cellH);
     ctx.drawImage(off, x, y);

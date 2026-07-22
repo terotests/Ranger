@@ -12,7 +12,7 @@ import {
   validateProject,
   normalizeProjectKind,
 } from "./schema.js";
-import { normalizeEyeTexture } from "../lib/texture/eyeTexture.js";
+import { normalizeEyeTexture, normalizeEyeUv } from "../lib/texture/eyeTexture.js";
 
 function defaultOrbitDoc() {
   const raw = SplineLathe.defaultOrbitKnots();
@@ -483,6 +483,7 @@ function normalizeV10(doc) {
     texture: om.texture || "gradient",
     textureAsset: om.textureAsset || null,
     textureAssign: om.textureAssign === "eyePair" ? "eyePair" : om.textureAssign || null,
+    textureUv: normalizeEyeUv(om.textureUv),
   };
   return v9;
 }
