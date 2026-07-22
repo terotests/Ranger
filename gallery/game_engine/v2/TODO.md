@@ -68,8 +68,9 @@ handle → separate object / membership / GPU lifetimes) is now advancing on the
       tests, and the Sponza typed accessors. Full gate stays 89/89.
       Follow-ups (live-path polish, not blockers): sky/background, light-probe GI,
       first-person controls, material textures/PBR — all documented; the SW
-      rasteriser's `w*8` span guard still drops huge flat quads (subdivide meshes;
-      see the "remove the 8x span guard" item). A true **Sponza-atrium** live demo
+      rasteriser's 8× span guard (now axis-correct: limX=w*8, limY=h*8) still
+      drops huge flat quads (subdivide meshes; see "remove the 8x span guard").
+      A true **Sponza-atrium** live demo
       is also a follow-up — it needs a Sponza `.gltf`/`.glb` asset that is not
       in-tree (the current `courtyard_live` is procedural primitives, not Sponza).
 
