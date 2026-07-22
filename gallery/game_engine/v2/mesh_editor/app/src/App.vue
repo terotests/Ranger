@@ -5,7 +5,10 @@ import PointEditor from "./components/PointEditor.vue";
 import Preview3D from "./components/Preview3D.vue";
 import LibraryPanel from "./components/LibraryPanel.vue";
 import ChildrenPanel from "./components/ChildrenPanel.vue";
+import TextureLayerPanel from "./components/TextureLayerPanel.vue";
+import TexturePreview from "./components/TexturePreview.vue";
 import { useSplineEditor } from "./composables/useSplineEditor.js";
+import { useTextureEditor } from "./composables/useTextureEditor.js";
 import { useLibrary } from "./composables/useLibrary.js";
 import * as api from "./library/api.js";
 
@@ -31,8 +34,8 @@ const {
   findClosestOnCurve,
   insertKnotOnCurve,
   tessellate,
-  applyProject,
-  snapshotState,
+  applyProject: applyMeshProject,
+  snapshotState: snapshotMeshState,
   attachFromProject,
   selectChild,
   editRoot,
@@ -48,6 +51,31 @@ const {
   isEditingChild,
   activePlacementNormal,
 } = useSplineEditor();
+
+const tex = useTextureEditor();
+const texState = tex.state;
+const texPath = tex.path;
+const texLayers = tex.layers;
+const texSelected = tex.selectedTexture;
+const texPathClosed = tex.pathClosed;
+
+const workspace = ref("mesh"); // mesh | texture
+
+function snapshotState() {
+  return {
+    ...snapshotMeshState(),
+    textureAssets: tex.snapshotTextures(),
+  };
+}
+
+function applyProject(doc) {
+  applyMeshProject(doc);
+  tex.loadTextures(doc?.textureAssets || {});
+}
+
+if (!Object.keys(texState.textures).length) {
+  tex.createEye("Eye");
+}
 
 const { lib, refresh, load, save, saveAs, remove, exportJson, importJsonFile } = useLibrary({
   snapshotState,
@@ -188,10 +216,12 @@ function onKeyDown(e) {
   const key = e.key.toLowerCase();
   if (key === "z" && !e.shiftKey) {
     e.preventDefault();
-    onUndo();
+    if (workspace.value === "texture") texPath.undo();
+    else onUndo();
   } else if ((key === "z" && e.shiftKey) || key === "y") {
     e.preventDefault();
-    onRedo();
+    if (workspace.value === "texture") texPath.redo();
+    else onRedo();
   }
 }
 
@@ -281,13 +311,35 @@ onBeforeUnmount(() => {
         <p class="eyebrow">Ranger · gallery/game_engine/v2</p>
         <h1>Spline Mesh Editor</h1>
         <p class="lede">
-          Profile + orbit lathe with an optional curved
-          <strong>spine</strong> centerline, bulk colouring, and sub-objects — editing
-          <strong>{{ editingLabel }}</strong>.
+          <template v-if="workspace === 'mesh'">
+            Profile + orbit lathe with an optional curved
+            <strong>spine</strong> centerline, bulk colouring, and sub-objects — editing
+            <strong>{{ editingLabel }}</strong>.
+          </template>
+          <template v-else>
+            <strong>Texture editor</strong> — procedural eye layers (params only, runtime
+            raster). Shared Bezier path editor · iris/pupil clipped inside the eyeball.
+          </template>
         </p>
       </div>
       <div class="actions">
-        <div class="tool-row">
+        <div class="tool-row sector">
+          <button
+            type="button"
+            :class="{ active: workspace === 'mesh', primary: workspace === 'mesh' }"
+            @click="workspace = 'mesh'"
+          >
+            Mesh
+          </button>
+          <button
+            type="button"
+            :class="{ active: workspace === 'texture', primary: workspace === 'texture' }"
+            @click="workspace = 'texture'"
+          >
+            Texture
+          </button>
+        </div>
+        <div v-if="workspace === 'mesh'" class="tool-row">
           <button
             v-for="v in views"
             :key="v.id"
@@ -297,46 +349,96 @@ onBeforeUnmount(() => {
             {{ v.label }}
           </button>
         </div>
-        <p v-if="state.viewMode === 'spine'" class="spine-hint">
+        <div v-else class="tool-row">
+          <button type="button" class="primary" @click="tex.createEye()">New eye</button>
+          <button
+            type="button"
+            :disabled="!texState.selectedGuid"
+            @click="tex.removeSelectedTexture()"
+          >
+            Delete texture
+          </button>
+        </div>
+        <p v-if="workspace === 'mesh' && state.viewMode === 'spine'" class="spine-hint">
           Editing {{ spinePlaneLabel }} · pick Profile/Orbit first to choose which bend
         </p>
         <div class="tool-row">
           <button
             v-for="t in tools"
             :key="t.id"
-            :class="{ active: state.toolMode === t.id, primary: state.toolMode === t.id }"
-            @click="setToolMode(t.id)"
+            :class="{
+              active:
+                workspace === 'mesh'
+                  ? state.toolMode === t.id
+                  : texPath.state.toolMode === t.id,
+              primary:
+                workspace === 'mesh'
+                  ? state.toolMode === t.id
+                  : texPath.state.toolMode === t.id,
+            }"
+            @click="
+              workspace === 'mesh' ? setToolMode(t.id) : texPath.setToolMode(t.id)
+            "
           >
             {{ t.label }}
           </button>
         </div>
-        <button @click="resetDefaults">Reset</button>
-        <button
-          v-if="state.viewMode === 'spine'"
-          type="button"
-          title="Straighten the active spine plane"
-          @click="onResetSpine"
-        >
-          Reset spine
-        </button>
-        <button
-          v-if="state.viewMode === 'spine'"
-          type="button"
-          title="Straighten both spine planes"
-          @click="onResetSpineBoth"
-        >
-          Reset both spines
-        </button>
-        <button @click="onUndo" :disabled="!state.history.canUndo" title="Ctrl+Z">Undo</button>
-        <button @click="onRedo" :disabled="!state.history.canRedo" title="Ctrl+Shift+Z">
-          Redo
-        </button>
-        <button @click="removeSelected" :disabled="!state.selectedId">Remove</button>
-        <button class="primary" @click="onTessellate">Tessellate</button>
+        <template v-if="workspace === 'mesh'">
+          <button @click="resetDefaults">Reset</button>
+          <button
+            v-if="state.viewMode === 'spine'"
+            type="button"
+            title="Straighten the active spine plane"
+            @click="onResetSpine"
+          >
+            Reset spine
+          </button>
+          <button
+            v-if="state.viewMode === 'spine'"
+            type="button"
+            title="Straighten both spine planes"
+            @click="onResetSpineBoth"
+          >
+            Reset both spines
+          </button>
+          <button @click="onUndo" :disabled="!state.history.canUndo" title="Ctrl+Z">Undo</button>
+          <button @click="onRedo" :disabled="!state.history.canRedo" title="Ctrl+Shift+Z">
+            Redo
+          </button>
+          <button @click="removeSelected" :disabled="!state.selectedId">Remove</button>
+          <button class="primary" @click="onTessellate">Tessellate</button>
+        </template>
+        <template v-else>
+          <button
+            @click="texPath.undo()"
+            :disabled="!texPath.state.history.canUndo"
+            title="Ctrl+Z"
+          >
+            Undo
+          </button>
+          <button
+            @click="texPath.redo()"
+            :disabled="!texPath.state.history.canRedo"
+            title="Ctrl+Shift+Z"
+          >
+            Redo
+          </button>
+          <button
+            @click="
+              () => {
+                texPath.removeSelected();
+                tex.pushPathToLayer();
+              }
+            "
+            :disabled="!texPath.state.selectedId"
+          >
+            Remove
+          </button>
+        </template>
       </div>
     </header>
 
-    <section class="toolbar">
+    <section v-if="workspace === 'mesh'" class="toolbar">
       <label class="field">
         Curve
         <select v-model.number="state.curveType">
@@ -442,7 +544,7 @@ onBeforeUnmount(() => {
       </p>
     </section>
 
-    <main class="workspace">
+    <main v-if="workspace === 'mesh'" class="workspace">
       <SplineCanvas
         :knots="knots"
         :segments="segments"
@@ -550,6 +652,79 @@ onBeforeUnmount(() => {
           @cancel-place="onCancelPlace"
           @tessellate="onTessellate"
         />
+      </div>
+      <LibraryPanel
+        :lib="lib"
+        @refresh="refresh"
+        @load="load"
+        @save="save"
+        @save-as="saveAs"
+        @remove="remove"
+        @export="exportJson"
+        @import-file="importJsonFile"
+      />
+    </main>
+
+    <main v-else class="workspace texture-workspace">
+      <SplineCanvas
+        :knots="texPath.state.knots"
+        :segments="texPath.state.segments"
+        :selected-id="texPath.state.selectedId"
+        :selected-ids="texPath.state.selectedIds"
+        :selected-segment-index="texPath.state.selectedSegmentIndex"
+        :curve-type="texPath.state.curveType"
+        :symmetry="false"
+        :tool-mode="texPath.state.toolMode"
+        view-mode="profile"
+        :path-closed="texPathClosed"
+        :show-unit-circle="false"
+        :show-placement-normal-prop="false"
+        :show-attachments-prop="false"
+        :show-mirror="false"
+        :show-lathe-guides="false"
+        :clamp-non-negative-x="false"
+        :children="[]"
+        :viewport="texPath.state.viewport"
+        :sample-curve-points="texPath.sampleCurvePoints"
+        :find-closest-on-curve="texPath.findClosestOnCurve"
+        @select="(id, opts) => texPath.select(id, opts || {})"
+        @select-segment="texPath.selectSegment"
+        @update-knot="tex.onPathKnotUpdate"
+        @add-on-curve="tex.onPathAdd"
+        @drag-end="tex.onPathDragEnd"
+      />
+      <TextureLayerPanel
+        :layers="texLayers"
+        :selected-layer-id="texState.selectedLayerId"
+        :texture-kind="texSelected?.kind || 'eye'"
+        @select-layer="tex.selectLayer"
+        @rename-layer="tex.renameLayer"
+        @toggle-layer="tex.setLayerEnabled"
+        @move-layer="tex.moveLayer"
+        @add-layer="tex.addLayer"
+        @remove-layer="tex.removeLayer"
+        @set-color="tex.setLayerColor"
+      />
+      <div class="side-stack">
+        <TexturePreview :texture="texSelected" />
+        <section class="tex-list panel-ish">
+          <h2>Textures</h2>
+          <p class="hint">{{ texState.status }}</p>
+          <ul>
+            <li
+              v-for="t in Object.values(texState.textures)"
+              :key="t.assetGuid"
+              :class="{ active: t.assetGuid === texState.selectedGuid }"
+              @click="tex.selectTexture(t.assetGuid)"
+            >
+              {{ t.name }} · {{ t.kind }}
+            </li>
+          </ul>
+          <p v-if="!Object.keys(texState.textures).length" class="hint">
+            Click <strong>New eye</strong> to start. Layers: eyeball, iris, pupil, shine,
+            optional eyelid.
+          </p>
+        </section>
       </div>
       <LibraryPanel
         :lib="lib"
@@ -737,6 +912,47 @@ h1 {
   flex-direction: column;
   gap: 0.75rem;
   min-height: 0;
+}
+
+.tex-list {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+}
+.tex-list h2 {
+  margin: 0 0 0.4rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 400;
+}
+.tex-list .hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+.tex-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.tex-list li {
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.tex-list li.active {
+  border-color: rgba(126, 207, 106, 0.45);
+  background: rgba(126, 207, 106, 0.08);
+}
+.tool-row.sector {
+  padding: 0.15rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
 }
 
 @media (max-width: 1200px) {

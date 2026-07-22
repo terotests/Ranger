@@ -21,6 +21,15 @@ const props = defineProps({
     type: Object,
     default: () => ({ start: { x: 0, y: -1 }, end: { x: 0, y: 1 } }),
   },
+  /** Override closed-path behaviour (null = infer from viewMode === 'orbit'). */
+  pathClosed: { type: Boolean, default: null },
+  showUnitCircle: { type: Boolean, default: null },
+  showPlacementNormalProp: { type: Boolean, default: null },
+  showAttachmentsProp: { type: Boolean, default: null },
+  clampNonNegativeX: { type: Boolean, default: null },
+  showMirror: { type: Boolean, default: null },
+  /** When false, skip lathe axes / unit-circle / spine guides (texture editor). */
+  showLatheGuides: { type: Boolean, default: true },
 });
 
 const emit = defineEmits([
@@ -42,13 +51,38 @@ let draggingNormal = null; // 'start' | 'end'
 let raf = 0;
 const hoverAdd = ref(null);
 
-const isOrbit = computed(() => props.viewMode === "orbit");
-const isSpine = computed(() => props.viewMode === "spine");
-const allowSignedX = computed(() => isOrbit.value || isSpine.value);
-const showPlacementNormal = computed(() => props.viewMode === "profile" || props.viewMode === "orbit");
-const showAttachments = computed(
-  () => !isOrbit.value && !isSpine.value && props.editTarget === "root" && props.children?.length,
+/** Orbit chrome (axes / unit circle) — mesh orbit view only. */
+const isOrbitView = computed(() => props.viewMode === "orbit");
+/** Closed loop path math (orbit view or texture layers). */
+const pathIsClosed = computed(() =>
+  props.pathClosed != null ? !!props.pathClosed : isOrbitView.value,
 );
+const isSpine = computed(() => props.viewMode === "spine");
+const allowSignedX = computed(() => {
+  if (props.clampNonNegativeX != null) return !props.clampNonNegativeX;
+  return isOrbitView.value || isSpine.value || pathIsClosed.value;
+});
+const showPlacementNormal = computed(() => {
+  if (props.showPlacementNormalProp != null) return !!props.showPlacementNormalProp;
+  return props.viewMode === "profile" || props.viewMode === "orbit";
+});
+const showAttachments = computed(() => {
+  if (props.showAttachmentsProp != null) return !!props.showAttachmentsProp;
+  return (
+    !isOrbitView.value &&
+    !isSpine.value &&
+    props.editTarget === "root" &&
+    props.children?.length
+  );
+});
+const showUnitCircleGuide = computed(() => {
+  if (props.showUnitCircle != null) return !!props.showUnitCircle;
+  return isOrbitView.value;
+});
+const showMirrorGuide = computed(() => {
+  if (props.showMirror != null) return !!props.showMirror;
+  return props.symmetry && !isOrbitView.value && !isSpine.value;
+});
 const curvePts = computed(() => props.sampleCurvePoints(28));
 
 function clampWorldX(wx) {
@@ -84,14 +118,14 @@ function segmentColor(segIndex) {
   const seg = props.segments[segIndex];
   if (seg?.color) return seg.color;
   const a = props.knots[segIndex];
-  const b = props.knots[isOrbit.value ? (segIndex + 1) % props.knots.length : segIndex + 1];
+  const b = props.knots[pathIsClosed.value ? (segIndex + 1) % props.knots.length : segIndex + 1];
   return a?.color || "#6ec8ff";
 }
 
 function knotUsesBezierHandles(knotIndex) {
   // Show handles if any adjacent segment is bezier (SVG-style mix).
   const segs = props.segments || [];
-  if (isOrbit.value) {
+  if (pathIsClosed.value) {
     const n = props.knots.length;
     const prev = segs[(knotIndex - 1 + n) % n];
     const next = segs[knotIndex];
@@ -225,47 +259,49 @@ function draw() {
     ctx.stroke();
   }
 
-  if (isOrbit.value) {
-    // XZ plane: canvas x → world X, canvas y → world Z
-    const [ax0, ay0] = worldToScreen(-1, 0, w, h);
-    const [ax1, ay1] = worldToScreen(1, 0, w, h);
-    const [az0, az1y] = worldToScreen(0, -1, w, h);
-    const [az1, az0y] = worldToScreen(0, 1, w, h);
-    ctx.strokeStyle = "rgba(200,232,122,0.45)";
-    ctx.lineWidth = 1.25;
-    ctx.beginPath();
-    ctx.moveTo(ax0, ay0);
-    ctx.lineTo(ax1, ay1);
-    ctx.moveTo(az0, az0y);
-    ctx.lineTo(az1, az1y);
-    ctx.stroke();
-    drawUnitCircle(ctx, w, h);
-  } else if (isSpine.value) {
-    // Straight-centerline guide (reset target); editable spine may bend away.
-    const [ax0, ay0] = worldToScreen(0, -1, w, h);
-    const [ax1, ay1] = worldToScreen(0, 1, w, h);
-    ctx.strokeStyle = "rgba(200,232,122,0.35)";
-    ctx.lineWidth = 1.25;
-    ctx.setLineDash([5, 5]);
-    ctx.beginPath();
-    ctx.moveTo(ax0, ay0);
-    ctx.lineTo(ax1, ay1);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  } else {
-    const [ax0, ay0] = worldToScreen(0, -1, w, h);
-    const [ax1, ay1] = worldToScreen(0, 1, w, h);
-    ctx.strokeStyle = "rgba(200,232,122,0.55)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(ax0, ay0);
-    ctx.lineTo(ax1, ay1);
-    ctx.stroke();
+  if (props.showLatheGuides) {
+    if (isOrbitView.value) {
+      // XZ plane: canvas x → world X, canvas y → world Z
+      const [ax0, ay0] = worldToScreen(-1, 0, w, h);
+      const [ax1, ay1] = worldToScreen(1, 0, w, h);
+      const [az0, az1y] = worldToScreen(0, -1, w, h);
+      const [az1, az0y] = worldToScreen(0, 1, w, h);
+      ctx.strokeStyle = "rgba(200,232,122,0.45)";
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      ctx.moveTo(ax0, ay0);
+      ctx.lineTo(ax1, ay1);
+      ctx.moveTo(az0, az0y);
+      ctx.lineTo(az1, az1y);
+      ctx.stroke();
+      if (showUnitCircleGuide.value) drawUnitCircle(ctx, w, h);
+    } else if (isSpine.value) {
+      // Straight-centerline guide (reset target); editable spine may bend away.
+      const [ax0, ay0] = worldToScreen(0, -1, w, h);
+      const [ax1, ay1] = worldToScreen(0, 1, w, h);
+      ctx.strokeStyle = "rgba(200,232,122,0.35)";
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(ax0, ay0);
+      ctx.lineTo(ax1, ay1);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      const [ax0, ay0] = worldToScreen(0, -1, w, h);
+      const [ax1, ay1] = worldToScreen(0, 1, w, h);
+      ctx.strokeStyle = "rgba(200,232,122,0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ax0, ay0);
+      ctx.lineTo(ax1, ay1);
+      ctx.stroke();
+    }
   }
 
   const pts = curvePts.value;
 
-  if (!isOrbit.value && !isSpine.value && props.symmetry && pts.length > 1) {
+  if (showMirrorGuide.value && pts.length > 1) {
     ctx.lineWidth = 2;
     drawGradientStroke(
       ctx,
@@ -294,7 +330,7 @@ function draw() {
     );
   }
 
-  const segCount = isOrbit.value ? props.knots.length : props.knots.length - 1;
+  const segCount = pathIsClosed.value ? props.knots.length : props.knots.length - 1;
   if (props.toolMode === "color") {
     for (let i = 0; i < segCount; i++) {
       const mid = evalMid(i);
@@ -331,7 +367,7 @@ function draw() {
     const multi = props.selectedIds?.includes(k.id);
     drawPoint(ctx, sx, sy, k.id === props.selectedId || multi, k.color, multi);
 
-    if (!isOrbit.value && !isSpine.value && props.symmetry && k.x > 0.001) {
+    if (showMirrorGuide.value && k.x > 0.001) {
       const [mx, my] = worldToScreen(-k.x, k.y, w, h);
       ctx.fillStyle = "rgba(110,200,255,0.35)";
       ctx.beginPath();
@@ -423,7 +459,7 @@ function hitTestPoint(sx, sy) {
 
 function hitTestSegment(sx, sy) {
   const thresh = 12;
-  const segCount = isOrbit.value ? props.knots.length : props.knots.length - 1;
+  const segCount = pathIsClosed.value ? props.knots.length : props.knots.length - 1;
   for (let i = 0; i < segCount; i++) {
     const mid = evalMid(i);
     if (!mid) continue;
