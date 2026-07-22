@@ -1,4 +1,4 @@
-import { reactive, computed, watch } from "vue";
+import { reactive, computed, watch, markRaw } from "vue";
 import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
 import { tessellateBody } from "../lib/latheTessellate.js";
 import {
@@ -137,6 +137,20 @@ function loadSpineBlock(block, fallbackKnots) {
   return { knots, segments: defaultSpineSegments(knots) };
 }
 
+/** Keep large atlas blobs out of Vue's deep Proxy graph. */
+function sealTextureMap(raw) {
+  const live = normalizeTextureMap(raw);
+  if (!live) return null;
+  const rgba =
+    live.rgba instanceof Uint8Array ? live.rgba : new Uint8ClampedArray(live.rgba);
+  return markRaw({
+    rgba,
+    w: live.w,
+    h: live.h,
+    name: live.name,
+  });
+}
+
 export function useSplineEditor() {
   /** Optional provider for procedural texture assets (from Texture editor / library). */
   let textureAssetsProvider = () => /** @type {Record<string, any>} */ ({});
@@ -147,7 +161,7 @@ export function useSplineEditor() {
 
   function rememberBakedAtlas(guid, map) {
     const g = String(guid || "").trim();
-    const live = normalizeTextureMap(map);
+    const live = sealTextureMap(map);
     if (!g || !live) return;
     bakedAtlasByGuid.set(g, live);
   }
@@ -159,7 +173,7 @@ export function useSplineEditor() {
 
   function atlasForMaterial(om) {
     if (!om) return null;
-    const fromOm = normalizeTextureMap(om.textureMap);
+    const fromOm = sealTextureMap(om.textureMap);
     if (fromOm) return fromOm;
     const guid = om.textureAsset;
     if (guid && bakedAtlasByGuid.has(guid)) return bakedAtlasByGuid.get(guid);
@@ -275,6 +289,9 @@ export function useSplineEditor() {
       if (cached) state.objectMaterial.textureMap = cached;
     } else if (state.objectMaterial.textureMap && state.objectMaterial.textureAsset) {
       rememberBakedAtlas(state.objectMaterial.textureAsset, state.objectMaterial.textureMap);
+      state.objectMaterial.textureMap = bakedAtlasByGuid.get(state.objectMaterial.textureAsset) || null;
+    } else {
+      state.objectMaterial.textureMap = sealTextureMap(state.objectMaterial.textureMap);
     }
     state.embeddedAssets = {};
     for (const [guid, body] of Object.entries(snap.embeddedAssets || {})) {
@@ -993,7 +1010,7 @@ export function useSplineEditor() {
       pendingTextureMap = null;
       return;
     }
-    pendingTextureMap = { map, guid };
+    pendingTextureMap = { map: sealTextureMap(map) || map, guid };
   }
 
   /**
@@ -1028,7 +1045,9 @@ export function useSplineEditor() {
       textureAssign: "eyePair",
       textureUv: nextUv,
       // Keep the exact atlas pixels from the assign bake (or prior bake).
-      textureMap: baked || atlasForMaterial({ textureAsset: guid, textureMap: prev.textureMap }) || null,
+      textureMap: sealTextureMap(
+        baked || atlasForMaterial({ textureAsset: guid, textureMap: prev.textureMap }),
+      ),
     };
     if (state.objectMaterial.textureMap) {
       rememberBakedAtlas(guid, state.objectMaterial.textureMap);
@@ -1109,7 +1128,9 @@ export function useSplineEditor() {
     const tessOpts = { resolveTextureMap };
     // Always assemble from ROOT + children (preview shows full object even when editing a child).
     const root = tessellateBody(rootBodySnapshot(), tessOpts);
-    state.rootMesh = { parts: root.parts.slice() };
+    // Mesh buffers are large and treated as immutable snapshots — keep them out of
+    // Vue's deep Proxy (deep watch / track on positions + atlas bytes is catastrophic).
+    state.rootMesh = markRaw({ parts: root.parts.slice() });
     // Spine / profile edits move the root surface — re-seat surface children on it.
     resnapSurfaceChildren(state.rootMesh.parts);
     const parts = root.parts.slice();
@@ -1133,7 +1154,7 @@ export function useSplineEditor() {
       }
     }
 
-    state.mesh = { parts };
+    state.mesh = markRaw({ parts });
     state.stats = {
       verts: totalV,
       tris: totalT,
@@ -1373,7 +1394,7 @@ export function useSplineEditor() {
           ? "eyePair"
           : doc.objectMaterial?.textureAssign || null,
       textureUv: normalizeEyeUv(doc.objectMaterial?.textureUv),
-      textureMap: normalizeTextureMap(doc.objectMaterial?.textureMap),
+      textureMap: sealTextureMap(doc.objectMaterial?.textureMap),
     };
     if (state.objectMaterial.textureMap && state.objectMaterial.textureAsset) {
       rememberBakedAtlas(state.objectMaterial.textureAsset, state.objectMaterial.textureMap);

@@ -97,10 +97,31 @@ for (let i = 0; i < pix.length; i += 3) {
 if (lit < 40) throw new Error("software preview produced too few lit pixels: " + lit);
 if (host.partCount() !== 2) throw new Error("expected 2 parts, got " + host.partCount());
 
+// Shared atlas path: upload once, apply to two parts without re-copying bytes.
+if (typeof host.setPartMapBuffer !== "function") {
+  throw new Error("host missing setPartMapBuffer");
+}
+const shared = new Uint8Array(8 * 8 * 4);
+for (let i = 0; i < shared.length; i += 4) {
+  shared[i] = 220;
+  shared[i + 1] = 80;
+  shared[i + 2] = 40;
+  shared[i + 3] = 255;
+}
+const ab = shared.buffer.slice(shared.byteOffset, shared.byteOffset + shared.byteLength);
+ab._view = new DataView(ab);
+host.beginParts();
+host.setPartMapBuffer(ab, 8, 8);
+host.addPart(mid.positions, mid.normals, mid.uvs, mid.indices, 0xffffff, 120, 1, 0, [], 8, 8);
+host.addPart(top.positions, top.normals, top.uvs, top.indices, 0xffffff, 120, 1, 0, [], 8, 8);
+host.frame(16);
+if (host.partCount() !== 2) throw new Error("shared-map expected 2 parts, got " + host.partCount());
+
 console.log("[mesh-editor smoke] OK", {
   fullVerts: (full.positions.length / 3) | 0,
   orbitVerts: (viaOrbit.positions.length / 3) | 0,
   orbitMaxAbsDiff: maxAbs,
   parts: host.partCount(),
   litPixels: lit,
+  sharedMap: true,
 });

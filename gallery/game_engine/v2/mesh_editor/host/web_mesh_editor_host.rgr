@@ -30,6 +30,9 @@ class WebMeshEditorHost {
     def angle:double 0.0
     def outBuf:buffer (buffer_alloc 0)
     def lastMatH:int 0
+    ; Shared RGBA atlas for the current beginParts batch (upload once, reuse on parts).
+    def partMapTex:ThreeTexture (new ThreeTexture)
+    def hasPartMap:boolean false
 
     fn setupGL:boolean (canvasId:string) {
         def ok:boolean (gl.init(canvasId))
@@ -147,7 +150,25 @@ class WebMeshEditorHost {
         return buf
     }
 
-    ; Add one lathed segment. mapBytes empty => no texture.
+    ; Clear the shared part map (call from beginParts / when switching atlases).
+    fn clearPartMap:void () {
+        hasPartMap = false
+    }
+
+    ; Upload an atlas once as a Ranger buffer (fast path from JS TypedArray→ArrayBuffer).
+    fn setPartMapBuffer:void (rgba:buffer w:int h:int) {
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(rgba w h)
+        partMapTex = tex
+        hasPartMap = true
+    }
+
+    ; Legacy: convert [int]/Uint8-like arrays into the shared part map.
+    fn setPartMap:void (bytes:[int] w:int h:int) {
+        this.setPartMapBuffer((this.bytesToBuffer(bytes)) w h)
+    }
+
+    ; Add one lathed segment. Prefer hasPartMap when set; else mapBytes non-empty.
     fn addPart:void (positions:[double] normals:[double] uvs:[double] indices:[int] colorHex:int shininess:double opacity:double reflectivity:double mapBytes:[int] mapW:int mapH:int) {
         if (ready == false) {
             return
@@ -156,10 +177,14 @@ class WebMeshEditorHost {
         push host.geometries g
         def geoH:int (array_length host.geometries)
         def matH:int (this.buildPartMaterial(colorHex shininess opacity reflectivity))
-        if (((array_length mapBytes) > 0) && (mapW > 0) && (mapH > 0)) {
-            def tex:ThreeTexture (new ThreeTexture)
-            tex.setImage((this.bytesToBuffer(mapBytes)) mapW mapH)
-            (host.materialAt(matH)).setMap(tex)
+        if (hasPartMap) {
+            (host.materialAt(matH)).setMap(partMapTex)
+        } {
+            if (((array_length mapBytes) > 0) && (mapW > 0) && (mapH > 0)) {
+                def tex:ThreeTexture (new ThreeTexture)
+                tex.setImage((this.bytesToBuffer(mapBytes)) mapW mapH)
+                (host.materialAt(matH)).setMap(tex)
+            }
         }
         lastMatH = matH
         def meshH:int (host.meshNew(sceneH geoH matH))
@@ -169,6 +194,7 @@ class WebMeshEditorHost {
 
     fn beginParts:void () {
         this.clearParts()
+        this.clearPartMap()
     }
 
     fn setMaterialMode:void (mode:int) {
