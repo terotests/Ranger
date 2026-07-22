@@ -5,6 +5,7 @@ const props = defineProps({
   layers: { type: Array, default: () => [] },
   selectedLayerId: { type: String, default: null },
   textureKind: { type: String, default: "eye" },
+  layerMode: { type: String, default: "edit" },
 });
 
 const emit = defineEmits([
@@ -16,6 +17,7 @@ const emit = defineEmits([
   "remove-layer",
   "set-color",
   "patch-layer",
+  "set-layer-mode",
 ]);
 
 const addTypes = [
@@ -35,9 +37,26 @@ const eyelidSelected = computed(() => selected.value?.type === "eyelid");
       <h2>Layers</h2>
       <span>{{ layers.length }}</span>
     </header>
+    <div class="mode-row">
+      <button
+        type="button"
+        :class="{ active: layerMode === 'edit', primary: layerMode === 'edit' }"
+        title="Edit knots and Bezier handles"
+        @click="emit('set-layer-mode', 'edit')"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        :class="{ active: layerMode === 'move', primary: layerMode === 'move' }"
+        title="Drag to translate the selected layer (iris also moves pupil)"
+        @click="emit('set-layer-mode', 'move')"
+      >
+        Move
+      </button>
+    </div>
     <p class="hint">
-      Named parts · enable/disable · reorder. Iris stays in the eyeball, pupil in the iris,
-      reflection in the eye; eyelid draws on top (clipped).
+      Edit = shape handles · Move = place layer (iris moves pupil with it). Reorder with ↑↓.
     </p>
     <ul class="list">
       <li
@@ -68,8 +87,8 @@ const eyelidSelected = computed(() => selected.value?.type === "eyelid");
           @click.stop
           @input="emit('set-color', L.id, $event.target.value)"
         />
-        <button type="button" title="Move up" @click.stop="emit('move-layer', L.id, -1)">↑</button>
-        <button type="button" title="Move down" @click.stop="emit('move-layer', L.id, 1)">↓</button>
+        <button type="button" title="Order up" @click.stop="emit('move-layer', L.id, -1)">↑</button>
+        <button type="button" title="Order down" @click.stop="emit('move-layer', L.id, 1)">↓</button>
         <button
           type="button"
           class="danger"
@@ -245,6 +264,17 @@ button.danger:disabled {
 }
 .en {
   display: flex;
+}
+.mode-row {
+  display: flex;
+  gap: 0.35rem;
+}
+.mode-row button {
+  flex: 1;
+  font-size: 0.78rem;
+}
+.mode-row button.active {
+  outline: 1px solid rgba(126, 207, 106, 0.55);
 }
 .lid-opts {
   display: grid;

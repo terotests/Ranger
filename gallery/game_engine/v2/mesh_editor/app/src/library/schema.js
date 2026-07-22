@@ -2,6 +2,8 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
+import { serializeEyeTexture } from "../lib/texture/eyeTexture.js";
+
 export const CURRENT_SCHEMA_VERSION = 9;
 
 export const SCHEMA_KIND = "ranger.splineProject";
@@ -135,38 +137,18 @@ function serializeChild(ch) {
 /** Texture assets store editable params only (no baked pixels). */
 function serializeTextureAsset(tex) {
   if (!tex || typeof tex !== "object") return null;
-  const kind = tex.kind === "eye" ? "eye" : String(tex.kind || "eye");
-  const layers = (tex.layers || []).map((L) => {
-    const type = L.type || "eyeball";
-    const row = {
-      id: L.id,
-      type,
-      name: L.name || L.type || "layer",
-      enabled: L.enabled !== false,
-      color: L.color || "#ffffff",
-      closed: L.closed !== false && type !== "eyelid",
-      fillSide: L.fillSide === "below" ? "below" : type === "eyelid" ? "above" : null,
-      clipTo: L.clipTo || null,
-      knots: (L.knots || []).map(serializeKnot),
-      segments: (L.segments || []).map(serializeSegment),
-    };
-    if (type === "eyelid") {
-      const w = Number(L.borderWidth);
-      row.border = !!L.border;
-      row.borderWidth = Number.isFinite(w) ? Math.min(0.25, Math.max(0.005, w)) : 0.035;
-      row.borderColor = L.borderColor || "#6e4f38";
-    }
-    return row;
-  });
+  if (tex.kind === "eye" || !tex.kind) {
+    return serializeEyeTexture(tex);
+  }
   return {
     assetGuid: tex.assetGuid,
     name: tex.name || "Texture",
-    kind,
+    kind: String(tex.kind),
     width: Number(tex.width) || 256,
     height: Number(tex.height) || 256,
     backgroundFrom: tex.backgroundFrom === "solid" ? "solid" : "vertexColors",
     previewBackground: tex.previewBackground || "#6a8f6a",
-    layers,
+    layers: tex.layers || [],
   };
 }
 

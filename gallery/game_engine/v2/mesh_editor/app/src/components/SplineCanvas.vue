@@ -30,6 +30,8 @@ const props = defineProps({
   showMirror: { type: Boolean, default: null },
   /** When false, skip lathe axes / unit-circle / spine guides (texture editor). */
   showLatheGuides: { type: Boolean, default: true },
+  /** Flip world X for linked right-eye editing (storage stays left-canonical). */
+  flipX: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -41,6 +43,7 @@ const emit = defineEmits([
   "drag-end",
   "select-child",
   "move-child",
+  "translate-path",
 ]);
 
 const canvasRef = ref(null);
@@ -49,6 +52,8 @@ const SIZE_FALLBACK = 560;
 let dragging = null;
 let draggingChild = null;
 let draggingNormal = null; // 'start' | 'end'
+let draggingTranslate = false;
+let lastWorld = null; // {x,y} for move-mode deltas
 let raf = 0;
 const hoverAdd = ref(null);
 
@@ -114,12 +119,16 @@ function clampWorldX(wx) {
 
 function worldToScreen(x, y, w, h) {
   const { min, max } = props.viewport;
-  return [((x - min) / (max - min)) * w, ((max - y) / (max - min)) * h];
+  const wx = props.flipX ? -x : x;
+  return [((wx - min) / (max - min)) * w, ((max - y) / (max - min)) * h];
 }
 
 function screenToWorld(sx, sy, w, h) {
   const { min, max } = props.viewport;
-  return [min + (sx / w) * (max - min), max - (sy / h) * (max - min)];
+  let x = min + (sx / w) * (max - min);
+  const y = max - (sy / h) * (max - min);
+  if (props.flipX) x = -x;
+  return [x, y];
 }
 
 function drawGradientStroke(ctx, pts, getColor, w, h) {
@@ -530,6 +539,13 @@ function onPointerDown(e) {
     return;
   }
 
+  if (props.toolMode === "move") {
+    draggingTranslate = true;
+    lastWorld = { x: wx, y: wy };
+    canvasRef.value.setPointerCapture(e.pointerId);
+    return;
+  }
+
   if (props.toolMode === "edit" && showPlacementNormal.value) {
     const nh = hitTestPlacementNormal(sx, sy);
     if (nh) {
@@ -580,6 +596,14 @@ function onPointerMove(e) {
     return;
   }
 
+  if (draggingTranslate && props.toolMode === "move" && lastWorld) {
+    const dx = wx - lastWorld.x;
+    const dy = wy - lastWorld.y;
+    lastWorld = { x: wx, y: wy };
+    if (dx || dy) emit("translate-path", dx, dy);
+    return;
+  }
+
   if (draggingNormal && props.toolMode === "edit") {
     if (draggingNormal === "start") {
       emit("update-placement-normal", { start: { x: wx, y: wy } });
@@ -612,12 +636,19 @@ function onPointerMove(e) {
 }
 
 function onPointerUp() {
-  if ((dragging || draggingChild || draggingNormal) && props.toolMode === "edit") {
+  if (
+    (dragging || draggingChild || draggingNormal) && props.toolMode === "edit"
+  ) {
+    emit("drag-end");
+  }
+  if (draggingTranslate && props.toolMode === "move") {
     emit("drag-end");
   }
   dragging = null;
   draggingChild = null;
   draggingNormal = null;
+  draggingTranslate = false;
+  lastWorld = null;
 }
 
 function schedule() {
@@ -635,6 +666,7 @@ watch(
     props.curveType,
     props.symmetry,
     props.toolMode,
+    props.flipX,
     props.viewMode,
     props.children,
     props.selectedChildGuid,
@@ -723,6 +755,9 @@ onBeforeUnmount(() => {
 }
 .spline-canvas.color {
   cursor: pointer;
+}
+.spline-canvas.move {
+  cursor: move;
 }
 
 .legend {

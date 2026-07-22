@@ -7,6 +7,12 @@ import {
   constrainAllEyeLayers,
   findLayer,
   layerPolygon,
+  mirrorLayersX,
+  translateLayerTree,
+  companionLayerTypes,
+  rightEyeLayers,
+  resetEyePairToMirror,
+  editableLayers,
 } from "../src/lib/texture/eyeTexture.js";
 import {
   pointInPolygon,
@@ -130,10 +136,48 @@ assert.ok(pointInPolygon(pc.x, pc.y, irisPoly), "pupil centroid inside iris afte
   assert.equal(lid2.color, "#aabbcc");
 }
 
+// Layer Move: translating iris also moves pupil
+{
+  const e2 = createDefaultEyeTexture({ name: "Move" });
+  const iris = findLayer(e2, "iris");
+  const pupil = findLayer(e2, "pupil");
+  const ix = iris.knots[0].x;
+  const px = pupil.knots[0].x;
+  translateLayerTree(e2.layers, iris.id, 0.1, 0);
+  assert.ok(Math.abs(iris.knots[0].x - (ix + 0.1)) < 1e-6, "iris translated");
+  assert.ok(Math.abs(pupil.knots[0].x - (px + 0.1)) < 1e-6, "pupil follows iris");
+  assert.deepEqual(companionLayerTypes("iris"), ["pupil"]);
+}
+
+// Left/right pair: linked right is mirror; reset re-links
+{
+  const e3 = createDefaultEyeTexture({ name: "Pair" });
+  assert.equal(e3.eyePair.linked, true);
+  const right = rightEyeLayers(e3);
+  const leftIris = findLayer(e3.layers, "iris");
+  const rightIris = findLayer(right, "iris");
+  assert.ok(
+    Math.abs(rightIris.knots[0].x + leftIris.knots[0].x) < 1e-6,
+    "linked right iris mirrors left X",
+  );
+  e3.eyePair.linked = false;
+  e3.eyePair.editSide = "right";
+  e3.rightLayers = mirrorLayersX(e3.layers);
+  // Nudge right iris independently
+  const rIris = findLayer(e3.rightLayers, "iris");
+  rIris.knots[0].x += 0.2;
+  resetEyePairToMirror(e3, "left");
+  assert.equal(e3.eyePair.linked, true);
+  assert.equal(e3.rightLayers, null);
+  assert.equal(editableLayers(e3), e3.layers);
+}
+
 const ser = serializeEyeTexture(eye);
 const again = normalizeEyeTexture(ser);
 assert.equal(again.name, "TestEye");
 assert.equal(again.layers.length, eye.layers.length);
+assert.ok(again.eyePair);
+assert.equal(again.eyePair.linked, true);
 
 // Schema v9 migrate round-trip
 const doc = buildProjectDocument({

@@ -1,13 +1,29 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { renderEyeTexture } from "../lib/texture/eyeTexture.js";
+import { onMounted, onBeforeUnmount, ref, watch, computed } from "vue";
+import { renderEyeTexture, normalizeEyePair } from "../lib/texture/eyeTexture.js";
 
 const props = defineProps({
   texture: { type: Object, default: null },
-  size: { type: Number, default: 256 },
+  /** Square eye cell size; pair canvas is wider. */
+  size: { type: Number, default: 220 },
+  pair: { type: Boolean, default: true },
+  editSide: { type: String, default: "both" },
+  distance: { type: Number, default: 0.35 },
 });
 
+const emit = defineEmits(["update-distance"]);
+
 const canvasRef = ref(null);
+
+const pairInfo = computed(() => normalizeEyePair(props.texture?.eyePair));
+
+const canvasW = computed(() => {
+  if (!props.pair) return props.size;
+  const gap = Math.round(8 + (props.distance ?? pairInfo.value.distance) * props.size * 0.45);
+  return props.size * 2 + gap + 24;
+});
+
+const canvasH = computed(() => props.size + 16);
 
 function paint() {
   const c = canvasRef.value;
@@ -23,22 +39,24 @@ function paint() {
     return;
   }
   if (props.texture.kind === "eye") {
-    renderEyeTexture(ctx, props.texture);
+    renderEyeTexture(ctx, props.texture, {
+      pair: props.pair,
+      editSide: props.editSide || pairInfo.value.editSide,
+    });
   }
 }
 
-onMounted(paint);
+function syncSize() {
+  const c = canvasRef.value;
+  if (!c) return;
+  c.width = canvasW.value;
+  c.height = canvasH.value;
+  paint();
+}
+
+onMounted(syncSize);
 watch(() => props.texture, paint, { deep: true });
-watch(
-  () => props.size,
-  (s) => {
-    if (canvasRef.value) {
-      canvasRef.value.width = s;
-      canvasRef.value.height = s;
-      paint();
-    }
-  },
-);
+watch(() => [props.size, props.pair, props.distance, props.editSide], syncSize);
 
 onBeforeUnmount(() => {});
 </script>
@@ -47,12 +65,23 @@ onBeforeUnmount(() => {});
   <section class="panel">
     <header>
       <h2>Texture preview</h2>
-      <span>dynamic · params only</span>
+      <span>{{ pair ? "left · right" : "dynamic" }}</span>
     </header>
-    <canvas ref="canvasRef" class="view" :width="size" :height="size" />
+    <canvas ref="canvasRef" class="view" :class="{ pair }" />
+    <label v-if="pair" class="dist">
+      Eye distance
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.02"
+        :value="distance"
+        @input="emit('update-distance', Number($event.target.value))"
+      />
+    </label>
     <p class="hint">
-      Rasterized at runtime from layer params (animatable). Mesh assign / UV projection comes later —
-      background from vertex colours when applied.
+      Left &amp; right eyes from params. Linked eyes stay mirror images — unlink to edit
+      separately, or Reset to mirror image.
     </p>
   </section>
 </template>
@@ -90,6 +119,23 @@ span {
   border: 1px solid var(--line);
   background: #0a0e0c;
   display: block;
+}
+.view.pair {
+  width: min(100%, 420px);
+  aspect-ratio: auto;
+  height: auto;
+}
+.dist {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+.dist input {
+  width: 100%;
 }
 .hint {
   margin: 0;

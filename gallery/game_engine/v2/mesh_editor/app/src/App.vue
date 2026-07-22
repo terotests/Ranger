@@ -60,6 +60,9 @@ const texSelected = tex.selectedTexture;
 const texPathClosed = tex.pathClosed;
 const texClampX = tex.clampNonNegativeX;
 const texShowMirror = tex.showMirror;
+const texEyePair = tex.eyePair;
+const texFlipX = tex.flipX;
+const texCanvasToolMode = tex.canvasToolMode;
 
 const workspace = ref("mesh"); // mesh | texture
 
@@ -360,6 +363,49 @@ onBeforeUnmount(() => {
           >
             Delete texture
           </button>
+          <button
+            type="button"
+            :class="{ active: texEyePair.editSide === 'left', primary: texEyePair.editSide === 'left' }"
+            title="Edit left eye"
+            @click="tex.setEditSide('left')"
+          >
+            Left
+          </button>
+          <button
+            type="button"
+            :class="{ active: texEyePair.editSide === 'right', primary: texEyePair.editSide === 'right' }"
+            title="Edit right eye"
+            @click="tex.setEditSide('right')"
+          >
+            Right
+          </button>
+          <button
+            type="button"
+            :class="{ active: texEyePair.editSide === 'both', primary: texEyePair.editSide === 'both' }"
+            title="Both eyes stay linked as mirrors"
+            @click="tex.setEditSide('both')"
+          >
+            Both
+          </button>
+          <label
+            class="tex-check"
+            title="When linked, right eye is always a mirror of left"
+          >
+            <input
+              type="checkbox"
+              :checked="texEyePair.linked"
+              @change="tex.setEyeLinked($event.target.checked)"
+            />
+            Linked mirrors
+          </label>
+          <button
+            type="button"
+            title="Copy active side to the other as a mirror image and link"
+            :disabled="!texState.selectedGuid"
+            @click="tex.resetToMirrorImage()"
+          >
+            Reset to mirror image
+          </button>
           <label class="tex-check" title="Edit right half; left is mirrored (like mesh profile)">
             <input
               type="checkbox"
@@ -391,14 +437,16 @@ onBeforeUnmount(() => {
               active:
                 workspace === 'mesh'
                   ? state.toolMode === t.id
-                  : texPath.state.toolMode === t.id,
+                  : texState.layerMode === 'edit' && texPath.state.toolMode === t.id,
               primary:
                 workspace === 'mesh'
                   ? state.toolMode === t.id
-                  : texPath.state.toolMode === t.id,
+                  : texState.layerMode === 'edit' && texPath.state.toolMode === t.id,
             }"
             @click="
-              workspace === 'mesh' ? setToolMode(t.id) : texPath.setToolMode(t.id)
+              workspace === 'mesh'
+                ? setToolMode(t.id)
+                : (tex.setLayerMode('edit'), texPath.setToolMode(t.id))
             "
           >
             {{ t.label }}
@@ -696,7 +744,8 @@ onBeforeUnmount(() => {
           :selected-segment-index="texPath.state.selectedSegmentIndex"
           :curve-type="texPath.state.curveType"
           :symmetry="texShowMirror"
-          :tool-mode="texPath.state.toolMode"
+          :tool-mode="texCanvasToolMode"
+          :flip-x="texFlipX"
           view-mode="profile"
           :path-closed="texPathClosed"
           :show-unit-circle="false"
@@ -713,6 +762,7 @@ onBeforeUnmount(() => {
           @select-segment="texPath.selectSegment"
           @update-knot="tex.onPathKnotUpdate"
           @add-on-curve="tex.onPathAdd"
+          @translate-path="tex.onTranslatePath"
           @drag-end="tex.onPathDragEnd"
         />
         <p class="tex-canvas-hint">
@@ -724,6 +774,7 @@ onBeforeUnmount(() => {
         :layers="texLayers"
         :selected-layer-id="texState.selectedLayerId"
         :texture-kind="texSelected?.kind || 'eye'"
+        :layer-mode="texState.layerMode"
         @select-layer="tex.selectLayer"
         @rename-layer="tex.renameLayer"
         @toggle-layer="tex.setLayerEnabled"
@@ -732,9 +783,16 @@ onBeforeUnmount(() => {
         @remove-layer="tex.removeLayer"
         @set-color="tex.setLayerColor"
         @patch-layer="tex.patchLayer"
+        @set-layer-mode="tex.setLayerMode"
       />
       <div class="side-stack">
-        <TexturePreview :texture="texSelected" />
+        <TexturePreview
+          :texture="texSelected"
+          :pair="true"
+          :edit-side="texEyePair.editSide"
+          :distance="texEyePair.distance"
+          @update-distance="tex.setInterEyeDistance"
+        />
         <section class="tex-list panel-ish">
           <h2>Textures</h2>
           <p class="hint">{{ texState.status }}</p>
