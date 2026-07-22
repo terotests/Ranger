@@ -686,7 +686,8 @@ export function rasterizeEyeTexture(tex, width, height) {
 
 /** Default UV placement for eye-pair assignment on a lathe mesh. */
 export const DEFAULT_EYE_UV = {
-  centerU: 0.5,
+  /** Front face of unit lathe (+Z) is u≈0.25 — not 0.5 (−X side). */
+  centerU: 0.25,
   centerV: 0.58,
   /** Uniform size multiplier for both eyes. */
   scale: 1,
@@ -904,9 +905,10 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
   const left = tintSclera ? layersWithEyeballColor(leftRaw, bg) : leftRaw;
   const right = tintSclera ? layersWithEyeballColor(rightRaw, bg) : rightRaw;
 
-  // Character left eye = lower U; right = higher U.
-  blitEyeCellToAtlas(ctx, left, centerU - sepU / 2, centerV, cellW, cellH, bg);
-  blitEyeCellToAtlas(ctx, right, centerU + sepU / 2, centerV, cellW, cellH, bg);
+  // Front (+Z, u≈0.25): character left = higher U (toward −X / screen-left from +Z).
+  // Character right = lower U (toward +X / screen-right).
+  blitEyeCellToAtlas(ctx, left, centerU + sepU / 2, centerV, cellW, cellH, bg);
+  blitEyeCellToAtlas(ctx, right, centerU - sepU / 2, centerV, cellW, cellH, bg);
 
   const img = ctx.getImageData(0, 0, w, h);
   return {
@@ -978,11 +980,12 @@ export async function rasterizeEyePairUvMapAsync(tex, width = 512, height = 512,
 
   onProgress("left-eye");
   await yieldFn();
-  blitEyeCellToAtlas(ctx, left, centerU - sepU / 2, centerV, cellW, cellH, bg);
+  // Front (+Z): character left = higher U; right = lower U (see rasterizeEyePairUvMap).
+  blitEyeCellToAtlas(ctx, left, centerU + sepU / 2, centerV, cellW, cellH, bg);
 
   onProgress("right-eye");
   await yieldFn();
-  blitEyeCellToAtlas(ctx, right, centerU + sepU / 2, centerV, cellW, cellH, bg);
+  blitEyeCellToAtlas(ctx, right, centerU - sepU / 2, centerV, cellW, cellH, bg);
 
   onProgress("readback");
   await yieldFn();
