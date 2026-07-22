@@ -137,6 +137,7 @@ export function buildSpineFrames(centers) {
 export function latheProfileWithOrbitOnSpine(profilePts, orbitPts, closed, spineProfile, spineOrbit) {
   const rows = profilePts.length;
   const steps = orbitPts.length;
+  const vertCols = closed ? steps + 1 : steps;
   const positions = [];
   const normals = [];
   const uvs = [];
@@ -200,6 +201,7 @@ export function latheProfileWithOrbitOnSpine(profilePts, orbitPts, closed, spine
       N: { x: 1, y: 0, z: 0 },
       B: { x: 0, y: 0, z: 1 },
     };
+    const v = rows <= 1 ? 0 : row / (rows - 1);
 
     for (let col = 0; col < steps; col++) {
       const o = orbitPts[col];
@@ -221,23 +223,29 @@ export function latheProfileWithOrbitOnSpine(profilePts, orbitPts, closed, spine
       const nz = fr.N.z * (pnx * nct) + fr.T.z * pny + fr.B.z * (pnx * nst);
       const nl = Math.hypot(nx, ny, nz) || 1;
       normals.push(nx / nl, ny / nl, nz / nl);
-      uvs.push(col / steps, rows <= 1 ? 0 : row / (rows - 1));
+      uvs.push(col / steps, v);
+    }
+    if (closed) {
+      const base = positions.length - steps * 3;
+      positions.push(positions[base], positions[base + 1], positions[base + 2]);
+      normals.push(normals[base], normals[base + 1], normals[base + 2]);
+      uvs.push(1, v);
     }
   }
 
   for (let r = 0; r < rows - 1; r++) {
     const colMax = closed ? steps : steps - 1;
     for (let c = 0; c < colMax; c++) {
-      const cNext = c + 1 >= steps ? 0 : c + 1;
-      const a = r * steps + c;
-      const b = r * steps + cNext;
-      const cc = (r + 1) * steps + cNext;
-      const d = (r + 1) * steps + c;
+      const cNext = c + 1;
+      const a = r * vertCols + c;
+      const b = r * vertCols + cNext;
+      const cc = (r + 1) * vertCols + cNext;
+      const d = (r + 1) * vertCols + c;
       indices.push(a, d, b, b, d, cc);
     }
   }
 
-  return { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps };
+  return { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps, vertCols };
 }
 
 /**
@@ -278,6 +286,7 @@ export function latheProfileAsTorusOnSpine(
 ) {
   const rows = profilePts.length;
   const steps = orbitPts.length;
+  const vertCols = closed ? steps + 1 : steps;
   const positions = [];
   const normals = [];
   const uvs = [];
@@ -337,6 +346,8 @@ export function latheProfileAsTorusOnSpine(
       pny = -pny;
     }
 
+    const v = rows <= 1 ? 0 : row / (rows - 1);
+
     for (let col = 0; col < steps; col++) {
       const fr = frames[col] || {
         C: centers[col] || { x: 0, y: 0, z: 0 },
@@ -355,21 +366,27 @@ export function latheProfileAsTorusOnSpine(
       const nz = fr.N.z * pnx + fr.B.z * pny;
       const nl = Math.hypot(nx, ny, nz) || 1;
       normals.push(nx / nl, ny / nl, nz / nl);
-      uvs.push(col / steps, rows <= 1 ? 0 : row / (rows - 1));
+      uvs.push(col / steps, v);
+    }
+    if (closed) {
+      const base = positions.length - steps * 3;
+      positions.push(positions[base], positions[base + 1], positions[base + 2]);
+      normals.push(normals[base], normals[base + 1], normals[base + 2]);
+      uvs.push(1, v);
     }
   }
 
   for (let r = 0; r < rows - 1; r++) {
     const colMax = closed ? steps : steps - 1;
     for (let c = 0; c < colMax; c++) {
-      const cNext = c + 1 >= steps ? 0 : c + 1;
-      const a = r * steps + c;
-      const b = r * steps + cNext;
-      const cc = (r + 1) * steps + cNext;
-      const d = (r + 1) * steps + c;
+      const cNext = c + 1;
+      const a = r * vertCols + c;
+      const b = r * vertCols + cNext;
+      const cc = (r + 1) * vertCols + cNext;
+      const d = (r + 1) * vertCols + c;
       indices.push(a, d, b, b, d, cc);
     }
   }
 
-  return { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps };
+  return { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps, vertCols };
 }

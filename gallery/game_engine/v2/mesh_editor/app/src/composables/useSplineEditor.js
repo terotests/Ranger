@@ -248,7 +248,8 @@ export function useSplineEditor() {
         spineOrbitKnots: state.spineOrbitKnots,
         spineOrbitSegments: state.spineOrbitSegments.map(mapSegSnapshot),
         placementNormal: normalizePlacementNormal(state.placementNormal),
-        objectMaterial: state.objectMaterial,
+        // Strip textureMap — TypedArray JSON would explode undo memory; cache reattaches.
+        objectMaterial: snapshotObjectMaterial(state.objectMaterial),
         embeddedAssets: state.embeddedAssets,
         children: state.children,
         selectedId: state.selectedId,
@@ -1471,8 +1472,9 @@ export function useSplineEditor() {
     return true;
   }
 
-  function snapshotObjectMaterial(om) {
+  function snapshotObjectMaterial(om, opts = {}) {
     const m = om || defaultObjectMaterial();
+    const includeMap = !!opts.includeMap;
     return {
       color: m.color ?? null,
       roughness: Number(m.roughness ?? 0.4),
@@ -1482,12 +1484,16 @@ export function useSplineEditor() {
       textureAsset: m.textureAsset || null,
       textureAssign: m.textureAssign === "eyePair" ? "eyePair" : m.textureAssign || null,
       textureUv: normalizeEyeUv(m.textureUv),
-      // Omit textureMap from undo history — atlases are large; reload uses saved bake.
-      textureMap: null,
+      // Undo history omits the atlas (large); Save/Export must include it.
+      textureMap: includeMap
+        ? sealTextureMap(m.textureMap) ||
+          (m.textureAsset ? bakedAtlasByGuid.get(m.textureAsset) || null : null)
+        : null,
     };
   }
 
-  function snapshotState() {
+  function snapshotState(opts = {}) {
+    const includeMap = !!opts.includeMap;
     const embedded = {};
     for (const [guid, body] of Object.entries(state.embeddedAssets)) {
       embedded[guid] = {
@@ -1498,7 +1504,7 @@ export function useSplineEditor() {
         angularSteps: body.angularSteps,
         revolutionDeg: body.revolutionDeg,
         tessellationMode: body.tessellationMode === "torus" ? "torus" : "rotation",
-        objectMaterial: snapshotObjectMaterial(body.objectMaterial),
+        objectMaterial: snapshotObjectMaterial(body.objectMaterial, { includeMap }),
         knots: body.knots.map((k) => ({ ...k })),
         segments: body.segments.map(mapSegSnapshot),
         orbitKnots: body.orbitKnots.map((k) => ({ ...k })),
@@ -1521,7 +1527,7 @@ export function useSplineEditor() {
       symmetry: state.symmetry,
       viewMode: state.viewMode,
       spineSource: state.spineSource,
-      objectMaterial: snapshotObjectMaterial(state.objectMaterial),
+      objectMaterial: snapshotObjectMaterial(state.objectMaterial, { includeMap }),
       knots: state.knots.map((k) => ({ ...k })),
       segments: state.segments.map(mapSegSnapshot),
       orbitKnots: state.orbitKnots.map((k) => ({ ...k })),

@@ -52,7 +52,8 @@ const mesh = latheProfileAsTorusOnSpine(
 
 assert.equal(mesh.rows, profile.length);
 assert.equal(mesh.steps, orbit.length);
-assert.equal(mesh.positions.length, profile.length * orbit.length * 3);
+assert.equal(mesh.vertCols, orbit.length + 1, "closed torus has seam UV column");
+assert.equal(mesh.positions.length, profile.length * mesh.vertCols * 3);
 
 // Outer radius should be ~1 (unit torus)
 let maxR = 0;

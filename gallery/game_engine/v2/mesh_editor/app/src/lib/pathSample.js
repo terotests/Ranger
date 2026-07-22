@@ -201,10 +201,14 @@ export function sampleClosedPath(knots, segments, samplesPerSpan, curveType = 0)
 /**
  * Revolve a sampled open profile around Y using orbit direction samples (ox, oy).
  * Returns a single mesh buffer (all profile rows × orbit cols) plus rowSeg meta.
+ *
+ * Closed meshes emit an extra seam column (duplicate of col 0 at u=1) so wrap
+ * faces interpolate (steps-1)/steps → 1 instead of crossing the whole atlas.
  */
 export function latheProfileWithOrbit(profilePts, orbitPts, closed) {
   const rows = profilePts.length;
   const steps = orbitPts.length;
+  const vertCols = closed ? steps + 1 : steps;
   const positions = [];
   const normals = [];
   const uvs = [];
@@ -230,6 +234,7 @@ export function latheProfileWithOrbit(profilePts, orbitPts, closed) {
       pnx = -pnx;
       pny = -pny;
     }
+    const v = rows <= 1 ? 0 : row / (rows - 1);
 
     for (let col = 0; col < steps; col++) {
       const o = orbitPts[col];
@@ -240,30 +245,38 @@ export function latheProfileWithOrbit(profilePts, orbitPts, closed) {
       const nst = olen < 1e-9 ? 0 : st / olen;
       positions.push(radius * ct, yy, radius * st);
       normals.push(pnx * nct, pny, pnx * nst);
-      uvs.push(col / steps, rows <= 1 ? 0 : row / (rows - 1));
+      uvs.push(col / steps, v);
+    }
+    if (closed) {
+      const base = positions.length - steps * 3;
+      positions.push(positions[base], positions[base + 1], positions[base + 2]);
+      normals.push(normals[base], normals[base + 1], normals[base + 2]);
+      uvs.push(1, v);
     }
   }
 
   for (let r = 0; r < rows - 1; r++) {
     const colMax = closed ? steps : steps - 1;
     for (let c = 0; c < colMax; c++) {
-      const cNext = c + 1 >= steps ? 0 : c + 1;
-      const a = r * steps + c;
-      const b = r * steps + cNext;
-      const cc = (r + 1) * steps + cNext;
-      const d = (r + 1) * steps + c;
+      const cNext = c + 1;
+      const a = r * vertCols + c;
+      const b = r * vertCols + cNext;
+      const cc = (r + 1) * vertCols + cNext;
+      const d = (r + 1) * vertCols + c;
       indices.push(a, d, b, b, d, cc);
     }
   }
 
-  return { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps };
+  return { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps, vertCols };
 }
 
 /**
  * Split a full lathe mesh into profileSeg × orbitSeg parts (own buffers).
  */
 export function splitLatheBySegments(mesh, numProfileSegs, numOrbitSegs, closed) {
-  const { positions, normals, uvs, indices, rowSeg, colSeg, rows, steps } = mesh;
+  const { positions, normals, uvs, rowSeg, colSeg, rows, steps } = mesh;
+  const vertCols =
+    mesh.vertCols || (closed ? steps + 1 : steps);
   const out = [];
 
   for (let pi = 0; pi < numProfileSegs; pi++) {
@@ -277,11 +290,11 @@ export function splitLatheBySegments(mesh, numProfileSegs, numOrbitSegs, closed)
         const colMax = closed ? steps : steps - 1;
         for (let c = 0; c < colMax; c++) {
           if ((colSeg[c] | 0) !== oi) continue;
-          const cNext = c + 1 >= steps ? 0 : c + 1;
-          const a = r * steps + c;
-          const b = r * steps + cNext;
-          const cc = (r + 1) * steps + cNext;
-          const d = (r + 1) * steps + c;
+          const cNext = c + 1;
+          const a = r * vertCols + c;
+          const b = r * vertCols + cNext;
+          const cc = (r + 1) * vertCols + cNext;
+          const d = (r + 1) * vertCols + c;
           faces.push(a, d, b, b, d, cc);
         }
       }
