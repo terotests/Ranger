@@ -145,6 +145,26 @@ export function useTextureEditor() {
     for (const k of L.knots || []) k.color = color;
   }
 
+  /** Patch eyelid (or other) layer fields: border, borderWidth, borderColor, fillSide, … */
+  function patchLayer(layerId, patch) {
+    const L = selectedTexture.value?.layers.find((x) => x.id === layerId);
+    if (!L || !patch || typeof patch !== "object") return;
+    if (patch.color != null) {
+      setLayerColor(layerId, patch.color);
+    }
+    if (patch.fillSide != null && L.type === "eyelid") {
+      L.fillSide = patch.fillSide === "below" ? "below" : "above";
+    }
+    if (L.type === "eyelid") {
+      if (patch.border != null) L.border = !!patch.border;
+      if (patch.borderWidth != null) {
+        const w = Number(patch.borderWidth);
+        if (Number.isFinite(w)) L.borderWidth = Math.min(0.25, Math.max(0.005, w));
+      }
+      if (patch.borderColor != null) L.borderColor = String(patch.borderColor);
+    }
+  }
+
   function moveLayer(layerId, dir) {
     const tex = selectedTexture.value;
     if (!tex) return;
@@ -307,6 +327,7 @@ export function useTextureEditor() {
     renameLayer,
     setLayerEnabled,
     setLayerColor,
+    patchLayer,
     moveLayer,
     addLayer,
     removeLayer,

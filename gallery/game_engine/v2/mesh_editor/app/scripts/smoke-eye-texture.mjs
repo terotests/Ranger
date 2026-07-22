@@ -106,6 +106,30 @@ const irisPoly = layerPolygon(findLayer(eye, "iris"));
 const pc = pathCentroid(pupil.knots);
 assert.ok(pointInPolygon(pc.x, pc.y, irisPoly), "pupil centroid inside iris after constrain");
 
+// Eyelid optional border + separate fill / border colors
+{
+  const lid = findLayer(eye, "eyelid");
+  assert.ok(lid, "eyelid layer");
+  assert.equal(lid.border, false);
+  lid.enabled = true;
+  lid.border = true;
+  lid.borderWidth = 0.05;
+  lid.borderColor = "#112233";
+  lid.color = "#aabbcc";
+  const serLid = serializeEyeTexture(eye);
+  const lidSer = serLid.layers.find((L) => L.type === "eyelid");
+  assert.equal(lidSer.border, true);
+  assert.equal(lidSer.borderWidth, 0.05);
+  assert.equal(lidSer.borderColor, "#112233");
+  assert.equal(lidSer.color, "#aabbcc");
+  const againLid = normalizeEyeTexture(serLid);
+  const lid2 = findLayer(againLid, "eyelid");
+  assert.equal(lid2.border, true);
+  assert.equal(lid2.borderWidth, 0.05);
+  assert.equal(lid2.borderColor, "#112233");
+  assert.equal(lid2.color, "#aabbcc");
+}
+
 const ser = serializeEyeTexture(eye);
 const again = normalizeEyeTexture(ser);
 assert.equal(again.name, "TestEye");
