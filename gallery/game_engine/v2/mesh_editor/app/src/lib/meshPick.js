@@ -188,10 +188,41 @@ export function raycastMeshParts(origin, dir, parts) {
         const bu = hitT.u;
         const bv = hitT.v;
         const bw = 1 - bu - bv;
-        const u =
-          bw * uvs[ia * 2] + bu * uvs[ib * 2] + bv * uvs[ic * 2];
-        const v =
-          bw * uvs[ia * 2 + 1] + bu * uvs[ib * 2 + 1] + bv * uvs[ic * 2 + 1];
+        let u0 = uvs[ia * 2];
+        let u1 = uvs[ib * 2];
+        let u2 = uvs[ic * 2];
+        const v0 = uvs[ia * 2 + 1];
+        const v1 = uvs[ib * 2 + 1];
+        const v2 = uvs[ic * 2 + 1];
+        // Closed lathe seam: UV jumps ~1 across a short 3D edge. Unwrap only then
+        // (not for a large UV island that legitimately spans 0→1).
+        const pairs = [
+          [u0, u1, i0, i1],
+          [u0, u2, i0, i2],
+          [u1, u2, i1, i2],
+        ];
+        let seam = false;
+        for (const [ua, ub, pa, pb] of pairs) {
+          if (Math.abs(ua - ub) <= 0.5) continue;
+          const plen = Math.hypot(
+            pos[pa] - pos[pb],
+            pos[pa + 1] - pos[pb + 1],
+            pos[pa + 2] - pos[pb + 2],
+          );
+          if (plen < 1.25) {
+            seam = true;
+            break;
+          }
+        }
+        if (seam) {
+          if (u1 - u0 > 0.5) u1 -= 1;
+          else if (u1 - u0 < -0.5) u1 += 1;
+          if (u2 - u0 > 0.5) u2 -= 1;
+          else if (u2 - u0 < -0.5) u2 += 1;
+        }
+        let u = bw * u0 + bu * u1 + bv * u2;
+        u = ((u % 1) + 1) % 1;
+        const v = bw * v0 + bu * v1 + bv * v2;
         uv = [u, v];
       }
       best = {
@@ -225,7 +256,8 @@ export function approximateLatheUvFromPoint(point, parts) {
   }
   if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) return null;
   const span = Math.max(1e-6, yMax - yMin);
-  const u = ((Math.atan2(point[0], point[2]) / (Math.PI * 2)) + 1) % 1;
+  // Lathe u=0 at +X (pathSample: col0 → orbit (1,0) → position x=r, z=0).
+  const u = ((Math.atan2(point[2], point[0]) / (Math.PI * 2)) + 1) % 1;
   const v = Math.min(1, Math.max(0, (point[1] - yMin) / span));
   return [u, v];
 }

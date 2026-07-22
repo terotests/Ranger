@@ -26,8 +26,8 @@ class WebMeshEditorHost {
     def camH:int 0
     def meshHs:[int]
     def matMode:int 3
-    def autoRotate:boolean true
-    def angle:double 0.4
+    def autoRotate:boolean false
+    def angle:double 0.0
     def outBuf:buffer (buffer_alloc 0)
     def lastMatH:int 0
 
@@ -183,7 +183,8 @@ class WebMeshEditorHost {
     }
 
     fn setAutoRotate:void (on:boolean) {
-        autoRotate = on
+        ; Autorotate removed — always off so UV / assign picks stay stable.
+        autoRotate = false
     }
 
     ; View state for JS surface picking (camera + mesh yaw/tilt).
@@ -223,7 +224,6 @@ class WebMeshEditorHost {
 
     fn pointerDown:void (x:double y:double button:int) {
         controls.pointerDown(x y button)
-        autoRotate = false
     }
     fn pointerMove:void (x:double y:double) {
         controls.pointerMove(x y)
@@ -233,20 +233,18 @@ class WebMeshEditorHost {
     }
     fn wheel:void (delta:double) {
         controls.wheel(delta)
-        autoRotate = false
     }
 
     fn frame:void (dtMs:double) {
         if (ready == false) {
             return
         }
-        if (autoRotate) {
-            angle = (angle + (dtMs * 0.0009))
-            def i:int 0
-            while (i < (array_length meshHs)) {
-                host.entityTransform((itemAt meshHs i) 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
-                i = (i + 1)
-            }
+        ; Keep mesh yaw/tilt fixed (no autorotate). Re-assert transform each frame
+        ; so newly added parts stay aligned after beginParts/addPart.
+        def i:int 0
+        while (i < (array_length meshHs)) {
+            host.entityTransform((itemAt meshHs i) 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
+            i = (i + 1)
         }
         controls.applyToCamera()
         if (useGL) {

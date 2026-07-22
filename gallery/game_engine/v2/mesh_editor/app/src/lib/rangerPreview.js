@@ -111,8 +111,9 @@ export async function createPreviewSession(canvas, size = 420, opts = {}) {
     }
   }
 
-  function setAutoRotate(on) {
-    host.setAutoRotate?.(!!on);
+  function setAutoRotate(_on) {
+    // Autorotate removed — always keep the mesh fixed for stable UV picks.
+    host.setAutoRotate?.(false);
   }
 
   function getView() {
