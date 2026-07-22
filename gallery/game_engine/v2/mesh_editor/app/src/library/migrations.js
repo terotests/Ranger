@@ -10,6 +10,7 @@ import {
   nowIso,
   slugify,
   validateProject,
+  normalizeProjectKind,
 } from "./schema.js";
 import { normalizeEyeTexture } from "../lib/texture/eyeTexture.js";
 
@@ -464,6 +465,28 @@ function normalizeV9(doc) {
   return v8;
 }
 
+function normalizeV10(doc) {
+  const v9 = normalizeV9(doc);
+  v9.schemaVersion = 10;
+  const hasMesh = Array.isArray(v9.profile?.knots) && v9.profile.knots.length >= 2;
+  const texN = Object.keys(v9.textureAssets || {}).length;
+  let kind =
+    doc.projectKind === "texture" || doc.projectKind === "mesh" ? doc.projectKind : null;
+  if (!kind) kind = !hasMesh && texN > 0 ? "texture" : "mesh";
+  v9.projectKind = normalizeProjectKind(kind);
+  const om = v9.objectMaterial || {};
+  v9.objectMaterial = {
+    color: om.color ?? null,
+    roughness: Number(om.roughness ?? 0.4),
+    metalness: Number(om.metalness ?? 0),
+    opacity: Number(om.opacity ?? 1),
+    texture: om.texture || "gradient",
+    textureAsset: om.textureAsset || null,
+    textureAssign: om.textureAssign === "eyePair" ? "eyePair" : om.textureAssign || null,
+  };
+  return v9;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -498,6 +521,10 @@ const STEPS = {
   // 8 → 9: textureAssets (params-only procedural textures, eye editor first)
   9(doc) {
     return normalizeV9(doc);
+  },
+  // 9 → 10: projectKind mesh|texture + objectMaterial.textureAsset assign
+  10(doc) {
+    return normalizeV10(doc);
   },
 };
 

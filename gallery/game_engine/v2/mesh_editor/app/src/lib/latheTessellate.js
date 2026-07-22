@@ -193,8 +193,10 @@ function resolveCombinedStyle(body, pi, oi) {
 
 /**
  * Tessellate one spline body into mesh parts (mixed path types per segment).
+ * @param {object} body
+ * @param {{ resolveTextureMap?: (om: object) => { rgba: any, w: number, h: number } | null }} [opts]
  */
-export function tessellateBody(body) {
+export function tessellateBody(body, opts = {}) {
   const curveType = body.curveType | 0;
   const pathSegments = body.pathSegments || 12;
   const angularSteps = body.angularSteps || 24;
@@ -237,23 +239,34 @@ export function tessellateBody(body) {
     closed,
   );
 
+  let bodyMap = null;
+  const om = body.objectMaterial;
+  if (
+    om &&
+    (om.texture === "asset" || om.textureAssign === "eyePair") &&
+    typeof opts.resolveTextureMap === "function"
+  ) {
+    bodyMap = opts.resolveTextureMap(om);
+  }
+
   const parts = [];
   let totalV = 0;
   let totalT = 0;
   for (const piece of pieces) {
     const style = resolveCombinedStyle(body, piece.profileSeg, piece.orbitSeg);
+    const map = bodyMap || style.map;
     parts.push({
       positions: piece.positions,
       normals: piece.normals,
       uvs: piece.uvs,
       indices: piece.indices,
-      colorHex: style.colorHex,
+      colorHex: bodyMap ? 0xffffff : style.colorHex,
       shininess: style.shininess,
       reflectivity: style.reflectivity,
       opacity: style.opacity,
-      mapRgba: style.map ? Array.from(style.map.rgba) : null,
-      mapW: style.map ? style.map.w : 0,
-      mapH: style.map ? style.map.h : 0,
+      mapRgba: map ? Array.from(map.rgba) : null,
+      mapW: map ? map.w : 0,
+      mapH: map ? map.h : 0,
     });
     totalV += (piece.positions.length / 3) | 0;
     totalT += (piece.indices.length / 3) | 0;

@@ -1,8 +1,10 @@
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 
-defineProps({
+const props = defineProps({
   lib: { type: Object, required: true },
+  /** mesh | texture — filters the saved list */
+  projectKind: { type: String, default: "mesh" },
 });
 
 const emit = defineEmits([
@@ -17,10 +19,29 @@ const emit = defineEmits([
 
 const fileRef = ref(null);
 
+const filtered = computed(() => {
+  const kind = props.projectKind === "texture" ? "texture" : "mesh";
+  return (props.lib.projects || []).filter((p) => {
+    if (p.error) return true;
+    const pk = p.projectKind === "texture" ? "texture" : "mesh";
+    return pk === kind;
+  });
+});
+
+const kindLabel = computed(() => (props.projectKind === "texture" ? "textures" : "meshes"));
+
 function onFile(ev) {
   const f = ev.target.files?.[0];
   if (f) emit("import-file", f);
   ev.target.value = "";
+}
+
+function metaLine(p) {
+  if (p.error) return p.error;
+  if (p.projectKind === "texture") {
+    return `${p.textureCount || p.knotCount || "?"} tex · ${(p.updatedAt || "").slice(0, 19)}`;
+  }
+  return `${p.knotCount || "?"} pts · ${(p.updatedAt || "").slice(0, 19)}`;
 }
 </script>
 
@@ -29,7 +50,7 @@ function onFile(ev) {
     <header>
       <h2>Library</h2>
       <p v-if="lib.available" class="path" :title="lib.root">
-        v{{ lib.schemaVersion }} · {{ lib.root }}
+        v{{ lib.schemaVersion }} · {{ kindLabel }} · {{ lib.root }}
       </p>
       <p v-else class="path warn">{{ lib.status || "Library offline" }}</p>
     </header>
@@ -38,7 +59,7 @@ function onFile(ev) {
       <input
         v-model="lib.saveAsName"
         type="text"
-        placeholder="Name (e.g. tall vase)"
+        :placeholder="projectKind === 'texture' ? 'Name (e.g. eyes)' : 'Name (e.g. tall vase)'"
         @keyup.enter="emit('save-as', lib.saveAsName)"
       />
       <button type="button" class="primary" :disabled="lib.busy" @click="emit('save-as', lib.saveAsName)">
@@ -66,15 +87,15 @@ function onFile(ev) {
     </p>
 
     <ul class="list">
-      <li v-if="!lib.projects.length" class="empty">No saved splines yet.</li>
+      <li v-if="!filtered.length" class="empty">No saved {{ kindLabel }} yet.</li>
       <li
-        v-for="p in lib.projects"
+        v-for="p in filtered"
         :key="p.slug"
         :class="{ active: p.slug === lib.currentSlug, bad: !!p.error }"
       >
         <button type="button" class="open" :disabled="!!p.error" @click="emit('load', p.slug)">
           <strong>{{ p.name || p.slug }}</strong>
-          <span>{{ p.error || `${p.knotCount || "?"} pts · ${p.updatedAt?.slice(0, 19) || ""}` }}</span>
+          <span>{{ metaLine(p) }}</span>
         </button>
         <button
           type="button"

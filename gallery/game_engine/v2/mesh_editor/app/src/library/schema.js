@@ -4,9 +4,14 @@
 
 import { serializeEyeTexture } from "../lib/texture/eyeTexture.js";
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 export const SCHEMA_KIND = "ranger.splineProject";
+
+/** Library list / save filter: mesh projects vs texture-only authoring. */
+export function normalizeProjectKind(kind) {
+  return kind === "texture" ? "texture" : "mesh";
+}
 
 /**
  * @typedef {object} ChildInstanceV3
@@ -163,9 +168,11 @@ export function buildProjectDocument(opts) {
   for (const [guid, body] of Object.entries(st.embeddedAssets || {})) {
     embedded[guid] = serializeBodyContent(body);
   }
+  const projectKind = normalizeProjectKind(opts.projectKind || st.projectKind || "mesh");
   return {
     kind: SCHEMA_KIND,
     schemaVersion: CURRENT_SCHEMA_VERSION,
+    projectKind,
     id: opts.id || newId(),
     assetGuid: st.assetGuid || newId(),
     slug: opts.slug || slugify(name),
@@ -192,6 +199,11 @@ export function buildProjectDocument(opts) {
       metalness: Number(st.objectMaterial?.metalness ?? 0),
       opacity: Number(st.objectMaterial?.opacity ?? 1),
       texture: st.objectMaterial?.texture || "gradient",
+      textureAsset: st.objectMaterial?.textureAsset || null,
+      textureAssign:
+        st.objectMaterial?.textureAssign === "eyePair"
+          ? "eyePair"
+          : st.objectMaterial?.textureAssign || null,
     },
     profile: {
       knots: (st.knots || []).map(serializeKnot),
@@ -233,6 +245,29 @@ export function validateProject(doc) {
     errors.push(`unexpected kind "${doc.kind}" (expected ${SCHEMA_KIND})`);
   }
   if (!doc.name) errors.push("missing name");
+  const projectKind = normalizeProjectKind(doc.projectKind);
+  if (doc.schemaVersion >= 10 && doc.projectKind != null && doc.projectKind !== "mesh" && doc.projectKind !== "texture") {
+    errors.push('projectKind must be "mesh" or "texture"');
+  }
+
+  // Texture-library entries: params only — mesh profile optional.
+  if (projectKind === "texture") {
+    if (doc.textureAssets == null || typeof doc.textureAssets !== "object") {
+      errors.push("texture project needs textureAssets map");
+    } else if (!Object.keys(doc.textureAssets).length) {
+      errors.push("texture project needs at least one textureAssets entry");
+    } else {
+      for (const [guid, tex] of Object.entries(doc.textureAssets)) {
+        if (!tex || typeof tex !== "object") {
+          errors.push(`textureAssets[${guid}] invalid`);
+          continue;
+        }
+        if (!Array.isArray(tex.layers)) errors.push(`textureAssets[${guid}].layers must be an array`);
+      }
+    }
+    return errors;
+  }
+
   if (!doc.profile || !Array.isArray(doc.profile.knots)) errors.push("missing profile.knots");
   if (doc.profile && doc.profile.knots && doc.profile.knots.length < 2) {
     errors.push("profile.knots needs at least 2 points");

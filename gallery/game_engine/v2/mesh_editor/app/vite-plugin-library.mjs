@@ -66,6 +66,8 @@ function listProjects(root) {
         continue;
       }
       const d = mig.doc;
+      const projectKind = d.projectKind === "texture" ? "texture" : "mesh";
+      const textureCount = Object.keys(d.textureAssets || {}).length;
       out.push({
         slug: d.slug || name,
         id: d.id,
@@ -75,7 +77,12 @@ function listProjects(root) {
         updatedAt: d.updatedAt,
         createdAt: d.createdAt,
         schemaVersion: d.schemaVersion,
-        knotCount: d.profile.knots.length,
+        projectKind,
+        textureCount,
+        knotCount:
+          projectKind === "texture"
+            ? textureCount
+            : d.profile?.knots?.length || 0,
       });
     } catch (err) {
       out.push({ slug: name, name, error: String(err.message || err) });

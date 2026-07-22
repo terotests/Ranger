@@ -1,6 +1,7 @@
 import { reactive, computed, watch } from "vue";
 import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
 import { tessellateBody } from "../lib/latheTessellate.js";
+import { rasterizeEyePairUvMap, normalizeEyeTexture } from "../lib/texture/eyeTexture.js";
 import { transformParts } from "../lib/meshTransform.js";
 import { evalSpan as evalPathSpan } from "../lib/pathSample.js";
 import { createEditHistory } from "../lib/editHistory.js";
@@ -55,7 +56,15 @@ function defaultOrbitKnots() {
 }
 
 function defaultObjectMaterial() {
-  return { color: null, roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient" };
+  return {
+    color: null,
+    roughness: 0.4,
+    metalness: 0,
+    opacity: 1,
+    texture: "gradient",
+    textureAsset: null,
+    textureAssign: null,
+  };
 }
 
 function projectDocToBody(doc, { newGuidForCopy = true } = {}) {
@@ -119,6 +128,9 @@ function loadSpineBlock(block, fallbackKnots) {
 }
 
 export function useSplineEditor() {
+  /** Optional provider for procedural texture assets (from Texture editor / library). */
+  let textureAssetsProvider = () => /** @type {Record<string, any>} */ ({});
+
   const state = reactive({
     assetGuid: newGuid(),
     viewMode: "profile", // profile | orbit | spine
@@ -893,9 +905,61 @@ export function useSplineEditor() {
     }
   }
 
+  function resolveTextureMap(om) {
+    if (!om) return null;
+    const guid = om.textureAsset;
+    if (!guid) return null;
+    if (om.texture !== "asset" && om.textureAssign !== "eyePair") return null;
+    const assets = textureAssetsProvider() || {};
+    const raw = assets[guid];
+    if (!raw) return null;
+    const tex = raw.kind === "eye" || !raw.kind ? normalizeEyeTexture(raw) : raw;
+    if (tex.kind === "eye" || om.textureAssign === "eyePair") {
+      return rasterizeEyePairUvMap(tex, 512, 512);
+    }
+    return null;
+  }
+
+  function setTextureAssetsProvider(fn) {
+    textureAssetsProvider = typeof fn === "function" ? fn : () => ({});
+  }
+
+  /** Assign a procedural eye texture (both eyes) onto the root mesh UV atlas. */
+  function assignEyeTextureToRoot(assetGuid) {
+    if (!assetGuid) return false;
+    const assets = textureAssetsProvider() || {};
+    if (!assets[assetGuid]) {
+      state.status = "Texture asset not loaded — open it in Texture or import the project.";
+      return false;
+    }
+    beginGesture("assign-eye-texture");
+    state.objectMaterial = {
+      ...state.objectMaterial,
+      texture: "asset",
+      textureAsset: assetGuid,
+      textureAssign: "eyePair",
+    };
+    endGesture();
+    state.status = "Assigned eye texture to mesh UVs (left + right).";
+    return true;
+  }
+
+  function clearAssignedTexture() {
+    beginGesture("clear-texture");
+    state.objectMaterial = {
+      ...state.objectMaterial,
+      texture: "gradient",
+      textureAsset: null,
+      textureAssign: null,
+    };
+    endGesture();
+    state.status = "Cleared assigned body texture.";
+  }
+
   function tessellate() {
+    const tessOpts = { resolveTextureMap };
     // Always assemble from ROOT + children (preview shows full object even when editing a child).
-    const root = tessellateBody(rootBodySnapshot());
+    const root = tessellateBody(rootBodySnapshot(), tessOpts);
     state.rootMesh = { parts: root.parts.slice() };
     // Spine / profile edits move the root surface — re-seat surface children on it.
     resnapSurfaceChildren(state.rootMesh.parts);
@@ -907,7 +971,7 @@ export function useSplineEditor() {
       if (ch.visible === false) continue;
       const body = state.embeddedAssets[ch.contentGuid];
       if (!body || body.knots.length < 2 || body.orbitKnots.length < 3) continue;
-      const child = tessellateBody(body);
+      const child = tessellateBody(body, tessOpts);
       const xf = ch.transform || defaultChildTransform();
       pushTransformedParts(parts, child.parts, xf, false, body, ch.instanceGuid);
       totalV += child.verts;
@@ -1152,6 +1216,11 @@ export function useSplineEditor() {
       metalness: doc.objectMaterial?.metalness ?? 0,
       opacity: doc.objectMaterial?.opacity ?? 1,
       texture: doc.objectMaterial?.texture || "gradient",
+      textureAsset: doc.objectMaterial?.textureAsset || null,
+      textureAssign:
+        doc.objectMaterial?.textureAssign === "eyePair"
+          ? "eyePair"
+          : doc.objectMaterial?.textureAssign || null,
     };
     state.knots = doc.profile.knots.map((k) => ({ ...k }));
     state.segments = (doc.profile.segments || []).map((s) => ({
@@ -1333,6 +1402,9 @@ export function useSplineEditor() {
     syncSegments,
     applyProject,
     snapshotState,
+    setTextureAssetsProvider,
+    assignEyeTextureToRoot,
+    clearAssignedTexture,
     attachFromProject,
     selectChild,
     editRoot,
