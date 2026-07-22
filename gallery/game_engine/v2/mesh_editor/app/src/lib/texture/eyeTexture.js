@@ -905,10 +905,9 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
   const left = tintSclera ? layersWithEyeballColor(leftRaw, bg) : leftRaw;
   const right = tintSclera ? layersWithEyeballColor(rightRaw, bg) : rightRaw;
 
-  // Front (+Z, u≈0.25): character left = higher U (toward −X / screen-left from +Z).
-  // Character right = lower U (toward +X / screen-right).
-  blitEyeCellToAtlas(ctx, left, centerU + sepU / 2, centerV, cellW, cellH, bg);
-  blitEyeCellToAtlas(ctx, right, centerU - sepU / 2, centerV, cellW, cellH, bg);
+  // Character left eye = lower U; right = higher U (matches live assign on screen).
+  blitEyeCellToAtlas(ctx, left, centerU - sepU / 2, centerV, cellW, cellH, bg);
+  blitEyeCellToAtlas(ctx, right, centerU + sepU / 2, centerV, cellW, cellH, bg);
 
   const img = ctx.getImageData(0, 0, w, h);
   return {
@@ -980,12 +979,11 @@ export async function rasterizeEyePairUvMapAsync(tex, width = 512, height = 512,
 
   onProgress("left-eye");
   await yieldFn();
-  // Front (+Z): character left = higher U; right = lower U (see rasterizeEyePairUvMap).
-  blitEyeCellToAtlas(ctx, left, centerU + sepU / 2, centerV, cellW, cellH, bg);
+  blitEyeCellToAtlas(ctx, left, centerU - sepU / 2, centerV, cellW, cellH, bg);
 
   onProgress("right-eye");
   await yieldFn();
-  blitEyeCellToAtlas(ctx, right, centerU - sepU / 2, centerV, cellW, cellH, bg);
+  blitEyeCellToAtlas(ctx, right, centerU + sepU / 2, centerV, cellW, cellH, bg);
 
   onProgress("readback");
   await yieldFn();

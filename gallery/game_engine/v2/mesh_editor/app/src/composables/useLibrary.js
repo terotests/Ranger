@@ -145,11 +145,16 @@ export function useLibrary({ snapshotState, applyProject, tessellate }) {
     }
     beginBusy();
     try {
-      const created = await api.createProject({
-        name: n,
+      // Build the document on the client first (same as save/exportJson) so
+      // textureMap TypedArrays become rgba8-base64 before fetch JSON.stringify.
+      // Posting raw editor state drops the bake: TypedArrays revive as
+      // `{ "0": n, … }` without .length and serializeTextureMap returns null.
+      const doc = buildProjectDocument({
         state: snapshotState(k),
+        name: n,
         projectKind: k,
       });
+      const created = await api.createProject(doc);
       slot.slug = created.slug;
       slot.name = created.name;
       slot.saveAsName = created.name;

@@ -475,11 +475,19 @@ function normalizeV10(doc) {
     doc.projectKind === "texture" || doc.projectKind === "mesh" ? doc.projectKind : null;
   if (!kind) kind = !hasMesh && texN > 0 ? "texture" : "mesh";
   v9.projectKind = normalizeProjectKind(kind);
+  // v3 whitelist rebuilds objectMaterial without texture* fields — always prefer
+  // the pre-chain document so load does not reset assign UV / asset guid.
+  const incomingOm = doc.objectMaterial || {};
   const om = v9.objectMaterial || {};
   const assetKeys = Object.keys(v9.textureAssets || {});
-  let textureAsset = om.textureAsset || null;
-  let textureAssign = om.textureAssign === "eyePair" ? "eyePair" : om.textureAssign || null;
-  let texture = om.texture || "gradient";
+  let textureAsset = incomingOm.textureAsset || om.textureAsset || null;
+  let textureAssign =
+    incomingOm.textureAssign === "eyePair"
+      ? "eyePair"
+      : incomingOm.textureAssign ||
+        (om.textureAssign === "eyePair" ? "eyePair" : om.textureAssign) ||
+        null;
+  let texture = incomingOm.texture || om.texture || "gradient";
   if (textureAsset && !(v9.textureAssets || {})[textureAsset]) {
     textureAsset = assetKeys.length === 1 ? assetKeys[0] : null;
   }
@@ -492,14 +500,14 @@ function normalizeV10(doc) {
   if (textureAsset && !textureAssign) textureAssign = "eyePair";
   if (textureAsset && texture !== "asset") texture = "asset";
   v9.objectMaterial = {
-    color: om.color ?? null,
-    roughness: Number(om.roughness ?? 0.4),
-    metalness: Number(om.metalness ?? 0),
-    opacity: Number(om.opacity ?? 1),
+    color: incomingOm.color ?? om.color ?? null,
+    roughness: Number(incomingOm.roughness ?? om.roughness ?? 0.4),
+    metalness: Number(incomingOm.metalness ?? om.metalness ?? 0),
+    opacity: Number(incomingOm.opacity ?? om.opacity ?? 1),
     texture,
     textureAsset,
     textureAssign,
-    textureUv: normalizeEyeUv(om.textureUv),
+    textureUv: normalizeEyeUv(incomingOm.textureUv ?? om.textureUv),
   };
   return v9;
 }
@@ -507,6 +515,7 @@ function normalizeV10(doc) {
 function normalizeV11(doc) {
   // Capture bake before v10 rewrite (normalizeV10 rebuilds objectMaterial without textureMap).
   const incomingMap = doc?.objectMaterial?.textureMap;
+  const incomingUv = doc?.objectMaterial?.textureUv;
   const v10 = normalizeV10(doc);
   v10.schemaVersion = 11;
   const om = v10.objectMaterial || {};
@@ -520,7 +529,8 @@ function normalizeV11(doc) {
     textureAsset: om.textureAsset || null,
     textureAssign:
       om.textureAssign === "eyePair" ? "eyePair" : om.textureAssign || null,
-    textureUv: normalizeEyeUv(om.textureUv),
+    // Prefer pre-chain UV (same reason as textureMap capture above).
+    textureUv: normalizeEyeUv(incomingUv != null ? incomingUv : om.textureUv),
     textureMap: serializeTextureMap(baked),
   };
   return v10;
