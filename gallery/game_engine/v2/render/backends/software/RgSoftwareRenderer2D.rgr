@@ -17,6 +17,10 @@ class RgFramebuffer {
     def width:int 0
     def height:int 0
     def pixels:[int]
+    ; Persistent RGBA present buffer — rebuilt only when size changes so the
+    ; SDL present path does not allocate ~518 KB/pane every frame.
+    def rgbaBuf:buffer (buffer_alloc 0)
+    def rgbaBytes:int 0
 
     sfn create:RgFramebuffer (width:int height:int) {
         def fb:RgFramebuffer (new RgFramebuffer)
@@ -70,10 +74,16 @@ class RgFramebuffer {
     ; Pack the 0xRRGGBB int grid into a tightly-packed RGBA byte buffer
     ; (w*h*4, opaque) — the format the native present operators (gfx_present /
     ; gfx_present_split, SDL_PIXELFORMAT_RGBA32) expect. Pure conversion;
-    ; testable headlessly, independent of any window.
+    ; testable headlessly, independent of any window. Reuses rgbaBuf across
+    ; frames when the pane size is unchanged.
     fn toRgbaBuffer:buffer () {
         def n:int (this.width * this.height)
-        def buf:buffer (buffer_alloc (n * 4))
+        def need:int (n * 4)
+        if (need != this.rgbaBytes) {
+            this.rgbaBuf = (buffer_alloc need)
+            this.rgbaBytes = need
+        }
+        def buf:buffer this.rgbaBuf
         def i 0
         while (i < n) {
             def c:int (itemAt this.pixels i)

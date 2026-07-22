@@ -78,6 +78,11 @@ class RgDecodedArgs {
     fn guestIdAt:int (i:int) { return (itemAt this.guestIds i) }
 }
 
+; Pre-split argSpec tokens for one command-table row (avoids strsplit per call).
+class RgArgTokRow {
+    def toks:[string]
+}
+
 ; Captures the last synth burst pushed by GameAudio so the one-shot PCM path is
 ; observable from the bridge (and asserted by tests): a v1-faithful one-shot
 ; must yield REAL, non-silent PCM, not a silent lifecycle probe.
@@ -109,6 +114,14 @@ class CapturingAudioSink extends GameAudioSink {
 class RgRegistryBridge extends EvalNativeBridge {
     ; the ONE command table (generated from the authored module schemas)
     def table:[RgCommand]
+    ; Parallel to table: pre-split argSpec tokens so decode() does not
+    ; strsplit + allocate on every bridge call (hot path).
+    def argToks:[RgArgTokRow]
+    ; Last has()/invoke() name→row cache — the interpreter typically calls
+    ; has then invoke for the same name; avoid a second full-table scan.
+    def cachedName:string ""
+    def cachedRow:RgCommand (RgCommand.of((0 - 1) "" ""))
+    def cachedIdx:int (0 - 1)
 
     ; host modules (the real Phase 2–11 arenas)
     def d2:RgRanger2D (new RgRanger2D)
@@ -153,11 +166,50 @@ class RgRegistryBridge extends EvalNativeBridge {
         def base:[RgCommand] (RgCodegen.tableUnion(core twoD))
         def withThree:[RgCommand] (RgCodegen.tableAppend(base three))
         b.table = (RgCodegen.tableAppend(withThree cannon))
+        ; Pre-split every row's argSpec once — decodeAt() reads argToks[i].
+        def toks:[RgArgTokRow]
+        def ti 0
+        while (ti < (array_length b.table)) {
+            def row:RgCommand (itemAt b.table ti)
+            def entry:RgArgTokRow (new RgArgTokRow)
+            if (row.argSpec != "") {
+                entry.toks = (strsplit row.argSpec ":")
+            }
+            push toks entry
+            ti = (ti + 1)
+        }
+        b.argToks = toks
         ; build the synth tables (sine/midi) and wire the capturing sink so the
         ; one-shot path can synthesise real PCM the moment a guest plays it.
         b.gameAudio.init()
         b.gameAudio.setSink(b.audioSink)
         return b
+    }
+
+    ; Resolve a command row by name with a one-entry cache (has → invoke).
+    ; Returns the table index, or -1 when unknown; fills cachedRow.
+    fn resolveName:int (name:string) {
+        if (name == this.cachedName) {
+            return this.cachedIdx
+        }
+        def n:int (array_length this.table)
+        def i 0
+        while (i < n) {
+            def c:RgCommand (itemAt this.table i)
+            if (c.tombstone == false) {
+                if (c.name == name) {
+                    this.cachedName = name
+                    this.cachedRow = c
+                    this.cachedIdx = i
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        this.cachedName = name
+        this.cachedRow = (RgCommand.of((0 - 1) "" ""))
+        this.cachedIdx = (0 - 1)
+        return (0 - 1)
     }
 
     ; one-shot PCM observability (asserted by tests/unit/audio/one_shot_pcm_test):
@@ -224,16 +276,17 @@ class RgRegistryBridge extends EvalNativeBridge {
 
     ; ---- EvalNativeBridge (pure table lookups) ------------------------------
     fn has:boolean (name:string) {
-        def row:RgCommand (RgCodegen.findByName(this.table name))
-        return (row.id != (0 - 1))
+        def idx:int (this.resolveName(name))
+        return (idx != (0 - 1))
     }
 
     fn invoke:EvalValue (name:string args:[EvalValue]) {
-        def row:RgCommand (RgCodegen.findByName(this.table name))
-        if (row.id == (0 - 1)) {
+        def idx:int (this.resolveName(name))
+        if (idx == (0 - 1)) {
             return (this.fail("unknown-command:" + name))
         }
-        def dec:RgDecodedArgs (this.decode(row args))
+        def row:RgCommand this.cachedRow
+        def dec:RgDecodedArgs (this.decodeAt(idx row args))
         if (dec.ok == false) {
             return (this.fail(dec.err))
         }
@@ -242,10 +295,25 @@ class RgRegistryBridge extends EvalNativeBridge {
 
     ; ---- generic decode (driven only by the row's argSpec) ------------------
     fn decode:RgDecodedArgs (row:RgCommand args:[EvalValue]) {
+        ; Fallback for callers that still pass a row without a table index
+        ; (coverage / unit tests). Prefer decodeAt on the hot path.
+        def idx:int (this.resolveName(row.name))
+        return (this.decodeAt(idx row args))
+    }
+
+    fn decodeAt:RgDecodedArgs (idx:int row:RgCommand args:[EvalValue]) {
         def dec:RgDecodedArgs (new RgDecodedArgs)
         def toks:[string]
-        if (row.argSpec != "") {
-            toks = (strsplit row.argSpec ":")
+        if (idx >= 0) {
+            if (idx < (array_length this.argToks)) {
+                def entry:RgArgTokRow (itemAt this.argToks idx)
+                toks = entry.toks
+            }
+        }
+        if ((array_length toks) == 0) {
+            if (row.argSpec != "") {
+                toks = (strsplit row.argSpec ":")
+            }
         }
         def want:int (array_length toks)
         if ((array_length args) != want) {

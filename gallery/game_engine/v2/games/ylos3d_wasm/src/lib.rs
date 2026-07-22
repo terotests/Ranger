@@ -357,7 +357,9 @@ pub extern "C" fn init() -> i32 {
     cb.rg2d_camera_create(CAM[0]);
     cb.rg2d_camera_create(CAM[1]);
     // celebrate one-shot source (clip != source, D-LIFE)
-    cb.rgcore_audio_clip_create(CLIP, 440.0, 0, 0.35, 80);
+    // schema: (freqHz:d, durationMs:i, volume:d, wave:i) — defaults match
+    // ranger_core.tsx AudioClip (440 Hz / 80 ms / 0.35 / wave 0).
+    cb.rgcore_audio_clip_create(CLIP, 440.0, 80, 0.35, 0);
     cb.rgcore_audio_source_create(CEL_SFX, CLIP);
 
     // player sprites: LPC walk + super sheet, one per player

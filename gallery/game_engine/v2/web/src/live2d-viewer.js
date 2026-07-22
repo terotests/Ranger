@@ -1,15 +1,14 @@
 // ============================================================================
-// live2d-viewer.js — drive the LIVE ylos2 (ranger:2d) game onto a 2D canvas.
+// live2d-viewer.js — drive a LIVE ranger:2d game onto a 2D canvas.
 // ============================================================================
 //
-// The 2D cousin of live3d-viewer.js. Instead of a ranger:three scene, it boots
-// the REAL ylos2 game through WebLive2dHost (which wraps the generic RgGameHost,
-// the same one that boots ylos2 headlessly). load() evaluates index.tsx + runs
-// __rgGameInit(); each rAF we call host.frame(dtMs) — which advances one
-// host-owned game tick then presents pane 0 through the sampling backend — and
-// blit host.framePixels() (w*h*3 RGB) onto the canvas. Arrow keys + space drive
-// player 0's left/right/jump through host.input(). Same VFS + engine-host runtime
-// as the 3D live viewer.
+// The 2D cousin of live3d-viewer.js. Boots a TSX game through WebLive2dHost
+// (generic RgGameHost). load() evaluates index.tsx + runs __rgGameInit(); each
+// rAF we call host.frame(dtMs) — one host-owned tick then present pane 0 through
+// the sampling backend — and blit host.framePixels() (w*h*3 RGB) onto the canvas.
+// Arrow keys + space drive player 0's left/right/action through host.input().
+// Optional config.clearRgb (0xRRGGBB) sets the presenter clear colour (title
+// palettes stay in the viewer/demo, not the engine host).
 // ============================================================================
 
 (function (root) {
@@ -22,12 +21,13 @@
       this.host = config.host; // engine WebLive2dHost instance
       this.w = config.width || 480;
       this.h = config.height || 270;
+      this.clearRgb = config.clearRgb | 0;
       this.canvas.width = this.w;
       this.canvas.height = this.h;
       this._image = this.ctx.createImageData(this.w, this.h);
       this._raf = 0;
       this._last = 0;
-      this._keys = { left: false, right: false, jump: false };
+      this._keys = { left: false, right: false, action: false };
       this._tick = this._tick.bind(this);
     }
 
@@ -37,6 +37,7 @@
     // the mounted VFS zip exactly like the headless boot. Render frame 0.
     load(dir, file) {
       this.host.setup();
+      if (this.host.setClearRgb) this.host.setClearRgb(this.clearRgb);
       const ok = this.host.loadFromVfs
         ? this.host.loadFromVfs(dir, file, this.w, this.h)
         : this.host.load(dir, file, this.w, this.h);
@@ -49,7 +50,7 @@
 
     _applyInput() {
       // Player 0 driven by the keyboard; player 1 stays attract/idle.
-      this.host.input(0, this._keys.left, this._keys.right, this._keys.jump);
+      this.host.input(0, this._keys.left, this._keys.right, this._keys.action);
     }
 
     renderOnce(dtMs) {
@@ -72,7 +73,7 @@
         switch (e.key) {
           case "ArrowLeft": case "a": case "A": this._keys.left = down; break;
           case "ArrowRight": case "d": case "D": this._keys.right = down; break;
-          case "ArrowUp": case " ": case "w": case "W": this._keys.jump = down; break;
+          case "ArrowUp": case " ": case "w": case "W": this._keys.action = down; break;
           default: hit = false;
         }
         if (hit) e.preventDefault();

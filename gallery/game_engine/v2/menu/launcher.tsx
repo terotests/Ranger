@@ -11,14 +11,14 @@
 import { runtime } from "ranger:core";
 import * as TWO from "ranger:2d";
 
+// Honest catalog mirroring games/*/game.info (RgLauncherUi.scan). Phantom
+// Chess/Breakout/Sprites tiles removed — they are not v2 packages today.
 const CATALOG = [
   { name: "Games", entries: [
     { label: "Pomppija", path: "games/ylos2" },
-    { label: "Chess", path: "games/chess" },
-    { label: "Breakout", path: "games/breakout" }
-  ] },
-  { name: "Tests", entries: [
-    { label: "Sprites", path: "tests/sprite_char" }
+    { label: "Ylos3D (WASM)", path: "games/ylos3d_wasm" },
+    { label: "Cannon 3D", path: "games/cannon3d" },
+    { label: "Pinball", path: "games/pinball" }
   ] }
 ];
 

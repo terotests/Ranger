@@ -22,9 +22,19 @@ class LauncherE2ETest {
         t.ok("menu test fixture loaded"
             (host.loadFixture("gallery/game_engine/v2/menu/tests" "probe.tsx")))
         t.eqInt("categories page open" (to_int (host.callSlot("currentPage" 0))) 0)
-        t.eqInt("two category tiles" (to_int (host.callSlot("tileCount" 0))) 2)
-        t.eqInt("three retained sprites (2 tiles + cursor)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 3)
+        ; One real category (Games) — no phantom Tests tile.
+        t.eqInt("one category tile" (to_int (host.callSlot("tileCount" 0))) 1)
+        t.eqInt("two retained sprites (1 tile + cursor)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 2)
+
+        ; ---- drill into Games; page turn must not leak arena slots ----------
+        host.press(0 "action")
+        t.eqInt("games page open" (to_int (host.callSlot("currentPage" 0))) 1)
+        ; Four real games (Pomppija / Ylos3D WASM / Cannon 3D / Pinball) + cursor.
+        t.eqInt("page turn released old tiles (4 tiles + cursor)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 5)
+        t.eqInt("select sfx one-shot fired" host.bridge.oneShotCount 1)
+        t.ok("Pomppija selected" ((host.callSlot("selectedLabelIsPomppija" 0)) > 0.5))
 
         ; ---- D-pad navigation on action EDGES (generic press) ---------------
         host.press(0 "right")
@@ -38,18 +48,11 @@ class LauncherE2ETest {
         t.eqInt("held key does not repeat" (to_int (host.callSlot("selectedIndex" 0))) 1)
         host.press(0 "left")
         t.eqInt("left moves back" (to_int (host.callSlot("selectedIndex" 0))) 0)
-
-        ; ---- drill into Games; page turn must not leak arena slots ----------
-        host.press(0 "action")
-        t.eqInt("games page open" (to_int (host.callSlot("currentPage" 0))) 1)
-        t.eqInt("page turn released old tiles (3 tiles + cursor)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 4)
-        t.eqInt("select sfx one-shot fired" host.bridge.oneShotCount 1)
-        t.ok("Pomppija selected" ((host.callSlot("selectedLabelIsPomppija" 0)) > 0.5))
+        t.ok("Pomppija selected again" ((host.callSlot("selectedLabelIsPomppija" 0)) > 0.5))
 
         ; ---- menu presents pixels via the generic protocol ------------------
         def fb:RgFramebuffer (RgFramebuffer.create(96 96))
-        t.eqInt("menu present drew 3 tiles + cursor" (Rg2DPresenter.present(host.bridge 0 fb)) 4)
+        t.eqInt("menu present drew 4 tiles + cursor" (Rg2DPresenter.present(host.bridge 0 fb)) 5)
         t.ok("selected tile at camera centre" ((fb.at(48 48)) != 0))
 
         ; ---- select Pomppija → GENERIC handoff ------------------------------
