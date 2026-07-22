@@ -9,14 +9,16 @@ const props = defineProps({
   loadedTextures: { type: Array, default: () => [] },
   /** Library projects that may contain textures (with optional .textures summaries) */
   libraryProjects: { type: Array, default: () => [] },
-  /** Current objectMaterial.textureUv */
+  /** UV from the 3D square region (required placement). */
   initialUv: { type: Object, default: null },
   /** Preselected asset guid if already assigned */
   initialGuid: { type: String, default: "" },
   busy: { type: Boolean, default: false },
+  /** Progress label while assign runs (loader). */
+  progressLabel: { type: String, default: "" },
 });
 
-const emit = defineEmits(["close", "apply", "place", "preview"]);
+const emit = defineEmits(["close", "apply"]);
 
 /** "loaded:<guid>" | "lib:<slug>:<guid>" */
 const sourceKey = ref("");
@@ -26,8 +28,6 @@ const uv = reactive({
 });
 const status = ref("");
 const resolving = ref(false);
-/** Block live preview while the dialog is initializing (no auto-assign). */
-const previewReady = ref(false);
 
 const sources = computed(() => {
   const rows = [];
@@ -51,7 +51,6 @@ const sources = computed(() => {
     if (texList.length) {
       for (const t of texList) {
         if (!t?.assetGuid) continue;
-        // Prefer the already-open copy when the same guid is loaded.
         if (seen.has(t.assetGuid)) continue;
         seen.add(t.assetGuid);
         rows.push({
@@ -64,7 +63,6 @@ const sources = computed(() => {
       }
       continue;
     }
-    // Legacy list entries without per-texture summaries
     const texN = p.textureCount || 0;
     if (p.projectKind === "texture" || texN > 0) {
       rows.push({
@@ -87,13 +85,12 @@ function resetFromProps() {
   });
   status.value = "";
 
-  // Only preselect when this mesh already has an assignment — never auto-pick “latest”.
   const want = props.initialGuid || "";
   if (want) {
     const match = sources.value.find((s) => s.guid === want);
-    sourceKey.value = match?.key || (props.loadedTextures.some((t) => t.assetGuid === want)
-      ? `loaded:${want}`
-      : "");
+    sourceKey.value =
+      match?.key ||
+      (props.loadedTextures.some((t) => t.assetGuid === want) ? `loaded:${want}` : "");
   } else {
     sourceKey.value = "";
   }
@@ -102,15 +99,12 @@ function resetFromProps() {
 watch(
   () => props.open,
   async (on) => {
-    previewReady.value = false;
     if (!on) return;
     resetFromProps();
     await nextTick();
-    previewReady.value = true;
   },
 );
 
-// Library list may arrive right after open (refresh). Re-bind selection if needed.
 watch(
   () => props.libraryProjects,
   () => {
@@ -120,13 +114,18 @@ watch(
   { deep: true },
 );
 
-function emitPreview() {
-  if (!previewReady.value || !sourceKey.value) return;
-  emit("preview", { sourceKey: sourceKey.value, uv: normalizeEyeUv(uv) });
-}
-
-watch(uv, () => emitPreview(), { deep: true });
-watch(sourceKey, () => emitPreview());
+watch(
+  () => props.initialUv,
+  (v) => {
+    if (!props.open || !v) return;
+    const next = normalizeEyeUv(v);
+    Object.assign(uv, {
+      ...next,
+      eyeSeparationU: next.eyeSeparationU != null ? next.eyeSeparationU : uv.eyeSeparationU,
+    });
+  },
+  { deep: true },
+);
 
 async function resolveSelection() {
   const key = sourceKey.value;
@@ -163,13 +162,6 @@ async function resolveSelection() {
   return null;
 }
 
-function currentUv() {
-  return normalizeEyeUv({
-    ...uv,
-    eyeSeparationU: uv.eyeSeparationU != null ? uv.eyeSeparationU : 0.12,
-  });
-}
-
 async function onApply() {
   const resolved = await resolveSelection();
   if (!resolved?.guid) {
@@ -178,26 +170,16 @@ async function onApply() {
   }
   emit("apply", {
     guid: resolved.guid,
-    uv: currentUv(),
-    assets: resolved.assets,
-  });
-}
-
-/** Resolve texture then place with two corner clicks on the 3D preview. */
-async function onPlace() {
-  const resolved = await resolveSelection();
-  if (!resolved?.guid) {
-    if (!status.value) status.value = "Pick a texture first.";
-    return;
-  }
-  emit("place", {
-    guid: resolved.guid,
-    uv: currentUv(),
+    uv: normalizeEyeUv({
+      ...uv,
+      eyeSeparationU: uv.eyeSeparationU != null ? uv.eyeSeparationU : 0.12,
+    }),
     assets: resolved.assets,
   });
 }
 
 function onBackdrop(e) {
+  if (props.busy) return;
   if (e.target === e.currentTarget) emit("close");
 }
 </script>
@@ -206,18 +188,17 @@ function onBackdrop(e) {
   <div v-if="open" class="backdrop" @click="onBackdrop">
     <section class="dialog" role="dialog" aria-labelledby="assign-tex-title">
       <header>
-        <h2 id="assign-tex-title">Assign eye texture</h2>
-        <button type="button" class="x" @click="emit('close')">×</button>
+        <h2 id="assign-tex-title">Choose eye texture</h2>
+        <button type="button" class="x" :disabled="busy" @click="emit('close')">×</button>
       </header>
       <p class="hint">
-        Pick a texture, then <strong>Place on mesh</strong> and click the top-left and
-        bottom-right corners in the 3D preview. Drag afterward to fine-tune. Sliders here
-        adjust gap / fallback UV; atlas sclera uses mesh knot colors.
+        Placement comes from the square on the 3D preview. Pick which eye texture to paint
+        there — assignment may take a moment.
       </p>
 
       <label class="field">
         Texture
-        <select v-model="sourceKey">
+        <select v-model="sourceKey" :disabled="busy">
           <option value="">Select a texture…</option>
           <option v-for="s in sources" :key="s.key" :value="s.key">{{ s.label }}</option>
         </select>
@@ -226,49 +207,34 @@ function onBackdrop(e) {
         No textures found. Save one in Texture mode (Save As), or keep an eye open in the editor.
       </p>
 
-      <div class="sliders">
-        <label>
-          Left ← → Right
-          <input v-model.number="uv.centerU" type="range" min="0.15" max="0.85" step="0.01" />
-          <span>{{ Number(uv.centerU).toFixed(2) }}</span>
-        </label>
-        <label>
-          Down ← → Up
-          <input v-model.number="uv.centerV" type="range" min="0.2" max="0.9" step="0.01" />
-          <span>{{ Number(uv.centerV).toFixed(2) }}</span>
-        </label>
-        <label>
-          Scale
-          <input v-model.number="uv.scale" type="range" min="0.35" max="2.5" step="0.05" />
-          <span>{{ Number(uv.scale).toFixed(2) }}×</span>
-        </label>
-        <label>
-          Eye gap
-          <input
-            v-model.number="uv.eyeSeparationU"
-            type="range"
-            min="0.04"
-            max="0.35"
-            step="0.01"
-          />
-          <span>{{ Number(uv.eyeSeparationU || 0.12).toFixed(2) }}</span>
-        </label>
-      </div>
+      <label class="gap">
+        Eye gap
+        <input
+          v-model.number="uv.eyeSeparationU"
+          type="range"
+          min="0.04"
+          max="0.35"
+          step="0.01"
+          :disabled="busy"
+        />
+        <span>{{ Number(uv.eyeSeparationU || 0.12).toFixed(2) }}</span>
+      </label>
 
-      <p v-if="status" class="status">{{ status }}</p>
+      <div v-if="busy || progressLabel" class="loader" aria-live="polite">
+        <div class="spinner" />
+        <p>{{ progressLabel || "Assigning…" }}</p>
+      </div>
+      <p v-else-if="status" class="status">{{ status }}</p>
 
       <footer>
-        <button type="button" @click="emit('close')">Cancel</button>
-        <button type="button" :disabled="busy || resolving || !sourceKey" @click="onApply">
-          Apply UV
-        </button>
+        <button type="button" :disabled="busy" @click="emit('close')">Cancel</button>
         <button
           type="button"
           class="primary"
           :disabled="busy || resolving || !sourceKey"
-          @click="onPlace"
+          @click="onApply"
         >
-          {{ resolving ? "Loading…" : "Place on mesh" }}
+          {{ busy ? "Working…" : resolving ? "Loading…" : "Assign" }}
         </button>
       </footer>
     </section>
@@ -330,20 +296,44 @@ h2 {
 .field select {
   width: 100%;
 }
-.sliders {
+.gap {
   display: grid;
-  gap: 0.55rem;
-}
-.sliders label {
-  display: grid;
-  grid-template-columns: 7.5rem 1fr 2.4rem;
+  grid-template-columns: 5rem 1fr 2.4rem;
   gap: 0.45rem;
   align-items: center;
   font-size: 0.75rem;
   color: var(--ink-dim);
 }
-.sliders input[type="range"] {
+.gap input[type="range"] {
   width: 100%;
+}
+.loader {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--line);
+}
+.loader p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+.spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 2px solid rgba(250, 204, 21, 0.25);
+  border-top-color: #facc15;
+  animation: spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 footer {
   display: flex;
