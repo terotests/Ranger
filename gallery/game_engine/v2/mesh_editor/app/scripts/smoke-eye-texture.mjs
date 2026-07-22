@@ -27,6 +27,7 @@ import {
 import {
   PART_CLASS_EYE,
   EYE_EMOTION_TAGS,
+  ANIM_CLASS_EMOTION,
   normalizeEmotionTag,
   eyeTopologyKey,
   defaultEyeTopologyKey,
@@ -40,6 +41,11 @@ import {
   upsertEyePose,
   eyeLibraryTags,
   compileEyeRig,
+  listAnimClassesForPart,
+  listAnimTargets,
+  ensureDemoAnimTargets,
+  morphTextureAnim,
+  getPoseForTarget,
 } from "../src/lib/texture/eyeEmotion.js";
 import {
   clampAssignRegion,
@@ -593,6 +599,33 @@ assert.equal(mig10.doc.objectMaterial.textureMap, null);
   assert.equal(migratedEye.emotion, "neutral");
   assert.ok(typeof migratedEye.topologyKey === "string");
   assert.ok(Array.isArray(migratedEye.poses));
+
+  // Animation class + demo targets + morphTextureAnim (preview path)
+  const classes = listAnimClassesForPart(PART_CLASS_EYE);
+  assert.ok(classes.some((c) => c.id === ANIM_CLASS_EMOTION));
+  const demoTex = createDefaultEyeTexture({ name: "DemoAnim" });
+  const seeded = ensureDemoAnimTargets(demoTex);
+  assert.ok(seeded.includes("neutral"));
+  assert.ok(seeded.includes("angry"));
+  assert.ok(seeded.includes("sad"));
+  assert.equal(listAnimTargets(demoTex, ANIM_CLASS_EMOTION).length, seeded.length);
+  assert.ok(getPoseForTarget(demoTex, ANIM_CLASS_EMOTION, "angry")?.animClass === "emotion");
+  const morphed = morphTextureAnim(demoTex, {
+    animClass: ANIM_CLASS_EMOTION,
+    from: "neutral",
+    to: "angry",
+    t: 0.5,
+  });
+  assert.ok(morphed);
+  const lidY0 = getPoseForTarget(demoTex, "emotion", "neutral").layers.eyelid.knots[0].y;
+  const lidY1 = getPoseForTarget(demoTex, "emotion", "angry").layers.eyelid.knots[0].y;
+  const midY = findLayer(morphed, "eyelid").knots[0].y;
+  assert.ok(Math.abs(midY - (lidY0 + lidY1) * 0.5) < 1e-6);
+  // Source layers unchanged by morphTextureAnim
+  assert.ok(
+    Math.abs(findLayer(demoTex, "eyelid").knots[0].y - lidY0) < 1e-6 ||
+      findLayer(demoTex, "eyelid").enabled === false,
+  );
 }
 
 // Save path: buildProjectDocument must keep bake when state carries a live map

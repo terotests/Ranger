@@ -9,10 +9,15 @@ import ChildrenPanel from "./components/ChildrenPanel.vue";
 import TextureLayerPanel from "./components/TextureLayerPanel.vue";
 import TexturePreview from "./components/TexturePreview.vue";
 import AssignTextureDialog from "./components/AssignTextureDialog.vue";
+import TextureAnimPanel from "./components/TextureAnimPanel.vue";
 import { useSplineEditor } from "./composables/useSplineEditor.js";
 import { useTextureEditor } from "./composables/useTextureEditor.js";
 import { useLibrary } from "./composables/useLibrary.js";
 import { normalizeEyeUv } from "./lib/texture/eyeTexture.js";
+import {
+  ANIM_CLASS_EMOTION,
+  ensureDemoAnimTargets,
+} from "./lib/texture/eyeEmotion.js";
 import * as api from "./library/api.js";
 
 const {
@@ -55,6 +60,7 @@ const {
   activePlacementNormal,
   setTextureAssetsProvider,
   assignEyeTextureToRootAsync,
+  previewAssignedAnimMorph,
   clearAssignedTexture,
 } = useSplineEditor();
 
@@ -78,8 +84,19 @@ const assignProgress = ref("");
 const assignRegionMode = ref(false);
 /** UV derived from the confirmed square (fed into the texture dialog). */
 const assignRegionUv = ref(null);
+const animMorphBusy = ref(false);
+/** Coalesce slider morph rebakes to one in-flight pass. */
+let animMorphQueued = null;
+let animMorphRunning = false;
 
 setTextureAssetsProvider(() => tex.snapshotTextures());
+
+/** Live assigned eye texture (editor object — poses mutate here). */
+const assignedTexture = computed(() => {
+  const guid = state.objectMaterial?.textureAsset;
+  if (!guid) return null;
+  return texState.textures[guid] || null;
+});
 
 function snapshotState(kind) {
   const k = kind === "texture" ? "texture" : "mesh";
@@ -200,6 +217,63 @@ function onClearAssignedTexture() {
   assignRegionUv.value = null;
   clearAssignedTexture();
   tessellate();
+}
+
+function persistSeededPoses(seeded) {
+  const guid = state.objectMaterial?.textureAsset;
+  const live = guid ? texState.textures[guid] : null;
+  if (!live || !seeded) return;
+  live.poses = seeded.poses;
+  live.topologyKey = seeded.topologyKey;
+  live.emotion = seeded.emotion || live.emotion;
+  live.partClass = seeded.partClass || live.partClass;
+}
+
+function onSeedAnimTargets({ animClass } = {}) {
+  const live = assignedTexture.value;
+  if (!live) {
+    state.status = "Assign an eye texture before seeding anim targets.";
+    return;
+  }
+  const cls = animClass || ANIM_CLASS_EMOTION;
+  if (cls === ANIM_CLASS_EMOTION) {
+    const targets = ensureDemoAnimTargets(live);
+    state.status = `Seeded emotion targets: ${targets.join(", ")}`;
+  }
+}
+
+async function runAnimMorph(opts) {
+  const finalPass = !!opts.finalPass;
+  animMorphBusy.value = true;
+  try {
+    await previewAssignedAnimMorph({
+      animClass: opts.animClass || ANIM_CLASS_EMOTION,
+      from: opts.from,
+      to: opts.to,
+      t: opts.t,
+      width: finalPass ? 384 : 256,
+      height: finalPass ? 384 : 256,
+      seedDemo: false,
+      mutateSource: persistSeededPoses,
+    });
+  } finally {
+    animMorphBusy.value = false;
+  }
+}
+
+async function onAnimMorph(opts) {
+  animMorphQueued = opts;
+  if (animMorphRunning) return;
+  animMorphRunning = true;
+  try {
+    while (animMorphQueued) {
+      const next = animMorphQueued;
+      animMorphQueued = null;
+      await runAnimMorph(next);
+    }
+  } finally {
+    animMorphRunning = false;
+  }
 }
 
 const materials = [
@@ -689,6 +763,13 @@ onBeforeUnmount(() => {
       >
         Clear texture
       </button>
+      <TextureAnimPanel
+        :texture="assignedTexture"
+        :disabled="!state.objectMaterial?.textureAsset || assignBusy"
+        :busy="animMorphBusy"
+        @seed="onSeedAnimTargets"
+        @morph="onAnimMorph"
+      />
       <div class="mats">
         <span>Shading base</span>
         <div class="mat-row">

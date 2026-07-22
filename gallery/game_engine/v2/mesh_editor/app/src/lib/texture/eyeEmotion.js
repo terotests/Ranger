@@ -45,6 +45,48 @@ export const EYE_EMOTION_TAGS = Object.freeze([
 
 const EMOTION_SET = new Set(EYE_EMOTION_TAGS);
 
+/** Animation class id for facial emotion (targets = emotion tags). */
+export const ANIM_CLASS_EMOTION = "emotion";
+
+/**
+ * Registry of animation classes. Each class has named targets that morph
+ * within the same topology. Future: blink, gaze, phoneme, …
+ * @type {Record<string, { id: string, label: string, partClasses: string[], targets: readonly string[] }>}
+ */
+export const ANIM_CLASS_DEFS = Object.freeze({
+  [ANIM_CLASS_EMOTION]: Object.freeze({
+    id: ANIM_CLASS_EMOTION,
+    label: "Emotion",
+    partClasses: Object.freeze([PART_CLASS_EYE]),
+    targets: EYE_EMOTION_TAGS,
+  }),
+});
+
+/**
+ * @param {string} [partClass]
+ * @returns {Array<{ id: string, label: string, partClasses: string[], targets: readonly string[] }>}
+ */
+export function listAnimClassesForPart(partClass = PART_CLASS_EYE) {
+  const pc = partClass || PART_CLASS_EYE;
+  return Object.values(ANIM_CLASS_DEFS).filter((c) => c.partClasses.includes(pc));
+}
+
+/** @param {unknown} raw */
+export function normalizeAnimClassId(raw) {
+  const s = String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+  return s || ANIM_CLASS_EMOTION;
+}
+
+/** @param {unknown} raw */
+export function normalizeAnimTarget(raw) {
+  return normalizeEmotionTag(raw);
+}
+
 /**
  * Normalize an emotion tag: lowercase slug, empty → "neutral".
  * @param {unknown} raw
@@ -101,6 +143,8 @@ export function eyeLibraryTags(opts = {}) {
  * @typedef {{
  *   id: string,
  *   name: string,
+ *   animClass: string,
+ *   target: string,
  *   emotion: string,
  *   tags: string[],
  *   layers: Partial<Record<EyeLayerRole, EyeLayerPose>>,
@@ -279,17 +323,26 @@ export function applyLayerPose(layer, pose) {
 }
 
 /**
- * Capture a named emotion pose from the texture's working layers.
+ * Capture a named pose from the texture's working layers.
  * @param {object} tex
- * @param {{ emotion?: string, name?: string, id?: string, tags?: string[] }} [opts]
+ * @param {{
+ *   emotion?: string,
+ *   target?: string,
+ *   animClass?: string,
+ *   name?: string,
+ *   id?: string,
+ *   tags?: string[],
+ * }} [opts]
  * @returns {EyePose|null}
  */
 export function captureEyePose(tex, opts = {}) {
   if (!tex?.layers?.length) return null;
-  const emotion = normalizeEmotionTag(opts.emotion ?? tex.emotion);
+  const animClass = normalizeAnimClassId(opts.animClass ?? ANIM_CLASS_EMOTION);
+  const target = normalizeAnimTarget(opts.target ?? opts.emotion ?? tex.emotion);
+  const emotion = animClass === ANIM_CLASS_EMOTION ? target : normalizeEmotionTag(opts.emotion ?? tex.emotion);
   const name =
     String(opts.name || "").trim() ||
-    emotion.charAt(0).toUpperCase() + emotion.slice(1);
+    target.charAt(0).toUpperCase() + target.slice(1);
   /** @type {Partial<Record<EyeLayerRole, EyeLayerPose>>} */
   const layers = {};
   for (const role of EYE_LAYER_TYPES) {
@@ -299,11 +352,13 @@ export function captureEyePose(tex, opts = {}) {
   }
   const tags = Array.isArray(opts.tags)
     ? opts.tags.map(normalizeEmotionTag).filter(Boolean)
-    : [emotion];
-  if (!tags.includes(emotion)) tags.unshift(emotion);
+    : [target];
+  if (!tags.includes(target)) tags.unshift(target);
   return {
     id: opts.id || poseId(),
     name,
+    animClass,
+    target,
     emotion,
     tags,
     layers,
@@ -325,9 +380,252 @@ export function applyEyePose(tex, pose) {
     if (!L) return false;
     if (!applyLayerPose(L, layerPose)) return false;
   }
-  tex.emotion = normalizeEmotionTag(pose.emotion);
+  const animClass = normalizeAnimClassId(pose.animClass);
+  const target = normalizeAnimTarget(pose.target ?? pose.emotion);
+  tex.emotion = animClass === ANIM_CLASS_EMOTION ? target : normalizeEmotionTag(pose.emotion);
   tex.activePoseId = pose.id || tex.activePoseId || null;
   return true;
+}
+
+/**
+ * @param {EyePose} pose
+ * @returns {{ animClass: string, target: string }}
+ */
+export function poseAnimRef(pose) {
+  const animClass = normalizeAnimClassId(pose?.animClass);
+  const target = normalizeAnimTarget(pose?.target ?? pose?.emotion);
+  return { animClass, target };
+}
+
+/**
+ * List targets present on a texture for one animation class.
+ * @param {object} tex
+ * @param {string} [animClass]
+ * @returns {string[]}
+ */
+export function listAnimTargets(tex, animClass = ANIM_CLASS_EMOTION) {
+  const cls = normalizeAnimClassId(animClass);
+  const found = new Set();
+  for (const p of tex?.poses || []) {
+    const ref = poseAnimRef(p);
+    if (ref.animClass === cls) found.add(ref.target);
+  }
+  return [...found];
+}
+
+/**
+ * @param {object} tex
+ * @param {string} animClass
+ * @param {string} target
+ * @returns {EyePose|null}
+ */
+export function getPoseForTarget(tex, animClass, target) {
+  const cls = normalizeAnimClassId(animClass);
+  const tgt = normalizeAnimTarget(target);
+  for (const p of tex?.poses || []) {
+    const ref = poseAnimRef(p);
+    if (ref.animClass === cls && ref.target === tgt) return p;
+  }
+  return null;
+}
+
+function clonePoseLayers(layers) {
+  /** @type {Partial<Record<EyeLayerRole, EyeLayerPose>>} */
+  const out = {};
+  for (const [role, lp] of Object.entries(layers || {})) {
+    out[role] = {
+      knots: (lp.knots || []).map((k) => ({
+        x: k.x,
+        y: k.y,
+        hx: k.hx,
+        hy: k.hy,
+      })),
+      ...(lp.enabled === false ? { enabled: false } : { enabled: true }),
+      ...(Number.isFinite(Number(lp.opacity)) ? { opacity: Number(lp.opacity) } : {}),
+    };
+  }
+  return out;
+}
+
+function offsetKnots(knots, fn) {
+  return (knots || []).map((k, i) => {
+    const d = fn(k, i) || {};
+    return {
+      x: k.x + (Number(d.x) || 0),
+      y: k.y + (Number(d.y) || 0),
+      hx: k.hx + (Number(d.hx) || 0),
+      hy: k.hy + (Number(d.hy) || 0),
+    };
+  });
+}
+
+function scaleKnotsAbout(knots, cx, cy, sx, sy) {
+  return (knots || []).map((k) => ({
+    x: cx + (k.x - cx) * sx,
+    y: cy + (k.y - cy) * sy,
+    hx: k.hx * sx,
+    hy: k.hy * sy,
+  }));
+}
+
+/**
+ * Procedural emotion variants from a base pose (same topology) for preview testing.
+ * @param {EyePose} base
+ * @param {string} target
+ * @returns {EyePose}
+ */
+export function deriveDemoEmotionPose(base, target) {
+  const tgt = normalizeAnimTarget(target);
+  const layers = clonePoseLayers(base.layers);
+  const lid = layers.eyelid;
+  const eyeball = layers.eyeball;
+  const iris = layers.iris;
+  const pupil = layers.pupil;
+
+  if (lid?.knots?.length >= 3) {
+    if (tgt === "angry") {
+      lid.enabled = true;
+      lid.knots = offsetKnots(lid.knots, (_k, i) => {
+        if (i === 0 || i === 2) return { y: 0.14, hy: -0.04 };
+        return { y: -0.06, hy: 0.02 };
+      });
+    } else if (tgt === "sad") {
+      lid.enabled = true;
+      lid.knots = offsetKnots(lid.knots, (_k, i) => {
+        if (i === 0 || i === 2) return { y: -0.04 };
+        return { y: 0.1, hy: 0.04 };
+      });
+    } else if (tgt === "happy") {
+      lid.enabled = true;
+      lid.knots = offsetKnots(lid.knots, (_k, i) => {
+        if (i === 1) return { y: -0.1, hy: -0.02 };
+        return { y: 0.02 };
+      });
+    } else if (tgt === "surprised") {
+      lid.enabled = true;
+      lid.knots = offsetKnots(lid.knots, (_k, i) => {
+        if (i === 1) return { y: 0.22, hy: 0.06 };
+        return { y: 0.1 };
+      });
+    } else if (tgt === "sleepy") {
+      lid.enabled = true;
+      lid.knots = offsetKnots(lid.knots, () => ({ y: -0.16, hy: -0.03 }));
+    } else if (tgt === "fear") {
+      lid.enabled = true;
+      lid.knots = offsetKnots(lid.knots, (_k, i) => {
+        if (i === 1) return { y: 0.18 };
+        return { y: 0.08, hx: 0.02 };
+      });
+    } else if (tgt === "disgust") {
+      lid.enabled = true;
+      lid.knots = offsetKnots(lid.knots, (_k, i) => {
+        if (i === 0) return { y: 0.1 };
+        if (i === 2) return { y: -0.02 };
+        return { y: -0.08 };
+      });
+    } else if (tgt === "wink") {
+      lid.enabled = true;
+      lid.knots = offsetKnots(lid.knots, () => ({ y: -0.22 }));
+    } else {
+      // neutral / unknown — keep base; ensure eyelid visibility matches base
+    }
+  }
+
+  if (eyeball?.knots?.length >= 3 && (tgt === "surprised" || tgt === "fear")) {
+    const cx =
+      eyeball.knots.reduce((s, k) => s + k.x, 0) / eyeball.knots.length;
+    const cy =
+      eyeball.knots.reduce((s, k) => s + k.y, 0) / eyeball.knots.length;
+    eyeball.knots = scaleKnotsAbout(eyeball.knots, cx, cy, 1.02, 1.12);
+  }
+  if (eyeball?.knots?.length >= 3 && (tgt === "angry" || tgt === "sleepy")) {
+    const cx =
+      eyeball.knots.reduce((s, k) => s + k.x, 0) / eyeball.knots.length;
+    const cy =
+      eyeball.knots.reduce((s, k) => s + k.y, 0) / eyeball.knots.length;
+    eyeball.knots = scaleKnotsAbout(eyeball.knots, cx, cy, 1.0, 0.9);
+  }
+  if (iris?.knots?.length && (tgt === "surprised" || tgt === "fear")) {
+    const cx = iris.knots.reduce((s, k) => s + k.x, 0) / iris.knots.length;
+    const cy = iris.knots.reduce((s, k) => s + k.y, 0) / iris.knots.length;
+    iris.knots = scaleKnotsAbout(iris.knots, cx, cy, 0.92, 0.92);
+    if (pupil?.knots?.length) {
+      pupil.knots = scaleKnotsAbout(pupil.knots, cx, cy, 0.9, 0.9);
+    }
+  }
+
+  return {
+    id: `demo_${ANIM_CLASS_EMOTION}_${tgt}`,
+    name: tgt.charAt(0).toUpperCase() + tgt.slice(1),
+    animClass: ANIM_CLASS_EMOTION,
+    target: tgt,
+    emotion: tgt,
+    tags: [tgt, "demo"],
+    layers,
+  };
+}
+
+/**
+ * Ensure demo emotion targets exist on the texture (for A→B preview testing).
+ * Captures current layers as the base (usually neutral) when missing.
+ * @param {object} tex
+ * @param {{ targets?: string[], baseTarget?: string }} [opts]
+ * @returns {string[]} targets now available
+ */
+export function ensureDemoAnimTargets(tex, opts = {}) {
+  if (!tex?.layers?.length) return [];
+  if (!Array.isArray(tex.poses)) tex.poses = [];
+  const targets = Array.isArray(opts.targets) && opts.targets.length
+    ? opts.targets.map(normalizeAnimTarget)
+    : ["neutral", "happy", "sad", "angry", "surprised", "sleepy"];
+  const baseTarget = normalizeAnimTarget(opts.baseTarget || "neutral");
+
+  let base = getPoseForTarget(tex, ANIM_CLASS_EMOTION, baseTarget);
+  if (!base) {
+    base = captureEyePose(tex, {
+      animClass: ANIM_CLASS_EMOTION,
+      target: baseTarget,
+      emotion: baseTarget,
+      id: `demo_${ANIM_CLASS_EMOTION}_${baseTarget}`,
+      name: baseTarget.charAt(0).toUpperCase() + baseTarget.slice(1),
+      tags: [baseTarget, "demo"],
+    });
+    if (base) upsertEyePose(tex, base);
+  }
+
+  for (const tgt of targets) {
+    if (getPoseForTarget(tex, ANIM_CLASS_EMOTION, tgt)) continue;
+    if (tgt === baseTarget) continue;
+    upsertEyePose(tex, deriveDemoEmotionPose(base, tgt));
+  }
+  tex.topologyKey = eyeTopologyKey(tex);
+  return listAnimTargets(tex, ANIM_CLASS_EMOTION);
+}
+
+/**
+ * Build a cloned eye texture with layers morphed between two anim targets.
+ * Does not mutate the source texture.
+ * @param {object} tex
+ * @param {{ animClass?: string, from: string, to: string, t?: number }} opts
+ * @returns {object|null}
+ */
+export function morphTextureAnim(tex, opts) {
+  if (!tex) return null;
+  const animClass = normalizeAnimClassId(opts.animClass);
+  const fromT = normalizeAnimTarget(opts.from);
+  const toT = normalizeAnimTarget(opts.to);
+  const t = Math.min(1, Math.max(0, Number(opts.t) || 0));
+  const from = getPoseForTarget(tex, animClass, fromT);
+  const to = getPoseForTarget(tex, animClass, toT);
+  if (!from || !to) return null;
+  const mid = interpolateEyePose(from, to, t);
+  if (!mid) return null;
+  mid.animClass = animClass;
+  mid.target = t < 0.5 ? fromT : toT;
+  const clone = JSON.parse(JSON.stringify(tex));
+  if (!applyEyePose(clone, mid)) return null;
+  clone.emotion = mid.emotion;
+  return clone;
 }
 
 /**
@@ -374,10 +672,15 @@ export function interpolateEyePose(from, to, t) {
     row.opacity = oa + (ob - oa) * u;
     layers[role] = row;
   }
+  const fromRef = poseAnimRef(from);
+  const toRef = poseAnimRef(to);
+  const emotion = u < 0.5 ? fromRef.target : toRef.target;
   return {
     id: `morph_${from.id || "a"}_${to.id || "b"}`,
-    name: `${from.name || from.emotion}→${to.name || to.emotion}`,
-    emotion: u < 0.5 ? normalizeEmotionTag(from.emotion) : normalizeEmotionTag(to.emotion),
+    name: `${from.name || fromRef.target}→${to.name || toRef.target}`,
+    animClass: fromRef.animClass || toRef.animClass || ANIM_CLASS_EMOTION,
+    target: emotion,
+    emotion,
     tags: ["morph"],
     layers,
   };
@@ -425,7 +728,9 @@ export function validateEyePoseTopology(tex, pose) {
  */
 export function normalizeEyePose(raw, tex) {
   if (!raw || typeof raw !== "object") return null;
-  const emotion = normalizeEmotionTag(raw.emotion);
+  const animClass = normalizeAnimClassId(raw.animClass);
+  const target = normalizeAnimTarget(raw.target ?? raw.emotion);
+  const emotion = animClass === ANIM_CLASS_EMOTION ? target : normalizeEmotionTag(raw.emotion ?? target);
   /** @type {Partial<Record<EyeLayerRole, EyeLayerPose>>} */
   const layers = {};
   const src = raw.layers && typeof raw.layers === "object" ? raw.layers : {};
@@ -440,17 +745,26 @@ export function normalizeEyePose(raw, tex) {
     }
   }
   if (!Object.keys(layers).length && tex) {
-    const captured = captureEyePose(tex, { emotion, name: raw.name, id: raw.id, tags: raw.tags });
+    const captured = captureEyePose(tex, {
+      animClass,
+      target,
+      emotion,
+      name: raw.name,
+      id: raw.id,
+      tags: raw.tags,
+    });
     return captured;
   }
   if (!Object.keys(layers).length) return null;
   const tags = Array.isArray(raw.tags)
     ? raw.tags.map(normalizeEmotionTag).filter(Boolean)
-    : [emotion];
-  if (!tags.includes(emotion)) tags.unshift(emotion);
+    : [target];
+  if (!tags.includes(target)) tags.unshift(target);
   return {
     id: typeof raw.id === "string" && raw.id ? raw.id : poseId(),
-    name: String(raw.name || "").trim() || emotion.charAt(0).toUpperCase() + emotion.slice(1),
+    name: String(raw.name || "").trim() || target.charAt(0).toUpperCase() + target.slice(1),
+    animClass,
+    target,
     emotion,
     tags,
     layers,
@@ -485,42 +799,55 @@ export function normalizeEyePoses(tex, rawPoses) {
  * @returns {object[]}
  */
 export function serializeEyePoses(poses) {
-  return (poses || []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    emotion: normalizeEmotionTag(p.emotion),
-    tags: Array.isArray(p.tags) ? p.tags.map(normalizeEmotionTag) : [normalizeEmotionTag(p.emotion)],
-    layers: Object.fromEntries(
-      Object.entries(p.layers || {}).map(([role, lp]) => [
-        role,
-        {
-          knots: (lp.knots || []).map((k) => ({
-            x: Number(k.x) || 0,
-            y: Number(k.y) || 0,
-            hx: Number(k.hx) || 0,
-            hy: Number(k.hy) || 0,
-          })),
-          ...(lp.enabled === false ? { enabled: false } : {}),
-          ...(Number.isFinite(Number(lp.opacity))
-            ? { opacity: Math.min(1, Math.max(0, Number(lp.opacity))) }
-            : {}),
-        },
-      ]),
-    ),
-  }));
+  return (poses || []).map((p) => {
+    const ref = poseAnimRef(p);
+    return {
+      id: p.id,
+      name: p.name,
+      animClass: ref.animClass,
+      target: ref.target,
+      emotion: normalizeEmotionTag(p.emotion ?? ref.target),
+      tags: Array.isArray(p.tags)
+        ? p.tags.map(normalizeEmotionTag)
+        : [ref.target],
+      layers: Object.fromEntries(
+        Object.entries(p.layers || {}).map(([role, lp]) => [
+          role,
+          {
+            knots: (lp.knots || []).map((k) => ({
+              x: Number(k.x) || 0,
+              y: Number(k.y) || 0,
+              hx: Number(k.hx) || 0,
+              hy: Number(k.hy) || 0,
+            })),
+            ...(lp.enabled === false ? { enabled: false } : {}),
+            ...(Number.isFinite(Number(lp.opacity))
+              ? { opacity: Math.min(1, Math.max(0, Number(lp.opacity))) }
+              : {}),
+          },
+        ]),
+      ),
+    };
+  });
 }
 
 /**
- * Upsert a pose into tex.poses (by id, or by emotion if id missing).
+ * Upsert a pose into tex.poses (by id, else by animClass+target).
  * @param {object} tex
  * @param {EyePose} pose
  */
 export function upsertEyePose(tex, pose) {
   if (!tex || !pose) return;
   if (!Array.isArray(tex.poses)) tex.poses = [];
-  const i = tex.poses.findIndex(
-    (p) => p.id === pose.id || (!pose.id && p.emotion === pose.emotion),
-  );
+  const ref = poseAnimRef(pose);
+  pose.animClass = ref.animClass;
+  pose.target = ref.target;
+  if (!pose.emotion) pose.emotion = ref.target;
+  const i = tex.poses.findIndex((p) => {
+    if (pose.id && p.id === pose.id) return true;
+    const pr = poseAnimRef(p);
+    return pr.animClass === ref.animClass && pr.target === ref.target;
+  });
   if (i >= 0) tex.poses[i] = pose;
   else tex.poses.push(pose);
   tex.activePoseId = pose.id;

@@ -194,6 +194,11 @@ Use **Add** to insert more knots.
 the same knot topology so emotions can morph. Compatible textures share
 `topologyKey`. Design: [`docs/EYE_EMOTION_RIG.md`](./docs/EYE_EMOTION_RIG.md).
 
+**Anim preview (mesh toolbar):** after **Assign to mesh**, use **Anim preview**
+to pick an animation class (currently **Emotion**) and morph From → To. If the
+texture has no targets yet, **Seed demo emotions** builds procedural variants
+for testing; the 3D preview re-bakes the UV atlas as you drag Morph.
+
 ## Shading base
 
 Teapot-inspired modes exercised against Ranger Three:

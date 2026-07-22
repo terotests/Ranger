@@ -177,9 +177,38 @@ reactive knot trees or WASM bindings every frame.
 | `interpolateEyePose(a, b, t)` | CPU morph (preview / bake) |
 | `compileEyeRig(tex, opts)` | Sampled buffers for runtime |
 
+## Animation classes (generalized states)
+
+Emotion is one **animation class**; a class has named **targets** that morph
+inside the same topology:
+
+```text
+animClass: "emotion"
+  targets: neutral | happy | sad | angry | …
+```
+
+Later classes (same machinery, different targets):
+
+```text
+animClass: "blink"   → open | closed
+animClass: "gaze"    → center | left | right
+```
+
+Each pose stores `animClass` + `target` (`emotion` kept as alias when
+`animClass === "emotion"`). Registry: `ANIM_CLASS_DEFS` in `eyeEmotion.js`.
+
+## Mesh preview testing (Assign → A→B)
+
+1. **Assign to mesh** (existing square + texture dialog).
+2. In the mesh toolbar **Anim preview** panel:
+   - **Seed demo emotions** — procedural targets from the current eye
+   - Pick class / From / To and drag **Morph** 0…1
+3. Preview re-bakes the UV atlas (`previewAssignedAnimMorph`) so the 3D view
+   updates. Authoring `layers` stay unchanged; only the assigned atlas morphs.
+
 ## Out of scope (follow-ups)
 
-- UI for pose list / emotion picker in the Texture sector
-- GPU offscreen eye framebuffer → mesh UV
+- Full pose list / capture UI in the Texture sector
+- GPU offscreen eye framebuffer / vertex-shader morph (no atlas rebake)
 - Per-eye blink / gaze overrides on top of shared emotion
 - Asymmetric in/out handles (`inHandle` / `outHandle`) if C1 symmetry is too limiting
