@@ -184,6 +184,10 @@ Layers can be named, reordered, enabled/disabled. Only **params** are saved
 (`knots` / `segments` / colours) — `renderEyeTexture` rebuilds pixels at runtime
 (animatable). Mesh UV projection / vertex-colour background assign is next.
 
+Eye paths default to a **4-knot** Y-symmetric ellipse (easy width/height). Toolbar
+**Symmetry** mirrors the left from the right (centroid axis); **Auto smooth**
+recomputes Bezier handles after moving a point. Use **Add** to insert more knots.
+
 ## Shading base
 
 Teapot-inspired modes exercised against Ranger Three:

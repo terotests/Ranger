@@ -63,42 +63,146 @@ export function syncClosedSegments(knots, segments, defaultPathType = "bezier") 
   return next;
 }
 
+/**
+ * Closed ellipse/circle as cubic Bezier knots with correct κ handles.
+ * Default n=4 (like a smooth almond/eye) — fewer points, easier width/height edits.
+ * Shape is Y-symmetric when centred on x=0.
+ */
 export function makeEllipsePath({
   cx = 0,
   cy = 0,
   rx = 0.45,
   ry = 0.55,
   color = "#ffffff",
-  n = 8,
+  n = 4,
 } = {}) {
+  const count = Math.max(3, n | 0);
+  // κ for a circular arc spanning 2π/n with symmetric in/out handles
+  const kappa = (4 / 3) * Math.tan(Math.PI / count);
   const knots = [];
-  for (let i = 0; i < n; i++) {
-    const t = (i / n) * Math.PI * 2;
-    const x = cx + Math.cos(t) * rx;
-    const y = cy + Math.sin(t) * ry;
-    // Approximate cubic handles for a circle/ellipse
-    const tang = 0.5522847498;
-    const tx = -Math.sin(t) * rx * tang;
-    const ty = Math.cos(t) * ry * tang;
+  for (let i = 0; i < count; i++) {
+    const t = (i / count) * Math.PI * 2;
     knots.push({
       id: knotUid(),
-      x,
-      y,
-      hx: tx / n,
-      hy: ty / n,
+      x: cx + Math.cos(t) * rx,
+      y: cy + Math.sin(t) * ry,
+      // Tangent (−sin, cos) × ellipse radii × κ
+      hx: -Math.sin(t) * rx * kappa,
+      hy: Math.cos(t) * ry * kappa,
       color,
     });
-  }
-  // Better ellipse handles: adjacent Bezier control for circular arc
-  for (let i = 0; i < n; i++) {
-    const t = (i / n) * Math.PI * 2;
-    const k = 4 * Math.tan(Math.PI / n) / 3;
-    knots[i].hx = (-Math.sin(t) * rx * k) / 2;
-    knots[i].hy = (Math.cos(t) * ry * k) / 2;
   }
   const segments = syncClosedSegments(knots, [], "bezier");
   for (const s of segments) s.color = color;
   return { knots, segments };
+}
+
+/**
+ * After moving a knot, set symmetric Bezier handles from neighbour finite
+ * differences so the polyline corners stay smooth (C1-ish).
+ */
+export function autoSmoothHandles(knots, { closed = false } = {}) {
+  const n = knots?.length || 0;
+  if (n < 2) return;
+  for (let i = 0; i < n; i++) {
+    const k = knots[i];
+    let prev;
+    let next;
+    if (closed) {
+      prev = knots[(i - 1 + n) % n];
+      next = knots[(i + 1) % n];
+    } else {
+      prev = i > 0 ? knots[i - 1] : null;
+      next = i < n - 1 ? knots[i + 1] : null;
+      if (!prev && next) {
+        // Start: aim toward next
+        const dx = next.x - k.x;
+        const dy = next.y - k.y;
+        const L = Math.hypot(dx, dy) || 1;
+        const s = L / 3;
+        k.hx = (dx / L) * s;
+        k.hy = (dy / L) * s;
+        continue;
+      }
+      if (!next && prev) {
+        const dx = k.x - prev.x;
+        const dy = k.y - prev.y;
+        const L = Math.hypot(dx, dy) || 1;
+        const s = L / 3;
+        k.hx = (dx / L) * s;
+        k.hy = (dy / L) * s;
+        continue;
+      }
+      if (!prev || !next) continue;
+    }
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const L = Math.hypot(dx, dy) || 1;
+    const dPrev = Math.hypot(k.x - prev.x, k.y - prev.y);
+    const dNext = Math.hypot(next.x - k.x, next.y - k.y);
+    const scale = (dPrev + dNext) / 6;
+    k.hx = (dx / L) * scale;
+    k.hy = (dy / L) * scale;
+  }
+}
+
+/**
+ * Keep a closed path Y-symmetric about its centroid X (3D-profile style):
+ * edit the right half (local x ≥ 0); rebuild the left from mirrors.
+ * Preserves knot ids when possible.
+ */
+export function rebuildClosedYSymmetry(knots) {
+  if (!knots?.length) return;
+  const eps = 1e-3;
+  const c = pathCentroid(knots);
+  const ax = c.x;
+  const leftPool = knots.filter((k) => k.x < ax - eps).map((k) => ({ ...k }));
+  const right = [];
+  for (const k of knots) {
+    if (k.x < ax - eps) continue;
+    const nk = { ...k };
+    if (Math.abs(nk.x - ax) < eps) {
+      nk.x = ax;
+      nk.hx = 0;
+    }
+    right.push(nk);
+  }
+  if (right.length < 2) return;
+  right.sort((a, b) => Math.atan2(a.y - c.y, a.x - ax) - Math.atan2(b.y - c.y, b.x - ax));
+
+  const left = [];
+  for (const k of right) {
+    if (k.x <= ax + eps) continue;
+    let id = knotUid();
+    let bestI = -1;
+    let bestD = 0.25;
+    const wantX = ax - (k.x - ax);
+    for (let i = 0; i < leftPool.length; i++) {
+      const m = leftPool[i];
+      const d = Math.hypot(m.x - wantX, m.y - k.y);
+      if (d < bestD) {
+        bestD = d;
+        bestI = i;
+      }
+    }
+    if (bestI >= 0) {
+      id = leftPool[bestI].id;
+      leftPool.splice(bestI, 1);
+    }
+    left.push({
+      id,
+      x: wantX,
+      y: k.y,
+      hx: -k.hx,
+      hy: k.hy,
+      color: k.color,
+    });
+  }
+
+  const all = [...right, ...left];
+  all.sort((a, b) => Math.atan2(a.y - c.y, a.x - ax) - Math.atan2(b.y - c.y, b.x - ax));
+  knots.length = 0;
+  for (const k of all) knots.push(k);
 }
 
 export function makeOpenArcPath({

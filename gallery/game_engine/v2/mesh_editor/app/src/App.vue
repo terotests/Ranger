@@ -58,6 +58,8 @@ const texPath = tex.path;
 const texLayers = tex.layers;
 const texSelected = tex.selectedTexture;
 const texPathClosed = tex.pathClosed;
+const texClampX = tex.clampNonNegativeX;
+const texShowMirror = tex.showMirror;
 
 const workspace = ref("mesh"); // mesh | texture
 
@@ -358,6 +360,25 @@ onBeforeUnmount(() => {
           >
             Delete texture
           </button>
+          <label class="tex-check" title="Edit right half; left is mirrored (like mesh profile)">
+            <input
+              type="checkbox"
+              :checked="texState.symmetry"
+              @change="tex.setSymmetry($event.target.checked)"
+            />
+            Symmetry
+          </label>
+          <label
+            class="tex-check"
+            title="After moving a point, recompute Bezier handles for smooth joins"
+          >
+            <input
+              type="checkbox"
+              :checked="texState.autoSmooth"
+              @change="tex.setAutoSmooth($event.target.checked)"
+            />
+            Auto smooth
+          </label>
         </div>
         <p v-if="workspace === 'mesh' && state.viewMode === 'spine'" class="spine-hint">
           Editing {{ spinePlaneLabel }} · pick Profile/Orbit first to choose which bend
@@ -666,33 +687,39 @@ onBeforeUnmount(() => {
     </main>
 
     <main v-else class="workspace texture-workspace">
-      <SplineCanvas
-        :knots="texPath.state.knots"
-        :segments="texPath.state.segments"
-        :selected-id="texPath.state.selectedId"
-        :selected-ids="texPath.state.selectedIds"
-        :selected-segment-index="texPath.state.selectedSegmentIndex"
-        :curve-type="texPath.state.curveType"
-        :symmetry="false"
-        :tool-mode="texPath.state.toolMode"
-        view-mode="profile"
-        :path-closed="texPathClosed"
-        :show-unit-circle="false"
-        :show-placement-normal-prop="false"
-        :show-attachments-prop="false"
-        :show-mirror="false"
-        :show-lathe-guides="false"
-        :clamp-non-negative-x="false"
-        :children="[]"
-        :viewport="texPath.state.viewport"
-        :sample-curve-points="texPath.sampleCurvePoints"
-        :find-closest-on-curve="texPath.findClosestOnCurve"
-        @select="(id, opts) => texPath.select(id, opts || {})"
-        @select-segment="texPath.selectSegment"
-        @update-knot="tex.onPathKnotUpdate"
-        @add-on-curve="tex.onPathAdd"
-        @drag-end="tex.onPathDragEnd"
-      />
+      <div class="tex-canvas-col">
+        <SplineCanvas
+          :knots="texPath.state.knots"
+          :segments="texPath.state.segments"
+          :selected-id="texPath.state.selectedId"
+          :selected-ids="texPath.state.selectedIds"
+          :selected-segment-index="texPath.state.selectedSegmentIndex"
+          :curve-type="texPath.state.curveType"
+          :symmetry="texShowMirror"
+          :tool-mode="texPath.state.toolMode"
+          view-mode="profile"
+          :path-closed="texPathClosed"
+          :show-unit-circle="false"
+          :show-placement-normal-prop="false"
+          :show-attachments-prop="false"
+          :show-mirror="texShowMirror"
+          :show-lathe-guides="false"
+          :clamp-non-negative-x="texClampX"
+          :children="[]"
+          :viewport="texPath.state.viewport"
+          :sample-curve-points="texPath.sampleCurvePoints"
+          :find-closest-on-curve="texPath.findClosestOnCurve"
+          @select="(id, opts) => texPath.select(id, opts || {})"
+          @select-segment="texPath.selectSegment"
+          @update-knot="tex.onPathKnotUpdate"
+          @add-on-curve="tex.onPathAdd"
+          @drag-end="tex.onPathDragEnd"
+        />
+        <p class="tex-canvas-hint">
+          Few control points · Symmetry mirrors left · Add tool inserts knots · Auto smooth
+          keeps joins continuous
+        </p>
+      </div>
       <TextureLayerPanel
         :layers="texLayers"
         :selected-layer-id="texState.selectedLayerId"
@@ -905,6 +932,49 @@ h1 {
   gap: 1rem;
   min-height: 0;
   align-items: stretch;
+}
+
+/* Keep Bezier canvas from spilling over Layers checkboxes */
+.texture-workspace {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px) minmax(0, 0.9fr) minmax(180px, 0.65fr);
+}
+.tex-canvas-col {
+  min-width: 0;
+  overflow: hidden;
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+}
+.tex-canvas-col :deep(.spline-wrap) {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+.tex-canvas-col :deep(.spline-canvas) {
+  width: 100%;
+  max-width: min(100%, 480px);
+  justify-self: center;
+}
+.tex-canvas-hint {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--ink-dim);
+  text-align: center;
+}
+.tex-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.tex-check input {
+  margin: 0;
 }
 
 .side-stack {

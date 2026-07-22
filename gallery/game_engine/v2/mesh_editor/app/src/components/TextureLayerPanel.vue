@@ -91,7 +91,10 @@ const addTypes = [
   border-radius: var(--radius);
   padding: 0.85rem;
   min-height: 0;
+  min-width: 0;
   align-content: start;
+  position: relative;
+  z-index: 1;
 }
 header {
   display: flex;
