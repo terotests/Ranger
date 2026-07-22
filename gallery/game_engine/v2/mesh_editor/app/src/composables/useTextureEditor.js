@@ -14,17 +14,28 @@ import {
 } from "../lib/texture/eyeTexture.js";
 import { usePathEditor } from "./usePathEditor.js";
 import { newGuid } from "../lib/assetClone.js";
+import {
+  autoSmoothHandles,
+  rebuildClosedYSymmetry,
+  pathCentroid,
+} from "../lib/pathModel.js";
 
 export function useTextureEditor() {
   const state = reactive({
     textures: /** @type {Record<string, any>} */ ({}),
     selectedGuid: /** @type {string|null} */ (null),
     selectedLayerId: /** @type {string|null} */ (null),
+    /** Y-mirror like mesh profile — edit right half (x ≥ 0). */
+    symmetry: true,
+    /** Recompute Bezier handles after moving a knot (smooth joins). */
+    autoSmooth: true,
     status: "Texture editor — params only (rasterized at runtime).",
   });
 
   const path = usePathEditor({
     closed: true,
+    // Canvas clamps via SplineCanvas prop; eyelid must allow signed X.
+    clampNonNegativeX: false,
     viewport: { min: -1.2, max: 1.2 },
   });
 
@@ -40,25 +51,44 @@ export function useTextureEditor() {
 
   const layers = computed(() => selectedTexture.value?.layers || []);
 
+  function layerWantsSymmetry(layer) {
+    return state.symmetry && layer && layer.type !== "eyelid" && layer.closed !== false;
+  }
+
   function syncPathFromLayer() {
     const layer = selectedLayer.value;
     if (!layer) {
       path.loadPath([], [], { closed: true });
+      path.state.closed = true;
       return;
     }
-    path.loadPath(layer.knots, layer.segments, { closed: layer.type !== "eyelid" });
+    const closed = layer.type !== "eyelid";
+    path.loadPath(layer.knots, layer.segments, { closed });
   }
 
-  function pushPathToLayer() {
+  function applyPathPolish({ movedPoint = false } = {}) {
+    const closed = path.state.closed;
+    if (movedPoint && state.autoSmooth) {
+      autoSmoothHandles(path.state.knots, { closed });
+    }
+    if (layerWantsSymmetry(selectedLayer.value) && closed) {
+      rebuildClosedYSymmetry(path.state.knots);
+      if (state.autoSmooth) autoSmoothHandles(path.state.knots, { closed: true });
+      path.syncSegments();
+    }
+  }
+
+  function pushPathToLayer(opts = {}) {
     const tex = selectedTexture.value;
     const layer = selectedLayer.value;
     if (!tex || !layer) return;
+    applyPathPolish(opts);
     layer.knots = path.state.knots.map((k) => ({ ...k }));
     layer.segments = path.state.segments.map((s) => ({ ...s }));
     layer.color = layer.color || path.state.knots[0]?.color || layer.color;
     constrainEyeLayer(tex, layer.id);
     // If constrain moved knots, reload path editor
-    path.loadPath(layer.knots, layer.segments);
+    path.loadPath(layer.knots, layer.segments, { closed: layer.type !== "eyelid" });
   }
 
   watch(
@@ -161,18 +191,45 @@ export function useTextureEditor() {
     }
   }
 
+  function symmetryAxisX() {
+    const knots = path.state.knots;
+    if (!knots?.length) return 0;
+    return pathCentroid(knots).x;
+  }
+
   function onPathKnotUpdate(id, patch) {
+    // With symmetry, keep edits on the right half relative to path centroid.
+    if (layerWantsSymmetry(selectedLayer.value) && patch.x != null) {
+      const ax = symmetryAxisX();
+      patch = { ...patch, x: Math.max(ax, Number(patch.x) || 0) };
+    }
     path.updateKnot(id, patch);
-    pushPathToLayer();
+    const movedPoint = patch.x != null || patch.y != null;
+    pushPathToLayer({ movedPoint });
   }
 
   function onPathDragEnd() {
     path.endGesture();
-    pushPathToLayer();
+    pushPathToLayer({ movedPoint: true });
   }
 
   function onPathAdd(x, y) {
-    if (path.insertKnotOnCurve(x, y)) pushPathToLayer();
+    const wx = layerWantsSymmetry(selectedLayer.value)
+      ? Math.max(symmetryAxisX(), x)
+      : x;
+    if (path.insertKnotOnCurve(wx, y)) pushPathToLayer({ movedPoint: true });
+  }
+
+  function setSymmetry(on) {
+    state.symmetry = !!on;
+    if (state.symmetry && path.state.closed) {
+      pushPathToLayer({ movedPoint: true });
+    }
+  }
+
+  function setAutoSmooth(on) {
+    state.autoSmooth = !!on;
+    if (state.autoSmooth) pushPathToLayer({ movedPoint: true });
   }
 
   function removeSelectedTexture() {
@@ -211,6 +268,18 @@ export function useTextureEditor() {
   /** Path editor presents as closed for non-eyelid layers. */
   const pathClosed = computed(() => selectedLayer.value?.type !== "eyelid");
 
+  /**
+   * Canvas clamp for symmetry: only force world x≥0 for eyeball (centred on 0).
+   * Off-centre iris/pupil still get centroid-based rebuild after edits.
+   */
+  const clampNonNegativeX = computed(() => {
+    const layer = selectedLayer.value;
+    return layerWantsSymmetry(layer) && layer?.type === "eyeball";
+  });
+
+  // Real left knots are stored (rebuilt from the right); no ghost-mirror overlay.
+  const showMirror = computed(() => false);
+
   return {
     state,
     path,
@@ -218,6 +287,8 @@ export function useTextureEditor() {
     selectedLayer,
     layers,
     pathClosed,
+    clampNonNegativeX,
+    showMirror,
     createEye,
     selectTexture,
     selectLayer,
@@ -230,6 +301,8 @@ export function useTextureEditor() {
     onPathKnotUpdate,
     onPathDragEnd,
     onPathAdd,
+    setSymmetry,
+    setAutoSmooth,
     removeSelectedTexture,
     snapshotTextures,
     loadTextures,

@@ -8,7 +8,13 @@ import {
   findLayer,
   layerPolygon,
 } from "../src/lib/texture/eyeTexture.js";
-import { pointInPolygon, pathCentroid } from "../src/lib/pathModel.js";
+import {
+  pointInPolygon,
+  pathCentroid,
+  autoSmoothHandles,
+  rebuildClosedYSymmetry,
+  makeEllipsePath,
+} from "../src/lib/pathModel.js";
 import { migrateProject } from "../src/library/migrations.js";
 import { CURRENT_SCHEMA_VERSION, buildProjectDocument } from "../src/library/schema.js";
 
@@ -17,6 +23,36 @@ assert.equal(eye.kind, "eye");
 assert.ok(eye.layers.some((L) => L.type === "eyeball"));
 assert.ok(eye.layers.some((L) => L.type === "iris"));
 assert.ok(eye.layers.some((L) => L.type === "pupil"));
+
+// Default eyeball uses a compact 4-knot symmetric ellipse
+const eyeball = findLayer(eye, "eyeball");
+assert.equal(eyeball.knots.length, 4, "eyeball starts with 4 knots");
+assert.ok(
+  eyeball.knots.some((k) => k.x > 0.5) && eyeball.knots.some((k) => k.x < -0.5),
+  "eyeball spans left/right for width edits",
+);
+
+const ell = makeEllipsePath({ cx: 0, cy: 0, rx: 1, ry: 0.5, n: 4 });
+assert.equal(ell.knots.length, 4);
+// Auto-smooth should keep finite handles
+for (const k of ell.knots) {
+  k.hx = 0;
+  k.hy = 0;
+}
+autoSmoothHandles(ell.knots, { closed: true });
+assert.ok(ell.knots.some((k) => Math.hypot(k.hx, k.hy) > 0.01), "auto-smooth sets handles");
+
+// Y-symmetry rebuild: move right tip, left should mirror about centroid X
+const right = ell.knots.find((k) => k.x > 0.5);
+right.x = 0.9;
+right.y = 0.05;
+rebuildClosedYSymmetry(ell.knots);
+const ax = pathCentroid(ell.knots).x;
+const right2 = ell.knots.find((k) => k.x > ax + 0.3);
+const left = ell.knots.find((k) => k.x < ax - 0.3);
+assert.ok(right2 && left, "left/right tips exist after symmetry rebuild");
+assert.ok(Math.abs(right2.x - ax - (ax - left.x)) < 1e-6, "left mirrors right about centroid");
+assert.ok(Math.abs(left.y - right2.y) < 1e-6, "left mirrors right y");
 
 // Move iris far outside, then constrain — centroid should land inside eyeball
 const iris = findLayer(eye, "iris");

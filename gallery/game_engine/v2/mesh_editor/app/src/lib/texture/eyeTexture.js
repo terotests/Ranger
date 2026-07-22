@@ -32,29 +32,30 @@ function layerId() {
 
 export function createEyeLayer(type, overrides = {}) {
   const defaults = {
+    // 4-knot Y-symmetric almond — drag left/right corners for width, top/bottom for height
     eyeball: () => ({
       name: "Eyeball",
       color: "#f2f0ea",
       closed: true,
-      ...makeEllipsePath({ cx: 0, cy: 0, rx: 0.72, ry: 0.55, color: "#f2f0ea", n: 8 }),
+      ...makeEllipsePath({ cx: 0, cy: 0, rx: 0.78, ry: 0.42, color: "#f2f0ea", n: 4 }),
     }),
     iris: () => ({
       name: "Iris",
       color: "#3a70d0",
       closed: true,
-      ...makeEllipsePath({ cx: 0.05, cy: 0.02, rx: 0.32, ry: 0.32, color: "#3a70d0", n: 8 }),
+      ...makeEllipsePath({ cx: 0.06, cy: 0.02, rx: 0.28, ry: 0.28, color: "#3a70d0", n: 4 }),
     }),
     pupil: () => ({
       name: "Pupil",
       color: "#0a0a0c",
       closed: true,
-      ...makeEllipsePath({ cx: 0.05, cy: 0.02, rx: 0.14, ry: 0.14, color: "#0a0a0c", n: 6 }),
+      ...makeEllipsePath({ cx: 0.06, cy: 0.02, rx: 0.12, ry: 0.12, color: "#0a0a0c", n: 4 }),
     }),
     reflection: () => ({
       name: "Reflection",
       color: "#ffffff",
       closed: true,
-      ...makeEllipsePath({ cx: -0.02, cy: 0.1, rx: 0.05, ry: 0.07, color: "#ffffff", n: 6 }),
+      ...makeEllipsePath({ cx: -0.02, cy: 0.1, rx: 0.05, ry: 0.065, color: "#ffffff", n: 4 }),
     }),
     eyelid: () => ({
       name: "Eyelid",
