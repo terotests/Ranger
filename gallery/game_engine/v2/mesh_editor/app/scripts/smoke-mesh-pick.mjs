@@ -115,7 +115,22 @@ assert.ok(regionSamplePoints(DEFAULT_ASSIGN_REGION, 3).length === 9);
   assert.ok(front?.uv, "lathe front hit has UV");
   assert.ok(Math.abs(front.uv[0] - 0.25) < 1e-6, `front u≈0.25 got ${front.uv[0]}`);
   const plusX = raycastMeshParts([3, 0.4, 0], [-1, 0, 0], latheParts);
-  assert.ok(plusX?.uv && Math.abs(plusX.uv[0]) < 1e-6, `+X u≈0 got ${plusX?.uv?.[0]}`);
+  // Seam column duplicates col0 at u=1; hit may land on u≈0 or u≈1 (same atlas edge).
+  assert.ok(
+    plusX?.uv && (plusX.uv[0] < 1e-6 || plusX.uv[0] > 1 - 1e-6),
+    `+X u≈0 or 1 got ${plusX?.uv?.[0]}`,
+  );
+  // Wrap faces must not span the atlas: max |Δu| on any edge < 0.5
+  {
+    const { uvs, indices, vertCols, steps } = mesh;
+    assert.equal(vertCols, steps + 1, "closed lathe has seam column");
+    let maxDu = 0;
+    for (let i = 0; i < indices.length; i += 3) {
+      const us = [0, 1, 2].map((k) => uvs[indices[i + k] * 2]);
+      maxDu = Math.max(maxDu, Math.abs(us[0] - us[1]), Math.abs(us[0] - us[2]), Math.abs(us[1] - us[2]));
+    }
+    assert.ok(maxDu < 0.5 + 1e-9, `seam faces must not cross atlas, maxΔu=${maxDu}`);
+  }
   const patch = [
     [front.uv[0] - 0.05, front.uv[1] + 0.08],
     [front.uv[0] + 0.05, front.uv[1] + 0.08],

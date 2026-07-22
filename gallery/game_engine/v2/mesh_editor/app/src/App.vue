@@ -84,7 +84,7 @@ setTextureAssetsProvider(() => tex.snapshotTextures());
 function snapshotState(kind) {
   const k = kind === "texture" ? "texture" : "mesh";
   return {
-    ...snapshotMeshState(),
+    ...snapshotMeshState({ includeMap: true }),
     textureAssets: tex.snapshotTextures(),
     projectKind: k,
   };

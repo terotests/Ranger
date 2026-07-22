@@ -474,6 +474,41 @@ assert.equal(mig10.ok, true, mig10.errors?.join("; "));
 assert.equal(mig10.doc.schemaVersion, 11);
 assert.equal(mig10.doc.objectMaterial.textureMap, null);
 
+// Save path: buildProjectDocument must keep bake when state carries a live map
+{
+  const saveDoc = buildProjectDocument({
+    state: {
+      ...docWithBake,
+      // Simulate editor snapshotState({ includeMap: true }) — live rgba map
+      objectMaterial: {
+        ...docWithBake.objectMaterial,
+        textureMap: asyncMap,
+      },
+      textureAssets: { [ser.assetGuid]: ser },
+      knots: docWithBake.profile.knots,
+      segments: docWithBake.profile.segments,
+      orbitKnots: docWithBake.orbit.knots,
+      orbitSegments: docWithBake.orbit.segments,
+      spineProfileKnots: docWithBake.spineProfile.knots,
+      spineProfileSegments: docWithBake.spineProfile.segments,
+      spineOrbitKnots: docWithBake.spineOrbit.knots,
+      spineOrbitSegments: docWithBake.spineOrbit.segments,
+      placementNormal: docWithBake.placementNormal,
+      embeddedAssets: {},
+      children: [],
+      editor: docWithBake.editor,
+    },
+    name: "Save bake",
+    slug: "save-bake",
+    projectKind: "mesh",
+  });
+  assert.ok(
+    saveDoc.objectMaterial.textureMap?.encoding === "rgba8-base64",
+    "Save must persist textureMap bake",
+  );
+  assert.ok(saveDoc.objectMaterial.textureMap.data.length > 100);
+}
+
 console.log("smoke-eye-texture: ok", {
   schema: mig.doc.schemaVersion,
   projectKind: mig.doc.projectKind,
