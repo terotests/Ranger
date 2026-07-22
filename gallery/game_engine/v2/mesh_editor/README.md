@@ -184,9 +184,10 @@ Layers can be named, reordered, enabled/disabled. Only **params** are saved
 (`knots` / `segments` / colours) — `renderEyeTexture` rebuilds pixels at runtime
 (animatable). Mesh UV projection / vertex-colour background assign is next.
 
-Eye paths default to a **4-knot** Y-symmetric ellipse (easy width/height). Toolbar
+Eye paths default to a **4-knot circle** (same κ ≈ 0.552 as Mesh Orbit). Toolbar
 **Symmetry** mirrors the left from the right (centroid axis); **Auto smooth**
-recomputes Bezier handles after moving a point. Use **Add** to insert more knots.
+recomputes Bezier handles after moving a **point** (not while dragging handles).
+Use **Add** to insert more knots.
 
 ## Shading base
 

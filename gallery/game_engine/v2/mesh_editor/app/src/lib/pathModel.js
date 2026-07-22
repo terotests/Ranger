@@ -63,10 +63,12 @@ export function syncClosedSegments(knots, segments, defaultPathType = "bezier") 
   return next;
 }
 
+/** Same κ as Mesh Orbit unit-circle (4 cubics): 4*(√2-1)/3. */
+export const CIRCLE_BEZIER_KAPPA = 0.5522847498307936;
+
 /**
- * Closed ellipse/circle as cubic Bezier knots with correct κ handles.
- * Default n=4 (like a smooth almond/eye) — fewer points, easier width/height edits.
- * Shape is Y-symmetric when centred on x=0.
+ * Closed ellipse/circle as cubic Bezier knots.
+ * Default n=4 matches Mesh Orbit: cardinal knots + κ handles → round circle, not a squircle.
  */
 export function makeEllipsePath({
   cx = 0,
@@ -77,8 +79,9 @@ export function makeEllipsePath({
   n = 4,
 } = {}) {
   const count = Math.max(3, n | 0);
-  // κ for a circular arc spanning 2π/n with symmetric in/out handles
-  const kappa = (4 / 3) * Math.tan(Math.PI / count);
+  // κ = (4/3)·tan(π/(2n)) — for n=4 this is CIRCLE_BEZIER_KAPPA (NOT tan(π/n), which squares it)
+  const kappa =
+    count === 4 ? CIRCLE_BEZIER_KAPPA : (4 / 3) * Math.tan(Math.PI / (2 * count));
   const knots = [];
   for (let i = 0; i < count; i++) {
     const t = (i / count) * Math.PI * 2;
@@ -86,7 +89,7 @@ export function makeEllipsePath({
       id: knotUid(),
       x: cx + Math.cos(t) * rx,
       y: cy + Math.sin(t) * ry,
-      // Tangent (−sin, cos) × ellipse radii × κ
+      // Orbit-style: handle along tangent (−sin, cos) × radii × κ
       hx: -Math.sin(t) * rx * kappa,
       hy: Math.cos(t) * ry * kappa,
       color,
@@ -163,7 +166,7 @@ export function rebuildClosedYSymmetry(knots) {
     const nk = { ...k };
     if (Math.abs(nk.x - ax) < eps) {
       nk.x = ax;
-      nk.hx = 0;
+      // Keep hx — top/bottom of a circle need horizontal handles (Orbit style).
     }
     right.push(nk);
   }

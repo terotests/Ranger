@@ -32,12 +32,12 @@ function layerId() {
 
 export function createEyeLayer(type, overrides = {}) {
   const defaults = {
-    // 4-knot Y-symmetric almond — drag left/right corners for width, top/bottom for height
+    // 4-knot circle like Mesh Orbit (κ ≈ 0.552) — not a squircle
     eyeball: () => ({
       name: "Eyeball",
       color: "#f2f0ea",
       closed: true,
-      ...makeEllipsePath({ cx: 0, cy: 0, rx: 0.78, ry: 0.42, color: "#f2f0ea", n: 4 }),
+      ...makeEllipsePath({ cx: 0, cy: 0, rx: 0.72, ry: 0.72, color: "#f2f0ea", n: 4 }),
     }),
     iris: () => ({
       name: "Iris",

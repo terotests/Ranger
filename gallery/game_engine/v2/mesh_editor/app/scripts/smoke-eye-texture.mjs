@@ -14,6 +14,8 @@ import {
   autoSmoothHandles,
   rebuildClosedYSymmetry,
   makeEllipsePath,
+  CIRCLE_BEZIER_KAPPA,
+  samplePath,
 } from "../src/lib/pathModel.js";
 import { migrateProject } from "../src/library/migrations.js";
 import { CURRENT_SCHEMA_VERSION, buildProjectDocument } from "../src/library/schema.js";
@@ -24,16 +26,29 @@ assert.ok(eye.layers.some((L) => L.type === "eyeball"));
 assert.ok(eye.layers.some((L) => L.type === "iris"));
 assert.ok(eye.layers.some((L) => L.type === "pupil"));
 
-// Default eyeball uses a compact 4-knot symmetric ellipse
+// Default eyeball: 4-knot circle like Mesh Orbit (κ handles, not a square)
 const eyeball = findLayer(eye, "eyeball");
 assert.equal(eyeball.knots.length, 4, "eyeball starts with 4 knots");
+const rightTip = eyeball.knots.find((k) => k.x > 0.5);
+assert.ok(rightTip, "right tip");
 assert.ok(
-  eyeball.knots.some((k) => k.x > 0.5) && eyeball.knots.some((k) => k.x < -0.5),
-  "eyeball spans left/right for width edits",
+  Math.abs(Math.abs(rightTip.hy) - 0.72 * CIRCLE_BEZIER_KAPPA) < 1e-6,
+  `orbit-like κ handle, got hy=${rightTip.hy}`,
 );
+// Sampled radius should stay near 0.72 (square would bulge on diagonals)
+const eyePts = samplePath(eyeball.knots, eyeball.segments, { closed: true, samplesPerSpan: 16 });
+let maxR = 0;
+let minR = Infinity;
+for (const p of eyePts) {
+  const r = Math.hypot(p.x, p.y);
+  maxR = Math.max(maxR, r);
+  minR = Math.min(minR, r);
+}
+assert.ok(maxR - minR < 0.04, `near-circular (maxR-minR=${maxR - minR})`);
 
-const ell = makeEllipsePath({ cx: 0, cy: 0, rx: 1, ry: 0.5, n: 4 });
+const ell = makeEllipsePath({ cx: 0, cy: 0, rx: 1, ry: 1, n: 4 });
 assert.equal(ell.knots.length, 4);
+assert.ok(Math.abs(ell.knots[0].hy - CIRCLE_BEZIER_KAPPA) < 1e-9);
 // Auto-smooth should keep finite handles
 for (const k of ell.knots) {
   k.hx = 0;
