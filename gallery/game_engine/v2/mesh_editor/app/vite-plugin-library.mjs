@@ -69,10 +69,10 @@ function listProjects(root) {
       const d = mig.doc;
       const projectKind = d.projectKind === "texture" ? "texture" : "mesh";
       const textureAssets = d.textureAssets || {};
-      const textures = Object.values(textureAssets).map((t) => ({
-        assetGuid: t.assetGuid,
-        name: t.name || "Texture",
-        kind: t.kind || "eye",
+      const textures = Object.entries(textureAssets).map(([guid, t]) => ({
+        assetGuid: t?.assetGuid || guid,
+        name: t?.name || "Texture",
+        kind: t?.kind || "eye",
       }));
       const textureCount = textures.length;
       out.push({

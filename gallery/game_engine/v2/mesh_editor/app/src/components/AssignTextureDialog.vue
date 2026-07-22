@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import { DEFAULT_EYE_UV, normalizeEyeUv } from "../lib/texture/eyeTexture.js";
+import { buildAssignTextureSources } from "../lib/assignTextureSources.js";
 import * as api from "../library/api.js";
 
 const props = defineProps({
@@ -29,55 +30,9 @@ const uv = reactive({
 const status = ref("");
 const resolving = ref(false);
 
-const sources = computed(() => {
-  const rows = [];
-  const seen = new Set();
-
-  for (const t of props.loadedTextures || []) {
-    if (!t?.assetGuid || seen.has(t.assetGuid)) continue;
-    seen.add(t.assetGuid);
-    rows.push({
-      key: `loaded:${t.assetGuid}`,
-      label: `${t.name || "Texture"} (open in editor)`,
-      kind: "loaded",
-      guid: t.assetGuid,
-      slug: null,
-    });
-  }
-
-  for (const p of props.libraryProjects || []) {
-    if (p.error) continue;
-    // Mesh projects often embed a copy of the assigned eye for reload — never list them here.
-    if (p.projectKind && p.projectKind !== "texture") continue;
-    const texList = Array.isArray(p.textures) ? p.textures : [];
-    if (texList.length) {
-      for (const t of texList) {
-        if (!t?.assetGuid) continue;
-        if (seen.has(t.assetGuid)) continue;
-        seen.add(t.assetGuid);
-        rows.push({
-          key: `lib:${p.slug}:${t.assetGuid}`,
-          label: `${t.name || "Texture"} · ${p.name || p.slug}`,
-          kind: "library",
-          guid: t.assetGuid,
-          slug: p.slug,
-        });
-      }
-      continue;
-    }
-    const texN = p.textureCount || 0;
-    if (texN > 0 || p.projectKind === "texture") {
-      rows.push({
-        key: `lib:${p.slug}:`,
-        label: `${p.name || p.slug}${texN ? ` · ${texN} tex` : ""} (saved)`,
-        kind: "library",
-        guid: null,
-        slug: p.slug,
-      });
-    }
-  }
-  return rows;
-});
+const sources = computed(() =>
+  buildAssignTextureSources(props.loadedTextures, props.libraryProjects),
+);
 
 function resetFromProps() {
   const next = normalizeEyeUv(props.initialUv || DEFAULT_EYE_UV);

@@ -5,6 +5,7 @@ import os from "node:os";
 import { resolveSafeProjectDir, PROJECT_SLUG_RE } from "../src/library/safePath.mjs";
 import { createEditHistory } from "../src/lib/editHistory.js";
 import { buildProjectDocument } from "../src/library/schema.js";
+import { buildAssignTextureSources } from "../src/lib/assignTextureSources.js";
 
 const root = path.join(os.tmpdir(), "mesh-editor-lib-test");
 
@@ -319,6 +320,59 @@ assert.equal(assigned.textureAssets.wrong, undefined);
   }
   assert.deepEqual(labels, ["Eye · Eyes"]);
   assert.ok(!labels.some((l) => l.includes("egghead")), "mesh name must not leak into texture list");
+}
+
+// Dropdown must list library eyes even when the same guid is open in the editor
+{
+  const library = [
+    {
+      slug: "neutral_eyes",
+      name: "neutral_eyes",
+      projectKind: "texture",
+      textureCount: 1,
+      textures: [{ assetGuid: "g-neutral", name: "Eye" }],
+    },
+    {
+      slug: "evil_eyes",
+      name: "evil_eyes",
+      projectKind: "texture",
+      textureCount: 1,
+      textures: [{ assetGuid: "g-evil", name: "Eye" }],
+    },
+    {
+      slug: "eye_normal",
+      name: "eye_normal",
+      projectKind: "texture",
+      textureCount: 1,
+      textures: [{ assetGuid: "g-normal", name: "Eye" }],
+    },
+  ];
+  // Same guids open in editor (previously hid every library row)
+  const loaded = [
+    { assetGuid: "g-neutral", name: "Eye" },
+    { assetGuid: "g-evil", name: "Eye" },
+    { assetGuid: "orphan-open", name: "Eye" },
+  ];
+  const rows = buildAssignTextureSources(loaded, library);
+  const labels = rows.map((r) => r.label);
+  assert.equal(rows.filter((r) => r.kind === "library").length, 3, "all 3 library eyes listed");
+  assert.ok(labels.includes("Eye · neutral_eyes"));
+  assert.ok(labels.includes("Eye · evil_eyes"));
+  assert.ok(labels.includes("Eye · eye_normal"));
+  assert.equal(rows.filter((r) => r.kind === "loaded").length, 1, "only orphan open eye");
+  assert.ok(labels.some((l) => l.startsWith("Eye (open · orphan-o")));
+  // Mesh projects still excluded
+  const withMesh = buildAssignTextureSources(loaded, [
+    ...library,
+    {
+      slug: "egghead",
+      name: "egghead",
+      projectKind: "mesh",
+      textureCount: 1,
+      textures: [{ assetGuid: "g-mesh", name: "Eye" }],
+    },
+  ]);
+  assert.ok(!withMesh.some((r) => String(r.label).includes("egghead")));
 }
 
 console.log("smoke-library-safe: ok");
