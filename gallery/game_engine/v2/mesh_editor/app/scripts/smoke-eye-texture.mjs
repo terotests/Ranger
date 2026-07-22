@@ -13,6 +13,8 @@ import {
   rightEyeLayers,
   resetEyePairToMirror,
   editableLayers,
+  restoreLayerToCircle,
+  EYE_CIRCLE_RADII,
 } from "../src/lib/texture/eyeTexture.js";
 import {
   pointInPolygon,
@@ -170,6 +172,25 @@ assert.ok(pointInPolygon(pc.x, pc.y, irisPoly), "pupil centroid inside iris afte
   assert.equal(e3.eyePair.linked, true);
   assert.equal(e3.rightLayers, null);
   assert.equal(editableLayers(e3), e3.layers);
+}
+
+// Restore to circle keeps center, resets radius to default
+{
+  const e4 = createDefaultEyeTexture({ name: "Restore" });
+  const pupil = findLayer(e4, "pupil");
+  const c0 = pathCentroid(pupil.knots);
+  for (const k of pupil.knots) {
+    k.x = c0.x + (k.x - c0.x) * 0.15;
+    k.y = c0.y + (k.y - c0.y) * 0.15;
+  }
+  assert.ok(restoreLayerToCircle(pupil, { keepCenter: true }));
+  const c1 = pathCentroid(pupil.knots);
+  assert.ok(Math.abs(c1.x - c0.x) < 1e-5 && Math.abs(c1.y - c0.y) < 1e-5, "center kept");
+  const tip = pupil.knots.reduce((a, k) => (k.x > a.x ? k : a), pupil.knots[0]);
+  assert.ok(
+    Math.abs(tip.x - (c1.x + EYE_CIRCLE_RADII.pupil.rx)) < 1e-5,
+    "pupil radius restored",
+  );
 }
 
 const ser = serializeEyeTexture(eye);

@@ -18,6 +18,7 @@ const emit = defineEmits([
   "set-color",
   "patch-layer",
   "set-layer-mode",
+  "restore-circle",
 ]);
 
 const addTypes = [
@@ -29,6 +30,12 @@ const addTypes = [
 
 const selected = computed(() => props.layers.find((L) => L.id === props.selectedLayerId) || null);
 const eyelidSelected = computed(() => selected.value?.type === "eyelid");
+const canRestoreCircle = computed(
+  () =>
+    !!selected.value &&
+    selected.value.type !== "eyelid" &&
+    selected.value.closed !== false,
+);
 </script>
 
 <template>
@@ -100,6 +107,18 @@ const eyelidSelected = computed(() => selected.value?.type === "eyelid");
         </button>
       </li>
     </ul>
+
+    <div v-if="canRestoreCircle" class="lid-opts">
+      <p class="lid-title">{{ selected.name || selected.type }}</p>
+      <button
+        type="button"
+        class="restore"
+        title="Rebuild as a round Bezier circle at the current center"
+        @click="emit('restore-circle', selected.id)"
+      >
+        Restore to circle
+      </button>
+    </div>
 
     <div v-if="eyelidSelected" class="lid-opts">
       <p class="lid-title">Eyelid</p>
@@ -318,5 +337,10 @@ button.danger:disabled {
   padding: 0.2rem 0.35rem;
   font-size: 0.75rem;
   color: var(--ink);
+}
+.lid-opts .restore {
+  width: 100%;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.5rem;
 }
 </style>
