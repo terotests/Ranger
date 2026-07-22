@@ -84,11 +84,15 @@ export function eyeUvFromRegionSamples(samples, region, opts = {}) {
       2.5,
       Math.max(0.35, (reg.half / DEFAULT_ASSIGN_REGION.half) * (opts.baseScale || 1)),
     );
+    const sep =
+      opts.eyeSeparationU != null
+        ? opts.eyeSeparationU
+        : Math.min(0.16, Math.max(0.05, 0.12 * scale));
     return normalizeEyeUv({
       centerU: list[0][0],
       centerV: list[0][1],
       scale,
-      eyeSeparationU: opts.eyeSeparationU != null ? opts.eyeSeparationU : 0.12 * scale,
+      eyeSeparationU: sep,
     });
   }
 
