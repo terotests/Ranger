@@ -1028,9 +1028,12 @@ export function useSplineEditor() {
     });
     try {
       tessellate();
-    } finally {
+    } catch (err) {
       setPendingTextureMap(null);
+      state.status = "Tessellate after assign failed: " + (err.message || err);
+      return false;
     }
+    setPendingTextureMap(null);
     return true;
   }
 

@@ -20,6 +20,7 @@ import {
   slugify,
   validateProject,
 } from "./src/library/schema.js";
+import { resolveSafeProjectDir } from "./src/library/safePath.mjs";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(HERE, "../library/projects");
@@ -153,9 +154,13 @@ export function splineLibraryPlugin() {
 
           const m = urlPath.match(/^\/api\/library\/([^/]+)\/?$/);
           if (m) {
-            const slug = decodeURIComponent(m[1]);
-            const dir = path.join(root, slug);
-            const file = path.join(dir, "project.json");
+            let safe;
+            try {
+              safe = resolveSafeProjectDir(root, decodeURIComponent(m[1]));
+            } catch {
+              return sendJson(res, 400, { error: "Invalid project slug" });
+            }
+            const { slug, dir, file } = safe;
 
             if (req.method === "GET") {
               if (!fs.existsSync(file)) return sendJson(res, 404, { error: "not found" });
@@ -180,7 +185,12 @@ export function splineLibraryPlugin() {
             }
 
             if (req.method === "DELETE") {
-              if (!fs.existsSync(dir)) return sendJson(res, 404, { error: "not found" });
+              // Only delete an existing project.json folder under root.
+              if (!fs.existsSync(file) || !fs.existsSync(dir)) {
+                return sendJson(res, 404, { error: "not found" });
+              }
+              const st = fs.statSync(dir);
+              if (!st.isDirectory()) return sendJson(res, 400, { error: "not a project folder" });
               fs.rmSync(dir, { recursive: true, force: true });
               return sendJson(res, 200, { ok: true, slug });
             }
@@ -201,6 +211,7 @@ export function splineLibraryPlugin() {
                 name: body.name,
                 description: body.description,
                 tags: body.tags,
+                projectKind: body.projectKind || body.state.projectKind,
               });
             } else {
               return sendJson(res, 400, { error: "expected project document or { name, state }" });
@@ -208,9 +219,15 @@ export function splineLibraryPlugin() {
             const errors = validateProject(doc);
             if (errors.length) return sendJson(res, 422, { error: "invalid", errors });
             doc.slug = uniqueSlug(root, body.slug || doc.slug || doc.name);
+            let safeCreate;
+            try {
+              safeCreate = resolveSafeProjectDir(root, doc.slug);
+            } catch {
+              return sendJson(res, 400, { error: "Invalid project slug" });
+            }
             doc.updatedAt = nowIso();
             if (!doc.createdAt) doc.createdAt = doc.updatedAt;
-            writeJson(path.join(root, doc.slug, "project.json"), doc);
+            writeJson(safeCreate.file, doc);
             return sendJson(res, 201, doc);
           }
 

@@ -41,7 +41,7 @@ export function usePathEditor(opts = {}) {
     history: { past: 0, future: 0, canUndo: false, canRedo: false },
   });
 
-  const history = createEditHistory(48);
+  const history = createEditHistory({ limit: 48 });
 
   function refreshHistoryFlags() {
     const info = history.info();

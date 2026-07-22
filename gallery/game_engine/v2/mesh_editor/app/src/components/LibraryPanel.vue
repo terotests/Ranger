@@ -3,7 +3,7 @@ import { ref, computed } from "vue";
 
 const props = defineProps({
   lib: { type: Object, required: true },
-  /** mesh | texture — filters the saved list */
+  /** mesh | texture — filters the saved list + picks identity slot */
   projectKind: { type: String, default: "mesh" },
 });
 
@@ -19,20 +19,26 @@ const emit = defineEmits([
 
 const fileRef = ref(null);
 
+const kind = computed(() => (props.projectKind === "texture" ? "texture" : "mesh"));
+
+const slot = computed(() =>
+  kind.value === "texture" ? props.lib.texture : props.lib.mesh,
+);
+
 const filtered = computed(() => {
-  const kind = props.projectKind === "texture" ? "texture" : "mesh";
+  const k = kind.value;
   return (props.lib.projects || []).filter((p) => {
     if (p.error) return true;
     const pk = p.projectKind === "texture" ? "texture" : "mesh";
-    return pk === kind;
+    return pk === k;
   });
 });
 
-const kindLabel = computed(() => (props.projectKind === "texture" ? "textures" : "meshes"));
+const kindLabel = computed(() => (kind.value === "texture" ? "textures" : "meshes"));
 
 function onFile(ev) {
   const f = ev.target.files?.[0];
-  if (f) emit("import-file", f);
+  if (f) emit("import-file", f, kind.value);
   ev.target.value = "";
 }
 
@@ -57,18 +63,23 @@ function metaLine(p) {
 
     <div class="save-row">
       <input
-        v-model="lib.saveAsName"
+        v-model="slot.saveAsName"
         type="text"
-        :placeholder="projectKind === 'texture' ? 'Name (e.g. eyes)' : 'Name (e.g. tall vase)'"
-        @keyup.enter="emit('save-as', lib.saveAsName)"
+        :placeholder="kind === 'texture' ? 'Name (e.g. eyes)' : 'Name (e.g. tall vase)'"
+        @keyup.enter="emit('save-as', slot.saveAsName, kind)"
       />
-      <button type="button" class="primary" :disabled="lib.busy" @click="emit('save-as', lib.saveAsName)">
+      <button
+        type="button"
+        class="primary"
+        :disabled="lib.busy"
+        @click="emit('save-as', slot.saveAsName, kind)"
+      >
         Save as
       </button>
       <button
         type="button"
-        :disabled="lib.busy || !lib.currentSlug"
-        @click="emit('save')"
+        :disabled="lib.busy || !slot.slug"
+        @click="emit('save', kind)"
       >
         Save
       </button>
@@ -76,14 +87,14 @@ function metaLine(p) {
 
     <div class="row-actions">
       <button type="button" :disabled="lib.busy" @click="emit('refresh')">Refresh</button>
-      <button type="button" @click="emit('export', lib.saveAsName)">Export JSON</button>
+      <button type="button" @click="emit('export', slot.saveAsName, kind)">Export JSON</button>
       <button type="button" @click="fileRef?.click()">Import JSON</button>
       <input ref="fileRef" type="file" accept="application/json,.json" hidden @change="onFile" />
     </div>
 
-    <p v-if="lib.currentSlug" class="current">
-      Editing <strong>{{ lib.currentName }}</strong>
-      <span class="slug">{{ lib.currentSlug }}</span>
+    <p v-if="slot.slug" class="current">
+      Editing <strong>{{ slot.name }}</strong>
+      <span class="slug">{{ slot.slug }}</span>
     </p>
 
     <ul class="list">
@@ -91,9 +102,14 @@ function metaLine(p) {
       <li
         v-for="p in filtered"
         :key="p.slug"
-        :class="{ active: p.slug === lib.currentSlug, bad: !!p.error }"
+        :class="{ active: p.slug === slot.slug, bad: !!p.error }"
       >
-        <button type="button" class="open" :disabled="!!p.error" @click="emit('load', p.slug)">
+        <button
+          type="button"
+          class="open"
+          :disabled="!!p.error"
+          @click="emit('load', p.slug, kind)"
+        >
           <strong>{{ p.name || p.slug }}</strong>
           <span>{{ metaLine(p) }}</span>
         </button>
@@ -102,7 +118,7 @@ function metaLine(p) {
           class="danger"
           title="Delete"
           :disabled="lib.busy"
-          @click="emit('remove', p.slug)"
+          @click="emit('remove', p.slug, kind)"
         >
           ×
         </button>

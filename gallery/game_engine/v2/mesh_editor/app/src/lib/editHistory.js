@@ -6,7 +6,13 @@
  * Lightweight history stack (no Zustand). Snapshots are plain JSON-safe clones.
  * Call push() *before* a mutating edit with the current (pre-edit) shape.
  */
-export function createEditHistory({ limit = 80 } = {}) {
+export function createEditHistory(opts = {}) {
+  const limit =
+    typeof opts === "number"
+      ? opts
+      : Number.isFinite(opts?.limit)
+        ? opts.limit
+        : 80;
   /** @type {{ label: string, data: any }[]} */
   let past = [];
   /** @type {{ label: string, data: any }[]} */

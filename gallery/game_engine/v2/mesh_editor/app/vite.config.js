@@ -15,7 +15,8 @@ export default defineConfig({
   },
   server: {
     port: 5177,
-    host: true,
+    // Bind localhost only — library API can DELETE project folders.
+    host: "localhost",
   },
   build: {
     outDir: "dist",
