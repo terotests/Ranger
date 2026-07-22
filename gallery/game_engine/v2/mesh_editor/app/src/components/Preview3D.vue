@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch, computed } from "vue";
+import { onMounted, onBeforeUnmount, ref, watch, computed, reactive } from "vue";
 import { createPreviewSession } from "../lib/rangerPreview.js";
 import {
   orientMeshToPlacementNormal,
@@ -7,6 +7,13 @@ import {
   rotationAligning,
 } from "../lib/placementNormal.js";
 import { pickRootSurface, transposeMat3 } from "../lib/meshPick.js";
+import {
+  DEFAULT_ASSIGN_REGION,
+  clampAssignRegion,
+  regionCorners,
+  regionToCanvas,
+} from "../lib/assignRegion.js";
+import { eyeUvFromCorners } from "../lib/texture/eyeTexture.js";
 
 const props = defineProps({
   mesh: { type: Object, default: null },
@@ -17,11 +24,8 @@ const props = defineProps({
     default: () => ({ start: { x: 0, y: -1 }, end: { x: 0, y: 1 } }),
   },
   placeMode: { type: Boolean, default: false },
-  /**
-   * Eye UV assign on the root surface:
-   * '' | 'tl' (top-left click) | 'br' (bottom-right) | 'refine' (drag to move).
-   */
-  uvAssignPhase: { type: String, default: "" },
+  /** Square region placement for eye UV assign (before texture dialog). */
+  regionMode: { type: Boolean, default: false },
   /** When set (editing a sub-object), hover+drag that content’s instances on the root surface. */
   surfaceDragContentGuid: { type: String, default: null },
   children: { type: Array, default: () => [] },
@@ -31,11 +35,8 @@ const emit = defineEmits([
   "place-hover",
   "place-commit",
   "place-cancel",
-  "uv-assign-click",
-  "uv-assign-drag",
-  "uv-assign-drag-end",
-  "uv-assign-done",
-  "uv-assign-cancel",
+  "region-confirm",
+  "region-cancel",
   "surface-drag",
   "surface-drag-end",
   "select-child",
@@ -46,6 +47,8 @@ const wrapRef = ref(null);
 const backendLabel = ref("…");
 const hoverHit = ref(null);
 const hoverChildGuid = ref(null);
+const region = reactive({ ...DEFAULT_ASSIGN_REGION });
+const regionError = ref("");
 let session = null;
 let draggingOrbit = false;
 let downPos = null;
@@ -54,14 +57,10 @@ let dragGuid = null;
 let blockHostOrbit = false;
 let dragRaf = 0;
 let pendingDragHit = null;
-let uvDragging = false;
+/** @type {null | 'center' | 'tl' | 'tr' | 'bl' | 'br'} */
+let regionDrag = null;
 
-const uvAssignActive = computed(() => {
-  const p = props.uvAssignPhase;
-  return p === "tl" || p === "br" || p === "refine";
-});
-
-const surfacePickActive = computed(() => props.placeMode || uvAssignActive.value);
+const surfacePickActive = computed(() => props.placeMode || props.regionMode);
 
 const surfaceDragActive = computed(
   () => !!props.surfaceDragContentGuid && !surfacePickActive.value,
@@ -73,17 +72,20 @@ const displayMesh = computed(() =>
 
 const orientInv = computed(() => {
   const dir = placementNormalDirection3(props.placementNormal);
-  // Display = R * authoring, so inv = R^T where R maps dir → +Y
   const R = rotationAligning(dir, { x: 0, y: 1, z: 0 });
   return transposeMat3(R);
 });
 
-const uvBanner = computed(() => {
-  const p = props.uvAssignPhase;
-  if (p === "tl") return "Eye texture · click TOP-LEFT corner on the mesh · Esc cancel · right-drag orbit";
-  if (p === "br") return "Eye texture · click BOTTOM-RIGHT corner · Esc cancel · right-drag orbit";
-  if (p === "refine") return "Eye texture · drag to reposition · Done / Esc to finish · right-drag orbit";
-  return "";
+const corners = computed(() => regionCorners(region));
+
+const regionStyle = computed(() => {
+  const c = corners.value;
+  return {
+    left: c.tl.x * 100 + "%",
+    top: c.tl.y * 100 + "%",
+    width: (c.br.x - c.tl.x) * 100 + "%",
+    height: (c.br.y - c.tl.y) * 100 + "%",
+  };
 });
 
 function pushDisplay() {
@@ -93,6 +95,29 @@ function pushDisplay() {
 
 function getView() {
   return session?.getView?.() || null;
+}
+
+/** CSS offset → canvas pixel coords (handles CSS-scaled canvas). */
+function eventToCanvas(e) {
+  const el = canvasRef.value;
+  if (!el) return { sx: e.offsetX, sy: e.offsetY };
+  const cw = el.clientWidth || 1;
+  const ch = el.clientHeight || 1;
+  return {
+    sx: (e.offsetX / cw) * (el.width || cw),
+    sy: (e.offsetY / ch) * (el.height || ch),
+  };
+}
+
+function eventToNorm(e) {
+  const el = canvasRef.value;
+  if (!el) return { x: 0.5, y: 0.5 };
+  const cw = el.clientWidth || 1;
+  const ch = el.clientHeight || 1;
+  return {
+    x: Math.min(1, Math.max(0, e.offsetX / cw)),
+    y: Math.min(1, Math.max(0, e.offsetY / ch)),
+  };
 }
 
 function pickParts(sx, sy, parts) {
@@ -131,10 +156,9 @@ function pickEditableChild(sx, sy) {
 function syncCursor() {
   const el = canvasRef.value;
   if (!el) return;
-  if (props.placeMode || props.uvAssignPhase === "tl" || props.uvAssignPhase === "br") {
-    el.style.cursor = "copy";
-  } else if (uvDragging || surfaceDragging) el.style.cursor = "grabbing";
-  else if (props.uvAssignPhase === "refine") el.style.cursor = "grab";
+  if (props.placeMode) el.style.cursor = "copy";
+  else if (props.regionMode) el.style.cursor = regionDrag ? "grabbing" : "default";
+  else if (surfaceDragging) el.style.cursor = "grabbing";
   else if (hoverChildGuid.value) el.style.cursor = "grab";
   else el.style.cursor = "crosshair";
 }
@@ -143,12 +167,7 @@ function flushSurfaceDrag() {
   dragRaf = 0;
   const hit = pendingDragHit;
   pendingDragHit = null;
-  if (!hit) return;
-  if (uvDragging) {
-    emit("uv-assign-drag", hit);
-    return;
-  }
-  if (!dragGuid) return;
+  if (!hit || !dragGuid) return;
   emit("surface-drag", {
     instanceGuid: dragGuid,
     point: hit.point,
@@ -162,8 +181,111 @@ function queueSurfaceDrag(hit) {
   dragRaf = requestAnimationFrame(flushSurfaceDrag);
 }
 
+function resetRegion() {
+  Object.assign(region, clampAssignRegion(DEFAULT_ASSIGN_REGION));
+  regionError.value = "";
+  regionDrag = null;
+}
+
+function applyRegionDrag(nx, ny) {
+  if (!regionDrag) return;
+  if (regionDrag === "center") {
+    Object.assign(region, clampAssignRegion({ cx: nx, cy: ny, half: region.half }));
+    return;
+  }
+  const half = Math.max(Math.abs(nx - region.cx), Math.abs(ny - region.cy));
+  Object.assign(region, clampAssignRegion({ cx: region.cx, cy: region.cy, half }));
+}
+
+function hitOnRegionHandle(nx, ny) {
+  const c = regionCorners(region);
+  const pad = 0.035;
+  const pts = [
+    ["tl", c.tl],
+    ["tr", c.tr],
+    ["bl", c.bl],
+    ["br", c.br],
+    ["center", c.center],
+  ];
+  for (const [name, p] of pts) {
+    if (Math.hypot(nx - p.x, ny - p.y) <= pad) return name;
+  }
+  // Inside square → move
+  if (nx >= c.tl.x && nx <= c.br.x && ny >= c.tl.y && ny <= c.br.y) {
+    return "center";
+  }
+  return null;
+}
+
+function clientToNorm(clientX, clientY) {
+  const el = canvasRef.value;
+  if (!el) return { x: 0.5, y: 0.5 };
+  const rect = el.getBoundingClientRect();
+  const w = rect.width || 1;
+  const h = rect.height || 1;
+  return {
+    x: Math.min(1, Math.max(0, (clientX - rect.left) / w)),
+    y: Math.min(1, Math.max(0, (clientY - rect.top) / h)),
+  };
+}
+
+function endRegionDrag() {
+  if (!regionDrag) return;
+  regionDrag = null;
+  blockHostOrbit = false;
+  window.removeEventListener("pointermove", onRegionWindowMove);
+  window.removeEventListener("pointerup", onRegionWindowUp);
+  syncCursor();
+}
+
+function onRegionWindowMove(e) {
+  if (!regionDrag) return;
+  const n = clientToNorm(e.clientX, e.clientY);
+  applyRegionDrag(n.x, n.y);
+}
+
+function onRegionWindowUp() {
+  endRegionDrag();
+}
+
+function startRegionDrag(handle) {
+  if (!handle) return;
+  regionDrag = handle;
+  blockHostOrbit = true;
+  regionError.value = "";
+  window.addEventListener("pointermove", onRegionWindowMove);
+  window.addEventListener("pointerup", onRegionWindowUp);
+  syncCursor();
+}
+
+function confirmRegion() {
+  regionError.value = "";
+  const el = canvasRef.value;
+  if (!el) {
+    regionError.value = "Preview not ready.";
+    return;
+  }
+  const c = regionCorners(region);
+  const tlC = regionToCanvas(c.tl.x, c.tl.y, el);
+  const brC = regionToCanvas(c.br.x, c.br.y, el);
+  const tlHit = pickRoot(tlC.sx, tlC.sy);
+  const brHit = pickRoot(brC.sx, brC.sy);
+  if (!tlHit?.uv || !brHit?.uv) {
+    regionError.value =
+      "Square corners must sit on the mesh — rotate the view or move the square.";
+    return;
+  }
+  const textureUv = eyeUvFromCorners(
+    tlHit.uv[0],
+    tlHit.uv[1],
+    brHit.uv[0],
+    brHit.uv[1],
+  );
+  emit("region-confirm", { textureUv, region: { ...region } });
+}
+
 function onPointerDown(e) {
-  if (surfacePickActive.value) {
+  if (props.regionMode) {
     if (e.button === 2 || e.button === 1) {
       draggingOrbit = true;
       blockHostOrbit = false;
@@ -171,30 +293,34 @@ function onPointerDown(e) {
       return;
     }
     if (e.button !== 0) return;
-    if (props.uvAssignPhase === "refine") {
-      const hit = pickRoot(e.offsetX, e.offsetY);
-      if (hit?.uv) {
-        uvDragging = true;
-        blockHostOrbit = true;
-        session?.setAutoRotate?.(false);
-        queueSurfaceDrag(hit);
-        try {
-          canvasRef.value?.setPointerCapture?.(e.pointerId);
-        } catch {
-          /* ignore */
-        }
-        e.stopPropagation();
-        syncCursor();
-        return;
-      }
+    const n = eventToNorm(e);
+    const handle = hitOnRegionHandle(n.x, n.y);
+    if (handle) {
+      startRegionDrag(handle);
+      e.stopPropagation();
+      return;
     }
+    // Outside square: left-click does nothing (right-drag still orbits).
+    e.stopPropagation();
+    return;
+  }
+
+  if (props.placeMode) {
+    if (e.button === 2 || e.button === 1) {
+      draggingOrbit = true;
+      blockHostOrbit = false;
+      session?.host?.pointerDown?.(e.offsetX, e.offsetY, e.button);
+      return;
+    }
+    if (e.button !== 0) return;
     downPos = { x: e.offsetX, y: e.offsetY };
     e.stopPropagation();
     return;
   }
 
   if (surfaceDragActive.value && e.button === 0) {
-    const childHit = pickEditableChild(e.offsetX, e.offsetY);
+    const { sx, sy } = eventToCanvas(e);
+    const childHit = pickEditableChild(sx, sy);
     if (childHit?.instanceGuid) {
       surfaceDragging = true;
       dragGuid = childHit.instanceGuid;
@@ -202,8 +328,7 @@ function onPointerDown(e) {
       hoverChildGuid.value = dragGuid;
       session?.setAutoRotate?.(false);
       emit("select-child", dragGuid);
-      // Snap immediately if root is under the cursor
-      const rootHit = pickRoot(e.offsetX, e.offsetY);
+      const rootHit = pickRoot(sx, sy);
       if (rootHit) queueSurfaceDrag(rootHit);
       try {
         canvasRef.value?.setPointerCapture?.(e.pointerId);
@@ -218,51 +343,51 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
-  if (surfacePickActive.value) {
+  if (props.regionMode) {
     if (draggingOrbit) {
       session?.host?.pointerMove?.(e.offsetX, e.offsetY);
       return;
     }
-    if (uvDragging) {
-      const rootHit = pickRoot(e.offsetX, e.offsetY);
-      if (rootHit) queueSurfaceDrag(rootHit);
+    return;
+  }
+
+  if (props.placeMode) {
+    if (draggingOrbit) {
+      session?.host?.pointerMove?.(e.offsetX, e.offsetY);
       return;
     }
-    const hit = pickRoot(e.offsetX, e.offsetY);
+    const { sx, sy } = eventToCanvas(e);
+    const hit = pickRoot(sx, sy);
     hoverHit.value = hit;
-    if (props.placeMode) emit("place-hover", hit);
+    emit("place-hover", hit);
     return;
   }
 
   if (surfaceDragging && dragGuid) {
-    const rootHit = pickRoot(e.offsetX, e.offsetY);
+    const { sx, sy } = eventToCanvas(e);
+    const rootHit = pickRoot(sx, sy);
     if (rootHit) queueSurfaceDrag(rootHit);
     return;
   }
 
   if (surfaceDragActive.value) {
-    const childHit = pickEditableChild(e.offsetX, e.offsetY);
+    const { sx, sy } = eventToCanvas(e);
+    const childHit = pickEditableChild(sx, sy);
     hoverChildGuid.value = childHit?.instanceGuid || null;
     syncCursor();
   }
 }
 
 function onPointerUp(e) {
-  if (uvDragging) {
-    if (dragRaf) {
-      cancelAnimationFrame(dragRaf);
-      dragRaf = 0;
+  if (props.regionMode) {
+    if (draggingOrbit) {
+      session?.host?.pointerUp?.();
+      draggingOrbit = false;
     }
-    flushSurfaceDrag();
-    uvDragging = false;
-    blockHostOrbit = false;
-    session?.setAutoRotate?.(!surfacePickActive.value);
-    emit("uv-assign-drag-end");
-    syncCursor();
     return;
   }
 
-  if (surfacePickActive.value) {
+  if (props.placeMode) {
     if (draggingOrbit) {
       session?.host?.pointerUp?.();
       draggingOrbit = false;
@@ -272,12 +397,9 @@ function onPointerUp(e) {
     const dist = Math.hypot(e.offsetX - downPos.x, e.offsetY - downPos.y);
     downPos = null;
     if (dist > 6) return;
-    const hit = pickRoot(e.offsetX, e.offsetY);
-    if (!hit) return;
-    if (props.placeMode) emit("place-commit", hit);
-    else if (props.uvAssignPhase === "tl" || props.uvAssignPhase === "br") {
-      emit("uv-assign-click", hit);
-    }
+    const { sx, sy } = eventToCanvas(e);
+    const hit = pickRoot(sx, sy);
+    if (hit) emit("place-commit", hit);
     return;
   }
 
@@ -299,15 +421,15 @@ function onPointerUp(e) {
 function onKeyDown(e) {
   if (e.key !== "Escape") return;
   if (props.placeMode) emit("place-cancel");
-  else if (uvAssignActive.value) emit("uv-assign-cancel");
+  else if (props.regionMode) emit("region-cancel");
 }
 
 function onContextMenu(e) {
-  if (surfacePickActive.value || surfaceDragging || uvDragging) e.preventDefault();
+  if (surfacePickActive.value || surfaceDragging) e.preventDefault();
 }
 
 function onPointerLeave() {
-  if (surfaceDragging || uvDragging) return;
+  if (surfaceDragging || regionDrag) return;
   hoverChildGuid.value = null;
   syncCursor();
 }
@@ -330,6 +452,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeyDown);
+  endRegionDrag();
   if (dragRaf) cancelAnimationFrame(dragRaf);
   session?.dispose();
   session = null;
@@ -345,11 +468,12 @@ watch(
 );
 
 watch(
-  () => [props.placeMode, props.uvAssignPhase],
+  () => [props.placeMode, props.regionMode],
   () => {
-    session?.setAutoRotate?.(!surfacePickActive.value && !surfaceDragging && !uvDragging);
+    session?.setAutoRotate?.(!surfacePickActive.value && !surfaceDragging);
     hoverHit.value = null;
     hoverChildGuid.value = null;
+    if (props.regionMode) resetRegion();
     syncCursor();
   },
 );
@@ -375,7 +499,7 @@ watch(
     class="preview"
     :class="{
       placing: placeMode,
-      'uv-assign': uvAssignActive,
+      'region-mode': regionMode,
       'surface-drag': surfaceDragActive,
     }"
   >
@@ -388,8 +512,8 @@ watch(
         ref="canvasRef"
         class="view"
         :class="{
-          place: placeMode || uvAssignPhase === 'tl' || uvAssignPhase === 'br',
-          grab: !!hoverChildGuid || surfaceDragging || uvAssignPhase === 'refine',
+          place: placeMode,
+          grab: !!hoverChildGuid || surfaceDragging,
         }"
         @pointerdown.capture="onPointerDown"
         @pointermove.capture="onPointerMove"
@@ -397,34 +521,48 @@ watch(
         @pointerleave="onPointerLeave"
         @contextmenu="onContextMenu"
       />
+
+      <div v-if="regionMode" class="region-layer" aria-hidden="true">
+        <div class="region-box" :style="regionStyle">
+          <button
+            type="button"
+            class="handle center"
+            title="Drag to move"
+            @pointerdown.stop.prevent="startRegionDrag('center')"
+          />
+          <button
+            v-for="h in ['tl', 'tr', 'bl', 'br']"
+            :key="h"
+            type="button"
+            class="handle corner"
+            :class="h"
+            title="Drag to resize"
+            @pointerdown.stop.prevent="startRegionDrag(h)"
+          />
+        </div>
+      </div>
+
       <div v-if="placeMode" class="place-banner">
         Place on surface · hover (+) · click to attach · Esc cancel · right-drag orbit
       </div>
-      <div v-else-if="uvAssignActive" class="place-banner uv">
-        <span>{{ uvBanner }}</span>
-        <button
-          v-if="uvAssignPhase === 'refine'"
-          type="button"
-          class="done"
-          @click.stop="emit('uv-assign-done')"
-        >
-          Done
+      <div v-else-if="regionMode" class="place-banner region">
+        <span>
+          Place the square over the eyes · drag center / corners · right-drag orbit
+        </span>
+        <button type="button" class="ban-btn" @click.stop="emit('region-cancel')">
+          Cancel
         </button>
+        <button type="button" class="ban-btn ok" @click.stop="confirmRegion">OK</button>
       </div>
       <div v-else-if="surfaceDragActive" class="place-banner drag">
         Sub edit · hover sub-object · drag along surface · right-drag orbit
       </div>
     </div>
+    <p v-if="regionError" class="err">{{ regionError }}</p>
     <p class="hint">
       <template v-if="placeMode">Aim at the root surface — sub-object aligns to the normal</template>
-      <template v-else-if="uvAssignPhase === 'tl'">
-        Click where the top-left of the eye pair should sit
-      </template>
-      <template v-else-if="uvAssignPhase === 'br'">
-        Click the bottom-right corner to set size and position
-      </template>
-      <template v-else-if="uvAssignPhase === 'refine'">
-        Drag on the surface to slide the eyes · open Assign again for scale / gap sliders
+      <template v-else-if="regionMode">
+        Orbit the mesh first if needed, then fit the square and press OK to choose a texture
       </template>
       <template v-else-if="surfaceDragActive">
         Drag the sub-object on the root surface (follows normals)
@@ -449,8 +587,8 @@ watch(
   border-color: rgba(59, 130, 246, 0.55);
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
 }
-.preview.uv-assign {
-  border-color: rgba(250, 204, 21, 0.5);
+.preview.region-mode {
+  border-color: rgba(250, 204, 21, 0.55);
   box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.22);
 }
 .preview.surface-drag {
@@ -501,6 +639,73 @@ span {
   cursor: grab;
 }
 
+.region-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.region-box {
+  position: absolute;
+  border: 1.5px solid rgba(250, 204, 21, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 999px rgba(250, 204, 21, 0.08);
+  pointer-events: none;
+}
+.handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1.5px solid #fde68a;
+  background: rgba(15, 23, 42, 0.9);
+  pointer-events: auto;
+  cursor: grab;
+  box-sizing: border-box;
+}
+.handle:active {
+  cursor: grabbing;
+}
+.handle.center {
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(250, 204, 21, 0.85);
+  border-color: #fff8c5;
+}
+.handle.corner {
+  border-radius: 2px;
+}
+.handle.tl {
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  cursor: nwse-resize;
+}
+.handle.tr {
+  right: 0;
+  top: 0;
+  transform: translate(50%, -50%);
+  cursor: nesw-resize;
+}
+.handle.bl {
+  left: 0;
+  bottom: 0;
+  transform: translate(-50%, 50%);
+  cursor: nesw-resize;
+}
+.handle.br {
+  right: 0;
+  bottom: 0;
+  transform: translate(50%, 50%);
+  cursor: nwse-resize;
+}
+
 .place-banner {
   position: absolute;
   left: 0.5rem;
@@ -516,30 +721,39 @@ span {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
   flex-wrap: wrap;
 }
 .place-banner.drag {
   color: #a7f3d0;
 }
-.place-banner.uv {
+.place-banner.region {
   color: #fde68a;
   pointer-events: none;
 }
-.place-banner .done {
+.place-banner .ban-btn {
   pointer-events: auto;
   padding: 0.2rem 0.55rem;
   font-size: 0.68rem;
   border-radius: 6px;
-  border: 1px solid rgba(250, 204, 21, 0.45);
-  background: rgba(250, 204, 21, 0.18);
-  color: #fef3c7;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e5e7eb;
   cursor: pointer;
 }
+.place-banner .ban-btn.ok {
+  border-color: rgba(250, 204, 21, 0.55);
+  background: rgba(250, 204, 21, 0.22);
+  color: #fef3c7;
+}
 
-.hint {
+.hint,
+.err {
   margin: 0;
   font-size: 0.72rem;
   color: var(--ink-dim);
+}
+.err {
+  color: #f0a070;
 }
 </style>

@@ -878,3 +878,92 @@ export function rasterizeEyePairUvMap(tex, width = 512, height = 512, opts = {})
     name: (tex?.name || "eye") + "-uv",
   };
 }
+
+function defaultYield() {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+/**
+ * Async UV atlas rasterize — yields between steps so the UI can show a loader.
+ * Same result as rasterizeEyePairUvMap in the browser; Node falls back to sync.
+ *
+ * @param {object} tex
+ * @param {number} [width]
+ * @param {number} [height]
+ * @param {{ background?: string, uv?: object, onProgress?: (step:string)=>void, yield?: ()=>Promise<void> }} [opts]
+ */
+export async function rasterizeEyePairUvMapAsync(tex, width = 512, height = 512, opts = {}) {
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
+  const yieldFn = typeof opts.yield === "function" ? opts.yield : defaultYield;
+
+  if (typeof document === "undefined") {
+    onProgress("node");
+    return rasterizeEyePairUvMap(tex, width, height, opts);
+  }
+
+  const w = Math.max(64, width | 0);
+  const h = Math.max(64, height | 0);
+  const pair = normalizeEyePair(tex?.eyePair);
+  const uv = normalizeEyeUv(opts.uv || opts);
+  const centerU = uv.centerU;
+  const centerV = uv.centerV;
+  const scale = uv.scale;
+  const sepU =
+    uv.eyeSeparationU != null ? uv.eyeSeparationU : 0.1 + pair.distance * 0.08;
+  const eyeWU = (opts.eyeWidthU != null ? Number(opts.eyeWidthU) : 0.11) * scale;
+  const eyeHV = (opts.eyeHeightV != null ? Number(opts.eyeHeightV) : 0.13) * scale;
+  const bg = opts.background || "#e8e4dc";
+
+  onProgress("background");
+  await yieldFn();
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  const cellW = Math.max(8, Math.round(eyeWU * w));
+  const cellH = Math.max(8, Math.round(eyeHV * h));
+  const left = layersWithEyeballColor(tex.layers || [], bg);
+  const right = layersWithEyeballColor(rightEyeLayers(tex), bg);
+
+  function blit(layers, uCenter) {
+    const x = Math.round(uCenter * w - cellW / 2);
+    const y = Math.round((1 - centerV) * h - cellH / 2);
+    const off = document.createElement("canvas");
+    off.width = cellW;
+    off.height = cellH;
+    const octx = off.getContext("2d");
+    octx.fillStyle = bg;
+    octx.fillRect(0, 0, cellW, cellH);
+    drawEyeLayers(octx, layers, cellW, cellH);
+    ctx.drawImage(off, x, y);
+  }
+
+  onProgress("left-eye");
+  await yieldFn();
+  blit(left, centerU - sepU / 2);
+
+  onProgress("right-eye");
+  await yieldFn();
+  blit(right, centerU + sepU / 2);
+
+  onProgress("readback");
+  await yieldFn();
+  const img = ctx.getImageData(0, 0, w, h);
+  onProgress("done");
+  return {
+    rgba: img.data,
+    w,
+    h,
+    name: (tex?.name || "eye") + "-uv",
+  };
+}

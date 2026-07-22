@@ -3,6 +3,7 @@ import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
 import { tessellateBody } from "../lib/latheTessellate.js";
 import {
   rasterizeEyePairUvMap,
+  rasterizeEyePairUvMapAsync,
   normalizeEyeTexture,
   normalizeEyeUv,
   averageKnotColorHex,
@@ -137,6 +138,8 @@ function loadSpineBlock(block, fallbackKnots) {
 export function useSplineEditor() {
   /** Optional provider for procedural texture assets (from Texture editor / library). */
   let textureAssetsProvider = () => /** @type {Record<string, any>} */ ({});
+  /** Pre-baked UV atlas for async assign: { guid, map } kept for one tessellate pass. */
+  let pendingTextureMap = null;
 
   const state = reactive({
     assetGuid: newGuid(),
@@ -920,6 +923,13 @@ export function useSplineEditor() {
   }
 
   function resolveTextureMap(om) {
+    if (
+      pendingTextureMap &&
+      om?.textureAsset &&
+      om.textureAsset === pendingTextureMap.guid
+    ) {
+      return pendingTextureMap.map;
+    }
     if (!om) return null;
     const guid = om.textureAsset;
     if (!guid) return null;
@@ -939,6 +949,14 @@ export function useSplineEditor() {
 
   function setTextureAssetsProvider(fn) {
     textureAssetsProvider = typeof fn === "function" ? fn : () => ({});
+  }
+
+  function setPendingTextureMap(map, guid = null) {
+    if (!map || !guid) {
+      pendingTextureMap = null;
+      return;
+    }
+    pendingTextureMap = { map, guid };
   }
 
   /**
@@ -965,6 +983,54 @@ export function useSplineEditor() {
     };
     if (record) endGesture();
     if (record) state.status = "Assigned eye texture to mesh UVs (left + right).";
+    return true;
+  }
+
+  /**
+   * Bake UV atlas asynchronously (yields between steps), then assign + tessellate.
+   * @param {string} assetGuid
+   * @param {object} uv
+   * @param {{ onProgress?: (label:string)=>void, width?: number, height?: number }} [opts]
+   */
+  async function assignEyeTextureToRootAsync(assetGuid, uv, opts = {}) {
+    const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
+    const assets = textureAssetsProvider() || {};
+    const raw = assets[assetGuid];
+    if (!raw) {
+      state.status = "Texture asset not loaded — open it in Texture or import the project.";
+      return false;
+    }
+    const tex = raw.kind === "eye" || !raw.kind ? normalizeEyeTexture(raw) : raw;
+    const nextUv = normalizeEyeUv(uv || state.objectMaterial?.textureUv);
+    onProgress("Painting UV atlas…");
+    const map = await rasterizeEyePairUvMapAsync(tex, opts.width || 384, opts.height || 384, {
+      uv: nextUv,
+      background: meshBackgroundColor(),
+      onProgress: (step) => {
+        if (step === "left-eye") onProgress("Drawing left eye…");
+        else if (step === "right-eye") onProgress("Drawing right eye…");
+        else if (step === "readback") onProgress("Reading atlas pixels…");
+        else if (step === "background") onProgress("Filling atlas background…");
+      },
+    });
+    if (!map) return false;
+    setPendingTextureMap(map, assetGuid);
+    onProgress("Applying to mesh…");
+    await new Promise((r) => setTimeout(r, 0));
+    if (!assignEyeTextureToRoot(assetGuid, nextUv)) {
+      setPendingTextureMap(null);
+      return false;
+    }
+    onProgress("Updating 3D mesh…");
+    await new Promise((r) => {
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => r());
+      else setTimeout(r, 0);
+    });
+    try {
+      tessellate();
+    } finally {
+      setPendingTextureMap(null);
+    }
     return true;
   }
 
@@ -1430,6 +1496,8 @@ export function useSplineEditor() {
     snapshotState,
     setTextureAssetsProvider,
     assignEyeTextureToRoot,
+    assignEyeTextureToRootAsync,
+    setPendingTextureMap,
     clearAssignedTexture,
     attachFromProject,
     selectChild,
@@ -1442,7 +1510,6 @@ export function useSplineEditor() {
     addSymmetricTwin,
     undo,
     redo,
-    beginGesture,
     beginGesture,
     endGesture,
     commitToHistory,

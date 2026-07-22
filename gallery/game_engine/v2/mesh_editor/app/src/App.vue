@@ -13,7 +13,6 @@ import { useSplineEditor } from "./composables/useSplineEditor.js";
 import { useTextureEditor } from "./composables/useTextureEditor.js";
 import { useLibrary } from "./composables/useLibrary.js";
 import * as api from "./library/api.js";
-import { eyeUvFromCorners, eyeUvMoveCenter } from "./lib/texture/eyeTexture.js";
 
 const {
   state,
@@ -50,12 +49,11 @@ const {
   addSymmetricTwin,
   undo,
   redo,
-  beginGesture,
   endGesture,
   isEditingChild,
   activePlacementNormal,
   setTextureAssetsProvider,
-  assignEyeTextureToRoot,
+  assignEyeTextureToRootAsync,
   clearAssignedTexture,
 } = useSplineEditor();
 
@@ -74,8 +72,11 @@ const texCanvasToolMode = tex.canvasToolMode;
 const workspace = ref("mesh"); // mesh | texture
 const assignDialogOpen = ref(false);
 const assignBusy = ref(false);
-/** @type {import('vue').Ref<null | { guid:string, phase:'tl'|'br'|'refine', cornerA?:{u:number,v:number}, seedUv:object }>} */
-const uvAssignPending = ref(null);
+const assignProgress = ref("");
+/** Square region mode on 3D preview (before texture dialog). */
+const assignRegionMode = ref(false);
+/** UV derived from the confirmed square (fed into the texture dialog). */
+const assignRegionUv = ref(null);
 
 setTextureAssetsProvider(() => tex.snapshotTextures());
 
@@ -114,125 +115,64 @@ const libraryTextureProjects = computed(() =>
   ),
 );
 
-async function openAssignDialog() {
-  uvAssignPending.value = null;
+/** Orbit first, then place a square on the mesh, then pick a texture. */
+function startAssignRegion() {
+  placePending.value = null;
+  assignDialogOpen.value = false;
+  assignRegionUv.value = null;
+  if (!state.rootMesh) tessellate();
+  assignRegionMode.value = true;
+  state.status =
+    "Assign — orbit the mesh, fit the yellow square over the eyes, then OK.";
+}
+
+function onAssignRegionCancel() {
+  assignRegionMode.value = false;
+  assignRegionUv.value = null;
+  state.status = "Eye assign cancelled.";
+}
+
+async function onAssignRegionConfirm({ textureUv }) {
+  assignRegionMode.value = false;
+  assignRegionUv.value = textureUv || null;
+  assignProgress.value = "";
   await refresh();
   assignDialogOpen.value = true;
+  state.status = "Square placed — choose which eye texture to assign.";
 }
 
 function mergeAssignAssets(assets) {
   if (assets) tex.loadTextures({ ...tex.snapshotTextures(), ...assets });
 }
 
-function onAssignApply({ guid, uv, assets }) {
+async function onAssignApply({ guid, uv, assets }) {
   assignBusy.value = true;
+  assignProgress.value = "Loading texture…";
   try {
+    await new Promise((r) => setTimeout(r, 0));
     mergeAssignAssets(assets);
-    if (assignEyeTextureToRoot(guid, uv)) tessellate();
-    assignDialogOpen.value = false;
-    uvAssignPending.value = null;
+    assignProgress.value = "Starting UV bake…";
+    const ok = await assignEyeTextureToRootAsync(guid, uv || assignRegionUv.value, {
+      onProgress: (label) => {
+        assignProgress.value = label;
+      },
+    });
+    if (ok) {
+      assignDialogOpen.value = false;
+      assignRegionUv.value = null;
+      state.status = "Eye texture assigned.";
+    }
   } finally {
     assignBusy.value = false;
+    assignProgress.value = "";
   }
-}
-
-/** Pick texture in dialog → two corner clicks on 3D preview → drag refine. */
-function onAssignPlace({ guid, uv, assets }) {
-  assignBusy.value = true;
-  try {
-    mergeAssignAssets(assets);
-    placePending.value = null;
-    assignDialogOpen.value = false;
-    if (!state.rootMesh) tessellate();
-    uvAssignPending.value = {
-      guid,
-      phase: "tl",
-      seedUv: uv || state.objectMaterial?.textureUv,
-    };
-    state.status =
-      "Eye assign — click the TOP-LEFT corner of the eye pair on the 3D mesh.";
-  } finally {
-    assignBusy.value = false;
-  }
-}
-
-/** Live preview while dragging sliders (loaded textures only; library applies on Apply). */
-let previewTimer = 0;
-function onAssignPreview({ sourceKey, uv }) {
-  if (uvAssignPending.value) return;
-  if (!sourceKey?.startsWith("loaded:")) return;
-  const guid = sourceKey.slice("loaded:".length);
-  if (!guid || !texState.textures[guid]) return;
-  clearTimeout(previewTimer);
-  previewTimer = setTimeout(() => {
-    if (assignEyeTextureToRoot(guid, uv, { recordHistory: false })) tessellate();
-  }, 120);
 }
 
 function onClearAssignedTexture() {
-  uvAssignPending.value = null;
+  assignRegionMode.value = false;
+  assignRegionUv.value = null;
   clearAssignedTexture();
   tessellate();
-}
-
-const uvAssignPhase = computed(() => uvAssignPending.value?.phase || "");
-
-function onUvAssignClick(hit) {
-  const pending = uvAssignPending.value;
-  if (!pending || !hit?.uv) {
-    state.status = "No UV on that surface — aim at the lathed root mesh.";
-    return;
-  }
-  const [u, v] = hit.uv;
-  if (pending.phase === "tl") {
-    uvAssignPending.value = {
-      ...pending,
-      phase: "br",
-      cornerA: { u, v },
-    };
-    state.status = "Eye assign — click the BOTTOM-RIGHT corner.";
-    return;
-  }
-  if (pending.phase === "br" && pending.cornerA) {
-    const nextUv = eyeUvFromCorners(pending.cornerA.u, pending.cornerA.v, u, v, {
-      eyeSeparationU: pending.seedUv?.eyeSeparationU,
-    });
-    if (assignEyeTextureToRoot(pending.guid, nextUv)) tessellate();
-    uvAssignPending.value = {
-      guid: pending.guid,
-      phase: "refine",
-      seedUv: nextUv,
-    };
-    state.status = "Eye assign — drag to reposition, then Done (or Esc).";
-  }
-}
-
-function onUvAssignDrag(hit) {
-  const pending = uvAssignPending.value;
-  if (!pending || pending.phase !== "refine" || !hit?.uv) return;
-  beginGesture("move-eye-texture");
-  const [u, v] = hit.uv;
-  const nextUv = eyeUvMoveCenter(state.objectMaterial?.textureUv || pending.seedUv, u, v);
-  if (assignEyeTextureToRoot(pending.guid, nextUv, { recordHistory: false })) {
-    tessellate();
-  }
-}
-
-function onUvAssignDragEnd() {
-  endGesture();
-}
-
-function onUvAssignDone() {
-  uvAssignPending.value = null;
-  state.status = "Eye texture placement done.";
-}
-
-function onUvAssignCancel() {
-  const phase = uvAssignPending.value?.phase;
-  uvAssignPending.value = null;
-  state.status =
-    phase === "refine" ? "Eye texture placement kept (cancel during refine)." : "Eye assign cancelled.";
-  // If cancelled mid-corners before apply, leave mesh as it was.
 }
 
 const materials = [
@@ -388,7 +328,7 @@ const placeLabel = computed(() => {
 async function onBeginPlace({ slug, mode, symmetric }) {
   try {
     const doc = await api.loadProject(slug);
-    uvAssignPending.value = null;
+    assignRegionMode.value = false;
     placePending.value = { slug, mode, symmetric, doc };
     state.status = `Place mode — click the root surface in 3D to attach “${doc.name || slug}”.`;
     if (!state.rootMesh) tessellate();
@@ -699,8 +639,8 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="primary"
-        title="Choose eye texture and place both eyes on the mesh"
-        @click="openAssignDialog"
+        title="Place a square on the 3D preview, then choose an eye texture"
+        @click="startAssignRegion"
       >
         Assign to mesh
       </button>
@@ -826,16 +766,13 @@ onBeforeUnmount(() => {
           :material-mode="state.materialMode"
           :placement-normal="state.placementNormal"
           :place-mode="!!placePending"
-          :uv-assign-phase="uvAssignPhase"
+          :region-mode="assignRegionMode"
           :surface-drag-content-guid="surfaceDragContentGuid"
           :children="state.children"
           @place-commit="onPlaceCommit"
           @place-cancel="onCancelPlace"
-          @uv-assign-click="onUvAssignClick"
-          @uv-assign-drag="onUvAssignDrag"
-          @uv-assign-drag-end="onUvAssignDragEnd"
-          @uv-assign-done="onUvAssignDone"
-          @uv-assign-cancel="onUvAssignCancel"
+          @region-confirm="onAssignRegionConfirm"
+          @region-cancel="onAssignRegionCancel"
           @surface-drag="onSurfaceDrag"
           @surface-drag-end="onSurfaceDragEnd"
           @select-child="selectChild"
@@ -1000,13 +937,16 @@ onBeforeUnmount(() => {
       :open="assignDialogOpen"
       :loaded-textures="loadedTextures"
       :library-projects="libraryTextureProjects"
-      :initial-uv="state.objectMaterial?.textureUv"
+      :initial-uv="assignRegionUv || state.objectMaterial?.textureUv"
       :initial-guid="state.objectMaterial?.textureAsset || ''"
       :busy="assignBusy"
-      @close="assignDialogOpen = false"
+      :progress-label="assignProgress"
+      @close="
+        () => {
+          if (!assignBusy) assignDialogOpen = false;
+        }
+      "
       @apply="onAssignApply"
-      @place="onAssignPlace"
-      @preview="onAssignPreview"
     />
   </div>
 </template>

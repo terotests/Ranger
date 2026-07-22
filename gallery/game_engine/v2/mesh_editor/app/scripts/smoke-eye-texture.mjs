@@ -16,12 +16,18 @@ import {
   restoreLayerToCircle,
   EYE_CIRCLE_RADII,
   rasterizeEyePairUvMap,
+  rasterizeEyePairUvMapAsync,
   normalizeEyeUv,
   averageKnotColorHex,
   eyeUvFromCorners,
   eyeUvMoveCenter,
   unwrapUvPairU,
 } from "../src/lib/texture/eyeTexture.js";
+import {
+  clampAssignRegion,
+  regionCorners,
+  DEFAULT_ASSIGN_REGION,
+} from "../src/lib/assignRegion.js";
 import {
   pointInPolygon,
   pathCentroid,
@@ -328,6 +334,16 @@ const moved = eyeUvMoveCenter(fromCorners, 0.42, 0.55);
 assert.ok(Math.abs(moved.centerU - 0.42) < 1e-9);
 assert.ok(Math.abs(moved.centerV - 0.55) < 1e-9);
 assert.equal(moved.scale, fromCorners.scale);
+
+const reg = clampAssignRegion(DEFAULT_ASSIGN_REGION);
+const rc = regionCorners(reg);
+assert.ok(rc.tl.x < rc.br.x && rc.tl.y < rc.br.y);
+const asyncMap = await rasterizeEyePairUvMapAsync(eye, 64, 64, {
+  background: "#c8a070",
+  uv: fromCorners,
+});
+assert.equal(asyncMap.w, 64);
+assert.equal(asyncMap.rgba.length, 64 * 64 * 4);
 
 console.log("smoke-eye-texture: ok", {
   schema: mig.doc.schemaVersion,
