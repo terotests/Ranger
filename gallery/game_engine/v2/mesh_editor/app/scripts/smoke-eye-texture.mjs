@@ -325,6 +325,12 @@ const uv = rasterizeEyePairUvMap(eye, 64, 64, {
   uv: normalizeEyeUv({ centerU: 0.4, centerV: 0.6, scale: 1.2, eyeSeparationU: 0.14 }),
 });
 assert.ok(uv && uv.w === 64 && uv.h === 64 && uv.rgba.length === 64 * 64 * 4);
+// Node bake has no canvas eyes — atlas stays fully transparent outside artwork.
+{
+  let opaque = 0;
+  for (let i = 3; i < uv.rgba.length; i += 4) if (uv.rgba[i] > 0) opaque++;
+  assert.equal(opaque, 0, "eye atlas outside eyes must be transparent (alpha 0)");
+}
 assert.equal(averageKnotColorHex([{ color: "#ff0000" }, { color: "#0000ff" }]), "#800080");
 assert.equal(averageKnotColorHex([], ""), "");
 // Atlas fill must use mesh tint — never texture previewBackground green

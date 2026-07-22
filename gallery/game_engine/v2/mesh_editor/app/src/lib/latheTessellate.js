@@ -60,6 +60,29 @@ function asRgbaBytes(map) {
   return new Uint8Array(src);
 }
 
+/**
+ * Bake material tint into map RGB (legacy multiply path) so alpha-mix shading
+ * with white uColor matches the old `uColor * tex.rgb` look.
+ */
+function multiplyMapByColorHex(map, colorHex) {
+  if (!map?.rgba || !map.w || !map.h) return map;
+  const hex = colorHex | 0;
+  if (hex === 0xffffff) return map;
+  const mr = (hex >> 16) & 255;
+  const mg = (hex >> 8) & 255;
+  const mb = hex & 255;
+  const src = asRgbaBytes(map);
+  if (!src) return map;
+  const out = new Uint8Array(src.length);
+  for (let i = 0; i < src.length; i += 4) {
+    out[i] = ((src[i] * mr) / 255) | 0;
+    out[i + 1] = ((src[i + 1] * mg) / 255) | 0;
+    out[i + 2] = ((src[i + 2] * mb) / 255) | 0;
+    out[i + 3] = src[i + 3];
+  }
+  return { rgba: out, w: map.w | 0, h: map.h | 0, name: map.name };
+}
+
 function makeGradientRgba(hexA, hexB, w = 4, h = 64) {
   const A = hexToRgb(hexA);
   const B = hexToRgb(hexB);
@@ -264,20 +287,38 @@ export function tessellateBody(body, opts = {}) {
   let totalT = 0;
   for (const piece of pieces) {
     const style = resolveCombinedStyle(body, piece.profileSeg, piece.orbitSeg);
-    const map = bodyMap || style.map;
-    const mapBytes = bodyMap ? bodyMapBytes : map ? asRgbaBytes(map) : null;
+    let mapBytes = null;
+    let mapW = 0;
+    let mapH = 0;
+    let colorHex = style.colorHex;
+    if (bodyMap) {
+      // Eye atlas: transparent outside the eyes — material color shows through
+      // (renderer mixes on texel alpha). Keep the shared TypedArray.
+      mapBytes = bodyMapBytes;
+      mapW = bodyMap.w | 0;
+      mapH = bodyMap.h | 0;
+      colorHex = style.colorHex;
+    } else if (style.map) {
+      // Procedural/upload maps stay opaque; fold material tint into RGB so the
+      // alpha-mix shader (mix(uColor, tex.rgb, a)) still matches old multiply.
+      const tinted = multiplyMapByColorHex(style.map, style.colorHex);
+      mapBytes = asRgbaBytes(tinted);
+      mapW = tinted.w | 0;
+      mapH = tinted.h | 0;
+      colorHex = 0xffffff;
+    }
     parts.push({
       positions: piece.positions,
       normals: piece.normals,
       uvs: piece.uvs,
       indices: piece.indices,
-      colorHex: bodyMap ? 0xffffff : style.colorHex,
+      colorHex,
       shininess: style.shininess,
       reflectivity: style.reflectivity,
       opacity: style.opacity,
       mapRgba: mapBytes,
-      mapW: map ? map.w : 0,
-      mapH: map ? map.h : 0,
+      mapW,
+      mapH,
     });
     totalV += (piece.positions.length / 3) | 0;
     totalT += (piece.indices.length / 3) | 0;
