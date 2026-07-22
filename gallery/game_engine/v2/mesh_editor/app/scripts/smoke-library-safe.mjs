@@ -121,4 +121,106 @@ assert.equal(broken.objectMaterial.textureAsset, "g1", "repair missing textureAs
 assert.equal(broken.objectMaterial.textureAssign, "eyePair");
 assert.equal(broken.objectMaterial.texture, "asset");
 
+// Mesh save must not embed every open Texture-editor eye — only the assigned one.
+// (Otherwise assign picker showed "Eye · egghead" for each unused embed.)
+const meshEgg = buildProjectDocument({
+  projectKind: "mesh",
+  name: "egghead",
+  state: {
+    knots: [
+      { id: "a", x: 0.2, y: -0.5, hx: 0, hy: 0, color: "#fff" },
+      { id: "b", x: 0.3, y: 0.5, hx: 0, hy: 0, color: "#fff" },
+    ],
+    segments: [],
+    orbitKnots: [
+      { id: "o0", x: 1, y: 0, hx: 0, hy: 0, color: "#fff" },
+      { id: "o1", x: 0, y: 1, hx: 0, hy: 0, color: "#fff" },
+      { id: "o2", x: -1, y: 0, hx: 0, hy: 0, color: "#fff" },
+    ],
+    orbitSegments: [],
+    objectMaterial: {
+      color: null,
+      roughness: 0.4,
+      metalness: 0,
+      opacity: 1,
+      texture: "asset",
+      textureAsset: "keep-me",
+      textureAssign: "eyePair",
+    },
+    textureAssets: {
+      "keep-me": {
+        assetGuid: "keep-me",
+        name: "Eye",
+        kind: "eye",
+        layers: [{ id: "l1", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+      "extra-open": {
+        assetGuid: "extra-open",
+        name: "Eye",
+        kind: "eye",
+        layers: [{ id: "l2", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+    },
+  },
+});
+assert.ok(meshEgg.textureAssets["keep-me"], "assigned eye kept");
+assert.equal(meshEgg.textureAssets["extra-open"], undefined, "unassigned open eye not embedded");
+assert.equal(Object.keys(meshEgg.textureAssets).length, 1);
+
+// Texture projects still keep all assets
+const texProj = buildProjectDocument({
+  projectKind: "texture",
+  name: "Eyes pack",
+  state: {
+    knots: [
+      { id: "a", x: 0.2, y: -0.5, hx: 0, hy: 0, color: "#fff" },
+      { id: "b", x: 0.3, y: 0.5, hx: 0, hy: 0, color: "#fff" },
+    ],
+    segments: [],
+    orbitKnots: [
+      { id: "o0", x: 1, y: 0, hx: 0, hy: 0, color: "#fff" },
+      { id: "o1", x: 0, y: 1, hx: 0, hy: 0, color: "#fff" },
+      { id: "o2", x: -1, y: 0, hx: 0, hy: 0, color: "#fff" },
+    ],
+    orbitSegments: [],
+    textureAssets: {
+      a: {
+        assetGuid: "a",
+        name: "Eye A",
+        kind: "eye",
+        layers: [{ id: "l1", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+      b: {
+        assetGuid: "b",
+        name: "Eye B",
+        kind: "eye",
+        layers: [{ id: "l2", type: "eyeball", name: "Eyeball", knots: [], segments: [] }],
+      },
+    },
+  },
+});
+assert.equal(Object.keys(texProj.textureAssets).length, 2);
+
+// Assign picker filter: only projectKind===texture (mesh embeds must not appear)
+{
+  const projects = [
+    { slug: "egghead", name: "egghead", projectKind: "mesh", textureCount: 2, textures: [
+      { assetGuid: "keep-me", name: "Eye" },
+      { assetGuid: "extra-open", name: "Eye" },
+    ]},
+    { slug: "eyes", name: "Eyes", projectKind: "texture", textureCount: 1, textures: [
+      { assetGuid: "tex1", name: "Eye" },
+    ]},
+  ];
+  const forPicker = projects.filter((p) => p.projectKind === "texture");
+  assert.equal(forPicker.length, 1);
+  assert.equal(forPicker[0].slug, "eyes");
+  const labels = [];
+  for (const p of forPicker) {
+    for (const t of p.textures) labels.push(`${t.name} · ${p.name}`);
+  }
+  assert.deepEqual(labels, ["Eye · Eyes"]);
+  assert.ok(!labels.some((l) => l.includes("egghead")), "mesh name must not leak into texture list");
+}
+
 console.log("smoke-library-safe: ok");
