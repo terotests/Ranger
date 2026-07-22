@@ -176,8 +176,33 @@ export function raycastMeshParts(origin, dir, parts) {
 }
 
 /**
+ * Approximate lathe UV from a hit point when vertex UVs are missing.
+ * u = angle around Y, v = normalized height in the part's Y range.
+ */
+export function approximateLatheUvFromPoint(point, parts) {
+  if (!point) return null;
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  for (const part of parts || []) {
+    const pos = part.positions;
+    if (!pos?.length) continue;
+    for (let i = 1; i < pos.length; i += 3) {
+      const y = pos[i];
+      if (y < yMin) yMin = y;
+      if (y > yMax) yMax = y;
+    }
+  }
+  if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) return null;
+  const span = Math.max(1e-6, yMax - yMin);
+  const u = ((Math.atan2(point[0], point[2]) / (Math.PI * 2)) + 1) % 1;
+  const v = Math.min(1, Math.max(0, (point[1] - yMin) / span));
+  return [u, v];
+}
+
+/**
  * Full pick: canvas → world ray → inverse preview euler → authoring ray → hit.
  * `orientInv` maps display(oriented) → authoring (3×3 row-major or null).
+ * If the hit has no vertex UVs, fills `uv` via approximateLatheUvFromPoint.
  */
 export function pickRootSurface(sx, sy, view, rootParts, meshTilt, meshAngle, orientInvMat) {
   const { origin, dir } = rayFromCanvas(sx, sy, view);
@@ -191,7 +216,11 @@ export function pickRootSurface(sx, sy, view, rootParts, meshTilt, meshAngle, or
     const tip = mulMat3(orientInvMat, add3(o1, dA));
     dA = normalize3(sub3(tip, oA));
   }
-  return raycastMeshParts(oA, dA, rootParts);
+  const hit = raycastMeshParts(oA, dA, rootParts);
+  if (hit && !hit.uv) {
+    hit.uv = approximateLatheUvFromPoint(hit.point, rootParts);
+  }
+  return hit;
 }
 
 function mulMat3(m, v) {

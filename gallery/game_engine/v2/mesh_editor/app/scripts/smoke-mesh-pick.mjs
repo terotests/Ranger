@@ -6,7 +6,14 @@ import {
   raycastMeshParts,
   applyPreviewEuler,
   applyPreviewEulerInv,
+  approximateLatheUvFromPoint,
+  pickRootSurface,
 } from "../src/lib/meshPick.js";
+import {
+  eyeUvFromRegionSamples,
+  regionSamplePoints,
+  DEFAULT_ASSIGN_REGION,
+} from "../src/lib/assignRegion.js";
 import { migrateProject } from "../src/library/migrations.js";
 import { CURRENT_SCHEMA_VERSION } from "../src/library/schema.js";
 
@@ -47,6 +54,32 @@ const uvHit = raycastMeshParts([0, 0, 3], [0, 0, -1], uvParts);
 assert.ok(uvHit?.uv);
 assert.ok(Math.abs(uvHit.uv[0] - 0.5) < 0.05);
 assert.ok(Math.abs(uvHit.uv[1] - 0.5) < 0.05);
+
+const approx = approximateLatheUvFromPoint([0.5, 0, 0.5], [
+  { positions: [-1, -1, -1, 1, 1, 1] },
+]);
+assert.ok(approx && approx[0] >= 0 && approx[0] <= 1);
+
+const fromSamples = eyeUvFromRegionSamples(
+  [
+    [0.4, 0.7],
+    [0.6, 0.45],
+  ],
+  DEFAULT_ASSIGN_REGION,
+);
+assert.ok(fromSamples && fromSamples.scale > 0);
+assert.ok(regionSamplePoints(DEFAULT_ASSIGN_REGION, 3).length === 9);
+
+// pickRootSurface fills UV when vertex uvs are missing
+const pickView = {
+  cam: [0, 0, 4],
+  target: [0, 0, 0],
+  fovDeg: 45,
+  width: 400,
+  height: 400,
+};
+const noUvHit = pickRootSurface(200, 200, pickView, parts, 0, 0, null);
+assert.ok(noUvHit?.uv, "approximate UV on hit without vertex uvs");
 
 const tagged = [{ ...parts[0], instanceGuid: "child-a" }];
 const hitTagged = raycastMeshParts([0, 0, 3], [0, 0, -1], tagged);
