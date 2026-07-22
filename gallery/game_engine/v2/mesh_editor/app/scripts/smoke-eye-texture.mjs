@@ -326,6 +326,13 @@ const uv = rasterizeEyePairUvMap(eye, 64, 64, {
 assert.ok(uv && uv.w === 64 && uv.h === 64 && uv.rgba.length === 64 * 64 * 4);
 assert.equal(averageKnotColorHex([{ color: "#ff0000" }, { color: "#0000ff" }]), "#800080");
 assert.equal(averageKnotColorHex([], ""), "");
+// Atlas fill must use mesh tint — never texture previewBackground green
+assert.notEqual(eye.previewBackground, "#c8a070");
+assert.equal(
+  averageKnotColorHex([{ color: "#c8a070" }, { color: "#c8a070" }]),
+  "#c8a070",
+  "mesh/segment tint for atlas bg",
+);
 assert.equal(normalizeEyeUv({ scale: 99 }).scale, 3);
 assert.equal(normalizeEyeUv({ centerU: 0.4, eyeSeparationU: 0.14 }).eyeSeparationU, 0.14);
 

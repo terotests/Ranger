@@ -115,7 +115,7 @@ const { lib, refresh, load, save, saveAs, remove, exportJson, importJsonFile } =
 });
 
 const loadedTextures = computed(() => Object.values(texState.textures || {}));
-/** Saved texture-library entries only — mesh projects may embed textureAssets for assign, but must not appear in the texture picker. */
+/** Saved texture-library entries only — mesh embeds must not appear in the picker. */
 const libraryTextureProjects = computed(() =>
   (lib.projects || []).filter((p) => !p.error && p.projectKind === "texture"),
 );

@@ -968,10 +968,27 @@ export function useSplineEditor() {
   }
 
   function meshBackgroundColor() {
-    // Prefer profile knot (vertex) colors so the UV atlas matches the painted mesh.
-    const fromKnots = averageKnotColorHex(state.knots, "");
+    // Atlas non-eye fill must match the mesh body — never the Texture editor's
+    // previewBackground (green #6a8f6a). Prefer the same signals tessellation uses.
+    const om = state.objectMaterial?.color;
+    if (om && String(om).replace("#", "").length >= 6) return String(om);
+
+    const segSwatches = [];
+    for (const s of state.segments || []) {
+      if (s?.color) segSwatches.push({ color: s.color });
+    }
+    for (const s of state.orbitSegments || []) {
+      if (s?.color) segSwatches.push({ color: s.color });
+    }
+    if (segSwatches.length) {
+      const fromSegs = averageKnotColorHex(segSwatches, "");
+      if (fromSegs) return fromSegs;
+    }
+
+    const knots = [...(state.knots || []), ...(state.orbitKnots || [])];
+    const fromKnots = averageKnotColorHex(knots, "");
     if (fromKnots) return fromKnots;
-    return state.objectMaterial?.color || "#e8e4dc";
+    return "#e8e4dc";
   }
 
   function resolveTextureMap(om) {
