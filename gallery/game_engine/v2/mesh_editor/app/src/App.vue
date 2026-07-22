@@ -221,11 +221,11 @@ function onKeyDown(e) {
   const key = e.key.toLowerCase();
   if (key === "z" && !e.shiftKey) {
     e.preventDefault();
-    if (workspace.value === "texture") texPath.undo();
+    if (workspace.value === "texture") tex.undo();
     else onUndo();
   } else if ((key === "z" && e.shiftKey) || key === "y") {
     e.preventDefault();
-    if (workspace.value === "texture") texPath.redo();
+    if (workspace.value === "texture") tex.redo();
     else onRedo();
   }
 }
@@ -479,15 +479,15 @@ onBeforeUnmount(() => {
         </template>
         <template v-else>
           <button
-            @click="texPath.undo()"
-            :disabled="!texPath.state.history.canUndo"
+            @click="tex.undo()"
+            :disabled="!texState.history.canUndo"
             title="Ctrl+Z"
           >
             Undo
           </button>
           <button
-            @click="texPath.redo()"
-            :disabled="!texPath.state.history.canRedo"
+            @click="tex.redo()"
+            :disabled="!texState.history.canRedo"
             title="Ctrl+Shift+Z"
           >
             Redo
@@ -784,6 +784,7 @@ onBeforeUnmount(() => {
         @set-color="tex.setLayerColor"
         @patch-layer="tex.patchLayer"
         @set-layer-mode="tex.setLayerMode"
+        @restore-circle="tex.restoreLayerCircle"
       />
       <div class="side-stack">
         <TexturePreview

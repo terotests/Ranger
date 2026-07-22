@@ -11,8 +11,17 @@ import {
   syncClosedSegments,
   syncOpenSegments,
   translatePath,
+  pathCentroid,
 } from "../pathModel.js";
 import { newGuid } from "../assetClone.js";
+
+/** Default radii for “Restore to circle” (and createEyeLayer closed parts). */
+export const EYE_CIRCLE_RADII = {
+  eyeball: { rx: 0.72, ry: 0.72, cx: 0, cy: 0 },
+  iris: { rx: 0.28, ry: 0.28, cx: 0.06, cy: 0.02 },
+  pupil: { rx: 0.15, ry: 0.15, cx: 0.06, cy: 0.02 },
+  reflection: { rx: 0.05, ry: 0.065, cx: -0.02, cy: 0.1 },
+};
 
 /** Default left/right pair layout (preview + edit target). */
 export const DEFAULT_EYE_PAIR = {
@@ -48,19 +57,40 @@ export function createEyeLayer(type, overrides = {}) {
       name: "Eyeball",
       color: "#f2f0ea",
       closed: true,
-      ...makeEllipsePath({ cx: 0, cy: 0, rx: 0.72, ry: 0.72, color: "#f2f0ea", n: 4 }),
+      ...makeEllipsePath({
+        cx: EYE_CIRCLE_RADII.eyeball.cx,
+        cy: EYE_CIRCLE_RADII.eyeball.cy,
+        rx: EYE_CIRCLE_RADII.eyeball.rx,
+        ry: EYE_CIRCLE_RADII.eyeball.ry,
+        color: "#f2f0ea",
+        n: 4,
+      }),
     }),
     iris: () => ({
       name: "Iris",
       color: "#3a70d0",
       closed: true,
-      ...makeEllipsePath({ cx: 0.06, cy: 0.02, rx: 0.28, ry: 0.28, color: "#3a70d0", n: 4 }),
+      ...makeEllipsePath({
+        cx: EYE_CIRCLE_RADII.iris.cx,
+        cy: EYE_CIRCLE_RADII.iris.cy,
+        rx: EYE_CIRCLE_RADII.iris.rx,
+        ry: EYE_CIRCLE_RADII.iris.ry,
+        color: "#3a70d0",
+        n: 4,
+      }),
     }),
     pupil: () => ({
       name: "Pupil",
       color: "#0a0a0c",
       closed: true,
-      ...makeEllipsePath({ cx: 0.06, cy: 0.02, rx: 0.12, ry: 0.12, color: "#0a0a0c", n: 4 }),
+      ...makeEllipsePath({
+        cx: EYE_CIRCLE_RADII.pupil.cx,
+        cy: EYE_CIRCLE_RADII.pupil.cy,
+        rx: EYE_CIRCLE_RADII.pupil.rx,
+        ry: EYE_CIRCLE_RADII.pupil.ry,
+        color: "#0a0a0c",
+        n: 4,
+      }),
     }),
     reflection: () => ({
       name: "Reflection",
@@ -182,7 +212,9 @@ export function mirrorLayersX(layers) {
 /** Types that translate together when the root layer moves. */
 export function companionLayerTypes(type) {
   if (type === "eyeball") return ["iris", "pupil", "reflection", "eyelid"];
-  if (type === "iris") return ["pupil"];
+  // Iris move carries pupil + shine (reflection sits on the iris stack).
+  if (type === "iris") return ["pupil", "reflection"];
+  if (type === "pupil") return ["reflection"];
   return [];
 }
 
@@ -230,6 +262,34 @@ export function translateLayerTree(layers, layerId, dx, dy) {
     const L = findLayer(layers, order);
     if (L) constrainEyeLayer(fake, L.id);
   }
+}
+
+/**
+ * Rebuild a closed eye layer as a round/elliptical Bezier circle at its
+ * current centroid (or type default center). Keeps color / id / type.
+ */
+export function restoreLayerToCircle(layer, { keepCenter = true } = {}) {
+  if (!layer || layer.type === "eyelid" || layer.closed === false) return false;
+  const def = EYE_CIRCLE_RADII[layer.type] || { rx: 0.2, ry: 0.2, cx: 0, cy: 0 };
+  let cx = def.cx;
+  let cy = def.cy;
+  if (keepCenter && layer.knots?.length) {
+    const c = pathCentroid(layer.knots);
+    cx = c.x;
+    cy = c.y;
+  }
+  const fresh = makeEllipsePath({
+    cx,
+    cy,
+    rx: def.rx,
+    ry: def.ry,
+    color: layer.color || "#ffffff",
+    n: 4,
+  });
+  layer.knots = fresh.knots;
+  layer.segments = fresh.segments;
+  layer.closed = true;
+  return true;
 }
 
 /** Force right = mirror(left) and re-link. */

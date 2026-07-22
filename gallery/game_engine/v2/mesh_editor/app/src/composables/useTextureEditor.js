@@ -15,6 +15,7 @@ import {
   mirrorLayersX,
   resetEyePairToMirror,
   normalizeEyePair,
+  restoreLayerToCircle,
   EYE_LAYER_TYPES,
 } from "../lib/texture/eyeTexture.js";
 import { usePathEditor } from "./usePathEditor.js";
@@ -37,14 +38,19 @@ export function useTextureEditor() {
     /** Layer panel: edit knots/handles vs translate whole layer (+nest). */
     layerMode: "edit", // edit | move
     status: "Texture editor — params only (rasterized at runtime).",
+    history: { canUndo: false, canRedo: false },
   });
 
   const path = usePathEditor({
     closed: true,
-    // Canvas clamps via SplineCanvas prop; eyelid must allow signed X.
     clampNonNegativeX: false,
     viewport: { min: -1.2, max: 1.2 },
   });
+
+  /** Whole-texture undo (layers + eyePair) — path-only history can't undo Move/nest. */
+  let past = [];
+  let future = [];
+  let texGestureOpen = false;
 
   const selectedTexture = computed(() =>
     state.selectedGuid ? state.textures[state.selectedGuid] || null : null,
@@ -59,13 +65,92 @@ export function useTextureEditor() {
 
   const eyePair = computed(() => normalizeEyePair(selectedTexture.value?.eyePair));
 
-  /** Canvas flips X when editing the linked right eye (storage stays left). */
   const flipX = computed(() => {
     const tex = selectedTexture.value;
     if (!tex) return false;
     const pair = normalizeEyePair(tex.eyePair);
     return pair.linked && pair.editSide === "right";
   });
+
+  function refreshHistFlags() {
+    state.history.canUndo = past.length > 0;
+    state.history.canRedo = future.length > 0;
+  }
+
+  function cloneTexSnap(tex) {
+    return {
+      layers: JSON.parse(JSON.stringify(tex.layers || [])),
+      rightLayers: tex.rightLayers ? JSON.parse(JSON.stringify(tex.rightLayers)) : null,
+      eyePair: { ...normalizeEyePair(tex.eyePair) },
+      selectedLayerId: state.selectedLayerId,
+    };
+  }
+
+  function applyTexSnap(snap) {
+    const tex = selectedTexture.value;
+    if (!tex || !snap) return;
+    tex.layers = snap.layers;
+    tex.rightLayers = snap.rightLayers;
+    tex.eyePair = { ...snap.eyePair };
+    const list = editableLayers(tex);
+    state.selectedLayerId =
+      (snap.selectedLayerId && list.some((L) => L.id === snap.selectedLayerId)
+        ? snap.selectedLayerId
+        : null) ||
+      list[0]?.id ||
+      null;
+    syncPathFromLayer({ soft: false });
+    refreshHistFlags();
+  }
+
+  /** Snapshot current texture before a discrete edit (or first stroke of a gesture). */
+  function pushTexHistory() {
+    const tex = selectedTexture.value;
+    if (!tex) return;
+    past.push(cloneTexSnap(tex));
+    if (past.length > 80) past.shift();
+    future = [];
+    refreshHistFlags();
+  }
+
+  function beginTexGesture() {
+    if (texGestureOpen) return;
+    pushTexHistory();
+    texGestureOpen = true;
+  }
+
+  function endTexGesture() {
+    texGestureOpen = false;
+  }
+
+  function undo() {
+    const tex = selectedTexture.value;
+    if (!tex || !past.length) return false;
+    future.push(cloneTexSnap(tex));
+    applyTexSnap(past.pop());
+    texGestureOpen = false;
+    path.endGesture();
+    state.status = "Undo.";
+    return true;
+  }
+
+  function redo() {
+    const tex = selectedTexture.value;
+    if (!tex || !future.length) return false;
+    past.push(cloneTexSnap(tex));
+    applyTexSnap(future.pop());
+    texGestureOpen = false;
+    path.endGesture();
+    state.status = "Redo.";
+    return true;
+  }
+
+  function clearTexHistory() {
+    past = [];
+    future = [];
+    texGestureOpen = false;
+    refreshHistFlags();
+  }
 
   function ensureEyePair(tex) {
     if (!tex) return null;
@@ -87,7 +172,11 @@ export function useTextureEditor() {
     return state.symmetry && layer && layer.type !== "eyelid" && layer.closed !== false;
   }
 
-  function syncPathFromLayer() {
+  /**
+   * @param {{ soft?: boolean }} [opts] soft=true: update knots without wiping path history
+   *   (used mid Move-drag; texture history is the source of truth for Undo).
+   */
+  function syncPathFromLayer({ soft = false } = {}) {
     const layer = selectedLayer.value;
     if (!layer) {
       path.loadPath([], [], { closed: true });
@@ -95,7 +184,12 @@ export function useTextureEditor() {
       return;
     }
     const closed = layer.type !== "eyelid";
-    path.loadPath(layer.knots, layer.segments, { closed });
+    if (soft && path.state.knots.length === layer.knots.length && path.state.closed === closed) {
+      path.applyKnotsFrom(layer.knots);
+      path.state.segments = (layer.segments || []).map((s) => ({ ...s, textureData: null }));
+      return;
+    }
+    path.loadPath(layer.knots, layer.segments, { closed, preserveSelection: soft });
   }
 
   function applyPathPolish({ movedPoint = false } = {}) {
@@ -141,6 +235,7 @@ export function useTextureEditor() {
     state.selectedGuid = tex.assetGuid;
     state.selectedLayerId = tex.layers[0]?.id || null;
     constrainAllEyeLayers(tex);
+    clearTexHistory();
     syncPathFromLayer();
     state.status = `Created eye texture “${tex.name}”.`;
     return tex;
@@ -150,6 +245,7 @@ export function useTextureEditor() {
     state.selectedGuid = guid;
     const tex = state.textures[guid];
     state.selectedLayerId = editableLayers(tex)[0]?.id || null;
+    clearTexHistory();
     syncPathFromLayer();
   }
 
@@ -165,18 +261,21 @@ export function useTextureEditor() {
   function renameLayer(layerId, name) {
     const L = findWorkingLayer(layerId);
     if (!L) return;
+    pushTexHistory();
     L.name = String(name || L.type).trim() || L.type;
   }
 
   function setLayerEnabled(layerId, enabled) {
     const L = findWorkingLayer(layerId);
     if (!L) return;
+    pushTexHistory();
     L.enabled = !!enabled;
   }
 
   function setLayerColor(layerId, color) {
     const L = findWorkingLayer(layerId);
     if (!L) return;
+    pushTexHistory();
     L.color = color;
     for (const k of L.knots || []) k.color = color;
   }
@@ -184,7 +283,11 @@ export function useTextureEditor() {
   function patchLayer(layerId, patch) {
     const L = findWorkingLayer(layerId);
     if (!L || !patch || typeof patch !== "object") return;
-    if (patch.color != null) setLayerColor(layerId, patch.color);
+    pushTexHistory();
+    if (patch.color != null) {
+      L.color = patch.color;
+      for (const k of L.knots || []) k.color = patch.color;
+    }
     if (patch.fillSide != null && L.type === "eyelid") {
       L.fillSide = patch.fillSide === "below" ? "below" : "above";
     }
@@ -204,6 +307,7 @@ export function useTextureEditor() {
     if (i < 0) return;
     const j = i + dir;
     if (j < 0 || j >= list.length) return;
+    pushTexHistory();
     const [row] = list.splice(i, 1);
     list.splice(j, 0, row);
   }
@@ -219,6 +323,7 @@ export function useTextureEditor() {
       if (existing) selectLayer(existing.id);
       return existing;
     }
+    pushTexHistory();
     const layer = createEyeLayer(type);
     if (type === "eyelid") layer.enabled = true;
     if (type === "eyelid") list.push(layer);
@@ -242,6 +347,7 @@ export function useTextureEditor() {
       state.status = "Eyeball layer is required.";
       return;
     }
+    pushTexHistory();
     const next = list.filter((x) => x.id !== layerId);
     const pair = ensureEyePair(tex);
     if (pair.editSide === "right" && !pair.linked) tex.rightLayers = next;
@@ -250,6 +356,33 @@ export function useTextureEditor() {
       state.selectedLayerId = next[0]?.id || null;
       syncPathFromLayer();
     }
+  }
+
+  function restoreSelectedToCircle() {
+    const layer = selectedLayer.value;
+    if (!layer) return false;
+    if (layer.type === "eyelid") {
+      state.status = "Eyelid is an open curve — Restore to circle is for closed layers.";
+      return false;
+    }
+    pushTexHistory();
+    restoreLayerToCircle(layer, { keepCenter: true });
+    constrainEyeLayer(workingTex(), layer.id);
+    syncPathFromLayer();
+    state.status = `Restored “${layer.name}” to a circle.`;
+    return true;
+  }
+
+  function restoreLayerCircle(layerId) {
+    const L = findWorkingLayer(layerId);
+    if (!L) return false;
+    if (L.type === "eyelid") return false;
+    pushTexHistory();
+    restoreLayerToCircle(L, { keepCenter: true });
+    constrainEyeLayer(workingTex(), L.id);
+    if (state.selectedLayerId === layerId) syncPathFromLayer();
+    state.status = `Restored “${L.name}” to a circle.`;
+    return true;
   }
 
   function setLayerMode(mode) {
@@ -261,19 +394,19 @@ export function useTextureEditor() {
   function translateSelectedLayer(dx, dy) {
     const layer = selectedLayer.value;
     if (!layer) return;
-    // SplineCanvas flipX already maps pointer → storage-space world coords.
     translateLayerTree(workingLayers(), layer.id, dx, dy);
-    syncPathFromLayer();
+    syncPathFromLayer({ soft: true });
   }
 
   function onTranslatePath(dx, dy) {
-    path.beginGesture("move-layer");
+    beginTexGesture();
     translateSelectedLayer(dx, dy);
   }
 
   function setEditSide(side) {
     const tex = selectedTexture.value;
     if (!tex) return;
+    pushTexHistory();
     const pair = ensureEyePair(tex);
     if (side === "both") {
       pair.editSide = "both";
@@ -289,7 +422,6 @@ export function useTextureEditor() {
         }
       }
     }
-    // Remap selection by type across stacks
     const prevType = selectedLayer.value?.type;
     const list = editableLayers(tex);
     state.selectedLayerId =
@@ -304,6 +436,7 @@ export function useTextureEditor() {
   function setEyeLinked(linked) {
     const tex = selectedTexture.value;
     if (!tex) return;
+    pushTexHistory();
     const pair = ensureEyePair(tex);
     if (linked) {
       resetEyePairToMirror(tex, "left");
@@ -323,12 +456,16 @@ export function useTextureEditor() {
     if (!tex) return;
     const pair = ensureEyePair(tex);
     const d = Number(value);
-    pair.distance = Number.isFinite(d) ? Math.min(1, Math.max(0, d)) : pair.distance;
+    const next = Number.isFinite(d) ? Math.min(1, Math.max(0, d)) : pair.distance;
+    if (next === pair.distance) return;
+    // Distance is preview-only layout — don't spam history on every slider tick
+    pair.distance = next;
   }
 
   function resetToMirrorImage() {
     const tex = selectedTexture.value;
     if (!tex) return;
+    pushTexHistory();
     const pair = ensureEyePair(tex);
     const source = pair.editSide === "right" ? "right" : "left";
     resetEyePairToMirror(tex, source);
@@ -347,6 +484,7 @@ export function useTextureEditor() {
   let gestureMovedPoint = false;
 
   function onPathKnotUpdate(id, patch) {
+    beginTexGesture();
     if (layerWantsSymmetry(selectedLayer.value) && patch.x != null) {
       const ax = symmetryAxisX();
       patch = { ...patch, x: Math.max(ax, Number(patch.x) || 0) };
@@ -358,6 +496,7 @@ export function useTextureEditor() {
   }
 
   function onPathDragEnd() {
+    endTexGesture();
     path.endGesture();
     if (state.layerMode === "move") {
       gestureMovedPoint = false;
@@ -371,19 +510,26 @@ export function useTextureEditor() {
     const wx = layerWantsSymmetry(selectedLayer.value)
       ? Math.max(symmetryAxisX(), x)
       : x;
+    pushTexHistory();
     if (path.insertKnotOnCurve(wx, y)) pushPathToLayer({ movedPoint: true });
   }
 
   function setSymmetry(on) {
     state.symmetry = !!on;
     if (state.symmetry && path.state.closed) {
+      beginTexGesture();
       pushPathToLayer({ movedPoint: true });
+      endTexGesture();
     }
   }
 
   function setAutoSmooth(on) {
     state.autoSmooth = !!on;
-    if (state.autoSmooth) pushPathToLayer({ movedPoint: true });
+    if (state.autoSmooth) {
+      beginTexGesture();
+      pushPathToLayer({ movedPoint: true });
+      endTexGesture();
+    }
   }
 
   function removeSelectedTexture() {
@@ -392,6 +538,7 @@ export function useTextureEditor() {
     const keys = Object.keys(state.textures);
     state.selectedGuid = keys[0] || null;
     state.selectedLayerId = editableLayers(selectedTexture.value)[0]?.id || null;
+    clearTexHistory();
     syncPathFromLayer();
   }
 
@@ -416,6 +563,7 @@ export function useTextureEditor() {
     const keys = Object.keys(state.textures);
     state.selectedGuid = keys[0] || null;
     state.selectedLayerId = editableLayers(selectedTexture.value)[0]?.id || null;
+    clearTexHistory();
     syncPathFromLayer();
   }
 
@@ -455,6 +603,8 @@ export function useTextureEditor() {
     moveLayer,
     addLayer,
     removeLayer,
+    restoreSelectedToCircle,
+    restoreLayerCircle,
     setLayerMode,
     onTranslatePath,
     setEditSide,
@@ -471,5 +621,7 @@ export function useTextureEditor() {
     loadTextures,
     pushPathToLayer,
     syncPathFromLayer,
+    undo,
+    redo,
   };
 }

@@ -13,6 +13,8 @@ import {
   rightEyeLayers,
   resetEyePairToMirror,
   editableLayers,
+  restoreLayerToCircle,
+  EYE_CIRCLE_RADII,
 } from "../src/lib/texture/eyeTexture.js";
 import {
   pointInPolygon,
@@ -136,17 +138,20 @@ assert.ok(pointInPolygon(pc.x, pc.y, irisPoly), "pupil centroid inside iris afte
   assert.equal(lid2.color, "#aabbcc");
 }
 
-// Layer Move: translating iris also moves pupil
+// Layer Move: translating iris also moves pupil + reflection
 {
   const e2 = createDefaultEyeTexture({ name: "Move" });
   const iris = findLayer(e2, "iris");
   const pupil = findLayer(e2, "pupil");
+  const shine = findLayer(e2, "reflection");
   const ix = iris.knots[0].x;
   const px = pupil.knots[0].x;
+  const sx = shine.knots[0].x;
   translateLayerTree(e2.layers, iris.id, 0.1, 0);
   assert.ok(Math.abs(iris.knots[0].x - (ix + 0.1)) < 1e-6, "iris translated");
   assert.ok(Math.abs(pupil.knots[0].x - (px + 0.1)) < 1e-6, "pupil follows iris");
-  assert.deepEqual(companionLayerTypes("iris"), ["pupil"]);
+  assert.ok(Math.abs(shine.knots[0].x - (sx + 0.1)) < 1e-6, "reflection follows iris");
+  assert.deepEqual(companionLayerTypes("iris"), ["pupil", "reflection"]);
 }
 
 // Left/right pair: linked right is mirror; reset re-links
@@ -170,6 +175,25 @@ assert.ok(pointInPolygon(pc.x, pc.y, irisPoly), "pupil centroid inside iris afte
   assert.equal(e3.eyePair.linked, true);
   assert.equal(e3.rightLayers, null);
   assert.equal(editableLayers(e3), e3.layers);
+}
+
+// Restore to circle keeps center, resets radius to default
+{
+  const e4 = createDefaultEyeTexture({ name: "Restore" });
+  const pupil = findLayer(e4, "pupil");
+  const c0 = pathCentroid(pupil.knots);
+  for (const k of pupil.knots) {
+    k.x = c0.x + (k.x - c0.x) * 0.15;
+    k.y = c0.y + (k.y - c0.y) * 0.15;
+  }
+  assert.ok(restoreLayerToCircle(pupil, { keepCenter: true }));
+  const c1 = pathCentroid(pupil.knots);
+  assert.ok(Math.abs(c1.x - c0.x) < 1e-5 && Math.abs(c1.y - c0.y) < 1e-5, "center kept");
+  const tip = pupil.knots.reduce((a, k) => (k.x > a.x ? k : a), pupil.knots[0]);
+  assert.ok(
+    Math.abs(tip.x - (c1.x + EYE_CIRCLE_RADII.pupil.rx)) < 1e-5,
+    "pupil radius restored",
+  );
 }
 
 const ser = serializeEyeTexture(eye);
