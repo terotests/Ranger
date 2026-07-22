@@ -16,6 +16,11 @@ import {
   restoreLayerToCircle,
   EYE_CIRCLE_RADII,
   rasterizeEyePairUvMap,
+  normalizeEyeUv,
+  averageKnotColorHex,
+  eyeUvFromCorners,
+  eyeUvMoveCenter,
+  unwrapUvPairU,
 } from "../src/lib/texture/eyeTexture.js";
 import {
   pointInPolygon,
@@ -303,8 +308,26 @@ const texOnly = {
   textureAssets: { [ser.assetGuid]: ser },
 };
 assert.deepEqual(validateProject(texOnly), []);
-const uv = rasterizeEyePairUvMap(eye, 64, 64);
+const uv = rasterizeEyePairUvMap(eye, 64, 64, {
+  background: averageKnotColorHex([{ color: "#c8a070" }, { color: "#c8a070" }]),
+  uv: normalizeEyeUv({ centerU: 0.4, centerV: 0.6, scale: 1.2, eyeSeparationU: 0.14 }),
+});
 assert.ok(uv && uv.w === 64 && uv.h === 64 && uv.rgba.length === 64 * 64 * 4);
+assert.equal(averageKnotColorHex([{ color: "#ff0000" }, { color: "#0000ff" }]), "#800080");
+assert.equal(averageKnotColorHex([], ""), "");
+assert.equal(normalizeEyeUv({ scale: 99 }).scale, 3);
+assert.equal(normalizeEyeUv({ centerU: 0.4, eyeSeparationU: 0.14 }).eyeSeparationU, 0.14);
+
+const fromCorners = eyeUvFromCorners(0.35, 0.7, 0.65, 0.45);
+assert.ok(Math.abs(fromCorners.centerU - 0.5) < 1e-6);
+assert.ok(Math.abs(fromCorners.centerV - 0.575) < 1e-6);
+assert.ok(fromCorners.scale > 0.5);
+assert.ok(fromCorners.eyeSeparationU > 0.02);
+assert.deepEqual(unwrapUvPairU(0.9, 0.1)[0] <= unwrapUvPairU(0.9, 0.1)[1], true);
+const moved = eyeUvMoveCenter(fromCorners, 0.42, 0.55);
+assert.ok(Math.abs(moved.centerU - 0.42) < 1e-9);
+assert.ok(Math.abs(moved.centerV - 0.55) < 1e-9);
+assert.equal(moved.scale, fromCorners.scale);
 
 console.log("smoke-eye-texture: ok", {
   schema: mig.doc.schemaVersion,

@@ -2,7 +2,7 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
-import { serializeEyeTexture } from "../lib/texture/eyeTexture.js";
+import { serializeEyeTexture, normalizeEyeUv } from "../lib/texture/eyeTexture.js";
 
 export const CURRENT_SCHEMA_VERSION = 10;
 
@@ -204,6 +204,7 @@ export function buildProjectDocument(opts) {
         st.objectMaterial?.textureAssign === "eyePair"
           ? "eyePair"
           : st.objectMaterial?.textureAssign || null,
+      textureUv: normalizeEyeUv(st.objectMaterial?.textureUv),
     },
     profile: {
       knots: (st.knots || []).map(serializeKnot),
