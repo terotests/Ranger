@@ -260,7 +260,8 @@ function startRegionDrag(handle) {
 
 /**
  * Pick UV at a normalized overlay point (0–1 over the canvas box).
- * NDC uses visual fraction, so sx = nx * view.width matches the stretched bitmap.
+ * Uses host meshTilt/meshAngle so picks follow the editor object spin
+ * (WebMeshEditorHost entityTransform euler XYZ).
  */
 function pickUvAtNorm(nx, ny) {
   const view = getView();
@@ -270,43 +271,20 @@ function pickUvAtNorm(nx, ny) {
   const rootOnlyDisplay = (displayMesh.value?.parts || []).filter((p) => !p.instanceGuid);
   const sx = nx * (view.width || 1);
   const sy = ny * (view.height || 1);
+  const tilt = view.meshTilt;
+  const yaw = view.meshAngle;
 
-  const attempts = [];
+  // Primary: authoring root + placement orient + host yaw/tilt
   if (rootParts?.length) {
-    attempts.push(
-      pickRootSurface(
-        sx,
-        sy,
-        view,
-        rootParts,
-        view.meshTilt,
-        view.meshAngle,
-        orientInv.value,
-      ),
-    );
-    // Sometimes placement-orient inverse disagrees — try authoring parts with euler only.
-    attempts.push(
-      pickRootSurface(sx, sy, view, rootParts, view.meshTilt, view.meshAngle, null),
-    );
+    const hit = pickRootSurface(sx, sy, view, rootParts, tilt, yaw, orientInv.value);
+    if (hit?.uv) return hit.uv;
+    // Default placement normal is +Y (orient = I); still try without orientInv.
+    const hit2 = pickRootSurface(sx, sy, view, rootParts, tilt, yaw, null);
+    if (hit2?.uv) return hit2.uv;
   }
+  // Fallback: displayed root parts (already placement-oriented)
   if (rootOnlyDisplay.length) {
-    attempts.push(
-      pickRootSurface(sx, sy, view, rootOnlyDisplay, view.meshTilt, view.meshAngle, null),
-    );
-    attempts.push(
-      pickRootSurface(
-        sx,
-        sy,
-        view,
-        rootOnlyDisplay,
-        view.meshTilt,
-        view.meshAngle,
-        orientInv.value,
-      ),
-    );
-  }
-
-  for (const hit of attempts) {
+    const hit = pickRootSurface(sx, sy, view, rootOnlyDisplay, tilt, yaw, null);
     if (hit?.uv) return hit.uv;
   }
   return null;

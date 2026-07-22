@@ -8,6 +8,7 @@ import {
   applyPreviewEulerInv,
   approximateLatheUvFromPoint,
   pickRootSurface,
+  transformPartsByPreviewEuler,
 } from "../src/lib/meshPick.js";
 import {
   eyeUvFromRegionSamples,
@@ -99,6 +100,65 @@ const p = [1, 0, 0];
 const e = applyPreviewEuler(p, 0.12, 0.5);
 const back = applyPreviewEulerInv(e, 0.12, 0.5);
 assert.ok(Math.hypot(back[0] - 1, back[1], back[2]) < 1e-6);
+
+// Must match Three.js Euler XYZ (host entityTransform) — R = Rx * Ry
+{
+  const rx = 0.12;
+  const ry = 0.4;
+  const c1 = Math.cos(rx / 2);
+  const c2 = Math.cos(ry / 2);
+  const s1 = Math.sin(rx / 2);
+  const s2 = Math.sin(ry / 2);
+  const q = {
+    x: s1 * c2,
+    y: c1 * s2,
+    z: s1 * s2,
+    w: c1 * c2,
+  };
+  // z=0 simplifies Three.js XYZ quat
+  const qFull = {
+    x: s1 * c2 * 1 + c1 * s2 * 0,
+    y: c1 * s2 * 1 - s1 * c2 * 0,
+    z: c1 * c2 * 0 + s1 * s2 * 1,
+    w: c1 * c2 * 1 - s1 * s2 * 0,
+  };
+  void q;
+  const pt = [0.3, 0.7, -0.2];
+  const ours = applyPreviewEuler(pt, rx, ry);
+  const qx = qFull.x;
+  const qy = qFull.y;
+  const qz = qFull.z;
+  const qw = qFull.w;
+  const ix = qw * pt[0] + qy * pt[2] - qz * pt[1];
+  const iy = qw * pt[1] + qz * pt[0] - qx * pt[2];
+  const iz = qw * pt[2] + qx * pt[1] - qy * pt[0];
+  const iw = -qx * pt[0] - qy * pt[1] - qz * pt[2];
+  const three = [
+    ix * qw + iw * -qx + iy * -qz - iz * -qy,
+    iy * qw + iw * -qy + iz * -qx - ix * -qz,
+    iz * qw + iw * -qz + ix * -qy - iy * -qx,
+  ];
+  assert.ok(
+    Math.hypot(ours[0] - three[0], ours[1] - three[1], ours[2] - three[2]) < 1e-9,
+    "preview euler must match Three.js XYZ used by mesh host",
+  );
+}
+
+// Picking must succeed when the host has spun the mesh (yaw/tilt ≠ 0)
+{
+  const rx = 0.12;
+  const ry = 0.55;
+  const localHit = pickRootSurface(200, 200, view, uvParts, rx, ry, null);
+  assert.ok(localHit?.uv, "pick through inverse host yaw/tilt");
+  const worldParts = transformPartsByPreviewEuler(uvParts, rx, ry);
+  const { origin: oW, dir: dW } = rayFromCanvas(200, 200, view);
+  const worldHit = raycastMeshParts(oW, dW, worldParts);
+  assert.ok(worldHit?.uv, "world-space rotated parts still pickable");
+  assert.ok(
+    Math.hypot(localHit.uv[0] - worldHit.uv[0], localHit.uv[1] - worldHit.uv[1]) < 0.05,
+    "inverse-ray pick UV matches world-space rotated pick",
+  );
+}
 
 const v7 = {
   kind: "ranger.splineProject",
