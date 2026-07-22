@@ -16,6 +16,12 @@ import {
   placementNormalDirection3,
 } from "../lib/placementNormal.js";
 import { raycastMeshParts } from "../lib/meshPick.js";
+import {
+  defaultSegment,
+  cloneSeg,
+  syncOpenSegments as syncOpenSegmentsOn,
+  syncClosedSegments as syncOrbitSegmentsOn,
+} from "../lib/pathModel.js";
 
 /** @typedef {{ id: string, x: number, y: number, hx: number, hy: number, color: string }} Knot */
 /** @typedef {{ fromId: string, toId: string, color: string|null, roughness: number, metalness: number, opacity: number, texture: string, textureData: any, textureAsset?: string|null, pathType?: string, arcBulge?: number|null }} Segment */
@@ -48,35 +54,8 @@ function defaultOrbitKnots() {
   }));
 }
 
-function defaultSegment(fromId, toId, pathType = "bezier") {
-  return {
-    fromId,
-    toId,
-    color: null,
-    roughness: 0.4,
-    metalness: 0,
-    opacity: 1,
-    texture: "gradient",
-    textureData: null,
-    textureAsset: null,
-    pathType: pathType === "line" || pathType === "arc" ? pathType : "bezier",
-    arcBulge: null,
-  };
-}
-
 function defaultObjectMaterial() {
   return { color: null, roughness: 0.4, metalness: 0, opacity: 1, texture: "gradient" };
-}
-
-function cloneSeg(s, fromId, toId) {
-  return {
-    ...s,
-    fromId,
-    toId,
-    textureData: s.textureData || null,
-    pathType: s.pathType === "line" || s.pathType === "arc" ? s.pathType : "bezier",
-    arcBulge: s.arcBulge ?? null,
-  };
 }
 
 function projectDocToBody(doc, { newGuidForCopy = true } = {}) {
@@ -378,35 +357,6 @@ export function useSplineEditor() {
     const b = bodyRef();
     if (b) b.curveType = v;
     else state.curveType = v;
-  }
-
-  function syncOpenSegmentsOn(knots, segments, defaultPathType = "bezier") {
-    const byPair = new Map();
-    for (const s of segments) byPair.set(s.fromId + ">" + s.toId, s);
-    const next = [];
-    for (let i = 0; i < knots.length - 1; i++) {
-      const fromId = knots[i].id;
-      const toId = knots[i + 1].id;
-      const exact = byPair.get(fromId + ">" + toId);
-      next.push(
-        exact ? cloneSeg(exact, fromId, toId) : defaultSegment(fromId, toId, defaultPathType),
-      );
-    }
-    return next;
-  }
-
-  function syncOrbitSegmentsOn(knots, segments) {
-    const byPair = new Map();
-    for (const s of segments) byPair.set(s.fromId + ">" + s.toId, s);
-    const next = [];
-    const n = knots.length;
-    for (let i = 0; i < n; i++) {
-      const fromId = knots[i].id;
-      const toId = knots[(i + 1) % n].id;
-      const exact = byPair.get(fromId + ">" + toId);
-      next.push(exact ? cloneSeg(exact, fromId, toId) : defaultSegment(fromId, toId));
-    }
-    return next;
   }
 
   function syncSegments() {

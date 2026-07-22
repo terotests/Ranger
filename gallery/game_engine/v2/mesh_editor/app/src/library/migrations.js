@@ -11,6 +11,7 @@ import {
   slugify,
   validateProject,
 } from "./schema.js";
+import { normalizeEyeTexture } from "../lib/texture/eyeTexture.js";
 
 function defaultOrbitDoc() {
   const raw = SplineLathe.defaultOrbitKnots();
@@ -446,6 +447,23 @@ function normalizeV8(doc) {
   return v7;
 }
 
+function normalizeV9(doc) {
+  const v8 = normalizeV8(doc);
+  v8.schemaVersion = 9;
+  const src = doc.textureAssets || v8.textureAssets || {};
+  const textureAssets = {};
+  for (const [guid, raw] of Object.entries(src)) {
+    const tex = normalizeEyeTexture({
+      ...raw,
+      assetGuid: raw?.assetGuid || guid,
+      kind: raw?.kind || "eye",
+    });
+    textureAssets[tex.assetGuid] = tex;
+  }
+  v8.textureAssets = textureAssets;
+  return v8;
+}
+
 /** @type {Record<number, (doc: any) => any>} */
 const STEPS = {
   1(doc) {
@@ -476,6 +494,10 @@ const STEPS = {
   // 7 → 8: child surface placement (z + normal + surface flag)
   8(doc) {
     return normalizeV8(doc);
+  },
+  // 8 → 9: textureAssets (params-only procedural textures, eye editor first)
+  9(doc) {
+    return normalizeV9(doc);
   },
 };
 

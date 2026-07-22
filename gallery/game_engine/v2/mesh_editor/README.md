@@ -3,7 +3,8 @@
 Vite + Vue editor under `gallery/game_engine/v2/mesh_editor` for building
 **symmetrical spline silhouettes** plus an editable **orbit path** (Bezier
 replacement for cos/sin), lathe-tessellated into 3D meshes rendered with
-**Ranger Three**.
+**Ranger Three**. Includes a **Texture** sector (eye editor first) that reuses
+the shared Bezier path editor and stores **params only** (runtime raster).
 
 ## Layout
 
@@ -163,6 +164,25 @@ root mesh along their stored parent normal. Child spines and placement normals a
 stored on the embedded asset and survive save/load.
 
 Also: **Twin** / **Sym** for mirrored pairs; Profile attach boxes for non-surface nudging; **Edit** loads a child large while the preview stays the full assembly.
+
+### Texture editor (schema v9)
+
+Top toggle **Mesh | Texture**. Shared path kit: `lib/pathModel.js`, `usePathEditor`,
+`SplineCanvas` feature flags (lathe guides off in texture mode).
+
+**Eye texture** (`textureAssets[*].kind: "eye"`):
+
+| Layer | Role |
+|-------|------|
+| Eyeball | Closed Bezier silhouette (shape editor) |
+| Iris | Closed path, constrained inside eyeball |
+| Pupil | Closed path, constrained inside iris |
+| Reflection | Shine spot, constrained inside eyeball |
+| Eyelid | Open Bezier + filled clip region, drawn on top (clipped to eyeball) |
+
+Layers can be named, reordered, enabled/disabled. Only **params** are saved
+(`knots` / `segments` / colours) — `renderEyeTexture` rebuilds pixels at runtime
+(animatable). Mesh UV projection / vertex-colour background assign is next.
 
 ## Shading base
 

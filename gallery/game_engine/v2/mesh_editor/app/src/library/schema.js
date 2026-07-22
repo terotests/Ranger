@@ -2,7 +2,7 @@
 // schema.js — semantic spline-project document + versioned migrations.
 // ============================================================================
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 export const SCHEMA_KIND = "ranger.splineProject";
 
@@ -132,6 +132,34 @@ function serializeChild(ch) {
   };
 }
 
+/** Texture assets store editable params only (no baked pixels). */
+function serializeTextureAsset(tex) {
+  if (!tex || typeof tex !== "object") return null;
+  const kind = tex.kind === "eye" ? "eye" : String(tex.kind || "eye");
+  const layers = (tex.layers || []).map((L) => ({
+    id: L.id,
+    type: L.type || "eyeball",
+    name: L.name || L.type || "layer",
+    enabled: L.enabled !== false,
+    color: L.color || "#ffffff",
+    closed: L.closed !== false && L.type !== "eyelid",
+    fillSide: L.fillSide === "below" ? "below" : L.type === "eyelid" ? "above" : null,
+    clipTo: L.clipTo || null,
+    knots: (L.knots || []).map(serializeKnot),
+    segments: (L.segments || []).map(serializeSegment),
+  }));
+  return {
+    assetGuid: tex.assetGuid,
+    name: tex.name || "Texture",
+    kind,
+    width: Number(tex.width) || 256,
+    height: Number(tex.height) || 256,
+    backgroundFrom: tex.backgroundFrom === "solid" ? "solid" : "vertexColors",
+    previewBackground: tex.previewBackground || "#6a8f6a",
+    layers,
+  };
+}
+
 /**
  * Build a current-version project document from the live editor state.
  */
@@ -192,6 +220,14 @@ export function buildProjectDocument(opts) {
     placementNormal: serializePlacementNormal(st.placementNormal),
     embeddedAssets: embedded,
     children: (st.children || []).map(serializeChild),
+    textureAssets: (() => {
+      const out = {};
+      for (const [guid, tex] of Object.entries(st.textureAssets || {})) {
+        const s = serializeTextureAsset({ ...tex, assetGuid: tex.assetGuid || guid });
+        if (s) out[s.assetGuid] = s;
+      }
+      return out;
+    })(),
   };
 }
 
@@ -250,6 +286,19 @@ export function validateProject(doc) {
     const m = doc.editor?.tessellationMode;
     if (m != null && m !== "rotation" && m !== "torus") {
       errors.push('editor.tessellationMode must be "rotation" or "torus"');
+    }
+  }
+  if (doc.schemaVersion >= 9) {
+    if (doc.textureAssets != null && typeof doc.textureAssets !== "object") {
+      errors.push("textureAssets must be an object map");
+    } else if (doc.textureAssets) {
+      for (const [guid, tex] of Object.entries(doc.textureAssets)) {
+        if (!tex || typeof tex !== "object") {
+          errors.push(`textureAssets[${guid}] invalid`);
+          continue;
+        }
+        if (!Array.isArray(tex.layers)) errors.push(`textureAssets[${guid}].layers must be an array`);
+      }
     }
   }
   return errors;

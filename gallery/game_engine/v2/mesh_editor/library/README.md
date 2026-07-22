@@ -46,6 +46,9 @@ copy or symlink selected folders into a tracked tree, or temporarily force-add.
   `surface`) for 3D preview raycast attach and surface-drag while editing a child.
   Embedded assets also persist `spineProfileKnots` / `spineOrbitKnots` and
   `placementNormal` (shortened child spines must not reset on save).
+- v9 adds `textureAssets` — params-only procedural textures (first kind: `eye`
+  with named layers eyeball/iris/pupil/reflection/eyelid). No baked pixels;
+  rasterize at runtime for animation / mesh assign later.
 
 When you change the document shape, bump the version and add a step; old folders
 keep working.
