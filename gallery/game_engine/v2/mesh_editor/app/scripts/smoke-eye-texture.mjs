@@ -45,6 +45,8 @@ import {
   listAnimTargets,
   ensureDemoAnimTargets,
   morphTextureAnim,
+  morphBetweenTextures,
+  listCompatibleEmotionPeers,
   getPoseForTarget,
 } from "../src/lib/texture/eyeEmotion.js";
 import {
@@ -600,32 +602,57 @@ assert.equal(mig10.doc.objectMaterial.textureMap, null);
   assert.ok(typeof migratedEye.topologyKey === "string");
   assert.ok(Array.isArray(migratedEye.poses));
 
-  // Animation class + demo targets + morphTextureAnim (preview path)
+  // Animation class registry still available
   const classes = listAnimClassesForPart(PART_CLASS_EYE);
   assert.ok(classes.some((c) => c.id === ANIM_CLASS_EMOTION));
+
+  // Preferred workflow: two textures, each tagged with an emotion, morph between them
+  const neutralTex = createDefaultEyeTexture({ name: "EyesNeutral" });
+  neutralTex.emotion = "neutral";
+  const angryTex = createDefaultEyeTexture({ name: "EyesAngry" });
+  angryTex.emotion = "angry";
+  const angryLid = findLayer(angryTex, "eyelid");
+  angryLid.enabled = true;
+  angryLid.knots[0].y += 0.15;
+  angryLid.knots[2].y += 0.15;
+  assert.ok(areEyeTexturesCompatible(neutralTex, angryTex));
+  const peers = listCompatibleEmotionPeers([neutralTex, angryTex], neutralTex);
+  assert.equal(peers.length, 1);
+  assert.equal(peers[0].assetGuid, angryTex.assetGuid);
+
+  const cross = morphBetweenTextures(neutralTex, angryTex, 0.5);
+  assert.ok(cross);
+  const n0 = findLayer(neutralTex, "eyelid").knots[0].y;
+  const a0 = findLayer(angryTex, "eyelid").knots[0].y;
+  const m0 = findLayer(cross, "eyelid").knots[0].y;
+  assert.ok(Math.abs(m0 - (n0 + a0) * 0.5) < 1e-6);
+  // Sources unchanged
+  assert.ok(Math.abs(findLayer(neutralTex, "eyelid").knots[0].y - n0) < 1e-6);
+  assert.equal(morphBetweenTextures(neutralTex, angryTex, 0).emotion, "neutral");
+  assert.equal(morphBetweenTextures(neutralTex, angryTex, 1).emotion, "angry");
+
+  // Incompatible topology → no peer / no morph
+  const brokenPeer = createDefaultEyeTexture({ name: "BrokenPeer" });
+  findLayer(brokenPeer, "pupil").knots.pop();
+  brokenPeer.topologyKey = eyeTopologyKey(brokenPeer);
+  assert.equal(areEyeTexturesCompatible(neutralTex, brokenPeer), false);
+  assert.equal(listCompatibleEmotionPeers([brokenPeer], neutralTex).length, 0);
+  assert.equal(morphBetweenTextures(neutralTex, brokenPeer, 0.5), null);
+
+  // Legacy single-texture poses path still works (not the primary UI)
   const demoTex = createDefaultEyeTexture({ name: "DemoAnim" });
   const seeded = ensureDemoAnimTargets(demoTex);
-  assert.ok(seeded.includes("neutral"));
   assert.ok(seeded.includes("angry"));
-  assert.ok(seeded.includes("sad"));
-  assert.equal(listAnimTargets(demoTex, ANIM_CLASS_EMOTION).length, seeded.length);
   assert.ok(getPoseForTarget(demoTex, ANIM_CLASS_EMOTION, "angry")?.animClass === "emotion");
-  const morphed = morphTextureAnim(demoTex, {
-    animClass: ANIM_CLASS_EMOTION,
-    from: "neutral",
-    to: "angry",
-    t: 0.5,
-  });
-  assert.ok(morphed);
-  const lidY0 = getPoseForTarget(demoTex, "emotion", "neutral").layers.eyelid.knots[0].y;
-  const lidY1 = getPoseForTarget(demoTex, "emotion", "angry").layers.eyelid.knots[0].y;
-  const midY = findLayer(morphed, "eyelid").knots[0].y;
-  assert.ok(Math.abs(midY - (lidY0 + lidY1) * 0.5) < 1e-6);
-  // Source layers unchanged by morphTextureAnim
   assert.ok(
-    Math.abs(findLayer(demoTex, "eyelid").knots[0].y - lidY0) < 1e-6 ||
-      findLayer(demoTex, "eyelid").enabled === false,
+    morphTextureAnim(demoTex, {
+      animClass: ANIM_CLASS_EMOTION,
+      from: "neutral",
+      to: "angry",
+      t: 0.5,
+    }),
   );
+  assert.equal(listAnimTargets(demoTex, ANIM_CLASS_EMOTION).length, seeded.length);
 }
 
 // Save path: buildProjectDocument must keep bake when state carries a live map

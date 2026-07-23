@@ -179,36 +179,47 @@ reactive knot trees or WASM bindings every frame.
 
 ## Animation classes (generalized states)
 
-Emotion is one **animation class**; a class has named **targets** that morph
-inside the same topology:
+Emotion is one **animation class**. Preferred authoring model for testing:
 
 ```text
-animClass: "emotion"
-  targets: neutral | happy | sad | angry | …
+Texture “Eyes neutral”  → emotion: neutral
+Texture “Eyes angry”    → emotion: angry
+  (same topologyKey → morph-compatible)
 ```
 
-Later classes (same machinery, different targets):
+So each library eye is tagged with one emotion; morph is **between textures**,
+not between multiple poses stuffed into one asset. (`poses[]` on a single
+texture remains available for later packing.)
+
+Registry (`ANIM_CLASS_DEFS`) still allows other classes later:
 
 ```text
 animClass: "blink"   → open | closed
 animClass: "gaze"    → center | left | right
 ```
 
-Each pose stores `animClass` + `target` (`emotion` kept as alias when
-`animClass === "emotion"`). Registry: `ANIM_CLASS_DEFS` in `eyeEmotion.js`.
+## Texture-editor testing (current)
 
-## Mesh preview testing (Assign → A→B)
+1. Create / edit eye A, set **This texture emotion** (e.g. `neutral`).
+2. Create eye B with the **same topology** (default knot counts match), shape it,
+   tag `angry`.
+3. Select A → **Morph toward** B → drag Morph 0…1.
+4. Texture preview shows the blend (`morphBetweenTextures`); working knots on A
+   are not rewritten.
 
-1. **Assign to mesh** (existing square + texture dialog).
-2. In the mesh toolbar **Anim preview** panel:
-   - **Seed demo emotions** — procedural targets from the current eye
-   - Pick class / From / To and drag **Morph** 0…1
-3. Preview re-bakes the UV atlas (`previewAssignedAnimMorph`) so the 3D view
-   updates. Authoring `layers` stay unchanged; only the assigned atlas morphs.
+Compatible peers: `listCompatibleEmotionPeers` (same `topologyKey`, other guid).
+
+## 3D preview (next phase)
+
+Same peer-texture morph after **Assign to mesh**:
+
+- Detect assigned texture emotion + compatible peers in the texture store.
+- Morph 0…1 by **re-painting the UV atlas bitmap only** — do **not** recompute
+  UV vertices / retessellate the mesh each frame.
+- Keep atlas resolution modest while scrubbing; optional higher res on release.
 
 ## Out of scope (follow-ups)
 
-- Full pose list / capture UI in the Texture sector
-- GPU offscreen eye framebuffer / vertex-shader morph (no atlas rebake)
+- GPU vertex-shader morph (no CPU atlas rebake)
 - Per-eye blink / gaze overrides on top of shared emotion
 - Asymmetric in/out handles (`inHandle` / `outHandle`) if C1 symmetry is too limiting

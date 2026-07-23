@@ -15,8 +15,9 @@ import { useTextureEditor } from "./composables/useTextureEditor.js";
 import { useLibrary } from "./composables/useLibrary.js";
 import { normalizeEyeUv } from "./lib/texture/eyeTexture.js";
 import {
-  ANIM_CLASS_EMOTION,
-  ensureDemoAnimTargets,
+  morphBetweenTextures,
+  normalizeEmotionTag,
+  eyeTopologyKey,
 } from "./lib/texture/eyeEmotion.js";
 import * as api from "./library/api.js";
 
@@ -60,7 +61,6 @@ const {
   activePlacementNormal,
   setTextureAssetsProvider,
   assignEyeTextureToRootAsync,
-  previewAssignedAnimMorph,
   clearAssignedTexture,
 } = useSplineEditor();
 
@@ -84,18 +84,26 @@ const assignProgress = ref("");
 const assignRegionMode = ref(false);
 /** UV derived from the confirmed square (fed into the texture dialog). */
 const assignRegionUv = ref(null);
-const animMorphBusy = ref(false);
-/** Coalesce slider morph rebakes to one in-flight pass. */
-let animMorphQueued = null;
-let animMorphRunning = false;
+
+/** Texture-editor emotion morph (peer texture + t). */
+const texMorphTargetGuid = ref("");
+const texMorphT = ref(0);
 
 setTextureAssetsProvider(() => tex.snapshotTextures());
 
-/** Live assigned eye texture (editor object — poses mutate here). */
-const assignedTexture = computed(() => {
-  const guid = state.objectMaterial?.textureAsset;
-  if (!guid) return null;
-  return texState.textures[guid] || null;
+const loadedTextureList = computed(() => Object.values(texState.textures || {}));
+
+/** Preview shows morph blend when a compatible peer is selected. */
+const texPreviewTexture = computed(() => {
+  const src = texSelected.value;
+  if (!src) return null;
+  const tgtGuid = texMorphTargetGuid.value;
+  const t = texMorphT.value;
+  if (!tgtGuid || t <= 0) return src;
+  const tgt = texState.textures[tgtGuid];
+  if (!tgt) return src;
+  if (t >= 1) return tgt;
+  return morphBetweenTextures(src, tgt, t) || src;
 });
 
 function snapshotState(kind) {
@@ -219,61 +227,12 @@ function onClearAssignedTexture() {
   tessellate();
 }
 
-function persistSeededPoses(seeded) {
-  const guid = state.objectMaterial?.textureAsset;
-  const live = guid ? texState.textures[guid] : null;
-  if (!live || !seeded) return;
-  live.poses = seeded.poses;
-  live.topologyKey = seeded.topologyKey;
-  live.emotion = seeded.emotion || live.emotion;
-  live.partClass = seeded.partClass || live.partClass;
-}
-
-function onSeedAnimTargets({ animClass } = {}) {
-  const live = assignedTexture.value;
-  if (!live) {
-    state.status = "Assign an eye texture before seeding anim targets.";
-    return;
-  }
-  const cls = animClass || ANIM_CLASS_EMOTION;
-  if (cls === ANIM_CLASS_EMOTION) {
-    const targets = ensureDemoAnimTargets(live);
-    state.status = `Seeded emotion targets: ${targets.join(", ")}`;
-  }
-}
-
-async function runAnimMorph(opts) {
-  const finalPass = !!opts.finalPass;
-  animMorphBusy.value = true;
-  try {
-    await previewAssignedAnimMorph({
-      animClass: opts.animClass || ANIM_CLASS_EMOTION,
-      from: opts.from,
-      to: opts.to,
-      t: opts.t,
-      width: finalPass ? 384 : 256,
-      height: finalPass ? 384 : 256,
-      seedDemo: false,
-      mutateSource: persistSeededPoses,
-    });
-  } finally {
-    animMorphBusy.value = false;
-  }
-}
-
-async function onAnimMorph(opts) {
-  animMorphQueued = opts;
-  if (animMorphRunning) return;
-  animMorphRunning = true;
-  try {
-    while (animMorphQueued) {
-      const next = animMorphQueued;
-      animMorphQueued = null;
-      await runAnimMorph(next);
-    }
-  } finally {
-    animMorphRunning = false;
-  }
+function onTexEmotion(tag) {
+  const live = texSelected.value;
+  if (!live) return;
+  live.emotion = normalizeEmotionTag(tag);
+  live.topologyKey = eyeTopologyKey(live);
+  texState.status = `Emotion “${live.emotion}” on “${live.name}”.`;
 }
 
 const materials = [
@@ -763,13 +722,6 @@ onBeforeUnmount(() => {
       >
         Clear texture
       </button>
-      <TextureAnimPanel
-        :texture="assignedTexture"
-        :disabled="!state.objectMaterial?.textureAsset || assignBusy"
-        :busy="animMorphBusy"
-        @seed="onSeedAnimTargets"
-        @morph="onAnimMorph"
-      />
       <div class="mats">
         <span>Shading base</span>
         <div class="mat-row">
@@ -1015,11 +967,20 @@ onBeforeUnmount(() => {
       />
       <div class="side-stack">
         <TexturePreview
-          :texture="texSelected"
+          :texture="texPreviewTexture"
           :pair="true"
           :edit-side="texEyePair.editSide"
           :distance="texEyePair.distance"
           @update-distance="tex.setInterEyeDistance"
+        />
+        <TextureAnimPanel
+          :texture="texSelected"
+          :textures="loadedTextureList"
+          :target-guid="texMorphTargetGuid"
+          :morph-t="texMorphT"
+          @update-emotion="onTexEmotion"
+          @update:target-guid="texMorphTargetGuid = $event"
+          @update:morph-t="texMorphT = $event"
         />
         <section class="tex-list panel-ish">
           <h2>Textures</h2>
@@ -1031,12 +992,13 @@ onBeforeUnmount(() => {
               :class="{ active: t.assetGuid === texState.selectedGuid }"
               @click="tex.selectTexture(t.assetGuid)"
             >
-              {{ t.name }} · {{ t.kind }}
+              {{ t.name }} · {{ t.emotion || "neutral" }}
             </li>
           </ul>
           <p v-if="!Object.keys(texState.textures).length" class="hint">
             Click <strong>New eye</strong> to start. Layers: eyeball, iris, pupil, shine,
-            optional eyelid.
+            optional eyelid. Tag each eye with an emotion, then morph between compatible
+            textures above.
           </p>
         </section>
       </div>
