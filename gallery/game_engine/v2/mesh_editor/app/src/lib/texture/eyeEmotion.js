@@ -603,8 +603,9 @@ export function ensureDemoAnimTargets(tex, opts = {}) {
 }
 
 /**
- * Build a cloned eye texture with layers morphed between two anim targets.
- * Does not mutate the source texture.
+ * Build a cloned eye texture with layers morphed between two anim targets
+ * stored on the *same* texture (`poses[]`). Prefer {@link morphBetweenTextures}
+ * when each emotion is a separate library texture.
  * @param {object} tex
  * @param {{ animClass?: string, from: string, to: string, t?: number }} opts
  * @returns {object|null}
@@ -625,6 +626,75 @@ export function morphTextureAnim(tex, opts) {
   const clone = JSON.parse(JSON.stringify(tex));
   if (!applyEyePose(clone, mid)) return null;
   clone.emotion = mid.emotion;
+  return clone;
+}
+
+/**
+ * Compatible peer textures for emotion morph (same topology, other asset).
+ * @param {Iterable<object>} textures
+ * @param {object} ref
+ * @returns {object[]}
+ */
+export function listCompatibleEmotionPeers(textures, ref) {
+  if (!ref) return [];
+  const refGuid = ref.assetGuid;
+  const out = [];
+  for (const t of textures || []) {
+    if (!t || t.assetGuid === refGuid) continue;
+    if (!areEyeTexturesCompatible(ref, t)) continue;
+    out.push(t);
+  }
+  out.sort((a, b) => {
+    const ea = normalizeEmotionTag(a.emotion);
+    const eb = normalizeEmotionTag(b.emotion);
+    if (ea !== eb) return ea.localeCompare(eb);
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  });
+  return out;
+}
+
+/**
+ * Morph between two eye *textures* (each tagged with its own emotion).
+ * Does not mutate either source. Requires matching topology.
+ * @param {object} fromTex
+ * @param {object} toTex
+ * @param {number} t 0…1
+ * @returns {object|null}
+ */
+export function morphBetweenTextures(fromTex, toTex, t) {
+  if (!fromTex || !toTex) return null;
+  if (!areEyeTexturesCompatible(fromTex, toTex)) return null;
+  const u = Math.min(1, Math.max(0, Number(t) || 0));
+  if (u <= 0) return JSON.parse(JSON.stringify(fromTex));
+  if (u >= 1) return JSON.parse(JSON.stringify(toTex));
+
+  const fromPose = captureEyePose(fromTex, {
+    animClass: ANIM_CLASS_EMOTION,
+    target: fromTex.emotion,
+    emotion: fromTex.emotion,
+  });
+  const toPose = captureEyePose(toTex, {
+    animClass: ANIM_CLASS_EMOTION,
+    target: toTex.emotion,
+    emotion: toTex.emotion,
+  });
+  if (!fromPose || !toPose) return null;
+  const mid = interpolateEyePose(fromPose, toPose, u);
+  if (!mid) return null;
+  const clone = JSON.parse(JSON.stringify(fromTex));
+  if (!applyEyePose(clone, mid)) return null;
+  // Soft blend fill colours per layer (preview nicety; knots already lerped).
+  for (const role of EYE_LAYER_TYPES) {
+    const a = findLayer(fromTex, role);
+    const b = findLayer(toTex, role);
+    const c = findLayer(clone, role);
+    if (a?.color && b?.color && c) {
+      c.color = u < 0.5 ? a.color : b.color;
+    }
+  }
+  clone.emotion = u < 0.5
+    ? normalizeEmotionTag(fromTex.emotion)
+    : normalizeEmotionTag(toTex.emotion);
   return clone;
 }
 

@@ -1,202 +1,181 @@
 <script setup>
 /**
- * Mesh-side animation class preview: pick class (e.g. emotion), from/to targets,
- * and morph 0…1. Re-bakes the assigned eye atlas into the 3D preview.
+ * Texture-editor emotion morph test:
+ * tag the current eye with an emotion, pick a topology-compatible peer
+ * texture as the target, morph 0…1 (preview only — does not edit knots).
  */
 import { computed, ref, watch } from "vue";
 import {
-  ANIM_CLASS_EMOTION,
-  listAnimClassesForPart,
-  listAnimTargets,
-  ensureDemoAnimTargets,
-  PART_CLASS_EYE,
+  EYE_EMOTION_TAGS,
+  normalizeEmotionTag,
+  listCompatibleEmotionPeers,
+  eyeTopologyKey,
 } from "../lib/texture/eyeEmotion.js";
 
 const props = defineProps({
-  /** Assigned texture asset (live editor object), or null */
+  /** Currently selected eye texture (live). */
   texture: { type: Object, default: null },
-  disabled: { type: Boolean, default: false },
-  busy: { type: Boolean, default: false },
+  /** All loaded textures (live map values). */
+  textures: { type: Array, default: () => [] },
+  /** Guid of morph target peer, or "". */
+  targetGuid: { type: String, default: "" },
+  morphT: { type: Number, default: 0 },
 });
 
-const emit = defineEmits(["morph", "seed"]);
+const emit = defineEmits(["update-emotion", "update:targetGuid", "update:morphT"]);
 
-const animClass = ref(ANIM_CLASS_EMOTION);
-const fromTarget = ref("neutral");
-const toTarget = ref("angry");
-const morphT = ref(0);
-const scrubbing = ref(false);
+const emotionDraft = ref("neutral");
 
-const classes = computed(() =>
-  listAnimClassesForPart(props.texture?.partClass || PART_CLASS_EYE),
+const peers = computed(() => listCompatibleEmotionPeers(props.textures, props.texture));
+
+const hasPeers = computed(() => peers.value.length > 0);
+
+const topologyKey = computed(() =>
+  props.texture ? eyeTopologyKey(props.texture) : "",
 );
 
-const targets = computed(() => {
-  if (!props.texture) return [];
-  return listAnimTargets(props.texture, animClass.value);
-});
-
-const hasTargets = computed(() => targets.value.length >= 2);
-
-const classLabel = computed(() => {
-  const c = classes.value.find((x) => x.id === animClass.value);
-  return c?.label || animClass.value;
-});
-
 watch(
-  targets,
-  (list) => {
-    if (!list.length) return;
-    if (!list.includes(fromTarget.value)) fromTarget.value = list[0];
-    if (!list.includes(toTarget.value)) {
-      toTarget.value = list.find((t) => t !== fromTarget.value) || list[0];
-    }
+  () => props.texture?.emotion,
+  (e) => {
+    emotionDraft.value = normalizeEmotionTag(e || "neutral");
   },
   { immediate: true },
 );
 
-function emitMorph(finalPass = false) {
-  emit("morph", {
-    animClass: animClass.value,
-    from: fromTarget.value,
-    to: toTarget.value,
-    t: morphT.value,
-    finalPass,
-  });
+watch(
+  () => props.texture?.assetGuid,
+  () => {
+    // Reset target when switching the edited texture.
+    emit("update:targetGuid", "");
+    emit("update:morphT", 0);
+  },
+);
+
+watch(peers, (list) => {
+  if (!props.targetGuid) return;
+  if (!list.some((t) => t.assetGuid === props.targetGuid)) {
+    emit("update:targetGuid", "");
+    emit("update:morphT", 0);
+  }
+});
+
+function commitEmotion() {
+  const tag = normalizeEmotionTag(emotionDraft.value);
+  emotionDraft.value = tag;
+  emit("update-emotion", tag);
 }
 
-function onSliderInput() {
-  scrubbing.value = true;
-  emitMorph(false);
+function onTargetChange(e) {
+  emit("update:targetGuid", String(e.target.value || ""));
+  emit("update:morphT", 0);
 }
 
-function onSliderChange() {
-  scrubbing.value = false;
-  emitMorph(true);
-}
-
-function onSeed() {
-  emit("seed", { animClass: animClass.value });
-}
-
-function swap() {
-  const a = fromTarget.value;
-  fromTarget.value = toTarget.value;
-  toTarget.value = a;
-  emitMorph(true);
+function onMorphInput(e) {
+  emit("update:morphT", Number(e.target.value) || 0);
 }
 
 function jump(t) {
-  morphT.value = t;
-  emitMorph(true);
+  emit("update:morphT", t);
 }
 
-/** Expose ensure for parent if needed */
-defineExpose({ ensureDemoAnimTargets, targets, animClass });
+function peerLabel(t) {
+  const em = normalizeEmotionTag(t.emotion);
+  return `${t.name || "Eye"} · ${em}`;
+}
 </script>
 
 <template>
-  <div class="anim-panel" :class="{ dim: disabled }">
+  <section class="anim-panel">
     <div class="anim-head">
-      <span class="anim-title">Anim preview</span>
-      <span class="anim-sub">{{ classLabel }} A → B</span>
+      <span class="anim-title">Emotion morph</span>
+      <span class="anim-sub">Texture test · compatible peers</span>
     </div>
 
-    <p v-if="!texture" class="anim-hint">Assign an eye texture to enable morph preview.</p>
+    <p v-if="!texture" class="anim-hint">Select an eye texture to tag and morph.</p>
     <template v-else>
       <label class="field">
-        Class
-        <select v-model="animClass" :disabled="disabled || busy">
-          <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.label }}</option>
-        </select>
+        This texture emotion
+        <div class="emotion-row">
+          <select v-model="emotionDraft" @change="commitEmotion">
+            <option v-for="tag in EYE_EMOTION_TAGS" :key="tag" :value="tag">
+              {{ tag }}
+            </option>
+          </select>
+          <input
+            v-model="emotionDraft"
+            type="text"
+            maxlength="32"
+            placeholder="custom…"
+            title="Custom emotion tag"
+            @change="commitEmotion"
+            @keydown.enter.prevent="commitEmotion"
+          />
+        </div>
       </label>
 
-      <div v-if="!hasTargets" class="anim-seed">
+      <p class="topo" :title="topologyKey">
+        topo {{ topologyKey ? topologyKey.slice(0, 42) + (topologyKey.length > 42 ? "…" : "") : "—" }}
+      </p>
+
+      <template v-if="!hasPeers">
         <p class="anim-hint">
-          No {{ classLabel.toLowerCase() }} targets on this texture yet.
+          No other eye textures share this topology. Create a second eye (same knot
+          counts), tag it e.g. <strong>angry</strong>, then morph here.
         </p>
-        <button
-          type="button"
-          class="primary"
-          :disabled="disabled || busy"
-          title="Create procedural emotion targets from the current eye for testing"
-          @click="onSeed"
-        >
-          Seed demo emotions
-        </button>
-      </div>
-
+      </template>
       <template v-else>
-        <div class="anim-row">
-          <label class="field">
-            From
-            <select v-model="fromTarget" :disabled="disabled || busy" @change="emitMorph(true)">
-              <option v-for="t in targets" :key="'f-' + t" :value="t">{{ t }}</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            class="swap"
-            title="Swap from/to"
-            :disabled="disabled || busy"
-            @click="swap"
-          >
-            ↔
-          </button>
-          <label class="field">
-            To
-            <select v-model="toTarget" :disabled="disabled || busy" @change="emitMorph(true)">
-              <option v-for="t in targets" :key="'t-' + t" :value="t">{{ t }}</option>
-            </select>
-          </label>
-        </div>
+        <label class="field">
+          Morph toward
+          <select :value="targetGuid" @change="onTargetChange">
+            <option value="">— pick compatible texture —</option>
+            <option
+              v-for="t in peers"
+              :key="t.assetGuid"
+              :value="t.assetGuid"
+            >
+              {{ peerLabel(t) }}
+            </option>
+          </select>
+        </label>
 
-        <label class="field morph">
+        <label class="field morph" :class="{ dim: !targetGuid }">
           Morph
           <input
-            v-model.number="morphT"
             type="range"
             min="0"
             max="1"
             step="0.02"
-            :disabled="disabled || busy"
-            @input="onSliderInput"
-            @change="onSliderChange"
+            :disabled="!targetGuid"
+            :value="morphT"
+            @input="onMorphInput"
           />
-          <span class="morph-val">{{ Math.round(morphT * 100) }}%</span>
+          <span class="morph-val">{{ Math.round((morphT || 0) * 100) }}%</span>
         </label>
 
         <div class="anim-jumps">
-          <button type="button" :disabled="disabled || busy" @click="jump(0)">A</button>
-          <button type="button" :disabled="disabled || busy" @click="jump(0.5)">½</button>
-          <button type="button" :disabled="disabled || busy" @click="jump(1)">B</button>
-          <button
-            type="button"
-            :disabled="disabled || busy"
-            title="Add/refresh procedural emotion targets"
-            @click="onSeed"
-          >
-            Reseed
-          </button>
+          <button type="button" :disabled="!targetGuid" @click="jump(0)">A</button>
+          <button type="button" :disabled="!targetGuid" @click="jump(0.5)">½</button>
+          <button type="button" :disabled="!targetGuid" @click="jump(1)">B</button>
         </div>
+
+        <p class="anim-hint">
+          Preview only — working knots stay on texture A until you edit them.
+        </p>
       </template>
     </template>
-  </div>
+  </section>
 </template>
 
 <style scoped>
 .anim-panel {
-  margin-top: 0.65rem;
-  padding: 0.65rem 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-}
-.anim-panel.dim {
-  opacity: 0.55;
+  padding: 0.75rem 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  width: 100%;
 }
 .anim-head {
   display: flex;
@@ -205,27 +184,41 @@ defineExpose({ ensureDemoAnimTargets, targets, animClass });
 }
 .anim-title {
   font-weight: 600;
-  font-size: 0.92rem;
+  font-size: 0.95rem;
 }
 .anim-sub {
   color: var(--ink-dim);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
 }
 .anim-hint {
   margin: 0;
   color: var(--ink-dim);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.35;
 }
-.anim-row {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 0.35rem;
-  align-items: end;
+.topo {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--ink-dim);
+  font-family: ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.swap {
-  padding: 0.35rem 0.45rem;
-  margin-bottom: 0.05rem;
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+}
+.field.dim {
+  opacity: 0.5;
+}
+.emotion-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
 }
 .morph {
   display: grid;
@@ -240,8 +233,6 @@ defineExpose({ ensureDemoAnimTargets, targets, animClass });
 }
 .morph-val {
   font-variant-numeric: tabular-nums;
-  color: var(--ink-dim);
-  font-size: 0.8rem;
   justify-self: end;
 }
 .anim-jumps {
@@ -252,18 +243,5 @@ defineExpose({ ensureDemoAnimTargets, targets, animClass });
 .anim-jumps button {
   padding: 0.3rem 0.55rem;
   font-size: 0.8rem;
-}
-.anim-seed {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  align-items: flex-start;
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.78rem;
-  color: var(--ink-dim);
 }
 </style>

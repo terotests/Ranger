@@ -117,6 +117,23 @@ host.addPart(top.positions, top.normals, top.uvs, top.indices, 0xffffff, 120, 1,
 host.frame(16);
 if (host.partCount() !== 2) throw new Error("shared-map expected 2 parts, got " + host.partCount());
 
+// Hot-swap atlas without rebuild
+if (typeof host.updatePartMapBuffer !== "function") {
+  throw new Error("host missing updatePartMapBuffer");
+}
+const swapped = new Uint8Array(8 * 8 * 4);
+for (let i = 0; i < swapped.length; i += 4) {
+  swapped[i] = 40;
+  swapped[i + 1] = 180;
+  swapped[i + 2] = 220;
+  swapped[i + 3] = 255;
+}
+const ab2 = swapped.buffer.slice(swapped.byteOffset, swapped.byteOffset + swapped.byteLength);
+ab2._view = new DataView(ab2);
+host.updatePartMapBuffer(ab2, 8, 8);
+host.frame(16);
+if (host.partCount() !== 2) throw new Error("updatePartMapBuffer must keep parts");
+
 console.log("[mesh-editor smoke] OK", {
   fullVerts: (full.positions.length / 3) | 0,
   orbitVerts: (viaOrbit.positions.length / 3) | 0,
@@ -124,4 +141,5 @@ console.log("[mesh-editor smoke] OK", {
   parts: host.partCount(),
   litPixels: lit,
   sharedMap: true,
+  atlasHotSwap: true,
 });

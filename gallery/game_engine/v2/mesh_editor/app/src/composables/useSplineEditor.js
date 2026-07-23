@@ -10,13 +10,10 @@ import {
   DEFAULT_EYE_UV,
 } from "../lib/texture/eyeTexture.js";
 import {
-  ANIM_CLASS_EMOTION,
-  ensureDemoAnimTargets,
-  listAnimTargets,
-  morphTextureAnim,
-  normalizeAnimClassId,
-  normalizeAnimTarget,
+  morphBetweenTextures,
+  normalizeEmotionTag,
 } from "../lib/texture/eyeEmotion.js";
+import { cloneAtlas, lerpAtlas } from "../lib/texture/atlasMorph.js";
 import { normalizeTextureMap } from "../lib/texture/textureMapCodec.js";
 import { transformParts } from "../lib/meshTransform.js";
 import { evalSpan as evalPathSpan } from "../lib/pathSample.js";
@@ -1078,6 +1075,7 @@ export function useSplineEditor() {
     if (state.objectMaterial.textureMap) {
       rememberBakedAtlas(guid, state.objectMaterial.textureMap);
     }
+    invalidateMorphAtlasBake();
     if (record) state.status = "Assigned eye texture to mesh UVs (left + right).";
     return true;
   }
@@ -1133,103 +1131,125 @@ export function useSplineEditor() {
     return true;
   }
 
-  /**
-   * Live-preview an animation-class morph (e.g. emotion A→B) on the assigned
-   * eye texture by re-baking the UV atlas. Does not alter authoring layers.
-   *
-   * @param {{
-   *   animClass?: string,
-   *   from: string,
-   *   to: string,
-   *   t?: number,
-   *   width?: number,
-   *   height?: number,
-   *   seedDemo?: boolean,
-   *   mutateSource?: (tex: object) => void,
-   * }} opts
-   * mutateSource — optional hook to persist seeded poses into the texture store
-   */
-  async function previewAssignedAnimMorph(opts = {}) {
-    const guid = String(state.objectMaterial?.textureAsset || "").trim();
-    if (!guid) {
-      state.status = "Assign an eye texture before anim morph preview.";
-      return false;
-    }
-    const assets = textureAssetsProvider() || {};
-    const raw = assets[guid];
-    if (!raw) {
-      state.status = "Assigned texture is not loaded in the Texture editor.";
-      return false;
-    }
-    const live = raw.kind === "eye" || !raw.kind ? normalizeEyeTexture(raw) : raw;
-    if (live.kind !== "eye") {
-      state.status = "Anim morph preview currently supports eye textures only.";
-      return false;
-    }
+  /** Cached endpoint atlases for peer-texture morph (invalidate on UV / pair change). */
+  let morphAtlasBake = null;
 
-    const animClass = normalizeAnimClassId(opts.animClass || ANIM_CLASS_EMOTION);
-    if (opts.seedDemo !== false && animClass === ANIM_CLASS_EMOTION) {
-      const before = listAnimTargets(live, animClass).length;
-      ensureDemoAnimTargets(live);
-      if (listAnimTargets(live, animClass).length > before && typeof opts.mutateSource === "function") {
-        opts.mutateSource(live);
-      } else if (listAnimTargets(live, animClass).length > before) {
-        // Best-effort: copy poses onto the provider's live object if same ref.
-        if (raw.poses !== live.poses) {
-          raw.poses = live.poses;
-          raw.topologyKey = live.topologyKey;
+  function invalidateMorphAtlasBake() {
+    morphAtlasBake = null;
+  }
+
+  function patchLiveMeshAtlas(map) {
+    if (!map?.rgba || !(map.w > 0) || !(map.h > 0)) return null;
+    const bytes =
+      map.rgba instanceof Uint8Array || map.rgba instanceof Uint8ClampedArray
+        ? map.rgba
+        : new Uint8ClampedArray(map.rgba);
+    const live = { rgba: bytes, w: map.w | 0, h: map.h | 0 };
+    for (const mesh of [state.rootMesh, state.mesh]) {
+      if (!mesh?.parts) continue;
+      for (const p of mesh.parts) {
+        if (p.mapRgba && (p.mapW > 0 || p.mapH > 0)) {
+          p.mapRgba = bytes;
+          p.mapW = live.w;
+          p.mapH = live.h;
         }
       }
     }
-
-    const from = normalizeAnimTarget(opts.from);
-    const to = normalizeAnimTarget(opts.to);
-    const t = Math.min(1, Math.max(0, Number(opts.t) || 0));
-    const targets = listAnimTargets(live, animClass);
-    if (!targets.includes(from) || !targets.includes(to)) {
-      state.status = `Missing ${animClass} targets (need “${from}” and “${to}”). Seed demo poses or capture poses first.`;
-      return false;
-    }
-
-    const morphed = morphTextureAnim(live, { animClass, from, to, t });
-    if (!morphed) {
-      state.status = "Could not morph poses — check topology match.";
-      return false;
-    }
-
-    const nextUv = normalizeEyeUv(state.objectMaterial?.textureUv);
-    const map = await rasterizeEyePairUvMapAsync(
-      morphed,
-      opts.width || 256,
-      opts.height || 256,
-      {
-        uv: nextUv,
-        background: meshBackgroundColor(),
-      },
-    );
-    if (!map) return false;
-
-    setPendingTextureMap(map, guid);
+    const guid = state.objectMaterial?.textureAsset;
+    rememberBakedAtlas(guid, live);
     const prev = state.objectMaterial || defaultObjectMaterial();
     state.objectMaterial = {
       ...prev,
-      texture: "asset",
-      textureAsset: guid,
-      textureAssign: "eyePair",
-      textureUv: nextUv,
-      textureMap: sealTextureMap(map),
+      textureMap: sealTextureMap(live),
     };
-    rememberBakedAtlas(guid, state.objectMaterial.textureMap);
-    try {
-      tessellate();
-    } catch (err) {
-      setPendingTextureMap(null);
-      state.status = "Tessellate after anim morph failed: " + (err.message || err);
-      return false;
+    return live;
+  }
+
+  /**
+   * Pre-rasterize from/to atlases once, then lerp pixels on scrub.
+   * @param {string} fromGuid
+   * @param {string} toGuid
+   * @param {number} w
+   * @param {number} h
+   */
+  async function ensureMorphAtlasBake(fromGuid, toGuid, w, h) {
+    const nextUv = normalizeEyeUv(state.objectMaterial?.textureUv);
+    const bg = meshBackgroundColor();
+    const key = [
+      fromGuid,
+      toGuid,
+      w,
+      h,
+      nextUv.centerU,
+      nextUv.centerV,
+      nextUv.scale,
+      nextUv.eyeSeparationU,
+      bg,
+    ].join("|");
+    if (morphAtlasBake?.key === key) return morphAtlasBake;
+
+    const assets = textureAssetsProvider() || {};
+    const fromRaw = assets[fromGuid];
+    const toRaw = assets[toGuid];
+    if (!fromRaw || !toRaw) return null;
+    const fromTex = fromRaw.kind === "eye" || !fromRaw.kind ? normalizeEyeTexture(fromRaw) : fromRaw;
+    const toTex = toRaw.kind === "eye" || !toRaw.kind ? normalizeEyeTexture(toRaw) : toRaw;
+    if (!morphBetweenTextures(fromTex, toTex, 0)) return null;
+
+    const opts = { uv: nextUv, background: bg };
+    const fromMap = await rasterizeEyePairUvMapAsync(fromTex, w, h, opts);
+    const toMap = await rasterizeEyePairUvMapAsync(toTex, w, h, opts);
+    const from = cloneAtlas(fromMap);
+    const to = cloneAtlas(toMap);
+    if (!from || !to) return null;
+    morphAtlasBake = {
+      key,
+      fromGuid,
+      toGuid,
+      from,
+      to,
+      fromEmotion: normalizeEmotionTag(fromTex.emotion),
+      toEmotion: normalizeEmotionTag(toTex.emotion),
+      scratch: new Uint8ClampedArray(w * h * 4),
+    };
+    return morphAtlasBake;
+  }
+
+  /**
+   * Morph assigned eye toward a compatible peer texture by lerping pre-baked
+   * atlas bitmaps and hot-swapping GPU/software map pixels — no tessellate.
+   *
+   * @param {{
+   *   toGuid: string,
+   *   t?: number,
+   *   width?: number,
+   *   height?: number,
+   * }} opts
+   * @returns {Promise<{ ok: boolean, map?: { rgba: Uint8ClampedArray|Uint8Array, w: number, h: number } }>}
+   */
+  async function previewAssignedTextureMorph(opts = {}) {
+    const guid = String(state.objectMaterial?.textureAsset || "").trim();
+    const toGuid = String(opts.toGuid || "").trim();
+    if (!guid || !toGuid) {
+      state.status = "Assign an eye texture and pick a morph target.";
+      return { ok: false };
     }
-    setPendingTextureMap(null);
-    state.status = `Anim ${animClass}: ${from} → ${to} (${Math.round(t * 100)}%)`;
-    return true;
+    if (!state.mesh?.parts?.some((p) => p.mapRgba && p.mapW > 0)) {
+      state.status = "Mesh has no atlas yet — assign a texture first.";
+      return { ok: false };
+    }
+    const w = opts.width || 256;
+    const h = opts.height || 256;
+    const bake = await ensureMorphAtlasBake(guid, toGuid, w, h);
+    if (!bake) {
+      state.status = "Textures are not morph-compatible (topology mismatch).";
+      return { ok: false };
+    }
+    const blended = lerpAtlas(bake.from, bake.to, opts.t, bake.scratch);
+    if (!blended) return { ok: false };
+    const live = patchLiveMeshAtlas(blended);
+    state.status = `Atlas morph ${bake.fromEmotion} → ${bake.toEmotion} (${Math.round((Number(opts.t) || 0) * 100)}%)`;
+    return { ok: true, map: live };
   }
 
   function clearAssignedTexture() {
@@ -1245,6 +1265,7 @@ export function useSplineEditor() {
     };
     forgetBakedAtlas(prevGuid);
     setPendingTextureMap(null);
+    invalidateMorphAtlasBake();
     endGesture();
     state.status = "Cleared assigned body texture.";
   }
@@ -1728,7 +1749,8 @@ export function useSplineEditor() {
     setTextureAssetsProvider,
     assignEyeTextureToRoot,
     assignEyeTextureToRootAsync,
-    previewAssignedAnimMorph,
+    previewAssignedTextureMorph,
+    invalidateMorphAtlasBake,
     setPendingTextureMap,
     clearAssignedTexture,
     attachFromProject,
