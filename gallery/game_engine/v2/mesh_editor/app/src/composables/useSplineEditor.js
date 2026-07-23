@@ -13,6 +13,7 @@ import {
   morphBetweenTextures,
   normalizeEmotionTag,
 } from "../lib/texture/eyeEmotion.js";
+import { cloneAtlas, lerpAtlas } from "../lib/texture/atlasMorph.js";
 import { normalizeTextureMap } from "../lib/texture/textureMapCodec.js";
 import { transformParts } from "../lib/meshTransform.js";
 import { evalSpan as evalPathSpan } from "../lib/pathSample.js";
@@ -1074,6 +1075,7 @@ export function useSplineEditor() {
     if (state.objectMaterial.textureMap) {
       rememberBakedAtlas(guid, state.objectMaterial.textureMap);
     }
+    invalidateMorphAtlasBake();
     if (record) state.status = "Assigned eye texture to mesh UVs (left + right).";
     return true;
   }
@@ -1129,77 +1131,125 @@ export function useSplineEditor() {
     return true;
   }
 
+  /** Cached endpoint atlases for peer-texture morph (invalidate on UV / pair change). */
+  let morphAtlasBake = null;
+
+  function invalidateMorphAtlasBake() {
+    morphAtlasBake = null;
+  }
+
+  function patchLiveMeshAtlas(map) {
+    if (!map?.rgba || !(map.w > 0) || !(map.h > 0)) return null;
+    const bytes =
+      map.rgba instanceof Uint8Array || map.rgba instanceof Uint8ClampedArray
+        ? map.rgba
+        : new Uint8ClampedArray(map.rgba);
+    const live = { rgba: bytes, w: map.w | 0, h: map.h | 0 };
+    for (const mesh of [state.rootMesh, state.mesh]) {
+      if (!mesh?.parts) continue;
+      for (const p of mesh.parts) {
+        if (p.mapRgba && (p.mapW > 0 || p.mapH > 0)) {
+          p.mapRgba = bytes;
+          p.mapW = live.w;
+          p.mapH = live.h;
+        }
+      }
+    }
+    const guid = state.objectMaterial?.textureAsset;
+    rememberBakedAtlas(guid, live);
+    const prev = state.objectMaterial || defaultObjectMaterial();
+    state.objectMaterial = {
+      ...prev,
+      textureMap: sealTextureMap(live),
+    };
+    return live;
+  }
+
   /**
-   * Next-phase hook: morph assigned eye toward a compatible peer texture and
-   * replace only the UV atlas bitmap (callers should avoid full retessellate
-   * when swapping map pixels in place). Currently unused by the UI — texture
-   * editor tests morph via morphBetweenTextures instead.
+   * Pre-rasterize from/to atlases once, then lerp pixels on scrub.
+   * @param {string} fromGuid
+   * @param {string} toGuid
+   * @param {number} w
+   * @param {number} h
+   */
+  async function ensureMorphAtlasBake(fromGuid, toGuid, w, h) {
+    const nextUv = normalizeEyeUv(state.objectMaterial?.textureUv);
+    const bg = meshBackgroundColor();
+    const key = [
+      fromGuid,
+      toGuid,
+      w,
+      h,
+      nextUv.centerU,
+      nextUv.centerV,
+      nextUv.scale,
+      nextUv.eyeSeparationU,
+      bg,
+    ].join("|");
+    if (morphAtlasBake?.key === key) return morphAtlasBake;
+
+    const assets = textureAssetsProvider() || {};
+    const fromRaw = assets[fromGuid];
+    const toRaw = assets[toGuid];
+    if (!fromRaw || !toRaw) return null;
+    const fromTex = fromRaw.kind === "eye" || !fromRaw.kind ? normalizeEyeTexture(fromRaw) : fromRaw;
+    const toTex = toRaw.kind === "eye" || !toRaw.kind ? normalizeEyeTexture(toRaw) : toRaw;
+    if (!morphBetweenTextures(fromTex, toTex, 0)) return null;
+
+    const opts = { uv: nextUv, background: bg };
+    const fromMap = await rasterizeEyePairUvMapAsync(fromTex, w, h, opts);
+    const toMap = await rasterizeEyePairUvMapAsync(toTex, w, h, opts);
+    const from = cloneAtlas(fromMap);
+    const to = cloneAtlas(toMap);
+    if (!from || !to) return null;
+    morphAtlasBake = {
+      key,
+      fromGuid,
+      toGuid,
+      from,
+      to,
+      fromEmotion: normalizeEmotionTag(fromTex.emotion),
+      toEmotion: normalizeEmotionTag(toTex.emotion),
+      scratch: new Uint8ClampedArray(w * h * 4),
+    };
+    return morphAtlasBake;
+  }
+
+  /**
+   * Morph assigned eye toward a compatible peer texture by lerping pre-baked
+   * atlas bitmaps and hot-swapping GPU/software map pixels — no tessellate.
    *
    * @param {{
    *   toGuid: string,
    *   t?: number,
    *   width?: number,
    *   height?: number,
-   *   retessellate?: boolean,
    * }} opts
+   * @returns {Promise<{ ok: boolean, map?: { rgba: Uint8ClampedArray|Uint8Array, w: number, h: number } }>}
    */
   async function previewAssignedTextureMorph(opts = {}) {
     const guid = String(state.objectMaterial?.textureAsset || "").trim();
     const toGuid = String(opts.toGuid || "").trim();
     if (!guid || !toGuid) {
       state.status = "Assign an eye texture and pick a morph target.";
-      return false;
+      return { ok: false };
     }
-    const assets = textureAssetsProvider() || {};
-    const fromRaw = assets[guid];
-    const toRaw = assets[toGuid];
-    if (!fromRaw || !toRaw) {
-      state.status = "Morph textures are not loaded in the Texture editor.";
-      return false;
+    if (!state.mesh?.parts?.some((p) => p.mapRgba && p.mapW > 0)) {
+      state.status = "Mesh has no atlas yet — assign a texture first.";
+      return { ok: false };
     }
-    const fromTex = fromRaw.kind === "eye" || !fromRaw.kind ? normalizeEyeTexture(fromRaw) : fromRaw;
-    const toTex = toRaw.kind === "eye" || !toRaw.kind ? normalizeEyeTexture(toRaw) : toRaw;
-    const morphed = morphBetweenTextures(fromTex, toTex, opts.t);
-    if (!morphed) {
+    const w = opts.width || 256;
+    const h = opts.height || 256;
+    const bake = await ensureMorphAtlasBake(guid, toGuid, w, h);
+    if (!bake) {
       state.status = "Textures are not morph-compatible (topology mismatch).";
-      return false;
+      return { ok: false };
     }
-    const nextUv = normalizeEyeUv(state.objectMaterial?.textureUv);
-    const map = await rasterizeEyePairUvMapAsync(
-      morphed,
-      opts.width || 256,
-      opts.height || 256,
-      {
-        uv: nextUv,
-        background: meshBackgroundColor(),
-      },
-    );
-    if (!map) return false;
-    // Bitmap-only path: update atlas caches without rebuilding mesh topology.
-    rememberBakedAtlas(guid, map);
-    setPendingTextureMap(map, guid);
-    const prev = state.objectMaterial || defaultObjectMaterial();
-    state.objectMaterial = {
-      ...prev,
-      texture: "asset",
-      textureAsset: guid,
-      textureAssign: "eyePair",
-      textureUv: nextUv,
-      textureMap: sealTextureMap(map),
-    };
-    if (opts.retessellate !== false) {
-      // Default true until Preview3D supports hot-swapping map buffers alone.
-      try {
-        tessellate();
-      } catch (err) {
-        setPendingTextureMap(null);
-        state.status = "Tessellate after texture morph failed: " + (err.message || err);
-        return false;
-      }
-    }
-    setPendingTextureMap(null);
-    state.status = `Texture morph ${normalizeEmotionTag(fromTex.emotion)} → ${normalizeEmotionTag(toTex.emotion)} (${Math.round((Number(opts.t) || 0) * 100)}%)`;
-    return true;
+    const blended = lerpAtlas(bake.from, bake.to, opts.t, bake.scratch);
+    if (!blended) return { ok: false };
+    const live = patchLiveMeshAtlas(blended);
+    state.status = `Atlas morph ${bake.fromEmotion} → ${bake.toEmotion} (${Math.round((Number(opts.t) || 0) * 100)}%)`;
+    return { ok: true, map: live };
   }
 
   function clearAssignedTexture() {
@@ -1215,6 +1265,7 @@ export function useSplineEditor() {
     };
     forgetBakedAtlas(prevGuid);
     setPendingTextureMap(null);
+    invalidateMorphAtlasBake();
     endGesture();
     state.status = "Cleared assigned body texture.";
   }
@@ -1699,6 +1750,7 @@ export function useSplineEditor() {
     assignEyeTextureToRoot,
     assignEyeTextureToRootAsync,
     previewAssignedTextureMorph,
+    invalidateMorphAtlasBake,
     setPendingTextureMap,
     clearAssignedTexture,
     attachFromProject,

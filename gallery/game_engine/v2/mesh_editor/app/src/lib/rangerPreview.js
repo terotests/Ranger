@@ -171,6 +171,40 @@ export async function createPreviewSession(canvas, size = 420, opts = {}) {
     pushMesh(mesh);
   }
 
+  /**
+   * Hot-swap the shared part atlas without beginParts / geometry rebuild.
+   * Requires a prior setMesh that uploaded parts with hasPartMap.
+   * @param {Uint8Array|Uint8ClampedArray|ArrayLike<number>} rgba
+   * @param {number} w
+   * @param {number} h
+   * @returns {boolean}
+   */
+  function updateSharedMap(rgba, w, h) {
+    if (!rgba || !(w > 0) || !(h > 0)) return false;
+    const ww = w | 0;
+    const hh = h | 0;
+    if (typeof host.updatePartMapBuffer === "function") {
+      host.updatePartMapBuffer(toRangerBuffer(rgba), ww, hh);
+    } else if (typeof host.setPartMapBuffer === "function") {
+      host.setPartMapBuffer(toRangerBuffer(rgba), ww, hh);
+    } else {
+      return false;
+    }
+    // Keep lastMesh part refs in sync so a later setMaterialMode rebuild stays correct.
+    if (lastMesh?.parts) {
+      for (const part of lastMesh.parts) {
+        if (part.mapRgba && part.mapW > 0) {
+          part.mapRgba = rgba instanceof Uint8Array ? rgba : new Uint8Array(rgba);
+          part.mapW = ww;
+          part.mapH = hh;
+        }
+      }
+    }
+    host.frame(0);
+    blit();
+    return true;
+  }
+
   function setMaterialMode(mode) {
     lastMode = mode | 0;
     host.setMaterialMode(lastMode);
@@ -237,6 +271,7 @@ export async function createPreviewSession(canvas, size = 420, opts = {}) {
     host,
     useGL,
     setMesh,
+    updateSharedMap,
     setMaterialMode,
     setAutoRotate,
     getView,

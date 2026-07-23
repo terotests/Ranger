@@ -126,6 +126,12 @@ class ThreeGLBackend extends ThreeRenderBackend {
         if mat.hasMap {
             if (mat.map.glHandle < 0) {
                 mat.map.glHandle = (gpu_make_texture mat.map.rgba mat.map.width mat.map.height)
+                mat.map.needsUpdate = false
+            } {
+                if mat.map.needsUpdate {
+                    gpu_update_texture mat.map.glHandle mat.map.rgba mat.map.width mat.map.height
+                    mat.map.needsUpdate = false
+                }
             }
             th = mat.map.glHandle
         }
@@ -134,6 +140,12 @@ class ThreeGLBackend extends ThreeRenderBackend {
         if mat.hasNormalMap {
             if (mat.normalMap.glHandle < 0) {
                 mat.normalMap.glHandle = (gpu_make_texture mat.normalMap.rgba mat.normalMap.width mat.normalMap.height)
+                mat.normalMap.needsUpdate = false
+            } {
+                if mat.normalMap.needsUpdate {
+                    gpu_update_texture mat.normalMap.glHandle mat.normalMap.rgba mat.normalMap.width mat.normalMap.height
+                    mat.normalMap.needsUpdate = false
+                }
             }
             nth = mat.normalMap.glHandle
         }

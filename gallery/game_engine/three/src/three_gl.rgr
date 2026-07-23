@@ -49,6 +49,9 @@ function __rglTexture(bytes,w,h){ var gl=__rgl; if(!gl) return 0; var t=gl.creat
   if(__rglGL2){ gl.generateMipmap(gl.TEXTURE_2D); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR); var ax=gl.getExtension('EXT_texture_filter_anisotropic'); if(ax){ gl.texParameterf(gl.TEXTURE_2D, ax.TEXTURE_MAX_ANISOTROPY_EXT, 8); } }
   else { gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); }
   __rglTex.push(t); return __rglTex.length; }
+function __rglUpdateTexture(h,bytes,w,ht){ var gl=__rgl; if(!gl||h<1) return; gl.bindTexture(gl.TEXTURE_2D,__rglTex[h-1]); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,ht,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(bytes)); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  if(__rglGL2){ gl.generateMipmap(gl.TEXTURE_2D); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR); }
+  else { gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); } }
 function __rglSetLights(amb,dirs,cols,count){ __rglAmb=new Float32Array(amb); __rglDirs=new Float32Array(dirs); __rglCols=new Float32Array(cols); __rglLC=count|0; }
 function __rglSetView(cx,cy,cz){ __rglCam=[cx,cy,cz]; }
 function __rglSetTone(m,e){ __rglTone=m; __rglExposure=e; }
@@ -140,6 +143,13 @@ static int rgl_texture(const uint8_t* bytes,int w,int h){ GLuint t; glGenTexture
   glGenerateMipmap(GL_TEXTURE_2D); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
 #endif
   g_rglTex.push_back(t); return (int)g_rglTex.size(); }
+static void rgl_update_texture(int h,const uint8_t* bytes,int w,int ht){ if(h<1) return; glBindTexture(GL_TEXTURE_2D,g_rglTex[h-1]); glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,ht,0,GL_RGBA,GL_UNSIGNED_BYTE,bytes); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+  glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+#else
+  glGenerateMipmap(GL_TEXTURE_2D); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+#endif
+}
 static void rgl_set_lights(const uint8_t* amb,const uint8_t* dirs,const uint8_t* cols,int count){ const float* a=(const float*)amb; const float* d=(const float*)dirs; const float* c=(const float*)cols; g_rglAmb[0]=a[0];g_rglAmb[1]=a[1];g_rglAmb[2]=a[2]; for(int i=0;i<12;i++){ g_rglDirs[i]=d[i]; g_rglCols[i]=c[i]; } g_rglLC=count; }
 static void rgl_set_view(double cx,double cy,double cz){ g_rglCam[0]=(float)cx; g_rglCam[1]=(float)cy; g_rglCam[2]=(float)cz; }
 static void rgl_set_tone(double m,double e){ g_rglTone=(float)m; g_rglExposure=(float)e; }
@@ -203,6 +213,14 @@ static void rgl_save_ppm(const char* path, int w, int h){ std::vector<uint8_t> p
         templates {
             es6 ( "__rglTexture(" (e 1) ", " (e 2) ", " (e 3) ")" )
             cpp ( "rgl_texture(" (e 1) ".data(), " (e 2) ", " (e 3) ")" )
+        }
+    }
+
+    ; Replace pixels on an existing RGBA texture handle (hot atlas morph / scrub).
+    gpu_update_texture _:void (handle:int rgba:buffer w:int h:int) {
+        templates {
+            es6 ( "__rglUpdateTexture(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" )
+            cpp ( "rgl_update_texture(" (e 1) ", " (e 2) ".data(), " (e 3) ", " (e 4) ")" )
         }
     }
 

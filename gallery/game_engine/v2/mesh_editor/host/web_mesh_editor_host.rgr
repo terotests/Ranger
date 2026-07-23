@@ -155,12 +155,17 @@ class WebMeshEditorHost {
         hasPartMap = false
     }
 
-    ; Upload an atlas once as a Ranger buffer (fast path from JS TypedArray→ArrayBuffer).
+    ; Upload / replace the shared atlas on the stable ThreeTexture instance so
+    ; materials from the last beginParts batch keep the same map reference.
+    ; setImage marks needsUpdate → GL backend reuploads via gpu_update_texture.
     fn setPartMapBuffer:void (rgba:buffer w:int h:int) {
-        def tex:ThreeTexture (new ThreeTexture)
-        tex.setImage(rgba w h)
-        partMapTex = tex
+        partMapTex.setImage(rgba w h)
         hasPartMap = true
+    }
+
+    ; Hot-swap atlas pixels without beginParts / addPart (geometry stays).
+    fn updatePartMapBuffer:void (rgba:buffer w:int h:int) {
+        this.setPartMapBuffer(rgba w h)
     }
 
     ; Legacy: convert [int]/Uint8-like arrays into the shared part map.

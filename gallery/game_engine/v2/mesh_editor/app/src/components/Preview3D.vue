@@ -591,6 +591,13 @@ watch(
     syncCursor();
   },
 );
+
+/** Hot-swap UV atlas pixels without rebuilding mesh geometry. */
+function updateAtlas(rgba, w, h) {
+  return !!session?.updateSharedMap?.(rgba, w, h);
+}
+
+defineExpose({ updateAtlas });
 </script>
 
 <template>

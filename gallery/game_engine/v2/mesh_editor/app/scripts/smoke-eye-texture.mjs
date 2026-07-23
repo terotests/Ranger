@@ -49,6 +49,7 @@ import {
   listCompatibleEmotionPeers,
   getPoseForTarget,
 } from "../src/lib/texture/eyeEmotion.js";
+import { lerpAtlas, cloneAtlas } from "../src/lib/texture/atlasMorph.js";
 import {
   clampAssignRegion,
   regionCorners,
@@ -653,6 +654,24 @@ assert.equal(mig10.doc.objectMaterial.textureMap, null);
     }),
   );
   assert.equal(listAnimTargets(demoTex, ANIM_CLASS_EMOTION).length, seeded.length);
+
+  // Atlas pixel lerp (3D hot-swap path)
+  const A = {
+    w: 2,
+    h: 1,
+    rgba: new Uint8ClampedArray([0, 0, 0, 255, 100, 0, 0, 255]),
+  };
+  const B = {
+    w: 2,
+    h: 1,
+    rgba: new Uint8ClampedArray([200, 0, 0, 255, 0, 100, 0, 255]),
+  };
+  const midAtlas = lerpAtlas(A, B, 0.5);
+  assert.equal(midAtlas.rgba[0], 100);
+  assert.equal(midAtlas.rgba[4], 50);
+  assert.equal(lerpAtlas(A, B, 0).rgba[0], 0);
+  assert.equal(lerpAtlas(A, B, 1).rgba[0], 200);
+  assert.ok(cloneAtlas(A).rgba !== A.rgba);
 }
 
 // Save path: buildProjectDocument must keep bake when state carries a live map

@@ -209,14 +209,18 @@ animClass: "gaze"    → center | left | right
 
 Compatible peers: `listCompatibleEmotionPeers` (same `topologyKey`, other guid).
 
-## 3D preview (next phase)
+## 3D preview (atlas hot-swap)
 
-Same peer-texture morph after **Assign to mesh**:
+After **Assign to mesh**, the mesh toolbar **Emotion morph** panel lists
+topology-compatible peer textures:
 
-- Detect assigned texture emotion + compatible peers in the texture store.
-- Morph 0…1 by **re-painting the UV atlas bitmap only** — do **not** recompute
-  UV vertices / retessellate the mesh each frame.
-- Keep atlas resolution modest while scrubbing; optional higher res on release.
+1. Pre-bake UV atlases for A and B once (`ensureMorphAtlasBake`).
+2. On Morph scrub, **lerp atlas pixels** (`lerpAtlas`) — no Bézier re-raster.
+3. Hot-swap GPU/software map via `updatePartMapBuffer` / `Preview3D.updateAtlas`.
+4. **No tessellate** / no UV vertex rebuild.
+
+GL path: `ThreeTexture.needsUpdate` → `gpu_update_texture` (pixels replaced on
+the existing texture handle).
 
 ## Out of scope (follow-ups)
 

@@ -18,6 +18,7 @@ import {
   morphBetweenTextures,
   normalizeEmotionTag,
   eyeTopologyKey,
+  listCompatibleEmotionPeers,
 } from "./lib/texture/eyeEmotion.js";
 import * as api from "./library/api.js";
 
@@ -61,6 +62,7 @@ const {
   activePlacementNormal,
   setTextureAssetsProvider,
   assignEyeTextureToRootAsync,
+  previewAssignedTextureMorph,
   clearAssignedTexture,
 } = useSplineEditor();
 
@@ -89,9 +91,28 @@ const assignRegionUv = ref(null);
 const texMorphTargetGuid = ref("");
 const texMorphT = ref(0);
 
+/** Mesh 3D atlas morph (peer texture + t) — bitmap hot-swap only. */
+const meshMorphTargetGuid = ref("");
+const meshMorphT = ref(0);
+const meshMorphBusy = ref(false);
+const preview3dRef = ref(null);
+let meshMorphQueued = null;
+let meshMorphRunning = false;
+
 setTextureAssetsProvider(() => tex.snapshotTextures());
 
 const loadedTextureList = computed(() => Object.values(texState.textures || {}));
+
+/** Assigned eye texture for mesh anim panel. */
+const assignedTexture = computed(() => {
+  const guid = state.objectMaterial?.textureAsset;
+  if (!guid) return null;
+  return texState.textures[guid] || null;
+});
+
+const meshMorphPeers = computed(() =>
+  listCompatibleEmotionPeers(loadedTextureList.value, assignedTexture.value),
+);
 
 /** Preview shows morph blend when a compatible peer is selected. */
 const texPreviewTexture = computed(() => {
@@ -233,6 +254,57 @@ function onTexEmotion(tag) {
   live.emotion = normalizeEmotionTag(tag);
   live.topologyKey = eyeTopologyKey(live);
   texState.status = `Emotion “${live.emotion}” on “${live.name}”.`;
+}
+
+async function runMeshAtlasMorph(opts) {
+  const toGuid = opts.targetGuid || meshMorphTargetGuid.value;
+  if (!toGuid) return;
+  meshMorphBusy.value = true;
+  try {
+    const res = await previewAssignedTextureMorph({
+      toGuid,
+      t: opts.t,
+      width: opts.finalPass ? 384 : 256,
+      height: opts.finalPass ? 384 : 256,
+    });
+    if (res?.ok && res.map) {
+      preview3dRef.value?.updateAtlas(res.map.rgba, res.map.w, res.map.h);
+    }
+  } finally {
+    meshMorphBusy.value = false;
+  }
+}
+
+async function onMeshAtlasMorph(opts) {
+  meshMorphQueued = opts;
+  if (meshMorphRunning) return;
+  meshMorphRunning = true;
+  try {
+    while (meshMorphQueued) {
+      const next = meshMorphQueued;
+      meshMorphQueued = null;
+      await runMeshAtlasMorph(next);
+    }
+  } finally {
+    meshMorphRunning = false;
+  }
+}
+
+function onMeshMorphTarget(guid) {
+  meshMorphTargetGuid.value = guid || "";
+  meshMorphT.value = 0;
+  if (guid) {
+    onMeshAtlasMorph({ targetGuid: guid, t: 0, finalPass: true });
+  }
+}
+
+function onMeshMorphT(t) {
+  meshMorphT.value = t;
+  onMeshAtlasMorph({
+    targetGuid: meshMorphTargetGuid.value,
+    t,
+    finalPass: false,
+  });
 }
 
 const materials = [
@@ -722,6 +794,26 @@ onBeforeUnmount(() => {
       >
         Clear texture
       </button>
+      <TextureAnimPanel
+        v-if="assignedTexture"
+        :texture="assignedTexture"
+        :textures="loadedTextureList"
+        :target-guid="meshMorphTargetGuid"
+        :morph-t="meshMorphT"
+        @update-emotion="
+          (tag) => {
+            if (assignedTexture) {
+              assignedTexture.emotion = normalizeEmotionTag(tag);
+              assignedTexture.topologyKey = eyeTopologyKey(assignedTexture);
+            }
+          }
+        "
+        @update:target-guid="onMeshMorphTarget"
+        @update:morph-t="onMeshMorphT"
+      />
+      <p v-else-if="state.objectMaterial?.textureAsset" class="hint">
+        Load the assigned eye in Texture to morph peers ({{ meshMorphPeers.length }} compatible).
+      </p>
       <div class="mats">
         <span>Shading base</span>
         <div class="mat-row">
@@ -831,6 +923,7 @@ onBeforeUnmount(() => {
       />
       <div class="side-stack">
         <Preview3D
+          ref="preview3dRef"
           :mesh="state.mesh"
           :root-mesh="state.rootMesh"
           :material-mode="state.materialMode"

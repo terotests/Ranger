@@ -194,10 +194,10 @@ Use **Add** to insert more knots.
 the same knot topology so emotions can morph. Compatible textures share
 `topologyKey`. Design: [`docs/EYE_EMOTION_RIG.md`](./docs/EYE_EMOTION_RIG.md).
 
-**Emotion morph (Texture workspace):** tag each eye texture with an emotion
-(`neutral`, `angry`, …). If another loaded eye shares the same `topologyKey`,
-**Emotion morph** can blend 0…1 toward that peer in the texture preview.
-3D mesh morph (atlas bitmap only, no UV retessellate) is the next step.
+**Emotion morph:** tag each eye with an emotion. Compatible peers (same
+`topologyKey`) can morph 0…1 in the **Texture** preview, and after **Assign to
+mesh** the same peer morph hot-swaps the UV atlas bitmap in 3D (no tessellate /
+UV rebuild — endpoint atlases are pre-baked, then pixels are lerped).
 
 ## Shading base
 
