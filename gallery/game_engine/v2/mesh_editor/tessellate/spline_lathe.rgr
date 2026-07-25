@@ -50,6 +50,13 @@ class SplineMesh {
     ; Unit-orbit samples used for this mesh (cos/sin replacements): parallel arrays.
     def orbitX:[double]
     def orbitY:[double]
+    ; Per-vertex-row / per-column source segment index (part splitting).
+    def rowSeg:[int]
+    def colSeg:[int]
+    ; Grid shape: rows x steps (vertCols = steps + 1 when the orbit wraps).
+    def rows:int 0
+    def steps:int 0
+    def vertCols:int 0
 }
 
 class SplineLathe {
@@ -571,6 +578,301 @@ class SplineLathe {
             }
             r2 = (r2 + 1)
         }
+        return mesh
+    }
+
+    ; ------------------------------------------------------------------
+    ; Spine (parallel-transport) frames along a polyline centerline.
+    ;
+    ; Flat parallel arrays in, flat array out — 12 doubles per center:
+    ;   Tx Ty Tz  Nx Ny Nz  Bx By Bz  Cx Cy Cz
+    ; Primitive arrays only, so the same entry point lowers to the wasm32 /
+    ; native ABI without an object graph crossing the boundary.
+    ; ------------------------------------------------------------------
+    sfn buildSpineFrames:[double] (cx:[double] cy:[double] cz:[double]) {
+        def out:[double]
+        def n:int (array_length cx)
+        if (n < 1) {
+            return out
+        }
+        ; Transported normal — carried across iterations (that is the point of
+        ; parallel transport: each frame is the previous one minimally rotated).
+        def nx:double 1.0
+        def ny:double 0.0
+        def nz:double 0.0
+        def i:int 0
+        while (i < n) {
+            def tx:double 0.0
+            def ty:double 1.0
+            def tz:double 0.0
+            if (n > 1) {
+                if (i == 0) {
+                    tx = ((itemAt cx 1) - (itemAt cx 0))
+                    ty = ((itemAt cy 1) - (itemAt cy 0))
+                    tz = ((itemAt cz 1) - (itemAt cz 0))
+                } {
+                    if (i == (n - 1)) {
+                        tx = ((itemAt cx (n - 1)) - (itemAt cx (n - 2)))
+                        ty = ((itemAt cy (n - 1)) - (itemAt cy (n - 2)))
+                        tz = ((itemAt cz (n - 1)) - (itemAt cz (n - 2)))
+                    } {
+                        tx = ((itemAt cx (i + 1)) - (itemAt cx (i - 1)))
+                        ty = ((itemAt cy (i + 1)) - (itemAt cy (i - 1)))
+                        tz = ((itemAt cz (i + 1)) - (itemAt cz (i - 1)))
+                    }
+                }
+            }
+            def tl:double (sqrt(((tx * tx) + (ty * ty)) + (tz * tz)))
+            if (tl < 0.000000001) {
+                tx = 0.0
+                ty = 1.0
+                tz = 0.0
+                tl = 1.0
+            }
+            tx = (tx / tl)
+            ty = (ty / tl)
+            tz = (tz / tl)
+
+            ; N -= T * dot(N, T)
+            def dt:double (((nx * tx) + (ny * ty)) + (nz * tz))
+            nx = (nx - (tx * dt))
+            ny = (ny - (ty * dt))
+            nz = (nz - (tz * dt))
+            def nl:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+            if (nl < 0.000001) {
+                ; Degenerate: rebuild from a reference axis that is not parallel
+                ; to T (no abs() builtin in Ranger — inline the magnitude).
+                def aty:double ty
+                if (aty < 0.0) {
+                    aty = (0.0 - aty)
+                }
+                def rx:double 0.0
+                def ry:double 0.0
+                def rz:double 1.0
+                if (aty < 0.9) {
+                    ry = 1.0
+                    rz = 0.0
+                }
+                nx = ((ry * tz) - (rz * ty))
+                ny = ((rz * tx) - (rx * tz))
+                nz = ((rx * ty) - (ry * tx))
+                def nl2:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+                if (nl2 < 0.000001) {
+                    nx = 1.0
+                    ny = 0.0
+                    nz = 0.0
+                } {
+                    nx = (nx / nl2)
+                    ny = (ny / nl2)
+                    nz = (nz / nl2)
+                }
+            } {
+                nx = (nx / nl)
+                ny = (ny / nl)
+                nz = (nz / nl)
+            }
+
+            ; B = normalize(cross(T, N))
+            def bx:double ((ty * nz) - (tz * ny))
+            def by:double ((tz * nx) - (tx * nz))
+            def bz:double ((tx * ny) - (ty * nx))
+            def bl:double (sqrt(((bx * bx) + (by * by)) + (bz * bz)))
+            if (bl < 0.000000001) {
+                bl = 1.0
+            }
+            bx = (bx / bl)
+            by = (by / bl)
+            bz = (bz / bl)
+
+            ; N = normalize(cross(B, T)) — re-orthogonalise
+            def rnx:double ((by * tz) - (bz * ty))
+            def rny:double ((bz * tx) - (bx * tz))
+            def rnz:double ((bx * ty) - (by * tx))
+            def rnl:double (sqrt(((rnx * rnx) + (rny * rny)) + (rnz * rnz)))
+            if (rnl < 0.000000001) {
+                rnl = 1.0
+            }
+            nx = (rnx / rnl)
+            ny = (rny / rnl)
+            nz = (rnz / rnl)
+
+            push out tx
+            push out ty
+            push out tz
+            push out nx
+            push out ny
+            push out nz
+            push out bx
+            push out by
+            push out bz
+            push out (itemAt cx i)
+            push out (itemAt cy i)
+            push out (itemAt cz i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------
+    ; Lathe an already-sampled profile around an already-sampled orbit path,
+    ; seated on a spine centerline. With a straight centerline (x = z = 0) this
+    ; reduces to the classic lathe (r*ox, y, r*oy).
+    ;
+    ; Positions use the raw orbit as a scale; normals use the unit orbit
+    ; direction so non-circular orbits still shade cleanly.
+    ; ------------------------------------------------------------------
+    sfn latheOnSpine:SplineMesh (profX:[double] profY:[double] profTx:[double] profTy:[double] profSeg:[int] orbX:[double] orbY:[double] orbSeg:[int] cenX:[double] cenY:[double] cenZ:[double] closed:boolean) {
+        def mesh:SplineMesh (new SplineMesh)
+        def rows:int (array_length profX)
+        def steps:int (array_length orbX)
+        if ((rows < 1) || (steps < 1)) {
+            return mesh
+        }
+        def vertCols:int steps
+        if closed {
+            vertCols = (steps + 1)
+        }
+        def frames:[double] (SplineLathe.buildSpineFrames(cenX cenY cenZ))
+        def nFrames:int (idiv (array_length frames) 12)
+
+        def row:int 0
+        while (row < rows) {
+            def radius:double (itemAt profX row)
+            if (radius < 0.0) {
+                radius = 0.0
+            }
+            ; Profile normal in the (radius, y) plane: perpendicular to tangent.
+            def pnx:double (itemAt profTy row)
+            def pny:double (0.0 - (itemAt profTx row))
+            def pnl:double (sqrt((pnx * pnx) + (pny * pny)))
+            if (pnl < 0.000000001) {
+                pnx = 1.0
+                pny = 0.0
+                pnl = 1.0
+            }
+            pnx = (pnx / pnl)
+            pny = (pny / pnl)
+            if (pnx < 0.0) {
+                pnx = (0.0 - pnx)
+                pny = (0.0 - pny)
+            }
+
+            ; Frame for this row (identity-ish fallback matches the JS default).
+            def ftx:double 0.0
+            def fty:double 1.0
+            def ftz:double 0.0
+            def fnx:double 1.0
+            def fny:double 0.0
+            def fnz:double 0.0
+            def fbx:double 0.0
+            def fby:double 0.0
+            def fbz:double 1.0
+            def fcx:double 0.0
+            def fcy:double (itemAt profY row)
+            def fcz:double 0.0
+            if (row < nFrames) {
+                def o:int (row * 12)
+                ftx = (itemAt frames o)
+                fty = (itemAt frames (o + 1))
+                ftz = (itemAt frames (o + 2))
+                fnx = (itemAt frames (o + 3))
+                fny = (itemAt frames (o + 4))
+                fnz = (itemAt frames (o + 5))
+                fbx = (itemAt frames (o + 6))
+                fby = (itemAt frames (o + 7))
+                fbz = (itemAt frames (o + 8))
+                fcx = (itemAt frames (o + 9))
+                fcy = (itemAt frames (o + 10))
+                fcz = (itemAt frames (o + 11))
+            }
+
+            def v:double 0.0
+            if (rows > 1) {
+                v = ((to_double row) / (to_double (rows - 1)))
+            }
+
+            def col:int 0
+            while (col < steps) {
+                def ct:double (itemAt orbX col)
+                def st:double (itemAt orbY col)
+                def olen:double (sqrt((ct * ct) + (st * st)))
+                def nct:double 1.0
+                def nst:double 0.0
+                if (olen >= 0.000000001) {
+                    nct = (ct / olen)
+                    nst = (st / olen)
+                }
+
+                def ox:double ((fnx * (radius * ct)) + (fbx * (radius * st)))
+                def oy:double ((fny * (radius * ct)) + (fby * (radius * st)))
+                def oz:double ((fnz * (radius * ct)) + (fbz * (radius * st)))
+                push mesh.positions (fcx + ox)
+                push mesh.positions (fcy + oy)
+                push mesh.positions (fcz + oz)
+
+                def vnx:double (((fnx * (pnx * nct)) + (ftx * pny)) + (fbx * (pnx * nst)))
+                def vny:double (((fny * (pnx * nct)) + (fty * pny)) + (fby * (pnx * nst)))
+                def vnz:double (((fnz * (pnx * nct)) + (ftz * pny)) + (fbz * (pnx * nst)))
+                def vnl:double (sqrt(((vnx * vnx) + (vny * vny)) + (vnz * vnz)))
+                if (vnl < 0.000000001) {
+                    vnl = 1.0
+                }
+                push mesh.normals (vnx / vnl)
+                push mesh.normals (vny / vnl)
+                push mesh.normals (vnz / vnl)
+                push mesh.uvs ((to_double col) / (to_double steps))
+                push mesh.uvs v
+                col = (col + 1)
+            }
+            if closed {
+                ; Wrap column: duplicate the row's first vertex at u = 1.
+                def base:int ((array_length mesh.positions) - (steps * 3))
+                push mesh.positions (itemAt mesh.positions base)
+                push mesh.positions (itemAt mesh.positions (base + 1))
+                push mesh.positions (itemAt mesh.positions (base + 2))
+                def nbase:int ((array_length mesh.normals) - (steps * 3))
+                push mesh.normals (itemAt mesh.normals nbase)
+                push mesh.normals (itemAt mesh.normals (nbase + 1))
+                push mesh.normals (itemAt mesh.normals (nbase + 2))
+                push mesh.uvs 1.0
+                push mesh.uvs v
+            }
+            row = (row + 1)
+        }
+
+        def r:int 0
+        while (r < (rows - 1)) {
+            def colMax:int (steps - 1)
+            if closed {
+                colMax = steps
+            }
+            def c:int 0
+            while (c < colMax) {
+                def cn:int (c + 1)
+                def ia:int ((r * vertCols) + c)
+                def ib:int ((r * vertCols) + cn)
+                def ic:int (((r + 1) * vertCols) + cn)
+                def id:int (((r + 1) * vertCols) + c)
+                push mesh.indices ia
+                push mesh.indices id
+                push mesh.indices ib
+                push mesh.indices ib
+                push mesh.indices id
+                push mesh.indices ic
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+
+        mesh.profileX = profX
+        mesh.profileY = profY
+        mesh.orbitX = orbX
+        mesh.orbitY = orbY
+        mesh.rowSeg = profSeg
+        mesh.colSeg = orbSeg
+        mesh.rows = rows
+        mesh.steps = steps
+        mesh.vertCols = vertCols
         return mesh
     }
 }

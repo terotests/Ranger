@@ -52,6 +52,8 @@ V2="gallery/game_engine/v2"
 
 TOTAL_SUITES=0
 FAILED_SUITES=0
+SKIPPED_SUITES=0
+SKIPPED_NAMES=""
 BOUNDARY_FAIL=0
 
 # run_suite <relative-path-under-v2 without .rgr>
@@ -72,6 +74,37 @@ run_suite() {
   run_out="$("$JS_RUNTIME" "$OUT/${name}.js" 2>&1)"
   echo "$run_out" | grep -E "PASS |FAIL |ALL PASS|SOME FAILED|passed="
   if ! echo "$run_out" | grep -q "ALL PASS"; then
+    FAILED_SUITES=$((FAILED_SUITES + 1))
+  fi
+  echo
+}
+
+# run_shell_suite <label> <script-path-under-v2> — a suite that is not a .rgr
+# compile+run (browser e2e, tool harnesses). Same grep contract as run_suite;
+# additionally, exit code 3 means "prerequisites absent" and is reported as an
+# honest SKIP rather than a pass. Set V2_SKIP_BROWSER=1 to force the skip.
+run_shell_suite() {
+  local label="$1"
+  local script="$2"
+  TOTAL_SUITES=$((TOTAL_SUITES + 1))
+  echo "### ${label}"
+  if [ "${V2_SKIP_BROWSER:-0}" = "1" ]; then
+    echo "  SKIP ${label} — V2_SKIP_BROWSER=1"
+    TOTAL_SUITES=$((TOTAL_SUITES - 1))
+    SKIPPED_SUITES=$((SKIPPED_SUITES + 1))
+    SKIPPED_NAMES="${SKIPPED_NAMES} ${label}"
+    echo
+    return
+  fi
+  local run_out
+  run_out="$(bash "${V2}/${script}" 2>&1)"
+  local code=$?
+  echo "$run_out" | grep -E "PASS |FAIL |SKIP |ALL PASS|SOME FAILED|passed="
+  if [ "$code" -eq 3 ]; then
+    TOTAL_SUITES=$((TOTAL_SUITES - 1))
+    SKIPPED_SUITES=$((SKIPPED_SUITES + 1))
+    SKIPPED_NAMES="${SKIPPED_NAMES} ${label}"
+  elif [ "$code" -ne 0 ] || ! echo "$run_out" | grep -q "ALL PASS"; then
     FAILED_SUITES=$((FAILED_SUITES + 1))
   fi
   echo
@@ -258,6 +291,13 @@ run_suite tests/e2e/cannon3d_e2e_test
 run_suite tests/e2e/pinball_e2e_test
 run_suite tests/e2e/launcher_e2e_test
 
+# ---- Authoring tools — mesh editor (module smokes + real-browser e2e) --------
+# Not engine core, but it ships in this tree and compiles two .rgr files
+# (tessellate/spline_lathe.rgr, host/web_mesh_editor_host.rgr), so a regression
+# there must not be invisible. SKIPs (not fails) when the app is not installed
+# or Chromium is absent — see mesh_editor/tests/run.sh.
+run_shell_suite mesh_editor/tests mesh_editor/tests/run.sh
+
 # ---- Boundary gate (static) — after suites; cheap Import / title scan --------
 # Unit/contract suites prove behaviour; this proves the *tree* did not grow
 # game-specific core or new out-of-v2 Imports. Known staged debt is allowlisted
@@ -268,13 +308,18 @@ if ! python3 "${V2}/tests/check_boundaries.py"; then
 fi
 echo
 
+SKIP_NOTE=""
+if [ "$SKIPPED_SUITES" -ne 0 ]; then
+  SKIP_NOTE=" (+ ${SKIPPED_SUITES} SKIPPED:${SKIPPED_NAMES})"
+fi
+
 echo "=============================================================="
 if [ "$FAILED_SUITES" -eq 0 ] && [ "$BOUNDARY_FAIL" -eq 0 ]; then
-  echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed (+ boundary gate)"
+  echo "v2 ALL GREEN — ${TOTAL_SUITES}/${TOTAL_SUITES} suites passed (+ boundary gate)${SKIP_NOTE}"
   exit 0
 fi
 if [ "$FAILED_SUITES" -ne 0 ]; then
-  echo "v2 FAILURES — ${FAILED_SUITES}/${TOTAL_SUITES} suites failed"
+  echo "v2 FAILURES — ${FAILED_SUITES}/${TOTAL_SUITES} suites failed${SKIP_NOTE}"
 fi
 if [ "$BOUNDARY_FAIL" -ne 0 ]; then
   echo "v2 BOUNDARY FAIL — see check_boundaries.py output above"

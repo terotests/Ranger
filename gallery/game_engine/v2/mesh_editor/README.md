@@ -90,6 +90,33 @@ npm run dev
 
 Open the printed local URL (default `http://localhost:5177`).
 
+## Tests
+
+```bash
+npm run engine:v2:mesh:test    # module smokes + browser e2e
+npm run engine:v2:mesh:e2e     # e2e only
+```
+
+Two layers, both registered in the central v2 gate (`npm run engine:v2:test`):
+
+| Layer | What it covers |
+|-------|----------------|
+| **Module smokes** — every `app/scripts/smoke-*.mjs` | pure-Node module logic (spine, torus, mesh pick, eye texture, atlas sharing, placement normal, library path safety). Discovered by glob, so a new smoke cannot be silently left out |
+| **Browser e2e** — `tests/e2e/mesh_editor_e2e.mjs` | the real app: rebuilds both `.rgr` halves, starts an actual Vite dev server (live `/api/library`), drives headless Chromium. Asserts both canvases render, the five shading modes, torus vs rotation, view switching, knot edit → mesh change → undo, the texture workspace, and a library save/load round-trip |
+
+The e2e writes to a temp `MESH_EDITOR_LIBRARY`, never your own `library/projects/`.
+It **SKIPs** (exit 3, never a fake pass) when app deps or Chromium are missing;
+`V2_SKIP_BROWSER=1` forces the skip.
+
+Two gotchas worth knowing before extending the e2e:
+
+- A **WebGL canvas reads back blank** via `drawImage`/`getImageData` after the
+  frame composites. Measure it with an element screenshot (`canvasStats` does
+  this automatically).
+- Set numeric fields by **typing + Enter**, not Playwright's `fill()`. `fill()`
+  leaves the input's native dirty flag set, so a second real `change` fires on
+  the next blur — an extra edit that makes undo look broken when it is not.
+
 ## Local library (filesystem “database”)
 
 While `npm run dev` is running, the Vite plugin exposes `/api/library` and

@@ -4,6 +4,7 @@ app/dist/
 app/public/ranger/
 app/node_modules/
 tessellate/_raw/
+tests/_shots/
 library/projects/*/
 !library/projects/.gitkeep
 *.log

@@ -8,7 +8,8 @@ driver and the roadmap below over that checklist.
 
 | Track | What is green today | What is not |
 |-------|---------------------|-------------|
-| Headless gate | `npm run engine:v2:test` → 104 suites + boundary gate | — |
+| Headless gate | `npm run engine:v2:test` → 105 suites + boundary gate | — |
+| Mesh editor (authoring tool) | in the gate as of this change: 7 module smokes + a 34-assert real-browser e2e (`mesh_editor/tests/run.sh`) | **rendering logic is browser-only JS** — `spineLathe.js` / `latheTessellate.js` / `eyeTexture.js` / `eyeEmotion.js` (~8.2k lines) have no Ranger runtime, so nothing it authors can rasterize on native/Pi/WASM; preview host bypasses `RgRegistryBridge`; no asset export to `games/` |
 | Live 3D web demos | `ranger:three` cube / teapot / courtyard / real glTF model, **browser-verified** in headless Chromium (`web/tests/browser_smoke.mjs`) | sky/GI/first-person/textures polish |
 | Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — live-path demos (cube, teapot, a procedural courtyard, and a real glTF model — NOT the Sponza atrium) re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
 | TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
@@ -1192,6 +1193,7 @@ Also correct the stale claim in [`lpc/TODO.md`](./lpc/TODO.md) §1b that marked
 | `ui/` | 1 (`UITest.rgr`) | yes | 29 asserts; evg/PNGEncoder retargeted; `scripting/*` vendored into v2 |
 | `evg/` | 1 (`evg_test.rgr`) | yes | 73 asserts; self-contained inside v2 |
 | `web/` | 1 (`web_smoke_test`) | yes | soft-render TSX3D smoke; 7/8 hosts compile (`web_game_host` blocked on unvendored native runtime) |
+| `mesh_editor/` | 7 smokes + 1 browser e2e | yes (`run_shell_suite`) | authoring tool, not engine core. `tests/run.sh` discovers every `app/scripts/smoke-*.mjs` (no more orphans) and runs a real Vite + headless-Chromium e2e (34 asserts: both canvases render, shading modes, torus, view switching, knot edit → mesh → undo, texture workspace, `/api/library` save/load round-trip). Compiles both editor `.rgr` files as a side effect. SKIPs (never fake-passes) without app deps / Chromium; `V2_SKIP_BROWSER=1` forces it |
 
 ### Follow-ups (beyond P0)
 
