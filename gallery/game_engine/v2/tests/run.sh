@@ -252,6 +252,9 @@ run_suite registry/schema/tests/bridge_schema_test
 run_suite tests/unit/bridge/registry_bridge_coverage_test
 # D-SYNC: standalone entity membership (scene.add/reparent decoupled from create)
 run_suite tests/unit/bridge/registry_entity_parent_test
+# Several array args in one command must stay separable (they used to silently
+# concatenate). Guards the decoder before any wasm32 ABI freeze — BRIDGES step 7.
+run_suite tests/unit/bridge/decode_array_spans_test
 run_suite tests/unit/three/orbit_controls_test
 
 # ---- menu / EVG launcher UI (self-contained ui/ + evg + fonts + framebuffer) -

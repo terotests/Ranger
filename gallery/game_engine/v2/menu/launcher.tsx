@@ -18,7 +18,8 @@ const CATALOG = [
     { label: "Pomppija", path: "games/ylos2" },
     { label: "Ylos3D (WASM)", path: "games/ylos3d_wasm" },
     { label: "Cannon 3D", path: "games/cannon3d" },
-    { label: "Pinball", path: "games/pinball" }
+    { label: "Pinball", path: "games/pinball" },
+    { label: "Ylos3D", path: "games/ylos3d" }
   ] }
 ];
 

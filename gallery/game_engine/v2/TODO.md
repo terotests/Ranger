@@ -1032,8 +1032,12 @@ Still to clean up later:
 - [x] **Menu catalog comments neutralized** — `menu/game_catalog.rgr` no longer
       names titles; dual-fork merge (menu vs scripting copy) still open.
 - [x] **`menu/launcher.tsx` catalog honest** — drops phantom Chess / Breakout /
-      Sprites; lists the four real `game.info` packages. Still hardcoded in TSX
-      (not filesystem discovery) — generating from `game.info` remains open.
+      Sprites; lists the five real `game.info` packages (ylos2, ylos3d_wasm,
+      cannon3d, pinball, ylos3d). Still hardcoded in TSX (not filesystem
+      discovery) — generating from `game.info` remains open, and the cost is
+      concrete: adding `games/ylos3d/game.info` did NOT surface the game until
+      `launcher.tsx` was edited too, and `launcher_e2e_test` hardcodes the tile
+      count alongside it. Three places to keep in sync for one new game.
 - [ ] **Dual `game_catalog.rgr` fork** — `menu/game_catalog.rgr` and
       `scripting/game_catalog.rgr` diverged. Both are gate-neutral now; delete
       the menu copy and import the scripting one when convenient.
