@@ -2445,7 +2445,49 @@ class CodeNode  {
     this.has_call = true;
   };
   tryDesugarNewMethodChain () {
-    return false;
+    const chlen = this.children.length;
+    if (chlen < 4) return false;
+    if (this.getFirst().vref !== "new") return false;
+    let first_dot = -1;
+    for (let di = 0; di < chlen; di++) {
+      const item = this.children[di];
+      const dotName = item.children.length > 0 ? item.getFirst().vref : item.vref;
+      if (dotName.length > 0 && dotName.charCodeAt(0) === ".".charCodeAt(0)) {
+        first_dot = di;
+        break;
+      }
+    }
+    if (first_dot < 2) return false;
+    const recv = this.copy();
+    while (recv.children.length > first_dot) {
+      recv.children.pop();
+    }
+    let innerNode = recv;
+    for (let i = first_dot; i < chlen - 1; i += 2) {
+      const item = this.children[i];
+      const dotName2 = item.children.length > 0 ? item.getFirst().vref : item.vref;
+      if (dotName2.length === 0 || dotName2.charCodeAt(0) !== ".".charCodeAt(0)) return false;
+      const method_name = dotName2.substring(1);
+      let mArgs = this.newExpressionNode();
+      if (item.children.length > 1) {
+        mArgs = item.getSecond();
+      } else {
+        mArgs = this.children[i + 1];
+      }
+      const newNode = this.newExpressionNode();
+      newNode.add(this.newVRefNode("call"));
+      newNode.add(innerNode.copy());
+      newNode.add(this.newVRefNode(method_name));
+      newNode.add(mArgs.copy());
+      innerNode = newNode;
+      item.is_part_of_chain = true;
+      if (item.children.length <= 1) {
+        this.children[i + 1].is_part_of_chain = true;
+      }
+    }
+    this.getChildrenFrom(innerNode);
+    this.finalizeAsCallChainRoot();
+    return true;
   };
   cloneWithType (match, changeVref) {
     const newNode = new CodeNode(this.code, this.sp, this.ep);
@@ -5166,7 +5208,8 @@ class CodeFile  {
     this.sourceMapBuilder = new SourceMapBuilder();
     const wr = this.writer;
     if ( (typeof(wr) !== "undefined" && wr != null )  ) {
-      (wr).enableSourceMaps(this.sourceMapBuilder);
+      const w = wr;
+      w.enableSourceMaps(this.sourceMapBuilder);
     }
   };
   addImport (import_name) {
@@ -6473,6 +6516,18 @@ class RangerLispParser  {
         let vref_ann_node;
         let vref_end = this.i;
         if ( (((((this.i < this.__len) && ((s.charCodeAt(this.i )) > 32)) && (c != 58)) && (c != 40)) && (c != 41)) && (c != (125)) ) {
+          if ( (this.curr_node.is_block_node == true) && ((s.charCodeAt(this.i )) == (46)) ) {
+            const err_node = new CodeNode(this.code, this.i, this.i + 1);
+            const err_line = err_node.getLine();
+            console.log((err_node.getFilename() + " Line: ") + err_line);
+            console.log("Parser error: a statement can not start with a chained call on a parenthesised receiver.");
+            console.log(err_node.getLineString(err_line));
+            console.log("Bind the receiver to a local first, then call it:");
+            console.log("    def recv:SomeType (the.expression())");
+            console.log("    recv.method()");
+            this.had_error = true;
+            break;
+          }
           if ( this.curr_node.is_block_node == true ) {
             const new_expr_node = new CodeNode(this.code, sp, ep);
             new_expr_node.parent = this.curr_node;
@@ -41477,6 +41532,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     parser.disableOperators = true;
                   }
                   parser.parse(( typeof(params.flags["no-op-transform"] ) != "undefined" && params.flags.hasOwnProperty("no-op-transform") ));
+                  if ( parser.had_error ) {
+                    cli.printHeader();
+                    console.log(cli.error(("Parse error in " + the_file)));
+                    console.log("");
+                    res.hasErrors = true;
+                    res.errorMessage = "Parse error in " + the_file;
+                    return res;
+                  }
                   const root = parser.rootNode;
                   const flags = Object.keys(params.flags);
                   for ( let ci = 0; ci < root.children.length; ci++) {

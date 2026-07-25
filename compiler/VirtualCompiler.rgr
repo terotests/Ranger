@@ -334,6 +334,17 @@ class tester {
       parser.disableOperators = true
     }
     parser.parse( (has params.flags "no-op-transform") )
+    ; A parser error means the AST is truncated: continuing would emit code
+    ; that silently omits whatever the parser could not represent. Fail here
+    ; rather than write a plausible-looking but incomplete output file.
+    if( parser.had_error ) {
+      cli.printHeader()
+      print (cli.error("Parse error in " + the_file))
+      print ""
+      res.hasErrors = true
+      res.errorMessage = "Parse error in " + the_file
+      return res
+    }
     def root (unwrap parser.rootNode)
 
     def flags (keys params.flags)

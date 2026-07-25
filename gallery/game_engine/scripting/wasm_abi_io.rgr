@@ -36,7 +36,8 @@ class WasmAbiMem {
 
     fn writeMem:void (addr:int val:int) {
         if (useAs) {
-            (unwrap asBridge).aw(addr val)
+            def br:AsAbiBridge (unwrap asBridge)
+            br.aw(addr val)
             return
         }
         wasm_mem_set_i32 handle addr val

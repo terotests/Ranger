@@ -994,6 +994,31 @@ class RangerLispParser {
         def vref_ann_node@(optional temp):CodeNode
         def vref_end:int i
         if ((i < len) && (((charAt s i)) > 32) && (c != 58) && (c != 40) && (c != 41) && (c != ((ccode "}")) )  ) {
+          ; A statement can not BEGIN with a chained call on a parenthesised
+          ; receiver -- "(expr).method()" at statement level. The branch below
+          ; would open a fresh statement at ".method", and its recursive parse()
+          ; then absorbs every remaining statement of the block as extra
+          ; children which codegen silently discards: the rest of the method
+          ; body disappears with no diagnostic at all (ISSUES.md #65).
+          ; Chained receivers INSIDE an expression -- "((a.b()).c())" -- are
+          ; fine and stay fine: curr_node is an expression there, not a block
+          ; node, so this guard cannot reject them.
+          ; Test the character the symbol actually STARTS at, not `c`: `c` can
+          ; be stale here (the guard condition above deliberately re-reads
+          ; `charAt s i` alongside it), and a leftover dot from an earlier token
+          ; would reject innocent lines.
+          if ((curr_node.is_block_node == true) && (((charAt s i)) == ((ccode ".")))) {
+            def err_node:CodeNode (new CodeNode(( unwrap code) i (i + 1)))
+            def err_line:int (err_node.getLine())
+            print ((err_node.getFilename()) + " Line: " + err_line)
+            print "Parser error: a statement can not start with a chained call on a parenthesised receiver."
+            print (err_node.getLineString(err_line))
+            print "Bind the receiver to a local first, then call it:"
+            print "    def recv:SomeType (the.expression())"
+            print "    recv.method()"
+            had_error = true
+            break
+          }
           if (curr_node.is_block_node == true) {
             def new_expr_node:CodeNode (new CodeNode(( unwrap code) sp ep))
             new_expr_node.parent = curr_node

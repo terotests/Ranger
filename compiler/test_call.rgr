@@ -88,7 +88,8 @@ class any_tester {
 
         def o (new any_tester)
         o.myFn("Hello")
-        (new any_tester).myFn('The second Hello using obj')
+        def o2 (new any_tester)
+        o2.myFn('The second Hello using obj')
         def someString "abcd"
 
         print (first someString)

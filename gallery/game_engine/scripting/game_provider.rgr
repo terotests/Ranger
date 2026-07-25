@@ -93,28 +93,32 @@ class GameProviderRegistry {
     fn onDeclareAll:void () {
         def i:int 0
         while (i < (array_length providers)) {
-            (itemAt providers i).onDeclare()
+            def p:GameProvider (itemAt providers i)
+            p.onDeclare()
             i = (i + 1)
         }
     }
     fn beforeUpdateAll:void () {
         def i:int 0
         while (i < (array_length providers)) {
-            (itemAt providers i).beforeUpdate()
+            def p:GameProvider (itemAt providers i)
+            p.beforeUpdate()
             i = (i + 1)
         }
     }
     fn afterUpdateAll:void () {
         def i:int 0
         while (i < (array_length providers)) {
-            (itemAt providers i).afterUpdate()
+            def p:GameProvider (itemAt providers i)
+            p.afterUpdate()
             i = (i + 1)
         }
     }
     fn onDetachAll:void () {
         def i:int 0
         while (i < (array_length providers)) {
-            (itemAt providers i).onDetach()
+            def p:GameProvider (itemAt providers i)
+            p.onDetach()
             i = (i + 1)
         }
     }

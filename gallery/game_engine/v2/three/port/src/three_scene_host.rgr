@@ -84,7 +84,8 @@ class ThreeSceneHost {
         return (array_length scenes)
     }
     fn sceneBackground:void (sceneH:int r:double g:double b:double) {
-        (this.sceneAt(sceneH)).setBackground(r g b)
+        def recv1 (this.sceneAt(sceneH))
+        recv1.setBackground(r g b)
     }
     fn sceneEnvironment:void (sceneH:int on:boolean) {
         if (on == false) {
@@ -107,7 +108,8 @@ class ThreeSceneHost {
         return (array_length cameras)
     }
     fn cameraSet:void (camH:int fov:double aspect:double near:double far:double) {
-        (this.cameraAt(camH)).setPerspective(fov aspect near far)
+        def recv2 (this.cameraAt(camH))
+        recv2.setPerspective(fov aspect near far)
     }
     ; position AND orientation (Euler), so the interpreted camera actually aims.
     fn cameraPose:void (camH:int px:double py:double pz:double ex:double ey:double ez:double) {
@@ -127,10 +129,12 @@ class ThreeSceneHost {
         return (array_length orbitControls)
     }
     fn orbitViewport:void (ctrlH:int w:int h:int) {
-        (this.orbitAt(ctrlH)).setViewport(w h)
+        def recv3 (this.orbitAt(ctrlH))
+        recv3.setViewport(w h)
     }
     fn orbitTarget:void (ctrlH:int x:double y:double z:double) {
-        (this.orbitAt(ctrlH)).setTarget(x y z)
+        def recv4 (this.orbitAt(ctrlH))
+        recv4.setTarget(x y z)
     }
     ; phase 0 = down (button-selected mode), 1 = move, 2 = up.
     fn orbitPointer:void (ctrlH:int phase:int x:double y:double button:int) {
@@ -146,10 +150,12 @@ class ThreeSceneHost {
         }
     }
     fn orbitWheel:void (ctrlH:int delta:double) {
-        (this.orbitAt(ctrlH)).wheel(delta)
+        def recv5 (this.orbitAt(ctrlH))
+        recv5.wheel(delta)
     }
     fn orbitApply:void (ctrlH:int) {
-        (this.orbitAt(ctrlH)).applyToCamera()
+        def recv6 (this.orbitAt(ctrlH))
+        recv6.applyToCamera()
     }
 
     ; --- geometry (resources) -------------------------------------------------
@@ -266,7 +272,8 @@ class ThreeSceneHost {
         return (array_length materials)
     }
     fn materialSetOpacity:void (matH:int opacity:double) {
-        (this.materialAt(matH)).setOpacity(opacity)
+        def recv7 (this.materialAt(matH))
+        recv7.setOpacity(opacity)
     }
     fn materialPhong:int (colorHex:int specularHex:int shininess:double flat:boolean side:int) {
         def m:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
@@ -281,7 +288,8 @@ class ThreeSceneHost {
         return (array_length materials)
     }
     fn materialMap:void (matH:int path:string) {
-        (this.materialAt(matH)).setMap((this.textureForPath(path)))
+        def recv8 (this.materialAt(matH))
+        recv8.setMap((this.textureForPath(path)))
     }
     ; Diffuse map from RAW RGBA bytes rather than a path — a procedural /
     ; generated atlas that never exists as a file. Sibling of materialMap; the
@@ -303,7 +311,8 @@ class ThreeSceneHost {
         }
         def tex:ThreeTexture (new ThreeTexture)
         tex.setImage(buf w h)
-        (this.materialAt(matH)).setMap(tex)
+        def recv9 (this.materialAt(matH))
+        recv9.setMap(tex)
     }
     fn materialReflective:void (matH:int reflectivity:double) {
         def m:ThreeMaterial (this.materialAt(matH))
@@ -409,7 +418,8 @@ class ThreeSceneHost {
         e.visible = on
     }
     fn entityRemove:void (sceneH:int entH:int) {
-        (this.sceneAt(sceneH)).remove((this.entityAt(entH)))
+        def recv10 (this.sceneAt(sceneH))
+        recv10.remove((this.entityAt(entH)))
     }
 
     ; --- membership decoupled from creation (D-SYNC scene.add / reparent) ------
@@ -447,7 +457,8 @@ class ThreeSceneHost {
     ; where the caller detaches without immediately re-adding (scene.remove).
     fn detachEntity:void (child:ThreeObject3D) {
         if (child.hasParent()) {
-            (child.getParent()).remove(child)
+            def recv11 (child.getParent())
+            recv11.remove(child)
         }
     }
 

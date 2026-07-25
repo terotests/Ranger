@@ -12,7 +12,7 @@ driver and the roadmap below over that checklist.
 | Mesh editor (authoring tool) | in the gate: 7 module smokes + 72 JS↔Ranger parity checks + 23 transport-guard checks + a 34-assert real-browser e2e (`mesh_editor/tests/run.sh`). **Tessellation kernels are Ranger** — `SplineLathe.latheOnSpine` / `torusOnSpine` / `buildSpineFrames` / `torusUnitFitScale` are the live path (flat primitive arrays → also lower to native/wasm32). **Preview is on the v2 transport** — `web_mesh_editor_host.rgr` drives `RgRegistryBridge.invoke(rg3d_*)` like a TSX/wasm32 guest; verified **pixel-identical** to the old direct-Three render (0/108241 pixels differ) | **texture rasterizer still browser-only JS** — `eyeTexture.js` / `eyeEmotion.js` (~2k lines), so the README's "params only, rasterized at runtime" still has no runtime off the browser; `latheTessellate.js` part assembly still JS; no asset export to `games/` |
 | Live 3D web demos | `ranger:three` cube / teapot / courtyard / real glTF model, **browser-verified** in headless Chromium (`web/tests/browser_smoke.mjs`) | sky/GI/first-person/textures polish |
 | Identity / live-object model (D-IDENTITY / D-SYNC) | reference `===` identity on the **real** interpreter; live 3D path splits object lifetime from scene membership (detached create + `scene.add`/`remove`, O(1) detach); **reconciler RETIRED** — live-path demos (cube, teapot, a procedural courtyard, and a real glTF model — NOT the Sponza atrium) re-implemented on the live path + browser-verified | live-path polish (sky, GI, first-person, textures) |
-| TSX guests | `games/ylos2`, `games/ylos3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
+| TSX guests | `games/ylos2`, `games/ylos3d`, `games/pinball` (physics table, `pinball_e2e_test`, 10 asserts) and `games/cannon3d` via `RgGameHost` | Chess / broader catalog **deprioritized** vs E2E path validation |
 | SW / textured 2D | e2e + `engine:v2:shot:ylos2` | real LPC/PNG atlas pixels; vocals/SFX sinks |
 | Hybrid 2D+3D (path A) | thin TSX slice: SW 3D @2× → CPU `Texture2D` → SW 2D (`ylos3d`) | same slice as **Rust→wasm32** guest; RT/pass architecture |
 | Native SDL | `RgSdlGameHost` + `build-sdl-v2.sh` + `engine:game-sdl:launcher:v2` (macOS-oriented today) | **Pi 5 arm64** build/smoke; cross-platform `pkg-config`; live CI |
@@ -20,10 +20,10 @@ driver and the roadmap below over that checklist.
 | Physics / Cannon | full **Cannon.js port** green (`cannon_suite_test`, 89) + cannon-backed **live arena** (`RgPhysicsHost`) + **`ranger:cannon`** bridge commands + guest **module façade** + a **visible demo game** `games/cannon3d` (falling boxes, three-rendered, in the Games menu; `cannon3d_e2e_test` asserts the boxes render + animate) | box **rotation** sync (poses are position-only today — add a body-quaternion command); on-device SDL run |
 | v1 | still **runnable legacy** (~many titles under `games/`) | archival only at an explicit milestone (not Phase 12) |
 
-**Docs inconsistency:** README / older notes still say “no SDL window”;
-`runtime/sdl/` already has a native host (launcher, input map, split present,
-rumble, music pump). Prefer this file + `runtime/sdl/README.md` over stale
-claims. Align README when touching native work.
+**Docs:** README now describes the native SDL host correctly (it exists under
+`runtime/sdl/` — launcher, input map, split present, rumble, music pump — and is
+macOS-oriented; what is missing is the Pi 5 build + smoke *gate*, Milestone B).
+Prefer this file + `runtime/sdl/README.md` when the two disagree.
 
 Mark checklist items `[x]` when they land and stay green.
 

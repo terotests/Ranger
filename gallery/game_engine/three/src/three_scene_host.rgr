@@ -65,7 +65,8 @@ class ThreeSceneHost {
         return (array_length scenes)
     }
     fn sceneBackground:void (sceneH:int r:double g:double b:double) {
-        (this.sceneAt(sceneH)).setBackground(r g b)
+        def recv1 (this.sceneAt(sceneH))
+        recv1.setBackground(r g b)
     }
     fn sceneEnvironment:void (sceneH:int on:boolean) {
         if (on == false) {
@@ -87,7 +88,8 @@ class ThreeSceneHost {
         return (array_length cameras)
     }
     fn cameraSet:void (camH:int fov:double aspect:double near:double far:double) {
-        (this.cameraAt(camH)).setPerspective(fov aspect near far)
+        def recv2 (this.cameraAt(camH))
+        recv2.setPerspective(fov aspect near far)
     }
     ; position AND orientation (Euler), so the interpreted camera actually aims.
     fn cameraPose:void (camH:int px:double py:double pz:double ex:double ey:double ez:double) {
@@ -205,7 +207,8 @@ class ThreeSceneHost {
         return (array_length materials)
     }
     fn materialMap:void (matH:int path:string) {
-        (this.materialAt(matH)).setMap((this.textureForPath(path)))
+        def recv3 (this.materialAt(matH))
+        recv3.setMap((this.textureForPath(path)))
     }
     fn materialReflective:void (matH:int reflectivity:double) {
         def m:ThreeMaterial (this.materialAt(matH))
@@ -274,7 +277,8 @@ class ThreeSceneHost {
         e.visible = on
     }
     fn entityRemove:void (sceneH:int entH:int) {
-        (this.sceneAt(sceneH)).remove((this.entityAt(entH)))
+        def recv4 (this.sceneAt(sceneH))
+        recv4.remove((this.entityAt(entH)))
     }
 
     ; --- lights ---------------------------------------------------------------

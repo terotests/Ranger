@@ -29,7 +29,10 @@ class CodeFile {
         sourceMapBuilder = (new SourceMapBuilder ())
         def wr@(optional):CodeWriter writer
         if (!null? wr) {
-            (unwrap wr).enableSourceMaps((unwrap sourceMapBuilder))
+            ; Bind before calling: a statement starting with a parenthesised
+            ; receiver silently swallows the rest of its block (ISSUES.md #65).
+            def w:CodeWriter (unwrap wr)
+            w.enableSourceMaps((unwrap sourceMapBuilder))
         }
     }
 
