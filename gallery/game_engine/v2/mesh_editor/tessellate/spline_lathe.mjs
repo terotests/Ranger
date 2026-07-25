@@ -769,6 +769,177 @@ SplineLathe.latheOnSpine = function(profX, profY, profTx, profTy, profSeg, orbX,
   mesh.vertCols = vertCols;
   return mesh;
 };
+SplineLathe.torusUnitFitScale = function(profX, profY, orbX, orbY) {
+  let rr = 0.0;
+  let cnt = 0;
+  const oLen = orbX.length;
+  let i = 0;
+  while (i < oLen) {
+    const ox = orbX[i];
+    const oy = orbY[i];
+    const l = Math.sqrt(((ox * ox) + (oy * oy)));
+    if ( l > 1e-9 ) {
+      rr = rr + l;
+      cnt = cnt + 1;
+    }
+    i = i + 1;
+  };
+  let majorR = 1.0;
+  if ( cnt > 0 ) {
+    majorR = rr / (cnt);
+  }
+  let tubeR = 0.0;
+  const pLen = profX.length;
+  let j = 0;
+  while (j < pLen) {
+    let px = profX[j];
+    if ( px < 0.0 ) {
+      px = 0.0;
+    }
+    const py = profY[j];
+    const l2 = Math.sqrt(((px * px) + (py * py)));
+    if ( l2 > tubeR ) {
+      tubeR = l2;
+    }
+    j = j + 1;
+  };
+  if ( tubeR < 1e-9 ) {
+    tubeR = 0.25;
+  }
+  return 1.0 / (majorR + tubeR);
+};
+SplineLathe.torusOnSpine = function(profX, profY, profTx, profTy, profSeg, orbX, orbY, orbSeg, cenX, cenY, cenZ, fit, closed) {
+  const mesh = new SplineMesh();
+  const rows = profX.length;
+  const steps = orbX.length;
+  if ( (rows < 1) || (steps < 1) ) {
+    return mesh;
+  }
+  let vertCols = steps;
+  if ( closed ) {
+    vertCols = steps + 1;
+  }
+  const frames = SplineLathe.buildSpineFrames(cenX, cenY, cenZ);
+  const nFrames = (((frames.length) / 12) | 0);
+  let row = 0;
+  while (row < rows) {
+    let px = profX[row];
+    if ( px < 0.0 ) {
+      px = 0.0;
+    }
+    px = px * fit;
+    const py = (profY[row]) * fit;
+    let pnx = profTy[row];
+    let pny = 0.0 - (profTx[row]);
+    let pnl = Math.sqrt(((pnx * pnx) + (pny * pny)));
+    if ( pnl < 1e-9 ) {
+      pnx = 1.0;
+      pny = 0.0;
+      pnl = 1.0;
+    }
+    pnx = pnx / pnl;
+    pny = pny / pnl;
+    if ( pnx < 0.0 ) {
+      pnx = 0.0 - pnx;
+      pny = 0.0 - pny;
+    }
+    let v = 0.0;
+    if ( rows > 1 ) {
+      v = (row) / ((rows - 1));
+    }
+    let col = 0;
+    while (col < steps) {
+      let fnx = 1.0;
+      let fny = 0.0;
+      let fnz = 0.0;
+      let fbx = 0.0;
+      let fby = 1.0;
+      let fbz = 0.0;
+      let fcx = 0.0;
+      let fcy = 0.0;
+      let fcz = 0.0;
+      if ( col < (cenX.length) ) {
+        fcx = cenX[col];
+        fcy = cenY[col];
+        fcz = cenZ[col];
+      }
+      if ( col < nFrames ) {
+        const o = col * 12;
+        fnx = frames[(o + 3)];
+        fny = frames[(o + 4)];
+        fnz = frames[(o + 5)];
+        fbx = frames[(o + 6)];
+        fby = frames[(o + 7)];
+        fbz = frames[(o + 8)];
+        fcx = frames[(o + 9)];
+        fcy = frames[(o + 10)];
+        fcz = frames[(o + 11)];
+      }
+      mesh.positions.push(fcx + ((fnx * px) + (fbx * py)));
+      mesh.positions.push(fcy + ((fny * px) + (fby * py)));
+      mesh.positions.push(fcz + ((fnz * px) + (fbz * py)));
+      const vnx = (fnx * pnx) + (fbx * pny);
+      const vny = (fny * pnx) + (fby * pny);
+      const vnz = (fnz * pnx) + (fbz * pny);
+      let vnl = Math.sqrt((((vnx * vnx) + (vny * vny)) + (vnz * vnz)));
+      if ( vnl < 1e-9 ) {
+        vnl = 1.0;
+      }
+      mesh.normals.push(vnx / vnl);
+      mesh.normals.push(vny / vnl);
+      mesh.normals.push(vnz / vnl);
+      mesh.uvs.push((col) / (steps));
+      mesh.uvs.push(v);
+      col = col + 1;
+    };
+    if ( closed ) {
+      const base = (mesh.positions.length) - (steps * 3);
+      mesh.positions.push(mesh.positions[base]);
+      mesh.positions.push(mesh.positions[(base + 1)]);
+      mesh.positions.push(mesh.positions[(base + 2)]);
+      const nbase = (mesh.normals.length) - (steps * 3);
+      mesh.normals.push(mesh.normals[nbase]);
+      mesh.normals.push(mesh.normals[(nbase + 1)]);
+      mesh.normals.push(mesh.normals[(nbase + 2)]);
+      mesh.uvs.push(1.0);
+      mesh.uvs.push(v);
+    }
+    row = row + 1;
+  };
+  let r = 0;
+  while (r < (rows - 1)) {
+    let colMax = steps - 1;
+    if ( closed ) {
+      colMax = steps;
+    }
+    let c = 0;
+    while (c < colMax) {
+      const cn = c + 1;
+      const ia = (r * vertCols) + c;
+      const ib = (r * vertCols) + cn;
+      const ic = ((r + 1) * vertCols) + cn;
+      const id = ((r + 1) * vertCols) + c;
+      mesh.indices.push(ia);
+      mesh.indices.push(id);
+      mesh.indices.push(ib);
+      mesh.indices.push(ib);
+      mesh.indices.push(id);
+      mesh.indices.push(ic);
+      c = c + 1;
+    };
+    r = r + 1;
+  };
+  mesh.profileX = profX;
+  mesh.profileY = profY;
+  mesh.orbitX = orbX;
+  mesh.orbitY = orbY;
+  mesh.rowSeg = profSeg;
+  mesh.colSeg = orbSeg;
+  mesh.rows = rows;
+  mesh.steps = steps;
+  mesh.vertCols = vertCols;
+  return mesh;
+};
 
 export { SplineVec2, SplineKnot, SplineMesh, SplineLathe };
 export default SplineLathe;

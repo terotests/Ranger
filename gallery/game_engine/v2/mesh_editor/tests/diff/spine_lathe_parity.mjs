@@ -27,8 +27,14 @@ const APP_LIB = path.resolve(HERE, "../../app/src/lib");
 const { SplineLathe } = await import(
   url.pathToFileURL(path.resolve(HERE, "../../tessellate/spline_lathe.mjs")).href
 );
-const { latheProfileWithOrbitOnSpine, sampleSpineAt, defaultSpineKnots, defaultSpineSegments } =
-  await import(url.pathToFileURL(path.join(APP_LIB, "spineLathe.js")).href);
+const {
+  latheProfileWithOrbitOnSpineJs,
+  latheProfileAsTorusOnSpineJs,
+  torusUnitFitScale,
+  sampleSpineAt,
+  defaultSpineKnots,
+  defaultSpineSegments,
+} = await import(url.pathToFileURL(path.join(APP_LIB, "spineLathe.js")).href);
 const { sampleOpenPath, sampleClosedPath } = await import(
   url.pathToFileURL(path.join(APP_LIB, "pathSample.js")).href
 );
@@ -121,7 +127,7 @@ function runCase(name, { profileKnots, orbitKnots, closed, spineProfile, spineOr
   const orbitPts = sampleClosedPath(orbitKnots, closedSegsFor(orbitKnots), orbitSamples, 0);
   const usedOrbit = closed ? orbitPts : orbitPts.slice(0, Math.max(2, Math.floor(orbitPts.length / 2)));
 
-  const js = latheProfileWithOrbitOnSpine(profilePts, usedOrbit, closed, spineProfile, spineOrbit);
+  const js = latheProfileWithOrbitOnSpineJs(profilePts, usedOrbit, closed, spineProfile, spineOrbit);
   const { cx, cy, cz } = centersFor(profilePts, spineProfile, spineOrbit);
 
   const rg = SplineLathe.latheOnSpine(
@@ -156,6 +162,91 @@ function runCase(name, { profileKnots, orbitKnots, closed, spineProfile, spineOr
   check(`${name}: grid shape matches`, rg.rows === js.rows && rg.steps === js.steps && rg.vertCols === js.vertCols, `rg=${rg.rows}x${rg.steps}/${rg.vertCols} js=${js.rows}x${js.steps}/${js.vertCols}`);
 }
 
+/**
+ * Torus centres: the major ring in XZ, unit-fit scaled, with the profile spine
+ * modulating radius and the orbit spine lifting Y. Mirrors the block inside
+ * latheProfileAsTorusOnSpine so the Ranger entry point gets identical centres.
+ */
+function torusCentersFor(profilePts, orbitPts, spineProfile, spineOrbit) {
+  const { scale: fit } = torusUnitFitScale(profilePts, orbitPts);
+  const pk = spineProfile?.knots || [];
+  const ps = spineProfile?.segments || [];
+  const ok = spineOrbit?.knots || [];
+  const os = spineOrbit?.segments || [];
+  const hasSp = pk.length >= 2;
+  const hasSo = ok.length >= 2;
+  const steps = orbitPts.length;
+  const cx = [];
+  const cy = [];
+  const cz = [];
+  for (let col = 0; col < steps; col++) {
+    const o = orbitPts[col];
+    const u = steps <= 1 ? 0 : col / (steps - 1);
+    let radialMul = 1;
+    let liftY = 0;
+    if (hasSp) {
+      const sp = sampleSpineAt(pk, ps, u);
+      radialMul = 1 + sp.x;
+      if (radialMul < 0.05) radialMul = 0.05;
+    }
+    if (hasSo) {
+      const so = sampleSpineAt(ok, os, u);
+      liftY = so.x * fit;
+    }
+    cx.push(o.x * fit * radialMul);
+    cy.push(liftY);
+    cz.push(o.y * fit * radialMul);
+  }
+  return { cx, cy, cz, fit };
+}
+
+function runTorusCase(name, { profileKnots, orbitKnots, closed, spineProfile, spineOrbit, pathSegments = 8, orbitSamples = 12 }) {
+  const profilePts = sampleOpenPath(profileKnots, segsFor(profileKnots), pathSegments, 0);
+  const orbitPts = sampleClosedPath(orbitKnots, closedSegsFor(orbitKnots), orbitSamples, 0);
+  const usedOrbit = closed ? orbitPts : orbitPts.slice(0, Math.max(2, Math.floor(orbitPts.length / 2)));
+
+  const js = latheProfileAsTorusOnSpineJs(profilePts, usedOrbit, closed, spineProfile, spineOrbit);
+  const { cx, cy, cz, fit } = torusCentersFor(profilePts, usedOrbit, spineProfile, spineOrbit);
+
+  const rgFit = SplineLathe.torusUnitFitScale(
+    profilePts.map((p) => p.x),
+    profilePts.map((p) => p.y),
+    usedOrbit.map((p) => p.x),
+    usedOrbit.map((p) => p.y),
+  );
+  check(`${name}: unit-fit scale matches`, Math.abs(rgFit - fit) <= EPS, `rg=${rgFit} js=${fit}`);
+
+  const rg = SplineLathe.torusOnSpine(
+    profilePts.map((p) => p.x),
+    profilePts.map((p) => p.y),
+    profilePts.map((p) => p.tx),
+    profilePts.map((p) => p.ty),
+    profilePts.map((p) => p.segmentIndex | 0),
+    usedOrbit.map((p) => p.x),
+    usedOrbit.map((p) => p.y),
+    usedOrbit.map((p) => p.segmentIndex | 0),
+    cx,
+    cy,
+    cz,
+    rgFit,
+    closed,
+  );
+
+  check(`${name}: mesh is non-empty`, js.positions.length > 0 && rg.positions.length > 0, `js=${js.positions.length} rg=${rg.positions.length}`);
+
+  const pos = maxAbsDiff(js.positions, Array.from(rg.positions));
+  check(`${name}: positions match`, pos.diff <= EPS, pos.lenMismatch ? `length ${pos.lenMismatch}` : `max|Δ|=${pos.diff} at ${pos.at}`);
+
+  const nrm = maxAbsDiff(js.normals, Array.from(rg.normals));
+  check(`${name}: normals match`, nrm.diff <= EPS, nrm.lenMismatch ? `length ${nrm.lenMismatch}` : `max|Δ|=${nrm.diff} at ${nrm.at}`);
+
+  const uv = maxAbsDiff(js.uvs, Array.from(rg.uvs));
+  check(`${name}: uvs match`, uv.diff <= EPS, uv.lenMismatch ? `length ${uv.lenMismatch}` : `max|Δ|=${uv.diff} at ${uv.at}`);
+
+  const idx = maxAbsDiff(js.indices, Array.from(rg.indices));
+  check(`${name}: indices match`, idx.diff === 0, idx.lenMismatch ? `length ${idx.lenMismatch}` : `differs at ${idx.at}`);
+}
+
 // --- inputs ------------------------------------------------------------------
 const profile = [
   knot("p0", 0, -1, 0.2, 0),
@@ -186,6 +277,12 @@ runCase("bent profile spine, closed", { profileKnots: profile, orbitKnots: orbit
 runCase("bent orbit spine, closed", { profileKnots: profile, orbitKnots: orbit, closed: true, spineOrbit: bentSpine });
 runCase("both spines bent, closed", { profileKnots: profile, orbitKnots: orbit, closed: true, spineProfile: bentSpine, spineOrbit: bentSpine });
 runCase("dense sampling", { profileKnots: profile, orbitKnots: orbit, closed: true, spineProfile: bentSpine, pathSegments: 16, orbitSamples: 24 });
+
+runTorusCase("torus, no spine", { profileKnots: profile, orbitKnots: orbit, closed: true });
+runTorusCase("torus, open ring", { profileKnots: profile, orbitKnots: orbit, closed: false });
+runTorusCase("torus, radius-modulating profile spine", { profileKnots: profile, orbitKnots: orbit, closed: true, spineProfile: bentSpine });
+runTorusCase("torus, lifting orbit spine", { profileKnots: profile, orbitKnots: orbit, closed: true, spineOrbit: bentSpine });
+runTorusCase("torus, both spines", { profileKnots: profile, orbitKnots: orbit, closed: true, spineProfile: bentSpine, spineOrbit: bentSpine });
 
 console.log(`passed=${passed} failed=${failed}`);
 console.log(failed === 0 ? "ALL PASS" : "SOME FAILED");

@@ -57,6 +57,33 @@ mesh_editor/
 - **3D preview** rotates the mesh so this normal points world **+Y** whenever the object loads
   or the normal changes (authoring mesh stays unrotated)
 
+## Ranger port (in progress)
+
+The editor started as browser-only JavaScript, which meant nothing it authored
+could be tessellated or rasterized on native / Pi / wasm32 — the engine's whole
+point. The rendering logic is moving into Ranger kernel by kernel; each one
+keeps its JS original as a reference until a parity suite proves the port is a
+drop-in.
+
+| Kernel | Where it runs now |
+|--------|-------------------|
+| Bezier / Catmull-Rom / arc sampling | **Ranger** (`SplineLathe.bezierPoint`, `catmullPoint`, …) |
+| Spine frames (parallel transport) | **Ranger** — `SplineLathe.buildSpineFrames` |
+| Rotation lathe on a spine | **Ranger** — `SplineLathe.latheOnSpine` |
+| Torus / tube sweep + unit fit | **Ranger** — `SplineLathe.torusOnSpine`, `torusUnitFitScale` |
+| Part assembly / colouring (`latheTessellate.js`) | JS |
+| Eye texture rasterizer (`eyeTexture.js`, `eyeEmotion.js`) | JS — **still no non-browser runtime** |
+
+The Ranger entry points take and return **flat primitive arrays**, never object
+graphs, so the same functions lower to the wasm32 / native ABI unchanged.
+
+`app/src/lib/spineLathe.js` now exports thin wrappers that derive the centre
+line (spine sampling is still JS) and call Ranger; the former implementations
+remain as `latheProfileWithOrbitOnSpineJs` / `latheProfileAsTorusOnSpineJs`,
+which exist **only** so `tests/diff/spine_lathe_parity.mjs` can diff them
+(72 checks across straight/bent spines, open/closed, torus, dense sampling).
+Delete them when that suite is retired.
+
 ## Tessellate
 
 Two modes (`editor.tessellationMode`):
@@ -102,6 +129,7 @@ Two layers, both registered in the central v2 gate (`npm run engine:v2:test`):
 | Layer | What it covers |
 |-------|----------------|
 | **Module smokes** — every `app/scripts/smoke-*.mjs` | pure-Node module logic (spine, torus, mesh pick, eye texture, atlas sharing, placement normal, library path safety). Discovered by glob, so a new smoke cannot be silently left out |
+| **Port parity** — `tests/diff/*.mjs` | each kernel moved from JS into Ranger is diffed against its JS reference on identical inputs (positions/normals/uvs/indices, bit-identical). See *Ranger port* below |
 | **Browser e2e** — `tests/e2e/mesh_editor_e2e.mjs` | the real app: rebuilds both `.rgr` halves, starts an actual Vite dev server (live `/api/library`), drives headless Chromium. Asserts both canvases render, the five shading modes, torus vs rotation, view switching, knot edit → mesh change → undo, the texture workspace, and a library save/load round-trip |
 
 The e2e writes to a temp `MESH_EDITOR_LIBRARY`, never your own `library/projects/`.

@@ -875,4 +875,196 @@ class SplineLathe {
         mesh.vertCols = vertCols
         return mesh
     }
+
+    ; ------------------------------------------------------------------
+    ; Unit-fit scale for torus mode: major orbit radius R plus profile extent
+    ; r must fit the unit ball, so scale = 1 / (R + r).
+    ; ------------------------------------------------------------------
+    sfn torusUnitFitScale:double (profX:[double] profY:[double] orbX:[double] orbY:[double]) {
+        def rr:double 0.0
+        def cnt:int 0
+        def oLen:int (array_length orbX)
+        def i:int 0
+        while (i < oLen) {
+            def ox:double (itemAt orbX i)
+            def oy:double (itemAt orbY i)
+            def l:double (sqrt((ox * ox) + (oy * oy)))
+            if (l > 0.000000001) {
+                rr = (rr + l)
+                cnt = (cnt + 1)
+            }
+            i = (i + 1)
+        }
+        def majorR:double 1.0
+        if (cnt > 0) {
+            majorR = (rr / (to_double cnt))
+        }
+        def tubeR:double 0.0
+        def pLen:int (array_length profX)
+        def j:int 0
+        while (j < pLen) {
+            def px:double (itemAt profX j)
+            if (px < 0.0) {
+                px = 0.0
+            }
+            def py:double (itemAt profY j)
+            def l2:double (sqrt((px * px) + (py * py)))
+            if (l2 > tubeR) {
+                tubeR = l2
+            }
+            j = (j + 1)
+        }
+        if (tubeR < 0.000000001) {
+            tubeR = 0.25
+        }
+        return (1.0 / (majorR + tubeR))
+    }
+
+    ; ------------------------------------------------------------------
+    ; Torus / tube-sweep mode: the profile is a tube cross-section carried
+    ; along the orbit (major ring) in the frame's N-B plane. Centres are
+    ; supplied already scaled and spine-adjusted (radial multiplier + Y lift),
+    ; keeping this entry point to primitive arrays like latheOnSpine.
+    ; ------------------------------------------------------------------
+    sfn torusOnSpine:SplineMesh (profX:[double] profY:[double] profTx:[double] profTy:[double] profSeg:[int] orbX:[double] orbY:[double] orbSeg:[int] cenX:[double] cenY:[double] cenZ:[double] fit:double closed:boolean) {
+        def mesh:SplineMesh (new SplineMesh)
+        def rows:int (array_length profX)
+        def steps:int (array_length orbX)
+        if ((rows < 1) || (steps < 1)) {
+            return mesh
+        }
+        def vertCols:int steps
+        if closed {
+            vertCols = (steps + 1)
+        }
+        def frames:[double] (SplineLathe.buildSpineFrames(cenX cenY cenZ))
+        def nFrames:int (idiv (array_length frames) 12)
+
+        def row:int 0
+        while (row < rows) {
+            def px:double (itemAt profX row)
+            if (px < 0.0) {
+                px = 0.0
+            }
+            px = (px * fit)
+            def py:double ((itemAt profY row) * fit)
+
+            def pnx:double (itemAt profTy row)
+            def pny:double (0.0 - (itemAt profTx row))
+            def pnl:double (sqrt((pnx * pnx) + (pny * pny)))
+            if (pnl < 0.000000001) {
+                pnx = 1.0
+                pny = 0.0
+                pnl = 1.0
+            }
+            pnx = (pnx / pnl)
+            pny = (pny / pnl)
+            if (pnx < 0.0) {
+                pnx = (0.0 - pnx)
+                pny = (0.0 - pny)
+            }
+
+            def v:double 0.0
+            if (rows > 1) {
+                v = ((to_double row) / (to_double (rows - 1)))
+            }
+
+            def col:int 0
+            while (col < steps) {
+                ; Fallback frame matches the JS default (tube travels along +Z).
+                def fnx:double 1.0
+                def fny:double 0.0
+                def fnz:double 0.0
+                def fbx:double 0.0
+                def fby:double 1.0
+                def fbz:double 0.0
+                def fcx:double 0.0
+                def fcy:double 0.0
+                def fcz:double 0.0
+                if (col < (array_length cenX)) {
+                    fcx = (itemAt cenX col)
+                    fcy = (itemAt cenY col)
+                    fcz = (itemAt cenZ col)
+                }
+                if (col < nFrames) {
+                    def o:int (col * 12)
+                    fnx = (itemAt frames (o + 3))
+                    fny = (itemAt frames (o + 4))
+                    fnz = (itemAt frames (o + 5))
+                    fbx = (itemAt frames (o + 6))
+                    fby = (itemAt frames (o + 7))
+                    fbz = (itemAt frames (o + 8))
+                    fcx = (itemAt frames (o + 9))
+                    fcy = (itemAt frames (o + 10))
+                    fcz = (itemAt frames (o + 11))
+                }
+
+                push mesh.positions (fcx + ((fnx * px) + (fbx * py)))
+                push mesh.positions (fcy + ((fny * px) + (fby * py)))
+                push mesh.positions (fcz + ((fnz * px) + (fbz * py)))
+
+                def vnx:double ((fnx * pnx) + (fbx * pny))
+                def vny:double ((fny * pnx) + (fby * pny))
+                def vnz:double ((fnz * pnx) + (fbz * pny))
+                def vnl:double (sqrt(((vnx * vnx) + (vny * vny)) + (vnz * vnz)))
+                if (vnl < 0.000000001) {
+                    vnl = 1.0
+                }
+                push mesh.normals (vnx / vnl)
+                push mesh.normals (vny / vnl)
+                push mesh.normals (vnz / vnl)
+                push mesh.uvs ((to_double col) / (to_double steps))
+                push mesh.uvs v
+                col = (col + 1)
+            }
+            if closed {
+                def base:int ((array_length mesh.positions) - (steps * 3))
+                push mesh.positions (itemAt mesh.positions base)
+                push mesh.positions (itemAt mesh.positions (base + 1))
+                push mesh.positions (itemAt mesh.positions (base + 2))
+                def nbase:int ((array_length mesh.normals) - (steps * 3))
+                push mesh.normals (itemAt mesh.normals nbase)
+                push mesh.normals (itemAt mesh.normals (nbase + 1))
+                push mesh.normals (itemAt mesh.normals (nbase + 2))
+                push mesh.uvs 1.0
+                push mesh.uvs v
+            }
+            row = (row + 1)
+        }
+
+        def r:int 0
+        while (r < (rows - 1)) {
+            def colMax:int (steps - 1)
+            if closed {
+                colMax = steps
+            }
+            def c:int 0
+            while (c < colMax) {
+                def cn:int (c + 1)
+                def ia:int ((r * vertCols) + c)
+                def ib:int ((r * vertCols) + cn)
+                def ic:int (((r + 1) * vertCols) + cn)
+                def id:int (((r + 1) * vertCols) + c)
+                push mesh.indices ia
+                push mesh.indices id
+                push mesh.indices ib
+                push mesh.indices ib
+                push mesh.indices id
+                push mesh.indices ic
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+
+        mesh.profileX = profX
+        mesh.profileY = profY
+        mesh.orbitX = orbX
+        mesh.orbitY = orbY
+        mesh.rowSeg = profSeg
+        mesh.colSeg = orbSeg
+        mesh.rows = rows
+        mesh.steps = steps
+        mesh.vertCols = vertCols
+        return mesh
+    }
 }
