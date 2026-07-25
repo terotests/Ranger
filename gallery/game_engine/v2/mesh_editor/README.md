@@ -57,6 +57,47 @@ mesh_editor/
 - **3D preview** rotates the mesh so this normal points world **+Y** whenever the object loads
   or the normal changes (authoring mesh stays unrotated)
 
+## Preview transport
+
+The 3D preview runs on the **v2 transport**. `host/web_mesh_editor_host.rgr`
+issues registry commands — the same ones a TSX or wasm32 guest issues — instead
+of importing `three/port` classes and mutating `ThreeSceneHost`'s arrays:
+
+```text
+editor JS ──▶ WebMeshEditorHost ──▶ RgRegistryBridge.invoke("rg3d_*")
+                                          │
+                                          ▼
+                                    RgRangerThree ──▶ typed host arenas
+                                          │
+                      ThreeSceneHost.render  (presentation READS host state)
+```
+
+The host holds only **guest ids** (the ints the bridge mints), never arena
+indices. Meshes are DETACHED creates plus a separate `rg3d_entity_set_parent`,
+so object lifetime and scene membership stay independent (D-SYNC).
+
+Two seams read the arena directly, matching `web/web_live3d_host.rgr`:
+**present** (`render` + `raw()` — a renderer reading host state is not a sync
+boundary) and **view state** (camera/target/fov for the JS surface picker, plus
+the orbit distance clamp, which has no command).
+
+Commands added for authoring (new ids — the existing ones are golden and cannot
+grow arguments): `rg3d_geometry_buffer` (interleaved vertex buffer + indices),
+`rg3d_material_basic_ex`, `rg3d_material_phong_ex`, `rg3d_material_reflective`,
+`rg3d_material_map_rgba` (generated atlas, no file), `rg3d_scene_background`,
+`rg3d_scene_environment_studio`.
+
+The switch is **pixel-identical** to the previous direct-Three render
+(0 of 108241 pixels differ).
+
+> **Shared-atlas rule.** The old host handed ONE mutable `ThreeTexture` to every
+> part, so a batch always showed the LAST atlas uploaded — and because UVs are
+> global across the profile (`v = row / rows-1`), that sharing is what makes a
+> multi-part gradient continuous. A command API mints a texture per material, so
+> `setPartMapBuffer` re-applies the staged atlas to every live part. Drop that
+> and each part samples its own atlas through global UVs, seaming at every
+> segment boundary. Locked by `tests/host/transport_guard.mjs`.
+
 ## Ranger port (in progress)
 
 The editor started as browser-only JavaScript, which meant nothing it authored
@@ -130,6 +171,7 @@ Two layers, both registered in the central v2 gate (`npm run engine:v2:test`):
 |-------|----------------|
 | **Module smokes** — every `app/scripts/smoke-*.mjs` | pure-Node module logic (spine, torus, mesh pick, eye texture, atlas sharing, placement normal, library path safety). Discovered by glob, so a new smoke cannot be silently left out |
 | **Port parity** — `tests/diff/*.mjs` | each kernel moved from JS into Ranger is diffed against its JS reference on identical inputs (positions/normals/uvs/indices, bit-identical). See *Ranger port* below |
+| **Transport guard** — `tests/host/*.mjs` | the preview host must keep driving `RgRegistryBridge` (no direct `three/port` resource imports, no poking arena arrays) and must preserve the shared-atlas semantics. See *Preview transport* below |
 | **Browser e2e** — `tests/e2e/mesh_editor_e2e.mjs` | the real app: rebuilds both `.rgr` halves, starts an actual Vite dev server (live `/api/library`), drives headless Chromium. Asserts both canvases render, the five shading modes, torus vs rotation, view switching, knot edit → mesh change → undo, the texture workspace, and a library save/load round-trip |
 
 The e2e writes to a temp `MESH_EDITOR_LIBRARY`, never your own `library/projects/`.

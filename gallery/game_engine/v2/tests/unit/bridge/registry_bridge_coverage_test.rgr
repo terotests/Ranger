@@ -338,6 +338,18 @@ class RegistryBridgeCoverageTest {
 
         def empty3:[EvalValue]
         def scene3:int (s.callI("rg3d_scene_create" empty3))
+        ; Scene clear colour + generated studio probe — the authoring surface
+        ; that keeps sky/env choices OUT of the presenter (abstraction debt).
+        def sbA:[EvalValue]
+        push sbA (s.num((to_double scene3)))
+        push sbA (s.num(0.12))
+        push sbA (s.num(0.13))
+        push sbA (s.num(0.16))
+        s.callN("rg3d_scene_background" sbA)
+        def seA:[EvalValue]
+        push seA (s.num((to_double scene3)))
+        push seA (s.num(8.0))
+        s.callN("rg3d_scene_environment_studio" seA)
         def cam3:int (s.callI("rg3d_camera_create" empty3))
         def c3s:[EvalValue]
         push c3s (s.num((to_double cam3)))
@@ -363,6 +375,29 @@ class RegistryBridgeCoverageTest {
         def octA:[EvalValue]
         push octA (s.num(0.8))
         def octG:int (s.callI("rg3d_geometry_octahedron" octA))
+        ; Authored geometry: one triangle as an interleaved buffer (8 doubles
+        ; per vertex: px,py,pz, nx,ny,nz, u,v) plus its index list.
+        def vtxArr:[EvalValue]
+        def vi 0
+        while (vi < 3) {
+            push vtxArr (s.num((to_double vi)))
+            push vtxArr (s.num(0.0))
+            push vtxArr (s.num(0.0))
+            push vtxArr (s.num(0.0))
+            push vtxArr (s.num(1.0))
+            push vtxArr (s.num(0.0))
+            push vtxArr (s.num(0.0))
+            push vtxArr (s.num(0.0))
+            vi = (vi + 1)
+        }
+        def idxArr:[EvalValue]
+        push idxArr (s.num(0.0))
+        push idxArr (s.num(1.0))
+        push idxArr (s.num(2.0))
+        def gbA:[EvalValue]
+        push gbA (EvalValue.array(vtxArr))
+        push gbA (EvalValue.array(idxArr))
+        def bufG:int (s.callI("rg3d_geometry_buffer" gbA))
         ; Utah teapot geometry — size, segments, then 5 shape flags as i32 0/1.
         def teaA:[EvalValue]
         push teaA (s.num(1.0))
@@ -410,6 +445,36 @@ class RegistryBridgeCoverageTest {
         push opacA (s.num((to_double matLambert)))
         push opacA (s.num(0.72))
         s.callN("rg3d_material_set_opacity" opacA)
+        ; ---- authoring surface (mesh editor drives these) --------------------
+        ; Wider basic/phong forms — new ids because 3020/3023 are golden.
+        def bxA:[EvalValue]
+        push bxA (s.num(16711680.0))
+        push bxA (s.num(2.0))
+        push bxA (s.num(1.0))
+        def matBasicEx:int (s.callI("rg3d_material_basic_ex" bxA))
+        def pxA:[EvalValue]
+        push pxA (s.num(15790320.0))
+        push pxA (s.num(4210752.0))
+        push pxA (s.num(60.0))
+        push pxA (s.num(1.0))
+        push pxA (s.num(2.0))
+        def matPhongEx:int (s.callI("rg3d_material_phong_ex" pxA))
+        def reflA:[EvalValue]
+        push reflA (s.num((to_double matPhongEx)))
+        push reflA (s.num(0.75))
+        s.callN("rg3d_material_reflective" reflA)
+        ; Raw-RGBA diffuse map: a 1x1 opaque red texel (4 bytes).
+        def rgbaArr:[EvalValue]
+        push rgbaArr (s.num(255.0))
+        push rgbaArr (s.num(0.0))
+        push rgbaArr (s.num(0.0))
+        push rgbaArr (s.num(255.0))
+        def mrA:[EvalValue]
+        push mrA (s.num((to_double matPhongEx)))
+        push mrA (EvalValue.array(rgbaArr))
+        push mrA (s.num(1.0))
+        push mrA (s.num(1.0))
+        s.callN("rg3d_material_map_rgba" mrA)
         ; D-SYNC: DETACHED light create (no scene arg), then establish membership
         ; under the scene via set_parent — identical scene graph, same guest id.
         def ambA:[EvalValue]

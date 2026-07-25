@@ -159,6 +159,30 @@ class ThreeSceneHost {
         push geometries g
         return (array_length geometries)
     }
+    ; Authored geometry: an interleaved vertex buffer + index list, as produced
+    ; by a mesh authoring tool rather than a primitive generator. `data` packs 8
+    ; doubles per vertex — px,py,pz, nx,ny,nz, u,v — which is the same layout
+    ; pushVertex takes and the natural contiguous form for a GPU vertex buffer
+    ; (and for a wasm32 guest span).
+    fn geometryBuffer:int (data:[double] indices:[int]) {
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def n:int (array_length data)
+        def vc:int (idiv n 8)
+        def i:int 0
+        while (i < vc) {
+            def b:int (i * 8)
+            g.pushVertex((itemAt data b) (itemAt data (b + 1)) (itemAt data (b + 2)) (itemAt data (b + 3)) (itemAt data (b + 4)) (itemAt data (b + 5)) (itemAt data (b + 6)) (itemAt data (b + 7)))
+            i = (i + 1)
+        }
+        def ic:int (array_length indices)
+        def k:int 0
+        while (k < ic) {
+            g.pushIndex((itemAt indices k))
+            k = (k + 1)
+        }
+        push geometries g
+        return (array_length geometries)
+    }
     fn geometryTeapot:int (size:double seg:int bottom:boolean lid:boolean body:boolean fitLid:boolean blinn:boolean) {
         def g:ThreeTeapotGeometry (new ThreeTeapotGeometry)
         g.setTeapot(size seg bottom lid body fitLid blinn)
@@ -258,6 +282,28 @@ class ThreeSceneHost {
     }
     fn materialMap:void (matH:int path:string) {
         (this.materialAt(matH)).setMap((this.textureForPath(path)))
+    }
+    ; Diffuse map from RAW RGBA bytes rather than a path — a procedural /
+    ; generated atlas that never exists as a file. Sibling of materialMap; the
+    ; byte array is the transport-friendly form (an `ai` span over the ABI).
+    fn materialMapRgba:void (matH:int rgba:[int] w:int h:int) {
+        if ((w < 1) || (h < 1)) {
+            return
+        }
+        def n:int (array_length rgba)
+        def need:int ((w * h) * 4)
+        if (n < need) {
+            return
+        }
+        def buf:buffer (buffer_alloc need)
+        def i:int 0
+        while (i < need) {
+            buffer_set buf i (itemAt rgba i)
+            i = (i + 1)
+        }
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(buf w h)
+        (this.materialAt(matH)).setMap(tex)
     }
     fn materialReflective:void (matH:int reflectivity:double) {
         def m:ThreeMaterial (this.materialAt(matH))

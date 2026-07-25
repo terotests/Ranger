@@ -54,6 +54,8 @@ pub const RG2D_BG_CIRCLE: i32 = 2072;
 pub const RG2D_OV_BEGIN: i32 = 2073;
 pub const RG2D_OV_RECT: i32 = 2074;
 pub const RG3D_SCENE_CREATE: i32 = 3000;
+pub const RG3D_SCENE_BACKGROUND: i32 = 3004;
+pub const RG3D_SCENE_ENVIRONMENT_STUDIO: i32 = 3005;
 pub const RG3D_CAMERA_CREATE: i32 = 3001;
 pub const RG3D_CAMERA_SET: i32 = 3002;
 pub const RG3D_CAMERA_POSE: i32 = 3003;
@@ -63,11 +65,16 @@ pub const RG3D_GEOMETRY_TEAPOT: i32 = 3012;
 pub const RG3D_GEOMETRY_PLANE: i32 = 3013;
 pub const RG3D_GEOMETRY_SPHERE: i32 = 3014;
 pub const RG3D_GEOMETRY_CYLINDER: i32 = 3015;
+pub const RG3D_GEOMETRY_BUFFER: i32 = 3016;
 pub const RG3D_MATERIAL_BASIC: i32 = 3020;
 pub const RG3D_MATERIAL_LAMBERT: i32 = 3021;
 pub const RG3D_MATERIAL_SET_OPACITY: i32 = 3022;
 pub const RG3D_MATERIAL_PHONG: i32 = 3023;
 pub const RG3D_MATERIAL_MAP: i32 = 3024;
+pub const RG3D_MATERIAL_BASIC_EX: i32 = 3025;
+pub const RG3D_MATERIAL_PHONG_EX: i32 = 3026;
+pub const RG3D_MATERIAL_REFLECTIVE: i32 = 3027;
+pub const RG3D_MATERIAL_MAP_RGBA: i32 = 3028;
 pub const RG3D_MESH_CREATE: i32 = 3030;
 pub const RG3D_MESH_TRANSFORM: i32 = 3031;
 pub const RG3D_MESH_SET_SCALE: i32 = 3032;
@@ -245,6 +252,12 @@ impl<'a> RgCmdBuf<'a> {
     pub fn rg3d_scene_create(&mut self, dst: i32) {
         self.put(RG3D_SCENE_CREATE, dst, &[]);
     }
+    pub fn rg3d_scene_background(&mut self, a0: i32, a1: f32, a2: f32, a3: f32) {
+        self.put(RG3D_SCENE_BACKGROUND, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32), ((a2 * RGC1_FIXED as f32) as i32), ((a3 * RGC1_FIXED as f32) as i32)]);
+    }
+    pub fn rg3d_scene_environment_studio(&mut self, a0: i32, a1: i32) {
+        self.put(RG3D_SCENE_ENVIRONMENT_STUDIO, 0, &[a0, a1]);
+    }
     pub fn rg3d_camera_create(&mut self, dst: i32) {
         self.put(RG3D_CAMERA_CREATE, dst, &[]);
     }
@@ -286,6 +299,15 @@ impl<'a> RgCmdBuf<'a> {
     }
     pub fn rg3d_material_map(&mut self, a0: i32, a1_ptr: i32, a1_len: i32) {
         self.put(RG3D_MATERIAL_MAP, 0, &[a0, a1_ptr, a1_len]);
+    }
+    pub fn rg3d_material_basic_ex(&mut self, dst: i32, a0: i32, a1: i32, a2: i32) {
+        self.put(RG3D_MATERIAL_BASIC_EX, dst, &[a0, a1, a2]);
+    }
+    pub fn rg3d_material_phong_ex(&mut self, dst: i32, a0: i32, a1: i32, a2: f32, a3: i32, a4: i32) {
+        self.put(RG3D_MATERIAL_PHONG_EX, dst, &[a0, a1, ((a2 * RGC1_FIXED as f32) as i32), a3, a4]);
+    }
+    pub fn rg3d_material_reflective(&mut self, a0: i32, a1: f32) {
+        self.put(RG3D_MATERIAL_REFLECTIVE, 0, &[a0, ((a1 * RGC1_FIXED as f32) as i32)]);
     }
     pub fn rg3d_mesh_create(&mut self, dst: i32, a0: i32, a1: i32) {
         self.put(RG3D_MESH_CREATE, dst, &[a0, a1]);

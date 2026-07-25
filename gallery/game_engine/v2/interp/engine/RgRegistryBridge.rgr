@@ -919,10 +919,58 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
+        if (row.name == "rg3d_geometry_buffer") {
+            ; ad = interleaved vertices (8 doubles each), ai = indices. The
+            ; decoder accumulates each array kind into one span, which is why
+            ; the command takes exactly one of each.
+            def o:OwnedHandle (this.d3.geometryBuffer(a.ad a.ai))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
         if (row.name == "rg3d_material_basic") {
             def o:OwnedHandle (this.d3.materialBasic((a.intAt(0))))
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_basic_ex") {
+            def o:OwnedHandle (this.d3.materialBasicEx((a.intAt(0)) (a.intAt(1)) ((a.intAt(2)) != 0)))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_phong_ex") {
+            def o:OwnedHandle (this.d3.materialPhongEx((a.intAt(0)) (a.intAt(1)) (a.dblAt(2)) ((a.intAt(3)) != 0) (a.intAt(4))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_reflective") {
+            this.d3.clearErr()
+            if ((this.d3.materialReflective((a.handleAt(0)) (a.dblAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_material_map_rgba") {
+            this.d3.clearErr()
+            ; argSpec "h:ai:i:i" — intAt/dblAt/handleAt index the OVERALL arg
+            ; position (decode pads every list per position), so w/h are 2/3.
+            if ((this.d3.materialMapRgba((a.handleAt(0)) a.ai (a.intAt(2)) (a.intAt(3)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_scene_background") {
+            this.d3.clearErr()
+            if ((this.d3.sceneBackground((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_scene_environment_studio") {
+            this.d3.clearErr()
+            if ((this.d3.sceneEnvironmentStudio((a.handleAt(0)) (a.intAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
         }
         if (row.name == "rg3d_material_lambert") {
             def o:OwnedHandle (this.d3.materialLambert((a.intAt(0))))

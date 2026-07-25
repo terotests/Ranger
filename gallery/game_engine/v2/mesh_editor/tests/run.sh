@@ -69,7 +69,27 @@ for d in "$HERE"/diff/*.mjs; do
 done
 echo
 
-# ---- layer 3: browser e2e ----------------------------------------------------
+# ---- layer 3: host transport guard -------------------------------------------
+# The preview host must keep driving RgRegistryBridge rather than reaching into
+# three/port directly, and must preserve the shared-atlas semantics that make a
+# multi-part gradient continuous under global UVs.
+echo "### mesh_editor/tests/host (v2 transport)"
+for t in "$HERE"/host/*.mjs; do
+  [ -e "$t" ] || continue
+  tname="$(basename "$t" .mjs)"
+  if out="$(node "$t" 2>&1)"; then
+    tp="$(echo "$out" | sed -n 's/^passed=\([0-9]*\).*/\1/p' | tail -1)"
+    echo "  PASS $tname (${tp:-0} checks)"
+    PASSED=$((PASSED + 1))
+  else
+    echo "  FAIL $tname"
+    echo "$out" | grep -E "FAIL" | head -6 | sed 's/^/     /'
+    FAILED=$((FAILED + 1))
+  fi
+done
+echo
+
+# ---- layer 4: browser e2e ----------------------------------------------------
 echo "### mesh_editor/tests/e2e/mesh_editor_e2e"
 E2E_OUT="$(node "$HERE/e2e/mesh_editor_e2e.mjs" 2>&1)"
 E2E_CODE=$?
