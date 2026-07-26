@@ -459,6 +459,57 @@ try {
     }
   }
 
+  // -- 9b. dragging a knot on the 2D canvas ---------------------------------
+  // The numeric-field path above and this one reach the same state through very
+  // different code (pointer capture + hit-test + a drag gesture vs a committed
+  // input), so both need covering — a regression in the canvas drag controller
+  // is invisible to the field test.
+  const beforeDrag = await canvasStats(page, PREVIEW, "preview_before_drag");
+  const box = await (await page.$(SPLINE)).boundingBox();
+  // viewport is -1.1..1.1 with y up, so world (x,y) -> box-relative pixels.
+  const toPx = (wx, wy) => ({
+    x: box.x + ((wx + 1.1) / 2.2) * box.width,
+    y: box.y + ((1.1 - wy) / 2.2) * box.height,
+  });
+  const midKnot = toPx(0.5, 0); // default profile mid knot
+  const dragTo = toPx(0.9, 0);
+  await page.mouse.move(midKnot.x, midKnot.y);
+  await page.mouse.down();
+  await page.mouse.move((midKnot.x + dragTo.x) / 2, midKnot.y, { steps: 4 });
+  await page.mouse.move(dragTo.x, dragTo.y, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(2200);
+
+  const afterDrag = await canvasStats(page, PREVIEW, "preview_after_drag");
+  check(
+    "dragging the mid profile knot re-tessellates the mesh",
+    afterDrag.signature !== beforeDrag.signature,
+    "preview unchanged after a canvas drag",
+  );
+  check("mesh still renders after the drag", rendered(afterDrag), `colors=${afterDrag.colors}`);
+  check(
+    "the drag reached the undo history",
+    !(await page.locator('button:text-is("Undo")').isDisabled()),
+  );
+
+  // Negative control: the same gesture on empty canvas must hit nothing. Without
+  // this, "the mesh changed after I moved the mouse" would pass even if the
+  // hit-test were broken and every drag edited something.
+  const beforeMiss = await canvasStats(page, PREVIEW, "preview_before_miss");
+  const emptyA = toPx(-0.9, -0.95);
+  const emptyB = toPx(-0.6, -0.95);
+  await page.mouse.move(emptyA.x, emptyA.y);
+  await page.mouse.down();
+  await page.mouse.move(emptyB.x, emptyB.y, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(1600);
+  const afterMiss = await canvasStats(page, PREVIEW, "preview_after_miss");
+  check(
+    "a drag that hits no handle leaves the mesh alone",
+    afterMiss.signature === beforeMiss.signature,
+    "empty-canvas drag changed the mesh — hit-test is not discriminating",
+  );
+
   // -- 10. texture workspace ------------------------------------------------
   await page.click('button:text-is("Texture")');
   await page.waitForTimeout(2000);

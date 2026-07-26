@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
+import { lerp } from "../shared/math/scalar.js";
 
 /** @typedef {'bezier'|'line'|'arc'} PathType */
 
@@ -10,10 +11,6 @@ export function normalizePathType(t) {
   if (t === "line" || t === "linear" || t === "L") return "line";
   if (t === "arc" || t === "A") return "arc";
   return "bezier";
-}
-
-function lerp(a, b, t) {
-  return a + (b - a) * t;
 }
 
 function sampleLine(a, b, t) {
@@ -131,11 +128,7 @@ export function evalSpan(a, b, t, { pathType = "bezier", curveType = 0, arcBulge
   return sampleBezier(a, b, t);
 }
 
-/**
- * Sample an open knot chain (profile). Each span uses segments[i].pathType.
- * @returns {{ x:number, y:number, tx:number, ty:number, segmentIndex:number, t:number }[]}
- */
-export function sampleOpenPath(knots, segments, samplesPerSpan, curveType = 0) {
+function sampleOpenChain(knots, segments, samplesPerSpan, curveType, clampX) {
   const pts = [];
   if (!knots || knots.length < 2) return pts;
   const segN = Math.max(1, samplesPerSpan | 0);
@@ -148,12 +141,14 @@ export function sampleOpenPath(knots, segments, samplesPerSpan, curveType = 0) {
       curveType,
       arcBulge: seg?.arcBulge ?? null,
     };
+    // Interior spans stop one sample short so the shared knot is not emitted
+    // twice; the final span emits its endpoint.
     const last = i < knots.length - 2 ? segN - 1 : segN;
     for (let s = 0; s <= last; s++) {
       const t = s / segN;
       const { p, tan } = evalSpan(a, b, t, opts);
       pts.push({
-        x: Math.max(0, p.x),
+        x: clampX ? Math.max(0, p.x) : p.x,
         y: p.y,
         tx: tan.x,
         ty: tan.y,
@@ -163,6 +158,27 @@ export function sampleOpenPath(knots, segments, samplesPerSpan, curveType = 0) {
     }
   }
   return pts;
+}
+
+/**
+ * Sample an open knot chain as a MESH PROFILE: x is a radius, so it is clamped
+ * to >= 0. Each span uses segments[i].pathType.
+ * @returns {{ x:number, y:number, tx:number, ty:number, segmentIndex:number, t:number }[]}
+ */
+export function sampleOpenPath(knots, segments, samplesPerSpan, curveType = 0) {
+  return sampleOpenChain(knots, segments, samplesPerSpan, curveType, true);
+}
+
+/**
+ * Same sampling with SIGNED x — for paths that are genuinely 2D rather than a
+ * revolved radius (texture eyelids, spine lateral offsets).
+ *
+ * These two used to be separate 15-line copies whose only difference was the
+ * `Math.max(0, p.x)`; the clamp is the entire distinction, so it is now the
+ * single parameter of one implementation.
+ */
+export function sampleOpenPathSigned(knots, segments, samplesPerSpan, curveType = 0) {
+  return sampleOpenChain(knots, segments, samplesPerSpan, curveType, false);
 }
 
 /**

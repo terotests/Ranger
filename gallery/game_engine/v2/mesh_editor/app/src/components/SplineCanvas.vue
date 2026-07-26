@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { useDragGesture } from "../shared/canvas/useDragGesture.js";
 
 const props = defineProps({
   knots: { type: Array, required: true },
@@ -49,11 +50,11 @@ const emit = defineEmits([
 const canvasRef = ref(null);
 /** Fallback logical size when the canvas is not laid out yet. */
 const SIZE_FALLBACK = 560;
-let dragging = null;
-let draggingChild = null;
-let draggingNormal = null; // 'start' | 'end'
-let draggingTranslate = false;
-let lastWorld = null; // {x,y} for move-mode deltas
+// ONE canonical drag slot. Was four independent flags (dragging / draggingChild
+// / draggingNormal / draggingTranslate) which made "dragging a knot AND
+// translating" representable and meant every pointerup had to clear all four.
+// See shared/canvas/useDragGesture.js.
+const drag = useDragGesture({ element: () => canvasRef.value });
 let raf = 0;
 const hoverAdd = ref(null);
 
@@ -540,17 +541,14 @@ function onPointerDown(e) {
   }
 
   if (props.toolMode === "move") {
-    draggingTranslate = true;
-    lastWorld = { x: wx, y: wy };
-    canvasRef.value.setPointerCapture(e.pointerId);
+    drag.begin("translate", { x: wx, y: wy }, e);
     return;
   }
 
   if (props.toolMode === "edit" && showPlacementNormal.value) {
     const nh = hitTestPlacementNormal(sx, sy);
     if (nh) {
-      draggingNormal = nh;
-      canvasRef.value.setPointerCapture(e.pointerId);
+      drag.begin("normal", nh, e);
       return;
     }
   }
@@ -558,9 +556,8 @@ function onPointerDown(e) {
   if (props.toolMode === "edit" && showAttachments.value) {
     const cid = hitTestChild(sx, sy);
     if (cid) {
-      draggingChild = cid;
+      drag.begin("child", cid, e);
       emit("select-child", cid);
-      canvasRef.value.setPointerCapture(e.pointerId);
       return;
     }
   }
@@ -581,9 +578,8 @@ function onPointerDown(e) {
 
   const hit = hitTestPoint(sx, sy);
   if (!hit) return;
-  dragging = hit;
+  drag.begin("knot", hit, e);
   emit("select", hit.id);
-  canvasRef.value.setPointerCapture(e.pointerId);
 }
 
 function onPointerMove(e) {
@@ -596,14 +592,16 @@ function onPointerMove(e) {
     return;
   }
 
-  if (draggingTranslate && props.toolMode === "move" && lastWorld) {
+  const lastWorld = drag.payloadOf("translate");
+  if (lastWorld && props.toolMode === "move") {
     const dx = wx - lastWorld.x;
     const dy = wy - lastWorld.y;
-    lastWorld = { x: wx, y: wy };
+    drag.setPayload({ x: wx, y: wy });
     if (dx || dy) emit("translate-path", dx, dy);
     return;
   }
 
+  const draggingNormal = drag.payloadOf("normal");
   if (draggingNormal && props.toolMode === "edit") {
     if (draggingNormal === "start") {
       emit("update-placement-normal", { start: { x: wx, y: wy } });
@@ -613,6 +611,7 @@ function onPointerMove(e) {
     return;
   }
 
+  const draggingChild = drag.payloadOf("child");
   if (draggingChild && props.toolMode === "edit") {
     emit("move-child", draggingChild, {
       x: Math.max(0, wx),
@@ -622,6 +621,7 @@ function onPointerMove(e) {
     return;
   }
 
+  const dragging = drag.payloadOf("knot");
   if (!dragging || props.toolMode !== "edit") return;
   const k = props.knots.find((n) => n.id === dragging.id);
   if (!k) return;
@@ -635,20 +635,16 @@ function onPointerMove(e) {
   }
 }
 
-function onPointerUp() {
+function onPointerUp(e) {
   if (
-    (dragging || draggingChild || draggingNormal) && props.toolMode === "edit"
+    drag.isActive("knot", "child", "normal") && props.toolMode === "edit"
   ) {
     emit("drag-end");
   }
-  if (draggingTranslate && props.toolMode === "move") {
+  if (drag.isActive("translate") && props.toolMode === "move") {
     emit("drag-end");
   }
-  dragging = null;
-  draggingChild = null;
-  draggingNormal = null;
-  draggingTranslate = false;
-  lastWorld = null;
+  drag.end(e);
 }
 
 function schedule() {

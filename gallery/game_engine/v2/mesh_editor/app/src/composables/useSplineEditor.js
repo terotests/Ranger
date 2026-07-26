@@ -265,6 +265,43 @@ export function useSplineEditor() {
     );
   }
 
+  /**
+   * Rehydrate one embedded sub-object body into editor state.
+   *
+   * Both entry points into state — restoreShape() (undo/redo) and loading a
+   * library document — need exactly this: spread the stored body, deep-copy the
+   * knot/segment arrays so editing a child never aliases the snapshot, drop
+   * per-segment textureData (a bake, not authoring params), and normalise the
+   * spine blocks / placement normal / material to their current defaults.
+   *
+   * It was duplicated character-for-character in both places. That is the worst
+   * kind of copy: a new persisted field added to one path and not the other
+   * silently disappears on undo but survives a reload, or vice versa.
+   */
+  function hydrateEmbeddedBody(body) {
+    const bsp = loadSpineBlock(
+      { knots: body.spineProfileKnots, segments: body.spineProfileSegments },
+      defaultSpineKnots,
+    );
+    const bso = loadSpineBlock(
+      { knots: body.spineOrbitKnots, segments: body.spineOrbitSegments },
+      defaultSpineKnots,
+    );
+    return {
+      ...body,
+      knots: (body.knots || []).map((k) => ({ ...k })),
+      segments: (body.segments || []).map((s) => ({ ...s, textureData: null })),
+      orbitKnots: (body.orbitKnots || []).map((k) => ({ ...k })),
+      orbitSegments: (body.orbitSegments || []).map((s) => ({ ...s, textureData: null })),
+      spineProfileKnots: bsp.knots,
+      spineProfileSegments: bsp.segments,
+      spineOrbitKnots: bso.knots,
+      spineOrbitSegments: bso.segments,
+      placementNormal: normalizePlacementNormal(body.placementNormal),
+      objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
+    };
+  }
+
   function restoreShape(snap) {
     if (!snap) return;
     state.editTarget = snap.editTarget || "root";
@@ -301,27 +338,7 @@ export function useSplineEditor() {
     }
     state.embeddedAssets = {};
     for (const [guid, body] of Object.entries(snap.embeddedAssets || {})) {
-      const bsp = loadSpineBlock(
-        { knots: body.spineProfileKnots, segments: body.spineProfileSegments },
-        defaultSpineKnots,
-      );
-      const bso = loadSpineBlock(
-        { knots: body.spineOrbitKnots, segments: body.spineOrbitSegments },
-        defaultSpineKnots,
-      );
-      state.embeddedAssets[guid] = {
-        ...body,
-        knots: (body.knots || []).map((k) => ({ ...k })),
-        segments: (body.segments || []).map((s) => ({ ...s, textureData: null })),
-        orbitKnots: (body.orbitKnots || []).map((k) => ({ ...k })),
-        orbitSegments: (body.orbitSegments || []).map((s) => ({ ...s, textureData: null })),
-        spineProfileKnots: bsp.knots,
-        spineProfileSegments: bsp.segments,
-        spineOrbitKnots: bso.knots,
-        spineOrbitSegments: bso.segments,
-        placementNormal: normalizePlacementNormal(body.placementNormal),
-        objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
-      };
+      state.embeddedAssets[guid] = hydrateEmbeddedBody(body);
     }
     state.children = (snap.children || []).map((c) => ({
       ...c,
@@ -1578,27 +1595,7 @@ export function useSplineEditor() {
 
     state.embeddedAssets = {};
     for (const [guid, body] of Object.entries(doc.embeddedAssets || {})) {
-      const bsp = loadSpineBlock(
-        { knots: body.spineProfileKnots, segments: body.spineProfileSegments },
-        defaultSpineKnots,
-      );
-      const bso = loadSpineBlock(
-        { knots: body.spineOrbitKnots, segments: body.spineOrbitSegments },
-        defaultSpineKnots,
-      );
-      state.embeddedAssets[guid] = {
-        ...body,
-        knots: (body.knots || []).map((k) => ({ ...k })),
-        segments: (body.segments || []).map((s) => ({ ...s, textureData: null })),
-        orbitKnots: (body.orbitKnots || []).map((k) => ({ ...k })),
-        orbitSegments: (body.orbitSegments || []).map((s) => ({ ...s, textureData: null })),
-        spineProfileKnots: bsp.knots,
-        spineProfileSegments: bsp.segments,
-        spineOrbitKnots: bso.knots,
-        spineOrbitSegments: bso.segments,
-        placementNormal: normalizePlacementNormal(body.placementNormal),
-        objectMaterial: { ...defaultObjectMaterial(), ...(body.objectMaterial || {}) },
-      };
+      state.embeddedAssets[guid] = hydrateEmbeddedBody(body);
     }
     state.children = (doc.children || []).map((ch) => ({
       ...ch,

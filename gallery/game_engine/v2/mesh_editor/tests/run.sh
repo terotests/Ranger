@@ -7,9 +7,12 @@
 #
 #   bash gallery/game_engine/v2/mesh_editor/tests/run.sh
 #
-# Two layers:
-#   1. module smokes  — app/scripts/smoke-*.mjs, pure Node, no browser needed
-#   2. browser e2e    — tests/e2e/mesh_editor_e2e.mjs, real Vite + Chromium
+# Five layers, cheapest first:
+#   1. module smokes   — app/scripts/smoke-*.mjs, pure Node, no browser
+#   2. unit tests      — tests/unit/*.mjs, contracts of app/src/shared/**
+#   3. port parity     — tests/diff/*.mjs, JS reference vs the Ranger port
+#   4. transport guard — tests/host/*.mjs, the preview stays on RgRegistryBridge
+#   5. browser e2e     — tests/e2e/*.mjs, real Vite + headless Chromium
 #
 # Exit codes: 0 = ALL PASS, 1 = failures, 3 = SKIPPED (prerequisites absent).
 # Exit 3 lets the central driver report an honest SKIP instead of a fake pass on
@@ -48,7 +51,26 @@ for s in $SMOKES; do
 done
 echo
 
-# ---- layer 2: JS-vs-Ranger port parity ---------------------------------------
+# ---- layer 2: JS unit tests (shared modules) ---------------------------------
+# app/src/shared/** is what every feature now depends on, so its contracts are
+# pinned here rather than only implied by the browser e2e.
+echo "### mesh_editor/tests/unit (shared modules)"
+for u in "$HERE"/unit/*.mjs; do
+  [ -e "$u" ] || continue
+  uname="$(basename "$u" .mjs)"
+  if out="$(node "$u" 2>&1)"; then
+    up="$(echo "$out" | sed -n 's/^passed=\([0-9]*\).*/\1/p' | tail -1)"
+    echo "  PASS $uname (${up:-0} checks)"
+    PASSED=$((PASSED + 1))
+  else
+    echo "  FAIL $uname"
+    echo "$out" | grep -E "FAIL" | head -8 | sed 's/^/     /'
+    FAILED=$((FAILED + 1))
+  fi
+done
+echo
+
+# ---- layer 3: JS-vs-Ranger port parity ---------------------------------------
 # Rendering logic is being moved out of browser-only JS into Ranger (so it can
 # also run native / wasm32). Each ported kernel keeps its JS reference until a
 # parity suite proves the two agree on real inputs.
@@ -69,7 +91,7 @@ for d in "$HERE"/diff/*.mjs; do
 done
 echo
 
-# ---- layer 3: host transport guard -------------------------------------------
+# ---- layer 4: host transport guard -------------------------------------------
 # The preview host must keep driving RgRegistryBridge rather than reaching into
 # three/port directly, and must preserve the shared-atlas semantics that make a
 # multi-part gradient continuous under global UVs.
@@ -89,7 +111,7 @@ for t in "$HERE"/host/*.mjs; do
 done
 echo
 
-# ---- layer 4: browser e2e ----------------------------------------------------
+# ---- layer 5: browser e2e ----------------------------------------------------
 echo "### mesh_editor/tests/e2e/mesh_editor_e2e"
 E2E_OUT="$(node "$HERE/e2e/mesh_editor_e2e.mjs" 2>&1)"
 E2E_CODE=$?

@@ -57,6 +57,64 @@ mesh_editor/
 - **3D preview** rotates the mesh so this normal points world **+Y** whenever the object loads
   or the normal changes (authoring mesh stays unrotated)
 
+## Code layout & refactor status
+
+`app/src` is ~14.7k lines and still has two files that are too big
+(`composables/useSplineEditor.js` ≈1.8k, `App.vue` ≈1.4k). Work in progress; the
+shape being moved toward:
+
+```text
+app/src/
+  shared/          cross-feature, framework-light, unit-tested
+    math/          mat3.js (3x3 + Rodrigues), scalar.js, color.js
+    canvas/        useDragGesture.js (one canonical drag slot)
+  lib/             feature modules (path, lathe, texture, pick, transform)
+  composables/     editor state
+  components/      Vue views
+  library/         project persistence (schema + migrations + api)
+```
+
+**Done so far.** Measured duplication with a maximal-block detector (not by eye)
+and removed the real cases — 313 → 266 duplicated significant lines:
+
+| Was | Now |
+|-----|-----|
+| `mulMat3Vec` / `mulMatVec` / `mulMat3` — three identical 3x3 multiplies | `shared/math/mat3.js` |
+| Rodrigues twist inlined twice in `transformPart` (positions + normals) | `rodrigues()` |
+| `lerp` in two modules; colour hex helpers buried in `latheTessellate` | `shared/math/scalar.js`, `color.js` |
+| `sampleOpenPath` vs `samplePath` — 15 identical lines differing only in `Math.max(0, p.x)` | one `sampleOpenChain(…, clampX)` |
+| `knotUid` ×2, `defaultSegment` ×2 (one a narrower subset), `findLayer` ×2 | single definitions |
+| Embedded-body hydration duplicated verbatim in undo *and* load (22 lines) | `hydrateEmbeddedBody()` |
+| `textureAssets` entry validation duplicated in two validators | `validateTextureAssets()` |
+| SplineCanvas's four independent drag flags | `useDragGesture` — one slot |
+
+The four-flag drag state deserves calling out: `dragging` / `draggingChild` /
+`draggingNormal` / `draggingTranslate` made "dragging a knot *and* translating" a
+representable state, and every `pointerup` had to remember to clear all four.
+That is the same illegal-state class `IDEAL.md` §0.1 lists as a runtime-correctness
+bug in the v1 runner. One slot makes those states not exist.
+
+Also note a trap found while extracting: the old `rotateFlatXyz` was documented
+"in place" but actually **copied**, and its callers relied on the copy. The shared
+module therefore exposes `rotateFlatXyzInPlace` and `rotateFlatXyzCopy` as
+separate, named functions, and the unit test pins both.
+
+**Next, in order.**
+
+1. `Preview3D.vue` has the same mode soup, worse — five flags (`draggingOrbit`,
+   `surfaceDragging`, `dragGuid`, `blockHostOrbit`, `regionDrag`). It is
+   deliberately *not* converted yet: the e2e does not cover its orbit / region /
+   surface-placement drags, and refactoring gesture code with no net is how the
+   bug gets introduced. Add that coverage first, then convert.
+2. Split `useSplineEditor.js` and `App.vue` by feature (mesh / texture /
+   children / library) — both are far past the size where a reader can hold them.
+3. Port the eye texture rasterizer (`eyeTexture.js` + `eyeEmotion.js`, ~2k lines)
+   to Ranger so it also runs native / C++ / wasm32. This is the last "no runtime
+   off the browser" claim; `rg3d_material_map_rgba` already gives its output
+   somewhere to go, and `tests/diff/` is the established way to prove the port.
+4. Comment density is still low in the components (0–3%); the shared modules and
+   the tests now carry the *why*, the views mostly do not.
+
 ## Preview transport
 
 The 3D preview runs on the **v2 transport**. `host/web_mesh_editor_host.rgr`

@@ -307,6 +307,27 @@ export function buildProjectDocument(opts) {
   };
 }
 
+/**
+ * Shape-check every entry of a `textureAssets` map, appending to `errors`.
+ *
+ * Two callers need this: the texture-project branch (where the map is required
+ * and must be non-empty) and the v9+ mesh-project branch (where it is optional).
+ * They differ only in the surrounding presence rules, so only the per-entry loop
+ * is shared — it was duplicated verbatim, which meant a new per-layer rule had
+ * to be remembered in two places.
+ */
+function validateTextureAssets(map, errors) {
+  for (const [guid, tex] of Object.entries(map)) {
+    if (!tex || typeof tex !== "object") {
+      errors.push(`textureAssets[${guid}] invalid`);
+      continue;
+    }
+    if (!Array.isArray(tex.layers)) {
+      errors.push(`textureAssets[${guid}].layers must be an array`);
+    }
+  }
+}
+
 export function validateProject(doc) {
   const errors = [];
   if (!doc || typeof doc !== "object") {
@@ -329,13 +350,7 @@ export function validateProject(doc) {
     } else if (!Object.keys(doc.textureAssets).length) {
       errors.push("texture project needs at least one textureAssets entry");
     } else {
-      for (const [guid, tex] of Object.entries(doc.textureAssets)) {
-        if (!tex || typeof tex !== "object") {
-          errors.push(`textureAssets[${guid}] invalid`);
-          continue;
-        }
-        if (!Array.isArray(tex.layers)) errors.push(`textureAssets[${guid}].layers must be an array`);
-      }
+      validateTextureAssets(doc.textureAssets, errors);
     }
     return errors;
   }
@@ -391,13 +406,7 @@ export function validateProject(doc) {
     if (doc.textureAssets != null && typeof doc.textureAssets !== "object") {
       errors.push("textureAssets must be an object map");
     } else if (doc.textureAssets) {
-      for (const [guid, tex] of Object.entries(doc.textureAssets)) {
-        if (!tex || typeof tex !== "object") {
-          errors.push(`textureAssets[${guid}] invalid`);
-          continue;
-        }
-        if (!Array.isArray(tex.layers)) errors.push(`textureAssets[${guid}].layers must be an array`);
-      }
+      validateTextureAssets(doc.textureAssets, errors);
     }
   }
   if (doc.schemaVersion >= 11 && doc.objectMaterial?.textureMap != null) {

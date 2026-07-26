@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { rotationAligning } from "./placementNormal.js";
+import { mat3MulXYZ as mulMat3Vec, unit3, rodrigues } from "../shared/math/mat3.js";
 
 /**
  * @param {number[]} positions flat xyz
@@ -65,19 +66,6 @@ function reverseWinding(indices) {
   return out;
 }
 
-function mulMat3Vec(m, x, y, z) {
-  return {
-    x: m[0] * x + m[1] * y + m[2] * z,
-    y: m[3] * x + m[4] * y + m[5] * z,
-    z: m[6] * x + m[7] * y + m[8] * z,
-  };
-}
-
-function unit3(x, y, z, fallback) {
-  const L = Math.hypot(x, y, z);
-  if (!Number.isFinite(L) || L < 1e-9) return fallback;
-  return { x: x / L, y: y / L, z: z / L };
-}
 
 /**
  * Profile stamp (default): (x,y,0) + Y-rotation + optional mirrorX.
@@ -176,15 +164,7 @@ function transformPartSurface(part, xf, pivot) {
     let z = (positions[i + 2] - ppz) * s;
     let p = mulMat3Vec(R, x, y, z);
     if (Math.abs(twist) > 1e-8) {
-      const d = p.x * nx + p.y * ny + p.z * nz;
-      const cx = ny * p.z - nz * p.y;
-      const cy = nz * p.x - nx * p.z;
-      const cz = nx * p.y - ny * p.x;
-      p = {
-        x: p.x * ct + cx * st + nx * d * (1 - ct),
-        y: p.y * ct + cy * st + ny * d * (1 - ct),
-        z: p.z * ct + cz * st + nz * d * (1 - ct),
-      };
+      p = rodrigues(p, nx, ny, nz, ct, st);
     }
     positions[i] = p.x + ax;
     positions[i + 1] = p.y + ay;
@@ -195,15 +175,7 @@ function transformPartSurface(part, xf, pivot) {
     for (let i = 0; i < normals.length; i += 3) {
       let p = mulMat3Vec(R, normals[i], normals[i + 1], normals[i + 2]);
       if (Math.abs(twist) > 1e-8) {
-        const d = p.x * nx + p.y * ny + p.z * nz;
-        const cx = ny * p.z - nz * p.y;
-        const cy = nz * p.x - nx * p.z;
-        const cz = nx * p.y - ny * p.x;
-        p = {
-          x: p.x * ct + cx * st + nx * d * (1 - ct),
-          y: p.y * ct + cy * st + ny * d * (1 - ct),
-          z: p.z * ct + cz * st + nz * d * (1 - ct),
-        };
+        p = rodrigues(p, nx, ny, nz, ct, st);
       }
       const len = Math.hypot(p.x, p.y, p.z) || 1;
       normals[i] = p.x / len;

@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { evalSpan as evalPathSpan } from "./pathSample.js";
-import { sampleOpenPath, sampleClosedPath } from "./pathSample.js";
+import { sampleClosedPath, sampleOpenPathSigned } from "./pathSample.js";
 
 export function knotUid() {
   return "k" + Math.random().toString(36).slice(2, 9);
@@ -230,33 +230,7 @@ export function makeOpenArcPath({
  */
 export function samplePath(knots, segments, { closed = false, samplesPerSpan = 24, curveType = 0 } = {}) {
   if (closed) return sampleClosedPath(knots, segments, samplesPerSpan, curveType);
-  const pts = [];
-  if (!knots || knots.length < 2) return pts;
-  const segN = Math.max(1, samplesPerSpan | 0);
-  for (let i = 0; i < knots.length - 1; i++) {
-    const a = knots[i];
-    const b = knots[i + 1];
-    const seg = segments?.[i];
-    const opts = {
-      pathType: seg?.pathType || "bezier",
-      curveType,
-      arcBulge: seg?.arcBulge ?? null,
-    };
-    const last = i < knots.length - 2 ? segN - 1 : segN;
-    for (let s = 0; s <= last; s++) {
-      const t = s / segN;
-      const { p, tan } = evalPathSpan(a, b, t, opts);
-      pts.push({
-        x: p.x,
-        y: p.y,
-        tx: tan.x,
-        ty: tan.y,
-        segmentIndex: i,
-        t,
-      });
-    }
-  }
-  return pts;
+  return sampleOpenPathSigned(knots, segments, samplesPerSpan, curveType);
 }
 
 export function pathCentroid(knots) {
