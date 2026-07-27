@@ -99,20 +99,25 @@ Also note a trap found while extracting: the old `rotateFlatXyz` was documented
 module therefore exposes `rotateFlatXyzInPlace` and `rotateFlatXyzCopy` as
 separate, named functions, and the unit test pins both.
 
+`Preview3D.vue` is converted too. Its five mutables turned out not to be five
+gestures but three different kinds of thing: *which* gesture is live
+(`draggingOrbit` / `surfaceDragging` / `regionDrag` — one value, since a pointer
+does one thing), that gesture's *parameter* (`dragGuid`, `downPos` — opaque
+payload), and a *policy derived from the first* (`blockHostOrbit`, which was
+written in *seven* places and read by exactly one predicate, so a missed reset
+silently disabled camera orbit for the rest of the session; it is now computed).
+Covered first by e2e for orbit, wheel-zoom, region handle move/resize, orbit
+suppression while the overlay is up, and orbit recovery after leaving the mode.
+
 **Next, in order.**
 
-1. `Preview3D.vue` has the same mode soup, worse — five flags (`draggingOrbit`,
-   `surfaceDragging`, `dragGuid`, `blockHostOrbit`, `regionDrag`). It is
-   deliberately *not* converted yet: the e2e does not cover its orbit / region /
-   surface-placement drags, and refactoring gesture code with no net is how the
-   bug gets introduced. Add that coverage first, then convert.
-2. Split `useSplineEditor.js` and `App.vue` by feature (mesh / texture /
+1. Split `useSplineEditor.js` and `App.vue` by feature (mesh / texture /
    children / library) — both are far past the size where a reader can hold them.
-3. Port the eye texture rasterizer (`eyeTexture.js` + `eyeEmotion.js`, ~2k lines)
+2. Port the eye texture rasterizer (`eyeTexture.js` + `eyeEmotion.js`, ~2k lines)
    to Ranger so it also runs native / C++ / wasm32. This is the last "no runtime
    off the browser" claim; `rg3d_material_map_rgba` already gives its output
    somewhere to go, and `tests/diff/` is the established way to prove the port.
-4. Comment density is still low in the components (0–3%); the shared modules and
+3. Comment density is still low in the components (0–3%); the shared modules and
    the tests now carry the *why*, the views mostly do not.
 
 ## Preview transport

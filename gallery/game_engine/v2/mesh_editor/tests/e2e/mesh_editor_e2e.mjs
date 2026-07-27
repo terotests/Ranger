@@ -510,6 +510,111 @@ try {
     "empty-canvas drag changed the mesh — hit-test is not discriminating",
   );
 
+  // -- 9c. 3D preview camera gestures ---------------------------------------
+  // Orbit and zoom go through the preview session's own canvas listeners
+  // (rangerPreview.wirePointer -> host.pointer*), gated by placeModeGetter.
+  const prevBox = await (await page.$(PREVIEW)).boundingBox();
+  const pc = { x: prevBox.x + prevBox.width / 2, y: prevBox.y + prevBox.height / 2 };
+  const beforeOrbit = await canvasStats(page, PREVIEW, "preview_before_orbit");
+  await page.mouse.move(pc.x, pc.y);
+  await page.mouse.down();
+  await page.mouse.move(pc.x + 70, pc.y + 25, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(1400);
+  const afterOrbit = await canvasStats(page, PREVIEW, "preview_after_orbit");
+  check(
+    "left-drag on the preview orbits the camera",
+    afterOrbit.signature !== beforeOrbit.signature,
+    "view unchanged after an orbit drag",
+  );
+
+  await page.mouse.move(pc.x, pc.y);
+  await page.mouse.wheel(0, -240);
+  await page.waitForTimeout(1400);
+  const afterZoom = await canvasStats(page, PREVIEW, "preview_after_zoom");
+  check(
+    "wheel zooms the preview",
+    afterZoom.signature !== afterOrbit.signature,
+    "view unchanged after a wheel event",
+  );
+
+  // -- 9d. assign-region mode: overlay handles + orbit suppression ----------
+  // This is the mode whose state used to be five hand-maintained flags. The
+  // orbit-suppression assert below is the important one: `blockHostOrbit` was a
+  // mutable written from seven sites and read by exactly one predicate, so a
+  // stale value silently killed camera orbit for the rest of the session.
+  await page.click('button:text-is("Assign to mesh")');
+  await page.waitForTimeout(1500);
+  const regionBox = page.locator(".region-box");
+  if (check("Assign to mesh opens the region overlay", (await regionBox.count()) > 0)) {
+    const r0 = await regionBox.boundingBox();
+
+    const centerHandle = page.locator(".region-box .handle.center");
+    const ch = await centerHandle.boundingBox();
+    await page.mouse.move(ch.x + ch.width / 2, ch.y + ch.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(ch.x + ch.width / 2 + 40, ch.y + ch.height / 2 + 18, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(900);
+    const r1 = await regionBox.boundingBox();
+    check(
+      "dragging the centre handle moves the region",
+      Math.abs(r1.x - r0.x) > 4 || Math.abs(r1.y - r0.y) > 4,
+      `before=${Math.round(r0.x)},${Math.round(r0.y)} after=${Math.round(r1.x)},${Math.round(r1.y)}`,
+    );
+
+    const corner = page.locator(".region-box .handle.corner.br");
+    if ((await corner.count()) > 0) {
+      const cb = await corner.boundingBox();
+      await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(cb.x + cb.width / 2 + 35, cb.y + cb.height / 2 + 35, { steps: 5 });
+      await page.mouse.up();
+      await page.waitForTimeout(900);
+      const r2 = await regionBox.boundingBox();
+      check(
+        "dragging a corner handle resizes the region",
+        Math.abs(r2.width - r1.width) > 4 || Math.abs(r2.height - r1.height) > 4,
+        `w ${Math.round(r1.width)}->${Math.round(r2.width)} h ${Math.round(r1.height)}->${Math.round(r2.height)}`,
+      );
+    }
+
+    // While a modal pick mode is active, a LEFT drag on the canvas must not
+    // orbit — that suppression is the whole job of the blockHostOrbit policy.
+    const beforeBlocked = await canvasStats(page, PREVIEW, "preview_region_before_block");
+    const away = { x: prevBox.x + 24, y: prevBox.y + prevBox.height - 24 };
+    await page.mouse.move(away.x, away.y);
+    await page.mouse.down();
+    await page.mouse.move(away.x + 60, away.y - 30, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+    const afterBlocked = await canvasStats(page, PREVIEW, "preview_region_after_block");
+    check(
+      "left-drag does NOT orbit while the region overlay is up",
+      afterBlocked.signature === beforeBlocked.signature,
+      "camera moved on left-drag in region mode — orbit suppression is broken",
+    );
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(900);
+    check("Escape leaves region mode", (await page.locator(".region-box").count()) === 0);
+
+    // ...and orbit works again once the mode is gone (a stale suppression flag
+    // would leave the camera dead here).
+    const beforeAgain = await canvasStats(page, PREVIEW, "preview_orbit_again_before");
+    await page.mouse.move(pc.x, pc.y);
+    await page.mouse.down();
+    await page.mouse.move(pc.x - 60, pc.y + 20, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(1400);
+    const afterAgain = await canvasStats(page, PREVIEW, "preview_orbit_again_after");
+    check(
+      "orbit works again after leaving region mode",
+      afterAgain.signature !== beforeAgain.signature,
+      "camera stayed dead after region mode — suppression was not cleared",
+    );
+  }
+
   // -- 10. texture workspace ------------------------------------------------
   await page.click('button:text-is("Texture")');
   await page.waitForTimeout(2000);

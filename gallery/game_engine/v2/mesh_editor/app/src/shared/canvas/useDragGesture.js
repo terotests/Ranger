@@ -28,6 +28,30 @@
 // It is deliberately framework-light: a plain closure over one variable, no Vue
 // reactivity. Gesture state must NOT be reactive — a pointermove that triggers a
 // re-render mid-drag is how you get dropped frames and re-entrancy.
+//
+// WHY SO SMALL — THE PART THAT NEEDED THINKING
+//
+// Drag code has a reputation for resisting abstraction, because every gesture
+// looks bespoke: one edits a knot, one orbits a camera, one resizes an overlay
+// square. Trying to unify what they *do* does fail. But sorting Preview3D's five
+// mutables showed they were not five gestures at all — they were three
+// different KINDS of thing wearing the same clothes:
+//
+//   1. Which gesture is live        draggingOrbit, surfaceDragging, regionDrag
+//   2. That gesture's parameter     dragGuid (surface), downPos (tap)
+//   3. A POLICY derived from (1)    blockHostOrbit
+//
+// Only (1) is genuinely shared, and it is a single value, because a pointer can
+// only be doing one thing. (2) is per-gesture data that just needs somewhere to
+// live — hence an opaque `payload` this module never interprets. (3) should
+// never have been stored at all: `blockHostOrbit` was assigned in seven places
+// and read by exactly one predicate, so a missed reset silently disabled camera
+// orbit for the rest of the session. It is now computed from the live kind.
+//
+// So the abstraction is not "a drag framework". It is: one slot, an opaque
+// payload, and the discipline of deriving policy instead of mirroring it. The
+// varying parts — hit-testing, what a move means, what to emit on commit —
+// stay in the component, where they belong.
 // ============================================================================
 
 /**
