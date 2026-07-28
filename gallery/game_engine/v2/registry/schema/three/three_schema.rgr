@@ -18,6 +18,12 @@ class ThreeSchema {
         ; ---- Scene3D (30) ----------------------------------------------------
         def scene:RgClassDef (RgClassDef.of(30 "Scene3D"))
         scene.addMethod((RgMethodDef.cmd(3000 "rg3d_scene_create" "rg3d_scene_create" "" "h" "create")))
+        ; Clear/background colour as linear rgb (0..1) — replaces per-title sky
+        ; colours baked into a presenter (see TODO "abstraction boundary debt").
+        scene.addMethod((RgMethodDef.cmd(3004 "rg3d_scene_background" "rg3d_scene_background" "h:d:d:d" "v" "none")))
+        ; Generated studio environment probe, `size` cube face pixels. Needed by
+        ; reflective materials; no asset, so it is a command not a resource load.
+        scene.addMethod((RgMethodDef.cmd(3005 "rg3d_scene_environment_studio" "rg3d_scene_environment_studio" "h:i" "v" "none")))
         s.addClass(scene)
 
         ; ---- Camera3D (31) ---------------------------------------------------
@@ -42,6 +48,14 @@ class ThreeSchema {
         geo.addMethod((RgMethodDef.cmd(3014 "rg3d_geometry_sphere" "rg3d_geometry_sphere" "d:i:i" "h" "create")))
         ; Cylinder: radiusTop(d), radiusBottom(d), height(d), radialSegments(i).
         geo.addMethod((RgMethodDef.cmd(3015 "rg3d_geometry_cylinder" "rg3d_geometry_cylinder" "d:d:d:i" "h" "create")))
+        ; AUTHORED geometry (vs the generators above): an interleaved vertex
+        ; buffer + index list, for meshes a tool produced rather than a formula.
+        ; `ad` packs 8 doubles per vertex — px,py,pz, nx,ny,nz, u,v — and `ai`
+        ; is the index list. ONE ad + ONE ai on purpose: the generic decoder
+        ; accumulates all `ad` args into a single span (as does `ai`), so two
+        ; double arrays would silently concatenate. Interleaving is also the
+        ; natural contiguous GPU/wasm32 form.
+        geo.addMethod((RgMethodDef.cmd(3016 "rg3d_geometry_buffer" "rg3d_geometry_buffer" "ad:ai" "h" "create")))
         s.addClass(geo)
 
         ; ---- Material3D (33) -------------------------------------------------
@@ -53,6 +67,19 @@ class ThreeSchema {
         mat.addMethod((RgMethodDef.cmd(3023 "rg3d_material_phong" "rg3d_material_phong" "i:i:d" "h" "create")))
         ; Diffuse texture map from a pkg-relative PNG (printed playfield art etc.).
         mat.addMethod((RgMethodDef.cmd(3024 "rg3d_material_map" "rg3d_material_map" "h:s" "v" "none")))
+        ; --- authoring variants -------------------------------------------
+        ; 3020/3023 are golden: their arg lists cannot grow (a "defaulted" param
+        ; still breaks a compiled guest at instantiate). Wider forms therefore
+        ; get NEW ids, which is additive and leaves old guests working.
+        ; Basic with explicit side(i) and wireframe(i 0/1) — wireframe preview.
+        mat.addMethod((RgMethodDef.cmd(3025 "rg3d_material_basic_ex" "rg3d_material_basic_ex" "i:i:i" "h" "create")))
+        ; Phong with flatShading(i 0/1) and side(i) — faceted vs smooth preview.
+        mat.addMethod((RgMethodDef.cmd(3026 "rg3d_material_phong_ex" "rg3d_material_phong_ex" "i:i:d:i:i" "h" "create")))
+        ; Env-map reflectivity 0..1 (pairs with rg3d_scene_environment_studio).
+        mat.addMethod((RgMethodDef.cmd(3027 "rg3d_material_reflective" "rg3d_material_reflective" "h:d" "v" "none")))
+        ; Diffuse map from RAW RGBA bytes: material(h), pixels(ai), w(i), h(i).
+        ; Sibling of 3024 for generated atlases that never exist as a file.
+        mat.addMethod((RgMethodDef.cmd(3028 "rg3d_material_map_rgba" "rg3d_material_map_rgba" "h:ai:i:i" "v" "none")))
         s.addClass(mat)
 
         ; ---- Mesh3D (34) -----------------------------------------------------

@@ -30,9 +30,10 @@ class LauncherE2ETest {
         ; ---- drill into Games; page turn must not leak arena slots ----------
         host.press(0 "action")
         t.eqInt("games page open" (to_int (host.callSlot("currentPage" 0))) 1)
-        ; Four real games (Pomppija / Ylos3D WASM / Cannon 3D / Pinball) + cursor.
-        t.eqInt("page turn released old tiles (4 tiles + cursor)"
-            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 5)
+        ; Five real games (Pomppija / Ylos3D WASM / Cannon 3D / Pinball / Ylos3D)
+        ; + cursor. Adding a games/<name>/game.info moves this number.
+        t.eqInt("page turn released old tiles (5 tiles + cursor)"
+            (host.bridge.d2.liveOfType((Rg2DType.sprite()))) 6)
         t.eqInt("select sfx one-shot fired" host.bridge.oneShotCount 1)
         t.ok("Pomppija selected" ((host.callSlot("selectedLabelIsPomppija" 0)) > 0.5))
 
@@ -54,7 +55,7 @@ class LauncherE2ETest {
 
         ; ---- menu presents pixels via the generic protocol ------------------
         def fb:RgFramebuffer (RgFramebuffer.create(96 96))
-        t.eqInt("menu present drew 4 tiles + cursor" (Rg2DPresenter.present(host.bridge 0 fb)) 5)
+        t.eqInt("menu present drew 5 tiles + cursor" (Rg2DPresenter.present(host.bridge 0 fb)) 6)
         t.ok("selected tile at camera centre" ((fb.at(48 48)) != 0))
 
         ; ---- select Pomppija → GENERIC handoff ------------------------------

@@ -10,7 +10,9 @@ Headless interpreter + host arenas + WASM bridge first; rendering last.
 
 ## How v2 runs today (headless Node + TSX interpreter)
 
-There is **no SDL window** yet. Everything green below is the same stack:
+This is the **headless** stack — the one the gate runs and the one every suite
+below exercises. A native SDL host also exists (`runtime/sdl/`, macOS-oriented
+today); see [SDL / native window](#sdl--native-window).
 
 ```text
 .rgr host/driver  ──(-es6)──►  Node.js process
@@ -77,9 +79,17 @@ Details: [`tests/tools/README.md`](./tests/tools/README.md).
 
 ### SDL / native window
 
-**Not ready.** v1 still uses `npm run engine:game-sdl:run` (Ranger→C++ +
-`gfx_sdl`). v2 needs the same *host protocol* (`RgGameHost`) compiled to C++
-and bound to SDL for input/present — checklist in [`TODO.md`](./TODO.md).
+**Exists, not yet a gate.** `runtime/sdl/` has a native host — `RgSdlGameHost`
++ `RgSdlMain` (launcher, input map, pane-aware split present, rumble, music
+pump) — built by `scripts/build-sdl-v2.sh` and launched with
+`npm run engine:game-sdl:launcher:v2`. It is **macOS/Homebrew-oriented today**
+and needs SDL2 on the machine.
+
+What is still missing is the *gate*: a Raspberry Pi 5 arm64 build
+(`pkg-config` SDL discovery), a fixed-duration automatic smoke on both
+machines, and CI (no SDL headers in CI today, so `tests/sdl/sdl_host_test`
+compile-checks the seams only). That is Milestone B — checklist in
+[`TODO.md`](./TODO.md).
 
 ## Central model
 

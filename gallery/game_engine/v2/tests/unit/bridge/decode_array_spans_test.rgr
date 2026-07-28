@@ -1,0 +1,121 @@
+; ==============================================================================
+; decode_array_spans_test — several array args per command stay separable.
+; ==============================================================================
+; The generic decoder appends every `ai` argument into one flat span and every
+; `ad` argument into another. That is fine for a command carrying a single array
+; of a kind, but a spec like "ad:ad:ad:ai" (positions, normals, uvs, indices)
+; used to CONCATENATE the three double arrays into one buffer with no arity
+; error and no type error — silently wrong data.
+;
+; rg3d_geometry_buffer was designed around the limitation (one interleaved `ad`
+; plus one `ai`). This suite locks the decoder's per-argument windows so the
+; next multi-array command — the 2D / render-target surface in Milestone W —
+; cannot reintroduce the bug, and so the limitation is not baked into a frozen
+; ABI. See BRIDGES.md step 7 (nothing freezes until this class of thing is
+; settled).
+; ==============================================================================
+
+Import "../../../interp/engine/RgRegistryBridge.rgr"
+Import "../../harness/RgTest.rgr"
+
+class DecodeArraySpansTest {
+
+    sfn numArr:EvalValue (vals:[double]) {
+        def items:[EvalValue]
+        def n:int (array_length vals)
+        def i:int 0
+        while (i < n) {
+            push items (EvalValue.number((itemAt vals i)))
+            i = (i + 1)
+        }
+        return (EvalValue.array(items))
+    }
+
+    sfn m@(main):void () {
+        def t:RgTest (RgTest.forSuite("tests/unit/bridge/decode_array_spans"))
+        def b:RgRegistryBridge (RgRegistryBridge.create())
+
+        ; ---- three double arrays + one int array in one command -------------
+        def row:RgCommand (RgCommand.of(999001 "test_multi_array" "test_multi_array"))
+        row.argSpec = "ad:ad:ad:ai"
+        row.retSpec = "v"
+
+        def pos:[double]
+        push pos 1.0
+        push pos 2.0
+        push pos 3.0
+        def nrm:[double]
+        push nrm 10.0
+        push nrm 20.0
+        def uv:[double]
+        push uv 100.0
+        def idx:[double]
+        push idx 7.0
+        push idx 8.0
+        push idx 9.0
+        push idx 11.0
+
+        def args:[EvalValue]
+        push args (DecodeArraySpansTest.numArr(pos))
+        push args (DecodeArraySpansTest.numArr(nrm))
+        push args (DecodeArraySpansTest.numArr(uv))
+        push args (DecodeArraySpansTest.numArr(idx))
+
+        def dec:RgDecodedArgs (b.decode(row args))
+        t.ok("decode succeeded" dec.ok)
+
+        ; The flat span still holds everything, in argument order.
+        t.eqInt("flat ad span holds all three double arrays" (array_length dec.ad) 6)
+        t.eqInt("flat ai span holds the int array" (array_length dec.ai) 4)
+
+        ; ...and each argument is individually addressable.
+        def a0:[double] (dec.adAt(0))
+        def a1:[double] (dec.adAt(1))
+        def a2:[double] (dec.adAt(2))
+        def a3:[int] (dec.aiAt(3))
+
+        t.eqInt("arg0 length" (array_length a0) 3)
+        t.eqInt("arg1 length" (array_length a1) 2)
+        t.eqInt("arg2 length" (array_length a2) 1)
+        t.eqInt("arg3 length" (array_length a3) 4)
+
+        t.near("arg0[0]" (itemAt a0 0) 1.0)
+        t.near("arg0[2]" (itemAt a0 2) 3.0)
+        t.near("arg1[0] is NOT arg0's tail" (itemAt a1 0) 10.0)
+        t.near("arg1[1]" (itemAt a1 1) 20.0)
+        t.near("arg2[0] is the third array, not a concatenation" (itemAt a2 0) 100.0)
+        t.eqInt("arg3[0]" (itemAt a3 0) 7)
+        t.eqInt("arg3[3]" (itemAt a3 3) 11)
+
+        ; ---- a position that is not an array yields an empty span ------------
+        def row2:RgCommand (RgCommand.of(999002 "test_scalar_then_array" "test_scalar_then_array"))
+        row2.argSpec = "i:ad"
+        row2.retSpec = "v"
+        def args2:[EvalValue]
+        push args2 (EvalValue.number(5.0))
+        push args2 (DecodeArraySpansTest.numArr(nrm))
+        def dec2:RgDecodedArgs (b.decode(row2 args2))
+        t.ok("decode succeeded (scalar + array)" dec2.ok)
+        t.eqInt("scalar arg still reads positionally" (dec2.intAt(0)) 5)
+        def d2:[double] (dec2.adAt(1))
+        t.eqInt("array arg at position 1" (array_length d2) 2)
+        def d0:[double] (dec2.adAt(0))
+        t.eqInt("non-array position yields an empty span" (array_length d0) 0)
+
+        ; ---- the single-array shape the live commands use still works --------
+        ; rg3d_geometry_buffer / rg2d_atlas_add_clip read the flat `ai` / `ad`
+        ; directly; that must keep working unchanged.
+        def row3:RgCommand (RgCommand.of(999003 "test_single_arrays" "test_single_arrays"))
+        row3.argSpec = "ad:ai"
+        row3.retSpec = "v"
+        def args3:[EvalValue]
+        push args3 (DecodeArraySpansTest.numArr(pos))
+        push args3 (DecodeArraySpansTest.numArr(idx))
+        def dec3:RgDecodedArgs (b.decode(row3 args3))
+        t.eqInt("flat ad == the one double array" (array_length dec3.ad) 3)
+        t.eqInt("flat ai == the one int array" (array_length dec3.ai) 4)
+        t.eqInt("and adAt(0) agrees with the flat span" (array_length (dec3.adAt(0))) 3)
+
+        t.summary()
+    }
+}

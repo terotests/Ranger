@@ -9,48 +9,17 @@ import {
   splitLatheBySegments,
 } from "./pathSample.js";
 import { latheProfileWithOrbitOnSpine, latheProfileAsTorusOnSpine } from "./spineLathe.js";
-
-function hexToRgb(hex) {
-  const h = String(hex || "#ffffff").replace("#", "");
-  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h.padStart(6, "0");
-  const n = parseInt(full.slice(0, 6), 16);
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-}
-
-function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-function mixHex(a, b, t) {
-  const A = hexToRgb(a);
-  const B = hexToRgb(b);
-  const r = Math.round(lerp(A.r, B.r, t));
-  const g = Math.round(lerp(A.g, B.g, t));
-  const b_ = Math.round(lerp(A.b, B.b, t));
-  return (r << 16) | (g << 8) | b_;
-}
-
-function hexToInt(hex) {
-  const c = hexToRgb(hex);
-  return (c.r << 16) | (c.g << 8) | c.b;
-}
-
-function mulColorHex(a, b) {
-  if (a === 0xffffff) return b;
-  if (b === 0xffffff) return a;
-  const ar = (a >> 16) & 255;
-  const ag = (a >> 8) & 255;
-  const ab = a & 255;
-  const br = (b >> 16) & 255;
-  const bg = (b >> 8) & 255;
-  const bb = b & 255;
-  return (((ar * br) / 255) | 0) << 16 | (((ag * bg) / 255) | 0) << 8 | (((ab * bb) / 255) | 0);
-}
-
-function roughnessToShininess(r) {
-  const t = Math.min(1, Math.max(0, r));
-  return lerp(280, 6, t);
-}
+import { lerp } from "../shared/math/scalar.js";
+// defaultSegment: pathModel owns the canonical shape (it also carries
+// textureAsset and validates pathType); the copy here was a narrower subset.
+import { defaultSegment } from "./pathModel.js";
+import {
+  hexToRgb,
+  hexToInt,
+  mixHex,
+  mulColorHex,
+  roughnessToShininess,
+} from "../shared/math/color.js";
 
 /** Keep atlas pixels as a TypedArray; never widen to a number[]. */
 function asRgbaBytes(map) {
@@ -132,21 +101,6 @@ function makeStripesRgba(size = 64) {
     }
   }
   return { rgba, w: size, h: size };
-}
-
-function defaultSegment(fromId, toId) {
-  return {
-    fromId,
-    toId,
-    color: null,
-    roughness: 0.4,
-    metalness: 0,
-    opacity: 1,
-    texture: "gradient",
-    textureData: null,
-    pathType: "bezier",
-    arcBulge: null,
-  };
 }
 
 function resolvePartStyle(body, segIndex, which) {

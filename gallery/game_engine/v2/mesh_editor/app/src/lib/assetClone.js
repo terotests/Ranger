@@ -3,15 +3,12 @@
 // ============================================================================
 
 import { defaultSpineKnots, defaultSpineSegments } from "./spineLathe.js";
+import { knotUid } from "./pathModel.js";
 import { normalizePlacementNormal } from "./placementNormal.js";
 
 export function newGuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "g_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-}
-
-function knotUid() {
-  return "k" + Math.random().toString(36).slice(2, 9);
 }
 
 function remapKnots(knots, idMap) {

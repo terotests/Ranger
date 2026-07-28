@@ -22,7 +22,12 @@ const EYE_CLIP_PARENT = {
   eyelid: "eyeball",
 };
 
-function findLayer(texOrLayers, typeOrId) {
+/**
+ * Find a layer by id or by type. Lives here rather than in eyeTexture.js
+ * because the dependency runs eyeTexture -> eyeEmotion; eyeTexture re-exports
+ * it so existing importers keep working.
+ */
+export function findLayer(texOrLayers, typeOrId) {
   const layers = Array.isArray(texOrLayers) ? texOrLayers : texOrLayers?.layers || [];
   return layers.find((L) => L.id === typeOrId || L.type === typeOrId) || null;
 }

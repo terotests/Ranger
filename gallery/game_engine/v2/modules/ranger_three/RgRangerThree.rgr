@@ -266,10 +266,62 @@ class RgRangerThree {
         return (OwnedHandle.own(h))
     }
 
+    ; AUTHORED geometry from an interleaved vertex buffer (8 doubles/vertex:
+    ; px,py,pz, nx,ny,nz, u,v) + an index list — a tool-produced mesh rather
+    ; than one of the generators above.
+    fn geometryBuffer:OwnedHandle (data:[double] indices:[int]) {
+        def th:int (this.host.geometryBuffer(data indices))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.geometry()) th))
+        return (OwnedHandle.own(h))
+    }
+
     fn materialBasic:OwnedHandle (colorHex:int) {
         def th:int (this.host.materialBasic(colorHex 0 false))
         def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
         return (OwnedHandle.own(h))
+    }
+
+    ; Wider basic/phong forms (new ids — the originals are golden and cannot
+    ; grow arguments). side and the boolean flags arrive as i32 from the schema.
+    fn materialBasicEx:OwnedHandle (colorHex:int side:int wireframe:boolean) {
+        def th:int (this.host.materialBasic(colorHex side wireframe))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn materialPhongEx:OwnedHandle (colorHex:int specularHex:int shininess:double flat:boolean side:int) {
+        def th:int (this.host.materialPhong(colorHex specularHex shininess flat side))
+        def h:RgHandle (this.registry.alloc(this.realmId (Rg3DType.material()) th))
+        return (OwnedHandle.own(h))
+    }
+
+    fn materialReflective:boolean (matH:RgHandle reflectivity:double) {
+        def mat:int (this.materialH(matH))
+        if (mat == 0) { return false }
+        this.host.materialReflective(mat reflectivity)
+        return true
+    }
+
+    ; Diffuse map from RAW RGBA bytes (generated atlas, never a file).
+    fn materialMapRgba:boolean (matH:RgHandle rgba:[int] w:int h:int) {
+        def mat:int (this.materialH(matH))
+        if (mat == 0) { return false }
+        this.host.materialMapRgba(mat rgba w h)
+        return true
+    }
+
+    fn sceneBackground:boolean (sceneH:RgHandle r:double g:double b:double) {
+        def sc:int (this.sceneH(sceneH))
+        if (sc == 0) { return false }
+        this.host.sceneBackground(sc r g b)
+        return true
+    }
+
+    fn sceneEnvironmentStudio:boolean (sceneH:RgHandle size:int) {
+        def sc:int (this.sceneH(sceneH))
+        if (sc == 0) { return false }
+        this.host.sceneEnvironmentStudio(sc size)
+        return true
     }
 
     fn materialLambert:OwnedHandle (colorHex:int) {

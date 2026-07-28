@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, onBeforeUnmount, ref, watch, computed, reactive } from "vue";
 import { createPreviewSession } from "../lib/rangerPreview.js";
+import { useDragGesture } from "../shared/canvas/useDragGesture.js";
 import {
   orientMeshToPlacementNormal,
   placementNormalDirection3,
@@ -51,15 +52,28 @@ const hoverChildGuid = ref(null);
 const region = reactive({ ...DEFAULT_ASSIGN_REGION });
 const regionError = ref("");
 let session = null;
-let draggingOrbit = false;
-let downPos = null;
-let surfaceDragging = false;
-let dragGuid = null;
-let blockHostOrbit = false;
+/**
+ * ONE gesture at a time. This replaced five independent mutables
+ * (draggingOrbit / surfaceDragging / dragGuid / blockHostOrbit / regionDrag)
+ * that between them made contradictory states representable.
+ *
+ *   kind        payload                       what it is
+ *   ---------   ---------------------------   ------------------------------
+ *   "orbit"     -                             middle/right drag, forwarded to
+ *                                             the host camera controller
+ *   "region"    'center'|'tl'|'tr'|'bl'|'br'  assign-square handle drag
+ *   "surface"   child instance guid           slide a sub-object on the root
+ *   "tap"       {x, y} of the pointerdown     place-mode click (committed on
+ *                                             pointerup if it moved < 6px)
+ *
+ * `surfaceDragging` + `dragGuid` were one gesture and its payload written as
+ * two variables; "tap" is genuinely a separate gesture (a click with a slop
+ * threshold), which is why it gets a name instead of a bare `downPos`.
+ */
+const drag = useDragGesture({ element: () => canvasRef.value });
+/** rAF throttle for surface-drag raycasts — a rate limiter, not gesture state. */
 let dragRaf = 0;
 let pendingDragHit = null;
-/** @type {null | 'center' | 'tl' | 'tr' | 'bl' | 'br'} */
-let regionDrag = null;
 
 const surfacePickActive = computed(() => props.placeMode || props.regionMode);
 
@@ -224,8 +238,8 @@ function syncCursor() {
   const el = canvasRef.value;
   if (!el) return;
   if (props.placeMode) el.style.cursor = "copy";
-  else if (props.regionMode) el.style.cursor = regionDrag ? "grabbing" : "default";
-  else if (surfaceDragging) el.style.cursor = "grabbing";
+  else if (props.regionMode) el.style.cursor = drag.isActive("region") ? "grabbing" : "default";
+  else if (drag.isActive("surface")) el.style.cursor = "grabbing";
   else if (hoverChildGuid.value) el.style.cursor = "grab";
   else el.style.cursor = "crosshair";
 }
@@ -234,6 +248,7 @@ function flushSurfaceDrag() {
   dragRaf = 0;
   const hit = pendingDragHit;
   pendingDragHit = null;
+  const dragGuid = drag.payloadOf("surface");
   if (!hit || !dragGuid) return;
   emit("surface-drag", {
     instanceGuid: dragGuid,
@@ -251,11 +266,12 @@ function queueSurfaceDrag(hit) {
 function resetRegion() {
   Object.assign(region, clampAssignRegion(DEFAULT_ASSIGN_REGION));
   regionError.value = "";
-  regionDrag = null;
+  drag.end();
   scheduleCornerMarkers();
 }
 
 function applyRegionDrag(nx, ny) {
+  const regionDrag = drag.payloadOf("region");
   if (!regionDrag) return;
   if (regionDrag === "center") {
     Object.assign(region, clampAssignRegion({ cx: nx, cy: ny, half: region.half }));
@@ -299,16 +315,15 @@ function clientToNorm(clientX, clientY) {
 }
 
 function endRegionDrag() {
-  if (!regionDrag) return;
-  regionDrag = null;
-  blockHostOrbit = false;
+  if (!drag.isActive("region")) return;
+  drag.end();
   window.removeEventListener("pointermove", onRegionWindowMove);
   window.removeEventListener("pointerup", onRegionWindowUp);
   syncCursor();
 }
 
 function onRegionWindowMove(e) {
-  if (!regionDrag) return;
+  if (!drag.isActive("region")) return;
   const n = clientToNorm(e.clientX, e.clientY);
   applyRegionDrag(n.x, n.y);
 }
@@ -319,8 +334,9 @@ function onRegionWindowUp() {
 
 function startRegionDrag(handle) {
   if (!handle) return;
-  regionDrag = handle;
-  blockHostOrbit = true;
+  // The square is an HTML overlay, so this gesture tracks on WINDOW listeners
+  // rather than pointer capture on the canvas.
+  drag.begin("region", handle);
   regionError.value = "";
   window.addEventListener("pointermove", onRegionWindowMove);
   window.addEventListener("pointerup", onRegionWindowUp);
@@ -381,8 +397,7 @@ function confirmRegion() {
 function onPointerDown(e) {
   if (props.regionMode) {
     if (e.button === 2 || e.button === 1) {
-      draggingOrbit = true;
-      blockHostOrbit = false;
+      drag.begin("orbit", null, e);
       session?.host?.pointerDown?.(e.offsetX, e.offsetY, e.button);
       return;
     }
@@ -401,13 +416,12 @@ function onPointerDown(e) {
 
   if (props.placeMode) {
     if (e.button === 2 || e.button === 1) {
-      draggingOrbit = true;
-      blockHostOrbit = false;
+      drag.begin("orbit", null, e);
       session?.host?.pointerDown?.(e.offsetX, e.offsetY, e.button);
       return;
     }
     if (e.button !== 0) return;
-    downPos = { x: e.offsetX, y: e.offsetY };
+    drag.begin("tap", { x: e.offsetX, y: e.offsetY }, e);
     e.stopPropagation();
     return;
   }
@@ -416,19 +430,13 @@ function onPointerDown(e) {
     const { sx, sy } = eventToCanvas(e);
     const childHit = pickEditableChild(sx, sy);
     if (childHit?.instanceGuid) {
-      surfaceDragging = true;
-      dragGuid = childHit.instanceGuid;
-      blockHostOrbit = true;
-      hoverChildGuid.value = dragGuid;
+      const guid = childHit.instanceGuid;
+      drag.begin("surface", guid, e);
+      hoverChildGuid.value = guid;
       session?.setAutoRotate?.(false);
-      emit("select-child", dragGuid);
+      emit("select-child", guid);
       const rootHit = pickRoot(sx, sy);
       if (rootHit) queueSurfaceDrag(rootHit);
-      try {
-        canvasRef.value?.setPointerCapture?.(e.pointerId);
-      } catch {
-        /* ignore */
-      }
       e.stopPropagation();
       syncCursor();
       return;
@@ -438,7 +446,7 @@ function onPointerDown(e) {
 
 function onPointerMove(e) {
   if (props.regionMode) {
-    if (draggingOrbit) {
+    if (drag.isActive("orbit")) {
       session?.host?.pointerMove?.(e.offsetX, e.offsetY);
       return;
     }
@@ -446,7 +454,7 @@ function onPointerMove(e) {
   }
 
   if (props.placeMode) {
-    if (draggingOrbit) {
+    if (drag.isActive("orbit")) {
       session?.host?.pointerMove?.(e.offsetX, e.offsetY);
       return;
     }
@@ -457,7 +465,7 @@ function onPointerMove(e) {
     return;
   }
 
-  if (surfaceDragging && dragGuid) {
+  if (drag.isActive("surface")) {
     const { sx, sy } = eventToCanvas(e);
     const rootHit = pickRoot(sx, sy);
     if (rootHit) queueSurfaceDrag(rootHit);
@@ -474,23 +482,24 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
   if (props.regionMode) {
-    if (draggingOrbit) {
+    if (drag.isActive("orbit")) {
       session?.host?.pointerUp?.();
-      draggingOrbit = false;
+      drag.end(e);
       scheduleCornerMarkers();
     }
     return;
   }
 
   if (props.placeMode) {
-    if (draggingOrbit) {
+    if (drag.isActive("orbit")) {
       session?.host?.pointerUp?.();
-      draggingOrbit = false;
+      drag.end(e);
       return;
     }
+    const downPos = drag.payloadOf("tap");
     if (e.button !== 0 || !downPos) return;
     const dist = Math.hypot(e.offsetX - downPos.x, e.offsetY - downPos.y);
-    downPos = null;
+    drag.end(e);
     if (dist > 6) return;
     const { sx, sy } = eventToCanvas(e);
     const hit = pickRoot(sx, sy);
@@ -498,15 +507,13 @@ function onPointerUp(e) {
     return;
   }
 
-  if (surfaceDragging) {
+  if (drag.isActive("surface")) {
     if (dragRaf) {
       cancelAnimationFrame(dragRaf);
       dragRaf = 0;
     }
     flushSurfaceDrag();
-    surfaceDragging = false;
-    dragGuid = null;
-    blockHostOrbit = false;
+    drag.end(e);
     session?.setAutoRotate?.(false);
     emit("surface-drag-end");
     syncCursor();
@@ -520,11 +527,11 @@ function onKeyDown(e) {
 }
 
 function onContextMenu(e) {
-  if (surfacePickActive.value || surfaceDragging) e.preventDefault();
+  if (surfacePickActive.value || drag.isActive("surface")) e.preventDefault();
 }
 
 function onPointerLeave() {
-  if (surfaceDragging || regionDrag) return;
+  if (drag.isActive("surface", "region")) return;
   hoverChildGuid.value = null;
   syncCursor();
 }
@@ -532,7 +539,13 @@ function onPointerLeave() {
 onMounted(async () => {
   try {
     session = await createPreviewSession(canvasRef.value, 420, {
-      placeModeGetter: () => surfacePickActive.value || blockHostOrbit,
+      // Suppress the session's own left-button orbit while a modal pick mode
+      // is up or a surface drag owns the pointer. DERIVED, not stored: the old
+      // `blockHostOrbit` was assigned in seven places and read only here, so a
+      // missed reset left the camera permanently dead. Region drags are already
+      // covered by surfacePickActive (region mode implies it), so the only extra
+      // case is a surface drag in normal mode.
+      placeModeGetter: () => surfacePickActive.value || drag.isActive("surface"),
     });
     backendLabel.value = session.useGL ? "Ranger Three · WebGL" : "Ranger Three · software";
     pushDisplay();
@@ -586,10 +599,8 @@ watch(
   () => props.surfaceDragContentGuid,
   () => {
     hoverChildGuid.value = null;
-    if (surfaceDragging) {
-      surfaceDragging = false;
-      dragGuid = null;
-      blockHostOrbit = false;
+    if (drag.isActive("surface")) {
+      drag.end();
       emit("surface-drag-end");
     }
     syncCursor();
@@ -626,7 +637,7 @@ defineExpose({ updateAtlas });
           class="view"
           :class="{
             place: placeMode,
-            grab: !!hoverChildGuid || surfaceDragging,
+            grab: !!hoverChildGuid || drag.isActive('surface'),
           }"
           @pointerdown.capture="onPointerDown"
           @pointermove.capture="onPointerMove"

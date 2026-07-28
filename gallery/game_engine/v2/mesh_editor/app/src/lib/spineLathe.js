@@ -3,7 +3,24 @@
 // Two planar paths: profile-spine (X vs Y) and orbit-spine (Z vs Y).
 // Straight x=0 on both ⇒ classic Y-axis lathe.
 // ============================================================================
+//
+// PORT STATUS: the two tessellation kernels now run in **Ranger**
+// (`tessellate/spline_lathe.rgr` → `SplineLathe.latheOnSpine` /
+// `SplineLathe.torusOnSpine`), so the same code path also compiles to
+// native/wasm32 instead of being browser-only.
+//
+// The original JS kernels are kept below as `…Js` and are the reference the
+// port is diffed against by `tests/diff/spine_lathe_parity.mjs` (bit-identical
+// positions/normals/uvs/indices). Delete them only when that suite is retired.
+//
+// Spine *sampling* (sampleSpineAt → evalSpan → pathModel path types) is still
+// JS; the Ranger entry points take the sampled centres as flat arrays, which is
+// also what keeps their signature ABI-friendly.
+// ============================================================================
 
+// Relative (not the Vite "@tessellate" alias) so the Node smokes and the
+// parity suite resolve it too — same import form pathSample.js uses.
+import { SplineLathe } from "../../../tessellate/spline_lathe.mjs";
 import { evalSpan, normalizePathType } from "./pathSample.js";
 
 function sub(a, b) {
@@ -130,11 +147,131 @@ export function buildSpineFrames(centers) {
   return frames;
 }
 
+// ---------------------------------------------------------------------------
+// Ranger-backed kernels (the live path). Centres are derived here — spine
+// sampling still needs the JS path-type evaluator — then handed to Ranger as
+// flat primitive arrays.
+// ---------------------------------------------------------------------------
+
+/** Profile-row centres: one spine sample per profile row, keyed on height. */
+function latheCenters(profilePts, spineProfile, spineOrbit) {
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  for (const p of profilePts) {
+    if (p.y < yMin) yMin = p.y;
+    if (p.y > yMax) yMax = p.y;
+  }
+  const ySpan = Math.max(1e-9, yMax - yMin);
+  const pk = spineProfile?.knots || [];
+  const ps = spineProfile?.segments || [];
+  const ok = spineOrbit?.knots || [];
+  const os = spineOrbit?.segments || [];
+  const cx = [];
+  const cy = [];
+  const cz = [];
+  for (const pr of profilePts) {
+    const u = (pr.y - yMin) / ySpan;
+    if (pk.length >= 2 && ok.length >= 2) {
+      const sp = sampleSpineAt(pk, ps, u);
+      const so = sampleSpineAt(ok, os, u);
+      cx.push(sp.x); cy.push(sp.y); cz.push(so.x);
+    } else if (pk.length >= 2) {
+      const sp = sampleSpineAt(pk, ps, u);
+      cx.push(sp.x); cy.push(sp.y); cz.push(0);
+    } else if (ok.length >= 2) {
+      const so = sampleSpineAt(ok, os, u);
+      cx.push(0); cy.push(so.y); cz.push(so.x);
+    } else {
+      cx.push(0); cy.push(pr.y); cz.push(0);
+    }
+  }
+  return { cx, cy, cz };
+}
+
+const colX = (pts) => pts.map((p) => p.x);
+const colY = (pts) => pts.map((p) => p.y);
+const colTx = (pts) => pts.map((p) => p.tx);
+const colTy = (pts) => pts.map((p) => p.ty);
+const colSegIdx = (pts) => pts.map((p) => p.segmentIndex | 0);
+
+/** Ranger SplineMesh → the plain shape the rest of the editor expects. */
+function fromRangerMesh(mesh) {
+  return {
+    positions: Array.from(mesh.positions),
+    normals: Array.from(mesh.normals),
+    uvs: Array.from(mesh.uvs),
+    indices: Array.from(mesh.indices),
+    rowSeg: Array.from(mesh.rowSeg),
+    colSeg: Array.from(mesh.colSeg),
+    rows: mesh.rows,
+    steps: mesh.steps,
+    vertCols: mesh.vertCols,
+  };
+}
+
 /**
  * Lathe along spine. When spines are straight x=0, matches classic
  * `(r·ox, y, r·oy)` — orbit is a scale on positions; only normals unitize.
  */
 export function latheProfileWithOrbitOnSpine(profilePts, orbitPts, closed, spineProfile, spineOrbit) {
+  const { cx, cy, cz } = latheCenters(profilePts, spineProfile, spineOrbit);
+  return fromRangerMesh(
+    SplineLathe.latheOnSpine(
+      colX(profilePts), colY(profilePts), colTx(profilePts), colTy(profilePts), colSegIdx(profilePts),
+      colX(orbitPts), colY(orbitPts), colSegIdx(orbitPts),
+      cx, cy, cz,
+      closed,
+    ),
+  );
+}
+
+/** Torus / tube sweep along the orbit ring. */
+export function latheProfileAsTorusOnSpine(profilePts, orbitPts, closed, spineProfile, spineOrbit) {
+  const fit = SplineLathe.torusUnitFitScale(
+    colX(profilePts), colY(profilePts), colX(orbitPts), colY(orbitPts),
+  );
+  const pk = spineProfile?.knots || [];
+  const ps = spineProfile?.segments || [];
+  const ok = spineOrbit?.knots || [];
+  const os = spineOrbit?.segments || [];
+  const steps = orbitPts.length;
+  const cx = [];
+  const cy = [];
+  const cz = [];
+  for (let col = 0; col < steps; col++) {
+    const o = orbitPts[col];
+    const u = steps <= 1 ? 0 : col / (steps - 1);
+    let radialMul = 1;
+    let liftY = 0;
+    if (pk.length >= 2) {
+      const sp = sampleSpineAt(pk, ps, u);
+      radialMul = 1 + sp.x;
+      if (radialMul < 0.05) radialMul = 0.05;
+    }
+    if (ok.length >= 2) {
+      const so = sampleSpineAt(ok, os, u);
+      liftY = so.x * fit;
+    }
+    cx.push(o.x * fit * radialMul);
+    cy.push(liftY);
+    cz.push(o.y * fit * radialMul);
+  }
+  return fromRangerMesh(
+    SplineLathe.torusOnSpine(
+      colX(profilePts), colY(profilePts), colTx(profilePts), colTy(profilePts), colSegIdx(profilePts),
+      colX(orbitPts), colY(orbitPts), colSegIdx(orbitPts),
+      cx, cy, cz,
+      fit,
+      closed,
+    ),
+  );
+}
+
+/**
+ * Lathe along spine. When spines are straight x=0, matches classic
+ * `(r·ox, y, r·oy)` — orbit is a scale on positions; only normals unitize.
+ */
+export function latheProfileWithOrbitOnSpineJs(profilePts, orbitPts, closed, spineProfile, spineOrbit) {
   const rows = profilePts.length;
   const steps = orbitPts.length;
   const vertCols = closed ? steps + 1 : steps;
@@ -277,7 +414,7 @@ export function torusUnitFitScale(profilePts, orbitPts) {
  * Everything is scaled so R_major + r_profile ≈ 1 (unit torus).
  * Spine modulates major radius (profile-spine.x) and lifts the ring (orbit-spine.x → Y).
  */
-export function latheProfileAsTorusOnSpine(
+export function latheProfileAsTorusOnSpineJs(
   profilePts,
   orbitPts,
   closed,

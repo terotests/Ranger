@@ -55,7 +55,8 @@ class ThreeObject3D {
         ; three.js semantics: a child has exactly one parent — detach from the
         ; old parent first (keeps parentRef authoritative for O(1) detach).
         if (child.hasParent()) {
-            (child.getParent()).removeChildOnly(child)
+            def recv1 (child.getParent())
+            recv1.removeChildOnly(child)
         }
         push this.children child
         child.setParentRef(this)

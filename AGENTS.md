@@ -51,6 +51,12 @@ argument needs its own parentheses. A few consequences bite repeatedly:
   local: `def v:int (this.helper()) return (v + 0)`. See ISSUES.md Issue #63.
 - **One statement per line.** `{ def c:int 5 return c }` on a single line is a
   parse error; put each statement on its own line.
+- **Never start a statement with a parenthesised receiver.** `(expr).method()`
+  at statement level used to silently delete every remaining statement in the
+  block — no error, plausible-looking output (ISSUES.md #65; it made four
+  `game_provider.rgr` loops infinite). The compiler now rejects it, so bind
+  first: `def recv:T (expr)` then `recv.method()`. Inside an *expression*
+  (`return ((unwrap x).f())`, `def q:int ((a.b()).c())`) it is fine.
 - **Import each file via one consistent path form.** Importing the same file via
   two different strings (a bare name on a library path vs. an explicit
   `dir/x.rgr`) used to double-collect its classes and break inherited-method

@@ -4,35 +4,76 @@
 ; Supports multi-part lathe meshes (one part per profile segment) with per-part
 ; colour, shininess (from roughness), opacity, reflectivity (metalness), and an
 ; optional RGBA texture map (gradient / procedural / upload).
+;
+; V2 TRANSPORT: every resource create and scene mutation goes through the ONE
+; live transport — RgRegistryBridge.invoke(rg3d_*) → RgRangerThree → typed host
+; arenas — exactly like a TSX or wasm32 guest. This host holds only guest ids
+; (the ints the bridge mints); it never touches ThreeSceneHost's arrays.
+;
+;   editor JS ──▶ WebMeshEditorHost ──▶ RgRegistryBridge.invoke("rg3d_*")
+;                                            │
+;                                            ▼
+;                                      RgRangerThree ──▶ typed arenas
+;                                            │
+;                        ThreeSceneHost.render (presentation READS host state)
+;
+; Two seams deliberately read the arena directly rather than issue commands,
+; matching web/web_live3d_host.rgr:
+;   * present  — render + raw() pixel readback (a renderer reads host state;
+;                per AGENTS.md that is not a sync boundary)
+;   * view get — camera/target/fov the JS surface-picker needs, plus the orbit
+;                distance clamp, which has no command
 ; ==============================================================================
 
-Import "../../three/port/src/three_scene_host.rgr"
-Import "../../three/port/src/three_buffer_geometry.rgr"
+Import "../../interp/engine/RgRegistryBridge.rgr"
 Import "../../three/port/src/three_gl_backend.rgr"
-Import "../../three/port/src/three_orbit_controls.rgr"
-Import "../../three/port/src/three_mesh.rgr"
-Import "../../three/port/src/three_material.rgr"
-Import "../../three/port/src/three_texture.rgr"
 
 class WebMeshEditorHost {
-    def host:ThreeSceneHost (new ThreeSceneHost)
+    def bridge:RgRegistryBridge (RgRegistryBridge.create())
     def gl:ThreeGLBackend (new ThreeGLBackend)
-    def controls:ThreeOrbitControls (new ThreeOrbitControls)
     def useGL:boolean false
     def ready:boolean false
     def w:int 480
     def h:int 480
-    def sceneH:int 0
-    def camH:int 0
-    def meshHs:[int]
+    ; Guest ids minted by the bridge — NOT ThreeSceneHost indices.
+    def sceneId:int 0
+    def camId:int 0
+    def orbitId:int 0
+    def meshIds:[int]
+    ; Material per part, so a hot atlas swap can re-map every live part.
+    def matIds:[int]
     def matMode:int 3
     def autoRotate:boolean false
     def angle:double 0.0
     def outBuf:buffer (buffer_alloc 0)
-    def lastMatH:int 0
-    ; Shared RGBA atlas for the current beginParts batch (upload once, reuse on parts).
-    def partMapTex:ThreeTexture (new ThreeTexture)
+    def lastMatId:int 0
+    ; Shared RGBA atlas for the current beginParts batch (set once, applied per part).
+    def partMapRgba:[int]
+    def partMapW:int 0
+    def partMapH:int 0
     def hasPartMap:boolean false
+
+    ; ---- bridge helpers ------------------------------------------------------
+    fn num:EvalValue (n:double) {
+        return (EvalValue.number(n))
+    }
+    fn callN:EvalValue (name:string args:[EvalValue]) {
+        return (this.bridge.invoke(name args))
+    }
+    fn callI:int (name:string args:[EvalValue]) {
+        def r:EvalValue (this.bridge.invoke(name args))
+        return (to_int r.numberValue)
+    }
+    fn intsToEval:EvalValue (src:[int]) {
+        def out:[EvalValue]
+        def n:int (array_length src)
+        def i:int 0
+        while (i < n) {
+            push out (EvalValue.number((to_double (itemAt src i))))
+            i = (i + 1)
+        }
+        return (EvalValue.array(out))
+    }
 
     fn setupGL:boolean (canvasId:string) {
         def ok:boolean (gl.init(canvasId))
@@ -40,7 +81,8 @@ class WebMeshEditorHost {
             useGL = false
             return false
         }
-        host.useBackend(gl)
+        ; Presentation backend selection — a renderer concern, not a command.
+        this.bridge.d3.host.useBackend(gl)
         useGL = true
         return true
     }
@@ -48,129 +90,262 @@ class WebMeshEditorHost {
     fn init:void (winW:int winH:int) {
         w = winW
         h = winH
-        sceneH = (host.sceneNew())
-        host.sceneBackground(sceneH 0.12 0.13 0.16)
-        camH = (host.cameraNew())
-        host.cameraSet(camH 45.0 ((to_double w) / (to_double h)) 0.1 100.0)
-        host.cameraPose(camH 2.6 1.4 3.2 0.0 0.0 0.0)
-        host.lightAmbient(sceneH 16777215 0.4)
-        host.lightDirectional(sceneH 16777215 1.2 0.45 0.85 0.35 false 0)
-        controls.setCamera((host.cameraAt(camH)))
-        controls.setViewport(w h)
-        controls.setTarget(0.0 0.0 0.0)
-        controls.setDistanceRange(1.2 20.0)
-        controls.applyToCamera()
+        def empty:[EvalValue]
+        sceneId = (this.callI("rg3d_scene_create" empty))
+        def bgA:[EvalValue]
+        push bgA (this.num((to_double sceneId)))
+        push bgA (this.num(0.12))
+        push bgA (this.num(0.13))
+        push bgA (this.num(0.16))
+        this.callN("rg3d_scene_background" bgA)
+
+        def empty2:[EvalValue]
+        camId = (this.callI("rg3d_camera_create" empty2))
+        def csA:[EvalValue]
+        push csA (this.num((to_double camId)))
+        push csA (this.num(45.0))
+        push csA (this.num(((to_double w) / (to_double h))))
+        push csA (this.num(0.1))
+        push csA (this.num(100.0))
+        this.callN("rg3d_camera_set" csA)
+        def cpA:[EvalValue]
+        push cpA (this.num((to_double camId)))
+        push cpA (this.num(2.6))
+        push cpA (this.num(1.4))
+        push cpA (this.num(3.2))
+        push cpA (this.num(0.0))
+        push cpA (this.num(0.0))
+        push cpA (this.num(0.0))
+        this.callN("rg3d_camera_pose" cpA)
+
+        ; D-SYNC: lights are DETACHED creates; membership is a separate op.
+        def ambA:[EvalValue]
+        push ambA (this.num(16777215.0))
+        push ambA (this.num(0.4))
+        def ambId:int (this.callI("rg3d_light_ambient" ambA))
+        def ambP:[EvalValue]
+        push ambP (this.num((to_double ambId)))
+        push ambP (this.num((to_double sceneId)))
+        this.callN("rg3d_entity_set_parent" ambP)
+
+        def dirA:[EvalValue]
+        push dirA (this.num(16777215.0))
+        push dirA (this.num(1.2))
+        push dirA (this.num(0.45))
+        push dirA (this.num(0.85))
+        push dirA (this.num(0.35))
+        def dirId:int (this.callI("rg3d_light_directional" dirA))
+        def dirP:[EvalValue]
+        push dirP (this.num((to_double dirId)))
+        push dirP (this.num((to_double sceneId)))
+        this.callN("rg3d_entity_set_parent" dirP)
+
+        def ocA:[EvalValue]
+        push ocA (this.num((to_double camId)))
+        orbitId = (this.callI("rg3d_orbit_create" ocA))
+        def ovA:[EvalValue]
+        push ovA (this.num((to_double orbitId)))
+        push ovA (this.num((to_double w)))
+        push ovA (this.num((to_double h)))
+        this.callN("rg3d_orbit_viewport" ovA)
+        def otA:[EvalValue]
+        push otA (this.num((to_double orbitId)))
+        push otA (this.num(0.0))
+        push otA (this.num(0.0))
+        push otA (this.num(0.0))
+        this.callN("rg3d_orbit_target" otA)
+        ; No command for the zoom clamp — set it on the arena's controller.
+        ; Bind to a local first: a statement headed by a parenthesised call
+        ; receiver — `(this.controls()).setX(...)` — makes the compiler DROP the
+        ; rest of the method body silently (no error, truncated output).
+        def oc:ThreeOrbitControls (this.controls())
+        oc.setDistanceRange(1.2 20.0)
+        def oaA:[EvalValue]
+        push oaA (this.num((to_double orbitId)))
+        this.callN("rg3d_orbit_apply" oaA)
         ready = true
+    }
+
+    ; Arena-side orbit controller: read-only view state + the distance clamp.
+    fn controls:ThreeOrbitControls () {
+        def oh:RgHandle (this.bridge.resolveGuestId(orbitId))
+        def oc:int (this.bridge.d3.orbitH(oh))
+        return (this.bridge.d3.host.orbitAt(oc))
     }
 
     fn clearParts:void () {
         def i:int 0
-        while (i < (array_length meshHs)) {
-            def mh:int (itemAt meshHs i)
-            if (mh > 0) {
-                host.entityRemove(sceneH mh)
+        while (i < (array_length meshIds)) {
+            def mid:int (itemAt meshIds i)
+            if (mid > 0) {
+                def rA:[EvalValue]
+                push rA (this.num((to_double sceneId)))
+                push rA (this.num((to_double mid)))
+                this.callN("rg3d_entity_remove" rA)
             }
             i = (i + 1)
         }
-        clear meshHs
+        clear meshIds
+        clear matIds
     }
 
     ; Build a Phong material tinted by colourHex; shininess/opacity/reflectivity
     ; come from the segment style. matMode 0 forces wireframe basic.
     fn buildPartMaterial:int (colorHex:int shininess:double opacity:double reflectivity:double) {
         def side:int 2
+        def mid:int 0
         if (matMode == 0) {
-            def wb:int (host.materialBasic(colorHex side true))
-            host.materialSetOpacity(wb opacity)
-            return wb
-        }
-        def flat:boolean false
-        if (matMode == 1) {
-            flat = true
-        }
-        def m:int (host.materialPhong(colorHex 4210752 shininess flat side))
-        host.materialSetOpacity(m opacity)
-        if ((reflectivity > 0.05) || (matMode == 4)) {
-            def r:double reflectivity
-            if (matMode == 4) {
-                if (r < 0.5) {
-                    r = 0.85
-                }
+            def wbA:[EvalValue]
+            push wbA (this.num((to_double colorHex)))
+            push wbA (this.num((to_double side)))
+            push wbA (this.num(1.0))
+            mid = (this.callI("rg3d_material_basic_ex" wbA))
+        } {
+            def flat:int 0
+            if (matMode == 1) {
+                flat = 1
             }
-            host.materialReflective(m r)
-            host.sceneEnvironmentStudio(sceneH 64)
+            def phA:[EvalValue]
+            push phA (this.num((to_double colorHex)))
+            push phA (this.num(4210752.0))
+            push phA (this.num(shininess))
+            push phA (this.num((to_double flat)))
+            push phA (this.num((to_double side)))
+            mid = (this.callI("rg3d_material_phong_ex" phA))
         }
-        return m
+        def opA:[EvalValue]
+        push opA (this.num((to_double mid)))
+        push opA (this.num(opacity))
+        this.callN("rg3d_material_set_opacity" opA)
+        if (matMode != 0) {
+            if ((reflectivity > 0.05) || (matMode == 4)) {
+                def r:double reflectivity
+                if (matMode == 4) {
+                    if (r < 0.5) {
+                        r = 0.85
+                    }
+                }
+                def rfA:[EvalValue]
+                push rfA (this.num((to_double mid)))
+                push rfA (this.num(r))
+                this.callN("rg3d_material_reflective" rfA)
+                def seA:[EvalValue]
+                push seA (this.num((to_double sceneId)))
+                push seA (this.num(64.0))
+                this.callN("rg3d_scene_environment_studio" seA)
+            }
+        }
+        return mid
     }
 
-    fn fillGeometry:ThreeBufferGeometry (positions:[double] normals:[double] uvs:[double] indices:[int]) {
-        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+    ; Interleave the separate attribute arrays into the ONE vertex buffer the
+    ; rg3d_geometry_buffer command takes (8 doubles/vertex).
+    fn interleave:[double] (positions:[double] normals:[double] uvs:[double]) {
+        def out:[double]
         def vc:int (idiv (array_length positions) 3)
+        def nLen:int (array_length normals)
+        def uLen:int (array_length uvs)
         def i:int 0
         while (i < vc) {
             def b:int (i * 3)
             def ub:int (i * 2)
-            def px:double (itemAt positions b)
-            def py:double (itemAt positions (b + 1))
-            def pz:double (itemAt positions (b + 2))
-            def nx:double 0.0
-            def ny:double 1.0
-            def nz:double 0.0
-            if ((b + 2) < (array_length normals)) {
-                nx = (itemAt normals b)
-                ny = (itemAt normals (b + 1))
-                nz = (itemAt normals (b + 2))
+            push out (itemAt positions b)
+            push out (itemAt positions (b + 1))
+            push out (itemAt positions (b + 2))
+            if ((b + 2) < nLen) {
+                push out (itemAt normals b)
+                push out (itemAt normals (b + 1))
+                push out (itemAt normals (b + 2))
+            } {
+                push out 0.0
+                push out 1.0
+                push out 0.0
             }
-            def uu:double 0.0
-            def vv:double 0.0
-            if ((ub + 1) < (array_length uvs)) {
-                uu = (itemAt uvs ub)
-                vv = (itemAt uvs (ub + 1))
+            if ((ub + 1) < uLen) {
+                push out (itemAt uvs ub)
+                push out (itemAt uvs (ub + 1))
+            } {
+                push out 0.0
+                push out 0.0
             }
-            g.pushVertex(px py pz nx ny nz uu vv)
             i = (i + 1)
         }
-        def ii:int 0
-        def ic:int (array_length indices)
-        while (ii < ic) {
-            g.pushIndex((itemAt indices ii))
-            ii = (ii + 1)
-        }
-        return g
+        return out
     }
 
-    fn bytesToBuffer:buffer (bytes:[int]) {
-        def n:int (array_length bytes)
-        def buf:buffer (buffer_alloc n)
+    fn bufferToInts:[int] (buf:buffer n:int) {
+        def out:[int]
         def i:int 0
         while (i < n) {
-            buffer_set buf i (itemAt bytes i)
+            push out (buffer_get buf i)
             i = (i + 1)
         }
-        return buf
+        return out
     }
 
     ; Clear the shared part map (call from beginParts / when switching atlases).
     fn clearPartMap:void () {
         hasPartMap = false
+        clear partMapRgba
+        partMapW = 0
+        partMapH = 0
     }
 
-    ; Upload / replace the shared atlas on the stable ThreeTexture instance so
-    ; materials from the last beginParts batch keep the same map reference.
-    ; setImage marks needsUpdate → GL backend reuploads via gpu_update_texture.
-    fn setPartMapBuffer:void (rgba:buffer w:int h:int) {
-        partMapTex.setImage(rgba w h)
+    ; Re-apply the staged atlas to every material already built in this batch.
+    ;
+    ; The direct-Three host kept ONE mutable ThreeTexture and handed the same
+    ; instance to every part, so replacing its pixels retroactively changed all
+    ; parts and the batch always showed the LAST atlas uploaded. UVs are global
+    ; across the whole profile (v = row / rows-1), so that shared atlas is what
+    ; makes a multi-part gradient continuous. A command API mints a texture per
+    ; material instead, which would give each part its own atlas sampled through
+    ; global UVs — a visible seam at every segment boundary. Re-applying keeps
+    ; the original, intended behaviour over the transport.
+    fn remapParts:void () {
+        def i:int 0
+        while (i < (array_length matIds)) {
+            this.applyPartMap((itemAt matIds i))
+            i = (i + 1)
+        }
+    }
+
+    ; Stage the shared atlas for this batch (and refresh parts already added).
+    fn setPartMapBuffer:void (rgba:buffer mw:int mh:int) {
+        def need:int ((mw * mh) * 4)
+        partMapRgba = (this.bufferToInts(rgba need))
+        partMapW = mw
+        partMapH = mh
         hasPartMap = true
+        this.remapParts()
     }
 
     ; Hot-swap atlas pixels without beginParts / addPart (geometry stays).
-    fn updatePartMapBuffer:void (rgba:buffer w:int h:int) {
-        this.setPartMapBuffer(rgba w h)
+    fn updatePartMapBuffer:void (rgba:buffer mw:int mh:int) {
+        this.setPartMapBuffer(rgba mw mh)
     }
 
     ; Legacy: convert [int]/Uint8-like arrays into the shared part map.
-    fn setPartMap:void (bytes:[int] w:int h:int) {
-        this.setPartMapBuffer((this.bytesToBuffer(bytes)) w h)
+    fn setPartMap:void (bytes:[int] mw:int mh:int) {
+        partMapRgba = bytes
+        partMapW = mw
+        partMapH = mh
+        hasPartMap = true
+        this.remapParts()
+    }
+
+    fn applyPartMap:void (matId:int) {
+        if (hasPartMap == false) {
+            return
+        }
+        if ((array_length partMapRgba) < ((partMapW * partMapH) * 4)) {
+            return
+        }
+        def mA:[EvalValue]
+        push mA (this.num((to_double matId)))
+        push mA (this.intsToEval(partMapRgba))
+        push mA (this.num((to_double partMapW)))
+        push mA (this.num((to_double partMapH)))
+        this.callN("rg3d_material_map_rgba" mA)
     }
 
     ; Add one lathed segment. Prefer hasPartMap when set; else mapBytes non-empty.
@@ -178,23 +353,58 @@ class WebMeshEditorHost {
         if (ready == false) {
             return
         }
-        def g:ThreeBufferGeometry (this.fillGeometry(positions normals uvs indices))
-        push host.geometries g
-        def geoH:int (array_length host.geometries)
-        def matH:int (this.buildPartMaterial(colorHex shininess opacity reflectivity))
+        def vtx:[double] (this.interleave(positions normals uvs))
+        def vArr:[EvalValue]
+        def vn:int (array_length vtx)
+        def vi:int 0
+        while (vi < vn) {
+            push vArr (EvalValue.number((itemAt vtx vi)))
+            vi = (vi + 1)
+        }
+        def gA:[EvalValue]
+        push gA (EvalValue.array(vArr))
+        push gA (this.intsToEval(indices))
+        def geoId:int (this.callI("rg3d_geometry_buffer" gA))
+
+        def matId:int (this.buildPartMaterial(colorHex shininess opacity reflectivity))
         if (hasPartMap) {
-            (host.materialAt(matH)).setMap(partMapTex)
+            this.applyPartMap(matId)
         } {
             if (((array_length mapBytes) > 0) && (mapW > 0) && (mapH > 0)) {
-                def tex:ThreeTexture (new ThreeTexture)
-                tex.setImage((this.bytesToBuffer(mapBytes)) mapW mapH)
-                (host.materialAt(matH)).setMap(tex)
+                def mA:[EvalValue]
+                push mA (this.num((to_double matId)))
+                push mA (this.intsToEval(mapBytes))
+                push mA (this.num((to_double mapW)))
+                push mA (this.num((to_double mapH)))
+                this.callN("rg3d_material_map_rgba" mA)
             }
         }
-        lastMatH = matH
-        def meshH:int (host.meshNew(sceneH geoH matH))
-        host.entityTransform(meshH 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
-        push meshHs meshH
+        lastMatId = matId
+
+        ; D-SYNC: DETACHED mesh create, then membership as a separate op.
+        def mcA:[EvalValue]
+        push mcA (this.num((to_double geoId)))
+        push mcA (this.num((to_double matId)))
+        def meshId:int (this.callI("rg3d_mesh_create" mcA))
+        def spA:[EvalValue]
+        push spA (this.num((to_double meshId)))
+        push spA (this.num((to_double sceneId)))
+        this.callN("rg3d_entity_set_parent" spA)
+        this.transformPart(meshId)
+        push meshIds meshId
+        push matIds matId
+    }
+
+    fn transformPart:void (meshId:int) {
+        def tA:[EvalValue]
+        push tA (this.num((to_double meshId)))
+        push tA (this.num(0.0))
+        push tA (this.num(0.0))
+        push tA (this.num(0.0))
+        push tA (this.num(0.12))
+        push tA (this.num(angle))
+        push tA (this.num(0.0))
+        this.callN("rg3d_mesh_transform" tA)
     }
 
     fn beginParts:void () {
@@ -220,25 +430,32 @@ class WebMeshEditorHost {
 
     ; View state for JS surface picking (camera + mesh yaw/tilt).
     fn viewCamX:double () {
-        return (controls.camX())
+        def oc:ThreeOrbitControls (this.controls())
+        return (oc.camX())
     }
     fn viewCamY:double () {
-        return (controls.camY())
+        def oc:ThreeOrbitControls (this.controls())
+        return (oc.camY())
     }
     fn viewCamZ:double () {
-        return (controls.camZ())
+        def oc:ThreeOrbitControls (this.controls())
+        return (oc.camZ())
     }
     fn viewTargetX:double () {
-        return (controls.getTargetX())
+        def oc:ThreeOrbitControls (this.controls())
+        return (oc.getTargetX())
     }
     fn viewTargetY:double () {
-        return (controls.getTargetY())
+        def oc:ThreeOrbitControls (this.controls())
+        return (oc.getTargetY())
     }
     fn viewTargetZ:double () {
-        return (controls.getTargetZ())
+        def oc:ThreeOrbitControls (this.controls())
+        return (oc.getTargetZ())
     }
     fn viewFov:double () {
-        return (controls.getFov())
+        def oc:ThreeOrbitControls (this.controls())
+        return (oc.getFov())
     }
     fn viewMeshAngle:double () {
         return angle
@@ -253,17 +470,30 @@ class WebMeshEditorHost {
         return (to_double h)
     }
 
+    ; Pointer / wheel drive the controller through its commands (phase 0/1/2).
+    fn orbitPointer:void (phase:int x:double y:double button:int) {
+        def pA:[EvalValue]
+        push pA (this.num((to_double orbitId)))
+        push pA (this.num((to_double phase)))
+        push pA (this.num(x))
+        push pA (this.num(y))
+        push pA (this.num((to_double button)))
+        this.callN("rg3d_orbit_pointer" pA)
+    }
     fn pointerDown:void (x:double y:double button:int) {
-        controls.pointerDown(x y button)
+        this.orbitPointer(0 x y button)
     }
     fn pointerMove:void (x:double y:double) {
-        controls.pointerMove(x y)
+        this.orbitPointer(1 x y 0)
     }
     fn pointerUp:void () {
-        controls.pointerUp()
+        this.orbitPointer(2 0.0 0.0 0)
     }
     fn wheel:void (delta:double) {
-        controls.wheel(delta)
+        def wA:[EvalValue]
+        push wA (this.num((to_double orbitId)))
+        push wA (this.num(delta))
+        this.callN("rg3d_orbit_wheel" wA)
     }
 
     fn frame:void (dtMs:double) {
@@ -273,20 +503,28 @@ class WebMeshEditorHost {
         ; Keep mesh yaw/tilt fixed (no autorotate). Re-assert transform each frame
         ; so newly added parts stay aligned after beginParts/addPart.
         def i:int 0
-        while (i < (array_length meshHs)) {
-            host.entityTransform((itemAt meshHs i) 0.0 0.0 0.0 0.12 angle 0.0 1.0 1.0 1.0)
+        while (i < (array_length meshIds)) {
+            this.transformPart((itemAt meshIds i))
             i = (i + 1)
         }
-        controls.applyToCamera()
+        def oaA:[EvalValue]
+        push oaA (this.num((to_double orbitId)))
+        this.callN("rg3d_orbit_apply" oaA)
+
+        ; ---- present: the renderer READS host state (not a sync boundary) ----
+        def sh3:RgHandle (this.bridge.resolveGuestId(sceneId))
+        def ch3:RgHandle (this.bridge.resolveGuestId(camId))
+        def sceneIdx:int (this.bridge.d3.sceneH(sh3))
+        def camIdx:int (this.bridge.d3.cameraH(ch3))
         if (useGL) {
-            host.render(sceneH camH w h)
+            this.bridge.d3.host.render(sceneIdx camIdx w h)
             return
         }
         def sw:int (w * 2)
         def sh:int (h * 2)
-        host.renderer.setClearColor(0.12 0.13 0.16)
-        host.render(sceneH camH sw sh)
-        def raw:buffer (host.raw())
+        this.bridge.d3.host.renderer.setClearColor(0.12 0.13 0.16)
+        this.bridge.d3.host.render(sceneIdx camIdx sw sh)
+        def raw:buffer (this.bridge.d3.host.raw())
         def total:int ((w * h) * 3)
         def out:buffer (buffer_alloc total)
         def y:int 0
@@ -330,6 +568,6 @@ class WebMeshEditorHost {
     }
 
     fn partCount:int () {
-        return (array_length meshHs)
+        return (array_length meshIds)
     }
 }

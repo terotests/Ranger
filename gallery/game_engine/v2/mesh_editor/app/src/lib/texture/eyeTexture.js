@@ -17,6 +17,7 @@ import { newGuid } from "../assetClone.js";
 import {
   PART_CLASS_EYE,
   normalizeEmotionTag,
+  findLayer,
   eyeTopologyKey,
   normalizeEyePoses,
   serializeEyePoses,
@@ -463,10 +464,9 @@ export function normalizeEyeTexture(raw) {
   };
 }
 
-export function findLayer(texOrLayers, typeOrId) {
-  const layers = Array.isArray(texOrLayers) ? texOrLayers : texOrLayers?.layers || [];
-  return layers.find((L) => L.id === typeOrId || L.type === typeOrId) || null;
-}
+// findLayer is defined in eyeEmotion.js (dependency direction) and re-exported
+// from here, so `import { findLayer } from "./eyeTexture.js"` still resolves.
+export { findLayer };
 
 export function layerPolygon(layer, samplesPerSpan = 20) {
   if (!layer?.knots?.length) return [];

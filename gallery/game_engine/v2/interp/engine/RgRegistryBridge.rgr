@@ -61,8 +61,21 @@ class RgDecodedArgs {
     def strs:[string]
     def handles:[RgHandle]
     def guestIds:[int]
+    ; Flat concatenation of EVERY `ai` / `ad` argument, in argument order. Kept
+    ; for the commands that carry exactly one array of a kind (the common case)
+    ; — `a.ai` / `a.ad` then simply IS that argument.
     def ai:[int]
     def ad:[double]
+    ; Per-argument-position window into the flat spans above: aiOff/aiLen are
+    ; padded per position like ints/dbls, so `aiAt(2)` returns argument 2's
+    ; array even when several array arguments share the flat buffer. Without
+    ; this a spec like "ad:ad:ad:ai" silently concatenated positions, normals
+    ; and uvs into one span with no arity or type error — wrong data, no
+    ; diagnostic. See BRIDGES.md; this must stay correct before any ABI freeze.
+    def aiOff:[int]
+    def aiLen:[int]
+    def adOff:[int]
+    def adLen:[int]
 
     fn pad:void () {
         push this.ints 0
@@ -70,12 +83,48 @@ class RgDecodedArgs {
         push this.strs ""
         push this.handles (RgHandle.invalid())
         push this.guestIds 0
+        push this.aiOff 0
+        push this.aiLen 0
+        push this.adOff 0
+        push this.adLen 0
     }
     fn intAt:int (i:int) { return (itemAt this.ints i) }
     fn dblAt:double (i:int) { return (itemAt this.dbls i) }
     fn strAt:string (i:int) { return (itemAt this.strs i) }
     fn handleAt:RgHandle (i:int) { return (itemAt this.handles i) }
     fn guestIdAt:int (i:int) { return (itemAt this.guestIds i) }
+
+    ; The int array passed at argument position i (empty if that position is
+    ; not an `ai`). Slices the flat span using the recorded window.
+    fn aiAt:[int] (i:int) {
+        def out:[int]
+        if (i >= (array_length this.aiOff)) {
+            return out
+        }
+        def off:int (itemAt this.aiOff i)
+        def n:int (itemAt this.aiLen i)
+        def k:int 0
+        while (k < n) {
+            push out (itemAt this.ai (off + k))
+            k = (k + 1)
+        }
+        return out
+    }
+    ; The double array passed at argument position i (empty if not an `ad`).
+    fn adAt:[double] (i:int) {
+        def out:[double]
+        if (i >= (array_length this.adOff)) {
+            return out
+        }
+        def off:int (itemAt this.adOff i)
+        def n:int (itemAt this.adLen i)
+        def k:int 0
+        while (k < n) {
+            push out (itemAt this.ad (off + k))
+            k = (k + 1)
+        }
+        return out
+    }
 }
 
 ; Pre-split argSpec tokens for one command-table row (avoids strsplit per call).
@@ -373,6 +422,10 @@ class RgRegistryBridge extends EvalNativeBridge {
                     return dec
                 }
                 def n:int (array_length v.arrayValue)
+                ; Record this argument's window BEFORE appending, so several
+                ; array arguments stay individually addressable via aiAt(i).
+                set dec.aiOff i (array_length dec.ai)
+                set dec.aiLen i n
                 def k 0
                 while (k < n) {
                     def e:EvalValue (itemAt v.arrayValue k)
@@ -387,6 +440,8 @@ class RgRegistryBridge extends EvalNativeBridge {
                     return dec
                 }
                 def n:int (array_length v.arrayValue)
+                set dec.adOff i (array_length dec.ad)
+                set dec.adLen i n
                 def k 0
                 while (k < n) {
                     def e:EvalValue (itemAt v.arrayValue k)
@@ -919,10 +974,58 @@ class RgRegistryBridge extends EvalNativeBridge {
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
         }
+        if (row.name == "rg3d_geometry_buffer") {
+            ; ad = interleaved vertices (8 doubles each), ai = indices. The
+            ; decoder accumulates each array kind into one span, which is why
+            ; the command takes exactly one of each.
+            def o:OwnedHandle (this.d3.geometryBuffer(a.ad a.ai))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
         if (row.name == "rg3d_material_basic") {
             def o:OwnedHandle (this.d3.materialBasic((a.intAt(0))))
             def gid:int (this.mintId(o))
             return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_basic_ex") {
+            def o:OwnedHandle (this.d3.materialBasicEx((a.intAt(0)) (a.intAt(1)) ((a.intAt(2)) != 0)))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_phong_ex") {
+            def o:OwnedHandle (this.d3.materialPhongEx((a.intAt(0)) (a.intAt(1)) (a.dblAt(2)) ((a.intAt(3)) != 0) (a.intAt(4))))
+            def gid:int (this.mintId(o))
+            return (RgRegistryBridge.retI(gid))
+        }
+        if (row.name == "rg3d_material_reflective") {
+            this.d3.clearErr()
+            if ((this.d3.materialReflective((a.handleAt(0)) (a.dblAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_material_map_rgba") {
+            this.d3.clearErr()
+            ; argSpec "h:ai:i:i" — intAt/dblAt/handleAt index the OVERALL arg
+            ; position (decode pads every list per position), so w/h are 2/3.
+            if ((this.d3.materialMapRgba((a.handleAt(0)) a.ai (a.intAt(2)) (a.intAt(3)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_scene_background") {
+            this.d3.clearErr()
+            if ((this.d3.sceneBackground((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
+        }
+        if (row.name == "rg3d_scene_environment_studio") {
+            this.d3.clearErr()
+            if ((this.d3.sceneEnvironmentStudio((a.handleAt(0)) (a.intAt(1)))) == false) {
+                return (this.fail3d(row.name))
+            }
+            return (EvalValue.null())
         }
         if (row.name == "rg3d_material_lambert") {
             def o:OwnedHandle (this.d3.materialLambert((a.intAt(0))))

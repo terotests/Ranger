@@ -3,6 +3,8 @@
 // World direction is (end - start) in XY → (dx, dy, 0). Preview aligns that to +Y.
 // ============================================================================
 
+import { mat3MulXYZ as mulMatVec, rotateFlatXyzCopy } from "../shared/math/mat3.js";
+
 export function defaultPlacementNormal() {
   return {
     start: { x: 0, y: -1 },
@@ -109,25 +111,13 @@ export function rotationAligning(from, to) {
   ];
 }
 
-function mulMatVec(m, x, y, z) {
-  return {
-    x: m[0] * x + m[1] * y + m[2] * z,
-    y: m[3] * x + m[4] * y + m[5] * z,
-    z: m[6] * x + m[7] * y + m[8] * z,
-  };
-}
-
-/** Rotate flat xyz buffer in place by row-major 3×3. */
+/**
+ * Rotate a flat xyz buffer by a row-major 3x3, returning a NEW array.
+ * (The old comment here said "in place"; it never was, and callers rely on the
+ * authoring-space buffer staying untouched.)
+ */
 export function rotateFlatXyz(arr, m) {
-  if (!arr || !arr.length) return arr;
-  const out = arr.slice();
-  for (let i = 0; i + 2 < out.length; i += 3) {
-    const p = mulMatVec(m, out[i], out[i + 1], out[i + 2]);
-    out[i] = p.x;
-    out[i + 1] = p.y;
-    out[i + 2] = p.z;
-  }
-  return out;
+  return rotateFlatXyzCopy(arr, m);
 }
 
 /**

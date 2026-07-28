@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/smoke-library-safe.mjs && node scripts/smoke-mesh-pick.mjs && node scripts/smoke-eye-texture.mjs && node scripts/smoke-mesh-map-share.mjs"
+    "test": "bash ../tests/run.sh"
   },
   "dependencies": {
     "vue": "^3.5.13"

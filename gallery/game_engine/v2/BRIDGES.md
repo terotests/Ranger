@@ -380,6 +380,27 @@ def gid:int (to_int v.numberValue)
 def h:RgHandle (this.resolveGuestId(gid))   ; owned[] surrogate → RgHandle
 ```
 
+**Array arguments (`ai` / `ad`).** Scalars (`i`/`d`/`s`/`h`) are addressed by
+**overall argument position** — `decode` pads every list per position, so
+`intAt(2)` means "argument 2", not "the third int". Arrays are different: each
+`ai` appends into one flat `dec.ai` and each `ad` into one flat `dec.ad`.
+
+- A command with **one** array of a kind reads it directly: `a.ai` / `a.ad`
+  *is* that argument (`rg2d_atlas_add_clip` `"h:s:ai:ad"`,
+  `rg3d_geometry_buffer` `"ad:ai"`).
+- A command with **several** arrays of a kind must use `a.aiAt(i)` /
+  `a.adAt(i)`, which slice the flat span through the per-position window the
+  decoder records.
+
+Before those windows existed a spec like `"ad:ad:ad:ai"` (positions, normals,
+uvs, indices) silently **concatenated** the three double arrays into one buffer
+— no arity error, no type error, just wrong data. `rg3d_geometry_buffer` was
+deliberately shaped around it (one *interleaved* `ad` plus one `ai`, which is
+also the natural contiguous GPU/wasm32 form and is worth keeping for hot paths).
+Gated by `tests/unit/bridge/decode_array_spans_test`; this had to be settled
+**before** any published ABI (step 7), since the 2D / render-target surface is
+the first thing that wants multiple spans per call.
+
 Dispatch call sites (same file):
 
 ```rgr

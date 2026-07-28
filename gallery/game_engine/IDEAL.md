@@ -1,5 +1,30 @@
 # IDEAL — what the game-engine interfaces *should* look like
 
+> ## ⚠️ Scope: this document targets **v1**
+>
+> Everything below critiques and re-designs the **v1** stack — `scripting/`,
+> the `wasm/*.h` block headers (RGW1 / RGSP1 / RGU1 / RGP1), the autopeli guest,
+> and the `WasmPhysicsRunner` seam. It contains **no** references to the v2
+> rebuild, and v1 is frozen as *runnable legacy*, so §8's five concrete changes
+> will not land there and §7's checks will not pass against it. **Do not review
+> v2 against this file directly** — that produces false failures.
+>
+> The **principles** are still the target, and v2 pursues them more strictly
+> than a v1 retrofit would:
+>
+> | IDEAL principle | Where v2 realises it |
+> |---|---|
+> | §0 "a second game must reuse a core file unchanged" | `v2/tests/check_boundaries.py` — a *mechanical* gate over `runtime/ host/ modules/ render/ registry/ bridge/ interp/ imaging/ audio/ evg/ scripting/ web/ menu/`, run on every build. Stronger than the §7 grep proposed here |
+> | §2.1 "transport, never taxonomy" | RGC1 + schema-assigned, module-ranged, golden-frozen command ids (`v2/registry/schema/`). No game constant can reach the transport |
+> | §2.2 indexed control channels | superseded: every command carries a semantic `argSpec`, so there is no fixed control record to be car-shaped |
+> | §3 `GameSceneProvider` seam | superseded by the generic host: `runtime/game_host/RgGameHost` + TSX/wasm32 guests over one command table |
+> | §6 capability gate | `RgWasmCmdDispatch.drainDoc` validates MAGIC + profile major and pre-checks every id fail-closed before dispatching |
+> | §7 "done is mechanically checkable" | the v2 gate: 106 suites + the boundary gate, `npm run engine:v2:test` |
+>
+> For the v2 contract read [`CODE_CLEANUP.md`](./CODE_CLEANUP.md) (the binding
+> D-* decisions) and [`v2/BRIDGES.md`](./v2/BRIDGES.md) (IDL / ABI profiles);
+> for its live status, [`v2/TODO.md`](./v2/TODO.md).
+
 > Status: **target specification** (companion to [`AGENTS.md`](./AGENTS.md),
 > [`PLAN_PROVIDERS.md`](./PLAN_PROVIDERS.md) and
 > [`docs/PLAN_PHYSICS_RUNNER_GENERIC.md`](./docs/PLAN_PHYSICS_RUNNER_GENERIC.md)).

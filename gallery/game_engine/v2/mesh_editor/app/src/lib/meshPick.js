@@ -8,6 +8,8 @@
  * @param {{ cam:[number,number,number], target:[number,number,number], fovDeg:number, width:number, height:number }} view
  * @returns {{ origin:[number,number,number], dir:[number,number,number] }}
  */
+import { mat3MulTuple as mulMat3 } from "../shared/math/mat3.js";
+
 export function rayFromCanvas(sx, sy, view) {
   const w = view.width || 1;
   const h = view.height || 1;
@@ -290,15 +292,5 @@ export function pickRootSurface(sx, sy, view, rootParts, meshTilt, meshAngle, or
   return hit;
 }
 
-function mulMat3(m, v) {
-  return [
-    m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
-    m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
-    m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
-  ];
-}
-
-/** Transpose of row-major 3×3 (= inverse for pure rotation). */
-export function transposeMat3(m) {
-  return [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]];
-}
+/** Transpose of a row-major 3x3 (= inverse for a pure rotation). */
+export { transposeMat3 } from "../shared/math/mat3.js";

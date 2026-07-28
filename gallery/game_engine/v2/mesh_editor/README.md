@@ -57,6 +57,137 @@ mesh_editor/
 - **3D preview** rotates the mesh so this normal points world **+Y** whenever the object loads
   or the normal changes (authoring mesh stays unrotated)
 
+## Code layout & refactor status
+
+`app/src` is ~14.7k lines and still has two files that are too big
+(`composables/useSplineEditor.js` ≈1.8k, `App.vue` ≈1.4k). Work in progress; the
+shape being moved toward:
+
+```text
+app/src/
+  shared/          cross-feature, framework-light, unit-tested
+    math/          mat3.js (3x3 + Rodrigues), scalar.js, color.js
+    canvas/        useDragGesture.js (one canonical drag slot)
+  lib/             feature modules (path, lathe, texture, pick, transform)
+  composables/     editor state
+  components/      Vue views
+  library/         project persistence (schema + migrations + api)
+```
+
+**Done so far.** Measured duplication with a maximal-block detector (not by eye)
+and removed the real cases — 313 → 266 duplicated significant lines:
+
+| Was | Now |
+|-----|-----|
+| `mulMat3Vec` / `mulMatVec` / `mulMat3` — three identical 3x3 multiplies | `shared/math/mat3.js` |
+| Rodrigues twist inlined twice in `transformPart` (positions + normals) | `rodrigues()` |
+| `lerp` in two modules; colour hex helpers buried in `latheTessellate` | `shared/math/scalar.js`, `color.js` |
+| `sampleOpenPath` vs `samplePath` — 15 identical lines differing only in `Math.max(0, p.x)` | one `sampleOpenChain(…, clampX)` |
+| `knotUid` ×2, `defaultSegment` ×2 (one a narrower subset), `findLayer` ×2 | single definitions |
+| Embedded-body hydration duplicated verbatim in undo *and* load (22 lines) | `hydrateEmbeddedBody()` |
+| `textureAssets` entry validation duplicated in two validators | `validateTextureAssets()` |
+| SplineCanvas's four independent drag flags | `useDragGesture` — one slot |
+
+The four-flag drag state deserves calling out: `dragging` / `draggingChild` /
+`draggingNormal` / `draggingTranslate` made "dragging a knot *and* translating" a
+representable state, and every `pointerup` had to remember to clear all four.
+That is the same illegal-state class `IDEAL.md` §0.1 lists as a runtime-correctness
+bug in the v1 runner. One slot makes those states not exist.
+
+Also note a trap found while extracting: the old `rotateFlatXyz` was documented
+"in place" but actually **copied**, and its callers relied on the copy. The shared
+module therefore exposes `rotateFlatXyzInPlace` and `rotateFlatXyzCopy` as
+separate, named functions, and the unit test pins both.
+
+`Preview3D.vue` is converted too. Its five mutables turned out not to be five
+gestures but three different kinds of thing: *which* gesture is live
+(`draggingOrbit` / `surfaceDragging` / `regionDrag` — one value, since a pointer
+does one thing), that gesture's *parameter* (`dragGuid`, `downPos` — opaque
+payload), and a *policy derived from the first* (`blockHostOrbit`, which was
+written in *seven* places and read by exactly one predicate, so a missed reset
+silently disabled camera orbit for the rest of the session; it is now computed).
+Covered first by e2e for orbit, wheel-zoom, region handle move/resize, orbit
+suppression while the overlay is up, and orbit recovery after leaving the mode.
+
+**Next, in order.**
+
+1. Split `useSplineEditor.js` and `App.vue` by feature (mesh / texture /
+   children / library) — both are far past the size where a reader can hold them.
+2. Port the eye texture rasterizer (`eyeTexture.js` + `eyeEmotion.js`, ~2k lines)
+   to Ranger so it also runs native / C++ / wasm32. This is the last "no runtime
+   off the browser" claim; `rg3d_material_map_rgba` already gives its output
+   somewhere to go, and `tests/diff/` is the established way to prove the port.
+3. Comment density is still low in the components (0–3%); the shared modules and
+   the tests now carry the *why*, the views mostly do not.
+
+## Preview transport
+
+The 3D preview runs on the **v2 transport**. `host/web_mesh_editor_host.rgr`
+issues registry commands — the same ones a TSX or wasm32 guest issues — instead
+of importing `three/port` classes and mutating `ThreeSceneHost`'s arrays:
+
+```text
+editor JS ──▶ WebMeshEditorHost ──▶ RgRegistryBridge.invoke("rg3d_*")
+                                          │
+                                          ▼
+                                    RgRangerThree ──▶ typed host arenas
+                                          │
+                      ThreeSceneHost.render  (presentation READS host state)
+```
+
+The host holds only **guest ids** (the ints the bridge mints), never arena
+indices. Meshes are DETACHED creates plus a separate `rg3d_entity_set_parent`,
+so object lifetime and scene membership stay independent (D-SYNC).
+
+Two seams read the arena directly, matching `web/web_live3d_host.rgr`:
+**present** (`render` + `raw()` — a renderer reading host state is not a sync
+boundary) and **view state** (camera/target/fov for the JS surface picker, plus
+the orbit distance clamp, which has no command).
+
+Commands added for authoring (new ids — the existing ones are golden and cannot
+grow arguments): `rg3d_geometry_buffer` (interleaved vertex buffer + indices),
+`rg3d_material_basic_ex`, `rg3d_material_phong_ex`, `rg3d_material_reflective`,
+`rg3d_material_map_rgba` (generated atlas, no file), `rg3d_scene_background`,
+`rg3d_scene_environment_studio`.
+
+The switch is **pixel-identical** to the previous direct-Three render
+(0 of 108241 pixels differ).
+
+> **Shared-atlas rule.** The old host handed ONE mutable `ThreeTexture` to every
+> part, so a batch always showed the LAST atlas uploaded — and because UVs are
+> global across the profile (`v = row / rows-1`), that sharing is what makes a
+> multi-part gradient continuous. A command API mints a texture per material, so
+> `setPartMapBuffer` re-applies the staged atlas to every live part. Drop that
+> and each part samples its own atlas through global UVs, seaming at every
+> segment boundary. Locked by `tests/host/transport_guard.mjs`.
+
+## Ranger port (in progress)
+
+The editor started as browser-only JavaScript, which meant nothing it authored
+could be tessellated or rasterized on native / Pi / wasm32 — the engine's whole
+point. The rendering logic is moving into Ranger kernel by kernel; each one
+keeps its JS original as a reference until a parity suite proves the port is a
+drop-in.
+
+| Kernel | Where it runs now |
+|--------|-------------------|
+| Bezier / Catmull-Rom / arc sampling | **Ranger** (`SplineLathe.bezierPoint`, `catmullPoint`, …) |
+| Spine frames (parallel transport) | **Ranger** — `SplineLathe.buildSpineFrames` |
+| Rotation lathe on a spine | **Ranger** — `SplineLathe.latheOnSpine` |
+| Torus / tube sweep + unit fit | **Ranger** — `SplineLathe.torusOnSpine`, `torusUnitFitScale` |
+| Part assembly / colouring (`latheTessellate.js`) | JS |
+| Eye texture rasterizer (`eyeTexture.js`, `eyeEmotion.js`) | JS — **still no non-browser runtime** |
+
+The Ranger entry points take and return **flat primitive arrays**, never object
+graphs, so the same functions lower to the wasm32 / native ABI unchanged.
+
+`app/src/lib/spineLathe.js` now exports thin wrappers that derive the centre
+line (spine sampling is still JS) and call Ranger; the former implementations
+remain as `latheProfileWithOrbitOnSpineJs` / `latheProfileAsTorusOnSpineJs`,
+which exist **only** so `tests/diff/spine_lathe_parity.mjs` can diff them
+(72 checks across straight/bent spines, open/closed, torus, dense sampling).
+Delete them when that suite is retired.
+
 ## Tessellate
 
 Two modes (`editor.tessellationMode`):
@@ -89,6 +220,35 @@ npm run dev
 ```
 
 Open the printed local URL (default `http://localhost:5177`).
+
+## Tests
+
+```bash
+npm run engine:v2:mesh:test    # module smokes + browser e2e
+npm run engine:v2:mesh:e2e     # e2e only
+```
+
+Two layers, both registered in the central v2 gate (`npm run engine:v2:test`):
+
+| Layer | What it covers |
+|-------|----------------|
+| **Module smokes** — every `app/scripts/smoke-*.mjs` | pure-Node module logic (spine, torus, mesh pick, eye texture, atlas sharing, placement normal, library path safety). Discovered by glob, so a new smoke cannot be silently left out |
+| **Port parity** — `tests/diff/*.mjs` | each kernel moved from JS into Ranger is diffed against its JS reference on identical inputs (positions/normals/uvs/indices, bit-identical). See *Ranger port* below |
+| **Transport guard** — `tests/host/*.mjs` | the preview host must keep driving `RgRegistryBridge` (no direct `three/port` resource imports, no poking arena arrays) and must preserve the shared-atlas semantics. See *Preview transport* below |
+| **Browser e2e** — `tests/e2e/mesh_editor_e2e.mjs` | the real app: rebuilds both `.rgr` halves, starts an actual Vite dev server (live `/api/library`), drives headless Chromium. Asserts both canvases render, the five shading modes, torus vs rotation, view switching, knot edit → mesh change → undo, the texture workspace, and a library save/load round-trip |
+
+The e2e writes to a temp `MESH_EDITOR_LIBRARY`, never your own `library/projects/`.
+It **SKIPs** (exit 3, never a fake pass) when app deps or Chromium are missing;
+`V2_SKIP_BROWSER=1` forces the skip.
+
+Two gotchas worth knowing before extending the e2e:
+
+- A **WebGL canvas reads back blank** via `drawImage`/`getImageData` after the
+  frame composites. Measure it with an element screenshot (`canvasStats` does
+  this automatically).
+- Set numeric fields by **typing + Enter**, not Playwright's `fill()`. `fill()`
+  leaves the input's native dirty flag set, so a second real `change` fires on
+  the next blur — an extra edit that makes undo look broken when it is not.
 
 ## Local library (filesystem “database”)
 

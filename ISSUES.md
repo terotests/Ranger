@@ -3,6 +3,7 @@
 ## Summary (December 2025)
 
 ### Recently Fixed
+- Issue #65: A statement starting with a parenthesised receiver silently deleted the rest of the block (infinite loops in `game_provider.rgr`, a dropped `return` in `wasm_abi_io.rgr`) - Parser now rejects it; parse errors are fatal (July 2026)
 - Issue #64: Inheritance broke when a subclass's file was imported via two different path strings (duplicate class collection) - Fixed with `RangerAppClassDesc.is_collected` guard (July 2026)
 - Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
 - Issue #4: Go integer division type - Fixed with `float64()` cast
@@ -83,6 +84,118 @@ processed). Regression test: `tests/inheritance-dup-import.test.ts`.
 
 Workaround (no longer needed, but still good hygiene): import each file via one
 consistent path form so nothing is loaded twice.
+
+---
+
+## Issue #65: A statement starting with a parenthesised receiver silently DELETES the rest of the block
+
+**Status:** Fixed — the parser now rejects it (July 2026)
+**Severity:** **Critical** (silent wrong-code generation; no diagnostic at all)
+**Found:** July 2026, while porting the v2 mesh-editor preview host
+**Targets:** all (front-end parser, so every backend inherits it)
+
+### Description
+
+When a **statement** begins with a parenthesised receiver followed by a method
+call — `(expr).method()` — the parser opened a fresh statement at `.method`, and
+that statement's recursive `parse()` then absorbed **every remaining statement of
+the enclosing block** as extra children. Codegen quietly discarded them.
+
+The result: the rest of the method body disappeared from the output. No error, no
+warning, and the emitted file looked perfectly normal.
+
+```ranger
+fn probe:void () {
+    (this.get()).bump()
+    a = 1                 ; <-- silently deleted
+    b = 2                 ; <-- silently deleted
+    c = 3                 ; <-- silently deleted
+}
+```
+
+emitted:
+
+```js
+probe () {
+  ((this).get()).bump();     // and nothing else
+};
+```
+
+The dropped statements were never even analysed: an `undefinedThing = 42` placed
+after the call compiled without complaint.
+
+### Scope — where it does NOT apply
+
+A parenthesised receiver inside an **expression** is fine and always was, because
+`curr_node` is then an expression node rather than a block node:
+
+```ranger
+def q:int ((m2.bump()).value())     ; works correctly
+return ((unwrap asBridge).ar(addr)) ; works correctly
+```
+
+Only *statement* position was affected.
+
+### Real bugs this caused in this repository
+
+Two live sites, both silently miscompiled for as long as they have existed:
+
+1. **`gallery/game_engine/scripting/game_provider.rgr`** — all four provider
+   fan-out loops (`onDeclareAll`, `beforeUpdateAll`, `afterUpdateAll`,
+   `onDetachAll`) lost their `i = (i + 1)` increment:
+
+   ```js
+   onDeclareAll () {
+     const i = 0;                              // never incremented
+     while (i < (this.providers.length)) {
+       (this.providers[i]).onDeclare();        // infinite loop
+     };
+   };
+   ```
+
+   Every one was an **infinite loop** whenever a provider was attached. This is
+   the provider registry IDEAL.md §6 builds the capability seam on.
+
+2. **`gallery/game_engine/scripting/wasm_abi_io.rgr`** — `writeMem` lost the
+   `return` that ends its `useAs` branch, so the branch fell through instead of
+   returning.
+
+Also present, but harmless because the call was the last statement in its block:
+`compiler/ng_writer.rgr` (the compiler's own source), and
+`compiler/test_call.rgr`, where the swallowed statements meant the fixture was
+not testing what it appeared to.
+
+### Fix
+
+`compiler/ng_parser_v2.rgr` — the block-node branch now rejects a statement whose
+first character is `.`, reporting the file, line and source text plus the
+workaround. `compiler/VirtualCompiler.rgr` treats `parser.had_error` as fatal so
+no output file is written from a truncated AST (previously a parse error printed
+but the compile still "succeeded" and emitted code).
+
+The guard tests the character at the symbol start (`charAt s i`), **not** `c` —
+`c` can be stale at that point, and using it rejected innocent lines such as
+`if (!null? wr) {`.
+
+Not *supporting* the syntax was a deliberate choice: it is a LISP/S-expression
+grammar where the receiver would have to be re-parented into the previous
+sibling, and there is a trivial, already-idiomatic workaround. Turning silent
+code loss into a hard error is the valuable part; making the syntax work is
+possible future work.
+
+### Workaround (the fix the compiler now suggests)
+
+```ranger
+def recv:SomeType (the.expression())
+recv.method()
+```
+
+### Verification
+
+- Rebuilt compiler reaches a **fixed point** (it recompiles itself byte-for-byte).
+- All 7 occurrences repo-wide fixed; `game_provider` now emits `let i = 0` with
+  the increment restored, `writeMem` regains its `return`.
+- v2 engine gate green (106/106 suites + boundary gate) on the new compiler.
 
 ---
 
