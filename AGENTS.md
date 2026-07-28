@@ -63,6 +63,15 @@ argument needs its own parentheses. A few consequences bite repeatedly:
   resolution in a subclass — surfacing as a *phantom* `function variable not
   found <inheritedMethod>` at an unrelated file. Fixed (ISSUES.md #64), but
   consistent import paths remain good hygiene.
+- **Static array literals: mind the group parentheses.** `([] a b c)` (untyped)
+  and `([] _:T ( a b c ))` (typed, elements in a **parenthesised group**) both
+  work and are a readable replacement for a run of `push` statements. But
+  `([] _:T a b c)` — type marker, *no* group — compiles without a word of
+  complaint and emits the `_` marker as a literal first element while degrading
+  the element type to Any (`[_, a, b, c]` in ES6, `r_union_Any[]` in C++,
+  `[]interface{}` in Go). See ISSUES.md #67. Rust used to emit a fixed-size
+  `[T; N]` here where a `Vec<T>` was required, so it never compiled; fixed in
+  #66.
 - **Integer division is `idiv`,** not `/` (which is real division).
 - **No `abs` / `=== undefined` builtins;** inline the absolute value, and avoid
   `x === undefined` checks (the TSX interpreter's `extends`/`super` are also

@@ -22011,6 +22011,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.out(")", false);
       }
     };
+    async writeArrayLiteral (node, ctx, wr) {
+      wr.out("vec![", false);
+      await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+        if ( index > 0 ) {
+          wr.out(", ", false);
+        }
+        await this.WalkNode(item, ctx, wr);
+      }));
+      wr.out("]", false);
+    };
     async writeClass (node, ctx, orig_wr) {
       const ucl = node.clDesc;
       if ( typeof(ucl) === "undefined" ) {

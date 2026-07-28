@@ -3,6 +3,7 @@
 ## Summary (December 2025)
 
 ### Recently Fixed
+- Issue #66: Rust backend emitted a fixed-size array `[a, b, c]` for the `([] ...)` array literal where every Ranger array is a `Vec<T>` — never compiled (`expected Vec<K>, found [K; 3]`). Fixed with a `writeArrayLiteral` override emitting `vec![...]` (July 2026)
 - Issue #65: A statement starting with a parenthesised receiver silently deleted the rest of the block (infinite loops in `game_provider.rgr`, a dropped `return` in `wasm_abi_io.rgr`) - Parser now rejects it; parse errors are fatal (July 2026)
 - Issue #64: Inheritance broke when a subclass's file was imported via two different path strings (duplicate class collection) - Fixed with `RangerAppClassDesc.is_collected` guard (July 2026)
 - Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
@@ -14,6 +15,7 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
+- Issue #67: `([] _:T a b c)` — the typed array literal *without* the parenthesised element group — silently miscompiles on every backend instead of erroring. Emits the `_` marker as a literal element and degrades the element type to Any. Workaround: use `([] a b c)` or `([] _:T (a b c))` (see below).
 - Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
 - Issue #59: System classes have hardcoded type handling (Design Issue)
 - Issue #15: Adding new primitive types requires changes in multiple files (partially addressed by `TTypeRegistry`; full `primitivetype` registry not done)
@@ -84,6 +86,107 @@ processed). Regression test: `tests/inheritance-dup-import.test.ts`.
 
 Workaround (no longer needed, but still good hygiene): import each file via one
 consistent path form so nothing is loaded twice.
+
+---
+
+## Issue #66: Rust array literals emitted `[T; N]` where `Vec<T>` was required (FIXED)
+
+**Status**: Fixed July 2026
+**Severity**: High for the Rust/wasm32 target — the generated code never compiled.
+
+### Symptom
+
+Ranger's static array literal is used like this:
+
+```
+sfn defaultOrbitKnots:[SplineKnot] () {
+    def k:double 0.5522847498307936
+    return ([] _:SplineKnot (
+        (SplineKnot.of(1.0 0.0 0.0 k))
+        (SplineKnot.of(0.0 1.0 (0.0 - k) 0.0))
+    ))
+}
+```
+
+The Rust backend emitted:
+
+```rust
+let mut knots : Vec<SplineKnot> = [SplineKnot::of(...), SplineKnot::of(...)];
+```
+
+`rustc` rejects it — `[...]` builds a fixed-size `[T; N]`, and every Ranger array
+lowers to `Vec<T>`:
+
+```
+error[E0308]: mismatched types
+  |     let knots: Vec<K> = [K::of(1_f64), K::of(2_f64)];
+  |                ------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Vec<K>`, found `[K; 2]`
+```
+
+### Cause
+
+`RangerRustClassWriter` had no `writeArrayLiteral`, so it inherited
+`RangerGenericClassWriter`'s, which hard-codes `"[" ... "]"`. The C++, Go, C#,
+Java7 and PHP writers each override it; Rust was simply never given one.
+
+Note the `templates { rust ( ... ) }` block in `Lang.rgr` is NOT the mechanism
+here — `ng_LiveCompiler` dispatches `is_array_literal` nodes straight to
+`langWriter.writeArrayLiteral`, so adding a template has no effect. The fix has
+to be a writer override.
+
+### Fix
+
+`compiler/ng_RangerRustClassWriter.rgr` — added a `writeArrayLiteral` that
+emits `vec![a, b, c]`.
+
+### Verification
+
+- Compiler bootstrapped to a byte-identical fixed point (two passes).
+- Emitted Rust now compiles under `rustc --edition 2021 -O` and produces results
+  identical to the equivalent `push`-based function.
+- Negative control: `invaders.rgr`, `pong.rgr`, `js_parser_main.rgr` and
+  `ts_parser_main.rgr` produce **byte-identical** Rust before and after, so the
+  change is inert away from array-literal sites.
+- `npm run engine:v2:test` → v2 ALL GREEN 107/107.
+
+---
+
+## Issue #67: `([] _:T a b c)` silently miscompiles (OPEN)
+
+**Status**: Open
+**Severity**: Medium — silent wrong code, no diagnostic.
+
+The typed array literal has two valid spellings:
+
+```
+([] 1 2 3)                    ; untyped — element type inferred
+([] _:SplineKnot ( a b c ))   ; typed — elements in a parenthesised GROUP
+```
+
+Omitting the group while keeping the type marker:
+
+```
+([] _:SplineKnot a b c)       ; WRONG — compiles, produces garbage
+```
+
+…is accepted by every backend and emits the `_` marker as a literal first
+element while degrading the element type:
+
+| Target | Emitted |
+|--------|---------|
+| ES6    | `[_, a, b, c]` — `_` is undefined → `ReferenceError` at runtime |
+| C++    | `r_make_vector_from_array( (r_union_Any[]) {_, a, b, c} )` — element type lost |
+| Go     | `[]interface{} {_, a, b, c}` — element type lost |
+
+It should be a parse/type error. Until then, prefer the untyped form or remember
+the group parentheses.
+
+### Related: C++ compound literals are not ISO C++
+
+The C++ `writeArrayLiteral` emits `( T[] ) { ... }`, a C99 compound literal.
+GCC and Clang accept it as an extension; `-Wpedantic` warns
+("ISO C++ forbids compound-literals") and MSVC rejects it. A conforming form
+would be `std::vector<T>{ a, b, c }`.
 
 ---
 

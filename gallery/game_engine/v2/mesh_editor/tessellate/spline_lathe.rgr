@@ -350,12 +350,12 @@ class SplineLathe {
     ; Canvas mapping: x → world X (cos), y → world Z (sin). Starts at (1,0).
     sfn defaultOrbitKnots:[SplineKnot] () {
         def k:double 0.5522847498307936
-        def knots:[SplineKnot]
-        push knots (SplineKnot.of(1.0 0.0 0.0 k))
-        push knots (SplineKnot.of(0.0 1.0 (0.0 - k) 0.0))
-        push knots (SplineKnot.of((0.0 - 1.0) 0.0 0.0 (0.0 - k)))
-        push knots (SplineKnot.of(0.0 (0.0 - 1.0) k 0.0))
-        return knots
+        return ([] _:SplineKnot (
+            (SplineKnot.of(1.0 0.0 0.0 k))
+            (SplineKnot.of(0.0 1.0 (0.0 - k) 0.0))
+            (SplineKnot.of((0.0 - 1.0) 0.0 0.0 (0.0 - k)))
+            (SplineKnot.of(0.0 (0.0 - 1.0) k 0.0))
+        ))
     }
 
     ; Sample a CLOSED knot loop into orbitX/orbitY (no duplicate closing sample).
