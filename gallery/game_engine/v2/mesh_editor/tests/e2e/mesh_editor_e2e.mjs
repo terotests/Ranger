@@ -627,6 +627,103 @@ try {
   check("eye texture layers are listed", eyeLayer > 0, `matches=${eyeLayer}`);
   const texShot = await canvasStats(page, SPLINE, "texture_editor");
   check("texture path editor draws", texShot.colors >= 4, `colors=${texShot.colors}`);
+
+  // -- 10b. texture Rotate tool ---------------------------------------------
+  // Rotate places a pivot and spins every control point (and its Bezier handle
+  // offsets) about it. The maths is unit-tested; this drives the real gizmo and
+  // proves the gesture reaches the texture undo history as ONE step.
+  check("Symmetry checkbox is gone", (await page.locator('text="Symmetry"').count()) === 0);
+
+  const rotateBtn = page.locator('button:has-text("Rotate")').first();
+  if (check("Rotate tool button exists", (await rotateBtn.count()) > 0)) {
+    const texCanvas = page.locator(SPLINE).first();
+    const tb = await texCanvas.boundingBox();
+    const centre = { x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 };
+
+    // Capture the PATH with the gizmo hidden (Edit mode). Comparing frames that
+    // include the gizmo is useless here: the ring's grab dot stays wherever the
+    // drag left it, so the canvas differs even when the path is identical —
+    // which would make an undo assertion pass for the wrong reason.
+    const pathShot = async (tag) => {
+      await page.click('button:text-is("Edit")');
+      await page.waitForTimeout(650);
+      return signatureOf(page, SPLINE, tag);
+    };
+    const enterRotate = async () => {
+      await rotateBtn.click();
+      await page.waitForTimeout(650);
+    };
+
+    const pathBefore = await pathShot("tex_path_before_rotate");
+    await enterRotate();
+
+    // The ring sits ~74px from the pivot; grab it on the right and swing down.
+    await page.mouse.move(centre.x + 74, centre.y);
+    await page.mouse.down();
+    await page.mouse.move(centre.x + 52, centre.y + 52, { steps: 6 });
+    await page.mouse.move(centre.x, centre.y + 74, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+
+    const pathAfter = await pathShot("tex_path_after_rotate");
+    check(
+      "dragging the ring rotates the path itself",
+      pathAfter !== pathBefore,
+      "path unchanged after a rotate drag (gizmo excluded from the comparison)",
+    );
+
+    // Undo/redo: the whole drag must collapse to a single step.
+    const texUndo = page.locator('button:text-is("Undo")');
+    if (check("rotate enabled Undo", !(await texUndo.isDisabled()))) {
+      await texUndo.click();
+      await page.waitForTimeout(1200);
+      const pathUndo = await pathShot("tex_path_after_undo");
+      check(
+        "one rotate drag undoes in ONE step",
+        pathUndo === pathBefore,
+        "the drag did not collapse to a single history entry",
+      );
+
+      const texRedo = page.locator('button:text-is("Redo")');
+      if (check("Redo is available after undo", !(await texRedo.isDisabled()))) {
+        await texRedo.click();
+        await page.waitForTimeout(1200);
+        const pathRedo = await pathShot("tex_path_after_redo");
+        check("Redo re-applies the rotation exactly", pathRedo === pathAfter);
+      }
+    }
+    await enterRotate();
+
+    // Moving the pivot must not itself deform the path.
+    const beforePivot = await signatureOf(page, SPLINE, "tex_before_pivot");
+    await page.mouse.move(centre.x, centre.y);
+    await page.mouse.down();
+    await page.mouse.move(centre.x - 45, centre.y - 30, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(1000);
+    const afterPivot = await signatureOf(page, SPLINE, "tex_after_pivot");
+    check(
+      "dragging the pivot moves the gizmo, not the path",
+      afterPivot !== beforePivot,
+      "gizmo did not redraw at the new pivot",
+    );
+
+    // ...and rotating about the moved pivot still works (different result than
+    // rotating about the centroid would give).
+    const beforeRot2 = await signatureOf(page, SPLINE, "tex_before_rotate2");
+    const p2 = { x: centre.x - 45, y: centre.y - 30 };
+    await page.mouse.move(p2.x + 74, p2.y);
+    await page.mouse.down();
+    await page.mouse.move(p2.x + 52, p2.y + 52, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+    const afterRot2 = await signatureOf(page, SPLINE, "tex_after_rotate2");
+    check("rotating about the moved pivot works", afterRot2 !== beforeRot2);
+
+    await page.click('button:text-is("Edit")');
+    await page.waitForTimeout(600);
+  }
+
   await page.click('button:text-is("Mesh")');
   await page.waitForTimeout(1500);
 

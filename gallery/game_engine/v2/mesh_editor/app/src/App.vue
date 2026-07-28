@@ -74,6 +74,9 @@ const texSelected = tex.selectedTexture;
 const texPathClosed = tex.pathClosed;
 const texClampX = tex.clampNonNegativeX;
 const texShowMirror = tex.showMirror;
+// Top-level const so the template auto-unwraps the ref (refs nested inside a
+// plain composable object are NOT unwrapped in templates).
+const texRotateCenter = tex.rotateCenter;
 const texEyePair = tex.eyePair;
 const texFlipX = tex.flipX;
 const texCanvasToolMode = tex.canvasToolMode;
@@ -636,14 +639,6 @@ onBeforeUnmount(() => {
           >
             Reset to mirror image
           </button>
-          <label class="tex-check" title="Edit right half; left is mirrored (like mesh profile)">
-            <input
-              type="checkbox"
-              :checked="texState.symmetry"
-              @change="tex.setSymmetry($event.target.checked)"
-            />
-            Symmetry
-          </label>
           <label
             class="tex-check"
             title="After moving a point, recompute Bezier handles for smooth joins"
@@ -1035,11 +1030,14 @@ onBeforeUnmount(() => {
           @update-knot="tex.onPathKnotUpdate"
           @add-on-curve="tex.onPathAdd"
           @translate-path="tex.onTranslatePath"
+          :rotate-center="texRotateCenter"
+          @rotate-path="tex.onRotatePath"
+          @update-rotate-center="tex.setRotateCenter"
           @drag-end="tex.onPathDragEnd"
         />
         <p class="tex-canvas-hint">
-          Few control points · Symmetry mirrors left · Add tool inserts knots · Auto smooth
-          keeps joins continuous
+          Few control points · Add tool inserts knots · Auto smooth keeps joins
+          continuous · Rotate spins the layer about a draggable pivot
         </p>
       </div>
       <TextureLayerPanel

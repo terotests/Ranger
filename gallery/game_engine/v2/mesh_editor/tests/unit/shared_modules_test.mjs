@@ -45,6 +45,12 @@ const { lerp, clamp, clamp01 } = await imp("math/scalar.js");
 const { hexToRgb, hexToInt, mixHex, mulColorHex, roughnessToShininess } =
   await imp("math/color.js");
 const { useDragGesture } = await imp("canvas/useDragGesture.js");
+// pathModel is a feature module, not shared/, but rotatePath is pure geometry
+// that the texture Rotate tool depends on, so it is pinned here too.
+const LIB = path.resolve(HERE, "../../app/src/lib");
+const { rotatePath, pathCentroid } = await import(
+  url.pathToFileURL(path.join(LIB, "pathModel.js")).href
+);
 
 let passed = 0;
 let failed = 0;
@@ -245,6 +251,62 @@ checkNear("clamp01 high", clamp01(2), 1);
   throwy.begin("orbit", null, { pointerId: 2 });
   check("capture failure does not abort the drag", throwy.isActive("orbit"));
   check("release failure does not abort the end", throwy.end({ pointerId: 2 }).kind === "orbit");
+}
+
+
+// ---------------------------------------------------------------------------
+// rotatePath — the texture editor's Rotate tool
+//
+// Rigidity is the whole contract: knots turn about the pivot, and Bezier
+// handles (stored as OFFSETS from their knot) turn as vectors. Rotate the
+// handles about the pivot instead and the curve shears rather than turns,
+// which looks almost right and is very hard to spot by eye.
+// ---------------------------------------------------------------------------
+{
+// 90deg CCW about origin: (1,0) -> (0,1)
+let k=[{id:"a",x:1,y:0,hx:0,hy:0.5}];
+rotatePath(k,0,0,Math.PI/2);
+check("point rotates 90deg CCW about origin", near(k[0].x,0,1e-12)&&near(k[0].y,1,1e-12), JSON.stringify(k[0]));
+check("handle offset rotates with it", near(k[0].hx,-0.5,1e-12)&&near(k[0].hy,0,1e-12), `${k[0].hx},${k[0].hy}`);
+
+// rotation about a non-origin pivot
+let k2=[{id:"b",x:2,y:1,hx:0,hy:0}];
+rotatePath(k2,1,1,Math.PI);
+check("180deg about (1,1) reflects through the pivot", near(k2[0].x,0,1e-12)&&near(k2[0].y,1,1e-12), JSON.stringify(k2[0]));
+
+// rigidity: distances to pivot preserved, shape preserved
+const mk=()=>[{id:"1",x:1,y:0,hx:0,hy:0.3},{id:"2",x:0,y:1,hx:-0.3,hy:0},{id:"3",x:-1,y:0,hx:0,hy:-0.3}];
+const a=mk(); const b=mk();
+rotatePath(b,0.25,-0.1,0.7);
+let rigid=true, shape=true;
+for(let i=0;i<a.length;i++){
+  const da=Math.hypot(a[i].x-0.25,a[i].y+0.1), db=Math.hypot(b[i].x-0.25,b[i].y+0.1);
+  if(!near(da,db,1e-12)) rigid=false;
+  if(!near(Math.hypot(a[i].hx,a[i].hy),Math.hypot(b[i].hx,b[i].hy),1e-12)) shape=false;
+}
+check("every point keeps its distance to the pivot", rigid);
+check("handle lengths are preserved (rigid, not sheared)", shape);
+// pairwise distances preserved
+check("pairwise distances preserved", near(Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y), Math.hypot(b[0].x-b[1].x,b[0].y-b[1].y),1e-12));
+
+// full turn is identity
+const c=mk(); rotatePath(c,0.3,0.2,Math.PI*2);
+check("a full turn returns the original points", c.every((k,i)=>near(k.x,mk()[i].x,1e-9)&&near(k.y,mk()[i].y,1e-9)));
+
+// inverse undoes
+const d=mk(); rotatePath(d,0.3,0.2,0.9); rotatePath(d,0.3,0.2,-0.9);
+check("rotating back by -angle restores exactly", d.every((k,i)=>near(k.x,mk()[i].x,1e-9)&&near(k.y,mk()[i].y,1e-9)));
+
+// zero angle is a no-op, and no crash on empty
+const e=mk(); rotatePath(e,0,0,0);
+check("zero angle is a no-op", e[0].x===1&&e[0].y===0);
+rotatePath([],0,0,1); rotatePath(null,0,0,1);
+check("empty/null input does not throw", true);
+
+// centroid pivot: rotating about the centroid keeps the centroid put
+const g=mk(); const c0=pathCentroid(g); rotatePath(g,c0.x,c0.y,1.1); const c1=pathCentroid(g);
+check("rotating about the centroid keeps the centroid fixed", near(c0.x,c1.x,1e-12)&&near(c0.y,c1.y,1e-12));
+
 }
 
 console.log(`passed=${passed} failed=${failed}`);

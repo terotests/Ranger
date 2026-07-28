@@ -10,6 +10,8 @@ const props = defineProps({
   selectedSegmentIndex: { type: Number, default: -1 },
   curveType: { type: Number, default: 0 },
   symmetry: { type: Boolean, default: true },
+  /** Rotate-mode pivot in world coords; the gizmo only shows in toolMode "rotate". */
+  rotateCenter: { type: Object, default: null },
   toolMode: { type: String, default: "edit" },
   viewMode: { type: String, default: "profile" },
   children: { type: Array, default: () => [] },
@@ -45,6 +47,8 @@ const emit = defineEmits([
   "select-child",
   "move-child",
   "translate-path",
+  "rotate-path",
+  "update-rotate-center",
 ]);
 
 const canvasRef = ref(null);
@@ -57,6 +61,13 @@ const SIZE_FALLBACK = 560;
 const drag = useDragGesture({ element: () => canvasRef.value });
 let raf = 0;
 const hoverAdd = ref(null);
+/**
+ * Angle of the rotate grab handle on its ring (radians, screen space).
+ * Visual only: the rotation actually applied is the DELTA between pointer
+ * moves, so the path never jumps to an absolute angle when you grab the dot
+ * away from where it was left.
+ */
+const ringAngle = ref(0);
 
 /**
  * CSS display size (not the hardcoded buffer). Texture layout scales the canvas
@@ -253,6 +264,98 @@ function hitTestPlacementNormal(sx, sy) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Rotate gizmo (toolMode "rotate")
+//
+// Two handles: the PIVOT (drag to move the centre of rotation) and a RING
+// handle on a circle around it (drag to spin). The ring radius is fixed in
+// SCREEN pixels, not world units, so the grab target stays the same size at any
+// zoom and never collapses to nothing when the pivot sits on the path.
+// ---------------------------------------------------------------------------
+const ROTATE_RING_PX = 74;
+const ROTATE_HIT_PX = 13;
+
+/** Screen position of the pivot, or null when rotate mode is not active. */
+function rotatePivotScreen() {
+  if (props.toolMode !== "rotate" || !props.rotateCenter) return null;
+  const { w, h } = viewSize();
+  const [px, py] = worldToScreen(props.rotateCenter.x, props.rotateCenter.y, w, h);
+  return { px, py, w, h };
+}
+
+/** Ring-handle position for a given angle (screen space, y down). */
+function rotateHandleScreen(angleRad) {
+  const p = rotatePivotScreen();
+  if (!p) return null;
+  return {
+    hx: p.px + Math.cos(angleRad) * ROTATE_RING_PX,
+    hy: p.py + Math.sin(angleRad) * ROTATE_RING_PX,
+  };
+}
+
+function drawRotateGizmo(ctx) {
+  const p = rotatePivotScreen();
+  if (!p) return;
+  const handle = rotateHandleScreen(ringAngle.value);
+  ctx.save();
+  // Ring
+  ctx.strokeStyle = "rgba(255, 214, 102, 0.85)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.arc(p.px, p.py, ROTATE_RING_PX, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Spoke to the grab handle
+  if (handle) {
+    ctx.strokeStyle = "rgba(255, 214, 102, 0.55)";
+    ctx.beginPath();
+    ctx.moveTo(p.px, p.py);
+    ctx.lineTo(handle.hx, handle.hy);
+    ctx.stroke();
+  }
+  // Pivot crosshair
+  ctx.strokeStyle = "#ffd666";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(p.px - 9, p.py);
+  ctx.lineTo(p.px + 9, p.py);
+  ctx.moveTo(p.px, p.py - 9);
+  ctx.lineTo(p.px, p.py + 9);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255, 214, 102, 0.25)";
+  ctx.beginPath();
+  ctx.arc(p.px, p.py, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#ffd666";
+  ctx.stroke();
+  // Grab handle
+  if (handle) {
+    ctx.fillStyle = "#ffd666";
+    ctx.beginPath();
+    ctx.arc(handle.hx, handle.hy, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#3a2f10";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Which rotate handle is under the cursor: "pivot" | "ring" | null. */
+function hitTestRotate(sx, sy) {
+  const p = rotatePivotScreen();
+  if (!p) return null;
+  if (Math.hypot(p.px - sx, p.py - sy) <= ROTATE_HIT_PX) return "pivot";
+  const handle = rotateHandleScreen(ringAngle.value);
+  if (handle && Math.hypot(handle.hx - sx, handle.hy - sy) <= ROTATE_HIT_PX) return "ring";
+  // Anywhere near the ring itself also grabs the spin, which is far easier to
+  // hit than the dot alone.
+  const d = Math.hypot(p.px - sx, p.py - sy);
+  if (Math.abs(d - ROTATE_RING_PX) <= 10) return "ring";
+  return null;
+}
+
 function draw() {
   const canvas = canvasRef.value;
   if (!canvas) return;
@@ -435,6 +538,7 @@ function draw() {
 
   // Placement normal on top in Profile / Orbit so it stays obvious.
   drawPlacementNormal(ctx, w, h);
+  drawRotateGizmo(ctx);
 }
 
 function evalMid(segIndex) {
@@ -545,6 +649,23 @@ function onPointerDown(e) {
     return;
   }
 
+  if (props.toolMode === "rotate") {
+    const rh = hitTestRotate(sx, sy);
+    if (rh === "pivot") {
+      drag.begin("rot-pivot", null, e);
+      return;
+    }
+    if (rh === "ring") {
+      const p = rotatePivotScreen();
+      // Remember the angle the grab STARTED at; each move rotates by the
+      // difference, so grabbing the ring anywhere never snaps the shape.
+      drag.begin("rot-ring", { last: Math.atan2(sy - p.py, sx - p.px) }, e);
+      return;
+    }
+    // Clicking elsewhere in rotate mode does nothing (no accidental knot edits).
+    return;
+  }
+
   if (props.toolMode === "edit" && showPlacementNormal.value) {
     const nh = hitTestPlacementNormal(sx, sy);
     if (nh) {
@@ -601,6 +722,30 @@ function onPointerMove(e) {
     return;
   }
 
+  if (drag.isActive("rot-pivot")) {
+    emit("update-rotate-center", wx, wy);
+    return;
+  }
+
+  const ringDrag = drag.payloadOf("rot-ring");
+  if (ringDrag) {
+    const p = rotatePivotScreen();
+    if (p) {
+      const now = Math.atan2(sy - p.py, sx - p.px);
+      let d = now - ringDrag.last;
+      // Shortest way round, so crossing the +/-PI seam does not spin the shape
+      // a full turn backwards.
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      ringDrag.last = now;
+      ringAngle.value = now;
+      // Screen y grows downward while world y grows upward, so a clockwise
+      // drag on screen must be a clockwise turn in world space: negate.
+      if (d) emit("rotate-path", -d);
+    }
+    return;
+  }
+
   const draggingNormal = drag.payloadOf("normal");
   if (draggingNormal && props.toolMode === "edit") {
     if (draggingNormal === "start") {
@@ -641,6 +786,10 @@ function onPointerUp(e) {
   ) {
     emit("drag-end");
   }
+  if (drag.isActive("rot-pivot", "rot-ring") && props.toolMode === "rotate") {
+    // One drag = one undo step, same contract as translate.
+    emit("drag-end");
+  }
   if (drag.isActive("translate") && props.toolMode === "move") {
     emit("drag-end");
   }
@@ -668,6 +817,8 @@ watch(
     props.selectedChildGuid,
     props.editTarget,
     props.placementNormal,
+    props.rotateCenter,
+    ringAngle.value,
     curvePts.value,
     hoverAdd.value,
   ],
