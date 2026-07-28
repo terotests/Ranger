@@ -1,0 +1,9 @@
+; A Ranger `main:void` -- no return value, so the Rust writer must emit a plain
+; `fn main() { ... }` with no exit-code plumbing. Guards the #66 fix against
+; over-reach: only a value-returning main gets wrapped.
+
+class MainReturnsVoid {
+  static sfn main:void () {
+    print "void main ok"
+  }
+}

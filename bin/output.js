@@ -12216,6 +12216,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return;
         }
       }
+      for ( let mi = 0; mi < node.children.length; mi++) {
+        var marker = node.children[mi];
+        if ( mi == 0 ) {
+          continue;
+        }
+        if ( ((marker.vref.length) > 0) && ((marker.type_name.length) > 0) ) {
+          ctx.addError(node, ((((("Array literal type marker '" + marker.vref) + ":") + marker.type_name) + "' must be followed by a parenthesised element group, as in ([] _:") + marker.type_name) + " ( a b c )). To let the element type be inferred, drop the marker: ([] a b c).");
+          return;
+        }
+      };
       const arrayItems_1 = node.newExpressionNode();
       let types = [];
       for ( let i_1 = 0; i_1 < node.children.length; i_1++) {
@@ -19722,17 +19732,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
     };
     async writeArrayLiteral (node, ctx, wr) {
-      this.compiler.createPolyfillLegacy("\ntemplate< typename T, size_t N >\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\n{\n    return std::vector<T>(data, data+N);\n}\n", ctx, wr);
-      wr.out("r_make_vector_from_array( (", false);
+      wr.out("std::vector<", false);
       wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
-      wr.out("[] ) {", false);
+      wr.out(">{", false);
       await operatorsOf.forEach_15(node.children, (async (item, index) => { 
         if ( index > 0 ) {
           wr.out(", ", false);
         }
         await this.WalkNode(item, ctx, wr);
       }));
-      wr.out("} )", false);
+      wr.out("}", false);
     };
     async writeClassHeader (node, ctx, wr) {
       const cl = node.clDesc;
@@ -22455,15 +22464,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         var variant_6 = cl.static_methods[i_15];
         const nn_2 = variant_6.nameNode;
         if ( nn_2.hasFlag("main") && (nn_2.code.filename == ctx.getRootFile()) ) {
+          const mainReturns = ((nn_2.type_name.length) > 0) && (nn_2.type_name != "void");
           wr.out("fn main() {", true);
           wr.indent(1);
           wr.newline();
+          if ( mainReturns ) {
+            wr.out("let __rg_exit_code = (|| {", true);
+            wr.indent(1);
+            wr.newline();
+          }
           const subCtx_4 = variant_6.fnCtx;
           if ( (typeof(subCtx_4) !== "undefined" && subCtx_4 != null )  ) {
             const sCtx_4 = subCtx_4;
             sCtx_4.is_function = true;
             const fnB_4 = variant_6.fnBody;
             await this.WalkNode(fnB_4, sCtx_4, wr);
+          }
+          if ( mainReturns ) {
+            wr.newline();
+            wr.indent(-1);
+            wr.out("})();", true);
+            wr.out("std::process::exit(__rg_exit_code as i32);", true);
           }
           wr.newline();
           wr.indent(-1);

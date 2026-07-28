@@ -1,0 +1,57 @@
+; Static array literals -- ([] a b c) and ([] _:T ( a b c )).
+;
+; Fixture for tests/array-literal.test.ts, which pins ISSUES.md #66 (Rust used
+; to emit a fixed-size [T; N] where a Vec<T> was required) and the C++ move off
+; C99 compound literals.
+;
+; `one` exists on purpose: braced init of a std::vector<int> with a single
+; integer must produce a ONE-element vector, not an N-element zeroed one. That
+; is the classic std::vector<int>(3) vs std::vector<int>{3} trap, and it is the
+; reason the C++ writer emits braces rather than parentheses.
+
+class Knot {
+  def x:double 0.0
+  static sfn of:Knot (x:double) {
+    def k:Knot (new Knot())
+    k.x = x
+    return k
+  }
+}
+
+class ArrayLiteralDemo {
+
+  ; Untyped -- element type inferred from the elements.
+  ;
+  ; Bound to a local rather than returned directly, on purpose: the Rust defect
+  ; showed up as `let x : Vec<i64> = [1, 2, 3];`, and a literal in return
+  ; position never produces that shape. A `return`-only fixture let the
+  ; "no bare array assigned to a Vec binding" assertion pass vacuously.
+  static sfn nums:[int] () {
+    def v:[int] ([] 1 2 3)
+    return v
+  }
+
+  ; Typed -- the marker MUST be followed by a parenthesised element group.
+  static sfn objs:[Knot] () {
+    def v:[Knot] ([] _:Knot ((Knot.of(1.0)) (Knot.of(2.5))))
+    return v
+  }
+
+  ; Single element: must be [3], never a 3-long zero-filled array.
+  static sfn one:[int] () {
+    def v:[int] ([] 3)
+    return v
+  }
+
+  static sfn main:int () {
+    def n:[int] (ArrayLiteralDemo.nums())
+    def o:[Knot] (ArrayLiteralDemo.objs())
+    def s:[int] (ArrayLiteralDemo.one())
+    print ("nums=" + (array_length n))
+    print ("objs=" + (array_length o))
+    print ("one=" + (array_length s))
+    def first:int (itemAt s 0)
+    print ("one0=" + first)
+    return 0
+  }
+}

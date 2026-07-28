@@ -2821,15 +2821,35 @@ class RangerRustClassWriter {
     for cl.static_methods variant:RangerAppFunctionDesc i {
       def nn:CodeNode (unwrap variant.nameNode)
       if ((nn.hasFlag("main")) && (nn.code.filename == (ctx.getRootFile()))) {
+        ; A Ranger `main:int` body ends in `return <code>`, but Rust's `fn main`
+        ; returns (), so the body was emitted verbatim into a signature that
+        ; could not accept it:
+        ;   error[E0308]: expected `()`, found integer
+        ; Run the body as a closure and hand its value to process::exit -- that
+        ; is precisely what `return 0` from a C/C++ main means, so the exit code
+        ; now survives to the shell instead of failing to compile.
+        ; A `main:void` needs none of this and is emitted as before.
+        def mainReturns:boolean (((strlen nn.type_name) > 0) && (nn.type_name != "void"))
         wr.out("fn main() {" true)
         wr.indent(1)
         wr.newline()
+        if mainReturns {
+          wr.out("let __rg_exit_code = (|| {" true)
+          wr.indent(1)
+          wr.newline()
+        }
         def subCtx@(optional):RangerAppWriterContext variant.fnCtx
         if (!null? subCtx) {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnB:CodeNode (unwrap variant.fnBody)
           this.WalkNode(fnB sCtx wr)
+        }
+        if mainReturns {
+          wr.newline()
+          wr.indent(-1)
+          wr.out("})();" true)
+          wr.out("std::process::exit(__rg_exit_code as i32);" true)
         }
         wr.newline()
         wr.indent(-1)

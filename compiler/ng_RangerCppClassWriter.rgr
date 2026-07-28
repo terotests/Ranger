@@ -1110,26 +1110,33 @@ class RangerCppClassWriter {
   }
 ;           this.createPolyfill( cmdArgs.string_value )
 
+  ; Static array literals -- ([] a b c) / ([] _:T (a b c)).
+  ;
+  ; This used to build a C99 compound literal and copy it through a helper:
+  ;
+  ;   r_make_vector_from_array( ( T[] ) { a, b, c } )
+  ;
+  ; Compound literals are a C construct that ISO C++ does not have. GCC and
+  ; Clang accept them as an extension (-Wpedantic: "ISO C++ forbids
+  ; compound-literals"); MSVC rejects them outright, so the C++ target was not
+  ; portable. The helper also cost an extra copy of every element: it built a
+  ; temporary array, then constructed the vector from that range.
+  ;
+  ; std::vector<T>{ a, b, c } is standard, needs no polyfill, and constructs the
+  ; elements once. Braces always prefer the initializer_list constructor, so the
+  ; vector(size_t) ambiguity that bites `std::vector<int>(3)` does not arise --
+  ; `std::vector<int>{3}` is a one-element vector, which is what we mean.
   fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-
-    this.compiler.createPolyfillLegacy("
-template< typename T, size_t N >
-std::vector<T> r_make_vector_from_array( const T (&data)[N] )
-{
-    return std::vector<T>(data, data+N);
-}
-" ctx wr)     
-    wr.out("r_make_vector_from_array( (" false)
-    ; this.writeTypeDef( node ctx wr)
+    wr.out("std::vector<" false)
     wr.out( (this.getObjectTypeString( node.eval_array_type ctx )) false )
-    wr.out("[] ) {" false)
+    wr.out(">{" false)
     node.children.forEach({
       if( index > 0 ) {
         wr.out(", " false)
       }
       this.WalkNode( item ctx wr )
     })
-    wr.out("} )" false)
+    wr.out("}" false)
   }
   
   fn writeClassHeader:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {

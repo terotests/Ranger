@@ -1,0 +1,17 @@
+; A Ranger `main:int` -- the body ends in `return <exit code>`.
+;
+; Rust's `fn main` returns (), so emitting this body verbatim produced
+;   error[E0308]: expected `()`, found integer
+; and the program never compiled. The Rust writer now runs the body as a
+; closure and feeds its value to std::process::exit, which is what `return 0`
+; from a C/C++ main means.
+;
+; The non-zero code is deliberate: it proves the value reaches the exit status
+; instead of being discarded.
+
+class MainReturnsInt {
+  static sfn main:int () {
+    print "running"
+    return 7
+  }
+}

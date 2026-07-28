@@ -3514,6 +3514,27 @@ class RangerFlowParser {
       }
     }
     
+    ; A type marker (`_:T`) is only meaningful as the SECOND child of the
+    ; three-child form `([] _:T ( a b c ))` handled above. Written WITHOUT the
+    ; parenthesised element group -- `([] _:T a b c)` -- it used to fall through
+    ; to the generic branch below, which treats every child as an element. The
+    ; marker was then emitted as a literal `_` (undefined at runtime in ES6) and,
+    ; counting as a second distinct "type", degraded eval_array_type to Any --
+    ; `r_union_Any[]` in C++, `[]interface{}` in Go. Silent wrong code on every
+    ; backend, with no diagnostic. See ISSUES.md #67.
+    ;
+    ; `name:Type` is the only syntax that sets both vref and type_name, and it is
+    ; never a valid element expression, so this cannot reject a legitimate array.
+    for node.children marker:CodeNode mi {
+      if( mi == 0 ) {
+        continue
+      }
+      if( ( (strlen marker.vref) > 0 ) && ( (strlen marker.type_name) > 0 ) ) {
+        ctx.addError( node ("Array literal type marker '" + marker.vref + ":" + marker.type_name + "' must be followed by a parenthesised element group, as in ([] _:" + marker.type_name + " ( a b c )). To let the element type be inferred, drop the marker: ([] a b c).") )
+        return
+      }
+    }
+
     def arrayItems (node.newExpressionNode())
     def types:[string]
     for node.children it:CodeNode i {

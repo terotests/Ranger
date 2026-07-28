@@ -3,7 +3,9 @@
 ## Summary (December 2025)
 
 ### Recently Fixed
-- Issue #66: Rust backend emitted a fixed-size array `[a, b, c]` for the `([] ...)` array literal where every Ranger array is a `Vec<T>` — never compiled (`expected Vec<K>, found [K; 3]`). Fixed with a `writeArrayLiteral` override emitting `vec![...]` (July 2026)
+- Issue #68: Rust `main:int` emitted `return <code>` into a `fn main()` that returns `()` — never compiled. Body now runs as a closure feeding `std::process::exit`, so the exit status survives (July 2026)
+- Issue #67: `([] _:T a b c)` — the typed array literal *without* the parenthesised element group — silently miscompiled on every backend. Now a parse error naming the correct spelling (July 2026)
+- Issue #66: Rust backend emitted a fixed-size array `[a, b, c]` for the `([] ...)` array literal where every Ranger array is a `Vec<T>` — never compiled (`expected Vec<K>, found [K; 3]`). Fixed with a `writeArrayLiteral` override emitting `vec![...]`. The C++ writer moved off C99 compound literals to `std::vector<T>{...}` at the same time (July 2026)
 - Issue #65: A statement starting with a parenthesised receiver silently deleted the rest of the block (infinite loops in `game_provider.rgr`, a dropped `return` in `wasm_abi_io.rgr`) - Parser now rejects it; parse errors are fatal (July 2026)
 - Issue #64: Inheritance broke when a subclass's file was imported via two different path strings (duplicate class collection) - Fixed with `RangerAppClassDesc.is_collected` guard (July 2026)
 - Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
@@ -15,7 +17,6 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
-- Issue #67: `([] _:T a b c)` — the typed array literal *without* the parenthesised element group — silently miscompiles on every backend instead of erroring. Emits the `_` marker as a literal element and degrades the element type to Any. Workaround: use `([] a b c)` or `([] _:T (a b c))` (see below).
 - Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
 - Issue #59: System classes have hardcoded type handling (Design Issue)
 - Issue #15: Adding new primitive types requires changes in multiple files (partially addressed by `TTypeRegistry`; full `primitivetype` registry not done)
@@ -151,10 +152,10 @@ emits `vec![a, b, c]`.
 
 ---
 
-## Issue #67: `([] _:T a b c)` silently miscompiles (OPEN)
+## Issue #67: `([] _:T a b c)` silently miscompiled (FIXED)
 
-**Status**: Open
-**Severity**: Medium — silent wrong code, no diagnostic.
+**Status**: Fixed July 2026
+**Severity**: High — silent wrong code with no diagnostic on any backend.
 
 The typed array literal has two valid spellings:
 
@@ -166,11 +167,14 @@ The typed array literal has two valid spellings:
 Omitting the group while keeping the type marker:
 
 ```
-([] _:SplineKnot a b c)       ; WRONG — compiles, produces garbage
+([] _:SplineKnot a b c)       ; used to compile, produced garbage
 ```
 
-…is accepted by every backend and emits the `_` marker as a literal first
-element while degrading the element type:
+…was accepted by every backend. `cmdArray` only recognised the typed form when
+the node had exactly three children (`[]`, `_:T`, `( … )`); anything else fell
+through to the generic branch, which treats *every* child as an element. The
+marker was emitted as a literal element and, counting as a second distinct
+"type", degraded `eval_array_type` to Any:
 
 | Target | Emitted |
 |--------|---------|
@@ -178,15 +182,82 @@ element while degrading the element type:
 | C++    | `r_make_vector_from_array( (r_union_Any[]) {_, a, b, c} )` — element type lost |
 | Go     | `[]interface{} {_, a, b, c}` — element type lost |
 
-It should be a parse/type error. Until then, prefer the untyped form or remember
-the group parentheses.
+### Fix
 
-### Related: C++ compound literals are not ISO C++
+`compiler/ng_RangerFlowParser.rgr` — `cmdArray` now scans for a child carrying
+both a `vref` and a `type_name` (only `name:Type` syntax sets both, and that is
+never a valid element expression) and reports:
 
-The C++ `writeArrayLiteral` emits `( T[] ) { ... }`, a C99 compound literal.
-GCC and Clang accept it as an extension; `-Wpedantic` warns
-("ISO C++ forbids compound-literals") and MSVC rejects it. A conforming form
-would be `std::vector<T>{ a, b, c }`.
+```
+Array literal type marker '_:int' must be followed by a parenthesised element
+group, as in ([] _:int ( a b c )). To let the element type be inferred, drop
+the marker: ([] a b c).
+```
+
+Every typed literal already in the repo uses the group form, so nothing broke.
+
+---
+
+## Issue #66b: C++ array literals used C99 compound literals (FIXED)
+
+**Status**: Fixed July 2026 (alongside #66)
+
+The C++ writer built vectors as:
+
+```cpp
+r_make_vector_from_array( ( T[] ) { a, b, c } )
+```
+
+`( T[] ) { … }` is a C99 compound literal, which ISO C++ does not have. GCC and
+Clang accept it as an extension — `-Wpedantic` reports *"ISO C++ forbids
+compound-literals"* — and MSVC rejects it outright, so the C++ target was not
+portable. The helper also copied every element twice: it built a temporary
+array, then constructed the vector from that range.
+
+Now emits `std::vector<T>{ a, b, c }`: standard, no polyfill, elements
+constructed once. Braces always prefer the `initializer_list` constructor, so
+the `std::vector<int>(3)` (three zeroes) vs `std::vector<int>{3}` (one element)
+trap does not arise — pinned by a test.
+
+---
+
+## Issue #68: Rust `main:int` never compiled (FIXED)
+
+**Status**: Fixed July 2026
+
+`RangerRustClassWriter` emitted `fn main() {` and then walked the Ranger body
+verbatim. A Ranger `main:int` ends in `return <code>`, but Rust's `fn main`
+returns `()`:
+
+```
+error[E0308]: mismatched types
+   |          - expected `()` because of default return type
+79 |   return 0;
+   |          ^ expected `()`, found integer
+```
+
+The body now runs as a closure whose value is handed to `std::process::exit`,
+which is exactly what `return 0` from a C/C++ `main` means — so the exit status
+reaches the shell instead of the program failing to build:
+
+```rust
+fn main() {
+  let __rg_exit_code = (|| {
+    …
+    return 0;
+  })();
+  std::process::exit(__rg_exit_code as i32);
+}
+```
+
+A `main:void` is emitted as before, with no wrapper.
+
+### Tests
+
+`tests/array-literal.test.ts` (12 checks) covers #66, #66b, #67 and #68.
+Verified as a real net: 9 of the 12 fail against the pre-fix compiler. The 3
+that pass either way are deliberate over-reach guards (valid spellings still
+compile; `main:void` untouched; runtime element values unchanged).
 
 ---
 
