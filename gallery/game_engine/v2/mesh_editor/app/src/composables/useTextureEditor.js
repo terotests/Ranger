@@ -29,6 +29,21 @@ import {
 export function useTextureEditor() {
   const state = reactive({
     textures: /** @type {Record<string, any>} */ ({}),
+    /**
+     * Morph-compatible eye textures pulled in from OTHER library projects,
+     * keyed by `peerKey` ("<slug>#<assetGuid>").
+     *
+     * Deliberately a separate map from `textures`:
+     *   - `textures` is keyed by assetGuid because that is what the open
+     *     project's `textureAssets` is keyed by, and what `objectMaterial
+     *     .textureAsset` points at. Two forked projects share an assetGuid, so
+     *     merging peers into it would silently overwrite the open texture.
+     *   - `snapshotTextures()` only walks `textures`, so a Save can never embed
+     *     a neighbouring project's eye into this document.
+     */
+    peers: /** @type {Record<string, any>} */ ({}),
+    /** Status of the last cross-project peer scan (shown in the morph panel). */
+    peerScan: { busy: false, count: 0, error: "" },
     selectedGuid: /** @type {string|null} */ (null),
     selectedLayerId: /** @type {string|null} */ (null),
     /** Y-mirror like mesh profile — edit right half (x ≥ 0). */
@@ -572,11 +587,63 @@ export function useTextureEditor() {
           : { ...raw, assetGuid: raw.assetGuid || guid || newGuid() };
       state.textures[tex.assetGuid] = tex;
     }
+    // Peers belong to whichever texture WAS open; a new document invalidates
+    // them wholesale. The caller re-scans the library right after this.
+    clearPeers();
     const keys = Object.keys(state.textures);
     state.selectedGuid = keys[0] || null;
     state.selectedLayerId = editableLayers(selectedTexture.value)[0]?.id || null;
     clearTexHistory();
     syncPathFromLayer();
+  }
+
+  // -- cross-project morph peers ----------------------------------------------
+
+  function clearPeers() {
+    state.peers = {};
+    state.peerScan = { busy: false, count: 0, error: "" };
+  }
+
+  /**
+   * Replace the peer set with `list` (already normalized + tagged by
+   * peerIndex.adoptPeerTexture). Peers whose key collides are last-wins, which
+   * is fine — the key already encodes the project they came from.
+   * @param {object[]} list
+   */
+  function setPeerTextures(list) {
+    const next = {};
+    for (const tex of list || []) {
+      if (!tex?.peerKey) continue;
+      next[tex.peerKey] = tex;
+    }
+    state.peers = next;
+    state.peerScan = { busy: false, count: Object.keys(next).length, error: "" };
+  }
+
+  function setPeerScanBusy(busy) {
+    state.peerScan = { ...state.peerScan, busy: !!busy, error: "" };
+  }
+
+  function setPeerScanError(message) {
+    state.peerScan = { ...state.peerScan, busy: false, error: String(message || "") };
+  }
+
+  /** Own textures first, then library peers — what the morph pickers see. */
+  const allMorphTextures = computed(() => [
+    ...Object.values(state.textures || {}),
+    ...Object.values(state.peers || {}),
+  ]);
+
+  /**
+   * Resolve a morph target by the identity the pickers emit (`peerKey` for a
+   * library peer, `assetGuid` for one of our own).
+   * @param {string} id
+   * @returns {object|null}
+   */
+  function morphTextureById(id) {
+    const key = String(id || "");
+    if (!key) return null;
+    return state.peers[key] || state.textures[key] || null;
   }
 
   const pathClosed = computed(() => selectedLayer.value?.type !== "eyelid");
@@ -636,6 +703,12 @@ export function useTextureEditor() {
     removeSelectedTexture,
     snapshotTextures,
     loadTextures,
+    clearPeers,
+    setPeerTextures,
+    setPeerScanBusy,
+    setPeerScanError,
+    allMorphTextures,
+    morphTextureById,
     pushPathToLayer,
     syncPathFromLayer,
     undo,

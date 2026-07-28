@@ -21,6 +21,7 @@ import {
   validateProject,
 } from "./src/library/schema.js";
 import { resolveSafeProjectDir } from "./src/library/safePath.mjs";
+import { eyeTopologyKey } from "./src/lib/texture/eyeEmotion.js";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(HERE, "../library/projects");
@@ -69,11 +70,25 @@ function listProjects(root) {
       const d = mig.doc;
       const projectKind = d.projectKind === "texture" ? "texture" : "mesh";
       const textureAssets = d.textureAssets || {};
-      const textures = Object.entries(textureAssets).map(([guid, t]) => ({
-        assetGuid: t?.assetGuid || guid,
-        name: t?.name || "Texture",
-        kind: t?.kind || "eye",
-      }));
+      // The morph panel decides which library textures can blend with the open
+      // one from this summary alone, so it has to carry the topology fingerprint
+      // and the emotion tag. Recomputed rather than read from the stored field:
+      // a doc saved before a layer edit can hold a stale `topologyKey`, and a
+      // stale key would offer an incompatible peer that then fails to morph.
+      const textures = Object.entries(textureAssets).map(([guid, t]) => {
+        const kind = t?.kind || "eye";
+        const entry = {
+          assetGuid: t?.assetGuid || guid,
+          name: t?.name || "Texture",
+          kind,
+        };
+        if (kind === "eye") {
+          entry.emotion = t?.emotion || "neutral";
+          entry.partClass = t?.partClass || "eye";
+          entry.topologyKey = eyeTopologyKey(t);
+        }
+        return entry;
+      });
       const textureCount = textures.length;
       out.push({
         slug: d.slug || name,

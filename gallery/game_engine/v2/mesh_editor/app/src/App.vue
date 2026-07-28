@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 // api used for assigning a library texture project onto the mesh without leaving Mesh mode
 import SplineCanvas from "./components/SplineCanvas.vue";
 import PointEditor from "./components/PointEditor.vue";
@@ -20,6 +20,11 @@ import {
   eyeTopologyKey,
   listCompatibleEmotionPeers,
 } from "./lib/texture/eyeEmotion.js";
+import {
+  findCompatibleLibraryTextures,
+  peersFromProjectDoc,
+  eyePoseFingerprint,
+} from "./lib/texture/peerIndex.js";
 import * as api from "./library/api.js";
 
 const {
@@ -63,6 +68,7 @@ const {
   setTextureAssetsProvider,
   assignEyeTextureToRootAsync,
   previewAssignedTextureMorph,
+  setMorphTextureResolver,
   clearAssignedTexture,
 } = useSplineEditor();
 
@@ -103,8 +109,18 @@ let meshMorphQueued = null;
 let meshMorphRunning = false;
 
 setTextureAssetsProvider(() => tex.snapshotTextures());
+// Morph targets can be library peers (keyed by peerKey), which by design never
+// enter this document's asset map — so the mesh atlas bake resolves through the
+// texture editor rather than through snapshotTextures().
+setMorphTextureResolver((id) => tex.morphTextureById(id));
 
-const loadedTextureList = computed(() => Object.values(texState.textures || {}));
+/**
+ * What the morph pickers choose from: this document's own eye textures PLUS
+ * the topology-compatible ones scanned out of other library projects. A
+ * texture project holds exactly one eye, so without the library half this list
+ * has a single entry and no morph is ever offered.
+ */
+const loadedTextureList = computed(() => tex.allMorphTextures.value);
 
 /** Assigned eye texture for mesh anim panel. */
 const assignedTexture = computed(() => {
@@ -121,10 +137,10 @@ const meshMorphPeers = computed(() =>
 const texPreviewTexture = computed(() => {
   const src = texSelected.value;
   if (!src) return null;
-  const tgtGuid = texMorphTargetGuid.value;
+  const tgtId = texMorphTargetGuid.value;
   const t = texMorphT.value;
-  if (!tgtGuid || t <= 0) return src;
-  const tgt = texState.textures[tgtGuid];
+  if (!tgtId || t <= 0) return src;
+  const tgt = tex.morphTextureById(tgtId);
   if (!tgt) return src;
   if (t >= 1) return tgt;
   return morphBetweenTextures(src, tgt, t) || src;
@@ -161,6 +177,95 @@ const { lib, refresh, load, save, saveAs, remove, exportJson, importJsonFile } =
   snapshotState,
   applyProject,
   tessellate,
+});
+
+// ---------------------------------------------------------------------------
+// Cross-project morph peers
+// ---------------------------------------------------------------------------
+// Emotions are authored as separate projects ("open neutral → edit → Save as
+// sad"), so the compatible textures for a morph almost never live in the
+// document that is open. This scans the library index for eyes whose topology
+// matches one of ours, loads just those projects, and parks them in the peer
+// store. Runs on every library refresh and whenever our own topology changes.
+
+/** Our own eye textures — the reference set peers must be compatible with. */
+function ownEyeTextures() {
+  return Object.values(texState.textures || {}).filter(
+    (t) => t && (t.kind == null || t.kind === "eye"),
+  );
+}
+
+/**
+ * Fingerprint of the open document's topologies. Used as a watch source so a
+ * knot *move* (which cannot change compatibility) does not re-scan, but adding
+ * or removing a knot (which can) does.
+ */
+const ownTopologySignature = computed(() => {
+  const keys = new Set();
+  for (const t of ownEyeTextures()) {
+    const k = eyeTopologyKey(t);
+    if (k) keys.add(k);
+  }
+  return [...keys].sort().join("||");
+});
+
+let peerScanGen = 0;
+
+async function scanMorphPeers() {
+  const gen = ++peerScanGen;
+  const own = ownEyeTextures();
+  if (!own.length || !lib.available || !lib.projects?.length) {
+    tex.clearPeers();
+    return;
+  }
+
+  // A texture project's own entry would otherwise come back as a peer of
+  // itself. (Mesh projects are already filtered out by projectKind.)
+  const excludeSlug = workspace.value === "texture" ? lib.texture.slug : null;
+
+  /** @type {Map<string, {slug: string, peerKey: string}>} */
+  const wanted = new Map();
+  for (const ref of own) {
+    for (const c of findCompatibleLibraryTextures(lib.projects, ref, { excludeSlug })) {
+      wanted.set(c.peerKey, c);
+    }
+  }
+  if (!wanted.size) {
+    tex.setPeerTextures([]);
+    return;
+  }
+
+  tex.setPeerScanBusy(true);
+  try {
+    const slugs = [...new Set([...wanted.values()].map((c) => c.slug))];
+    const docs = await Promise.all(slugs.map((s) => api.loadProject(s).catch(() => null)));
+    if (gen !== peerScanGen) return; // a newer scan started while we fetched
+
+    // Drop anything that IS one of our own eyes under a different name — the
+    // Assign flow copies a library eye into this document, so the source
+    // project comes back from the scan as a bogus "peer" of the copy.
+    const ownPrints = new Set(own.map(eyePoseFingerprint));
+    const byKey = new Map();
+    for (const doc of docs) {
+      if (!doc) continue;
+      for (const ref of own) {
+        for (const p of peersFromProjectDoc(doc, ref)) {
+          if (!wanted.has(p.peerKey) || byKey.has(p.peerKey)) continue;
+          if (ownPrints.has(eyePoseFingerprint(p))) continue;
+          byKey.set(p.peerKey, p);
+        }
+      }
+    }
+    if (gen !== peerScanGen) return;
+    tex.setPeerTextures([...byKey.values()]);
+  } catch (err) {
+    if (gen !== peerScanGen) return;
+    tex.setPeerScanError(err?.message || err);
+  }
+}
+
+watch([() => lib.projects, ownTopologySignature], () => {
+  void scanMorphPeers();
 });
 
 const loadedTextures = computed(() => Object.values(texState.textures || {}));
@@ -793,6 +898,7 @@ onBeforeUnmount(() => {
         v-if="assignedTexture"
         :texture="assignedTexture"
         :textures="loadedTextureList"
+        :peer-scan="texState.peerScan"
         :target-guid="meshMorphTargetGuid"
         :morph-t="meshMorphT"
         @update-emotion="
@@ -1067,6 +1173,7 @@ onBeforeUnmount(() => {
         <TextureAnimPanel
           :texture="texSelected"
           :textures="loadedTextureList"
+          :peer-scan="texState.peerScan"
           :target-guid="texMorphTargetGuid"
           :morph-t="texMorphT"
           @update-emotion="onTexEmotion"

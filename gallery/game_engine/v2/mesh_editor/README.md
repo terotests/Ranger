@@ -234,7 +234,7 @@ Five layers, cheapest first, all registered in the central v2 gate
 | Layer | What it covers |
 |-------|----------------|
 | **Module smokes** — every `app/scripts/smoke-*.mjs` | pure-Node module logic (spine, torus, mesh pick, eye texture, atlas sharing, placement normal, library path safety). Discovered by glob, so a new smoke cannot be silently left out |
-| **Unit** — `tests/unit/*.mjs` | contracts of the extracted `app/src/shared/**` modules: mat3 kernels, the drag-gesture slot, and the path kernels (including `rotatePath` rigidity, handle-offset rotation, pivot invariance, and inverse/full-turn identities) |
+| **Unit** — `tests/unit/*.mjs` | contracts of the extracted `app/src/shared/**` modules (mat3 kernels, the drag-gesture slot, and the path kernels — `rotatePath` rigidity, handle-offset rotation, pivot invariance, inverse/full-turn identities) plus cross-project morph-peer discovery |
 | **Port parity** — `tests/diff/*.mjs` | each kernel moved from JS into Ranger is diffed against its JS reference on identical inputs (positions/normals/uvs/indices, bit-identical). See *Ranger port* below |
 | **Transport guard** — `tests/host/*.mjs` | the preview host must keep driving `RgRegistryBridge` (no direct `three/port` resource imports, no poking arena arrays) and must preserve the shared-atlas semantics. See *Preview transport* below |
 | **Browser e2e** — `tests/e2e/mesh_editor_e2e.mjs` | the real app: rebuilds both `.rgr` halves, starts an actual Vite dev server (live `/api/library`), drives headless Chromium. Asserts both canvases render, the five shading modes, torus vs rotation, view switching, knot edit → mesh change → undo, the preview drag modes, the texture workspace, the Rotate gizmo with its undo/redo round-trip, and a library save/load round-trip |
@@ -385,6 +385,26 @@ the same knot topology so emotions can morph. Compatible textures share
 `topologyKey`) can morph 0…1 in the **Texture** preview, and after **Assign to
 mesh** the same peer morph hot-swaps the UV atlas bitmap in 3D (no tessellate /
 UV rebuild — endpoint atlases are pre-baked, then pixels are lerped).
+
+**Peers are found across the whole library, not just the open document**
+(`lib/texture/peerIndex.js`). Emotions are authored as separate projects — open
+`neutral`, edit, **Save as** `sad` — so a texture project holds exactly one eye
+and an in-document search can never find a target. `GET /api/library` therefore
+advertises `topologyKey` / `emotion` per texture, the editor picks the matching
+projects out of that summary, loads only those, and parks them in a peer store
+that `snapshotTextures()` never walks (so a Save cannot embed a neighbour's eye).
+
+Two identity traps that peer discovery has to dodge, both covered by
+`tests/unit/morph_peers_test.mjs`:
+
+- **Forks share an `assetGuid`.** "Save as" keeps it on purpose, so a mesh that
+  assigned that guid keeps resolving. Peers are therefore keyed by
+  `peerKey` = `"<slug>#<assetGuid>"` and compared with `eyeTextureIdentity`, not
+  by guid — the old guid-equality self-filter discarded exactly the duplicate-
+  derived pairs the feature exists for.
+- **Assign copies an eye in.** The source project then comes back from the scan
+  as a "peer" of its own copy; guid and slug both fail to catch it, so a rounded
+  knot-geometry fingerprint (`eyePoseFingerprint`) does.
 
 ## Shading base
 
