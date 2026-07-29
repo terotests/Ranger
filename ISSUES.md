@@ -3,6 +3,9 @@
 ## Summary (December 2025)
 
 ### Recently Fixed
+- Issue #68: Rust `main:int` emitted `return <code>` into a `fn main()` that returns `()` — never compiled. Body now runs as a closure feeding `std::process::exit`, so the exit status survives (July 2026)
+- Issue #67: `([] _:T a b c)` — the typed array literal *without* the parenthesised element group — silently miscompiled on every backend. Now a parse error naming the correct spelling (July 2026)
+- Issue #66: Rust backend emitted a fixed-size array `[a, b, c]` for the `([] ...)` array literal where every Ranger array is a `Vec<T>` — never compiled (`expected Vec<K>, found [K; 3]`). Fixed with a `writeArrayLiteral` override emitting `vec![...]`. The C++ writer moved off C99 compound literals to `std::vector<T>{...}` at the same time (July 2026)
 - Issue #65: A statement starting with a parenthesised receiver silently deleted the rest of the block (infinite loops in `game_provider.rgr`, a dropped `return` in `wasm_abi_io.rgr`) - Parser now rejects it; parse errors are fatal (July 2026)
 - Issue #64: Inheritance broke when a subclass's file was imported via two different path strings (duplicate class collection) - Fixed with `RangerAppClassDesc.is_collected` guard (July 2026)
 - Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
@@ -84,6 +87,177 @@ processed). Regression test: `tests/inheritance-dup-import.test.ts`.
 
 Workaround (no longer needed, but still good hygiene): import each file via one
 consistent path form so nothing is loaded twice.
+
+---
+
+## Issue #66: Rust array literals emitted `[T; N]` where `Vec<T>` was required (FIXED)
+
+**Status**: Fixed July 2026
+**Severity**: High for the Rust/wasm32 target — the generated code never compiled.
+
+### Symptom
+
+Ranger's static array literal is used like this:
+
+```
+sfn defaultOrbitKnots:[SplineKnot] () {
+    def k:double 0.5522847498307936
+    return ([] _:SplineKnot (
+        (SplineKnot.of(1.0 0.0 0.0 k))
+        (SplineKnot.of(0.0 1.0 (0.0 - k) 0.0))
+    ))
+}
+```
+
+The Rust backend emitted:
+
+```rust
+let mut knots : Vec<SplineKnot> = [SplineKnot::of(...), SplineKnot::of(...)];
+```
+
+`rustc` rejects it — `[...]` builds a fixed-size `[T; N]`, and every Ranger array
+lowers to `Vec<T>`:
+
+```
+error[E0308]: mismatched types
+  |     let knots: Vec<K> = [K::of(1_f64), K::of(2_f64)];
+  |                ------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Vec<K>`, found `[K; 2]`
+```
+
+### Cause
+
+`RangerRustClassWriter` had no `writeArrayLiteral`, so it inherited
+`RangerGenericClassWriter`'s, which hard-codes `"[" ... "]"`. The C++, Go, C#,
+Java7 and PHP writers each override it; Rust was simply never given one.
+
+Note the `templates { rust ( ... ) }` block in `Lang.rgr` is NOT the mechanism
+here — `ng_LiveCompiler` dispatches `is_array_literal` nodes straight to
+`langWriter.writeArrayLiteral`, so adding a template has no effect. The fix has
+to be a writer override.
+
+### Fix
+
+`compiler/ng_RangerRustClassWriter.rgr` — added a `writeArrayLiteral` that
+emits `vec![a, b, c]`.
+
+### Verification
+
+- Compiler bootstrapped to a byte-identical fixed point (two passes).
+- Emitted Rust now compiles under `rustc --edition 2021 -O` and produces results
+  identical to the equivalent `push`-based function.
+- Negative control: `invaders.rgr`, `pong.rgr`, `js_parser_main.rgr` and
+  `ts_parser_main.rgr` produce **byte-identical** Rust before and after, so the
+  change is inert away from array-literal sites.
+- `npm run engine:v2:test` → v2 ALL GREEN 107/107.
+
+---
+
+## Issue #67: `([] _:T a b c)` silently miscompiled (FIXED)
+
+**Status**: Fixed July 2026
+**Severity**: High — silent wrong code with no diagnostic on any backend.
+
+The typed array literal has two valid spellings:
+
+```
+([] 1 2 3)                    ; untyped — element type inferred
+([] _:SplineKnot ( a b c ))   ; typed — elements in a parenthesised GROUP
+```
+
+Omitting the group while keeping the type marker:
+
+```
+([] _:SplineKnot a b c)       ; used to compile, produced garbage
+```
+
+…was accepted by every backend. `cmdArray` only recognised the typed form when
+the node had exactly three children (`[]`, `_:T`, `( … )`); anything else fell
+through to the generic branch, which treats *every* child as an element. The
+marker was emitted as a literal element and, counting as a second distinct
+"type", degraded `eval_array_type` to Any:
+
+| Target | Emitted |
+|--------|---------|
+| ES6    | `[_, a, b, c]` — `_` is undefined → `ReferenceError` at runtime |
+| C++    | `r_make_vector_from_array( (r_union_Any[]) {_, a, b, c} )` — element type lost |
+| Go     | `[]interface{} {_, a, b, c}` — element type lost |
+
+### Fix
+
+`compiler/ng_RangerFlowParser.rgr` — `cmdArray` now scans for a child carrying
+both a `vref` and a `type_name` (only `name:Type` syntax sets both, and that is
+never a valid element expression) and reports:
+
+```
+Array literal type marker '_:int' must be followed by a parenthesised element
+group, as in ([] _:int ( a b c )). To let the element type be inferred, drop
+the marker: ([] a b c).
+```
+
+Every typed literal already in the repo uses the group form, so nothing broke.
+
+---
+
+## Issue #66b: C++ array literals used C99 compound literals (FIXED)
+
+**Status**: Fixed July 2026 (alongside #66)
+
+The C++ writer built vectors as:
+
+```cpp
+r_make_vector_from_array( ( T[] ) { a, b, c } )
+```
+
+`( T[] ) { … }` is a C99 compound literal, which ISO C++ does not have. GCC and
+Clang accept it as an extension — `-Wpedantic` reports *"ISO C++ forbids
+compound-literals"* — and MSVC rejects it outright, so the C++ target was not
+portable. The helper also copied every element twice: it built a temporary
+array, then constructed the vector from that range.
+
+Now emits `std::vector<T>{ a, b, c }`: standard, no polyfill, elements
+constructed once. Braces always prefer the `initializer_list` constructor, so
+the `std::vector<int>(3)` (three zeroes) vs `std::vector<int>{3}` (one element)
+trap does not arise — pinned by a test.
+
+---
+
+## Issue #68: Rust `main:int` never compiled (FIXED)
+
+**Status**: Fixed July 2026
+
+`RangerRustClassWriter` emitted `fn main() {` and then walked the Ranger body
+verbatim. A Ranger `main:int` ends in `return <code>`, but Rust's `fn main`
+returns `()`:
+
+```
+error[E0308]: mismatched types
+   |          - expected `()` because of default return type
+79 |   return 0;
+   |          ^ expected `()`, found integer
+```
+
+The body now runs as a closure whose value is handed to `std::process::exit`,
+which is exactly what `return 0` from a C/C++ `main` means — so the exit status
+reaches the shell instead of the program failing to build:
+
+```rust
+fn main() {
+  let __rg_exit_code = (|| {
+    …
+    return 0;
+  })();
+  std::process::exit(__rg_exit_code as i32);
+}
+```
+
+A `main:void` is emitted as before, with no wrapper.
+
+### Tests
+
+`tests/array-literal.test.ts` (12 checks) covers #66, #66b, #67 and #68.
+Verified as a real net: 9 of the 12 fail against the pre-fix compiler. The 3
+that pass either way are deliberate over-reach guards (valid spellings still
+compile; `main:void` untouched; runtime element values unchanged).
 
 ---
 

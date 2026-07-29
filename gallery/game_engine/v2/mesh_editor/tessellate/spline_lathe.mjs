@@ -294,20 +294,11 @@ SplineLathe.sampleAndLatheEx = function(knots, curveType, pathSegments, angularS
   return mesh;
 };
 SplineLathe.defaultKnots = function() {
-  let knots = [];
-  knots.push(SplineKnot.of(0.0, (0.0 - 1.0), 0.22, 0.0));
-  knots.push(SplineKnot.of(0.5, 0.0, 0.0, 0.28));
-  knots.push(SplineKnot.of(0.0, 1.0, (0.0 - 0.22), 0.0));
-  return knots;
+  return [SplineKnot.of(0.0, (0.0 - 1.0), 0.22, 0.0), SplineKnot.of(0.5, 0.0, 0.0, 0.28), SplineKnot.of(0.0, 1.0, (0.0 - 0.22), 0.0)];
 };
 SplineLathe.defaultOrbitKnots = function() {
   const k = 0.5522847498307936;
-  let knots = [];
-  knots.push(SplineKnot.of(1.0, 0.0, 0.0, k));
-  knots.push(SplineKnot.of(0.0, 1.0, (0.0 - k), 0.0));
-  knots.push(SplineKnot.of((0.0 - 1.0), 0.0, 0.0, (0.0 - k)));
-  knots.push(SplineKnot.of(0.0, (0.0 - 1.0), k, 0.0));
-  return knots;
+  return [SplineKnot.of(1.0, 0.0, 0.0, k), SplineKnot.of(0.0, 1.0, (0.0 - k), 0.0), SplineKnot.of((0.0 - 1.0), 0.0, 0.0, (0.0 - k)), SplineKnot.of(0.0, (0.0 - 1.0), k, 0.0)];
 };
 SplineLathe.sampleClosedOrbit = function(knots, curveType, segmentsPerSpan) {
   const out = new SplineMesh();

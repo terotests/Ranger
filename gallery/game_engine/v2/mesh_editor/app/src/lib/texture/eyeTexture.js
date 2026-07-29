@@ -11,6 +11,7 @@ import {
   syncClosedSegments,
   syncOpenSegments,
   translatePath,
+  rotatePath,
   pathCentroid,
 } from "../pathModel.js";
 import { newGuid } from "../assetClone.js";
@@ -270,6 +271,29 @@ export function translateLayerTree(layers, layerId, dx, dy) {
   const types = new Set([root.type, ...companionLayerTypes(root.type)]);
   for (const L of layers) {
     if (types.has(L.type) && L.knots?.length) translatePath(L.knots, dx, dy);
+  }
+  const fake = { layers };
+  for (const order of ["iris", "pupil", "reflection"]) {
+    if (!types.has(order)) continue;
+    const L = findLayer(layers, order);
+    if (L) constrainEyeLayer(fake, L.id);
+  }
+}
+
+/**
+ * Rotate a layer and its companions rigidly about (cx, cy).
+ *
+ * Sibling of translateLayerTree — same companion set, same re-constrain pass —
+ * so "rotate" behaves like "move" for nesting: an iris turning with its eyeball
+ * stays inside it. Angle is radians, positive counter-clockwise in world space.
+ */
+export function rotateLayerTree(layers, layerId, cx, cy, angle) {
+  if (!layers?.length || !angle) return;
+  const root = findLayer(layers, layerId);
+  if (!root) return;
+  const types = new Set([root.type, ...companionLayerTypes(root.type)]);
+  for (const L of layers) {
+    if (types.has(L.type) && L.knots?.length) rotatePath(L.knots, cx, cy, angle);
   }
   const fake = { layers };
   for (const order of ["iris", "pupil", "reflection"]) {

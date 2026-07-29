@@ -9,17 +9,28 @@ import {
   EYE_EMOTION_TAGS,
   normalizeEmotionTag,
   listCompatibleEmotionPeers,
+  eyeTextureIdentity,
   eyeTopologyKey,
 } from "../lib/texture/eyeEmotion.js";
 
 const props = defineProps({
   /** Currently selected eye texture (live). */
   texture: { type: Object, default: null },
-  /** All loaded textures (live map values). */
+  /**
+   * Every texture a morph could target: this document's own eyes plus the
+   * compatible ones scanned out of other library projects (each tagged with a
+   * `peerKey`). Passing only the open document's textures is what used to make
+   * this panel permanently say "no compatible peers".
+   */
   textures: { type: Array, default: () => [] },
-  /** Guid of morph target peer, or "". */
+  /**
+   * Identity of the morph target — `peerKey` for a library peer, `assetGuid`
+   * for one of our own. NOT a bare guid: forked projects share an assetGuid.
+   */
   targetGuid: { type: String, default: "" },
   morphT: { type: Number, default: 0 },
+  /** `{ busy, count, error }` from the cross-project scan. */
+  peerScan: { type: Object, default: () => ({ busy: false, count: 0, error: "" }) },
 });
 
 const emit = defineEmits(["update-emotion", "update:targetGuid", "update:morphT"]);
@@ -53,7 +64,7 @@ watch(
 
 watch(peers, (list) => {
   if (!props.targetGuid) return;
-  if (!list.some((t) => t.assetGuid === props.targetGuid)) {
+  if (!list.some((t) => eyeTextureIdentity(t) === props.targetGuid)) {
     emit("update:targetGuid", "");
     emit("update:morphT", 0);
   }
@@ -80,7 +91,10 @@ function jump(t) {
 
 function peerLabel(t) {
   const em = normalizeEmotionTag(t.emotion);
-  return `${t.name || "Eye"} · ${em}`;
+  // Peers from other projects show where they came from — two projects forked
+  // from one another both call their eye "Eye", so the name alone is ambiguous.
+  const from = t.peerProject ? ` (${t.peerProject})` : "";
+  return `${t.name || "Eye"} · ${em}${from}`;
 }
 </script>
 
@@ -118,9 +132,14 @@ function peerLabel(t) {
       </p>
 
       <template v-if="!hasPeers">
-        <p class="anim-hint">
-          No other eye textures share this topology. Create a second eye (same knot
-          counts), tag it e.g. <strong>angry</strong>, then morph here.
+        <p v-if="peerScan.busy" class="anim-hint">Scanning the library for compatible eyes…</p>
+        <p v-else-if="peerScan.error" class="anim-hint">
+          Library scan failed: {{ peerScan.error }}
+        </p>
+        <p v-else class="anim-hint">
+          No other eye textures share this topology. Save a second eye project with
+          the same knot counts (e.g. Save as <strong>sad</strong>) and it appears
+          here automatically.
         </p>
       </template>
       <template v-else>
@@ -130,8 +149,8 @@ function peerLabel(t) {
             <option value="">— pick compatible texture —</option>
             <option
               v-for="t in peers"
-              :key="t.assetGuid"
-              :value="t.assetGuid"
+              :key="eyeTextureIdentity(t)"
+              :value="eyeTextureIdentity(t)"
             >
               {{ peerLabel(t) }}
             </option>

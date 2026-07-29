@@ -159,6 +159,15 @@ function sealTextureMap(raw) {
 export function useSplineEditor() {
   /** Optional provider for procedural texture assets (from Texture editor / library). */
   let textureAssetsProvider = () => /** @type {Record<string, any>} */ ({});
+  /**
+   * Resolve ONE texture by morph identity. Distinct from the provider above
+   * because a morph target may be a peer scanned out of another library project
+   * — those are keyed by `peerKey` and deliberately never enter this document's
+   * asset map (a Save must not embed a neighbour's eye). The default falls back
+   * to the asset map so a caller that never sets a resolver still works.
+   * @type {(id: string) => object|null}
+   */
+  let morphTextureResolver = (id) => (textureAssetsProvider() || {})[id] || null;
   /** Pre-baked UV atlas for async assign: { guid, map } kept for one tessellate pass. */
   let pendingTextureMap = null;
   /** Survives undo history (which omits large textureMap blobs). guid → live atlas. */
@@ -1045,6 +1054,12 @@ export function useSplineEditor() {
     textureAssetsProvider = typeof fn === "function" ? fn : () => ({});
   }
 
+  /** @param {(id: string) => object|null} fn */
+  function setMorphTextureResolver(fn) {
+    morphTextureResolver =
+      typeof fn === "function" ? fn : (id) => (textureAssetsProvider() || {})[id] || null;
+  }
+
   function setPendingTextureMap(map, guid = null) {
     if (!map || !guid) {
       pendingTextureMap = null;
@@ -1205,9 +1220,10 @@ export function useSplineEditor() {
     ].join("|");
     if (morphAtlasBake?.key === key) return morphAtlasBake;
 
-    const assets = textureAssetsProvider() || {};
-    const fromRaw = assets[fromGuid];
-    const toRaw = assets[toGuid];
+    // `toGuid` may be a cross-project peer key, so it goes through the resolver
+    // rather than a direct lookup in this document's asset map.
+    const fromRaw = morphTextureResolver(fromGuid);
+    const toRaw = morphTextureResolver(toGuid);
     if (!fromRaw || !toRaw) return null;
     const fromTex = fromRaw.kind === "eye" || !fromRaw.kind ? normalizeEyeTexture(fromRaw) : fromRaw;
     const toTex = toRaw.kind === "eye" || !toRaw.kind ? normalizeEyeTexture(toRaw) : toRaw;
@@ -1747,6 +1763,7 @@ export function useSplineEditor() {
     assignEyeTextureToRoot,
     assignEyeTextureToRootAsync,
     previewAssignedTextureMorph,
+    setMorphTextureResolver,
     invalidateMorphAtlasBake,
     setPendingTextureMap,
     clearAssignedTexture,

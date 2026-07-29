@@ -1,0 +1,23 @@
+; The array-literal spelling that used to silently miscompile (ISSUES.md #67):
+; a `_:T` type marker with NO parenthesised element group.
+;
+; It used to be accepted by every backend, emitting the marker as a literal
+; first element and degrading the element type to Any -- [_, 1, 2, 3] in ES6
+; (ReferenceError at runtime), r_union_Any[] in C++, []interface{} in Go.
+;
+; This fixture must FAIL to compile. tests/array-literal.test.ts asserts that.
+
+class BadMarkerDemo {
+  ; A `def` binding, not a `return`: the old compiler emitted `[_, 1, 2, 3]`
+  ; here without complaint. In return position it happened to trip a separate
+  ; "invalid return value type" check, which would have made a rejection test
+  ; pass for the wrong reason.
+  static sfn broken:[int] () {
+    def v:[int] ([] _:int 1 2 3)
+    return v
+  }
+  static sfn main:int () {
+    print ("n=" + (array_length (BadMarkerDemo.broken())))
+    return 0
+  }
+}

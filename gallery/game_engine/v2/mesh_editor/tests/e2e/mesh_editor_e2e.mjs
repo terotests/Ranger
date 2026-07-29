@@ -627,6 +627,280 @@ try {
   check("eye texture layers are listed", eyeLayer > 0, `matches=${eyeLayer}`);
   const texShot = await canvasStats(page, SPLINE, "texture_editor");
   check("texture path editor draws", texShot.colors >= 4, `colors=${texShot.colors}`);
+
+  // -- 10b. texture Rotate tool ---------------------------------------------
+  // Rotate places a pivot and spins every control point (and its Bezier handle
+  // offsets) about it. The maths is unit-tested; this drives the real gizmo and
+  // proves the gesture reaches the texture undo history as ONE step.
+  check("Symmetry checkbox is gone", (await page.locator('text="Symmetry"').count()) === 0);
+
+  const rotateBtn = page.locator('button:has-text("Rotate")').first();
+  if (check("Rotate tool button exists", (await rotateBtn.count()) > 0)) {
+    const texCanvas = page.locator(SPLINE).first();
+    const tb = await texCanvas.boundingBox();
+    const centre = { x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 };
+
+    // Capture the PATH with the gizmo hidden (Edit mode). Comparing frames that
+    // include the gizmo is useless here: the ring's grab dot stays wherever the
+    // drag left it, so the canvas differs even when the path is identical —
+    // which would make an undo assertion pass for the wrong reason.
+    const pathShot = async (tag) => {
+      await page.click('button:text-is("Edit")');
+      await page.waitForTimeout(650);
+      return signatureOf(page, SPLINE, tag);
+    };
+    const enterRotate = async () => {
+      await rotateBtn.click();
+      await page.waitForTimeout(650);
+    };
+
+    const pathBefore = await pathShot("tex_path_before_rotate");
+    await enterRotate();
+
+    // The ring sits ~74px from the pivot; grab it on the right and swing down.
+    await page.mouse.move(centre.x + 74, centre.y);
+    await page.mouse.down();
+    await page.mouse.move(centre.x + 52, centre.y + 52, { steps: 6 });
+    await page.mouse.move(centre.x, centre.y + 74, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+
+    const pathAfter = await pathShot("tex_path_after_rotate");
+    check(
+      "dragging the ring rotates the path itself",
+      pathAfter !== pathBefore,
+      "path unchanged after a rotate drag (gizmo excluded from the comparison)",
+    );
+
+    // Undo/redo: the whole drag must collapse to a single step.
+    const texUndo = page.locator('button:text-is("Undo")');
+    if (check("rotate enabled Undo", !(await texUndo.isDisabled()))) {
+      await texUndo.click();
+      await page.waitForTimeout(1200);
+      const pathUndo = await pathShot("tex_path_after_undo");
+      check(
+        "one rotate drag undoes in ONE step",
+        pathUndo === pathBefore,
+        "the drag did not collapse to a single history entry",
+      );
+
+      const texRedo = page.locator('button:text-is("Redo")');
+      if (check("Redo is available after undo", !(await texRedo.isDisabled()))) {
+        await texRedo.click();
+        await page.waitForTimeout(1200);
+        const pathRedo = await pathShot("tex_path_after_redo");
+        check("Redo re-applies the rotation exactly", pathRedo === pathAfter);
+      }
+    }
+    await enterRotate();
+
+    // Moving the pivot must not itself deform the path.
+    const beforePivot = await signatureOf(page, SPLINE, "tex_before_pivot");
+    await page.mouse.move(centre.x, centre.y);
+    await page.mouse.down();
+    await page.mouse.move(centre.x - 45, centre.y - 30, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(1000);
+    const afterPivot = await signatureOf(page, SPLINE, "tex_after_pivot");
+    check(
+      "dragging the pivot moves the gizmo, not the path",
+      afterPivot !== beforePivot,
+      "gizmo did not redraw at the new pivot",
+    );
+
+    // ...and rotating about the moved pivot still works (different result than
+    // rotating about the centroid would give).
+    const beforeRot2 = await signatureOf(page, SPLINE, "tex_before_rotate2");
+    const p2 = { x: centre.x - 45, y: centre.y - 30 };
+    await page.mouse.move(p2.x + 74, p2.y);
+    await page.mouse.down();
+    await page.mouse.move(p2.x + 52, p2.y + 52, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+    const afterRot2 = await signatureOf(page, SPLINE, "tex_after_rotate2");
+    check("rotating about the moved pivot works", afterRot2 !== beforeRot2);
+
+    await page.click('button:text-is("Edit")');
+    await page.waitForTimeout(600);
+  }
+
+  // -- 10c. cross-project emotion morph -------------------------------------
+  // The authoring flow for emotions is "open neutral → edit → Save as sad",
+  // which produces two one-eye PROJECTS that share an assetGuid. The morph
+  // panel used to look only inside the open document, so it could never find a
+  // target; and the fork's shared guid made the self-filter discard it even
+  // when it could. This drives the real flow through the real /api/library.
+  const texName = page.locator('input[placeholder*="eyes"]').first();
+  if (check("texture library name field present", (await texName.count()) > 0)) {
+    const texPreview = "canvas.view";
+
+    await texName.fill("neutral eyes");
+    await page.click('button:text-is("Save as")');
+    await page.waitForTimeout(2500);
+
+    // One eye in one project — nothing to morph with yet. This is the state the
+    // panel used to be stuck in forever.
+    check(
+      "a lone eye project reports no morph peers",
+      (await page.locator("text=/No other eye textures share this topology/i").count()) > 0,
+    );
+
+    // Deform the eye so the fork is a genuinely different shape, then fork it.
+    const texCanvas2 = page.locator(SPLINE).first();
+    const tb2 = await texCanvas2.boundingBox();
+    const c2 = { x: tb2.x + tb2.width / 2, y: tb2.y + tb2.height / 2 };
+    const rotateBtn2 = page.locator('button:has-text("Rotate")').first();
+    await rotateBtn2.click();
+    await page.waitForTimeout(700);
+    // The rotate test above left the pivot off-centre, so re-seat it before
+    // grabbing the ring — otherwise the grab misses, the shape is unchanged,
+    // and the fork is byte-identical to its source (which peer discovery then
+    // correctly refuses to offer as a morph target).
+    await page.mouse.move(c2.x - 45, c2.y - 30);
+    await page.mouse.down();
+    await page.mouse.move(c2.x, c2.y, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(700);
+
+    const forkBefore = await signatureOf(page, SPLINE, "tex_fork_before");
+    await page.mouse.move(c2.x + 74, c2.y);
+    await page.mouse.down();
+    await page.mouse.move(c2.x + 40, c2.y + 62, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(1000);
+    await page.click('button:text-is("Edit")');
+    await page.waitForTimeout(600);
+    check(
+      "the fork is a genuinely different shape from its source",
+      (await signatureOf(page, SPLINE, "tex_fork_after")) !== forkBefore,
+      "the rotate drag missed — an identical fork is not a morph target",
+    );
+
+    // Tag it as a different emotion (the first select in the morph panel).
+    await page.locator(".anim-panel select").first().selectOption("sad");
+    await page.waitForTimeout(700);
+
+    await texName.fill("sad eyes");
+    await page.click('button:text-is("Save as")');
+    await page.waitForTimeout(2500);
+
+    const texDirs = fs.existsSync(libRoot)
+      ? fs
+          .readdirSync(libRoot)
+          .filter((d) => fs.existsSync(path.join(libRoot, d, "project.json")))
+          .filter((d) => {
+            const doc = JSON.parse(fs.readFileSync(path.join(libRoot, d, "project.json"), "utf8"));
+            return doc.projectKind === "texture";
+          })
+      : [];
+    check(
+      "Save as forked the eye into a second texture project",
+      texDirs.length === 2,
+      `texture dirs=${JSON.stringify(texDirs)}`,
+    );
+
+    if (texDirs.length === 2) {
+      const docs = texDirs.map((d) =>
+        JSON.parse(fs.readFileSync(path.join(libRoot, d, "project.json"), "utf8")),
+      );
+      const guidsOf = (doc) => Object.keys(doc.textureAssets || {});
+      // The premise of the bug: the fork keeps the source's assetGuid, so guid
+      // identity cannot tell the two eyes apart.
+      check(
+        "the forked projects share an assetGuid (the condition that broke this)",
+        guidsOf(docs[0]).length === 1 &&
+          guidsOf(docs[0])[0] === guidsOf(docs[1])[0],
+        `${JSON.stringify(guidsOf(docs[0]))} vs ${JSON.stringify(guidsOf(docs[1]))}`,
+      );
+
+      // The library index has to advertise the topology for a scan to be cheap.
+      const idx = await page.evaluate(async () => {
+        const r = await fetch("/api/library");
+        if (!r.ok) return null;
+        return (await r.json()).projects
+          .filter((p) => p.projectKind === "texture")
+          .flatMap((p) => (p.textures || []).map((t) => ({ slug: p.slug, topo: t.topologyKey, em: t.emotion })));
+      });
+      check(
+        "GET /api/library advertises topologyKey per eye texture",
+        Array.isArray(idx) && idx.length === 2 && idx.every((e) => typeof e.topo === "string" && e.topo.startsWith("eye:v1/")),
+        JSON.stringify(idx),
+      );
+      check(
+        "both index entries agree on the topology (so they are morph peers)",
+        Array.isArray(idx) && idx.length === 2 && idx[0].topo === idx[1].topo,
+      );
+      check(
+        "the index carries each project's emotion tag",
+        Array.isArray(idx) && idx.map((e) => e.em).sort().join(",") === "neutral,sad",
+        JSON.stringify(idx?.map((e) => e.em)),
+      );
+    }
+
+    // Refresh triggers the cross-project scan.
+    await page.click('button:text-is("Refresh")');
+    await page.waitForTimeout(3000);
+
+    // The panel has one select when there are no peers (the emotion tag) and a
+    // second one — "Morph toward" — once a peer is found. Do NOT try to filter
+    // by option text: a <select>'s innerText is not its options.
+    const animSelects = page.locator(".anim-panel select");
+    const hasMorphSelect = (await animSelects.count()) === 2;
+    const morphSelect = animSelects.nth(1);
+    check(
+      "the morph panel now offers a compatible peer from the other project",
+      hasMorphSelect,
+      `selects=${await animSelects.count()} — still reporting no peers after saving a second eye project`,
+    );
+
+    if (hasMorphSelect) {
+      const options = await morphSelect.locator("option").allTextContents();
+      check(
+        "the peer option names the project it came from",
+        options.some((o) => /\(/.test(o) && !/pick compatible/i.test(o)),
+        JSON.stringify(options),
+      );
+
+      const values = await morphSelect.locator("option").evaluateAll((els) =>
+        els.map((e) => e.value).filter(Boolean),
+      );
+      check(
+        "the peer is keyed by project, not by the shared assetGuid",
+        values.length > 0 && values.every((v) => v.includes("#")),
+        JSON.stringify(values),
+      );
+
+      // Selecting it and sliding must actually change the rasterized eye.
+      const beforeMorph = await signatureOf(page, texPreview, "tex_morph_0");
+      await morphSelect.selectOption(values[0]);
+      await page.waitForTimeout(900);
+      const morphRange = page.locator('.anim-panel input[type="range"]').first();
+      await morphRange.evaluate((el) => {
+        el.value = "1";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await page.waitForTimeout(1400);
+      const afterMorph = await signatureOf(page, texPreview, "tex_morph_1");
+      check(
+        "morphing to the peer redraws the eye preview",
+        afterMorph !== beforeMorph,
+        "preview identical at t=0 and t=1 — the peer never resolved",
+      );
+
+      await morphRange.evaluate((el) => {
+        el.value = "0";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await page.waitForTimeout(1400);
+      const backMorph = await signatureOf(page, texPreview, "tex_morph_back");
+      check(
+        "t=0 returns to the unmorphed eye",
+        backMorph === beforeMorph,
+        "morph preview is not a pure function of t",
+      );
+    }
+  }
+
   await page.click('button:text-is("Mesh")');
   await page.waitForTimeout(1500);
 
@@ -638,8 +912,16 @@ try {
     await page.click('button:text-is("Save as")');
     await page.waitForTimeout(2500);
 
+    // Count MESH folders only — the emotion-morph section above deliberately
+    // leaves two texture projects in the same library.
     const onDisk = fs.existsSync(libRoot)
-      ? fs.readdirSync(libRoot).filter((d) => fs.existsSync(path.join(libRoot, d, "project.json")))
+      ? fs
+          .readdirSync(libRoot)
+          .filter((d) => fs.existsSync(path.join(libRoot, d, "project.json")))
+          .filter((d) => {
+            const doc = JSON.parse(fs.readFileSync(path.join(libRoot, d, "project.json"), "utf8"));
+            return doc.projectKind !== "texture";
+          })
       : [];
     check("Save as writes a project.json to the library root", onDisk.length === 1, `dirs=${JSON.stringify(fs.existsSync(libRoot) ? fs.readdirSync(libRoot) : [])}`);
 
@@ -659,7 +941,11 @@ try {
 
       await page.click('button:text-is("Refresh")');
       await page.waitForTimeout(1200);
-      const openBtn = page.locator("ul.list button.open").first();
+      const openBtn = page
+        .locator("ul.list li")
+        .filter({ hasText: projName })
+        .locator("button.open")
+        .first();
       if (check("saved project appears in the library list", (await openBtn.count()) > 0)) {
         await openBtn.click();
         await page.waitForTimeout(3000);

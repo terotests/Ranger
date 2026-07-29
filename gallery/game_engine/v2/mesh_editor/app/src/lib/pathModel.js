@@ -251,6 +251,34 @@ export function translatePath(knots, dx, dy) {
   }
 }
 
+/**
+ * Rotate a knot chain rigidly about (cx, cy) by `angle` radians.
+ *
+ * Bezier handles are stored as OFFSETS from their knot (`c0 = k + h`), so the
+ * handle vectors rotate by the same angle rather than about the pivot — rotate
+ * them about the pivot too and the curve shears instead of turning.
+ *
+ * Mutates in place, like translatePath.
+ */
+export function rotatePath(knots, cx, cy, angle) {
+  if (!knots?.length || !angle) return;
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  for (const k of knots) {
+    const dx = k.x - cx;
+    const dy = k.y - cy;
+    k.x = cx + dx * c - dy * s;
+    k.y = cy + dx * s + dy * c;
+    if (k.hx != null || k.hy != null) {
+      const hx = k.hx || 0;
+      const hy = k.hy || 0;
+      k.hx = hx * c - hy * s;
+      k.hy = hx * s + hy * c;
+    }
+  }
+}
+
+
 /** Point-in-polygon (ray cast). poly = [{x,y}, ...] */
 export function pointInPolygon(px, py, poly) {
   let inside = false;

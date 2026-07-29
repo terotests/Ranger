@@ -61,9 +61,18 @@ const canRestoreCircle = computed(
       >
         Move
       </button>
+      <button
+        type="button"
+        :class="{ active: layerMode === 'rotate', primary: layerMode === 'rotate' }"
+        title="Drag the ring handle to spin the layer about the pivot (drag the pivot to move it)"
+        @click="emit('set-layer-mode', 'rotate')"
+      >
+        ⟳ Rotate
+      </button>
     </div>
     <p class="hint">
-      Edit = shape handles · Move = place layer (iris moves pupil with it). Reorder with ↑↓.
+      Edit = shape handles · Move = place layer · Rotate = spin about a pivot
+      (iris follows its eyeball). Reorder with ↑↓.
     </p>
     <ul class="list">
       <li

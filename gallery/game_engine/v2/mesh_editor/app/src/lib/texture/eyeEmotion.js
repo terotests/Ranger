@@ -269,6 +269,29 @@ export function areEyeTexturesCompatible(a, b) {
 }
 
 /**
+ * Stable identity of an eye texture *for morph purposes*.
+ *
+ * NOT the same thing as `assetGuid`. A texture project that was created by
+ * duplicating another one keeps the original's `assetGuid` — that is by design
+ * (it is the same logical asset slot, so a mesh assigning "the eye texture"
+ * keeps working across the pair). But it means `assetGuid` cannot distinguish
+ * "sad-eyes/Eye" from "neutral-eyes/Eye", which is precisely the pair we want
+ * to morph between.
+ *
+ * So a texture pulled in from another library project carries `peerKey`
+ * (`"<slug>#<assetGuid>"`, see peerIndex.js) and that wins. Textures belonging
+ * to the open project have no `peerKey` and fall back to `assetGuid`, which is
+ * unique *within* one project because `textureAssets` is keyed by it.
+ *
+ * @param {object|null|undefined} tex
+ * @returns {string} "" when there is nothing identifiable
+ */
+export function eyeTextureIdentity(tex) {
+  if (!tex) return "";
+  return String(tex.peerKey || tex.assetGuid || "");
+}
+
+/**
  * Filter library texture entries / eye assets that can morph with `ref`.
  * @param {Iterable<object>} textures
  * @param {object} ref
@@ -635,18 +658,29 @@ export function morphTextureAnim(tex, opts) {
 }
 
 /**
- * Compatible peer textures for emotion morph (same topology, other asset).
+ * Compatible peer textures for emotion morph (same topology, other texture).
+ *
+ * "Other" is decided by {@link eyeTextureIdentity}, not by `assetGuid`: two
+ * projects that were forked from one another share an `assetGuid`, and treating
+ * that as "this is the same texture" silently hid every duplicate-derived
+ * emotion pair — the exact pair users produce by opening `neutral`, editing,
+ * and saving as `sad`.
+ *
  * @param {Iterable<object>} textures
  * @param {object} ref
  * @returns {object[]}
  */
 export function listCompatibleEmotionPeers(textures, ref) {
   if (!ref) return [];
-  const refGuid = ref.assetGuid;
+  const refId = eyeTextureIdentity(ref);
+  const seen = new Set([refId]);
   const out = [];
   for (const t of textures || []) {
-    if (!t || t.assetGuid === refGuid) continue;
+    if (!t || t === ref) continue;
+    const id = eyeTextureIdentity(t);
+    if (id && seen.has(id)) continue;
     if (!areEyeTexturesCompatible(ref, t)) continue;
+    if (id) seen.add(id);
     out.push(t);
   }
   out.sort((a, b) => {

@@ -12,6 +12,7 @@ import {
   constrainAllEyeLayers,
   editableLayers,
   translateLayerTree,
+  rotateLayerTree,
   mirrorLayersX,
   resetEyePairToMirror,
   normalizeEyePair,
@@ -22,17 +23,36 @@ import { usePathEditor } from "./usePathEditor.js";
 import { newGuid } from "../lib/assetClone.js";
 import {
   autoSmoothHandles,
-  rebuildClosedYSymmetry,
   pathCentroid,
 } from "../lib/pathModel.js";
 
 export function useTextureEditor() {
   const state = reactive({
     textures: /** @type {Record<string, any>} */ ({}),
+    /**
+     * Morph-compatible eye textures pulled in from OTHER library projects,
+     * keyed by `peerKey` ("<slug>#<assetGuid>").
+     *
+     * Deliberately a separate map from `textures`:
+     *   - `textures` is keyed by assetGuid because that is what the open
+     *     project's `textureAssets` is keyed by, and what `objectMaterial
+     *     .textureAsset` points at. Two forked projects share an assetGuid, so
+     *     merging peers into it would silently overwrite the open texture.
+     *   - `snapshotTextures()` only walks `textures`, so a Save can never embed
+     *     a neighbouring project's eye into this document.
+     */
+    peers: /** @type {Record<string, any>} */ ({}),
+    /** Status of the last cross-project peer scan (shown in the morph panel). */
+    peerScan: { busy: false, count: 0, error: "" },
     selectedGuid: /** @type {string|null} */ (null),
     selectedLayerId: /** @type {string|null} */ (null),
     /** Y-mirror like mesh profile — edit right half (x ≥ 0). */
-    symmetry: true,
+    /**
+     * Rotate-mode pivot, in path world coords. null = "not placed yet", in
+     * which case the pivot lazily defaults to the active path's centroid, so
+     * entering Rotate always gives a sensible handle without a first click.
+     */
+    rotateCenter: null,
     /** Recompute Bezier handles after moving a knot (smooth joins). */
     autoSmooth: true,
     /** Layer panel: edit knots/handles vs translate whole layer (+nest). */
@@ -168,10 +188,6 @@ export function useTextureEditor() {
     return { layers: workingLayers() };
   }
 
-  function layerWantsSymmetry(layer) {
-    return state.symmetry && layer && layer.type !== "eyelid" && layer.closed !== false;
-  }
-
   /**
    * @param {{ soft?: boolean }} [opts] soft=true: update knots without wiping path history
    *   (used mid Move-drag; texture history is the source of truth for Undo).
@@ -196,13 +212,6 @@ export function useTextureEditor() {
     const closed = path.state.closed;
     if (movedPoint && state.autoSmooth) {
       autoSmoothHandles(path.state.knots, { closed });
-    }
-    if (layerWantsSymmetry(selectedLayer.value) && closed) {
-      rebuildClosedYSymmetry(path.state.knots);
-      if (movedPoint && state.autoSmooth) {
-        autoSmoothHandles(path.state.knots, { closed: true });
-      }
-      path.syncSegments();
     }
   }
 
@@ -385,10 +394,20 @@ export function useTextureEditor() {
     return true;
   }
 
+  /**
+   * Layer workspace mode: "edit" (knots/handles), "move" (translate the layer)
+   * or "rotate" (spin it about a pivot). Move and Rotate are whole-layer
+   * transforms, so they drive the canvas tool mode; anything else falls back to
+   * Edit rather than leaving the canvas in a transform mode.
+   */
   function setLayerMode(mode) {
-    state.layerMode = mode === "move" ? "move" : "edit";
-    if (state.layerMode === "move") path.setToolMode("move");
-    else if (path.state.toolMode === "move") path.setToolMode("edit");
+    const wanted = mode === "move" || mode === "rotate" ? mode : "edit";
+    state.layerMode = wanted;
+    if (wanted === "move") path.setToolMode("move");
+    else if (wanted === "rotate") path.setToolMode("rotate");
+    else if (path.state.toolMode === "move" || path.state.toolMode === "rotate") {
+      path.setToolMode("edit");
+    }
   }
 
   function translateSelectedLayer(dx, dy) {
@@ -401,6 +420,36 @@ export function useTextureEditor() {
   function onTranslatePath(dx, dy) {
     beginTexGesture();
     translateSelectedLayer(dx, dy);
+  }
+
+  /** Current pivot, defaulting to the active path's centroid until one is placed. */
+  const rotateCenter = computed(() => {
+    if (state.rotateCenter) return state.rotateCenter;
+    return pathCentroid(path.state.knots);
+  });
+
+  function setRotateCenter(x, y) {
+    state.rotateCenter = { x, y };
+  }
+
+  function rotateSelectedLayer(angle) {
+    const layer = selectedLayer.value;
+    if (!layer) return;
+    const c = rotateCenter.value;
+    rotateLayerTree(workingLayers(), layer.id, c.x, c.y, angle);
+    syncPathFromLayer({ soft: true });
+  }
+
+  /**
+   * Incremental rotation from the canvas ring handle. Mirrors onTranslatePath
+   * exactly, which is what makes Undo work: beginTexGesture() snapshots the
+   * texture once at the start of the gesture, and the drag then mutates freely
+   * until pointerup. One drag = one undo step.
+   */
+  function onRotatePath(angle) {
+    if (!angle) return;
+    beginTexGesture();
+    rotateSelectedLayer(angle);
   }
 
   function setEditSide(side) {
@@ -475,20 +524,10 @@ export function useTextureEditor() {
     state.status = "Reset to mirror image — both eyes linked.";
   }
 
-  function symmetryAxisX() {
-    const knots = path.state.knots;
-    if (!knots?.length) return 0;
-    return pathCentroid(knots).x;
-  }
-
   let gestureMovedPoint = false;
 
   function onPathKnotUpdate(id, patch) {
     beginTexGesture();
-    if (layerWantsSymmetry(selectedLayer.value) && patch.x != null) {
-      const ax = symmetryAxisX();
-      patch = { ...patch, x: Math.max(ax, Number(patch.x) || 0) };
-    }
     path.updateKnot(id, patch);
     const movedPoint = patch.x != null || patch.y != null;
     if (movedPoint) gestureMovedPoint = true;
@@ -507,20 +546,8 @@ export function useTextureEditor() {
   }
 
   function onPathAdd(x, y) {
-    const wx = layerWantsSymmetry(selectedLayer.value)
-      ? Math.max(symmetryAxisX(), x)
-      : x;
     pushTexHistory();
-    if (path.insertKnotOnCurve(wx, y)) pushPathToLayer({ movedPoint: true });
-  }
-
-  function setSymmetry(on) {
-    state.symmetry = !!on;
-    if (state.symmetry && path.state.closed) {
-      beginTexGesture();
-      pushPathToLayer({ movedPoint: true });
-      endTexGesture();
-    }
+    if (path.insertKnotOnCurve(x, y)) pushPathToLayer({ movedPoint: true });
   }
 
   function setAutoSmooth(on) {
@@ -560,6 +587,9 @@ export function useTextureEditor() {
           : { ...raw, assetGuid: raw.assetGuid || guid || newGuid() };
       state.textures[tex.assetGuid] = tex;
     }
+    // Peers belong to whichever texture WAS open; a new document invalidates
+    // them wholesale. The caller re-scans the library right after this.
+    clearPeers();
     const keys = Object.keys(state.textures);
     state.selectedGuid = keys[0] || null;
     state.selectedLayerId = editableLayers(selectedTexture.value)[0]?.id || null;
@@ -567,17 +597,69 @@ export function useTextureEditor() {
     syncPathFromLayer();
   }
 
+  // -- cross-project morph peers ----------------------------------------------
+
+  function clearPeers() {
+    state.peers = {};
+    state.peerScan = { busy: false, count: 0, error: "" };
+  }
+
+  /**
+   * Replace the peer set with `list` (already normalized + tagged by
+   * peerIndex.adoptPeerTexture). Peers whose key collides are last-wins, which
+   * is fine — the key already encodes the project they came from.
+   * @param {object[]} list
+   */
+  function setPeerTextures(list) {
+    const next = {};
+    for (const tex of list || []) {
+      if (!tex?.peerKey) continue;
+      next[tex.peerKey] = tex;
+    }
+    state.peers = next;
+    state.peerScan = { busy: false, count: Object.keys(next).length, error: "" };
+  }
+
+  function setPeerScanBusy(busy) {
+    state.peerScan = { ...state.peerScan, busy: !!busy, error: "" };
+  }
+
+  function setPeerScanError(message) {
+    state.peerScan = { ...state.peerScan, busy: false, error: String(message || "") };
+  }
+
+  /** Own textures first, then library peers — what the morph pickers see. */
+  const allMorphTextures = computed(() => [
+    ...Object.values(state.textures || {}),
+    ...Object.values(state.peers || {}),
+  ]);
+
+  /**
+   * Resolve a morph target by the identity the pickers emit (`peerKey` for a
+   * library peer, `assetGuid` for one of our own).
+   * @param {string} id
+   * @returns {object|null}
+   */
+  function morphTextureById(id) {
+    const key = String(id || "");
+    if (!key) return null;
+    return state.peers[key] || state.textures[key] || null;
+  }
+
   const pathClosed = computed(() => selectedLayer.value?.type !== "eyelid");
 
-  const clampNonNegativeX = computed(() => {
-    const layer = selectedLayer.value;
-    return layerWantsSymmetry(layer) && layer?.type === "eyeball";
-  });
+  // Texture paths are never half-plane clamped. The live "symmetry" mode used
+  // to pin eyeball knots to x >= centroid so the mirror could rebuild the other
+  // half; that directly fights Rotate, which has to move points through every
+  // quadrant. (One-shot "Reset to mirror image" is unaffected — it is a command,
+  // not a mode.)
+  const clampNonNegativeX = computed(() => false);
 
   const showMirror = computed(() => false);
 
   const canvasToolMode = computed(() => {
     if (state.layerMode === "move") return "move";
+    if (state.layerMode === "rotate") return "rotate";
     return path.state.toolMode;
   });
 
@@ -590,6 +672,9 @@ export function useTextureEditor() {
     eyePair,
     flipX,
     canvasToolMode,
+    rotateCenter,
+    setRotateCenter,
+    onRotatePath,
     pathClosed,
     clampNonNegativeX,
     showMirror,
@@ -614,11 +699,16 @@ export function useTextureEditor() {
     onPathKnotUpdate,
     onPathDragEnd,
     onPathAdd,
-    setSymmetry,
     setAutoSmooth,
     removeSelectedTexture,
     snapshotTextures,
     loadTextures,
+    clearPeers,
+    setPeerTextures,
+    setPeerScanBusy,
+    setPeerScanError,
+    allMorphTextures,
+    morphTextureById,
     pushPathToLayer,
     syncPathFromLayer,
     undo,
