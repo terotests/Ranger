@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Python had no template for nine operators** — `M_PI`, `fabs`, `tan`, `random` (both variants), `wait`, `file_exists`, `dir_exists` and `create_dir` could not compile for the `python` target. Added, and verified by running the generated Python rather than only compiling it (`tests/compiler-python.test.ts`), which the environment allows for Python but not for Kotlin or Swift
+
+### Known gaps (Python)
+
+- **Every operator taking a lambda emits invalid Python** — `.map()`, `.filter()`, `.reduce()`, `.find()`, `.count()`, `.groupBy()` and the newly added `.any()` / `.all()` compile successfully for `python` and then fail at runtime with `SyntaxError: invalid syntax`. The backend emits the Ranger callback body as a multi-statement Python `lambda`, and a Python lambda holds a single expression:
+
+  ```python
+  out = operatorsOf.map_2(a, lambda item:
+    return item * 2;          # SyntaxError
+  )
+  ```
+
+  Pre-existing and independent of the operators added above. Fixing it means hoisting callback bodies into named functions in `ng_RangerPythonClassWriter.rgr` — a codegen change, not a template. Until then, treat the `operator type:[T]` block as unavailable on Python
+
+- **Python has no JSON support at all** — 0 of the 34 operator template blocks in `lib/JSON.rgr` declare `python`, and `systemclass JSONDataObject` / `JSONArrayObject` declare no Python type, so `@serialize(true)` cannot work there. Unlike C++ and Rust, Python has an obvious representation (`dict` / `list`), so this is tractable — but it is a full JSON backend, not a template gap
+
 ## [3.3.0] - 2026-08-01
 
 ### Added
