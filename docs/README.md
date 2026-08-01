@@ -39,6 +39,16 @@ npm run docs:lint        # Vale, needs a Vale installation
 The generator needs `bin/output.js`. Run `npm run compile` first when the
 compiler is not built.
 
+## The two operator mechanisms
+
+| Mechanism | Where | Portability |
+| --- | --- | --- |
+| Template operator | `operators { }` / `commands { }` blocks. One emission string per target. | Manual. A target with no template and no `*` fallback writes no code. |
+| Type method | `operator type:<T> <scope> { fn … }` blocks. Ordinary Ranger code. | Every target that compiles the library. |
+
+The reference covers both. A type method has a page under
+`reference/methods/`, states its target scope and shows its Ranger body.
+
 ## How the model is read
 
 Two readers give the model:

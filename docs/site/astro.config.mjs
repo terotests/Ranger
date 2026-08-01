@@ -62,6 +62,10 @@ export default defineConfig({
           items: [{ autogenerate: { directory: "reference/libraries" } }],
         },
         {
+          label: "Type methods",
+          items: [{ autogenerate: { directory: "reference/methods" } }],
+        },
+        {
           label: "Reference data",
           items: [
             { label: "Macros", slug: "reference/macros" },

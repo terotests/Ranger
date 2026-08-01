@@ -14,7 +14,7 @@ import path from "node:path";
 import { parseOperatorSource, findOperatorFiles } from "./lib/parse.mjs";
 import { compileSource, TARGETS } from "./lib/compile.mjs";
 import { categoryOf, definitionKey, shortSignature, targetSupport, typeString } from "./lib/model.mjs";
-import { operatorAnchor, operatorId } from "./lib/opid.mjs";
+import { operatorAnchor, operatorId, slugType } from "./lib/opid.mjs";
 import { DATA, DOCS, ROOT, readJson, writeJson } from "./lib/paths.mjs";
 
 const TARGET_IDS = TARGETS.map((t) => t.id);
@@ -67,6 +67,7 @@ async function main() {
     },
     sources: [],
     operators: [],
+    methods: [],
     macros: [],
     problems: [],
   };
@@ -137,6 +138,36 @@ async function main() {
       });
     }
 
+    const seenMethods = new Map();
+    for (const method of parsed.methods) {
+      const argTypes = method.args.map((a) => typeString(a.type, a.optional));
+      const base = operatorId(source.id, `${slugType(method.receiver)}.${method.name}`, argTypes);
+      let id = base;
+      if (seenMethods.has(base)) {
+        const next = seenMethods.get(base) + 1;
+        seenMethods.set(base, next);
+        id = `${base}.${next}`;
+      } else {
+        seenMethods.set(base, 1);
+      }
+      model.methods.push({
+        id,
+        anchor: operatorAnchor(id),
+        source: source.id,
+        receiver: method.receiver,
+        scope: method.scope,
+        name: method.name,
+        returns: method.returns,
+        returnsOptional: method.returnsOptional,
+        args: method.args,
+        doc: method.doc,
+        comment: method.comment,
+        file: source.file,
+        line: method.line,
+        definition: method.definition,
+      });
+    }
+
     for (const macro of parsed.macros) {
       model.macros.push({
         id: `${source.id}/macro.${macro.name}.${macro.params.length}`,
@@ -153,12 +184,14 @@ async function main() {
     model.sources.push({
       ...source,
       operatorCount: parsed.definitions.length,
+      methodCount: parsed.methods.length,
       macroCount: parsed.macros.length,
       probeOk: registered.ok,
     });
 
     process.stderr.write(
       `docs: ${source.id.padEnd(12)} ${String(parsed.definitions.length).padStart(4)} operators` +
+        `${parsed.methods.length > 0 ? `, ${parsed.methods.length} type methods` : ""}` +
         `${parsed.macros.length > 0 ? `, ${parsed.macros.length} macros` : ""}` +
         `${registered.ok ? "" : "  (probe failed)"}\n`,
     );
@@ -171,15 +204,16 @@ async function main() {
       continue;
     }
     const parsed = parseOperatorSource(file);
-    if (parsed.definitions.length > 0) {
-      model.problems.push({ kind: "unregistered-source", file, count: parsed.definitions.length });
+    const count = parsed.definitions.length + parsed.methods.length;
+    if (count > 0) {
+      model.problems.push({ kind: "unregistered-source", file, count });
     }
   }
 
   writeJson(path.join(DATA, "operators.json"), model);
   process.stderr.write(
-    `docs: model written — ${model.operators.length} operators, ${model.macros.length} macros, ` +
-      `${model.problems.length} problems\n`,
+    `docs: model written — ${model.operators.length} operators, ${model.methods.length} type methods, ` +
+      `${model.macros.length} macros, ${model.problems.length} problems\n`,
   );
   for (const problem of model.problems) {
     process.stderr.write(`docs:   ${problem.kind}: ${problem.file || problem.source}\n`);

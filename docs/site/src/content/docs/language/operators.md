@@ -7,6 +7,28 @@ An operator is the smallest unit of the language. `print`, `+`, `if`, `push`
 and `substring` are operators. The compiler does not hold their code: it holds
 a template per target language, and the template writes the target code.
 
+## The two mechanisms
+
+Ranger has two operator mechanisms, and the difference decides the portability
+of the operator.
+
+| Mechanism | Declaration | The compiler writes it for |
+| --- | --- | --- |
+| Template operator | `operators { }` or `commands { }`, with one template per target | The targets that have a template, and the targets that the `*` template covers |
+| Type method | `operator type:<T> all { fn … }`, with a Ranger body | Every target that compiles the library |
+
+A template operator is a primitive: the compiler has no code for it, only a
+string per target. A type method is ordinary Ranger code that the compiler
+compiles for the target in the same way as the program, so a new target gets it
+with no work.
+
+The call form is different:
+
+```lisp
+def rem (% a b)                          ; a template operator, prefix form
+def large (numbers.filter({ return (item > 3) }))   ; a type method
+```
+
 ## Where the operators are
 
 | Source | Availability |
@@ -16,8 +38,11 @@ a template per target language, and the template writes the target code.
 | The other files in `lib/` | After an `Import` statement in the program. |
 
 The [operator reference](/Ranger/docs/reference/operators/statements/) holds the
-core operators. The [library operators](/Ranger/docs/reference/libraries/json/)
-hold the rest.
+core template operators. The
+[library operators](/Ranger/docs/reference/libraries/json/) hold the library
+template operators, and the
+[type methods](/Ranger/docs/reference/methods/stdlib/) hold the second
+mechanism.
 
 ## A definition
 

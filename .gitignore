@@ -79,5 +79,6 @@ docs/site/.astro/
 docs/site/src/data/
 docs/site/src/content/docs/reference/operators/
 docs/site/src/content/docs/reference/libraries/
+docs/site/src/content/docs/reference/methods/
 docs/site/src/content/docs/reference/macros.mdx
 docs/site/src/content/docs/reference/coverage.mdx

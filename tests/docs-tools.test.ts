@@ -127,6 +127,58 @@ describe("operator sources", () => {
     }
   });
 
+  it("names every library that declares type methods", () => {
+    // A file can hold `operator type:<T> { … }` and no `operators { }` block.
+    // Those files declare operators too, so the registry must name them.
+    const known = new Set(registry.sources.map((s: { file: string }) => s.file));
+    const missing: string[] = [];
+    for (const file of parse.findOperatorFiles(["lib"])) {
+      if (known.has(file)) {
+        continue;
+      }
+      if (parse.parseOperatorSource(file).methods.length > 0) {
+        missing.push(file);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("reads the type methods of lib/stdlib.rgr", () => {
+    const parsed = parse.parseOperatorSource("lib/stdlib.rgr");
+    const map = parsed.methods.find(
+      (m: { name: string; receiver: string }) => m.name === "map" && m.receiver === "[T]",
+    );
+    expect(map).toBeDefined();
+    expect(map.returns).toBe("[T]");
+    expect(map.scope).toBe("all");
+    // A function argument has no plain type name; it is printed from its tree.
+    expect(map.args[0].type).toBe("(fn:T (item:T index:int))");
+
+    const any = parsed.methods.find((m: { name: string }) => m.name === "any");
+    expect(any.returns).toBe("boolean");
+    expect(any.doc).toContain("at least one item");
+
+    const getOr = parsed.methods.find((m: { name: string }) => m.name === "get_or");
+    expect(getOr.receiver).toBe("[string:T]");
+    expect(getOr.args.map((a: { type: string }) => a.type)).toEqual(["string", "T"]);
+  });
+
+  it("anchors every type method on its declaration line", () => {
+    for (const source of registry.sources) {
+      const parsed = parse.parseOperatorSource(source.file);
+      const lines = fs.readFileSync(path.join(ROOT, source.file), "utf8").split("\n");
+      for (const method of parsed.methods) {
+        expect(method.line, `${source.file}: ${method.name}`).toBeGreaterThan(0);
+        // The sources are not consistent about the space after `fn`.
+        const head = lines[method.line - 1].trim().replace(/\s+/g, " ");
+        expect(
+          head.startsWith(`fn ${method.name}`) || head.startsWith(`sfn ${method.name}`),
+          `${source.file}:${method.line} is not the head of ${method.name}`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it("reads the optional annotation of an argument", () => {
     const parsed = parse.parseOperatorSource("compiler/Lang.rgr");
     const nullify = parsed.definitions.find((d: { name: string }) => d.name === "nullify");

@@ -54,10 +54,17 @@ Four limits of `operators.md` make it insufficient as the reference:
 
 ### 1.1 Operator sources
 
-An operator does not have to be in `Lang.rgr`. Any file with an `operators { }` block
-adds operators to the program that imports it. The generator must therefore read a list
-of sources and not one file. These are the counts, measured with the Ranger parser over
-the current tree:
+An operator does not have to be in `Lang.rgr`, and the language has **two** operator
+mechanisms:
+
+| Mechanism | Declaration | Portability |
+| --- | --- | --- |
+| **A. Template operator** | `operators { }` / `commands { }`, one emission string per target | Manual. A target with no template and no `*` fallback writes no code |
+| **B. Type method** | `operator type:<T> <scope> { fn … }`, an ordinary Ranger body | Every target that compiles the library |
+
+Mechanism B is the one that `operators.md` and the first version of this plan both
+missed. The counts below are mechanism A; the type methods are counted after the table.
+Both are measured with the Ranger parser over the current tree:
 
 | Source | Definitions | Different names | Availability |
 | --- | --- | --- | --- |
@@ -78,6 +85,14 @@ the current tree:
 | `lib/ServiceLib.rgr` | 1 | 1 | `Import "ServiceLib.rgr"` |
 | `lib/WebLib.rgr` | 1 | 1 | `Import "WebLib.rgr"` |
 | **Total** | **680** | | |
+
+Mechanism B adds **158 type methods** in 12 files, among them the collection operations
+that a reader looks for first: `map`, `filter`, `reduce`, `any`, `all`, `slice`,
+`groupBy`, and the map helpers `values`, `map_length`, `get_or`. Six of the files that
+declare them hold no `operators { }` block at all (`ImmutableVector`, `Time`,
+`TypedArrays`, `IndexedDB`, `SQL`, `ACEEditor`), so a registry that looks for that block
+only does not see them. `docs/sources.json` names 22 sources, and the registry check
+looks for both block forms.
 
 The list is data, not code: `docs/sources.json` names each source, its import
 statement, its documentation group and whether it is available in every program. A new

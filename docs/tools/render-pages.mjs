@@ -139,6 +139,7 @@ function main() {
 
   const referenceDir = path.join(CONTENT, "reference");
   fs.rmSync(path.join(referenceDir, "operators"), { recursive: true, force: true });
+  fs.rmSync(path.join(referenceDir, "methods"), { recursive: true, force: true });
   fs.rmSync(path.join(referenceDir, "libraries"), { recursive: true, force: true });
 
   const core = model.operators.filter((o) => o.source === "core" || o.source === "stdops");
@@ -200,6 +201,27 @@ function main() {
     written += 1;
   });
 
+  // The type methods: the second operator mechanism of the language.
+  fs.rmSync(path.join(referenceDir, "methods"), { recursive: true, force: true });
+  const methodSources = model.sources.filter((source) =>
+    model.methods.some((m) => m.source === source.id),
+  );
+  methodSources.forEach((source, index) => {
+    const methods = model.methods
+      .filter((m) => m.source === source.id)
+      .sort(
+        (a, b) =>
+          a.receiver.localeCompare(b.receiver) ||
+          a.name.localeCompare(b.name) ||
+          a.id.localeCompare(b.id),
+      );
+    writePage(
+      path.join(referenceDir, "methods", `${source.id}.mdx`),
+      methodPage(source, methods, examples),
+    );
+    written += 1;
+  });
+
   // The macros of lib/stdops.rgr.
   const macroBody = [
     frontMatter({
@@ -232,12 +254,85 @@ function main() {
   process.stderr.write(`docs: ${written} reference pages written\n`);
 }
 
+/**
+ * A page of type methods.
+ *
+ * A type method is an operator of the second mechanism: ordinary Ranger code in
+ * an `operator type:<T>` block. The call is `receiver.name(…)`, and the
+ * compiler compiles the body like any other Ranger source. The body therefore
+ * works for every target that compiles the library, and the page states the
+ * target scope of the block instead of a template list.
+ */
+function methodPage(source, methods, examples) {
+  const byReceiver = new Map();
+  for (const method of methods) {
+    if (!byReceiver.has(method.receiver)) {
+      byReceiver.set(method.receiver, []);
+    }
+    byReceiver.get(method.receiver).push(method);
+  }
+
+  const body = [];
+  body.push(
+    frontMatter({
+      title: `${source.title} methods`,
+      description: `The type methods that ${source.file} declares. ${methods.length} methods.`,
+      tableOfContents: false,
+    }),
+  );
+  body.push('import MethodEntry from "../../../../components/MethodEntry.astro";');
+  body.push('import model from "../../../../data/operators.json";');
+  body.push('import exampleData from "../../../../data/examples.json";');
+  body.push("");
+  body.push(
+    "A type method is an operator of the receiver type. The call is",
+    "`receiver.name(…)`. The body is Ranger code, so the compiler writes it for",
+    "every target that compiles the library.",
+    "",
+  );
+  if (source.import) {
+    body.push("```lisp", `Import "${source.import}"`, "```", "");
+  }
+  body.push(`Source: [${source.file}](${REPOSITORY}/blob/master/${source.file}).`, "");
+
+  for (const [receiver, list] of byReceiver) {
+    body.push(`## \`${receiver}\``, "");
+    const rows = list.map((method) => {
+      const args = method.args
+        .map((a) => `${a.name}: ${(a.type || "?").replace(/\|/g, "\\|")}`)
+        .join(", ");
+      return `| [\`${method.name}\`](#${method.anchor}) | ${args || "—"} | \`${method.returns}\` | ${
+        method.scope === "all" ? "every target" : method.scope
+      } |`;
+    });
+    body.push("| Method | Arguments | Gives | Targets |", "| --- | --- | --- | --- |", ...rows, "");
+    for (const method of list) {
+      body.push(
+        [
+          "<MethodEntry",
+          `  method={model.methods.find((m) => m.id === ${JSON.stringify(method.id)})}`,
+          `  examples={exampleData.examples.filter((e) => e.ids.includes(${JSON.stringify(method.id)}))}`,
+          "  targets={model.generated.targets}",
+          `  description={${JSON.stringify(readDescription(method.id))}}`,
+          `  repository={${JSON.stringify(REPOSITORY)}}`,
+          "/>",
+          "",
+        ].join("\n"),
+      );
+    }
+  }
+  return body.join("\n");
+}
+
 function coveragePage(model, examples, targets) {
   const documented = new Set(examples.flatMap((e) => e.ids));
   const rows = model.sources.map((source) => {
     const operators = model.operators.filter((o) => o.source === source.id);
-    const withExample = operators.filter((o) => documented.has(o.id)).length;
-    return `| ${source.title} | \`${source.file}\` | ${operators.length} | ${withExample} |`;
+    const methods = (model.methods || []).filter((m) => m.source === source.id);
+    const withExample = [...operators, ...methods].filter((o) => documented.has(o.id)).length;
+    return (
+      `| ${source.title} | \`${source.file}\` | ${operators.length} | ${methods.length} | ${withExample} |`
+    );
   });
 
   const perTarget = targets.map((target) => {
@@ -259,8 +354,13 @@ function coveragePage(model, examples, targets) {
     "",
     "## Operators per source",
     "",
-    "| Source | File | Operators | With an example |",
-    "| --- | --- | --- | --- |",
+    "Ranger has two operator mechanisms. A **template operator** holds one",
+    "emission string per target language. A **type method** is Ranger code in an",
+    "`operator type:<T>` block, and the compiler compiles it for the target like",
+    "any other source, so it works wherever the library compiles.",
+    "",
+    "| Source | File | Template operators | Type methods | With an example |",
+    "| --- | --- | --- | --- | --- |",
     ...rows,
     "",
     "## Templates per target",

@@ -33,6 +33,50 @@ function firstVref(node) {
   return first ? first.vref : "";
 }
 
+/**
+ * Collect every `operator type:<T> <target> { … }` block.
+ *
+ * This is the second operator mechanism of the language. The block holds
+ * ordinary Ranger functions, and the compiler makes each one an operator of the
+ * receiver type: `items.map({ … })`. The functions compile like any other
+ * Ranger code, so they work for every target that compiles the library.
+ *
+ * Node shape:
+ *   child 0  "operator"
+ *   child 1  "type"
+ *   child 2  the receiver type, for example `[T]` or `Vector`
+ *   child 3  the target scope: `all`, or one target such as `es6`
+ *   last     the body with the `fn` declarations
+ *
+ * A hash receiver reaches the parser as two tokens, in the same way as a hash
+ * argument, so `[string` and `T]` are joined again.
+ */
+function collectMethodBlocks(node, out) {
+  if (!node || !node.children) {
+    return out;
+  }
+  if (firstVref(node) === "operator" && node.children.length >= 5) {
+    const kids = node.children;
+    if (kids[1] && kids[1].vref === "type") {
+      let index = 2;
+      let receiver = String(kids[index].vref || "");
+      if (receiver.startsWith("[") && !receiver.includes("]") && kids[index + 1]) {
+        receiver = `${receiver}:${kids[index + 1].vref}`;
+        index += 1;
+      }
+      const scope = kids[index + 1] ? String(kids[index + 1].vref || "all") : "all";
+      const body = kids[kids.length - 1];
+      if (body && body.children) {
+        out.push({ receiver, scope, body });
+      }
+    }
+  }
+  for (const child of node.children) {
+    collectMethodBlocks(child, out);
+  }
+  return out;
+}
+
 /** Collect every `operators` / `commands` body in the file, at any depth. */
 function collectBlocks(node, out) {
   if (!node || !node.children) {
@@ -118,12 +162,48 @@ function readArgs(node) {
     const nameNode = kids[i].node;
     args.push({
       name: kids[i].vref,
-      type: kids[i + 1].vref,
+      type: typeOfArgument(kids[i + 1]),
       optional: Boolean(nameNode.hasFlag && nameNode.hasFlag("optional")),
       annotations: annotationsOf(nameNode),
     });
   }
   return args;
+}
+
+/**
+ * The type of one argument.
+ *
+ * A function type has no `vref`: the parser holds it as a subtree, for example
+ * `(_ T (item T index int))` for `(_:T (item:T index:int))`. The subtree is
+ * printed back as a function type, because "no type" on the page would be
+ * wrong.
+ */
+function typeOfArgument(entry) {
+  if (entry.vref && entry.vref.length > 0) {
+    return entry.vref;
+  }
+  const node = entry.node;
+  if (!node || !node.children || node.children.length === 0) {
+    return "";
+  }
+  let code = "";
+  try {
+    code = String(node.getCode());
+  } catch {
+    return "";
+  }
+  const inner = code.replace(/^\(|\)$/g, "").trim();
+  // "(_ boolean (item T))": the first token is the name placeholder and the
+  // second token is the type that the function gives.
+  const head = inner.split(/\s+/);
+  const returns = head[1] && !head[1].startsWith("(") ? head[1] : "_";
+  const argsMatch = inner.match(/\(([^)]*)\)\s*$/);
+  const parts = argsMatch ? argsMatch[1].trim().split(/\s+/) : [];
+  const pairs = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    pairs.push(`${parts[i]}:${parts[i + 1]}`);
+  }
+  return `(fn:${returns === "_" ? "void" : returns} (${pairs.join(" ")}))`;
 }
 
 const KNOWN_FLAGS = [
@@ -191,6 +271,18 @@ function anchorLine(lines, name, from) {
     // The head is "<name> <implementation>:<type> ( … ) {", "<name> ( … ) {" or
     // "<name>@(annotation) …".
     if (/^[\s(@]/.test(after) || after.length === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** The line of a `fn <name>` declaration inside a method operator block. */
+function anchorMethodLine(lines, name, from) {
+  const head = new RegExp(`^s?fn\\s+${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`);
+  for (let i = from; i < lines.length; i += 1) {
+    const text = lines[i].replace(/\r$/, "").trim();
+    if (head.test(text)) {
       return i;
     }
   }
@@ -297,6 +389,43 @@ export function parseOperatorSource(relFile) {
     }
   }
 
+  const methods = [];
+  let methodCursor = 0;
+  for (const block of collectMethodBlocks(parser.rootNode, [])) {
+    for (const node of block.body.children) {
+      if (firstVref(node) !== "fn" && firstVref(node) !== "sfn") {
+        continue;
+      }
+      const nameNode = node.children[1];
+      const returnNode = node.children[2];
+      const name = nameNode ? nameNode.vref : "";
+      if (!name) {
+        continue;
+      }
+      const start = anchorMethodLine(lines, name, methodCursor);
+      const end = start >= 0 ? blockEnd(lines, start) : -1;
+      if (start >= 0) {
+        methodCursor = start + 1;
+      }
+      methods.push({
+        receiver: block.receiver,
+        scope: block.scope,
+        name,
+        returns: returnNode ? returnNode.vref : "void",
+        returnsOptional: Boolean(nameNode && nameNode.hasFlag && nameNode.hasFlag("optional")),
+        args: readArgs(node),
+        annotations: annotationsOf(nameNode),
+        doc:
+          node.hasStringProperty && node.hasStringProperty("doc")
+            ? String(node.getStringProperty("doc")).trim()
+            : "",
+        comment: start >= 0 ? leadingComment(lines, start) : "",
+        line: start >= 0 ? start + 1 : 0,
+        definition: start >= 0 ? sourceSlice(lines, start, end) : "",
+      });
+    }
+  }
+
   const macros = [];
   let macroCursor = 0;
   for (const node of parser.rootNode.children || []) {
@@ -322,6 +451,7 @@ export function parseOperatorSource(relFile) {
   return {
     file: relFile,
     definitions,
+    methods,
     macros: macros.filter((m) => m.name.length > 0),
     hadError: Boolean(parser.had_error),
   };
@@ -344,7 +474,7 @@ export function findOperatorFiles(dirs) {
           stack.push(full);
         } else if (entry.name.endsWith(".rgr")) {
           const text = fs.readFileSync(full, "utf8");
-          if (/(^|\n)\s*(operators|commands)\s*\{/.test(text)) {
+          if (/(^|\n)\s*(operators|commands)\s*\{/.test(text) || /(^|\n)\s*operator\s+type:/.test(text)) {
             found.push(path.relative(ROOT, full).split(path.sep).join("/"));
           }
         }

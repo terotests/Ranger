@@ -20,7 +20,11 @@ function currentNumbers(model, examples) {
   const documented = new Set(examples.flatMap((e) => e.ids));
   const perSource = {};
   for (const source of model.sources) {
-    const operators = model.operators.filter((o) => o.source === source.id);
+    // A type method is an operator of the receiver type, so it counts here.
+    const operators = [
+      ...model.operators.filter((o) => o.source === source.id),
+      ...(model.methods || []).filter((m) => m.source === source.id),
+    ];
     perSource[source.id] = {
       operators: operators.length,
       withExample: operators.filter((o) => documented.has(o.id)).length,
@@ -59,7 +63,10 @@ function main() {
   }
 
   // Every example must document an operator that the model holds.
-  const ids = new Set(model.operators.map((o) => o.id));
+  const ids = new Set([
+    ...model.operators.map((o) => o.id),
+    ...(model.methods || []).map((m) => m.id),
+  ]);
   for (const example of exampleData.examples) {
     for (const id of example.ids) {
       if (!ids.has(id)) {

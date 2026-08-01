@@ -67,3 +67,8 @@
   color: var(--sl-color-gray-2);
   margin: 0.75rem 0 0 0;
 }
+
+.ranger-scope {
+  font-size: 0.8rem;
+  color: var(--sl-color-gray-2);
+}

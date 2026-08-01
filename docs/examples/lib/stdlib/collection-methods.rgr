@@ -1,0 +1,15 @@
+;; id: stdlib/arr-T.map.fn-T-item-T-index-int, stdlib/arr-T.filter.fn-boolean-item-T-index-int
+;; title: Change and select the items of an array
+;; category: array
+
+Import "stdlib.rgr"
+
+class Main {
+    sfn main:void () {
+        def numbers:[int] ([] _:int (1 2 3 4 5))
+        def doubled (numbers.map({ return (item * 2) }))
+        def large (numbers.filter({ return (item > 3) }))
+        print ("doubled " + (array_length doubled))
+        print ("large " + (array_length large))
+    }
+}

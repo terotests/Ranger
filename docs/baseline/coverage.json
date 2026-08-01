@@ -11,12 +11,12 @@
       "withDescription": 0
     },
     "stdlib": {
-      "operators": 7,
-      "withExample": 0,
+      "operators": 45,
+      "withExample": 8,
       "withDescription": 0
     },
     "json": {
-      "operators": 34,
+      "operators": 36,
       "withExample": 0,
       "withDescription": 0
     },
@@ -41,17 +41,17 @@
       "withDescription": 0
     },
     "weblib": {
-      "operators": 1,
+      "operators": 6,
       "withExample": 0,
       "withDescription": 0
     },
     "domlib": {
-      "operators": 52,
+      "operators": 56,
       "withExample": 0,
       "withDescription": 0
     },
     "viewlib": {
-      "operators": 66,
+      "operators": 67,
       "withExample": 0,
       "withDescription": 0
     },
@@ -71,7 +71,7 @@
       "withDescription": 0
     },
     "jinxprocess": {
-      "operators": 7,
+      "operators": 40,
       "withExample": 0,
       "withDescription": 0
     },
@@ -79,11 +79,41 @@
       "operators": 11,
       "withExample": 0,
       "withDescription": 0
+    },
+    "immutable": {
+      "operators": 21,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "time": {
+      "operators": 19,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "typedarrays": {
+      "operators": 4,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "indexeddb": {
+      "operators": 15,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "sql": {
+      "operators": 14,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "aceeditor": {
+      "operators": 2,
+      "withExample": 0,
+      "withDescription": 0
     }
   },
   "total": {
-    "operators": 680,
-    "withExample": 26,
+    "operators": 838,
+    "withExample": 34,
     "withDescription": 8
   }
 }
