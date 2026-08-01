@@ -1,0 +1,5 @@
+; Imports the neighbour with a directory-relative spelling.
+Import "DupChild.rgr"
+class DupWrapper @serialize(true) {
+    def kids:[DupChild]
+}

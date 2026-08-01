@@ -7943,6 +7943,60 @@ class RangerSerializeClass  {
     }
     return false;
   };
+  canSerializeClass (cName, ctx) {
+    if ( this.isSerializedClass(cName, ctx) ) {
+      return true;
+    }
+    if ( ctx.hasClass(cName) == false ) {
+      return false;
+    }
+    const clDecl = ctx.findClass(cName);
+    if ( clDecl.isNormalClass() == false ) {
+      return false;
+    }
+    return clDecl.hasMethod("toDictionary") && clDecl.hasStaticMethod("fromDictionary");
+  };
+  missesSerializeSupport (cName, ctx) {
+    if ( ctx.hasClass(cName) == false ) {
+      return false;
+    }
+    const clDecl = ctx.findClass(cName);
+    if ( clDecl.isNormalClass() == false ) {
+      return false;
+    }
+    return this.canSerializeClass(cName, ctx) == false;
+  };
+  describeFieldType (nn) {
+    if ( nn.value_type == 6 ) {
+      return ("[" + nn.array_type) + "]";
+    }
+    if ( nn.value_type == 7 ) {
+      return ((("[" + nn.key_type) + ":") + nn.array_type) + "]";
+    }
+    return nn.type_name;
+  };
+  validateSerializedClass (cl, ctx) {
+    let is_valid = true;
+    for ( let i = 0; i < cl.variables.length; i++) {
+      var pvar = cl.variables[i];
+      if ( typeof(pvar.nameNode) === "undefined" ) {
+        continue;
+      }
+      const nn = pvar.nameNode;
+      if ( nn.value_type == 13 ) {
+        continue;
+      }
+      let refType = nn.type_name;
+      if ( (nn.value_type == 6) || (nn.value_type == 7) ) {
+        refType = nn.array_type;
+      }
+      if ( this.missesSerializeSupport(refType, ctx) ) {
+        ctx.addError(nn, ((((((((cl.name + ".") + pvar.name) + ": ") + this.describeFieldType(nn)) + " can not be serialized - class ") + refType) + " is not @serialize(true). Add @serialize(true) to ") + refType) + ", or implement toDictionary / fromDictionary in it.");
+        is_valid = false;
+      }
+    };
+    return is_valid;
+  };
   createWRWriter (pvar, nn, ctx, wr) {
     wr.out("def key@(lives):DictNode (new DictNode())", true);
     wr.out(("key.addString(\"n\" \"" + pvar.name) + "\")", true);
@@ -8080,7 +8134,7 @@ class RangerSerializeClass  {
   };
   createWRWriter2 (pvar, nn, ctx, wr) {
     if ( nn.value_type == 6 ) {
-      if ( this.isSerializedClass(nn.array_type, ctx) ) {
+      if ( this.canSerializeClass(nn.array_type, ctx) ) {
         wr.out("def values:JSONArrayObject (json_array)", true);
         wr.out(((("for this." + pvar.compiledName) + " item:") + nn.array_type) + " i {", true);
         wr.indent(1);
@@ -8101,7 +8155,7 @@ class RangerSerializeClass  {
       return;
     }
     if ( nn.value_type == 7 ) {
-      if ( this.isSerializedClass(nn.array_type, ctx) ) {
+      if ( this.canSerializeClass(nn.array_type, ctx) ) {
         wr.out("def values:JSONDataObject (json_object)", true);
         wr.out(("def keyList (keys this." + pvar.compiledName) + ")", true);
         wr.out("for keyList keyname:string index {", true);
@@ -8147,7 +8201,7 @@ class RangerSerializeClass  {
   };
   createWRReader2 (pvar, nn, ctx, wr) {
     if ( nn.value_type == 6 ) {
-      if ( this.isSerializedClass(nn.array_type, ctx) ) {
+      if ( this.canSerializeClass(nn.array_type, ctx) ) {
         wr.out(("def values:JSONArrayObject (getArray dict \"" + pvar.name) + "\")", true);
         wr.out("if(!null? values) {", true);
         wr.indent(1);
@@ -8184,7 +8238,7 @@ class RangerSerializeClass  {
       return;
     }
     if ( nn.value_type == 7 ) {
-      if ( this.isSerializedClass(nn.array_type, ctx) ) {
+      if ( this.canSerializeClass(nn.array_type, ctx) ) {
         wr.out(("def values (getObject dict \"" + pvar.name) + "\")", true);
         wr.out("if(!null? values) {", true);
         wr.indent(1);
@@ -12859,30 +12913,36 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       for ( let i_6 = 0; i_6 < cClassList.length; i_6++) {
         var cl_1 = cClassList[i_6];
         cl_1.is_serialized = true;
+      };
+      for ( let i_7 = 0; i_7 < cClassList.length; i_7++) {
+        var cl_2 = cClassList[i_7];
         const ser = new RangerSerializeClass();
+        if ( ser.validateSerializedClass(cl_2, (cl_2.ctx)) == false ) {
+          continue;
+        }
         const extWr = new CodeWriter();
-        ser.createJSONSerializerFn2(cl_1, cl_1.ctx, extWr);
+        ser.createJSONSerializerFn2(cl_2, cl_2.ctx, extWr);
         const theCode = extWr.getCode();
         const code = new SourceCode(theCode);
         code.filename = "extension " + ctx.currentClass.name;
         const parser = new RangerLispParser(code);
         parser.parse(ctx.hasCompilerFlag("no-op-transform"));
         const rn = parser.rootNode;
-        await this.WalkCollectMethods(rn, cl_1.ctx, wr);
+        await this.WalkCollectMethods(rn, cl_2.ctx, wr);
         this.walkAlso.push(rn);
       };
-      for ( let i_7 = 0; i_7 < this.immutableClasses.length; i_7++) {
-        var cl_2 = this.immutableClasses[i_7];
+      for ( let i_8 = 0; i_8 < this.immutableClasses.length; i_8++) {
+        var cl_3 = this.immutableClasses[i_8];
         const ser_1 = new RangerImmutableExtension();
         const extWr_1 = new CodeWriter();
-        ser_1.createImmutableExtension(cl_2, cl_2.ctx, extWr_1);
+        ser_1.createImmutableExtension(cl_3, cl_3.ctx, extWr_1);
         const theCode_1 = extWr_1.getCode();
         const code_1 = new SourceCode(theCode_1);
-        code_1.filename = "extension " + cl_2.name;
+        code_1.filename = "extension " + cl_3.name;
         const parser_1 = new RangerLispParser(code_1);
         parser_1.parse(ctx.hasCompilerFlag("no-op-transform"));
         const rn_1 = parser_1.rootNode;
-        await this.WalkCollectMethods(rn_1, cl_2.ctx, wr);
+        await this.WalkCollectMethods(rn_1, cl_3.ctx, wr);
         this.walkAlso.push(rn_1);
       };
       if ( (this.processClasses.length) > 0 ) {
@@ -12919,18 +12979,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.compilerSettings["processTsHelpers"] = tsWr.getCode();
         }
       }
-      for ( let i_8 = 0; i_8 < this.processClasses.length; i_8++) {
-        var cl_3 = this.processClasses[i_8];
-        cl_3.is_process = true;
+      for ( let i_9 = 0; i_9 < this.processClasses.length; i_9++) {
+        var cl_4 = this.processClasses[i_9];
+        cl_4.is_process = true;
         let hasProcessBase = false;
-        for ( let i_9 = 0; i_9 < cl_3.extends_classes.length; i_9++) {
-          var extName = cl_3.extends_classes[i_9];
+        for ( let i_10 = 0; i_10 < cl_4.extends_classes.length; i_10++) {
+          var extName = cl_4.extends_classes[i_10];
           if ( extName == "RangerProcessBase" ) {
             hasProcessBase = true;
           }
         };
         if ( hasProcessBase == false ) {
-          cl_3.extends_classes.push("RangerProcessBase");
+          cl_4.extends_classes.push("RangerProcessBase");
           const parentDesc = ctx.findClass("RangerProcessBase");
           if ( (typeof(parentDesc) === "undefined") == false ) {
             const parentCl = parentDesc;
@@ -12940,27 +13000,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         const procGen = new RangerProcessClass();
         const extWr_2 = new CodeWriter();
-        const processTypeId = i_8 + 1;
-        procGen.createProcessExtension(cl_3, cl_3.ctx, extWr_2, processTypeId);
+        const processTypeId = i_9 + 1;
+        procGen.createProcessExtension(cl_4, cl_4.ctx, extWr_2, processTypeId);
         const theCode_2 = extWr_2.getCode();
         const code_2 = new SourceCode(theCode_2);
-        code_2.filename = "extension " + cl_3.name;
+        code_2.filename = "extension " + cl_4.name;
         const parser_2 = new RangerLispParser(code_2);
         parser_2.parse(ctx.hasCompilerFlag("no-op-transform"));
         const rn_2 = parser_2.rootNode;
-        await this.WalkCollectMethods(rn_2, cl_3.ctx, wr);
+        await this.WalkCollectMethods(rn_2, cl_4.ctx, wr);
         this.walkAlso.push(rn_2);
       };
-      for ( let i_10 = 0; i_10 < ctx.definedClassList.length; i_10++) {
-        var cname = ctx.definedClassList[i_10];
+      for ( let i_11 = 0; i_11 < ctx.definedClassList.length; i_11++) {
+        var cname = ctx.definedClassList[i_11];
         allTypes.push(cname);
         const c = (( ctx.definedClasses.hasOwnProperty(cname) ? ctx.definedClasses[cname] : undefined ));
         if ( ((c.is_system || c.is_interface) || c.is_template) || c.is_trait ) {
           continue;
         }
         let varNames = {};
-        for ( let i_11 = 0; i_11 < c.variables.length; i_11++) {
-          var p = c.variables[i_11];
+        for ( let i_12 = 0; i_12 < c.variables.length; i_12++) {
+          var p = c.variables[i_12];
           ctx.hadValidType(p.nameNode);
           varNames[p.name] = true;
         };
@@ -12972,8 +13032,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }));
         }));
       };
-      for ( let i_12 = 0; i_12 < ctx.definedClassList.length; i_12++) {
-        var cname_1 = ctx.definedClassList[i_12];
+      for ( let i_13 = 0; i_13 < ctx.definedClassList.length; i_13++) {
+        var cname_1 = ctx.definedClassList[i_13];
         allTypes.push(cname_1);
       };
       allTypes.push("int");
@@ -12988,8 +13048,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       rootCtx.addClass("Any", new_class);
       new_class.is_union = true;
       let did_push = {};
-      for ( let i_13 = 0; i_13 < allTypes.length; i_13++) {
-        var typeName_1 = allTypes[i_13];
+      for ( let i_14 = 0; i_14 < allTypes.length; i_14++) {
+        var typeName_1 = allTypes[i_14];
         if ( ( typeof(did_push[typeName_1] ) != "undefined" && did_push.hasOwnProperty(typeName_1) ) ) {
           continue;
         }
@@ -39231,7 +39291,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.inputFile = "";
       this.outputFile = "";
       this.targetLanguage = "";
-      this.compilerVersion = "3.1.1";
+      this.compilerVersion = "3.2.0";
       this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
       this.startTime = Date.now();
     }

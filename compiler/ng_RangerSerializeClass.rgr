@@ -3,12 +3,80 @@ class RangerSerializeClass {
 
     fn isSerializedClass:boolean (cName:string ctx:RangerAppWriterContext ) {
         if(ctx.hasClass(cName)) {
-            def clDecl:RangerAppClassDesc (ctx.findClass(cName)) 
+            def clDecl:RangerAppClassDesc (ctx.findClass(cName))
             if(clDecl.is_serialized) {
                 return true
-            }        
+            }
         }
         return false
+    }
+
+    ; True when cName names a class the generator may call toDictionary /
+    ; fromDictionary on: either @serialize(true), or a class that implements
+    ; the pair by hand.
+    fn canSerializeClass:boolean (cName:string ctx:RangerAppWriterContext) {
+        if(this.isSerializedClass(cName ctx)) {
+            return true
+        }
+        if((ctx.hasClass(cName)) == false) {
+            return false
+        }
+        def clDecl:RangerAppClassDesc (ctx.findClass(cName))
+        if((clDecl.isNormalClass()) == false) {
+            return false
+        }
+        return ((clDecl.hasMethod("toDictionary")) && (clDecl.hasStaticMethod("fromDictionary")))
+    }
+
+    ; True when cName names a plain user class that the serializer can not
+    ; drive. System classes, unions, traits and generic instances are left
+    ; alone, as are all non-class types.
+    fn missesSerializeSupport:boolean (cName:string ctx:RangerAppWriterContext) {
+        if((ctx.hasClass(cName)) == false) {
+            return false
+        }
+        def clDecl:RangerAppClassDesc (ctx.findClass(cName))
+        if((clDecl.isNormalClass()) == false) {
+            return false
+        }
+        return ((this.canSerializeClass(cName ctx)) == false)
+    }
+
+    ; Human readable rendering of the declared type, used in diagnostics.
+    fn describeFieldType:string (nn:CodeNode) {
+        if(nn.value_type == RangerNodeType.Array) {
+            return ("[" + nn.array_type + "]")
+        }
+        if(nn.value_type == RangerNodeType.Hash) {
+            return ("[" + nn.key_type + ":" + nn.array_type + "]")
+        }
+        return nn.type_name
+    }
+
+    ; Reports fields whose element / property type can not be serialized.
+    ; Without this the generator emits item.toDictionary() (or silently drops
+    ; the field) and the compile fails inside generated code, far from the
+    ; declaration that actually caused it.
+    fn validateSerializedClass:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+        def is_valid:boolean true
+        for cl.variables pvar:RangerAppParamDesc i {
+            if(null? pvar.nameNode) {
+                continue
+            }
+            def nn:CodeNode (unwrap pvar.nameNode)
+            if(nn.value_type == RangerNodeType.Enum) {
+                continue
+            }
+            def refType:string nn.type_name
+            if((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
+                refType = nn.array_type
+            }
+            if(this.missesSerializeSupport(refType ctx)) {
+                ctx.addError(nn (cl.name + "." + pvar.name + ": " + (this.describeFieldType(nn)) + " can not be serialized - class " + refType + " is not @serialize(true). Add @serialize(true) to " + refType + ", or implement toDictionary / fromDictionary in it."))
+                is_valid = false
+            }
+        }
+        return is_valid
     }
 
     fn createWRWriter:void (pvar:RangerAppParamDesc nn:CodeNode  ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -156,7 +224,7 @@ class RangerSerializeClass {
         ; pvar.name        
         if(nn.value_type == RangerNodeType.Array) {
             ; TODO: serializing primitives...
-            if(this.isSerializedClass(nn.array_type ctx)) {
+            if(this.canSerializeClass(nn.array_type ctx)) {
                 wr.out("def values:JSONArrayObject (json_array)" , true)
                 wr.out("for this." + pvar.compiledName +" item:"+nn.array_type + " i {" , true)
                     wr.indent(1)
@@ -177,7 +245,7 @@ class RangerSerializeClass {
             return
         }
         if(nn.value_type == RangerNodeType.Hash) {
-            if(this.isSerializedClass(nn.array_type ctx)) {
+            if(this.canSerializeClass(nn.array_type ctx)) {
                 wr.out("def values:JSONDataObject (json_object)" , true)
                 wr.out("def keyList (keys this." + pvar.compiledName + ")" , true)
                 wr.out("for keyList keyname:string index {" , true)
@@ -229,7 +297,7 @@ class RangerSerializeClass {
         ; pvar.name        
         if(nn.value_type == RangerNodeType.Array) {
             ; TODO: serializing primitives...
-            if(this.isSerializedClass(nn.array_type ctx)) {
+            if(this.canSerializeClass(nn.array_type ctx)) {
                 wr.out("def values:JSONArrayObject (getArray dict \"" + pvar.name + "\")" , true)
                 wr.out("if(!null? values) {" true)
                 wr.indent(1)
@@ -267,7 +335,7 @@ class RangerSerializeClass {
             return
         }
         if(nn.value_type == RangerNodeType.Hash) {
-            if(this.isSerializedClass(nn.array_type ctx)) {
+            if(this.canSerializeClass(nn.array_type ctx)) {
                 wr.out("def values (getObject dict \"" + pvar.name + "\")" , true)
                 wr.out("if(!null? values) {" true)
                 wr.indent(1)                

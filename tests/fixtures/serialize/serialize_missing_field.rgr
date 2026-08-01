@@ -1,0 +1,8 @@
+; Property type of a serialized class is not @serialize(true).
+class PlainChild {
+    def name:string ""
+}
+
+class FieldHolder @serialize(true) {
+    def one:PlainChild
+}

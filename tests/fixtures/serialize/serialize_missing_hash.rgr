@@ -1,0 +1,8 @@
+; Value type of a serialized hash is not @serialize(true).
+class PlainChild {
+    def name:string ""
+}
+
+class HashHolder @serialize(true) {
+    def byName:[string:PlainChild]
+}

@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-01
+
 ### Fixed
+
+- **`@serialize(true)` array / hash / property types without the annotation** — the generator assumed every referenced class had `toDictionary` / `fromDictionary` and emitted the call regardless, so the compile failed inside `extension <Class>` with `Could not match argument types for push` / `for case` and never named the real cause. Hash-valued fields were worse: the field was silently dropped from the serialized output. A `@serialize(true)` class that references a class which is neither `@serialize(true)` nor implements the pair by hand now fails at the declaration:
+
+  ```text
+  [FAIL] Parent.kids: [Child] can not be serialized - class Child is not @serialize(true).
+         Add @serialize(true) to Child, or implement toDictionary / fromDictionary in it.
+      9 │     def kids:[Child]
+                  ^── here
+  ```
+
+- **`@serialize(true)` with mutually referencing classes** — serializer extensions were generated one class at a time and `is_serialized` was set as each was reached, so whichever class came first in the dependency sort saw its peer as non-serializable and emitted primitive element code. All `@serialize(true)` classes are now marked before any extension is generated, which mutual references could not satisfy by sorting.
+
+- **`@serialize(true)` element types with hand-written `toDictionary` / `fromDictionary`** — accepted as serializable; the generator now routes them through the object path instead of treating them as primitives.
+
+- **Duplicate serializer extension when one file is reached by two import spellings** — a file imported as both `Child.rgr` and `domain/Child.rgr` was expanded twice, and with `@serialize(true)` the second expansion produced `method with the same name and parameter signature declared earlier` pointing at generated code. Fixed since 3.1.1 was published, released here; covered by a regression test.
 
 - **`file_mtime` C++ backend** — added missing `cpp` template in `Lang.rgr` (`stat()` + ms, matching es6 `mtimeMs`); fixes `game_runtime.rgr` hot-reload compile for `game_sdl` native binary
 
@@ -22,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **In-process TS hot reload (Path A)** — `TSAstPatcher` (`ts_ast_patch.rgr`), `ComponentEngine.patchScript()`, `GameRunner` runtime options (`setHotReload`, `trackScriptFile`, `maybeHotReload`); `game_sdl --hot-reload` / `--no-hot-reload`; default on for interactive SDL, off for `maxFrames` smoke runs
 
 - **SDL + native compiled games (Path B)** — `game_sdl_native_host.rgr`, `invaders_native_sdl_runner.rgr`, `build-game-sdl-native.sh`; `npm run engine:game-sdl-native:run:invaders` runs emitter output in an SDL window without `ComponentEngine`
+
+- **`@serialize(true)` regression suite** — `tests/compiler-serialize.test.ts` and `tests/fixtures/serialize/`: round trip over primitives, nested objects, object arrays and object hashes; mutual references; hand-written `toDictionary` / `fromDictionary`; duplicate import spellings; and the three diagnostics above
+
+### Changed
+
+- **`dist/api.js` rebuilt from current sources** — the committed programmatic-API bundle predated several compiler fixes, so `require("ranger-compiler")` shipped older behaviour than the `rgrc` CLI. `scripts/patch-chain-desugar.js` now patches `dist/api.js` as well as `bin/output.js`, and `build:dist:module` runs it after `tsc`
 
 ## [3.1.1] - 2026-06-23
 

@@ -1,0 +1,20 @@
+; The same file is reachable through two different import spellings
+; ("DupChild.rgr" from DupWrapper, "domain/DupChild.rgr" from here).
+; The serializer extension must be generated exactly once.
+Import "tests/fixtures/serialize/domain/DupChild.rgr"
+Import "tests/fixtures/serialize/domain/DupWrapper.rgr"
+
+class SerializeDupImport {
+    sfn m@(main):void () {
+        def w:DupWrapper (new DupWrapper())
+        def c:DupChild (new DupChild())
+        c.name = "dup"
+        push w.kids c
+
+        def dict:JSONDataObject (w.toDictionary())
+        def back:DupWrapper (DupWrapper.fromDictionary(dict))
+        def first:DupChild (itemAt back.kids 0)
+        print ("kid=" + first.name)
+        print "serialize-dup-import-ok"
+    }
+}

@@ -1,0 +1,39 @@
+; A class that implements toDictionary / fromDictionary by hand is accepted
+; as an element type without the @serialize(true) annotation.
+class ManualChild {
+    def name:string ""
+
+    fn toDictionary:JSONDataObject () {
+        def res:JSONDataObject (json_object)
+        set res "name" name
+        return res
+    }
+
+    static fn fromDictionary:ManualChild (dict:JSONDataObject) {
+        def obj:ManualChild (new ManualChild())
+        def v (getStr dict "name")
+        if(!null? v) {
+            obj.name = (unwrap v)
+        }
+        return obj
+    }
+}
+
+class ManualHolder @serialize(true) {
+    def kids:[ManualChild]
+}
+
+class SerializeManual {
+    sfn m@(main):void () {
+        def h:ManualHolder (new ManualHolder())
+        def c:ManualChild (new ManualChild())
+        c.name = "manual"
+        push h.kids c
+
+        def dict:JSONDataObject (h.toDictionary())
+        def back:ManualHolder (ManualHolder.fromDictionary(dict))
+        def first:ManualChild (itemAt back.kids 0)
+        print ("kid=" + first.name)
+        print "serialize-manual-ok"
+    }
+}
