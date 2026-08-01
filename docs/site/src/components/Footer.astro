@@ -1,0 +1,21 @@
+---
+/**
+ * The default Starlight footer, plus the identity of the build.
+ *
+ * A reader must know which compiler wrote the reference on the page.
+ */
+import Default from "@astrojs/starlight/components/Footer.astro";
+import model from "../data/operators.json";
+
+const version = model?.generated?.compilerVersion ?? "";
+const commit = (import.meta.env.RANGER_COMMIT ?? "").slice(0, 7);
+const isRelease = import.meta.env.RANGER_RELEASE === "true";
+---
+
+<Default><slot /></Default>
+
+<p class="ranger-build">
+  Ranger {version}
+  {commit && <> · commit {commit}</>}
+  {!isRelease && <> · development build</>}
+</p>

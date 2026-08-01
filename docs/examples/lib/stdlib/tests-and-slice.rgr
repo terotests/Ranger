@@ -1,0 +1,19 @@
+;; id: stdlib/arr-T.any.fn-boolean-item-T, stdlib/arr-T.all.fn-boolean-item-T, stdlib/arr-T.slice.int.int
+;; title: Test the items of an array and take a part of it
+;; category: array
+
+Import "stdlib.rgr"
+
+class Main {
+    sfn main:void () {
+        def numbers:[int] ([] _:int (1 2 3 4 5))
+        if (numbers.any({ return (item > 4) })) {
+            print "one item is greater than four"
+        }
+        if (numbers.all({ return (item > 0) })) {
+            print "every item is positive"
+        }
+        def part (numbers.slice(1 3))
+        print ("part " + (array_length part))
+    }
+}

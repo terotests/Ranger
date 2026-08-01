@@ -1,0 +1,6 @@
+extends: existence
+message: "Do not start a sentence with '%s'. Use a noun or an imperative verb (ASD-STE100 rule 8)."
+level: warning
+scope: sentence
+raw:
+  - '^(?:[A-Z]\w+ing)\b'

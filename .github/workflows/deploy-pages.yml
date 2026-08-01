@@ -3,6 +3,10 @@
 #   /games/   -> the Ranger game engine compiled to JavaScript, running games
 #                in the browser via a virtual filesystem (Pong today; the WASM
 #                car game + a GPU 3D demo are the next entries).
+#   /docs/    -> the language documentation. The operator reference is generated
+#                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
+#                examples on it are compiled by the compiler built in this job,
+#                so the docs cannot drift from the release they ship with.
 #
 # This is the single Pages deployer for the repo (it supersedes the old
 # deploy-playground.yml). GitHub Pages allows one deployment per repository, so
@@ -22,7 +26,12 @@ on:
       - "gallery/game_engine/scripting/**"
       - "compiler/**"
       - "lib/**"
+      - "docs/**"
       - ".github/workflows/deploy-pages.yml"
+  # A published release republishes the site, so the documentation on
+  # /docs/ always describes the released compiler.
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -68,6 +77,34 @@ jobs:
       # ---- Three.js cube on the GPU (.tsx interpreter -> Ranger Three -> WebGL)
       - name: Build tsx3d WebGL demo
         run: node gallery/game_engine/web/build-tsx3d.mjs --out "$GITHUB_WORKSPACE/_site/games/tsx3d"
+
+      # ---- Documentation site at /docs/ ----------------------------------
+      - name: Install documentation dependencies
+        working-directory: docs/site
+        run: npm ci
+
+      - name: Restore the example compilation cache
+        uses: actions/cache@v4
+        with:
+          path: docs/.cache
+          key: docs-examples-${{ hashFiles('compiler/**/*.rgr', 'lib/**/*.rgr', 'docs/examples/**') }}
+          restore-keys: |
+            docs-examples-
+
+      - name: Generate the operator reference
+        run: npm run docs:generate
+
+      - name: Build the documentation site
+        working-directory: docs/site
+        run: npm run build
+        env:
+          RANGER_COMMIT: ${{ github.sha }}
+          RANGER_RELEASE: ${{ github.event_name == 'release' }}
+
+      - name: Copy the documentation into the site
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/_site/docs"
+          cp -r docs/site/dist/. "$GITHUB_WORKSPACE/_site/docs/"
 
       # ---- Playground at the site root -----------------------------------
       - name: Install playground dependencies

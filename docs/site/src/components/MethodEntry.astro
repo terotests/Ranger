@@ -1,0 +1,64 @@
+---
+/**
+ * One type method: the call, the description, the Ranger source of the body and
+ * the generated code of an example.
+ *
+ * A type method has no template list. The body is Ranger code that the compiler
+ * compiles for the target, so the page states the target scope of the block and
+ * shows the body.
+ */
+import { Code } from "@astrojs/starlight/components";
+import TargetOutput from "./TargetOutput.astro";
+
+interface Props {
+  method: any;
+  examples: any[];
+  targets: { id: string; title: string; highlight: string }[];
+  description: string;
+  repository: string;
+}
+
+const { method, examples, targets, description, repository } = Astro.props;
+const args = method.args.map((a: any) => `${a.name}: ${a.type || "?"}`).join(", ");
+const call = `receiver.${method.name}(${method.args.map((a: any) => a.name).join(" ")})`;
+const sourceUrl = `${repository}/blob/master/${method.file}#L${method.line}`;
+const scope =
+  method.scope === "all"
+    ? "The compiler writes this method for every target."
+    : `The block declares this method for the ${method.scope} target only.`;
+---
+
+<h3 id={method.anchor}><code>{method.name}</code></h3>
+
+<Code
+  code={`${call} → ${method.returns}${args.length > 0 ? `\n\n${method.name}(${args})` : ""}`}
+  lang="text"
+/>
+
+{description && <div class="ranger-description" set:html={description} />}
+{!description && method.doc && <p>{method.doc}</p>}
+{!description && !method.doc && method.comment && <p>{method.comment}</p>}
+
+<p class="ranger-scope">{scope}</p>
+
+{
+  examples.map((example) => (
+    <div>
+      <p class="ranger-example-title">{example.title}</p>
+      <TargetOutput example={example} targets={targets} />
+    </div>
+  ))
+}
+
+{
+  method.definition && (
+    <details>
+      <summary>The Ranger source of the method</summary>
+      <Code code={method.definition} lang="lisp" />
+    </details>
+  )
+}
+
+<p class="ranger-source">
+  Definition: <a href={sourceUrl}>{method.file}, line {method.line}</a>
+</p>

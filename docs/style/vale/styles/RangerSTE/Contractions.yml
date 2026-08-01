@@ -1,0 +1,15 @@
+extends: substitution
+message: "Write '%s' as '%s' (ASD-STE100 does not use contractions)."
+level: error
+ignorecase: true
+swap:
+  "doesn't": does not
+  "don't": do not
+  "isn't": is not
+  "aren't": are not
+  "can't": cannot
+  "won't": will not
+  "it's": it is
+  "you'll": you will
+  "we've": we have
+  "there's": there is

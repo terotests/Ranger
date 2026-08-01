@@ -1,0 +1,17 @@
+{
+  "name": "ranger-docs",
+  "type": "module",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.41.6",
+    "astro": "^7.1.6",
+    "sharp": "^0.35.3"
+  }
+}

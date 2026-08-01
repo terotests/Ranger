@@ -1,0 +1,12 @@
+;; id: core/mod.int.int
+;; title: Integer remainder
+;; category: numeric
+
+class Main {
+    sfn main:void () {
+        def a 7
+        def b 3
+        def rem (% a b)
+        print ("remainder " + rem)
+    }
+}

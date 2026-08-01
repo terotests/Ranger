@@ -1,0 +1,181 @@
+{
+  "$comment": "Registry of the files that declare Ranger operators. docs/tools reads this file to build the operator reference. A file in the tree with an `operators { }` block or an `operator type:` block that is not listed here fails docs:coverage.",
+  "sources": [
+    {
+      "id": "core",
+      "file": "compiler/Lang.rgr",
+      "title": "Core operators",
+      "always": true,
+      "import": null,
+      "summary": "The operators of the language. Every program can use them."
+    },
+    {
+      "id": "stdops",
+      "file": "lib/stdops.rgr",
+      "title": "Standard operators and macros",
+      "always": true,
+      "import": null,
+      "summary": "Loaded through RANGER_LIB with the core. Holds the `ret` operator and the `defn` macros."
+    },
+    {
+      "id": "stdlib",
+      "file": "lib/stdlib.rgr",
+      "title": "Union types",
+      "always": false,
+      "import": "stdlib.rgr",
+      "summary": "The `case` and `cast` operators for union type values."
+    },
+    {
+      "id": "json",
+      "file": "lib/JSON.rgr",
+      "title": "JSON",
+      "always": false,
+      "import": "JSON.rgr",
+      "summary": "Read and write JSON objects and arrays."
+    },
+    {
+      "id": "timers",
+      "file": "lib/Timers.rgr",
+      "title": "Timers",
+      "always": false,
+      "import": "Timers.rgr",
+      "summary": "Interval and timeout operators."
+    },
+    {
+      "id": "storage",
+      "file": "lib/Storage.rgr",
+      "title": "Storage",
+      "always": false,
+      "import": "Storage.rgr",
+      "summary": "Key and value storage in the browser."
+    },
+    {
+      "id": "crypto",
+      "file": "lib/Crypto.rgr",
+      "title": "Crypto",
+      "always": false,
+      "import": "Crypto.rgr",
+      "summary": "Hash and cipher operators."
+    },
+    {
+      "id": "ajax",
+      "file": "lib/Ajax.rgr",
+      "title": "Ajax",
+      "always": false,
+      "import": "Ajax.rgr",
+      "summary": "HTTP requests from the browser."
+    },
+    {
+      "id": "weblib",
+      "file": "lib/WebLib.rgr",
+      "title": "Web",
+      "always": false,
+      "import": "WebLib.rgr",
+      "summary": "Browser window operators."
+    },
+    {
+      "id": "domlib",
+      "file": "lib/DOMLib.rgr",
+      "title": "DOM",
+      "always": false,
+      "import": "DOMLib.rgr",
+      "summary": "Read and change the document object model."
+    },
+    {
+      "id": "viewlib",
+      "file": "lib/ViewLib.rgr",
+      "title": "View",
+      "always": false,
+      "import": "ViewLib.rgr",
+      "summary": "View components and their properties."
+    },
+    {
+      "id": "engine3d",
+      "file": "lib/Engine3D.rgr",
+      "title": "3D engine",
+      "always": false,
+      "import": "Engine3D.rgr",
+      "summary": "Vectors, matrices and scene operators for 3D graphics."
+    },
+    {
+      "id": "webserver",
+      "file": "lib/WebServerLib.rgr",
+      "title": "Web server",
+      "always": false,
+      "import": "WebServerLib.rgr",
+      "summary": "HTTP server operators."
+    },
+    {
+      "id": "service",
+      "file": "lib/ServiceLib.rgr",
+      "title": "Service",
+      "always": false,
+      "import": "ServiceLib.rgr",
+      "summary": "Service registration."
+    },
+    {
+      "id": "jinxprocess",
+      "file": "lib/JinxProcess.rgr",
+      "title": "Jinx process",
+      "always": false,
+      "import": "JinxProcess.rgr",
+      "summary": "Process operators for the Jinx runtime."
+    },
+    {
+      "id": "rangerdir",
+      "file": "lib/ranger-dir.rgr",
+      "title": "Directory",
+      "always": false,
+      "import": "ranger-dir.rgr",
+      "summary": "Read and write files and directories."
+    },
+    {
+      "id": "immutable",
+      "file": "lib/ImmutableVector.rgr",
+      "title": "Immutable collections",
+      "always": false,
+      "import": "ImmutableVector.rgr",
+      "summary": "Vector and Map types that no operation changes. An operation gives a new collection."
+    },
+    {
+      "id": "time",
+      "file": "lib/Time.rgr",
+      "title": "Time",
+      "always": false,
+      "import": "Time.rgr",
+      "summary": "A wrapper of the host Date object. For portable calendar work use IsoDateLib.rgr."
+    },
+    {
+      "id": "typedarrays",
+      "file": "lib/TypedArrays.rgr",
+      "title": "Typed arrays",
+      "always": false,
+      "import": "TypedArrays.rgr",
+      "summary": "Typed array types of the browser: Uint32Array and the types next to it."
+    },
+    {
+      "id": "indexeddb",
+      "file": "lib/IndexedDB.rgr",
+      "title": "IndexedDB",
+      "always": false,
+      "import": "IndexedDB.rgr",
+      "summary": "The IndexedDB database of the browser."
+    },
+    {
+      "id": "sql",
+      "file": "lib/SQL.rgr",
+      "title": "SQL",
+      "always": false,
+      "import": "SQL.rgr",
+      "summary": "A schema builder and query operators for SQL."
+    },
+    {
+      "id": "aceeditor",
+      "file": "lib/ACEEditor.rgr",
+      "title": "ACE editor",
+      "always": false,
+      "import": "ACEEditor.rgr",
+      "summary": "The ACE code editor component of the browser."
+    }
+  ]
+}

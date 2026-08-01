@@ -1,0 +1,17 @@
+;; id: stdlib/map-string-T.values, stdlib/map-string-T.map_length, stdlib/map-string-T.get_or.string.T
+;; title: Values, size and default value of a map
+;; category: map
+
+Import "stdlib.rgr"
+
+class Main {
+    sfn main:void () {
+        def ages:[string:int]
+        set ages "ada" 36
+        set ages "alan" 41
+        def all_ages (ages.values())
+        print ("count " + (array_length all_ages))
+        print ("keys " + (ages.map_length()))
+        print ("grace " + (ages.get_or("grace" 0)))
+    }
+}

@@ -1,0 +1,46 @@
+---
+title: About this documentation
+description: Technical documentation of the Ranger language. The operator reference is generated from the compiler sources of each release.
+---
+
+Ranger is a programming language with a compiler that writes source code in
+other languages. One Ranger program compiles to JavaScript, TypeScript, Go,
+Rust, Python, Java, Kotlin, Swift, C#, C++, PHP and Scala.
+
+## What this site holds
+
+| Part | Content | Source |
+| --- | --- | --- |
+| Operator reference | Every operator of the language, its signature, its target support and the code that it writes | Generated from the compiler sources |
+| Library operators | The operators that a library adds to a program that imports it | Generated from the library sources |
+| Guides | The language, the types, the compiler and the target languages | Written by hand |
+
+## How the reference is made
+
+The reference is not written by hand and it is not a copy of the compiler
+sources. A tool does these steps on each release:
+
+1. The Ranger parser reads the operator sources: `compiler/Lang.rgr` and the
+   library files in `lib/`.
+2. The compiler compiles a probe program. The writer context then gives the
+   category and the resolved types of each operator.
+3. The compiler compiles the examples for each target language. The generated
+   code on an operator page is the output of that compilation.
+4. The pages are written from the model and from the compilation results.
+
+The compiler that writes the reference is the compiler of the release. The
+documentation and the compiler therefore cannot disagree.
+
+## The rules of the text
+
+The text follows ASD-STE100 Simplified Technical English. The rules are in
+[Writing rules](/Ranger/docs/contributing/writing-rules/). The text gives
+technical information. It does not compare Ranger to other languages and it
+does not recommend Ranger.
+
+## Related pages
+
+- The [playground](/Ranger/) compiles Ranger in the browser.
+- The [games site](/Ranger/games/) runs programs that the compiler wrote.
+- The [repository](https://github.com/terotests/Ranger) holds the compiler and
+  this documentation.

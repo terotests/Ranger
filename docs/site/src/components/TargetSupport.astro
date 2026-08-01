@@ -1,0 +1,33 @@
+---
+/**
+ * The target support row of one operator.
+ *
+ *   template  the operator has a template for this target
+ *   fallback  the operator uses the `*` template of the definition
+ *   none      the compiler writes no code for this target
+ */
+interface Props {
+  support: Record<string, string>;
+  targets: { id: string; title: string }[];
+}
+
+const { support, targets } = Astro.props;
+const labels: Record<string, string> = {
+  template: "template",
+  fallback: "default template",
+  none: "no template",
+};
+---
+
+<ul class="ranger-support">
+  {
+    targets.map((target) => {
+      const state = support[target.id] || "none";
+      return (
+        <li class={`ranger-support-${state}`} title={labels[state]}>
+          {target.title}
+        </li>
+      );
+    })
+  }
+</ul>
