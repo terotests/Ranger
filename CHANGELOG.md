@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`prepublishOnly` no longer runs the whole repository suite** — publishing the compiler ran all 56 test files, including the gallery, game-engine and native-toolchain suites. Those need SDL2, `g++`, Cannon and game fixtures that ship with neither the repo nor the package, so `npm publish` failed on the publisher's machine for reasons unrelated to the compiler (missing `SDL2/SDL.h`, `gallery/game_engine/games/ylos/index.tsx` and `physics_race/index.tsx` are absent from the repository entirely). `prepublishOnly` and `.github/workflows/publish.yml` now run `npm run test:publish` — 44 files, 355 tests, ~90s — covering parsing, type checking and code generation for every target backend. `npm test` still runs everything, and `ci.yml` is unchanged.
+
+- **`build:dist` now includes `build:dist:module`** — `dist/api.js` was not rebuilt by the release build, which is how it drifted behind `bin/output.js`
+
 - **`dist/api.js` rebuilt from current sources** — the committed programmatic-API bundle predated several compiler fixes, so `require("ranger-compiler")` shipped older behaviour than the `rgrc` CLI. `scripts/patch-chain-desugar.js` now patches `dist/api.js` as well as `bin/output.js`, and `build:dist:module` runs it after `tsc`
 
 ## [3.1.1] - 2026-06-23

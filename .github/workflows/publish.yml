@@ -26,8 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Same gate as prepublishOnly: the compiler suites that validate the
+      # published artifact. The gallery / game-engine / native suites need
+      # SDL2, g++ and game assets that are not in the package, so they run in
+      # ci.yml instead of blocking a release.
       - name: Run tests
-        run: npm test
+        run: npm run test:publish
 
       - name: Verify package builds
         run: |
