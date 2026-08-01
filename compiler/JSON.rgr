@@ -330,7 +330,28 @@ func r_get_opt_array( data map[string]interface{}, key string ) *GoNullable  {
         templates {
             es6 ( "Object.keys(" (e 1) ")")
             ranger( '(keys ' (e 1 )')')
+            kotlin ( "__getJSONKeys(" (e 1) ")"
+(create_polyfill "
+fun __getJSONKeys(obj: JSONObject): ArrayList<String> {
+    val list = ArrayList<String>()
+    try {
+        val jsonArray = obj.names()
+        if (jsonArray != null) {
+            val len = jsonArray.length()
+            for (i in 0 until len) {
+                list.add(jsonArray.get(i).toString())
+            }
+        }
+    } catch (e: Exception) {
+    }
+    return list
+}
+    ")
+            (imp "org.json.JSONObject")
+            (imp "org.json.JSONArray")
+            )
             swift3 (  'Array('(e 1) '.keys)')
+            swift6 (  'Array('(e 1) '.keys)')
             java7 ( "__getJSONKeys(" (e 1) ")"
 ; create template            
 (create_polyfill "
@@ -413,6 +434,7 @@ static Object __getJSONValue(JSONArray o, Integer item)
             
              )
             swift3 ( (e 1) "[" (e 2) "]")
+            swift6 ( (e 1) "[" (e 2) "]")
             kotlin ( (e 1) ".get(" (e 2) ")")
             go ( (e 1) "[" (e 2) "]")
             php ( (e 1) "[" (e 2) "]")

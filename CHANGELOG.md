@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-08-01
+
+### Added
+
+- **`.any()`, `.all()`, `.slice()` on arrays; `.values()`, `.map_length()`, `.get_or()` on maps** — added to `lib/stdlib.rgr` as Ranger source in the `operator type:[T]` / `operator type:[string:T]` blocks, not as per-target templates, so they compile for es6, cpp, kotlin, swift3, swift6, go and rust without a template matrix. `get_or` replaces the `has` + `get` + `unwrap` triple. Note that `map`, `filter`, `reduce`, `find`, `count` and `groupBy` already existed in this same block and already worked on all seven targets — they are method-style (`items.map({ ... })`), which is why they are easy to miss when reading `Lang.rgr` alone
+
+- **Operator coverage audit** — `tests/operator-coverage.test.ts` fails when an operator declares a `swift3` template but no `swift6` one and no `*` fallback, which is exactly the shape that let `@serialize(true)` ship broken for Swift 6 in 3.2.0. The check is one-directional on purpose: swift6 is a primary target and swift3 is legacy, so a newer operator existing only on swift6 is correct. It also pins the count of silent `not implemented` templates at its current 30 as a ratchet that may only go down
+
+### Fixed
+
+- **`keys` on `JSONDataObject` had no `kotlin` template** — any hash field (`[string:int]`, `[string:Child]`) in a `@serialize(true)` class failed to compile for Kotlin. Added a polyfill mirroring the existing `java7` one over the same `org.json` API. **The emitted Kotlin has not been run through `kotlinc`** — no Kotlin toolchain in the build environment — so this needs verification before it is relied on
+
+- **`keys` on a map had no `rust` template** — `forKeys`, and therefore the whole `operator type:[string:T]` block, failed to compile for Rust
+
+- **Seven operators lacked a `swift6` template** — `M_PI`, `fabs`, `tan`, `wait`, `file_exists`, `dir_exists` mirror their `swift3` counterparts verbatim (`file_exists` / `dir_exists` including their `FileManager` polyfills). `create_dir` got a real implementation (`FileManager.default.createDirectory(atPath:withIntermediateDirectories:)`) rather than a copy, because the `swift3` template is an empty no-op that silently skips the operation. `switch` on a generic condition also gained `swift6`, and `buffer_alloc` gained `swift3`
+
+- **`random` had no Swift template at all** — neither `random:double ()` nor `random:int (min max)` could compile for Swift. Added `Double.random(in:)` / `Int.random(in:)` for swift6 and `arc4random` equivalents for swift3
+
+- **`ceil` declared `:int` but emitted floating point** — `go` emitted `math.Ceil`, `cpp` emitted `ceil`, and so on, while the sibling `floor` truncated on every target. `ceil` now matches `floor` on swift3, swift6, cpp, kotlin, csharp, go, rust and java7, and gained the `kotlin` and `swift6` templates it was missing
+
+- **Go's SHA-256 helper was named `_r_md5`** — renamed to `_r_sha256`; it calls `sha256.Sum256`
+
+- **`rust` was missing from the `targets {}` block** in `Lang.rgr` although it compiles
+
+- **`fn has:boolen` typo** in the array operator block of `stdlib.rgr`
+
+### Known gaps
+
+- **`@serialize(true)` does not work for `cpp` or `rust`** — not a template gap: `systemclass JSONDataObject` and `JSONArrayObject` declare no C++ or Rust type at all, so these targets have no JSON representation to serialize into. Needs a design decision, not a template
+- Unary minus, `range`, `min`, `abs(int)`, `round`, `pow` and `log` remain unimplemented; see [PLAN_OPERATORS.md](./PLAN_OPERATORS.md) §5
+
+## [3.2.1] - 2026-08-01
+
+### Fixed
+
+- **`@serialize(true)` did not compile for Swift 6** — 3.2.0 fixed serialization on ES6/TypeScript and Kotlin, but a `@serialize(true)` class still failed on the `swift6` target, and four of the five errors landed inside the compiler's own `JSON.rgr` rather than in user code:
+
+  ```text
+  JSON.rgr:48:12          [FAIL] Unknown type:  type ID : 0
+  JSON.rgr:49:1            [FAIL] Could not match argument types for getValue
+  JSON.rgr:50:5           [FAIL] Invalid types for lambda call
+  extension WithSer:9:10  [FAIL] Could not match argument types for case
+  ```
+
+  Three operators on the generated `toDictionary` / `fromDictionary` path had a `swift3` template but no `swift6` one, and no `*` fallback, so operator matching failed for that target only: `getValue` and `keys` (`lib/JSON.rgr`) and the union-narrowing `case` (`lib/stdlib.rgr`). Each `swift6` template mirrors its `swift3` counterpart verbatim — across the four operator files, 86 operators already declare identical `swift3` / `swift6` templates and the 13 that differ do so only for genuine Swift 3 → 6 API changes (`.characters`, `UnicodeScalar`, `Data(bytes:)`), none of which these three use.
+
+  Reported with a three-target repro in [realtrainer `ai/RANGER_COMPILER_ISSUES.md` §D](https://github.com/terotests/realtrainer): the same two-file library compiles on ES6 and Kotlin and fails on Swift 6, isolating the cause to the annotation rather than to user code.
+
+### Added
+
+- **Cross-target `@serialize(true)` regression tests** — `tests/compiler-serialize.test.ts` now compiles the serialization fixtures for `es6`, `swift3`, `swift6` and `go`, plus `tests/fixtures/serialize/serialize_union_case.rgr` for the union-narrowing path. An ES6-only test cannot see a missing template on another backend, which is how this reached a release
+
+### Known gaps (unfixed, same defect class)
+
+- **`keys` on `JSONDataObject` has no `kotlin` template** — any hash field (`[string:int]`, `[string:Child]`) in a `@serialize(true)` class fails to compile for Kotlin with 15 errors in the generated extension. Pre-existing, independent of the Swift fix
+- **Seven operators still lack a `swift6` template** — `M_PI`, `fabs`, `tan`, `wait`, `file_exists`, `dir_exists`, `create_dir` (`compiler/Lang.rgr`). All fail on `swift6` today; none is on the `@serialize` path. `create_dir` additionally needs a real implementation rather than a copy: its `swift3` template is an empty no-op
+
 ## [3.2.0] - 2026-08-01
 
 ### Fixed
