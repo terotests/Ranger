@@ -1,0 +1,19 @@
+class StdlibNewOps {
+    sfn m@(main):void () {
+        def a:[int] ([] _:int (1 2 3 4))
+        print (? (a.any({ return (item > 3) })) "any:y" "any:n")
+        print (? (a.all({ return (item > 0) })) "all:y" "all:n")
+        print (? (a.all({ return (item > 2) })) "all2:y" "all2:n")
+        def s (a.slice(1 3))
+        print ("slice:" + (to_string (array_length s)) + ":" + (to_string (itemAt s 0)))
+
+        def m:[string:int]
+        set m "a" 1
+        set m "b" 2
+        def v (m.values())
+        print ("values:" + (to_string (array_length v)))
+        print ("len:" + (to_string (m.map_length())))
+        print ("get_or_hit:" + (to_string (m.get_or("a" 99))))
+        print ("get_or_miss:" + (to_string (m.get_or("zz" 99))))
+    }
+}

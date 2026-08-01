@@ -54,6 +54,7 @@ language {
         ts          TypeScript      ts
         flow        Flow            flow
         go          Golang          go
+        rust        Rust            rs
         php         PHP             php
         python      Python          py
         nim         Nim             nim
@@ -243,6 +244,8 @@ language {
         random        _:double () {
             templates {
                 es6 ('Math.random()')
+                swift6 ( "Double.random(in: 0..<1)" )
+                swift3 ( "(Double(arc4random()) / Double(UInt32.max))" (imp "Foundation") )
                 kotlin ('Math.random()' (imp "java.lang.Math"))
                 cpp ( "rg_random_double()" (imp "<random>")
 (create_polyfill "
@@ -281,6 +284,8 @@ double rg_random_double() {
         random        _:int ( min:int max:int) {
             templates {
                 es6 ('Math.floor(Math.random()*(' (e 2) ' - ' (e 1)' + 1) + ' (e 1)')')
+                swift6 ( "Int.random(in: " (e 1) " ... " (e 2) ")" )
+                swift3 ( "(" (e 1) " + Int(arc4random_uniform(UInt32(" (e 2) " - " (e 1) " + 1))))" (imp "Foundation") )
                 kotlin ('(Math.floor(Math.random() * (' (e 2) ' - ' (e 1) ' + 1)).toInt() + ' (e 1) ')' (imp "java.lang.Math"))
             }
         }
@@ -377,10 +382,10 @@ double rg_random_double() {
                     (plugin 'makefile' (  (dep 'picosha2.h' 'https://github.com/okdshin/PicoSHA2/blob/master/picosha2.h'  ) ) )                    
                 )
 ; fmt.Printf("sha256:\t%x\n", sha_256.Sum(nil))
-                go ( "_r_md5(" (e 1) ")" 
+                go ( "_r_sha256(" (e 1) ")" 
     (create_polyfill
 "
-func _r_md5(value string) string {
+func _r_sha256(value string) string {
 	h := sha256.Sum256([]byte(value))
 	return fmt.Sprintf(\"%x\", h[:])
 }
@@ -428,7 +433,8 @@ func _r_md5(value string) string {
             templates {
                 es6 ("Math.PI")
                 go ( "math.Pi" (imp "math"))                                
-                swift3 ( "Double.pi" (imp "Foundation"))   
+                swift3 ( "Double.pi" (imp "Foundation"))
+                swift6 ( "Double.pi" (imp "Foundation"))   
                 java7 ( "Math.PI" (imp "java.lang.Math"))         
                 php ("pi()")        
                 cpp ("M_PI" (imp "<math.h>"))               
@@ -439,7 +445,8 @@ func _r_md5(value string) string {
             templates {
                 es6 ("Math.abs(" (e 1) ")")
                 go ( "math.Abs(" (e 1) ")" (imp "math"))                                
-                swift3 ( "abs(" (e 1) ")" (imp "Foundation"))   
+                swift3 ( "abs(" (e 1) ")" (imp "Foundation"))
+                swift6 ( "abs(" (e 1) ")" (imp "Foundation"))   
                 java7 ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))       
                 php ( "abs(" (e 1) ")")      
                 cpp ("fabs(" (e 1) ")" (imp "<cmath>"))                       
@@ -450,6 +457,7 @@ func _r_md5(value string) string {
                 es6 ("Math.tan(" (e 1) ")")
                 go ( "math.Tan(" (e 1) ")" (imp "math"))
                 swift3 ( "tan(" (e 1) ")" (imp "Foundation"))
+                swift6 ( "tan(" (e 1) ")" (imp "Foundation"))
                 java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
                 php ( "tan(" (e 1) ")")
                 cpp ("tan(" (e 1) ")" (imp "<math.h>"))
@@ -493,6 +501,7 @@ func _r_md5(value string) string {
                 cpp ( "std::this_thread::sleep_for(std::chrono::milliseconds((int)(" (e 1) " * 1000)));" nl (block 2) nl (imp "<chrono>" ) (imp "<thread>" ) )
                 php ( "sleep(" (e 1) ");" nl (block 2) nl )
                 swift3 ( "usleep(UInt32(1000000*" (e 1) "));" nl (block 2) nl )
+                swift6 ( "usleep(UInt32(1000000*" (e 1) "));" nl (block 2) nl )
                 java7 (
 
     "new Thread() {" nl I
@@ -695,6 +704,24 @@ func r_file_exists ( fileName:String ) -> Bool {
 }
     ")                    
                 )
+                swift6 ( "r_file_exists(fileName:" (e 1) " + \"/\" + " (e 2) " )" 
+
+(create_polyfill "
+func r_file_exists ( fileName:String ) -> Bool {
+    let fileManager = FileManager.default
+    var isDir : ObjCBool = false
+    if fileManager.fileExists(atPath: fileName, isDirectory:&isDir) {
+        if isDir.boolValue {
+            return false
+        } else {
+            return true
+        }
+    } else {
+        return false
+    }    
+}
+    ")                    
+                )
                 es6 ("require(\"fs\").existsSync(" (e 1) " + \"/\" + " (e 2) " )")
                 ranger ("( file_exists " (e 1) " + \"/\" + " (e 2) "  )")
                 java7 ( "new File(" (e 1) " + '/' + " (e 2) ").exists()" (imp "java.io.File") )
@@ -720,6 +747,24 @@ func r_file_exists(pathName string, fileName string) bool {
                 csharp ( "false /* dir_exists not implemented */ ")
                 scala ( "false /* dir_exists not implemented */ ")
                 swift3 ( "r_dir_exists( dirName: " (e 1) ")" 
+
+(create_polyfill "
+func r_dir_exists ( dirName:String ) -> Bool {
+    let fileManager = FileManager.default
+    var isDir : ObjCBool = false
+    if fileManager.fileExists(atPath: dirName, isDirectory:&isDir) {
+        if isDir.boolValue {
+            return true
+        } else {
+            return false
+        }
+    } else {
+        return false
+    }    
+}
+    ")                    
+                )
+                swift6 ( "r_dir_exists( dirName: " (e 1) ")" 
 
 (create_polyfill "
 func r_dir_exists ( dirName:String ) -> Bool {
@@ -809,7 +854,8 @@ void  r_cpp_create_dir(std::string name)
   mkdir( name.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
 }    
     ") )
-                swift3 ( nl )        
+                swift3 ( nl )
+                swift6 ( nl "try? FileManager.default.createDirectory(atPath: " (e 1) ", withIntermediateDirectories: true)" nl (imp "Foundation") )        
                 php (  nl "mkdir(" (e 1) ");" nl )
                 es6 ("require(\"fs\").mkdirSync( " (e 1) ")")
                 go ( nl "_ = os.Mkdir( " (e 1 ) " , os.ModePerm)" nl (imp "os") )
@@ -1608,14 +1654,16 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         ceil        _:int          (  value:double )  {
             templates {
                 ranger ( "(ceil " (e 1) ")" ) 
-                swift3 ( "ceil(" (e 1) ")" (imp "Foundation"))               
-                cpp ( "ceil(" (e 1) ")" (imp "<cmath>"))
-                csharp ( "Math.Ceil(" (e 1) ")" (imp "System"))    
-                go ( "math.Ceil(" (e 1) ")" (imp "math"))                                
+                swift3 ( "Int(ceil(" (e 1) "))" (imp "Foundation"))
+                swift6 ( "Int(ceil(" (e 1) "))" (imp "Foundation"))
+                kotlin ( "(Math.ceil(" (e 1) ")).toInt()" (imp "java.lang.Math"))
+                cpp ( "(int)ceil(" (e 1) ")" (imp "<cmath>"))
+                csharp ( "(int)Math.Ceil(" (e 1) ")" (imp "System"))
+                go ( "int64(math.Ceil(" (e 1) "))" (imp "math"))
                 php ( "ceil(" (e 1) ")" )    
-                rust ( "" (e 1) ".ceil()" )                
-                scala ( "math.ceil(" (e 1) ")" (imp "scala.math"))                
-                java7 ( "Math.ceil(" (e 1) ")" (imp "java.lang.Math"))
+                rust ( "" (e 1) ".ceil() as i64" )
+                scala ( "math.ceil(" (e 1) ").toInt" (imp "scala.math"))
+                java7 ( "(int)Math.ceil(" (e 1) ")" (imp "java.lang.Math"))
                 * ( "Math.ceil(" (e 1) ")")
             }
         }
@@ -1836,6 +1884,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         switch          cmdSwitch:void          ( condition:T case_list:block )  {
             templates {
                 swift3 ( (custom _ ) )
+                swift6 ( (custom _ ) )
             }
         } 
 
@@ -2493,6 +2542,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 java7 ( "new byte[(int)" (e 1) "]" )
                 python ( "bytearray(" (e 1) ")" )
                 swift6 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
+                swift3 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
                 csharp ( "new byte[" (e 1) "]" )
             }
         }
@@ -3086,6 +3136,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 es6 ( "Object.keys(" (e 1) ")")
                 csharp ( "new List<String>(" (e 1) ".Keys)")
                 python ( "list(" (e 1) ".keys())" )
+                rust ( "" (e 1) ".keys().cloned().collect::<Vec<String>>()" )
                 cpp (
                     "r_get_keys_of_map<" (r_atype 1) ">(" (e 1) ")"
 (create_polyfill

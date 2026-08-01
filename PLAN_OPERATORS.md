@@ -1,6 +1,6 @@
 # Operator coverage plan
 
-Status: proposal. Written against `3.2.1`, all claims below measured on this tree.
+Status: §3, §4 and the mechanism-B half of §5 P0 are **implemented in 3.3.0**. The rest stands as a proposal. Written against `3.2.1`, all claims below measured on this tree.
 
 Target policy used throughout:
 
@@ -60,22 +60,22 @@ pointing into `JSON.rgr` — the compiler's own source, not the user's. Four of 
 
 ---
 
-## 3. Guardrails first (P0)
+## 3. Guardrails first (P0) — partly done in 3.3.0
 
 These stop the §D class of bug recurring and cost little. Do these before adding surface area.
 
-1. **Coverage audit test.** A test that parses every `templates {}` block in the four operator files and fails when an operator covers a primary target's sibling but not the target itself — the exact shape that hid `getValue`. The audit script already exists in this session's working notes; it found `getValue`, `keys` and the union `case` before they were fixed, and it currently reports 7 remaining `swift6` gaps plus the Kotlin `keys` gap.
-2. **Honest diagnostic.** When operator matching fails and the operator name resolves but has no template for the active target, say so:
+1. **Coverage audit test.** *(done — `tests/operator-coverage.test.ts`)* A test that parses every `templates {}` block in the four operator files and fails when an operator covers a primary target's sibling but not the target itself — the exact shape that hid `getValue`. The audit script already exists in this session's working notes; it found `getValue`, `keys` and the union `case` before they were fixed, and it currently reports 7 remaining `swift6` gaps plus the Kotlin `keys` gap.
+2. **Honest diagnostic.** *(not done — needs a compiler change in the matcher)* When operator matching fails and the operator name resolves but has no template for the active target, say so:
    ```
    [FAIL] operator `getValue` has no template for target `swift6`
           (declared for: es6, ranger, java7, swift3, kotlin, go, php)
    ```
    This turns every future gap into a one-line diagnosis instead of a three-hour bisect.
-3. **Ban silent fallbacks.** Replace `"false /* not implemented */"` and empty-template no-ops with an explicit compile error. A build that fails is strictly better than a directory that is silently never created.
+3. **Ban silent fallbacks.** *(not done — the audit pins the count at 30 as a ratchet; converting them to errors is a per-target behaviour change)* Replace `"false /* not implemented */"` and empty-template no-ops with an explicit compile error. A build that fails is strictly better than a directory that is silently never created.
 
-## 4. Close the known gaps (P0)
+## 4. Close the known gaps (P0) — done in 3.3.0
 
-Carried over from `3.2.1`, all measured:
+Carried over from `3.2.1`, all measured, **all now closed** — see the 3.3.0 CHANGELOG entry. The Kotlin `keys` polyfill still needs `kotlinc` verification, which this environment cannot provide.
 
 - `keys` on `JSONDataObject` has no `kotlin` template → any hash field in a `@serialize(true)` class fails on Kotlin (15 errors). Needs an `org.json`-based helper mirroring the existing `java7` polyfill. **Requires `kotlinc` to verify — I cannot validate the emitted Kotlin here.**
 - Seven operators lack `swift6`: `M_PI`, `fabs`, `tan`, `wait`, `file_exists`, `dir_exists`, `create_dir`. Six are verbatim `swift3` mirrors. `create_dir` needs a real implementation (`FileManager.default.createDirectory(atPath:withIntermediateDirectories:)`), not a copy of the swift3 no-op.
@@ -83,15 +83,15 @@ Carried over from `3.2.1`, all measured:
 
 ## 5. New surface, in dependency order
 
-**P0 — expressible in Ranger (mechanism B), so all targets at once:**
+**P0 — expressible in Ranger (mechanism B), so all targets at once — DONE except `range`:**
 
 | Operator | Mechanism | Note |
 |---|---|---|
-| `.any()` / `.all()` | B, `stdlib.rgr` | Trivial siblings of the existing `.count(cb)` |
-| `range` | B | `range 0 n`, `range 0 n step`; biggest readability win in loops |
-| `slice` | B | Array counterpart of the existing `buffer_slice` |
-| map `values` / `map_length` / `remove_key` / `get_or` | B | `get_or` removes the `has`+`get`+`unwrap` triple |
-| `clamp`, `sign`, `abs(int)` | B | Pure arithmetic, no intrinsic needed |
+| `.any()` / `.all()` | B, `stdlib.rgr` | **done in 3.3.0** |
+| `range` | B | **not done** — needs a free function, not a method on an existing type; the `for (range 0 n) i` form has to resolve before there is a receiver |
+| `slice` | B | **done in 3.3.0** as `.slice(start end)` |
+| map `values` / `map_length` / `get_or` | B | **done in 3.3.0**. `remove_key` skipped: removing a key while iterating needs a mutation-marked receiver, which the type-operator block does not express today |
+| `clamp`, `sign`, `abs(int)` | B | **not done** — free functions on scalars, same shape problem as `range` |
 
 **P0 — genuine primitives, needs mechanism A across the tier table:**
 

@@ -1,24 +1,10 @@
 
 ; union type operators
 
+Import "stdops.rgr"
 Import "JSON.rgr"
 
 operators {
-
-    cast _:S  (arg:T target@(noeval):S) {
-        templates {
-            ranger ("(cast " (e 1) " " (e 2) ":" (typeof 2) " )")
-            es6 ( (e 1) )
-            java7 ( "((" (typeof 2) ")" (e 1) ")" )
-            swift3 ( (e 1) " as " (typeof 2) "" )
-            cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
-            
-                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
-            )
-            go ( (e 1) ".(" (typeof 2) ")" )
-            php ( (e 1) )
-        }
-    }
 
     cast _:Any  (arg:T target@(noeval):Any) {
         templates {
@@ -226,6 +212,27 @@ operator type:[string:T] all {
             cb(it)
         }
     }      
+
+    fn values:[T] () @doc('All values of the map') {
+        def res:[T]
+        def list (keys self)
+        for list kk:string i {
+            push res (unwrap (get self kk))
+        }
+        return res
+    }
+
+    fn map_length:int () @doc('Number of keys in the map') {
+        def list (keys self)
+        return (array_length list)
+    }
+
+    fn get_or:T (key:string fallback:T) @doc('Value at `key`, or `fallback` when absent') {
+        if( has self key ) {
+            return (unwrap (get self key))
+        }
+        return fallback
+    }
 }
 
 ; commented out native ops, because they are not compatible with async operators
@@ -238,7 +245,7 @@ operator type:[T] all {
         }
     }  
 
-    fn has:boolen ( el:T) {
+    fn has:boolean ( el:T) {
         def idx (indexOf el)
         return (idx >= 0)
     }
@@ -344,6 +351,43 @@ operator type:[T] all {
         }
         return false
     } 
+
+    fn any:boolean (cb:(_:boolean (item:T))) @doc('True when `cb` holds for at least one item') {
+        for self it@(lives):T i {
+            if( cb(it) )  {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn all:boolean (cb:(_:boolean (item:T))) @doc('True when `cb` holds for every item (true when empty)') {
+        for self it@(lives):T i {
+            if( (cb(it)) == false )  {
+                return false
+            }
+        }
+        return true
+    }
+
+    fn slice:[T] (start:int end:int) @doc('Items from `start` up to but not including `end`') {
+        def res:[T]
+        def len (array_length self)
+        def from start
+        def to end
+        if( from < 0 ) {
+            from = 0
+        }
+        if( to > len ) {
+            to = len
+        }
+        def i from
+        while( i < to ) {
+            push res (itemAt self i)
+            i = i + 1
+        }
+        return res
+    }
 
 
 }
@@ -580,6 +624,10 @@ operator type:Vector all {
         def val (self.get(idx))
         return val
     } 
+    fn at:T (idx:int) { 
+        def val (self.get(idx))
+        return val
+    } 
     fn push:S (item:T) {
         return (self.add(item))
     }
@@ -590,6 +638,9 @@ operator type:Vector all {
         return (self.count())
     }    
     fn length:int () {
+        return (self.count())
+    }    
+    fn size:int () {
         return (self.count())
     }    
     fn forEach:void (cb:(_:void (item:T))) {

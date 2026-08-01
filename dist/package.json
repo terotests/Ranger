@@ -1,6 +1,6 @@
 {
   "name": "ranger-compiler",
-  "version": "3.2.1",
+  "version": "3.3.0",
   "description": "Ranger cross-language compiler - compile once, run anywhere. Write code in Ranger and compile to JavaScript, TypeScript, Python, Go, Rust, Swift, C++, Java, Kotlin, C#, PHP, and Scala.",
   "main": "api.js",
   "types": "api.d.ts",
