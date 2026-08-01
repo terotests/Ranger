@@ -1,0 +1,20 @@
+; Narrowing a JSONValueUnion with `case` is what the generated fromDictionary
+; emits for object arrays. The operator lives in stdlib.rgr and needs a
+; template per target; a missing one fails only on that target.
+class SerializeUnionCase {
+    fn countObjects:int (dict:JSONDataObject) {
+        def total 0
+        def values:JSONArrayObject (getArray dict "kids")
+        if(!null? values) {
+            def arr (unwrap values)
+            arr.forEach({
+                case item oo:JSONDataObject {
+                    total = total + 1
+                }
+            })
+        }
+        def names (keys dict)
+        total = total + (array_length names)
+        return total
+    }
+}

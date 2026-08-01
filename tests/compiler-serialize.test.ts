@@ -62,6 +62,43 @@ describe("@serialize(true) code generation", () => {
   });
 });
 
+describe("@serialize(true) across target backends", () => {
+  // The generated toDictionary / fromDictionary lean on JSON.rgr operators
+  // (getValue, keys) and on the union-narrowing `case` in stdlib.rgr. An
+  // operator missing a template for one target makes the annotation fail on
+  // that target only, which is invisible to an ES6-only test. Swift 6 was
+  // broken this way while ES6 and Kotlin were fine.
+  // java7 is left out because it emits one file per class, which the shared
+  // compileRanger helper cannot locate -- not a backend limitation.
+  // kotlin is left out because a hash field in a @serialize class does not
+  // compile there yet: the `keys` operator for JSONDataObject has no kotlin
+  // template. Same defect class as the Swift 6 gaps below, still open.
+  const targets = ["es6", "swift3", "swift6", "go"];
+
+  for (const target of targets) {
+    it(`compiles a serialized class with object arrays for ${target}`, () => {
+      const result = compileRanger(
+        `${FIXTURES}/serialize_roundtrip.rgr`,
+        target
+      );
+      expect(
+        result.success,
+        `Compile failed for ${target}: ${result.error || result.output}`
+      ).toBe(true);
+    });
+  }
+
+  it("narrows a JSON union with `case` on every target", () => {
+    for (const target of targets) {
+      const result = compileRanger(`${FIXTURES}/serialize_union_case.rgr`, target);
+      expect(
+        result.success,
+        `Union case failed for ${target}: ${result.error || result.output}`
+      ).toBe(true);
+    }
+  });
+});
+
 describe("@serialize(true) diagnostics for non serializable types", () => {
   // Without the check the generator emits item.toDictionary() anyway and the
   // compile fails inside "extension <Class>" instead of at the declaration.

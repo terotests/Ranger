@@ -152,6 +152,13 @@ operators {
                         
                         nl i "}"
             ) 
+            swift6 (
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
+                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
             java7 (
                 (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) ") {" nl I
                         (typeof 2) " " (e 2) " = (" (typeof 2) ") " (e 1) ";" nl
