@@ -1,0 +1,47 @@
+; @serialize(true) round trip: nested object, object array and object hash.
+class SerChild @serialize(true) {
+    def name:string ""
+    def count:int 0
+}
+
+class SerParent @serialize(true) {
+    def title:string ""
+    def tags:[string]
+    def one:SerChild
+    def kids:[SerChild]
+    def byName:[string:SerChild]
+}
+
+class SerializeRoundTrip {
+    sfn m@(main):void () {
+        def p:SerParent (new SerParent())
+        p.title = "parent"
+        push p.tags "a"
+        def solo:SerChild (new SerChild())
+        solo.name = "solo"
+        p.one = solo
+
+        def k:SerChild (new SerChild())
+        k.name = "first"
+        k.count = 7
+        push p.kids k
+
+        def h:SerChild (new SerChild())
+        h.name = "hashed"
+        set p.byName "key" h
+
+        def dict:JSONDataObject (p.toDictionary())
+        def back:SerParent (SerParent.fromDictionary(dict))
+
+        def firstKid:SerChild (itemAt back.kids 0)
+        def fromHash:SerChild (unwrap (get back.byName "key"))
+        def firstTag:string (itemAt back.tags 0)
+
+        print ("title=" + back.title)
+        print ("tags=" + firstTag)
+        print ("one=" + back.one.name)
+        print ("kid=" + firstKid.name + ":" + (to_string firstKid.count))
+        print ("hash=" + fromHash.name)
+        print "serialize-roundtrip-ok"
+    }
+}

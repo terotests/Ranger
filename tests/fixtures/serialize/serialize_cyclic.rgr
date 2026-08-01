@@ -1,0 +1,28 @@
+; Mutually referencing @serialize(true) classes can not be topologically
+; sorted; both must still get a working toDictionary / fromDictionary.
+class NodeA @serialize(true) {
+    def name:string ""
+    def bs:[NodeB]
+}
+
+class NodeB @serialize(true) {
+    def count:int 0
+    def as:[NodeA]
+}
+
+class SerializeCyclic {
+    sfn m@(main):void () {
+        def a:NodeA (new NodeA())
+        a.name = "a"
+        def b:NodeB (new NodeB())
+        b.count = 3
+        push a.bs b
+
+        def dict:JSONDataObject (a.toDictionary())
+        def back:NodeA (NodeA.fromDictionary(dict))
+        def firstB:NodeB (itemAt back.bs 0)
+        print ("name=" + back.name)
+        print ("count=" + (to_string firstB.count))
+        print "serialize-cyclic-ok"
+    }
+}

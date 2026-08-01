@@ -60,7 +60,7 @@ language {
         llvm        LLVM IR         ll
     }
 
-    toplevel_keywords (class systemclass Constructor fn sfn Import Extend Enum def let operators)
+    toplevel_keywords (class record systemclass Constructor fn sfn Import Extend Enum def let operators)
     annotation_keywors (weak strong lives temp)
     
     ; transformations for the reserved words for function names or other keywords
@@ -80,6 +80,17 @@ language {
             class _class
             new _new
             delete _delete
+            and _and
+            or _or
+            not _not
+            xor _xor
+            compl _compl
+            bitand _bitand
+            bitor _bitor
+            and_eq _and_eq
+            or_eq _or_eq
+            xor_eq _xor_eq
+            not_eq _not_eq
             template _template
             namespace _namespace
             virtual _virtual
@@ -233,6 +244,19 @@ language {
             templates {
                 es6 ('Math.random()')
                 kotlin ('Math.random()' (imp "java.lang.Math"))
+                cpp ( "rg_random_double()" (imp "<random>")
+(create_polyfill "
+double rg_random_double() {
+    static thread_local std::mt19937 _rg{std::random_device{}()};
+    static thread_local std::uniform_real_distribution<double> _rd(0.0, 1.0);
+    return _rd(_rg);
+}
+")
+                )
+                go ( 'rand.Float64()' (imp "math/rand") )
+                ; std-only (rustc, no crates): each RandomState::new() draws a fresh
+                ; OS-seeded key, so hashing a constant yields a varying 53-bit value.
+                rust ( '{ use std::hash::{BuildHasher, Hasher}; let mut h = std::collections::hash_map::RandomState::new().build_hasher(); h.write_u64(0); ((h.finish() >> 11) as f64) / ((1u64 << 53) as f64) }' )
             }
         }
 
@@ -424,11 +448,27 @@ func _r_md5(value string) string {
         tan tan:double ( v:double ) {
             templates {
                 es6 ("Math.tan(" (e 1) ")")
-                go ( "math.Tan(" (e 1) ")" (imp "math"))                                
-                swift3 ( "tan(" (e 1) ")" (imp "Foundation"))   
-                java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))     
-                php ( "tan(" (e 1) ")")     
-                cpp ("tan(" (e 1) ")" (imp "<math.h>"))                          
+                go ( "math.Tan(" (e 1) ")" (imp "math"))
+                swift3 ( "tan(" (e 1) ")" (imp "Foundation"))
+                java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
+                php ( "tan(" (e 1) ")")
+                cpp ("tan(" (e 1) ")" (imp "<math.h>"))
+            }
+        }
+
+        atan2 atan2:double ( y:double x:double ) {
+            templates {
+                ranger ( "(atan2 " (e 1) " " (e 2) ")" )
+                es6 ( "Math.atan2(" (e 1) ", " (e 2) ")" )
+                go ( "math.Atan2(" (e 1) ", " (e 2) ")" (imp "math"))
+                swift3 ( "atan2(" (e 1) ", " (e 2) ")" (imp "Foundation"))
+                java7 ( "Math.atan2(" (e 1) ", " (e 2) ")" (imp "java.lang.Math"))
+                php ( "atan2(" (e 1) ", " (e 2) ")" )
+                csharp ( "Math.Atan2(" (e 1) ", " (e 2) ")" (imp "System"))
+                rust ( "" (e 1) ".atan2(" (e 2) ")" )
+                scala ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "scala.math"))
+                cpp ( "atan2(" (e 1) ", " (e 2) ")" (imp "<math.h>"))
+                * ( "Math.atan2(" (e 1) ", " (e 2) ")" )
             }
         }
 
@@ -724,7 +764,7 @@ func r_dir_exists(pathName string) bool {
            }
         }
 
-        ; Returns the file modification time as Unix timestamp (seconds since epoch)
+        ; Returns the file modification time (ms on es6/cpp; seconds on go)
         file_mtime          cmdFileMTime:int (path:string filename:string) {
             templates {
                 go ( "r_file_mtime(" (e 1) ", " (e 2) ")"
@@ -741,6 +781,18 @@ func r_file_mtime(pathName string, fileName string) int64 {
 )                    
                 )
                 es6 ( "require('fs').statSync(" (e 1) " + '/' + " (e 2) ").mtimeMs" )
+                cpp ( "r_file_mtime(" (e 1) ", " (e 2) ")" (imp "<sys/stat.h>") (imp "<string>")
+(create_polyfill "
+int64_t r_file_mtime(const std::string& path, const std::string& filename) {
+    struct stat st;
+    std::string full = path + \"/\" + filename;
+    if (stat(full.c_str(), &st) != 0) {
+        return 0;
+    }
+    return (int64_t)st.st_mtime * 1000;
+}
+")
+                )
                 ranger ( "(file_mtime " (e 1) " " (e 2) ")" )
            }
         }
@@ -1321,6 +1373,24 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             }
         }
 
+        ; Integer division (truncates toward zero). Use instead of / when both
+        ; operands are int — plain / returns double for int/int in Ranger.
+        idiv  _:int (left:int right:int) {
+            templates {
+                ranger @macro(true) ( "(/ " (e 1) " " (e 2) ")" )
+                cpp ( "((" (e 1) ") / (" (e 2) "))" )
+                llvm ( "(idiv " (e 1) " " (e 2) ")" )
+                es6 ( "((" (e 1) " / " (e 2) ") | 0)" )
+                go ( (e 1) " / " (e 2) )
+                rust ( "((" (e 1) ") / (" (e 2) "))" )
+                kotlin ( (e 1) " / " (e 2) )
+                python ( "((" (e 1) ") // (" (e 2) "))" )
+                java7 ( "((" (e 1) ") / (" (e 2) "))" )
+                php ( "intdiv(" (e 1) ", " (e 2) ")" )
+                * ( (e 1) " / " (e 2) )
+            }
+        }
+
         ; ============================================================================
         ; Bitwise operators for integer manipulation
         ; ============================================================================
@@ -1460,12 +1530,16 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         *               cmdMulOp:double         ( left:double right:double ) { templates { * ( (e 1) " * " (e 2) ) } }
         *               cmdMulOp:int            ( left:int right:int ) { templates { * ( (e 1) " * " (e 2) ) } }
 
-        /               cmdDivOp:double         ( left:double right:double ) { templates { * ( (e 1) " / " (e 2) ) } }
-        /               cmdDivOp:double         ( left:int right:int ) { templates { 
+        /               cmdDivOp:double         ( left:double right:double ) { templates {
+            cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            * ( (e 1) " / " (e 2) )
+        } }
+        /               cmdDivOp:double         ( left:int right:int ) { templates {
             go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
             rust ( "(" (e 1) " as f64) / (" (e 2) " as f64)" )
             kotlin ( (e 1) ".toDouble() / " (e 2) ".toDouble()" )
-            * ( (e 1) " / " (e 2) ) 
+            cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            * ( (e 1) " / " (e 2) )
         } }
 
         ; optional string operator...
@@ -1698,7 +1772,22 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 cpp ( "if ( " (e 1) ".has_value ) {" nl I (block 2) i nl "}" nl )
             }
-        }        
+        }
+
+        ; typed optional int/double with an else branch: r_optional_primitive is
+        ; a value type (has_value field), not a pointer, so the generic :T
+        ; `!= NULL` form below does not compile under clang. Emit `.has_value`.
+        if              cmdIf:void              ( condition@(optional):int then_block:block else_block )  {
+            templates {
+                cpp ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
+            }
+        }
+
+        if              cmdIf:void              ( condition@(optional):double then_block:block else_block )  {
+            templates {
+                cpp ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
+            }
+        }
 
         if              cmdIf:void              ( condition@(optional):T then_block:block )  {
             templates {
@@ -1941,9 +2030,18 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }               
         null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty()")     
+                cpp ((e 1) ".empty()")
             }
-        }               
+        }
+
+        ; buffer is a value type (std::vector<uint8_t>) in C++, so the generic
+        ; `!= NULL` path below does not compile. Treat empty/absent as null,
+        ; mirroring the string overload above.
+        null?       cmdIsNotNull:boolean        ( arg@(optional):buffer ) {
+            templates {
+                cpp ((e 1) ".empty()")
+            }
+        }
 
         null?       cmdIsNull:boolean        ( arg@(optional):T ) {
             templates {
@@ -1975,9 +2073,18 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }               
         !null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty() == false ")     
+                cpp ((e 1) ".empty() == false ")
             }
-        }               
+        }
+
+        ; buffer is a value type (std::vector<uint8_t>) in C++; the generic
+        ; `!= NULL` path below does not compile. Present == non-empty, matching
+        ; the string overload above.
+        !null?       cmdIsNotNull:boolean        ( arg@(optional):buffer ) {
+            templates {
+                cpp ((e 1) ".empty() == false ")
+            }
+        }
 
         !null?       cmdIsNotNull:boolean        ( arg@(optional):T ) {
             templates {
@@ -2134,7 +2241,7 @@ case class customException(smth:String)  extends Exception
                 php ( "trim(" (e 1 ) ")")
                 cpp ( "r_cpp_trim( " (e 1) ")" (imp "<cctype>") (imp "<string>") (imp "<algorithm>")
 (create_polyfill "
-inline std::string  r_cpp_trim(std::string &s) 
+inline std::string  r_cpp_trim(const std::string &s) 
 {
    auto wsfront=std::find_if_not(s.begin(),s.end(),[](int c){return std::isspace(c);});
    auto wsback=std::find_if_not(s.rbegin(),s.rend(),[](int c){return std::isspace(c);}).base();
@@ -3027,10 +3134,10 @@ std::vector<std::string> r_get_keys_of_map(  std::map<std::string, T> orig_map )
 (create_polyfill '
 std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 {
-    unsigned int start ((unsigned int)start_i);
-    unsigned int leng ((unsigned int)leng_i);
+    size_t start = (size_t)start_i;
+    size_t leng = (size_t)leng_i;
     if (leng==0) { return ""; }
-    unsigned int c, i, ix, q, min= (unsigned int) std::string::npos, max=(unsigned int)std::string::npos;
+    size_t c, i, ix, q, min= std::string::npos, max= std::string::npos;
     for (q=0, i=0, ix=str.length(); i < ix; i++, q++)
     {
         if (q==start){ min=i; }
@@ -3549,6 +3656,49 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
                 )
             }
         }
+
+        get             cmdGet@(optional weak):double          ( map:[K:double] key:K ) {
+            templates {
+                cpp( "cpp_get_map_string_double_value(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    bool has_value;
+    T value;
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
+(macro
+("
+r_optional_primitive<double> cpp_get_map_string_double_value( std::map<std::string, double> m , std::string key) {
+    r_optional_primitive<double> result;
+    auto it = m.find(key);
+    if (it != m.end()) {
+        result.value = it->second;
+        result.has_value = true;
+    }
+    return result;
+}")
+)
+                )
+                ranger ( "(get " (e 1) " " (e 2) ")")
+                llvm ( "(get " (e 1) " " (e 2) ")")
+                es6 ( "( " (e 1) ".hasOwnProperty(" (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+                * ( (e 1) "[" (e 2) "]" )
+            }
+        }
          
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
             templates {
@@ -3556,6 +3706,21 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
                 llvm ( "(get " (e 1) " " (e 2) ")")
                 java7 ( (e 1) ".get(" (e 2) ")" )
                 rust ( (e 1) ".get(" (e 2) ")" )
+                cpp ( "r_map_get_val(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+// Map read that never inserts on miss (unlike std::map::operator[]) and does a
+// single lookup. Returns a default-constructed value (e.g. null shared_ptr)
+// when the key is absent.
+template<typename M, typename K>
+typename M::mapped_type r_map_get_val( const M & m , const K & key) {
+    auto it = m.find(key);
+    if ( it != m.end() ) { return it->second; }
+    return typename M::mapped_type();
+}
+"
+)
+                )
 
                 scala ( (e 1) ".get(" (e 2) ")" )
 
@@ -5018,6 +5183,20 @@ fun r_read_key(): String {
                 swift6 ((e 1) ".lowercased()")
                 scala ((e 1) ".toLowerCase()")
                 python ((e 1) ".lower()")
+                cpp (
+                    "r_cpp_str_to_lowercase(" (e 1) ")"
+                        (imp "<algorithm>")
+                        (imp "<string>")
+(create_polyfill "
+std::string r_cpp_str_to_lowercase(std::string original)
+{
+    std::string str = original;
+    std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+    return str;
+}
+    ")
+
+                    )
             }
         }
         to_uppercase _:string (s:string) {

@@ -9,8 +9,9 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ClassJoinPoint = exports.TTypes = exports.TFiles = exports.RangerAppOperatorDesc = exports.RangerServiceBuilder = exports.RangerImmutableExtension = exports.RangerSerializeClass = exports.DictNode = exports.RangerArgMatch = exports.RangerLispParser = exports.CodeWriter = exports.CodeSlice = exports.CodeFileSystem = exports.CodeFile = exports.RangerAppWriterContext = exports.RangerRegisteredPlugin = exports.ContextTransactionMutation = exports.ContextTransaction = exports.RangerNodeList = exports.RangerOperatorList = exports.OpFindResult = exports.RangerAppEnum = exports.RangerBackReference = exports.RangerNodeValue = exports.TypeCounts = exports.CodeNode = exports.CodeNodeLiteral = exports.SourceCode = exports.RangerTypeClass = exports.RangerAppClassDesc = exports.RangerTraitParams = exports.RangerAppInterfaceImpl = exports.RangerAppMethodVariants = exports.RangerAppFunctionDesc = exports.RangerAppParamDesc = exports.RangerRefForce = exports.RangerAppValue = exports.RangerAppHashValue = exports.RangerAppArrayValue = exports.RangerParamEventMap = exports.RangerParamEventList = exports.RangerParamEventHandler = exports.RangerCompilerMessage = exports.RangerAppTodo = exports.test_input_filesystem = exports.InputEnv = exports.InputFSFile = exports.InputFSFolder = exports.test_cmdparams = exports.CmdParams = void 0;
-exports.CompilerInterface = exports.VirtualCompiler = exports.CompilerResults = exports.viewbuilder_Web = exports.viewbuilder_Android = exports.StaticAnalyzer = exports.RangerDocGenerator = exports.CLIProgress = exports.ColorConsole = exports.LiveCompiler = exports.RangerActiveOperators = exports.OpList = exports.RangerRangerClassWriter = exports.RangerJavaScriptClassWriter = exports.WebPageWriter = exports.RangerPythonClassWriter = exports.RangerPHPClassWriter = exports.RangerGolangHttpServerWriter = exports.RangerGolangClassWriter = exports.RangerScalaClassWriter = exports.RangerCSharpClassWriter = exports.RangerKotlinClassWriter = exports.RangerRustClassWriter = exports.MethodCallList = exports.RangerCppClassWriter = exports.RangerSwift6ClassWriter = exports.RangerSwift3ClassWriter = exports.RangerJava7ClassWriter = exports.AndroidPageWriter = exports.RangerGenericClassWriter = exports.NodeEvalState = exports.CallChain = exports.TFactory = exports.RangerFlowParser = exports.WalkLater = void 0;
+exports.RangerProcessLifecycle = exports.RangerImmutableExtension = exports.RangerSerializeClass = exports.DictNode = exports.RangerArgMatch = exports.TTypes = exports.RangerLispParser = exports.CodeWriter = exports.CodeSlice = exports.CodeFileSystem = exports.CodeFile = exports.SourceMapBuilder = exports.SourceMapEntry = exports.RangerAppWriterContext = exports.RangerRegisteredPlugin = exports.ContextTransactionMutation = exports.ContextTransaction = exports.RangerNodeList = exports.RangerOperatorList = exports.OpFindResult = exports.RangerAppEnum = exports.RangerBackReference = exports.RangerNodeValue = exports.TypeCounts = exports.TTypeRegistry = exports.CodeNode = exports.CodeNodeLiteral = exports.SourceCode = exports.RangerTypeClass = exports.RangerAppClassDesc = exports.RangerTraitParams = exports.RangerAppInterfaceImpl = exports.RangerAppMethodVariants = exports.RangerAppFunctionDesc = exports.RangerAppParamDesc = exports.RangerRefForce = exports.RangerAppValue = exports.RangerAppHashValue = exports.RangerAppArrayValue = exports.RangerParamEventMap = exports.RangerParamEventList = exports.RangerParamEventHandler = exports.RangerCompilerMessage = exports.RangerAppTodo = exports.test_input_filesystem = exports.InputEnv = exports.InputFSFile = exports.InputFSFolder = exports.test_cmdparams = exports.CmdParams = void 0;
+exports.LowIRBuilderPass = exports.LambdaCaptureInfo = exports.LowIRLowerContext = exports.LowIRTarget = exports.LowIRRuntimeGen = exports.LowIRBuilder = exports.LowIRSession = exports.LowIRModule = exports.LowIRExternDecl = exports.LowIRStringGlobal = exports.LowIRStruct = exports.LowIRTypeDesc = exports.LowIRTypeFieldDesc = exports.LowIRField = exports.LowIRFunction = exports.LowIRBlock = exports.LowIRInstr = exports.LowIRParam = exports.LowIRUtil = exports.RangerRangerClassWriter = exports.RangerJavaScriptClassWriter = exports.WebPageWriter = exports.RangerPythonClassWriter = exports.RangerPHPClassWriter = exports.RangerGolangHttpServerWriter = exports.RangerGolangClassWriter = exports.RangerScalaClassWriter = exports.RangerCSharpClassWriter = exports.RangerKotlinClassWriter = exports.RangerRustClassWriter = exports.MethodCallList = exports.RangerCppClassWriter = exports.RangerSwift6ClassWriter = exports.RangerSwift3ClassWriter = exports.RangerJava7ClassWriter = exports.AndroidPageWriter = exports.RangerGenericClassWriter = exports.NodeEvalState = exports.CallChain = exports.TFactory = exports.RangerFlowParser = exports.WalkLater = exports.ClassJoinPoint = exports.TFiles = exports.RangerAppOperatorDesc = exports.RangerServiceBuilder = exports.RangerProcessCodegen = exports.RangerProcessProcStartCheck = exports.RangerProcessProcSend = exports.RangerProcessClass = void 0;
+exports.CompilerInterface = exports.VirtualCompiler = exports.CompilerResults = exports.viewbuilder_Web = exports.viewbuilder_Android = exports.StaticAnalyzer = exports.RangerDocGenerator = exports.CLIProgress = exports.ColorConsole = exports.LiveCompiler = exports.RangerActiveOperators = exports.OpList = exports.RangerLLVMClassWriter = exports.RangerLLVMPipeline = exports.WATWriter = exports.LLVMIRWriter = void 0;
 class CmdParams {
     constructor() {
         this.flags = {};
@@ -466,7 +467,7 @@ exports.RangerAppHashValue = RangerAppHashValue;
 class RangerAppValue {
     constructor() {
         this.double_value = 0.0; /** note: unused */
-        this.string_value = ""; /** note: unused */
+        this.string_value = "";
         this.int_value = 0; /** note: unused */
         this.boolean_value = false; /** note: unused */
     }
@@ -491,7 +492,7 @@ class RangerAppParamDesc {
         this.return_cnt = 0;
         this.prop_assign_cnt = 0; /** note: unused */
         this.value_type = 0;
-        this.has_default = false; /** note: unused */
+        this.has_default = false;
         this.isThis = false; /** note: unused */
         this.is_immutable = false;
         this.is_static = false;
@@ -509,12 +510,18 @@ class RangerAppParamDesc {
         this.read_count = 0; /** note: unused */
         this.is_assigned_from_member = false;
         this.source_member_name = "";
-        this.escapes_function = false; /** note: unused */
+        this.escapes_function = false;
         this.needs_cpp_reference = false;
         this.rust_borrow_type = 0;
         this.rust_assigned_to_weak = false;
         this.rust_needs_rc_wrap = false;
         this.rust_assigned_to_field = false;
+        this.ownership_kind = 0;
+        this.ownership_resolved = false;
+        this.escapes_via = "none";
+        this.escape_owners = [];
+        this.escape_via_call = false;
+        this.ownership_read_only = false; /** note: unused */
         this.params = []; /** note: unused */
         this.description = ""; /** note: unused */
         this.git_doc = "";
@@ -977,7 +984,11 @@ class RangerAppClassDesc extends RangerAppParamDesc {
         this.is_system_union = false;
         this.is_template = false;
         this.is_serialized = false;
+        this.is_process = false;
+        this.process_path = "";
+        this.is_singleton = false;
         this.is_trait = false;
+        this.is_record = false;
         this.is_operator_class = false;
         this.is_generic_instance = false;
         this.is_union = false;
@@ -992,6 +1003,7 @@ class RangerAppClassDesc extends RangerAppParamDesc {
         this.defined_variants = [];
         this.method_variants = {};
         this.has_constructor = false;
+        this.is_collected = false;
         this.has_destructor = false; /** note: unused */
         this.extends_classes = [];
         this.implements_interfaces = [];
@@ -1131,6 +1143,44 @@ class RangerAppClassDesc extends RangerAppParamDesc {
         return false;
     }
     ;
+    methodParamSignature(fnDesc) {
+        let sig = "";
+        const pc = fnDesc.params.length;
+        sig = (pc.toString());
+        for (let i = 0; i < fnDesc.params.length; i++) {
+            var p = fnDesc.params[i];
+            let tn = p.nameNode.type_name;
+            if ((tn.length) == 0) {
+                tn = "?";
+            }
+            sig = (sig + ":") + tn;
+        }
+        ;
+        return sig;
+    }
+    ;
+    hasDuplicateMethodSignature(fnDesc) {
+        if ((typeof (this.defined_methods[fnDesc.name]) != "undefined" && this.defined_methods.hasOwnProperty(fnDesc.name))) {
+        }
+        else {
+            return false;
+        }
+        const mVs = (this.method_variants.hasOwnProperty(fnDesc.name) ? this.method_variants[fnDesc.name] : undefined);
+        if (typeof (mVs) === "undefined") {
+            return false;
+        }
+        const want = this.methodParamSignature(fnDesc);
+        const vs = mVs;
+        for (let i = 0; i < vs.variants.length; i++) {
+            var existing = vs.variants[i];
+            if (this.methodParamSignature(existing) == want) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
     hasMethod(m_name) {
         if ((typeof (this.defined_methods[m_name]) != "undefined" && this.defined_methods.hasOwnProperty(m_name))) {
             return true;
@@ -1169,11 +1219,99 @@ class RangerAppClassDesc extends RangerAppParamDesc {
         return res;
     }
     ;
+    findMethodByCompiledName(compiled) {
+        let res;
+        for (let i = 0; i < this.methods.length; i++) {
+            var m = this.methods[i];
+            if (m.compiledName == compiled) {
+                res = m;
+                return res;
+            }
+        }
+        ;
+        for (let i_1 = 0; i_1 < this.extends_classes.length; i_1++) {
+            var cname = this.extends_classes[i_1];
+            const cDesc = this.ctx.findClass(cname);
+            const found = cDesc.findMethodByCompiledName(compiled);
+            if (typeof (found) === "undefined") {
+            }
+            else {
+                return found;
+            }
+        }
+        ;
+        return res;
+    }
+    ;
+    isSingletonClass() {
+        if (this.is_singleton) {
+            return true;
+        }
+        if ((typeof (this.nameNode) === "undefined") == false) {
+            if (this.nameNode.hasFlag("singleton")) {
+                return true;
+            }
+        }
+        if ((typeof (this.classNode) === "undefined") == false) {
+            if (this.classNode.hasBooleanProperty("singleton")) {
+                return true;
+            }
+        }
+        return false;
+    }
+    ;
+    buildSingletonAccessor() {
+        let res;
+        if (this.isSingletonClass() == false) {
+            return res;
+        }
+        let nodeForFactory;
+        if ((typeof (this.classNode) === "undefined") == false) {
+            nodeForFactory = this.classNode;
+        }
+        else {
+            nodeForFactory = this.nameNode;
+        }
+        if (typeof (nodeForFactory) === "undefined") {
+            return res;
+        }
+        const factoryNode = nodeForFactory;
+        const m = new RangerAppFunctionDesc();
+        m.name = "__singleton";
+        m.compiledName = "__singleton";
+        m.is_static = true;
+        m.container_class = this;
+        const methodNameNode = factoryNode.newVRefNode("__singleton");
+        methodNameNode.type_name = this.name;
+        methodNameNode.value_type = 11;
+        m.nameNode = methodNameNode;
+        if (this.has_constructor) {
+            const constr = this.constructor_fn;
+            for (let i = 0; i < constr.params.length; i++) {
+                var arg = constr.params[i];
+                m.params.push(arg);
+            }
+            ;
+        }
+        res = m;
+        return res;
+    }
+    ;
     hasStaticMethod(m_name) {
+        if (m_name == "__singleton") {
+            if (this.isSingletonClass()) {
+                return true;
+            }
+        }
         return (typeof (this.defined_static_methods[m_name]) != "undefined" && this.defined_static_methods.hasOwnProperty(m_name));
     }
     ;
     findStaticMethod(f_name) {
+        if (f_name == "__singleton") {
+            if (this.isSingletonClass()) {
+                return this.buildSingletonAccessor();
+            }
+        }
         let e;
         for (let i = 0; i < this.static_methods.length; i++) {
             var m = this.static_methods[i];
@@ -1335,6 +1473,17 @@ class RangerAppClassDesc extends RangerAppParamDesc {
     }
     ;
     addVariable(desc) {
+        let dupField = false;
+        for (let dupI = 0; dupI < this.variables.length; dupI++) {
+            var prevVar = this.variables[dupI];
+            if (prevVar.name == desc.name) {
+                dupField = true;
+            }
+        }
+        ;
+        if (dupField) {
+            this.ctx.addError(desc.node, (("Duplicate class property '" + desc.name) + "' in class ") + this.name);
+        }
         this.variables.push(desc);
         desc.propertyClass = this;
     }
@@ -1351,6 +1500,10 @@ class RangerAppClassDesc extends RangerAppParamDesc {
         }
         else {
             const new_v2 = defVs;
+            const variantIdx = new_v2.variants.length;
+            if (variantIdx > 0) {
+                desc.compiledName = (desc.name + "_") + ((variantIdx.toString()));
+            }
             new_v2.variants.push(desc);
         }
         desc.container_class = this;
@@ -2572,6 +2725,59 @@ class CodeNode {
         otherNode.children.length = 0;
     }
     ;
+    finalizeAsCallChainRoot() {
+        this.hasNewOper = false;
+        this.hasFnCall = false;
+        this.tag = "chainroot";
+        this.has_call = true;
+    }
+    ;
+    tryDesugarNewMethodChain() {
+    const chlen = this.children.length;
+    if (chlen < 4) return false;
+    if (this.getFirst().vref !== "new") return false;
+    let first_dot = -1;
+    for (let di = 0; di < chlen; di++) {
+      const item = this.children[di];
+      const dotName = item.children.length > 0 ? item.getFirst().vref : item.vref;
+      if (dotName.length > 0 && dotName.charCodeAt(0) === ".".charCodeAt(0)) {
+        first_dot = di;
+        break;
+      }
+    }
+    if (first_dot < 2) return false;
+    const recv = this.copy();
+    while (recv.children.length > first_dot) {
+      recv.children.pop();
+    }
+    let innerNode = recv;
+    for (let i = first_dot; i < chlen - 1; i += 2) {
+      const item = this.children[i];
+      const dotName2 = item.children.length > 0 ? item.getFirst().vref : item.vref;
+      if (dotName2.length === 0 || dotName2.charCodeAt(0) !== ".".charCodeAt(0)) return false;
+      const method_name = dotName2.substring(1);
+      let mArgs = this.newExpressionNode();
+      if (item.children.length > 1) {
+        mArgs = item.getSecond();
+      } else {
+        mArgs = this.children[i + 1];
+      }
+      const newNode = this.newExpressionNode();
+      newNode.add(this.newVRefNode("call"));
+      newNode.add(innerNode.copy());
+      newNode.add(this.newVRefNode(method_name));
+      newNode.add(mArgs.copy());
+      innerNode = newNode;
+      item.is_part_of_chain = true;
+      if (item.children.length <= 1) {
+        this.children[i + 1].is_part_of_chain = true;
+      }
+    }
+    this.getChildrenFrom(innerNode);
+    this.finalizeAsCallChainRoot();
+    return true;
+    }
+    ;
     cloneWithType(match, changeVref) {
         const newNode = new CodeNode(this.code, this.sp, this.ep);
         if ((typeof (match.nodes[this.vref]) != "undefined" && match.nodes.hasOwnProperty(this.vref))) {
@@ -2935,52 +3141,14 @@ class CodeNode {
         if ((node.value_type == 20) || (node.eval_type == 20)) {
             return;
         }
+        const regType = TTypes.nameToValue(this.type_name);
+        if (regType != 0) {
+            node.value_type = regType;
+            node.eval_type = regType;
+            node.eval_type_name = this.type_name;
+            return;
+        }
         switch (this.type_name) {
-            case "double":
-                node.value_type = 2;
-                node.eval_type = 2;
-                node.eval_type_name = "double";
-                break;
-            case "int":
-                node.value_type = 3;
-                node.eval_type = 3;
-                node.eval_type_name = "int";
-                break;
-            case "char":
-                node.value_type = 14;
-                node.eval_type = 14;
-                node.eval_type_name = "char";
-                break;
-            case "charbuffer":
-                node.value_type = 15;
-                node.eval_type = 15;
-                node.eval_type_name = "charbuffer";
-                break;
-            case "buffer":
-                node.value_type = 16;
-                node.eval_type = 16;
-                node.eval_type_name = "buffer";
-                break;
-            case "int_buffer":
-                node.value_type = 17;
-                node.eval_type = 17;
-                node.eval_type_name = "int_buffer";
-                break;
-            case "double_buffer":
-                node.value_type = 18;
-                node.eval_type = 18;
-                node.eval_type_name = "double_buffer";
-                break;
-            case "string":
-                node.value_type = 4;
-                node.eval_type = 4;
-                node.eval_type_name = "string";
-                break;
-            case "boolean":
-                node.value_type = 5;
-                node.eval_type = 5;
-                node.eval_type_name = "string";
-                break;
             default:
                 if (true == this.expression) {
                     node.value_type = 20;
@@ -3051,7 +3219,7 @@ class CodeNode {
     }
     ;
     static vref1(name) {
-        const code = new SourceCode(name);
+        const code = new SourceCode(name, 0, name.length);
         const newNode = new CodeNode(code, 0, name.length);
         newNode.vref = name;
         newNode.value_type = 11;
@@ -3061,7 +3229,7 @@ class CodeNode {
     }
     ;
     static vref2(name, typeName) {
-        const code = new SourceCode(name);
+        const code = new SourceCode(name, 0, name.length);
         const newNode = new CodeNode(code, 0, name.length);
         newNode.vref = name;
         newNode.type_name = typeName;
@@ -3072,7 +3240,7 @@ class CodeNode {
     }
     ;
     static newStr(name) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.string_value = name;
         newNode.value_type = 4;
@@ -3081,7 +3249,7 @@ class CodeNode {
     }
     ;
     static newBool(value) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.boolean_value = value;
         newNode.value_type = 5;
@@ -3090,7 +3258,7 @@ class CodeNode {
     }
     ;
     static newInt(value) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.int_value = value;
         newNode.value_type = 3;
@@ -3099,7 +3267,7 @@ class CodeNode {
     }
     ;
     static newDouble(value) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.double_value = value;
         newNode.value_type = 2;
@@ -3108,7 +3276,7 @@ class CodeNode {
     }
     ;
     static op(opName) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         const opNode = CodeNode.vref1(opName);
@@ -3117,7 +3285,7 @@ class CodeNode {
     }
     ;
     static op2(opName, param1) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         const opNode = CodeNode.vref1(opName);
@@ -3127,7 +3295,7 @@ class CodeNode {
     }
     ;
     static op3(opName, list) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         const opNode = CodeNode.vref1(opName);
@@ -3141,7 +3309,7 @@ class CodeNode {
     }
     ;
     static fromList(list) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         for (let i = 0; i < list.length; i++) {
@@ -3154,14 +3322,14 @@ class CodeNode {
     }
     ;
     static expressionNode() {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         return newNode;
     }
     ;
     static blockNode() {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.is_block_node = true;
         newNode.expression = true;
@@ -3169,7 +3337,7 @@ class CodeNode {
     }
     ;
     static blockFromList(list) {
-        const code = new SourceCode("");
+        const code = new SourceCode("", 0, 0);
         const newNode = new CodeNode(code, 0, 0);
         newNode.is_block_node = true;
         newNode.expression = true;
@@ -3184,6 +3352,253 @@ class CodeNode {
     ;
 }
 exports.CodeNode = CodeNode;
+class TTypeRegistry {
+    constructor() {
+    }
+    static scalarPrimitiveNames() {
+        let names = [];
+        names.push("double");
+        names.push("string");
+        names.push("int");
+        names.push("char");
+        names.push("boolean");
+        names.push("u8");
+        names.push("u16");
+        names.push("u32");
+        names.push("i32");
+        names.push("f32");
+        return names;
+    }
+    ;
+    static isIntAlias(typeName) {
+        if (typeName == "u8") {
+            return true;
+        }
+        if (typeName == "u16") {
+            return true;
+        }
+        if (typeName == "u32") {
+            return true;
+        }
+        if (typeName == "i32") {
+            return true;
+        }
+        return false;
+    }
+    ;
+    static isFloatAlias(typeName) {
+        if (typeName == "f32") {
+            return true;
+        }
+        return false;
+    }
+    ;
+    static canonicalScalar(typeName) {
+        if (TTypeRegistry.isIntAlias(typeName)) {
+            return "int";
+        }
+        if (TTypeRegistry.isFloatAlias(typeName)) {
+            return "double";
+        }
+        return typeName;
+    }
+    ;
+    static bufferTypeNames() {
+        let names = [];
+        names.push("charbuffer");
+        names.push("buffer");
+        names.push("int_buffer");
+        names.push("double_buffer");
+        return names;
+    }
+    ;
+    static isScalarPrimitive(typeName) {
+        for (let i = 0; i < TTypeRegistry.scalarPrimitiveNames().length; i++) {
+            var n = TTypeRegistry.scalarPrimitiveNames()[i];
+            if (typeName == n) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    static isBufferType(typeName) {
+        for (let i = 0; i < TTypeRegistry.bufferTypeNames().length; i++) {
+            var n = TTypeRegistry.bufferTypeNames()[i];
+            if (typeName == n) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    static isPrimitiveTypeName(typeName) {
+        if (TTypeRegistry.isScalarPrimitive(typeName)) {
+            return true;
+        }
+        if (TTypeRegistry.isBufferType(typeName)) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    static isKnownTypeName(typeName) {
+        return TTypeRegistry.isPrimitiveTypeName(typeName);
+    }
+    ;
+    static nameToNodeType(name) {
+        if (TTypeRegistry.isIntAlias(name)) {
+            return 3;
+        }
+        if (TTypeRegistry.isFloatAlias(name)) {
+            return 2;
+        }
+        switch (name) {
+            case "double":
+                return 2;
+            case "int":
+                return 3;
+            case "string":
+                return 4;
+            case "boolean":
+                return 5;
+            case "char":
+                return 14;
+            case "charbuffer":
+                return 15;
+            case "buffer":
+                return 16;
+            case "int_buffer":
+                return 17;
+            case "double_buffer":
+                return 18;
+        }
+        ;
+        return 0;
+    }
+    ;
+    static nodeTypeToName(valueType) {
+        switch (valueType) {
+            case 2:
+                return "double";
+            case 4:
+                return "string";
+            case 3:
+                return "int";
+            case 5:
+                return "boolean";
+            case 14:
+                return "char";
+            case 15:
+                return "charbuffer";
+            case 16:
+                return "buffer";
+            case 17:
+                return "int_buffer";
+            case 18:
+                return "double_buffer";
+        }
+        ;
+        return "";
+    }
+    ;
+    static isNodePrimitive(valueType) {
+        const name = TTypeRegistry.nodeTypeToName(valueType);
+        if ((name.length) > 0) {
+            return true;
+        }
+        if (valueType == 13) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    static targetTypeString(lang, typeName) {
+        if (lang == "es6") {
+            if (TTypeRegistry.isIntAlias(typeName)) {
+                return "number";
+            }
+            if (TTypeRegistry.isFloatAlias(typeName)) {
+                return "number";
+            }
+            switch (typeName) {
+                case "int":
+                    return "number";
+                case "string":
+                    return "string";
+                case "charbuffer":
+                    return "string";
+                case "buffer":
+                    return "Uint8Array";
+                case "int_buffer":
+                    return "BigInt64Array";
+                case "double_buffer":
+                    return "Float64Array";
+                case "char":
+                    return "number";
+                case "boolean":
+                    return "boolean";
+                case "double":
+                    return "number";
+            }
+            ;
+        }
+        if (lang == "go") {
+            if (typeName == "u8") {
+                return "uint8";
+            }
+            if (typeName == "u16") {
+                return "uint16";
+            }
+            if (typeName == "u32") {
+                return "uint32";
+            }
+            if (typeName == "i32") {
+                return "int32";
+            }
+            if (typeName == "f32") {
+                return "float32";
+            }
+            switch (typeName) {
+                case "int":
+                    return "int";
+                case "string":
+                    return "string";
+                case "charbuffer":
+                    return "string";
+                case "buffer":
+                    return "[]byte";
+                case "int_buffer":
+                    return "[]int64";
+                case "double_buffer":
+                    return "[]float64";
+                case "char":
+                    return "rune";
+                case "boolean":
+                    return "bool";
+                case "double":
+                    return "float64";
+            }
+            ;
+        }
+        return "";
+    }
+    ;
+    static listContains(list, value) {
+        for (let i = 0; i < list.length; i++) {
+            var item = list[i];
+            if (item == value) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+}
+exports.TTypeRegistry = TTypeRegistry;
 class TypeCounts {
     constructor() {
         this.b_counted = false;
@@ -3282,7 +3697,7 @@ class RangerAppWriterContext {
         this.expr_restart = false;
         this.expr_restart_block = false;
         this.in_lhs_of_assignment = false;
-        this.in_method = false; /** note: unused */
+        this.in_method = false;
         this.method_stack = [];
         this.typeNames = []; /** note: unused */
         this.typeClasses = {};
@@ -4131,20 +4546,19 @@ class RangerAppWriterContext {
     }
     ;
     isPrimitiveType(typeName) {
-        if (((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean")) {
-            return true;
-        }
-        return false;
+        return TTypeRegistry.isPrimitiveTypeName(typeName);
     }
     ;
     isDefinedType(typeName) {
         if (typeName == "Any") {
             return true;
         }
-        if (((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean")) {
-            return true;
+        if ((typeName.length) > 0) {
+            if ((typeName.charCodeAt(0)) == (91)) {
+                return this.isDefinedCollectionType(typeName);
+            }
         }
-        if ((((typeName == "HttpRequest") || (typeName == "HttpResponse")) || (typeName == "SSEClient")) || (typeName == "HttpServer")) {
+        if (TTypeRegistry.isKnownTypeName(typeName)) {
             return true;
         }
         if (this.isEnumDefined(typeName)) {
@@ -4154,6 +4568,47 @@ class RangerAppWriterContext {
             return true;
         }
         return false;
+    }
+    ;
+    isDefinedCollectionType(typeName) {
+        const n = typeName.length;
+        if (n < 2) {
+            return false;
+        }
+        if ((typeName.charCodeAt(0)) != (91)) {
+            return false;
+        }
+        if ((typeName.charCodeAt((n - 1))) != (93)) {
+            return false;
+        }
+        const inner = typeName.substring(1, (n - 1));
+        const il = inner.length;
+        let depth = 0;
+        let sep = 0 - 1;
+        let i = 0;
+        while (i < il) {
+            const c = inner.charCodeAt(i);
+            if (c == (91)) {
+                depth = depth + 1;
+            }
+            if (c == (93)) {
+                depth = depth - 1;
+            }
+            if ((c == (58)) && (depth == 0)) {
+                sep = i;
+            }
+            i = i + 1;
+        }
+        ;
+        if (sep >= 0) {
+            const keyt = inner.substring(0, sep);
+            const valt = inner.substring((sep + 1), il);
+            if (this.isPrimitiveType(keyt) && this.isDefinedType(valt)) {
+                return true;
+            }
+            return false;
+        }
+        return this.isDefinedType(inner);
     }
     ;
     hadValidType(node) {
@@ -4272,9 +4727,7 @@ class RangerAppWriterContext {
                 }
                 const p = new RangerAppParamDesc();
                 p.name = arg.vref;
-                if (p.name == "self") {
-                    p.compiledName = "__self";
-                }
+                rCtx.assignParamCompiledName(p);
                 p.value_type = arg.value_type;
                 p.node = arg;
                 p.init_cnt = 1;
@@ -4336,7 +4789,7 @@ class RangerAppWriterContext {
         if (this.isDefinedClass(str)) {
             return this.findClass(str);
         }
-        const tpl_code = ("class " + str) + " {\r\n}";
+        const tpl_code = ("class " + str) + " {\n}";
         const code = new SourceCode(tpl_code);
         code.filename = str + ".ranger";
         const parser_1 = new RangerLispParser(code);
@@ -4371,7 +4824,7 @@ class RangerAppWriterContext {
                 this.addError(initParams, "Could not find the trait " + traitName);
                 return res;
             }
-            const tpl_code = ("class " + instanceName) + " {\r\n}";
+            const tpl_code = ("class " + instanceName) + " {\n}";
             const code = new SourceCode(tpl_code);
             code.filename = instanceName + ".ranger";
             const parser_1 = new RangerLispParser(code);
@@ -4814,6 +5267,24 @@ class RangerAppWriterContext {
         return false;
     }
     ;
+    assignParamCompiledName(p) {
+        switch (p.name) {
+            case "self":
+                p.compiledName = "__self";
+                break;
+            case "process":
+                p.compiledName = "_process";
+                break;
+            case "len":
+                p.compiledName = "__len";
+                break;
+            default:
+                p.compiledName = this.transformWord(p.name);
+                break;
+        }
+        ;
+    }
+    ;
     defineVariable(name, desc) {
         let cnt = 0;
         const fnLevel = this.findMethodLevelContext();
@@ -5082,6 +5553,269 @@ class RangerAppWriterContext {
     ;
 }
 exports.RangerAppWriterContext = RangerAppWriterContext;
+class SourceMapEntry {
+    constructor() {
+        this.genLine = 0;
+        this.genCol = 0;
+        this.sourceIdx = 0;
+        this.origLine = 0;
+        this.origCol = 0;
+        this.nameIdx = -1;
+    }
+}
+exports.SourceMapEntry = SourceMapEntry;
+class SourceMapBuilder {
+    constructor() {
+        this.mappings = [];
+        this.sources = [];
+        this.sourceToIdx = {};
+        this.sourcesContent = [];
+        this.names = [];
+        this.nameToIdx = {};
+        this.outputFile = ""; /** note: unused */
+    }
+    isSyntheticSource(sourceFile) {
+        if ((sourceFile.length) == 0) {
+            return true;
+        }
+        if (sourceFile.startsWith("<")) {
+            return true;
+        }
+        if (sourceFile == "dynamically_generated") {
+            return true;
+        }
+        if (sourceFile.startsWith("extension ")) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    registerSourceIdx(sourceFile, sourceContent) {
+        if (this.isSyntheticSource(sourceFile)) {
+            return -1;
+        }
+        if ((typeof (this.sourceToIdx[sourceFile]) != "undefined" && this.sourceToIdx.hasOwnProperty(sourceFile))) {
+            return ((this.sourceToIdx.hasOwnProperty(sourceFile) ? this.sourceToIdx[sourceFile] : undefined));
+        }
+        const idx = this.sources.length;
+        this.sources.push(sourceFile);
+        this.sourceToIdx[sourceFile] = idx;
+        this.sourcesContent.push(sourceContent);
+        return idx;
+    }
+    ;
+    registerNameIdx(name) {
+        if ((name.length) == 0) {
+            return -1;
+        }
+        if ((typeof (this.nameToIdx[name]) != "undefined" && this.nameToIdx.hasOwnProperty(name))) {
+            return ((this.nameToIdx.hasOwnProperty(name) ? this.nameToIdx[name] : undefined));
+        }
+        const idx = this.names.length;
+        this.names.push(name);
+        this.nameToIdx[name] = idx;
+        return idx;
+    }
+    ;
+    addMapping(genLine, genCol, sourceFile, sourceContent, origLine, origCol, name) {
+        const sourceIdx = this.registerSourceIdx(sourceFile, sourceContent);
+        if (sourceIdx < 0) {
+            return;
+        }
+        const entry = new SourceMapEntry();
+        entry.genLine = genLine;
+        entry.genCol = genCol;
+        entry.sourceIdx = sourceIdx;
+        entry.origLine = origLine;
+        entry.origCol = origCol;
+        entry.nameIdx = this.registerNameIdx(name);
+        this.mappings.push(entry);
+    }
+    ;
+    addMappingFromNode(genLine, genCol, node, name) {
+        if (typeof (node.code) === "undefined") {
+            return;
+        }
+        const srcFile = node.getFilename();
+        const srcContent = node.code.code;
+        let origLine = node.getLine();
+        if (origLine < 0) {
+            origLine = node.row;
+        }
+        let origCol = node.code.getColumn(node.sp);
+        if (origCol < 0) {
+            origCol = 0;
+        }
+        let mapName = name;
+        if ((mapName.length) == 0) {
+            mapName = node.vref;
+        }
+        this.addMapping(genLine, genCol, srcFile, srcContent, origLine, origCol, mapName);
+    }
+    ;
+    vlqBase64Chars() {
+        return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    }
+    ;
+    encodeVLQUnsigned(value) {
+        let digits = "";
+        let vlq = value;
+        let more = true;
+        while (more) {
+            let digit = vlq % 32;
+            vlq = Math.floor((vlq / 32));
+            if (vlq > 0) {
+                digit = digit + 32;
+            }
+            else {
+                more = false;
+            }
+            const chars = this.vlqBase64Chars();
+            digits = digits + (chars.substring(digit, (digit + 1)));
+        }
+        ;
+        return digits;
+    }
+    ;
+    encodeSignedVLQ(value) {
+        let toEncode = 0;
+        if (value < 0) {
+            toEncode = ((0 - value) * 2) + 1;
+        }
+        else {
+            toEncode = value * 2;
+        }
+        return this.encodeVLQUnsigned(toEncode);
+    }
+    ;
+    buildMappingsString() {
+        if ((this.mappings.length) == 0) {
+            return "";
+        }
+        let result = "";
+        let prevGenLine = 0;
+        let prevGenCol = 0;
+        let prevSourceIdx = 0;
+        let prevOrigLine = 0;
+        let prevOrigCol = 0;
+        let prevNameIdx = 0;
+        let firstSegment = true;
+        for (let idx = 0; idx < this.mappings.length; idx++) {
+            var entry = this.mappings[idx];
+            while (prevGenLine < entry.genLine) {
+                result = result + ";";
+                prevGenLine = prevGenLine + 1;
+                prevGenCol = 0;
+                firstSegment = true;
+            }
+            ;
+            if (firstSegment == false) {
+                result = result + ",";
+            }
+            firstSegment = false;
+            result = result + this.encodeSignedVLQ((entry.genCol - prevGenCol));
+            result = result + this.encodeSignedVLQ((entry.sourceIdx - prevSourceIdx));
+            result = result + this.encodeSignedVLQ((entry.origLine - prevOrigLine));
+            result = result + this.encodeSignedVLQ((entry.origCol - prevOrigCol));
+            if (entry.nameIdx >= 0) {
+                result = result + this.encodeSignedVLQ((entry.nameIdx - prevNameIdx));
+                prevNameIdx = entry.nameIdx;
+            }
+            prevGenCol = entry.genCol;
+            prevSourceIdx = entry.sourceIdx;
+            prevOrigLine = entry.origLine;
+            prevOrigCol = entry.origCol;
+        }
+        ;
+        return result;
+    }
+    ;
+    jsonEscape(value) {
+        let out = "";
+        let i = 0;
+        while (i < (value.length)) {
+            const ch = (value.substring(i, (i + 1))).charCodeAt(0);
+            switch (ch) {
+                case 34:
+                    out = out + "\\\"";
+                    break;
+                case 92:
+                    out = out + "\\\\";
+                    break;
+                case 10:
+                    out = out + "\\n";
+                    break;
+                case 13:
+                    out = out + "\\r";
+                    break;
+                case 9:
+                    out = out + "\\t";
+                    break;
+                default:
+                    out = out + (value.substring(i, (i + 1)));
+                    break;
+            }
+            ;
+            i = i + 1;
+        }
+        ;
+        return out;
+    }
+    ;
+    jsonStringArray(items) {
+        let out = "[";
+        let i = 0;
+        while (i < (items.length)) {
+            if (i > 0) {
+                out = out + ",";
+            }
+            out = out + "\"";
+            out = out + this.jsonEscape((items[i]));
+            out = out + "\"";
+            i = i + 1;
+        }
+        ;
+        out = out + "]";
+        return out;
+    }
+    ;
+    toJSON(fileName) {
+        let mapFile = fileName;
+        if (mapFile.endsWith(".js")) {
+            mapFile = mapFile.substring(0, ((mapFile.length) - 3));
+        }
+        if (mapFile.endsWith(".ts")) {
+            mapFile = mapFile.substring(0, ((mapFile.length) - 3));
+        }
+        let json = "";
+        json = json + "{";
+        json = json + "\"version\":3,";
+        json = json + "\"file\":\"";
+        json = json + this.jsonEscape(fileName);
+        json = json + "\",";
+        json = json + "\"sourceRoot\":\"\",";
+        json = json + "\"sources\":";
+        json = json + this.jsonStringArray(this.sources);
+        json = json + ",";
+        json = json + "\"sourcesContent\":";
+        json = json + this.jsonStringArray(this.sourcesContent);
+        json = json + ",";
+        json = json + "\"names\":";
+        json = json + this.jsonStringArray(this.names);
+        json = json + ",";
+        json = json + "\"mappings\":\"";
+        json = json + this.buildMappingsString();
+        json = json + "\"";
+        json = json + "}";
+        return json;
+    }
+    ;
+    hasMappings() {
+        return (this.mappings.length) > 0;
+    }
+    ;
+}
+exports.SourceMapBuilder = SourceMapBuilder;
 class CodeFile {
     constructor(filePath, fileName) {
         this.path_name = "";
@@ -5093,6 +5827,24 @@ class CodeFile {
         this.writer = new CodeWriter();
         this.writer.createTag("imports");
     }
+    initSourceMapsIfNeeded() {
+        if ((typeof (this.sourceMapBuilder) !== "undefined" && this.sourceMapBuilder != null)) {
+            return;
+        }
+        if (typeof (this.fileSystem) === "undefined") {
+            return;
+        }
+        if (this.fileSystem.sourceMapsEnabled == false) {
+            return;
+        }
+        this.sourceMapBuilder = new SourceMapBuilder();
+        const wr = this.writer;
+        if ((typeof (wr) !== "undefined" && wr != null)) {
+            const w = wr;
+            w.enableSourceMaps(this.sourceMapBuilder);
+        }
+    }
+    ;
     addImport(import_name) {
         if (false == ((typeof (this.import_list[import_name]) != "undefined" && this.import_list.hasOwnProperty(import_name)))) {
             this.import_list[import_name] = import_name;
@@ -5126,7 +5878,16 @@ exports.CodeFile = CodeFile;
 class CodeFileSystem {
     constructor() {
         this.files = [];
+        this.sourceMapsEnabled = false;
     }
+    enableSourceMaps() {
+        this.sourceMapsEnabled = true;
+    }
+    ;
+    shouldWriteSourceMaps() {
+        return this.sourceMapsEnabled;
+    }
+    ;
     getFile(path, name) {
         for (let idx = 0; idx < this.files.length; idx++) {
             var file = this.files[idx];
@@ -5137,6 +5898,7 @@ class CodeFileSystem {
         ;
         const new_file = new CodeFile(path, name);
         new_file.fileSystem = this;
+        new_file.initSourceMapsIfNeeded();
         this.files.push(new_file);
         return new_file;
     }
@@ -5154,6 +5916,16 @@ class CodeFileSystem {
         ;
     }
     ;
+    isJsOutputFile(fileName) {
+        if (fileName.endsWith(".js")) {
+            return true;
+        }
+        if (fileName.endsWith(".ts")) {
+            return true;
+        }
+        return false;
+    }
+    ;
     saveTo(path, verbose) {
         console.log("Saving results to path : " + path);
         for (let idx = 0; idx < this.files.length; idx++) {
@@ -5163,9 +5935,30 @@ class CodeFileSystem {
             if (verbose) {
                 console.log((("Writing to file " + file_path) + "/") + file.name);
             }
-            const file_content = file.getCode();
+            let file_content = file.getCode();
             if ((file_content.length) > 0) {
-                require("fs").writeFileSync(file_path + "/" + file.name.trim(), file_content);
+                const outName = file.name.trim();
+                let writeSourceMap = false;
+                if (this.shouldWriteSourceMaps()) {
+                    if (this.isJsOutputFile(outName)) {
+                        if ((typeof (file.sourceMapBuilder) !== "undefined" && file.sourceMapBuilder != null)) {
+                            const builder = file.sourceMapBuilder;
+                            if (builder.hasMappings()) {
+                                writeSourceMap = true;
+                                file_content = ((file_content + "\n//# sourceMappingURL=") + outName) + ".map\n";
+                            }
+                        }
+                    }
+                }
+                require("fs").writeFileSync(file_path + "/" + outName, file_content);
+                if (writeSourceMap) {
+                    const builder2 = file.sourceMapBuilder;
+                    const mapJson = builder2.toJSON(outName);
+                    require("fs").writeFileSync(file_path + "/" + outName + ".map", mapJson);
+                    if (verbose) {
+                        console.log(((("Writing source map " + file_path) + "/") + outName) + ".map");
+                    }
+                }
             }
         }
         ;
@@ -5193,7 +5986,8 @@ class CodeWriter {
         this.currentLine = "";
         this.tabStr = "  ";
         this.nlStr = "\n";
-        this.lineNumber = 1; /** note: unused */
+        this.lineNumber = 0;
+        this.columnNumber = 0;
         this.indentAmount = 0;
         this.compiledTags = {};
         this.tags = {};
@@ -5201,6 +5995,10 @@ class CodeWriter {
         this.forks = [];
         this.tagOffset = 0; /** note: unused */
         this.had_nl = true; /** note: unused */
+        this.sourceMapsEnabled = false;
+        this.mappingNodeStack = [];
+        this.mappingNameStack = [];
+        this.walkNodeStack = [];
         const new_slice = new CodeSlice();
         this.slices.push(new_slice);
         this.current_slice = new_slice;
@@ -5209,10 +6007,101 @@ class CodeWriter {
         this.slices.length = 0;
         this.forks.length = 0;
         this.currentLine = "";
+        this.lineNumber = 0;
+        this.columnNumber = 0;
         const new_slice = new CodeSlice();
         this.slices.push(new_slice);
         new_slice.code = newString;
         this.current_slice = new_slice;
+    }
+    ;
+    enableSourceMaps(builder) {
+        this.sourceMapsEnabled = true;
+        this.sourceMapBuilder = builder;
+    }
+    ;
+    getActiveSourceMapBuilder() {
+        if (this.sourceMapsEnabled && ((typeof (this.sourceMapBuilder) !== "undefined" && this.sourceMapBuilder != null))) {
+            return this.sourceMapBuilder;
+        }
+        if ((typeof (this.parent) !== "undefined" && this.parent != null)) {
+            return this.parent.getActiveSourceMapBuilder();
+        }
+        return this.sourceMapBuilder;
+    }
+    ;
+    pushMappingNode(node, name) {
+        this.mappingNodeStack.push(node);
+        this.mappingNameStack.push(name);
+    }
+    ;
+    popMappingNode() {
+        if ((this.mappingNodeStack.length) > 0) {
+            this.mappingNodeStack.pop();
+        }
+        if ((this.mappingNameStack.length) > 0) {
+            this.mappingNameStack.pop();
+        }
+    }
+    ;
+    getCurrentMappingNode() {
+        let emptyNode;
+        if ((this.mappingNodeStack.length) == 0) {
+            return emptyNode;
+        }
+        const current = this.mappingNodeStack[((this.mappingNodeStack.length) - 1)];
+        return current;
+    }
+    ;
+    getCurrentMappingName() {
+        if ((this.mappingNameStack.length) == 0) {
+            return "";
+        }
+        return this.mappingNameStack[((this.mappingNameStack.length) - 1)];
+    }
+    ;
+    pushWalkNode(node) {
+        this.walkNodeStack.push(node);
+    }
+    ;
+    popWalkNode() {
+        if ((this.walkNodeStack.length) > 0) {
+            this.walkNodeStack.pop();
+        }
+    }
+    ;
+    getCurrentWalkNode() {
+        let emptyNode;
+        if ((this.walkNodeStack.length) > 0) {
+            const current = this.walkNodeStack[((this.walkNodeStack.length) - 1)];
+            return current;
+        }
+        if ((typeof (this.parent) !== "undefined" && this.parent != null)) {
+            return this.parent.getCurrentWalkNode();
+        }
+        return emptyNode;
+    }
+    ;
+    recordCurrentMapping() {
+        const builder = this.getActiveSourceMapBuilder();
+        if (typeof (builder) === "undefined") {
+            return;
+        }
+        let node = this.getCurrentMappingNode();
+        if (typeof (node) === "undefined") {
+            node = this.getCurrentWalkNode();
+        }
+        if (typeof (node) === "undefined") {
+            return;
+        }
+        const mapName = this.getCurrentMappingName();
+        builder.addMappingFromNode(this.lineNumber, this.columnNumber, node, mapName);
+    }
+    ;
+    outMapped(str, node, newLine, name) {
+        this.pushMappingNode(node, name);
+        this.out(str, newLine);
+        this.popMappingNode();
     }
     ;
     getFilesystem() {
@@ -5288,6 +6177,10 @@ class CodeWriter {
         this.slices.push(new_slice);
         new_slice.writer = new_writer;
         new_writer.indentAmount = this.indentAmount;
+        new_writer.lineNumber = this.lineNumber;
+        new_writer.columnNumber = this.columnNumber;
+        new_writer.sourceMapsEnabled = this.sourceMapsEnabled;
+        new_writer.sourceMapBuilder = this.sourceMapBuilder;
         const new_active_slice = new CodeSlice();
         this.slices.push(new_active_slice);
         this.current_slice = new_active_slice;
@@ -5327,6 +6220,10 @@ class CodeWriter {
         this.slices.push(new_slice);
         new_slice.writer = new_writer;
         new_writer.indentAmount = this.indentAmount;
+        new_writer.lineNumber = this.lineNumber;
+        new_writer.columnNumber = this.columnNumber;
+        new_writer.sourceMapsEnabled = this.sourceMapsEnabled;
+        new_writer.sourceMapBuilder = this.sourceMapBuilder;
         new_writer.parent = this;
         const new_active_slice = new CodeSlice();
         this.slices.push(new_active_slice);
@@ -5348,12 +6245,39 @@ class CodeWriter {
         }
     }
     ;
+    advanceColumnForString(str) {
+        let i = 0;
+        while (i < (str.length)) {
+            const ch = (str.substring(i, (i + 1))).charCodeAt(0);
+            if (ch == 10) {
+                this.lineNumber = this.lineNumber + 1;
+                this.columnNumber = 0;
+            }
+            else {
+                this.columnNumber = this.columnNumber + 1;
+            }
+            i = i + 1;
+        }
+        ;
+    }
+    ;
+    syncColumnFromCurrentLine() {
+        this.columnNumber = this.currentLine.length;
+    }
+    ;
     writeSlice(str, newLine) {
         this.addIndent();
+        this.syncColumnFromCurrentLine();
+        if ((str.length) > 0) {
+            this.recordCurrentMapping();
+        }
         this.currentLine = this.currentLine + str;
+        this.advanceColumnForString(str);
         if (newLine) {
             this.current_slice.code = (this.current_slice.code + this.currentLine) + this.nlStr;
             this.currentLine = "";
+            this.lineNumber = this.lineNumber + 1;
+            this.columnNumber = 0;
         }
     }
     ;
@@ -5433,7 +6357,8 @@ class RangerLispParser {
         this.get_op_pred = 0; /** note: unused */
         this.had_error = false;
         this.disableOperators = false;
-        this.buff = code_module.code;
+        const normalized = RangerLispParser.normalizeLineEndings(code_module.code);
+        this.buff = normalized;
         this.code = code_module;
         this.__len = (this.buff).length;
         this.rootNode = new CodeNode(this.code, 0, 0);
@@ -5483,7 +6408,7 @@ class RangerLispParser {
                 return true;
             }
             if (is_block_parent && ((c == 10) || (c == 13))) {
-                this.end_expression();
+                this.end_expression(true);
                 this.current_line_index = this.current_line_index + 1;
                 did_break = true;
                 break;
@@ -5515,10 +6440,12 @@ class RangerLispParser {
         return did_break;
     }
     ;
-    end_expression() {
-        this.i = 1 + this.i;
-        if (this.i >= this.__len) {
-            return false;
+    end_expression(consumeCurrent) {
+        if (consumeCurrent) {
+            this.i = 1 + this.i;
+            if (this.i >= this.__len) {
+                return false;
+            }
         }
         this.paren_cnt = this.paren_cnt - 1;
         if (this.paren_cnt < 0) {
@@ -5707,6 +6634,75 @@ class RangerLispParser {
         }
         ;
         return 0;
+    }
+    ;
+    isComparisonOpPred(pred) {
+        if (pred == 10) {
+            return true;
+        }
+        if (pred == 11) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    isDotVRef(n) {
+        if (n.parsed_type != 11) {
+            return false;
+        }
+        if ((n.vref.indexOf(".")) >= 0) {
+            return true;
+        }
+        if ((n.ns.length) >= 2) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    isDotCallPairOnNode(node) {
+        if ((node.children.length) != 2) {
+            return false;
+        }
+        const ch0 = node.children[0];
+        return this.isDotVRef(ch0);
+    }
+    ;
+    foldDotCallPairToGroup(node) {
+        if (this.isDotCallPairOnNode(node) == false) {
+            return;
+        }
+        const ch0 = node.children.splice(0, 1).pop();
+        const ch1 = node.children.splice(0, 1).pop();
+        const callGroup = new CodeNode(this.code, ch0.sp, ch1.ep);
+        callGroup.expression = true;
+        ch0.parent = callGroup;
+        ch1.parent = callGroup;
+        callGroup.children.push(ch0);
+        callGroup.children.push(ch1);
+        node.children.push(callGroup);
+    }
+    ;
+    tryCloseCallArgParenBeforeInfix() {
+        const pr = this.curr_node.parent;
+        if (typeof (pr) === "undefined") {
+            return false;
+        }
+        if ((this.curr_node.children.length) < 1) {
+            return false;
+        }
+        const prCnt = pr.children.length;
+        if (prCnt < 2) {
+            return false;
+        }
+        const prevCh = pr.children[(prCnt - 2)];
+        if (this.isDotVRef(prevCh) == false) {
+            return false;
+        }
+        this.paren_cnt = this.paren_cnt - 1;
+        this.parents.pop();
+        this.curr_node.ep = this.i;
+        this.curr_node = pr;
+        return true;
     }
     ;
     insert_node(p_node) {
@@ -5999,7 +6995,7 @@ class RangerLispParser {
             let is_block_parent = false;
             if (had_lf) {
                 had_lf = false;
-                this.end_expression();
+                this.end_expression(true);
                 break;
             }
             if ((typeof (this.curr_node) !== "undefined" && this.curr_node != null)) {
@@ -6265,6 +7261,18 @@ class RangerLispParser {
                 let vref_ann_node;
                 let vref_end = this.i;
                 if ((((((this.i < this.__len) && ((s.charCodeAt(this.i)) > 32)) && (c != 58)) && (c != 40)) && (c != 41)) && (c != (125))) {
+                    if ((this.curr_node.is_block_node == true) && ((s.charCodeAt(this.i)) == (46))) {
+                        const err_node = new CodeNode(this.code, this.i, this.i + 1);
+                        const err_line = err_node.getLine();
+                        console.log((err_node.getFilename() + " Line: ") + err_line);
+                        console.log("Parser error: a statement can not start with a chained call on a parenthesised receiver.");
+                        console.log(err_node.getLineString(err_line));
+                        console.log("Bind the receiver to a local first, then call it:");
+                        console.log("    def recv:SomeType (the.expression())");
+                        console.log("    recv.method()");
+                        this.had_error = true;
+                        break;
+                    }
                     if (this.curr_node.is_block_node == true) {
                         const new_expr_node = new CodeNode(this.code, sp, ep);
                         new_expr_node.parent = this.curr_node;
@@ -6358,17 +7366,30 @@ class RangerLispParser {
                         vt_sp = this.i;
                         let hash_sep = 0;
                         let had_array_type_ann = false;
+                        let type_depth = 1;
                         c = s.charCodeAt(this.i);
-                        while (((this.i < this.__len) && (c > 32)) && (c != 93)) {
-                            this.i = 1 + this.i;
+                        while ((this.i < this.__len) && (type_depth > 0)) {
                             c = s.charCodeAt(this.i);
-                            if (c == (58)) {
+                            if (c <= 32) {
+                                break;
+                            }
+                            if (c == (91)) {
+                                type_depth = type_depth + 1;
+                            }
+                            if (c == 93) {
+                                type_depth = type_depth - 1;
+                                if (type_depth == 0) {
+                                    break;
+                                }
+                            }
+                            if ((c == (58)) && (type_depth == 1)) {
                                 hash_sep = this.i;
                             }
-                            if (c == (64)) {
+                            if ((c == (64)) && (type_depth == 1)) {
                                 had_array_type_ann = true;
                                 break;
                             }
+                            this.i = 1 + this.i;
                         }
                         ;
                         vt_ep = this.i;
@@ -6467,6 +7488,15 @@ class RangerLispParser {
                         if (new_vref_node.vref == ",") {
                             this.curr_node.infix_operator = false;
                             continue;
+                        }
+                        if (this.isComparisonOpPred(op_pred)) {
+                            this.tryCloseCallArgParenBeforeInfix();
+                        }
+                        if (this.isComparisonOpPred(op_pred) && (false == this.curr_node.infix_operator)) {
+                            const cn = this.curr_node;
+                            if (this.isDotCallPairOnNode(cn)) {
+                                this.foldDotCallPairToGroup(cn);
+                            }
                         }
                         let pTarget = this.curr_node;
                         if (this.curr_node.infix_operator) {
@@ -6577,7 +7607,7 @@ class RangerLispParser {
                 }
                 if ((c == 41) || (c == (125))) {
                     if (((c == (125)) && is_block_parent) && ((this.curr_node.children.length) > 0)) {
-                        this.end_expression();
+                        this.end_expression(false);
                     }
                     this.i = 1 + this.i;
                     this.paren_cnt = this.paren_cnt - 1;
@@ -6604,8 +7634,138 @@ class RangerLispParser {
         ;
     }
     ;
+    static normalizeLineEndings(src) {
+        if ((src.indexOf("\r")) < 0) {
+            return src;
+        }
+        const s = (src.split("\r\n")).join("\n");
+        return (s.split("\r")).join("\n");
+    }
+    ;
 }
 exports.RangerLispParser = RangerLispParser;
+class TTypes {
+    constructor() {
+    }
+    static nameToValue(name) {
+        const regType = TTypeRegistry.nameToNodeType(name);
+        if (regType != 0) {
+            return regType;
+        }
+        return 0;
+    }
+    ;
+    static isPrimitive(valueType) {
+        if (TTypeRegistry.isNodePrimitive(valueType)) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    static valueAsString(valueType) {
+        switch (valueType) {
+            case 2:
+                return TTypeRegistry.nodeTypeToName(2);
+            case 4:
+                return TTypeRegistry.nodeTypeToName(4);
+            case 3:
+                return TTypeRegistry.nodeTypeToName(3);
+            case 5:
+                return TTypeRegistry.nodeTypeToName(5);
+            case 14:
+                return TTypeRegistry.nodeTypeToName(14);
+            case 15:
+                return TTypeRegistry.nodeTypeToName(15);
+            case 16:
+                return TTypeRegistry.nodeTypeToName(16);
+            case 17:
+                return TTypeRegistry.nodeTypeToName(17);
+            case 18:
+                return TTypeRegistry.nodeTypeToName(18);
+            case 0:
+                return "<no type>";
+            case 1:
+                return "<invalid type>";
+            case 6:
+                return "[]";
+            case 7:
+                return "[:]";
+            case 8:
+                return "ImmutableArray";
+            case 9:
+                return "ImmutableHash";
+            case 10:
+                return "Object";
+            case 11:
+                return "VRef";
+            case 13:
+                return "Enum";
+            case 12:
+                return "Comment";
+            case 19:
+                return "Expression";
+            case 20:
+                return "ExpressionType";
+            case 21:
+                return "Lambda";
+            case 22:
+                return "XMLNode";
+            case 23:
+                return "XMLText";
+            case 24:
+                return "XMLAttr";
+            case 25:
+                return "XMLAttr";
+            case 26:
+                return "Dictionary";
+            case 27:
+                return "Any";
+            case 28:
+                return "Class";
+            case 29:
+                return "GenericClass";
+            case 30:
+                return "ClassRef";
+            case 31:
+                return "Method";
+            case 32:
+                return "ClassVar";
+            case 33:
+                return "ClassVar";
+            case 34:
+                return "Literal";
+            case 35:
+                return "Quasiliteral";
+            case 36:
+                return "Null";
+            case 37:
+                return "ArrayLiteral";
+            default:
+                return "InvalidValueTypeEnum";
+                break;
+        }
+        ;
+        return "";
+    }
+    ;
+    static baseTypeAsEval(node, ctx, wr) {
+        const vType = node.value_type;
+        node.eval_type = vType;
+        if (TTypes.isPrimitive(node.value_type)) {
+            node.eval_type_name = TTypes.valueAsString(node.value_type);
+        }
+        else {
+            const vType_2 = node.type_name;
+            node.eval_type_name = vType_2;
+        }
+        const vType1 = node.array_type;
+        const vType2 = node.key_type;
+        node.eval_array_type = vType1;
+        node.eval_key_type = vType2;
+    }
+    ;
+}
+exports.TTypes = TTypes;
 class RangerArgMatch {
     constructor() {
         this._debug = false;
@@ -6752,7 +7912,11 @@ class RangerArgMatch {
                 if (this._debug) {
                     console.log("-> trying to add type " + arg.type_name);
                 }
-                if (false == this.add(arg.type_name, callArg.eval_type_name, ctx)) {
+                let callArgTypeName = callArg.eval_type_name;
+                if ((callArg.eval_type == 6) || (callArg.eval_type == 7)) {
+                    callArgTypeName = this.nodeTypeString(callArg);
+                }
+                if (false == this.add(arg.type_name, callArgTypeName, ctx)) {
                     all_matched = false;
                     return all_matched;
                 }
@@ -6916,7 +8080,11 @@ class RangerArgMatch {
             }
         }
         if ((arg.value_type != 7) && (arg.value_type != 6)) {
-            const eq = this.areEqualTypes(arg.type_name, node.eval_type_name, ctx);
+            let nodeTypeName = node.eval_type_name;
+            if ((node.eval_type == 6) || (node.eval_type == 7)) {
+                nodeTypeName = this.nodeTypeString(node);
+            }
+            const eq = this.areEqualTypes(arg.type_name, nodeTypeName, ctx);
             const t_name = arg.type_name;
             switch (t_name) {
                 case "expression":
@@ -6945,10 +8113,12 @@ class RangerArgMatch {
         return false;
     }
     ;
-    areEqualTypes(type1, type2, ctx) {
+    areEqualTypes(type1o, type2o, ctx) {
+        const type1 = TTypeRegistry.canonicalScalar(type1o);
+        const type2 = TTypeRegistry.canonicalScalar(type2o);
         let t_name = type1;
         if ((typeof (this.matched[type1]) != "undefined" && this.matched.hasOwnProperty(type1))) {
-            t_name = ((this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined));
+            t_name = TTypeRegistry.canonicalScalar((((this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined))));
         }
         switch (t_name) {
             case "string":
@@ -7028,10 +8198,12 @@ class RangerArgMatch {
         return t_name == type2;
     }
     ;
-    areEqualATypes(type1, type2, ctx) {
+    areEqualATypes(type1i, type2i, ctx) {
+        const type1 = TTypeRegistry.canonicalScalar(type1i);
+        const type2 = TTypeRegistry.canonicalScalar(type2i);
         let t_name = type1;
         if ((typeof (this.matched[type1]) != "undefined" && this.matched.hasOwnProperty(type1))) {
-            t_name = ((this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined));
+            t_name = TTypeRegistry.canonicalScalar((((this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined))));
         }
         switch (t_name) {
             case "string":
@@ -7131,28 +8303,14 @@ class RangerArgMatch {
                 return 19;
             case "arguments":
                 return 19;
-            case "string":
-                return 4;
-            case "int":
-                return 3;
-            case "char":
-                return 14;
-            case "charbuffer":
-                return 15;
-            case "buffer":
-                return 16;
-            case "int_buffer":
-                return 17;
-            case "double_buffer":
-                return 18;
-            case "boolean":
-                return 5;
-            case "double":
-                return 2;
             case "enum":
                 return 13;
         }
         ;
+        const regType = TTypes.nameToValue(t_name);
+        if (regType != 0) {
+            return regType;
+        }
         return 10;
     }
     ;
@@ -7170,8 +8328,13 @@ class RangerArgMatch {
                 node.expression_value = lam.copy();
                 return true;
             }
+            const rvName = this.getTypeName(arg.type_name);
+            if (this.isCollectionTypeString(rvName)) {
+                this.applyTypeStringToNode(node, rvName);
+                return true;
+            }
             node.eval_type = this.getType(arg.type_name);
-            node.eval_type_name = this.getTypeName(arg.type_name);
+            node.eval_type_name = rvName;
             return true;
         }
         if (arg.value_type == 6) {
@@ -7186,6 +8349,75 @@ class RangerArgMatch {
             return true;
         }
         return false;
+    }
+    ;
+    nodeTypeString(node) {
+        if (node.eval_type == 6) {
+            let at = node.eval_array_type;
+            if ((at.length) == 0) {
+                at = node.array_type;
+            }
+            return ("[" + at) + "]";
+        }
+        if (node.eval_type == 7) {
+            let kt = node.eval_key_type;
+            if ((kt.length) == 0) {
+                kt = node.key_type;
+            }
+            let at2 = node.eval_array_type;
+            if ((at2.length) == 0) {
+                at2 = node.array_type;
+            }
+            return ((("[" + kt) + ":") + at2) + "]";
+        }
+        return node.eval_type_name;
+    }
+    ;
+    isCollectionTypeString(s) {
+        if ((s.length) < 2) {
+            return false;
+        }
+        if ((s.charCodeAt(0)) != (91)) {
+            return false;
+        }
+        return true;
+    }
+    ;
+    applyTypeStringToNode(node, typeStr) {
+        const n = typeStr.length;
+        if ((n < 2) || ((typeStr.charCodeAt(0)) != (91))) {
+            node.eval_type = this.getType(typeStr);
+            node.eval_type_name = typeStr;
+            return;
+        }
+        const inner = typeStr.substring(1, (n - 1));
+        const il = inner.length;
+        let depth = 0;
+        let sep = 0 - 1;
+        let i = 0;
+        while (i < il) {
+            const c = inner.charCodeAt(i);
+            if (c == (91)) {
+                depth = depth + 1;
+            }
+            if (c == (93)) {
+                depth = depth - 1;
+            }
+            if ((c == (58)) && (depth == 0)) {
+                sep = i;
+            }
+            i = i + 1;
+        }
+        ;
+        if (sep >= 0) {
+            node.eval_type = 7;
+            node.eval_key_type = inner.substring(0, sep);
+            node.eval_array_type = inner.substring((sep + 1), il);
+        }
+        else {
+            node.eval_type = 6;
+            node.eval_array_type = inner;
+        }
     }
     ;
 }
@@ -7563,6 +8795,65 @@ class RangerSerializeClass {
         return false;
     }
     ;
+    canSerializeClass(cName, ctx) {
+        if (this.isSerializedClass(cName, ctx)) {
+            return true;
+        }
+        if (ctx.hasClass(cName) == false) {
+            return false;
+        }
+        const clDecl = ctx.findClass(cName);
+        if (clDecl.isNormalClass() == false) {
+            return false;
+        }
+        return clDecl.hasMethod("toDictionary") && clDecl.hasStaticMethod("fromDictionary");
+    }
+    ;
+    missesSerializeSupport(cName, ctx) {
+        if (ctx.hasClass(cName) == false) {
+            return false;
+        }
+        const clDecl = ctx.findClass(cName);
+        if (clDecl.isNormalClass() == false) {
+            return false;
+        }
+        return this.canSerializeClass(cName, ctx) == false;
+    }
+    ;
+    describeFieldType(nn) {
+        if (nn.value_type == 6) {
+            return ("[" + nn.array_type) + "]";
+        }
+        if (nn.value_type == 7) {
+            return ((("[" + nn.key_type) + ":") + nn.array_type) + "]";
+        }
+        return nn.type_name;
+    }
+    ;
+    validateSerializedClass(cl, ctx) {
+        let is_valid = true;
+        for (let i = 0; i < cl.variables.length; i++) {
+            var pvar = cl.variables[i];
+            if (typeof (pvar.nameNode) === "undefined") {
+                continue;
+            }
+            const nn = pvar.nameNode;
+            if (nn.value_type == 13) {
+                continue;
+            }
+            let refType = nn.type_name;
+            if ((nn.value_type == 6) || (nn.value_type == 7)) {
+                refType = nn.array_type;
+            }
+            if (this.missesSerializeSupport(refType, ctx)) {
+                ctx.addError(nn, ((((((((cl.name + ".") + pvar.name) + ": ") + this.describeFieldType(nn)) + " can not be serialized - class ") + refType) + " is not @serialize(true). Add @serialize(true) to ") + refType) + ", or implement toDictionary / fromDictionary in it.");
+                is_valid = false;
+            }
+        }
+        ;
+        return is_valid;
+    }
+    ;
     createWRWriter(pvar, nn, ctx, wr) {
         wr.out("def key@(lives):DictNode (new DictNode())", true);
         wr.out(("key.addString(\"n\" \"" + pvar.name) + "\")", true);
@@ -7705,7 +8996,7 @@ class RangerSerializeClass {
     ;
     createWRWriter2(pvar, nn, ctx, wr) {
         if (nn.value_type == 6) {
-            if (this.isSerializedClass(nn.array_type, ctx)) {
+            if (this.canSerializeClass(nn.array_type, ctx)) {
                 wr.out("def values:JSONArrayObject (json_array)", true);
                 wr.out(((("for this." + pvar.compiledName) + " item:") + nn.array_type) + " i {", true);
                 wr.indent(1);
@@ -7727,7 +9018,7 @@ class RangerSerializeClass {
             return;
         }
         if (nn.value_type == 7) {
-            if (this.isSerializedClass(nn.array_type, ctx)) {
+            if (this.canSerializeClass(nn.array_type, ctx)) {
                 wr.out("def values:JSONDataObject (json_object)", true);
                 wr.out(("def keyList (keys this." + pvar.compiledName) + ")", true);
                 wr.out("for keyList keyname:string index {", true);
@@ -7779,7 +9070,7 @@ class RangerSerializeClass {
     ;
     createWRReader2(pvar, nn, ctx, wr) {
         if (nn.value_type == 6) {
-            if (this.isSerializedClass(nn.array_type, ctx)) {
+            if (this.canSerializeClass(nn.array_type, ctx)) {
                 wr.out(("def values:JSONArrayObject (getArray dict \"" + pvar.name) + "\")", true);
                 wr.out("if(!null? values) {", true);
                 wr.indent(1);
@@ -7817,7 +9108,7 @@ class RangerSerializeClass {
             return;
         }
         if (nn.value_type == 7) {
-            if (this.isSerializedClass(nn.array_type, ctx)) {
+            if (this.canSerializeClass(nn.array_type, ctx)) {
                 wr.out(("def values (getObject dict \"" + pvar.name) + "\")", true);
                 wr.out("if(!null? values) {", true);
                 wr.indent(1);
@@ -8116,6 +9407,862 @@ class RangerImmutableExtension {
     ;
 }
 exports.RangerImmutableExtension = RangerImmutableExtension;
+class RangerProcessLifecycle {
+    constructor() {
+    }
+    emitInvokeMethods(cl, ctx, wr, regName) {
+        wr.out("fn __rangerInvokeStart:void () {", true);
+        wr.indent(1);
+        if (cl.hasMethod("start")) {
+            wr.out("this.start()", true);
+        }
+        else {
+            if (ctx.hasCompilerFlag("debug")) {
+                wr.out(("print (\"DEBUG @process: " + cl.name) + " proc_start with no fn start()\")", true);
+            }
+        }
+        wr.indent(-1);
+        wr.out("}", true);
+        if (cl.hasMethod("stop")) {
+            wr.out("fn __rangerInvokeStop:void () {", true);
+            wr.indent(1);
+            wr.out("this.stop()", true);
+            wr.indent(-1);
+            wr.out("}", true);
+        }
+        if (cl.hasMethod("hibernate")) {
+            wr.out("fn __rangerInvokeHibernate:string () {", true);
+            wr.indent(1);
+            wr.out("return this.hibernate()", true);
+            wr.indent(-1);
+            wr.out("}", true);
+        }
+        if (cl.hasMethod("wakeup")) {
+            wr.out("fn __rangerInvokeWakeup:void (state:string) {", true);
+            wr.indent(1);
+            wr.out("this.wakeup(state)", true);
+            wr.indent(-1);
+            wr.out("}", true);
+        }
+    }
+    ;
+    emitStopSubtree(cl, wr, regName) {
+        wr.out("fn __rangerStopSubtree:void () {", true);
+        wr.indent(1);
+        wr.out("if (this.__rangerId == 0) {", true);
+        wr.indent(1);
+        wr.out("return", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("def __rgrIdx 0", true);
+        wr.out("while (__rgrIdx < (size this.__rangerChildren)) {", true);
+        wr.indent(1);
+        wr.out("def __rgrChild:RangerProcessBase (at this.__rangerChildren __rgrIdx)", true);
+        wr.out("__rgrChild.__rangerStopSubtree()", true);
+        wr.out("__rgrIdx = __rgrIdx + 1", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        if (cl.hasMethod("stop")) {
+            wr.out("this.__rangerInvokeStop()", true);
+        }
+        wr.out(regName + ".__singleton().untrack(this)", true);
+        wr.out("this.__rangerUnregister()", true);
+        wr.out("this.__rangerClearChildren()", true);
+        wr.indent(-1);
+        wr.out("}", true);
+    }
+    ;
+}
+exports.RangerProcessLifecycle = RangerProcessLifecycle;
+class RangerProcessClass {
+    constructor() {
+    }
+    emitAssignProcessId(wr) {
+        wr.out("def __rgrIdReg (ProcessIdRegistry.__singleton())", true);
+        wr.out("def __rgrNewId ( __rgrIdReg.allocate() )", true);
+        wr.out("this.__rangerId = __rgrNewId", true);
+    }
+    ;
+    createProcessExtension(cl, ctx, wr, typeId) {
+        wr.out("Import \"RangerProcess.rgr\"", true);
+        const regName = cl.name + "__Registry";
+        const life = new RangerProcessLifecycle();
+        wr.out(("class " + regName) + " @singleton(true) {", true);
+        wr.indent(1);
+        wr.out(("def items:[" + cl.name) + "]", true);
+        wr.out(("fn track:void (inst:" + cl.name) + ") {", true);
+        wr.indent(1);
+        wr.out("push items inst", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out(("fn untrack:void (inst:" + cl.name) + ") {", true);
+        wr.indent(1);
+        wr.out(("def kept:[" + cl.name) + "]", true);
+        wr.out(("for items x:" + cl.name) + " i {", true);
+        wr.indent(1);
+        wr.out("if (x.__rangerId != inst.__rangerId) {", true);
+        wr.indent(1);
+        wr.out("push kept x", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("items = kept", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out(("fn all:[" + cl.name) + "] () {", true);
+        wr.indent(1);
+        wr.out("return items", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("fn stopAllInstances:void () {", true);
+        wr.indent(1);
+        wr.out("def n (size items)", true);
+        wr.out("def i (n - 1)", true);
+        wr.out("while (i >= 0) {", true);
+        wr.indent(1);
+        wr.out(("def inst:" + cl.name) + " (at items i)", true);
+        wr.out("if (inst.__rangerId != 0) {", true);
+        wr.indent(1);
+        wr.out("inst.__rangerStopSubtree()", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("i = i - 1", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out(("extension " + cl.name) + " {", true);
+        wr.indent(1);
+        wr.out("fn __rangerRegisterRoot () {", true);
+        wr.indent(1);
+        wr.out(("this.__rangerClassName = \"" + cl.name) + "\"", true);
+        wr.out("this.__rangerTypeId = " + ("" + typeId), true);
+        this.emitAssignProcessId(wr);
+        wr.out(regName + ".__singleton().track(this)", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("fn __rangerRegisterChild (parent:RangerProcessBase) {", true);
+        wr.indent(1);
+        wr.out(("this.__rangerClassName = \"" + cl.name) + "\"", true);
+        wr.out("this.__rangerTypeId = " + ("" + typeId), true);
+        wr.out("this.__rangerParent = parent", true);
+        wr.out("this.__rangerParentId = parent.__rangerId", true);
+        this.emitAssignProcessId(wr);
+        wr.out("parent.__rangerTrackChild(this)", true);
+        wr.out(regName + ".__singleton().track(this)", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("fn __rangerUnregister:void () {", true);
+        wr.indent(1);
+        wr.out("this.__rangerId = 0", true);
+        wr.out("this.__rangerParentId = 0", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        life.emitInvokeMethods(cl, ctx, wr, regName);
+        life.emitStopSubtree(cl, wr, regName);
+        this.emitStaticHelpers(cl, typeId, wr, regName);
+        if ((cl.process_path.length) > 0) {
+            wr.out("sfn processPath:string () {", true);
+            wr.indent(1);
+            wr.out(("return \"" + cl.process_path) + "\"", true);
+            wr.indent(-1);
+            wr.out("}", true);
+        }
+        wr.out("sfn stopAllLive:void () {", true);
+        wr.indent(1);
+        wr.out(((("def __rgrReg:" + regName) + " (") + regName) + ".__singleton())", true);
+        wr.out("__rgrReg.stopAllInstances()", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+    }
+    ;
+    emitStaticHelpers(cl, typeId, wr, regName) {
+        wr.out(("sfn allInstances:[" + cl.name) + "] () {", true);
+        wr.indent(1);
+        wr.out(((("def __rgrReg:" + regName) + " (") + regName) + ".__singleton())", true);
+        wr.out("return __rgrReg.items", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("sfn tryStopByProcessId:boolean (processId:int) {", true);
+        wr.indent(1);
+        wr.out(((("def __rgrReg:" + regName) + " (") + regName) + ".__singleton())", true);
+        wr.out(("for __rgrReg.items inst:" + cl.name) + " i {", true);
+        wr.indent(1);
+        wr.out("if (inst.__rangerId == processId) {", true);
+        wr.indent(1);
+        wr.out("if (inst.__rangerId != 0) {", true);
+        wr.indent(1);
+        wr.out("inst.__rangerStopSubtree()", true);
+        wr.out("return true", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("return false", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("sfn parentIdOf:int (child:RangerProcessBase) {", true);
+        wr.indent(1);
+        wr.out("def cur@(optional):RangerProcessBase (child.__rangerParent)", true);
+        wr.out("while ((null? cur) == false) {", true);
+        wr.indent(1);
+        wr.out("def node:RangerProcessBase (unwrap cur)", true);
+        wr.out("def __rgrExpectType:int " + ("" + typeId), true);
+        wr.out("if (node.__rangerTypeId != __rgrExpectType) {", true);
+        wr.indent(1);
+        wr.out("cur = node.__rangerParent", true);
+        wr.indent(-1);
+        wr.out("} {", true);
+        wr.indent(1);
+        wr.out("return node.__rangerId", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("return 0", true);
+        wr.indent(-1);
+        wr.out("}", true);
+    }
+    ;
+    emitProcessNameRegistryExtension(processClasses, wr) {
+        wr.out("Import \"RangerProcess.rgr\"", true);
+        wr.out("extension ProcessNameRegistry {", true);
+        wr.indent(1);
+        wr.out("fn bindIfConfigured:void (proc:RangerProcessBase) {", true);
+        wr.indent(1);
+        wr.out("if (proc.__rangerId == 0) {", true);
+        wr.indent(1);
+        wr.out("return", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        let hasNamed = false;
+        for (let i = 0; i < processClasses.length; i++) {
+            var cl = processClasses[i];
+            if ((cl.process_path.length) > 0) {
+                hasNamed = true;
+            }
+        }
+        ;
+        if (hasNamed) {
+            for (let i_1 = 0; i_1 < processClasses.length; i_1++) {
+                var cl_1 = processClasses[i_1];
+                if ((cl_1.process_path.length) == 0) {
+                    continue;
+                }
+                const typeId = i_1 + 1;
+                wr.out(("if (proc.__rangerTypeId == " + ("" + typeId)) + ") {", true);
+                wr.indent(1);
+                wr.out(("proc.__rangerPath = \"" + cl_1.process_path) + "\"", true);
+                wr.out(("this.register(\"" + cl_1.process_path) + "\" proc)", true);
+                wr.out("return", true);
+                wr.indent(-1);
+                wr.out("}", true);
+            }
+            ;
+        }
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("fn findProcess@(optional):RangerProcessBase (path:string) {", true);
+        wr.indent(1);
+        wr.out("if (this.hasLive(path)) {", true);
+        wr.indent(1);
+        wr.out("return (this.findByPath(path))", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("return (get byPath \"__rgr_no_such_process__\")", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+    }
+    ;
+    emitProcessRuntimeExtension(processClasses, wr) {
+        wr.out("Import \"RangerProcess.rgr\"", true);
+        wr.out("extension ProcessRuntime {", true);
+        wr.indent(1);
+        wr.out("sfn collectAllLiveRoots:[RangerProcessBase] () {", true);
+        wr.indent(1);
+        wr.out("def roots:[RangerProcessBase]", true);
+        for (let i = 0; i < processClasses.length; i++) {
+            var cl = processClasses[i];
+            wr.out(((("def __rgr_" + cl.name) + "_all ( ") + cl.name) + ".allInstances() )", true);
+            wr.out(((("for __rgr_" + cl.name) + "_all __rgrRoot:") + cl.name) + " i {", true);
+            wr.indent(1);
+            wr.out("if (__rgrRoot.__rangerId != 0 && __rgrRoot.__rangerParentId == 0) {", true);
+            wr.indent(1);
+            wr.out("push roots __rgrRoot", true);
+            wr.indent(-1);
+            wr.out("}", true);
+            wr.indent(-1);
+            wr.out("}", true);
+        }
+        ;
+        wr.out("return roots", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("sfn printProcessTree:void () {", true);
+        wr.indent(1);
+        wr.out("def __rgrTreeView (new ProcessTreeView)", true);
+        wr.out("def __rgrRoots (ProcessRuntime.collectAllLiveRoots())", true);
+        wr.out("def __rgrTitle \"\"", true);
+        wr.out("__rgrTreeView.renderRoots(__rgrRoots __rgrTitle)", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("sfn printProcessTreeTitled:void (title:string) {", true);
+        wr.indent(1);
+        wr.out("def __rgrTreeView (new ProcessTreeView)", true);
+        wr.out("def __rgrRoots (ProcessRuntime.collectAllLiveRoots())", true);
+        wr.out("__rgrTreeView.renderRoots(__rgrRoots title)", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("sfn stopByProcessId:void (processId:int) {", true);
+        wr.indent(1);
+        for (let i_1 = 0; i_1 < processClasses.length; i_1++) {
+            var cl_1 = processClasses[i_1];
+            wr.out(("if (" + cl_1.name) + ".tryStopByProcessId(processId)) {", true);
+            wr.indent(1);
+            wr.out("return", true);
+            wr.indent(-1);
+            wr.out("}", true);
+        }
+        ;
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("sfn stopByClassName:void (name:string) {", true);
+        wr.indent(1);
+        for (let i_2 = 0; i_2 < processClasses.length; i_2++) {
+            var cl_2 = processClasses[i_2];
+            wr.out(("if (name == \"" + cl_2.name) + "\") {", true);
+            wr.indent(1);
+            wr.out(cl_2.name + ".stopAllLive()", true);
+            wr.out("return", true);
+            wr.indent(-1);
+            wr.out("}", true);
+        }
+        ;
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.indent(-1);
+        wr.out("}", true);
+    }
+    ;
+    emitProcessTypeScriptHelpers(processClasses, wr) {
+        let namedPaths = [];
+        let namedClasses = [];
+        for (let i = 0; i < processClasses.length; i++) {
+            var cl = processClasses[i];
+            if ((cl.process_path.length) > 0) {
+                namedPaths.push(cl.process_path);
+                namedClasses.push(cl);
+            }
+        }
+        ;
+        if ((namedPaths.length) == 0) {
+            return;
+        }
+        wr.raw("", true);
+        wr.raw("// @process named-path helpers (generated)", true);
+        wr.raw("export type ProcessPath = ", false);
+        let pathIdx = 0;
+        for (let i_1 = 0; i_1 < namedPaths.length; i_1++) {
+            var p = namedPaths[i_1];
+            if (pathIdx > 0) {
+                wr.raw(" | ", false);
+            }
+            wr.raw(("\"" + p) + "\"", false);
+            pathIdx = pathIdx + 1;
+        }
+        ;
+        wr.raw(";", true);
+        wr.raw("export interface ProcessNameRegistry {", true);
+        for (let i_2 = 0; i_2 < namedClasses.length; i_2++) {
+            var cl_1 = namedClasses[i_2];
+            wr.raw(((("  findProcess(path: \"" + cl_1.process_path) + "\"): ") + cl_1.name) + " | undefined;", true);
+        }
+        ;
+        wr.raw("  findProcess(path: string): RangerProcessBase | undefined;", true);
+        wr.raw("}", true);
+    }
+    ;
+}
+exports.RangerProcessClass = RangerProcessClass;
+class RangerProcessProcSend {
+    constructor() {
+    }
+    static isReservedHandler(name) {
+        if (name == "start") {
+            return true;
+        }
+        if (name == "stop") {
+            return true;
+        }
+        if (name == "hibernate") {
+            return true;
+        }
+        if (name == "wakeup") {
+            return true;
+        }
+        if (name == "receiveMessage") {
+            return true;
+        }
+        if ((name.indexOf("__ranger")) == 0) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    static collectProcessClasses(ctx) {
+        let res = [];
+        const root = ctx.getRoot();
+        for (var i in root.definedClasses) {
+            if (root.definedClasses.hasOwnProperty(i)) {
+                var cl = root.definedClasses[i];
+                if (cl.is_process) {
+                    res.push(cl);
+                }
+            }
+        }
+        ;
+        return res;
+    }
+    ;
+    static findClassByPath(pathLit, processClasses) {
+        let out;
+        for (let i = 0; i < processClasses.length; i++) {
+            var cl = processClasses[i];
+            if (cl.process_path == pathLit) {
+                out = cl;
+                return out;
+            }
+        }
+        ;
+        return out;
+    }
+    ;
+    static resolveTargetClass(parser, target, processClasses, ctx, wr, errNode) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if ((target.string_value.length) > 0) {
+                const path = target.string_value;
+                const cl = RangerProcessProcSend.findClassByPath(path, processClasses);
+                let outPath;
+                if (typeof (cl) === "undefined") {
+                    ctx.addError(errNode, ("proc_send: unknown @name process path \"" + path) + "\"");
+                }
+                else {
+                    outPath = cl;
+                }
+                return outPath;
+            }
+            ctx.setInExpr();
+            yield parser.WalkNode(target, ctx, wr);
+            ctx.unsetInExpr();
+            if (ctx.isDefinedClass(target.eval_type_name)) {
+                const cl_1 = ctx.findClass(target.eval_type_name);
+                let outType;
+                if (cl_1.is_process) {
+                    outType = cl_1;
+                    return outType;
+                }
+                if (target.eval_type_name == "RangerProcessBase") {
+                    ctx.addError(errNode, "proc_send: target must be a concrete @process type or a named path string, not RangerProcessBase");
+                }
+                else {
+                    ctx.addError(errNode, ("proc_send: " + target.eval_type_name) + " is not a @process class");
+                }
+            }
+            ctx.addError(errNode, "proc_send: could not resolve target type");
+            let outFail;
+            return outFail;
+        });
+    }
+    ;
+    static matchHandler(parser, recvClass, methodName, argNodes, ctx, wr, errNode) {
+        return __awaiter(this, void 0, void 0, function* () {
+            let noMatch;
+            if (RangerProcessProcSend.isReservedHandler(methodName)) {
+                ctx.addError(errNode, ("proc_send: reserved handler name \"" + methodName) + "\"");
+                return noMatch;
+            }
+            if (recvClass.hasMethod(methodName) == false) {
+                ctx.addError(errNode, ((("proc_send: " + recvClass.name) + " has no handler \"") + methodName) + "\"");
+                return noMatch;
+            }
+            const mVs = (recvClass.method_variants.hasOwnProperty(methodName) ? recvClass.method_variants[methodName] : undefined);
+            if (typeof (mVs) === "undefined") {
+                ctx.addError(errNode, (("proc_send: no handler \"" + methodName) + "\" on ") + recvClass.name);
+                return noMatch;
+            }
+            const variants = mVs;
+            const argCnt = argNodes.length;
+            let picked;
+            let matchCnt = 0;
+            for (let i = 0; i < variants.variants.length; i++) {
+                var variant = variants.variants[i];
+                if ((variant.params.length) != argCnt) {
+                    continue;
+                }
+                let sigOk = true;
+                let pi = 0;
+                while (pi < argCnt) {
+                    const param = variant.params[pi];
+                    const argNode = argNodes[pi];
+                    if ((yield parser.areEqualTypes((param.nameNode), argNode, ctx, wr)) == false) {
+                        sigOk = false;
+                        break;
+                    }
+                    pi = pi + 1;
+                }
+                ;
+                if (sigOk == false) {
+                    continue;
+                }
+                matchCnt = matchCnt + 1;
+                picked = variant;
+            }
+            ;
+            if (matchCnt == 0) {
+                ctx.addError(errNode, (("proc_send: no matching overload for handler \"" + methodName) + "\" on ") + recvClass.name);
+                return noMatch;
+            }
+            if (matchCnt > 1) {
+                ctx.addError(errNode, (("proc_send: ambiguous handler overload for \"" + methodName) + "\" on ") + recvClass.name);
+                return noMatch;
+            }
+            const matched = picked;
+            const currM = ctx.getCurrentMethod();
+            currM.addCallTo(matched);
+            let outMatch;
+            outMatch = matched;
+            return outMatch;
+        });
+    }
+    ;
+    static buildLiveGuard(targetVref) {
+        return CodeNode.fromList([CodeNode.vref1("!="), CodeNode.vref1((targetVref + ".__rangerId")), CodeNode.newInt(0)]);
+    }
+    ;
+    static buildHandlerCall(targetVref, handlerName, argNodes) {
+        const callArgs = CodeNode.expressionNode();
+        for (let i = 0; i < argNodes.length; i++) {
+            var a = argNodes[i];
+            callArgs.children.push(a.copy());
+        }
+        ;
+        return CodeNode.fromList([CodeNode.vref1("call"), CodeNode.vref1(targetVref), CodeNode.vref1(handlerName), callArgs]);
+    }
+    ;
+    static buildFindRootExpr(targetVref) {
+        const emptyArgs = CodeNode.expressionNode();
+        return CodeNode.fromList([CodeNode.vref1("call"), CodeNode.vref1(targetVref), CodeNode.vref1("__rangerFindRoot"), emptyArgs]);
+    }
+    ;
+    static buildDispatchTurnBoundary(opName, rootExpr) {
+        return CodeNode.fromList([CodeNode.vref1(opName), rootExpr]);
+    }
+    ;
+    static transform(parser, node, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const childCnt = node.children.length;
+            if (childCnt < 3) {
+                ctx.addError(node, "proc_send requires: target and handler method name");
+                return true;
+            }
+            const target = node.getSecond();
+            const handlerNode = node.getThird();
+            let argNodes = [];
+            let ai = 3;
+            while (ai < childCnt) {
+                argNodes.push(node.children[ai]);
+                ai = ai + 1;
+            }
+            ;
+            if ((handlerNode.string_value.length) > 0) {
+                ctx.addError(handlerNode, "proc_send handler must be a method name (identifier), not a string literal");
+                return true;
+            }
+            if ((handlerNode.vref.length) == 0) {
+                ctx.addError(handlerNode, "proc_send requires a handler method name after the target");
+                return true;
+            }
+            const methodName = handlerNode.vref;
+            for (let i = 0; i < argNodes.length; i++) {
+                var walkArg = argNodes[i];
+                ctx.setInExpr();
+                yield parser.WalkNode(walkArg, ctx, wr);
+                ctx.unsetInExpr();
+            }
+            ;
+            const processClasses = RangerProcessProcSend.collectProcessClasses(ctx);
+            const recvClass = yield RangerProcessProcSend.resolveTargetClass(parser, target, processClasses, ctx, wr, node);
+            if (typeof (recvClass) === "undefined") {
+                return true;
+            }
+            const recv = recvClass;
+            if ((target.string_value.length) > 0) {
+                ctx.addError(target, "proc_send path literal not supported; use find_process + cast to a typed variable, then proc_send that variable");
+                return true;
+            }
+            const handler = yield RangerProcessProcSend.matchHandler(parser, recv, methodName, argNodes, ctx, wr, node);
+            if (typeof (handler) === "undefined") {
+                return true;
+            }
+            const handlerFn = handler;
+            let emitName = handlerFn.compiledName;
+            if ((emitName.length) == 0) {
+                emitName = methodName;
+            }
+            yield parser.WalkNode(target, ctx, wr);
+            if ((target.vref.length) == 0) {
+                ctx.addError(target, "proc_send: invalid target expression");
+                return true;
+            }
+            let stmts = [];
+            const turnRoot = RangerProcessProcSend.buildFindRootExpr(target.vref);
+            const beginTurn = RangerProcessProcSend.buildDispatchTurnBoundary("begin_dispatch_turn", turnRoot);
+            const endTurn = RangerProcessProcSend.buildDispatchTurnBoundary("end_dispatch_turn", turnRoot);
+            stmts.push(beginTurn);
+            const refGuard = RangerProcessProcSend.buildLiveGuard(target.vref);
+            const refCall = RangerProcessProcSend.buildHandlerCall(target.vref, emitName, argNodes);
+            let refList = [];
+            refList.push(refCall);
+            const refInner = CodeNode.blockFromList(refList);
+            const refIf = CodeNode.fromList([CodeNode.vref1("if"), refGuard, refInner]);
+            stmts.push(refIf);
+            stmts.push(endTurn);
+            const newBlock = CodeNode.blockFromList(stmts);
+            newBlock.flow_done = false;
+            node.getChildrenFrom(newBlock);
+            node.is_block_node = true;
+            node.flow_done = false;
+            yield parser.WalkNode(node, ctx, wr);
+            return true;
+        });
+    }
+    ;
+}
+exports.RangerProcessProcSend = RangerProcessProcSend;
+class RangerProcessProcStartCheck {
+    constructor() {
+    }
+    static validate(parser, node, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const childCnt = node.children.length;
+            if (childCnt < 2) {
+                ctx.addError(node, "proc_start requires a process target");
+                return true;
+            }
+            const target = node.getSecond();
+            ctx.setInExpr();
+            yield parser.WalkNode(target, ctx, wr);
+            ctx.unsetInExpr();
+            if (ctx.isDefinedClass(target.eval_type_name) == false) {
+                return true;
+            }
+            const cl = ctx.findClass(target.eval_type_name);
+            if (cl.is_process == false) {
+                return true;
+            }
+            if (cl.hasOwnMethod("start")) {
+                return true;
+            }
+            ctx.addError(target, ("proc_start: " + cl.name) + " has no fn start(); add fn start:void () { } or proc_start will not run user code");
+            return true;
+        });
+    }
+    ;
+}
+exports.RangerProcessProcStartCheck = RangerProcessProcStartCheck;
+class RangerProcessCodegen {
+    constructor() {
+    }
+    validateProcessNewSite(node, newCl, ctx) {
+        if (newCl.is_process == false) {
+            return;
+        }
+        const named = RangerProcessCodegen.isNamedProcess(newCl);
+        const bootstrap = RangerProcessCodegen.isBootstrapSite(ctx);
+        const inProcMethod = RangerProcessCodegen.isInProcessInstanceMethod(ctx);
+        const inNamedParent = RangerProcessCodegen.isInsideNamedProcessMethod(ctx);
+        if (named) {
+            if (bootstrap) {
+                return;
+            }
+            if (inNamedParent) {
+                return;
+            }
+            ctx.addError(node, "Named @process: create only in @(main) bootstrap or inside a named @process instance method");
+            return;
+        }
+        if (inProcMethod) {
+            return;
+        }
+        ctx.addError(node, "Dynamic @process: new only inside an instance method (fn) on a @process class");
+    }
+    ;
+    shouldWrapProcessNew(procNewNode, procNewCtx) {
+        if (procNewNode.hasNewOper == false) {
+            return false;
+        }
+        const cl = procNewNode.clDesc;
+        return cl.is_process;
+    }
+    ;
+    hasParentRegister(procNewCtx) {
+        return RangerProcessCodegen.isInProcessInstanceMethod(procNewCtx);
+    }
+    ;
+    writeNewArgs(node, ctx, wr, writer) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const givenArgs = node.getThird();
+            const constr = node.clDesc.constructor_fn;
+            if ((typeof (constr) === "undefined") == false) {
+                const i = 0;
+                for (let i_1 = 0; i_1 < constr.params.length; i_1++) {
+                    var arg = constr.params[i_1];
+                    const argNode = givenArgs.children[i_1];
+                    if (i_1 > 0) {
+                        wr.out(", ", false);
+                    }
+                    yield writer.walkNewArgForProcess(argNode, ctx, wr);
+                    i_1 = i_1 + 1;
+                }
+                ;
+            }
+        });
+    }
+    ;
+    writeProcessInstanceRegisterCall(wr, lang) {
+        if (lang == "kotlin") {
+            wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }", false);
+            return;
+        }
+        if ((lang == "swift6") || (lang == "swift3")) {
+            wr.out("if let __rgr_parent = self as? RangerProcessBase, __rgr_parent.__rangerId != 0 { __rgr_proc.__rangerRegisterChild(parent: __rgr_parent) } else { __rgr_proc.__rangerRegisterRoot() }", false);
+            return;
+        }
+        wr.out("if (typeof this !== 'undefined' && this.__rangerId) { __rgr_proc.__rangerRegisterChild(this) } else { __rgr_proc.__rangerRegisterRoot() }", false);
+    }
+    ;
+    shouldUseProcessInstanceRegister(procNewCtx, newCl) {
+        if (newCl.is_process == false) {
+            return false;
+        }
+        return RangerProcessCodegen.isInProcessInstanceMethod(procNewCtx);
+    }
+    ;
+    writeRegisterCall(procNewCtx, wr, lang, newCl) {
+        if (RangerProcessCodegen.isNamedProcess(newCl)) {
+            wr.out("__rgr_proc.__rangerRegisterRoot()", false);
+            return;
+        }
+        if (this.shouldUseProcessInstanceRegister(procNewCtx, newCl)) {
+            this.writeProcessInstanceRegisterCall(wr, lang);
+        }
+        else {
+            wr.out("__rgr_proc.__rangerRegisterRoot()", false);
+        }
+    }
+    ;
+    writeWrappedNewCallEs6(node, ctx, wr, writer) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const cl = node.clDesc;
+            wr.out("(() => { const __rgr_proc = new ", false);
+            wr.out(cl.name, false);
+            wr.out("(", false);
+            yield this.writeNewArgs(node, ctx, wr, writer);
+            wr.out("); ", false);
+            this.writeRegisterCall(ctx, wr, "es6", cl);
+            wr.out("; return __rgr_proc; })()", false);
+        });
+    }
+    ;
+    writeWrappedNewCallKotlin(node, ctx, wr, writer) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const cl = node.clDesc;
+            wr.out("run { val __rgr_proc = ", false);
+            wr.out(cl.name, false);
+            wr.out("(", false);
+            yield this.writeNewArgs(node, ctx, wr, writer);
+            wr.out("); ", false);
+            this.writeRegisterCall(ctx, wr, "kotlin", cl);
+            wr.out("; __rgr_proc }", false);
+        });
+    }
+    ;
+    writeWrappedNewCallSwift6(node, ctx, wr, writer) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const cl = node.clDesc;
+            wr.out("({ () -> ", false);
+            wr.out(cl.name, false);
+            wr.out(" in let __rgr_proc = ", false);
+            wr.out(cl.name, false);
+            wr.out("(", false);
+            yield this.writeNewArgs(node, ctx, wr, writer);
+            wr.out("); ", false);
+            this.writeRegisterCall(ctx, wr, "swift6", cl);
+            wr.out("; return __rgr_proc }())", false);
+        });
+    }
+    ;
+    writeWrappedNewCall(node, ctx, wr, lang, writer) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (lang == "kotlin") {
+                yield this.writeWrappedNewCallKotlin(node, ctx, wr, writer);
+                return;
+            }
+            if ((lang == "swift6") || (lang == "swift3")) {
+                yield this.writeWrappedNewCallSwift6(node, ctx, wr, writer);
+                return;
+            }
+            yield this.writeWrappedNewCallEs6(node, ctx, wr, writer);
+        });
+    }
+    ;
+    static isNamedProcess(cl) {
+        return (cl.process_path.length) > 0;
+    }
+    ;
+    static isInProcessInstanceMethod(ctx) {
+        const m = ctx.getCurrentMethod();
+        if (m.is_static) {
+            return false;
+        }
+        if (typeof (m.container_class) === "undefined") {
+            return false;
+        }
+        const host = m.container_class;
+        return host.is_process;
+    }
+    ;
+    static isBootstrapSite(ctx) {
+        const m = ctx.getCurrentMethod();
+        if (typeof (m.nameNode) === "undefined") {
+            return false;
+        }
+        if (m.nameNode.hasFlag("main")) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    static isInsideNamedProcessMethod(ctx) {
+        if (RangerProcessCodegen.isInProcessInstanceMethod(ctx) == false) {
+            return false;
+        }
+        const m = ctx.getCurrentMethod();
+        const host = m.container_class;
+        return RangerProcessCodegen.isNamedProcess(host);
+    }
+    ;
+}
+exports.RangerProcessCodegen = RangerProcessCodegen;
 class RangerServiceBuilder {
     constructor() {
     }
@@ -8138,7 +10285,7 @@ class RangerServiceBuilder {
         if (ctx.isDefinedClass(str)) {
             return ctx.findClass(str);
         }
-        const tpl_code = ("class " + str) + " {\r\n}";
+        const tpl_code = ("class " + str) + " {\n}";
         const code = new SourceCode(tpl_code);
         code.filename = str + ".ranger";
         const parser = new RangerLispParser(code);
@@ -8164,6 +10311,9 @@ class RangerServiceBuilder {
     CreateServices(parser, ctx, orig_wr) {
         return __awaiter(this, void 0, void 0, function* () {
             if (ctx.hasCompilerFlag("client") || ctx.hasCompilerSetting("client")) {
+                if (ctx.targetLangName == "es6") {
+                    return;
+                }
                 console.log("--> could create Client services for Java here...");
                 const root = ctx.getRoot();
                 const cl = this.createOpStaticClass(ctx, "RangerAppService");
@@ -8221,165 +10371,6 @@ class TFiles {
     ;
 }
 exports.TFiles = TFiles;
-class TTypes {
-    constructor() {
-    }
-    static nameToValue(name) {
-        switch (name) {
-            case "double":
-                return 2;
-            case "int":
-                return 3;
-            case "string":
-                return 4;
-            case "boolean":
-                return 5;
-            case "char":
-                return 14;
-            case "charbuffer":
-                return 15;
-            case "buffer":
-                return 16;
-            case "int_buffer":
-                return 17;
-            case "double_buffer":
-                return 18;
-        }
-        ;
-        return 0;
-    }
-    ;
-    static isPrimitive(valueType) {
-        switch (valueType) {
-            case 2:
-                return true;
-            case 4:
-                return true;
-            case 3:
-                return true;
-            case 5:
-                return true;
-            case 14:
-                return true;
-            case 15:
-                return true;
-            case 16:
-                return true;
-            case 17:
-                return true;
-            case 18:
-                return true;
-            case 13:
-                return true;
-        }
-        ;
-        return false;
-    }
-    ;
-    static valueAsString(valueType) {
-        switch (valueType) {
-            case 2:
-                return "double";
-            case 4:
-                return "string";
-            case 3:
-                return "int";
-            case 5:
-                return "boolean";
-            case 14:
-                return "char";
-            case 15:
-                return "charbuffer";
-            case 16:
-                return "buffer";
-            case 17:
-                return "int_buffer";
-            case 18:
-                return "double_buffer";
-            case 0:
-                return "<no type>";
-            case 1:
-                return "<invalid type>";
-            case 6:
-                return "[]";
-            case 7:
-                return "[:]";
-            case 8:
-                return "ImmutableArray";
-            case 9:
-                return "ImmutableHash";
-            case 10:
-                return "Object";
-            case 11:
-                return "VRef";
-            case 13:
-                return "Enum";
-            case 12:
-                return "Comment";
-            case 19:
-                return "Expression";
-            case 20:
-                return "ExpressionType";
-            case 21:
-                return "Lambda";
-            case 22:
-                return "XMLNode";
-            case 23:
-                return "XMLText";
-            case 24:
-                return "XMLAttr";
-            case 25:
-                return "XMLAttr";
-            case 26:
-                return "Dictionary";
-            case 27:
-                return "Any";
-            case 28:
-                return "Class";
-            case 29:
-                return "GenericClass";
-            case 30:
-                return "ClassRef";
-            case 31:
-                return "Method";
-            case 32:
-                return "ClassVar";
-            case 33:
-                return "ClassVar";
-            case 34:
-                return "Literal";
-            case 35:
-                return "Quasiliteral";
-            case 36:
-                return "Null";
-            case 37:
-                return "ArrayLiteral";
-            default:
-                return "InvalidValueTypeEnum";
-                break;
-        }
-        ;
-        return "";
-    }
-    ;
-    static baseTypeAsEval(node, ctx, wr) {
-        const vType = node.value_type;
-        node.eval_type = vType;
-        if (TTypes.isPrimitive(node.value_type)) {
-            node.eval_type_name = TTypes.valueAsString(node.value_type);
-        }
-        else {
-            const vType_2 = node.type_name;
-            node.eval_type_name = vType_2;
-        }
-        const vType1 = node.array_type;
-        const vType2 = node.key_type;
-        node.eval_array_type = vType1;
-        node.eval_key_type = vType2;
-    }
-    ;
-}
-exports.TTypes = TTypes;
 class ClassJoinPoint {
     constructor() {
     }
@@ -8399,6 +10390,7 @@ class RangerFlowParser {
         this.walkAlso = [];
         this.serializedClasses = [];
         this.immutableClasses = [];
+        this.processClasses = [];
         this.classesWithTraits = [];
         this.collectedIntefaces = [];
         this.definedInterfaces = {}; /** note: unused */
@@ -8412,79 +10404,142 @@ class RangerFlowParser {
         this.infinite_recursion = false;
         this.match_types = {};
     }
+    fixExpressionAssignmentChains(node) {
+        let is_chaining = false;
+        let last_is_assign = false;
+        let chain_start_idx = 0;
+        let chainRoot;
+        let innerNode;
+        let assignNode;
+        let newNode;
+        const ch_len = node.children.length;
+        for (let i = 0; i < node.children.length; i++) {
+            var item = node.children[i];
+            let did_find = false;
+            let dotName = "";
+            let mArgs;
+            if ((item.children.length) > 0) {
+                const fc = item.getFirst();
+                dotName = fc.vref;
+                if ((item.children.length) > 1) {
+                    mArgs = item.getSecond();
+                }
+            }
+            else {
+                dotName = item.vref;
+                if ((i + 1) < ch_len) {
+                    mArgs = node.children[(i + 1)];
+                }
+            }
+            if (((dotName.length) > 0) && ((dotName.charCodeAt(0)) == (".".charCodeAt(0)))) {
+                did_find = true;
+                if (i > 0) {
+                    const last_line = node.children[(i - 1)];
+                    if (is_chaining == false) {
+                        chain_start_idx = i - 1;
+                        last_line.createChainTarget();
+                        is_chaining = true;
+                        if ((typeof (last_line.chainTarget) !== "undefined" && last_line.chainTarget != null)) {
+                            chainRoot = last_line.chainTarget;
+                            innerNode = last_line.chainTarget;
+                            assignNode = last_line;
+                            last_is_assign = true;
+                        }
+                        else {
+                            chainRoot = last_line;
+                            innerNode = last_line;
+                        }
+                    }
+                    const method_name = dotName.substring(1, (dotName.length));
+                    let callArgs = node.newExpressionNode();
+                    if ((typeof (mArgs) !== "undefined" && mArgs != null)) {
+                        callArgs = mArgs.copy();
+                    }
+                    newNode = node.newExpressionNode();
+                    newNode.add(node.newVRefNode("call"));
+                    newNode.add(innerNode.copy());
+                    newNode.add(node.newVRefNode(method_name));
+                    newNode.add(callArgs);
+                    innerNode = newNode;
+                    item.is_part_of_chain = true;
+                    if (false == ((item.children.length) > 0)) {
+                        if ((i + 1) < ch_len) {
+                            const flatArg = node.children[(i + 1)];
+                            flatArg.is_part_of_chain = true;
+                        }
+                    }
+                }
+            }
+            let maybe_chain_arg = false;
+            if ((is_chaining && (did_find == false)) && (i > 0)) {
+                const prev_item = node.children[(i - 1)];
+                let prev_name = "";
+                if ((prev_item.children.length) > 0) {
+                    const prev_fc = prev_item.getFirst();
+                    prev_name = prev_fc.vref;
+                }
+                else {
+                    prev_name = prev_item.vref;
+                }
+                if (((prev_name.length) > 0) && ((prev_name.charCodeAt(0)) == (".".charCodeAt(0)))) {
+                    maybe_chain_arg = true;
+                    item.is_part_of_chain = true;
+                }
+            }
+            if ((i == (ch_len - 1)) || ((did_find == false) && (maybe_chain_arg == false))) {
+                if (is_chaining) {
+                    const chainResult = innerNode;
+                    chainResult.finalizeAsCallChainRoot();
+                    if (last_is_assign) {
+                        while ((assignNode.children.length) > 3) {
+                            assignNode.children.pop();
+                        }
+                        ;
+                        if ((assignNode.children.length) >= 3) {
+                            assignNode.children.pop();
+                            assignNode.children.push(chainResult);
+                        }
+                    }
+                    else {
+                        let kept = [];
+                        let ci = 0;
+                        while (ci < chain_start_idx) {
+                            kept.push(node.children[ci]);
+                            ci = ci + 1;
+                        }
+                        ;
+                        kept.push(chainResult);
+                        node.children.length = 0;
+                        for (let j = 0; j < kept.length; j++) {
+                            var ch = kept[j];
+                            node.children.push(ch);
+                            ch.parent = node;
+                        }
+                        ;
+                    }
+                }
+                is_chaining = false;
+                last_is_assign = false;
+            }
+        }
+        ;
+    }
+    ;
     WalkNodeChildren(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             if (node.hasStringProperty("todo")) {
                 ctx.addTodo(node, node.getStringProperty("todo"));
             }
             if (node.expression) {
-                let is_chaining = false;
-                let last_is_assign = false;
-                let chainRoot;
-                let innerNode;
-                let assignNode;
-                let newNode;
-                const ch_len = node.children.length;
+                this.fixExpressionAssignmentChains(node);
                 for (let i = 0; i < node.children.length; i++) {
                     var item = node.children[i];
-                    let did_find = false;
-                    if ((item.children.length) > 0) {
-                        const fc = item.getFirst();
-                        const name = fc.vref;
-                        if (((name.length) > 0) && ((name.charCodeAt(0)) == (".".charCodeAt(0)))) {
-                            did_find = true;
-                            if (i > 0) {
-                                const last_line = node.children[(i - 1)];
-                                if (is_chaining == false) {
-                                    last_line.createChainTarget();
-                                    is_chaining = true;
-                                    if ((typeof (last_line.chainTarget) !== "undefined" && last_line.chainTarget != null)) {
-                                        chainRoot = last_line.chainTarget;
-                                        innerNode = last_line.chainTarget;
-                                        assignNode = last_line;
-                                        last_is_assign = true;
-                                    }
-                                    else {
-                                        chainRoot = last_line;
-                                        innerNode = last_line;
-                                    }
-                                }
-                                const method_name = name.substring(1, (name.length));
-                                const mArgs = item.getSecond();
-                                if (last_is_assign) {
-                                    assignNode.children.push(fc.copy());
-                                    assignNode.children.push(mArgs.copy());
-                                }
-                                else {
-                                    newNode = node.newExpressionNode();
-                                    newNode.add(node.newVRefNode("call"));
-                                    newNode.add(innerNode.copy());
-                                    newNode.add(node.newVRefNode(method_name));
-                                    newNode.add(mArgs.copy());
-                                    innerNode = newNode;
-                                }
-                                item.is_part_of_chain = true;
-                            }
-                        }
-                    }
-                    if ((did_find == false) || (i == (ch_len - 1))) {
-                        if (is_chaining && (last_is_assign == false)) {
-                            chainRoot.getChildrenFrom(innerNode);
-                            chainRoot.tag = "chainroot";
-                        }
-                        is_chaining = false;
-                        last_is_assign = false;
-                    }
-                }
-                ;
-                for (let i_1 = 0; i_1 < node.children.length; i_1++) {
-                    var item_1 = node.children[i_1];
                     if (ctx.expressionLevel() == 0) {
-                        ctx.lastBlockOp = item_1;
+                        ctx.lastBlockOp = item;
                     }
-                    item_1.parent = node;
-                    yield this.WalkNode(item_1, ctx, wr);
-                    node.copyEvalResFrom(item_1);
+                    item.parent = node;
+                    yield this.WalkNode(item, ctx, wr);
+                    node.copyEvalResFrom(item);
                 }
                 ;
             }
@@ -8725,9 +10780,20 @@ class RangerFlowParser {
                         }
                     }
                 }
+                if (fc_5.vref == "proc_send") {
+                    if (yield RangerProcessProcSend.transform(this, node, ctx, wr)) {
+                        return true;
+                    }
+                }
+                if (fc_5.vref == "proc_start") {
+                    yield RangerProcessProcStartCheck.validate(this, node, ctx, wr);
+                }
                 let b_found = true;
                 const opFn = yield ctx.getOpFns(fc_5.vref);
                 if ((opFn.length) > 0) {
+                    if (fc_5.vref == "=") {
+                        this.repairAssignMethodCallRhs(node);
+                    }
                     yield this.TransformOpFn(opFn, node, ctx, wr);
                     return true;
                 }
@@ -8737,12 +10803,15 @@ class RangerFlowParser {
                         ctx.addPage(sc.vref, node);
                         break;
                     case "def":
+                        this.repairAssignMethodCallRhs(node);
                         yield operatorsOfRangerFlowParser_26.EnterVarDef_27(this, node, ctx, wr);
                         break;
                     case "var":
+                        this.repairAssignMethodCallRhs(node);
                         yield operatorsOf_26.EnterVarDef_27(this, node, ctx, wr);
                         break;
                     case "let":
+                        this.repairAssignMethodCallRhs(node);
                         yield operatorsOf_26.EnterVarDef_27(this, node, ctx, wr);
                         break;
                     case "property":
@@ -8752,6 +10821,9 @@ class RangerFlowParser {
                         yield this.EnterClass(node, ctx, wr);
                         break;
                     case "class":
+                        yield this.EnterClass(node, ctx, wr);
+                        break;
+                    case "record":
                         yield this.EnterClass(node, ctx, wr);
                         break;
                     case "defn":
@@ -8864,31 +10936,7 @@ class RangerFlowParser {
                     }
                 }
                 if (fc_6.expression && ((node.children.length) == 3)) {
-                    const sec_1 = node.getSecond();
-                    const third = node.getThird();
-                    if (((sec_1.vref.length) > 0) && ((sec_1.vref[0]) == ".")) {
-                        yield this.WalkNode(fc_6, ctx, wr);
-                        const parts_1 = (sec_1.vref.substring(1, (sec_1.vref.length))).split(".");
-                        const method_name_1 = parts_1[((parts_1.length) - 1)];
-                        let classDesc_1 = ctx.findClass(fc_6.eval_type_name);
-                        const objExpr_1 = fc_6.copy();
-                        let calledItem_1 = fc_6.copy();
-                        yield operatorsOf.forEach_12(parts_1, ((item, index) => {
-                            if (index < ((parts_1.length) - 1)) {
-                                try {
-                                    calledItem_1 = CodeNode.fromList([CodeNode.vref1("property"), calledItem_1.copy(), CodeNode.vref1(item)]);
-                                    const p_1 = classDesc_1.findVariable(item);
-                                    classDesc_1 = ctx.findClass(p_1.nameNode.type_name);
-                                }
-                                catch (e) {
-                                    ctx.addError(sec_1, "invalid property " + item);
-                                }
-                            }
-                        }));
-                        const calledItem_2 = CodeNode.fromList([CodeNode.vref1("call"), calledItem_1, CodeNode.vref1(method_name_1), third.copy()]);
-                        node.getChildrenFrom(calledItem_2);
-                        node.flow_done = false;
-                        yield this.WalkNode(node, ctx, wr);
+                    if (yield this.transformDotMethodCallExpr(node, ctx, wr)) {
                         return true;
                     }
                 }
@@ -8914,6 +10962,7 @@ class RangerFlowParser {
                 }
             }
             if (node.expression) {
+                this.fixExpressionAssignmentChains(node);
                 for (let i = 0; i < node.children.length; i++) {
                     var item = node.children[i];
                     if (ctx.expressionLevel() == 0) {
@@ -9276,8 +11325,37 @@ class RangerFlowParser {
         node.evalTypeClass = TFactory.new_scalar_signature(node, ctx, wr);
     }
     ;
+    normalizeNewArgList(node) {
+        if (node.chlen() <= 3) {
+            return;
+        }
+        const third = node.getThird();
+        if (third.expression && ((third.children.length) > 0)) {
+            return;
+        }
+        const argList = new CodeNode(node.code, node.sp, node.ep);
+        argList.expression = true;
+        let ci = 2;
+        const chlen = node.chlen();
+        while (ci < chlen) {
+            argList.children.push(node.children[ci]);
+            ci = ci + 1;
+        }
+        ;
+        while (node.chlen() > 2) {
+            node.children.pop();
+        }
+        ;
+        node.children.push(argList);
+    }
+    ;
     cmdNew(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
+            if (node.tryDesugarNewMethodChain()) {
+                node.flow_done = false;
+                yield this.cmdCall(node, ctx, wr);
+                return;
+            }
             if ((node.children.length) < 2) {
                 ctx.addError(node, "the new operator expects at lest two arguments");
                 return;
@@ -9287,6 +11365,7 @@ class RangerFlowParser {
                 expr.expression = true;
                 node.children.push(expr);
             }
+            this.normalizeNewArgList(node);
             const obj = node.getSecond();
             const params = node.getThird();
             let currC;
@@ -9300,8 +11379,33 @@ class RangerFlowParser {
                 yield this.CheckVRefTypeAnnotationOf(obj, ctx, wr);
             }
             yield this.WalkNode(obj, ctx, wr);
+            if (b_template == false) {
+                currC = ctx.findClass(obj.vref);
+            }
+            let fnDescr;
+            if ((typeof (currC) !== "undefined" && currC != null)) {
+                const clTmp = currC;
+                fnDescr = clTmp.constructor_fn;
+            }
+            if ((typeof (fnDescr) !== "undefined" && fnDescr != null)) {
+                const ctorFn = fnDescr;
+                if ((typeof (currC) !== "undefined" && currC != null)) {
+                    const newCl = currC;
+                    this.expandRecordCtorArgsIfNeeded(newCl, ctorFn, params, node);
+                }
+                operatorsOf.forEach_11(ctorFn.params, ((item, index) => {
+                    if (item.nameNode.hasFlag("keyword")) {
+                        if ((params.children.length) > index) {
+                            (params.children[index]).setFlag("keyword");
+                        }
+                    }
+                }));
+            }
             for (let i = 0; i < params.children.length; i++) {
                 var arg = params.children[i];
+                if (arg.hasFlag("keyword")) {
+                    continue;
+                }
                 ctx.setInExpr();
                 yield this.WalkNode(arg, ctx, wr);
                 ctx.unsetInExpr();
@@ -9310,20 +11414,31 @@ class RangerFlowParser {
             node.eval_type = 10;
             node.eval_type_name = obj.vref;
             if (b_template == false) {
-                currC = ctx.findClass(obj.vref);
+                if (typeof (currC) === "undefined") {
+                    currC = ctx.findClass(obj.vref);
+                }
                 const currM = ctx.getCurrentMethod();
                 currM.addClassUsage(currC, ctx);
             }
             node.hasNewOper = true;
             node.clDesc = currC;
-            const fnDescr = currC.constructor_fn;
+            if (typeof (currC) === "undefined") {
+            }
+            else {
+                const newCl_1 = currC;
+                if (newCl_1.is_process) {
+                    const procCodegen = new RangerProcessCodegen();
+                    procCodegen.validateProcessNewSite(node, newCl_1, ctx);
+                }
+            }
             if ((typeof (fnDescr) !== "undefined" && fnDescr != null)) {
-                if ((fnDescr.params.length) > (params.children.length)) {
-                    ctx.addError(node, "Not enough arguments for class constructor " + fnDescr.node.getLineAsString());
+                const ctorFn_1 = fnDescr;
+                if ((ctorFn_1.params.length) > (params.children.length)) {
+                    ctx.addError(node, "Not enough arguments for class constructor " + ctorFn_1.node.getLineAsString());
                     return;
                 }
-                for (let i_1 = 0; i_1 < fnDescr.params.length; i_1++) {
-                    var param = fnDescr.params[i_1];
+                for (let i_1 = 0; i_1 < ctorFn_1.params.length; i_1++) {
+                    var param = ctorFn_1.params[i_1];
                     let has_default = false;
                     if (param.nameNode.hasFlag("default")) {
                         has_default = true;
@@ -9451,7 +11566,7 @@ class RangerFlowParser {
             const wr = new CodeWriter();
             yield operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => {
                 if (item.isNormalClass()) {
-                    wr.raw(((("\r\n      operators {\r\n        class_name _:string ( " + item.name) + "@(keyword) ) {\r\n          templates {\r\n            * ( '\"") + item.name) + "\"' )\r\n          }\r\n        }\r\n      }    \r\n          ", true);
+                    wr.raw(((("\n      operators {\n        class_name _:string ( " + item.name) + "@(keyword) ) {\n          templates {\n            * ( '\"") + item.name) + "\"' )\n          }\n        }\n      }    \n          ", true);
                 }
             }));
             yield root.pushAndCollectCode(wr.getCode(), orig_wr);
@@ -9735,6 +11850,58 @@ class RangerFlowParser {
         });
     }
     ;
+    matchMethodCall(cl, methodName, callArgs, ctx, wr, errNode) {
+        return __awaiter(this, void 0, void 0, function* () {
+            let noMatch;
+            if (cl.hasMethod(methodName) == false) {
+                return noMatch;
+            }
+            const mVs = (cl.method_variants.hasOwnProperty(methodName) ? cl.method_variants[methodName] : undefined);
+            if (typeof (mVs) === "undefined") {
+                return noMatch;
+            }
+            const variants = mVs;
+            const argCnt = callArgs.children.length;
+            let picked;
+            let matchCnt = 0;
+            for (let i = 0; i < variants.variants.length; i++) {
+                var variant = variants.variants[i];
+                if ((variant.params.length) != argCnt) {
+                    continue;
+                }
+                let sigOk = true;
+                let pi = 0;
+                while (pi < argCnt) {
+                    const param = variant.params[pi];
+                    const argNode = callArgs.children[pi];
+                    if ((yield this.areEqualTypes((param.nameNode), argNode, ctx, wr)) == false) {
+                        sigOk = false;
+                        break;
+                    }
+                    pi = pi + 1;
+                }
+                ;
+                if (sigOk == false) {
+                    continue;
+                }
+                matchCnt = matchCnt + 1;
+                picked = variant;
+            }
+            ;
+            if (matchCnt == 0) {
+                ctx.addError(errNode, (("No matching overload for method \"" + methodName) + "\" on ") + cl.name);
+                return noMatch;
+            }
+            if (matchCnt > 1) {
+                ctx.addError(errNode, (("Ambiguous overload for method \"" + methodName) + "\" on ") + cl.name);
+                return noMatch;
+            }
+            let outMatch;
+            outMatch = picked;
+            return outMatch;
+        });
+    }
+    ;
     cmdCall(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             const obj = node.getSecond();
@@ -9762,20 +11929,39 @@ class RangerFlowParser {
             const method_2 = node.getThird();
             const callArgs_2 = node.children[3];
             yield this.WalkNode(obj_2, ctx, wr);
+            if ((ctx.isDefinedClass(obj_2.eval_type_name) == false) && ((typeof (obj_2.clDesc) !== "undefined" && obj_2.clDesc != null))) {
+                obj_2.eval_type_name = obj_2.clDesc.name;
+            }
+            ctx.setInExpr();
+            for (let i_1 = 0; i_1 < callArgs_2.children.length; i_1++) {
+                var callArg = callArgs_2.children[i_1];
+                yield this.WalkNode(callArg, ctx, wr);
+            }
+            ;
+            ctx.unsetInExpr();
             if (ctx.isDefinedClass(obj_2.eval_type_name)) {
                 const cl = ctx.findClass(obj_2.eval_type_name);
-                const m = cl.findMethod(method_2.vref);
+                let m;
+                if (cl.hasMethod(method_2.vref)) {
+                    const mVs = (cl.method_variants.hasOwnProperty(method_2.vref) ? cl.method_variants[method_2.vref] : undefined);
+                    if (((typeof (mVs) !== "undefined" && mVs != null)) && ((mVs.variants.length) > 0)) {
+                        m = yield this.matchMethodCall(cl, method_2.vref, callArgs_2, ctx, wr, node);
+                        if (typeof (m) === "undefined") {
+                            return false;
+                        }
+                    }
+                }
+                if (typeof (m) === "undefined") {
+                    m = cl.findMethod(method_2.vref);
+                    if (typeof (m) === "undefined") {
+                        m = cl.findMethodByCompiledName(method_2.vref);
+                    }
+                }
                 if ((typeof (m) !== "undefined" && m != null)) {
                     node.has_call = true;
+                    node.fnDesc = m;
                     const currM = ctx.getCurrentMethod();
                     currM.addCallTo(m);
-                    ctx.setInExpr();
-                    for (let i_1 = 0; i_1 < callArgs_2.children.length; i_1++) {
-                        var callArg = callArgs_2.children[i_1];
-                        yield this.WalkNode(callArg, ctx, wr);
-                    }
-                    ;
-                    ctx.unsetInExpr();
                     const nn = m.nameNode;
                     node.eval_type = nn.typeNameAsType(ctx);
                     node.eval_type_name = nn.type_name;
@@ -9971,7 +12157,7 @@ class RangerFlowParser {
                 ;
                 if (b_valid && (chain_cnt > 0)) {
                     node.getChildrenFrom(innerNode);
-                    node.tag = "chainroot";
+                    node.finalizeAsCallChainRoot();
                     node.flow_done = false;
                     yield this.WalkNode(node, ctx, wr);
                     return true;
@@ -9979,12 +12165,7 @@ class RangerFlowParser {
             }
             if ((fnNode.ns.length) > 1) {
                 const rootName = fnNode.ns[0];
-                const vDef2 = ctx.getVariableDef(rootName);
-                if (((rootName != "this") && (vDef2.init_cnt == 0)) && (vDef2.set_cnt == 0)) {
-                    if ((vDef2.is_class_variable == false) && (ctx.isDefinedClass(rootName) == false)) {
-                        ctx.addError(node, "Call to uninitialized object " + rootName);
-                    }
-                }
+                this.checkInitializedObjectReceiver(rootName, node, ctx);
                 const vFnDef = this.findFunctionDesc(fnNode, ctx, wr);
                 if ((typeof (vFnDef) !== "undefined" && vFnDef != null)) {
                     if (vFnDef.nameNode.hasFlag("throws")) {
@@ -10277,8 +12458,229 @@ class RangerFlowParser {
         return root;
     }
     ;
+    transformDotMethodCallExpr(node, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if ((node.children.length) == 2) {
+                const fc = node.getFirst();
+                const sec = node.getSecond();
+                let dotNode = sec;
+                let mArgs;
+                if (((sec.vref.length) > 0) && ((sec.vref.length) > 0)) {
+                    if ((sec.vref[0]) == ".") {
+                        mArgs = sec.getSecond();
+                    }
+                    else {
+                        return false;
+                    }
+                }
+                else {
+                    if ((sec.children.length) < 1) {
+                        return false;
+                    }
+                    dotNode = sec.getFirst();
+                    if (((dotNode.vref.length) > 0) == false) {
+                        return false;
+                    }
+                    if ((dotNode.vref[0]) != ".") {
+                        return false;
+                    }
+                    if ((sec.children.length) > 1) {
+                        mArgs = sec.getSecond();
+                    }
+                    else {
+                        mArgs = node.newExpressionNode();
+                    }
+                }
+                const method_name = dotNode.vref.substring(1, (dotNode.vref.length));
+                yield this.WalkNode(fc, ctx, wr);
+                if (ctx.isDefinedClass(fc.eval_type_name)) {
+                    const callNode = node.newExpressionNode();
+                    callNode.add(node.newVRefNode("call"));
+                    callNode.add(fc.copy());
+                    callNode.add(node.newVRefNode(method_name));
+                    callNode.add(mArgs.copy());
+                    node.getChildrenFrom(callNode);
+                    node.flow_done = false;
+                    yield this.WalkNode(node, ctx, wr);
+                    return true;
+                }
+                return false;
+            }
+            if ((node.children.length) != 3) {
+                return false;
+            }
+            const fc_1 = node.getFirst();
+            const sec_1 = node.getSecond();
+            const third = node.getThird();
+            if (((sec_1.vref.length) > 0) == false) {
+                return false;
+            }
+            if ((sec_1.vref[0]) != ".") {
+                return false;
+            }
+            yield this.WalkNode(fc_1, ctx, wr);
+            if (ctx.isDefinedClass(fc_1.eval_type_name) == false) {
+                return false;
+            }
+            const parts = (sec_1.vref.substring(1, (sec_1.vref.length))).split(".");
+            const method_name_1 = parts[((parts.length) - 1)];
+            let classDesc = ctx.findClass(fc_1.eval_type_name);
+            let calledItem = fc_1.copy();
+            yield operatorsOf.forEach_12(parts, ((item, index) => {
+                if (index < ((parts.length) - 1)) {
+                    try {
+                        calledItem = CodeNode.fromList([CodeNode.vref1("property"), calledItem.copy(), CodeNode.vref1(item)]);
+                        const p = classDesc.findVariable(item);
+                        classDesc = ctx.findClass(p.nameNode.type_name);
+                    }
+                    catch (e) {
+                        ctx.addError(sec_1, "invalid property " + item);
+                    }
+                }
+            }));
+            const calledItem_2 = CodeNode.fromList([CodeNode.vref1("call"), calledItem, CodeNode.vref1(method_name_1), third.copy()]);
+            node.getChildrenFrom(calledItem_2);
+            node.flow_done = false;
+            yield this.WalkNode(node, ctx, wr);
+            return true;
+        });
+    }
+    ;
+    repairUnaryMinusExpr(node) {
+        const chCnt = node.children.length;
+        if (chCnt != 2) {
+            return;
+        }
+        const fc = node.getFirst();
+        if (fc.vref != "-") {
+            return;
+        }
+        const operand = node.children[1];
+        const zero = CodeNode.newInt(0);
+        const minus = fc.copy();
+        node.children.length = 0;
+        node.children.push(zero);
+        node.children.push(minus);
+        node.children.push(operand.copy());
+        node.expression = true;
+        node.flow_done = false;
+        for (let i = 0; i < node.children.length; i++) {
+            var ch = node.children[i];
+            ch.flow_done = false;
+        }
+        ;
+    }
+    ;
+    repairAssignUnaryMinusRhs(node) {
+        const chCnt = node.children.length;
+        if (chCnt != 4) {
+            return;
+        }
+        const fc = node.getFirst();
+        if (fc.vref != "=") {
+            return;
+        }
+        const mid = node.children[2];
+        if (mid.vref != "-") {
+            return;
+        }
+        const operand = node.children[3];
+        const rhs = node.newExpressionNode();
+        const zero = CodeNode.newInt(0);
+        rhs.children.push(zero);
+        rhs.children.push(mid.copy());
+        rhs.children.push(operand.copy());
+        node.children.pop();
+        node.children.pop();
+        node.children.push(rhs);
+        node.flow_done = false;
+        rhs.flow_done = false;
+    }
+    ;
+    repairAssignMethodCallRhs(node) {
+        this.repairAssignUnaryMinusRhs(node);
+        const chCnt = node.children.length;
+        if (chCnt < 4) {
+            if ((node.children.length) > 2) {
+                const fc = node.getFirst();
+                if ((fc.vref == "=") || (fc.vref == "def")) {
+                    const rhsNode = node.children[2];
+                    this.repairUnaryMinusExpr(rhsNode);
+                }
+            }
+            return;
+        }
+        const fc_1 = node.getFirst();
+        let rhsStart = 0;
+        if (fc_1.vref == "=") {
+            rhsStart = 2;
+        }
+        else {
+            if (fc_1.vref == "def") {
+                rhsStart = 2;
+            }
+            else {
+                return;
+            }
+        }
+        const rhs = node.newExpressionNode();
+        let i = rhsStart;
+        while (i < chCnt) {
+            const child = node.children[i];
+            rhs.add(child.copy());
+            i = i + 1;
+        }
+        ;
+        while ((node.children.length) > rhsStart) {
+            node.children.pop();
+        }
+        ;
+        node.children.push(rhs);
+        node.flow_done = false;
+        rhs.flow_done = false;
+        for (let ci = 0; ci < rhs.children.length; ci++) {
+            var ch = rhs.children[ci];
+            ch.flow_done = false;
+        }
+        ;
+        if ((node.children.length) > rhsStart) {
+            const rhsNode_1 = node.children[rhsStart];
+            this.repairUnaryMinusExpr(rhsNode_1);
+        }
+    }
+    ;
+    checkInitializedObjectReceiver(receiverName, node, ctx) {
+        if (receiverName == "this") {
+            return;
+        }
+        if (false == ctx.isVarDefined(receiverName)) {
+            return;
+        }
+        if (ctx.isDefinedClass(receiverName)) {
+            return;
+        }
+        const vDef = ctx.getVariableDef(receiverName);
+        if (vDef.is_class_variable) {
+            return;
+        }
+        if (vDef.varType == 4) {
+            return;
+        }
+        if (typeof (vDef.nameNode) === "undefined") {
+            return;
+        }
+        const nameN = vDef.nameNode;
+        if (false == ctx.isDefinedClass(nameN.type_name)) {
+            return;
+        }
+        if ((vDef.init_cnt == 0) && (vDef.set_cnt == 0)) {
+            ctx.addError(node, "Use of uninitialized object " + receiverName);
+        }
+    }
+    ;
     cmdAssign(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
+            this.repairAssignMethodCallRhs(node);
             const target = node.getSecond();
             yield this.WalkNode(target, ctx, wr);
             if (target.hasParamDesc) {
@@ -10319,7 +12721,11 @@ class RangerFlowParser {
             const n2_1 = node.getThird();
             yield this.WalkNode(n1_1, ctx, wr);
             ctx.setInExpr();
-            yield this.WalkNode(n2_1, ctx, wr);
+            if (yield this.transformDotMethodCallExpr(n2_1, ctx, wr)) {
+            }
+            else {
+                yield this.WalkNode(n2_1, ctx, wr);
+            }
             ctx.unsetInExpr();
             if (n1_1.hasParamDesc) {
                 n1_1.paramDesc.ref_cnt = n1_1.paramDesc.ref_cnt + 1;
@@ -10493,9 +12899,22 @@ class RangerFlowParser {
     EnterMethod(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.EnterFn(node, ctx, wr, ((node, ctx, wr, nameNode, fnArgs, fnBody, desc) => __awaiter(this, void 0, void 0, function* () {
-                const m = desc.findMethod(nameNode.vref);
-                const subCtx = m.fnCtx;
-                yield this.walkFunctionBody(m, fnBody, ctx, subCtx, wr);
+                let m;
+                if (typeof (node.fnDesc) === "undefined") {
+                }
+                else {
+                    m = (node.fnDesc);
+                }
+                if (typeof (m) === "undefined") {
+                    m = desc.findMethod(nameNode.vref);
+                }
+                if (typeof (m) === "undefined") {
+                    ctx.addError(node, "Error, no description for method " + nameNode.vref);
+                    return;
+                }
+                const method = m;
+                const subCtx = method.fnCtx;
+                yield this.walkFunctionBody(method, fnBody, ctx, subCtx, wr);
             })));
         });
     }
@@ -10695,6 +13114,9 @@ class RangerFlowParser {
                 }
             }
             const fc = origNode.children[0];
+            if (fc.vref == "=") {
+                this.repairAssignMethodCallRhs(origNode);
+            }
             const myT = operatorsOf_33.startc95transaction_35("TransformOpFn", fc.vref, ctx);
             let newOps = [];
             let tryTypes = ["string", "int", "double", "boolean"];
@@ -11038,6 +13460,17 @@ class RangerFlowParser {
                     return;
                 }
             }
+            for (let mi = 0; mi < node.children.length; mi++) {
+                var marker = node.children[mi];
+                if (mi == 0) {
+                    continue;
+                }
+                if (((marker.vref.length) > 0) && ((marker.type_name.length) > 0)) {
+                    ctx.addError(node, ((((("Array literal type marker '" + marker.vref) + ":") + marker.type_name) + "' must be followed by a parenthesised element group, as in ([] _:") + marker.type_name) + " ( a b c )). To let the element type be inferred, drop the marker: ([] a b c).");
+                    return;
+                }
+            }
+            ;
             const arrayItems_1 = node.newExpressionNode();
             let types = [];
             for (let i_1 = 0; i_1 < node.children.length; i_1++) {
@@ -11245,6 +13678,12 @@ class RangerFlowParser {
                 var cmd = op_list[i];
                 const cmdName = cmd.getFirst();
                 if ((cmdName.vref == fc.vref) && (false == ctx.isVarDefined(cmdName.vref))) {
+                    if (fc.vref == "-") {
+                        this.repairUnaryMinusExpr(node);
+                    }
+                    if (fc.vref == "=") {
+                        this.repairAssignMethodCallRhs(node);
+                    }
                     yield this.stdParamMatch(node, ctx, wr, true);
                     if ((typeof (node.parent) !== "undefined" && node.parent != null)) {
                     }
@@ -11265,7 +13704,33 @@ class RangerFlowParser {
                     newNode.add(node.newVRefNode(objName));
                     newNode.add(node.newVRefNode(possible_cmd));
                     newNode.add(args.copy());
-                    node.getChildrenFrom(newNode);
+                    const total = node.children.length;
+                    if (total > 2) {
+                        let innerNode;
+                        innerNode = newNode;
+                        let k = 2;
+                        while (k < (total - 1)) {
+                            const mName = node.children[k];
+                            const mArgs = node.children[(k + 1)];
+                            const chName = mName.vref;
+                            if (((chName.length) > 0) && ((chName.charCodeAt(0)) == (".".charCodeAt(0)))) {
+                                const method_name = chName.substring(1, (chName.length));
+                                const wrap = node.newExpressionNode();
+                                wrap.add(node.newVRefNode("call"));
+                                wrap.add(innerNode.copy());
+                                wrap.add(node.newVRefNode(method_name));
+                                wrap.add(mArgs.copy());
+                                innerNode = wrap;
+                            }
+                            k = k + 2;
+                        }
+                        ;
+                        node.getChildrenFrom(innerNode);
+                        node.finalizeAsCallChainRoot();
+                    }
+                    else {
+                        node.getChildrenFrom(newNode);
+                    }
                     if (ctx.expressionLevel() == 0) {
                         ctx.lastBlockOp = node;
                     }
@@ -11303,6 +13768,211 @@ class RangerFlowParser {
             }
             ;
         }
+    }
+    ;
+    registerLangSystemClasses(node, ctx, wr) {
+        this.walkLangDefinitions(node, ctx);
+    }
+    ;
+    walkLangDefinitions(node, ctx) {
+        if (node.isFirstVref("systemclass")) {
+            this.registerSystemClassFromNode(node, ctx);
+            return;
+        }
+        if (node.isFirstVref("systemunion")) {
+            this.registerSystemUnionFromNode(node, ctx);
+            return;
+        }
+        for (let i = 0; i < node.children.length; i++) {
+            var ch = node.children[i];
+            this.walkLangDefinitions(ch, ctx);
+        }
+        ;
+    }
+    ;
+    registerSystemClassFromNode(node, ctx) {
+        const nameNode = node.getSecond();
+        if (ctx.isDefinedClass(nameNode.vref)) {
+            const cl = ctx.findClass(nameNode.vref);
+            if (cl.is_system_union == false) {
+                ctx.addError(node, "Class already defined and it was not a systemunion.");
+            }
+            cl.is_system = true;
+            const instances = node.getThird();
+            for (let i = 0; i < instances.children.length; i++) {
+                var ch = instances.children[i];
+                const langName = ch.getFirst();
+                const langClassName = ch.getSecond();
+                cl.systemNodes[langName.vref] = ch;
+                if ((langClassName.vref.length) > 0) {
+                    cl.systemNames[langName.vref] = langClassName.vref;
+                }
+                if ((langClassName.string_value.length) > 0) {
+                    cl.systemNames[langName.vref] = langClassName.string_value;
+                }
+            }
+            ;
+            return;
+        }
+        const instances_1 = node.getThird();
+        const new_class = new RangerAppClassDesc();
+        new_class.name = nameNode.vref;
+        new_class.nameNode = nameNode;
+        ctx.addClass(nameNode.vref, new_class);
+        new_class.is_system = true;
+        for (let i_1 = 0; i_1 < instances_1.children.length; i_1++) {
+            var ch_1 = instances_1.children[i_1];
+            const langName_1 = ch_1.getFirst();
+            const langClassName_1 = ch_1.getSecond();
+            new_class.systemNodes[langName_1.vref] = ch_1;
+            if ((langClassName_1.vref.length) > 0) {
+                new_class.systemNames[langName_1.vref] = langClassName_1.vref;
+            }
+            if ((langClassName_1.string_value.length) > 0) {
+                new_class.systemNames[langName_1.vref] = langClassName_1.string_value;
+            }
+        }
+        ;
+        nameNode.is_system_class = true;
+        nameNode.clDesc = new_class;
+    }
+    ;
+    registerSystemUnionFromNode(node, ctx) {
+        const nameNode = node.getSecond();
+        if (ctx.isDefinedClass(nameNode.vref)) {
+            const cl = ctx.findClass(nameNode.vref);
+            if (cl.is_system == false) {
+                ctx.addError(node, "Only system classes can be systemunions");
+            }
+            cl.is_system_union = true;
+            const instances = node.getThird();
+            for (let i = 0; i < instances.children.length; i++) {
+                var ch = instances.children[i];
+                cl.is_union_of.push(ch.vref);
+            }
+            ;
+            return;
+        }
+        const instances_1 = node.getThird();
+        const new_class = new RangerAppClassDesc();
+        new_class.name = nameNode.vref;
+        new_class.nameNode = nameNode;
+        ctx.addClass(nameNode.vref, new_class);
+        new_class.is_system_union = true;
+        for (let i_1 = 0; i_1 < instances_1.children.length; i_1++) {
+            var ch_1 = instances_1.children[i_1];
+            new_class.is_union_of.push(ch_1.vref);
+        }
+        ;
+        nameNode.clDesc = new_class;
+    }
+    ;
+    finalizeRecordClasses(ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const rootCtx = ctx.getRoot();
+            for (let i = 0; i < rootCtx.definedClassList.length; i++) {
+                var cname = rootCtx.definedClassList[i];
+                const cl = rootCtx.findClass(cname);
+                if (cl.is_record) {
+                    if (cl.has_constructor == false) {
+                        yield this.buildRecordConstructor(cl, ctx, wr);
+                    }
+                }
+            }
+            ;
+        });
+    }
+    ;
+    expandRecordCtorArgsIfNeeded(cl, fnDescr, params, node) {
+        if (cl.is_record == false) {
+            return;
+        }
+        if ((params.children.length) == 0) {
+            return;
+        }
+        const fc = params.children[0];
+        if (fc.hasFlag("keyword")) {
+            return;
+        }
+        let valueCnt = 0;
+        for (let i = 0; i < fnDescr.params.length; i++) {
+            var p = fnDescr.params[i];
+            if (p.nameNode.hasFlag("keyword") == false) {
+                valueCnt = valueCnt + 1;
+            }
+        }
+        ;
+        if ((params.children.length) != valueCnt) {
+            return;
+        }
+        let expanded = [];
+        let vi = 0;
+        for (let i_1 = 0; i_1 < fnDescr.params.length; i_1++) {
+            var p_1 = fnDescr.params[i_1];
+            if (p_1.nameNode.hasFlag("keyword")) {
+                const kw = node.newVRefNode(p_1.name);
+                kw.setFlag("keyword");
+                expanded.push(kw);
+            }
+            else {
+                expanded.push(params.children[vi]);
+                vi = vi + 1;
+            }
+        }
+        ;
+        params.children.length = 0;
+        for (let i_2 = 0; i_2 < expanded.length; i_2++) {
+            var item = expanded[i_2];
+            params.children.push(item);
+        }
+        ;
+    }
+    ;
+    buildRecordConstructor(cl, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if ((cl.variables.length) == 0) {
+                return;
+            }
+            let sig = "Constructor (";
+            let body = "{\n";
+            let i = 0;
+            const cnt = cl.variables.length;
+            while (i < cnt) {
+                const v = cl.variables[i];
+                let tname = v.nameNode.type_name;
+                if ((tname.length) == 0) {
+                    tname = "string";
+                }
+                if (i > 0) {
+                    sig = sig + " ";
+                }
+                sig = ((((sig + v.name) + "@(keyword) ") + v.name) + ":") + tname;
+                body = ((((body + "this.") + v.name) + " = ") + v.name) + "\n";
+                i = i + 1;
+            }
+            ;
+            sig = sig + ") ";
+            const code = (sig + body) + "}";
+            const src = new SourceCode(code);
+            src.filename = ("record_ctor_" + cl.name) + ".rgr";
+            const parser = new RangerLispParser(src);
+            parser.parse(false);
+            const rn = parser.rootNode;
+            if (typeof (rn) === "undefined") {
+                return;
+            }
+            const subCtx = cl.ctx;
+            subCtx.setCurrentClass(cl);
+            for (let ci = 0; ci < rn.children.length; ci++) {
+                var ch = rn.children[ci];
+                if (ch.isFirstVref("Constructor")) {
+                    yield this.WalkCollectMethods(ch, subCtx, wr);
+                    yield this.Constructor(ch, subCtx, wr);
+                    return;
+                }
+            }
+            ;
+        });
     }
     ;
     mergeImports(node, ctx, wr) {
@@ -11508,44 +14178,119 @@ class RangerFlowParser {
             for (let i_6 = 0; i_6 < cClassList.length; i_6++) {
                 var cl_1 = cClassList[i_6];
                 cl_1.is_serialized = true;
+            }
+            ;
+            for (let i_7 = 0; i_7 < cClassList.length; i_7++) {
+                var cl_2 = cClassList[i_7];
                 const ser = new RangerSerializeClass();
+                if (ser.validateSerializedClass(cl_2, (cl_2.ctx)) == false) {
+                    continue;
+                }
                 const extWr = new CodeWriter();
-                ser.createJSONSerializerFn2(cl_1, cl_1.ctx, extWr);
+                ser.createJSONSerializerFn2(cl_2, cl_2.ctx, extWr);
                 const theCode = extWr.getCode();
                 const code = new SourceCode(theCode);
                 code.filename = "extension " + ctx.currentClass.name;
                 const parser = new RangerLispParser(code);
                 parser.parse(ctx.hasCompilerFlag("no-op-transform"));
                 const rn = parser.rootNode;
-                yield this.WalkCollectMethods(rn, cl_1.ctx, wr);
+                yield this.WalkCollectMethods(rn, cl_2.ctx, wr);
                 this.walkAlso.push(rn);
             }
             ;
-            for (let i_7 = 0; i_7 < this.immutableClasses.length; i_7++) {
-                var cl_2 = this.immutableClasses[i_7];
+            for (let i_8 = 0; i_8 < this.immutableClasses.length; i_8++) {
+                var cl_3 = this.immutableClasses[i_8];
                 const ser_1 = new RangerImmutableExtension();
                 const extWr_1 = new CodeWriter();
-                ser_1.createImmutableExtension(cl_2, cl_2.ctx, extWr_1);
+                ser_1.createImmutableExtension(cl_3, cl_3.ctx, extWr_1);
                 const theCode_1 = extWr_1.getCode();
                 const code_1 = new SourceCode(theCode_1);
-                code_1.filename = "extension " + cl_2.name;
+                code_1.filename = "extension " + cl_3.name;
                 const parser_1 = new RangerLispParser(code_1);
                 parser_1.parse(ctx.hasCompilerFlag("no-op-transform"));
                 const rn_1 = parser_1.rootNode;
-                yield this.WalkCollectMethods(rn_1, cl_2.ctx, wr);
+                yield this.WalkCollectMethods(rn_1, cl_3.ctx, wr);
                 this.walkAlso.push(rn_1);
             }
             ;
-            for (let i_8 = 0; i_8 < ctx.definedClassList.length; i_8++) {
-                var cname = ctx.definedClassList[i_8];
+            if ((this.processClasses.length) > 0) {
+                const baseDesc = ctx.findClass("RangerProcessBase");
+                if ((typeof (baseDesc) === "undefined") == false) {
+                    const baseCl = baseDesc;
+                    baseCl.is_extended_by_children = true;
+                }
+                this.validateProcessPaths(this.processClasses, ctx);
+                const procRtGen = new RangerProcessClass();
+                const rtWr = new CodeWriter();
+                const nameRegWr = new CodeWriter();
+                procRtGen.emitProcessNameRegistryExtension(this.processClasses, nameRegWr);
+                const nameRegCode = nameRegWr.getCode();
+                const nameRegSrc = new SourceCode(nameRegCode);
+                nameRegSrc.filename = "extension ProcessNameRegistry";
+                const nameRegParser = new RangerLispParser(nameRegSrc);
+                nameRegParser.parse(ctx.hasCompilerFlag("no-op-transform"));
+                const nameRegRn = nameRegParser.rootNode;
+                yield this.WalkCollectMethods(nameRegRn, ctx, wr);
+                this.walkAlso.push(nameRegRn);
+                procRtGen.emitProcessRuntimeExtension(this.processClasses, rtWr);
+                const rtCode = rtWr.getCode();
+                const rtSrc = new SourceCode(rtCode);
+                rtSrc.filename = "extension ProcessRuntime";
+                const rtParser = new RangerLispParser(rtSrc);
+                rtParser.parse(ctx.hasCompilerFlag("no-op-transform"));
+                const rtRn = rtParser.rootNode;
+                yield this.WalkCollectMethods(rtRn, ctx, wr);
+                this.walkAlso.push(rtRn);
+                if (ctx.hasCompilerFlag("typescript")) {
+                    const tsWr = new CodeWriter();
+                    procRtGen.emitProcessTypeScriptHelpers(this.processClasses, tsWr);
+                    ctx.compilerSettings["processTsHelpers"] = tsWr.getCode();
+                }
+            }
+            for (let i_9 = 0; i_9 < this.processClasses.length; i_9++) {
+                var cl_4 = this.processClasses[i_9];
+                cl_4.is_process = true;
+                let hasProcessBase = false;
+                for (let i_10 = 0; i_10 < cl_4.extends_classes.length; i_10++) {
+                    var extName = cl_4.extends_classes[i_10];
+                    if (extName == "RangerProcessBase") {
+                        hasProcessBase = true;
+                    }
+                }
+                ;
+                if (hasProcessBase == false) {
+                    cl_4.extends_classes.push("RangerProcessBase");
+                    const parentDesc = ctx.findClass("RangerProcessBase");
+                    if ((typeof (parentDesc) === "undefined") == false) {
+                        const parentCl = parentDesc;
+                        parentCl.is_extended_by_children = true;
+                        parentCl.is_inherited = true;
+                    }
+                }
+                const procGen = new RangerProcessClass();
+                const extWr_2 = new CodeWriter();
+                const processTypeId = i_9 + 1;
+                procGen.createProcessExtension(cl_4, cl_4.ctx, extWr_2, processTypeId);
+                const theCode_2 = extWr_2.getCode();
+                const code_2 = new SourceCode(theCode_2);
+                code_2.filename = "extension " + cl_4.name;
+                const parser_2 = new RangerLispParser(code_2);
+                parser_2.parse(ctx.hasCompilerFlag("no-op-transform"));
+                const rn_2 = parser_2.rootNode;
+                yield this.WalkCollectMethods(rn_2, cl_4.ctx, wr);
+                this.walkAlso.push(rn_2);
+            }
+            ;
+            for (let i_11 = 0; i_11 < ctx.definedClassList.length; i_11++) {
+                var cname = ctx.definedClassList[i_11];
                 allTypes.push(cname);
                 const c = ((ctx.definedClasses.hasOwnProperty(cname) ? ctx.definedClasses[cname] : undefined));
                 if (((c.is_system || c.is_interface) || c.is_template) || c.is_trait) {
                     continue;
                 }
                 let varNames = {};
-                for (let i_9 = 0; i_9 < c.variables.length; i_9++) {
-                    var p = c.variables[i_9];
+                for (let i_12 = 0; i_12 < c.variables.length; i_12++) {
+                    var p = c.variables[i_12];
                     ctx.hadValidType(p.nameNode);
                     varNames[p.name] = true;
                 }
@@ -11559,8 +14304,8 @@ class RangerFlowParser {
                 })));
             }
             ;
-            for (let i_10 = 0; i_10 < ctx.definedClassList.length; i_10++) {
-                var cname_1 = ctx.definedClassList[i_10];
+            for (let i_13 = 0; i_13 < ctx.definedClassList.length; i_13++) {
+                var cname_1 = ctx.definedClassList[i_13];
                 allTypes.push(cname_1);
             }
             ;
@@ -11576,8 +14321,8 @@ class RangerFlowParser {
             rootCtx.addClass("Any", new_class);
             new_class.is_union = true;
             let did_push = {};
-            for (let i_11 = 0; i_11 < allTypes.length; i_11++) {
-                var typeName_1 = allTypes[i_11];
+            for (let i_14 = 0; i_14 < allTypes.length; i_14++) {
+                var typeName_1 = allTypes[i_14];
                 if ((typeof (did_push[typeName_1]) != "undefined" && did_push.hasOwnProperty(typeName_1))) {
                     continue;
                 }
@@ -11586,6 +14331,7 @@ class RangerFlowParser {
             }
             ;
             Anynn.clDesc = new_class;
+            yield this.finalizeRecordClasses(ctx, wr);
         });
     }
     ;
@@ -11594,6 +14340,7 @@ class RangerFlowParser {
             yield this.CheckTypeAnnotationOf(arg, ctx, wr);
             const p = new RangerAppParamDesc();
             p.name = arg.vref;
+            ctx.assignParamCompiledName(p);
             p.value_type = arg.value_type;
             p.node = arg;
             p.init_cnt = 1;
@@ -11653,6 +14400,8 @@ class RangerFlowParser {
             const s = node.getVRefAt(1);
             cn.ifNoTypeSetToVoid();
             const m = operatorsOfCodeNode_41.rc46funcdesc_42(node, ctx);
+            m.node = orig_node;
+            orig_node.fnDesc = m;
             subCtx.is_function = true;
             subCtx.currentMethod = m;
             m.fnCtx = subCtx;
@@ -11853,81 +14602,11 @@ class RangerFlowParser {
                 return;
             }
             if (node.isFirstVref("systemunion")) {
-                const nameNode_2 = node.getSecond();
-                if (ctx.isDefinedClass(nameNode_2.vref)) {
-                    const cl = ctx.findClass(nameNode_2.vref);
-                    if (cl.is_system == false) {
-                        ctx.addError(node, "Only system classes can be systemunions");
-                    }
-                    cl.is_system_union = true;
-                    const instances_2 = node.getThird();
-                    for (let i_3 = 0; i_3 < instances_2.children.length; i_3++) {
-                        var ch_2 = instances_2.children[i_3];
-                        cl.is_union_of.push(ch_2.vref);
-                    }
-                    ;
-                    return;
-                }
-                const nameNode_3 = node.getSecond();
-                const instances_3 = node.getThird();
-                const new_class_3 = new RangerAppClassDesc();
-                new_class_3.name = nameNode_3.vref;
-                new_class_3.nameNode = nameNode_3;
-                ctx.addClass(nameNode_3.vref, new_class_3);
-                new_class_3.is_system_union = true;
-                for (let i_4 = 0; i_4 < instances_3.children.length; i_4++) {
-                    var ch_3 = instances_3.children[i_4];
-                    new_class_3.is_union_of.push(ch_3.vref);
-                }
-                ;
-                nameNode_3.clDesc = new_class_3;
+                this.registerSystemUnionFromNode(node, ctx);
                 return;
             }
             if (node.isFirstVref("systemclass")) {
-                const nameNode_4 = node.getSecond();
-                if (ctx.isDefinedClass(nameNode_4.vref)) {
-                    const cl_1 = ctx.findClass(nameNode_4.vref);
-                    if (cl_1.is_system_union == false) {
-                        ctx.addError(node, "Class already defined and it was not a systemunion.");
-                    }
-                    cl_1.is_system = true;
-                    const instances_4 = node.getThird();
-                    for (let i_5 = 0; i_5 < instances_4.children.length; i_5++) {
-                        var ch_4 = instances_4.children[i_5];
-                        const langName = ch_4.getFirst();
-                        const langClassName = ch_4.getSecond();
-                        cl_1.systemNodes[langName.vref] = ch_4;
-                        if ((langClassName.vref.length) > 0) {
-                            cl_1.systemNames[langName.vref] = langClassName.vref;
-                        }
-                        if ((langClassName.string_value.length) > 0) {
-                            cl_1.systemNames[langName.vref] = langClassName.string_value;
-                        }
-                    }
-                    ;
-                    return;
-                }
-                const instances_5 = node.getThird();
-                const new_class_4 = new RangerAppClassDesc();
-                new_class_4.name = nameNode_4.vref;
-                new_class_4.nameNode = nameNode_4;
-                ctx.addClass(nameNode_4.vref, new_class_4);
-                new_class_4.is_system = true;
-                for (let i_6 = 0; i_6 < instances_5.children.length; i_6++) {
-                    var ch_5 = instances_5.children[i_6];
-                    const langName_1 = ch_5.getFirst();
-                    const langClassName_1 = ch_5.getSecond();
-                    new_class_4.systemNodes[langName_1.vref] = ch_5;
-                    if ((langClassName_1.vref.length) > 0) {
-                        new_class_4.systemNames[langName_1.vref] = langClassName_1.vref;
-                    }
-                    if ((langClassName_1.string_value.length) > 0) {
-                        new_class_4.systemNames[langName_1.vref] = langClassName_1.string_value;
-                    }
-                }
-                ;
-                nameNode_4.is_system_class = true;
-                nameNode_4.clDesc = new_class_4;
+                this.registerSystemClassFromNode(node, ctx);
                 return;
             }
             if (node.isFirstVref("extends")) {
@@ -11991,8 +14670,8 @@ class RangerFlowParser {
                 const fNameNode = node.children[1];
                 const enumList = node.children[2];
                 const new_enum = new RangerAppEnum();
-                for (let i_7 = 0; i_7 < enumList.children.length; i_7++) {
-                    var item = enumList.children[i_7];
+                for (let i_3 = 0; i_3 < enumList.children.length; i_3++) {
+                    var item = enumList.children[i_3];
                     const fc_2 = item.getFirst();
                     new_enum.add(fc_2.vref);
                 }
@@ -12004,8 +14683,8 @@ class RangerFlowParser {
                 const fNameNode_1 = node.children[1];
                 const enumList_1 = node.children[2];
                 const new_enum_1 = new RangerAppEnum();
-                for (let i_8 = 0; i_8 < enumList_1.children.length; i_8++) {
-                    var item_1 = enumList_1.children[i_8];
+                for (let i_4 = 0; i_4 < enumList_1.children.length; i_4++) {
+                    var item_1 = enumList_1.children[i_4];
                     new_enum_1.add(item_1.vref);
                 }
                 ;
@@ -12015,28 +14694,38 @@ class RangerFlowParser {
             if (node.isFirstVref("trait")) {
                 const s = node.getVRefAt(1);
                 const classNameNode = node.getSecond();
-                const new_class_5 = new RangerAppClassDesc();
-                new_class_5.name = s;
+                const new_class_3 = new RangerAppClassDesc();
+                new_class_3.name = s;
                 const subCtx_1 = ctx.fork();
-                ctx.setCurrentClass(new_class_5);
-                subCtx_1.setCurrentClass(new_class_5);
-                new_class_5.ctx = subCtx_1;
-                new_class_5.nameNode = classNameNode;
-                ctx.addClass(s, new_class_5);
-                new_class_5.classNode = node;
-                new_class_5.node = node;
-                new_class_5.is_trait = true;
+                ctx.setCurrentClass(new_class_3);
+                subCtx_1.setCurrentClass(new_class_3);
+                new_class_3.ctx = subCtx_1;
+                new_class_3.nameNode = classNameNode;
+                ctx.addClass(s, new_class_3);
+                new_class_3.classNode = node;
+                new_class_3.node = node;
+                new_class_3.is_trait = true;
             }
-            if (node.isFirstVref("CreateClass") || node.isFirstVref("class")) {
+            if ((node.isFirstVref("CreateClass") || node.isFirstVref("class")) || node.isFirstVref("record")) {
                 if ((node.children.length) < 3) {
                     ctx.addError(node, "Not enough arguments for creating a class");
                     return;
                 }
                 const s_1 = node.getVRefAt(1);
+                if (ctx.hasClass(s_1)) {
+                    const existingCl = ctx.findClass(s_1);
+                    if (existingCl.is_collected) {
+                        find_more = false;
+                        return;
+                    }
+                }
                 const classNameNode_1 = node.getSecond();
-                const new_class_6 = new RangerAppClassDesc();
-                new_class_6.name = s_1;
-                new_class_6.compiledName = s_1;
+                const new_class_4 = new RangerAppClassDesc();
+                new_class_4.name = s_1;
+                new_class_4.compiledName = s_1;
+                if (node.isFirstVref("record")) {
+                    new_class_4.is_record = true;
+                }
                 classNameNode_1.evalTypeClass = TFactory.new_class_signature(classNameNode_1, ctx, wr);
                 const notOkNames = ["main"];
                 if ((notOkNames.indexOf(s_1)) >= 0) {
@@ -12044,24 +14733,29 @@ class RangerFlowParser {
                 }
                 switch (s_1) {
                     case "_":
-                        new_class_6.compiledName = "utiltyClass";
+                        new_class_4.compiledName = "utiltyClass";
                         break;
                 }
                 ;
                 const subCtx_2 = ctx.fork();
-                ctx.setCurrentClass(new_class_6);
-                subCtx_2.setCurrentClass(new_class_6);
-                new_class_6.ctx = subCtx_2;
-                new_class_6.nameNode = classNameNode_1;
-                ctx.addClass(s_1, new_class_6);
-                new_class_6.classNode = node;
-                new_class_6.node = node;
+                ctx.setCurrentClass(new_class_4);
+                subCtx_2.setCurrentClass(new_class_4);
+                new_class_4.ctx = subCtx_2;
+                new_class_4.nameNode = classNameNode_1;
+                ctx.addClass(s_1, new_class_4);
+                new_class_4.is_collected = true;
+                new_class_4.classNode = node;
+                new_class_4.node = node;
                 if (node.hasBooleanProperty("trait")) {
-                    new_class_6.is_trait = true;
+                    new_class_4.is_trait = true;
                 }
                 if (classNameNode_1.hasFlag("immutable")) {
-                    this.immutableClasses.push(new_class_6);
-                    new_class_6.is_immutable = true;
+                    this.immutableClasses.push(new_class_4);
+                    new_class_4.is_immutable = true;
+                }
+                this.applyProcessClassMeta(new_class_4, classNameNode_1, node, ctx);
+                if (node.hasBooleanProperty("singleton")) {
+                    new_class_4.is_singleton = true;
                 }
                 const third = node.getThird();
                 if (third.vref == "extends") {
@@ -12083,11 +14777,11 @@ class RangerFlowParser {
             }
             if (node.isFirstVref("Extends")) {
                 const list = node.children[1];
-                for (let i_9 = 0; i_9 < list.children.length; i_9++) {
-                    var cname = list.children[i_9];
+                for (let i_5 = 0; i_5 < list.children.length; i_5++) {
+                    var cname = list.children[i_5];
                     const extC = ctx.findClass(cname.vref);
-                    for (let i_10 = 0; i_10 < extC.variables.length; i_10++) {
-                        var vv = extC.variables[i_10];
+                    for (let i_6 = 0; i_6 < extC.variables.length; i_6++) {
+                        var vv = extC.variables[i_6];
                         const currC_3 = ctx.currentClass;
                         const subCtx_3 = currC_3.ctx;
                         subCtx_3.defineVariable(vv.name, vv);
@@ -12211,8 +14905,8 @@ class RangerFlowParser {
             }
             if (node.isFirstVref("operators")) {
                 const listOf = node.getSecond();
-                for (let i_11 = 0; i_11 < listOf.children.length; i_11++) {
-                    var item_2 = listOf.children[i_11];
+                for (let i_7 = 0; i_7 < listOf.children.length; i_7++) {
+                    var item_2 = listOf.children[i_7];
                     ctx.createOperator(item_2);
                 }
                 ;
@@ -12220,8 +14914,8 @@ class RangerFlowParser {
             }
             if (node.isFirstVref("Import") || node.isFirstVref("import")) {
                 if ((node.children.length) < 2) {
-                    for (let i_12 = 0; i_12 < node.children.length; i_12++) {
-                        var item_3 = node.children[i_12];
+                    for (let i_8 = 0; i_8 < node.children.length; i_8++) {
+                        var item_3 = node.children[i_8];
                         yield this.WalkCollectMethods(item_3, ctx, wr);
                     }
                     ;
@@ -12230,8 +14924,8 @@ class RangerFlowParser {
                 const fNameNode_2 = node.children[1];
                 const import_file = fNameNode_2.string_value;
                 if ((typeof (ctx.already_imported[import_file]) != "undefined" && ctx.already_imported.hasOwnProperty(import_file))) {
-                    for (let i_13 = 0; i_13 < node.children.length; i_13++) {
-                        var item_4 = node.children[i_13];
+                    for (let i_9 = 0; i_9 < node.children.length; i_9++) {
+                        var item_4 = node.children[i_9];
                         yield this.WalkCollectMethods(item_4, ctx, wr);
                     }
                     ;
@@ -12287,12 +14981,12 @@ class RangerFlowParser {
                     const staticCmd = node.getVRefAt(1);
                     if ((staticCmd == "def") || (staticCmd == "let")) {
                         const staticDecl = node.newExpressionNode();
-                        for (let i_14 = 0; i_14 < node.children.length; i_14++) {
-                            var ch_6 = node.children[i_14];
-                            if (i_14 == 0) {
+                        for (let i_10 = 0; i_10 < node.children.length; i_10++) {
+                            var ch_2 = node.children[i_10];
+                            if (i_10 == 0) {
                                 continue;
                             }
-                            staticDecl.children.push(ch_6);
+                            staticDecl.children.push(ch_2);
                         }
                         ;
                         staticDecl.setFlag("static");
@@ -12381,8 +15075,10 @@ class RangerFlowParser {
                 const fnObj = yield operatorsOf_41.rc46func_43(node, (currC_8.ctx), wr);
                 const cn = fnObj.nameNode;
                 if (currC_8.hasOwnMethod(fnObj.name) && (false == cn.hasFlag("override"))) {
-                    ctx.addError(node, "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!");
-                    return;
+                    if (currC_8.hasDuplicateMethodSignature(fnObj)) {
+                        ctx.addError(node, "Error: method with the same name and parameter signature declared earlier");
+                        return;
+                    }
                 }
                 if (cn.hasFlag("main")) {
                     ctx.addError(node, "Error: dynamic method declared as @(main). Use static 'sfn' instead of 'fn'.");
@@ -12393,8 +15089,8 @@ class RangerFlowParser {
                 return;
             }
             if (find_more) {
-                for (let i_15 = 0; i_15 < node.children.length; i_15++) {
-                    var item_5 = node.children[i_15];
+                for (let i_11 = 0; i_11 < node.children.length; i_11++) {
+                    var item_5 = node.children[i_11];
                     yield this.WalkCollectMethods(item_5, ctx, wr);
                 }
                 ;
@@ -12402,12 +15098,39 @@ class RangerFlowParser {
             if (node.hasBooleanProperty("serialize")) {
                 this.serializedClasses.push(ctx.currentClass);
             }
+            if (node.hasBooleanProperty("process")) {
+                const procCl = ctx.currentClass;
+                procCl.is_process = true;
+                const procNameNode = procCl.nameNode;
+                if ((typeof (procNameNode) === "undefined") == false) {
+                    const pn = procNameNode;
+                    const procPath = this.readProcessPathFromClassTree(node);
+                    if ((procPath.length) > 0) {
+                        procCl.process_path = procPath;
+                    }
+                }
+            }
+            if (node.hasBooleanProperty("singleton")) {
+                const singletonCl = ctx.currentClass;
+                singletonCl.is_singleton = true;
+            }
         });
+    }
+    ;
+    varShadowsSystemType(strname, ctx) {
+        if (false == ctx.isPrimitiveType(strname)) {
+            return false;
+        }
+        return ctx.isVarDefined(strname);
     }
     ;
     findFunctionDesc(obj, ctx, wr) {
         let varDesc;
         let varFnDesc;
+        let set_nsp = false;
+        if (0 == (obj.nsp.length)) {
+            set_nsp = true;
+        }
         if (obj.vref != this.getThisName()) {
             if ((obj.ns.length) > 1) {
                 const cnt = obj.ns.length;
@@ -12418,10 +15141,16 @@ class RangerFlowParser {
                     if (i == 0) {
                         if (strname == this.getThisName()) {
                             classDesc = ctx.getCurrentClass();
+                            if (set_nsp) {
+                                obj.nsp.push(classDesc);
+                            }
                         }
                         else {
-                            if (ctx.isDefinedClass(strname)) {
+                            if (ctx.isDefinedClass(strname) && (false == this.varShadowsSystemType(strname, ctx))) {
                                 classDesc = ctx.findClass(strname);
+                                if (set_nsp) {
+                                    obj.nsp.push(classDesc);
+                                }
                                 continue;
                             }
                             classRefDesc = ctx.getVariableDef(strname);
@@ -12430,6 +15159,9 @@ class RangerFlowParser {
                                 break;
                             }
                             classRefDesc.ref_cnt = 1 + classRefDesc.ref_cnt;
+                            if (set_nsp) {
+                                obj.nsp.push(classRefDesc);
+                            }
                             classDesc = ctx.findClass(classRefDesc.nameNode.type_name);
                             if (typeof (classDesc) === "undefined") {
                                 return varFnDesc;
@@ -12445,6 +15177,9 @@ class RangerFlowParser {
                             if (typeof (varDesc) === "undefined") {
                                 ctx.addError(obj, "Error, no description for refenced obj: " + strname);
                             }
+                            if (set_nsp) {
+                                obj.nsp.push(varDesc);
+                            }
                             const subClass = varDesc.getTypeName();
                             classDesc = ctx.findClass(subClass);
                             continue;
@@ -12456,6 +15191,9 @@ class RangerFlowParser {
                                 if (typeof (varFnDesc) === "undefined") {
                                     ctx.addError(obj, " function variable not found " + strname);
                                 }
+                            }
+                            if (((typeof (varFnDesc) !== "undefined" && varFnDesc != null)) && set_nsp) {
+                                obj.nsp.push(varFnDesc);
                             }
                         }
                     }
@@ -12499,7 +15237,7 @@ class RangerFlowParser {
                             }
                         }
                         else {
-                            if (ctx.isDefinedClass(strname)) {
+                            if (ctx.isDefinedClass(strname) && (false == this.varShadowsSystemType(strname, ctx))) {
                                 classDesc = ctx.findClass(strname);
                                 if (set_nsp) {
                                     obj.nsp.push(classDesc);
@@ -12511,6 +15249,7 @@ class RangerFlowParser {
                                 ctx.addError(obj, "Error, no description for called object: " + strname);
                                 break;
                             }
+                            this.checkInitializedObjectReceiver(strname, obj, ctx);
                             if (set_nsp) {
                                 obj.nsp.push(classRefDesc);
                             }
@@ -12780,7 +15519,9 @@ class RangerFlowParser {
     ;
     shouldBeEqualTypes(n1, n2, ctx, msg) {
         if ((((n1.eval_type != 0) && (n2.eval_type != 0)) && ((n1.eval_type_name.length) > 0)) && ((n2.eval_type_name.length) > 0)) {
-            if (n1.eval_type_name == n2.eval_type_name) {
+            const cn1 = TTypeRegistry.canonicalScalar(n1.eval_type_name);
+            const cn2 = TTypeRegistry.canonicalScalar(n2.eval_type_name);
+            if (cn1 == cn2) {
             }
             else {
                 let b_ok = false;
@@ -12819,6 +15560,152 @@ class RangerFlowParser {
         if ((n1.children.length) != cnt) {
             ctx.addError(n1, msg);
         }
+    }
+    ;
+    readProcessPathFromClassTree(root) {
+        const path = root.getStringProperty("name");
+        if ((path.length) > 0) {
+            return path;
+        }
+        if (root.hasExpressionProperty("name")) {
+            const ann = root.getExpressionProperty("name");
+            if ((typeof (ann) === "undefined") == false) {
+                const an = ann;
+                if ((an.children.length) > 0) {
+                    const fc = an.children[0];
+                    if (fc.value_type == 4) {
+                        return fc.string_value;
+                    }
+                }
+                if (an.value_type == 4) {
+                    return an.string_value;
+                }
+            }
+        }
+        for (let i = 0; i < root.children.length; i++) {
+            var ch = root.children[i];
+            const childPath = this.readProcessPathFromClassTree(ch);
+            if ((childPath.length) > 0) {
+                return childPath;
+            }
+        }
+        ;
+        return "";
+    }
+    ;
+    applyProcessClassMeta(cl, classNameNode, node, ctx) {
+        let isProc = false;
+        if (classNameNode.hasFlag("process")) {
+            isProc = true;
+        }
+        if (node.hasBooleanProperty("process")) {
+            isProc = true;
+        }
+        const procPathOnly = this.readProcessPathFromClassTree(node);
+        if (isProc == false) {
+            if ((procPathOnly.length) > 0) {
+                ctx.addError(classNameNode, "@name is only allowed on @process classes");
+            }
+            return;
+        }
+        this.processClasses.push(cl);
+        cl.is_process = true;
+        if ((procPathOnly.length) > 0) {
+            cl.process_path = procPathOnly;
+        }
+    }
+    ;
+    resolveProcessPathFromFields(cl) {
+        for (let i = 0; i < cl.variables.length; i++) {
+            var v = cl.variables[i];
+            if (v.name != "__rangerProcessName") {
+                continue;
+            }
+            if (v.def_value.value_type == 4) {
+                cl.process_path = v.def_value.string_value;
+                return;
+            }
+            if ((v.value.string_value.length) > 0) {
+                cl.process_path = v.value.string_value;
+                return;
+            }
+        }
+        ;
+    }
+    ;
+    validateProcessPaths(processClasses, ctx) {
+        for (let i = 0; i < processClasses.length; i++) {
+            var cl = processClasses[i];
+            if ((cl.process_path.length) == 0) {
+                const classNode = cl.node;
+                if ((typeof (classNode) === "undefined") == false) {
+                    const cn = classNode;
+                    const resolvedCn = this.readProcessPathFromClassTree(cn);
+                    if ((resolvedCn.length) > 0) {
+                        cl.process_path = resolvedCn;
+                    }
+                }
+                const nameNode = cl.nameNode;
+                if ((cl.process_path.length) == 0) {
+                    if ((typeof (nameNode) === "undefined") == false) {
+                        const nn = nameNode;
+                        const resolvedNn = this.readProcessPathFromClassTree(nn);
+                        if ((resolvedNn.length) > 0) {
+                            cl.process_path = resolvedNn;
+                        }
+                    }
+                }
+                if ((cl.process_path.length) == 0) {
+                    this.resolveProcessPathFromFields(cl);
+                }
+            }
+        }
+        ;
+        let seen = {};
+        for (let i_1 = 0; i_1 < processClasses.length; i_1++) {
+            var cl_1 = processClasses[i_1];
+            if ((cl_1.process_path.length) == 0) {
+                continue;
+            }
+            const path = cl_1.process_path;
+            const prev = (seen.hasOwnProperty(path) ? seen[path] : undefined);
+            if ((typeof (prev) === "undefined") == false) {
+                const errNode = cl_1.nameNode;
+                if ((typeof (errNode) === "undefined") == false) {
+                    const en = errNode;
+                    ctx.addError(en, "Duplicate @process @name path: " + path);
+                }
+                continue;
+            }
+            seen[path] = "1";
+            if (this.isValidProcessPath(path) == false) {
+                const errNode2 = cl_1.nameNode;
+                if ((typeof (errNode2) === "undefined") == false) {
+                    const en2 = errNode2;
+                    ctx.addError(en2, "Invalid @name process path: " + path);
+                }
+            }
+        }
+        ;
+    }
+    ;
+    isValidProcessPath(pathStr) {
+        const n = pathStr.length;
+        if (n == 0) {
+            return false;
+        }
+        if (pathStr == ".") {
+            return false;
+        }
+        const parts = pathStr.split(".");
+        for (let i = 0; i < parts.length; i++) {
+            var seg = parts[i];
+            if ((seg.length) == 0) {
+                return false;
+            }
+        }
+        ;
+        return true;
     }
     ;
     findLanguageOper(details, ctx, opDef) {
@@ -12915,6 +15802,21 @@ class RangerFlowParser {
             })));
             return node;
         });
+    }
+    ;
+    operandIsNonOptionalForNullCheck(node) {
+        if (node.hasFlag("optional")) {
+            return false;
+        }
+        if (node.hasParamDesc) {
+            const pa = node.paramDesc;
+            if ((typeof (pa.nameNode) !== "undefined" && pa.nameNode != null)) {
+                if (pa.nameNode.hasFlag("optional")) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
     ;
     stdParamMatch(callArgs, inCtx, wr, require_all_match) {
@@ -13696,7 +16598,28 @@ class RangerFlowParser {
             }
             ;
             if ((require_all_match == true) && (some_matched == false)) {
-                ctx.addError(callArgs, "Could not match argument types for " + callFnName.vref);
+                const opName_2 = callFnName.vref;
+                let reportedSpecific = false;
+                if ((opName_2 == "null?") || (opName_2 == "!null?")) {
+                    if ((callArgs.children.length) > 1) {
+                        const operand = callArgs.children[1];
+                        if (this.operandIsNonOptionalForNullCheck(operand)) {
+                            let typeLabel = operand.eval_type_name;
+                            if ((typeLabel.length) == 0) {
+                                typeLabel = operand.type_name;
+                            }
+                            let nameLabel = operand.vref;
+                            if ((nameLabel.length) == 0) {
+                                nameLabel = operand.getCode();
+                            }
+                            ctx.addError(operand, ((((opName_2 + " applies only to optional values; '") + nameLabel) + "' is non-optional (") + typeLabel) + ")");
+                            reportedSpecific = true;
+                        }
+                    }
+                }
+                if (reportedSpecific == false) {
+                    ctx.addError(callArgs, "Could not match argument types for " + callFnName.vref);
+                }
             }
             if (expects_error) {
                 const cnt_now = ctx.getErrorCount();
@@ -13992,25 +16915,25 @@ class RangerGenericClassWriter {
                 const dd_str = "" + node.double_value;
                 const ii_str = "" + (Math.floor(node.double_value));
                 if (dd_str == ii_str) {
-                    wr.out(("" + node.double_value) + ".0", false);
+                    wr.outMapped(("" + node.double_value) + ".0", node, false, "");
                 }
                 else {
-                    wr.out("" + node.double_value, false);
+                    wr.outMapped("" + node.double_value, node, false, "");
                 }
                 break;
             case 4:
                 const s = this.EncodeString(node, ctx, wr);
-                wr.out(("\"" + s) + "\"", false);
+                wr.outMapped(("\"" + s) + "\"", node, false, "");
                 break;
             case 3:
-                wr.out("" + node.int_value, false);
+                wr.outMapped("" + node.int_value, node, false, "");
                 break;
             case 5:
                 if (node.boolean_value) {
-                    wr.out("true", false);
+                    wr.outMapped("true", node, false, "");
                 }
                 else {
-                    wr.out("false", false);
+                    wr.outMapped("false", node, false, "");
                 }
                 break;
         }
@@ -14113,6 +17036,31 @@ class RangerGenericClassWriter {
         return tn;
     }
     ;
+    defValueHasSideEffects(value) {
+        if (value.has_call) {
+            return true;
+        }
+        if (value.hasFnCall) {
+            return true;
+        }
+        if (value.is_direct_method_call) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    writeSideEffectOnlyStmt(value, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            ctx.setInExpr();
+            yield this.WalkNode(value, ctx, wr);
+            ctx.unsetInExpr();
+            if (ctx.expressionLevel() == 0) {
+                wr.out(";", true);
+            }
+            wr.newline();
+        });
+    }
+    ;
     WriteVRef(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             if (node.eval_type == 13) {
@@ -14133,14 +17081,14 @@ class RangerGenericClassWriter {
                         wr.out(".", false);
                     }
                     if ((p.compiledName.length) > 0) {
-                        wr.out(this.adjustType(p.compiledName), false);
+                        wr.outMapped(this.adjustType(p.compiledName), node, false, p.name);
                     }
                     else {
                         if ((p.name.length) > 0) {
-                            wr.out(this.adjustType(p.name), false);
+                            wr.outMapped(this.adjustType(p.name), node, false, p.name);
                         }
                         else {
-                            wr.out(this.adjustType((node.ns[i])), false);
+                            wr.outMapped(this.adjustType((node.ns[i])), node, false, node.ns[i]);
                         }
                     }
                 }
@@ -14152,7 +17100,7 @@ class RangerGenericClassWriter {
                 if (i_1 > 0) {
                     wr.out(".", false);
                 }
-                wr.out(this.adjustType(part), false);
+                wr.outMapped(this.adjustType(part), node, false, part);
             }
             ;
         });
@@ -14194,7 +17142,11 @@ class RangerGenericClassWriter {
                 yield this.WalkNode(obj, ctx, wr);
                 ctx.unsetInExpr();
                 wr.out(").", false);
-                wr.out(method.vref, false);
+                let methodName = method.vref;
+                if (((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) && ((node.fnDesc.compiledName.length) > 0)) {
+                    methodName = node.fnDesc.compiledName;
+                }
+                wr.outMapped(methodName, method, false, method.vref);
                 wr.out("(", false);
                 ctx.setInExpr();
                 const pms = operatorsOf.filter_36(args.children, ((item, index) => {
@@ -14406,8 +17358,33 @@ class RangerGenericClassWriter {
         });
     }
     ;
+    walkNewArgForProcess(n, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.WalkNode(n, ctx, wr);
+        });
+    }
+    ;
+    tryWriteProcessNewCall(procNewNode, procNewCtx, outWr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (procNewNode.hasNewOper == false) {
+                return false;
+            }
+            const procCl = procNewNode.clDesc;
+            if (procCl.is_process == false) {
+                return false;
+            }
+            const pc = new RangerProcessCodegen();
+            const lang = operatorsOf_21.getTargetLang_22(procNewCtx);
+            yield pc.writeWrappedNewCall(procNewNode, procNewCtx, outWr, lang, this);
+            return true;
+        });
+    }
+    ;
     writeNewCall(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
+            if (yield this.tryWriteProcessNewCall(node, ctx, wr)) {
+                return;
+            }
             if (node.hasNewOper) {
                 const cl = node.clDesc;
                 const fc = node.getSecond();
@@ -14415,19 +17392,22 @@ class RangerGenericClassWriter {
                 wr.out("(", false);
                 const constr = cl.constructor_fn;
                 const givenArgs = node.getThird();
-                if ((typeof (constr) !== "undefined" && constr != null)) {
-                    for (let i = 0; i < constr.params.length; i++) {
-                        var arg = constr.params[i];
-                        const n = givenArgs.children[i];
-                        if (i > 0) {
-                            wr.out(", ", false);
-                        }
-                        if (true || ((typeof (arg.nameNode) !== "undefined" && arg.nameNode != null))) {
-                            yield this.WalkNode(n, ctx, wr);
-                        }
+                const pms = operatorsOf.filter_36(givenArgs.children, ((item, index) => {
+                    if (item.hasFlag("keyword")) {
+                        return false;
                     }
-                    ;
+                    return true;
+                }));
+                let cnt = 0;
+                for (let i = 0; i < pms.length; i++) {
+                    var n = pms[i];
+                    if (cnt > 0) {
+                        wr.out(", ", false);
+                    }
+                    cnt = cnt + 1;
+                    yield this.WalkNode(n, ctx, wr);
                 }
+                ;
                 wr.out(")", false);
             }
         });
@@ -14634,7 +17614,7 @@ class AndroidPageWriter {
             if (in_stdCode) {
                 newBody.children.push(stdCode);
             }
-            const ast = this.BuildAST("\r\n def ctx (new JinxProcessCtx)\r\n ctx.anyValues = (set ctx.anyValues \"view\" view)\r\n ctx.anyValues = (set ctx.anyValues \"uicontext\" (getUIContext))\r\n ctx.anyValues = (set ctx.anyValues \"process\" mainProcess)\r\n mainProcess.start(ctx)\r\n      ");
+            const ast = this.BuildAST("\n def ctx (new JinxProcessCtx)\n ctx.anyValues = (set ctx.anyValues \"view\" view)\n ctx.anyValues = (set ctx.anyValues \"uicontext\" (getUIContext))\n ctx.anyValues = (set ctx.anyValues \"process\" mainProcess)\n mainProcess.start(ctx)\n      ");
             yield operatorsOf.forEach_15(ast.children, ((item, index) => {
                 const n = item;
                 mainBody.children.push(n);
@@ -16532,6 +19512,11 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
     }
     ;
     getObjectTypeString(type_string, ctx) {
+        if ((type_string.length) >= 2) {
+            if ((type_string.charCodeAt(0)) == (91)) {
+                return this.collectionTypeStringToSwift(type_string, ctx);
+            }
+        }
         if (ctx.isDefinedClass(type_string)) {
             const cc = ctx.findClass(type_string);
             if (cc.is_union) {
@@ -16573,6 +19558,35 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
         }
         ;
         return type_string;
+    }
+    ;
+    collectionTypeStringToSwift(type_string, ctx) {
+        const n = type_string.length;
+        const inner = type_string.substring(1, (n - 1));
+        const il = inner.length;
+        let depth = 0;
+        let sep = 0 - 1;
+        let i = 0;
+        while (i < il) {
+            const c = inner.charCodeAt(i);
+            if (c == (91)) {
+                depth = depth + 1;
+            }
+            if (c == (93)) {
+                depth = depth - 1;
+            }
+            if ((c == (58)) && (depth == 0)) {
+                sep = i;
+            }
+            i = i + 1;
+        }
+        ;
+        if (sep >= 0) {
+            const kt = inner.substring(0, sep);
+            const vt = inner.substring((sep + 1), il);
+            return ((("[" + this.getObjectTypeString(kt, ctx)) + ":") + this.getObjectTypeString(vt, ctx)) + "]";
+        }
+        return ("[" + this.getObjectTypeString(inner, ctx)) + "]";
     }
     ;
     getTypeString(type_string) {
@@ -16854,6 +19868,13 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
                     }
                 }
                 if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+                    if ((node.children.length) > 2) {
+                        const value = node.getThird();
+                        if (this.defValueHasSideEffects(value)) {
+                            yield this.writeSideEffectOnlyStmt(value, ctx, wr);
+                            return;
+                        }
+                    }
                     wr.out("/** unused:  ", false);
                 }
                 if (p.is_static) {
@@ -16869,8 +19890,8 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
                 if ((node.children.length) > 2) {
                     wr.out(" = ", false);
                     ctx.setInExpr();
-                    const value = node.getThird();
-                    yield this.WalkNode(value, ctx, wr);
+                    const value_1 = node.getThird();
+                    yield this.WalkNode(value_1, ctx, wr);
                     ctx.unsetInExpr();
                 }
                 else {
@@ -16950,30 +19971,86 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
         });
     }
     ;
+    resolveCallReceiverClassName(obj, ctx) {
+        if ((obj.vref.length) > 0) {
+            if (ctx.isDefinedClass(obj.vref)) {
+                return obj.vref;
+            }
+        }
+        if ((obj.eval_type_name.length) > 0) {
+            if (ctx.isDefinedClass(obj.eval_type_name)) {
+                return obj.eval_type_name;
+            }
+        }
+        if ((obj.ns.length) >= 1) {
+            const head = obj.ns[0];
+            if (ctx.isDefinedClass(head)) {
+                return head;
+            }
+        }
+        if ((obj.children.length) == 1) {
+            const inner = obj.children[0];
+            const innerName = this.resolveCallReceiverClassName(inner, ctx);
+            if ((innerName.length) > 0) {
+                return innerName;
+            }
+        }
+        return "";
+    }
+    ;
+    isSimpleClassCallReceiver(obj, ctx) {
+        const className = this.resolveCallReceiverClassName(obj, ctx);
+        if ((className.length) == 0) {
+            return false;
+        }
+        if (obj.vref == className) {
+            return true;
+        }
+        if ((obj.children.length) == 1) {
+            const inner = obj.children[0];
+            if (inner.vref == className) {
+                return true;
+            }
+        }
+        return false;
+    }
+    ;
     CreateCallExpression(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             if (node.has_call) {
                 const obj = node.getSecond();
                 const method = node.getThird();
                 const args = node.children[3];
-                wr.out("(", false);
+                const simpleReceiver = this.isSimpleClassCallReceiver(obj, ctx);
+                if (simpleReceiver == false) {
+                    wr.out("(", false);
+                }
                 ctx.setInExpr();
                 yield this.WalkNode(obj, ctx, wr);
                 ctx.unsetInExpr();
-                wr.out(").", false);
-                wr.out(method.vref, false);
+                if (simpleReceiver == false) {
+                    wr.out(").", false);
+                }
+                else {
+                    wr.out(".", false);
+                }
+                let methodName = method.vref;
+                if (((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) && ((node.fnDesc.compiledName.length) > 0)) {
+                    methodName = node.fnDesc.compiledName;
+                }
+                wr.out(methodName, false);
                 wr.out("(", false);
                 ctx.setInExpr();
+                const fnDesc = this.resolveMethodFnDesc(node, ctx);
+                const hasFnDesc = (typeof (fnDesc) !== "undefined" && fnDesc != null);
                 for (let i = 0; i < args.children.length; i++) {
                     var arg = args.children[i];
                     if (i > 0) {
                         wr.out(", ", false);
                     }
-                    if (ctx.isDefinedClass(obj.eval_type_name)) {
-                        const clDef = ctx.findClass(obj.eval_type_name);
-                        const clMethod = clDef.findMethod(method.vref);
-                        if ((typeof (clMethod) !== "undefined" && clMethod != null)) {
-                            const mm = clMethod;
+                    if (hasFnDesc) {
+                        const mm = fnDesc;
+                        if (i < (mm.params.length)) {
                             const pDesc = mm.params[i];
                             wr.out(pDesc.compiledName + " : ", false);
                             if (((pDesc.nameNode)).hasFlag("mutates")) {
@@ -16982,9 +20059,6 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
                             yield this.WalkNode(arg, ctx, wr);
                             continue;
                         }
-                    }
-                    else {
-                        ctx.addError(arg, "Could not find evaluated class for the call");
                     }
                     yield this.WalkNode(arg, ctx, wr);
                 }
@@ -17128,7 +20202,10 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
             if (node.hasNewOper) {
                 const cl = node.clDesc;
                 const givenArgs = node.getThird();
-                if (cl.nameNode.hasFlag("singleton")) {
+                if (yield this.tryWriteProcessNewCall(node, ctx, wr)) {
+                    return;
+                }
+                if (cl.isSingletonClass()) {
                     wr.out(node.clDesc.name + ".__singleton", false);
                     wr.out("(", false);
                     if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
@@ -17406,7 +20483,7 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
                 wr.out("}", true);
             }
             ;
-            if (cl.nameNode.hasFlag("singleton")) {
+            if (cl.isSingletonClass()) {
                 wr.out(("private static var __singleton_instance : " + cl.compiledName) + "? = nil", true);
                 wr.out("class func __singleton(", false);
                 if (cl.has_constructor) {
@@ -17441,13 +20518,13 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
                 const mVs_1 = (cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined);
                 for (let i_11 = 0; i_11 < mVs_1.variants.length; i_11++) {
                     var variant_3 = mVs_1.variants[i_11];
-                    if ((typeof (dblDeclaredFunction[variant_3.name]) != "undefined" && dblDeclaredFunction.hasOwnProperty(variant_3.name))) {
+                    if ((typeof (dblDeclaredFunction[variant_3.compiledName]) != "undefined" && dblDeclaredFunction.hasOwnProperty(variant_3.compiledName))) {
                         continue;
                     }
                     if ((typeof (declaredFunction[variant_3.name]) != "undefined" && declaredFunction.hasOwnProperty(variant_3.name))) {
                         wr.out("override ", false);
                     }
-                    dblDeclaredFunction[variant_3.name] = true;
+                    dblDeclaredFunction[variant_3.compiledName] = true;
                     wr.out(("func " + variant_3.compiledName) + "(", false);
                     if ((typeof (parentFunction[variant_3.name]) != "undefined" && parentFunction.hasOwnProperty(variant_3.name))) {
                         yield this.writeArgsDefWithLocals(((parentFunction.hasOwnProperty(variant_3.name) ? parentFunction[variant_3.name] : undefined)), variant_3, ctx, wr);
@@ -17462,6 +20539,10 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
                     wr.newline();
                     const subCtx_2 = variant_3.fnCtx;
                     subCtx_2.is_function = true;
+                    subCtx_2.in_method = true;
+                    subCtx_2.in_static_method = false;
+                    subCtx_2.currentMethod = variant_3;
+                    subCtx_2.setCurrentClass(cl);
                     yield this.WalkNode(variant_3.fnBody, subCtx_2, wr);
                     wr.newline();
                     wr.indent(-1);
@@ -17485,6 +20566,9 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
                     theEnd.indent(1);
                     const subCtx_3 = variant_4.fnCtx;
                     subCtx_3.is_function = true;
+                    subCtx_3.in_method = false;
+                    subCtx_3.in_static_method = true;
+                    subCtx_3.currentMethod = variant_4;
                     yield this.WalkNode(variant_4.fnBody, subCtx_3, theEnd);
                     theEnd.newline();
                     theEnd.indent(-1);
@@ -17497,12 +20581,102 @@ class RangerSwift6ClassWriter extends RangerGenericClassWriter {
         });
     }
     ;
+    resolveMethodFnDesc(methodNode, ctx) {
+        let res;
+        if (methodNode.hasParamDesc) {
+            const raw = (methodNode.paramDesc);
+            if ((raw.params.length) > 0) {
+                res = raw;
+                return res;
+            }
+        }
+        if ((methodNode.ns.length) >= 2) {
+            const className = methodNode.ns[0];
+            if (ctx.isDefinedClass(className)) {
+                const clDef = ctx.findClass(className);
+                const methodName = methodNode.ns[1];
+                let found = clDef.findStaticMethod(methodName);
+                if (typeof (found) === "undefined") {
+                    found = clDef.findMethod(methodName);
+                }
+                if ((typeof (found) !== "undefined" && found != null)) {
+                    res = found;
+                    return res;
+                }
+            }
+        }
+        if ((typeof (methodNode.fnDesc) !== "undefined" && methodNode.fnDesc != null)) {
+            res = methodNode.fnDesc;
+            return res;
+        }
+        if (methodNode.has_call) {
+            const obj = methodNode.getSecond();
+            const method = methodNode.getThird();
+            const className_1 = this.resolveCallReceiverClassName(obj, ctx);
+            if ((className_1.length) > 0) {
+                const clDef_1 = ctx.findClass(className_1);
+                let found_1 = clDef_1.findStaticMethod(method.vref);
+                if (typeof (found_1) === "undefined") {
+                    found_1 = clDef_1.findMethod(method.vref);
+                }
+                if ((typeof (found_1) !== "undefined" && found_1 != null)) {
+                    res = found_1;
+                    return res;
+                }
+            }
+        }
+        return res;
+    }
+    ;
+    CreateMethodCall(node, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const methodNode = node.getFirst();
+            const args = node.getSecond();
+            ctx.setInExpr();
+            yield this.WalkNode(methodNode, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out("(", false);
+            ctx.setInExpr();
+            let hasFnDesc = false;
+            let fnDesc;
+            const resolved = this.resolveMethodFnDesc(methodNode, ctx);
+            if ((typeof (resolved) !== "undefined" && resolved != null)) {
+                fnDesc = resolved;
+                hasFnDesc = true;
+            }
+            const pms = operatorsOf.filter_36(args.children, ((item, index) => {
+                if (item.hasFlag("keyword")) {
+                    return false;
+                }
+                return true;
+            }));
+            for (let i = 0; i < pms.length; i++) {
+                var arg = pms[i];
+                if (i > 0) {
+                    wr.out(", ", false);
+                }
+                if (hasFnDesc) {
+                    if (i < (fnDesc.params.length)) {
+                        const pArg = fnDesc.params[i];
+                        wr.out(pArg.compiledName + " : ", false);
+                    }
+                }
+                yield this.WalkNode(arg, ctx, wr);
+            }
+            ;
+            ctx.unsetInExpr();
+            wr.out(")", false);
+        });
+    }
+    ;
 }
 exports.RangerSwift6ClassWriter = RangerSwift6ClassWriter;
 class RangerCppClassWriter extends RangerGenericClassWriter {
     constructor() {
         super();
         this.header_created = false;
+        this.buf_ret_seen = false;
+        this.buf_ret_all_safe = true;
     }
     lineEnding() {
         return ";";
@@ -17521,7 +20695,16 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                 wr.out("" + node.double_value, false);
                 break;
             case 4:
-                const s = this.EncodeString(node, ctx, wr);
+                let s = this.EncodeString(node, ctx, wr);
+                s = s.replace("??=", "\\?\\?=");
+                s = s.replace("??(", "\\?\\?(");
+                s = s.replace("??/", "\\?\\?/");
+                s = s.replace("??)", "\\?\\?)");
+                s = s.replace("??'", "\\?\\?'");
+                s = s.replace("??<", "\\?\\?<");
+                s = s.replace("??!", "\\?\\?!");
+                s = s.replace("??>", "\\?\\?>");
+                s = s.replace("??-", "\\?\\?-");
                 wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
                 break;
             case 3:
@@ -17540,6 +20723,11 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
     }
     ;
     getObjectTypeString(type_string, ctx) {
+        if ((type_string.length) >= 2) {
+            if ((type_string.charCodeAt(0)) == (91)) {
+                return this.collectionTypeStringToCpp(type_string, ctx);
+            }
+        }
         switch (type_string) {
             case "char":
                 return "char";
@@ -17553,6 +20741,16 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                 return "std::vector<double>";
             case "int":
                 return "int";
+            case "u8":
+                return "uint8_t";
+            case "u16":
+                return "uint16_t";
+            case "u32":
+                return "uint32_t";
+            case "i32":
+                return "int32_t";
+            case "f32":
+                return "float";
             case "string":
                 return "std::string";
             case "boolean":
@@ -17574,6 +20772,35 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
         return type_string;
     }
     ;
+    collectionTypeStringToCpp(type_string, ctx) {
+        const n = type_string.length;
+        const inner = type_string.substring(1, (n - 1));
+        const il = inner.length;
+        let depth = 0;
+        let sep = 0 - 1;
+        let i = 0;
+        while (i < il) {
+            const c = inner.charCodeAt(i);
+            if (c == (91)) {
+                depth = depth + 1;
+            }
+            if (c == (93)) {
+                depth = depth - 1;
+            }
+            if ((c == (58)) && (depth == 0)) {
+                sep = i;
+            }
+            i = i + 1;
+        }
+        ;
+        if (sep >= 0) {
+            const kt = inner.substring(0, sep);
+            const vt = inner.substring((sep + 1), il);
+            return ((("std::map<" + this.getObjectTypeString(kt, ctx)) + ",") + this.getObjectTypeString(vt, ctx)) + ">";
+        }
+        return ("std::vector<" + this.getObjectTypeString(inner, ctx)) + ">";
+    }
+    ;
     getTypeString2(type_string, ctx) {
         switch (type_string) {
             case "char":
@@ -17588,6 +20815,16 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                 return "std::vector<double>";
             case "int":
                 return "int";
+            case "u8":
+                return "uint8_t";
+            case "u16":
+                return "uint16_t";
+            case "u32":
+                return "uint32_t";
+            case "i32":
+                return "int32_t";
+            case "f32":
+                return "float";
             case "string":
                 return "std::string";
             case "boolean":
@@ -17652,11 +20889,27 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                     wr.out("int", false);
                     break;
                 case 3:
+                    let intCppType = "int";
+                    if (t_name == "u8") {
+                        intCppType = "uint8_t";
+                    }
+                    if (t_name == "u16") {
+                        intCppType = "uint16_t";
+                    }
+                    if (t_name == "u32") {
+                        intCppType = "uint32_t";
+                    }
+                    if (t_name == "i32") {
+                        intCppType = "int32_t";
+                    }
+                    if (intCppType != "int") {
+                        wr.addImport("<cstdint>");
+                    }
                     if (node.hasFlag("optional")) {
-                        wr.out(" r_optional_primitive<int> ", false);
+                        wr.out((" r_optional_primitive<" + intCppType) + "> ", false);
                     }
                     else {
-                        wr.out("int", false);
+                        wr.out(intCppType, false);
                     }
                     break;
                 case 14:
@@ -17670,12 +20923,25 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                     wr.addImport("<cstdint>");
                     wr.out("std::vector<uint8_t>", false);
                     break;
+                case 17:
+                    wr.addImport("<vector>");
+                    wr.addImport("<cstdint>");
+                    wr.out("std::vector<int64_t>", false);
+                    break;
+                case 18:
+                    wr.addImport("<vector>");
+                    wr.out("std::vector<double>", false);
+                    break;
                 case 2:
+                    let dblCppType = "double";
+                    if (t_name == "f32") {
+                        dblCppType = "float";
+                    }
                     if (node.hasFlag("optional")) {
-                        wr.out(" r_optional_primitive<double> ", false);
+                        wr.out((" r_optional_primitive<" + dblCppType) + "> ", false);
                     }
                     else {
-                        wr.out("double", false);
+                        wr.out(dblCppType, false);
                     }
                     break;
                 case 4:
@@ -17721,6 +20987,130 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                     break;
             }
             ;
+        });
+    }
+    ;
+    cppMemberPathOf(node) {
+        if ((node.ns.length) >= 2) {
+            let path = "";
+            for (let i = 0; i < node.ns.length; i++) {
+                var part = node.ns[i];
+                if (i > 0) {
+                    path = path + ".";
+                }
+                path = path + part;
+            }
+            ;
+            return path;
+        }
+        if ((node.vref.length) > 0) {
+            const idx = node.vref.indexOf(".");
+            if (idx > 0) {
+                return node.vref;
+            }
+        }
+        return "";
+    }
+    ;
+    cppReturnIsSafeBufferLvalue(retValue) {
+        const path = this.cppMemberPathOf(retValue);
+        if ((path.length) > 0) {
+            if ((path.indexOf("this.")) == 0) {
+                return true;
+            }
+        }
+        if (retValue.expression) {
+            if ((retValue.children.length) >= 2) {
+                const head = retValue.getFirst();
+                const op = head.vref;
+                if ((op == "itemAt") || (op == "get")) {
+                    const container = retValue.getSecond();
+                    const cpath = this.cppMemberPathOf(container);
+                    if ((cpath.length) > 0) {
+                        if ((cpath.indexOf("this.")) == 0) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    ;
+    cppScanBufferReturns(node) {
+        if ((typeof (node.lambda_ctx) !== "undefined" && node.lambda_ctx != null)) {
+            return;
+        }
+        if (node.expression) {
+            if ((node.children.length) > 0) {
+                const first = node.getFirst();
+                if (first.vref == "return") {
+                    if ((node.children.length) >= 2) {
+                        this.buf_ret_seen = true;
+                        const retValue = node.getSecond();
+                        if (false == this.cppReturnIsSafeBufferLvalue(retValue)) {
+                            this.buf_ret_all_safe = false;
+                        }
+                    }
+                    else {
+                        this.buf_ret_seen = true;
+                        this.buf_ret_all_safe = false;
+                    }
+                }
+            }
+        }
+        for (let i = 0; i < node.children.length; i++) {
+            var child = node.children[i];
+            this.cppScanBufferReturns(child);
+        }
+        ;
+    }
+    ;
+    cppBufferReturnByRef(variant, ctx) {
+        if (typeof (variant.nameNode) === "undefined") {
+            return false;
+        }
+        const node = variant.nameNode;
+        if (node.hasFlag("optional")) {
+            return false;
+        }
+        let v_type = node.value_type;
+        if (((v_type == 10) || (v_type == 11)) || (v_type == 0)) {
+            v_type = node.typeNameAsType(ctx);
+        }
+        if (node.eval_type != 0) {
+            v_type = node.eval_type;
+        }
+        if (((v_type != 16) && (v_type != 17)) && (v_type != 18)) {
+            return false;
+        }
+        if ((typeof (variant.container_class) !== "undefined" && variant.container_class != null)) {
+            const cc = variant.container_class;
+            if (cc.is_inherited) {
+                return false;
+            }
+            if ((cc.extends_classes.length) > 0) {
+                return false;
+            }
+        }
+        if (typeof (variant.fnBody) === "undefined") {
+            return false;
+        }
+        this.buf_ret_seen = false;
+        this.buf_ret_all_safe = true;
+        this.cppScanBufferReturns(variant.fnBody);
+        if (this.buf_ret_seen == false) {
+            return false;
+        }
+        return this.buf_ret_all_safe;
+    }
+    ;
+    writeReturnTypeDef(variant, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.writeTypeDef(variant.nameNode, ctx, wr);
+            if (this.cppBufferReturnByRef(variant, ctx)) {
+                wr.out("&", false);
+            }
         });
     }
     ;
@@ -17818,7 +21208,21 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
             if (node.hasParamDesc) {
                 const nn = node.children[1];
                 const p = nn.paramDesc;
-                if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+                let initHasSideEffect = false;
+                if ((node.children.length) > 2) {
+                    const initChk = node.getThird();
+                    if (initChk.hasFnCall) {
+                        initHasSideEffect = true;
+                    }
+                    if (initChk.has_call) {
+                        initHasSideEffect = true;
+                    }
+                    if (initChk.hasNewOper) {
+                        initHasSideEffect = true;
+                    }
+                }
+                const elideUnused = ((p.ref_cnt == 0) && (p.is_class_variable == false)) && (initHasSideEffect == false);
+                if (elideUnused) {
                     wr.out("/** unused:  ", false);
                 }
                 if ((p.set_cnt > 0) || p.is_class_variable) {
@@ -17828,7 +21232,26 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                     wr.out("", false);
                 }
                 yield this.writeTypeDef(p.nameNode, ctx, wr);
-                if (p.needs_cpp_reference) {
+                let useCppRef = p.needs_cpp_reference && p.is_assigned_from_member;
+                if ((node.children.length) > 2) {
+                    const initNode = node.getThird();
+                    if (initNode.hasNewOper) {
+                        useCppRef = false;
+                    }
+                    if (initNode.hasFnCall) {
+                        useCppRef = false;
+                    }
+                    if (initNode.has_call) {
+                        useCppRef = false;
+                    }
+                    if ((typeof (p.nameNode) !== "undefined" && p.nameNode != null)) {
+                        const typeNode = p.nameNode;
+                        if (((typeNode.type_name == "buffer") || (typeNode.type_name == "int_buffer")) || (typeNode.type_name == "double_buffer")) {
+                            useCppRef = false;
+                        }
+                    }
+                }
+                if (useCppRef) {
                     wr.out("&", false);
                 }
                 wr.out(" ", false);
@@ -17845,7 +21268,7 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                 if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
                     wr.out("     /** note: unused */", false);
                 }
-                if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+                if (elideUnused) {
                     wr.out("   **/ ;", true);
                 }
                 else {
@@ -18124,6 +21547,61 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
         });
     }
     ;
+    cppReadonlyValueParam(arg) {
+        if (arg.set_cnt > 0) {
+            return false;
+        }
+        if (arg.needs_cpp_reference) {
+            return false;
+        }
+        if (typeof (arg.nameNode) === "undefined") {
+            return false;
+        }
+        const typeNode = arg.nameNode;
+        if (typeNode.hasFlag("optional")) {
+            return false;
+        }
+        const vt = typeNode.value_type;
+        if (vt == 4) {
+            return true;
+        }
+        if (vt == 7) {
+            return true;
+        }
+        if (vt == 6) {
+            return true;
+        }
+        if (vt == 16) {
+            return true;
+        }
+        if (vt == 17) {
+            return true;
+        }
+        if (vt == 18) {
+            return true;
+        }
+        const tn = typeNode.type_name;
+        if (tn == "string") {
+            return true;
+        }
+        if (tn == "buffer") {
+            return true;
+        }
+        if (tn == "int_buffer") {
+            return true;
+        }
+        if (tn == "double_buffer") {
+            return true;
+        }
+        if ((tn.length) > 0) {
+            const firstCh = tn.substring(0, 1);
+            if (firstCh == "[") {
+                return true;
+            }
+        }
+        return false;
+    }
+    ;
     writeArgsDef(fnDesc, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             for (let i = 0; i < fnDesc.params.length; i++) {
@@ -18132,9 +21610,44 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                     wr.out(",", false);
                 }
                 wr.out(" ", false);
+                const constRef = this.cppReadonlyValueParam(arg);
+                if (constRef) {
+                    wr.out("const ", false);
+                }
                 yield this.writeTypeDef(arg.nameNode, ctx, wr);
-                if (arg.needs_cpp_reference) {
+                if (constRef) {
                     wr.out("&", false);
+                }
+                if (constRef == false) {
+                    if ((typeof (arg.nameNode) !== "undefined" && arg.nameNode != null)) {
+                        const bufTypeNode = arg.nameNode;
+                        const bufTn = bufTypeNode.type_name;
+                        if (((bufTn == "buffer") || (bufTn == "int_buffer")) || (bufTn == "double_buffer")) {
+                            wr.out("&", false);
+                        }
+                    }
+                }
+                if (arg.needs_cpp_reference) {
+                    let emitRef = true;
+                    if ((typeof (arg.nameNode) !== "undefined" && arg.nameNode != null)) {
+                        const typeNode = arg.nameNode;
+                        const v_type = typeNode.value_type;
+                        if ((v_type == 10) || (v_type == 11)) {
+                            emitRef = false;
+                        }
+                        if ((typeNode.type_name.length) > 0) {
+                            if (ctx.isDefinedClass(typeNode.type_name)) {
+                                emitRef = false;
+                            }
+                            const tn = typeNode.type_name;
+                            if (((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer")) {
+                                emitRef = false;
+                            }
+                        }
+                    }
+                    if (emitRef) {
+                        wr.out("&", false);
+                    }
                 }
                 wr.out((" " + arg.compiledName) + " ", false);
             }
@@ -18209,17 +21722,16 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
     ;
     writeArrayLiteral(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
-            this.compiler.createPolyfillLegacy("\r\ntemplate< typename T, size_t N >\r\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\r\n{\r\n    return std::vector<T>(data, data+N);\r\n}\r\n", ctx, wr);
-            wr.out("r_make_vector_from_array( (", false);
+            wr.out("std::vector<", false);
             wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
-            wr.out("[] ) {", false);
+            wr.out(">{", false);
             yield operatorsOf.forEach_15(node.children, ((item, index) => __awaiter(this, void 0, void 0, function* () {
                 if (index > 0) {
                     wr.out(", ", false);
                 }
                 yield this.WalkNode(item, ctx, wr);
             })));
-            wr.out("} )", false);
+            wr.out("}", false);
         });
     }
     ;
@@ -18273,12 +21785,21 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                     wr.out("/* static methods */ ", true);
                 }
                 wr.out("static ", false);
-                yield this.writeTypeDef(variant.nameNode, ctx, wr);
+                yield this.writeReturnTypeDef(variant, ctx, wr);
                 wr.out((" " + variant.compiledName) + "(", false);
                 yield this.writeArgsDef(variant, ctx, wr);
                 wr.out(");", true);
             }
             ;
+            if (cl.isSingletonClass()) {
+                wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton_instance;", true);
+                wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton(", false);
+                if (cl.has_constructor) {
+                    const constr_1 = cl.constructor_fn;
+                    yield this.writeArgsDef(constr_1, ctx, wr);
+                }
+                wr.out(");", true);
+            }
             for (let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
                 var fnVar = cl.defined_variants[i_4];
                 if (i_4 == 0) {
@@ -18290,7 +21811,7 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                     if (cl.is_inherited) {
                         wr.out("virtual ", false);
                     }
-                    yield this.writeTypeDef(variant_1.nameNode, ctx, wr);
+                    yield this.writeReturnTypeDef(variant_1, ctx, wr);
                     wr.out((" " + variant_1.compiledName) + "(", false);
                     yield this.writeArgsDef(variant_1, ctx, wr);
                     wr.out(");", true);
@@ -18434,12 +21955,42 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
             }
             wr.indent(-1);
             wr.out("}", true);
-            for (let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
-                var variant = cl.static_methods[i_4];
+            if (cl.isSingletonClass()) {
+                wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton_instance = nullptr;", true);
+                wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton(", false);
+                if (cl.has_constructor) {
+                    const constr_3 = cl.constructor_fn;
+                    yield this.writeArgsDef(constr_3, ctx, wr);
+                }
+                wr.out(") {", true);
+                wr.indent(1);
+                wr.out(("if (" + cl.name) + "::__singleton_instance == nullptr) {", true);
+                wr.indent(1);
+                wr.out(((cl.name + "::__singleton_instance = std::make_shared<") + cl.name) + ">(", false);
+                if (cl.has_constructor) {
+                    const constr_4 = cl.constructor_fn;
+                    for (let i_4 = 0; i_4 < constr_4.params.length; i_4++) {
+                        var arg_1 = constr_4.params[i_4];
+                        if (i_4 > 0) {
+                            wr.out(", ", false);
+                        }
+                        wr.out(arg_1.compiledName, false);
+                    }
+                    ;
+                }
+                wr.out(");", true);
+                wr.indent(-1);
+                wr.out("}", true);
+                wr.out(("return " + cl.name) + "::__singleton_instance;", true);
+                wr.indent(-1);
+                wr.out("}", true);
+            }
+            for (let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
+                var variant = cl.static_methods[i_5];
                 if (variant.nameNode.hasFlag("main")) {
                     continue;
                 }
-                yield this.writeTypeDef(variant.nameNode, ctx, wr);
+                yield this.writeReturnTypeDef(variant, ctx, wr);
                 wr.out(" ", false);
                 wr.out((" " + cl.name) + "::", false);
                 wr.out(variant.compiledName + "(", false);
@@ -18455,12 +22006,12 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                 wr.out("}", true);
             }
             ;
-            for (let i_5 = 0; i_5 < cl.defined_variants.length; i_5++) {
-                var fnVar = cl.defined_variants[i_5];
+            for (let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
+                var fnVar = cl.defined_variants[i_6];
                 const mVs = (cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined);
-                for (let i_6 = 0; i_6 < mVs.variants.length; i_6++) {
-                    var variant_1 = mVs.variants[i_6];
-                    yield this.writeTypeDef(variant_1.nameNode, ctx, wr);
+                for (let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
+                    var variant_1 = mVs.variants[i_7];
+                    yield this.writeReturnTypeDef(variant_1, ctx, wr);
                     wr.out(" ", false);
                     wr.out((" " + cl.name) + "::", false);
                     wr.out(variant_1.compiledName + "(", false);
@@ -18478,8 +22029,8 @@ class RangerCppClassWriter extends RangerGenericClassWriter {
                 ;
             }
             ;
-            for (let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
-                var variant_2 = cl.static_methods[i_7];
+            for (let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+                var variant_2 = cl.static_methods[i_8];
                 if (variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile())) {
                     ctx.setCompilerSetting("mainclass", cl.name);
                     wr.out("int main(int argc, char* argv[]) {", true);
@@ -20638,6 +24189,19 @@ class RangerRustClassWriter extends RangerGenericClassWriter {
         });
     }
     ;
+    writeArrayLiteral(node, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            wr.out("vec![", false);
+            yield operatorsOf.forEach_15(node.children, ((item, index) => __awaiter(this, void 0, void 0, function* () {
+                if (index > 0) {
+                    wr.out(", ", false);
+                }
+                yield this.WalkNode(item, ctx, wr);
+            })));
+            wr.out("]", false);
+        });
+    }
+    ;
     writeClass(node, ctx, orig_wr) {
         return __awaiter(this, void 0, void 0, function* () {
             const ucl = node.clDesc;
@@ -21110,15 +24674,27 @@ class RangerRustClassWriter extends RangerGenericClassWriter {
                 var variant_6 = cl.static_methods[i_15];
                 const nn_2 = variant_6.nameNode;
                 if (nn_2.hasFlag("main") && (nn_2.code.filename == ctx.getRootFile())) {
+                    const mainReturns = ((nn_2.type_name.length) > 0) && (nn_2.type_name != "void");
                     wr.out("fn main() {", true);
                     wr.indent(1);
                     wr.newline();
+                    if (mainReturns) {
+                        wr.out("let __rg_exit_code = (|| {", true);
+                        wr.indent(1);
+                        wr.newline();
+                    }
                     const subCtx_4 = variant_6.fnCtx;
                     if ((typeof (subCtx_4) !== "undefined" && subCtx_4 != null)) {
                         const sCtx_4 = subCtx_4;
                         sCtx_4.is_function = true;
                         const fnB_4 = variant_6.fnBody;
                         yield this.WalkNode(fnB_4, sCtx_4, wr);
+                    }
+                    if (mainReturns) {
+                        wr.newline();
+                        wr.indent(-1);
+                        wr.out("})();", true);
+                        wr.out("std::process::exit(__rg_exit_code as i32);", true);
                     }
                     wr.newline();
                     wr.indent(-1);
@@ -21858,6 +25434,11 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
     }
     ;
     getObjectTypeString(type_string, ctx) {
+        if ((type_string.length) >= 2) {
+            if ((type_string.charCodeAt(0)) == (91)) {
+                return this.collectionTypeStringToKotlin(type_string, ctx);
+            }
+        }
         switch (type_string) {
             case "int":
                 return "Int";
@@ -21880,6 +25461,35 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
         }
         ;
         return type_string;
+    }
+    ;
+    collectionTypeStringToKotlin(type_string, ctx) {
+        const n = type_string.length;
+        const inner = type_string.substring(1, (n - 1));
+        const il = inner.length;
+        let depth = 0;
+        let sep = 0 - 1;
+        let i = 0;
+        while (i < il) {
+            const c = inner.charCodeAt(i);
+            if (c == (91)) {
+                depth = depth + 1;
+            }
+            if (c == (93)) {
+                depth = depth - 1;
+            }
+            if ((c == (58)) && (depth == 0)) {
+                sep = i;
+            }
+            i = i + 1;
+        }
+        ;
+        if (sep >= 0) {
+            const kt = inner.substring(0, sep);
+            const vt = inner.substring((sep + 1), il);
+            return ((("MutableMap<" + this.getObjectTypeString(kt, ctx)) + ",") + this.getObjectTypeString(vt, ctx)) + ">";
+        }
+        return ("MutableList<" + this.getObjectTypeString(inner, ctx)) + ">";
     }
     ;
     getTypeString(type_string) {
@@ -22066,6 +25676,13 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                 const nn = node.children[1];
                 const p = nn.paramDesc;
                 if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+                    if ((node.children.length) > 2) {
+                        const value = node.getThird();
+                        if (this.defValueHasSideEffects(value)) {
+                            yield this.writeSideEffectOnlyStmt(value, ctx, wr);
+                            return;
+                        }
+                    }
                     wr.out("/** unused:  ", false);
                 }
                 if (p.is_class_variable) {
@@ -22084,8 +25701,8 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                 if ((node.children.length) > 2) {
                     wr.out(" = ", false);
                     ctx.setInExpr();
-                    const value = node.getThird();
-                    yield this.WalkNode(value, ctx, wr);
+                    const value_1 = node.getThird();
+                    yield this.WalkNode(value_1, ctx, wr);
                     ctx.unsetInExpr();
                 }
                 else {
@@ -22115,6 +25732,13 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
         });
     }
     ;
+    paramEmitName(arg, ctx) {
+        if ((arg.compiledName.length) > 0) {
+            return arg.compiledName;
+        }
+        return ctx.transformWord(arg.name);
+    }
+    ;
     writeArgsDef(fnDesc, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             for (let i = 0; i < fnDesc.params.length; i++) {
@@ -22123,7 +25747,7 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                     wr.out(",", false);
                 }
                 wr.out(" ", false);
-                wr.out(arg.name + " : ", false);
+                wr.out(this.paramEmitName(arg, ctx) + " : ", false);
                 yield this.writeTypeDef(arg.nameNode, ctx, wr);
             }
             ;
@@ -22133,6 +25757,7 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
     writeFnCall(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             if (node.hasFnCall) {
+                ctx.setInExpr();
                 const fc = node.getFirst();
                 yield this.WriteVRef(fc, ctx, wr);
                 wr.out("(", false);
@@ -22158,6 +25783,7 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                 }
                 ;
                 wr.out(")", false);
+                ctx.unsetInExpr();
                 if (ctx.expressionLevel() == 0) {
                     wr.out(";", true);
                 }
@@ -22170,7 +25796,10 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
             if (node.hasNewOper) {
                 const cl = node.clDesc;
                 const givenArgs = node.getThird();
-                if (cl.nameNode.hasFlag("singleton")) {
+                if (yield this.tryWriteProcessNewCall(node, ctx, wr)) {
+                    return;
+                }
+                if (cl.isSingletonClass()) {
                     wr.out(" ", false);
                     wr.out(node.clDesc.name + ".__singleton", false);
                     wr.out("(", false);
@@ -22218,7 +25847,7 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
             const wr = orig_wr;
             const importFork = wr.fork();
             wr.out("", true);
-            if (cl.is_extended_by_children) {
+            if (cl.is_extended_by_children || (cl.name == "RangerProcessBase")) {
                 wr.out("open class " + cl.name, false);
             }
             else {
@@ -22280,6 +25909,9 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                         }
                         wr.out(")", false);
                     }
+                    else {
+                        wr.out("()", false);
+                    }
                 }
                 ;
             }
@@ -22298,7 +25930,7 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
             if (((cl.static_methods.length) > 0) || has_static_vars) {
                 wants_companion = true;
             }
-            if (cl.nameNode.hasFlag("singleton")) {
+            if (cl.isSingletonClass()) {
                 wants_companion = true;
             }
             for (let i_2 = 0; i_2 < cl.variables.length; i_2++) {
@@ -22334,7 +25966,7 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                 yield this.writeVarDef(pvar_2.node, ctx, wr);
             }
             ;
-            if (cl.nameNode.hasFlag("singleton")) {
+            if (cl.isSingletonClass()) {
                 wr.out(("private var __singleton_instance : " + cl.compiledName) + "? = null", true);
                 wr.out("fun __singleton(", false);
                 if (cl.has_constructor) {
@@ -22387,6 +26019,10 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                 wr.newline();
                 const subCtx_1 = variant_1.fnCtx;
                 subCtx_1.is_function = true;
+                subCtx_1.in_method = true;
+                subCtx_1.in_static_method = false;
+                subCtx_1.currentMethod = variant_1;
+                subCtx_1.setCurrentClass(cl);
                 yield this.WalkNode(variant_1.fnBody, subCtx_1, wr);
                 wr.newline();
                 wr.indent(-1);
@@ -22432,6 +26068,10 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                     wr.newline();
                     const subCtx_2 = variant_2.fnCtx;
                     subCtx_2.is_function = true;
+                    subCtx_2.in_method = true;
+                    subCtx_2.in_static_method = false;
+                    subCtx_2.currentMethod = variant_2;
+                    subCtx_2.setCurrentClass(cl);
                     yield this.WalkNode(variant_2.fnBody, subCtx_2, wr);
                     wr.newline();
                     wr.indent(-1);
@@ -22451,6 +26091,9 @@ class RangerKotlinClassWriter extends RangerGenericClassWriter {
                     wr.newline();
                     const subCtx_3 = variant_3.fnCtx;
                     subCtx_3.is_function = true;
+                    subCtx_3.in_method = false;
+                    subCtx_3.in_static_method = true;
+                    subCtx_3.currentMethod = variant_3;
                     yield this.WalkNode(variant_3.fnBody, subCtx_3, wr);
                     wr.newline();
                     wr.indent(-1);
@@ -24721,10 +28364,20 @@ class RangerGolangClassWriter extends RangerGenericClassWriter {
                             }
                         }
                         else {
+                            if (value_1.hasNewOper || (false == value_1.hasFlag("optional"))) {
+                                wr.out(p.compiledName + ".value = ", false);
+                                ctx.setInExpr();
+                                const value_5 = node.getThird();
+                                yield this.WalkNode(value_5, ctx, wr);
+                                ctx.unsetInExpr();
+                                wr.out(";", true);
+                                wr.out(p.compiledName + ".has_value = true;", true);
+                                return;
+                            }
                             wr.out(p.compiledName + " = ", false);
                             ctx.setInExpr();
-                            const value_5 = node.getThird();
-                            yield this.WalkNode(value_5, ctx, wr);
+                            const value_6 = node.getThird();
+                            yield this.WalkNode(value_6, ctx, wr);
                             ctx.unsetInExpr();
                             wr.out(";", true);
                             return;
@@ -24745,11 +28398,11 @@ class RangerGolangClassWriter extends RangerGenericClassWriter {
                     this.writeTypeDef2(p.nameNode, ctx, wr);
                 }
                 if ((node.children.length) > 2) {
-                    const value_6 = node.getThird();
-                    if (value_6.expression && ((value_6.children.length) > 1)) {
-                        const fc = value_6.children[0];
+                    const value_7 = node.getThird();
+                    if (value_7.expression && ((value_7.children.length) > 1)) {
+                        const fc = value_7.children[0];
                         if (fc.vref == "array_extract") {
-                            yield this.goExtractAssign(value_6, p, ctx, wr);
+                            yield this.goExtractAssign(value_7, p, ctx, wr);
                             return;
                         }
                     }
@@ -24758,14 +28411,14 @@ class RangerGolangClassWriter extends RangerGenericClassWriter {
                     if (p.nameNode.eval_type_name == "char") {
                         wr.out("byte(", false);
                     }
-                    if ((p.nameNode.eval_type_name == "int") && (value_6.eval_type_name == "char")) {
+                    if ((p.nameNode.eval_type_name == "int") && (value_7.eval_type_name == "char")) {
                         wr.out("int64(", false);
                     }
-                    yield this.WalkNode(value_6, ctx, wr);
+                    yield this.WalkNode(value_7, ctx, wr);
                     if (p.nameNode.eval_type_name == "char") {
                         wr.out(")", false);
                     }
-                    if ((p.nameNode.eval_type_name == "int") && (value_6.eval_type_name == "char")) {
+                    if ((p.nameNode.eval_type_name == "int") && (value_7.eval_type_name == "char")) {
                         wr.out(")", false);
                     }
                     ctx.unsetInExpr();
@@ -24827,19 +28480,22 @@ class RangerGolangClassWriter extends RangerGenericClassWriter {
                 wr.out(("CreateNew_" + node.clDesc.name) + "(", false);
                 const constr = cl.constructor_fn;
                 const givenArgs = node.getThird();
-                if ((typeof (constr) !== "undefined" && constr != null)) {
-                    for (let i = 0; i < constr.params.length; i++) {
-                        var arg = constr.params[i];
-                        const n = givenArgs.children[i];
-                        if (i > 0) {
-                            wr.out(", ", false);
-                        }
-                        if (true || ((typeof (arg.nameNode) !== "undefined" && arg.nameNode != null))) {
-                            yield this.WalkNode(n, ctx, wr);
-                        }
+                const pms = operatorsOf.filter_36(givenArgs.children, ((item, index) => {
+                    if (item.hasFlag("keyword")) {
+                        return false;
                     }
-                    ;
+                    return true;
+                }));
+                let cnt = 0;
+                for (let i = 0; i < pms.length; i++) {
+                    var n = pms[i];
+                    if (cnt > 0) {
+                        wr.out(", ", false);
+                    }
+                    cnt = cnt + 1;
+                    yield this.WalkNode(n, ctx, wr);
                 }
+                ;
                 wr.out(")", false);
             }
         });
@@ -27320,6 +30976,23 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
         return ";";
     }
     ;
+    writeTsOptionalReturnSuffix(variant, wr) {
+        if (this.target_typescript == false) {
+            return;
+        }
+        if (variant.nameNode.hasFlag("optional")) {
+            wr.out(" | undefined", false);
+            return;
+        }
+        const rv = variant.return_value;
+        if (typeof (rv) === "undefined") {
+            return;
+        }
+        if (rv.is_optional) {
+            wr.out(" | undefined", false);
+        }
+    }
+    ;
     adjustType(tn) {
         if (tn == "this") {
             return "this";
@@ -27485,7 +31158,11 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                 else {
                     wr.out(".", false);
                 }
-                wr.out(method.vref, false);
+                let methodName = method.vref;
+                if (((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) && ((node.fnDesc.compiledName.length) > 0)) {
+                    methodName = node.fnDesc.compiledName;
+                }
+                wr.outMapped(methodName, method, false, method.vref);
                 wr.out("(", false);
                 ctx.setInExpr();
                 for (let i = 0; i < args.children.length; i++) {
@@ -27506,6 +31183,15 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
     }
     ;
     getObjectTypeString(type_string, ctx) {
+        if ((type_string.length) >= 2) {
+            if ((type_string.charCodeAt(0)) == (91)) {
+                return this.collectionTypeStringToTs(type_string, ctx);
+            }
+        }
+        const mapped = TTypeRegistry.targetTypeString("es6", type_string);
+        if ((mapped.length) > 0) {
+            return mapped;
+        }
         switch (type_string) {
             case "int":
                 return "number";
@@ -27548,6 +31234,35 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
             }
         }
         return type_string;
+    }
+    ;
+    collectionTypeStringToTs(type_string, ctx) {
+        const n = type_string.length;
+        const inner = type_string.substring(1, (n - 1));
+        const il = inner.length;
+        let depth = 0;
+        let sep = 0 - 1;
+        let i = 0;
+        while (i < il) {
+            const c = inner.charCodeAt(i);
+            if (c == (91)) {
+                depth = depth + 1;
+            }
+            if (c == (93)) {
+                depth = depth - 1;
+            }
+            if ((c == (58)) && (depth == 0)) {
+                sep = i;
+            }
+            i = i + 1;
+        }
+        ;
+        if (sep >= 0) {
+            const kt = inner.substring(0, sep);
+            const vt = inner.substring((sep + 1), il);
+            return ((("{[key:" + this.getObjectTypeString(kt, ctx)) + "]:") + this.getObjectTypeString(vt, ctx)) + "}";
+        }
+        return ("Array<" + this.getObjectTypeString(inner, ctx)) + ">";
     }
     ;
     getTypeString(type_string) {
@@ -27772,14 +31487,14 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                         }
                     }
                     if ((p.compiledName.length) > 0) {
-                        wr.out(this.adjustType(p.compiledName), false);
+                        wr.outMapped(this.adjustType(p.compiledName), node, false, p.name);
                     }
                     else {
                         if ((p.name.length) > 0) {
-                            wr.out(this.adjustType(p.name), false);
+                            wr.outMapped(this.adjustType(p.name), node, false, p.name);
                         }
                         else {
-                            wr.out(this.adjustType((node.ns[i])), false);
+                            wr.outMapped(this.adjustType((node.ns[i])), node, false, node.ns[i]);
                         }
                     }
                     prevOptional = p.is_optional;
@@ -27798,7 +31513,7 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                     }
                 }
                 const p_1 = node.paramDesc;
-                wr.out(p_1.compiledName, false);
+                wr.outMapped(p_1.compiledName, node, false, p_1.name);
                 return;
             }
             let b_was_static = false;
@@ -27828,7 +31543,7 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                         }
                     }
                 }
-                wr.out(this.adjustType(part_2), false);
+                wr.outMapped(this.adjustType(part_2), node, false, part_2);
             }
             ;
         });
@@ -27961,6 +31676,14 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
     writeClassVarDef(p, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             if (this.target_typescript) {
+                const cl = ctx.currentClass;
+                let is_singleton = false;
+                if ((typeof (cl) === "undefined") == false) {
+                    const clDesc = cl;
+                    if (clDesc.isSingletonClass()) {
+                        is_singleton = true;
+                    }
+                }
                 const pNode = p.node;
                 let has_ctor_init = false;
                 if ((pNode.children.length) > 2) {
@@ -27976,12 +31699,19 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                     wr.out("static ", false);
                 }
                 wr.out(p.compiledName, false);
-                if ((p.is_static == false) && p.is_optional) {
-                    if (has_ctor_init) {
-                        wr.out("!", false);
+                if (p.is_static == false) {
+                    if (p.is_optional) {
+                        if (has_ctor_init) {
+                            wr.out("!", false);
+                        }
+                        else {
+                            wr.out("?", false);
+                        }
                     }
                     else {
-                        wr.out("?", false);
+                        if (is_singleton || has_ctor_init) {
+                            wr.out("!", false);
+                        }
                     }
                 }
                 wr.out(": ", false);
@@ -28003,7 +31733,10 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
             if (node.hasNewOper) {
                 const cl = node.clDesc;
                 const givenArgs = node.getThird();
-                if (cl.nameNode.hasFlag("singleton")) {
+                if (yield this.tryWriteProcessNewCall(node, ctx, wr)) {
+                    return;
+                }
+                if (cl.isSingletonClass()) {
                     wr.out(node.clDesc.name + ".__singleton", false);
                     wr.out("(", false);
                     for (let i = 0; i < givenArgs.children.length; i++) {
@@ -28020,14 +31753,34 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                 wr.out("new " + node.clDesc.name, false);
                 wr.out("(", false);
                 const constr = cl.constructor_fn;
+                const givenArgs_1 = node.getThird();
+                const pms = operatorsOf.filter_36(givenArgs_1.children, ((item, index) => {
+                    if (item.hasFlag("keyword")) {
+                        return false;
+                    }
+                    return true;
+                }));
                 if ((typeof (constr) !== "undefined" && constr != null)) {
-                    for (let i_1 = 0; i_1 < constr.params.length; i_1++) {
-                        var arg = constr.params[i_1];
-                        const n_1 = givenArgs.children[i_1];
-                        if (i_1 > 0) {
+                    let cnt = 0;
+                    for (let i_1 = 0; i_1 < pms.length; i_1++) {
+                        var n_1 = pms[i_1];
+                        if (cnt > 0) {
                             wr.out(", ", false);
                         }
+                        cnt = cnt + 1;
                         yield this.WalkNode(n_1, ctx, wr);
+                    }
+                    ;
+                }
+                else {
+                    let cnt_1 = 0;
+                    for (let i_2 = 0; i_2 < pms.length; i_2++) {
+                        var n_2 = pms[i_2];
+                        if (cnt_1 > 0) {
+                            wr.out(", ", false);
+                        }
+                        cnt_1 = cnt_1 + 1;
+                        yield this.WalkNode(n_2, ctx, wr);
                     }
                     ;
                 }
@@ -28248,6 +32001,13 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                 }
                 wr.out(") {", true);
                 wr.indent(1);
+                if (cl.isSingletonClass()) {
+                    wr.out(("if (" + cl.name) + ".__singleton_instance != null) {", true);
+                    wr.indent(1);
+                    wr.out(("return " + cl.name) + ".__singleton_instance;", true);
+                    wr.indent(-1);
+                    wr.out("}", true);
+                }
                 if (b_extd) {
                     if ((typeof (parentClass) !== "undefined" && parentClass != null)) {
                         const pc = parentClass;
@@ -28317,6 +32077,9 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                     subCtx.is_function = true;
                     yield this.WalkNode(constr_1.fnBody, subCtx, wr);
                 }
+                if (cl.isSingletonClass()) {
+                    wr.out(cl.name + ".__singleton_instance = this;", true);
+                }
                 wr.newline();
                 wr.indent(-1);
                 wr.out("}", true);
@@ -28341,6 +32104,7 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                         if (variant.nameNode.hasFlag("async")) {
                             wr.out(">", false);
                         }
+                        this.writeTsOptionalReturnSuffix(variant, wr);
                         wr.out(" ", false);
                     }
                     wr.out(" {", true);
@@ -28391,6 +32155,7 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                     if (variant_1.nameNode.hasFlag("async")) {
                         wr.out("> ", false);
                     }
+                    this.writeTsOptionalReturnSuffix(variant_1, wr);
                     wr.out(" ", false);
                     wr.out(" {", true);
                     wr.indent(1);
@@ -28403,7 +32168,7 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                     wr.out("};", true);
                 }
                 ;
-                if (cl.nameNode.hasFlag("singleton")) {
+                if (cl.isSingletonClass()) {
                     wr.out(("static __singleton_instance : " + cl.name) + " | null = null;", true);
                     wr.out("static __singleton(", false);
                     if (cl.has_constructor) {
@@ -28470,7 +32235,7 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                     wr.out(";", true);
                 }
                 ;
-                if (cl.nameNode.hasFlag("singleton")) {
+                if (cl.isSingletonClass()) {
                     wr.out((cl.name + ".__singleton_instance") + " = null;", true);
                     wr.out((cl.name + ".__singleton") + " = function(", false);
                     if (cl.has_constructor) {
@@ -28520,18 +32285,37 @@ class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
                         if (variant_2.nameNode.hasFlag("async")) {
                             asyncKeyword = "async ";
                         }
-                        wr.out(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", false);
+                        let useDefineProp = false;
+                        if ((variant_2.compiledName == "name") || (variant_2.compiledName == "length")) {
+                            useDefineProp = true;
+                        }
+                        if (useDefineProp) {
+                            wr.out(((((("Object.defineProperty(" + cl.name) + ", \"") + variant_2.compiledName) + "\", { value: ") + asyncKeyword) + "function(", false);
+                        }
+                        else {
+                            if ((typeof (variant_2.nameNode) !== "undefined" && variant_2.nameNode != null)) {
+                                wr.outMapped(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", variant_2.nameNode, false, variant_2.compiledName);
+                            }
+                            else {
+                                wr.out(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", false);
+                            }
+                        }
                         yield this.writeArgsDef(variant_2, ctx, wr);
                         wr.out(") {", true);
+                        wr.indent(1);
+                        wr.newline();
+                        const subCtx_3 = variant_2.fnCtx;
+                        subCtx_3.is_function = true;
+                        yield this.WalkNode(variant_2.fnBody, subCtx_3, wr);
+                        wr.newline();
+                        wr.indent(-1);
+                        if (useDefineProp) {
+                            wr.out("}, writable: true, configurable: true });", true);
+                        }
+                        else {
+                            wr.out("};", true);
+                        }
                     }
-                    wr.indent(1);
-                    wr.newline();
-                    const subCtx_3 = variant_2.fnCtx;
-                    subCtx_3.is_function = true;
-                    yield this.WalkNode(variant_2.fnBody, subCtx_3, wr);
-                    wr.newline();
-                    wr.indent(-1);
-                    wr.out("};", true);
                 }
                 ;
             }
@@ -29083,6 +32867,8738 @@ class RangerRangerClassWriter extends RangerGenericClassWriter {
     ;
 }
 exports.RangerRangerClassWriter = RangerRangerClassWriter;
+class LowIRUtil {
+    constructor() {
+    }
+    static typeFromRanger(typeName) {
+        switch (typeName) {
+            case "int":
+                return "i32";
+            case "boolean":
+                return "i1";
+            case "bool":
+                return "i1";
+            case "double":
+                return "f64";
+            case "void":
+                return "void";
+        }
+        ;
+        return "";
+    }
+    ;
+    static isSupportedPrimitive(typeName) {
+        const t = LowIRUtil.typeFromRanger(typeName);
+        return (t.length) > 0;
+    }
+    ;
+    static isStringType(typeName) {
+        return typeName == "string";
+    }
+    ;
+    static isArrayTypeName(typeName) {
+        if ((typeName.length) < 3) {
+            return false;
+        }
+        return (typeName.indexOf("[")) == 0;
+    }
+    ;
+    static isBufferTypeName(typeName) {
+        return ((typeName == "buffer") || (typeName == "int_buffer")) || (typeName == "double_buffer");
+    }
+    ;
+    static isSupportedParam(typeName) {
+        if (LowIRUtil.isSupportedPrimitive(typeName)) {
+            return true;
+        }
+        if (LowIRUtil.isStringType(typeName)) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    static fieldIrType(typeName) {
+        if (LowIRUtil.isArrayTypeName(typeName)) {
+            return "i32";
+        }
+        if (LowIRUtil.isStringType(typeName)) {
+            return "i32";
+        }
+        const t = LowIRUtil.typeFromRanger(typeName);
+        if (t == "i1") {
+            return "i32";
+        }
+        if ((t.length) == 0) {
+            return "i32";
+        }
+        return t;
+    }
+    ;
+    static mangleMethod(className, methodName) {
+        return (className + "_") + methodName;
+    }
+    ;
+    static structPtrType(className) {
+        return ("%struct." + className) + "*";
+    }
+    ;
+    static structType(className) {
+        return "%struct." + className;
+    }
+    ;
+    static moduleUsesHeap(module) {
+        if ((module.structs.length) > 0) {
+            return true;
+        }
+        for (let i = 0; i < module.functions.length; i++) {
+            var fn = module.functions[i];
+            for (let i_1 = 0; i_1 < fn.blocks.length; i_1++) {
+                var bb = fn.blocks[i_1];
+                for (let i_2 = 0; i_2 < bb.instrs.length; i_2++) {
+                    var ins = bb.instrs[i_2];
+                    if (ins.op == "heap_alloc") {
+                        return true;
+                    }
+                }
+                ;
+            }
+            ;
+        }
+        ;
+        return false;
+    }
+    ;
+}
+exports.LowIRUtil = LowIRUtil;
+class LowIRParam {
+    constructor() {
+        this.name = "";
+        this.irType = "i32";
+    }
+}
+exports.LowIRParam = LowIRParam;
+class LowIRInstr {
+    constructor() {
+        this.op = "";
+        this.dest = "";
+        this.irType = "i32";
+        this.arg1 = "";
+        this.arg2 = "";
+        this.arg3 = "";
+        this.pred = "";
+        this.fnName = "";
+        this.callArgs = [];
+        this.callTypes = [];
+        this.callSig = "";
+        this.structName = "";
+        this.fieldIndex = 0;
+        this.structSize = 0;
+    }
+}
+exports.LowIRInstr = LowIRInstr;
+class LowIRBlock {
+    constructor() {
+        this.label = "entry";
+        this.instrs = [];
+        this.termKind = "ret";
+        this.termType = "i32";
+        this.termValue = "";
+        this.termTarget = "";
+        this.termIfTrue = "";
+        this.termIfFalse = "";
+    }
+}
+exports.LowIRBlock = LowIRBlock;
+class LowIRFunction {
+    constructor() {
+        this.name = "";
+        this.exportFn = false;
+        this.isMain = false;
+        this.returnType = "i32";
+        this.params = [];
+        this.blocks = [];
+    }
+}
+exports.LowIRFunction = LowIRFunction;
+class LowIRField {
+    constructor() {
+        this.name = "";
+        this.irType = "i32";
+        this.isPtrArray = false;
+        this.isBool = false;
+        this.isString = false;
+        this.isBuffer = false;
+        this.isObject = false;
+    }
+}
+exports.LowIRField = LowIRField;
+class LowIRTypeFieldDesc {
+    constructor() {
+        this.offset = 0;
+        this.kind = 0;
+        this.owned = 1;
+    }
+}
+exports.LowIRTypeFieldDesc = LowIRTypeFieldDesc;
+class LowIRTypeDesc {
+    constructor() {
+        this.className = "";
+        this.size = 0;
+        this.fields = [];
+    }
+}
+exports.LowIRTypeDesc = LowIRTypeDesc;
+class LowIRStruct {
+    constructor() {
+        this.name = "";
+        this.fields = [];
+    }
+}
+exports.LowIRStruct = LowIRStruct;
+class LowIRStringGlobal {
+    constructor() {
+        this.name = "";
+        this.text = "";
+        this.byteLen = 0;
+        this.withNewline = false;
+    }
+}
+exports.LowIRStringGlobal = LowIRStringGlobal;
+class LowIRExternDecl {
+    constructor() {
+        this.fnName = "";
+        this.retType = "i32";
+        this.paramTypes = [];
+        this.isVararg = false;
+        this.declSig = "";
+    }
+}
+exports.LowIRExternDecl = LowIRExternDecl;
+class LowIRModule {
+    constructor() {
+        this.name = "module";
+        this.triple = "unknown-unknown-unknown";
+        this.ptrType = "i32";
+        this.useLibcHeap = false;
+        this.useFreeListHeap = false;
+        this.structs = [];
+        this.typeDescs = [];
+        this.functions = [];
+        this.stringGlobals = [];
+        this.externDecls = [];
+        this.singletonClasses = [];
+        this.lambdaTableFuncs = [];
+        this.lambdaSigs = [];
+    }
+}
+exports.LowIRModule = LowIRModule;
+class LowIRSession {
+    constructor() {
+        if (LowIRSession.__singleton_instance != null) {
+            return LowIRSession.__singleton_instance;
+        }
+        this.module = new LowIRModule();
+        LowIRSession.__singleton_instance = this;
+    }
+    beginModule(moduleName) {
+        this.module = new LowIRModule();
+        this.module.name = moduleName;
+    }
+    ;
+    static current() {
+        return LowIRSession.__singleton();
+    }
+    ;
+    static __singleton() {
+        if (this.__singleton_instance == null) {
+            this.__singleton_instance = new LowIRSession();
+        }
+        return this.__singleton_instance;
+    }
+    ;
+}
+exports.LowIRSession = LowIRSession;
+LowIRSession.__singleton_instance = null;
+class LowIRBuilder {
+    constructor(module) {
+        this.tempCounter = 0;
+        this.blockCounter = 0;
+        this.blocks = [];
+        this.irModule = module;
+    }
+    freshTemp(prefix) {
+        const n = this.tempCounter;
+        this.tempCounter = n + 1;
+        return ("%." + prefix) + ("" + n);
+    }
+    ;
+    freshLabel(prefix) {
+        const n = this.blockCounter;
+        this.blockCounter = n + 1;
+        return prefix + ("" + n);
+    }
+    ;
+    reset() {
+        this.tempCounter = 0;
+        this.blockCounter = 0;
+        let emptyBlocks = [];
+        this.blocks = emptyBlocks;
+    }
+    ;
+    startBlock(label) {
+        if ((typeof (this.currentBlock) !== "undefined" && this.currentBlock != null)) {
+            const cur = this.currentBlock;
+            if (cur.termKind == "") {
+                cur.termKind = "ret";
+            }
+        }
+        const bb = new LowIRBlock();
+        bb.label = label;
+        bb.termKind = "";
+        this.blocks.push(bb);
+        this.currentBlock = bb;
+        return label;
+    }
+    ;
+    emit(instr) {
+        const cur = this.currentBlock;
+        cur.instrs.push(instr);
+        return instr;
+    }
+    ;
+    emitToEntry(instr) {
+        if ((this.blocks.length) > 0) {
+            const entry = this.blocks[0];
+            entry.instrs.push(instr);
+            return instr;
+        }
+        return this.emit(instr);
+    }
+    ;
+    emitConst(irType, value) {
+        const tag = "c";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "const";
+        ins.dest = dest;
+        ins.irType = irType;
+        ins.arg1 = value;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitBin(kind, irType, lhs, rhs) {
+        const tag = "t";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = kind;
+        ins.dest = dest;
+        ins.irType = irType;
+        ins.arg1 = lhs;
+        ins.arg2 = rhs;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitIcmp(pred, lhs, rhs) {
+        return this.emitIcmpTyped(pred, "i32", lhs, rhs);
+    }
+    ;
+    emitIcmpTyped(pred, operandType, lhs, rhs) {
+        const tag = "p";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "icmp";
+        ins.dest = dest;
+        ins.irType = "i1";
+        ins.pred = pred;
+        ins.arg1 = lhs;
+        ins.arg2 = rhs;
+        ins.arg3 = operandType;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitPtrToInt(ptr) {
+        const tag = "pt";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "ptr_to_int";
+        ins.dest = dest;
+        ins.irType = this.irModule.ptrType;
+        ins.arg1 = ptr;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitCall(fnName, retType, args, argTypes) {
+        return this.emitCallWithSig(fnName, retType, "", args, argTypes);
+    }
+    ;
+    emitComment(text) {
+        const ins = new LowIRInstr();
+        ins.op = "comment";
+        ins.arg1 = text;
+        this.emit(ins);
+    }
+    ;
+    emitCallWithSig(fnName, retType, callSig, args, argTypes) {
+        const voidType = "void";
+        if (retType == voidType) {
+            const ins = new LowIRInstr();
+            ins.op = "call";
+            ins.fnName = fnName;
+            ins.irType = voidType;
+            ins.callArgs = args;
+            ins.callTypes = argTypes;
+            ins.callSig = callSig;
+            this.emit(ins);
+            return "";
+        }
+        const tag = "c";
+        const dest = this.freshTemp(tag);
+        const ins_1 = new LowIRInstr();
+        ins_1.op = "call";
+        ins_1.dest = dest;
+        ins_1.fnName = fnName;
+        ins_1.irType = retType;
+        ins_1.callArgs = args;
+        ins_1.callTypes = argTypes;
+        ins_1.callSig = callSig;
+        this.emit(ins_1);
+        return dest;
+    }
+    ;
+    emitAllocaStruct(className, slotName, fieldCount) {
+        const ins = new LowIRInstr();
+        ins.op = "alloca_struct";
+        ins.dest = slotName;
+        ins.structName = className;
+        ins.structSize = fieldCount;
+        this.emitToEntry(ins);
+        return slotName;
+    }
+    ;
+    emitGep(className, structPtr, fieldIndex) {
+        const tag = "f";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "gep";
+        ins.dest = dest;
+        ins.structName = className;
+        ins.arg1 = structPtr;
+        ins.fieldIndex = fieldIndex;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitAlloca(irType, slotName) {
+        const ins = new LowIRInstr();
+        ins.op = "alloca";
+        ins.dest = slotName;
+        ins.irType = irType;
+        this.emitToEntry(ins);
+        return slotName;
+    }
+    ;
+    emitZeroInitToEntry(irType, slotName) {
+        const ins = new LowIRInstr();
+        ins.op = "store";
+        ins.irType = irType;
+        ins.arg1 = "0";
+        ins.arg2 = slotName;
+        this.emitToEntry(ins);
+    }
+    ;
+    emitLoad(irType, slotName) {
+        const tag = "v";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "load";
+        ins.dest = dest;
+        ins.irType = irType;
+        ins.arg1 = slotName;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitStore(irType, value, slotName) {
+        const ins = new LowIRInstr();
+        ins.op = "store";
+        ins.irType = irType;
+        ins.arg1 = value;
+        ins.arg2 = slotName;
+        this.emit(ins);
+    }
+    ;
+    emitHeapAlloc(byteCount) {
+        const ptrType = this.irModule.ptrType;
+        let sizeArg = byteCount;
+        if (ptrType == "i64") {
+            sizeArg = this.emitZextI32ToPtr(byteCount);
+        }
+        if (this.irModule.useLibcHeap) {
+            const one = this.emitConst(ptrType, "1");
+            let args = [];
+            let argTypes = [];
+            args.push(one);
+            argTypes.push(ptrType);
+            args.push(sizeArg);
+            argTypes.push(ptrType);
+            return this.emitCall("calloc", ptrType, args, argTypes);
+        }
+        if (this.irModule.useFreeListHeap) {
+            let hargs = [];
+            let hargTypes = [];
+            hargs.push(sizeArg);
+            hargTypes.push("i32");
+            return this.emitCall("Heap_calloc", ptrType, hargs, hargTypes);
+        }
+        const tag = "h";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "heap_alloc";
+        ins.dest = dest;
+        ins.irType = ptrType;
+        ins.arg1 = sizeArg;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitIntToI8Ptr(addr, addrType) {
+        const tag = "s";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "inttoptr_i8";
+        ins.dest = dest;
+        ins.arg1 = addr;
+        ins.arg2 = addrType;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitIntToStructPtr(className, addr) {
+        const tag = "p";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "inttoptr_struct";
+        ins.dest = dest;
+        ins.structName = className;
+        ins.arg1 = addr;
+        ins.arg2 = this.irModule.ptrType;
+        ins.irType = LowIRUtil.structPtrType(className);
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitCast(castOp, destType, srcType, value) {
+        const tag = "cast";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = castOp;
+        ins.dest = dest;
+        ins.irType = destType;
+        ins.arg1 = value;
+        ins.arg2 = srcType;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitZextI1ToI32(v) {
+        const tag = "z";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "zext_i1";
+        ins.dest = dest;
+        ins.irType = "i32";
+        ins.arg1 = v;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitZextI32ToPtr(v) {
+        const pt = this.irModule.ptrType;
+        if (pt == "i32") {
+            return v;
+        }
+        const tag = "z";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "zext";
+        ins.dest = dest;
+        ins.irType = pt;
+        ins.arg1 = v;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitPtrLoad(ptr) {
+        return this.emitPtrLoadTyped(ptr, this.irModule.ptrType);
+    }
+    ;
+    emitPtrLoadTyped(ptr, valueType) {
+        const tag = "m";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "ptr_load";
+        ins.dest = dest;
+        ins.irType = valueType;
+        ins.arg1 = ptr;
+        ins.arg2 = this.irModule.ptrType;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitPtrStore(ptr, value) {
+        this.emitPtrStoreTyped(ptr, value, this.irModule.ptrType);
+    }
+    ;
+    emitPtrStoreTyped(ptr, value, valueType) {
+        const n = this.tempCounter;
+        this.tempCounter = n + 1;
+        const ins = new LowIRInstr();
+        ins.op = "ptr_store";
+        ins.dest = "ps" + ("" + n);
+        ins.irType = valueType;
+        ins.arg1 = ptr;
+        ins.arg2 = value;
+        ins.arg3 = this.irModule.ptrType;
+        this.emit(ins);
+    }
+    ;
+    emitPtrLoad8(ptr) {
+        const dest = this.freshTemp("m");
+        const ins = new LowIRInstr();
+        ins.op = "ptr_load8";
+        ins.dest = dest;
+        ins.irType = "i32";
+        ins.arg1 = ptr;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitPtrStore8(ptr, value) {
+        const n = this.tempCounter;
+        this.tempCounter = n + 1;
+        const ins = new LowIRInstr();
+        ins.op = "ptr_store8";
+        ins.dest = "ps" + ("" + n);
+        ins.arg1 = ptr;
+        ins.arg2 = value;
+        this.emit(ins);
+    }
+    ;
+    emitMemSize() {
+        const dest = this.freshTemp("m");
+        const ins = new LowIRInstr();
+        ins.op = "mem_size";
+        ins.dest = dest;
+        ins.irType = "i32";
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitMemGrow(pages) {
+        const dest = this.freshTemp("m");
+        const ins = new LowIRInstr();
+        ins.op = "mem_grow";
+        ins.dest = dest;
+        ins.irType = "i32";
+        ins.arg1 = pages;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitGlobalGet(name) {
+        const dest = this.freshTemp("g");
+        const ins = new LowIRInstr();
+        ins.op = "global_get";
+        ins.dest = dest;
+        ins.irType = "i32";
+        ins.arg1 = name;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitGlobalSet(name, value) {
+        const n = this.tempCounter;
+        this.tempCounter = n + 1;
+        const ins = new LowIRInstr();
+        ins.op = "global_set";
+        ins.dest = "gs" + ("" + n);
+        ins.arg1 = name;
+        ins.arg2 = value;
+        this.emit(ins);
+    }
+    ;
+    emitFuncRef(name) {
+        const dest = this.freshTemp("fr");
+        const ins = new LowIRInstr();
+        ins.op = "func_ref";
+        ins.dest = dest;
+        ins.irType = "i32";
+        ins.arg1 = name;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitCallIndirect(retType, callSig, args, argTypes, selector) {
+        const voidType = "void";
+        if (retType == voidType) {
+            const ins = new LowIRInstr();
+            ins.op = "call_indirect";
+            ins.irType = voidType;
+            ins.callArgs = args;
+            ins.callTypes = argTypes;
+            ins.callSig = callSig;
+            ins.arg1 = selector;
+            this.emit(ins);
+            return "";
+        }
+        const dest = this.freshTemp("ci");
+        const ins_1 = new LowIRInstr();
+        ins_1.op = "call_indirect";
+        ins_1.dest = dest;
+        ins_1.irType = retType;
+        ins_1.callArgs = args;
+        ins_1.callTypes = argTypes;
+        ins_1.callSig = callSig;
+        ins_1.arg1 = selector;
+        this.emit(ins_1);
+        return dest;
+    }
+    ;
+    emitI32At(base, byteOff) {
+        const pt = this.irModule.ptrType;
+        const off = this.emitConst(pt, ("" + byteOff));
+        const addr = this.emitBin("add", pt, base, off);
+        return this.emitPtrLoadTyped(addr, "i32");
+    }
+    ;
+    emitStoreI32At(base, byteOff, value) {
+        const pt = this.irModule.ptrType;
+        const off = this.emitConst(pt, ("" + byteOff));
+        const addr = this.emitBin("add", pt, base, off);
+        const ins = new LowIRInstr();
+        ins.op = "ptr_store";
+        ins.irType = "i32";
+        ins.arg1 = addr;
+        ins.arg2 = value;
+        ins.arg3 = pt;
+        this.emit(ins);
+    }
+    ;
+    emitLoadI32At(base, byteOff) {
+        const pt = this.irModule.ptrType;
+        if (byteOff == 0) {
+            return this.emitPtrLoad(base);
+        }
+        const off = this.emitConst(pt, ("" + byteOff));
+        const addr = this.emitBin("add", pt, base, off);
+        return this.emitPtrLoad(addr);
+    }
+    ;
+    emitStrPtr(globalName, byteLen) {
+        const tag = "s";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "str_ptr";
+        ins.dest = dest;
+        ins.irType = "i8*";
+        ins.arg1 = globalName;
+        ins.arg2 = "" + byteLen;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    emitTypeDescPtr(className) {
+        const tag = "td";
+        const dest = this.freshTemp(tag);
+        const ins = new LowIRInstr();
+        ins.op = "typedesc_ptr";
+        ins.dest = dest;
+        ins.irType = "i32";
+        ins.arg1 = className;
+        this.emit(ins);
+        return dest;
+    }
+    ;
+    terminateRet(retType, value) {
+        const cur = this.currentBlock;
+        cur.termKind = "ret";
+        cur.termType = retType;
+        cur.termValue = value;
+    }
+    ;
+    terminateBr(target) {
+        const cur = this.currentBlock;
+        cur.termKind = "br";
+        cur.termTarget = target;
+    }
+    ;
+    terminateBrIf(cond, ifTrue, ifFalse) {
+        const cur = this.currentBlock;
+        cur.termKind = "br_if";
+        cur.termValue = cond;
+        cur.termIfTrue = ifTrue;
+        cur.termIfFalse = ifFalse;
+    }
+    ;
+    terminateUnreachable() {
+        const cur = this.currentBlock;
+        cur.termKind = "unreachable";
+    }
+    ;
+    finishFunction(name, retType, params, exportFn, isMain) {
+        if ((typeof (this.currentBlock) !== "undefined" && this.currentBlock != null)) {
+            const cur = this.currentBlock;
+            if (cur.termKind == "") {
+                cur.termKind = "ret";
+                cur.termType = retType;
+            }
+        }
+        const fn = new LowIRFunction();
+        fn.name = name;
+        fn.returnType = retType;
+        fn.params = params;
+        fn.blocks = this.blocks;
+        fn.exportFn = exportFn;
+        fn.isMain = isMain;
+        this.irModule.functions.push(fn);
+        return name;
+    }
+    ;
+}
+exports.LowIRBuilder = LowIRBuilder;
+class LowIRRuntimeGen {
+    constructor() {
+    }
+    static hasFunction(module, name) {
+        for (let i = 0; i < module.functions.length; i++) {
+            var fn = module.functions[i];
+            if (fn.name == name) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    static ensureArrayRuntime(module) {
+        if (LowIRRuntimeGen.hasFunction(module, "RtArray_set")) {
+            return;
+        }
+        LowIRRuntimeGen.buildRtArraySet(module);
+    }
+    ;
+    static ensureMapRuntime(module) {
+        if (LowIRRuntimeGen.hasFunction(module, "RtMap_new")) {
+            return;
+        }
+        LowIRRuntimeGen.buildRtMapNew(module);
+        if (module.useFreeListHeap) {
+            LowIRRuntimeGen.buildRtMapGrow(module);
+            LowIRRuntimeGen.buildRtMapFree(module);
+        }
+        LowIRRuntimeGen.buildRtMapHashSlot(module);
+        LowIRRuntimeGen.buildRtMapPutAt(module);
+        LowIRRuntimeGen.buildRtMapPut(module);
+        LowIRRuntimeGen.buildRtMapGetAt(module);
+        LowIRRuntimeGen.buildRtMapGet(module);
+        LowIRRuntimeGen.buildRtMapHas(module);
+    }
+    ;
+    static finishFn(builder, module, name, retType, params, exportFn) {
+        builder.finishFunction(name, retType, params, exportFn, false);
+    }
+    ;
+    static buildRtArraySet(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const lenOff = LowIRRuntimeGen.arrayLenOff(module);
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const idxP = new LowIRParam();
+        idxP.name = "idx";
+        idxP.irType = "i32";
+        params.push(idxP);
+        const valP = new LowIRParam();
+        valP.name = "val";
+        valP.irType = "i32";
+        params.push(valP);
+        builder.startBlock("entry");
+        const data = LowIRRuntimeGen.emitDescLoad(builder, module, "%desc", 0);
+        const four = builder.emitConst("i32", "4");
+        const offI32 = builder.emitBin("mul", "i32", "%idx", four);
+        const off = builder.emitZextI32ToPtr(offI32);
+        const slot = builder.emitBin("add", pt, data, off);
+        builder.emitPtrStoreTyped(slot, "%val", "i32");
+        const oldLen = builder.emitI32At("%desc", lenOff);
+        const one = builder.emitConst("i32", "1");
+        const idxPlus = builder.emitBin("add", "i32", "%idx", one);
+        const needBump = builder.emitIcmp("slt", oldLen, idxPlus);
+        const bumpLabel = builder.freshLabel("arrset_bump");
+        const doneLabel = builder.freshLabel("arrset_done");
+        builder.terminateBrIf(needBump, bumpLabel, doneLabel);
+        builder.startBlock(bumpLabel);
+        builder.emitStoreI32At("%desc", lenOff, idxPlus);
+        builder.terminateBr(doneLabel);
+        builder.startBlock(doneLabel);
+        builder.terminateRet("void", "");
+        LowIRRuntimeGen.finishFn(builder, module, "RtArray_set", "void", params, false);
+    }
+    ;
+    static arrayLenOff(module) {
+        return LowIRRuntimeGen.ptrBytes(module);
+    }
+    ;
+    static arrayCapOff(module) {
+        return LowIRRuntimeGen.ptrBytes(module) + 4;
+    }
+    ;
+    static arrayDescBytes(module) {
+        return LowIRRuntimeGen.ptrBytes(module) + 8;
+    }
+    ;
+    static mapValsOff(module) {
+        return LowIRRuntimeGen.ptrBytes(module);
+    }
+    ;
+    static mapCapOff(module) {
+        return LowIRRuntimeGen.ptrBytes(module) * 2;
+    }
+    ;
+    static mapSizeOff(module) {
+        return (LowIRRuntimeGen.ptrBytes(module) * 2) + 4;
+    }
+    ;
+    static mapDescBytes(module) {
+        return (LowIRRuntimeGen.ptrBytes(module) * 2) + 8;
+    }
+    ;
+    static emitDescLoad(builder, module, desc, byteOff) {
+        const pt = module.ptrType;
+        const off = builder.emitConst(pt, ("" + byteOff));
+        const addr = builder.emitBin("add", pt, desc, off);
+        return builder.emitPtrLoad(addr);
+    }
+    ;
+    static emitKeysPtr(builder, module, desc) {
+        return LowIRRuntimeGen.emitDescLoad(builder, module, desc, 0);
+    }
+    ;
+    static emitValsPtr(builder, module, desc) {
+        const valsOff = LowIRRuntimeGen.mapValsOff(module);
+        return LowIRRuntimeGen.emitDescLoad(builder, module, desc, valsOff);
+    }
+    ;
+    static emitCap(builder, module, desc) {
+        const capOff = LowIRRuntimeGen.mapCapOff(module);
+        return builder.emitI32At(desc, capOff);
+    }
+    ;
+    static emitSize(builder, module, desc) {
+        const sizeOff = LowIRRuntimeGen.mapSizeOff(module);
+        return builder.emitI32At(desc, sizeOff);
+    }
+    ;
+    static emitSlotAddr(builder, module, base, slot) {
+        const pt = module.ptrType;
+        const four = builder.emitConst("i32", "4");
+        const offI32 = builder.emitBin("mul", "i32", slot, four);
+        const off = builder.emitZextI32ToPtr(offI32);
+        return builder.emitBin("add", pt, base, off);
+    }
+    ;
+    static emitFreePtr(builder, module, ptr) {
+        const pt = module.ptrType;
+        let args = [];
+        let argTypes = [];
+        args.push(ptr);
+        argTypes.push(pt);
+        if (module.useLibcHeap) {
+            builder.emitCall("free", "void", args, argTypes);
+            return;
+        }
+        if (module.useFreeListHeap) {
+            builder.emitCall("Heap_free", "void", args, argTypes);
+        }
+    }
+    ;
+    static buildRtMapNew(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const valsOff = LowIRRuntimeGen.mapValsOff(module);
+        const capOff = LowIRRuntimeGen.mapCapOff(module);
+        const sizeOff = LowIRRuntimeGen.mapSizeOff(module);
+        let params = [];
+        const capP = new LowIRParam();
+        capP.name = "cap";
+        capP.irType = "i32";
+        params.push(capP);
+        builder.startBlock("entry");
+        const descBytes = builder.emitConst("i32", ("" + LowIRRuntimeGen.mapDescBytes(module)));
+        const desc = builder.emitHeapAlloc(descBytes);
+        const four = builder.emitConst("i32", "4");
+        const nbytes = builder.emitBin("mul", "i32", "%cap", four);
+        const keys = builder.emitHeapAlloc(nbytes);
+        const vals = builder.emitHeapAlloc(nbytes);
+        builder.emitPtrStore(desc, keys);
+        const valsFld = builder.emitConst(pt, ("" + valsOff));
+        const valsAddr = builder.emitBin("add", pt, desc, valsFld);
+        builder.emitPtrStore(valsAddr, vals);
+        builder.emitStoreI32At(desc, capOff, "%cap");
+        const zero = builder.emitConst("i32", "0");
+        builder.emitStoreI32At(desc, sizeOff, zero);
+        const iSlot = builder.freshTemp("i");
+        builder.emitAlloca("i32", iSlot);
+        builder.emitStore("i32", zero, iSlot);
+        const condLabel = builder.freshLabel("map_init_cond");
+        const bodyLabel = builder.freshLabel("map_init_body");
+        const doneLabel = builder.freshLabel("map_init_done");
+        builder.terminateBr(condLabel);
+        builder.startBlock(condLabel);
+        const iVal = builder.emitLoad("i32", iSlot);
+        const ltCap = builder.emitIcmp("slt", iVal, "%cap");
+        builder.terminateBrIf(ltCap, bodyLabel, doneLabel);
+        builder.startBlock(bodyLabel);
+        const keysPtr = LowIRRuntimeGen.emitKeysPtr(builder, module, desc);
+        const kp = LowIRRuntimeGen.emitSlotAddr(builder, module, keysPtr, iVal);
+        const negOne = builder.emitConst("i32", "-1");
+        builder.emitPtrStoreTyped(kp, negOne, "i32");
+        const one = builder.emitConst("i32", "1");
+        const iNext = builder.emitBin("add", "i32", iVal, one);
+        builder.emitStore("i32", iNext, iSlot);
+        builder.terminateBr(condLabel);
+        builder.startBlock(doneLabel);
+        builder.terminateRet(pt, desc);
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_new", pt, params, false);
+    }
+    ;
+    static buildRtMapGrow(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const valsOff = LowIRRuntimeGen.mapValsOff(module);
+        const capOff = LowIRRuntimeGen.mapCapOff(module);
+        const sizeOff = LowIRRuntimeGen.mapSizeOff(module);
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        builder.startBlock("entry");
+        const oldCap = LowIRRuntimeGen.emitCap(builder, module, "%desc");
+        const oldKeys = LowIRRuntimeGen.emitKeysPtr(builder, module, "%desc");
+        const oldVals = LowIRRuntimeGen.emitValsPtr(builder, module, "%desc");
+        const two = builder.emitConst("i32", "2");
+        const newCap = builder.emitBin("mul", "i32", oldCap, two);
+        const four = builder.emitConst("i32", "4");
+        const nbytes = builder.emitBin("mul", "i32", newCap, four);
+        const newKeys = builder.emitHeapAlloc(nbytes);
+        const newVals = builder.emitHeapAlloc(nbytes);
+        const zero = builder.emitConst("i32", "0");
+        const negOne = builder.emitConst("i32", "-1");
+        const iSlot = builder.freshTemp("i");
+        builder.emitAlloca("i32", iSlot);
+        builder.emitStore("i32", zero, iSlot);
+        const ic = builder.freshLabel("grow_init_cond");
+        const ib = builder.freshLabel("grow_init_body");
+        const idn = builder.freshLabel("grow_init_done");
+        builder.terminateBr(ic);
+        builder.startBlock(ic);
+        const iV = builder.emitLoad("i32", iSlot);
+        const iLt = builder.emitIcmp("slt", iV, newCap);
+        builder.terminateBrIf(iLt, ib, idn);
+        builder.startBlock(ib);
+        const nkp = LowIRRuntimeGen.emitSlotAddr(builder, module, newKeys, iV);
+        builder.emitPtrStoreTyped(nkp, negOne, "i32");
+        const one = builder.emitConst("i32", "1");
+        const iN = builder.emitBin("add", "i32", iV, one);
+        builder.emitStore("i32", iN, iSlot);
+        builder.terminateBr(ic);
+        builder.startBlock(idn);
+        builder.emitPtrStore("%desc", newKeys);
+        const valsFld = builder.emitConst(pt, ("" + valsOff));
+        const valsAddr = builder.emitBin("add", pt, "%desc", valsFld);
+        builder.emitPtrStore(valsAddr, newVals);
+        builder.emitStoreI32At("%desc", capOff, newCap);
+        builder.emitStoreI32At("%desc", sizeOff, zero);
+        const jSlot = builder.freshTemp("j");
+        builder.emitAlloca("i32", jSlot);
+        builder.emitStore("i32", zero, jSlot);
+        const rc = builder.freshLabel("grow_rehash_cond");
+        const rb = builder.freshLabel("grow_rehash_body");
+        const rd = builder.freshLabel("grow_rehash_done");
+        const rput = builder.freshLabel("grow_rehash_put");
+        const rinc = builder.freshLabel("grow_rehash_inc");
+        builder.terminateBr(rc);
+        builder.startBlock(rc);
+        const jV = builder.emitLoad("i32", jSlot);
+        const jLt = builder.emitIcmp("slt", jV, oldCap);
+        builder.terminateBrIf(jLt, rb, rd);
+        builder.startBlock(rb);
+        const okp = LowIRRuntimeGen.emitSlotAddr(builder, module, oldKeys, jV);
+        const k = builder.emitPtrLoadTyped(okp, "i32");
+        const notEmpty = builder.emitIcmp("ne", k, negOne);
+        builder.terminateBrIf(notEmpty, rput, rinc);
+        builder.startBlock(rput);
+        const ovp = LowIRRuntimeGen.emitSlotAddr(builder, module, oldVals, jV);
+        const v = builder.emitPtrLoadTyped(ovp, "i32");
+        let pargs = [];
+        let ptypes = [];
+        pargs.push("%desc");
+        ptypes.push(pt);
+        pargs.push(k);
+        ptypes.push("i32");
+        pargs.push(v);
+        ptypes.push("i32");
+        builder.emitCall("RtMap_put", "void", pargs, ptypes);
+        builder.terminateBr(rinc);
+        builder.startBlock(rinc);
+        const jOne = builder.emitConst("i32", "1");
+        const jN = builder.emitBin("add", "i32", jV, jOne);
+        builder.emitStore("i32", jN, jSlot);
+        builder.terminateBr(rc);
+        builder.startBlock(rd);
+        LowIRRuntimeGen.emitFreePtr(builder, module, oldKeys);
+        LowIRRuntimeGen.emitFreePtr(builder, module, oldVals);
+        builder.terminateRet("void", "");
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_grow", "void", params, false);
+    }
+    ;
+    static buildRtMapFree(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        builder.startBlock("entry");
+        const zero = builder.emitConst(pt, "0");
+        const isNull = builder.emitIcmp("eq", "%desc", zero);
+        const retLabel = builder.freshLabel("mapfree_ret");
+        const bodyLabel = builder.freshLabel("mapfree_body");
+        builder.terminateBrIf(isNull, retLabel, bodyLabel);
+        builder.startBlock(bodyLabel);
+        const keys = LowIRRuntimeGen.emitKeysPtr(builder, module, "%desc");
+        const vals = LowIRRuntimeGen.emitValsPtr(builder, module, "%desc");
+        LowIRRuntimeGen.emitFreePtr(builder, module, keys);
+        LowIRRuntimeGen.emitFreePtr(builder, module, vals);
+        LowIRRuntimeGen.emitFreePtr(builder, module, "%desc");
+        builder.terminateRet("void", "");
+        builder.startBlock(retLabel);
+        builder.terminateRet("void", "");
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_free", "void", params, false);
+    }
+    ;
+    static buildRtMapHashSlot(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const keyP = new LowIRParam();
+        keyP.name = "key";
+        keyP.irType = "i32";
+        params.push(keyP);
+        builder.startBlock("entry");
+        const cap = LowIRRuntimeGen.emitCap(builder, module, "%desc");
+        const h = builder.emitBin("srem", "i32", "%key", cap);
+        const zero = builder.emitConst("i32", "0");
+        const neg = builder.emitIcmp("slt", h, zero);
+        const thenLabel = builder.freshLabel("hash_then");
+        const mergeLabel = builder.freshLabel("hash_merge");
+        builder.terminateBrIf(neg, thenLabel, mergeLabel);
+        builder.startBlock(thenLabel);
+        const fixed = builder.emitBin("add", "i32", h, cap);
+        builder.terminateRet("i32", fixed);
+        builder.startBlock(mergeLabel);
+        builder.terminateRet("i32", h);
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_hashSlot", "i32", params, false);
+    }
+    ;
+    static buildRtMapPutAt(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const sizeOff = LowIRRuntimeGen.mapSizeOff(module);
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const slotP = new LowIRParam();
+        slotP.name = "slot";
+        slotP.irType = "i32";
+        params.push(slotP);
+        const keyP = new LowIRParam();
+        keyP.name = "key";
+        keyP.irType = "i32";
+        params.push(keyP);
+        const valP = new LowIRParam();
+        valP.name = "val";
+        valP.irType = "i32";
+        params.push(valP);
+        const retLabel = builder.freshLabel("putat_ret");
+        const bodyLabel = builder.freshLabel("putat_body");
+        const updLabel = builder.freshLabel("putat_upd");
+        const checkEmpty = builder.freshLabel("putat_chk");
+        const emptyLabel = builder.freshLabel("putat_empty");
+        const recurseLabel = builder.freshLabel("putat_rec");
+        builder.startBlock("entry");
+        const cap = LowIRRuntimeGen.emitCap(builder, module, "%desc");
+        const geCap = builder.emitIcmp("sge", "%slot", cap);
+        builder.terminateBrIf(geCap, retLabel, bodyLabel);
+        builder.startBlock(retLabel);
+        builder.terminateRet("void", "");
+        builder.startBlock(bodyLabel);
+        const keysPtr = LowIRRuntimeGen.emitKeysPtr(builder, module, "%desc");
+        const valsPtr = LowIRRuntimeGen.emitValsPtr(builder, module, "%desc");
+        const kp = LowIRRuntimeGen.emitSlotAddr(builder, module, keysPtr, "%slot");
+        const vp = LowIRRuntimeGen.emitSlotAddr(builder, module, valsPtr, "%slot");
+        const k = builder.emitPtrLoadTyped(kp, "i32");
+        const negOne = builder.emitConst("i32", "-1");
+        const eqKey = builder.emitIcmp("eq", k, "%key");
+        builder.terminateBrIf(eqKey, updLabel, checkEmpty);
+        builder.startBlock(updLabel);
+        builder.emitPtrStoreTyped(vp, "%val", "i32");
+        builder.terminateRet("void", "");
+        builder.startBlock(checkEmpty);
+        const isEmpty = builder.emitIcmp("eq", k, negOne);
+        builder.terminateBrIf(isEmpty, emptyLabel, recurseLabel);
+        builder.startBlock(emptyLabel);
+        builder.emitPtrStoreTyped(kp, "%key", "i32");
+        builder.emitPtrStoreTyped(vp, "%val", "i32");
+        const size = LowIRRuntimeGen.emitSize(builder, module, "%desc");
+        const one = builder.emitConst("i32", "1");
+        const newSize = builder.emitBin("add", "i32", size, one);
+        builder.emitStoreI32At("%desc", sizeOff, newSize);
+        builder.terminateRet("void", "");
+        builder.startBlock(recurseLabel);
+        const one2 = builder.emitConst("i32", "1");
+        const nextSlot = builder.emitBin("add", "i32", "%slot", one2);
+        const nextMod = builder.emitBin("srem", "i32", nextSlot, cap);
+        let args = [];
+        let argTypes = [];
+        args.push("%desc");
+        argTypes.push(pt);
+        args.push(nextMod);
+        argTypes.push("i32");
+        args.push("%key");
+        argTypes.push("i32");
+        args.push("%val");
+        argTypes.push("i32");
+        builder.emitCall("RtMap_putAt", "void", args, argTypes);
+        builder.terminateRet("void", "");
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_putAt", "void", params, false);
+    }
+    ;
+    static buildRtMapPut(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const keyP = new LowIRParam();
+        keyP.name = "key";
+        keyP.irType = "i32";
+        params.push(keyP);
+        const valP = new LowIRParam();
+        valP.name = "val";
+        valP.irType = "i32";
+        params.push(valP);
+        builder.startBlock("entry");
+        const guardKey = builder.emitConst("i32", "-1");
+        const isSentinel = builder.emitIcmp("eq", "%key", guardKey);
+        const sentinelRet = builder.freshLabel("put_sentinel_ret");
+        const putGo = builder.freshLabel("put_go");
+        builder.terminateBrIf(isSentinel, sentinelRet, putGo);
+        builder.startBlock(sentinelRet);
+        builder.terminateRet("void", "");
+        builder.startBlock(putGo);
+        if (module.useFreeListHeap) {
+            const size0 = LowIRRuntimeGen.emitSize(builder, module, "%desc");
+            const cap0 = LowIRRuntimeGen.emitCap(builder, module, "%desc");
+            const twoG = builder.emitConst("i32", "2");
+            const sz2 = builder.emitBin("mul", "i32", size0, twoG);
+            const full = builder.emitIcmp("sge", sz2, cap0);
+            const growLabel = builder.freshLabel("put_grow");
+            const contLabel = builder.freshLabel("put_cont");
+            builder.terminateBrIf(full, growLabel, contLabel);
+            builder.startBlock(growLabel);
+            let gargs = [];
+            let gtypes = [];
+            gargs.push("%desc");
+            gtypes.push(pt);
+            builder.emitCall("RtMap_grow", "void", gargs, gtypes);
+            builder.terminateBr(contLabel);
+            builder.startBlock(contLabel);
+        }
+        let hashArgs = [];
+        let hashTypes = [];
+        hashArgs.push("%desc");
+        hashTypes.push(pt);
+        hashArgs.push("%key");
+        hashTypes.push("i32");
+        const start = builder.emitCall("RtMap_hashSlot", "i32", hashArgs, hashTypes);
+        let putArgs = [];
+        let putTypes = [];
+        putArgs.push("%desc");
+        putTypes.push(pt);
+        putArgs.push(start);
+        putTypes.push("i32");
+        putArgs.push("%key");
+        putTypes.push("i32");
+        putArgs.push("%val");
+        putTypes.push("i32");
+        builder.emitCall("RtMap_putAt", "void", putArgs, putTypes);
+        builder.terminateRet("void", "");
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_put", "void", params, false);
+    }
+    ;
+    static buildRtMapGetAt(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const slotP = new LowIRParam();
+        slotP.name = "slot";
+        slotP.irType = "i32";
+        params.push(slotP);
+        const keyP = new LowIRParam();
+        keyP.name = "key";
+        keyP.irType = "i32";
+        params.push(keyP);
+        const negRet1 = builder.freshLabel("getat_neg1");
+        const bodyLabel = builder.freshLabel("getat_body");
+        const negRet2 = builder.freshLabel("getat_neg2");
+        const keyCheck = builder.freshLabel("getat_key");
+        const valRet = builder.freshLabel("getat_val");
+        const recurseRet = builder.freshLabel("getat_rec");
+        builder.startBlock("entry");
+        const cap = LowIRRuntimeGen.emitCap(builder, module, "%desc");
+        const negOne = builder.emitConst("i32", "-1");
+        const geCap = builder.emitIcmp("sge", "%slot", cap);
+        builder.terminateBrIf(geCap, negRet1, bodyLabel);
+        builder.startBlock(negRet1);
+        const negOne1 = builder.emitConst("i32", "-1");
+        builder.terminateRet("i32", negOne1);
+        builder.startBlock(bodyLabel);
+        const keysPtr = LowIRRuntimeGen.emitKeysPtr(builder, module, "%desc");
+        const kp = LowIRRuntimeGen.emitSlotAddr(builder, module, keysPtr, "%slot");
+        const k = builder.emitPtrLoadTyped(kp, "i32");
+        const isEmpty = builder.emitIcmp("eq", k, negOne);
+        builder.terminateBrIf(isEmpty, negRet2, keyCheck);
+        builder.startBlock(negRet2);
+        const negOne2 = builder.emitConst("i32", "-1");
+        builder.terminateRet("i32", negOne2);
+        builder.startBlock(keyCheck);
+        const eqKey = builder.emitIcmp("eq", k, "%key");
+        builder.terminateBrIf(eqKey, valRet, recurseRet);
+        builder.startBlock(valRet);
+        const valsPtr = LowIRRuntimeGen.emitValsPtr(builder, module, "%desc");
+        const vp = LowIRRuntimeGen.emitSlotAddr(builder, module, valsPtr, "%slot");
+        const v = builder.emitPtrLoadTyped(vp, "i32");
+        builder.terminateRet("i32", v);
+        builder.startBlock(recurseRet);
+        const one = builder.emitConst("i32", "1");
+        const nextSlot = builder.emitBin("add", "i32", "%slot", one);
+        const nextMod = builder.emitBin("srem", "i32", nextSlot, cap);
+        let args = [];
+        let argTypes = [];
+        args.push("%desc");
+        argTypes.push(pt);
+        args.push(nextMod);
+        argTypes.push("i32");
+        args.push("%key");
+        argTypes.push("i32");
+        const res = builder.emitCall("RtMap_getAt", "i32", args, argTypes);
+        builder.terminateRet("i32", res);
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_getAt", "i32", params, false);
+    }
+    ;
+    static buildRtMapGet(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const keyP = new LowIRParam();
+        keyP.name = "key";
+        keyP.irType = "i32";
+        params.push(keyP);
+        builder.startBlock("entry");
+        let hashArgs = [];
+        let hashTypes = [];
+        hashArgs.push("%desc");
+        hashTypes.push(pt);
+        hashArgs.push("%key");
+        hashTypes.push("i32");
+        const start = builder.emitCall("RtMap_hashSlot", "i32", hashArgs, hashTypes);
+        let getArgs = [];
+        let getTypes = [];
+        getArgs.push("%desc");
+        getTypes.push(pt);
+        getArgs.push(start);
+        getTypes.push("i32");
+        getArgs.push("%key");
+        getTypes.push("i32");
+        const res = builder.emitCall("RtMap_getAt", "i32", getArgs, getTypes);
+        builder.terminateRet("i32", res);
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_get", "i32", params, false);
+    }
+    ;
+    static buildRtMapHas(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const keyP = new LowIRParam();
+        keyP.name = "key";
+        keyP.irType = "i32";
+        params.push(keyP);
+        builder.startBlock("entry");
+        let getArgs = [];
+        let getTypes = [];
+        getArgs.push("%desc");
+        getTypes.push(pt);
+        getArgs.push("%key");
+        getTypes.push("i32");
+        const v = builder.emitCall("RtMap_get", "i32", getArgs, getTypes);
+        const negOne = builder.emitConst("i32", "-1");
+        const found = builder.emitIcmp("ne", v, negOne);
+        const one = builder.emitConst("i32", "1");
+        const zero = builder.emitConst("i32", "0");
+        const thenLabel = builder.freshLabel("has_then");
+        const mergeLabel = builder.freshLabel("has_merge");
+        builder.terminateBrIf(found, thenLabel, mergeLabel);
+        builder.startBlock(thenLabel);
+        builder.terminateRet("i32", one);
+        builder.startBlock(mergeLabel);
+        builder.terminateRet("i32", zero);
+        LowIRRuntimeGen.finishFn(builder, module, "RtMap_has", "i32", params, false);
+    }
+    ;
+    static ptrBytes(module) {
+        if (module.ptrType == "i64") {
+            return 8;
+        }
+        return 4;
+    }
+    ;
+    static descMetaOff(module) {
+        return LowIRRuntimeGen.ptrBytes(module);
+    }
+    ;
+    static ensurePtrArrayRuntime(module) {
+        if (LowIRRuntimeGen.hasFunction(module, "RtPtrArray_new")) {
+            return;
+        }
+        LowIRRuntimeGen.buildRtPtrArrayNew(module);
+        LowIRRuntimeGen.buildRtPtrArrayPush(module);
+        LowIRRuntimeGen.buildRtPtrArrayGet(module);
+        LowIRRuntimeGen.buildRtPtrArraySet(module);
+        LowIRRuntimeGen.buildRtPtrArrayLen(module);
+    }
+    ;
+    static buildRtPtrArrayNew(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const pb = LowIRRuntimeGen.ptrBytes(module);
+        const meta = LowIRRuntimeGen.descMetaOff(module);
+        let params = [];
+        const capP = new LowIRParam();
+        capP.name = "cap";
+        capP.irType = "i32";
+        params.push(capP);
+        builder.startBlock("entry");
+        const descBytes = builder.emitConst("i32", ("" + (pb + 12)));
+        const desc = builder.emitHeapAlloc(descBytes);
+        const elemBytes = builder.emitConst("i32", ("" + pb));
+        const capBytes = builder.emitBin("mul", "i32", "%cap", elemBytes);
+        const data = builder.emitHeapAlloc(capBytes);
+        const zeroPt = builder.emitConst(pt, "0");
+        builder.emitPtrStore(desc, data);
+        const zeroI32 = builder.emitConst("i32", "0");
+        builder.emitStoreI32At(desc, meta, zeroI32);
+        builder.emitStoreI32At(desc, meta + 4, "%cap");
+        builder.terminateRet(pt, desc);
+        LowIRRuntimeGen.finishFn(builder, module, "RtPtrArray_new", pt, params, false);
+    }
+    ;
+    static buildRtPtrArrayLen(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const meta = LowIRRuntimeGen.descMetaOff(module);
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        builder.startBlock("entry");
+        const __len = builder.emitI32At("%desc", meta);
+        builder.terminateRet("i32", __len);
+        LowIRRuntimeGen.finishFn(builder, module, "RtPtrArray_len", "i32", params, false);
+    }
+    ;
+    static buildRtPtrArrayGet(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const pb = LowIRRuntimeGen.ptrBytes(module);
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const idxP = new LowIRParam();
+        idxP.name = "idx";
+        idxP.irType = "i32";
+        params.push(idxP);
+        builder.startBlock("entry");
+        const data = builder.emitPtrLoad("%desc");
+        const elemBytes = builder.emitConst("i32", ("" + pb));
+        const offI32 = builder.emitBin("mul", "i32", "%idx", elemBytes);
+        const off = builder.emitZextI32ToPtr(offI32);
+        const slot = builder.emitBin("add", pt, data, off);
+        const val = builder.emitPtrLoadTyped(slot, pt);
+        builder.terminateRet(pt, val);
+        LowIRRuntimeGen.finishFn(builder, module, "RtPtrArray_get", pt, params, false);
+    }
+    ;
+    static buildRtPtrArraySet(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const pb = LowIRRuntimeGen.ptrBytes(module);
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const idxP = new LowIRParam();
+        idxP.name = "idx";
+        idxP.irType = "i32";
+        params.push(idxP);
+        const valP = new LowIRParam();
+        valP.name = "val";
+        valP.irType = pt;
+        params.push(valP);
+        const meta = LowIRRuntimeGen.descMetaOff(module);
+        builder.startBlock("entry");
+        const data = builder.emitPtrLoad("%desc");
+        const elemBytes = builder.emitConst("i32", ("" + pb));
+        const offI32 = builder.emitBin("mul", "i32", "%idx", elemBytes);
+        const off = builder.emitZextI32ToPtr(offI32);
+        const slot = builder.emitBin("add", pt, data, off);
+        builder.emitPtrStore(slot, "%val");
+        const oldLen = builder.emitI32At("%desc", meta);
+        const one = builder.emitConst("i32", "1");
+        const idxPlus = builder.emitBin("add", "i32", "%idx", one);
+        const needBump = builder.emitIcmp("slt", oldLen, idxPlus);
+        const bumpLabel = builder.freshLabel("ptrset_bump");
+        const doneLabel = builder.freshLabel("ptrset_done");
+        builder.terminateBrIf(needBump, bumpLabel, doneLabel);
+        builder.startBlock(bumpLabel);
+        builder.emitStoreI32At("%desc", meta, idxPlus);
+        builder.terminateBr(doneLabel);
+        builder.startBlock(doneLabel);
+        builder.terminateRet("void", "");
+        LowIRRuntimeGen.finishFn(builder, module, "RtPtrArray_set", "void", params, false);
+    }
+    ;
+    static buildRtPtrArrayPush(module) {
+        const builder = new LowIRBuilder(module);
+        builder.reset();
+        const pt = module.ptrType;
+        const pb = LowIRRuntimeGen.ptrBytes(module);
+        const meta = LowIRRuntimeGen.descMetaOff(module);
+        const capOff = meta + 4;
+        let params = [];
+        const descP = new LowIRParam();
+        descP.name = "desc";
+        descP.irType = pt;
+        params.push(descP);
+        const valP = new LowIRParam();
+        valP.name = "val";
+        valP.irType = pt;
+        params.push(valP);
+        builder.startBlock("entry");
+        const __len = builder.emitI32At("%desc", meta);
+        const cap = builder.emitI32At("%desc", capOff);
+        const full = builder.emitIcmp("sge", __len, cap);
+        const grow = builder.freshLabel("ptr_grow");
+        const cont = builder.freshLabel("ptr_cont");
+        builder.terminateBrIf(full, grow, cont);
+        builder.startBlock(grow);
+        const two = builder.emitConst("i32", "2");
+        const newCap = builder.emitBin("mul", "i32", cap, two);
+        const data = builder.emitPtrLoad("%desc");
+        const elemBytes = builder.emitConst(pt, ("" + pb));
+        const newCapZ = builder.emitZextI32ToPtr(newCap);
+        const newBytes = builder.emitBin("mul", pt, newCapZ, elemBytes);
+        let ra = [];
+        let rat = [];
+        ra.push(data);
+        rat.push(pt);
+        ra.push(newBytes);
+        rat.push(pt);
+        let reallocFn = "realloc";
+        if (module.useFreeListHeap) {
+            reallocFn = "Heap_realloc";
+        }
+        const newData = builder.emitCall(reallocFn, pt, ra, rat);
+        builder.emitPtrStore("%desc", newData);
+        builder.emitStoreI32At("%desc", capOff, newCap);
+        builder.terminateBr(cont);
+        builder.startBlock(cont);
+        const len2 = builder.emitI32At("%desc", meta);
+        const data2 = builder.emitPtrLoad("%desc");
+        const elemBytes2 = builder.emitConst("i32", ("" + pb));
+        const offI32 = builder.emitBin("mul", "i32", len2, elemBytes2);
+        const off = builder.emitZextI32ToPtr(offI32);
+        const slot = builder.emitBin("add", pt, data2, off);
+        builder.emitPtrStore(slot, "%val");
+        const one2 = builder.emitConst("i32", "1");
+        const newLen = builder.emitBin("add", "i32", len2, one2);
+        builder.emitStoreI32At("%desc", meta, newLen);
+        builder.terminateRet("void", "");
+        LowIRRuntimeGen.finishFn(builder, module, "RtPtrArray_push", "void", params, false);
+    }
+    ;
+}
+exports.LowIRRuntimeGen = LowIRRuntimeGen;
+class LowIRTarget {
+    constructor() {
+        this.arch = "unknown";
+        this.env = "freestanding";
+        this.triple = "unknown-unknown-unknown";
+        this.ptrType = "i32";
+        this.usesLibc = false;
+        this.ioFn = "";
+        this.ioFnRet = "i32";
+        this.ioFnVararg = false;
+    }
+    memoryModel() {
+        if (this.usesLibc) {
+            return "manual";
+        }
+        return "freestanding";
+    }
+    ;
+    isManualMemory() {
+        return this.usesLibc;
+    }
+    ;
+    static resolve(ctx) {
+        const t = new LowIRTarget();
+        let targetName = "";
+        if (ctx.hasCompilerSetting("target")) {
+            targetName = ctx.getCompilerSetting("target");
+        }
+        if ((targetName.length) == 0) {
+            if (ctx.hasCompilerFlag("libc")) {
+                targetName = "native-linux-gnu";
+            }
+        }
+        if ((targetName.length) == 0) {
+            return t;
+        }
+        LowIRTarget.applyName(t, targetName);
+        return t;
+    }
+    ;
+    static applyName(t, name) {
+        LowIRTarget.applyNameKnown(t, name);
+        if (t.usesLibc) {
+            return;
+        }
+        if (t.usesLibc == false) {
+            if ((name.indexOf("-")) >= 0) {
+                LowIRTarget.applyExplicitTriple(t, name);
+            }
+        }
+    }
+    ;
+    static applyExplicitTriple(t, triple) {
+        t.triple = triple;
+        t.env = "libc";
+        t.ptrType = "i64";
+        t.usesLibc = true;
+        t.ioFn = "printf";
+        t.ioFnRet = "i32";
+        t.ioFnVararg = true;
+        if ((triple.indexOf("arm64")) >= 0) {
+            t.arch = "arm64";
+            return;
+        }
+        if ((triple.indexOf("aarch64")) >= 0) {
+            t.arch = "arm64";
+            return;
+        }
+        if ((triple.indexOf("x86_64")) >= 0) {
+            t.arch = "x86_64";
+            return;
+        }
+        if ((triple.indexOf("wasm32")) >= 0) {
+            t.arch = "wasm32";
+            return;
+        }
+        t.arch = "unknown";
+    }
+    ;
+    static applyNameKnown(t, name) {
+        if (name == "native-linux-gnu") {
+            t.arch = "x86_64";
+            t.env = "libc";
+            t.triple = "x86_64-unknown-linux-gnu";
+            t.ptrType = "i64";
+            t.usesLibc = true;
+            t.ioFn = "printf";
+            t.ioFnRet = "i32";
+            t.ioFnVararg = true;
+            return;
+        }
+        if (name == "x86_64-linux-gnu") {
+            LowIRTarget.applyNameKnown(t, "native-linux-gnu");
+            return;
+        }
+        if (name == "aarch64-linux-gnu") {
+            t.arch = "arm64";
+            t.env = "libc";
+            t.triple = "aarch64-unknown-linux-gnu";
+            t.ptrType = "i64";
+            t.usesLibc = true;
+            t.ioFn = "printf";
+            t.ioFnRet = "i32";
+            t.ioFnVararg = true;
+            return;
+        }
+        if (name == "native-macos") {
+            LowIRTarget.applyNameKnown(t, "arm64-apple-macos");
+            return;
+        }
+        if (name == "arm64-apple-macos") {
+            t.arch = "arm64";
+            t.env = "libc";
+            t.triple = "arm64-apple-macosx";
+            t.ptrType = "i64";
+            t.usesLibc = true;
+            t.ioFn = "printf";
+            t.ioFnRet = "i32";
+            t.ioFnVararg = true;
+            return;
+        }
+        if (name == "x86_64-apple-macos") {
+            t.arch = "x86_64";
+            t.env = "libc";
+            t.triple = "x86_64-apple-macosx";
+            t.ptrType = "i64";
+            t.usesLibc = true;
+            t.ioFn = "printf";
+            t.ioFnRet = "i32";
+            t.ioFnVararg = true;
+            return;
+        }
+        if (name == "wasm32-hosted-debug") {
+            t.arch = "wasm32";
+            t.env = "hosted";
+            t.triple = "wasm32-unknown-unknown";
+            t.usesLibc = false;
+            t.ioFn = "host_print";
+            t.ioFnRet = "void";
+            return;
+        }
+        if (name == "wasm32-wasi") {
+            t.arch = "wasm32";
+            t.env = "wasi";
+            t.triple = "wasm32-wasi";
+            t.usesLibc = true;
+            t.ioFn = "printf";
+            t.ioFnRet = "i32";
+            t.ioFnVararg = true;
+            return;
+        }
+    }
+    ;
+}
+exports.LowIRTarget = LowIRTarget;
+class LowIRLowerContext {
+    constructor() {
+        this.ptrType = "i32";
+        this.slots = {};
+        this.slotTypes = {};
+        this.objectSlots = {};
+        this.collectionSlots = {};
+        this.ptrArrayElemTypes = {};
+        this.ownedObjectLocals = [];
+        this.ownedCollectionLocals = [];
+        this.ownedStringLocals = [];
+        this.pendingStringTemps = [];
+        this.pendingObjectTemps = [];
+        this.boxedCandidates = {};
+        this.boxedLocals = {};
+        this.escapedLocals = {};
+        this.currentRetType = "i32";
+        this.llvmRetType = "i32";
+        this.className = "";
+        this.selfPtr = "";
+    }
+}
+exports.LowIRLowerContext = LowIRLowerContext;
+class LambdaCaptureInfo {
+    constructor() {
+        this.names = [];
+        this.irTypes = [];
+        this.kinds = [];
+        this.objClasses = [];
+        this.offsets = [];
+        this.totalBytes = 4;
+        this.hasOwned = false;
+        this.tdName = "";
+    }
+}
+exports.LambdaCaptureInfo = LambdaCaptureInfo;
+class LowIRBuilderPass {
+    constructor() {
+        this.irModule = new LowIRModule();
+        this.usedMapRuntime = false;
+        this.usedArrayRuntime = false;
+        this.usedPtrArrayRuntime = false;
+        this.usedMemRuntime = false;
+        this.lambdaSigMap = {};
+        this.lambdaByName = {};
+        this.lambdaNames = [];
+        this.lambdaCounter = 0;
+        this.lambdaCaptures = {};
+    }
+    isLambdaTypeNode(node) {
+        if (node.value_type == 20) {
+            return true;
+        }
+        if (node.eval_type == 20) {
+            return true;
+        }
+        if (node.has_lambda) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    canLowerFunction(fnDesc, ctx) {
+        if (fnDesc.is_static == false) {
+            return false;
+        }
+        return this.canLowerMethod(fnDesc);
+    }
+    ;
+    canLowerMethod(fnDesc) {
+        if (fnDesc.name == "Constructor") {
+            for (let i = 0; i < fnDesc.params.length; i++) {
+                var p = fnDesc.params[i];
+                if (typeof (p.nameNode) === "undefined") {
+                    return false;
+                }
+                const pn = p.nameNode;
+                const paramTypeName = this.varTypeName(pn);
+                if (false == this.isLowerableParamType(paramTypeName)) {
+                    return false;
+                }
+            }
+            ;
+            return true;
+        }
+        if (typeof (fnDesc.nameNode) === "undefined") {
+            return false;
+        }
+        const retNode = fnDesc.nameNode;
+        const retTypeName = this.varTypeName(retNode);
+        let retType = LowIRUtil.typeFromRanger(retTypeName);
+        const voidType = "void";
+        if ((retType.length) == 0) {
+            if (fnDesc.name == "Constructor") {
+                retType = voidType;
+            }
+            else {
+                if (LowIRUtil.isStringType(retTypeName)) {
+                    retType = "i8*";
+                }
+                else {
+                    if (LowIRUtil.isArrayTypeName(retTypeName)) {
+                        retType = this.irModule.ptrType;
+                    }
+                    else {
+                        if ((retTypeName.length) > 0) {
+                            if (LowIRUtil.isSupportedPrimitive(retTypeName) == false) {
+                                retType = this.irModule.ptrType;
+                            }
+                            else {
+                                return false;
+                            }
+                        }
+                        else {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        for (let i_1 = 0; i_1 < fnDesc.params.length; i_1++) {
+            var p_1 = fnDesc.params[i_1];
+            if (typeof (p_1.nameNode) === "undefined") {
+                return false;
+            }
+            const pn_1 = p_1.nameNode;
+            if (this.isLambdaTypeNode(pn_1)) {
+                continue;
+            }
+            const paramTypeName_1 = this.varTypeName(pn_1);
+            if (false == this.isLowerableParamType(paramTypeName_1)) {
+                return false;
+            }
+        }
+        ;
+        return true;
+    }
+    ;
+    canLowerInstanceMethod(fnDesc, ctx) {
+        if (fnDesc.is_static) {
+            return false;
+        }
+        return this.canLowerMethod(fnDesc);
+    }
+    ;
+    isMainEntry(fnDesc, ctx) {
+        if (typeof (fnDesc.nameNode) === "undefined") {
+            return false;
+        }
+        const nn = fnDesc.nameNode;
+        if (nn.hasFlag("main")) {
+            if (nn.code.filename == ctx.getRootFile()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    ;
+    shouldExport(fnDesc, ctx) {
+        if (this.isMainEntry(fnDesc, ctx)) {
+            return true;
+        }
+        if (ctx.hasCompilerFlag("freestanding")) {
+            return true;
+        }
+        if (fnDesc.name == "main") {
+            return false;
+        }
+        if (fnDesc.is_static == false) {
+            return false;
+        }
+        return this.canLowerFunction(fnDesc, ctx);
+    }
+    ;
+    lowerModule(appCtx) {
+        const moduleName = "ranger_module";
+        const session = LowIRSession.current();
+        session.beginModule(moduleName);
+        this.irModule = session.module;
+        const target = LowIRTarget.resolve(appCtx);
+        this.irModule.triple = target.triple;
+        this.irModule.ptrType = target.ptrType;
+        this.irModule.useLibcHeap = target.usesLibc;
+        if (target.usesLibc) {
+            this.ensureLibcExtern(target);
+        }
+        else {
+            if (appCtx.hasCompilerFlag("wasmrc")) {
+                this.irModule.useFreeListHeap = true;
+            }
+        }
+        if (appCtx.hasCompilerFlag("wat")) {
+            this.collectLambdas(appCtx);
+        }
+        for (let i = 0; i < appCtx.definedClassList.length; i++) {
+            var cName = appCtx.definedClassList[i];
+            if (cName == "RangerStaticMethods") {
+                continue;
+            }
+            const cl = ((appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined));
+            if (((cl.is_operator_class || cl.is_trait) || cl.is_system) || cl.is_union) {
+                continue;
+            }
+            this.lowerStruct(cl, appCtx);
+            for (let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+                var m = cl.static_methods[i_1];
+                if (cl.name == "Mem") {
+                    continue;
+                }
+                if (cl.name == "RangerMem") {
+                    continue;
+                }
+                if (this.canLowerFunction(m, appCtx)) {
+                    const isMain = this.isMainEntry(m, appCtx);
+                    this.lowerFunction(m, cl.name, appCtx, this.shouldExport(m, appCtx), isMain, false);
+                }
+            }
+            ;
+            if (cl.has_constructor) {
+                if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
+                    const ctor = cl.constructor_fn;
+                    if (this.canLowerMethod(ctor)) {
+                        this.lowerFunction(ctor, cl.name, appCtx, false, false, true);
+                    }
+                }
+                else {
+                    for (let i_2 = 0; i_2 < cl.methods.length; i_2++) {
+                        var m_1 = cl.methods[i_2];
+                        if (m_1.name == "Constructor") {
+                            if (this.canLowerMethod(m_1)) {
+                                this.lowerFunction(m_1, cl.name, appCtx, false, false, true);
+                            }
+                        }
+                    }
+                    ;
+                }
+            }
+            for (let i_3 = 0; i_3 < cl.methods.length; i_3++) {
+                var m_2 = cl.methods[i_3];
+                if (m_2.name == "Constructor") {
+                    continue;
+                }
+                if (this.canLowerInstanceMethod(m_2, appCtx)) {
+                    this.lowerFunction(m_2, cl.name, appCtx, false, false, true);
+                }
+            }
+            ;
+            if (appCtx.hasCompilerFlag("wat")) {
+                if (cl.isSingletonClass()) {
+                    this.lowerSingletonAccessor(cl, appCtx);
+                }
+            }
+        }
+        ;
+        if (appCtx.hasCompilerFlag("wat")) {
+            this.lowerLambdaBodies(appCtx);
+        }
+        if (this.usedArrayRuntime) {
+            LowIRRuntimeGen.ensureArrayRuntime(this.irModule);
+        }
+        if (this.usedMapRuntime) {
+            LowIRRuntimeGen.ensureMapRuntime(this.irModule);
+        }
+        if (this.usedPtrArrayRuntime) {
+            LowIRRuntimeGen.ensurePtrArrayRuntime(this.irModule);
+        }
+        if (this.usedMemRuntime) {
+            this.ensureMemExtern(target);
+        }
+        return this.irModule;
+    }
+    ;
+    ensureExternDecl(fnName, retType, paramTypes, isVararg) {
+        if (this.hasExternDecl(fnName)) {
+            return;
+        }
+        const decl = new LowIRExternDecl();
+        decl.fnName = fnName;
+        decl.retType = retType;
+        decl.isVararg = isVararg;
+        for (let i = 0; i < paramTypes.length; i++) {
+            var pt = paramTypes[i];
+            decl.paramTypes.push(pt);
+        }
+        ;
+        this.irModule.externDecls.push(decl);
+    }
+    ;
+    ensureLibcExtern(target) {
+        let ioParams = [];
+        ioParams.push("i8*");
+        this.ensureExternDecl(target.ioFn, target.ioFnRet, ioParams, target.ioFnVararg);
+        let mallocParams = [];
+        mallocParams.push(target.ptrType);
+        this.ensureExternDecl("malloc", target.ptrType, mallocParams, false);
+        let callocParams = [];
+        callocParams.push(target.ptrType);
+        callocParams.push(target.ptrType);
+        this.ensureExternDecl("calloc", target.ptrType, callocParams, false);
+        let reallocParams = [];
+        reallocParams.push(target.ptrType);
+        reallocParams.push(target.ptrType);
+        this.ensureExternDecl("realloc", target.ptrType, reallocParams, false);
+        let strcmpParams = [];
+        strcmpParams.push("i8*");
+        strcmpParams.push("i8*");
+        this.ensureExternDecl("strcmp", "i32", strcmpParams, false);
+        let strlenParams = [];
+        strlenParams.push("i8*");
+        this.ensureExternDecl("strlen", "i32", strlenParams, false);
+        let termInitParams = [];
+        this.ensureExternDecl("ranger_term_init", "void", termInitParams, false);
+        let pollParams = [];
+        this.ensureExternDecl("ranger_poll_key", "i8*", pollParams, false);
+        let termVoidParams = [];
+        this.ensureExternDecl("ranger_clear_screen", "void", termVoidParams, false);
+        this.ensureExternDecl("ranger_hide_cursor", "void", termVoidParams, false);
+        this.ensureExternDecl("ranger_show_cursor", "void", termVoidParams, false);
+        let moveParams = [];
+        moveParams.push("i32");
+        moveParams.push("i32");
+        this.ensureExternDecl("ranger_move_cursor", "void", moveParams, false);
+        let sprintfParams = [];
+        sprintfParams.push("i8*");
+        sprintfParams.push("i8*");
+        this.ensureExternDecl("sprintf", "i32", sprintfParams, true);
+        let shellCntParams = [];
+        this.ensureExternDecl("ranger_shell_arg_cnt", "i32", shellCntParams, false);
+        let shellArgParams = [];
+        shellArgParams.push("i32");
+        this.ensureExternDecl("ranger_shell_arg", "i8*", shellArgParams, false);
+        let readFileParams = [];
+        readFileParams.push("i8*");
+        readFileParams.push("i8*");
+        this.ensureExternDecl("ranger_read_file", "i8*", readFileParams, false);
+        let charAtParams = [];
+        charAtParams.push("i8*");
+        charAtParams.push("i32");
+        this.ensureExternDecl("ranger_char_at", "i32", charAtParams, false);
+        let atCharParams = [];
+        atCharParams.push("i8*");
+        atCharParams.push("i32");
+        this.ensureExternDecl("ranger_at_char", "i8*", atCharParams, false);
+        let substringParams = [];
+        substringParams.push("i8*");
+        substringParams.push("i32");
+        substringParams.push("i32");
+        this.ensureExternDecl("ranger_substring", "i8*", substringParams, false);
+        let str2dblParams = [];
+        str2dblParams.push("i8*");
+        this.ensureExternDecl("ranger_str2double", "f64", str2dblParams, false);
+        let str2intParams = [];
+        str2intParams.push("i8*");
+        this.ensureExternDecl("ranger_str2int", "i32", str2intParams, false);
+        let cliInitParams = [];
+        cliInitParams.push("i32");
+        cliInitParams.push("i8**");
+        this.ensureExternDecl("ranger_cli_init", "void", cliInitParams, false);
+        let strdupParams = [];
+        strdupParams.push("i8*");
+        this.ensureExternDecl("ranger_strdup", "i8*", strdupParams, false);
+        let fromCodeParams = [];
+        fromCodeParams.push("i32");
+        this.ensureExternDecl("ranger_str_fromcode", "i8*", fromCodeParams, false);
+        let fromByteParams = [];
+        fromByteParams.push("i32");
+        this.ensureExternDecl("ranger_str_frombyte", "i8*", fromByteParams, false);
+        let freeParams = [];
+        freeParams.push("i8*");
+        this.ensureExternDecl("free", "void", freeParams, false);
+        this.ensureBufferExtern(target);
+    }
+    ;
+    ensureBufferExtern(target) {
+        if (this.hasExternDecl("ranger_buffer_alloc")) {
+            return;
+        }
+        const ptrType = target.ptrType;
+        let allocParams = [];
+        allocParams.push("i32");
+        this.ensureExternDecl("ranger_buffer_alloc", ptrType, allocParams, false);
+        let bufLenParams = [];
+        bufLenParams.push(ptrType);
+        this.ensureExternDecl("ranger_buffer_length", "i32", bufLenParams, false);
+        let bufGetParams = [];
+        bufGetParams.push(ptrType);
+        bufGetParams.push("i32");
+        this.ensureExternDecl("ranger_buffer_get", "i32", bufGetParams, false);
+        let bufSetParams = [];
+        bufSetParams.push(ptrType);
+        bufSetParams.push("i32");
+        bufSetParams.push("i32");
+        this.ensureExternDecl("ranger_buffer_set", "void", bufSetParams, false);
+        let bufReadParams = [];
+        bufReadParams.push("i8*");
+        bufReadParams.push("i8*");
+        this.ensureExternDecl("ranger_buffer_read_file", ptrType, bufReadParams, false);
+        let bufWriteParams = [];
+        bufWriteParams.push("i8*");
+        bufWriteParams.push("i8*");
+        bufWriteParams.push(ptrType);
+        this.ensureExternDecl("ranger_buffer_write_file", "void", bufWriteParams, false);
+        let relParams = [];
+        relParams.push(ptrType);
+        this.ensureExternDecl("ranger_buffer_release", "void", relParams, false);
+        let intAllocParams = [];
+        intAllocParams.push("i32");
+        this.ensureExternDecl("ranger_int_buffer_alloc", ptrType, intAllocParams, false);
+        let intGetParams = [];
+        intGetParams.push(ptrType);
+        intGetParams.push("i32");
+        this.ensureExternDecl("ranger_int_buffer_get", "i32", intGetParams, false);
+        let intSetParams = [];
+        intSetParams.push(ptrType);
+        intSetParams.push("i32");
+        intSetParams.push("i32");
+        this.ensureExternDecl("ranger_int_buffer_set", "void", intSetParams, false);
+        let intFillParams = [];
+        intFillParams.push(ptrType);
+        intFillParams.push("i32");
+        intFillParams.push("i32");
+        intFillParams.push("i32");
+        this.ensureExternDecl("ranger_int_buffer_fill", "void", intFillParams, false);
+        this.ensureExternDecl("ranger_int_buffer_release", "void", relParams, false);
+    }
+    ;
+    ensureMemExtern(target) {
+        if (this.hasExternDecl("ranger_obj_new")) {
+            return;
+        }
+        const destroyTy = "ptr";
+        const declSig = "(i32, ptr)";
+        let objNewParams = [];
+        objNewParams.push("i32");
+        objNewParams.push(destroyTy);
+        const decl = new LowIRExternDecl();
+        decl.fnName = "ranger_obj_new";
+        decl.retType = target.ptrType;
+        decl.paramTypes = objNewParams;
+        decl.declSig = declSig;
+        this.irModule.externDecls.push(decl);
+        let relParams = [];
+        relParams.push(target.ptrType);
+        this.ensureExternDecl("ranger_obj_release", "void", relParams, false);
+        let strRelParams = [];
+        strRelParams.push("i8*");
+        this.ensureExternDecl("ranger_str_release", "void", strRelParams, false);
+        let liveParams = [];
+        this.ensureExternDecl("ranger_mem_live_objects", "i32", liveParams, false);
+        let voidParams = [];
+        this.ensureExternDecl("ranger_mem_reset_stats", "void", voidParams, false);
+        this.ensureExternDecl("ranger_obj_retain", "void", relParams, false);
+        let pushOwnedParams = [];
+        pushOwnedParams.push(target.ptrType);
+        pushOwnedParams.push(target.ptrType);
+        this.ensureExternDecl("ranger_ptrarray_push_owned", "void", pushOwnedParams, false);
+        this.ensureExternDecl("ranger_ptrarray_release", "void", relParams, false);
+    }
+    ;
+    memEnabled(lctx) {
+        const memTarget = LowIRTarget.resolve((lctx.ctx));
+        if (memTarget.usesLibc == false) {
+            return false;
+        }
+        return this.usedMemRuntime;
+    }
+    ;
+    objRcEnabled(lctx) {
+        const memTarget = LowIRTarget.resolve((lctx.ctx));
+        if (memTarget.usesLibc) {
+            return true;
+        }
+        const ctx = lctx.ctx;
+        return ctx.hasCompilerFlag("wasmrc");
+    }
+    ;
+    wasmStrEnabled(lctx) {
+        const memTarget = LowIRTarget.resolve((lctx.ctx));
+        if (memTarget.usesLibc) {
+            return false;
+        }
+        const ctx = lctx.ctx;
+        return ctx.hasCompilerFlag("wasmrc");
+    }
+    ;
+    isLowerableParamType(typeName) {
+        if (LowIRUtil.isSupportedParam(typeName)) {
+            return true;
+        }
+        if ((typeName.length) == 0) {
+            return false;
+        }
+        if (LowIRUtil.isArrayTypeName(typeName)) {
+            return true;
+        }
+        return true;
+    }
+    ;
+    llvmTypeForRanger(typeName, ptrType) {
+        if (LowIRUtil.isStringType(typeName)) {
+            return "i8*";
+        }
+        if (LowIRUtil.isBufferTypeName(typeName)) {
+            return ptrType;
+        }
+        if (LowIRUtil.isArrayTypeName(typeName)) {
+            return ptrType;
+        }
+        const mapped = LowIRUtil.typeFromRanger(typeName);
+        if ((mapped.length) > 0) {
+            return mapped;
+        }
+        return ptrType;
+    }
+    ;
+    varTypeName(nameNode) {
+        if ((nameNode.type_name.length) > 0) {
+            return nameNode.type_name;
+        }
+        if (nameNode.value_type == 6) {
+            if ((nameNode.array_type.length) > 0) {
+                return ("[" + nameNode.array_type) + "]";
+            }
+        }
+        return nameNode.eval_type_name;
+    }
+    ;
+    exprIsObjectPtr(node, lctx) {
+        if (node.hasNewOper) {
+            return true;
+        }
+        if (node.value_type != 11) {
+            return false;
+        }
+        if ((node.vref.indexOf(".")) >= 0) {
+            const parts = node.vref.split(".");
+            if ((parts.length) >= 2) {
+                const recv = parts[0];
+                const fld = parts[1];
+                const cls = this.resolveObjectClass(recv, lctx);
+                if ((cls.length) > 0) {
+                    if (this.fieldIsStringSlot(cls, fld)) {
+                        return false;
+                    }
+                    if (this.fieldIsBufferSlot(cls, fld)) {
+                        return false;
+                    }
+                    if (this.fieldIsBoolSlot(cls, fld)) {
+                        return false;
+                    }
+                    if (this.fieldIsPtrArraySlot(cls, fld)) {
+                        return false;
+                    }
+                    const ftype = this.fieldIrTypeFor(cls, fld);
+                    if (ftype == "i32") {
+                        return false;
+                    }
+                    return true;
+                }
+            }
+        }
+        if (this.isClassField(node.vref, lctx.className, this.irModule)) {
+            if (this.fieldIsStringSlot(lctx.className, node.vref)) {
+                return false;
+            }
+            if (this.fieldIsBufferSlot(lctx.className, node.vref)) {
+                return false;
+            }
+            if (this.fieldIsBoolSlot(lctx.className, node.vref)) {
+                return false;
+            }
+            if (this.fieldIsPtrArraySlot(lctx.className, node.vref)) {
+                return false;
+            }
+            const ftype_1 = this.fieldIrTypeFor(lctx.className, node.vref);
+            if (ftype_1 == "i32") {
+                return false;
+            }
+            return true;
+        }
+        if ((typeof (lctx.objectSlots[node.vref]) != "undefined" && lctx.objectSlots.hasOwnProperty(node.vref))) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    isObjectTypeName(typeName) {
+        if ((typeName.length) == 0) {
+            return false;
+        }
+        if (LowIRUtil.isStringType(typeName)) {
+            return false;
+        }
+        if (LowIRUtil.isArrayTypeName(typeName)) {
+            return false;
+        }
+        if (LowIRUtil.isBufferTypeName(typeName)) {
+            return false;
+        }
+        if (LowIRUtil.isSupportedPrimitive(typeName)) {
+            return false;
+        }
+        return true;
+    }
+    ;
+    exprIsString(node) {
+        if (node.value_type == 4) {
+            return true;
+        }
+        if (node.expression) {
+            for (let i = 0; i < node.children.length; i++) {
+                var item = node.children[i];
+                if (this.exprIsString(item)) {
+                    return true;
+                }
+            }
+            ;
+        }
+        return false;
+    }
+    ;
+    exprMightBeString(node, lctx) {
+        if (this.exprIsStringish(node, lctx)) {
+            return true;
+        }
+        if (node.has_operator) {
+            const op = node.getOperator();
+            if (op == "+") {
+                const aNode = node.getSecond();
+                const bNode = node.getThird();
+                if (this.exprIsStringish(aNode, lctx) || this.exprIsStringish(bNode, lctx)) {
+                    return true;
+                }
+            }
+        }
+        if (node.infix_operator) {
+            if ((typeof (node.infix_node) !== "undefined" && node.infix_node != null)) {
+                return this.exprMightBeString((node.infix_node), lctx);
+            }
+        }
+        return false;
+    }
+    ;
+    lowerConcatOperand(node, isStr, lctx) {
+        const builder = lctx.builder;
+        let v = this.lowerExpr(node, lctx);
+        if (isStr == false) {
+            if (this.exprProducesI1(node, lctx)) {
+                v = builder.emitZextI1ToI32(v);
+            }
+        }
+        return v;
+    }
+    ;
+    emitStrdupExpr(strPtr, lctx) {
+        let dupArgs = [];
+        let dupArgTypes = [];
+        dupArgs.push(strPtr);
+        dupArgTypes.push("i8*");
+        let dupFn = "ranger_strdup";
+        if (this.wasmStrEnabled(lctx)) {
+            dupFn = "ranger_str_dup";
+        }
+        return lctx.builder.emitCall(dupFn, "i8*", dupArgs, dupArgTypes);
+    }
+    ;
+    lowerStringConcat(aNode, bNode, lctx) {
+        const builder = lctx.builder;
+        let aStr = this.exprIsStringish(aNode, lctx);
+        let bStr = this.exprIsStringish(bNode, lctx);
+        if (this.exprIsString(aNode)) {
+            aStr = true;
+        }
+        if (this.exprIsString(bNode)) {
+            bStr = true;
+        }
+        if (this.wasmStrEnabled(lctx)) {
+            const aV = this.lowerConcatOperand(aNode, aStr, lctx);
+            let sa = aV;
+            if (aStr == false) {
+                let a1 = [];
+                let a1t = [];
+                a1.push(aV);
+                a1t.push("i32");
+                sa = builder.emitCall("ranger_str_from_int", "i8*", a1, a1t);
+            }
+            const bV = this.lowerConcatOperand(bNode, bStr, lctx);
+            let sb = bV;
+            if (bStr == false) {
+                let b1 = [];
+                let b1t = [];
+                b1.push(bV);
+                b1t.push("i32");
+                sb = builder.emitCall("ranger_str_from_int", "i8*", b1, b1t);
+            }
+            let cargs = [];
+            let cargTypes = [];
+            cargs.push(sa);
+            cargTypes.push("i8*");
+            cargs.push(sb);
+            cargTypes.push("i8*");
+            const cres = builder.emitCall("ranger_str_concat", "i8*", cargs, cargTypes);
+            if (aStr == false) {
+                this.registerFreshStringTemp(sa, lctx);
+            }
+            if (bStr == false) {
+                this.registerFreshStringTemp(sb, lctx);
+            }
+            this.registerFreshStringTemp(cres, lctx);
+            return cres;
+        }
+        const sz = builder.emitConst("i32", "4096");
+        const raw = builder.emitHeapAlloc(sz);
+        const buf = builder.emitIntToI8Ptr(raw, lctx.ptrType);
+        let fmtLit = "%s%s";
+        if (aStr && bStr) {
+            fmtLit = "%s%s";
+        }
+        else {
+            if (aStr && (bStr == false)) {
+                fmtLit = "%s%d";
+            }
+            else {
+                if ((aStr == false) && bStr) {
+                    fmtLit = "%d%s";
+                }
+                else {
+                    fmtLit = "%d%d";
+                }
+            }
+        }
+        let args = [];
+        let argTypes = [];
+        args.push(buf);
+        argTypes.push("i8*");
+        const fmtG = this.internStringGlobal(fmtLit, false);
+        args.push(builder.emitStrPtr(fmtG, this.stringGlobalByteLen(fmtG)));
+        argTypes.push("i8*");
+        const aVal = this.lowerConcatOperand(aNode, aStr, lctx);
+        if (aStr) {
+            args.push(aVal);
+            argTypes.push("i8*");
+        }
+        else {
+            args.push(aVal);
+            argTypes.push("i32");
+        }
+        const bVal = this.lowerConcatOperand(bNode, bStr, lctx);
+        if (bStr) {
+            args.push(bVal);
+            argTypes.push("i8*");
+        }
+        else {
+            args.push(bVal);
+            argTypes.push("i32");
+        }
+        builder.emitCall("sprintf", "i32", args, argTypes);
+        const memTarget = LowIRTarget.resolve((lctx.ctx));
+        if (memTarget.usesLibc) {
+            const dup = this.emitStrdupExpr(buf, lctx);
+            let freeArgs = [];
+            let freeArgTypes = [];
+            freeArgs.push(buf);
+            freeArgTypes.push("i8*");
+            const voidType = "void";
+            builder.emitCall("free", voidType, freeArgs, freeArgTypes);
+            return dup;
+        }
+        return buf;
+    }
+    ;
+    hasExternDecl(fnName) {
+        for (let i = 0; i < this.irModule.externDecls.length; i++) {
+            var d = this.irModule.externDecls[i];
+            if (d.fnName == fnName) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    internStringGlobal(text, withNewline) {
+        for (let i = 0; i < this.irModule.stringGlobals.length; i++) {
+            var g = this.irModule.stringGlobals[i];
+            if (g.text == text) {
+                if (g.withNewline == withNewline) {
+                    return g.name;
+                }
+            }
+        }
+        ;
+        const cnt = this.irModule.stringGlobals.length;
+        const gname = ".str." + ("" + cnt);
+        const g_1 = new LowIRStringGlobal();
+        g_1.name = gname;
+        g_1.text = text;
+        g_1.withNewline = withNewline;
+        const contentBytes = this.utf8ByteLen(text);
+        if (withNewline) {
+            g_1.byteLen = contentBytes + 2;
+        }
+        else {
+            g_1.byteLen = contentBytes + 1;
+        }
+        this.irModule.stringGlobals.push(g_1);
+        return gname;
+    }
+    ;
+    utf8ByteLen(text) {
+        let i = 0;
+        const n = text.length;
+        let total = 0;
+        while (i < n) {
+            const code = text.charCodeAt(i);
+            if (code < 128) {
+                total = total + 1;
+            }
+            else {
+                if (code < 2048) {
+                    total = total + 2;
+                }
+                else {
+                    total = total + 3;
+                }
+            }
+            i = i + 1;
+        }
+        ;
+        return total;
+    }
+    ;
+    stringGlobalByteLen(gname) {
+        for (let i = 0; i < this.irModule.stringGlobals.length; i++) {
+            var g = this.irModule.stringGlobals[i];
+            if (g.name == gname) {
+                return g.byteLen;
+            }
+        }
+        ;
+        return 0;
+    }
+    ;
+    printTextFromNode(node) {
+        if (node.value_type == 4) {
+            return node.string_value;
+        }
+        return "";
+    }
+    ;
+    emitIoString(text, withNewline, lctx) {
+        if ((text.length) == 0) {
+            return;
+        }
+        const target = lctx.target;
+        if ((target.ioFn.length) == 0) {
+            return;
+        }
+        const builder = lctx.builder;
+        const gname = this.internStringGlobal(text, withNewline);
+        const byteLen = this.stringGlobalByteLen(gname);
+        const strPtr = builder.emitStrPtr(gname, byteLen);
+        let args = [];
+        let argTypes = [];
+        args.push(strPtr);
+        argTypes.push("i8*");
+        const voidType = "void";
+        if (target.ioFnRet == voidType) {
+            builder.emitCall(target.ioFn, voidType, args, argTypes);
+            return;
+        }
+        builder.emitCall(target.ioFn, target.ioFnRet, args, argTypes);
+    }
+    ;
+    emitPrintfFmt(fmt, args, argTypes, lctx) {
+        const target = lctx.target;
+        if ((target.ioFn.length) == 0) {
+            return;
+        }
+        const builder = lctx.builder;
+        const gname = this.internStringGlobal(fmt, false);
+        const byteLen = this.stringGlobalByteLen(gname);
+        const fmtPtr = builder.emitStrPtr(gname, byteLen);
+        let callArgs = [];
+        let callTypes = [];
+        callArgs.push(fmtPtr);
+        callTypes.push("i8*");
+        for (let i = 0; i < args.length; i++) {
+            var a = args[i];
+            callArgs.push(a);
+        }
+        ;
+        for (let i_1 = 0; i_1 < argTypes.length; i_1++) {
+            var at = argTypes[i_1];
+            callTypes.push(at);
+        }
+        ;
+        builder.emitCall(target.ioFn, target.ioFnRet, callArgs, callTypes);
+    }
+    ;
+    lowerPrint(node, lctx) {
+        const textNode = node.getSecond();
+        const text = this.printTextFromNode(textNode);
+        if ((text.length) > 0) {
+            this.emitIoString(text, true, lctx);
+            return;
+        }
+        const strPtr = this.lowerExpr(textNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(strPtr);
+        argTypes.push("i8*");
+        this.emitPrintfFmt("%s\n", args, argTypes, lctx);
+    }
+    ;
+    lowerWrite(node, lctx) {
+        const textNode = node.getSecond();
+        const text = this.printTextFromNode(textNode);
+        if ((text.length) > 0) {
+            this.emitIoString(text, false, lctx);
+            return;
+        }
+        const strPtr = this.lowerExpr(textNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(strPtr);
+        argTypes.push("i8*");
+        this.emitPrintfFmt("%s", args, argTypes, lctx);
+    }
+    ;
+    lowerExit(node, lctx) {
+        const target = lctx.target;
+        if (target.usesLibc == false) {
+            return;
+        }
+        const builder = lctx.builder;
+        const codeNode = node.getSecond();
+        const code = this.lowerExpr(codeNode, lctx);
+        let exitParams = [];
+        exitParams.push("i32");
+        this.ensureExternDecl("exit", "void", exitParams, false);
+        let args = [];
+        let argTypes = [];
+        args.push(code);
+        argTypes.push("i32");
+        builder.emitCall("exit", "void", args, argTypes);
+        builder.terminateUnreachable();
+    }
+    ;
+    lowerSleepMs(node, lctx) {
+        const target = lctx.target;
+        if (target.usesLibc == false) {
+            return;
+        }
+        const builder = lctx.builder;
+        const msNode = node.getSecond();
+        const ms = this.lowerExpr(msNode, lctx);
+        const irI32 = "i32";
+        const thousand = builder.emitConst(irI32, "1000");
+        const usec = builder.emitBin("mul", irI32, ms, thousand);
+        let usleepParams = [];
+        usleepParams.push("i32");
+        this.ensureExternDecl("usleep", "i32", usleepParams, false);
+        let args = [];
+        let argTypes = [];
+        args.push(usec);
+        argTypes.push("i32");
+        builder.emitCall("usleep", "i32", args, argTypes);
+    }
+    ;
+    lowerTerminalEsc(text, lctx) {
+        this.emitIoString(text, false, lctx);
+    }
+    ;
+    emitTermVoidCall(fnName, lctx) {
+        const target = lctx.target;
+        if (target.usesLibc == false) {
+            return;
+        }
+        let args = [];
+        let argTypes = [];
+        lctx.builder.emitCall(fnName, "void", args, argTypes);
+    }
+    ;
+    lowerClearScreen(node, lctx) {
+        this.emitTermVoidCall("ranger_clear_screen", lctx);
+    }
+    ;
+    lowerHideCursor(node, lctx) {
+        this.emitTermVoidCall("ranger_hide_cursor", lctx);
+    }
+    ;
+    lowerShowCursor(node, lctx) {
+        this.emitTermVoidCall("ranger_show_cursor", lctx);
+    }
+    ;
+    lowerMoveCursor(node, lctx) {
+        const target = lctx.target;
+        if (target.usesLibc == false) {
+            return;
+        }
+        const builder = lctx.builder;
+        const xNode = node.getSecond();
+        const yNode = node.getThird();
+        const x = this.lowerExpr(xNode, lctx);
+        const y = this.lowerExpr(yNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(x);
+        argTypes.push("i32");
+        args.push(y);
+        argTypes.push("i32");
+        builder.emitCall("ranger_move_cursor", "void", args, argTypes);
+    }
+    ;
+    forIndexName(idxNode) {
+        if ((idxNode.vref.length) > 0) {
+            return idxNode.vref;
+        }
+        return "i";
+    }
+    ;
+    resolveItemClass(itemNode) {
+        if ((itemNode.eval_type_name.length) > 0) {
+            return itemNode.eval_type_name;
+        }
+        return itemNode.type_name;
+    }
+    ;
+    lowerPollKeypress(lctx) {
+        let args = [];
+        let argTypes = [];
+        return lctx.builder.emitCall("ranger_poll_key", "i8*", args, argTypes);
+    }
+    ;
+    lowerOnKeypress(node, lctx) {
+        let args = [];
+        let argTypes = [];
+        lctx.builder.emitCall("ranger_term_init", "void", args, argTypes);
+    }
+    ;
+    lowerShellArgCnt(lctx) {
+        let args = [];
+        let argTypes = [];
+        return lctx.builder.emitCall("ranger_shell_arg_cnt", "i32", args, argTypes);
+    }
+    ;
+    lowerShellArg(node, lctx) {
+        const idxNode = node.getSecond();
+        const idx = this.lowerExpr(idxNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(idx);
+        argTypes.push("i32");
+        return lctx.builder.emitCall("ranger_shell_arg", "i8*", args, argTypes);
+    }
+    ;
+    lowerReadFile(node, lctx) {
+        const pathNode = node.getSecond();
+        const fileNode = node.getThird();
+        const path = this.lowerExpr(pathNode, lctx);
+        const file = this.lowerExpr(fileNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(path);
+        argTypes.push("i8*");
+        args.push(file);
+        argTypes.push("i8*");
+        return lctx.builder.emitCall("ranger_read_file", "i8*", args, argTypes);
+    }
+    ;
+    lowerBufferAlloc(node, lctx) {
+        const sizeNode = node.getSecond();
+        const size = this.lowerExpr(sizeNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(size);
+        argTypes.push("i32");
+        return lctx.builder.emitCall("ranger_buffer_alloc", lctx.ptrType, args, argTypes);
+    }
+    ;
+    lowerBufferLength(node, lctx) {
+        const bufNode = node.getSecond();
+        const buf = this.lowerExpr(bufNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(buf);
+        argTypes.push(lctx.ptrType);
+        return lctx.builder.emitCall("ranger_buffer_length", "i32", args, argTypes);
+    }
+    ;
+    lowerBufferGet(node, lctx) {
+        const bufNode = node.getSecond();
+        const offNode = node.getThird();
+        const buf = this.lowerExpr(bufNode, lctx);
+        const off = this.lowerExpr(offNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(buf);
+        argTypes.push(lctx.ptrType);
+        args.push(off);
+        argTypes.push("i32");
+        return lctx.builder.emitCall("ranger_buffer_get", "i32", args, argTypes);
+    }
+    ;
+    lowerBufferSet(node, lctx) {
+        const bufNode = node.getSecond();
+        const offNode = node.getThird();
+        const valNode = node.children[3];
+        const buf = this.lowerExpr(bufNode, lctx);
+        const off = this.lowerExpr(offNode, lctx);
+        const val = this.lowerExpr(valNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(buf);
+        argTypes.push(lctx.ptrType);
+        args.push(off);
+        argTypes.push("i32");
+        args.push(val);
+        argTypes.push("i32");
+        lctx.builder.emitCall("ranger_buffer_set", "void", args, argTypes);
+        return "";
+    }
+    ;
+    lowerBufferReadFile(node, lctx) {
+        const pathNode = node.getSecond();
+        const fileNode = node.getThird();
+        const path = this.lowerExpr(pathNode, lctx);
+        const file = this.lowerExpr(fileNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(path);
+        argTypes.push("i8*");
+        args.push(file);
+        argTypes.push("i8*");
+        return lctx.builder.emitCall("ranger_buffer_read_file", lctx.ptrType, args, argTypes);
+    }
+    ;
+    lowerBufferWriteFile(node, lctx) {
+        const pathNode = node.getSecond();
+        const fileNode = node.getThird();
+        const bufNode = node.children[3];
+        const path = this.lowerExpr(pathNode, lctx);
+        const file = this.lowerExpr(fileNode, lctx);
+        const buf = this.lowerExpr(bufNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(path);
+        argTypes.push("i8*");
+        args.push(file);
+        argTypes.push("i8*");
+        args.push(buf);
+        argTypes.push(lctx.ptrType);
+        lctx.builder.emitCall("ranger_buffer_write_file", "void", args, argTypes);
+        return "";
+    }
+    ;
+    lowerIntBufferAlloc(node, lctx) {
+        const sizeNode = node.getSecond();
+        const size = this.lowerExpr(sizeNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(size);
+        argTypes.push("i32");
+        return lctx.builder.emitCall("ranger_int_buffer_alloc", lctx.ptrType, args, argTypes);
+    }
+    ;
+    lowerIntBufferGet(node, lctx) {
+        const bufNode = node.getSecond();
+        const idxNode = node.getThird();
+        const buf = this.lowerExpr(bufNode, lctx);
+        const idx = this.lowerExpr(idxNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(buf);
+        argTypes.push(lctx.ptrType);
+        args.push(idx);
+        argTypes.push("i32");
+        return lctx.builder.emitCall("ranger_int_buffer_get", "i32", args, argTypes);
+    }
+    ;
+    lowerIntBufferSet(node, lctx) {
+        const bufNode = node.getSecond();
+        const idxNode = node.getThird();
+        const valNode = node.children[3];
+        const buf = this.lowerExpr(bufNode, lctx);
+        const idx = this.lowerExpr(idxNode, lctx);
+        const val = this.lowerExpr(valNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(buf);
+        argTypes.push(lctx.ptrType);
+        args.push(idx);
+        argTypes.push("i32");
+        args.push(val);
+        argTypes.push("i32");
+        lctx.builder.emitCall("ranger_int_buffer_set", "void", args, argTypes);
+        return "";
+    }
+    ;
+    exprIsF64(node) {
+        if (node.value_type == 2) {
+            return true;
+        }
+        if (node.eval_type == 2) {
+            return true;
+        }
+        if (node.type_name == "double") {
+            return true;
+        }
+        if (node.eval_type_name == "double") {
+            return true;
+        }
+        return false;
+    }
+    ;
+    promoteToF64(node, val, lctx) {
+        if (this.exprIsF64(node)) {
+            return val;
+        }
+        return lctx.builder.emitCast("sitofp", "f64", "i32", val);
+    }
+    ;
+    lowerToDouble(node, lctx) {
+        const inNode = node.getSecond();
+        const val = this.lowerExpr(inNode, lctx);
+        return this.promoteToF64(inNode, val, lctx);
+    }
+    ;
+    lowerToInt(node, lctx) {
+        const inNode = node.getSecond();
+        const val = this.lowerExpr(inNode, lctx);
+        if (this.exprIsF64(inNode)) {
+            return lctx.builder.emitCast("fptosi", "i32", "f64", val);
+        }
+        return val;
+    }
+    ;
+    lowerStr2Double(node, lctx) {
+        const inNode = node.getSecond();
+        const val = this.lowerExpr(inNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(val);
+        argTypes.push("i8*");
+        return lctx.builder.emitCall("ranger_str2double", "f64", args, argTypes);
+    }
+    ;
+    lowerStr2Int(node, lctx) {
+        const inNode = node.getSecond();
+        const val = this.lowerExpr(inNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(val);
+        argTypes.push("i8*");
+        return lctx.builder.emitCall("ranger_str2int", "i32", args, argTypes);
+    }
+    ;
+    lowerIntBufferFill(node, lctx) {
+        const bufNode = node.getSecond();
+        const valNode = node.getThird();
+        const startNode = node.children[3];
+        const endNode = node.children[4];
+        const buf = this.lowerExpr(bufNode, lctx);
+        const val = this.lowerExpr(valNode, lctx);
+        const start = this.lowerExpr(startNode, lctx);
+        const end = this.lowerExpr(endNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(buf);
+        argTypes.push(lctx.ptrType);
+        args.push(val);
+        argTypes.push("i32");
+        args.push(start);
+        argTypes.push("i32");
+        args.push(end);
+        argTypes.push("i32");
+        lctx.builder.emitCall("ranger_int_buffer_fill", "void", args, argTypes);
+        return "";
+    }
+    ;
+    lowerCharAt(node, lctx) {
+        const textNode = node.getSecond();
+        const posNode = node.getThird();
+        const text = this.lowerExpr(textNode, lctx);
+        const pos = this.lowerExpr(posNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(text);
+        argTypes.push("i8*");
+        args.push(pos);
+        argTypes.push("i32");
+        return lctx.builder.emitCall("ranger_char_at", "i32", args, argTypes);
+    }
+    ;
+    lowerSubstring(node, lctx) {
+        const textNode = node.getSecond();
+        const startNode = node.getThird();
+        const endNode = node.children[3];
+        const text = this.lowerExpr(textNode, lctx);
+        const start = this.lowerExpr(startNode, lctx);
+        const end = this.lowerExpr(endNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(text);
+        argTypes.push("i8*");
+        args.push(start);
+        argTypes.push("i32");
+        args.push(end);
+        argTypes.push("i32");
+        const subRes = lctx.builder.emitCall("ranger_substring", "i8*", args, argTypes);
+        this.registerFreshStringTemp(subRes, lctx);
+        return subRes;
+    }
+    ;
+    lowerAtArgs(textNode, posNode, lctx) {
+        const text = this.lowerExpr(textNode, lctx);
+        const pos = this.lowerExpr(posNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(text);
+        argTypes.push("i8*");
+        args.push(pos);
+        argTypes.push("i32");
+        const chPtr = lctx.builder.emitCall("ranger_at_char", "i8*", args, argTypes);
+        let dupArgs = [];
+        let dupArgTypes = [];
+        dupArgs.push(chPtr);
+        dupArgTypes.push("i8*");
+        return lctx.builder.emitCall("ranger_strdup", "i8*", dupArgs, dupArgTypes);
+    }
+    ;
+    lowerAt(node, lctx) {
+        return this.lowerAtArgs(node.getSecond(), node.getThird(), lctx);
+    }
+    ;
+    lowerAtCall(argsNode, lctx) {
+        if ((argsNode.children.length) < 2) {
+            return "";
+        }
+        return this.lowerAtArgs((argsNode.children[0]), (argsNode.children[1]), lctx);
+    }
+    ;
+    lowerPtrIsNull(ptr, lctx) {
+        const builder = lctx.builder;
+        const asInt = builder.emitPtrToInt(ptr);
+        const zero = builder.emitConst(lctx.ptrType, "0");
+        return builder.emitIcmpTyped("eq", lctx.ptrType, asInt, zero);
+    }
+    ;
+    lowerPtrIsNotNull(ptr, lctx) {
+        const builder = lctx.builder;
+        const asInt = builder.emitPtrToInt(ptr);
+        const zero = builder.emitConst(lctx.ptrType, "0");
+        return builder.emitIcmpTyped("ne", lctx.ptrType, asInt, zero);
+    }
+    ;
+    loadArrayDescExpr(arrNode, lctx) {
+        const desc = this.loadPtrArrayDescExpr(arrNode, lctx);
+        if (arrNode.value_type == 11) {
+            if ((this.ptrArrayDescFromVref(arrNode.vref, lctx).length) > 0) {
+                return desc;
+            }
+            if (this.isClassField(arrNode.vref, lctx.className, this.irModule)) {
+                if (this.fieldIsPtrArraySlot(lctx.className, arrNode.vref)) {
+                    return this.emitFieldLoad(arrNode.vref, lctx);
+                }
+            }
+        }
+        return this.lowerExpr(arrNode, lctx);
+    }
+    ;
+    pushItemNeedsWiden(itemNode, lctx) {
+        if (this.exprIsObjectPtr(itemNode, lctx)) {
+            return false;
+        }
+        if (this.exprIsStringish(itemNode, lctx)) {
+            return false;
+        }
+        if (this.exprIsF64(itemNode)) {
+            return false;
+        }
+        return true;
+    }
+    ;
+    arrayElemTypeName(arrNode, lctx) {
+        if ((arrNode.array_type.length) > 0) {
+            return arrNode.array_type;
+        }
+        if (arrNode.value_type == 11) {
+            const vr = arrNode.vref;
+            if ((vr.indexOf(".")) >= 0) {
+                const parts = vr.split(".");
+                if ((parts.length) >= 2) {
+                    const recv = parts[0];
+                    const fld = parts[1];
+                    const cls = this.resolveObjectClass(recv, lctx);
+                    if ((cls.length) > 0) {
+                        return this.fieldArrayElemType(cls, fld, lctx);
+                    }
+                }
+                return "";
+            }
+            if (this.isClassField(vr, lctx.className, this.irModule)) {
+                return this.fieldArrayElemType(lctx.className, vr, lctx);
+            }
+            if ((typeof (lctx.ptrArrayElemTypes[vr]) != "undefined" && lctx.ptrArrayElemTypes.hasOwnProperty(vr))) {
+                return ((lctx.ptrArrayElemTypes.hasOwnProperty(vr) ? lctx.ptrArrayElemTypes[vr] : undefined));
+            }
+        }
+        return "";
+    }
+    ;
+    lowerPush(node, lctx) {
+        const arrNode = node.getSecond();
+        const itemNode = node.getThird();
+        const desc = this.loadArrayDescExpr(arrNode, lctx);
+        let itemAddr = "";
+        if (itemNode.hasNewOper) {
+            let itemCls = this.newTargetClassName(itemNode, lctx);
+            if ((itemCls.length) == 0) {
+                itemCls = this.arrayElemTypeName(arrNode, lctx);
+            }
+            if ((itemCls.length) > 0) {
+                itemAddr = this.lowerNewObject(itemCls, itemNode.getThird(), lctx);
+            }
+            else {
+                itemAddr = this.lowerExpr(itemNode, lctx);
+            }
+        }
+        else {
+            itemAddr = this.lowerExpr(itemNode, lctx);
+        }
+        if (lctx.ptrType == "i64") {
+            if (this.pushItemNeedsWiden(itemNode, lctx)) {
+                itemAddr = lctx.builder.emitCast("zext", "i64", "i32", itemAddr);
+            }
+        }
+        if (this.wasmStrEnabled(lctx)) {
+            if (LowIRUtil.isStringType(this.arrayElemTypeName(arrNode, lctx))) {
+                const dupStr = this.emitStrdupExpr(itemAddr, lctx);
+                let sArgs = [];
+                let sArgTypes = [];
+                sArgs.push(desc);
+                sArgTypes.push(lctx.ptrType);
+                sArgs.push(dupStr);
+                sArgTypes.push(lctx.ptrType);
+                this.usedPtrArrayRuntime = true;
+                lctx.builder.emitCall("RtPtrArray_push", "void", sArgs, sArgTypes);
+                return;
+            }
+        }
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        args.push(itemAddr);
+        argTypes.push(lctx.ptrType);
+        const voidType = "void";
+        if (this.exprIsObjectPtr(itemNode, lctx)) {
+            if (this.memEnabled(lctx) || this.wasmCollectionRcEnabled(lctx)) {
+                let isMove = false;
+                if (itemNode.value_type == 11) {
+                    if (this.isOwnedObjectLocal(itemNode.vref, lctx)) {
+                        isMove = true;
+                    }
+                }
+                let freshNew = false;
+                if (itemNode.hasNewOper) {
+                    if (this.wasmCollectionRcEnabled(lctx)) {
+                        freshNew = true;
+                    }
+                }
+                if (isMove || freshNew) {
+                    if (itemNode.value_type == 11) {
+                        lctx.escapedLocals[itemNode.vref] = "1";
+                    }
+                    this.usedPtrArrayRuntime = true;
+                    lctx.builder.emitCall("RtPtrArray_push", voidType, args, argTypes);
+                    return;
+                }
+                if (this.memEnabled(lctx)) {
+                    this.usedMemRuntime = true;
+                    this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
+                }
+                lctx.builder.emitCall("ranger_ptrarray_push_owned", voidType, args, argTypes);
+                return;
+            }
+        }
+        this.usedPtrArrayRuntime = true;
+        lctx.builder.emitCall("RtPtrArray_push", voidType, args, argTypes);
+    }
+    ;
+    lowerFor(node, lctx) {
+        const builder = lctx.builder;
+        if ((node.children.length) <= 4) {
+            return;
+        }
+        const listNode = node.getSecond();
+        const itemNode = node.getThird();
+        const bodyNode = node.children[4];
+        const idxNode = node.children[3];
+        const idxName = this.forIndexName(idxNode);
+        const desc = this.loadArrayDescExpr(listNode, lctx);
+        this.usedPtrArrayRuntime = true;
+        let lenArgs = [];
+        let lenTypes = [];
+        lenArgs.push(desc);
+        lenTypes.push(lctx.ptrType);
+        const __len = builder.emitCall("RtPtrArray_len", "i32", lenArgs, lenTypes);
+        const zero = builder.emitConst("i32", "0");
+        this.bindSlot(idxName, "i32", zero, lctx);
+        const condLabel = builder.freshLabel("for_cond");
+        const bodyLabel = builder.freshLabel("for_body");
+        const exitLabel = builder.freshLabel("for_exit");
+        const incLabel = builder.freshLabel("for_inc");
+        builder.terminateBr(condLabel);
+        builder.startBlock(condLabel);
+        const idxVal = this.loadSlot(idxName, "i32", lctx);
+        const cond = builder.emitIcmp("slt", idxVal, __len);
+        builder.terminateBrIf(cond, bodyLabel, exitLabel);
+        builder.startBlock(bodyLabel);
+        let elemArgs = [];
+        let elemTypes = [];
+        elemArgs.push(desc);
+        elemTypes.push(lctx.ptrType);
+        elemArgs.push(idxVal);
+        elemTypes.push("i32");
+        const elemAddr = builder.emitCall("RtPtrArray_get", lctx.ptrType, elemArgs, elemTypes);
+        const itemName = itemNode.vref;
+        const itemClass = this.resolveItemClass(itemNode);
+        this.bindSlot(itemName, lctx.ptrType, elemAddr, lctx);
+        if ((itemClass.length) > 0) {
+            lctx.objectSlots[itemName] = itemClass;
+        }
+        this.lowerBlock(bodyNode, lctx);
+        const bodyBb = builder.currentBlock;
+        if (bodyBb.termKind == "") {
+            builder.terminateBr(incLabel);
+        }
+        builder.startBlock(incLabel);
+        const idxEnd = this.loadSlot(idxName, "i32", lctx);
+        const one = builder.emitConst("i32", "1");
+        const idxNext = builder.emitBin("add", "i32", idxEnd, one);
+        const idxSlot = ((lctx.slots.hasOwnProperty(idxName) ? lctx.slots[idxName] : undefined));
+        builder.emitStore("i32", idxNext, idxSlot);
+        builder.terminateBr(condLabel);
+        builder.startBlock(exitLabel);
+    }
+    ;
+    emitStrcmpEq(lhs, rhs, ctx) {
+        let args = [];
+        let argTypes = [];
+        args.push(lhs);
+        argTypes.push("i8*");
+        args.push(rhs);
+        argTypes.push("i8*");
+        const cmp = ctx.builder.emitCall("strcmp", "i32", args, argTypes);
+        const zero = ctx.builder.emitConst("i32", "0");
+        return ctx.builder.emitIcmp("eq", cmp, zero);
+    }
+    ;
+    lowerToString(node, lctx) {
+        const builder = lctx.builder;
+        const valNode = node.getSecond();
+        const isF64 = this.exprIsF64(valNode);
+        const val = this.lowerExpr(valNode, lctx);
+        if (this.wasmStrEnabled(lctx)) {
+            let iv = val;
+            if (isF64) {
+                iv = builder.emitCast("fptosi", "i32", "f64", val);
+            }
+            let sargs = [];
+            let sargTypes = [];
+            sargs.push(iv);
+            sargTypes.push("i32");
+            const sres = builder.emitCall("ranger_str_from_int", "i8*", sargs, sargTypes);
+            this.registerFreshStringTemp(sres, lctx);
+            return sres;
+        }
+        const sz = builder.emitConst("i32", "64");
+        const raw = builder.emitHeapAlloc(sz);
+        const buf = builder.emitIntToI8Ptr(raw, lctx.ptrType);
+        let fmtLit = "%d";
+        let valType = "i32";
+        if (isF64) {
+            fmtLit = "%g";
+            valType = "f64";
+        }
+        const fmtG = this.internStringGlobal(fmtLit, false);
+        let args = [];
+        let argTypes = [];
+        args.push(buf);
+        argTypes.push("i8*");
+        args.push(builder.emitStrPtr(fmtG, this.stringGlobalByteLen(fmtG)));
+        argTypes.push("i8*");
+        args.push(val);
+        argTypes.push(valType);
+        builder.emitCall("sprintf", "i32", args, argTypes);
+        const memTarget = LowIRTarget.resolve((lctx.ctx));
+        if (memTarget.usesLibc) {
+            const dup = this.emitStrdupExpr(buf, lctx);
+            let freeArgs = [];
+            let freeArgTypes = [];
+            freeArgs.push(buf);
+            freeArgTypes.push("i8*");
+            builder.emitCall("free", "void", freeArgs, freeArgTypes);
+            return dup;
+        }
+        return buf;
+    }
+    ;
+    lowerStrFromCode(node, fnName, lctx) {
+        const builder = lctx.builder;
+        const codeNode = node.getSecond();
+        const code = this.lowerExpr(codeNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(code);
+        argTypes.push("i32");
+        const codeRes = builder.emitCall(fnName, "i8*", args, argTypes);
+        this.registerFreshStringTemp(codeRes, lctx);
+        return codeRes;
+    }
+    ;
+    lowerStrlen(node, lctx) {
+        const irI32 = "i32";
+        const textNode = node.getSecond();
+        const text = this.printTextFromNode(textNode);
+        const builder = lctx.builder;
+        if ((text.length) > 0) {
+            const __len = text.length;
+            return builder.emitConst(irI32, ("" + __len));
+        }
+        const strPtr = this.lowerExpr(textNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(strPtr);
+        argTypes.push("i8*");
+        let lenFn = "strlen";
+        if (this.wasmStrEnabled(lctx)) {
+            lenFn = "ranger_str_len";
+        }
+        return builder.emitCall(lenFn, "i32", args, argTypes);
+    }
+    ;
+    isIntArrayTypeNode(node) {
+        if (node.value_type == 6) {
+            return node.array_type == "int";
+        }
+        return false;
+    }
+    ;
+    isIntIntMapTypeNode(node) {
+        if (node.value_type == 7) {
+            if (node.key_type == "int") {
+                return node.array_type == "int";
+            }
+        }
+        return false;
+    }
+    ;
+    isObjectPtrArrayTypeNode(node) {
+        if (node.value_type == 6) {
+            if ((node.array_type.length) > 0) {
+                if (node.array_type != "int") {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    ;
+    isStringArrayTypeNode(node) {
+        if (node.value_type == 6) {
+            return LowIRUtil.isStringType(node.array_type);
+        }
+        return false;
+    }
+    ;
+    emitPtrArrayNewEmpty(lctx, elemKind) {
+        this.usedPtrArrayRuntime = true;
+        const builder = lctx.builder;
+        const cap = builder.emitConst("i32", "256");
+        let args = [];
+        let argTypes = [];
+        args.push(cap);
+        argTypes.push("i32");
+        const desc = builder.emitCall("RtPtrArray_new", lctx.ptrType, args, argTypes);
+        if (elemKind > 0) {
+            const kindC = builder.emitConst("i32", ("" + elemKind));
+            builder.emitStoreI32At(desc, this.ptrArrayOwnedOff(lctx), kindC);
+        }
+        return desc;
+    }
+    ;
+    bindPtrArraySlot(varName, desc, lctx, owned) {
+        this.bindSlot(varName, lctx.ptrType, desc, lctx);
+        lctx.collectionSlots[varName] = "ptr_array";
+        if (owned) {
+            lctx.ownedCollectionLocals.push(varName);
+        }
+        else {
+            if (this.wasmCollectionRcEnabled(lctx)) {
+                lctx.ownedCollectionLocals.push(varName);
+            }
+        }
+    }
+    ;
+    wasmCollectionRcEnabled(lctx) {
+        const memTarget = LowIRTarget.resolve((lctx.ctx));
+        if (memTarget.usesLibc) {
+            return false;
+        }
+        const ctx = lctx.ctx;
+        return ctx.hasCompilerFlag("wasmrc");
+    }
+    ;
+    collectionKind(varName, lctx) {
+        if ((typeof (lctx.collectionSlots[varName]) != "undefined" && lctx.collectionSlots.hasOwnProperty(varName))) {
+            return ((lctx.collectionSlots.hasOwnProperty(varName) ? lctx.collectionSlots[varName] : undefined));
+        }
+        return "";
+    }
+    ;
+    arrayLenOff(lctx) {
+        if (lctx.ptrType == "i64") {
+            return 8;
+        }
+        return 4;
+    }
+    ;
+    arrayCapOff(lctx) {
+        if (lctx.ptrType == "i64") {
+            return 12;
+        }
+        return 8;
+    }
+    ;
+    arrayDescBytes(lctx) {
+        if (lctx.ptrType == "i64") {
+            return 20;
+        }
+        return 16;
+    }
+    ;
+    ptrArrayOwnedOff(lctx) {
+        const capOff = this.arrayCapOff(lctx);
+        return capOff + 4;
+    }
+    ;
+    bindCollectionSlot(varName, kind, desc, lctx) {
+        this.bindSlot(varName, lctx.ptrType, desc, lctx);
+        lctx.collectionSlots[varName] = kind;
+        if (this.wasmCollectionRcEnabled(lctx)) {
+            lctx.ownedCollectionLocals.push(varName);
+        }
+    }
+    ;
+    loadCollectionDesc(varName, lctx) {
+        return this.loadSlot(varName, lctx.ptrType, lctx);
+    }
+    ;
+    emitDescLoad(desc, byteOff, lctx) {
+        const builder = lctx.builder;
+        const pt = lctx.ptrType;
+        const off = builder.emitConst(pt, ("" + byteOff));
+        const addr = builder.emitBin("add", pt, desc, off);
+        return builder.emitPtrLoad(addr);
+    }
+    ;
+    emitRtArrayNewEmpty(lctx) {
+        const builder = lctx.builder;
+        const descBytes = builder.emitConst("i32", ("" + this.arrayDescBytes(lctx)));
+        const desc = builder.emitHeapAlloc(descBytes);
+        const sixteen = builder.emitConst("i32", "16");
+        const data = builder.emitHeapAlloc(sixteen);
+        builder.emitPtrStore(desc, data);
+        const zero = builder.emitConst("i32", "0");
+        builder.emitStoreI32At(desc, this.arrayLenOff(lctx), zero);
+        const four = builder.emitConst("i32", "4");
+        builder.emitStoreI32At(desc, this.arrayCapOff(lctx), four);
+        return desc;
+    }
+    ;
+    emitRtArrayNewSized(cap, lctx) {
+        const builder = lctx.builder;
+        const descBytes = builder.emitConst("i32", ("" + this.arrayDescBytes(lctx)));
+        const desc = builder.emitHeapAlloc(descBytes);
+        const four = builder.emitConst("i32", "4");
+        const nbytes = builder.emitBin("mul", "i32", cap, four);
+        const data = builder.emitHeapAlloc(nbytes);
+        builder.emitPtrStore(desc, data);
+        const zero = builder.emitConst("i32", "0");
+        builder.emitStoreI32At(desc, this.arrayLenOff(lctx), zero);
+        builder.emitStoreI32At(desc, this.arrayCapOff(lctx), cap);
+        return desc;
+    }
+    ;
+    emitRtArrayGet(desc, idx, lctx) {
+        const builder = lctx.builder;
+        const pt = lctx.ptrType;
+        const data = this.emitDescLoad(desc, 0, lctx);
+        const four = builder.emitConst("i32", "4");
+        const offI32 = builder.emitBin("mul", "i32", idx, four);
+        const off = builder.emitZextI32ToPtr(offI32);
+        const slot = builder.emitBin("add", pt, data, off);
+        return builder.emitPtrLoadTyped(slot, "i32");
+    }
+    ;
+    emitRtArraySet(desc, idx, val, lctx) {
+        this.usedArrayRuntime = true;
+        const builder = lctx.builder;
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        args.push(idx);
+        argTypes.push("i32");
+        args.push(val);
+        argTypes.push("i32");
+        const voidType = "void";
+        builder.emitCall("RtArray_set", voidType, args, argTypes);
+    }
+    ;
+    emitRtArrayLen(desc, lctx) {
+        const builder = lctx.builder;
+        return builder.emitI32At(desc, this.arrayLenOff(lctx));
+    }
+    ;
+    emitRtMapNew(cap, lctx) {
+        this.usedMapRuntime = true;
+        const builder = lctx.builder;
+        let args = [];
+        let argTypes = [];
+        args.push(cap);
+        argTypes.push("i32");
+        return builder.emitCall("RtMap_new", lctx.ptrType, args, argTypes);
+    }
+    ;
+    emitRtMapPut(desc, key, val, lctx) {
+        this.usedMapRuntime = true;
+        const builder = lctx.builder;
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        args.push(key);
+        argTypes.push("i32");
+        args.push(val);
+        argTypes.push("i32");
+        const voidType = "void";
+        builder.emitCall("RtMap_put", voidType, args, argTypes);
+    }
+    ;
+    emitRtMapGet(desc, key, lctx) {
+        this.usedMapRuntime = true;
+        const builder = lctx.builder;
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        args.push(key);
+        argTypes.push("i32");
+        return builder.emitCall("RtMap_get", "i32", args, argTypes);
+    }
+    ;
+    emitRtMapHas(desc, key, lctx) {
+        this.usedMapRuntime = true;
+        const builder = lctx.builder;
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        args.push(key);
+        argTypes.push("i32");
+        return builder.emitCall("RtMap_has", "i32", args, argTypes);
+    }
+    ;
+    lowerCollectionMake(node, lctx) {
+        const sizeNode = node.getThird();
+        const cap = this.lowerExpr(sizeNode, lctx);
+        const innerNode = node.getSecond();
+        if (this.isObjectPtrArrayTypeNode(innerNode)) {
+            this.usedPtrArrayRuntime = true;
+            const builder = lctx.builder;
+            let args = [];
+            let argTypes = [];
+            args.push(cap);
+            argTypes.push("i32");
+            return builder.emitCall("RtPtrArray_new", lctx.ptrType, args, argTypes);
+        }
+        this.usedPtrArrayRuntime = true;
+        let iargs = [];
+        let iargTypes = [];
+        iargs.push(cap);
+        iargTypes.push("i32");
+        return lctx.builder.emitCall("RtPtrArray_new", lctx.ptrType, iargs, iargTypes);
+    }
+    ;
+    lowerCollectionGet(node, lctx) {
+        const collNode = node.getSecond();
+        const keyNode = node.getThird();
+        const varName = collNode.vref;
+        const kind = this.collectionKind(varName, lctx);
+        const desc = this.loadCollectionDesc(varName, lctx);
+        const key = this.lowerExpr(keyNode, lctx);
+        if (kind == "map") {
+            return this.emitRtMapGet(desc, key, lctx);
+        }
+        return this.emitPtrArrayElemGet(desc, key, collNode, lctx);
+    }
+    ;
+    lowerCollectionLen(node, lctx) {
+        const collNode = node.getSecond();
+        if (collNode.value_type == 11) {
+            const pdesc = this.ptrArrayDescFromVref(collNode.vref, lctx);
+            if ((pdesc.length) > 0) {
+                return this.emitPtrArrayLen(pdesc, lctx);
+            }
+        }
+        const varName = collNode.vref;
+        const desc = this.loadCollectionDesc(varName, lctx);
+        return this.emitRtArrayLen(desc, lctx);
+    }
+    ;
+    lowerCollectionHas(node, lctx) {
+        const collNode = node.getSecond();
+        const keyNode = node.getThird();
+        const varName = collNode.vref;
+        const desc = this.loadCollectionDesc(varName, lctx);
+        const key = this.lowerExpr(keyNode, lctx);
+        return this.emitRtMapHas(desc, key, lctx);
+    }
+    ;
+    lowerCollectionSet(node, lctx) {
+        const collNode = node.getSecond();
+        const keyNode = node.getThird();
+        let valNode;
+        if ((node.children.length) > 3) {
+            valNode = node.children[3];
+        }
+        if (typeof (valNode) === "undefined") {
+            return;
+        }
+        const key = this.lowerExpr(keyNode, lctx);
+        const val = this.lowerExpr((valNode), lctx);
+        if (collNode.value_type == 11) {
+            const varName = collNode.vref;
+            const kind = this.collectionKind(varName, lctx);
+            if (kind == "map") {
+                const mdesc = this.loadCollectionDesc(varName, lctx);
+                this.emitRtMapPut(mdesc, key, val, lctx);
+                return;
+            }
+            if (kind == "array") {
+                const adesc = this.loadCollectionDesc(varName, lctx);
+                this.emitRtArraySet(adesc, key, val, lctx);
+                return;
+            }
+            if (kind == "ptr_array") {
+                const pdesc = this.loadSlot(varName, lctx.ptrType, lctx);
+                this.emitPtrArrayElemSet(pdesc, key, val, collNode, lctx);
+                return;
+            }
+            const fdesc = this.ptrArrayDescFromVref(varName, lctx);
+            if ((fdesc.length) > 0) {
+                this.emitPtrArrayElemSet(fdesc, key, val, collNode, lctx);
+                return;
+            }
+        }
+        const desc = this.loadPtrArrayDescExpr(collNode, lctx);
+        this.emitPtrArrayElemSet(desc, key, val, collNode, lctx);
+    }
+    ;
+    lowerStruct(cl, ctx) {
+        const st = new LowIRStruct();
+        st.name = cl.name;
+        const ptrType = this.irModule.ptrType;
+        for (let i = 0; i < cl.variables.length; i++) {
+            var v = cl.variables[i];
+            if (typeof (v.nameNode) === "undefined") {
+                continue;
+            }
+            const nn = v.nameNode;
+            const f = new LowIRField();
+            f.name = v.name;
+            let isObjArray = false;
+            if (LowIRUtil.isArrayTypeName(nn.type_name)) {
+                isObjArray = true;
+            }
+            else {
+                if (nn.value_type == 6) {
+                    if ((nn.array_type.length) > 0) {
+                        isObjArray = true;
+                    }
+                }
+            }
+            if (isObjArray) {
+                f.irType = ptrType;
+                f.isPtrArray = true;
+            }
+            else {
+                if (LowIRUtil.isBufferTypeName(nn.type_name)) {
+                    f.irType = ptrType;
+                    f.isBuffer = true;
+                }
+                else {
+                    if (LowIRUtil.isStringType(nn.type_name)) {
+                        f.irType = ptrType;
+                        f.isString = true;
+                    }
+                    else {
+                        if (nn.type_name == "boolean") {
+                            f.irType = "i32";
+                            f.isBool = true;
+                        }
+                        else {
+                            if (LowIRUtil.isSupportedPrimitive(nn.type_name)) {
+                                f.irType = LowIRUtil.fieldIrType(nn.type_name);
+                            }
+                            else {
+                                f.irType = ptrType;
+                                f.isObject = true;
+                            }
+                        }
+                    }
+                }
+            }
+            st.fields.push(f);
+        }
+        ;
+        this.irModule.structs.push(st);
+        const target = LowIRTarget.resolve(ctx);
+        this.lowerTypeDesc(st, target);
+    }
+    ;
+    lowerTypeDesc(st, target) {
+        const td = new LowIRTypeDesc();
+        td.className = st.name;
+        td.size = this.structByteSize(st.name, this.irModule);
+        let fi = 0;
+        for (let i = 0; i < st.fields.length; i++) {
+            var f = st.fields[i];
+            let kind = 3;
+            if (f.isString) {
+                kind = 0;
+            }
+            else {
+                if (f.isObject) {
+                    kind = 1;
+                }
+                else {
+                    if (f.isPtrArray) {
+                        kind = 2;
+                    }
+                }
+            }
+            if (kind != 3) {
+                const fd = new LowIRTypeFieldDesc();
+                fd.offset = this.fieldByteOffset(st.name, fi, this.irModule);
+                fd.kind = kind;
+                fd.owned = 1;
+                if (kind == 1) {
+                    fd.owned = 0;
+                }
+                if (kind == 2) {
+                    fd.owned = 0;
+                }
+                td.fields.push(fd);
+            }
+            fi = fi + 1;
+        }
+        ;
+        this.irModule.typeDescs.push(td);
+        this.usedMemRuntime = true;
+        this.ensureMemExtern(target);
+    }
+    ;
+    fieldByteOffset(className, fieldIndex, module) {
+        for (let i = 0; i < module.structs.length; i++) {
+            var st = module.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            let size = 0;
+            let fi = 0;
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (fi == fieldIndex) {
+                    return size;
+                }
+                let fsize = 4;
+                let falign = 4;
+                if (f.irType != "i32") {
+                    fsize = 8;
+                    falign = 8;
+                }
+                const rem = size % falign;
+                if (rem != 0) {
+                    size = size + (falign - rem);
+                }
+                size = size + fsize;
+                fi = fi + 1;
+            }
+            ;
+        }
+        ;
+        return 0;
+    }
+    ;
+    bindSlot(varName, irType, value, lctx) {
+        const builder = lctx.builder;
+        if ((typeof (lctx.slots[varName]) != "undefined" && lctx.slots.hasOwnProperty(varName))) {
+            const slot = ((lctx.slots.hasOwnProperty(varName) ? lctx.slots[varName] : undefined));
+            builder.emitStore(irType, value, slot);
+            lctx.slotTypes[varName] = irType;
+            return;
+        }
+        const slotName = ("%" + varName) + "_addr";
+        builder.emitAlloca(irType, slotName);
+        if (this.memEnabled(lctx)) {
+            if (irType == lctx.ptrType) {
+                builder.emitZeroInitToEntry(irType, slotName);
+            }
+        }
+        builder.emitStore(irType, value, slotName);
+        lctx.slots[varName] = slotName;
+        lctx.slotTypes[varName] = irType;
+    }
+    ;
+    loadSlot(varName, irType, lctx) {
+        if ((typeof (lctx.slots[varName]) != "undefined" && lctx.slots.hasOwnProperty(varName))) {
+            const slot = ((lctx.slots.hasOwnProperty(varName) ? lctx.slots[varName] : undefined));
+            const builder = lctx.builder;
+            let loadType = irType;
+            if ((typeof (lctx.slotTypes[varName]) != "undefined" && lctx.slotTypes.hasOwnProperty(varName))) {
+                loadType = ((lctx.slotTypes.hasOwnProperty(varName) ? lctx.slotTypes[varName] : undefined));
+            }
+            if ((typeof (lctx.objectSlots[varName]) != "undefined" && lctx.objectSlots.hasOwnProperty(varName))) {
+                loadType = lctx.ptrType;
+            }
+            return builder.emitLoad(loadType, slot);
+        }
+        return "%" + varName;
+    }
+    ;
+    fieldIrTypeFor(className, fieldName) {
+        for (let i = 0; i < this.irModule.structs.length; i++) {
+            var st = this.irModule.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (f.name == fieldName) {
+                    return f.irType;
+                }
+            }
+            ;
+        }
+        ;
+        return "i32";
+    }
+    ;
+    fieldIsPtrArraySlot(className, fieldName) {
+        for (let i = 0; i < this.irModule.structs.length; i++) {
+            var st = this.irModule.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (f.name == fieldName) {
+                    return f.isPtrArray;
+                }
+            }
+            ;
+        }
+        ;
+        return false;
+    }
+    ;
+    fieldIsObjectSlot(className, fieldName) {
+        for (let i = 0; i < this.irModule.structs.length; i++) {
+            var st = this.irModule.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (f.name == fieldName) {
+                    return f.isObject;
+                }
+            }
+            ;
+        }
+        ;
+        return false;
+    }
+    ;
+    fieldIsStringSlot(className, fieldName) {
+        for (let i = 0; i < this.irModule.structs.length; i++) {
+            var st = this.irModule.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (f.name == fieldName) {
+                    return f.isString;
+                }
+            }
+            ;
+        }
+        ;
+        return false;
+    }
+    ;
+    fieldIsBufferSlot(className, fieldName) {
+        for (let i = 0; i < this.irModule.structs.length; i++) {
+            var st = this.irModule.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (f.name == fieldName) {
+                    return f.isBuffer;
+                }
+            }
+            ;
+        }
+        ;
+        return false;
+    }
+    ;
+    fieldIsBoolSlot(className, fieldName) {
+        for (let i = 0; i < this.irModule.structs.length; i++) {
+            var st = this.irModule.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (f.name == fieldName) {
+                    return f.isBool;
+                }
+            }
+            ;
+        }
+        ;
+        return false;
+    }
+    ;
+    ptrArrayDescFromVref(vref, lctx) {
+        if ((vref.indexOf(".")) >= 0) {
+            const parts = vref.split(".");
+            if ((parts.length) < 2) {
+                return "";
+            }
+            const recv = parts[0];
+            const fld = parts[1];
+            const cls = this.resolveObjectClass(recv, lctx);
+            if ((cls.length) == 0) {
+                return "";
+            }
+            if (this.fieldIsPtrArraySlot(cls, fld) == false) {
+                return "";
+            }
+            const sptr = this.resolveObjectPtr(recv, cls, lctx);
+            return this.emitFieldLoadOn(cls, sptr, fld, lctx);
+        }
+        if (this.isClassField(vref, lctx.className, this.irModule)) {
+            if (this.fieldIsPtrArraySlot(lctx.className, vref)) {
+                return this.emitFieldLoad(vref, lctx);
+            }
+        }
+        if ((typeof (lctx.collectionSlots[vref]) != "undefined" && lctx.collectionSlots.hasOwnProperty(vref))) {
+            const kind = ((lctx.collectionSlots.hasOwnProperty(vref) ? lctx.collectionSlots[vref] : undefined));
+            if (kind == "ptr_array") {
+                return this.loadSlot(vref, lctx.ptrType, lctx);
+            }
+        }
+        return "";
+    }
+    ;
+    loadPtrArrayDescExpr(arrNode, lctx) {
+        if (arrNode.value_type == 11) {
+            const desc = this.ptrArrayDescFromVref(arrNode.vref, lctx);
+            if ((desc.length) > 0) {
+                return desc;
+            }
+        }
+        return this.lowerExpr(arrNode, lctx);
+    }
+    ;
+    emitPtrArrayLen(desc, lctx) {
+        this.usedPtrArrayRuntime = true;
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        return lctx.builder.emitCall("RtPtrArray_len", "i32", args, argTypes);
+    }
+    ;
+    fieldArrayElemType(className, fieldName, lctx) {
+        const appCtx = lctx.ctx;
+        if (false == ((typeof (appCtx.definedClasses[className]) != "undefined" && appCtx.definedClasses.hasOwnProperty(className)))) {
+            return "";
+        }
+        const cl = ((appCtx.definedClasses.hasOwnProperty(className) ? appCtx.definedClasses[className] : undefined));
+        for (let i = 0; i < cl.variables.length; i++) {
+            var v = cl.variables[i];
+            if (v.name == fieldName) {
+                if (typeof (v.nameNode) === "undefined") {
+                    return "";
+                }
+                const nn = v.nameNode;
+                return nn.array_type;
+            }
+        }
+        ;
+        return "";
+    }
+    ;
+    ptrArrayElemIsInt(arrNode, lctx) {
+        if (arrNode.array_type == "int") {
+            return true;
+        }
+        if (arrNode.value_type == 11) {
+            const vr = arrNode.vref;
+            if ((vr.indexOf(".")) >= 0) {
+                const parts = vr.split(".");
+                if ((parts.length) >= 2) {
+                    const recv = parts[0];
+                    const fld = parts[1];
+                    const cls = this.resolveObjectClass(recv, lctx);
+                    if ((cls.length) > 0) {
+                        if (this.fieldArrayElemType(cls, fld, lctx) == "int") {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+            if (this.isClassField(vr, lctx.className, this.irModule)) {
+                if (this.fieldArrayElemType(lctx.className, vr, lctx) == "int") {
+                    return true;
+                }
+            }
+            if ((typeof (lctx.ptrArrayElemTypes[vr]) != "undefined" && lctx.ptrArrayElemTypes.hasOwnProperty(vr))) {
+                if ((((lctx.ptrArrayElemTypes.hasOwnProperty(vr) ? lctx.ptrArrayElemTypes[vr] : undefined))) == "int") {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    ;
+    lowerItemAt(node, lctx) {
+        const arrNode = node.getSecond();
+        const idxNode = node.getThird();
+        const idx = this.lowerExpr(idxNode, lctx);
+        if (arrNode.value_type == 11) {
+            const kind = this.collectionKind(arrNode.vref, lctx);
+            if (kind == "array") {
+                const desc = this.loadCollectionDesc(arrNode.vref, lctx);
+                return this.emitRtArrayGet(desc, idx, lctx);
+            }
+            if (kind == "ptr_array") {
+                const desc_1 = this.loadSlot(arrNode.vref, lctx.ptrType, lctx);
+                return this.emitPtrArrayElemGet(desc_1, idx, arrNode, lctx);
+            }
+        }
+        const desc_2 = this.loadPtrArrayDescExpr(arrNode, lctx);
+        return this.emitPtrArrayElemGet(desc_2, idx, arrNode, lctx);
+    }
+    ;
+    emitPtrArrayElemGet(desc, idx, arrNode, lctx) {
+        this.usedPtrArrayRuntime = true;
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        args.push(idx);
+        argTypes.push("i32");
+        const raw = lctx.builder.emitCall("RtPtrArray_get", lctx.ptrType, args, argTypes);
+        if (lctx.ptrType == "i64") {
+            if (this.ptrArrayElemIsInt(arrNode, lctx)) {
+                return lctx.builder.emitCast("trunc", "i32", "i64", raw);
+            }
+        }
+        return raw;
+    }
+    ;
+    emitPtrArrayElemSet(desc, idx, val, arrNode, lctx) {
+        this.usedPtrArrayRuntime = true;
+        let storeVal = val;
+        if (lctx.ptrType == "i64") {
+            if (this.ptrArrayElemIsInt(arrNode, lctx)) {
+                storeVal = lctx.builder.emitCast("zext", "i64", "i32", val);
+            }
+        }
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        args.push(idx);
+        argTypes.push("i32");
+        args.push(storeVal);
+        argTypes.push(lctx.ptrType);
+        const voidType = "void";
+        lctx.builder.emitCall("RtPtrArray_set", voidType, args, argTypes);
+    }
+    ;
+    emitFieldLoadOn(className, structPtr, fieldName, lctx) {
+        const builder = lctx.builder;
+        const idx = this.findFieldIndex(className, fieldName, this.irModule);
+        const fieldPtr = builder.emitGep(className, structPtr, idx);
+        const ftype = this.fieldIrTypeFor(className, fieldName);
+        const raw = builder.emitLoad(ftype, fieldPtr);
+        if (this.fieldIsStringSlot(className, fieldName)) {
+            return builder.emitIntToI8Ptr(raw, lctx.ptrType);
+        }
+        if (this.fieldIsBoolSlot(className, fieldName)) {
+            const zero = builder.emitConst("i32", "0");
+            return builder.emitIcmp("ne", raw, zero);
+        }
+        return raw;
+    }
+    ;
+    emitReleaseFieldValue(className, fieldName, rawVal, lctx) {
+        const builder = lctx.builder;
+        const voidType = "void";
+        let args = [];
+        let argTypes = [];
+        if (this.fieldIsStringSlot(className, fieldName)) {
+            if (this.memEnabled(lctx) || this.wasmStrEnabled(lctx)) {
+                const i8p = builder.emitIntToI8Ptr(rawVal, lctx.ptrType);
+                args.push(i8p);
+                argTypes.push("i8*");
+                builder.emitCall("ranger_str_release", voidType, args, argTypes);
+            }
+            return;
+        }
+        if (this.memEnabled(lctx) == false) {
+            return;
+        }
+        if (this.fieldIsBufferSlot(className, fieldName)) {
+            args.push(rawVal);
+            argTypes.push(lctx.ptrType);
+            builder.emitCall("ranger_buffer_release", voidType, args, argTypes);
+            return;
+        }
+    }
+    ;
+    emitFieldStoreOn(className, structPtr, fieldName, value, lctx) {
+        this.emitFieldStoreOnEx(className, structPtr, fieldName, value, false, lctx);
+    }
+    ;
+    emitFieldStoreOnEx(className, structPtr, fieldName, value, srcIsFresh, lctx) {
+        const builder = lctx.builder;
+        const idx = this.findFieldIndex(className, fieldName, this.irModule);
+        const fieldPtr = builder.emitGep(className, structPtr, idx);
+        const ftype = this.fieldIrTypeFor(className, fieldName);
+        let isWasmObjField = false;
+        if (this.objRcEnabled(lctx)) {
+            if (this.memEnabled(lctx) == false) {
+                if (this.fieldIsObjectSlot(className, fieldName)) {
+                    isWasmObjField = true;
+                }
+            }
+        }
+        if (this.memEnabled(lctx)) {
+            const oldRaw = builder.emitLoad(ftype, fieldPtr);
+            this.emitReleaseFieldValue(className, fieldName, oldRaw, lctx);
+        }
+        else {
+            if (this.wasmStrEnabled(lctx)) {
+                if (this.fieldIsStringSlot(className, fieldName)) {
+                    const oldRawW = builder.emitLoad(ftype, fieldPtr);
+                    this.emitReleaseFieldValue(className, fieldName, oldRawW, lctx);
+                }
+            }
+            if (isWasmObjField) {
+                const oldObj = builder.emitLoad(ftype, fieldPtr);
+                this.emitObjReleasePtr(oldObj, lctx);
+            }
+        }
+        let storeVal = value;
+        if (this.fieldIsStringSlot(className, fieldName)) {
+            const owned = this.emitStrdupExpr(value, lctx);
+            storeVal = builder.emitPtrToInt(owned);
+        }
+        else {
+            if (this.fieldIsBoolSlot(className, fieldName)) {
+                storeVal = builder.emitZextI1ToI32(value);
+            }
+            else {
+                if (isWasmObjField) {
+                    if (srcIsFresh == false) {
+                        this.emitObjRetainPtr(value, lctx);
+                    }
+                }
+                storeVal = value;
+            }
+        }
+        builder.emitStore(ftype, storeVal, fieldPtr);
+    }
+    ;
+    emitObjRetainPtr(ptr, lctx) {
+        let args = [];
+        let argTypes = [];
+        args.push(ptr);
+        argTypes.push(lctx.ptrType);
+        lctx.builder.emitCall("ranger_obj_retain", "void", args, argTypes);
+    }
+    ;
+    emitObjReleasePtr(ptr, lctx) {
+        let args = [];
+        let argTypes = [];
+        args.push(ptr);
+        argTypes.push(lctx.ptrType);
+        lctx.builder.emitCall("ranger_obj_release", "void", args, argTypes);
+    }
+    ;
+    emitFieldLoad(fieldName, lctx) {
+        return this.emitFieldLoadOn(lctx.className, lctx.selfPtr, fieldName, lctx);
+    }
+    ;
+    emitFieldStore(fieldName, value, lctx) {
+        this.emitFieldStoreOn(lctx.className, lctx.selfPtr, fieldName, value, lctx);
+    }
+    ;
+    fieldObjectClassName(className, fieldName, lctx) {
+        const appCtx = lctx.ctx;
+        if (false == ((typeof (appCtx.definedClasses[className]) != "undefined" && appCtx.definedClasses.hasOwnProperty(className)))) {
+            return "";
+        }
+        const cl = ((appCtx.definedClasses.hasOwnProperty(className) ? appCtx.definedClasses[className] : undefined));
+        for (let i = 0; i < cl.variables.length; i++) {
+            var v = cl.variables[i];
+            if (v.name == fieldName) {
+                if (typeof (v.nameNode) === "undefined") {
+                    return "";
+                }
+                const nn = v.nameNode;
+                const tn = nn.type_name;
+                if ((tn.length) > 0) {
+                    if ((typeof (appCtx.definedClasses[tn]) != "undefined" && appCtx.definedClasses.hasOwnProperty(tn))) {
+                        return tn;
+                    }
+                }
+                return "";
+            }
+        }
+        ;
+        return "";
+    }
+    ;
+    resolveObjectPtr(varName, className, lctx) {
+        if (varName == "this") {
+            return lctx.selfPtr;
+        }
+        if ((typeof (lctx.slots[varName]) != "undefined" && lctx.slots.hasOwnProperty(varName))) {
+            const addr = this.loadSlot(varName, lctx.ptrType, lctx);
+            return lctx.builder.emitIntToStructPtr(className, addr);
+        }
+        if (this.isClassField(varName, lctx.className, this.irModule)) {
+            const raw = this.emitFieldLoad(varName, lctx);
+            return lctx.builder.emitIntToStructPtr(className, raw);
+        }
+        const addr_1 = this.loadSlot(varName, lctx.ptrType, lctx);
+        return lctx.builder.emitIntToStructPtr(className, addr_1);
+    }
+    ;
+    joinDotPrefix(parts, count) {
+        let out = "";
+        let i = 0;
+        while (i < count) {
+            if (i > 0) {
+                out = out + ".";
+            }
+            out = out + (parts[i]);
+            i = i + 1;
+        }
+        ;
+        return out;
+    }
+    ;
+    resolveObjectClassChain(varName, lctx) {
+        if ((varName.indexOf(".")) < 0) {
+            return this.resolveObjectClass(varName, lctx);
+        }
+        const parts = varName.split(".");
+        const n = parts.length;
+        let cls = this.resolveObjectClass((parts[0]), lctx);
+        let i = 1;
+        while (i < n) {
+            if ((cls.length) == 0) {
+                return "";
+            }
+            cls = this.fieldObjectClassName(cls, (parts[i]), lctx);
+            i = i + 1;
+        }
+        ;
+        return cls;
+    }
+    ;
+    resolveObjectPtrChain(varName, className, lctx) {
+        if ((varName.indexOf(".")) < 0) {
+            return this.resolveObjectPtr(varName, className, lctx);
+        }
+        const parts = varName.split(".");
+        const n = parts.length;
+        let cls = this.resolveObjectClass((parts[0]), lctx);
+        let ptr = this.resolveObjectPtr((parts[0]), cls, lctx);
+        let i = 1;
+        while (i < n) {
+            const fld = parts[i];
+            const fcls = this.fieldObjectClassName(cls, fld, lctx);
+            const raw = this.emitFieldLoadOn(cls, ptr, fld, lctx);
+            ptr = lctx.builder.emitIntToStructPtr(fcls, raw);
+            cls = fcls;
+            i = i + 1;
+        }
+        ;
+        return ptr;
+    }
+    ;
+    resolveObjectClass(varName, lctx) {
+        if (varName == "this") {
+            return lctx.className;
+        }
+        if ((typeof (lctx.objectSlots[varName]) != "undefined" && lctx.objectSlots.hasOwnProperty(varName))) {
+            return ((lctx.objectSlots.hasOwnProperty(varName) ? lctx.objectSlots[varName] : undefined));
+        }
+        if (this.isClassField(varName, lctx.className, this.irModule)) {
+            const fc = this.fieldObjectClassName(lctx.className, varName, lctx);
+            if ((fc.length) > 0) {
+                return fc;
+            }
+        }
+        return "";
+    }
+    ;
+    resolveFieldPtrExpr(vref, lctx) {
+        const dotPos = vref.indexOf(".");
+        if (dotPos < 0) {
+            return "";
+        }
+        const parts = vref.split(".");
+        if ((parts.length) < 2) {
+            return "";
+        }
+        const recv = parts[0];
+        const fld = parts[1];
+        const cls = this.resolveObjectClass(recv, lctx);
+        if ((cls.length) == 0) {
+            return "";
+        }
+        const sptr = this.resolveObjectPtr(recv, cls, lctx);
+        const builder = lctx.builder;
+        const idx = this.findFieldIndex(cls, fld, this.irModule);
+        return builder.emitGep(cls, sptr, idx);
+    }
+    ;
+    isObjectArrayField(v) {
+        if (typeof (v.nameNode) === "undefined") {
+            return false;
+        }
+        const nn = v.nameNode;
+        if (LowIRUtil.isArrayTypeName(nn.type_name)) {
+            return true;
+        }
+        if (nn.value_type == 6) {
+            if ((nn.array_type.length) > 0) {
+                if (nn.array_type != "int") {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    ;
+    newTargetClassName(node, lctx) {
+        if ((typeof (node.clDesc) !== "undefined" && node.clDesc != null)) {
+            const cl = node.clDesc;
+            return cl.name;
+        }
+        if ((node.children.length) < 2) {
+            return "";
+        }
+        const appCtx = lctx.ctx;
+        const sec = node.getSecond();
+        const nm = sec.vref;
+        if ((nm.length) > 0) {
+            if ((typeof (appCtx.definedClasses[nm]) != "undefined" && appCtx.definedClasses.hasOwnProperty(nm))) {
+                return nm;
+            }
+        }
+        const tn = node.eval_type_name;
+        if ((tn.length) > 0) {
+            if ((typeof (appCtx.definedClasses[tn]) != "undefined" && appCtx.definedClasses.hasOwnProperty(tn))) {
+                return tn;
+            }
+        }
+        const tn2 = node.type_name;
+        if ((tn2.length) > 0) {
+            if ((typeof (appCtx.definedClasses[tn2]) != "undefined" && appCtx.definedClasses.hasOwnProperty(tn2))) {
+                return tn2;
+            }
+        }
+        return "";
+    }
+    ;
+    emitFieldDefault(className, objPtr, fieldName, valNode, lctx) {
+        if (valNode.hasNewOper) {
+            let clsName = this.newTargetClassName(valNode, lctx);
+            if ((clsName.length) == 0) {
+                clsName = this.fieldObjectClassName(className, fieldName, lctx);
+            }
+            if ((clsName.length) > 0) {
+                const newPtr = this.lowerNewObject(clsName, valNode.getThird(), lctx);
+                this.emitFieldStoreOnEx(className, objPtr, fieldName, newPtr, true, lctx);
+                return;
+            }
+        }
+        const tmp = this.lowerExpr(valNode, lctx);
+        this.emitFieldStoreOn(className, objPtr, fieldName, tmp, lctx);
+    }
+    ;
+    initFieldDefaultsInObject(className, objPtr, lctx) {
+        const appCtx = lctx.ctx;
+        if (false == ((typeof (appCtx.definedClasses[className]) != "undefined" && appCtx.definedClasses.hasOwnProperty(className)))) {
+            return;
+        }
+        const cl = ((appCtx.definedClasses.hasOwnProperty(className) ? appCtx.definedClasses[className] : undefined));
+        for (let i = 0; i < cl.variables.length; i++) {
+            var v = cl.variables[i];
+            if (this.isObjectArrayField(v)) {
+                continue;
+            }
+            if (typeof (v.def_value) === "undefined") {
+                continue;
+            }
+            if ((v.has_default == false) && (v.init_cnt == 0)) {
+                continue;
+            }
+            this.emitFieldDefault(className, objPtr, v.name, v.def_value, lctx);
+        }
+        ;
+    }
+    ;
+    initFieldDefaultsInConstructor(className, lctx) {
+        this.initFieldDefaultsInObject(className, lctx.selfPtr, lctx);
+    }
+    ;
+    initArrayFieldsInObject(className, objPtr, lctx) {
+        for (let i = 0; i < this.irModule.structs.length; i++) {
+            var st = this.irModule.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (f.isPtrArray == false) {
+                    continue;
+                }
+                const cap = lctx.builder.emitConst("i32", "256");
+                let args = [];
+                let argTypes = [];
+                args.push(cap);
+                argTypes.push("i32");
+                this.usedPtrArrayRuntime = true;
+                const desc = lctx.builder.emitCall("RtPtrArray_new", lctx.ptrType, args, argTypes);
+                const one = lctx.builder.emitConst("i32", "1");
+                lctx.builder.emitStoreI32At(desc, this.ptrArrayOwnedOff(lctx), one);
+                this.emitFieldStoreOn(className, objPtr, f.name, desc, lctx);
+            }
+            ;
+        }
+        ;
+    }
+    ;
+    initArrayFieldsInConstructor(className, lctx) {
+        this.initArrayFieldsInObject(className, lctx.selfPtr, lctx);
+    }
+    ;
+    structByteSize(className, module) {
+        for (let i = 0; i < module.structs.length; i++) {
+            var st = module.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            let size = 0;
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                let fsize = 4;
+                let falign = 4;
+                if (f.irType != "i32") {
+                    fsize = 8;
+                    falign = 8;
+                }
+                const rem = size % falign;
+                if (rem != 0) {
+                    size = size + (falign - rem);
+                }
+                size = size + fsize;
+            }
+            ;
+            const remEnd = size % 8;
+            if (remEnd != 0) {
+                size = size + (8 - remEnd);
+            }
+            return size;
+        }
+        ;
+        return 0;
+    }
+    ;
+    classHasOwnedFields(className) {
+        for (let i = 0; i < this.irModule.typeDescs.length; i++) {
+            var td = this.irModule.typeDescs[i];
+            if (td.className == className) {
+                for (let j = 0; j < td.fields.length; j++) {
+                    var fd = td.fields[j];
+                    if (fd.owned == 1) {
+                        return true;
+                    }
+                    if (this.irModule.useFreeListHeap) {
+                        if (fd.kind == 1) {
+                            return true;
+                        }
+                    }
+                }
+                ;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    lowerNewObject(className, argsNode, lctx) {
+        const builder = lctx.builder;
+        let byteCnt = this.structByteSize(className, this.irModule);
+        if (byteCnt == 0) {
+            const fieldCnt = this.structFieldCount(className, this.irModule);
+            byteCnt = fieldCnt * 4;
+            if (lctx.ptrType == "i64") {
+                byteCnt = fieldCnt * 8;
+            }
+        }
+        const bytes = builder.emitConst("i32", ("" + byteCnt));
+        let heapAddr = "";
+        const memTarget = LowIRTarget.resolve((lctx.ctx));
+        if (memTarget.usesLibc) {
+            this.usedMemRuntime = true;
+            this.ensureMemExtern(memTarget);
+            let dtorArg = "";
+            dtorArg = ("ptr @" + className) + "_typeDesc";
+            let newArgs = [];
+            let newArgTypes = [];
+            newArgs.push(bytes);
+            newArgTypes.push("i32");
+            newArgs.push(dtorArg);
+            newArgTypes.push("");
+            const newSig = "i32, ptr";
+            heapAddr = builder.emitCallWithSig("ranger_obj_new", lctx.ptrType, newSig, newArgs, newArgTypes);
+        }
+        else {
+            if (this.objRcEnabled(lctx)) {
+                let tdArg = "";
+                if (this.classHasOwnedFields(className)) {
+                    tdArg = builder.emitTypeDescPtr(className);
+                }
+                else {
+                    tdArg = builder.emitConst("i32", "0");
+                }
+                let wArgs = [];
+                let wArgTypes = [];
+                wArgs.push(bytes);
+                wArgTypes.push("i32");
+                wArgs.push(tdArg);
+                wArgTypes.push("i32");
+                heapAddr = builder.emitCall("ranger_obj_new", lctx.ptrType, wArgs, wArgTypes);
+            }
+            else {
+                heapAddr = builder.emitHeapAlloc(bytes);
+            }
+        }
+        const objSlot = builder.emitIntToStructPtr(className, heapAddr);
+        this.initFieldDefaultsInObject(className, objSlot, lctx);
+        let ctorDesc;
+        if ((typeof (lctx.ctx) !== "undefined" && lctx.ctx != null)) {
+            const appCtx = lctx.ctx;
+            if ((typeof (appCtx.definedClasses[className]) != "undefined" && appCtx.definedClasses.hasOwnProperty(className))) {
+                const cl = ((appCtx.definedClasses.hasOwnProperty(className) ? appCtx.definedClasses[className] : undefined));
+                if (cl.has_constructor) {
+                    if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
+                        ctorDesc = cl.constructor_fn;
+                    }
+                }
+                if (typeof (ctorDesc) === "undefined") {
+                    for (let i = 0; i < cl.methods.length; i++) {
+                        var m = cl.methods[i];
+                        if (m.name == "Constructor") {
+                            ctorDesc = m;
+                        }
+                    }
+                    ;
+                }
+            }
+        }
+        if ((typeof (ctorDesc) !== "undefined" && ctorDesc != null)) {
+            const ctorName = LowIRUtil.mangleMethod(className, "Constructor");
+            let args = [];
+            let argTypes = [];
+            args.push(objSlot);
+            argTypes.push(LowIRUtil.structPtrType(className));
+            let argIdx = 0;
+            for (let i_1 = 0; i_1 < argsNode.children.length; i_1++) {
+                var arg = argsNode.children[i_1];
+                args.push(this.lowerExpr(arg, lctx));
+                argTypes.push(this.paramIrTypeFromDesc(argIdx, (ctorDesc), lctx));
+                argIdx = argIdx + 1;
+            }
+            ;
+            const voidType = "void";
+            builder.emitCall(ctorName, voidType, args, argTypes);
+        }
+        else {
+            this.initArrayFieldsInObject(className, objSlot, lctx);
+        }
+        return heapAddr;
+    }
+    ;
+    findFieldIndex(className, fieldName, module) {
+        for (let i = 0; i < module.structs.length; i++) {
+            var st = module.structs[i];
+            if (st.name != className) {
+                continue;
+            }
+            let fi = 0;
+            for (let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                var f = st.fields[i_1];
+                if (f.name == fieldName) {
+                    return fi;
+                }
+                fi = fi + 1;
+            }
+            ;
+        }
+        ;
+        return -1;
+    }
+    ;
+    isClassField(fieldName, className, module) {
+        if ((className.length) == 0) {
+            return false;
+        }
+        return this.findFieldIndex(className, fieldName, module) >= 0;
+    }
+    ;
+    structFieldCount(className, module) {
+        for (let i = 0; i < module.structs.length; i++) {
+            var st = module.structs[i];
+            if (st.name == className) {
+                return st.fields.length;
+            }
+        }
+        ;
+        return 0;
+    }
+    ;
+    lowerFunction(fnDesc, className, appCtx, exportFn, isMain, isInstance) {
+        const builder = new LowIRBuilder(this.irModule);
+        builder.reset();
+        const lctx = new LowIRLowerContext();
+        lctx.ctx = appCtx;
+        lctx.builder = builder;
+        lctx.target = LowIRTarget.resolve(appCtx);
+        lctx.ptrType = lctx.target.ptrType;
+        let emptySlots = {};
+        lctx.slots = emptySlots;
+        let emptySlotTypes = {};
+        lctx.slotTypes = emptySlotTypes;
+        let emptyObjects = {};
+        lctx.objectSlots = emptyObjects;
+        let emptyCollections = {};
+        lctx.collectionSlots = emptyCollections;
+        let emptyElemTypes = {};
+        lctx.ptrArrayElemTypes = emptyElemTypes;
+        let emptyOwned = [];
+        lctx.ownedObjectLocals = emptyOwned;
+        let emptyColl = [];
+        lctx.ownedCollectionLocals = emptyColl;
+        let emptyStr = [];
+        lctx.ownedStringLocals = emptyStr;
+        let emptyPending = [];
+        lctx.pendingStringTemps = emptyPending;
+        let emptyObjPending = [];
+        lctx.pendingObjectTemps = emptyObjPending;
+        let emptyBoxCand = {};
+        lctx.boxedCandidates = emptyBoxCand;
+        let emptyBoxed = {};
+        lctx.boxedLocals = emptyBoxed;
+        let emptyEscaped = {};
+        lctx.escapedLocals = emptyEscaped;
+        if (isInstance) {
+            lctx.className = className;
+            lctx.selfPtr = "%self";
+        }
+        const voidType = "void";
+        if (fnDesc.name == "Constructor") {
+            lctx.currentRetType = voidType;
+            lctx.llvmRetType = voidType;
+        }
+        else {
+            const retNode = fnDesc.nameNode;
+            const retTypeName = this.varTypeName(retNode);
+            lctx.currentRetType = retTypeName;
+            lctx.llvmRetType = this.llvmTypeForRanger(retTypeName, lctx.ptrType);
+        }
+        if (isMain) {
+            lctx.llvmRetType = "i32";
+        }
+        if (isMain && (lctx.currentRetType == voidType)) {
+            lctx.llvmRetType = "i32";
+        }
+        let params = [];
+        if (isInstance) {
+            const selfParam = new LowIRParam();
+            selfParam.name = "self";
+            selfParam.irType = LowIRUtil.structPtrType(className);
+            params.push(selfParam);
+        }
+        if (isMain) {
+            const argcParam = new LowIRParam();
+            argcParam.name = "argc";
+            argcParam.irType = "i32";
+            params.push(argcParam);
+            const argvParam = new LowIRParam();
+            argvParam.name = "argv";
+            argvParam.irType = "i8**";
+            params.push(argvParam);
+        }
+        for (let i = 0; i < fnDesc.params.length; i++) {
+            var p = fnDesc.params[i];
+            const lp = new LowIRParam();
+            lp.name = p.compiledName;
+            if ((lp.name.length) == 0) {
+                lp.name = p.name;
+            }
+            const pn = p.nameNode;
+            const paramTypeName = this.varTypeName(pn);
+            lp.irType = this.llvmTypeForRanger(paramTypeName, lctx.ptrType);
+            if (this.isLambdaTypeNode(pn)) {
+                lp.irType = lctx.ptrType;
+            }
+            params.push(lp);
+        }
+        ;
+        let fnName = LowIRUtil.mangleMethod(className, fnDesc.name);
+        if (isMain) {
+            fnName = "main";
+        }
+        if ((fnName.length) == 0) {
+            fnName = fnDesc.compiledName;
+        }
+        if ((fnName.length) == 0) {
+            fnName = fnDesc.name;
+        }
+        const entryLabel = "entry";
+        builder.startBlock(entryLabel);
+        if (isMain) {
+            let cliArgs = [];
+            let cliArgTypes = [];
+            cliArgs.push("%argc");
+            cliArgTypes.push("i32");
+            cliArgs.push("%argv");
+            cliArgTypes.push("i8**");
+            builder.emitCall("ranger_cli_init", "void", cliArgs, cliArgTypes);
+        }
+        if (isInstance) {
+            if (fnDesc.name == "Constructor") {
+                this.initFieldDefaultsInConstructor(className, lctx);
+                this.initArrayFieldsInConstructor(className, lctx);
+            }
+        }
+        for (let i_1 = 0; i_1 < fnDesc.params.length; i_1++) {
+            var p_1 = fnDesc.params[i_1];
+            let lpName = p_1.compiledName;
+            if ((lpName.length) == 0) {
+                lpName = p_1.name;
+            }
+            const pn_1 = p_1.nameNode;
+            const paramTypeName_1 = this.varTypeName(pn_1);
+            let pType = this.llvmTypeForRanger(paramTypeName_1, lctx.ptrType);
+            if (this.isLambdaTypeNode(pn_1)) {
+                pType = lctx.ptrType;
+            }
+            const paramVal = "%" + lpName;
+            this.bindSlot(p_1.name, pType, paramVal, lctx);
+            if (LowIRUtil.isArrayTypeName(paramTypeName_1)) {
+                lctx.collectionSlots[p_1.name] = "ptr_array";
+                if ((pn_1.array_type.length) > 0) {
+                    lctx.ptrArrayElemTypes[p_1.name] = pn_1.array_type;
+                }
+            }
+            if (this.isObjectTypeName(paramTypeName_1)) {
+                lctx.objectSlots[p_1.name] = paramTypeName_1;
+            }
+        }
+        ;
+        this.computeBoxedCandidates(fnDesc, lctx);
+        if ((typeof (fnDesc.fnBody) !== "undefined" && fnDesc.fnBody != null)) {
+            this.lowerBlock(fnDesc.fnBody, lctx);
+        }
+        const cur = builder.currentBlock;
+        if (cur.termKind == "") {
+            this.emitReleaseOwnedLocals(lctx);
+            if (isMain) {
+                if (lctx.currentRetType == voidType) {
+                    const zero = "0";
+                    const retVal = builder.emitConst("i32", zero);
+                    builder.terminateRet(lctx.llvmRetType, retVal);
+                }
+            }
+        }
+        builder.finishFunction(fnName, lctx.llvmRetType, params, exportFn, isMain);
+    }
+    ;
+    lowerSingletonAccessor(cl, appCtx) {
+        const builder = new LowIRBuilder(this.irModule);
+        builder.reset();
+        const lctx = new LowIRLowerContext();
+        lctx.ctx = appCtx;
+        lctx.builder = builder;
+        lctx.target = LowIRTarget.resolve(appCtx);
+        lctx.ptrType = lctx.target.ptrType;
+        let emptySlots = {};
+        lctx.slots = emptySlots;
+        let emptySlotTypes = {};
+        lctx.slotTypes = emptySlotTypes;
+        let emptyObjects = {};
+        lctx.objectSlots = emptyObjects;
+        let emptyCollections = {};
+        lctx.collectionSlots = emptyCollections;
+        let emptyElemTypes = {};
+        lctx.ptrArrayElemTypes = emptyElemTypes;
+        let emptyOwned = [];
+        lctx.ownedObjectLocals = emptyOwned;
+        let emptyColl = [];
+        lctx.ownedCollectionLocals = emptyColl;
+        let emptyStr = [];
+        lctx.ownedStringLocals = emptyStr;
+        let emptyPending = [];
+        lctx.pendingStringTemps = emptyPending;
+        let emptyObjPending = [];
+        lctx.pendingObjectTemps = emptyObjPending;
+        let emptyBoxCand = {};
+        lctx.boxedCandidates = emptyBoxCand;
+        let emptyBoxed = {};
+        lctx.boxedLocals = emptyBoxed;
+        let emptyEscaped = {};
+        lctx.escapedLocals = emptyEscaped;
+        lctx.currentRetType = cl.name;
+        lctx.llvmRetType = lctx.ptrType;
+        this.irModule.singletonClasses.push(cl.name);
+        const globalName = "singleton_" + cl.name;
+        let factory;
+        if ((typeof (cl.classNode) !== "undefined" && cl.classNode != null)) {
+            factory = cl.classNode;
+        }
+        else {
+            factory = cl.nameNode;
+        }
+        const argsNode = ((factory)).newVRefNode("");
+        const initLabel = builder.freshLabel("sgl_init");
+        const retLabel = builder.freshLabel("sgl_ret");
+        builder.startBlock("entry");
+        const cur = builder.emitGlobalGet(globalName);
+        const zero = builder.emitConst(lctx.ptrType, "0");
+        const isZero = builder.emitIcmp("eq", cur, zero);
+        builder.terminateBrIf(isZero, initLabel, retLabel);
+        builder.startBlock(initLabel);
+        const obj = this.lowerNewObject(cl.name, argsNode, lctx);
+        builder.emitGlobalSet(globalName, obj);
+        builder.terminateRet(lctx.ptrType, obj);
+        builder.startBlock(retLabel);
+        builder.terminateRet(lctx.ptrType, cur);
+        const fnName = LowIRUtil.mangleMethod(cl.name, "__singleton");
+        let params = [];
+        builder.finishFunction(fnName, lctx.ptrType, params, false, false);
+    }
+    ;
+    collectLambdas(appCtx) {
+        const target = LowIRTarget.resolve(appCtx);
+        const pt = target.ptrType;
+        for (let i = 0; i < appCtx.definedClassList.length; i++) {
+            var cName = appCtx.definedClassList[i];
+            if (cName == "RangerStaticMethods") {
+                continue;
+            }
+            if (false == ((typeof (appCtx.definedClasses[cName]) != "undefined" && appCtx.definedClasses.hasOwnProperty(cName)))) {
+                continue;
+            }
+            const cl = ((appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined));
+            if (cl.is_operator_class || cl.is_trait) {
+                continue;
+            }
+            if (cl.is_system || cl.is_union) {
+                continue;
+            }
+            for (let j = 0; j < cl.static_methods.length; j++) {
+                var m = cl.static_methods[j];
+                this.collectMethodLambdas(m, pt);
+            }
+            ;
+            for (let j_1 = 0; j_1 < cl.methods.length; j_1++) {
+                var m_1 = cl.methods[j_1];
+                this.collectMethodLambdas(m_1, pt);
+            }
+            ;
+            if (cl.has_constructor) {
+                if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
+                    this.collectMethodLambdas(cl.constructor_fn, pt);
+                }
+            }
+        }
+        ;
+    }
+    ;
+    collectMethodLambdas(m, pt) {
+        for (let i = 0; i < m.myLambdas.length; i++) {
+            var lam = m.myLambdas[i];
+            const name = "lambda" + ("" + this.lambdaCounter);
+            this.lambdaCounter = this.lambdaCounter + 1;
+            lam.compiledName = name;
+            this.irModule.lambdaTableFuncs.push(name);
+            this.lambdaNames.push(name);
+            this.lambdaByName[name] = lam;
+            const sig = this.lambdaCallSig(lam, pt);
+            this.lambdaSigMap[name] = sig;
+            this.addLambdaSig(sig);
+            this.collectMethodLambdas(lam, pt);
+        }
+        ;
+    }
+    ;
+    lambdaCallSig(lam, pt) {
+        let sig = "i32";
+        for (let i = 0; i < lam.params.length; i++) {
+            var p = lam.params[i];
+            if ((typeof (p.nameNode) !== "undefined" && p.nameNode != null)) {
+                const pn = p.nameNode;
+                const tn = this.varTypeName(pn);
+                sig = sig + ("," + this.llvmTypeForRanger(tn, pt));
+            }
+        }
+        ;
+        let ret = "void";
+        if ((typeof (lam.nameNode) !== "undefined" && lam.nameNode != null)) {
+            const rn = lam.nameNode;
+            ret = this.llvmTypeForRanger(this.varTypeName(rn), pt);
+        }
+        return sig + (":" + ret);
+    }
+    ;
+    addLambdaSig(sig) {
+        for (let i = 0; i < this.irModule.lambdaSigs.length; i++) {
+            var s = this.irModule.lambdaSigs[i];
+            if (s == sig) {
+                return;
+            }
+        }
+        ;
+        this.irModule.lambdaSigs.push(sig);
+    }
+    ;
+    lowerLambdaBodies(appCtx) {
+        for (let i = 0; i < this.lambdaNames.length; i++) {
+            var name = this.lambdaNames[i];
+            if ((typeof (this.lambdaByName[name]) != "undefined" && this.lambdaByName.hasOwnProperty(name))) {
+                this.lowerLambdaFunction(((this.lambdaByName.hasOwnProperty(name) ? this.lambdaByName[name] : undefined)), name, appCtx);
+            }
+        }
+        ;
+    }
+    ;
+    lowerLambdaFunction(lam, fnName, appCtx) {
+        const builder = new LowIRBuilder(this.irModule);
+        builder.reset();
+        const lctx = new LowIRLowerContext();
+        lctx.ctx = appCtx;
+        lctx.builder = builder;
+        lctx.target = LowIRTarget.resolve(appCtx);
+        lctx.ptrType = lctx.target.ptrType;
+        let emptySlots = {};
+        lctx.slots = emptySlots;
+        let emptySlotTypes = {};
+        lctx.slotTypes = emptySlotTypes;
+        let emptyObjects = {};
+        lctx.objectSlots = emptyObjects;
+        let emptyCollections = {};
+        lctx.collectionSlots = emptyCollections;
+        let emptyElemTypes = {};
+        lctx.ptrArrayElemTypes = emptyElemTypes;
+        let emptyOwned = [];
+        lctx.ownedObjectLocals = emptyOwned;
+        let emptyColl = [];
+        lctx.ownedCollectionLocals = emptyColl;
+        let emptyStr = [];
+        lctx.ownedStringLocals = emptyStr;
+        let emptyPending = [];
+        lctx.pendingStringTemps = emptyPending;
+        let emptyObjPending = [];
+        lctx.pendingObjectTemps = emptyObjPending;
+        let emptyBoxCand = {};
+        lctx.boxedCandidates = emptyBoxCand;
+        let emptyBoxed = {};
+        lctx.boxedLocals = emptyBoxed;
+        let emptyEscaped = {};
+        lctx.escapedLocals = emptyEscaped;
+        let retTypeName = "void";
+        if ((typeof (lam.nameNode) !== "undefined" && lam.nameNode != null)) {
+            retTypeName = this.varTypeName((lam.nameNode));
+        }
+        lctx.currentRetType = retTypeName;
+        lctx.llvmRetType = this.llvmTypeForRanger(retTypeName, lctx.ptrType);
+        builder.startBlock("entry");
+        let params = [];
+        const envParam = new LowIRParam();
+        envParam.name = "__env";
+        envParam.irType = lctx.ptrType;
+        params.push(envParam);
+        for (let i = 0; i < lam.params.length; i++) {
+            var p = lam.params[i];
+            const lp = new LowIRParam();
+            lp.name = p.name;
+            const pn = p.nameNode;
+            const paramTypeName = this.varTypeName(pn);
+            lp.irType = this.llvmTypeForRanger(paramTypeName, lctx.ptrType);
+            params.push(lp);
+            this.bindSlot(p.name, lp.irType, "%" + p.name, lctx);
+            if (this.isObjectTypeName(paramTypeName)) {
+                lctx.objectSlots[p.name] = paramTypeName;
+            }
+        }
+        ;
+        if ((typeof (this.lambdaCaptures[fnName]) != "undefined" && this.lambdaCaptures.hasOwnProperty(fnName))) {
+            const cinfo = ((this.lambdaCaptures.hasOwnProperty(fnName) ? this.lambdaCaptures[fnName] : undefined));
+            const envRef = "%__env";
+            let ci = 0;
+            const cn2 = cinfo.names.length;
+            while (ci < cn2) {
+                const capName = cinfo.names[ci];
+                const capOff = cinfo.offsets[ci];
+                const capIrt = cinfo.irTypes[ci];
+                const capKnd = cinfo.kinds[ci];
+                const loaded = builder.emitLoadI32At(envRef, capOff);
+                this.bindSlot(capName, capIrt, loaded, lctx);
+                if (capKnd == 2) {
+                    lctx.objectSlots[capName] = cinfo.objClasses[ci];
+                }
+                if (capKnd == 3) {
+                    lctx.boxedLocals[capName] = 4;
+                }
+                ci = ci + 1;
+            }
+            ;
+        }
+        this.computeBoxedCandidates(lam, lctx);
+        if ((typeof (lam.fnBody) !== "undefined" && lam.fnBody != null)) {
+            this.lowerBlock(lam.fnBody, lctx);
+        }
+        const cur = builder.currentBlock;
+        if (cur.termKind == "") {
+            this.emitReleaseOwnedLocals(lctx);
+            if (lctx.llvmRetType == "void") {
+                builder.terminateRet("void", "");
+            }
+            else {
+                const zero = builder.emitConst("i32", "0");
+                builder.terminateRet(lctx.llvmRetType, zero);
+            }
+        }
+        builder.finishFunction(fnName, lctx.llvmRetType, params, false, false);
+    }
+    ;
+    lambdaTableIndex(name) {
+        let idx = 0;
+        for (let i = 0; i < this.irModule.lambdaTableFuncs.length; i++) {
+            var f = this.irModule.lambdaTableFuncs[i];
+            if (f == name) {
+                return idx;
+            }
+            idx = idx + 1;
+        }
+        ;
+        return 0;
+    }
+    ;
+    nodeAssignsToName(node, name) {
+        if (this.isAssignNode(node)) {
+            const lhs = node.getSecond();
+            if (lhs.vref == name) {
+                return true;
+            }
+        }
+        if (node.infix_operator) {
+            if ((typeof (node.infix_node) !== "undefined" && node.infix_node != null)) {
+                const inx = node.infix_node;
+                if (this.isAssignNode(inx)) {
+                    const lhs2 = inx.getSecond();
+                    if (lhs2.vref == name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        for (let i = 0; i < node.children.length; i++) {
+            var c = node.children[i];
+            if (this.nodeAssignsToName(c, name)) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    computeBoxedCandidates(fnDesc, lctx) {
+        const ctx = lctx.ctx;
+        if (ctx.hasCompilerFlag("wat") == false) {
+            return;
+        }
+        this.collectBoxedCandidates(fnDesc, lctx);
+    }
+    ;
+    collectBoxedCandidates(m, lctx) {
+        for (let i = 0; i < m.myLambdas.length; i++) {
+            var lam = m.myLambdas[i];
+            if ((typeof (lam.fnBody) !== "undefined" && lam.fnBody != null)) {
+                if ((typeof (lam.node) !== "undefined" && lam.node != null)) {
+                    const lnode = lam.node;
+                    if ((typeof (lnode.lambda_ctx) !== "undefined" && lnode.lambda_ctx != null)) {
+                        const lc = lnode.lambda_ctx;
+                        const body = lam.fnBody;
+                        for (let j = 0; j < lc.captured_variables.length; j++) {
+                            var cn = lc.captured_variables[j];
+                            if (this.nodeAssignsToName(body, cn)) {
+                                lctx.boxedCandidates[cn] = 4;
+                            }
+                        }
+                        ;
+                    }
+                }
+            }
+            this.collectBoxedCandidates(lam, lctx);
+        }
+        ;
+    }
+    ;
+    computeLambdaCaptures(node, lam, lctx) {
+        const key = lam.compiledName;
+        if ((typeof (this.lambdaCaptures[key]) != "undefined" && this.lambdaCaptures.hasOwnProperty(key))) {
+            return ((this.lambdaCaptures.hasOwnProperty(key) ? this.lambdaCaptures[key] : undefined));
+        }
+        const info = new LambdaCaptureInfo();
+        let off = 4;
+        if ((typeof (node.lambda_ctx) !== "undefined" && node.lambda_ctx != null)) {
+            const lamCtx = node.lambda_ctx;
+            for (let i = 0; i < lamCtx.captured_variables.length; i++) {
+                var cn = lamCtx.captured_variables[i];
+                if ((typeof (lctx.slots[cn]) != "undefined" && lctx.slots.hasOwnProperty(cn))) {
+                    let kind = 0;
+                    let objCls = "";
+                    let cirt = lctx.ptrType;
+                    if ((typeof (lctx.boxedLocals[cn]) != "undefined" && lctx.boxedLocals.hasOwnProperty(cn))) {
+                        kind = 3;
+                    }
+                    else {
+                        if ((typeof (lctx.objectSlots[cn]) != "undefined" && lctx.objectSlots.hasOwnProperty(cn))) {
+                            kind = 2;
+                            objCls = ((lctx.objectSlots.hasOwnProperty(cn) ? lctx.objectSlots[cn] : undefined));
+                        }
+                        else {
+                            let isStr = false;
+                            if (this.isOwnedStringLocal(cn, lctx)) {
+                                isStr = true;
+                            }
+                            if ((typeof (lctx.slotTypes[cn]) != "undefined" && lctx.slotTypes.hasOwnProperty(cn))) {
+                                if ((((lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined))) == "i8*") {
+                                    isStr = true;
+                                }
+                            }
+                            if (isStr) {
+                                kind = 1;
+                                cirt = "i8*";
+                            }
+                            else {
+                                kind = 0;
+                                if ((typeof (lctx.slotTypes[cn]) != "undefined" && lctx.slotTypes.hasOwnProperty(cn))) {
+                                    cirt = ((lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined));
+                                }
+                            }
+                        }
+                    }
+                    info.names.push(cn);
+                    info.irTypes.push(cirt);
+                    info.kinds.push(kind);
+                    info.objClasses.push(objCls);
+                    info.offsets.push(off);
+                    if (kind != 0) {
+                        info.hasOwned = true;
+                    }
+                    off = off + 4;
+                }
+            }
+            ;
+        }
+        info.totalBytes = off;
+        if (info.hasOwned) {
+            const tdName = "__closure_" + key;
+            info.tdName = tdName;
+            const td = new LowIRTypeDesc();
+            td.className = tdName;
+            td.size = info.totalBytes;
+            let k = 0;
+            const nn = info.names.length;
+            while (k < nn) {
+                const knd = info.kinds[k];
+                if (knd != 0) {
+                    const fd = new LowIRTypeFieldDesc();
+                    fd.offset = info.offsets[k];
+                    if (knd == 1) {
+                        fd.kind = 0;
+                    }
+                    else {
+                        fd.kind = 1;
+                    }
+                    fd.owned = 1;
+                    td.fields.push(fd);
+                }
+                k = k + 1;
+            }
+            ;
+            this.irModule.typeDescs.push(td);
+        }
+        this.lambdaCaptures[key] = info;
+        return info;
+    }
+    ;
+    lowerLambdaValue(node, lctx) {
+        const builder = lctx.builder;
+        if (typeof (node.lambdaFnDesc) === "undefined") {
+            const bytes0 = builder.emitConst("i32", "4");
+            return builder.emitHeapAlloc(bytes0);
+        }
+        const lfd = node.lambdaFnDesc;
+        const name = lfd.compiledName;
+        const idx = this.lambdaTableIndex(name);
+        const info = this.computeLambdaCaptures(node, lfd, lctx);
+        const bytes = builder.emitConst("i32", ("" + info.totalBytes));
+        let rec = "";
+        if (this.objRcEnabled(lctx)) {
+            let tdArg = "";
+            if (info.hasOwned) {
+                tdArg = builder.emitTypeDescPtr(info.tdName);
+            }
+            else {
+                tdArg = builder.emitConst("i32", "0");
+            }
+            let a = [];
+            let at = [];
+            a.push(bytes);
+            at.push("i32");
+            a.push(tdArg);
+            at.push("i32");
+            rec = builder.emitCall("ranger_obj_new", lctx.ptrType, a, at);
+        }
+        else {
+            rec = builder.emitHeapAlloc(bytes);
+        }
+        const idxC = builder.emitConst("i32", ("" + idx));
+        builder.emitStoreI32At(rec, 0, idxC);
+        let k = 0;
+        const nn = info.names.length;
+        while (k < nn) {
+            const cn = info.names[k];
+            const knd = info.kinds[k];
+            const coff = info.offsets[k];
+            const cirt = info.irTypes[k];
+            let cval = this.loadSlot(cn, cirt, lctx);
+            if (knd == 1) {
+                cval = this.emitStrdupExpr(cval, lctx);
+            }
+            if (knd == 2) {
+                this.emitObjRetainPtr(cval, lctx);
+            }
+            if (knd == 3) {
+                this.emitObjRetainPtr(cval, lctx);
+            }
+            builder.emitStoreI32At(rec, coff, cval);
+            k = k + 1;
+        }
+        ;
+        this.registerFreshObjectTemp(rec, lctx);
+        return rec;
+    }
+    ;
+    lowerLambdaCall(node, lctx) {
+        const builder = lctx.builder;
+        const calleeNode = node.getFirst();
+        const argsNode = node.getSecond();
+        const env = this.lowerExpr(calleeNode, lctx);
+        const fnIdx = builder.emitPtrLoad(env);
+        let callArgs = [];
+        let callTypes = [];
+        callArgs.push(env);
+        callTypes.push(lctx.ptrType);
+        let sig = "i32";
+        for (let i = 0; i < argsNode.children.length; i++) {
+            var arg = argsNode.children[i];
+            let av = this.lowerExpr(arg, lctx);
+            let at = this.argIrType(arg, lctx);
+            if (this.exprProducesI1(arg, lctx)) {
+                av = builder.emitZextI1ToI32(av);
+                at = "i32";
+            }
+            callArgs.push(av);
+            callTypes.push(at);
+            sig = sig + ("," + at);
+        }
+        ;
+        let ret = "void";
+        if ((node.eval_type_name.length) > 0) {
+            ret = this.llvmTypeForRanger(node.eval_type_name, lctx.ptrType);
+        }
+        sig = sig + (":" + ret);
+        this.addLambdaSig(sig);
+        return builder.emitCallIndirect(ret, sig, callArgs, callTypes, fnIdx);
+    }
+    ;
+    isOwnedObjectLocal(varName, lctx) {
+        for (let i = 0; i < lctx.ownedObjectLocals.length; i++) {
+            var n = lctx.ownedObjectLocals[i];
+            if (n == varName) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    releaseOwnedLocal(varName, lctx) {
+        if (this.objRcEnabled(lctx) == false) {
+            return;
+        }
+        if ((typeof (lctx.escapedLocals[varName]) != "undefined" && lctx.escapedLocals.hasOwnProperty(varName))) {
+            return;
+        }
+        if (false == ((typeof (lctx.slots[varName]) != "undefined" && lctx.slots.hasOwnProperty(varName)))) {
+            return;
+        }
+        const builder = lctx.builder;
+        const voidType = "void";
+        const val = this.loadSlot(varName, lctx.ptrType, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(val);
+        argTypes.push(lctx.ptrType);
+        builder.emitCall("ranger_obj_release", voidType, args, argTypes);
+    }
+    ;
+    isOwnedStringLocal(varName, lctx) {
+        for (let i = 0; i < lctx.ownedStringLocals.length; i++) {
+            var n = lctx.ownedStringLocals[i];
+            if (n == varName) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    registerFreshStringTemp(tmp, lctx) {
+        if (this.wasmStrEnabled(lctx) == false) {
+            return;
+        }
+        lctx.pendingStringTemps.push(tmp);
+    }
+    ;
+    claimStringTemp(tmp, lctx) {
+        if (this.wasmStrEnabled(lctx) == false) {
+            return;
+        }
+        let kept = [];
+        for (let i = 0; i < lctx.pendingStringTemps.length; i++) {
+            var t = lctx.pendingStringTemps[i];
+            if (t != tmp) {
+                kept.push(t);
+            }
+        }
+        ;
+        lctx.pendingStringTemps = kept;
+    }
+    ;
+    flushStringTempsFrom(mark, lctx) {
+        if (this.wasmStrEnabled(lctx) == false) {
+            return;
+        }
+        const n = lctx.pendingStringTemps.length;
+        if (n <= mark) {
+            return;
+        }
+        let k = mark;
+        while (k < n) {
+            this.emitStrReleasePtr(lctx.pendingStringTemps[k], lctx);
+            k = k + 1;
+        }
+        ;
+        let kept = [];
+        let j = 0;
+        while (j < mark) {
+            kept.push(lctx.pendingStringTemps[j]);
+            j = j + 1;
+        }
+        ;
+        lctx.pendingStringTemps = kept;
+    }
+    ;
+    registerFreshObjectTemp(tmp, lctx) {
+        if (this.objRcEnabled(lctx) == false) {
+            return;
+        }
+        lctx.pendingObjectTemps.push(tmp);
+    }
+    ;
+    claimObjectTemp(tmp, lctx) {
+        if (this.objRcEnabled(lctx) == false) {
+            return;
+        }
+        let kept = [];
+        for (let i = 0; i < lctx.pendingObjectTemps.length; i++) {
+            var t = lctx.pendingObjectTemps[i];
+            if (t != tmp) {
+                kept.push(t);
+            }
+        }
+        ;
+        lctx.pendingObjectTemps = kept;
+    }
+    ;
+    flushObjectTempsFrom(mark, lctx) {
+        if (this.objRcEnabled(lctx) == false) {
+            return;
+        }
+        const n = lctx.pendingObjectTemps.length;
+        if (n <= mark) {
+            return;
+        }
+        let k = mark;
+        while (k < n) {
+            this.emitObjReleasePtr(lctx.pendingObjectTemps[k], lctx);
+            k = k + 1;
+        }
+        ;
+        let kept = [];
+        let j = 0;
+        while (j < mark) {
+            kept.push(lctx.pendingObjectTemps[j]);
+            j = j + 1;
+        }
+        ;
+        lctx.pendingObjectTemps = kept;
+    }
+    ;
+    emitStrReleasePtr(ptr, lctx) {
+        let args = [];
+        let argTypes = [];
+        args.push(ptr);
+        argTypes.push("i8*");
+        lctx.builder.emitCall("ranger_str_release", "void", args, argTypes);
+    }
+    ;
+    releaseOwnedString(varName, lctx) {
+        if (this.wasmStrEnabled(lctx) == false) {
+            return;
+        }
+        if ((typeof (lctx.escapedLocals[varName]) != "undefined" && lctx.escapedLocals.hasOwnProperty(varName))) {
+            return;
+        }
+        if (false == ((typeof (lctx.slots[varName]) != "undefined" && lctx.slots.hasOwnProperty(varName)))) {
+            return;
+        }
+        const builder = lctx.builder;
+        const voidType = "void";
+        const val = this.loadSlot(varName, "i8*", lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(val);
+        argTypes.push("i8*");
+        builder.emitCall("ranger_str_release", voidType, args, argTypes);
+    }
+    ;
+    releaseOwnedCollectionLocal(varName, lctx) {
+        if ((typeof (lctx.escapedLocals[varName]) != "undefined" && lctx.escapedLocals.hasOwnProperty(varName))) {
+            return;
+        }
+        if (false == ((typeof (lctx.slots[varName]) != "undefined" && lctx.slots.hasOwnProperty(varName)))) {
+            return;
+        }
+        const desc = this.loadSlot(varName, lctx.ptrType, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(desc);
+        argTypes.push(lctx.ptrType);
+        let relFn = "ranger_ptrarray_release";
+        if (this.collectionKind(varName, lctx) == "map") {
+            relFn = "RtMap_free";
+        }
+        lctx.builder.emitCall(relFn, "void", args, argTypes);
+    }
+    ;
+    emitOwnedStringInit(varName, valNode, strPtr, lctx) {
+        if (this.wasmStrEnabled(lctx) == false) {
+            return this.emitStrdupExpr(strPtr, lctx);
+        }
+        let owned = strPtr;
+        if (this.exprIsFreshString(valNode, lctx) == false) {
+            owned = this.emitStrdupExpr(strPtr, lctx);
+        }
+        else {
+            this.claimStringTemp(strPtr, lctx);
+        }
+        if (this.isOwnedStringLocal(varName, lctx) == false) {
+            lctx.ownedStringLocals.push(varName);
+        }
+        return owned;
+    }
+    ;
+    emitOwnedStringReassign(varName, valNode, strPtr, lctx) {
+        if (this.wasmStrEnabled(lctx) == false) {
+            return this.emitStrdupExpr(strPtr, lctx);
+        }
+        if (this.isOwnedStringLocal(varName, lctx)) {
+            this.releaseOwnedString(varName, lctx);
+        }
+        let owned = strPtr;
+        if (this.exprIsFreshString(valNode, lctx) == false) {
+            owned = this.emitStrdupExpr(strPtr, lctx);
+        }
+        else {
+            this.claimStringTemp(strPtr, lctx);
+        }
+        if (this.isOwnedStringLocal(varName, lctx) == false) {
+            lctx.ownedStringLocals.push(varName);
+        }
+        return owned;
+    }
+    ;
+    strictOwnershipEnabled(lctx) {
+        const ctx = lctx.ctx;
+        return ctx.hasCompilerFlag("strict-ownership");
+    }
+    ;
+    emitOwnershipSummary(lctx) {
+        const builder = lctx.builder;
+        const objCount = lctx.ownedObjectLocals.length;
+        const collCount = lctx.ownedCollectionLocals.length;
+        if ((objCount + collCount) == 0) {
+            return;
+        }
+        builder.emitComment("ownership[manual]: scope-exit disposition");
+        for (let i = 0; i < lctx.ownedObjectLocals.length; i++) {
+            var name = lctx.ownedObjectLocals[i];
+            if ((typeof (lctx.escapedLocals[name]) != "undefined" && lctx.escapedLocals.hasOwnProperty(name))) {
+                builder.emitComment(("  owned object '" + name) + "' -> escaped (moved/returned), caller owns");
+            }
+            else {
+                builder.emitComment(("  owned object '" + name) + "' -> released");
+            }
+        }
+        ;
+        for (let i_1 = 0; i_1 < lctx.ownedCollectionLocals.length; i_1++) {
+            var name_1 = lctx.ownedCollectionLocals[i_1];
+            if ((typeof (lctx.escapedLocals[name_1]) != "undefined" && lctx.escapedLocals.hasOwnProperty(name_1))) {
+                builder.emitComment(("  owned array '" + name_1) + "' -> escaped, caller owns");
+            }
+            else {
+                builder.emitComment(("  owned array '" + name_1) + "' -> released (elements freed)");
+            }
+        }
+        ;
+    }
+    ;
+    emitReleaseOwnedLocals(lctx) {
+        const memTarget = LowIRTarget.resolve((lctx.ctx));
+        if (this.objRcEnabled(lctx) == false) {
+            return;
+        }
+        if (this.strictOwnershipEnabled(lctx)) {
+            this.emitOwnershipSummary(lctx);
+        }
+        for (let i = 0; i < lctx.ownedObjectLocals.length; i++) {
+            var name = lctx.ownedObjectLocals[i];
+            this.releaseOwnedLocal(name, lctx);
+        }
+        ;
+        for (let si = 0; si < lctx.ownedStringLocals.length; si++) {
+            var sname = lctx.ownedStringLocals[si];
+            this.releaseOwnedString(sname, lctx);
+        }
+        ;
+        if (memTarget.usesLibc == false) {
+            if (this.wasmCollectionRcEnabled(lctx) == false) {
+                return;
+            }
+        }
+        for (let i_1 = 0; i_1 < lctx.ownedCollectionLocals.length; i_1++) {
+            var name_1 = lctx.ownedCollectionLocals[i_1];
+            this.releaseOwnedCollectionLocal(name_1, lctx);
+        }
+        ;
+    }
+    ;
+    lowerBlock(block, lctx) {
+        if (block.is_block_node) {
+            const childCnt = block.children.length;
+            if (childCnt > 0) {
+                for (let i = 0; i < block.children.length; i++) {
+                    var stmt = block.children[i];
+                    this.lowerStmt(stmt, lctx);
+                }
+                ;
+                return;
+            }
+            if ((block.register_expressions.length) > 0) {
+                for (let i_1 = 0; i_1 < block.register_expressions.length; i_1++) {
+                    var reg = block.register_expressions[i_1];
+                    this.lowerStmt(reg, lctx);
+                }
+                ;
+            }
+            return;
+        }
+        if (block.expression) {
+            const childCnt_1 = block.children.length;
+            if (childCnt_1 > 0) {
+                for (let i_2 = 0; i_2 < block.children.length; i_2++) {
+                    var stmt_1 = block.children[i_2];
+                    this.lowerStmt(stmt_1, lctx);
+                }
+                ;
+                return;
+            }
+        }
+        if ((block.register_expressions.length) > 0) {
+            for (let i_3 = 0; i_3 < block.register_expressions.length; i_3++) {
+                var reg_1 = block.register_expressions[i_3];
+                this.lowerStmt(reg_1, lctx);
+            }
+            ;
+            return;
+        }
+        this.lowerStmt(block, lctx);
+    }
+    ;
+    isAssignNode(node) {
+        if ((node.children.length) < 3) {
+            return false;
+        }
+        const fc = node.getFirst();
+        return fc.vref == "=";
+    }
+    ;
+    lowerStmt(node, lctx) {
+        if (node.disabled_node) {
+            return;
+        }
+        if (this.wasmStrEnabled(lctx) == false) {
+            this.lowerStmtDispatch(node, lctx);
+            return;
+        }
+        const strMark = lctx.pendingStringTemps.length;
+        const objMark = lctx.pendingObjectTemps.length;
+        this.lowerStmtDispatch(node, lctx);
+        if ((typeof (lctx.builder.currentBlock) !== "undefined" && lctx.builder.currentBlock != null)) {
+            const curBlock = lctx.builder.currentBlock;
+            if (curBlock.termKind == "") {
+                this.flushStringTempsFrom(strMark, lctx);
+                this.flushObjectTempsFrom(objMark, lctx);
+            }
+        }
+    }
+    ;
+    lowerStmtDispatch(node, lctx) {
+        if (node.disabled_node) {
+            return;
+        }
+        if (this.isAssignNode(node)) {
+            this.lowerAssign(node, lctx);
+            return;
+        }
+        if (node.infix_operator) {
+            if ((typeof (node.infix_node) !== "undefined" && node.infix_node != null)) {
+                const infix = node.infix_node;
+                if (infix.has_operator) {
+                    const opName = infix.getOperator();
+                    if (opName == "=") {
+                        this.lowerAssign(infix, lctx);
+                        return;
+                    }
+                }
+            }
+        }
+        if (node.hasVarDef) {
+            this.lowerVarDef(node, lctx);
+            return;
+        }
+        if (node.has_operator) {
+            const opName_1 = node.getOperator();
+            if (opName_1 == "return") {
+                this.lowerReturn(node, lctx);
+                return;
+            }
+            if (opName_1 == "if") {
+                this.lowerIf(node, lctx);
+                return;
+            }
+            if (opName_1 == "while") {
+                this.lowerWhile(node, lctx);
+                return;
+            }
+            if (opName_1 == "=") {
+                this.lowerAssign(node, lctx);
+                return;
+            }
+            if (opName_1 == "set") {
+                this.lowerCollectionSet(node, lctx);
+                return;
+            }
+            if (opName_1 == "print") {
+                this.lowerPrint(node, lctx);
+                return;
+            }
+            if (opName_1 == "write") {
+                this.lowerWrite(node, lctx);
+                return;
+            }
+            if (opName_1 == "exit") {
+                this.lowerExit(node, lctx);
+                return;
+            }
+            if (opName_1 == "sleep_ms") {
+                this.lowerSleepMs(node, lctx);
+                return;
+            }
+            if (opName_1 == "clear_screen") {
+                this.lowerClearScreen(node, lctx);
+                return;
+            }
+            if (opName_1 == "hide_cursor") {
+                this.lowerHideCursor(node, lctx);
+                return;
+            }
+            if (opName_1 == "show_cursor") {
+                this.lowerShowCursor(node, lctx);
+                return;
+            }
+            if (opName_1 == "move_cursor") {
+                this.lowerMoveCursor(node, lctx);
+                return;
+            }
+            if (opName_1 == "for") {
+                this.lowerFor(node, lctx);
+                return;
+            }
+            if (opName_1 == "push") {
+                this.lowerPush(node, lctx);
+                return;
+            }
+            if (opName_1 == "on_keypress") {
+                this.lowerOnKeypress(node, lctx);
+                return;
+            }
+        }
+        if (node.has_lambda_call) {
+            this.lowerLambdaCall(node, lctx);
+            return;
+        }
+        if (node.has_call || node.is_direct_method_call) {
+            this.lowerCall(node, lctx);
+            return;
+        }
+        if (node.hasFnCall) {
+            this.lowerExpr(node, lctx);
+            return;
+        }
+        if (node.has_operator) {
+            this.lowerExpr(node, lctx);
+            return;
+        }
+        if (node.expression) {
+            for (let i = 0; i < node.children.length; i++) {
+                var item = node.children[i];
+                this.lowerStmt(item, lctx);
+            }
+            ;
+        }
+    }
+    ;
+    lowerVarDef(node, lctx) {
+        const nameNode = node.getSecond();
+        const varName = nameNode.vref;
+        let valNode;
+        const cnt = node.children.length;
+        if (cnt > 2) {
+            const last = node.children[(cnt - 1)];
+            valNode = last;
+        }
+        if (typeof (valNode) === "undefined") {
+            if (this.isIntArrayTypeNode(nameNode)) {
+                const emptyArr = this.emitPtrArrayNewEmpty(lctx, 0);
+                this.bindPtrArraySlot(varName, emptyArr, lctx, false);
+                lctx.ptrArrayElemTypes[varName] = "int";
+                return;
+            }
+            if (this.isStringArrayTypeNode(nameNode)) {
+                const emptyStrArr = this.emitPtrArrayNewEmpty(lctx, 2);
+                this.bindPtrArraySlot(varName, emptyStrArr, lctx, true);
+                lctx.ptrArrayElemTypes[varName] = "string";
+                return;
+            }
+            if (this.isObjectPtrArrayTypeNode(nameNode)) {
+                const emptyPtrArr = this.emitPtrArrayNewEmpty(lctx, 1);
+                this.bindPtrArraySlot(varName, emptyPtrArr, lctx, true);
+                return;
+            }
+            if (this.isIntIntMapTypeNode(nameNode)) {
+                const eight = lctx.builder.emitConst("i32", "8");
+                const newMap = this.emitRtMapNew(eight, lctx);
+                this.bindCollectionSlot(varName, "map", newMap, lctx);
+                return;
+            }
+            return;
+        }
+        const val = valNode;
+        if (val.has_operator) {
+            const valOp = val.getOperator();
+            if (valOp == "make") {
+                const made = this.lowerCollectionMake(val, lctx);
+                if (this.isObjectPtrArrayTypeNode(nameNode)) {
+                    this.bindPtrArraySlot(varName, made, lctx, true);
+                }
+                else {
+                    this.bindPtrArraySlot(varName, made, lctx, false);
+                    lctx.ptrArrayElemTypes[varName] = "int";
+                }
+                return;
+            }
+        }
+        if ((val.has_call || val.is_direct_method_call) || val.hasFnCall) {
+            const callTmp = this.lowerCall(val, lctx);
+            let irTypeFromCall = "i32";
+            let typeName = this.varTypeName(nameNode);
+            if ((typeName.length) == 0) {
+                if ((typeof (val.fnDesc) !== "undefined" && val.fnDesc != null)) {
+                    if ((typeof (val.fnDesc.nameNode) !== "undefined" && val.fnDesc.nameNode != null)) {
+                        const retNode = val.fnDesc.nameNode;
+                        typeName = this.varTypeName(retNode);
+                    }
+                }
+            }
+            if ((typeName.length) > 0) {
+                irTypeFromCall = this.llvmTypeForRanger(typeName, lctx.ptrType);
+                if (this.isObjectTypeName(typeName)) {
+                    lctx.objectSlots[varName] = typeName;
+                }
+            }
+            if (this.isObjectPtrArrayTypeNode(nameNode)) {
+                this.bindPtrArraySlot(varName, callTmp, lctx, true);
+                return;
+            }
+            if (this.isIntArrayTypeNode(nameNode)) {
+                this.bindPtrArraySlot(varName, callTmp, lctx, false);
+                lctx.ptrArrayElemTypes[varName] = "int";
+                return;
+            }
+            if (this.isIntIntMapTypeNode(nameNode)) {
+                this.bindCollectionSlot(varName, "map", callTmp, lctx);
+                return;
+            }
+            this.bindSlot(varName, irTypeFromCall, callTmp, lctx);
+            return;
+        }
+        if (val.hasNewOper) {
+            const clsName = this.newTargetClassName(val, lctx);
+            if ((clsName.length) > 0) {
+                const argsNode = val.getThird();
+                if (this.isOwnedObjectLocal(varName, lctx)) {
+                    this.releaseOwnedLocal(varName, lctx);
+                }
+                const objPtr = this.lowerNewObject(clsName, argsNode, lctx);
+                lctx.objectSlots[varName] = clsName;
+                if (this.isOwnedObjectLocal(varName, lctx) == false) {
+                    lctx.ownedObjectLocals.push(varName);
+                }
+                this.bindSlot(varName, lctx.ptrType, objPtr, lctx);
+                return;
+            }
+        }
+        if (val.has_lambda) {
+            const rec = this.lowerLambdaValue(val, lctx);
+            this.claimObjectTemp(rec, lctx);
+            if (this.objRcEnabled(lctx)) {
+                if (this.isOwnedObjectLocal(varName, lctx) == false) {
+                    lctx.ownedObjectLocals.push(varName);
+                }
+            }
+            this.bindSlot(varName, lctx.ptrType, rec, lctx);
+            return;
+        }
+        let tmp = this.lowerExpr(val, lctx);
+        const typeName_1 = this.varTypeName(nameNode);
+        let irType = this.llvmTypeForRanger(typeName_1, lctx.ptrType);
+        if (val.value_type == 5) {
+            irType = "i1";
+        }
+        if (this.objRcEnabled(lctx)) {
+            if ((typeof (lctx.boxedCandidates[varName]) != "undefined" && lctx.boxedCandidates.hasOwnProperty(varName))) {
+                if ((irType == "i32") || (irType == "i1")) {
+                    const cellBytes = lctx.builder.emitConst("i32", "4");
+                    const cellTd = lctx.builder.emitConst("i32", "0");
+                    let ca = [];
+                    let cat = [];
+                    ca.push(cellBytes);
+                    cat.push("i32");
+                    ca.push(cellTd);
+                    cat.push("i32");
+                    const cell = lctx.builder.emitCall("ranger_obj_new", lctx.ptrType, ca, cat);
+                    lctx.builder.emitStoreI32At(cell, 0, tmp);
+                    this.bindSlot(varName, lctx.ptrType, cell, lctx);
+                    lctx.boxedLocals[varName] = 4;
+                    if (this.isOwnedObjectLocal(varName, lctx) == false) {
+                        lctx.ownedObjectLocals.push(varName);
+                    }
+                    return;
+                }
+            }
+        }
+        if (this.isObjectTypeName(typeName_1)) {
+            lctx.objectSlots[varName] = typeName_1;
+        }
+        if (irType == "i8*") {
+            tmp = this.emitOwnedStringInit(varName, val, tmp, lctx);
+        }
+        if (irType == "f64") {
+            if (this.exprIsF64(val) == false) {
+                tmp = lctx.builder.emitCast("sitofp", "f64", "i32", tmp);
+            }
+        }
+        this.bindSlot(varName, irType, tmp, lctx);
+    }
+    ;
+    assignTargetFieldClass(varName, lctx) {
+        if ((varName.indexOf(".")) >= 0) {
+            const parts = varName.split(".");
+            if ((parts.length) >= 2) {
+                const recv = parts[0];
+                const fld = parts[1];
+                const cls = this.resolveObjectClass(recv, lctx);
+                if ((cls.length) > 0) {
+                    return this.fieldObjectClassName(cls, fld, lctx);
+                }
+            }
+            return "";
+        }
+        if (this.isClassField(varName, lctx.className, this.irModule)) {
+            return this.fieldObjectClassName(lctx.className, varName, lctx);
+        }
+        return "";
+    }
+    ;
+    lowerAssign(node, lctx) {
+        const lhs = node.getSecond();
+        const rhs = node.children[2];
+        const varName = lhs.vref;
+        const builder = lctx.builder;
+        let tmp = "";
+        let newCls = "";
+        if (rhs.hasNewOper) {
+            newCls = this.newTargetClassName(rhs, lctx);
+            if ((newCls.length) == 0) {
+                newCls = this.assignTargetFieldClass(varName, lctx);
+            }
+        }
+        if ((newCls.length) > 0) {
+            tmp = this.lowerNewObject(newCls, rhs.getThird(), lctx);
+        }
+        else {
+            tmp = this.lowerExpr(rhs, lctx);
+        }
+        if ((typeof (lctx.boxedLocals[varName]) != "undefined" && lctx.boxedLocals.hasOwnProperty(varName))) {
+            const cellPtr = this.loadSlot(varName, lctx.ptrType, lctx);
+            builder.emitStoreI32At(cellPtr, 0, tmp);
+            return;
+        }
+        const irType = "i32";
+        if ((varName.indexOf(".")) >= 0) {
+            const parts = varName.split(".");
+            if ((parts.length) >= 2) {
+                const n = parts.length;
+                const recvPrefix = this.joinDotPrefix(parts, (n - 1));
+                const fld = parts[(n - 1)];
+                const cls = this.resolveObjectClassChain(recvPrefix, lctx);
+                if ((cls.length) > 0) {
+                    const sptr = this.resolveObjectPtrChain(recvPrefix, cls, lctx);
+                    if (this.memEnabled(lctx)) {
+                        if (this.fieldIsObjectSlot(cls, fld)) {
+                            if (rhs.value_type == 11) {
+                                if (this.isOwnedObjectLocal(rhs.vref, lctx)) {
+                                    lctx.escapedLocals[rhs.vref] = "1";
+                                }
+                            }
+                        }
+                    }
+                    this.emitFieldStoreOnEx(cls, sptr, fld, tmp, rhs.hasNewOper, lctx);
+                    return;
+                }
+            }
+        }
+        if (this.isClassField(varName, lctx.className, this.irModule)) {
+            this.emitFieldStoreOnEx(lctx.className, lctx.selfPtr, varName, tmp, rhs.hasNewOper, lctx);
+            return;
+        }
+        if ((typeof (lctx.slots[varName]) != "undefined" && lctx.slots.hasOwnProperty(varName))) {
+            const slot = ((lctx.slots.hasOwnProperty(varName) ? lctx.slots[varName] : undefined));
+            if (rhs.hasNewOper) {
+                if ((typeof (lctx.objectSlots[varName]) != "undefined" && lctx.objectSlots.hasOwnProperty(varName))) {
+                    if (this.isOwnedObjectLocal(varName, lctx)) {
+                        this.releaseOwnedLocal(varName, lctx);
+                    }
+                }
+            }
+            let storeType = irType;
+            if ((typeof (lctx.slotTypes[varName]) != "undefined" && lctx.slotTypes.hasOwnProperty(varName))) {
+                storeType = ((lctx.slotTypes.hasOwnProperty(varName) ? lctx.slotTypes[varName] : undefined));
+            }
+            if (rhs.value_type == 5) {
+                if (storeType != "i1") {
+                    tmp = builder.emitZextI1ToI32(tmp);
+                    storeType = "i32";
+                }
+            }
+            if (storeType == "i8*") {
+                tmp = this.emitOwnedStringReassign(varName, rhs, tmp, lctx);
+            }
+            builder.emitStore(storeType, tmp, slot);
+            return;
+        }
+        this.bindSlot(varName, irType, tmp, lctx);
+    }
+    ;
+    lowerReturn(node, lctx) {
+        const builder = lctx.builder;
+        const voidType = "void";
+        const retType = lctx.llvmRetType;
+        if ((node.children.length) > 1) {
+            const valNode = node.getSecond();
+            if (valNode.value_type == 11) {
+                if ((typeof (lctx.boxedLocals[valNode.vref]) != "undefined" && lctx.boxedLocals.hasOwnProperty(valNode.vref))) {
+                }
+                else {
+                    lctx.escapedLocals[valNode.vref] = "1";
+                }
+            }
+            let tmp = "";
+            if (valNode.has_call || valNode.is_direct_method_call) {
+                tmp = this.lowerCall(valNode, lctx);
+            }
+            else {
+                tmp = this.lowerExpr(valNode, lctx);
+            }
+            this.claimStringTemp(tmp, lctx);
+            this.flushStringTempsFrom(0, lctx);
+            this.claimObjectTemp(tmp, lctx);
+            this.flushObjectTempsFrom(0, lctx);
+            this.emitReleaseOwnedLocals(lctx);
+            builder.terminateRet(retType, tmp);
+        }
+        else {
+            this.emitReleaseOwnedLocals(lctx);
+            if (retType == voidType) {
+                builder.terminateRet(voidType, "");
+            }
+            else {
+                const zero = "0";
+                const retVal = builder.emitConst("i32", zero);
+                builder.terminateRet(retType, retVal);
+            }
+        }
+    }
+    ;
+    isCompareOp(op) {
+        if (op == "==") {
+            return true;
+        }
+        if (op == "!=") {
+            return true;
+        }
+        if (op == "<") {
+            return true;
+        }
+        if (op == ">") {
+            return true;
+        }
+        if (op == "<=") {
+            return true;
+        }
+        if (op == ">=") {
+            return true;
+        }
+        return false;
+    }
+    ;
+    unwrapInfixExpr(node) {
+        if (node.infix_operator) {
+            if ((typeof (node.infix_node) !== "undefined" && node.infix_node != null)) {
+                return node.infix_node;
+            }
+        }
+        return node;
+    }
+    ;
+    unwrapCondExpr(node) {
+        const n = this.unwrapInfixExpr(node);
+        if (n.expression) {
+            const ecnt = n.children.length;
+            if (ecnt == 1) {
+                return this.unwrapCondExpr((n.children[0]));
+            }
+        }
+        return n;
+    }
+    ;
+    exprProducesI1(node, lctx) {
+        const exprNode = this.unwrapCondExpr(node);
+        if (exprNode.value_type == 5) {
+            return true;
+        }
+        if ((exprNode.has_call || exprNode.is_direct_method_call) || exprNode.hasFnCall) {
+            if ((typeof (exprNode.fnDesc) !== "undefined" && exprNode.fnDesc != null)) {
+                const fd = exprNode.fnDesc;
+                if ((typeof (fd.nameNode) !== "undefined" && fd.nameNode != null)) {
+                    const rn = fd.nameNode;
+                    if (rn.type_name == "boolean") {
+                        return true;
+                    }
+                }
+            }
+        }
+        if (exprNode.value_type == 11) {
+            if ((typeof (lctx.slotTypes[exprNode.vref]) != "undefined" && lctx.slotTypes.hasOwnProperty(exprNode.vref))) {
+                const st = ((lctx.slotTypes.hasOwnProperty(exprNode.vref) ? lctx.slotTypes[exprNode.vref] : undefined));
+                if (st == "i1") {
+                    return true;
+                }
+            }
+            if (this.isClassField(exprNode.vref, lctx.className, this.irModule)) {
+                if (this.fieldIsBoolSlot(lctx.className, exprNode.vref)) {
+                    return true;
+                }
+            }
+            if ((exprNode.vref.indexOf(".")) >= 0) {
+                const parts = exprNode.vref.split(".");
+                if ((parts.length) >= 2) {
+                    const recv = parts[0];
+                    const fld = parts[1];
+                    const cls = this.resolveObjectClass(recv, lctx);
+                    if ((cls.length) > 0) {
+                        if (this.fieldIsBoolSlot(cls, fld)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        if (exprNode.has_operator) {
+            const op = exprNode.getOperator();
+            if (op == "||") {
+                return true;
+            }
+            if (op == "&&") {
+                return true;
+            }
+            if (op == "null?") {
+                return true;
+            }
+            if (op == "!null?") {
+                return true;
+            }
+            return this.isCompareOp(op);
+        }
+        return false;
+    }
+    ;
+    condVref(node) {
+        if (node.value_type == 11) {
+            return node.vref;
+        }
+        if ((node.children.length) > 0) {
+            const child = node.children[0];
+            return this.condVref(child);
+        }
+        return "";
+    }
+    ;
+    lowerCond(node, lctx) {
+        const builder = lctx.builder;
+        const condNode = this.unwrapCondExpr(node);
+        if (condNode.value_type == 11) {
+            const vref = condNode.vref;
+            if ((typeof (lctx.slotTypes[vref]) != "undefined" && lctx.slotTypes.hasOwnProperty(vref))) {
+                const st = ((lctx.slotTypes.hasOwnProperty(vref) ? lctx.slotTypes[vref] : undefined));
+                if (st == "i1") {
+                    return this.loadSlot(vref, "i1", lctx);
+                }
+            }
+            if (this.isClassField(vref, lctx.className, this.irModule)) {
+                if (this.fieldIsBoolSlot(lctx.className, vref)) {
+                    return this.emitFieldLoad(vref, lctx);
+                }
+            }
+        }
+        const v = this.lowerExpr(condNode, lctx);
+        if (this.exprProducesI1(condNode, lctx)) {
+            return v;
+        }
+        const vref_1 = this.condVref(condNode);
+        if ((vref_1.length) > 0) {
+            if ((typeof (lctx.slotTypes[vref_1]) != "undefined" && lctx.slotTypes.hasOwnProperty(vref_1))) {
+                const st_1 = ((lctx.slotTypes.hasOwnProperty(vref_1) ? lctx.slotTypes[vref_1] : undefined));
+                if (st_1 == "i1") {
+                    return v;
+                }
+            }
+        }
+        const zero = builder.emitConst("i32", "0");
+        return builder.emitIcmp("ne", v, zero);
+    }
+    ;
+    lowerIf(node, lctx) {
+        const builder = lctx.builder;
+        const condNode = node.getSecond();
+        const thenNode = node.getThird();
+        const condMark = lctx.pendingStringTemps.length;
+        const objCondMark = lctx.pendingObjectTemps.length;
+        const cond = this.lowerCond(condNode, lctx);
+        this.flushStringTempsFrom(condMark, lctx);
+        this.flushObjectTempsFrom(objCondMark, lctx);
+        const thenTag = "then";
+        const elseTag = "else";
+        const mergeTag = "merge";
+        const thenLabel = builder.freshLabel(thenTag);
+        const elseLabel = builder.freshLabel(elseTag);
+        const mergeLabel = builder.freshLabel(mergeTag);
+        let hasElse = false;
+        if ((node.children.length) > 3) {
+            hasElse = true;
+        }
+        if (hasElse) {
+            builder.terminateBrIf(cond, thenLabel, elseLabel);
+        }
+        else {
+            builder.terminateBrIf(cond, thenLabel, mergeLabel);
+        }
+        builder.startBlock(thenLabel);
+        this.lowerBlock(thenNode, lctx);
+        const thenBlock = builder.currentBlock;
+        if (thenBlock.termKind == "") {
+            builder.terminateBr(mergeLabel);
+        }
+        if (hasElse) {
+            let elseNode;
+            if ((node.children.length) > 3) {
+                elseNode = node.children[3];
+            }
+            if ((typeof (elseNode) !== "undefined" && elseNode != null)) {
+                builder.startBlock(elseLabel);
+                this.lowerBlock(elseNode, lctx);
+                const elseBlock = builder.currentBlock;
+                if (elseBlock.termKind == "") {
+                    builder.terminateBr(mergeLabel);
+                }
+            }
+        }
+        builder.startBlock(mergeLabel);
+    }
+    ;
+    lowerWhile(node, lctx) {
+        const builder = lctx.builder;
+        const condNode = node.getSecond();
+        const bodyNode = node.getThird();
+        const condTag = "while_cond";
+        const bodyTag = "while_body";
+        const exitTag = "while_exit";
+        const condLabel = builder.freshLabel(condTag);
+        const bodyLabel = builder.freshLabel(bodyTag);
+        const exitLabel = builder.freshLabel(exitTag);
+        builder.terminateBr(condLabel);
+        builder.startBlock(condLabel);
+        const condMark = lctx.pendingStringTemps.length;
+        const objCondMark = lctx.pendingObjectTemps.length;
+        const cond = this.lowerCond(condNode, lctx);
+        this.flushStringTempsFrom(condMark, lctx);
+        this.flushObjectTempsFrom(objCondMark, lctx);
+        builder.terminateBrIf(cond, bodyLabel, exitLabel);
+        const ownedBefore = lctx.ownedObjectLocals.length;
+        const ownedStrBefore = lctx.ownedStringLocals.length;
+        const ownedCollBefore = lctx.ownedCollectionLocals.length;
+        builder.startBlock(bodyLabel);
+        this.lowerBlock(bodyNode, lctx);
+        const bodyBlock = builder.currentBlock;
+        if (bodyBlock.termKind == "") {
+            this.releaseLoopBodyOwned(ownedBefore, ownedStrBefore, ownedCollBefore, lctx);
+            builder.terminateBr(condLabel);
+        }
+        builder.startBlock(exitLabel);
+    }
+    ;
+    releaseLoopBodyOwned(ownedBefore, ownedStrBefore, ownedCollBefore, lctx) {
+        const ctx = lctx.ctx;
+        if (ctx.hasCompilerFlag("wasmrc") == false) {
+            return;
+        }
+        const n = lctx.ownedObjectLocals.length;
+        if (n > ownedBefore) {
+            let k = ownedBefore;
+            while (k < n) {
+                this.releaseOwnedLocal(lctx.ownedObjectLocals[k], lctx);
+                k = k + 1;
+            }
+            ;
+            let kept = [];
+            let j = 0;
+            while (j < ownedBefore) {
+                kept.push(lctx.ownedObjectLocals[j]);
+                j = j + 1;
+            }
+            ;
+            lctx.ownedObjectLocals = kept;
+        }
+        const sn = lctx.ownedStringLocals.length;
+        if (sn > ownedStrBefore) {
+            let sk = ownedStrBefore;
+            while (sk < sn) {
+                this.releaseOwnedString(lctx.ownedStringLocals[sk], lctx);
+                sk = sk + 1;
+            }
+            ;
+            let keptS = [];
+            let sj = 0;
+            while (sj < ownedStrBefore) {
+                keptS.push(lctx.ownedStringLocals[sj]);
+                sj = sj + 1;
+            }
+            ;
+            lctx.ownedStringLocals = keptS;
+        }
+        const cn = lctx.ownedCollectionLocals.length;
+        if (cn > ownedCollBefore) {
+            let ck = ownedCollBefore;
+            while (ck < cn) {
+                this.releaseOwnedCollectionLocal(lctx.ownedCollectionLocals[ck], lctx);
+                ck = ck + 1;
+            }
+            ;
+            let keptC = [];
+            let cj = 0;
+            while (cj < ownedCollBefore) {
+                keptC.push(lctx.ownedCollectionLocals[cj]);
+                cj = cj + 1;
+            }
+            ;
+            lctx.ownedCollectionLocals = keptC;
+        }
+    }
+    ;
+    lowerExpr(node, lctx) {
+        const builder = lctx.builder;
+        const irI32 = "i32";
+        const irF64 = "f64";
+        const irI1 = "i1";
+        const zero = "0";
+        const one = "1";
+        if (node.has_lambda_call) {
+            return this.lowerLambdaCall(node, lctx);
+        }
+        if (node.has_lambda) {
+            return this.lowerLambdaValue(node, lctx);
+        }
+        if (node.has_call || node.is_direct_method_call) {
+            return this.lowerCall(node, lctx);
+        }
+        if (node.infix_operator) {
+            if ((typeof (node.infix_node) !== "undefined" && node.infix_node != null)) {
+                return this.lowerExpr((node.infix_node), lctx);
+            }
+        }
+        if (node.has_operator) {
+            const opName = node.getOperator();
+            if (opName == "get") {
+                return this.lowerCollectionGet(node, lctx);
+            }
+            if (opName == "has") {
+                return this.lowerCollectionHas(node, lctx);
+            }
+            if (opName == "array_length") {
+                return this.lowerCollectionLen(node, lctx);
+            }
+            if (opName == "strlen") {
+                return this.lowerStrlen(node, lctx);
+            }
+            if (opName == "length") {
+                const lenNode = node.getSecond();
+                if (lenNode.value_type == 11) {
+                    const pdesc = this.ptrArrayDescFromVref(lenNode.vref, lctx);
+                    if ((pdesc.length) > 0) {
+                        return this.emitPtrArrayLen(pdesc, lctx);
+                    }
+                }
+                if ((this.collectionKind(lenNode.vref, lctx).length) > 0) {
+                    return this.lowerCollectionLen(node, lctx);
+                }
+                if (lenNode.value_type == 4) {
+                    return this.lowerStrlen(node, lctx);
+                }
+            }
+            if (opName == "itemAt") {
+                return this.lowerItemAt(node, lctx);
+            }
+            if (opName == "make") {
+                return this.lowerCollectionMake(node, lctx);
+            }
+            if (opName == "poll_keypress") {
+                return this.lowerPollKeypress(lctx);
+            }
+            if (opName == "shell_arg_cnt") {
+                return this.lowerShellArgCnt(lctx);
+            }
+            if (opName == "shell_arg") {
+                return this.lowerShellArg(node, lctx);
+            }
+            if (opName == "read_file") {
+                return this.lowerReadFile(node, lctx);
+            }
+            if (opName == "buffer_alloc") {
+                return this.lowerBufferAlloc(node, lctx);
+            }
+            if (opName == "buffer_length") {
+                return this.lowerBufferLength(node, lctx);
+            }
+            if (opName == "buffer_get") {
+                return this.lowerBufferGet(node, lctx);
+            }
+            if (opName == "buffer_set") {
+                return this.lowerBufferSet(node, lctx);
+            }
+            if (opName == "buffer_read_file") {
+                return this.lowerBufferReadFile(node, lctx);
+            }
+            if (opName == "buffer_write_file") {
+                return this.lowerBufferWriteFile(node, lctx);
+            }
+            if (opName == "int_buffer_alloc") {
+                return this.lowerIntBufferAlloc(node, lctx);
+            }
+            if (opName == "int_buffer_get") {
+                return this.lowerIntBufferGet(node, lctx);
+            }
+            if (opName == "int_buffer_set") {
+                return this.lowerIntBufferSet(node, lctx);
+            }
+            if (opName == "int_buffer_fill") {
+                return this.lowerIntBufferFill(node, lctx);
+            }
+            if (opName == "to_double") {
+                return this.lowerToDouble(node, lctx);
+            }
+            if (opName == "to_int") {
+                return this.lowerToInt(node, lctx);
+            }
+            if (opName == "str2double") {
+                return this.lowerStr2Double(node, lctx);
+            }
+            if (opName == "str2int") {
+                return this.lowerStr2Int(node, lctx);
+            }
+            if (opName == "charAt") {
+                return this.lowerCharAt(node, lctx);
+            }
+            if (opName == "substring") {
+                return this.lowerSubstring(node, lctx);
+            }
+            if (opName == "to_string") {
+                return this.lowerToString(node, lctx);
+            }
+            if (opName == "strfromcode") {
+                return this.lowerStrFromCode(node, "ranger_str_fromcode", lctx);
+            }
+            if (opName == "rawbytechar") {
+                return this.lowerStrFromCode(node, "ranger_str_frombyte", lctx);
+            }
+            if (opName == "at") {
+                return this.lowerAt(node, lctx);
+            }
+            if (opName == "null?") {
+                const argNode = node.getSecond();
+                const ptr = this.lowerExpr(argNode, lctx);
+                if (this.exprIsObjectPtr(argNode, lctx)) {
+                    const zero_2 = builder.emitConst(lctx.ptrType, "0");
+                    return builder.emitIcmpTyped("eq", lctx.ptrType, ptr, zero_2);
+                }
+                return this.lowerPtrIsNull(ptr, lctx);
+            }
+            if (opName == "!null?") {
+                const argNode_1 = node.getSecond();
+                const ptr_1 = this.lowerExpr(argNode_1, lctx);
+                if (this.exprIsObjectPtr(argNode_1, lctx)) {
+                    const zero_3 = builder.emitConst(lctx.ptrType, "0");
+                    return builder.emitIcmpTyped("ne", lctx.ptrType, ptr_1, zero_3);
+                }
+                return this.lowerPtrIsNotNull(ptr_1, lctx);
+            }
+            if (opName == "unwrap") {
+                const argNode_2 = node.getSecond();
+                return this.lowerExpr(argNode_2, lctx);
+            }
+            const binResult = this.lowerBinaryOp(opName, node, lctx);
+            if ((binResult.length) > 0) {
+                return binResult;
+            }
+        }
+        if (node.infix_operator) {
+            if ((typeof (node.infix_node) !== "undefined" && node.infix_node != null)) {
+                return this.lowerExpr((node.infix_node), lctx);
+            }
+        }
+        if (node.expression) {
+            if (((node.hasFnCall == false) && (node.is_direct_method_call == false)) && (node.has_call == false)) {
+                const ecnt = node.children.length;
+                if (ecnt > 0) {
+                    return this.lowerExpr((node.children[0]), lctx);
+                }
+            }
+        }
+        if (node.isPrimitive()) {
+            switch (node.value_type) {
+                case 3:
+                    return builder.emitConst(irI32, ("" + node.int_value));
+                case 2:
+                    return builder.emitConst(irF64, ("" + node.double_value));
+                case 5:
+                    if (node.boolean_value) {
+                        return builder.emitConst(irI1, one);
+                    }
+                    return builder.emitConst(irI1, zero);
+            }
+            ;
+        }
+        if (node.value_type == 4) {
+            const text = node.string_value;
+            const gname = this.internStringGlobal(text, false);
+            const byteLen = this.stringGlobalByteLen(gname);
+            return builder.emitStrPtr(gname, byteLen);
+        }
+        if (node.hasNewOper) {
+            const clsName = this.newTargetClassName(node, lctx);
+            if ((clsName.length) > 0) {
+                const argsNode = node.getThird();
+                return this.lowerNewObject(clsName, argsNode, lctx);
+            }
+        }
+        if (node.value_type == 11) {
+            if ((typeof (lctx.boxedLocals[node.vref]) != "undefined" && lctx.boxedLocals.hasOwnProperty(node.vref))) {
+                const cellPtr = this.loadSlot(node.vref, lctx.ptrType, lctx);
+                return builder.emitLoadI32At(cellPtr, 0);
+            }
+            if ((node.vref.indexOf(".")) >= 0) {
+                const parts = node.vref.split(".");
+                if ((parts.length) >= 2) {
+                    const n = parts.length;
+                    const recvPrefix = this.joinDotPrefix(parts, (n - 1));
+                    const fld = parts[(n - 1)];
+                    const cls = this.resolveObjectClassChain(recvPrefix, lctx);
+                    if ((cls.length) > 0) {
+                        const sptr = this.resolveObjectPtrChain(recvPrefix, cls, lctx);
+                        return this.emitFieldLoadOn(cls, sptr, fld, lctx);
+                    }
+                }
+            }
+            if (this.isClassField(node.vref, lctx.className, this.irModule)) {
+                return this.emitFieldLoad(node.vref, lctx);
+            }
+            if ((typeof (lctx.collectionSlots[node.vref]) != "undefined" && lctx.collectionSlots.hasOwnProperty(node.vref))) {
+                const collKind = ((lctx.collectionSlots.hasOwnProperty(node.vref) ? lctx.collectionSlots[node.vref] : undefined));
+                if (collKind == "ptr_array") {
+                    return this.loadSlot(node.vref, lctx.ptrType, lctx);
+                }
+                if (collKind == "array") {
+                    return this.loadCollectionDesc(node.vref, lctx);
+                }
+            }
+            return this.loadSlot(node.vref, irI32, lctx);
+        }
+        if (node.hasFnCall) {
+            return this.lowerCall(node, lctx);
+        }
+        if (node.is_direct_method_call) {
+            return this.lowerCall(node, lctx);
+        }
+        return builder.emitConst(irI32, zero);
+    }
+    ;
+    operatorReturnsString(op) {
+        if (op == "strfromcode") {
+            return true;
+        }
+        if (op == "rawbytechar") {
+            return true;
+        }
+        if (op == "shell_arg") {
+            return true;
+        }
+        if (op == "to_string") {
+            return true;
+        }
+        if (op == "substring") {
+            return true;
+        }
+        return false;
+    }
+    ;
+    exprIsFreshString(node, lctx) {
+        if (this.wasmStrEnabled(lctx) == false) {
+            return false;
+        }
+        const exprNode = this.unwrapCondExpr(node);
+        if (exprNode.has_operator) {
+            const op = exprNode.getOperator();
+            if (this.operatorReturnsString(op)) {
+                return true;
+            }
+            if (op == "+") {
+                const aNode = exprNode.getSecond();
+                const bNode = exprNode.getThird();
+                if (this.exprMightBeString(aNode, lctx) || this.exprMightBeString(bNode, lctx)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    ;
+    exprIsStringish(node, lctx) {
+        const exprNode = this.unwrapCondExpr(node);
+        if (this.exprProducesI1(exprNode, lctx)) {
+            return false;
+        }
+        if (this.exprIsString(exprNode)) {
+            return true;
+        }
+        if ((exprNode.has_call || exprNode.is_direct_method_call) || exprNode.hasFnCall) {
+            if ((typeof (exprNode.fnDesc) !== "undefined" && exprNode.fnDesc != null)) {
+                const fd = exprNode.fnDesc;
+                if ((typeof (fd.nameNode) !== "undefined" && fd.nameNode != null)) {
+                    const rn = fd.nameNode;
+                    if (LowIRUtil.isStringType(rn.type_name)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if (exprNode.has_operator) {
+            const eop = exprNode.getOperator();
+            if (this.operatorReturnsString(eop)) {
+                return true;
+            }
+            if (node.getOperator() == "+") {
+                const aNode = node.getSecond();
+                const bNode = node.getThird();
+                if (this.exprIsStringish(aNode, lctx) || this.exprIsStringish(bNode, lctx)) {
+                    return true;
+                }
+            }
+        }
+        if (exprNode.value_type == 11) {
+            if (LowIRUtil.isStringType(exprNode.type_name)) {
+                return true;
+            }
+            if (LowIRUtil.isStringType(exprNode.eval_type_name)) {
+                return true;
+            }
+            if ((exprNode.vref.indexOf(".")) >= 0) {
+                const parts = exprNode.vref.split(".");
+                if ((parts.length) >= 2) {
+                    const recv = parts[0];
+                    const fld = parts[1];
+                    const cls = this.resolveObjectClass(recv, lctx);
+                    if ((cls.length) > 0) {
+                        if (this.fieldIsStringSlot(cls, fld)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if ((typeof (lctx.slotTypes[exprNode.vref]) != "undefined" && lctx.slotTypes.hasOwnProperty(exprNode.vref))) {
+                const st = ((lctx.slotTypes.hasOwnProperty(exprNode.vref) ? lctx.slotTypes[exprNode.vref] : undefined));
+                if (st == "i8*") {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    ;
+    lowerStringCompare(aNode, bNode, pred, lctx) {
+        const builder = lctx.builder;
+        const lhs = this.lowerExpr(aNode, lctx);
+        const rhs = this.lowerExpr(bNode, lctx);
+        let args = [];
+        let argTypes = [];
+        args.push(lhs);
+        argTypes.push("i8*");
+        args.push(rhs);
+        argTypes.push("i8*");
+        let cmpFn = "strcmp";
+        if (this.wasmStrEnabled(lctx)) {
+            cmpFn = "ranger_str_cmp";
+        }
+        const sc = builder.emitCall(cmpFn, "i32", args, argTypes);
+        const zero = builder.emitConst("i32", "0");
+        return builder.emitIcmp(pred, sc, zero);
+    }
+    ;
+    lowerCompareI32(aNode, bNode, pred, lctx) {
+        const builder = lctx.builder;
+        let a = this.lowerExpr(aNode, lctx);
+        let b = this.lowerExpr(bNode, lctx);
+        if (this.exprIsF64(aNode) || this.exprIsF64(bNode)) {
+            const af = this.promoteToF64(aNode, a, lctx);
+            const bf = this.promoteToF64(bNode, b, lctx);
+            return builder.emitIcmpTyped(pred, "f64", af, bf);
+        }
+        const aI1 = this.exprProducesI1(aNode, lctx);
+        const bI1 = this.exprProducesI1(bNode, lctx);
+        if (aI1 && bI1) {
+            return builder.emitIcmpTyped(pred, "i1", a, b);
+        }
+        if (aI1 || (aNode.value_type == 5)) {
+            a = builder.emitZextI1ToI32(a);
+        }
+        if (bI1 || (bNode.value_type == 5)) {
+            b = builder.emitZextI1ToI32(b);
+        }
+        return builder.emitIcmp(pred, a, b);
+    }
+    ;
+    lowerArithF64OrI32(intKind, fpKind, node, lctx) {
+        const builder = lctx.builder;
+        const aNode = node.getSecond();
+        const bNode = node.getThird();
+        if ((this.exprIsF64(node) || this.exprIsF64(aNode)) || this.exprIsF64(bNode)) {
+            const a = this.promoteToF64(aNode, this.lowerExpr(aNode, lctx), lctx);
+            const b = this.promoteToF64(bNode, this.lowerExpr(bNode, lctx), lctx);
+            return builder.emitBin(fpKind, "f64", a, b);
+        }
+        const a_1 = this.lowerExpr(aNode, lctx);
+        const b_1 = this.lowerExpr(bNode, lctx);
+        return builder.emitBin(intKind, "i32", a_1, b_1);
+    }
+    ;
+    lowerBinaryOp(opName, node, lctx) {
+        const builder = lctx.builder;
+        const irI32 = "i32";
+        const irF64 = "f64";
+        switch (opName) {
+            case "+":
+                const aNode = node.getSecond();
+                const bNode = node.getThird();
+                if (this.exprMightBeString(aNode, lctx) || this.exprMightBeString(bNode, lctx)) {
+                    return this.lowerStringConcat(aNode, bNode, lctx);
+                }
+                return this.lowerArithF64OrI32("add", "fadd", node, lctx);
+            case "-":
+                return this.lowerArithF64OrI32("sub", "fsub", node, lctx);
+            case "*":
+                return this.lowerArithF64OrI32("mul", "fmul", node, lctx);
+            case "/":
+                return this.lowerArithF64OrI32("sdiv", "fdiv", node, lctx);
+            case "idiv":
+                const a = this.lowerExpr(node.getSecond(), lctx);
+                const b = this.lowerExpr(node.getThird(), lctx);
+                return builder.emitBin("sdiv", irI32, a, b);
+            case "%":
+                const a_1 = this.lowerExpr(node.getSecond(), lctx);
+                const b_1 = this.lowerExpr(node.getThird(), lctx);
+                const kind = "srem";
+                return builder.emitBin(kind, irI32, a_1, b_1);
+            case "bit_and":
+                const a_2 = this.lowerExpr(node.getSecond(), lctx);
+                const b_2 = this.lowerExpr(node.getThird(), lctx);
+                return builder.emitBin("and", irI32, a_2, b_2);
+            case "bit_or":
+                const a_3 = this.lowerExpr(node.getSecond(), lctx);
+                const b_3 = this.lowerExpr(node.getThird(), lctx);
+                return builder.emitBin("or", irI32, a_3, b_3);
+            case "bit_xor":
+                const a_4 = this.lowerExpr(node.getSecond(), lctx);
+                const b_4 = this.lowerExpr(node.getThird(), lctx);
+                return builder.emitBin("xor", irI32, a_4, b_4);
+            case "bit_shl":
+                const a_5 = this.lowerExpr(node.getSecond(), lctx);
+                const b_5 = this.lowerExpr(node.getThird(), lctx);
+                return builder.emitBin("shl", irI32, a_5, b_5);
+            case "bit_shr":
+                const a_6 = this.lowerExpr(node.getSecond(), lctx);
+                const b_6 = this.lowerExpr(node.getThird(), lctx);
+                return builder.emitBin("ashr", irI32, a_6, b_6);
+            case "bit_not":
+                const a_7 = this.lowerExpr(node.getSecond(), lctx);
+                const neg1 = builder.emitConst(irI32, "-1");
+                return builder.emitBin("xor", irI32, a_7, neg1);
+            case "<":
+                return this.lowerCompareI32(node.getSecond(), node.getThird(), "slt", lctx);
+            case ">":
+                return this.lowerCompareI32(node.getSecond(), node.getThird(), "sgt", lctx);
+            case "<=":
+                return this.lowerCompareI32(node.getSecond(), node.getThird(), "sle", lctx);
+            case ">=":
+                return this.lowerCompareI32(node.getSecond(), node.getThird(), "sge", lctx);
+            case "==":
+                const aNode_1 = node.getSecond();
+                const bNode_1 = node.getThird();
+                if ((this.exprProducesI1(aNode_1, lctx) == false) && (this.exprProducesI1(bNode_1, lctx) == false)) {
+                    if (this.exprIsStringish(aNode_1, lctx) || this.exprIsStringish(bNode_1, lctx)) {
+                        return this.lowerStringCompare(aNode_1, bNode_1, "eq", lctx);
+                    }
+                }
+                return this.lowerCompareI32(aNode_1, bNode_1, "eq", lctx);
+            case "!=":
+                const aNode_2 = node.getSecond();
+                const bNode_2 = node.getThird();
+                if ((this.exprProducesI1(aNode_2, lctx) == false) && (this.exprProducesI1(bNode_2, lctx) == false)) {
+                    if (this.exprIsStringish(aNode_2, lctx) || this.exprIsStringish(bNode_2, lctx)) {
+                        return this.lowerStringCompare(aNode_2, bNode_2, "ne", lctx);
+                    }
+                }
+                return this.lowerCompareI32(aNode_2, bNode_2, "ne", lctx);
+            case "||":
+                const a_8 = this.lowerExpr(node.getSecond(), lctx);
+                const b_7 = this.lowerExpr(node.getThird(), lctx);
+                return builder.emitBin("or", "i1", a_8, b_7);
+            case "&&":
+                const a_9 = this.lowerExpr(node.getSecond(), lctx);
+                const b_8 = this.lowerExpr(node.getThird(), lctx);
+                return builder.emitBin("and", "i1", a_9, b_8);
+        }
+        ;
+        return "";
+    }
+    ;
+    tryLowerIntrinsic(fnName, argsNode, lctx) {
+        const builder = lctx.builder;
+        const notIntrinsic = "";
+        const handledVoid = "__void__";
+        if (fnName == "Mem_alloc") {
+            if ((argsNode.children.length) > 0) {
+                const nbytes = this.lowerExpr((argsNode.children[0]), lctx);
+                return builder.emitHeapAlloc(nbytes);
+            }
+            return notIntrinsic;
+        }
+        if (fnName == "Mem_loadI32") {
+            if ((argsNode.children.length) > 0) {
+                const ptr = this.lowerExpr((argsNode.children[0]), lctx);
+                return builder.emitPtrLoad(ptr);
+            }
+            return notIntrinsic;
+        }
+        if (fnName == "Mem_storeI32") {
+            if ((argsNode.children.length) > 1) {
+                const ptr_1 = this.lowerExpr((argsNode.children[0]), lctx);
+                const val = this.lowerExpr((argsNode.children[1]), lctx);
+                builder.emitPtrStore(ptr_1, val);
+                return handledVoid;
+            }
+            return notIntrinsic;
+        }
+        if (fnName == "Mem_loadU8") {
+            if ((argsNode.children.length) > 0) {
+                const ptr_2 = this.lowerExpr((argsNode.children[0]), lctx);
+                return builder.emitPtrLoad8(ptr_2);
+            }
+            return notIntrinsic;
+        }
+        if (fnName == "Mem_storeU8") {
+            if ((argsNode.children.length) > 1) {
+                const ptr_3 = this.lowerExpr((argsNode.children[0]), lctx);
+                const val_1 = this.lowerExpr((argsNode.children[1]), lctx);
+                builder.emitPtrStore8(ptr_3, val_1);
+                return handledVoid;
+            }
+            return notIntrinsic;
+        }
+        if (fnName == "Mem_memSize") {
+            return builder.emitMemSize();
+        }
+        if (fnName == "Mem_memGrow") {
+            if ((argsNode.children.length) > 0) {
+                const pages = this.lowerExpr((argsNode.children[0]), lctx);
+                return builder.emitMemGrow(pages);
+            }
+            return notIntrinsic;
+        }
+        if (fnName == "RangerMem_liveObjects") {
+            this.usedMemRuntime = true;
+            this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
+            let args = [];
+            let argTypes = [];
+            return builder.emitCall("ranger_mem_live_objects", "i32", args, argTypes);
+        }
+        if (fnName == "RangerMem_resetStats") {
+            this.usedMemRuntime = true;
+            this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
+            let args_1 = [];
+            let argTypes_1 = [];
+            const voidType = "void";
+            builder.emitCall("ranger_mem_reset_stats", voidType, args_1, argTypes_1);
+            return handledVoid;
+        }
+        return notIntrinsic;
+    }
+    ;
+    finishObjectCall(rv) {
+        if ((rv.length) > 0) {
+            return rv;
+        }
+        const voidTag = "__void__";
+        return voidTag;
+    }
+    ;
+    lowerCall(node, lctx) {
+        const builder = lctx.builder;
+        const voidTag = "__void__";
+        const objectCall = this.tryLowerObjectCall(node, lctx);
+        if (objectCall == voidTag) {
+            return "";
+        }
+        if ((objectCall.length) > 0) {
+            return objectCall;
+        }
+        if (node.is_direct_method_call || node.has_call) {
+            return this.lowerInstanceCall(node, lctx);
+        }
+        const calleeNode = node.getFirst();
+        const argsNode = node.getSecond();
+        const calleeVref = calleeNode.vref;
+        const calleeDot = calleeVref.indexOf(".");
+        if (calleeDot >= 0) {
+            const calleeParts = calleeVref.split(".");
+            if ((calleeParts.length) >= 2) {
+                const recvPart = calleeParts[0];
+                if (recvPart == "this") {
+                    const methPart = calleeParts[1];
+                    calleeNode.eval_type_name = lctx.className;
+                    return this.lowerInstanceCallOn(node, "this", calleeNode, methPart, lctx);
+                }
+                if ((typeof (lctx.objectSlots[recvPart]) != "undefined" && lctx.objectSlots.hasOwnProperty(recvPart))) {
+                    const methPart_1 = calleeParts[1];
+                    calleeNode.eval_type_name = ((lctx.objectSlots.hasOwnProperty(recvPart) ? lctx.objectSlots[recvPart] : undefined));
+                    return this.lowerInstanceCallOn(node, recvPart, calleeNode, methPart_1, lctx);
+                }
+                const fcls = this.fieldReceiverClass(recvPart, lctx);
+                if ((fcls.length) > 0) {
+                    const methPart_2 = calleeParts[1];
+                    calleeNode.eval_type_name = fcls;
+                    return this.lowerInstanceCallOn(node, recvPart, calleeNode, methPart_2, lctx);
+                }
+            }
+        }
+        if ((calleeNode.ns.length) >= 2) {
+            const recvName = calleeNode.ns[0];
+            const methName = calleeNode.ns[1];
+            if ((typeof (lctx.objectSlots[recvName]) != "undefined" && lctx.objectSlots.hasOwnProperty(recvName))) {
+                calleeNode.eval_type_name = ((lctx.objectSlots.hasOwnProperty(recvName) ? lctx.objectSlots[recvName] : undefined));
+                return this.lowerInstanceCallOn(node, recvName, calleeNode, methName, lctx);
+            }
+            const fcls_1 = this.fieldReceiverClass(recvName, lctx);
+            if ((fcls_1.length) > 0) {
+                calleeNode.eval_type_name = fcls_1;
+                return this.lowerInstanceCallOn(node, recvName, calleeNode, methName, lctx);
+            }
+        }
+        const fnName = this.resolveCalleeName(calleeNode);
+        if (fnName == "at") {
+            return this.lowerAtCall(argsNode, lctx);
+        }
+        const intrinsic = this.tryLowerIntrinsic(fnName, argsNode, lctx);
+        if (intrinsic == "__void__") {
+            return "";
+        }
+        if ((intrinsic.length) > 0) {
+            return intrinsic;
+        }
+        let retType = "i32";
+        if ((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) {
+            if ((typeof (node.fnDesc.nameNode) !== "undefined" && node.fnDesc.nameNode != null)) {
+                const rn = node.fnDesc.nameNode;
+                retType = this.llvmTypeForRanger(rn.type_name, lctx.ptrType);
+            }
+        }
+        let args = [];
+        let argTypes = [];
+        let argIdx = 0;
+        for (let i = 0; i < argsNode.children.length; i++) {
+            var arg = argsNode.children[i];
+            args.push(this.lowerExpr(arg, lctx));
+            if ((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) {
+                argTypes.push(this.paramIrTypeFromDesc(argIdx, (node.fnDesc), lctx));
+            }
+            else {
+                argTypes.push(this.argIrType(arg, lctx));
+            }
+            argIdx = argIdx + 1;
+        }
+        ;
+        return builder.emitCall(fnName, retType, args, argTypes);
+    }
+    ;
+    tryLowerObjectCall(node, lctx) {
+        if ((node.children.length) < 2) {
+            return "";
+        }
+        if (node.has_call) {
+            if ((node.children.length) > 3) {
+                const recv = node.getSecond();
+                const meth = node.getThird();
+                if ((typeof (lctx.objectSlots[recv.vref]) != "undefined" && lctx.objectSlots.hasOwnProperty(recv.vref))) {
+                    recv.eval_type_name = ((lctx.objectSlots.hasOwnProperty(recv.vref) ? lctx.objectSlots[recv.vref] : undefined));
+                    return this.finishObjectCall(this.lowerInstanceCallOn(node, recv.vref, recv, meth.vref, lctx));
+                }
+            }
+        }
+        const callee = node.getFirst();
+        const argsNode = node.getSecond();
+        const v = callee.vref;
+        const dotPos = v.indexOf(".");
+        if (dotPos >= 0) {
+            const parts = v.split(".");
+            const nparts = parts.length;
+            if (nparts >= 3) {
+                const methName = parts[(nparts - 1)];
+                const recvPrefix = this.joinDotPrefix(parts, (nparts - 1));
+                const rcls = this.resolveObjectClassChain(recvPrefix, lctx);
+                if ((rcls.length) > 0) {
+                    callee.eval_type_name = rcls;
+                    return this.finishObjectCall(this.lowerInstanceCallOn(node, recvPrefix, callee, methName, lctx));
+                }
+            }
+            if ((parts.length) >= 2) {
+                const recvName = parts[0];
+                if (recvName == "this") {
+                    const methName_1 = parts[1];
+                    callee.eval_type_name = lctx.className;
+                    return this.finishObjectCall(this.lowerInstanceCallOn(node, recvName, callee, methName_1, lctx));
+                }
+                if ((typeof (lctx.objectSlots[recvName]) != "undefined" && lctx.objectSlots.hasOwnProperty(recvName))) {
+                    const methName_2 = parts[1];
+                    callee.eval_type_name = ((lctx.objectSlots.hasOwnProperty(recvName) ? lctx.objectSlots[recvName] : undefined));
+                    return this.finishObjectCall(this.lowerInstanceCallOn(node, recvName, callee, methName_2, lctx));
+                }
+                const fcls = this.fieldReceiverClass(recvName, lctx);
+                if ((fcls.length) > 0) {
+                    const methName_3 = parts[1];
+                    callee.eval_type_name = fcls;
+                    return this.finishObjectCall(this.lowerInstanceCallOn(node, recvName, callee, methName_3, lctx));
+                }
+            }
+        }
+        if (callee.value_type == 11) {
+            if ((typeof (lctx.objectSlots[callee.vref]) != "undefined" && lctx.objectSlots.hasOwnProperty(callee.vref))) {
+                return this.finishObjectCall(this.lowerInstanceCallOn(node, callee.vref, callee, node.vref, lctx));
+            }
+        }
+        return "";
+    }
+    ;
+    fieldReceiverClass(recvName, lctx) {
+        if ((lctx.className.length) == 0) {
+            return "";
+        }
+        if (this.isClassField(recvName, lctx.className, this.irModule)) {
+            return this.fieldObjectClassName(lctx.className, recvName, lctx);
+        }
+        return "";
+    }
+    ;
+    callArgsNode(node) {
+        if (node.has_call) {
+            if ((node.children.length) > 3) {
+                return node.children[3];
+            }
+        }
+        return node.getSecond();
+    }
+    ;
+    resolveMethodName(node, defaultName) {
+        if ((defaultName.length) > 0) {
+            return defaultName;
+        }
+        if ((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) {
+            const fd = node.fnDesc;
+            return fd.name;
+        }
+        const callee = node.getFirst();
+        const v = callee.vref;
+        const dotPos = v.indexOf(".");
+        if (dotPos >= 0) {
+            const parts = v.split(".");
+            if ((parts.length) >= 2) {
+                return parts[1];
+            }
+        }
+        return "";
+    }
+    ;
+    argIrType(arg, lctx) {
+        if (arg.value_type == 4) {
+            return "i8*";
+        }
+        if (arg.value_type == 11) {
+            if ((typeof (lctx.slotTypes[arg.vref]) != "undefined" && lctx.slotTypes.hasOwnProperty(arg.vref))) {
+                const st = ((lctx.slotTypes.hasOwnProperty(arg.vref) ? lctx.slotTypes[arg.vref] : undefined));
+                if ((st.length) > 0) {
+                    return st;
+                }
+            }
+        }
+        return "i32";
+    }
+    ;
+    paramIrTypeFromDesc(paramIndex, fnDesc, lctx) {
+        if (paramIndex >= (fnDesc.params.length)) {
+            return "i32";
+        }
+        const p = fnDesc.params[paramIndex];
+        if (typeof (p.nameNode) === "undefined") {
+            return "i32";
+        }
+        const pn = p.nameNode;
+        return this.llvmTypeForRanger(pn.type_name, lctx.ptrType);
+    }
+    ;
+    lowerInstanceCallOn(node, receiverName, recvNode, methodName, lctx) {
+        const builder = lctx.builder;
+        let objPtr = "";
+        let className = recvNode.eval_type_name;
+        if (receiverName == "this") {
+            objPtr = lctx.selfPtr;
+            className = lctx.className;
+        }
+        else {
+            if ((className.length) == 0) {
+                if ((typeof (lctx.objectSlots[receiverName]) != "undefined" && lctx.objectSlots.hasOwnProperty(receiverName))) {
+                    className = ((lctx.objectSlots.hasOwnProperty(receiverName) ? lctx.objectSlots[receiverName] : undefined));
+                }
+            }
+            if ((receiverName.indexOf(".")) >= 0) {
+                className = this.resolveObjectClassChain(receiverName, lctx);
+            }
+            else {
+                if ((className.length) == 0) {
+                    className = this.resolveObjectClass(receiverName, lctx);
+                }
+            }
+            objPtr = this.resolveObjectPtrChain(receiverName, className, lctx);
+        }
+        let methName = this.resolveMethodName(node, methodName);
+        if ((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) {
+            const fd = node.fnDesc;
+            methName = fd.name;
+            if ((className.length) == 0) {
+                className = fd.container_class.name;
+            }
+        }
+        const fnName = LowIRUtil.mangleMethod(className, methName);
+        const voidType = "void";
+        let retType = "i32";
+        if ((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) {
+            if ((typeof (node.fnDesc.nameNode) !== "undefined" && node.fnDesc.nameNode != null)) {
+                const rn = node.fnDesc.nameNode;
+                retType = this.llvmTypeForRanger(rn.type_name, lctx.ptrType);
+            }
+        }
+        else {
+            if ((((methName == "push") || (methName == "put")) || (methName == "putAt")) || (methName == "storeI32")) {
+                retType = voidType;
+            }
+        }
+        let args = [];
+        let argTypes = [];
+        args.push(objPtr);
+        argTypes.push(LowIRUtil.structPtrType(className));
+        const argsNode = this.callArgsNode(node);
+        let argIdx = 0;
+        for (let i = 0; i < argsNode.children.length; i++) {
+            var arg = argsNode.children[i];
+            args.push(this.lowerExpr(arg, lctx));
+            if ((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) {
+                argTypes.push(this.paramIrTypeFromDesc(argIdx, (node.fnDesc), lctx));
+            }
+            else {
+                argTypes.push(this.argIrType(arg, lctx));
+            }
+            argIdx = argIdx + 1;
+        }
+        ;
+        return builder.emitCall(fnName, retType, args, argTypes);
+    }
+    ;
+    lowerInstanceCall(node, lctx) {
+        let objNode;
+        let methodName = node.vref;
+        if (node.is_direct_method_call) {
+            objNode = node.getFirst();
+            if ((node.children.length) > 2) {
+                const methodNode = node.getSecond();
+                methodName = methodNode.vref;
+            }
+        }
+        else {
+            if ((node.children.length) > 3) {
+                objNode = node.getSecond();
+                const methodNode_1 = node.getThird();
+                methodName = methodNode_1.vref;
+            }
+        }
+        if (typeof (objNode) === "undefined") {
+            const builder = lctx.builder;
+            return builder.emitConst("i32", "0");
+        }
+        const obj = objNode;
+        return this.lowerInstanceCallOn(node, obj.vref, obj, methodName, lctx);
+    }
+    ;
+    resolveCalleeName(callee) {
+        if ((callee.ns.length) >= 2) {
+            const cls = callee.ns[0];
+            const meth = callee.ns[1];
+            return LowIRUtil.mangleMethod(cls, meth);
+        }
+        const v = callee.vref;
+        const dotPos = v.indexOf(".");
+        if (dotPos >= 0) {
+            const parts = v.split(".");
+            if ((parts.length) >= 2) {
+                const p0 = parts[0];
+                const p1 = parts[1];
+                if (p0 != "this") {
+                    return LowIRUtil.mangleMethod(p0, p1);
+                }
+            }
+        }
+        return v;
+    }
+    ;
+}
+exports.LowIRBuilderPass = LowIRBuilderPass;
+class LLVMIRWriter {
+    constructor() {
+        this.varargNames = [];
+        this.varargSigs = [];
+    }
+    collectVarargFns(module) {
+        let names = [];
+        let sigs = [];
+        this.varargNames = names;
+        this.varargSigs = sigs;
+        for (let i = 0; i < module.externDecls.length; i++) {
+            var d = module.externDecls[i];
+            if (d.isVararg == false) {
+                continue;
+            }
+            let sig = "";
+            const pcnt = d.paramTypes.length;
+            for (let j = 0; j < d.paramTypes.length; j++) {
+                var pt = d.paramTypes[j];
+                sig = sig + pt;
+                if (j < (pcnt - 1)) {
+                    sig = sig + ", ";
+                }
+            }
+            ;
+            if (pcnt > 0) {
+                sig = sig + ", ...";
+            }
+            else {
+                sig = sig + "...";
+            }
+            this.varargNames.push(d.fnName);
+            this.varargSigs.push(sig);
+        }
+        ;
+    }
+    ;
+    varargSigFor(fnName) {
+        const cnt = this.varargNames.length;
+        let i = 0;
+        while (i < cnt) {
+            if ((this.varargNames[i]) == fnName) {
+                return this.varargSigs[i];
+            }
+            i = i + 1;
+        }
+        ;
+        return "";
+    }
+    ;
+    llTy(t) {
+        if (t == "f64") {
+            return "double";
+        }
+        return t;
+    }
+    ;
+    normalizeDoubleLit(lit) {
+        if ((lit.indexOf(".")) >= 0) {
+            return lit;
+        }
+        if ((lit.indexOf("e")) >= 0) {
+            return lit;
+        }
+        if ((lit.indexOf("E")) >= 0) {
+            return lit;
+        }
+        if ((lit.indexOf("n")) >= 0) {
+            return lit;
+        }
+        return lit + ".0";
+    }
+    ;
+    hexDigit(d) {
+        if (d < 10) {
+            return String.fromCharCode((48 + d));
+        }
+        return String.fromCharCode((65 + (d - 10)));
+    }
+    ;
+    hexByte(b) {
+        const hi = Math.floor((b / 16));
+        const lo = b - (hi * 16);
+        return ("\\" + this.hexDigit(hi)) + this.hexDigit(lo);
+    }
+    ;
+    llvmEscapeCString(text) {
+        let out = "";
+        let i = 0;
+        const n = text.length;
+        while (i < n) {
+            const code = text.charCodeAt(i);
+            if (code == 34) {
+                out = out + "\\22";
+            }
+            else {
+                if (code == 92) {
+                    out = out + "\\\\";
+                }
+                else {
+                    if ((code >= 32) && (code < 127)) {
+                        out = out + (String.fromCharCode(code));
+                    }
+                    else {
+                        if (code < 128) {
+                            out = out + this.hexByte(code);
+                        }
+                        else {
+                            if (code < 2048) {
+                                const hi6 = Math.floor((code / 64));
+                                const b1 = 192 + hi6;
+                                const b2 = 128 + (code - (hi6 * 64));
+                                out = out + this.hexByte(b1);
+                                out = out + this.hexByte(b2);
+                            }
+                            else {
+                                const c1 = Math.floor((code / 4096));
+                                const rem = code - (c1 * 4096);
+                                const mid = Math.floor((rem / 64));
+                                const b1_1 = 224 + c1;
+                                const b2_1 = 128 + mid;
+                                const b3 = 128 + (rem - (mid * 64));
+                                out = out + this.hexByte(b1_1);
+                                out = out + this.hexByte(b2_1);
+                                out = out + this.hexByte(b3);
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        ;
+        return out;
+    }
+    ;
+    writeModule(module, wr) {
+        this.collectVarargFns(module);
+        wr.out("; Generated by Ranger LLVM backend", true);
+        let triple = module.triple;
+        if ((triple.length) == 0) {
+            triple = "unknown-unknown-unknown";
+        }
+        wr.out(("target triple = \"" + triple) + "\"", true);
+        if (module.useLibcHeap == false) {
+            if (LowIRUtil.moduleUsesHeap(module)) {
+                wr.out(("@heap_ptr = global " + module.ptrType) + " 0", true);
+            }
+        }
+        for (let i = 0; i < module.stringGlobals.length; i++) {
+            var g = module.stringGlobals[i];
+            const esc = this.llvmEscapeCString(g.text);
+            if (g.withNewline) {
+                wr.out(((((("@" + g.name) + " = private unnamed_addr constant [") + ("" + g.byteLen)) + " x i8] c\"") + esc) + "\\0A\\00\"", true);
+            }
+            else {
+                wr.out(((((("@" + g.name) + " = private unnamed_addr constant [") + ("" + g.byteLen)) + " x i8] c\"") + esc) + "\\00\"", true);
+            }
+        }
+        ;
+        for (let i_1 = 0; i_1 < module.externDecls.length; i_1++) {
+            var d = module.externDecls[i_1];
+            if ((d.declSig.length) > 0) {
+                wr.out(((("declare " + d.retType) + " @") + d.fnName) + d.declSig, true);
+                continue;
+            }
+            wr.out(((("declare " + this.llTy(d.retType)) + " @") + d.fnName) + "(", false);
+            const pcnt = d.paramTypes.length;
+            for (let j = 0; j < d.paramTypes.length; j++) {
+                var pt = d.paramTypes[j];
+                wr.out(this.llTy(pt) + "", false);
+                if (j < (pcnt - 1)) {
+                    wr.out(", ", false);
+                }
+            }
+            ;
+            if (d.isVararg) {
+                if (pcnt > 0) {
+                    wr.out(", ", false);
+                }
+                wr.out("...)", true);
+            }
+            else {
+                wr.out(")", true);
+            }
+        }
+        ;
+        wr.newline();
+        for (let i_2 = 0; i_2 < module.structs.length; i_2++) {
+            var st = module.structs[i_2];
+            this.writeStruct(st, wr);
+        }
+        ;
+        if ((module.typeDescs.length) > 0) {
+            this.writeTypeDescs(module, wr);
+        }
+        for (let i_3 = 0; i_3 < module.functions.length; i_3++) {
+            var fn = module.functions[i_3];
+            this.writeFunction(fn, wr);
+        }
+        ;
+    }
+    ;
+    writeTypeDescs(module, wr) {
+        wr.out("%struct.RangerFieldDesc = type { i32, i8, i8, i8, i8 }", true);
+        wr.out("%struct.RangerTypeDesc = type { i32, i16, i16, ptr }", true);
+        for (let i = 0; i < module.typeDescs.length; i++) {
+            var td = module.typeDescs[i];
+            this.writeOneTypeDesc(td, wr);
+        }
+        ;
+        wr.newline();
+    }
+    ;
+    writeOneTypeDesc(td, wr) {
+        const fc = td.fields.length;
+        let fieldsRef = "ptr null";
+        if (fc > 0) {
+            const arrName = td.className + "_typeFields";
+            wr.out(((("@" + arrName) + " = private constant [") + ("" + fc)) + " x %struct.RangerFieldDesc] [", false);
+            let j = 0;
+            while (j < fc) {
+                const fd = td.fields[j];
+                wr.out(((((("%struct.RangerFieldDesc { i32 " + ("" + fd.offset)) + ", i8 ") + ("" + fd.kind)) + ", i8 ") + ("" + fd.owned)) + ", i8 0, i8 0 }", false);
+                if (j < (fc - 1)) {
+                    wr.out(", ", false);
+                }
+                j = j + 1;
+            }
+            ;
+            wr.out("]", true);
+            fieldsRef = "ptr @" + arrName;
+        }
+        const tdName = td.className + "_typeDesc";
+        wr.out(((((((("@" + tdName) + " = private constant %struct.RangerTypeDesc { i32 ") + ("" + td.size)) + ", i16 ") + ("" + fc)) + ", i16 0, ") + fieldsRef) + " }", true);
+    }
+    ;
+    writeStruct(st, wr) {
+        wr.out(("%struct." + st.name) + " = type { ", false);
+        const cnt = st.fields.length;
+        for (let i = 0; i < st.fields.length; i++) {
+            var f = st.fields[i];
+            wr.out(this.llTy(f.irType), false);
+            if (i < (cnt - 1)) {
+                wr.out(", ", false);
+            }
+        }
+        ;
+        wr.out(" }", true);
+    }
+    ;
+    writeFunction(fn, wr) {
+        wr.newline();
+        if (fn.exportFn) {
+            wr.out("define dso_local ", false);
+        }
+        else {
+            wr.out("define private ", false);
+        }
+        wr.out(this.llTy(fn.returnType), false);
+        wr.out((" @" + fn.name) + "(", false);
+        const pcnt = fn.params.length;
+        for (let i = 0; i < fn.params.length; i++) {
+            var p = fn.params[i];
+            wr.out((this.llTy(p.irType) + " %") + p.name, false);
+            if (i < (pcnt - 1)) {
+                wr.out(", ", false);
+            }
+        }
+        ;
+        wr.out(") {", true);
+        for (let i_1 = 0; i_1 < fn.blocks.length; i_1++) {
+            var bb = fn.blocks[i_1];
+            wr.out(bb.label + ":", true);
+            for (let i_2 = 0; i_2 < bb.instrs.length; i_2++) {
+                var ins = bb.instrs[i_2];
+                this.writeInstr(ins, wr);
+            }
+            ;
+            this.writeTerminator(bb, wr);
+        }
+        ;
+        wr.out("}", true);
+    }
+    ;
+    writeInstr(ins, wr) {
+        wr.out("  ", false);
+        switch (ins.op) {
+            case "comment":
+                wr.out("; " + ins.arg1, true);
+                break;
+            case "const":
+                if (ins.irType == "i1") {
+                    if (ins.arg1 == "1") {
+                        wr.out(ins.dest + " = icmp ne i32 1, 0", true);
+                    }
+                    else {
+                        wr.out(ins.dest + " = icmp eq i32 0, 1", true);
+                    }
+                }
+                else {
+                    if (ins.irType == "f64") {
+                        wr.out((ins.dest + " = fadd double 0.0, ") + this.normalizeDoubleLit(ins.arg1), true);
+                    }
+                    else {
+                        wr.out((((ins.dest + " = add ") + ins.irType) + " 0, ") + ins.arg1, true);
+                    }
+                }
+                break;
+            case "add":
+                wr.out((((((ins.dest + " = add ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "sub":
+                wr.out((((((ins.dest + " = sub ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "mul":
+                wr.out((((((ins.dest + " = mul ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "sdiv":
+                wr.out((((((ins.dest + " = sdiv ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "srem":
+                wr.out((((((ins.dest + " = srem ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "or":
+                wr.out((((((ins.dest + " = or ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "and":
+                wr.out((((((ins.dest + " = and ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "xor":
+                wr.out((((((ins.dest + " = xor ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "shl":
+                wr.out((((((ins.dest + " = shl ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "ashr":
+                wr.out((((((ins.dest + " = ashr ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "lshr":
+                wr.out((((((ins.dest + " = lshr ") + ins.irType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "heap_alloc":
+                wr.out(((((ins.dest + " = load ") + ins.irType) + ", ") + ins.irType) + "* @heap_ptr", true);
+                wr.out((((("  %heap_next = add " + ins.irType) + " ") + ins.dest) + ", ") + ins.arg1, true);
+                wr.out(((("  store " + ins.irType) + " %heap_next, ") + ins.irType) + "* @heap_ptr", true);
+                break;
+            case "ptr_load":
+                let addrType = ins.arg2;
+                if ((addrType.length) == 0) {
+                    addrType = ins.irType;
+                }
+                const valTy = this.llTy(ins.irType);
+                wr.out(((((((ins.dest + "_p = inttoptr ") + addrType) + " ") + ins.arg1) + " to ") + valTy) + "*", true);
+                wr.out(((((((("  " + ins.dest) + " = load ") + valTy) + ", ") + valTy) + "* ") + ins.dest) + "_p", true);
+                break;
+            case "ptr_store":
+                const valType = this.llTy(ins.irType);
+                let addrType_1 = ins.arg3;
+                if ((addrType_1.length) == 0) {
+                    addrType_1 = valType;
+                }
+                let castName = ins.arg1 + "_p";
+                if ((ins.dest.length) > 0) {
+                    castName = (ins.arg1 + "_p_") + ins.dest;
+                }
+                wr.out(((((((castName + " = inttoptr ") + addrType_1) + " ") + ins.arg1) + " to ") + valType) + "*", true);
+                wr.out((((((("  store " + valType) + " ") + ins.arg2) + ", ") + valType) + "* ") + castName, true);
+                break;
+            case "inttoptr_struct":
+                wr.out(((((((ins.dest + " = inttoptr ") + ins.arg2) + " ") + ins.arg1) + " to %struct.") + ins.structName) + "*", true);
+                break;
+            case "inttoptr_i8":
+                wr.out(((((ins.dest + " = inttoptr ") + ins.arg2) + " ") + ins.arg1) + " to i8*", true);
+                break;
+            case "ptr_to_int":
+                wr.out((((ins.dest + " = ptrtoint i8* ") + ins.arg1) + " to ") + ins.irType, true);
+                break;
+            case "sitofp":
+                wr.out((((((ins.dest + " = sitofp ") + this.llTy(ins.arg2)) + " ") + ins.arg1) + " to ") + this.llTy(ins.irType), true);
+                break;
+            case "fptosi":
+                wr.out((((((ins.dest + " = fptosi ") + this.llTy(ins.arg2)) + " ") + ins.arg1) + " to ") + this.llTy(ins.irType), true);
+                break;
+            case "fadd":
+                wr.out((((((ins.dest + " = fadd ") + this.llTy(ins.irType)) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "fsub":
+                wr.out((((((ins.dest + " = fsub ") + this.llTy(ins.irType)) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "fmul":
+                wr.out((((((ins.dest + " = fmul ") + this.llTy(ins.irType)) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "fdiv":
+                wr.out((((((ins.dest + " = fdiv ") + this.llTy(ins.irType)) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "zext":
+                wr.out((((ins.dest + " = zext i32 ") + ins.arg1) + " to ") + ins.irType, true);
+                break;
+            case "zext_i1":
+                wr.out(((ins.dest + " = zext i1 ") + ins.arg1) + " to i32", true);
+                break;
+            case "trunc":
+                wr.out((((((ins.dest + " = trunc ") + this.llTy(ins.arg2)) + " ") + ins.arg1) + " to ") + this.llTy(ins.irType), true);
+                break;
+            case "icmp":
+                let cmpType = "i32";
+                if ((ins.arg3.length) > 0) {
+                    cmpType = ins.arg3;
+                }
+                wr.out((((((((ins.dest + " = icmp ") + ins.pred) + " ") + cmpType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                break;
+            case "str_ptr":
+                wr.out(((((((ins.dest + " = getelementptr inbounds [") + ins.arg2) + " x i8], [") + ins.arg2) + " x i8]* @") + ins.arg1) + ", i64 0, i64 0", true);
+                break;
+            case "call":
+                const vsig = this.varargSigFor(ins.fnName);
+                const retTy = this.llTy(ins.irType);
+                let calleeType = retTy + " ";
+                if ((ins.callSig.length) > 0) {
+                    calleeType = ((retTy + " (") + ins.callSig) + ") ";
+                }
+                else {
+                    if ((vsig.length) > 0) {
+                        calleeType = ((retTy + " (") + vsig) + ") ";
+                    }
+                }
+                if ((ins.dest.length) > 0) {
+                    wr.out(((((ins.dest + " = call ") + calleeType) + "@") + ins.fnName) + "(", false);
+                }
+                else {
+                    wr.out(((("call " + calleeType) + "@") + ins.fnName) + "(", false);
+                }
+                const acnt = ins.callArgs.length;
+                for (let j = 0; j < ins.callArgs.length; j++) {
+                    var a = ins.callArgs[j];
+                    let argType = "i32";
+                    if (j < (ins.callTypes.length)) {
+                        argType = ins.callTypes[j];
+                    }
+                    if ((argType.length) == 0) {
+                        wr.out(a, false);
+                    }
+                    else {
+                        wr.out((this.llTy(argType) + " ") + a, false);
+                    }
+                    if (j < (acnt - 1)) {
+                        wr.out(", ", false);
+                    }
+                }
+                ;
+                wr.out(")", true);
+                break;
+            case "alloca":
+                wr.out((ins.dest + " = alloca ") + this.llTy(ins.irType), true);
+                break;
+            case "alloca_struct":
+                wr.out((ins.dest + " = alloca %struct.") + ins.structName, true);
+                break;
+            case "gep":
+                wr.out((((((((ins.dest + " = getelementptr %struct.") + ins.structName) + ", %struct.") + ins.structName) + "* ") + ins.arg1) + ", i32 0, i32 ") + ("" + ins.fieldIndex), true);
+                break;
+            case "load":
+                const lt = this.llTy(ins.irType);
+                wr.out((((((ins.dest + " = load ") + lt) + ", ") + lt) + "* ") + ins.arg1, true);
+                break;
+            case "store":
+                const stt = this.llTy(ins.irType);
+                wr.out((((((("store " + stt) + " ") + ins.arg1) + ", ") + stt) + "* ") + ins.arg2, true);
+                break;
+        }
+        ;
+    }
+    ;
+    writeTerminator(bb, wr) {
+        wr.out("  ", false);
+        switch (bb.termKind) {
+            case "ret":
+                if ((bb.termValue.length) > 0) {
+                    wr.out((("ret " + this.llTy(bb.termType)) + " ") + bb.termValue, true);
+                }
+                else {
+                    wr.out("ret void", true);
+                }
+                break;
+            case "br":
+                wr.out("br label %" + bb.termTarget, true);
+                break;
+            case "br_if":
+                wr.out((((("br i1 " + bb.termValue) + ", label %") + bb.termIfTrue) + ", label %") + bb.termIfFalse, true);
+                break;
+            case "unreachable":
+                wr.out("unreachable", true);
+                break;
+        }
+        ;
+    }
+    ;
+}
+exports.LLVMIRWriter = LLVMIRWriter;
+class WATWriter {
+    constructor() {
+        this.strAddrs = {};
+        this.typeDescAddrs = {};
+        this.lambdaFuncs = [];
+    }
+    lambdaFuncIndex(name) {
+        let idx = 0;
+        for (let i = 0; i < this.lambdaFuncs.length; i++) {
+            var f = this.lambdaFuncs[i];
+            if (f == name) {
+                return idx;
+            }
+            idx = idx + 1;
+        }
+        ;
+        return 0;
+    }
+    ;
+    sigTypeName(callSig) {
+        const parts = callSig.split(":");
+        const params = parts[0];
+        let ret = "";
+        if ((parts.length) > 1) {
+            ret = parts[1];
+        }
+        let s = "sig";
+        const ps = params.split(",");
+        for (let i = 0; i < ps.length; i++) {
+            var p = ps[i];
+            if ((p.length) > 0) {
+                s = s + ("_" + p);
+            }
+        }
+        ;
+        s = s + ("__" + ret);
+        return s;
+    }
+    ;
+    sigTypeDecl(callSig) {
+        const parts = callSig.split(":");
+        const params = parts[0];
+        let ret = "";
+        if ((parts.length) > 1) {
+            ret = parts[1];
+        }
+        let out = "  (type $" + (this.sigTypeName(callSig) + " (func");
+        const ps = params.split(",");
+        let hasParam = false;
+        for (let i = 0; i < ps.length; i++) {
+            var p = ps[i];
+            if ((p.length) > 0) {
+                if (hasParam == false) {
+                    out = out + " (param";
+                    hasParam = true;
+                }
+                out = out + (" " + this.watType(p));
+            }
+        }
+        ;
+        if (hasParam) {
+            out = out + ")";
+        }
+        if ((ret.length) > 0) {
+            if (ret != "void") {
+                out = out + (" (result " + (this.watType(ret) + ")"));
+            }
+        }
+        out = out + "))";
+        return out;
+    }
+    ;
+    utf8Encode(text) {
+        let bytes = [];
+        let i = 0;
+        const n = text.length;
+        while (i < n) {
+            const c = text.charCodeAt(i);
+            if (c < 128) {
+                bytes.push(c);
+            }
+            else {
+                if (c < 2048) {
+                    bytes.push((192 | ((c >> 6))));
+                    bytes.push((128 | ((c & 63))));
+                }
+                else {
+                    bytes.push((224 | ((c >> 12))));
+                    bytes.push((128 | ((((c >> 6)) & 63))));
+                    bytes.push((128 | ((c & 63))));
+                }
+            }
+            i = i + 1;
+        }
+        ;
+        return bytes;
+    }
+    ;
+    hexDigit(d) {
+        if (d < 10) {
+            return "" + d;
+        }
+        return String.fromCharCode((97 + (d - 10)));
+    }
+    ;
+    hexByte(b) {
+        return "\\" + (this.hexDigit(((((b >> 4)) & 15))) + this.hexDigit(((b & 15))));
+    }
+    ;
+    dataEscape(bytes) {
+        let s = "";
+        for (let i = 0; i < bytes.length; i++) {
+            var b = bytes[i];
+            s = s + this.hexByte(b);
+        }
+        ;
+        return s;
+    }
+    ;
+    leWord(v) {
+        let s = "";
+        s = s + this.hexByte(((v & 255)));
+        s = s + this.hexByte(((((v >> 8)) & 255)));
+        s = s + this.hexByte(((((v >> 16)) & 255)));
+        s = s + this.hexByte(((((v >> 24)) & 255)));
+        return s;
+    }
+    ;
+    align4(a) {
+        return ((a + 3) & ((-1 ^ 3)));
+    }
+    ;
+    fieldOwnedFlag(fd) {
+        if (fd.kind == 1) {
+            return 1;
+        }
+        return fd.owned;
+    }
+    ;
+    descHasOwned(td) {
+        for (let i = 0; i < td.fields.length; i++) {
+            var fd = td.fields[i];
+            if (this.fieldOwnedFlag(fd) == 1) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    moduleHasOwnedTypeDescs(module) {
+        for (let i = 0; i < module.typeDescs.length; i++) {
+            var td = module.typeDescs[i];
+            if (this.descHasOwned(td)) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
+    emitStaticData(module, wr) {
+        let addr = 16;
+        for (let i = 0; i < module.stringGlobals.length; i++) {
+            var g = module.stringGlobals[i];
+            let bytes = this.utf8Encode(g.text);
+            if (g.withNewline) {
+                bytes.push(10);
+            }
+            this.strAddrs[g.name] = addr;
+            wr.out("  (data (i32.const " + (("" + addr) + (") \"" + (this.dataEscape(bytes) + "\\00\")"))), true);
+            addr = addr + ((bytes.length) + 1);
+        }
+        ;
+        for (let i_1 = 0; i_1 < module.typeDescs.length; i_1++) {
+            var td = module.typeDescs[i_1];
+            if (this.descHasOwned(td)) {
+                addr = this.align4(addr);
+                const fieldsPtr = addr;
+                for (let j = 0; j < td.fields.length; j++) {
+                    var fd = td.fields[j];
+                    let fw = "";
+                    fw = fw + this.leWord(fd.offset);
+                    fw = fw + this.leWord(fd.kind);
+                    fw = fw + this.leWord(this.fieldOwnedFlag(fd));
+                    wr.out("  (data (i32.const " + (("" + addr) + (") \"" + (fw + "\")"))), true);
+                    addr = addr + 12;
+                }
+                ;
+                const hdrPtr = addr;
+                let hw = "";
+                hw = hw + this.leWord(td.size);
+                hw = hw + this.leWord((td.fields.length));
+                hw = hw + this.leWord(fieldsPtr);
+                wr.out("  (data (i32.const " + (("" + addr) + (") \"" + (hw + "\")"))), true);
+                this.typeDescAddrs[td.className] = hdrPtr;
+                addr = addr + 12;
+            }
+        }
+        ;
+        const base = ((addr + 15) & ((-1 ^ 15)));
+        wr.out("  (data (i32.const 4) \"" + (this.leWord(base) + "\")"), true);
+    }
+    ;
+    wasmName(llvmName) {
+        if ((llvmName.length) == 0) {
+            return "";
+        }
+        const ch = llvmName.charCodeAt(0);
+        const pct = ("%".charCodeAt(0));
+        if (ch == pct) {
+            return "$" + (llvmName.substring(1, (llvmName.length)));
+        }
+        return "$" + llvmName;
+    }
+    ;
+    isGepTemp(name) {
+        if ((name.length) < 3) {
+            return false;
+        }
+        if ((name.charCodeAt(1)) != 46) {
+            return false;
+        }
+        if ((name.charCodeAt(2)) != 102) {
+            return false;
+        }
+        return true;
+    }
+    ;
+    moduleUsesHeap(module) {
+        return LowIRUtil.moduleUsesHeap(module);
+    }
+    ;
+    watType(irType) {
+        if (irType == "f64") {
+            return "f64";
+        }
+        return "i32";
+    }
+    ;
+    localTypeMap(fn) {
+        let m = {};
+        for (let i = 0; i < fn.blocks.length; i++) {
+            var bb = fn.blocks[i];
+            for (let j = 0; j < bb.instrs.length; j++) {
+                var ins = bb.instrs[j];
+                if ((ins.dest.length) > 0) {
+                    m[this.wasmName(ins.dest)] = this.watType(ins.irType);
+                }
+            }
+            ;
+        }
+        ;
+        return m;
+    }
+    ;
+    localTypeOf(m, wn) {
+        if ((typeof (m[wn]) != "undefined" && m.hasOwnProperty(wn))) {
+            return ((m.hasOwnProperty(wn) ? m[wn] : undefined));
+        }
+        return "i32";
+    }
+    ;
+    writeModule(module, wr) {
+        wr.out("(module", true);
+        const hasLiterals = (module.stringGlobals.length) > 0;
+        const hasTypeDescs = this.moduleHasOwnedTypeDescs(module);
+        const hasStatic = hasLiterals || hasTypeDescs;
+        if (this.moduleUsesHeap(module) || hasStatic) {
+            wr.out("  (memory (export \"memory\") 1)", true);
+            wr.out("  (global $heap_ptr (mut i32) (i32.const 0))", true);
+        }
+        if (hasStatic) {
+            this.emitStaticData(module, wr);
+        }
+        this.lambdaFuncs = module.lambdaTableFuncs;
+        for (let i = 0; i < module.lambdaSigs.length; i++) {
+            var sig = module.lambdaSigs[i];
+            wr.out(this.sigTypeDecl(sig), true);
+        }
+        ;
+        if ((module.lambdaTableFuncs.length) > 0) {
+            let elem = "  (table funcref (elem";
+            for (let i_1 = 0; i_1 < module.lambdaTableFuncs.length; i_1++) {
+                var lf = module.lambdaTableFuncs[i_1];
+                elem = elem + (" $" + lf);
+            }
+            ;
+            elem = elem + "))";
+            wr.out(elem, true);
+        }
+        for (let i_2 = 0; i_2 < module.singletonClasses.length; i_2++) {
+            var sc = module.singletonClasses[i_2];
+            wr.out("  (global $singleton_" + (sc + " (mut i32) (i32.const 0))"), true);
+        }
+        ;
+        for (let i_3 = 0; i_3 < module.functions.length; i_3++) {
+            var fn = module.functions[i_3];
+            this.writeFunction(fn, wr, fn.exportFn);
+        }
+        ;
+        wr.out(")", true);
+    }
+    ;
+    findBlockIdx(fn, label) {
+        const cnt = fn.blocks.length;
+        let ii = 0;
+        while (ii < cnt) {
+            const bb = fn.blocks[ii];
+            if (bb.label == label) {
+                return ii;
+            }
+            ii = ii + 1;
+        }
+        ;
+        return -1;
+    }
+    ;
+    isWhileHeader(fn, condIdx) {
+        if (condIdx < 0) {
+            return false;
+        }
+        const condBb = fn.blocks[condIdx];
+        if (condBb.termKind != "br_if") {
+            return false;
+        }
+        const cnt = fn.blocks.length;
+        let ii = condIdx + 1;
+        while (ii < cnt) {
+            const b = fn.blocks[ii];
+            if (b.termKind == "br") {
+                if (b.termTarget == condBb.label) {
+                    return true;
+                }
+            }
+            ii = ii + 1;
+        }
+        ;
+        return false;
+    }
+    ;
+    collectLocals(fn) {
+        let names = [];
+        let seen = {};
+        for (let i = 0; i < fn.params.length; i++) {
+            var p = fn.params[i];
+            seen[p.name] = "param";
+        }
+        ;
+        for (let i_1 = 0; i_1 < fn.blocks.length; i_1++) {
+            var bb = fn.blocks[i_1];
+            for (let i_2 = 0; i_2 < bb.instrs.length; i_2++) {
+                var ins = bb.instrs[i_2];
+                if ((ins.dest.length) > 0) {
+                    const wn = this.wasmName(ins.dest);
+                    if ((typeof (seen[wn]) != "undefined" && seen.hasOwnProperty(wn))) {
+                        continue;
+                    }
+                    seen[wn] = "local";
+                    names.push(wn);
+                }
+            }
+            ;
+        }
+        ;
+        return names;
+    }
+    ;
+    writeBlockInstrs(bb, wr) {
+        for (let i = 0; i < bb.instrs.length; i++) {
+            var ins = bb.instrs[i];
+            this.writeInstr(ins, wr);
+        }
+        ;
+    }
+    ;
+    writeFunction(fn, wr, doExport) {
+        wr.out("  (func $", false);
+        wr.out(fn.name, false);
+        if (doExport) {
+            wr.out((" (export \"" + fn.name) + "\")", false);
+        }
+        for (let i = 0; i < fn.params.length; i++) {
+            var p = fn.params[i];
+            wr.out((((" (param $" + p.name) + " ") + this.watType(p.irType)) + ")", false);
+        }
+        ;
+        const voidType = "void";
+        if (fn.returnType != voidType) {
+            wr.out((" (result " + this.watType(fn.returnType)) + ")", false);
+        }
+        wr.out("", true);
+        const ltypes = this.localTypeMap(fn);
+        const localNames = this.collectLocals(fn);
+        for (let i_1 = 0; i_1 < localNames.length; i_1++) {
+            var wn = localNames[i_1];
+            wr.out(((("    (local " + wn) + " ") + this.localTypeOf(ltypes, wn)) + ")", true);
+        }
+        ;
+        let visited = {};
+        const exitLabel = this.emitRegion(fn, 0, (fn.blocks.length), wr, visited);
+        wr.out("  )", true);
+    }
+    ;
+    markVisited(label, visited) {
+        visited[label] = true;
+    }
+    ;
+    isVisited(label, visited) {
+        return (typeof (visited[label]) != "undefined" && visited.hasOwnProperty(label));
+    }
+    ;
+    emitRegion(fn, startIdx, boundIdx, wr, visited) {
+        let cur = startIdx;
+        while (cur < boundIdx) {
+            const bb = fn.blocks[cur];
+            if (this.isVisited(bb.label, visited)) {
+                return bb.label;
+            }
+            let handled = false;
+            if (this.isWhileHeader(fn, cur)) {
+                const wexit = this.emitWhile(fn, cur, wr, visited);
+                if (wexit == "") {
+                    return "";
+                }
+                const wi = this.findBlockIdx(fn, wexit);
+                if (wi >= boundIdx) {
+                    return wexit;
+                }
+                cur = wi;
+                handled = true;
+            }
+            if (handled == false) {
+                this.markVisited(bb.label, visited);
+                this.writeBlockInstrs(bb, wr);
+                if (bb.termKind == "ret") {
+                    if ((bb.termValue.length) > 0) {
+                        this.writeGet(bb.termValue, wr);
+                    }
+                    wr.out("      return", true);
+                    return "";
+                }
+                if (bb.termKind == "br_if") {
+                    const mexit = this.emitIf(fn, cur, wr, visited);
+                    if (mexit == "") {
+                        return "";
+                    }
+                    const mi = this.findBlockIdx(fn, mexit);
+                    if (mi >= boundIdx) {
+                        return mexit;
+                    }
+                    cur = mi;
+                }
+                if (bb.termKind == "br") {
+                    const t = bb.termTarget;
+                    const ti = this.findBlockIdx(fn, t);
+                    if (ti >= boundIdx) {
+                        return t;
+                    }
+                    if (this.isVisited(t, visited)) {
+                        wr.out("      br $" + t, true);
+                        return t;
+                    }
+                    cur = ti;
+                }
+                if (bb.termKind == "") {
+                    cur = cur + 1;
+                }
+            }
+        }
+        ;
+        return "";
+    }
+    ;
+    emitIf(fn, headerIdx, wr, visited) {
+        const hdr = fn.blocks[headerIdx];
+        const thenLabel = hdr.termIfTrue;
+        const falseLabel = hdr.termIfFalse;
+        const thenIdx = this.findBlockIdx(fn, thenLabel);
+        const falseIdx = this.findBlockIdx(fn, falseLabel);
+        this.writeGet(hdr.termValue, wr);
+        wr.out("      (if", true);
+        wr.out("        (then", true);
+        const thenExit = this.emitRegion(fn, thenIdx, falseIdx, wr, visited);
+        wr.out("        )", true);
+        let isElse = false;
+        if (thenExit != "") {
+            if (thenExit != falseLabel) {
+                isElse = true;
+            }
+        }
+        if (isElse) {
+            const mergeIdx = this.findBlockIdx(fn, thenExit);
+            wr.out("        (else", true);
+            this.emitRegion(fn, falseIdx, mergeIdx, wr, visited);
+            wr.out("        )", true);
+            wr.out("      )", true);
+            return thenExit;
+        }
+        wr.out("      )", true);
+        return falseLabel;
+    }
+    ;
+    emitWhile(fn, condIdx, wr, visited) {
+        const condBb = fn.blocks[condIdx];
+        const bodyIdx = this.findBlockIdx(fn, condBb.termIfTrue);
+        const exitIdx = this.findBlockIdx(fn, condBb.termIfFalse);
+        const exitBb = fn.blocks[exitIdx];
+        this.markVisited(condBb.label, visited);
+        wr.out("    (block $" + exitBb.label, true);
+        wr.out("      (loop $" + condBb.label, true);
+        this.writeBlockInstrs(condBb, wr);
+        this.writeGet(condBb.termValue, wr);
+        wr.out("        i32.eqz", true);
+        wr.out("        br_if $" + exitBb.label, true);
+        this.emitRegion(fn, bodyIdx, exitIdx, wr, visited);
+        wr.out("      )", true);
+        wr.out("    )", true);
+        return exitBb.label;
+    }
+    ;
+    writeGet(llvmRef, wr) {
+        wr.out("      local.get " + this.wasmName(llvmRef), true);
+    }
+    ;
+    writeInstr(ins, wr) {
+        switch (ins.op) {
+            case "const":
+                if (ins.irType == "f64") {
+                    wr.out("      f64.const " + ins.arg1, true);
+                }
+                else {
+                    wr.out("      i32.const " + ins.arg1, true);
+                }
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "fadd":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      f64.add", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "fsub":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      f64.sub", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "fmul":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      f64.mul", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "fdiv":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      f64.div", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "sitofp":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      f64.convert_i32_s", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "fptosi":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      i32.trunc_f64_s", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "add":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.add", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "sub":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.sub", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "mul":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.mul", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "sdiv":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.div_s", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "srem":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.rem_s", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "and":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.and", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "or":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.or", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "xor":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.xor", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "shl":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.shl", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "ashr":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.shr_s", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "lshr":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.shr_u", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "heap_alloc":
+                wr.out("      global.get $heap_ptr", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                wr.out("      global.get $heap_ptr", true);
+                this.writeGet(ins.arg1, wr);
+                wr.out("      i32.add", true);
+                wr.out("      global.set $heap_ptr", true);
+                break;
+            case "ptr_load":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      i32.load", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "ptr_store":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.store", true);
+                break;
+            case "ptr_load8":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      i32.load8_u", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "ptr_store8":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                wr.out("      i32.store8", true);
+                break;
+            case "mem_size":
+                wr.out("      memory.size", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "mem_grow":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      memory.grow", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "global_get":
+                wr.out("      global.get $" + ins.arg1, true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "global_set":
+                this.writeGet(ins.arg2, wr);
+                wr.out("      global.set $" + ins.arg1, true);
+                break;
+            case "func_ref":
+                wr.out("      i32.const " + ("" + this.lambdaFuncIndex(ins.arg1)), true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "call_indirect":
+                for (let j = 0; j < ins.callArgs.length; j++) {
+                    var a = ins.callArgs[j];
+                    this.writeGet(a, wr);
+                }
+                ;
+                this.writeGet(ins.arg1, wr);
+                wr.out("      call_indirect (type $" + (this.sigTypeName(ins.callSig) + ")"), true);
+                if ((ins.dest.length) > 0) {
+                    wr.out("      local.set " + this.wasmName(ins.dest), true);
+                }
+                break;
+            case "inttoptr_struct":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "inttoptr_i8":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "ptr_to_int":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "zext":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "zext_i1":
+                this.writeGet(ins.arg1, wr);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "str_ptr":
+                let addr = 0;
+                if ((typeof (this.strAddrs[ins.arg1]) != "undefined" && this.strAddrs.hasOwnProperty(ins.arg1))) {
+                    addr = ((this.strAddrs.hasOwnProperty(ins.arg1) ? this.strAddrs[ins.arg1] : undefined));
+                }
+                wr.out("      i32.const " + ("" + addr), true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "typedesc_ptr":
+                let tdAddr = 0;
+                if ((typeof (this.typeDescAddrs[ins.arg1]) != "undefined" && this.typeDescAddrs.hasOwnProperty(ins.arg1))) {
+                    tdAddr = ((this.typeDescAddrs.hasOwnProperty(ins.arg1) ? this.typeDescAddrs[ins.arg1] : undefined));
+                }
+                wr.out("      i32.const " + ("" + tdAddr), true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "icmp":
+                this.writeGet(ins.arg1, wr);
+                this.writeGet(ins.arg2, wr);
+                if (ins.arg3 == "f64") {
+                    switch (ins.pred) {
+                        case "slt":
+                            wr.out("      f64.lt", true);
+                            break;
+                        case "sgt":
+                            wr.out("      f64.gt", true);
+                            break;
+                        case "sle":
+                            wr.out("      f64.le", true);
+                            break;
+                        case "sge":
+                            wr.out("      f64.ge", true);
+                            break;
+                        case "eq":
+                            wr.out("      f64.eq", true);
+                            break;
+                        case "ne":
+                            wr.out("      f64.ne", true);
+                            break;
+                    }
+                    ;
+                }
+                else {
+                    switch (ins.pred) {
+                        case "slt":
+                            wr.out("      i32.lt_s", true);
+                            break;
+                        case "sgt":
+                            wr.out("      i32.gt_s", true);
+                            break;
+                        case "sle":
+                            wr.out("      i32.le_s", true);
+                            break;
+                        case "sge":
+                            wr.out("      i32.ge_s", true);
+                            break;
+                        case "eq":
+                            wr.out("      i32.eq", true);
+                            break;
+                        case "ne":
+                            wr.out("      i32.ne", true);
+                            break;
+                    }
+                    ;
+                }
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "alloca":
+                break;
+            case "alloca_struct":
+                const sizeBytes = ins.structSize * 4;
+                wr.out("      global.get $heap_ptr", true);
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                wr.out("      global.get $heap_ptr", true);
+                wr.out("      i32.const " + ("" + sizeBytes), true);
+                wr.out("      i32.add", true);
+                wr.out("      global.set $heap_ptr", true);
+                break;
+            case "gep":
+                this.writeGet(ins.arg1, wr);
+                if (ins.fieldIndex > 0) {
+                    wr.out("      i32.const " + ("" + (ins.fieldIndex * 4)), true);
+                    wr.out("      i32.add", true);
+                }
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "load":
+                this.writeGet(ins.arg1, wr);
+                if (this.isGepTemp(ins.arg1)) {
+                    wr.out("      i32.load", true);
+                }
+                wr.out("      local.set " + this.wasmName(ins.dest), true);
+                break;
+            case "store":
+                if (this.isGepTemp(ins.arg2)) {
+                    this.writeGet(ins.arg2, wr);
+                    this.writeGet(ins.arg1, wr);
+                    wr.out("      i32.store", true);
+                }
+                else {
+                    this.writeGet(ins.arg1, wr);
+                    wr.out("      local.set " + this.wasmName(ins.arg2), true);
+                }
+                break;
+            case "call":
+                for (let j_1 = 0; j_1 < ins.callArgs.length; j_1++) {
+                    var a_1 = ins.callArgs[j_1];
+                    this.writeGet(a_1, wr);
+                }
+                ;
+                wr.out("      call $" + ins.fnName, true);
+                if ((ins.dest.length) > 0) {
+                    wr.out("      local.set " + this.wasmName(ins.dest), true);
+                }
+                break;
+        }
+        ;
+    }
+    ;
+}
+exports.WATWriter = WATWriter;
+class RangerLLVMPipeline {
+    constructor() {
+    }
+    generateModule(appCtx, wr) {
+        const pass = new LowIRBuilderPass();
+        const module = pass.lowerModule(appCtx);
+        if (appCtx.hasCompilerFlag("wat")) {
+            const watWriter = new WATWriter();
+            watWriter.writeModule(module, wr);
+            return;
+        }
+        const llvmWriter = new LLVMIRWriter();
+        llvmWriter.writeModule(module, wr);
+    }
+    ;
+}
+exports.RangerLLVMPipeline = RangerLLVMPipeline;
+class RangerLLVMClassWriter extends RangerGenericClassWriter {
+    constructor() {
+        super();
+    }
+    writeClass(node, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+        });
+    }
+    ;
+}
+exports.RangerLLVMClassWriter = RangerLLVMClassWriter;
 class OpList {
     constructor() {
         this.list = [];
@@ -29181,6 +41697,22 @@ class LiveCompiler {
         this.repeat_index = 0;
         this.installedFile = {};
     }
+    treeReferencesVRef(node, name) {
+        if (node.value_type == 11) {
+            if (node.vref == name) {
+                return true;
+            }
+        }
+        for (let i = 0; i < node.children.length; i++) {
+            var ch = node.children[i];
+            if (this.treeReferencesVRef(ch, name)) {
+                return true;
+            }
+        }
+        ;
+        return false;
+    }
+    ;
     initWriter(ctx) {
         if ((typeof (this.langWriter) !== "undefined" && this.langWriter != null)) {
             return;
@@ -29226,6 +41758,9 @@ class LiveCompiler {
                 break;
             case "ranger":
                 this.langWriter = new RangerRangerClassWriter();
+                break;
+            case "llvm":
+                this.langWriter = new RangerLLVMClassWriter();
                 break;
         }
         ;
@@ -29280,7 +41815,9 @@ class LiveCompiler {
     }
     ;
     WriteScalarValue(node, ctx, wr) {
+        wr.pushMappingNode(node, node.vref);
         this.langWriter.WriteScalarValue(node, ctx, wr);
+        wr.popMappingNode();
     }
     ;
     adjustType(tn) {
@@ -29292,7 +41829,9 @@ class LiveCompiler {
     ;
     WriteVRef(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
+            wr.pushMappingNode(node, node.vref);
             yield this.langWriter.WriteVRef(node, ctx, wr);
+            wr.popMappingNode();
         });
     }
     ;
@@ -29304,19 +41843,25 @@ class LiveCompiler {
     ;
     CreateLambdaCall(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
+            wr.pushMappingNode(node, node.vref);
             yield this.langWriter.CreateLambdaCall(node, ctx, wr);
+            wr.popMappingNode();
         });
     }
     ;
     CreateCallExpression(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
+            wr.pushMappingNode(node, node.vref);
             yield this.langWriter.CreateCallExpression(node, ctx, wr);
+            wr.popMappingNode();
         });
     }
     ;
     CreateLambda(node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
+            wr.pushMappingNode(node, node.vref);
             yield this.langWriter.CreateLambda(node, ctx, wr);
+            wr.popMappingNode();
         });
     }
     ;
@@ -29553,12 +42098,17 @@ class LiveCompiler {
         });
     }
     ;
+    finishWalkNode(wr) {
+        wr.popWalkNode();
+    }
+    ;
     WalkNode(node, in_ctx, wr) {
         return __awaiter(this, void 0, void 0, function* () {
             this.initWriter(in_ctx);
             if (node.disabled_node) {
                 return;
             }
+            wr.pushWalkNode(node);
             let ctx = in_ctx;
             if ((typeof (node.evalCtx) !== "undefined" && node.evalCtx != null)) {
                 ctx = node.evalCtx;
@@ -29566,12 +42116,13 @@ class LiveCompiler {
             if ((node.register_name.length) > 0) {
                 if (ctx.expressionLevel() > 0) {
                     if ((node.reg_compiled_name.length) > 0) {
-                        wr.out(node.reg_compiled_name, false);
+                        wr.outMapped(node.reg_compiled_name, node, false, node.register_name);
                     }
                     else {
                         console.log((("Could not find compiled name for " + node.register_name) + " at ") + node.getCode());
                     }
                 }
+                this.finishWalkNode(wr);
                 return;
             }
             let liveNodes = [];
@@ -29589,30 +42140,41 @@ class LiveCompiler {
             })));
             liveNodes.length = 0;
             if (node.value_type == 12) {
+                this.finishWalkNode(wr);
                 return;
             }
             if (node.isPrimitive()) {
                 this.WriteScalarValue(node, ctx, wr);
+                this.finishWalkNode(wr);
                 return;
             }
             this.lastProcessedNode = node;
             if (node.isFirstVref("property")) {
+                wr.pushMappingNode(node, node.vref);
                 yield this.langWriter.CreatePropertyGet(node, ctx, wr);
+                wr.popMappingNode();
+                this.finishWalkNode(wr);
                 return;
             }
             if (node.is_plugin) {
+                this.finishWalkNode(wr);
                 return;
             }
             if (node.is_array_literal) {
+                wr.pushMappingNode(node, node.vref);
                 yield this.langWriter.writeArrayLiteral(node, ctx, wr);
+                wr.popMappingNode();
+                this.finishWalkNode(wr);
                 return;
             }
             if (((node.value_type == 11) || (node.value_type == 7)) || (node.value_type == 6)) {
                 yield this.WriteVRef(node, ctx, wr);
+                this.finishWalkNode(wr);
                 return;
             }
             if (node.value_type == 21) {
                 yield this.WriteVRef(node, ctx, wr);
+                this.finishWalkNode(wr);
                 return;
             }
             if ((node.children.length) > 0) {
@@ -29634,29 +42196,38 @@ class LiveCompiler {
                     else {
                         yield this.findOpCode(op, node, evalCtx, wr);
                     }
+                    this.finishWalkNode(wr);
                     return;
                 }
                 if (node.is_direct_method_call) {
+                    wr.pushMappingNode(node, node.vref);
                     yield this.langWriter.CreateMethodCall(node, ctx, wr);
+                    wr.popMappingNode();
+                    this.finishWalkNode(wr);
                     return;
                 }
                 if (node.has_lambda) {
                     yield this.CreateLambda(node, ctx, wr);
+                    this.finishWalkNode(wr);
                     return;
                 }
                 if (node.has_lambda_call) {
                     yield this.CreateLambdaCall(node, ctx, wr);
+                    this.finishWalkNode(wr);
                     return;
                 }
                 if (node.is_part_of_chain) {
+                    this.finishWalkNode(wr);
                     return;
                 }
                 if (node.has_call) {
                     yield this.CreateCallExpression(node, ctx, wr);
+                    this.finishWalkNode(wr);
                     return;
                 }
                 if ((node.children.length) > 1) {
                     if (yield this.localCall(node, ctx, wr)) {
+                        this.finishWalkNode(wr);
                         return;
                     }
                 }
@@ -29698,6 +42269,7 @@ class LiveCompiler {
                     yield this.WriteVRef(node, ctx, wr);
                 }
             }
+            this.finishWalkNode(wr);
         });
     }
     ;
@@ -29766,7 +42338,7 @@ class LiveCompiler {
                         const idx_1 = cmdArg.int_value;
                         if ((node.children.length) > idx_1) {
                             const arg_1 = node.children[idx_1];
-                            wr.out(arg_1.string_value, false);
+                            wr.outMapped(arg_1.string_value, arg_1, false, "");
                         }
                         break;
                     case "block":
@@ -30021,6 +42593,41 @@ class LiveCompiler {
                             }
                         }
                         break;
+                    case "go_for_bind":
+                        const itemIdx = cmdArg.int_value;
+                        const blockIdx = 4;
+                        if ((node.children.length) > blockIdx) {
+                            if ((node.children.length) <= itemIdx) {
+                                return;
+                            }
+                            const itemNode = node.children[itemIdx];
+                            const blockNode = node.children[blockIdx];
+                            const itemName = itemNode.vref;
+                            if ((itemName.length) == 0) {
+                                return;
+                            }
+                            if (this.treeReferencesVRef(blockNode, itemName) == false) {
+                                return;
+                            }
+                            if (itemNode.hasParamDesc) {
+                                const p_3 = ctx.getVariableDef(itemNode.vref);
+                                wr.out(p_3.compiledName, false);
+                            }
+                            else {
+                                wr.out(itemName, false);
+                            }
+                            wr.out(" := ", false);
+                            ctx.setInExpr();
+                            const listNode = node.children[1];
+                            const idxNode = node.children[3];
+                            yield this.WalkNode(listNode, ctx, wr);
+                            wr.out("[", false);
+                            yield this.WalkNode(idxNode, ctx, wr);
+                            wr.out("]", false);
+                            ctx.unsetInExpr();
+                            wr.out(";", true);
+                        }
+                        break;
                     case "r_ktype":
                         const idx_19 = cmdArg.int_value;
                         if ((node.children.length) > idx_19) {
@@ -30168,8 +42775,8 @@ class LiveCompiler {
                         const idx_25 = cmdArg.int_value;
                         if ((node.children.length) >= idx_25) {
                             const arg_23 = node.children[idx_25];
-                            const p_3 = this.findParamDesc(arg_23, ctx, wr);
-                            const nameNode = p_3.nameNode;
+                            const p_4 = this.findParamDesc(arg_23, ctx, wr);
+                            const nameNode = p_4.nameNode;
                             const tn = nameNode.array_type;
                             wr.out(this.getTypeString(tn, ctx), false);
                         }
@@ -30327,8 +42934,8 @@ class CLIProgress {
         this.inputFile = "";
         this.outputFile = "";
         this.targetLanguage = "";
-        this.compilerVersion = "3.0.3";
-        this.useColors = (process.stdout.isTTY || false);
+        this.compilerVersion = "3.2.0";
+        this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
         this.startTime = Date.now();
     }
     setUseColors(use) {
@@ -30953,15 +43560,19 @@ class RangerDocGenerator {
 exports.RangerDocGenerator = RangerDocGenerator;
 class StaticAnalyzer {
     constructor() {
-        this.debug = true;
+        this.debug = false;
         this.mutatingOps = {};
     }
     initMutatingOps() {
         this.mutatingOps["buffer_set"] = true;
         this.mutatingOps["int_buffer_set"] = true;
         this.mutatingOps["double_buffer_set"] = true;
+        this.mutatingOps["buffer_fill"] = true;
         this.mutatingOps["int_buffer_fill"] = true;
         this.mutatingOps["double_buffer_fill"] = true;
+        this.mutatingOps["buffer_copy"] = true;
+        this.mutatingOps["int_buffer_copy"] = true;
+        this.mutatingOps["double_buffer_copy"] = true;
         this.mutatingOps["push"] = true;
         this.mutatingOps["set"] = true;
         this.mutatingOps["clear"] = true;
@@ -31010,6 +43621,12 @@ class StaticAnalyzer {
     }
     ;
     isMemberAccess(node) {
+        if (node.hasNewOper) {
+            return false;
+        }
+        if (node.hasFnCall) {
+            return false;
+        }
         if ((node.ns.length) >= 2) {
             return true;
         }
@@ -31022,6 +43639,11 @@ class StaticAnalyzer {
         if (node.expression) {
             if ((node.children.length) >= 2) {
                 const first = node.getFirst();
+                if ((first.vref.length) > 0) {
+                    if (((first.vref == "buffer_alloc") || (first.vref == "int_buffer_alloc")) || (first.vref == "double_buffer_alloc")) {
+                        return false;
+                    }
+                }
                 if ((first.vref.length) > 0) {
                     const second = node.getSecond();
                     if ((second.vref.length) > 0) {
@@ -31440,37 +44062,51 @@ class StaticAnalyzer {
     ;
     walkForTransitiveWeak(node, fnCtx) {
         const isCall = node.has_call || node.hasFnCall;
-        if ((node.has_call == true) || (node.hasFnCall == true)) {
-            console.log((((("StaticAnalysis: found call node has_call=" + ((node.has_call.toString()))) + " hasFnCall=") + ((node.hasFnCall.toString()))) + " vref=") + node.vref);
+        if (this.debug) {
+            if ((node.has_call == true) || (node.hasFnCall == true)) {
+                console.log((((("StaticAnalysis: found call node has_call=" + ((node.has_call.toString()))) + " hasFnCall=") + ((node.hasFnCall.toString()))) + " vref=") + node.vref);
+            }
         }
         if (isCall) {
             if ((typeof (node.fnDesc) !== "undefined" && node.fnDesc != null)) {
                 const fnDesc = node.fnDesc;
                 const childCnt = node.children.length;
-                console.log((("StaticAnalysis: transitive check call to " + fnDesc.name) + " childCnt=") + ((childCnt.toString())));
+                if (this.debug) {
+                    console.log((("StaticAnalysis: transitive check call to " + fnDesc.name) + " childCnt=") + ((childCnt.toString())));
+                }
                 if (node.hasFnCall) {
                     if (childCnt >= 2) {
                         const callParams = node.children[1];
                         const argCnt = callParams.children.length;
                         const paramCnt = fnDesc.params.length;
-                        console.log("StaticAnalysis:   hasFnCall style, argCnt=" + ((argCnt.toString())));
+                        if (this.debug) {
+                            console.log("StaticAnalysis:   hasFnCall style, argCnt=" + ((argCnt.toString())));
+                        }
                         for (let i = 0; i < callParams.children.length; i++) {
                             var arg = callParams.children[i];
                             const argVref = arg.vref;
-                            console.log((((("StaticAnalysis:   arg[" + ((i.toString()))) + "]=") + argVref) + " hasParamDesc=") + ((arg.hasParamDesc.toString())));
+                            if (this.debug) {
+                                console.log((((("StaticAnalysis:   arg[" + ((i.toString()))) + "]=") + argVref) + " hasParamDesc=") + ((arg.hasParamDesc.toString())));
+                            }
                             if ((argVref.length) > 0) {
                                 if (arg.hasParamDesc) {
                                     const argParam = arg.paramDesc;
                                     const isFunctionParam = argParam.varType == 4;
                                     const isLocalVar = argParam.varType == 5;
-                                    console.log((("StaticAnalysis:   is FunctionParameter=" + ((isFunctionParam.toString()))) + " isLocalVar=") + ((isLocalVar.toString())));
+                                    if (this.debug) {
+                                        console.log((("StaticAnalysis:   is FunctionParameter=" + ((isFunctionParam.toString()))) + " isLocalVar=") + ((isLocalVar.toString())));
+                                    }
                                     if (isFunctionParam || isLocalVar) {
                                         if (i < paramCnt) {
                                             const calledParam = fnDesc.params[i];
-                                            console.log("StaticAnalysis:   calledParam.rust_needs_rc_wrap=" + ((calledParam.rust_needs_rc_wrap.toString())));
+                                            if (this.debug) {
+                                                console.log("StaticAnalysis:   calledParam.rust_needs_rc_wrap=" + ((calledParam.rust_needs_rc_wrap.toString())));
+                                            }
                                             if (calledParam.rust_needs_rc_wrap) {
                                                 argParam.rust_needs_rc_wrap = true;
-                                                console.log(((("StaticAnalysis: transitive weak - " + argVref) + " passed to ") + fnDesc.name) + " which needs Rc wrap");
+                                                if (this.debug) {
+                                                    console.log(((("StaticAnalysis: transitive weak - " + argVref) + " passed to ") + fnDesc.name) + " which needs Rc wrap");
+                                                }
                                             }
                                         }
                                     }
@@ -31497,7 +44133,9 @@ class StaticAnalyzer {
                                             const calledParam_1 = fnDesc.params[i_1];
                                             if (calledParam_1.rust_needs_rc_wrap) {
                                                 argParam_1.rust_needs_rc_wrap = true;
-                                                console.log(((("StaticAnalysis: transitive weak - " + argVref_1) + " passed to ") + fnDesc.name) + " which needs Rc wrap");
+                                                if (this.debug) {
+                                                    console.log(((("StaticAnalysis: transitive weak - " + argVref_1) + " passed to ") + fnDesc.name) + " which needs Rc wrap");
+                                                }
                                             }
                                         }
                                     }
@@ -31659,6 +44297,11 @@ class StaticAnalyzer {
             this.analyzeFunction(m);
         }
         ;
+        for (let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+            var sm = cl.static_methods[i_1];
+            this.analyzeFunction(sm);
+        }
+        ;
         if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
             this.analyzeFunction(cl.constructor_fn);
         }
@@ -31684,6 +44327,46 @@ class StaticAnalyzer {
         }
     }
     ;
+    propagateArgMutRef(calledParam, arg, fnCtx, changedParams) {
+        const calleeMut = calledParam.rust_borrow_type == 2;
+        const calleeCppRef = calledParam.needs_cpp_reference;
+        if (calleeMut == false) {
+            if (calleeCppRef == false) {
+                return;
+            }
+        }
+        const argVarName = arg.vref;
+        if ((argVarName.length) == 0) {
+            return;
+        }
+        const argParam = fnCtx.getVariableDef(argVarName);
+        if ((argParam.name.length) == 0) {
+            return;
+        }
+        if (argParam.varType == 4) {
+            let didChange = false;
+            if (calleeMut) {
+                if (argParam.rust_borrow_type != 2) {
+                    argParam.rust_borrow_type = 2;
+                    argParam.needs_cpp_reference = true;
+                    didChange = true;
+                }
+            }
+            if (calleeCppRef) {
+                if (argParam.needs_cpp_reference == false) {
+                    argParam.needs_cpp_reference = true;
+                    didChange = true;
+                }
+            }
+            if (didChange) {
+                changedParams.push(argParam.name);
+                if (this.debug) {
+                    console.log(((("StaticAnalysis: " + argParam.name) + " upgraded to mutable ref (passed to a param ") + calledParam.name) + " that requires it)");
+                }
+            }
+        }
+    }
+    ;
     walkForTransitiveMutBorrow(node, fnCtx, fn, changedParams) {
         if (node.hasFnCall) {
             if ((node.children.length) >= 2) {
@@ -31696,24 +44379,7 @@ class StaticAnalyzer {
                         var arg = callParams.children[i];
                         if (i < paramCnt) {
                             const calledParam = calledFn.params[i];
-                            if (calledParam.rust_borrow_type == 2) {
-                                const argVarName = arg.vref;
-                                if ((argVarName.length) > 0) {
-                                    const argParam = fnCtx.getVariableDef(argVarName);
-                                    if ((argParam.name.length) > 0) {
-                                        if (argParam.varType == 4) {
-                                            if (argParam.rust_borrow_type != 2) {
-                                                argParam.rust_borrow_type = 2;
-                                                argParam.needs_cpp_reference = true;
-                                                changedParams.push(argParam.name);
-                                                if (this.debug) {
-                                                    console.log(((((("StaticAnalysis: " + argParam.name) + " upgraded to &mut (passed to ") + calledFn.name) + " param ") + calledParam.name) + " which requires &mut)");
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            this.propagateArgMutRef(calledParam, arg, fnCtx, changedParams);
                         }
                     }
                     ;
@@ -31730,24 +44396,7 @@ class StaticAnalyzer {
                         var arg_1 = argsNode.children[i_1];
                         if (i_1 < paramCnt_1) {
                             const calledParam_1 = calledFn_1.params[i_1];
-                            if (calledParam_1.rust_borrow_type == 2) {
-                                const argVarName_1 = arg_1.vref;
-                                if ((argVarName_1.length) > 0) {
-                                    const argParam_1 = fnCtx.getVariableDef(argVarName_1);
-                                    if ((argParam_1.name.length) > 0) {
-                                        if (argParam_1.varType == 4) {
-                                            if (argParam_1.rust_borrow_type != 2) {
-                                                argParam_1.rust_borrow_type = 2;
-                                                argParam_1.needs_cpp_reference = true;
-                                                changedParams.push(argParam_1.name);
-                                                if (this.debug) {
-                                                    console.log(((((("StaticAnalysis: " + argParam_1.name) + " upgraded to &mut (passed to ") + calledFn_1.name) + " param ") + calledParam_1.name) + " which requires &mut)");
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            this.propagateArgMutRef(calledParam_1, arg_1, fnCtx, changedParams);
                         }
                     }
                     ;
@@ -31774,6 +44423,11 @@ class StaticAnalyzer {
         for (let i = 0; i < cl.methods.length; i++) {
             var m = cl.methods[i];
             this.analyzeTransitiveMutBorrow(m, changedParams);
+        }
+        ;
+        for (let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+            var sm = cl.static_methods[i_1];
+            this.analyzeTransitiveMutBorrow(sm, changedParams);
         }
         ;
         if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
@@ -31885,6 +44539,11 @@ class StaticAnalyzer {
             this.analyzeMethodMutation(m);
         }
         ;
+        for (let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+            var sm = cl.static_methods[i_1];
+            this.analyzeMethodMutation(sm);
+        }
+        ;
         if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
             this.analyzeMethodMutation(cl.constructor_fn);
         }
@@ -31964,9 +44623,315 @@ class StaticAnalyzer {
             this.analyzeMethodParamMutations(m);
         }
         ;
+        for (let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+            var sm = cl.static_methods[i_1];
+            this.analyzeMethodParamMutations(sm);
+        }
+        ;
         if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
             this.analyzeMethodParamMutations(cl.constructor_fn);
         }
+    }
+    ;
+    ownershipKindName(kind) {
+        if (kind == 1) {
+            return "owned";
+        }
+        if (kind == 2) {
+            return "borrowed";
+        }
+        if (kind == 3) {
+            return "moved";
+        }
+        if (kind == 4) {
+            return "shared";
+        }
+        return "unknown";
+    }
+    ;
+    ownerPathOf(node) {
+        if ((node.ns.length) >= 1) {
+            return node.ns.join(".");
+        }
+        return node.vref;
+    }
+    ;
+    targetOutlivesScope(target, fnCtx) {
+        if ((target.ns.length) >= 2) {
+            const root = target.ns[0];
+            if ((root == "this") || (root == "self")) {
+                return true;
+            }
+            const rp = fnCtx.getVariableDef(root);
+            if ((rp.name.length) > 0) {
+                if (rp.varType == 4) {
+                    return true;
+                }
+                if (rp.is_class_variable) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        const name = target.vref;
+        if ((name.length) > 0) {
+            const tp = fnCtx.getVariableDef(name);
+            if ((tp.name.length) > 0) {
+                if (tp.is_class_variable) {
+                    return true;
+                }
+                if (tp.varType == 4) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    ;
+    isPrimitiveTypeName(name) {
+        if ((name.length) == 0) {
+            return false;
+        }
+        if (name == "int") {
+            return true;
+        }
+        if (name == "double") {
+            return true;
+        }
+        if (name == "float") {
+            return true;
+        }
+        if (name == "boolean") {
+            return true;
+        }
+        if (name == "char") {
+            return true;
+        }
+        if (name == "byte") {
+            return true;
+        }
+        if (name == "short") {
+            return true;
+        }
+        if (name == "long") {
+            return true;
+        }
+        if (name == "string") {
+            return true;
+        }
+        if (name == "void") {
+            return true;
+        }
+        return false;
+    }
+    ;
+    isHeapOwnedParam(p) {
+        if (typeof (p.nameNode) === "undefined") {
+            return false;
+        }
+        const tn = p.nameNode;
+        if ((tn.array_type.length) > 0) {
+            return true;
+        }
+        if ((tn.key_type.length) > 0) {
+            return true;
+        }
+        if (this.isPrimitiveTypeName(tn.type_name)) {
+            return false;
+        }
+        if ((tn.type_name.length) > 0) {
+            return true;
+        }
+        return false;
+    }
+    ;
+    recordEscape(valueName, ownerPath, via, fnCtx) {
+        if ((valueName.length) == 0) {
+            return;
+        }
+        const p = fnCtx.getVariableDef(valueName);
+        if ((p.name.length) == 0) {
+            return;
+        }
+        if (this.isHeapOwnedParam(p) == false) {
+            return;
+        }
+        let already = false;
+        for (let i = 0; i < p.escape_owners.length; i++) {
+            var o = p.escape_owners[i];
+            if (o == ownerPath) {
+                already = true;
+            }
+        }
+        ;
+        if (already == false) {
+            p.escape_owners.push(ownerPath);
+        }
+        p.escapes_function = true;
+        if (p.escapes_via == "none") {
+            p.escapes_via = via;
+        }
+    }
+    ;
+    walkForEscapes(node, fnCtx) {
+        if (node.expression) {
+            if ((node.children.length) > 0) {
+                const first = node.getFirst();
+                if ((first.vref == "=") && ((node.children.length) >= 3)) {
+                    const lhs = node.getSecond();
+                    const rhs = node.children[2];
+                    if ((lhs.ns.length) >= 2) {
+                        const ownerPath = lhs.ns.join(".");
+                        this.recordEscape(rhs.vref, ownerPath, "field", fnCtx);
+                    }
+                }
+                if (((first.vref == "push") || (first.vref == "set")) || (first.vref == "put")) {
+                    if ((node.children.length) >= 3) {
+                        const target = node.getSecond();
+                        const value = node.children[2];
+                        if (this.targetOutlivesScope(target, fnCtx)) {
+                            const ownerPath_1 = this.ownerPathOf(target);
+                            this.recordEscape(value.vref, ownerPath_1, "member-coll", fnCtx);
+                        }
+                    }
+                }
+                if (first.vref == "return") {
+                    if ((node.children.length) >= 2) {
+                        const rv = node.getSecond();
+                        this.recordEscape(rv.vref, "<return>", "return", fnCtx);
+                    }
+                }
+                if (first.vref == "call") {
+                    if ((node.children.length) >= 4) {
+                        const argsExpr = node.children[3];
+                        for (let ai = 0; ai < argsExpr.children.length; ai++) {
+                            var arg = argsExpr.children[ai];
+                            if ((arg.vref.length) > 0) {
+                                const ap = fnCtx.getVariableDef(arg.vref);
+                                if ((ap.name.length) > 0) {
+                                    if (ap.varType == 4) {
+                                        ap.escape_via_call = true;
+                                    }
+                                }
+                            }
+                        }
+                        ;
+                    }
+                }
+            }
+        }
+        for (let i = 0; i < node.children.length; i++) {
+            var child = node.children[i];
+            this.walkForEscapes(child, fnCtx);
+        }
+        ;
+    }
+    ;
+    ownerSuffix(param) {
+        const cnt = param.escape_owners.length;
+        if (cnt == 0) {
+            return "";
+        }
+        let s = " (";
+        for (let i = 0; i < param.escape_owners.length; i++) {
+            var o = param.escape_owners[i];
+            if (i > 0) {
+                s = s + ", ";
+            }
+            s = s + o;
+        }
+        ;
+        s = s + ")";
+        return s;
+    }
+    ;
+    finalizeOwnership(fn, strict) {
+        let isPure = false;
+        if ((typeof (fn.nameNode) !== "undefined" && fn.nameNode != null)) {
+            if (((fn.nameNode)).hasFlag("pure")) {
+                isPure = true;
+            }
+        }
+        let header_done = false;
+        for (let i = 0; i < fn.params.length; i++) {
+            var param = fn.params[i];
+            if (param.varType == 4) {
+                const ownerCount = param.escape_owners.length;
+                if (isPure) {
+                    param.ownership_kind = 2;
+                    param.ownership_resolved = true;
+                }
+                else {
+                    if (ownerCount >= 2) {
+                        param.ownership_kind = 4;
+                        param.ownership_resolved = true;
+                    }
+                    else {
+                        if (ownerCount == 1) {
+                            param.ownership_kind = 3;
+                            param.ownership_resolved = true;
+                        }
+                        else {
+                            if (param.escape_via_call) {
+                                param.ownership_kind = 0;
+                                param.ownership_resolved = false;
+                            }
+                            else {
+                                param.ownership_kind = 2;
+                                param.ownership_resolved = true;
+                            }
+                        }
+                    }
+                }
+                if (strict) {
+                    if (header_done == false) {
+                        console.log(("ownership[infer] fn " + fn.name) + ":");
+                        header_done = true;
+                    }
+                    console.log(((("  param '" + param.name) + "' -> ") + this.ownershipKindName(param.ownership_kind)) + this.ownerSuffix(param));
+                    if (param.ownership_resolved == false) {
+                        console.log(("    WARNING: ownership of '" + param.name) + "' could not be determined (escapes via call; needs interprocedural summary)");
+                    }
+                }
+            }
+        }
+        ;
+    }
+    ;
+    analyzeOwnership(fn, strict) {
+        if ((typeof (fn.fnBody) !== "undefined" && fn.fnBody != null)) {
+            if ((typeof (fn.fnCtx) !== "undefined" && fn.fnCtx != null)) {
+                this.walkForEscapes(fn.fnBody, fn.fnCtx);
+            }
+        }
+        this.finalizeOwnership(fn, strict);
+    }
+    ;
+    analyzeOwnershipClass(cl, strict) {
+        this.currentClass = cl;
+        for (let i = 0; i < cl.methods.length; i++) {
+            var m = cl.methods[i];
+            this.analyzeOwnership(m, strict);
+        }
+        ;
+        if ((typeof (cl.constructor_fn) !== "undefined" && cl.constructor_fn != null)) {
+            this.analyzeOwnership(cl.constructor_fn, strict);
+        }
+    }
+    ;
+    analyzeOwnershipAll(strict) {
+        if (typeof (this.ctx) === "undefined") {
+            return;
+        }
+        this.initMutatingOps();
+        const root = ((this.ctx)).getRoot();
+        for (var i in root.definedClasses) {
+            if (root.definedClasses.hasOwnProperty(i)) {
+                var cl = root.definedClasses[i];
+                this.analyzeOwnershipClass(cl, strict);
+            }
+        }
+        ;
     }
     ;
     analyzeAll() {
@@ -32279,7 +45244,7 @@ class viewbuilder_Web {
             wr.indent(1);
             wr.out("<head>", true);
             wr.indent(1);
-            wr.out("\r\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\r\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \r\n    ", true);
+            wr.out("\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \n    ", true);
             wr.indent(-1);
             wr.out("</head>", true);
             wr.out("<body>", true);
@@ -32401,6 +45366,8 @@ class VirtualCompiler {
                 return "php";
             case "scala":
                 return "scala";
+            case "ll":
+                return "llvm";
             default:
                 return "";
                 break;
@@ -32422,7 +45389,7 @@ class VirtualCompiler {
         return __awaiter(this, void 0, void 0, function* () {
             const res = new CompilerResults();
             this.envObj = env;
-            const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "cpp", "php", "csharp", "python", "rust"];
+            const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "cpp", "php", "csharp", "python", "rust", "llvm"];
             const params = env.commandLine;
             const cli = new CLIProgress();
             if ((typeof (params.flags["no-color"]) != "undefined" && params.flags.hasOwnProperty("no-color"))) {
@@ -32488,7 +45455,7 @@ class VirtualCompiler {
             }
             let langLibEnv = operatorsOf_8.envc95var_54(env, "RANGER_LIB");
             const idir = __dirname;
-            langLibEnv = ((((((((require("path").normalize(idir)) + ";") + root_dir) + ";") + (require("path").normalize((idir + "/../compiler/")))) + ";") + (require("path").normalize((idir + "/../lib/")))) + ";") + langLibEnv;
+            langLibEnv = ((((((((((require("path").normalize(idir)) + ";") + (require("path").normalize((idir + "/lib/")))) + ";") + root_dir) + ";") + (require("path").normalize((idir + "/../compiler/")))) + ";") + (require("path").normalize((idir + "/../lib/")))) + ";") + langLibEnv;
             env.setEnv("RANGER_LIB", langLibEnv);
             const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
             const theFilePath = this.searchLib(theFilePaths, the_file);
@@ -32524,6 +45491,14 @@ class VirtualCompiler {
                 parser.disableOperators = true;
             }
             parser.parse((typeof (params.flags["no-op-transform"]) != "undefined" && params.flags.hasOwnProperty("no-op-transform")));
+            if (parser.had_error) {
+                cli.printHeader();
+                console.log(cli.error(("Parse error in " + the_file)));
+                console.log("");
+                res.hasErrors = true;
+                res.errorMessage = "Parse error in " + the_file;
+                return res;
+            }
             const root = parser.rootNode;
             const flags = Object.keys(params.flags);
             for (let ci = 0; ci < root.children.length; ci++) {
@@ -32739,6 +45714,11 @@ class VirtualCompiler {
                         the_target = the_target + ".rs";
                     }
                     break;
+                case "llvm":
+                    if (false == (the_target.endsWith(".ll"))) {
+                        the_target = the_target + ".ll";
+                    }
+                    break;
             }
             ;
             appCtx.compilerSettings["o"] = the_target;
@@ -32746,6 +45726,9 @@ class VirtualCompiler {
             const node = parser.rootNode;
             const flowParser = new RangerFlowParser();
             const fileSystem = new CodeFileSystem();
+            if (appCtx.hasCompilerFlag("sourcemap")) {
+                fileSystem.enableSourceMaps();
+            }
             const file = fileSystem.getFile(".", the_target);
             let wr = file.getWriter();
             if (appCtx.hasCompilerFlag("copysrc")) {
@@ -32792,6 +45775,7 @@ class VirtualCompiler {
                 const lang_parser = new RangerLispParser(lang_code);
                 lang_parser.parse(false);
                 appCtx.langOperators = lang_parser.rootNode;
+                flowParser.registerLangSystemClasses(lang_parser.rootNode, appCtx, wr);
                 appCtx.setRootFile(root_file);
                 const ops = new RangerActiveOperators();
                 ops.initFrom(lang_parser.rootNode);
@@ -32852,7 +45836,21 @@ class VirtualCompiler {
                 else {
                     cli.step(3, "Type checking");
                 }
+                if (appCtx.hasCompilerFlag("strict-ownership")) {
+                    const ownAnalyzer = new StaticAnalyzer();
+                    ownAnalyzer.ctx = appCtx;
+                    ownAnalyzer.analyzeOwnershipAll(true);
+                }
                 cli.step(4, "Generating code");
+                if (appCtx.targetLangName == "llvm") {
+                    const llvmPipeline = new RangerLLVMPipeline();
+                    llvmPipeline.generateModule(appCtx, wr);
+                    res.target_dir = the_target_dir;
+                    res.fileSystem = fileSystem;
+                    res.ctx = appCtx;
+                    cli.printSuccess(the_target);
+                    return res;
+                }
                 switch (appCtx.targetLangName) {
                     case "java7":
                         if ((typeof (comp_attrs["android_res_dir"]) != "undefined" && comp_attrs.hasOwnProperty("android_res_dir"))) {
@@ -32882,11 +45880,22 @@ class VirtualCompiler {
                 }
                 ;
                 let staticMethods;
+                const beforeImports = wr.createTag("before_imports");
                 const importFork = wr.fork();
+                const forwardDecls = wr.createTag("forward_declarations");
                 wr.createTag("after_imports");
                 const contentFork = wr.fork();
                 wr.createTag("utilities");
                 const theEnd = wr.createTag("file_end");
+                if (appCtx.hasCompilerFlag("typescript")) {
+                    if ((typeof (appCtx.compilerSettings["processTsHelpers"]) != "undefined" && appCtx.compilerSettings.hasOwnProperty("processTsHelpers"))) {
+                        const __rgrTs = ((appCtx.compilerSettings.hasOwnProperty("processTsHelpers") ? appCtx.compilerSettings["processTsHelpers"] : undefined));
+                        if ((__rgrTs.length) > 0) {
+                            theEnd.raw(__rgrTs, false);
+                            theEnd.newline();
+                        }
+                    }
+                }
                 wr = contentFork;
                 let handledClasses = {};
                 for (let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
@@ -33113,16 +46122,16 @@ class VirtualCompiler {
             env.filesystem = new InputFSFolder();
             env.commandLine = new CmdParams();
             operatorsOf_3.createc95file_4(env.filesystem, "Lang.rgr", (yield (new Promise(resolve => { require('fs').readFile("." + '/' + "Lang.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "stdlib.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "stdlib.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "stdops.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "stdops.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Timers.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "Timers.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "DOMLib.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Ajax.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "Ajax.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Crypto.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "Crypto.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "Engine3D.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "Storage.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (yield (new Promise(resolve => { require('fs').readFile("../lib/" + '/' + "JSON.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
-            operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
+            operatorsOf_3.createc95file_4(env.filesystem, "stdlib.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "stdlib.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "stdops.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "stdops.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Timers.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "Timers.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "DOMLib.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Ajax.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "Ajax.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Crypto.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "Crypto.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "Engine3D.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "Storage.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (yield (new Promise(resolve => { require('fs').readFile("./lib/" + '/' + "JSON.rgr", 'utf8', (err, data) => { resolve(data); }); }))));
+            operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\n\nclass tester {\n  static fn main () {\n    print \"Hello World!\"\n  }\n}\n\n    ");
             require("fs").writeFileSync("." + "/" + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
         });
     }
@@ -33978,7 +46987,15 @@ class operatorsOfRangerFlowParser_26 {
                         const b1 = (cn.eval_type == 14) && (defaultArg.eval_type == 3);
                         const b2 = (cn.eval_type == 3) && (defaultArg.eval_type == 14);
                         if (false == (b1 || b2)) {
-                            ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cn.eval_type) + " vs ") + defaultArg.eval_type);
+                            let cnTypeName = TTypes.valueAsString(cn.eval_type);
+                            if ((cn.eval_type_name.length) > 0) {
+                                cnTypeName = cn.eval_type_name;
+                            }
+                            let defTypeName = TTypes.valueAsString(defaultArg.eval_type);
+                            if ((defaultArg.eval_type_name.length) > 0) {
+                                defTypeName = defaultArg.eval_type_name;
+                            }
+                            ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName) + " vs ") + defTypeName);
                         }
                     }
                 }
@@ -34191,7 +47208,15 @@ class operatorsOf_26 {
                         const b1_1 = (cn_2.eval_type == 14) && (defaultArg_1.eval_type == 3);
                         const b2_1 = (cn_2.eval_type == 3) && (defaultArg_1.eval_type == 14);
                         if (false == (b1_1 || b2_1)) {
-                            ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cn_2.eval_type) + " vs ") + defaultArg_1.eval_type);
+                            let cnTypeName_1 = TTypes.valueAsString(cn_2.eval_type);
+                            if ((cn_2.eval_type_name.length) > 0) {
+                                cnTypeName_1 = cn_2.eval_type_name;
+                            }
+                            let defTypeName_1 = TTypes.valueAsString(defaultArg_1.eval_type);
+                            if ((defaultArg_1.eval_type_name.length) > 0) {
+                                defTypeName_1 = defaultArg_1.eval_type_name;
+                            }
+                            ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName_1) + " vs ") + defTypeName_1);
                         }
                     }
                 }

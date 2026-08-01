@@ -1,4 +1,4 @@
-type union_Any = CmdParams | test_cmdparams | InputFSFolder | InputFSFile | InputEnv | test_input_filesystem | RangerAppTodo | RangerCompilerMessage | RangerParamEventHandler | RangerParamEventList | RangerParamEventMap | RangerAppArrayValue | RangerAppHashValue | RangerAppValue | RangerRefForce | RangerAppParamDesc | RangerAppFunctionDesc | RangerAppMethodVariants | RangerAppInterfaceImpl | RangerTraitParams | RangerAppClassDesc | RangerTypeClass | SourceCode | CodeNodeLiteral | CodeNode | TypeCounts | RangerNodeValue | RangerBackReference | RangerAppEnum | OpFindResult | RangerOperatorList | RangerNodeList | ContextTransaction | ContextTransactionMutation | RangerRegisteredPlugin | RangerAppWriterContext | CodeFile | CodeFileSystem | CodeSlice | CodeWriter | RangerLispParser | RangerArgMatch | DictNode | RangerSerializeClass | RangerImmutableExtension | RangerServiceBuilder | RangerAppOperatorDesc | TFiles | TTypes | ClassJoinPoint | WalkLater | RangerFlowParser | TFactory | CallChain | NodeEvalState | RangerGenericClassWriter | AndroidPageWriter | RangerJava7ClassWriter | RangerSwift3ClassWriter | RangerSwift6ClassWriter | RangerCppClassWriter | MethodCallList | RangerRustClassWriter | RangerKotlinClassWriter | RangerCSharpClassWriter | RangerScalaClassWriter | RangerGolangClassWriter | RangerGolangHttpServerWriter | RangerPHPClassWriter | RangerPythonClassWriter | WebPageWriter | RangerJavaScriptClassWriter | RangerRangerClassWriter | OpList | RangerActiveOperators | LiveCompiler | ColorConsole | CLIProgress | RangerDocGenerator | StaticAnalyzer | viewbuilder_Android | viewbuilder_Web | CompilerResults | VirtualCompiler | CompilerInterface | number | string | boolean | number;
+type union_Any = CmdParams | test_cmdparams | InputFSFolder | InputFSFile | InputEnv | test_input_filesystem | RangerAppTodo | RangerCompilerMessage | RangerParamEventHandler | RangerParamEventList | RangerParamEventMap | RangerAppArrayValue | RangerAppHashValue | RangerAppValue | RangerRefForce | RangerAppParamDesc | RangerAppFunctionDesc | RangerAppMethodVariants | RangerAppInterfaceImpl | RangerTraitParams | RangerAppClassDesc | RangerTypeClass | SourceCode | CodeNodeLiteral | CodeNode | TTypeRegistry | TypeCounts | RangerNodeValue | RangerBackReference | RangerAppEnum | OpFindResult | RangerOperatorList | RangerNodeList | ContextTransaction | ContextTransactionMutation | RangerRegisteredPlugin | RangerAppWriterContext | SourceMapEntry | SourceMapBuilder | CodeFile | CodeFileSystem | CodeSlice | CodeWriter | RangerLispParser | TTypes | RangerArgMatch | DictNode | RangerSerializeClass | RangerImmutableExtension | RangerProcessLifecycle | RangerProcessClass | RangerProcessProcSend | RangerProcessProcStartCheck | RangerProcessCodegen | RangerServiceBuilder | RangerAppOperatorDesc | TFiles | ClassJoinPoint | WalkLater | RangerFlowParser | TFactory | CallChain | NodeEvalState | RangerGenericClassWriter | AndroidPageWriter | RangerJava7ClassWriter | RangerSwift3ClassWriter | RangerSwift6ClassWriter | RangerCppClassWriter | MethodCallList | RangerRustClassWriter | RangerKotlinClassWriter | RangerCSharpClassWriter | RangerScalaClassWriter | RangerGolangClassWriter | RangerGolangHttpServerWriter | RangerPHPClassWriter | RangerPythonClassWriter | WebPageWriter | RangerJavaScriptClassWriter | RangerRangerClassWriter | LowIRUtil | LowIRParam | LowIRInstr | LowIRBlock | LowIRFunction | LowIRField | LowIRTypeFieldDesc | LowIRTypeDesc | LowIRStruct | LowIRStringGlobal | LowIRExternDecl | LowIRModule | LowIRSession | LowIRBuilder | LowIRRuntimeGen | LowIRTarget | LowIRLowerContext | LambdaCaptureInfo | LowIRBuilderPass | LLVMIRWriter | WATWriter | RangerLLVMPipeline | RangerLLVMClassWriter | OpList | RangerActiveOperators | LiveCompiler | ColorConsole | CLIProgress | RangerDocGenerator | StaticAnalyzer | viewbuilder_Android | viewbuilder_Web | CompilerResults | VirtualCompiler | CompilerInterface | number | string | boolean | number;
 export declare class CmdParams {
     flags: {
         [key: string]: boolean;
@@ -9,7 +9,7 @@ export declare class CmdParams {
     values: Array<string>;
     constructor();
     hasParam(name: string): boolean;
-    getParam(name: string): string;
+    getParam(name: string): string | undefined;
     collect(): void;
     toDictionary(): Record<string, any>;
     static fromDictionary(dict: Record<string, any>): Promise<CmdParams>;
@@ -165,6 +165,12 @@ export declare class RangerAppParamDesc {
     rust_assigned_to_weak: boolean;
     rust_needs_rc_wrap: boolean;
     rust_assigned_to_field: boolean;
+    ownership_kind: number;
+    ownership_resolved: boolean;
+    escapes_via: string;
+    escape_owners: Array<string>;
+    escape_via_call: boolean;
+    ownership_read_only: boolean;
     node?: CodeNode;
     nameNode?: CodeNode;
     fnBody?: CodeNode;
@@ -274,7 +280,11 @@ export declare class RangerAppClassDesc extends RangerAppParamDesc {
     is_system_union: boolean;
     is_template: boolean;
     is_serialized: boolean;
+    is_process: boolean;
+    process_path: string;
+    is_singleton: boolean;
     is_trait: boolean;
+    is_record: boolean;
     is_operator_class: boolean;
     is_generic_instance: boolean;
     is_union: boolean;
@@ -297,6 +307,7 @@ export declare class RangerAppClassDesc extends RangerAppParamDesc {
         [key: string]: RangerAppMethodVariants;
     };
     has_constructor: boolean;
+    is_collected: boolean;
     constructor_node?: CodeNode;
     constructor_fn?: RangerAppFunctionDesc;
     has_destructor: boolean;
@@ -322,14 +333,19 @@ export declare class RangerAppClassDesc extends RangerAppParamDesc {
     isNormalClass(): boolean;
     getSystemclassType(): string;
     isSystemclassType(typeName: string): boolean;
-    hasTrait(class_name: string, ctx: RangerAppWriterContext): RangerAppClassDesc;
+    hasTrait(class_name: string, ctx: RangerAppWriterContext): RangerAppClassDesc | undefined;
     isSameOrParentClass(class_name: string, ctx: RangerAppWriterContext): boolean;
     hasOwnMethod(m_name: string): boolean;
+    methodParamSignature(fnDesc: RangerAppFunctionDesc): string;
+    hasDuplicateMethodSignature(fnDesc: RangerAppFunctionDesc): boolean;
     hasMethod(m_name: string): boolean;
-    findMethod(f_name: string): RangerAppFunctionDesc;
+    findMethod(f_name: string): RangerAppFunctionDesc | undefined;
+    findMethodByCompiledName(compiled: string): RangerAppFunctionDesc | undefined;
+    isSingletonClass(): boolean;
+    buildSingletonAccessor(): RangerAppFunctionDesc | undefined;
     hasStaticMethod(m_name: string): boolean;
-    findStaticMethod(f_name: string): RangerAppFunctionDesc;
-    findVariable(f_name: string): RangerAppParamDesc;
+    findStaticMethod(f_name: string): RangerAppFunctionDesc | undefined;
+    findVariable(f_name: string): RangerAppParamDesc | undefined;
     addParentClass(p_name: string): void;
     createVariable(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     addVariable(desc: RangerAppParamDesc): void;
@@ -498,14 +514,14 @@ export declare class CodeNode {
     matched_type: string;
     constructor(source: SourceCode, start: number, end: number);
     childCnt(): number;
-    getChild(index: number): CodeNode;
+    getChild(index: number): CodeNode | undefined;
     chlen(): number;
     forTree(callback: (item: CodeNode, i: number) => void): Promise<void>;
     parallelTree(otherTree: CodeNode, callback: (left: CodeNode, right: CodeNode, i: number) => void): void;
     walkTreeUntil(callback: (item: CodeNode, i: number) => boolean): void;
     getParsedString(): string;
     getFilename(): string;
-    getFlag(flagName: string): CodeNode;
+    getFlag(flagName: string): CodeNode | undefined;
     hasFlag(flagName: string): boolean;
     setFlag(flagName: string): void;
     getFlagInt(flagName: string, paramName: string, defaultValue: number): number;
@@ -528,7 +544,7 @@ export declare class CodeNode {
     getVRefAt(idx: number): string;
     getStringAt(idx: number): string;
     hasExpressionProperty(name: string): boolean;
-    getExpressionProperty(name: string): CodeNode;
+    getExpressionProperty(name: string): CodeNode | undefined;
     hasIntProperty(name: string): boolean;
     getIntProperty(name: string): number;
     hasDoubleProperty(name: string): boolean;
@@ -560,6 +576,8 @@ export declare class CodeNode {
     newStringNode(name: string): CodeNode;
     newExpressionNode(): CodeNode;
     getChildrenFrom(otherNode: CodeNode): void;
+    finalizeAsCallChainRoot(): void;
+    tryDesugarNewMethodChain(): boolean;
     cloneWithType(match: RangerArgMatch, changeVref: boolean): CodeNode;
     rebuildWithType(match: RangerArgMatch, changeVref: boolean): CodeNode;
     buildTypeSignatureUsingMatch(match: RangerArgMatch): string;
@@ -586,6 +604,23 @@ export declare class CodeNode {
     static expressionNode(): CodeNode;
     static blockNode(): CodeNode;
     static blockFromList(list: Array<CodeNode>): CodeNode;
+}
+export declare class TTypeRegistry {
+    constructor();
+    static scalarPrimitiveNames(): Array<string>;
+    static isIntAlias(typeName: string): boolean;
+    static isFloatAlias(typeName: string): boolean;
+    static canonicalScalar(typeName: string): string;
+    static bufferTypeNames(): Array<string>;
+    static isScalarPrimitive(typeName: string): boolean;
+    static isBufferType(typeName: string): boolean;
+    static isPrimitiveTypeName(typeName: string): boolean;
+    static isKnownTypeName(typeName: string): boolean;
+    static nameToNodeType(name: string): number;
+    static nodeTypeToName(valueType: number): string;
+    static isNodePrimitive(valueType: number): boolean;
+    static targetTypeString(lang: string, typeName: string): string;
+    static listContains(list: Array<string>, value: string): boolean;
 }
 export declare class TypeCounts {
     b_counted: boolean;
@@ -813,21 +848,21 @@ export declare class RangerAppWriterContext {
     rustGetUsageCount(varName: string): number;
     rustNeedsClone(varName: string): boolean;
     rustGetTempVar(): string;
-    getEnv(): InputEnv;
+    getEnv(): InputEnv | undefined;
     setTestCompile(): void;
     unsetTestCompile(): void;
     isTestCompile(): boolean;
     addOpFn(name: string, code: CodeNode): void;
     getOpFns(name: string): Promise<Array<CodeNode>>;
-    getLastBlockOp(): CodeNode;
+    getLastBlockOp(): CodeNode | undefined;
     removePluginOp(name: string): void;
     isPluginOp(node: CodeNode): boolean;
     addPlugin(p: RangerRegisteredPlugin): void;
     findPluginsFor(featureName: string): Array<string>;
     addTypeClass(name: string): RangerTypeClass;
-    getTypeClass(name: string): RangerTypeClass;
-    getParser(): RangerFlowParser;
-    getCompiler(): LiveCompiler;
+    getTypeClass(name: string): RangerTypeClass | undefined;
+    getParser(): RangerFlowParser | undefined;
+    getCompiler(): LiveCompiler | undefined;
     getTypedNodes(name: string): Promise<Array<CodeNode>>;
     addTypedNode(name: string, op: CodeNode): void;
     getPluginNodes(name: string): Promise<Array<CodeNode>>;
@@ -849,7 +884,7 @@ export declare class RangerAppWriterContext {
     addViewClassBody(name: string, classDef: CodeNode): void;
     addPage(name: string, classDef: CodeNode): void;
     addService(name: string, classDef: CodeNode): void;
-    getViewClass(s_name: string): CodeNode;
+    getViewClass(s_name: string): CodeNode | undefined;
     addOpNs(n: string): void;
     removeOpNs(n: string): void;
     inLambda(): boolean;
@@ -871,6 +906,7 @@ export declare class RangerAppWriterContext {
     transformTypeName(typeName: string): string;
     isPrimitiveType(typeName: string): boolean;
     isDefinedType(typeName: string): boolean;
+    isDefinedCollectionType(typeName: string): boolean;
     hadValidType(node: CodeNode): boolean;
     findOperator(node: CodeNode): CodeNode;
     getStdCommands(): CodeNode;
@@ -880,9 +916,9 @@ export declare class RangerAppWriterContext {
     createStaticMethod(withName: string, currC: RangerAppClassDesc, nameNode: CodeNode, argsNode: CodeNode, fnBody: CodeNode, parser: RangerFlowParser, wr: CodeWriter): Promise<RangerAppFunctionDesc>;
     canUseTypeInference(nameNode: CodeNode): boolean;
     createOpStaticClass(name: string): RangerAppClassDesc;
-    createTraitInstanceClass(traitName: string, instanceName: string, initParams: CodeNode, flowParser: RangerFlowParser, wr: CodeWriter): Promise<RangerAppClassDesc>;
+    createTraitInstanceClass(traitName: string, instanceName: string, initParams: CodeNode, flowParser: RangerFlowParser, wr: CodeWriter): Promise<RangerAppClassDesc> | undefined;
     createOperator(fromNode: CodeNode): void;
-    findClassMethod(cname: string, fname: string): RangerAppFunctionDesc;
+    findClassMethod(cname: string, fname: string): RangerAppFunctionDesc | undefined;
     getFileWriter(path: string, fileName: string): CodeWriter;
     addTodo(node: CodeNode, descr: string): void;
     setThisName(the_name: string): void;
@@ -899,7 +935,7 @@ export declare class RangerAppWriterContext {
     setStaticWriter(className: string, writer: CodeWriter): void;
     getStaticWriter(className: string): CodeWriter;
     isEnumDefined(n: string): boolean;
-    getEnum(n: string): RangerAppEnum;
+    getEnum(n: string): RangerAppEnum | undefined;
     isVarDefined(name: string): boolean;
     setFlag(name: string, value: boolean): void;
     getFlag(name: string): boolean;
@@ -919,6 +955,7 @@ export declare class RangerAppWriterContext {
     getFnVarCnt2(name: string): number;
     getFnVarCnt3(name: string): number;
     isMemberVariable(name: string): boolean;
+    assignParamCompiledName(p: RangerAppParamDesc): void;
     defineVariable(name: string, desc: RangerAppParamDesc): void;
     isDefinedClass(name: string): boolean;
     getRoot(): RangerAppWriterContext;
@@ -930,7 +967,7 @@ export declare class RangerAppWriterContext {
     setCurrentClass(cc: RangerAppClassDesc): void;
     disableCurrentClass(): void;
     hasCurrentClass(): boolean;
-    getCurrentClass(): RangerAppClassDesc;
+    getCurrentClass(): RangerAppClassDesc | undefined;
     restartExpressionLevel(): void;
     newBlock(): void;
     isInExpression(): boolean;
@@ -946,11 +983,47 @@ export declare class RangerAppWriterContext {
     isInMethod(): boolean;
     setInMethod(): void;
     unsetInMethod(): void;
-    findMethodLevelContext(): RangerAppWriterContext;
-    findClassLevelContext(): RangerAppWriterContext;
+    findMethodLevelContext(): RangerAppWriterContext | undefined;
+    findClassLevelContext(): RangerAppWriterContext | undefined;
     fork(): RangerAppWriterContext;
     getRootFile(): string;
     setRootFile(file_name: string): void;
+}
+export declare class SourceMapEntry {
+    genLine: number;
+    genCol: number;
+    sourceIdx: number;
+    origLine: number;
+    origCol: number;
+    nameIdx: number;
+    constructor();
+}
+export declare class SourceMapBuilder {
+    mappings: Array<SourceMapEntry>;
+    sources: Array<string>;
+    sourceToIdx: {
+        [key: string]: number;
+    };
+    sourcesContent: Array<string>;
+    names: Array<string>;
+    nameToIdx: {
+        [key: string]: number;
+    };
+    outputFile: string;
+    constructor();
+    isSyntheticSource(sourceFile: string): boolean;
+    registerSourceIdx(sourceFile: string, sourceContent: string): number;
+    registerNameIdx(name: string): number;
+    addMapping(genLine: number, genCol: number, sourceFile: string, sourceContent: string, origLine: number, origCol: number, name: string): void;
+    addMappingFromNode(genLine: number, genCol: number, node: CodeNode, name: string): void;
+    vlqBase64Chars(): string;
+    encodeVLQUnsigned(value: number): string;
+    encodeSignedVLQ(value: number): string;
+    buildMappingsString(): string;
+    jsonEscape(value: string): string;
+    jsonStringArray(items: Array<string>): string;
+    toJSON(fileName: string): string;
+    hasMappings(): boolean;
 }
 export declare class CodeFile {
     path_name: string;
@@ -961,19 +1034,25 @@ export declare class CodeFile {
     };
     import_names: Array<string>;
     fileSystem?: CodeFileSystem;
+    sourceMapBuilder?: SourceMapBuilder;
     constructor(filePath: string, fileName: string);
+    initSourceMapsIfNeeded(): void;
     addImport(import_name: string): void;
     rewrite(newString: string): void;
     testCreateWriter(): CodeWriter;
     getImports(): Array<string>;
-    getWriter(): CodeWriter;
+    getWriter(): CodeWriter | undefined;
     getCode(): string;
 }
 export declare class CodeFileSystem {
     files: Array<CodeFile>;
+    sourceMapsEnabled: boolean;
     constructor();
+    enableSourceMaps(): void;
+    shouldWriteSourceMaps(): boolean;
     getFile(path: string, name: string): CodeFile;
     mkdir(path: string): void;
+    isJsOutputFile(fileName: string): boolean;
     saveTo(path: string, verbose: boolean): void;
 }
 export declare class CodeSlice {
@@ -989,6 +1068,7 @@ export declare class CodeWriter {
     tabStr: string;
     nlStr: string;
     lineNumber: number;
+    columnNumber: number;
     indentAmount: number;
     compiledTags: {
         [key: string]: boolean;
@@ -1003,8 +1083,24 @@ export declare class CodeWriter {
     tagOffset: number;
     parent?: CodeWriter;
     had_nl: boolean;
+    sourceMapsEnabled: boolean;
+    sourceMapBuilder?: SourceMapBuilder;
+    mappingNodeStack: Array<CodeNode>;
+    mappingNameStack: Array<string>;
+    walkNodeStack: Array<CodeNode>;
     constructor();
     rewrite(newString: string): void;
+    enableSourceMaps(builder: SourceMapBuilder): void;
+    getActiveSourceMapBuilder(): SourceMapBuilder | undefined;
+    pushMappingNode(node: CodeNode, name: string): void;
+    popMappingNode(): void;
+    getCurrentMappingNode(): CodeNode | undefined;
+    getCurrentMappingName(): string;
+    pushWalkNode(node: CodeNode): void;
+    popWalkNode(): void;
+    getCurrentWalkNode(): CodeNode | undefined;
+    recordCurrentMapping(): void;
+    outMapped(str: string, node: CodeNode, newLine: boolean, name: string): void;
     getFilesystem(): CodeFileSystem;
     getFileWriter(path: string, fileName: string): CodeWriter;
     getImports(): Array<string>;
@@ -1017,6 +1113,8 @@ export declare class CodeWriter {
     fork(): CodeWriter;
     newline(): void;
     line_end(str: string): void;
+    advanceColumnForString(str: string): void;
+    syncColumnFromCurrentLine(): void;
     writeSlice(str: string, newLine: boolean): void;
     out(str: string, newLine: boolean): void;
     raw(str: string, newLine: boolean): void;
@@ -1042,14 +1140,27 @@ export declare class RangerLispParser {
     joo(cm: SourceCode): void;
     parse_raw_annotation(): CodeNode;
     skip_space(is_block_parent: boolean): boolean;
-    end_expression(): boolean;
+    end_expression(consumeCurrent: boolean): boolean;
     getOperator(disabled: boolean): number;
     isOperator(disabled: boolean): number;
     getOperatorPred(str: string, disabled: boolean): number;
+    isComparisonOpPred(pred: number): boolean;
+    isDotVRef(n: CodeNode): boolean;
+    isDotCallPairOnNode(node: CodeNode): boolean;
+    foldDotCallPairToGroup(node: CodeNode): void;
+    tryCloseCallArgParenBeforeInfix(): boolean;
     insert_node(p_node: CodeNode): void;
     parse_attributes(): boolean;
     parseXML(): void;
     parse(disable_ops: boolean): void;
+    static normalizeLineEndings(src: string): string;
+}
+export declare class TTypes {
+    constructor();
+    static nameToValue(name: string): number;
+    static isPrimitive(valueType: number): boolean;
+    static valueAsString(valueType: number): string;
+    static baseTypeAsEval(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
 }
 export declare class RangerArgMatch {
     _debug: boolean;
@@ -1073,11 +1184,14 @@ export declare class RangerArgMatch {
     add_atype(tplKeyword: string, typeName: string, ctx: RangerAppWriterContext): boolean;
     doesDefsMatch(arg: CodeNode, node: CodeNode, ctx: RangerAppWriterContext): boolean;
     doesMatch(arg: CodeNode, node: CodeNode, ctx: RangerAppWriterContext): boolean;
-    areEqualTypes(type1: string, type2: string, ctx: RangerAppWriterContext): boolean;
-    areEqualATypes(type1: string, type2: string, ctx: RangerAppWriterContext): boolean;
+    areEqualTypes(type1o: string, type2o: string, ctx: RangerAppWriterContext): boolean;
+    areEqualATypes(type1i: string, type2i: string, ctx: RangerAppWriterContext): boolean;
     getTypeName(n: string): string;
     getType(n: string): number;
     setRvBasedOn(arg: CodeNode, node: CodeNode): boolean;
+    nodeTypeString(node: CodeNode): string;
+    isCollectionTypeString(s: string): boolean;
+    applyTypeStringToNode(node: CodeNode, typeStr: string): void;
 }
 export declare class DictNode {
     is_property: boolean;
@@ -1100,28 +1214,32 @@ export declare class DictNode {
     addDouble(key: string, value: number): void;
     addInt(key: string, value: number): void;
     addBoolean(key: string, value: boolean): void;
-    addObject(key: string): DictNode;
+    addObject(key: string): DictNode | undefined;
     setObject(key: string, value: DictNode): void;
-    addArray(key: string): DictNode;
+    addArray(key: string): DictNode | undefined;
     push(obj: DictNode): void;
     getDoubleAt(index: number): number;
     getStringAt(index: number): string;
     getIntAt(index: number): number;
     getBooleanAt(index: number): boolean;
-    getString(key: string): string;
-    getDouble(key: string): number;
-    getInt(key: string): number;
-    getBoolean(key: string): boolean;
-    getArray(key: string): DictNode;
-    getArrayAt(index: number): DictNode;
-    getObject(key: string): DictNode;
-    getObjectAt(index: number): DictNode;
+    getString(key: string): string | undefined;
+    getDouble(key: string): number | undefined;
+    getInt(key: string): number | undefined;
+    getBoolean(key: string): boolean | undefined;
+    getArray(key: string): DictNode | undefined;
+    getArrayAt(index: number): DictNode | undefined;
+    getObject(key: string): DictNode | undefined;
+    getObjectAt(index: number): DictNode | undefined;
     stringify(): string;
     static createEmptyObject(): DictNode;
 }
 export declare class RangerSerializeClass {
     constructor();
     isSerializedClass(cName: string, ctx: RangerAppWriterContext): boolean;
+    canSerializeClass(cName: string, ctx: RangerAppWriterContext): boolean;
+    missesSerializeSupport(cName: string, ctx: RangerAppWriterContext): boolean;
+    describeFieldType(nn: CodeNode): string;
+    validateSerializedClass(cl: RangerAppClassDesc, ctx: RangerAppWriterContext): boolean;
     createWRWriter(pvar: RangerAppParamDesc, nn: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     createJSONSerializerFn(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     createWRWriter2(pvar: RangerAppParamDesc, nn: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
@@ -1132,6 +1250,55 @@ export declare class RangerImmutableExtension {
     constructor();
     typeDefOf(p: RangerAppParamDesc): string;
     createImmutableExtension(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter): void;
+}
+export declare class RangerProcessLifecycle {
+    constructor();
+    emitInvokeMethods(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter, regName: string): void;
+    emitStopSubtree(cl: RangerAppClassDesc, wr: CodeWriter, regName: string): void;
+}
+export declare class RangerProcessClass {
+    constructor();
+    emitAssignProcessId(wr: CodeWriter): void;
+    createProcessExtension(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter, typeId: number): void;
+    emitStaticHelpers(cl: RangerAppClassDesc, typeId: number, wr: CodeWriter, regName: string): void;
+    emitProcessNameRegistryExtension(processClasses: Array<RangerAppClassDesc>, wr: CodeWriter): void;
+    emitProcessRuntimeExtension(processClasses: Array<RangerAppClassDesc>, wr: CodeWriter): void;
+    emitProcessTypeScriptHelpers(processClasses: Array<RangerAppClassDesc>, wr: CodeWriter): void;
+}
+export declare class RangerProcessProcSend {
+    constructor();
+    static isReservedHandler(name: string): boolean;
+    static collectProcessClasses(ctx: RangerAppWriterContext): Array<RangerAppClassDesc>;
+    static findClassByPath(pathLit: string, processClasses: Array<RangerAppClassDesc>): RangerAppClassDesc | undefined;
+    static resolveTargetClass(parser: RangerFlowParser, target: CodeNode, processClasses: Array<RangerAppClassDesc>, ctx: RangerAppWriterContext, wr: CodeWriter, errNode: CodeNode): Promise<RangerAppClassDesc> | undefined;
+    static matchHandler(parser: RangerFlowParser, recvClass: RangerAppClassDesc, methodName: string, argNodes: Array<CodeNode>, ctx: RangerAppWriterContext, wr: CodeWriter, errNode: CodeNode): Promise<RangerAppFunctionDesc> | undefined;
+    static buildLiveGuard(targetVref: string): CodeNode;
+    static buildHandlerCall(targetVref: string, handlerName: string, argNodes: Array<CodeNode>): CodeNode;
+    static buildFindRootExpr(targetVref: string): CodeNode;
+    static buildDispatchTurnBoundary(opName: string, rootExpr: CodeNode): CodeNode;
+    static transform(parser: RangerFlowParser, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
+}
+export declare class RangerProcessProcStartCheck {
+    constructor();
+    static validate(parser: RangerFlowParser, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
+}
+export declare class RangerProcessCodegen {
+    constructor();
+    validateProcessNewSite(node: CodeNode, newCl: RangerAppClassDesc, ctx: RangerAppWriterContext): void;
+    shouldWrapProcessNew(procNewNode: CodeNode, procNewCtx: RangerAppWriterContext): boolean;
+    hasParentRegister(procNewCtx: RangerAppWriterContext): boolean;
+    writeNewArgs(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, writer: RangerGenericClassWriter): Promise<void>;
+    writeProcessInstanceRegisterCall(wr: CodeWriter, lang: string): void;
+    shouldUseProcessInstanceRegister(procNewCtx: RangerAppWriterContext, newCl: RangerAppClassDesc): boolean;
+    writeRegisterCall(procNewCtx: RangerAppWriterContext, wr: CodeWriter, lang: string, newCl: RangerAppClassDesc): void;
+    writeWrappedNewCallEs6(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, writer: RangerGenericClassWriter): Promise<void>;
+    writeWrappedNewCallKotlin(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, writer: RangerGenericClassWriter): Promise<void>;
+    writeWrappedNewCallSwift6(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, writer: RangerGenericClassWriter): Promise<void>;
+    writeWrappedNewCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, lang: string, writer: RangerGenericClassWriter): Promise<void>;
+    static isNamedProcess(cl: RangerAppClassDesc): boolean;
+    static isInProcessInstanceMethod(ctx: RangerAppWriterContext): boolean;
+    static isBootstrapSite(ctx: RangerAppWriterContext): boolean;
+    static isInsideNamedProcessMethod(ctx: RangerAppWriterContext): boolean;
 }
 export declare class RangerServiceBuilder {
     constructor();
@@ -1155,13 +1322,6 @@ export declare class TFiles {
     static searchEnv(env: InputEnv, paths: Array<string>, fileName: string): string;
     static search(paths: Array<string>, fileName: string): string;
 }
-export declare class TTypes {
-    constructor();
-    static nameToValue(name: string): number;
-    static isPrimitive(valueType: number): boolean;
-    static valueAsString(valueType: number): string;
-    static baseTypeAsEval(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
-}
 export declare class ClassJoinPoint {
     class_def?: RangerAppClassDesc;
     node?: CodeNode;
@@ -1182,6 +1342,7 @@ export declare class RangerFlowParser {
     walkAlso: Array<CodeNode>;
     serializedClasses: Array<RangerAppClassDesc>;
     immutableClasses: Array<RangerAppClassDesc>;
+    processClasses: Array<RangerAppClassDesc>;
     classesWithTraits: Array<ClassJoinPoint>;
     collectedIntefaces: Array<RangerAppClassDesc>;
     definedInterfaces: {
@@ -1205,6 +1366,7 @@ export declare class RangerFlowParser {
         [key: string]: string;
     };
     constructor();
+    fixExpressionAssignmentChains(node: CodeNode): void;
     WalkNodeChildren(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     WalkNode(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
     getVoidNameSignature(): string;
@@ -1216,17 +1378,24 @@ export declare class RangerFlowParser {
     EnterFn(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, callback: (node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, nameNode: CodeNode, fnArgs: CodeNode, fnBody: CodeNode, desc: RangerAppClassDesc) => void): Promise<void>;
     Constructor(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     WriteScalarValue(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
+    normalizeNewArgList(node: CodeNode): void;
     cmdNew(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     transformParams(list: Array<CodeNode>, fnArgs: Array<RangerAppParamDesc>, ctx: RangerAppWriterContext): Array<CodeNode>;
     transformParams2(list: Array<CodeNode>, fnArgs: Array<CodeNode>, ctx: RangerAppWriterContext): Array<CodeNode>;
     CreateCTTI(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
     CreateRTTI(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
     SolveAsyncFuncs(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    matchMethodCall(cl: RangerAppClassDesc, methodName: string, callArgs: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, errNode: CodeNode): Promise<RangerAppFunctionDesc> | undefined;
     cmdCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
     matchLambdaArgs(n1: CodeNode, n2: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
     testLambdaCallArgs(lambda_expression: CodeNode, callParams: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
     cmdLocalCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
     transformImmutableAssigment(node: CodeNode): CodeNode;
+    transformDotMethodCallExpr(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
+    repairUnaryMinusExpr(node: CodeNode): void;
+    repairAssignUnaryMinusRhs(node: CodeNode): void;
+    repairAssignMethodCallRhs(node: CodeNode): void;
+    checkInitializedObjectReceiver(receiverName: string, node: CodeNode, ctx: RangerAppWriterContext): void;
     cmdAssign(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     EnterTemplateClass(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     EnterClass(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1246,22 +1415,36 @@ export declare class RangerFlowParser {
     matchNode(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
     StartWalk(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     clearImports(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
+    registerLangSystemClasses(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
+    walkLangDefinitions(node: CodeNode, ctx: RangerAppWriterContext): void;
+    registerSystemClassFromNode(node: CodeNode, ctx: RangerAppWriterContext): void;
+    registerSystemUnionFromNode(node: CodeNode, ctx: RangerAppWriterContext): void;
+    finalizeRecordClasses(ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    expandRecordCtorArgsIfNeeded(cl: RangerAppClassDesc, fnDescr: RangerAppFunctionDesc, params: CodeNode, node: CodeNode): void;
+    buildRecordConstructor(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     mergeImports(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     CollectMethods(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     defineFunctionParam(method: RangerAppFunctionDesc, arg: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     spliceFunctionBody(startIndex: number, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): CodeNode;
     CreateFunctionObject(orig_node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<RangerAppFunctionDesc>;
     WalkCollectMethods(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
-    findFunctionDesc(obj: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerAppFunctionDesc;
-    findParamDesc(obj: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerAppParamDesc;
+    varShadowsSystemType(strname: string, ctx: RangerAppWriterContext): boolean;
+    findFunctionDesc(obj: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerAppFunctionDesc | undefined;
+    findParamDesc(obj: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerAppParamDesc | undefined;
     convertToUnion(unionName: string, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     transformMethodToLambda(node: CodeNode, vFnDef: RangerAppFunctionDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     areEqualTypes(n1: CodeNode, n2: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
     shouldBeEqualTypes(n1: CodeNode, n2: CodeNode, ctx: RangerAppWriterContext, msg: string): void;
     shouldBeExpression(n1: CodeNode, ctx: RangerAppWriterContext, msg: string): void;
     shouldHaveChildCnt(cnt: number, n1: CodeNode, ctx: RangerAppWriterContext, msg: string): void;
-    findLanguageOper(details: CodeNode, ctx: RangerAppWriterContext, opDef: CodeNode): Promise<CodeNode>;
+    readProcessPathFromClassTree(root: CodeNode): string;
+    applyProcessClassMeta(cl: RangerAppClassDesc, classNameNode: CodeNode, node: CodeNode, ctx: RangerAppWriterContext): void;
+    resolveProcessPathFromFields(cl: RangerAppClassDesc): void;
+    validateProcessPaths(processClasses: Array<RangerAppClassDesc>, ctx: RangerAppWriterContext): void;
+    isValidProcessPath(pathStr: string): boolean;
+    findLanguageOper(details: CodeNode, ctx: RangerAppWriterContext, opDef: CodeNode): Promise<CodeNode> | undefined;
     buildMacro(langOper: CodeNode, args: CodeNode, ctx: RangerAppWriterContext): Promise<CodeNode>;
+    operandIsNonOptionalForNullCheck(node: CodeNode): boolean;
     stdParamMatch(callArgs: CodeNode, inCtx: RangerAppWriterContext, wr: CodeWriter, require_all_match: boolean): Promise<boolean>;
 }
 export declare class TFactory {
@@ -1327,6 +1510,8 @@ export declare class RangerGenericClassWriter {
     writeTypeDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeRawTypeDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     adjustType(tn: string): string;
+    defValueHasSideEffects(value: CodeNode): boolean;
+    writeSideEffectOnlyStmt(value: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     WriteVRef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeVarDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     CreateCallExpression(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1340,6 +1525,8 @@ export declare class RangerGenericClassWriter {
     CreateLambdaCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     CreateLambda(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeFnCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    walkNewArgForProcess(n: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    tryWriteProcessNewCall(procNewNode: CodeNode, procNewCtx: RangerAppWriterContext, outWr: CodeWriter): Promise<boolean>;
     writeNewCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeInterface(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     disabledVarDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1410,6 +1597,7 @@ export declare class RangerSwift6ClassWriter extends RangerGenericClassWriter {
     constructor();
     adjustType(tn: string): string;
     getObjectTypeString(type_string: string, ctx: RangerAppWriterContext): string;
+    collectionTypeStringToSwift(type_string: string, ctx: RangerAppWriterContext): string;
     getTypeString(type_string: string): string;
     writeTypeDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     WriteEnum(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1417,6 +1605,8 @@ export declare class RangerSwift6ClassWriter extends RangerGenericClassWriter {
     writeVarDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeArgsDef(fnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeArgsDefWithLocals(fnDesc: RangerAppFunctionDesc, localFnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    resolveCallReceiverClassName(obj: CodeNode, ctx: RangerAppWriterContext): string;
+    isSimpleClassCallReceiver(obj: CodeNode, ctx: RangerAppWriterContext): boolean;
     CreateCallExpression(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeFnCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     CreateLambdaCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1425,18 +1615,28 @@ export declare class RangerSwift6ClassWriter extends RangerGenericClassWriter {
     haveSameSig(fn1: RangerAppFunctionDesc, fn2: RangerAppFunctionDesc, ctx: RangerAppWriterContext): boolean;
     CustomOperator(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    resolveMethodFnDesc(methodNode: CodeNode, ctx: RangerAppWriterContext): RangerAppFunctionDesc | undefined;
+    CreateMethodCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
 }
 export declare class RangerCppClassWriter extends RangerGenericClassWriter {
     compiler?: LiveCompiler;
     header_created: boolean;
+    buf_ret_seen: boolean;
+    buf_ret_all_safe: boolean;
     constructor();
     lineEnding(): string;
     adjustType(tn: string): string;
     WriteScalarValue(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     getObjectTypeString(type_string: string, ctx: RangerAppWriterContext): string;
+    collectionTypeStringToCpp(type_string: string, ctx: RangerAppWriterContext): string;
     getTypeString2(type_string: string, ctx: RangerAppWriterContext): string;
     writePtr(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     writeTypeDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    cppMemberPathOf(node: CodeNode): string;
+    cppReturnIsSafeBufferLvalue(retValue: CodeNode): boolean;
+    cppScanBufferReturns(node: CodeNode): void;
+    cppBufferReturnByRef(variant: RangerAppFunctionDesc, ctx: RangerAppWriterContext): boolean;
+    writeReturnTypeDef(variant: RangerAppFunctionDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     WriteVRef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeVarDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     disabledVarDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1447,6 +1647,7 @@ export declare class RangerCppClassWriter extends RangerGenericClassWriter {
     CreateLambdaCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     CreateLambda(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeCppHeaderVar(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter, do_initialize: boolean): Promise<void>;
+    cppReadonlyValueParam(arg: RangerAppParamDesc): boolean;
     writeArgsDef(fnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeFnCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeNewCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1504,6 +1705,7 @@ export declare class RangerRustClassWriter extends RangerGenericClassWriter {
     findSelfCallInArgs(node: CodeNode): number;
     writeFnCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeNewCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    writeArrayLiteral(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
     CustomOperator(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
 }
@@ -1513,10 +1715,12 @@ export declare class RangerKotlinClassWriter extends RangerGenericClassWriter {
     WriteScalarValue(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     adjustType(tn: string): string;
     getObjectTypeString(type_string: string, ctx: RangerAppWriterContext): string;
+    collectionTypeStringToKotlin(type_string: string, ctx: RangerAppWriterContext): string;
     getTypeString(type_string: string): string;
     writeTypeDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     WriteVRef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeVarDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    paramEmitName(arg: RangerAppParamDesc, ctx: RangerAppWriterContext): string;
     writeArgsDef(fnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeFnCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeNewCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1661,12 +1865,14 @@ export declare class RangerJavaScriptClassWriter extends RangerGenericClassWrite
     target_esm: boolean;
     constructor();
     lineEnding(): string;
+    writeTsOptionalReturnSuffix(variant: RangerAppFunctionDesc, wr: CodeWriter): void;
     adjustType(tn: string): string;
     CreateTsUnions(parser: RangerFlowParser, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     isOptionalReference(node: CodeNode): boolean;
     writeFnCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     CreateCallExpression(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     getObjectTypeString(type_string: string, ctx: RangerAppWriterContext): string;
+    collectionTypeStringToTs(type_string: string, ctx: RangerAppWriterContext): string;
     getTypeString(type_string: string): string;
     writeTypeDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     WriteVRef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1703,6 +1909,619 @@ export declare class RangerRangerClassWriter extends RangerGenericClassWriter {
     CreateCallExpression(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
+export declare class LowIRUtil {
+    constructor();
+    static typeFromRanger(typeName: string): string;
+    static isSupportedPrimitive(typeName: string): boolean;
+    static isStringType(typeName: string): boolean;
+    static isArrayTypeName(typeName: string): boolean;
+    static isBufferTypeName(typeName: string): boolean;
+    static isSupportedParam(typeName: string): boolean;
+    static fieldIrType(typeName: string): string;
+    static mangleMethod(className: string, methodName: string): string;
+    static structPtrType(className: string): string;
+    static structType(className: string): string;
+    static moduleUsesHeap(module: LowIRModule): boolean;
+}
+export declare class LowIRParam {
+    name: string;
+    irType: string;
+    constructor();
+}
+export declare class LowIRInstr {
+    op: string;
+    dest: string;
+    irType: string;
+    arg1: string;
+    arg2: string;
+    arg3: string;
+    pred: string;
+    fnName: string;
+    callArgs: Array<string>;
+    callTypes: Array<string>;
+    callSig: string;
+    structName: string;
+    fieldIndex: number;
+    structSize: number;
+    constructor();
+}
+export declare class LowIRBlock {
+    label: string;
+    instrs: Array<LowIRInstr>;
+    termKind: string;
+    termType: string;
+    termValue: string;
+    termTarget: string;
+    termIfTrue: string;
+    termIfFalse: string;
+    constructor();
+}
+export declare class LowIRFunction {
+    name: string;
+    exportFn: boolean;
+    isMain: boolean;
+    returnType: string;
+    params: Array<LowIRParam>;
+    blocks: Array<LowIRBlock>;
+    constructor();
+}
+export declare class LowIRField {
+    name: string;
+    irType: string;
+    isPtrArray: boolean;
+    isBool: boolean;
+    isString: boolean;
+    isBuffer: boolean;
+    isObject: boolean;
+    constructor();
+}
+export declare class LowIRTypeFieldDesc {
+    offset: number;
+    kind: number;
+    owned: number;
+    constructor();
+}
+export declare class LowIRTypeDesc {
+    className: string;
+    size: number;
+    fields: Array<LowIRTypeFieldDesc>;
+    constructor();
+}
+export declare class LowIRStruct {
+    name: string;
+    fields: Array<LowIRField>;
+    constructor();
+}
+export declare class LowIRStringGlobal {
+    name: string;
+    text: string;
+    byteLen: number;
+    withNewline: boolean;
+    constructor();
+}
+export declare class LowIRExternDecl {
+    fnName: string;
+    retType: string;
+    paramTypes: Array<string>;
+    isVararg: boolean;
+    declSig: string;
+    constructor();
+}
+export declare class LowIRModule {
+    name: string;
+    triple: string;
+    ptrType: string;
+    useLibcHeap: boolean;
+    useFreeListHeap: boolean;
+    structs: Array<LowIRStruct>;
+    typeDescs: Array<LowIRTypeDesc>;
+    functions: Array<LowIRFunction>;
+    stringGlobals: Array<LowIRStringGlobal>;
+    externDecls: Array<LowIRExternDecl>;
+    singletonClasses: Array<string>;
+    lambdaTableFuncs: Array<string>;
+    lambdaSigs: Array<string>;
+    constructor();
+}
+export declare class LowIRSession {
+    module: LowIRModule;
+    constructor();
+    beginModule(moduleName: string): void;
+    static current(): LowIRSession;
+    static __singleton_instance: LowIRSession | null;
+    static __singleton(): LowIRSession;
+}
+export declare class LowIRBuilder {
+    irModule?: LowIRModule;
+    tempCounter: number;
+    blockCounter: number;
+    blocks: Array<LowIRBlock>;
+    currentBlock?: LowIRBlock;
+    constructor(module: LowIRModule);
+    freshTemp(prefix: string): string;
+    freshLabel(prefix: string): string;
+    reset(): void;
+    startBlock(label: string): string;
+    emit(instr: LowIRInstr): LowIRInstr;
+    emitToEntry(instr: LowIRInstr): LowIRInstr;
+    emitConst(irType: string, value: string): string;
+    emitBin(kind: string, irType: string, lhs: string, rhs: string): string;
+    emitIcmp(pred: string, lhs: string, rhs: string): string;
+    emitIcmpTyped(pred: string, operandType: string, lhs: string, rhs: string): string;
+    emitPtrToInt(ptr: string): string;
+    emitCall(fnName: string, retType: string, args: Array<string>, argTypes: Array<string>): string;
+    emitComment(text: string): void;
+    emitCallWithSig(fnName: string, retType: string, callSig: string, args: Array<string>, argTypes: Array<string>): string;
+    emitAllocaStruct(className: string, slotName: string, fieldCount: number): string;
+    emitGep(className: string, structPtr: string, fieldIndex: number): string;
+    emitAlloca(irType: string, slotName: string): string;
+    emitZeroInitToEntry(irType: string, slotName: string): void;
+    emitLoad(irType: string, slotName: string): string;
+    emitStore(irType: string, value: string, slotName: string): void;
+    emitHeapAlloc(byteCount: string): string;
+    emitIntToI8Ptr(addr: string, addrType: string): string;
+    emitIntToStructPtr(className: string, addr: string): string;
+    emitCast(castOp: string, destType: string, srcType: string, value: string): string;
+    emitZextI1ToI32(v: string): string;
+    emitZextI32ToPtr(v: string): string;
+    emitPtrLoad(ptr: string): string;
+    emitPtrLoadTyped(ptr: string, valueType: string): string;
+    emitPtrStore(ptr: string, value: string): void;
+    emitPtrStoreTyped(ptr: string, value: string, valueType: string): void;
+    emitPtrLoad8(ptr: string): string;
+    emitPtrStore8(ptr: string, value: string): void;
+    emitMemSize(): string;
+    emitMemGrow(pages: string): string;
+    emitGlobalGet(name: string): string;
+    emitGlobalSet(name: string, value: string): void;
+    emitFuncRef(name: string): string;
+    emitCallIndirect(retType: string, callSig: string, args: Array<string>, argTypes: Array<string>, selector: string): string;
+    emitI32At(base: string, byteOff: number): string;
+    emitStoreI32At(base: string, byteOff: number, value: string): void;
+    emitLoadI32At(base: string, byteOff: number): string;
+    emitStrPtr(globalName: string, byteLen: number): string;
+    emitTypeDescPtr(className: string): string;
+    terminateRet(retType: string, value: string): void;
+    terminateBr(target: string): void;
+    terminateBrIf(cond: string, ifTrue: string, ifFalse: string): void;
+    terminateUnreachable(): void;
+    finishFunction(name: string, retType: string, params: Array<LowIRParam>, exportFn: boolean, isMain: boolean): string;
+}
+export declare class LowIRRuntimeGen {
+    constructor();
+    static hasFunction(module: LowIRModule, name: string): boolean;
+    static ensureArrayRuntime(module: LowIRModule): void;
+    static ensureMapRuntime(module: LowIRModule): void;
+    static finishFn(builder: LowIRBuilder, module: LowIRModule, name: string, retType: string, params: Array<LowIRParam>, exportFn: boolean): void;
+    static buildRtArraySet(module: LowIRModule): void;
+    static arrayLenOff(module: LowIRModule): number;
+    static arrayCapOff(module: LowIRModule): number;
+    static arrayDescBytes(module: LowIRModule): number;
+    static mapValsOff(module: LowIRModule): number;
+    static mapCapOff(module: LowIRModule): number;
+    static mapSizeOff(module: LowIRModule): number;
+    static mapDescBytes(module: LowIRModule): number;
+    static emitDescLoad(builder: LowIRBuilder, module: LowIRModule, desc: string, byteOff: number): string;
+    static emitKeysPtr(builder: LowIRBuilder, module: LowIRModule, desc: string): string;
+    static emitValsPtr(builder: LowIRBuilder, module: LowIRModule, desc: string): string;
+    static emitCap(builder: LowIRBuilder, module: LowIRModule, desc: string): string;
+    static emitSize(builder: LowIRBuilder, module: LowIRModule, desc: string): string;
+    static emitSlotAddr(builder: LowIRBuilder, module: LowIRModule, base: string, slot: string): string;
+    static emitFreePtr(builder: LowIRBuilder, module: LowIRModule, ptr: string): void;
+    static buildRtMapNew(module: LowIRModule): void;
+    static buildRtMapGrow(module: LowIRModule): void;
+    static buildRtMapFree(module: LowIRModule): void;
+    static buildRtMapHashSlot(module: LowIRModule): void;
+    static buildRtMapPutAt(module: LowIRModule): void;
+    static buildRtMapPut(module: LowIRModule): void;
+    static buildRtMapGetAt(module: LowIRModule): void;
+    static buildRtMapGet(module: LowIRModule): void;
+    static buildRtMapHas(module: LowIRModule): void;
+    static ptrBytes(module: LowIRModule): number;
+    static descMetaOff(module: LowIRModule): number;
+    static ensurePtrArrayRuntime(module: LowIRModule): void;
+    static buildRtPtrArrayNew(module: LowIRModule): void;
+    static buildRtPtrArrayLen(module: LowIRModule): void;
+    static buildRtPtrArrayGet(module: LowIRModule): void;
+    static buildRtPtrArraySet(module: LowIRModule): void;
+    static buildRtPtrArrayPush(module: LowIRModule): void;
+}
+export declare class LowIRTarget {
+    arch: string;
+    env: string;
+    triple: string;
+    ptrType: string;
+    usesLibc: boolean;
+    ioFn: string;
+    ioFnRet: string;
+    ioFnVararg: boolean;
+    constructor();
+    memoryModel(): string;
+    isManualMemory(): boolean;
+    static resolve(ctx: RangerAppWriterContext): LowIRTarget;
+    static applyName(t: LowIRTarget, name: string): void;
+    static applyExplicitTriple(t: LowIRTarget, triple: string): void;
+    static applyNameKnown(t: LowIRTarget, name: string): void;
+}
+export declare class LowIRLowerContext {
+    ctx?: RangerAppWriterContext;
+    builder?: LowIRBuilder;
+    target?: LowIRTarget;
+    ptrType: string;
+    slots: {
+        [key: string]: string;
+    };
+    slotTypes: {
+        [key: string]: string;
+    };
+    objectSlots: {
+        [key: string]: string;
+    };
+    collectionSlots: {
+        [key: string]: string;
+    };
+    ptrArrayElemTypes: {
+        [key: string]: string;
+    };
+    ownedObjectLocals: Array<string>;
+    ownedCollectionLocals: Array<string>;
+    ownedStringLocals: Array<string>;
+    pendingStringTemps: Array<string>;
+    pendingObjectTemps: Array<string>;
+    boxedCandidates: {
+        [key: string]: number;
+    };
+    boxedLocals: {
+        [key: string]: number;
+    };
+    escapedLocals: {
+        [key: string]: string;
+    };
+    currentRetType: string;
+    llvmRetType: string;
+    className: string;
+    selfPtr: string;
+    constructor();
+}
+export declare class LambdaCaptureInfo {
+    names: Array<string>;
+    irTypes: Array<string>;
+    kinds: Array<number>;
+    objClasses: Array<string>;
+    offsets: Array<number>;
+    totalBytes: number;
+    hasOwned: boolean;
+    tdName: string;
+    constructor();
+}
+export declare class LowIRBuilderPass {
+    irModule: LowIRModule;
+    usedMapRuntime: boolean;
+    usedArrayRuntime: boolean;
+    usedPtrArrayRuntime: boolean;
+    usedMemRuntime: boolean;
+    lambdaSigMap: {
+        [key: string]: string;
+    };
+    lambdaByName: {
+        [key: string]: RangerAppFunctionDesc;
+    };
+    lambdaNames: Array<string>;
+    lambdaCounter: number;
+    lambdaCaptures: {
+        [key: string]: LambdaCaptureInfo;
+    };
+    constructor();
+    isLambdaTypeNode(node: CodeNode): boolean;
+    canLowerFunction(fnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext): boolean;
+    canLowerMethod(fnDesc: RangerAppFunctionDesc): boolean;
+    canLowerInstanceMethod(fnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext): boolean;
+    isMainEntry(fnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext): boolean;
+    shouldExport(fnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext): boolean;
+    lowerModule(appCtx: RangerAppWriterContext): LowIRModule;
+    ensureExternDecl(fnName: string, retType: string, paramTypes: Array<string>, isVararg: boolean): void;
+    ensureLibcExtern(target: LowIRTarget): void;
+    ensureBufferExtern(target: LowIRTarget): void;
+    ensureMemExtern(target: LowIRTarget): void;
+    memEnabled(lctx: LowIRLowerContext): boolean;
+    objRcEnabled(lctx: LowIRLowerContext): boolean;
+    wasmStrEnabled(lctx: LowIRLowerContext): boolean;
+    isLowerableParamType(typeName: string): boolean;
+    llvmTypeForRanger(typeName: string, ptrType: string): string;
+    varTypeName(nameNode: CodeNode): string;
+    exprIsObjectPtr(node: CodeNode, lctx: LowIRLowerContext): boolean;
+    isObjectTypeName(typeName: string): boolean;
+    exprIsString(node: CodeNode): boolean;
+    exprMightBeString(node: CodeNode, lctx: LowIRLowerContext): boolean;
+    lowerConcatOperand(node: CodeNode, isStr: boolean, lctx: LowIRLowerContext): string;
+    emitStrdupExpr(strPtr: string, lctx: LowIRLowerContext): string;
+    lowerStringConcat(aNode: CodeNode, bNode: CodeNode, lctx: LowIRLowerContext): string;
+    hasExternDecl(fnName: string): boolean;
+    internStringGlobal(text: string, withNewline: boolean): string;
+    utf8ByteLen(text: string): number;
+    stringGlobalByteLen(gname: string): number;
+    printTextFromNode(node: CodeNode): string;
+    emitIoString(text: string, withNewline: boolean, lctx: LowIRLowerContext): void;
+    emitPrintfFmt(fmt: string, args: Array<string>, argTypes: Array<string>, lctx: LowIRLowerContext): void;
+    lowerPrint(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerWrite(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerExit(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerSleepMs(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerTerminalEsc(text: string, lctx: LowIRLowerContext): void;
+    emitTermVoidCall(fnName: string, lctx: LowIRLowerContext): void;
+    lowerClearScreen(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerHideCursor(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerShowCursor(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerMoveCursor(node: CodeNode, lctx: LowIRLowerContext): void;
+    forIndexName(idxNode: CodeNode): string;
+    resolveItemClass(itemNode: CodeNode): string;
+    lowerPollKeypress(lctx: LowIRLowerContext): string;
+    lowerOnKeypress(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerShellArgCnt(lctx: LowIRLowerContext): string;
+    lowerShellArg(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerReadFile(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerBufferAlloc(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerBufferLength(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerBufferGet(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerBufferSet(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerBufferReadFile(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerBufferWriteFile(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerIntBufferAlloc(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerIntBufferGet(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerIntBufferSet(node: CodeNode, lctx: LowIRLowerContext): string;
+    exprIsF64(node: CodeNode): boolean;
+    promoteToF64(node: CodeNode, val: string, lctx: LowIRLowerContext): string;
+    lowerToDouble(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerToInt(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerStr2Double(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerStr2Int(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerIntBufferFill(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerCharAt(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerSubstring(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerAtArgs(textNode: CodeNode, posNode: CodeNode, lctx: LowIRLowerContext): string;
+    lowerAt(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerAtCall(argsNode: CodeNode, lctx: LowIRLowerContext): string;
+    lowerPtrIsNull(ptr: string, lctx: LowIRLowerContext): string;
+    lowerPtrIsNotNull(ptr: string, lctx: LowIRLowerContext): string;
+    loadArrayDescExpr(arrNode: CodeNode, lctx: LowIRLowerContext): string;
+    pushItemNeedsWiden(itemNode: CodeNode, lctx: LowIRLowerContext): boolean;
+    arrayElemTypeName(arrNode: CodeNode, lctx: LowIRLowerContext): string;
+    lowerPush(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerFor(node: CodeNode, lctx: LowIRLowerContext): void;
+    emitStrcmpEq(lhs: string, rhs: string, ctx: LowIRLowerContext): string;
+    lowerToString(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerStrFromCode(node: CodeNode, fnName: string, lctx: LowIRLowerContext): string;
+    lowerStrlen(node: CodeNode, lctx: LowIRLowerContext): string;
+    isIntArrayTypeNode(node: CodeNode): boolean;
+    isIntIntMapTypeNode(node: CodeNode): boolean;
+    isObjectPtrArrayTypeNode(node: CodeNode): boolean;
+    isStringArrayTypeNode(node: CodeNode): boolean;
+    emitPtrArrayNewEmpty(lctx: LowIRLowerContext, elemKind: number): string;
+    bindPtrArraySlot(varName: string, desc: string, lctx: LowIRLowerContext, owned: boolean): void;
+    wasmCollectionRcEnabled(lctx: LowIRLowerContext): boolean;
+    collectionKind(varName: string, lctx: LowIRLowerContext): string;
+    arrayLenOff(lctx: LowIRLowerContext): number;
+    arrayCapOff(lctx: LowIRLowerContext): number;
+    arrayDescBytes(lctx: LowIRLowerContext): number;
+    ptrArrayOwnedOff(lctx: LowIRLowerContext): number;
+    bindCollectionSlot(varName: string, kind: string, desc: string, lctx: LowIRLowerContext): void;
+    loadCollectionDesc(varName: string, lctx: LowIRLowerContext): string;
+    emitDescLoad(desc: string, byteOff: number, lctx: LowIRLowerContext): string;
+    emitRtArrayNewEmpty(lctx: LowIRLowerContext): string;
+    emitRtArrayNewSized(cap: string, lctx: LowIRLowerContext): string;
+    emitRtArrayGet(desc: string, idx: string, lctx: LowIRLowerContext): string;
+    emitRtArraySet(desc: string, idx: string, val: string, lctx: LowIRLowerContext): void;
+    emitRtArrayLen(desc: string, lctx: LowIRLowerContext): string;
+    emitRtMapNew(cap: string, lctx: LowIRLowerContext): string;
+    emitRtMapPut(desc: string, key: string, val: string, lctx: LowIRLowerContext): void;
+    emitRtMapGet(desc: string, key: string, lctx: LowIRLowerContext): string;
+    emitRtMapHas(desc: string, key: string, lctx: LowIRLowerContext): string;
+    lowerCollectionMake(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerCollectionGet(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerCollectionLen(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerCollectionHas(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerCollectionSet(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerStruct(cl: RangerAppClassDesc, ctx: RangerAppWriterContext): void;
+    lowerTypeDesc(st: LowIRStruct, target: LowIRTarget): void;
+    fieldByteOffset(className: string, fieldIndex: number, module: LowIRModule): number;
+    bindSlot(varName: string, irType: string, value: string, lctx: LowIRLowerContext): void;
+    loadSlot(varName: string, irType: string, lctx: LowIRLowerContext): string;
+    fieldIrTypeFor(className: string, fieldName: string): string;
+    fieldIsPtrArraySlot(className: string, fieldName: string): boolean;
+    fieldIsObjectSlot(className: string, fieldName: string): boolean;
+    fieldIsStringSlot(className: string, fieldName: string): boolean;
+    fieldIsBufferSlot(className: string, fieldName: string): boolean;
+    fieldIsBoolSlot(className: string, fieldName: string): boolean;
+    ptrArrayDescFromVref(vref: string, lctx: LowIRLowerContext): string;
+    loadPtrArrayDescExpr(arrNode: CodeNode, lctx: LowIRLowerContext): string;
+    emitPtrArrayLen(desc: string, lctx: LowIRLowerContext): string;
+    fieldArrayElemType(className: string, fieldName: string, lctx: LowIRLowerContext): string;
+    ptrArrayElemIsInt(arrNode: CodeNode, lctx: LowIRLowerContext): boolean;
+    lowerItemAt(node: CodeNode, lctx: LowIRLowerContext): string;
+    emitPtrArrayElemGet(desc: string, idx: string, arrNode: CodeNode, lctx: LowIRLowerContext): string;
+    emitPtrArrayElemSet(desc: string, idx: string, val: string, arrNode: CodeNode, lctx: LowIRLowerContext): void;
+    emitFieldLoadOn(className: string, structPtr: string, fieldName: string, lctx: LowIRLowerContext): string;
+    emitReleaseFieldValue(className: string, fieldName: string, rawVal: string, lctx: LowIRLowerContext): void;
+    emitFieldStoreOn(className: string, structPtr: string, fieldName: string, value: string, lctx: LowIRLowerContext): void;
+    emitFieldStoreOnEx(className: string, structPtr: string, fieldName: string, value: string, srcIsFresh: boolean, lctx: LowIRLowerContext): void;
+    emitObjRetainPtr(ptr: string, lctx: LowIRLowerContext): void;
+    emitObjReleasePtr(ptr: string, lctx: LowIRLowerContext): void;
+    emitFieldLoad(fieldName: string, lctx: LowIRLowerContext): string;
+    emitFieldStore(fieldName: string, value: string, lctx: LowIRLowerContext): void;
+    fieldObjectClassName(className: string, fieldName: string, lctx: LowIRLowerContext): string;
+    resolveObjectPtr(varName: string, className: string, lctx: LowIRLowerContext): string;
+    joinDotPrefix(parts: Array<string>, count: number): string;
+    resolveObjectClassChain(varName: string, lctx: LowIRLowerContext): string;
+    resolveObjectPtrChain(varName: string, className: string, lctx: LowIRLowerContext): string;
+    resolveObjectClass(varName: string, lctx: LowIRLowerContext): string;
+    resolveFieldPtrExpr(vref: string, lctx: LowIRLowerContext): string;
+    isObjectArrayField(v: RangerAppParamDesc): boolean;
+    newTargetClassName(node: CodeNode, lctx: LowIRLowerContext): string;
+    emitFieldDefault(className: string, objPtr: string, fieldName: string, valNode: CodeNode, lctx: LowIRLowerContext): void;
+    initFieldDefaultsInObject(className: string, objPtr: string, lctx: LowIRLowerContext): void;
+    initFieldDefaultsInConstructor(className: string, lctx: LowIRLowerContext): void;
+    initArrayFieldsInObject(className: string, objPtr: string, lctx: LowIRLowerContext): void;
+    initArrayFieldsInConstructor(className: string, lctx: LowIRLowerContext): void;
+    structByteSize(className: string, module: LowIRModule): number;
+    classHasOwnedFields(className: string): boolean;
+    lowerNewObject(className: string, argsNode: CodeNode, lctx: LowIRLowerContext): string;
+    findFieldIndex(className: string, fieldName: string, module: LowIRModule): number;
+    isClassField(fieldName: string, className: string, module: LowIRModule): boolean;
+    structFieldCount(className: string, module: LowIRModule): number;
+    lowerFunction(fnDesc: RangerAppFunctionDesc, className: string, appCtx: RangerAppWriterContext, exportFn: boolean, isMain: boolean, isInstance: boolean): void;
+    lowerSingletonAccessor(cl: RangerAppClassDesc, appCtx: RangerAppWriterContext): void;
+    collectLambdas(appCtx: RangerAppWriterContext): void;
+    collectMethodLambdas(m: RangerAppFunctionDesc, pt: string): void;
+    lambdaCallSig(lam: RangerAppFunctionDesc, pt: string): string;
+    addLambdaSig(sig: string): void;
+    lowerLambdaBodies(appCtx: RangerAppWriterContext): void;
+    lowerLambdaFunction(lam: RangerAppFunctionDesc, fnName: string, appCtx: RangerAppWriterContext): void;
+    lambdaTableIndex(name: string): number;
+    nodeAssignsToName(node: CodeNode, name: string): boolean;
+    computeBoxedCandidates(fnDesc: RangerAppFunctionDesc, lctx: LowIRLowerContext): void;
+    collectBoxedCandidates(m: RangerAppFunctionDesc, lctx: LowIRLowerContext): void;
+    computeLambdaCaptures(node: CodeNode, lam: RangerAppFunctionDesc, lctx: LowIRLowerContext): LambdaCaptureInfo;
+    lowerLambdaValue(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerLambdaCall(node: CodeNode, lctx: LowIRLowerContext): string;
+    isOwnedObjectLocal(varName: string, lctx: LowIRLowerContext): boolean;
+    releaseOwnedLocal(varName: string, lctx: LowIRLowerContext): void;
+    isOwnedStringLocal(varName: string, lctx: LowIRLowerContext): boolean;
+    registerFreshStringTemp(tmp: string, lctx: LowIRLowerContext): void;
+    claimStringTemp(tmp: string, lctx: LowIRLowerContext): void;
+    flushStringTempsFrom(mark: number, lctx: LowIRLowerContext): void;
+    registerFreshObjectTemp(tmp: string, lctx: LowIRLowerContext): void;
+    claimObjectTemp(tmp: string, lctx: LowIRLowerContext): void;
+    flushObjectTempsFrom(mark: number, lctx: LowIRLowerContext): void;
+    emitStrReleasePtr(ptr: string, lctx: LowIRLowerContext): void;
+    releaseOwnedString(varName: string, lctx: LowIRLowerContext): void;
+    releaseOwnedCollectionLocal(varName: string, lctx: LowIRLowerContext): void;
+    emitOwnedStringInit(varName: string, valNode: CodeNode, strPtr: string, lctx: LowIRLowerContext): string;
+    emitOwnedStringReassign(varName: string, valNode: CodeNode, strPtr: string, lctx: LowIRLowerContext): string;
+    strictOwnershipEnabled(lctx: LowIRLowerContext): boolean;
+    emitOwnershipSummary(lctx: LowIRLowerContext): void;
+    emitReleaseOwnedLocals(lctx: LowIRLowerContext): void;
+    lowerBlock(block: CodeNode, lctx: LowIRLowerContext): void;
+    isAssignNode(node: CodeNode): boolean;
+    lowerStmt(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerStmtDispatch(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerVarDef(node: CodeNode, lctx: LowIRLowerContext): void;
+    assignTargetFieldClass(varName: string, lctx: LowIRLowerContext): string;
+    lowerAssign(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerReturn(node: CodeNode, lctx: LowIRLowerContext): void;
+    isCompareOp(op: string): boolean;
+    unwrapInfixExpr(node: CodeNode): CodeNode;
+    unwrapCondExpr(node: CodeNode): CodeNode;
+    exprProducesI1(node: CodeNode, lctx: LowIRLowerContext): boolean;
+    condVref(node: CodeNode): string;
+    lowerCond(node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerIf(node: CodeNode, lctx: LowIRLowerContext): void;
+    lowerWhile(node: CodeNode, lctx: LowIRLowerContext): void;
+    releaseLoopBodyOwned(ownedBefore: number, ownedStrBefore: number, ownedCollBefore: number, lctx: LowIRLowerContext): void;
+    lowerExpr(node: CodeNode, lctx: LowIRLowerContext): string;
+    operatorReturnsString(op: string): boolean;
+    exprIsFreshString(node: CodeNode, lctx: LowIRLowerContext): boolean;
+    exprIsStringish(node: CodeNode, lctx: LowIRLowerContext): boolean;
+    lowerStringCompare(aNode: CodeNode, bNode: CodeNode, pred: string, lctx: LowIRLowerContext): string;
+    lowerCompareI32(aNode: CodeNode, bNode: CodeNode, pred: string, lctx: LowIRLowerContext): string;
+    lowerArithF64OrI32(intKind: string, fpKind: string, node: CodeNode, lctx: LowIRLowerContext): string;
+    lowerBinaryOp(opName: string, node: CodeNode, lctx: LowIRLowerContext): string;
+    tryLowerIntrinsic(fnName: string, argsNode: CodeNode, lctx: LowIRLowerContext): string;
+    finishObjectCall(rv: string): string;
+    lowerCall(node: CodeNode, lctx: LowIRLowerContext): string;
+    tryLowerObjectCall(node: CodeNode, lctx: LowIRLowerContext): string;
+    fieldReceiverClass(recvName: string, lctx: LowIRLowerContext): string;
+    callArgsNode(node: CodeNode): CodeNode;
+    resolveMethodName(node: CodeNode, defaultName: string): string;
+    argIrType(arg: CodeNode, lctx: LowIRLowerContext): string;
+    paramIrTypeFromDesc(paramIndex: number, fnDesc: RangerAppFunctionDesc, lctx: LowIRLowerContext): string;
+    lowerInstanceCallOn(node: CodeNode, receiverName: string, recvNode: CodeNode, methodName: string, lctx: LowIRLowerContext): string;
+    lowerInstanceCall(node: CodeNode, lctx: LowIRLowerContext): string;
+    resolveCalleeName(callee: CodeNode): string;
+}
+export declare class LLVMIRWriter {
+    varargNames: Array<string>;
+    varargSigs: Array<string>;
+    constructor();
+    collectVarargFns(module: LowIRModule): void;
+    varargSigFor(fnName: string): string;
+    llTy(t: string): string;
+    normalizeDoubleLit(lit: string): string;
+    hexDigit(d: number): string;
+    hexByte(b: number): string;
+    llvmEscapeCString(text: string): string;
+    writeModule(module: LowIRModule, wr: CodeWriter): void;
+    writeTypeDescs(module: LowIRModule, wr: CodeWriter): void;
+    writeOneTypeDesc(td: LowIRTypeDesc, wr: CodeWriter): void;
+    writeStruct(st: LowIRStruct, wr: CodeWriter): void;
+    writeFunction(fn: LowIRFunction, wr: CodeWriter): void;
+    writeInstr(ins: LowIRInstr, wr: CodeWriter): void;
+    writeTerminator(bb: LowIRBlock, wr: CodeWriter): void;
+}
+export declare class WATWriter {
+    strAddrs: {
+        [key: string]: number;
+    };
+    typeDescAddrs: {
+        [key: string]: number;
+    };
+    lambdaFuncs: Array<string>;
+    constructor();
+    lambdaFuncIndex(name: string): number;
+    sigTypeName(callSig: string): string;
+    sigTypeDecl(callSig: string): string;
+    utf8Encode(text: string): Array<number>;
+    hexDigit(d: number): string;
+    hexByte(b: number): string;
+    dataEscape(bytes: Array<number>): string;
+    leWord(v: number): string;
+    align4(a: number): number;
+    fieldOwnedFlag(fd: LowIRTypeFieldDesc): number;
+    descHasOwned(td: LowIRTypeDesc): boolean;
+    moduleHasOwnedTypeDescs(module: LowIRModule): boolean;
+    emitStaticData(module: LowIRModule, wr: CodeWriter): void;
+    wasmName(llvmName: string): string;
+    isGepTemp(name: string): boolean;
+    moduleUsesHeap(module: LowIRModule): boolean;
+    watType(irType: string): string;
+    localTypeMap(fn: LowIRFunction): {
+        [key: string]: string;
+    };
+    localTypeOf(m: {
+        [key: string]: string;
+    }, wn: string): string;
+    writeModule(module: LowIRModule, wr: CodeWriter): void;
+    findBlockIdx(fn: LowIRFunction, label: string): number;
+    isWhileHeader(fn: LowIRFunction, condIdx: number): boolean;
+    collectLocals(fn: LowIRFunction): Array<string>;
+    writeBlockInstrs(bb: LowIRBlock, wr: CodeWriter): void;
+    writeFunction(fn: LowIRFunction, wr: CodeWriter, doExport: boolean): void;
+    markVisited(label: string, visited: {
+        [key: string]: boolean;
+    }): void;
+    isVisited(label: string, visited: {
+        [key: string]: boolean;
+    }): boolean;
+    emitRegion(fn: LowIRFunction, startIdx: number, boundIdx: number, wr: CodeWriter, visited: {
+        [key: string]: boolean;
+    }): string;
+    emitIf(fn: LowIRFunction, headerIdx: number, wr: CodeWriter, visited: {
+        [key: string]: boolean;
+    }): string;
+    emitWhile(fn: LowIRFunction, condIdx: number, wr: CodeWriter, visited: {
+        [key: string]: boolean;
+    }): string;
+    writeGet(llvmRef: string, wr: CodeWriter): void;
+    writeInstr(ins: LowIRInstr, wr: CodeWriter): void;
+}
+export declare class RangerLLVMPipeline {
+    constructor();
+    generateModule(appCtx: RangerAppWriterContext, wr: CodeWriter): void;
+}
+export declare class RangerLLVMClassWriter extends RangerGenericClassWriter {
+    compiler?: LiveCompiler;
+    constructor();
+    writeClass(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+}
 export declare class OpList {
     list: Array<CodeNode>;
     constructor();
@@ -1732,6 +2551,7 @@ export declare class LiveCompiler {
         [key: string]: boolean;
     };
     constructor();
+    treeReferencesVRef(node: CodeNode, name: string): boolean;
     initWriter(ctx: RangerAppWriterContext): void;
     EncodeString(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): string;
     WriteScalarValue(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
@@ -1746,13 +2566,14 @@ export declare class LiveCompiler {
     createPolyfillLegacy(code: string, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     installFile(filename: string, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     findOpCode(op: CodeNode, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
-    findOpTemplate(op: CodeNode, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<CodeNode>;
+    findOpTemplate(op: CodeNode, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<CodeNode> | undefined;
     localCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<boolean>;
+    finishWalkNode(wr: CodeWriter): void;
     WalkNode(node: CodeNode, in_ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     walkCommandList(cmd: CodeNode, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     walkCommand(cmd: CodeNode, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     compile(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
-    findParamDesc(obj: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerAppParamDesc;
+    findParamDesc(obj: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerAppParamDesc | undefined;
 }
 export declare class ColorConsole {
     constructor();
@@ -1852,6 +2673,7 @@ export declare class StaticAnalyzer {
     analyzeClass(cl: RangerAppClassDesc): void;
     analyzeTransitiveWeak(fn: RangerAppFunctionDesc): void;
     analyzeClassTransitiveWeak(cl: RangerAppClassDesc): void;
+    propagateArgMutRef(calledParam: RangerAppParamDesc, arg: CodeNode, fnCtx: RangerAppWriterContext, changedParams: Array<string>): void;
     walkForTransitiveMutBorrow(node: CodeNode, fnCtx: RangerAppWriterContext, fn: RangerAppFunctionDesc, changedParams: Array<string>): void;
     analyzeTransitiveMutBorrow(fn: RangerAppFunctionDesc, changedParams: Array<string>): void;
     analyzeClassTransitiveMutBorrow(cl: RangerAppClassDesc, changedParams: Array<string>): void;
@@ -1864,6 +2686,18 @@ export declare class StaticAnalyzer {
     analyzeParamMethodCalls(node: CodeNode, fnCtx: RangerAppWriterContext, fn: RangerAppFunctionDesc): void;
     analyzeMethodParamMutations(fn: RangerAppFunctionDesc): void;
     analyzeClassParamMutations(cl: RangerAppClassDesc): void;
+    ownershipKindName(kind: number): string;
+    ownerPathOf(node: CodeNode): string;
+    targetOutlivesScope(target: CodeNode, fnCtx: RangerAppWriterContext): boolean;
+    isPrimitiveTypeName(name: string): boolean;
+    isHeapOwnedParam(p: RangerAppParamDesc): boolean;
+    recordEscape(valueName: string, ownerPath: string, via: string, fnCtx: RangerAppWriterContext): void;
+    walkForEscapes(node: CodeNode, fnCtx: RangerAppWriterContext): void;
+    ownerSuffix(param: RangerAppParamDesc): string;
+    finalizeOwnership(fn: RangerAppFunctionDesc, strict: boolean): void;
+    analyzeOwnership(fn: RangerAppFunctionDesc, strict: boolean): void;
+    analyzeOwnershipClass(cl: RangerAppClassDesc, strict: boolean): void;
+    analyzeOwnershipAll(strict: boolean): void;
     analyzeAll(): void;
 }
 export declare class viewbuilder_Android {

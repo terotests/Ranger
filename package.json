@@ -1,6 +1,6 @@
 {
   "name": "ranger-compiler",
-  "version": "3.1.1",
+  "version": "3.2.0",
   "description": "Ranger cross-language compiler - compile once, run anywhere",
   "main": "dist/api.js",
   "types": "dist/api.d.ts",
@@ -24,7 +24,7 @@
   "scripts": {
     "build:dist": "npm run compile && npm run build:dist:copy",
     "build:dist:copy": "cp ./bin/output.js ./dist/rgrc.js && cp ./bin/Lang.rgr ./dist/Lang.rgr && cp ./bin/stdops.rgr ./dist/stdops.rgr && rm -rf dist/lib && cp -r ./lib ./dist/lib",
-    "build:dist:module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -d=./compiler/bin -o=api.ts && tsc --declaration --module commonjs --target es2015 --moduleResolution node --outDir ./dist ./compiler/bin/api.ts",
+    "build:dist:module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -d=./compiler/bin -o=api.ts && tsc --declaration --module commonjs --target es2015 --moduleResolution node --outDir ./dist ./compiler/bin/api.ts ; node scripts/patch-chain-desugar.js",
     "prepublishOnly": "npm run build:dist && npm test",
     "test-any-ts": "node bin/testcomp.js ./features/any/test_any.rgr -es6 -typescript",
     "test-any-csharp": "node bin/testcomp.js ./features/any/test_any.rgr -l=csharp",

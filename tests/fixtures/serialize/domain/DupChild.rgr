@@ -1,0 +1,3 @@
+class DupChild @serialize(true) {
+    def name:string ""
+}

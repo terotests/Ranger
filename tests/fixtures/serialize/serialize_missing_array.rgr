@@ -1,0 +1,11 @@
+; Element type of a serialized array is not @serialize(true) -> diagnostic
+; must point at the declaration, not at generated code.
+class PlainChild {
+    def name:string ""
+    def count:int 0
+}
+
+class ArrayHolder @serialize(true) {
+    def title:string ""
+    def kids:[PlainChild]
+}

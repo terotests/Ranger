@@ -4249,9 +4249,21 @@ class RangerFlowParser {
       return 0
     })
 
+    ; Mark every @serialize(true) class before generating any of them, so that
+    ; isSerializedClass() does not depend on the order of cClassList (mutually
+    ; referencing classes can not be topologically sorted).
     for cClassList cl:RangerAppClassDesc i {
       cl.is_serialized = true
+    }
+
+    for cClassList cl:RangerAppClassDesc i {
       def ser:RangerSerializeClass (new RangerSerializeClass())
+      if( (ser.validateSerializedClass( cl (unwrap cl.ctx) )) == false ) {
+        ; The class references a type that can not be serialized. The error is
+        ; already reported at the declaration; emitting the extension would
+        ; only add confusing follow-up errors inside generated code.
+        continue
+      }
       def extWr:CodeWriter (new CodeWriter())
 ;      ser.createJSONSerializerFn( cl (unwrap cl.ctx) extWr )
       ser.createJSONSerializerFn2( cl (unwrap cl.ctx) extWr )

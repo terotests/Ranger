@@ -2,18 +2,19 @@
 /**
  * Bootstrap compiler cannot emit tryDesugarNewMethodChain from .rgr yet.
  * Re-apply the hand-maintained desugar after `npm run compile`.
+ *
+ * Two artifacts carry the compiler and both need the desugar:
+ *   bin/output.js  (CLI, copied to dist/rgrc.js by build:dist:copy)
+ *   dist/api.js    (programmatic API, built by build:dist:module via tsc)
+ * They differ only in the formatting tsc gives the method, so each target
+ * declares the stub it is expected to contain.
  */
 const fs = require("fs");
 const path = require("path");
 
-const outputPath = path.join(__dirname, "..", "bin", "output.js");
-let src = fs.readFileSync(outputPath, "utf8");
+const ROOT = path.join(__dirname, "..");
 
-const stub =
-  "  tryDesugarNewMethodChain () {\n    return false;\n  };";
-
-const impl = `  tryDesugarNewMethodChain () {
-    const chlen = this.children.length;
+const body = `    const chlen = this.children.length;
     if (chlen < 4) return false;
     if (this.getFirst().vref !== "new") return false;
     let first_dot = -1;
@@ -55,17 +56,53 @@ const impl = `  tryDesugarNewMethodChain () {
     }
     this.getChildrenFrom(innerNode);
     this.finalizeAsCallChainRoot();
-    return true;
-  };`;
+    return true;`;
 
-if (!src.includes(stub)) {
-  if (src.includes("tryDesugarNewMethodChain () {") && src.includes("finalizeAsCallChainRoot();")) {
-    process.exit(0);
+const targets = [
+  {
+    file: "bin/output.js",
+    required: true,
+    stub: "  tryDesugarNewMethodChain () {\n    return false;\n  };",
+    impl: `  tryDesugarNewMethodChain () {\n${body}\n  };`,
+    marker: "tryDesugarNewMethodChain () {",
+  },
+  {
+    // Only present after build:dist:module; skipped otherwise.
+    file: "dist/api.js",
+    required: false,
+    stub: "    tryDesugarNewMethodChain() {\n        return false;\n    }",
+    impl: `    tryDesugarNewMethodChain() {\n${body}\n    }`,
+    marker: "tryDesugarNewMethodChain() {",
+  },
+];
+
+let failed = false;
+
+for (const target of targets) {
+  const targetPath = path.join(ROOT, target.file);
+
+  if (!fs.existsSync(targetPath)) {
+    if (target.required) {
+      console.error(`patch-chain-desugar: missing ${target.file}`);
+      failed = true;
+    }
+    continue;
   }
-  console.error("patch-chain-desugar: stub not found in bin/output.js");
-  process.exit(1);
+
+  const src = fs.readFileSync(targetPath, "utf8");
+
+  if (!src.includes(target.stub)) {
+    // Already patched is fine; anything else means the emitted shape moved.
+    if (src.includes(target.marker) && src.includes("finalizeAsCallChainRoot();")) {
+      continue;
+    }
+    console.error(`patch-chain-desugar: stub not found in ${target.file}`);
+    failed = true;
+    continue;
+  }
+
+  fs.writeFileSync(targetPath, src.replace(target.stub, target.impl));
+  console.log(`patch-chain-desugar: applied tryDesugarNewMethodChain to ${target.file}`);
 }
 
-src = src.replace(stub, impl);
-fs.writeFileSync(outputPath, src);
-console.log("patch-chain-desugar: applied tryDesugarNewMethodChain");
+process.exit(failed ? 1 : 0);
