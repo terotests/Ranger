@@ -261,7 +261,7 @@ class CodeNode {
   }
 
   static fn vref1:CodeNode (name:string) {
-    def code (new SourceCode( name 0 (strlen name)))
+    def code (new SourceCode( name))
     def newNode@(lives):CodeNode (new CodeNode (code 0 (strlen name)))
     newNode.vref = name
     newNode.value_type = RangerNodeType.VRef
@@ -271,7 +271,7 @@ class CodeNode {
   }
 
   static fn vref2:CodeNode (name:string typeName:string) {
-    def code (new SourceCode( name 0 (strlen name)))
+    def code (new SourceCode( name))
     def newNode@(lives):CodeNode (new CodeNode (code 0 (strlen name)))
     newNode.vref = name
     newNode.type_name = typeName
@@ -282,7 +282,7 @@ class CodeNode {
   }
 
   static fn newStr:CodeNode (name:string) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.string_value = name
     newNode.value_type = RangerNodeType.String
@@ -291,7 +291,7 @@ class CodeNode {
   }
 
   static fn newBool:CodeNode (value:boolean) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.boolean_value = value
     newNode.value_type = RangerNodeType.Boolean
@@ -300,7 +300,7 @@ class CodeNode {
   }
 
   static fn newInt:CodeNode (value:int) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.int_value = value
     newNode.value_type = RangerNodeType.Integer
@@ -309,7 +309,7 @@ class CodeNode {
   }
 
   static fn newDouble:CodeNode (value:double) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.double_value = value
     newNode.value_type = RangerNodeType.Double
@@ -318,7 +318,7 @@ class CodeNode {
   }
 
   static fn op:CodeNode ( opName:string ) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.expression = true
     def opNode (r.vref opName)
@@ -327,7 +327,7 @@ class CodeNode {
   }
 
   static fn op2:CodeNode ( opName:string param1@(strong):CodeNode ) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.expression = true
     def opNode (r.vref opName)
@@ -337,7 +337,7 @@ class CodeNode {
   }
 
   static fn op3:CodeNode ( opName:string list:[CodeNode] ) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.expression = true
     def opNode (r.vref opName)
@@ -349,7 +349,7 @@ class CodeNode {
   }
 
   static fn fromList:CodeNode ( list:[CodeNode] ) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.expression = true
     for list item@(lives):CodeNode i {
@@ -360,14 +360,14 @@ class CodeNode {
   }
   
   static fn expressionNode:CodeNode () {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.expression = true
     return newNode
   }
   
   static fn blockNode:CodeNode () {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.is_block_node = true
     newNode.expression = true
@@ -375,7 +375,7 @@ class CodeNode {
   }
   
   static fn blockFromList:CodeNode ( list:[CodeNode] ) {
-    def code (new SourceCode( "" 0 0))
+    def code (new SourceCode( ""))
     def newNode@(lives):CodeNode (new CodeNode (code 0 0))
     newNode.is_block_node = true
     newNode.expression = true

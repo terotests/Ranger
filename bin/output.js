@@ -2901,7 +2901,7 @@ class CodeNode  {
   };
 }
 CodeNode.vref1 = function(name) {
-  const code = new SourceCode(name, 0, name.length);
+  const code = new SourceCode(name);
   const newNode = new CodeNode(code, 0, name.length);
   newNode.vref = name;
   newNode.value_type = 11;
@@ -2910,7 +2910,7 @@ CodeNode.vref1 = function(name) {
   return newNode;
 };
 CodeNode.vref2 = function(name, typeName) {
-  const code = new SourceCode(name, 0, name.length);
+  const code = new SourceCode(name);
   const newNode = new CodeNode(code, 0, name.length);
   newNode.vref = name;
   newNode.type_name = typeName;
@@ -2920,7 +2920,7 @@ CodeNode.vref2 = function(name, typeName) {
   return newNode;
 };
 CodeNode.newStr = function(name) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.string_value = name;
   newNode.value_type = 4;
@@ -2928,7 +2928,7 @@ CodeNode.newStr = function(name) {
   return newNode;
 };
 CodeNode.newBool = function(value) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.boolean_value = value;
   newNode.value_type = 5;
@@ -2936,7 +2936,7 @@ CodeNode.newBool = function(value) {
   return newNode;
 };
 CodeNode.newInt = function(value) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.int_value = value;
   newNode.value_type = 3;
@@ -2944,7 +2944,7 @@ CodeNode.newInt = function(value) {
   return newNode;
 };
 CodeNode.newDouble = function(value) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.double_value = value;
   newNode.value_type = 2;
@@ -2952,7 +2952,7 @@ CodeNode.newDouble = function(value) {
   return newNode;
 };
 CodeNode.op = function(opName) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   const opNode = CodeNode.vref1(opName);
@@ -2960,7 +2960,7 @@ CodeNode.op = function(opName) {
   return newNode;
 };
 CodeNode.op2 = function(opName, param1) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   const opNode = CodeNode.vref1(opName);
@@ -2969,7 +2969,7 @@ CodeNode.op2 = function(opName, param1) {
   return newNode;
 };
 CodeNode.op3 = function(opName, list) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   const opNode = CodeNode.vref1(opName);
@@ -2981,7 +2981,7 @@ CodeNode.op3 = function(opName, list) {
   return newNode;
 };
 CodeNode.fromList = function(list) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   for ( let i = 0; i < list.length; i++) {
@@ -2992,20 +2992,20 @@ CodeNode.fromList = function(list) {
   return newNode;
 };
 CodeNode.expressionNode = function() {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   return newNode;
 };
 CodeNode.blockNode = function() {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.is_block_node = true;
   newNode.expression = true;
   return newNode;
 };
 CodeNode.blockFromList = function(list) {
-  const code = new SourceCode("", 0, 0);
+  const code = new SourceCode("");
   const newNode = new CodeNode(code, 0, 0);
   newNode.is_block_node = true;
   newNode.expression = true;

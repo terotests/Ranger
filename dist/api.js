@@ -3219,7 +3219,7 @@ class CodeNode {
     }
     ;
     static vref1(name) {
-        const code = new SourceCode(name, 0, name.length);
+        const code = new SourceCode(name);
         const newNode = new CodeNode(code, 0, name.length);
         newNode.vref = name;
         newNode.value_type = 11;
@@ -3229,7 +3229,7 @@ class CodeNode {
     }
     ;
     static vref2(name, typeName) {
-        const code = new SourceCode(name, 0, name.length);
+        const code = new SourceCode(name);
         const newNode = new CodeNode(code, 0, name.length);
         newNode.vref = name;
         newNode.type_name = typeName;
@@ -3240,7 +3240,7 @@ class CodeNode {
     }
     ;
     static newStr(name) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.string_value = name;
         newNode.value_type = 4;
@@ -3249,7 +3249,7 @@ class CodeNode {
     }
     ;
     static newBool(value) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.boolean_value = value;
         newNode.value_type = 5;
@@ -3258,7 +3258,7 @@ class CodeNode {
     }
     ;
     static newInt(value) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.int_value = value;
         newNode.value_type = 3;
@@ -3267,7 +3267,7 @@ class CodeNode {
     }
     ;
     static newDouble(value) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.double_value = value;
         newNode.value_type = 2;
@@ -3276,7 +3276,7 @@ class CodeNode {
     }
     ;
     static op(opName) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         const opNode = CodeNode.vref1(opName);
@@ -3285,7 +3285,7 @@ class CodeNode {
     }
     ;
     static op2(opName, param1) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         const opNode = CodeNode.vref1(opName);
@@ -3295,7 +3295,7 @@ class CodeNode {
     }
     ;
     static op3(opName, list) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         const opNode = CodeNode.vref1(opName);
@@ -3309,7 +3309,7 @@ class CodeNode {
     }
     ;
     static fromList(list) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         for (let i = 0; i < list.length; i++) {
@@ -3322,14 +3322,14 @@ class CodeNode {
     }
     ;
     static expressionNode() {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.expression = true;
         return newNode;
     }
     ;
     static blockNode() {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.is_block_node = true;
         newNode.expression = true;
@@ -3337,7 +3337,7 @@ class CodeNode {
     }
     ;
     static blockFromList(list) {
-        const code = new SourceCode("", 0, 0);
+        const code = new SourceCode("");
         const newNode = new CodeNode(code, 0, 0);
         newNode.is_block_node = true;
         newNode.expression = true;

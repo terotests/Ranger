@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Duplicate serializer extension when one file is reached by two import spellings** — a file imported as both `Child.rgr` and `domain/Child.rgr` was expanded twice, and with `@serialize(true)` the second expansion produced `method with the same name and parameter signature declared earlier` pointing at generated code. Fixed since 3.1.1 was published, released here; covered by a regression test.
 
+- **`SourceCode` constructed with three arguments in `ng_CodeNode.rgr`** — `SourceCode` takes a single `code_str`, but `vref1`, `vref2`, `newStr`, `newBool` and nine sibling factories passed `(name 0 (strlen name))` or `("" 0 0)`, copying the shape of the adjacent `new CodeNode(code 0 ...)`. JavaScript discards the extra arguments, so this was invisible until the TypeScript API bundle was type checked, where it produced all 13 of the `TS2554: Expected 1 arguments, but got 3` errors that `build:dist:module` reported. Dropping the dead arguments makes `tsc` clean, so the step is `&&`-chained again and a real type error blocks the build instead of scrolling past
+
 - **`file_mtime` C++ backend** — added missing `cpp` template in `Lang.rgr` (`stat()` + ms, matching es6 `mtimeMs`); fixes `game_runtime.rgr` hot-reload compile for `game_sdl` native binary
 
 - **`TSLexer` UTF-8 / native C++ tokenization** — code-unit length vs byte `charAt` mismatch after multi-byte characters (e.g. em dash in comments) no longer desyncs the lexer; fixes native SDL parse failures on [`invaders.game.tsx`](./gallery/game_engine/scripting/invaders.game.tsx) and similar scripts
