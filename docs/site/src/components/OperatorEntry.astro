@@ -1,0 +1,51 @@
+---
+/**
+ * One operator: signature, description, target support and generated code.
+ */
+import { Code } from "@astrojs/starlight/components";
+import TargetOutput from "./TargetOutput.astro";
+import TargetSupport from "./TargetSupport.astro";
+
+interface Props {
+  operator: any;
+  examples: any[];
+  targets: { id: string; title: string; highlight: string }[];
+  description: string;
+  repository: string;
+}
+
+const { operator, examples, targets, description, repository } = Astro.props;
+const args = operator.args
+  .map((a: any) => `${a.name}: ${a.optional ? "<optional>" : ""}${a.type}`)
+  .join(", ");
+const returns = `${operator.returnsOptional ? "<optional>" : ""}${operator.returns}`;
+const call =
+  operator.args.length > 0
+    ? `(${operator.name} ${operator.args.map((a: any) => a.name).join(" ")})`
+    : `(${operator.name})`;
+const sourceUrl = `${repository}/blob/master/${operator.file}#L${operator.line}`;
+---
+
+<h3 id={operator.anchor}><code>{operator.name}</code></h3>
+
+<Code code={`${call} → ${returns}${args.length > 0 ? `\n\n${operator.name}(${args})` : ""}`} lang="text" />
+
+{description && <div class="ranger-description" set:html={description} />}
+{!description && operator.doc && <p>{operator.doc}</p>}
+{!description && !operator.doc && operator.comment && <p>{operator.comment}</p>}
+
+<p class="ranger-support-title">Target support</p>
+<TargetSupport support={operator.support} targets={targets} />
+
+{
+  examples.map((example) => (
+    <div>
+      <p class="ranger-example-title">{example.title}</p>
+      <TargetOutput example={example} targets={targets} />
+    </div>
+  ))
+}
+
+<p class="ranger-source">
+  Definition: <a href={sourceUrl}>{operator.file}, line {operator.line}</a>
+</p>

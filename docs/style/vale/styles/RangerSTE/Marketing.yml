@@ -1,0 +1,25 @@
+extends: existence
+message: "'%s' is promotional wording. State the technical fact instead."
+level: error
+ignorecase: true
+tokens:
+  - powerful
+  - blazing(?:ly)?
+  - seamless(?:ly)?
+  - effortless(?:ly)?
+  - elegant
+  - beautiful
+  - amazing
+  - awesome
+  - incredible
+  - revolutionary
+  - cutting.edge
+  - state.of.the.art
+  - first.class
+  - world.class
+  - robust
+  - lightning.fast
+  - magic(?:al)?
+  - delightful
+  - simply
+  - just works

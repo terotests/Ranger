@@ -1,0 +1,14 @@
+;; id: core/add.int.opt-int, core/sub.int.int, core/mul.int.int, core/div.int.int
+;; title: Integer arithmetic
+;; category: numeric
+
+class Main {
+    sfn main:void () {
+        def a 10
+        def b 3
+        print ("sum " + (a + b))
+        print ("difference " + (a - b))
+        print ("product " + (a * b))
+        print ("quotient " + (a / b))
+    }
+}

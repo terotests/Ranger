@@ -1,0 +1,12 @@
+;; id: core/sqrt.double, core/floor.double, core/ceil.double
+;; title: Double precision mathematics
+;; category: numeric
+
+class Main {
+    sfn main:void () {
+        def value 7.35
+        print ("square root " + (sqrt value))
+        print ("floor " + (floor value))
+        print ("ceiling " + (ceil value))
+    }
+}

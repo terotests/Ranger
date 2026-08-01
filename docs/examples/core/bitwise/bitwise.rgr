@@ -1,0 +1,14 @@
+;; id: core/bit_and.int.int, core/bit_or.int.int, core/bit_xor.int.int, core/bit_not.int
+;; title: Bit operations on an integer
+;; category: bitwise
+
+class Main {
+    sfn main:void () {
+        def flags 12
+        def mask 10
+        print ("and " + (bit_and flags mask))
+        print ("or " + (bit_or flags mask))
+        print ("xor " + (bit_xor flags mask))
+        print ("not " + (bit_not flags))
+    }
+}

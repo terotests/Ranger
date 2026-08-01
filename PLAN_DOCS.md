@@ -1,6 +1,10 @@
 # PLAN_DOCS — generated language documentation site
 
-Status: proposal, not implemented.
+Status: implemented. The pipeline, the site and the deployment are in the tree
+(`docs/`, `.github/workflows/deploy-pages.yml`). This document is the design
+record; `docs/README.md` describes the code as it is. Section 11 states which
+milestones are done.
+
 Scope: a documentation site that is generated from the operator sources of the language —
 `compiler/Lang.rgr` and the library files that declare operators — published to GitHub
 Pages on every Ranger release, next to the playground but on a different URL.
@@ -316,7 +320,9 @@ Measured cost on this machine, one Node process, `dist/api.js`, warm:
 
 The in-process path is used. With 12 target languages and, for example, 120 example
 files, a full build is about 1200–1800 s single threaded. Three mechanisms keep the
-release build inside a few minutes:
+release build inside a few minutes. **The implementation has the cache today and
+compiles the examples one after the other; the worker pool is not necessary while the
+example set is small (10 files, 120 compilations, approximately 15 s).**
 
 1. **Worker pool.** `node:worker_threads`, one compiler instance per worker,
    `os.availableParallelism()` workers. Compilation is CPU bound and independent per
@@ -825,15 +831,15 @@ release page.
 
 ## 11. Milestones
 
-| # | Content | Done when |
-| --- | --- | --- |
-| M1 | `docs/sources.json`, stage A1 (parser) + A2 (compiler) + A3, the identifier table, tests | `npm run docs:extract` writes a model of the 680 definitions of the 16 sources, and the identifiers are stable across two runs |
-| M2 | Starlight site skeleton at `/Ranger/docs/`, handwritten index and one guide page, published by `workflow_dispatch` | The URL serves the page, and the playground and the games still work |
-| M3 | Stages B and C for the core operators: 11 category pages, tabs per target, 20 example files for the numeric and string groups | An operator page shows real Go, Rust and JavaScript output |
-| M4 | The library pages and the macro page, with the target support data and no examples yet | Every one of the 680 definitions has a page entry and a source link |
-| M5 | Stage D, the coverage baseline, the Vale style, the writing-rules page | CI fails on a coverage regression, on an unregistered operator source and on a marketing word |
-| M6 | The release trigger, the version header, `reference/changes` | A published release updates the site with no manual step |
-| M7 | The guides in Section 7, migrated from `README.md` and the `PROCESS_*` files, in ASD-STE100 | Every page in the site map exists and passes the linter |
+| # | Content | Done when | State |
+| --- | --- | --- | --- |
+| M1 | `docs/sources.json`, stage A1 (parser) + A2 (compiler) + A3, the identifier table, tests | `npm run docs:extract` writes a model of the 680 definitions of the 16 sources, and the identifiers are stable across two runs | done |
+| M2 | Starlight site skeleton at `/Ranger/docs/`, handwritten index and one guide page, published by `workflow_dispatch` | The URL serves the page, and the playground and the games still work | done |
+| M3 | Stages B and C for the core operators: 11 category pages, tabs per target, 20 example files for the numeric and string groups | An operator page shows real Go, Rust and JavaScript output | done, 10 example files |
+| M4 | The library pages and the macro page, with the target support data and no examples yet | Every one of the 680 definitions has a page entry and a source link | done |
+| M5 | Stage D, the coverage baseline, the Vale style, the writing-rules page | CI fails on a coverage regression, on an unregistered operator source and on a marketing word | done |
+| M6 | The release trigger, the version header, `reference/changes` | A published release updates the site with no manual step | trigger and header done, `changes` open |
+| M7 | The guides in Section 7, migrated from `README.md` and the `PROCESS_*` files, in ASD-STE100 | Every page in the site map exists and passes the linter | 8 of the guides written |
 
 Example coverage grows after M6, one group per pull request. The ratchet in Stage D
 prevents a fall.

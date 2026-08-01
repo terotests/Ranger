@@ -1,0 +1,11 @@
+extends: substitution
+message: "Use '%s' and not '%s'. One term for one thing (ASD-STE100 rule 9)."
+level: error
+ignorecase: true
+swap:
+  backend: target language
+  back-end: target language
+  "output language": target language
+  transpiler: compiler
+  transpile: compile
+  "code gen": code generation

@@ -1,0 +1,17 @@
+;; id: core/coalesce.opt-T.T, core/is-null.opt-string, core/force.opt-T
+;; title: Optional values
+;; category: generic
+
+class Main {
+    sfn main:void () {
+        def name@(optional):string
+        def shown (?? name "unknown")
+        print ("default " + shown)
+        if (null? name) {
+            print "the name is empty"
+        }
+        name = "Ada"
+        def value (!! name)
+        print ("value " + value)
+    }
+}

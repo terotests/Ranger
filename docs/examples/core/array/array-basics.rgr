@@ -1,0 +1,14 @@
+;; id: core/push.arr-T.T, core/size.arr-T, core/itemAt.arr-T.int
+;; title: Add to an array and read it
+;; category: array
+
+class Main {
+    sfn main:void () {
+        def numbers:[int]
+        push numbers 10
+        push numbers 20
+        push numbers 30
+        print ("count " + (size numbers))
+        print ("second " + (itemAt numbers 1))
+    }
+}

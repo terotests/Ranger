@@ -1,0 +1,11 @@
+;; id: core/indexOf.string.string
+;; title: Position of a substring
+;; category: string
+
+class Main {
+    sfn main:void () {
+        def text "Ranger compiler"
+        def position (indexOf text "compiler")
+        print ("position " + position)
+    }
+}

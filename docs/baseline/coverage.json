@@ -1,0 +1,89 @@
+{
+  "perSource": {
+    "core": {
+      "operators": 337,
+      "withExample": 26,
+      "withDescription": 8
+    },
+    "stdops": {
+      "operators": 2,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "stdlib": {
+      "operators": 7,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "json": {
+      "operators": 34,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "timers": {
+      "operators": 6,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "storage": {
+      "operators": 8,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "crypto": {
+      "operators": 12,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "ajax": {
+      "operators": 3,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "weblib": {
+      "operators": 1,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "domlib": {
+      "operators": 52,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "viewlib": {
+      "operators": 66,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "engine3d": {
+      "operators": 129,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "webserver": {
+      "operators": 4,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "service": {
+      "operators": 1,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "jinxprocess": {
+      "operators": 7,
+      "withExample": 0,
+      "withDescription": 0
+    },
+    "rangerdir": {
+      "operators": 11,
+      "withExample": 0,
+      "withDescription": 0
+    }
+  },
+  "total": {
+    "operators": 680,
+    "withExample": 26,
+    "withDescription": 8
+  }
+}

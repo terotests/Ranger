@@ -1,0 +1,11 @@
+;; id: core/strlen.string, core/substring.string.int.int
+;; title: Text length and part
+;; category: string
+
+class Main {
+    sfn main:void () {
+        def text "Ranger compiler"
+        print ("length " + (strlen text))
+        print ("part " + (substring text 0 6))
+    }
+}

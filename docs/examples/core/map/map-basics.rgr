@@ -1,0 +1,16 @@
+;; id: core/set.map-K-T.K.T, core/get.map-K-int.K, core/has.map-K-T.K
+;; title: Write and read a hash map
+;; category: map
+
+class Main {
+    sfn main:void () {
+        def ages:[string:int]
+        set ages "ada" 36
+        set ages "alan" 41
+        def age (?? (get ages "ada") 0)
+        print ("ada " + age)
+        if (has ages "alan") {
+            print "alan is in the map"
+        }
+    }
+}

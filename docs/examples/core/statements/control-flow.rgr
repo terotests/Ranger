@@ -1,0 +1,19 @@
+;; id: core/if.boolean.block.block, core/while.boolean.block
+;; title: Condition and loop
+;; category: statements
+
+class Main {
+    sfn main:void () {
+        def limit 3
+        if (limit > 2) {
+            print "the limit is greater than two"
+        } {
+            print "the limit is small"
+        }
+        def index 0
+        while (index < limit) {
+            print ("step " + index)
+            index = index + 1
+        }
+    }
+}

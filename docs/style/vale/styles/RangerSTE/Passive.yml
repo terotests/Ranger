@@ -1,0 +1,7 @@
+extends: existence
+message: "'%s' is passive voice. Write who does the action (ASD-STE100 rule 5)."
+level: warning
+ignorecase: true
+raw:
+  - \b(?:am|are|were|being|is|been|was|be)\b\s*
+  - \b\w+(?:ed|own|olen|hid|ung|itten|aken|iven|rown|nown)\b

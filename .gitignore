@@ -70,3 +70,14 @@ gallery/game_engine/scripting/cannon_showcase_demo.js
 
 # Rust wasm conformance guests — build output (committed .wasm is kept explicitly)
 gallery/game_engine/v2/bridge/wasm/conformance/**/target/
+
+# Documentation site — generated content and build output
+docs/.cache/
+docs/site/node_modules/
+docs/site/dist/
+docs/site/.astro/
+docs/site/src/data/
+docs/site/src/content/docs/reference/operators/
+docs/site/src/content/docs/reference/libraries/
+docs/site/src/content/docs/reference/macros.mdx
+docs/site/src/content/docs/reference/coverage.mdx

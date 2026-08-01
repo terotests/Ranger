@@ -1,0 +1,64 @@
+---
+/**
+ * The generated code of one example, one tab per target language.
+ *
+ * The tabs are synchronized across the site: a reader who selects Go on one
+ * page reads Go on every other page.
+ */
+import { Code, TabItem, Tabs } from "@astrojs/starlight/components";
+
+interface Props {
+  /** The example record from examples.json. */
+  example: {
+    file: string;
+    title: string;
+    source: string;
+    outputs: Record<
+      string,
+      { ok: boolean; excerpt: string; full: string; excerptFound: boolean; errors: string }
+    >;
+  };
+  /** The target list from operators.json. */
+  targets: { id: string; title: string; highlight: string }[];
+}
+
+const { example, targets } = Astro.props;
+const shown = targets.filter((t) => example.outputs[t.id]);
+---
+
+<div class="ranger-example">
+  <Code code={example.source.trim()} lang="lisp" title={`${example.file}`} />
+
+  <Tabs syncKey="ranger-target">
+    {
+      shown.map((target) => {
+        const output = example.outputs[target.id];
+        if (!output.ok) {
+          return (
+            <TabItem label={target.title}>
+              <p class="ranger-no-output">
+                The compiler does not write {target.title} code for this example. The message is:
+              </p>
+              <Code code={output.errors} lang="text" />
+            </TabItem>
+          );
+        }
+        return (
+          <TabItem label={target.title}>
+            <Code
+              code={output.excerpt}
+              lang={target.highlight}
+              title={output.excerptFound ? `main function, ${target.title}` : `${target.title}`}
+            />
+            {output.excerptFound && (
+              <details>
+                <summary>The complete file</summary>
+                <Code code={output.full} lang={target.highlight} />
+              </details>
+            )}
+          </TabItem>
+        );
+      })
+    }
+  </Tabs>
+</div>

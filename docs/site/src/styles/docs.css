@@ -1,0 +1,69 @@
+/* Styles that the generated reference needs. */
+
+.ranger-support {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0;
+  font-size: 0.75rem;
+}
+
+.ranger-support li {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  color: var(--sl-color-gray-2);
+}
+
+.ranger-support-template {
+  border-color: var(--sl-color-green) !important;
+  color: var(--sl-color-green-high) !important;
+}
+
+.ranger-support-fallback {
+  border-color: var(--sl-color-gray-4) !important;
+}
+
+.ranger-support-none {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.ranger-example-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.ranger-source {
+  font-size: 0.8rem;
+  color: var(--sl-color-gray-3);
+  margin-top: 0.5rem;
+}
+
+.ranger-no-output {
+  font-size: 0.9rem;
+  color: var(--sl-color-gray-2);
+}
+
+.ranger-build {
+  font-size: 0.75rem;
+  color: var(--sl-color-gray-3);
+  margin-top: 0.5rem;
+}
+
+.ranger-signature {
+  font-family: var(--sl-font-mono);
+}
+
+/* The operator tables of the summary pages stay readable on a phone. */
+.ranger-table-wrap {
+  overflow-x: auto;
+}
+
+.ranger-support-title {
+  font-size: 0.8rem;
+  color: var(--sl-color-gray-2);
+  margin: 0.75rem 0 0 0;
+}

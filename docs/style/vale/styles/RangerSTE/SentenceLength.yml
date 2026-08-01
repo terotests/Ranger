@@ -1,0 +1,6 @@
+extends: occurrence
+message: "Keep a descriptive sentence to 25 words or less (ASD-STE100 rule 3)."
+level: warning
+scope: sentence
+token: '\b\w+\b'
+max: 25
