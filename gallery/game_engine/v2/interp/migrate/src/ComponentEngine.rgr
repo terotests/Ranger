@@ -3896,13 +3896,21 @@ class ComponentEngine {
         if leftNode.computed {
             if leftNode.right {
                 def indexVal:EvalValue (this.evaluateExpr((unwrap leftNode.right)))
+                ; A numeric key only indexes an ARRAY. On a plain object it is
+                ; the property named by ToString(index), and routing it through
+                ; setIndexAt dropped the write entirely: `o[1] = "one"` stored
+                ; nothing at all.
+                def numericIndexes:boolean false
                 if (indexVal.isNumber()) {
+                    if (obj.valueType == 4) { numericIndexes = true }
+                }
+                if numericIndexes {
                     def idx:int (to_int (indexVal.toNumber()))
                     def cur:EvalValue (obj.getIndex(idx))
                     result = (this.applyAssignOp(op cur rightValue))
                     obj.setIndexAt(idx result)
                 } {
-                    def key:string (indexVal.toString())
+                    def key:string (this.toPropertyKey(indexVal))
                     def cur:EvalValue (obj.getMember(key))
                     result = (this.applyAssignOp(op cur rightValue))
                     obj.setMember(key result)
@@ -6547,6 +6555,24 @@ class ComponentEngine {
                         return (this.throwSpecError("ReferenceError" (cName + " is not defined")))
                     }
                 }
+                ; A callee that is not a name or a member expression at all --
+                ; `true()`, `1()`, `null()`, `new Number(1)()` -- is a TypeError
+                ; too. It fell through to null, so the call did nothing.
+                def litCallee:boolean false
+                if (callee.nodeType == "NumericLiteral") { litCallee = true }
+                if (callee.nodeType == "StringLiteral") { litCallee = true }
+                if (callee.nodeType == "BooleanLiteral") { litCallee = true }
+                if (callee.nodeType == "NullLiteral") { litCallee = true }
+                if (callee.nodeType == "NewExpression") { litCallee = true }
+                if (callee.nodeType == "ObjectExpression") { litCallee = true }
+                if (callee.nodeType == "ArrayExpression") { litCallee = true }
+                if litCallee {
+                    def litArgs:[EvalValue] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    return (this.throwSpecError("TypeError" "expression is not a function"))
+                }
                 ; The same for `o.missing(...)`. The ARGUMENTS are evaluated
                 ; first, per spec -- the callability check comes after -- so a
                 ; call like `o.bar(foo())` must still run foo() before it
@@ -8870,6 +8896,18 @@ class ComponentEngine {
                             rrep = (itemAt args 1)
                         }
                         def repIsFn:boolean (rrep.valueType == 6)
+                        ; Spec order: the SEARCH value is converted before the
+                        ; replacement, so when both throw it is the search
+                        ; value's exception that escapes. A non-RegExp pattern
+                        ; is converted here for exactly that reason.
+                        def patText:string ""
+                        def patIsRe:boolean (this.isRegexValue(rpat))
+                        if (false == patIsRe) {
+                            patText = (this.toStringOf(rpat))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
+                        }
                         def repText:string ""
                         if (false == repIsFn) {
                             repText = (this.toStringOf(rrep))
@@ -8877,7 +8915,7 @@ class ComponentEngine {
                                 return (EvalValue.undefined())
                             }
                         }
-                        if (this.isRegexValue(rpat)) {
+                        if patIsRe {
                             def rprog:RegexProgram (this.compileRegexOf(rpat))
                             if (false == rprog.valid) {
                                 return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + rprog.errorMessage)))
@@ -8926,12 +8964,9 @@ class ComponentEngine {
                             }
                             return (EvalValue.string(outR))
                         }
-                        def find:string ""
-                        if ((array_length args) > 0) {
-                            find = (this.toStringOf(rpat))
-                            if scriptThrew {
-                                return (EvalValue.undefined())
-                            }
+                        def find:string patText
+                        if ((array_length args) == 0) {
+                            find = "undefined"
                         }
                         def at:int (indexOf s find)
                         if (at < 0) {
@@ -10612,8 +10647,10 @@ class ComponentEngine {
         if (v.isUndefined()) {
             return (this.makeRegexValue("" ""))
         }
+        ; null is NOT the empty pattern: `'gnulluna'.match(null)` looks for the
+        ; four characters "null", because RegExp(null) has that source.
         if (v.valueType == 0) {
-            return (this.makeRegexValue("" ""))
+            return (this.makeRegexValue("null" ""))
         }
         return (this.makeRegexValue((this.toStringOf(v)) ""))
     }
@@ -11308,7 +11345,7 @@ class ComponentEngine {
             }
             ; Bitwise NOT (~x == -(x)-1). Coerce to int32 like JS/AS.
             if (op == "~") {
-                return (EvalValue.fromInt((bit_not (to_int (this.toNumberOf(arg))))))
+                return (EvalValue.fromInt((bit_not (this.toInt32Of(arg)))))
             }
             ; void x evaluates the operand for side effects and yields undefined.
             if (op == "void") {
@@ -12384,6 +12421,12 @@ class ComponentEngine {
         if (v.valueType == 6) {
             if (has v.objectMap key) {
                 return true
+            }
+            ; A BUILT-IN stores its length and name, so a missing one there was
+            ; deleted and must stay deleted. Only a user function synthesises
+            ; them on read, and only it gets the fallback.
+            if ((strlen v.builtinName) > 0) {
+                return false
             }
             if (key == "length") { return true }
             if (key == "name") { return true }
