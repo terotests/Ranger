@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two `to_string (value:int)` operators, one of them dead and the other emitting `to_int`** — `Lang.rgr` declared the same signature twice. The first (`to_string _:string`) wins every match, which the second (`to_string cmdIntToString:string`) shadowed entirely: `cmdIntToString` appears nowhere else in the tree, and removing the block leaves the emission for go, csharp, es6, python, cpp, rust, kotlin and swift6 byte-identical. The winning block's `ranger` template emitted `(to_int x)` rather than `(to_string x)` — a copy-paste error, not a deliberate lowering: `to_int` has no `(value:int)` variant at all, so the rendered Ranger would not type check. `ranger` templates are not confined to a Ranger-to-Ranger build: `ng_LiveCompiler.rgr` forks a context with `targetLangName = "ranger"` to render expressions back to Ranger source for polyfill identity, so they run during a normal compile to any target
+
 - **Python had no template for nine operators** — `M_PI`, `fabs`, `tan`, `random` (both variants), `wait`, `file_exists`, `dir_exists` and `create_dir` could not compile for the `python` target. Added, and verified by running the generated Python rather than only compiling it (`tests/compiler-python.test.ts`), which the environment allows for Python but not for Kotlin or Swift
 
 ### Known gaps (Python)

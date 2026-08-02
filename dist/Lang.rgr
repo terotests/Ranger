@@ -3296,7 +3296,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 
         to_string   _:string       ( value:int ) { 
             templates {
-                ranger ( "(to_int " (e 1) ")")
+                ranger ( "(to_string " (e 1) ")")
                 cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
                 java7 ( "String.valueOf(" (e 1) " )") 
                 php ( "strval(" (e 1) ")") 
@@ -3311,22 +3311,6 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
             }
         }          
 
-        to_string   cmdIntToString:string       ( value:int ) { 
-            templates {
-                ranger ( "(to_string " (e 1) ")")
-                cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
-                java7 ( "String.valueOf(" (e 1) " )") 
-                php ( "strval(" (e 1) ")") 
-                scala ( "(" (e 1) ".toString)")
-                go ("strconv.Itoa(" (e 1) ")" (imp "strconv"))
-                swift3 ("String(" (e 1) ")")
-                swift6 ("String(" (e 1) ")")
-                python ( "str(" (e 1) ")" )
-                rust ( (e 1) ".to_string()" )
-                * ( "(" (e 1) ").toString()")
-            }
-        }        
-        
         ; std::to_string(myDoubleVar);
         double2str   cmdDoubleToString:string       ( value:double ) { 
             templates {
