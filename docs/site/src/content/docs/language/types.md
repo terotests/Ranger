@@ -32,17 +32,46 @@ format or when it must agree with a C structure.
 | Array | Values of one type, in order. | `def items:[int]` |
 | Hash map | Values with a key. | `def ages:[string:int]` |
 
+An array and a hash map are ready for use after the declaration. The compiler
+initializes them.
+
 ```lisp
 def items:[int]
 push items 10
 print ("count " + (size items))
 
 def ages:[string:int]
-set ages "ada" 36
+set ages "ada" 36                ; write a key
+if (has ages "ada") { }          ; test a key
+def age (get ages "ada")         ; read a key
 ```
+
+The `get` operator gives an optional value, because the key can be absent.
+[Optional values](/Ranger/docs/language/optionals/) describes how the program
+reads it.
 
 The [array operators](/Ranger/docs/reference/operators/array/) and the
 [map operators](/Ranger/docs/reference/operators/map/) hold the complete list.
+
+## Enum
+
+An `Enum` declares a set of names. The compiler gives each name an integer
+value, and it checks the type of each use.
+
+```lisp
+Enum LineJoin (
+    Undefined
+    Miter
+    Round
+    Bevel
+)
+
+class Pen {
+    def lineType:LineJoin LineJoin.Undefined
+}
+```
+
+The target language receives the type `int`. The type check is in the compiler.
 
 ## Buffers
 

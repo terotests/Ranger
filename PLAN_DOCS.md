@@ -879,10 +879,13 @@ prevents a fall.
 
 ## 13. Open decisions
 
-1. **`operators.md` after M3.** Keep it as a generated file for offline readers, or
-   replace it with a link to the site. Recommendation: keep the `-operatordoc` option in
-   the compiler, because the npm package needs a reference that works with no network,
-   and add a link at the top of the file.
+1. ~~**`operators.md` after M3.**~~ **Decided: removed.** The checked-in file was a
+   snapshot of one compilation — 166 of the 838 operator names, no descriptions where the
+   definition carries no `@doc`, and already behind the sources (the 3.3.0 additions
+   `any`, `slice`, `values`, `map_length` and `get_or` were absent). The generated site
+   replaces it, and the `-operatordoc` option stays in the compiler so that a reader with
+   no network can write the same table locally. The `README.md` links that named the file
+   as *the* operator reference now point at the site.
 2. **Custom domain.** The plan uses `terotests.github.io/Ranger/docs/`. A custom domain
    changes `base` and `site` in one file.
 3. **The playground link.** An operator page can carry an "open in the playground" link
