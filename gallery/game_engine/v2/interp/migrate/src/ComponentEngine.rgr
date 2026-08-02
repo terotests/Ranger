@@ -287,6 +287,9 @@ class ComponentEngine {
     ; D-GLOBALOBJ: one object per built-in global name (Math, JSON, Array, ...),
     ; so the name resolves to something real rather than undefined.
     def builtinGlobals:[string:EvalValue]
+    ; D-REGISTRY: one shared value per (receiver kind, method name), so a
+    ; built-in method read twice is the SAME value.
+    def nativeMethodCache:[string:EvalValue]
     ; D-GLOBALTHIS: the global object. Top-level `this` is bound to it, and a
     ; property written through it (`this.p1 = 1`) becomes a global binding --
     ; which is how a large family of sloppy-script tests declares its fixtures.
@@ -6100,15 +6103,11 @@ class ComponentEngine {
                     return (this.buildArrayFromArgs(node.children))
                 }
                 if (fnName == "Object") {
+                    def ov:EvalValue (EvalValue.null())
                     if ((array_length node.children) > 0) {
-                        def ov:EvalValue (this.evaluateExpr((itemAt node.children 0)))
-                        if (false == ((ov.isNull()) || (ov.isUndefined()))) {
-                            return ov
-                        }
+                        ov = (this.evaluateExpr((itemAt node.children 0)))
                     }
-                    def okeys:[string]
-                    def ovals:[EvalValue]
-                    return (EvalValue.object(okeys ovals))
+                    return (this.toObjectValue(ov))
                 }
                 ; D-FNCTOR: `Function(body)` / `new Function(a, b, body)` compiles
                 ; a function from source. The last argument is the body, the rest
@@ -6133,7 +6132,9 @@ class ComponentEngine {
                 ; Type-conversion globals Number()/String()/Boolean().
                 if (fnName == "Number") {
                     if ((array_length node.children) > 0) {
-                        return (EvalValue.number(((this.evaluateExpr((itemAt node.children 0))).toNumber())))
+                        ; ToNumber proper: an object runs valueOf/toString and a
+                        ; string goes through the StringNumericLiteral grammar.
+                        return (EvalValue.number((this.toNumberOf((this.evaluateExpr((itemAt node.children 0)))))))
                     }
                     return (EvalValue.number(0.0))
                 }
@@ -6159,15 +6160,17 @@ class ComponentEngine {
                 ; not representable as a literal, so isFinite only rules out NaN.
                 if (fnName == "isNaN") {
                     if ((array_length node.children) > 0) {
-                        def nn:double ((this.evaluateExpr((itemAt node.children 0))).toNumber())
+                        def nn:double (this.toNumberOf((this.evaluateExpr((itemAt node.children 0)))))
                         return (EvalValue.boolean((nn != nn)))
                     }
                     return (EvalValue.boolean(true))
                 }
                 if (fnName == "isFinite") {
                     if ((array_length node.children) > 0) {
-                        def nf:double ((this.evaluateExpr((itemAt node.children 0))).toNumber())
-                        return (EvalValue.boolean((nf == nf)))
+                        ; Infinity is not NaN, so the old `nf == nf` test called
+                        ; it finite. Both infinities have to be excluded too.
+                        def nf:double (this.toNumberOf((this.evaluateExpr((itemAt node.children 0)))))
+                        return (EvalValue.boolean((this.isFiniteNum(nf))))
                     }
                     return (EvalValue.boolean(false))
                 }
@@ -6963,6 +6966,20 @@ class ComponentEngine {
         return (EvalValue.undefined())
     }
 
+    ; The declared arity of each built-in constructor.
+    fn builtinCtorArity:int (nsName:string) {
+        if (nsName == "Object") { return 1 }
+        if (nsName == "Array") { return 1 }
+        if (nsName == "String") { return 1 }
+        if (nsName == "Number") { return 1 }
+        if (nsName == "Boolean") { return 1 }
+        if (nsName == "Function") { return 1 }
+        if (nsName == "Date") { return 7 }
+        if (nsName == "Map") { return 0 }
+        if (nsName == "Set") { return 0 }
+        return 0
+    }
+
     fn builtinStaticNames:[string] (nsName:string) {
         def out:[string]
         if (nsName == "Object") {
@@ -7036,6 +7053,29 @@ class ComponentEngine {
     ; they just cannot be captured and called yet. Keeping the two lists apart
     ; is what stops a direct `Object.create(...)` being intercepted and answered
     ; with undefined.
+    ; D-REGISTRY: one value per (kind, name), for the engine's lifetime. A fresh
+    ; value per read made `[].slice === Array.prototype.slice` false and
+    ; `(new Number()).toString === Number.prototype.toString` with it -- the
+    ; suite compares built-in methods by identity all over.
+    fn sharedNativeMethod:EvalValue (kind:string name:string) {
+        def key:string (kind + ("." + name))
+        if (has nativeMethodCache key) {
+            return (unwrap (get nativeMethodCache key))
+        }
+        def v:EvalValue (EvalValue.nativeMethod(kind name))
+        ; A built-in reports its registered arity as `length`, like any other
+        ; function. Stored on the value because there is no parameter list to
+        ; count -- the registry IS the parameter list.
+        def ar:int (this.builtinArity(kind name))
+        if (ar < 0) { ar = 0 }
+        v.setMember("length" (EvalValue.fromInt(ar)))
+        v.setAttrs("length" false false true)
+        v.setMember("name" (EvalValue.string(name)))
+        v.setAttrs("name" false false true)
+        set nativeMethodCache key v
+        return v
+    }
+
     fn hasInvocableStatic:boolean (nsName:string name:string) {
         if (nsName == "Math") {
             return (this.hasBuiltinStatic(nsName name))
@@ -7080,12 +7120,27 @@ class ComponentEngine {
         def keysG:[string]
         def valsG:[EvalValue]
         def g:EvalValue (EvalValue.object(keysG valsG))
+        ; D-GLOBALOBJ: a built-in CONSTRUCTOR is a function value, not a plain
+        ; object. typeof already lied about it and said "function"; making it one
+        ; is what lets `Number instanceof Function`,
+        ; `Function.prototype.isPrototypeOf(Number)` and `Number.length` all
+        ; answer for themselves instead of being special-cased at each site.
+        if (this.isBuiltinCtorName(nsName)) {
+            g = (EvalValue.nativeFunction(nsName))
+        }
         set builtinGlobals nsName g
         g.setMember("name" (EvalValue.string(nsName)))
         g.setAttrs("name" false false true)
         if (this.isBuiltinCtorName(nsName)) {
             g.setMember("prototype" (this.builtinPrototype(nsName)))
             g.setAttrs("prototype" false false false)
+            ; Every built-in constructor inherits from Function.prototype, and
+            ; declares its own arity. Both are properties the suite reads.
+            if (nsName != "Function") {
+                g.protoRef = (this.builtinPrototype("Function"))
+            }
+            g.setMember("length" (EvalValue.fromInt((this.builtinCtorArity(nsName)))))
+            g.setAttrs("length" false false true)
         }
         if (nsName == "Math") {
             def pi:double (M_PI)
@@ -7170,6 +7225,9 @@ class ComponentEngine {
         if (nsName == "Array") { return "array" }
         if (nsName == "String") { return "string" }
         if (nsName == "Number") { return "number" }
+        ; Boolean was missing, so Boolean.prototype published no methods at all
+        ; and every read of one fell through to Object.prototype.
+        if (nsName == "Boolean") { return "boolean" }
         if (nsName == "Function") { return "function" }
         if (nsName == "Map") { return "map" }
         if (nsName == "Set") { return "set" }
@@ -7246,6 +7304,12 @@ class ComponentEngine {
             push out "splice"
             push out "unshift"
         }
+        if (kind == "number") {
+            push out "toExponential"
+            push out "toFixed"
+            push out "toLocaleString"
+            push out "toPrecision"
+        }
         if (kind == "map") {
             push out "clear"
             push out "delete"
@@ -7289,11 +7353,18 @@ class ComponentEngine {
             p = (EvalValue.nativeFunction(""))
         }
         set builtinProtos nsName p
+        ; D-PROTOCTOR: every built-in prototype inherits from Object.prototype,
+        ; which is what makes `delete Number.prototype.toString` fall back to
+        ; the branding one and `Object.prototype.isPrototypeOf(Number.prototype)`
+        ; true. Object.prototype itself terminates the chain.
+        if (nsName != "Object") {
+            p.protoRef = (this.builtinPrototype("Object"))
+        }
         ; D-PROTOCTOR: every prototype carries `constructor` back to its global.
         ; Safe against the cycle (global sets prototype, prototype sets
         ; constructor) because both cache their object BEFORE populating it.
         def ctorG:EvalValue (this.builtinGlobalObject(nsName))
-        if (ctorG.valueType == 5) {
+        if (ctorG.valueType != 0) {
             p.setMember("constructor" ctorG)
             ; Non-enumerable, like every other property of a built-in prototype.
             p.setAttrs("constructor" true false true)
@@ -7335,7 +7406,7 @@ class ComponentEngine {
                 ; registered would hand out a value that does nothing when
                 ; called, so it is skipped rather than published.
                 if (this.hasBuiltin(kind nm)) {
-                    p.setMember(nm (EvalValue.nativeMethod(kind nm)))
+                    p.setMember(nm (this.sharedNativeMethod(kind nm)))
                     ; D-ATTRS: every built-in method is writable and
                     ; configurable but NOT enumerable, so `for (var k in
                     ; String.prototype)` yields nothing and Object.keys of a
@@ -7518,7 +7589,10 @@ class ComponentEngine {
             if (name == "unshift") { return 1 }
         }
         if (kind == "number") {
+            if (name == "toExponential") { return 1 }
             if (name == "toFixed") { return 1 }
+            if (name == "toLocaleString") { return 0 }
+            if (name == "toPrecision") { return 1 }
         }
         return (0 - 1)
     }
@@ -7577,45 +7651,191 @@ class ComponentEngine {
         return out
     }
 
+    ; D-NUMFMT: Number.prototype.toFixed. The old version rounded with
+    ; `to_int(x + 0.5)`, which truncates toward zero, so every negative number
+    ; rounded the wrong way -- (-1.25).toFixed(1) answered "-1.2" instead of
+    ; "-1.3" -- and it stringified NaN as "NaN.00". Sign is split off first and
+    ; the magnitude formatted, which makes both signs behave the same.
     fn toFixedString:string (numVal:double decimals:int) {
+        if (numVal != numVal) {
+            return "NaN"
+        }
+        if (false == (this.isFiniteNum(numVal))) {
+            if (numVal > 0.0) { return "Infinity" }
+            return "-Infinity"
+        }
+        def neg:boolean (numVal < 0.0)
+        def mag:double numVal
+        if neg {
+            mag = (0.0 - numVal)
+        }
+        ; A magnitude at or beyond 1e21 is rendered by ToString instead, per
+        ; spec, because the fixed form would be meaningless. The bound is built
+        ; by multiplication: a literal that large does not survive the Ranger
+        ; lexer, which re-emits it in exponential form with a stray ".0".
+        def e21:double (this.powNum(10.0 21))
+        if (mag >= e21) {
+            return (to_string numVal)
+        }
+        def body:string (this.fixedMagnitude(mag decimals))
+        if neg {
+            ; -0.004 to 1 place is "-0.0" in JS: the sign survives even when
+            ; every digit rounds away.
+            return ("-" + body)
+        }
+        return body
+    }
+
+    ; The digits of a NON-NEGATIVE magnitude with exactly `decimals` places.
+    fn fixedMagnitude:string (mag:double decimals:int) {
         def multiplier:double 1.0
         def i:int 0
         while (i < decimals) {
-            multiplier = multiplier * 10.0
-            i = i + 1
+            multiplier = (multiplier * 10.0)
+            i = (i + 1)
         }
-        def rounded:double (to_double (to_int ((numVal * multiplier) + 0.5)))
-        def result:double (rounded / multiplier)
-        def resultStr:string (to_string result)
-        def dotIdx:int (indexOf resultStr ".")
+        def scaled:double (mag * multiplier)
+        ; Round half away from zero on the magnitude, which is round-half-up
+        ; once the sign is back on.
+        def rounded:double (this.floorNum((scaled + 0.5)))
+        ; Carry the digits out by hand: the double may not hold the integer
+        ; exactly, but the string form of the rounded value does.
+        def digits:string (this.integerDigits(rounded))
         if (decimals == 0) {
-            if (dotIdx >= 0) {
-                return (substring resultStr 0 dotIdx)
-            }
-            return resultStr
+            return digits
         }
-        if (dotIdx < 0) {
-            resultStr = resultStr + "."
+        def L:int (strlen digits)
+        if (L <= decimals) {
+            def pad:string "0."
             def z:int 0
-            while (z < decimals) {
-                resultStr = resultStr + "0"
-                z = z + 1
+            while (z < (decimals - L)) {
+                pad = (pad + "0")
+                z = (z + 1)
             }
-            return resultStr
+            return (pad + digits)
         }
-        def currentDecimals:int ((strlen resultStr) - dotIdx - 1)
-        if (currentDecimals < decimals) {
-            def p:int currentDecimals
-            while (p < decimals) {
-                resultStr = resultStr + "0"
-                p = p + 1
-            }
-        } {
-            def cut:int (dotIdx + 1 + decimals)
-            resultStr = (substring resultStr 0 cut)
-        }
-        return resultStr
+        def cut:int (L - decimals)
+        return ((substring digits 0 cut) + ("." + (substring digits cut L)))
     }
+
+    ; The decimal digits of a non-negative integral double, without an exponent
+    ; and without a fractional part. `to_string` may hand back "1e+21" or
+    ; "123.0" depending on magnitude, and neither is usable as a digit string.
+    fn integerDigits:string (v:double) {
+        def s:string (to_string v)
+        def dot:int (indexOf s ".")
+        if (dot >= 0) {
+            s = (substring s 0 dot)
+        }
+        def e:int (indexOf s "e")
+        if (e >= 0) {
+            ; Exponential form: expand it rather than returning it verbatim.
+            def mant:string (substring s 0 e)
+            def expPart:string (substring s (e + 1) (strlen s))
+            if ((substring expPart 0 1) == "+") {
+                expPart = (substring expPart 1 (strlen expPart))
+            }
+            def ex@(optional):int (to_int expPart)
+            if ex {
+                def k:int (unwrap ex)
+                def md:int (indexOf mant ".")
+                def whole:string mant
+                def frac:string ""
+                if (md >= 0) {
+                    whole = (substring mant 0 md)
+                    frac = (substring mant (md + 1) (strlen mant))
+                }
+                def out:string (whole + frac)
+                def need:int (k - (strlen frac))
+                def z:int 0
+                while (z < need) {
+                    out = (out + "0")
+                    z = (z + 1)
+                }
+                return out
+            }
+        }
+        return s
+    }
+
+    ; D-NUMFMT: Number.prototype.toExponential -- one digit before the point,
+    ; `fractionDigits` after, then the base-10 exponent.
+    fn toExponentialString:string (numVal:double fractionDigits:int) {
+        if (numVal != numVal) {
+            return "NaN"
+        }
+        if (false == (this.isFiniteNum(numVal))) {
+            if (numVal > 0.0) { return "Infinity" }
+            return "-Infinity"
+        }
+        def neg:boolean (numVal < 0.0)
+        def mag:double numVal
+        if neg { mag = (0.0 - numVal) }
+        def e:int 0
+        if (mag != 0.0) {
+            while (mag >= 10.0) {
+                mag = (mag / 10.0)
+                e = (e + 1)
+            }
+            while (mag < 1.0) {
+                mag = (mag * 10.0)
+                e = (e - 1)
+            }
+        }
+        def body:string (this.fixedMagnitude(mag fractionDigits))
+        ; Rounding the mantissa can carry it past 10, which moves the exponent.
+        if ((strlen body) > 0) {
+            def firstTwo:string (substring body 0 2)
+            if (firstTwo == "10") {
+                e = (e + 1)
+                mag = (mag / 10.0)
+                body = (this.fixedMagnitude(mag fractionDigits))
+            }
+        }
+        def sign:string "+"
+        def eAbs:int e
+        if (e < 0) {
+            sign = "-"
+            eAbs = (0 - e)
+        }
+        def out:string (body + ("e" + (sign + (to_string eAbs))))
+        if neg {
+            return ("-" + out)
+        }
+        return out
+    }
+
+    ; D-NUMFMT: Number.prototype.toPrecision -- `precision` significant digits,
+    ; in fixed form when the exponent is small enough and exponential otherwise.
+    fn toPrecisionString:string (numVal:double precision:int) {
+        if (numVal != numVal) {
+            return "NaN"
+        }
+        if (false == (this.isFiniteNum(numVal))) {
+            if (numVal > 0.0) { return "Infinity" }
+            return "-Infinity"
+        }
+        if (numVal == 0.0) {
+            return (this.toFixedString(0.0 (precision - 1)))
+        }
+        def mag:double numVal
+        if (mag < 0.0) { mag = (0.0 - mag) }
+        def e:int 0
+        def scan:double mag
+        while (scan >= 10.0) {
+            scan = (scan / 10.0)
+            e = (e + 1)
+        }
+        while (scan < 1.0) {
+            scan = (scan * 10.0)
+            e = (e - 1)
+        }
+        if ((e < (0 - 6)) || (e >= precision)) {
+            return (this.toExponentialString(numVal (precision - 1)))
+        }
+        return (this.toFixedString(numVal ((precision - 1) - e)))
+    }
+
 
     ; padStart / padEnd share everything but which side the filler goes on.
     fn padString:string (s:string args:[EvalValue] atStart:boolean) {
@@ -8747,13 +8967,57 @@ class ComponentEngine {
         }
         ; ---- Number.prototype ----------------------------------------------
         if (kind == "number") {
+            def fprim:EvalValue (this.unwrapPrimitive(recv))
+            def fnum:double (fprim.toNumber())
+            if (name == "toLocaleString") {
+                ; No locale data, so this is ToString of the number.
+                return (EvalValue.string((this.toStringOf(fprim))))
+            }
             if (name == "toFixed") {
                 def digits:int 0
                 if ((array_length args) > 0) {
-                    digits = (to_int ((itemAt args 0).toNumber()))
+                    def dv:EvalValue (itemAt args 0)
+                    if (false == (dv.isUndefined())) {
+                        digits = (this.toIntegerOf(dv))
+                    }
                 }
-                def fprim:EvalValue (this.unwrapPrimitive(recv))
-                return (EvalValue.string((this.toFixedString((fprim.toNumber()) digits))))
+                ; The argument range is 0..100; outside it the answer is not a
+                ; string but a RangeError.
+                if ((digits < 0) || (digits > 100)) {
+                    return (this.throwSpecError("RangeError" "toFixed() digits argument must be between 0 and 100"))
+                }
+                return (EvalValue.string((this.toFixedString(fnum digits))))
+            }
+            if (name == "toExponential") {
+                def edigits:int 6
+                def eauto:boolean true
+                if ((array_length args) > 0) {
+                    def ev:EvalValue (itemAt args 0)
+                    if (false == (ev.isUndefined())) {
+                        edigits = (this.toIntegerOf(ev))
+                        eauto = false
+                    }
+                }
+                if (eauto == false) {
+                    if ((edigits < 0) || (edigits > 100)) {
+                        return (this.throwSpecError("RangeError" "toExponential() argument must be between 0 and 100"))
+                    }
+                }
+                return (EvalValue.string((this.toExponentialString(fnum edigits))))
+            }
+            if (name == "toPrecision") {
+                if ((array_length args) == 0) {
+                    return (EvalValue.string((this.toStringOf(fprim))))
+                }
+                def pv:EvalValue (itemAt args 0)
+                if (pv.isUndefined()) {
+                    return (EvalValue.string((this.toStringOf(fprim))))
+                }
+                def prec:int (this.toIntegerOf(pv))
+                if ((prec < 1) || (prec > 100)) {
+                    return (this.throwSpecError("RangeError" "toPrecision() argument must be between 1 and 100"))
+                }
+                return (EvalValue.string((this.toPrecisionString(fnum prec))))
             }
         }
         if (kind == "function") {
@@ -8847,23 +9111,44 @@ class ComponentEngine {
 
     ; The boxed object. `__primitive__` is the internal slot; the wrapper reports
     ; the primitive's receiver kind so String.prototype methods dispatch to it.
+    ; D-TOOBJECT: ToObject. A primitive is BOXED rather than handed back
+    ; unchanged -- `Object(5)` is a Number object, and `typeof Object(5)` is
+    ; "object", which the old passthrough got wrong. null/undefined (and the
+    ; no-argument form, which arrives as a null EvalValue) make a fresh object.
+    fn toObjectValue:EvalValue (v:EvalValue) {
+        if (v.valueType == 2) { return (this.makeWrapper("String" v)) }
+        if (v.valueType == 1) { return (this.makeWrapper("Number" v)) }
+        if (v.valueType == 3) { return (this.makeWrapper("Boolean" v)) }
+        if ((v.valueType == 0) || (v.isUndefined())) {
+            def keysO:[string]
+            def valsO:[EvalValue]
+            def o:EvalValue (EvalValue.object(keysO valsO))
+            o.protoRef = (this.builtinPrototype("Object"))
+            return o
+        }
+        return v
+    }
+
     fn makeWrapper:EvalValue (ctorName:string prim:EvalValue) {
         def keysW:[string]
         def valsW:[EvalValue]
         def w:EvalValue (EvalValue.object(keysW valsW))
         def p:EvalValue prim
         if (ctorName == "String") {
-            if (prim.isUndefined()) {
+            if (prim.valueType == 0) {
                 p = (EvalValue.string(""))
             } {
-                p = (EvalValue.string((prim.toString())))
+                p = (EvalValue.string((this.toStringOf(prim))))
             }
         }
         if (ctorName == "Number") {
-            if (prim.isUndefined()) {
+            ; `new Number()` is +0, but `new Number(undefined)` is NaN -- the
+            ; absence of an argument and an undefined argument are different
+            ; things, and the caller signals which by passing a null EvalValue.
+            if (prim.valueType == 0) {
                 p = (EvalValue.number(0.0))
             } {
-                p = (EvalValue.number((prim.toNumber())))
+                p = (EvalValue.number((this.toNumberOf(prim))))
             }
         }
         if (ctorName == "Boolean") {
@@ -8921,6 +9206,7 @@ class ComponentEngine {
             ; object and brands as Object, which is why the marker is checked on
             ; the own map rather than through the prototype chain.
             if (has v.objectMap "__error__") { return "Error" }
+            if (has v.objectMap "__date__") { return "Date" }
             if (has v.objectMap "__arguments__") { return "Arguments" }
         }
         return "Object"
@@ -9011,39 +9297,212 @@ class ComponentEngine {
         if (r1.valueType != 0) {
             return r1
         }
-        ; With a string hint, a missing USER toString does not fall through to
-        ; valueOf: the inherited Object.prototype.toString applies and returns
-        ; the brand, so `String({valueOf: …})` is "[object Object]", not the
-        ; number valueOf would have given.
+        ; With a string hint and no user toString, the DEFAULT toString applies
+        ; and succeeds, so valueOf is never reached: `String({valueOf: …})` is
+        ; the brand, not the number valueOf would have given.
         if wantString {
-            return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
+            if (false == (this.hasUserMethod(v "toString"))) {
+                return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
+            }
         }
         def r2:EvalValue (this.callPrimitiveMethod(v second))
         if (r2.valueType != 0) {
             return r2
         }
-        ; No usable method: fall back to the engine's own rendering, which for
-        ; an array is its join and for a plain object "[object Object]".
-        if (v.isArray()) {
-            return (EvalValue.string((this.arrayJoinString(v ","))))
+        ; Neither yielded a primitive. If the object supplied its own methods,
+        ; that is the spec's TypeError -- an object whose valueOf and toString
+        ; both return objects cannot be converted, and the suite checks that it
+        ; says so rather than inventing an answer.
+        if (this.hasUserMethod(v "valueOf")) {
+            if (this.hasUserMethod(v "toString")) {
+                return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
+            }
         }
+        ; Otherwise the inherited Object.prototype.toString applies, which is
+        ; what makes `String({valueOf: function () { return 7; }})` the brand
+        ; rather than 7 -- the string hint never reaches valueOf when the
+        ; default toString is in play.
         return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
     }
 
+    ; A method the GUEST defined, as opposed to one inherited from a built-in
+    ; prototype. The difference decides whether a failed ToPrimitive is an error
+    ; or falls back to the default rendering.
+    fn hasUserMethod:boolean (v:EvalValue name:string) {
+        def m:EvalValue (v.getMember(name))
+        if (m.valueType != 6) {
+            return false
+        }
+        if (null? m.functionNode) {
+            return false
+        }
+        return true
+    }
+
     ; ToNumber, honouring ToPrimitive for objects.
+    ; D-STRNUM: ToNumber applied to a string, per the StringNumericLiteral
+    ; grammar rather than by handing the text to the host parser. Two things go
+    ; wrong otherwise: the host parse is LENIENT, so "12x" came back as 12 where
+    ; the spec says NaN, and it knows nothing of the 0x / 0b / 0o prefixes, so
+    ; Number("0xff") was 0.
+    fn stringToNumber:double (raw:string) {
+        def nan:double (0.0 / 0.0)
+        def inf:double (1.0 / 0.0)
+        def s:string (trim raw)
+        def n:int (strlen s)
+        if (n == 0) {
+            return 0.0
+        }
+        ; Sign, which only a decimal literal or Infinity may carry.
+        def sign:double 1.0
+        def i:int 0
+        def first:string (substring s 0 1)
+        if (first == "-") {
+            sign = (0.0 - 1.0)
+            i = 1
+        }
+        if (first == "+") {
+            i = 1
+        }
+        def body:string (substring s i n)
+        if (body == "Infinity") {
+            return (sign * inf)
+        }
+        if ((strlen body) == 0) {
+            return nan
+        }
+        ; A radix prefix is only legal WITHOUT a sign.
+        if ((i == 0) && ((strlen s) > 2)) {
+            def p2:string (substring s 0 2)
+            def radix:int 0
+            if ((p2 == "0x") || (p2 == "0X")) { radix = 16 }
+            if ((p2 == "0b") || (p2 == "0B")) { radix = 2 }
+            if ((p2 == "0o") || (p2 == "0O")) { radix = 8 }
+            if (radix > 0) {
+                def digits:string (substring s 2 (strlen s))
+                return (this.digitsToNumber(digits radix))
+            }
+        }
+        ; Decimal: the whole remainder must be a well-formed literal, or the
+        ; answer is NaN. The host parser stops at the first bad character and
+        ; reports what it read, which is why this is validated first.
+        if (false == (this.isDecimalLiteral(body))) {
+            return nan
+        }
+        def d@(optional):double (to_double body)
+        if d {
+            return (sign * (unwrap d))
+        }
+        return nan
+    }
+
+    ; Digits in a given radix, or NaN when any character is not a digit of it.
+    fn digitsToNumber:double (digits:string radix:int) {
+        def nan:double (0.0 / 0.0)
+        def n:int (strlen digits)
+        if (n == 0) {
+            return nan
+        }
+        def acc:double 0.0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt digits i)
+            def dv:int (0 - 1)
+            if ((c >= 48) && (c <= 57)) { dv = (c - 48) }
+            if ((c >= 97) && (c <= 122)) { dv = ((c - 97) + 10) }
+            if ((c >= 65) && (c <= 90)) { dv = ((c - 65) + 10) }
+            if (dv < 0) { return nan }
+            if (dv >= radix) { return nan }
+            acc = ((acc * (to_double radix)) + (to_double dv))
+            i = (i + 1)
+        }
+        return acc
+    }
+
+    ; DecimalLiteral: digits with at most one dot, an optional exponent, and at
+    ; least one digit in the mantissa.
+    fn isDecimalLiteral:boolean (s:string) {
+        def n:int (strlen s)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        def mantissaDigits:int 0
+        def dots:int 0
+        def seenExp:boolean false
+        def expDigits:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def isDigit:boolean ((c >= 48) && (c <= 57))
+            if seenExp {
+                if isDigit {
+                    expDigits = (expDigits + 1)
+                } {
+                    ; A sign is allowed, but only right after the e.
+                    if ((c == 43) || (c == 45)) {
+                        if (expDigits > 0) { return false }
+                        ; and only once, which a second sign would violate
+                        if (i > 0) {
+                            def prev:int (charAt s (i - 1))
+                            if ((prev != 101) && (prev != 69)) { return false }
+                        }
+                    } {
+                        return false
+                    }
+                }
+            } {
+                if isDigit {
+                    mantissaDigits = (mantissaDigits + 1)
+                } {
+                    if (c == 46) {
+                        dots = (dots + 1)
+                        if (dots > 1) { return false }
+                    } {
+                        if ((c == 101) || (c == 69)) {
+                            if (mantissaDigits == 0) { return false }
+                            seenExp = true
+                        } {
+                            return false
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (mantissaDigits == 0) {
+            return false
+        }
+        if seenExp {
+            if (expDigits == 0) { return false }
+        }
+        return true
+    }
+
+    ; ToInteger: ToNumber, then truncate toward zero, with NaN becoming 0. The
+    ; argument-taking Number methods are specified against this, and handing
+    ; `to_int` a NaN directly produced a nonsense digit count.
+    fn toIntegerOf:int (v:EvalValue) {
+        def d:double (this.toNumberOf(v))
+        if (d != d) {
+            return 0
+        }
+        if (false == (this.isFiniteNum(d))) {
+            if (d > 0.0) { return 2147483647 }
+            return (0 - 2147483647)
+        }
+        ; Truncate TOWARD ZERO. `to_int` floors on this backend, so -0.1 became
+        ; -1 and `(1).toFixed(-0.1)` raised a RangeError where the spec asks for
+        ; ToInteger(-0.1) = 0.
+        if (d < 0.0) {
+            return (0 - (to_int (0.0 - d)))
+        }
+        return (to_int d)
+    }
+
     fn toNumberOf:double (v:EvalValue) {
         def p:EvalValue (this.toPrimitive(v false))
         if (p.isString()) {
-            def sv:string p.stringValue
-            def trimmed:string (trim sv)
-            if ((strlen trimmed) == 0) {
-                return 0.0
-            }
-            def d@(optional):double (to_double trimmed)
-            if d {
-                return (unwrap d)
-            }
-            return (0.0 / 0.0)
+            return (this.stringToNumber(p.stringValue))
         }
         if (p.isUndefined()) {
             return (0.0 / 0.0)
@@ -9533,6 +9992,9 @@ class ComponentEngine {
             if (g.valueType == 5) {
                 return g
             }
+            if (g.valueType == 6) {
+                return g
+            }
             return (EvalValue.undefined())
         }
         ; D-GLOBALTHIS: a bare name may have been created as a property of the
@@ -9674,14 +10136,16 @@ class ComponentEngine {
                 ; zero. `0.0 - 0.0` is +0, so subtraction silently destroyed
                 ; negative zero and the engine had no -0 at all.
                 def negOne:double (0.0 - 1.0)
-                return (EvalValue.number((negOne * (arg.toNumber()))))
+                return (EvalValue.number((negOne * (this.toNumberOf(arg)))))
             }
             if (op == "+") {
-                return (EvalValue.number((arg.toNumber())))
+                ; ToNumber, not the value's own idea of a number: `+"0xff"` is
+                ; 255 and `+{valueOf: …}` runs the method.
+                return (EvalValue.number((this.toNumberOf(arg))))
             }
             ; Bitwise NOT (~x == -(x)-1). Coerce to int32 like JS/AS.
             if (op == "~") {
-                return (EvalValue.fromInt((bit_not (to_int (arg.toNumber())))))
+                return (EvalValue.fromInt((bit_not (to_int (this.toNumberOf(arg))))))
             }
             ; void x evaluates the operand for side effects and yields undefined.
             if (op == "void") {
@@ -10194,8 +10658,39 @@ class ComponentEngine {
         ; object, so `new String('abc').slice(1)` found no string to work on —
         ; entire String.prototype areas scored zero because their fixtures are
         ; built this way.
+        ; D-TOOBJECT: `new Object(...)` had no case here at all -- it fell through
+        ; to class instantiation and produced something that could not hold a
+        ; property, so `var o = new Object(); o.a = 1; o.a` read undefined. Both
+        ; call forms now share one ToObject.
+        if (className == "Object") {
+            def oArg:EvalValue (EvalValue.null())
+            if ((array_length node.children) > 0) {
+                oArg = (this.evaluateExpr((itemAt node.children 0)))
+            }
+            return (this.toObjectValue(oArg))
+        }
+        ; D-DATE: `new Date(...)` produced NULL, so any test that merely needed a
+        ; non-Number object to borrow a method onto crashed before reaching its
+        ; assertion. This is a minimal Date -- a branded object holding its time
+        ; value, with valueOf/getTime/toString -- not a calendar implementation.
+        ; Everything else Date offers is absent and stays absent.
+        if (className == "Date") {
+            def keysDt:[string]
+            def valsDt:[EvalValue]
+            def dt:EvalValue (EvalValue.object(keysDt valsDt))
+            def ms:double 0.0
+            if ((array_length node.children) > 0) {
+                ms = (this.toNumberOf((this.evaluateExpr((itemAt node.children 0)))))
+            }
+            dt.setMember("__date__" (EvalValue.number(ms)))
+            dt.setAttrs("__date__" false false false)
+            dt.protoRef = (this.builtinPrototype("Date"))
+            return dt
+        }
         if (this.isWrapperCtorName(className)) {
-            def prim:EvalValue (EvalValue.undefined())
+            ; A NULL EvalValue here means "no argument was written", which the
+            ; wrapper treats differently from an explicit undefined.
+            def prim:EvalValue (EvalValue.null())
             if ((array_length node.children) > 0) {
                 prim = (this.evaluateExpr((itemAt node.children 0)))
             }
@@ -10403,7 +10898,7 @@ class ComponentEngine {
                         ; here would have made the engine accept code Node
                         ; rejects. The direct-call path supplies the receiver
                         ; explicitly instead.
-                        return (EvalValue.nativeMethod(mKind propName))
+                        return (this.sharedNativeMethod(mKind propName))
                     }
                 }
                 ; D-PROTOKIND: the same lookup against the kind the object
@@ -10413,7 +10908,7 @@ class ComponentEngine {
                 if ((strlen mInherit) > 0) {
                     if (this.hasBuiltin(mInherit propName)) {
                         if (false == (has obj.objectMap propName)) {
-                            return (EvalValue.nativeMethod(mInherit propName))
+                            return (this.sharedNativeMethod(mInherit propName))
                         }
                     }
                 }
@@ -10563,6 +11058,7 @@ class ComponentEngine {
         if (k == "__errorctor__") { return true }
         if (k == "__symbol__") { return true }
         if (k == "__protokind__") { return true }
+        if (k == "__date__") { return true }
         return false
     }
 
