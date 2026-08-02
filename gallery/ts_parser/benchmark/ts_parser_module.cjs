@@ -1383,6 +1383,7 @@ class TSParserSimple  {
     this.scopeIsFn = [];
     this.suppressBlockScope = false;
     this.strictMode = false;
+    this.declaringKind = "";
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -3267,6 +3268,15 @@ class TSParserSimple  {
       const declarator = new TSNode();
       declarator.nodeType = "VariableDeclarator";
       const nextVal = this.peekValue();
+      let declKind = "v";
+      if ( node.kind == "let" ) {
+        declKind = "l";
+      }
+      if ( node.kind == "const" ) {
+        declKind = "l";
+      }
+      const savedVarDeclaring = this.declaringKind;
+      this.declaringKind = declKind;
       if ( nextVal == "{" ) {
         const pattern = this.parseObjectPattern();
         declarator.left = pattern;
@@ -3286,8 +3296,10 @@ class TSParserSimple  {
           declarator.start = nameTok.start;
           declarator.line = nameTok.line;
           declarator.col = nameTok.col;
+          this.declareBinding(declKind, nameTok.value);
         }
       }
+      this.declaringKind = savedVarDeclaring;
       if ( this.matchValue(":") ) {
         const typeAnnot = this.parseTypeAnnotation();
         declarator.typeAnnotation = typeAnnot;
@@ -3297,7 +3309,6 @@ class TSParserSimple  {
         const initExpr = this.parseExpr();
         declarator.init = initExpr;
       }
-      this.declareBindingKind(node.kind, declarator);
       node.children.push(declarator);
       if ( this.matchValue(",") ) {
         this.advance();
@@ -3337,6 +3348,9 @@ class TSParserSimple  {
       const id = new TSNode();
       id.nodeType = "Identifier";
       id.name = tok.value;
+      if ( (this.declaringKind.length) > 0 ) {
+        this.declareBinding(this.declaringKind, tok.value);
+      }
       id.start = tok.start;
       id.end = tok.end;
       id.line = tok.line;
@@ -3353,7 +3367,10 @@ class TSParserSimple  {
     const target = this.parseBindingTarget();
     if ( this.matchValue("=") ) {
       this.advance();
+      const savedDeclaring = this.declaringKind;
+      this.declaringKind = "";
       const defaultExpr = this.parseExpr();
+      this.declaringKind = savedDeclaring;
       const assignPat = new TSNode();
       assignPat.nodeType = "AssignmentPattern";
       assignPat.left = target;
@@ -3393,7 +3410,10 @@ class TSParserSimple  {
         prop.nodeType = "Property";
         if ( this.matchPunct("[") ) {
           this.advance();
+          const savedKeyDeclaring = this.declaringKind;
+          this.declaringKind = "";
           const keyExpr = this.parseExpr();
+          this.declaringKind = savedKeyDeclaring;
           this.expectValue("]");
           prop.computed = true;
           prop.body = keyExpr;
@@ -3524,7 +3544,10 @@ class TSParserSimple  {
       isRest = true;
     }
     if ( this.matchValue("{") ) {
+      const savedParamDeclaring = this.declaringKind;
+      this.declaringKind = "p";
       const pattern = this.parseObjectPattern();
+      this.declaringKind = savedParamDeclaring;
       for ( let i = 0; i < decorators.length; i++) {
         var d = decorators[i];
         pattern.decorators.push(d);
@@ -3551,7 +3574,10 @@ class TSParserSimple  {
       return pattern;
     }
     if ( this.matchValue("[") ) {
+      const savedParamDeclaring_1 = this.declaringKind;
+      this.declaringKind = "p";
       const pattern_1 = this.parseArrayPattern();
+      this.declaringKind = savedParamDeclaring_1;
       for ( let i_1 = 0; i_1 < decorators.length; i_1++) {
         var d_1 = decorators[i_1];
         pattern_1.decorators.push(d_1);
@@ -4536,6 +4562,7 @@ class TSParserSimple  {
       return assign;
     }
     if ( (((((((((((tokVal == "+=") || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=")) || (tokVal == "**=")) || (tokVal == "&=")) || (tokVal == "|=")) || (tokVal == "^=")) || (tokVal == "<<=")) || (tokVal == ">>=")) || (tokVal == ">>>=") ) {
+      this.checkAssignmentTarget(left);
       this.advance();
       const right_1 = this.parseAssign();
       const assign_1 = new TSNode();
@@ -4822,6 +4849,7 @@ class TSParserSimple  {
       const opTok = this.peek();
       this.advance();
       const arg = this.parseUnary();
+      this.checkAssignmentTarget(arg);
       const update = new TSNode();
       update.nodeType = "UpdateExpression";
       update.value = opTok.value;
@@ -4849,6 +4877,13 @@ class TSParserSimple  {
       const opTok_2 = this.peek();
       this.advance();
       const arg_2 = this.parseUnary();
+      if ( tokVal == "delete" ) {
+        if ( this.strictMode ) {
+          if ( arg_2.nodeType == "Identifier" ) {
+            this.syntaxError("Parse error: cannot delete an unqualified name in strict mode");
+          }
+        }
+      }
       const unary_1 = new TSNode();
       unary_1.nodeType = "UnaryExpression";
       unary_1.value = opTok_2.value;

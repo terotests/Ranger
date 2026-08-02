@@ -66,6 +66,11 @@ class TSParserSimple {
   ; prologue, and unconditionally inside a class body. Strict code reserves more
   ; words, forbids `with`, and makes duplicate parameters an error.
   def strictMode:boolean false
+  ; When non-empty, every identifier parseBindingTarget produces is declared
+  ; with this kind. Set while reading a binding position so nested patterns
+  ; register all the names they bind; cleared while reading the initialiser or
+  ; a computed key, which are ordinary expressions.
+  def declaringKind:string ""
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -2402,6 +2407,12 @@ class TSParserSimple {
 
       def nextVal (this.peekValue())
 
+      def declKind:string "v"
+      if (node.kind == "let") { declKind = "l" }
+      if (node.kind == "const") { declKind = "l" }
+      def savedVarDeclaring:string this.declaringKind
+      this.declaringKind = declKind
+
       ; Destructuring object pattern { a, b } = obj
       if (nextVal == "{") {
         def pattern (this.parseObjectPattern())
@@ -2424,8 +2435,11 @@ class TSParserSimple {
           declarator.start = nameTok.start
           declarator.line = nameTok.line
           declarator.col = nameTok.col
+          this.declareBinding(declKind nameTok.value)
         }
       }
+
+      this.declaringKind = savedVarDeclaring
 
       ; Type annotation
       if (this.matchValue(":")) {
@@ -2440,7 +2454,6 @@ class TSParserSimple {
         declarator.init = initExpr
       }
 
-      this.declareBindingKind(node.kind declarator)
       push node.children declarator
 
       ; another declarator follows only after a comma
@@ -2490,6 +2503,9 @@ class TSParserSimple {
       def id (new TSNode())
       id.nodeType = "Identifier"
       id.name = tok.value
+      if ((strlen this.declaringKind) > 0) {
+        this.declareBinding(this.declaringKind tok.value)
+      }
       id.start = tok.start
       id.end = tok.end
       id.line = tok.line
@@ -2509,7 +2525,10 @@ class TSParserSimple {
     def target (this.parseBindingTarget())
     if (this.matchValue("=")) {
       this.advance()
+      def savedDeclaring:string this.declaringKind
+      this.declaringKind = ""
       def defaultExpr (this.parseExpr())
+      this.declaringKind = savedDeclaring
       def assignPat (new TSNode())
       assignPat.nodeType = "AssignmentPattern"
       assignPat.left = target
@@ -2557,7 +2576,10 @@ class TSParserSimple {
         ; Computed key: { [expr]: target }
         if (this.matchPunct("[")) {
           this.advance()
+          def savedKeyDeclaring:string this.declaringKind
+          this.declaringKind = ""
           def keyExpr (this.parseExpr())
+          this.declaringKind = savedKeyDeclaring
           this.expectValue("]")
           prop.computed = true
           prop.body = keyExpr
@@ -2739,7 +2761,10 @@ class TSParserSimple {
     
     ; Check for object destructuring { name, value = default }
     if (this.matchValue("{")) {
+      def savedParamDeclaring:string this.declaringKind
+      this.declaringKind = "p"
       def pattern (this.parseObjectPattern())
+      this.declaringKind = savedParamDeclaring
       ; Copy decorators if any
       for decorators d:TSNode i {
         push pattern.decorators d
@@ -2770,7 +2795,10 @@ class TSParserSimple {
     
     ; Check for array destructuring [ a, b, c ]
     if (this.matchValue("[")) {
+      def savedParamDeclaring:string this.declaringKind
+      this.declaringKind = "p"
       def pattern (this.parseArrayPattern())
+      this.declaringKind = savedParamDeclaring
       ; Copy decorators if any
       for decorators d:TSNode i {
         push pattern.decorators d
@@ -4071,6 +4099,7 @@ class TSParserSimple {
     ; Compound assignment operators: +=, -=, *=, /=, %=, **=, and the bitwise/
     ; shift forms &=, |=, ^=, <<=, >>=, >>>=
     if ((tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=") || (tokVal == "%=") || (tokVal == "**=") || (tokVal == "&=") || (tokVal == "|=") || (tokVal == "^=") || (tokVal == "<<=") || (tokVal == ">>=") || (tokVal == ">>>=")) {
+      this.checkAssignmentTarget(left)
       this.advance()
       def right (this.parseAssign())
       
@@ -4456,7 +4485,8 @@ class TSParserSimple {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
-      
+      this.checkAssignmentTarget(arg)
+
       def update (new TSNode())
       update.nodeType = "UpdateExpression"
       update.value = opTok.value
@@ -4487,6 +4517,14 @@ class TSParserSimple {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
+      ; Strict code forbids deleting an unqualified reference.
+      if (tokVal == "delete") {
+        if (this.strictMode) {
+          if (arg.nodeType == "Identifier") {
+            this.syntaxError("Parse error: cannot delete an unqualified name in strict mode")
+          }
+        }
+      }
       def unary (new TSNode())
       unary.nodeType = "UnaryExpression"
       unary.value = opTok.value
