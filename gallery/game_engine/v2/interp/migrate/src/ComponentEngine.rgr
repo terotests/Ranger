@@ -1046,7 +1046,22 @@ class ComponentEngine {
         if (n == 1) {
             def only:EvalValue (this.evaluateExpr((itemAt argNodes 0)))
             if (only.isNumber()) {
-                def slots:int (to_int (only.toNumber()))
+                ; D-ARRAYLEN: `Array(len)` accepts only a uint32. A negative or
+                ; fractional length is a RangeError, and an enormous one used to
+                ; be a host crash ("Invalid array length") rather than a guest
+                ; error the test could catch.
+                def rawLen:double (only.toNumber())
+                def slots:int (to_int rawLen)
+                if ((rawLen < 0.0) || (rawLen > 4294967295.0)) {
+                    return (this.throwSpecError("RangeError" "Invalid array length"))
+                }
+                if ((to_double slots) != rawLen) {
+                    return (this.throwSpecError("RangeError" "Invalid array length"))
+                }
+                ; Beyond this the allocation is the failure, not the program.
+                if (slots > 10000000) {
+                    return (this.throwSpecError("RangeError" "Invalid array length"))
+                }
                 def si:int 0
                 while (si < slots) {
                     push items (EvalValue.undefined())
@@ -3174,33 +3189,47 @@ class ComponentEngine {
     
     ; Evaluates an expression for its side effects (e.g., arr.push(x), i++)
     fn evaluateExprForSideEffect:void (node:TSNode) {
+        def handledSE:boolean false
         ; Handle CallExpression (method calls like arr.push(x))
         if (node.nodeType == "CallExpression") {
             this.evaluateCallExprForSideEffect(node)
+            handledSE = true
         }
-        
+
         ; Handle UpdateExpression (i++, ++i)
         if (node.nodeType == "UpdateExpression") {
             this.evaluateUpdateExpr(node)
+            handledSE = true
         }
-        
+
         ; Handle AssignmentExpression (x = 1, x += 1)
         if (node.nodeType == "AssignmentExpression") {
             this.evaluateUpdateExpr(node)
+            handledSE = true
         }
 
         ; Statement-position unary with a side effect (delete obj.x, void expr).
         if (node.nodeType == "UnaryExpression") {
             def ignored:EvalValue (this.evaluateUnaryExpr(node))
+            handledSE = true
         }
 
         ; D-ERRORS: a bare reference in statement position still resolves, and an
         ; unresolvable one throws. `nope;` on its own line is a ReferenceError.
         if (node.nodeType == "Identifier") {
             def ignoredId:EvalValue (this.lookupIdentifier(node.name))
+            handledSE = true
         }
         if (node.nodeType == "MemberExpression") {
             def ignoredMem:EvalValue (this.evaluateMemberExpr(node))
+            handledSE = true
+        }
+        ; Everything else is evaluated too. The list above was exhaustive by
+        ; accident rather than by design, so `new F();` in statement position
+        ; ran NOTHING -- neither the constructor's effects nor an error raised
+        ; inside it, which simply vanished instead of being thrown.
+        if (false == handledSE) {
+            def ignoredSE:EvalValue (this.evaluateExpr(node))
         }
     }
     
@@ -4969,6 +4998,18 @@ class ComponentEngine {
                     def rArgs:[EvalValue] (this.collectCallArgs(node))
                     return (this.invokeBuiltin(rKind methodName obj rArgs))
                 }
+                ; D-PROTOKIND: an object can INHERIT a built-in method rather
+                ; than have one of its own kind. `F.prototype = new Array(...)`
+                ; makes every instance array-like, and the higher-order methods
+                ; are already generic over their receiver, so the inherited
+                ; dispatch is the same call with a different kind.
+                def iKind:string (this.protoChainKind(obj))
+                if ((strlen iKind) > 0) {
+                    if (this.hasBuiltin(iKind methodName)) {
+                        def iArgs:[EvalValue] (this.collectCallArgs(node))
+                        return (this.invokeBuiltin(iKind methodName obj iArgs))
+                    }
+                }
 
                 ; D-REGISTRY: the unguarded Number/String block that stood here
                 ; is gone. Its nine methods (toFixed, toString, toUpperCase,
@@ -6653,6 +6694,7 @@ class ComponentEngine {
             push out "pop"
             push out "push"
             push out "reduce"
+            push out "reduceRight"
             push out "reverse"
             push out "shift"
             push out "slice"
@@ -6730,6 +6772,12 @@ class ComponentEngine {
         }
         def kind:string (this.kindForCtorName(nsName))
         if ((strlen kind) > 0) {
+            ; D-PROTOKIND: the prototype remembers which receiver kind it serves,
+            ; so an object that merely INHERITS from it can still reach the
+            ; registry. `F.prototype = new Array(1,2,3); new F().filter(cb)` has
+            ; to find Array.prototype.filter, and the instance's own kind is
+            ; "object".
+            p.setMember("__protokind__" (EvalValue.string(kind)))
             def names:[string] (this.builtinNames(kind))
             def i:int 0
             while (i < (array_length names)) {
@@ -6773,6 +6821,33 @@ class ComponentEngine {
     ; casts are the embedding rather than ECMAScript, and they keep priority by
     ; being routed before the registry.
     ; --------------------------------------------------------------------------
+    ; D-PROTOKIND: the receiver kind an object INHERITS, by walking its prototype
+    ; chain until something that is not a plain object turns up (an array
+    ; prototype, say) or until a built-in prototype identifies itself. Returns ""
+    ; when the chain says nothing, which leaves the caller's own dispatch alone.
+    fn protoChainKind:string (v:EvalValue) {
+        if (v.valueType != 5) {
+            return ""
+        }
+        def cur:EvalValue v
+        def depth:int 0
+        while (depth < 16) {
+            if (null? cur.protoRef) {
+                return ""
+            }
+            def nxt:EvalValue (unwrap cur.protoRef)
+            if (nxt.valueType != 5) {
+                return (this.receiverKind(nxt))
+            }
+            if (has nxt.objectMap "__protokind__") {
+                return ((unwrap (get nxt.objectMap "__protokind__")).toString())
+            }
+            cur = nxt
+            depth = (depth + 1)
+        }
+        return ""
+    }
+
     fn receiverKind:string (v:EvalValue) {
         ; D-WRAPPER: a boxed primitive dispatches as its primitive kind, which
         ; is what makes `new String('a').toUpperCase()` reach String.prototype.
@@ -6875,7 +6950,8 @@ class ComponentEngine {
             if (name == "map") { return 1 }
             if (name == "pop") { return 0 }
             if (name == "push") { return 1 }
-            if (name == "reduce") { return 2 }
+            if (name == "reduce") { return 1 }
+            if (name == "reduceRight") { return 1 }
             if (name == "reverse") { return 0 }
             if (name == "shift") { return 0 }
             if (name == "slice") { return 2 }
@@ -7451,7 +7527,7 @@ class ComponentEngine {
                     }
                     if (name == "forEach") {
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def i:int 0
                             while (i < (array_length recv.arrayValue)) {
                                 def cargs:[EvalValue]
@@ -7498,7 +7574,7 @@ class ComponentEngine {
                     }
                     if (name == "forEach") {
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def i:int 0
                             while (i < (array_length recv.arrayValue)) {
                                 def el:EvalValue (itemAt recv.arrayValue i)
@@ -7532,8 +7608,18 @@ class ComponentEngine {
                     return (this.throwSpecError("TypeError" (name + " requires a function argument")))
                 }
             }
-            def alen:int (array_length recv.arrayValue)
-                    def alen:int (array_length recv.arrayValue)
+            ; D-ARRAYLIKE: Array.prototype methods are GENERIC. They read `length`
+            ; and the index properties of whatever `this` is, which is what makes
+            ; `Array.prototype.filter.call({length: 3, 0: …}, cb)` work at all.
+            ; The block read recv.arrayValue directly, so every non-mutating
+            ; method answered as though an array-like receiver were empty.
+            ; The mutating methods below keep using recv.arrayValue: they write
+            ; back into the receiver, which only a real array has.
+            def elems:[EvalValue] recv.arrayValue
+            if (false == (recv.isArray())) {
+                elems = (this.arrayLikeElements(recv))
+            }
+            def alen:int (array_length elems)
                     if (name == "indexOf") {
                         def target:EvalValue (EvalValue.null())
                         if ((array_length args) > 0) {
@@ -7541,7 +7627,7 @@ class ComponentEngine {
                         }
                         def ii:int 0
                         while (ii < alen) {
-                            if ((target.equals((itemAt recv.arrayValue ii)))) {
+                            if ((target.equals((itemAt elems ii)))) {
                                 return (EvalValue.fromInt(ii))
                             }
                             ii = (ii + 1)
@@ -7555,7 +7641,7 @@ class ComponentEngine {
                         }
                         def ii:int 0
                         while (ii < alen) {
-                            if ((target.equals((itemAt recv.arrayValue ii)))) {
+                            if ((target.equals((itemAt elems ii)))) {
                                 return (EvalValue.boolean(true))
                             }
                             ii = (ii + 1)
@@ -7571,7 +7657,7 @@ class ComponentEngine {
                         def ii:int 0
                         while (ii < alen) {
                             if (ii > 0) { out = (out + sep) }
-                            out = (out + ((itemAt recv.arrayValue ii).toString()))
+                            out = (out + ((itemAt elems ii).toString()))
                             ii = (ii + 1)
                         }
                         return (EvalValue.string(out))
@@ -7592,19 +7678,20 @@ class ComponentEngine {
                         def items:[EvalValue]
                         def ii:int a
                         while (ii < b) {
-                            push items (itemAt recv.arrayValue ii)
+                            push items (itemAt elems ii)
                             ii = (ii + 1)
                         }
                         return (EvalValue.array(items))
                     }
                     if (name == "forEach") {
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
                                 def cargs:[EvalValue]
-                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (itemAt elems ii)
                                 push cargs (EvalValue.fromInt(ii))
+                                push cargs recv
                                 def unused:EvalValue (this.callFnValueWithValues(cb cargs))
                                 ii = (ii + 1)
                             }
@@ -7614,12 +7701,13 @@ class ComponentEngine {
                     if (name == "map") {
                         def items:[EvalValue]
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
                                 def cargs:[EvalValue]
-                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (itemAt elems ii)
                                 push cargs (EvalValue.fromInt(ii))
+                                push cargs recv
                                 push items (this.callFnValueWithValues(cb cargs))
                                 ii = (ii + 1)
                             }
@@ -7629,13 +7717,14 @@ class ComponentEngine {
                     if (name == "filter") {
                         def items:[EvalValue]
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
-                                def el:EvalValue (itemAt recv.arrayValue ii)
+                                def el:EvalValue (itemAt elems ii)
                                 def cargs:[EvalValue]
                                 push cargs el
                                 push cargs (EvalValue.fromInt(ii))
+                                push cargs recv
                                 if ((this.callFnValueWithValues(cb cargs)).toBool()) {
                                     push items el
                                 }
@@ -7646,13 +7735,14 @@ class ComponentEngine {
                     }
                     if (name == "find") {
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
-                                def el:EvalValue (itemAt recv.arrayValue ii)
+                                def el:EvalValue (itemAt elems ii)
                                 def cargs:[EvalValue]
                                 push cargs el
                                 push cargs (EvalValue.fromInt(ii))
+                                push cargs recv
                                 if ((this.callFnValueWithValues(cb cargs)).toBool()) {
                                     return el
                                 }
@@ -7663,12 +7753,13 @@ class ComponentEngine {
                     }
                     if (name == "findIndex") {
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
                                 def cargs:[EvalValue]
-                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (itemAt elems ii)
                                 push cargs (EvalValue.fromInt(ii))
+                                push cargs recv
                                 if ((this.callFnValueWithValues(cb cargs)).toBool()) {
                                     return (EvalValue.fromInt(ii))
                                 }
@@ -7679,12 +7770,13 @@ class ComponentEngine {
                     }
                     if (name == "some") {
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
                                 def cargs:[EvalValue]
-                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (itemAt elems ii)
                                 push cargs (EvalValue.fromInt(ii))
+                                push cargs recv
                                 if ((this.callFnValueWithValues(cb cargs)).toBool()) {
                                     return (EvalValue.boolean(true))
                                 }
@@ -7695,12 +7787,13 @@ class ComponentEngine {
                     }
                     if (name == "every") {
                         if ((array_length args) > 0) {
-                            def cb:EvalValue (itemAt args 0)
+                            def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
                                 def cargs:[EvalValue]
-                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (itemAt elems ii)
                                 push cargs (EvalValue.fromInt(ii))
+                                push cargs recv
                                 if (((this.callFnValueWithValues(cb cargs)).toBool()) == false) {
                                     return (EvalValue.boolean(false))
                                 }
@@ -7709,27 +7802,45 @@ class ComponentEngine {
                         }
                         return (EvalValue.boolean(true))
                     }
-                    if (name == "reduce") {
+                    ; reduce/reduceRight do NOT take a thisArg -- their second
+                    ; argument is the initial value, so the callback keeps
+                    ; whatever `this` it was written with.
+                    if ((name == "reduce") || (name == "reduceRight")) {
+                        def goRight:boolean (name == "reduceRight")
                         if ((array_length args) > 0) {
                             def cb:EvalValue (itemAt args 0)
                             def acc:EvalValue (EvalValue.null())
                             def startIdx:int 0
+                            if goRight { startIdx = (alen - 1) }
                             if ((array_length args) > 1) {
                                 acc = (itemAt args 1)
                             } {
                                 if (alen > 0) {
-                                    acc = (itemAt recv.arrayValue 0)
-                                    startIdx = 1
+                                    acc = (itemAt elems startIdx)
+                                    if goRight {
+                                        startIdx = (startIdx - 1)
+                                    } {
+                                        startIdx = 1
+                                    }
+                                } {
+                                    ; Empty and no seed: there is no answer to
+                                    ; give, and the spec says so out loud.
+                                    return (this.throwSpecError("TypeError" ("Reduce of empty array with no initial value")))
                                 }
                             }
                             def ii:int startIdx
-                            while (ii < alen) {
+                            while ((ii < alen) && (ii >= 0)) {
                                 def cargs:[EvalValue]
                                 push cargs acc
-                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (itemAt elems ii)
                                 push cargs (EvalValue.fromInt(ii))
+                                push cargs recv
                                 acc = (this.callFnValueWithValues(cb cargs))
-                                ii = (ii + 1)
+                                if goRight {
+                                    ii = (ii - 1)
+                                } {
+                                    ii = (ii + 1)
+                                }
                             }
                             return acc
                         }
@@ -7918,8 +8029,8 @@ class ComponentEngine {
                     if (name == "concat") {
                         def items:[EvalValue]
                         def q:int 0
-                        while (q < (array_length recv.arrayValue)) {
-                            push items (itemAt recv.arrayValue q)
+                        while (q < (array_length elems)) {
+                            push items (itemAt elems q)
                             q = (q + 1)
                         }
                         def ai:int 0
@@ -7941,8 +8052,8 @@ class ComponentEngine {
                     if (name == "flat") {
                         def items:[EvalValue]
                         def q:int 0
-                        while (q < (array_length recv.arrayValue)) {
-                            def el:EvalValue (itemAt recv.arrayValue q)
+                        while (q < (array_length elems)) {
+                            def el:EvalValue (itemAt elems q)
                             if (el.isArray()) {
                                 def r:int 0
                                 while (r < (array_length el.arrayValue)) {
@@ -7957,7 +8068,7 @@ class ComponentEngine {
                         return (EvalValue.array(items))
                     }
                     if (name == "at") {
-                        def n:int (array_length recv.arrayValue)
+                        def n:int (array_length elems)
                         def idx:int 0
                         if ((array_length args) > 0) {
                             idx = (to_int ((itemAt args 0).toNumber()))
@@ -7966,7 +8077,7 @@ class ComponentEngine {
                             idx = (n + idx)
                         }
                         if ((idx >= 0) && (idx < n)) {
-                            return (itemAt recv.arrayValue idx)
+                            return (itemAt elems idx)
                         }
                         return (EvalValue.undefined())
                     }
@@ -7975,9 +8086,9 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             target = (itemAt args 0)
                         }
-                        def q:int ((array_length recv.arrayValue) - 1)
+                        def q:int ((array_length elems) - 1)
                         while (q >= 0) {
-                            if ((target.equals((itemAt recv.arrayValue q)))) {
+                            if ((target.equals((itemAt elems q)))) {
                                 return (EvalValue.fromInt(q))
                             }
                             q = (q - 1)
@@ -8285,6 +8396,7 @@ class ComponentEngine {
         if (name == "some") { return true }
         if (name == "every") { return true }
         if (name == "reduce") { return true }
+        if (name == "reduceRight") { return true }
         return false
     }
 
@@ -8328,6 +8440,60 @@ class ComponentEngine {
     ; new property to a non-extensible object is likewise rejected. Accepting
     ; any of these silently let a test's setup succeed where the spec requires
     ; it to fail. Returns "" when the redefinition is allowed.
+    ; D-ARRAYLIKE: the optional thisArg every higher-order Array method takes as
+    ; its SECOND argument. It was ignored, so a callback written against a
+    ; receiver -- `arr.filter(function (v) { return v === this.n; }, ctx)` --
+    ; saw undefined for `this` and quietly filtered everything out. A callback
+    ; that already carries its own binding (an arrow, or a bound function) keeps
+    ; it, which is why the existing binding is checked first.
+    fn withCallbackThis:EvalValue (cb:EvalValue args:[EvalValue]) {
+        if ((array_length args) < 2) {
+            return cb
+        }
+        if cb.boundThis {
+            return cb
+        }
+        return (cb.withThis((itemAt args 1)))
+    }
+
+    ; D-ARRAYLIKE: the elements of any array-like receiver -- ToLength(this.length)
+    ; entries read by index, with a missing index reading as undefined. This is
+    ; how every non-mutating Array.prototype method is specified to see its
+    ; receiver, and it is what lets `arguments` and `{length: n, …}` be passed
+    ; through .call().
+    fn arrayLikeElements:[EvalValue] (v:EvalValue) {
+        def out:[EvalValue]
+        if (v.isArray()) {
+            return v.arrayValue
+        }
+        if (v.isString()) {
+            def si:int 0
+            while (si < (strlen v.stringValue)) {
+                push out (EvalValue.string((substring v.stringValue si (si + 1))))
+                si = (si + 1)
+            }
+            return out
+        }
+        def lenV:EvalValue (v.getMember("length"))
+        if (lenV.isUndefined()) {
+            return out
+        }
+        def n:int (to_int (lenV.toNumber()))
+        if (n < 0) {
+            return out
+        }
+        ; A hostile length is a hang, not a test failure, so it is capped.
+        if (n > 1000000) {
+            n = 1000000
+        }
+        def i:int 0
+        while (i < n) {
+            push out (v.getMember((to_string i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; ToPropertyKey. A property name is whatever ToString says, so an object or
     ; an array used as a key runs its own toString: `gOPD(obj, [1])` asks for
     ; "1". The raw EvalValue.toString() is the engine's DEBUG rendering, which
@@ -9539,6 +9705,17 @@ class ComponentEngine {
                         return (EvalValue.nativeMethod(mKind propName))
                     }
                 }
+                ; D-PROTOKIND: the same lookup against the kind the object
+                ; INHERITS, so `F.prototype = [1,2]; typeof new F().join` is
+                ; "function" and not "undefined".
+                def mInherit:string (this.protoChainKind(obj))
+                if ((strlen mInherit) > 0) {
+                    if (this.hasBuiltin(mInherit propName)) {
+                        if (false == (has obj.objectMap propName)) {
+                            return (EvalValue.nativeMethod(mInherit propName))
+                        }
+                    }
+                }
             }
 
             ; D-PROTOCTOR: a property not found on the value itself falls back
@@ -9684,6 +9861,7 @@ class ComponentEngine {
         if (k == "__error__") { return true }
         if (k == "__errorctor__") { return true }
         if (k == "__symbol__") { return true }
+        if (k == "__protokind__") { return true }
         return false
     }
 

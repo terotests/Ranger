@@ -544,6 +544,13 @@ class EvalValue {
         if (depth > 16) {
             return (EvalValue.undefined())
         }
+        ; D-PROTO: a prototype need not be a plain object. `F.prototype = [1,2,3]`
+        ; is legal, and an instance made from it reads `length` off that array.
+        ; Only objectMap was consulted, so such a prototype answered undefined
+        ; for every property its own kind provides.
+        if (valueType != 5) {
+            return (this.getMember(key))
+        }
         if (has objectMap key) {
             return (unwrap (get objectMap key))
         }
@@ -636,9 +643,19 @@ class EvalValue {
                 return (EvalValue.fromInt((array_length arrayValue)))
             }
             ; A non-index property set on an array (`a.foo = 1`) lives in the
-            ; same map; index reads go through getIndex, never here.
+            ; same map.
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
+            }
+            ; An index reached BY NAME. `a[0]` goes through getIndex, but
+            ; `a["0"]` and a prototype-chain read of "0" arrive here, and they
+            ; name the same property.
+            def ai@(optional):int (to_int key)
+            if ai {
+                def aidx:int (unwrap ai)
+                if ((aidx >= 0) && (aidx < (array_length arrayValue))) {
+                    return (itemAt arrayValue aidx)
+                }
             }
         }
         ; Map/Set carry ordinary properties too (`size` is handled by the engine).

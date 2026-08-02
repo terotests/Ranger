@@ -446,6 +446,43 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["protoenum-forin", "var n = 0; for (var k in String.prototype) { n++; } return n;", "fnprops"],
   ["protoenum-still-there", "return typeof String.prototype.charAt;", "fnprops"],
 
+  // D-ARRAYLIKE: Array.prototype methods are generic over their receiver, take a
+  // thisArg, and hand the object itself to the callback as a third argument.
+  ["arraylike-filter", "var o = { length: 3, 0: 1, 1: 2, 2: 3 }; return Array.prototype.filter.call(o, function (v) { return v > 1; }).join(',');", "arraylike"],
+  ["arraylike-map", "var o = { length: 2, 0: 1, 1: 2 }; return Array.prototype.map.call(o, function (v) { return v * 2; }).join(',');", "arraylike"],
+  ["arraylike-foreach", "var o = { length: 2, 0: 1, 1: 2 }; var s = 0; Array.prototype.forEach.call(o, function (v) { s += v; }); return s;", "arraylike"],
+  ["arraylike-join", "var o = { length: 2, 0: 'a', 1: 'b' }; return Array.prototype.join.call(o, '-');", "arraylike"],
+  ["arraylike-slice", "var o = { length: 3, 0: 1, 1: 2, 2: 3 }; return Array.prototype.slice.call(o, 1).join(',');", "arraylike"],
+  ["arraylike-indexof", "var o = { length: 2, 0: 'a', 1: 'b' }; return Array.prototype.indexOf.call(o, 'b');", "arraylike"],
+  ["arraylike-no-length", "return Array.prototype.join.call({}, '-');", "arraylike"],
+  ["cb-third-arg", "return [1, 2].filter(function (v, i, o) { return o.length === 2; }).length;", "arraylike"],
+  ["cb-third-arg-map", "return [1].map(function (v, i, o) { return o === undefined ? 'no' : 'yes'; })[0];", "arraylike"],
+  ["cb-thisarg-filter", "return [1, 2].filter(function (v) { return v === this.n; }, { n: 2 }).join(',');", "arraylike"],
+  ["cb-thisarg-map", "return [1].map(function (v) { return this.k; }, { k: 9 })[0];", "arraylike"],
+  ["cb-thisarg-foreach", "var s = 0; [1, 2].forEach(function (v) { s += v * this.m; }, { m: 10 }); return s;", "arraylike"],
+  ["cb-thisarg-every", "return [1].every(function () { return this.ok; }, { ok: true });", "arraylike"],
+  ["reduce-right", "return [1, 2, 3].reduceRight(function (a, b) { return a + b; });", "arraylike"],
+  ["reduce-right-order", "return ['a', 'b', 'c'].reduceRight(function (a, b) { return a + b; });", "arraylike"],
+  ["reduce-right-seed", "return [1, 2].reduceRight(function (a, b) { return a + b; }, 10);", "arraylike"],
+  ["reduce-no-thisarg", "return [1, 2].reduce(function (a, b) { return a + b; }, 10);", "arraylike"],
+  ["reduce-empty-throws", "try { [].reduce(function (a, b) { return a + b; }); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  // Array(len) validates its length instead of crashing the host.
+  ["arraylen-negative", "try { new Array(-1); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  ["arraylen-too-big", "try { new Array(4294967296); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  ["arraylen-fractional", "try { new Array(1.5); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  ["arraylen-ok", "return new Array(3).length;", "arraylike"],
+  ["arraylen-call-form", "try { Array(-1); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  // D-PROTOKIND: a built-in method reached through the prototype chain.
+  ["protokind-filter", "function F() {} F.prototype = new Array(1, 2, 3); var f = new F(); return f.filter(function (v) { return v > 1; }).join(',');", "arraylike"],
+  ["protokind-join", "function F() {} F.prototype = [1, 2]; var f = new F(); return f.join('-');", "arraylike"],
+  ["protokind-length", "function F() {} F.prototype = new Array(1, 2, 3); return new F().length;", "arraylike"],
+  ["protokind-typeof", "function F() {} F.prototype = [1, 2]; return typeof new F().join;", "arraylike"],
+  ["protokind-own-wins", "function F() {} F.prototype = [1, 2]; var f = new F(); f.join = function () { return 'mine'; }; return f.join();", "arraylike"],
+  // A constructor call in statement position runs, and its errors escape.
+  ["stmt-new-runs", "var n = 0; function F() { n = 5; } new F(); return n;", "arraylike"],
+  ["stmt-new-throws", "try { new Array(-1); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  ["stmt-index-read", "var a = [1, 2]; return a['0'] + ':' + a['1'];", "arraylike"],
+
   ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
   ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
   ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],
