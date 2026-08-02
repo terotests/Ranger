@@ -6337,16 +6337,26 @@ class TSParserSimple {
       def arrPat (this.parseArrayPattern())
       this.patternAllowsMemberTarget = savedArrMemberTarget
       this.speculating = (this.speculating - 1)
-      ; If an `=` / `in` / `of` follows, this really was a pattern -- keep it
-      ; *and* whatever errors it found. Rolling those back would let an invalid
-      ; pattern such as `[...x, y] = 0` re-parse as a perfectly good literal.
-      if (this.isAssignmentPatternFollow()) {
-        return arrPat
+      ; A clean pattern followed by `=` / `in` / `of` really was one.
+      def arrPatErrors:int this.errorCount
+      if (this.errorCount == arrSavedErrors) {
+        if (this.isAssignmentPatternFollow()) {
+          return arrPat
+        }
       }
+      ; Otherwise re-read it as a literal. If an `=` still follows the literal
+      ; then it WAS a pattern, just an invalid one, so restore its errors --
+      ; that is what keeps `[...x, y] = 0` from passing as a good literal.
       this.pos = arrSavedPos
       this.currentToken = arrSavedTok
       this.errorCount = arrSavedErrors
-      return (this.parseArrayLiteral())
+      def arrLit (this.parseArrayLiteral())
+      if (this.isAssignmentPatternFollow()) {
+        if (arrPatErrors > arrSavedErrors) {
+          this.errorCount = arrPatErrors
+        }
+      }
+      return arrLit
     }
     
     ; Object literal {...}
@@ -6360,16 +6370,26 @@ class TSParserSimple {
       def objPat (this.parseObjectPattern())
       this.patternAllowsMemberTarget = savedObjMemberTarget
       this.speculating = (this.speculating - 1)
-      ; If an `=` / `in` / `of` follows, this really was a pattern -- keep it
-      ; *and* whatever errors it found. Rolling those back would let an invalid
-      ; pattern such as `[...x, y] = 0` re-parse as a perfectly good literal.
-      if (this.isAssignmentPatternFollow()) {
-        return objPat
+      ; A clean pattern followed by `=` / `in` / `of` really was one.
+      def objPatErrors:int this.errorCount
+      if (this.errorCount == objSavedErrors) {
+        if (this.isAssignmentPatternFollow()) {
+          return objPat
+        }
       }
+      ; Otherwise re-read it as a literal. If an `=` still follows the literal
+      ; then it WAS a pattern, just an invalid one, so restore its errors --
+      ; that is what keeps `[...x, y] = 0` from passing as a good literal.
       this.pos = objSavedPos
       this.currentToken = objSavedTok
       this.errorCount = objSavedErrors
-      return (this.parseObjectLiteral())
+      def objLit (this.parseObjectLiteral())
+      if (this.isAssignmentPatternFollow()) {
+        if (objPatErrors > objSavedErrors) {
+          this.errorCount = objPatErrors
+        }
+      }
+      return objLit
     }
     
     ; JSX element in TSX mode
