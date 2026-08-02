@@ -108,6 +108,9 @@ class TSParserSimple {
   ; `({x: obj[k]} = v)` -- whereas a declaration or parameter may only bind a
   ; name or a nested pattern.
   def patternAllowsMemberTarget:boolean false
+  ; Names already exported by this module. A module may not export the same
+  ; name twice, however the two exports are written.
+  def exportedNames:[string]
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -1147,6 +1150,8 @@ class TSParserSimple {
         ; An import introduces a lexical binding at module scope.
         this.declareBinding("l" spec.value)
         
+        this.registerExportName(spec.value)
+
         push specifiers spec
         
         if (this.matchValue(",")) {
@@ -1224,6 +1229,31 @@ class TSParserSimple {
   
   ; === Export Declaration ===
   
+  ; Records the names an `export <declaration>` introduces, so a module cannot
+  ; export the same name both through a declaration and through a specifier.
+  fn registerExportedDeclaration:void (decl:TSNode) {
+    if (decl.nodeType == "VariableDeclaration") {
+      def i:int 0
+      while (i < (array_length decl.children)) {
+        def d:TSNode (itemAt decl.children i)
+        this.registerExportName(d.name)
+        i = (i + 1)
+      }
+      return
+    }
+    this.registerExportName(decl.name)
+  }
+
+  fn registerExportName:void (name:string) {
+    if ((strlen name) == 0) {
+      return
+    }
+    if (this.isInStringList(name this.exportedNames)) {
+      this.syntaxError("Parse error: duplicate export of '" + name + "'")
+    }
+    push this.exportedNames name
+  }
+
   fn parseExport:TSNode () {
     def node (new TSNode())
     node.nodeType = "ExportNamedDeclaration"
@@ -1338,10 +1368,11 @@ class TSParserSimple {
       return node
     }
     
-    ; export declaration (function, class, interface, type, const, let, enum)
-    if ((v == "function") || (v == "class") || (v == "interface") || (v == "type") || (v == "const") || (v == "let") || (v == "enum") || (v == "abstract")) {
+    ; export declaration (function, class, interface, type, var/const/let, enum)
+    if ((v == "function") || (v == "class") || (v == "interface") || (v == "type") || (v == "var") || (v == "const") || (v == "let") || (v == "enum") || (v == "abstract")) {
       def decl (this.parseStatement())
       node.left = decl
+      this.registerExportedDeclaration(decl)
       return node
     }
     
@@ -1349,6 +1380,7 @@ class TSParserSimple {
     if (v == "async") {
       def decl (this.parseStatement())
       node.left = decl
+      this.registerExportedDeclaration(decl)
       return node
     }
     
@@ -1742,7 +1774,11 @@ class TSParserSimple {
 
         ; A class has at most one constructor, however its name was written.
         if (member.computed == false) {
-          if (member.name == "constructor") {
+          def namesConstructor:boolean false
+          if (member.name == "constructor") { namesConstructor = true }
+          ; The dedicated constructor branch records only the kind.
+          if (member.kind == "constructor") { namesConstructor = true }
+          if namesConstructor {
             if (member.kind != "static") {
               if (member.nodeType == "MethodDefinition") {
                 if sawConstructor {
@@ -4493,7 +4529,22 @@ class TSParserSimple {
     if (t == "AssignmentPattern") { return }
     ; A pattern that was parsed as a literal is re-read as a pattern elsewhere;
     ; anything else is not a valid target.
-    if (t == "ObjectExpression") { return }
+    if (t == "ObjectExpression") {
+      def i:int 0
+      while (i < (array_length target.children)) {
+        def prop:TSNode (itemAt target.children i)
+        if (prop.method) {
+          this.syntaxError("Parse error: a method cannot be a destructuring assignment target")
+          return
+        }
+        if ((prop.kind == "get") || (prop.kind == "set")) {
+          this.syntaxError("Parse error: an accessor cannot be a destructuring assignment target")
+          return
+        }
+        i = (i + 1)
+      }
+      return
+    }
     if (t == "ArrayExpression") { return }
     this.syntaxError("Parse error: invalid assignment target (" + t + ")")
   }

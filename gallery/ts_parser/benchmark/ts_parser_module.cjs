@@ -1469,6 +1469,7 @@ class TSParserSimple  {
     this.lastBlockEnabledStrict = false;
     this.restParamPending = false;
     this.patternAllowsMemberTarget = false;
+    this.exportedNames = [];
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -2405,6 +2406,7 @@ class TSParserSimple  {
           spec.value = importedName.value;
         }
         this.declareBinding("l", spec.value);
+        this.registerExportName(spec.value);
         specifiers.push(spec);
         if ( this.matchValue(",") ) {
           this.advance();
@@ -2466,6 +2468,27 @@ class TSParserSimple  {
       this.advance();
     }
     return node;
+  };
+  registerExportedDeclaration (decl) {
+    if ( decl.nodeType == "VariableDeclaration" ) {
+      let i = 0;
+      while (i < (decl.children.length)) {
+        const d = decl.children[i];
+        this.registerExportName(d.name);
+        i = i + 1;
+      };
+      return;
+    }
+    this.registerExportName(decl.name);
+  };
+  registerExportName (name) {
+    if ( (name.length) == 0 ) {
+      return;
+    }
+    if ( this.isInStringList(name, this.exportedNames) ) {
+      this.syntaxError(("Parse error: duplicate export of '" + name) + "'");
+    }
+    this.exportedNames.push(name);
   };
   parseExport () {
     const node = new TSNode();
@@ -2553,14 +2576,16 @@ class TSParserSimple  {
       }
       return node;
     }
-    if ( (((((((v == "function") || (v == "class")) || (v == "interface")) || (v == "type")) || (v == "const")) || (v == "let")) || (v == "enum")) || (v == "abstract") ) {
+    if ( ((((((((v == "function") || (v == "class")) || (v == "interface")) || (v == "type")) || (v == "var")) || (v == "const")) || (v == "let")) || (v == "enum")) || (v == "abstract") ) {
       const decl_1 = this.parseStatement();
       node.left = decl_1;
+      this.registerExportedDeclaration(decl_1);
       return node;
     }
     if ( v == "async" ) {
       const decl_2 = this.parseStatement();
       node.left = decl_2;
+      this.registerExportedDeclaration(decl_2);
       return node;
     }
     return node;
@@ -2841,7 +2866,14 @@ class TSParserSimple  {
       } else {
         const member = this.parseClassMember();
         if ( member.computed == false ) {
+          let namesConstructor = false;
           if ( member.name == "constructor" ) {
+            namesConstructor = true;
+          }
+          if ( member.kind == "constructor" ) {
+            namesConstructor = true;
+          }
+          if ( namesConstructor ) {
             if ( member.kind != "static" ) {
               if ( member.nodeType == "MethodDefinition" ) {
                 if ( sawConstructor ) {
@@ -4974,6 +5006,19 @@ class TSParserSimple  {
       return;
     }
     if ( t == "ObjectExpression" ) {
+      let i = 0;
+      while (i < (target.children.length)) {
+        const prop = target.children[i];
+        if ( prop.method ) {
+          this.syntaxError("Parse error: a method cannot be a destructuring assignment target");
+          return;
+        }
+        if ( (prop.kind == "get") || (prop.kind == "set") ) {
+          this.syntaxError("Parse error: an accessor cannot be a destructuring assignment target");
+          return;
+        }
+        i = i + 1;
+      };
       return;
     }
     if ( t == "ArrayExpression" ) {
