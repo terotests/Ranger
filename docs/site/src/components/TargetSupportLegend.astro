@@ -1,0 +1,31 @@
+---
+/**
+ * The legend of the target support marks. One legend per page, above the
+ * operators.
+ */
+---
+
+<div class="ranger-legend">
+  <p class="ranger-legend-title">Target support marks</p>
+  <ul class="ranger-support ranger-legend-list">
+    <li class="ranger-support-template">
+      <span class="ranger-support-mark" aria-hidden="true">✔</span>
+      Own template
+    </li>
+    <li class="ranger-support-fallback">
+      <span class="ranger-support-mark" aria-hidden="true">✱</span>
+      Default template
+    </li>
+    <li class="ranger-support-none">
+      <span class="ranger-support-mark" aria-hidden="true">✕</span>
+      No template
+    </li>
+  </ul>
+  <p class="ranger-legend-text">
+    The operator works for a target with an own template and for a target with the
+    default template. The default template is the <code>*</code> entry of the
+    definition: it writes the same code for every target that has no template of
+    its own. A target with no template writes no code, and a program that uses
+    the operator does not compile for that target.
+  </p>
+</div>

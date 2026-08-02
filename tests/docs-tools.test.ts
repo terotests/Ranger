@@ -16,6 +16,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const opid = await import(path.join(ROOT, "docs/tools/lib/opid.mjs"));
 const excerpt = await import(path.join(ROOT, "docs/tools/lib/excerpt.mjs"));
 const parse = await import(path.join(ROOT, "docs/tools/lib/parse.mjs"));
+const model = await import(path.join(ROOT, "docs/tools/lib/model.mjs"));
 
 describe("operator identifiers", () => {
   it("keeps a symbol name readable in a URL", () => {
@@ -40,6 +41,27 @@ describe("operator identifiers", () => {
     const id = opid.operatorId("core", "??", ["<optional>T", "T"]);
     expect(opid.operatorAnchor(id)).toBe("coalesce-opt-t-t");
     expect(opid.operatorFileName(id)).toBe("core__coalesce-opt-T-T");
+  });
+});
+
+describe("target support", () => {
+  it("counts the default template as support, not as a gap", () => {
+    // The `*` template writes the code for every target that has no template of
+    // its own, so those targets compile the operator. A page that marked them
+    // as unsupported would be wrong for 74 operators that hold only `*`.
+    const targets = ["es6", "go", "rust"];
+    const support = model.targetSupport({ templates: { es6: "…", "*": "…" } }, targets);
+    expect(support).toEqual({ es6: "template", go: "fallback", rust: "fallback" });
+  });
+
+  it("marks a target with no template and no default as unsupported", () => {
+    const support = model.targetSupport({ templates: { es6: "…" } }, ["es6", "go"]);
+    expect(support).toEqual({ es6: "template", go: "none" });
+  });
+
+  it("handles an operator with no templates at all", () => {
+    expect(model.targetSupport({ templates: {} }, ["es6"])).toEqual({ es6: "none" });
+    expect(model.targetSupport({}, ["es6"])).toEqual({ es6: "none" });
   });
 });
 

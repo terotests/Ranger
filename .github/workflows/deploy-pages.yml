@@ -119,6 +119,9 @@ jobs:
         run: |
           # Copy the playground build to the site root, preserving _site/games.
           cp -r playground/dist/. "$GITHUB_WORKSPACE/_site/"
+          # The docs build emits /docs/_astro/. A Jekyll pass would drop every
+          # underscore-prefixed directory, so mark the artifact as not-Jekyll.
+          touch "$GITHUB_WORKSPACE/_site/.nojekyll"
           echo "Site contents:"
           find "$GITHUB_WORKSPACE/_site" -maxdepth 2 -type f | sort
 

@@ -117,6 +117,7 @@ function page({ title, description, order, operators, examples, intro }) {
   const body = [];
   body.push(frontMatter({ title, description, sidebarOrder: order, tableOfContents: false }));
   body.push('import OperatorEntry from "../../../../components/OperatorEntry.astro";');
+  body.push('import TargetSupportLegend from "../../../../components/TargetSupportLegend.astro";');
   body.push('import model from "../../../../data/operators.json";');
   body.push('import exampleData from "../../../../data/examples.json";');
   body.push("");
@@ -124,6 +125,8 @@ function page({ title, description, order, operators, examples, intro }) {
     body.push(intro, "");
   }
   body.push(summaryTable(operators));
+  // The legend explains the marks once, above the operators of the page.
+  body.push("<TargetSupportLegend />", "");
   for (const operator of operators) {
     const withExamples = examplesFor(examples, operator.id);
     body.push(operatorSection(operator, withExamples, readDescription(operator.id)).text);
