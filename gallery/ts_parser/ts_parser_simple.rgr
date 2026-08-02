@@ -124,6 +124,9 @@ class TSParserSimple {
   ; caller parsing plain JS turns this off, the way every parser gates its TS
   ; support.
   def typeScriptMode:boolean true
+  ; True inside a lexical declaration, where `let` may not be referenced at all:
+  ; `for (let [a = let];;) {}` is an error.
+  def noLetReference:boolean false
   ; True while a parameter list is being read. A parameter default may not
   ; contain a yield expression, even inside a generator.
   def inParamList:boolean false
@@ -2943,6 +2946,26 @@ class TSParserSimple {
     return node
   }
   
+  ; True when the expression contains a top-level-ish `in` operator. Only the
+  ; parenthesised case reaches here: an unparenthesised one was already split
+  ; into a for-in head.
+  fn containsInOperator:boolean (node:TSNode) {
+    if (node.nodeType == "BinaryExpression") {
+      if (node.value == "in") {
+        return true
+      }
+    }
+    def i:int 0
+    while (i < (array_length node.children)) {
+      def c:TSNode (itemAt node.children i)
+      if (this.containsInOperator(c)) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
   fn parseForStatement:TSNode () {
     def node (new TSNode())
     def startTok (this.peek())
@@ -3190,6 +3213,13 @@ class TSParserSimple {
               return node
             }
           }
+        }
+
+        ; The `in` operator is banned in a for-init, parentheses and all:
+        ; `for ((i in {}));` is an error even though the parens make it look
+        ; like an ordinary expression.
+        if (this.containsInOperator(initExpr)) {
+          this.syntaxError("Parse error: the 'in' operator is not allowed in a for-initialiser")
         }
 
         ; Plain init; a comma operator may follow: for (a, b, c;;)
@@ -3574,8 +3604,12 @@ class TSParserSimple {
     if (this.matchValue("=")) {
       this.advance()
       def savedDeclaring:string this.declaringKind
+      def wasLexical:boolean (savedDeclaring == "l")
       this.declaringKind = ""
+      def savedNoLet:boolean this.noLetReference
+      if wasLexical { this.noLetReference = true }
       def defaultExpr (this.parseExpr())
+      this.noLetReference = savedNoLet
       this.declaringKind = savedDeclaring
       def assignPat (new TSNode())
       assignPat.nodeType = "AssignmentPattern"
@@ -6622,6 +6656,11 @@ class TSParserSimple {
       if (tokVal == "as") { contextual = true }
       if (tokVal == "from") { contextual = true }
       if contextual {
+        if (this.noLetReference) {
+          if (tokVal == "let") {
+            this.syntaxError("Parse error: 'let' cannot be referenced inside a lexical declaration")
+          }
+        }
         ; In strict code these are reserved outright, not merely unbindable:
         ; `'use strict'; +let;` and `let = 1` are both errors.
         if (this.strictMode) {

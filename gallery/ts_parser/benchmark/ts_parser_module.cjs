@@ -2021,6 +2021,7 @@ class TSParserSimple  {
     this.exportedNames = [];
     this.moduleMode = true;
     this.typeScriptMode = true;
+    this.noLetReference = false;
     this.inParamList = false;
     this.parsingFunctionExpression = false;
     this.pendingExportRefs = [];
@@ -4369,6 +4370,22 @@ class TSParserSimple  {
     }
     return node;
   };
+  containsInOperator (node) {
+    if ( node.nodeType == "BinaryExpression" ) {
+      if ( node.value == "in" ) {
+        return true;
+      }
+    }
+    let i = 0;
+    while (i < (node.children.length)) {
+      const c = node.children[i];
+      if ( this.containsInOperator(c) ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
   parseForStatement () {
     const node = new TSNode();
     const startTok = this.peek();
@@ -4588,6 +4605,9 @@ class TSParserSimple  {
               return node;
             }
           }
+        }
+        if ( this.containsInOperator(initExpr) ) {
+          this.syntaxError("Parse error: the 'in' operator is not allowed in a for-initialiser");
         }
         if ( this.matchValue(",") ) {
           const seq = new TSNode();
@@ -4892,8 +4912,14 @@ class TSParserSimple  {
     if ( this.matchValue("=") ) {
       this.advance();
       const savedDeclaring = this.declaringKind;
+      const wasLexical = savedDeclaring == "l";
       this.declaringKind = "";
+      const savedNoLet = this.noLetReference;
+      if ( wasLexical ) {
+        this.noLetReference = true;
+      }
       const defaultExpr = this.parseExpr();
+      this.noLetReference = savedNoLet;
       this.declaringKind = savedDeclaring;
       const assignPat = new TSNode();
       assignPat.nodeType = "AssignmentPattern";
@@ -7287,6 +7313,11 @@ class TSParserSimple  {
         contextual = true;
       }
       if ( contextual ) {
+        if ( this.noLetReference ) {
+          if ( tokVal == "let" ) {
+            this.syntaxError("Parse error: 'let' cannot be referenced inside a lexical declaration");
+          }
+        }
         if ( this.strictMode ) {
           if ( this.isStrictReservedReference(tokVal) ) {
             this.syntaxError(("Parse error: '" + tokVal) + "' is reserved in strict mode");
