@@ -2575,19 +2575,25 @@ class TSParserSimple  {
       member.nodeType = "MethodDefinition";
       member.kind = "constructor";
       this.advance();
+      this.pushScope(true);
       this.expectValue("(");
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
         if ( (member.params.length) > 0 ) {
           this.expectValue(",");
         }
         const param = this.parseConstructorParam();
+        if ( (param.name.length) > 0 ) {
+          this.declareBinding("p", param.name);
+        }
         member.params.push(param);
       };
       this.expectValue(")");
       if ( this.matchValue("{") ) {
+        this.suppressBlockScope = true;
         const bodyNode = this.parseBlock();
         member.body = bodyNode;
       }
+      this.popScope();
       return member;
     }
     if ( this.matchValue("*") ) {
@@ -2627,12 +2633,16 @@ class TSParserSimple  {
       if ( isAsync ) {
         member.async = true;
       }
+      this.pushScope(true);
       this.expectValue("(");
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
         if ( (member.params.length) > 0 ) {
           this.expectValue(",");
         }
         const param_1 = this.parseParam();
+        if ( (param_1.name.length) > 0 ) {
+          this.declareBinding("p", param_1.name);
+        }
         member.params.push(param_1);
       };
       this.expectValue(")");
@@ -2641,9 +2651,11 @@ class TSParserSimple  {
         member.typeAnnotation = returnType;
       }
       if ( this.matchValue("{") ) {
+        this.suppressBlockScope = true;
         const bodyNode_1 = this.parseBlock();
         member.body = bodyNode_1;
       }
+      this.popScope();
     } else {
       member.nodeType = "PropertyDefinition";
       if ( isStatic ) {
@@ -5405,11 +5417,16 @@ class TSParserSimple  {
           const fnNode = new TSNode();
           fnNode.nodeType = "FunctionExpression";
           this.advance();
+          this.pushScope(true);
           while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
             if ( (fnNode.params.length) > 0 ) {
               this.expectValue(",");
             }
-            fnNode.params.push(this.parseParam());
+            const mParam = this.parseParam();
+            if ( (mParam.name.length) > 0 ) {
+              this.declareBinding("p", mParam.name);
+            }
+            fnNode.params.push(mParam);
           };
           this.expectValue(")");
           if ( this.matchValue(":") ) {
@@ -5417,8 +5434,10 @@ class TSParserSimple  {
             fnNode.typeAnnotation = this.parseType();
           }
           if ( this.matchValue("{") ) {
+            this.suppressBlockScope = true;
             fnNode.body = this.parseBlock();
           }
+          this.popScope();
           prop.left = fnNode;
           if ( (isGetter == false) && (isSetter == false) ) {
             prop.kind = "init";

@@ -1533,22 +1533,30 @@ class TSParserSimple {
       member.kind = "constructor"
       this.advance()
       
+      this.pushScope(true)
+
       this.expectValue("(")
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length member.params) > 0) {
           this.expectValue(",")
         }
         def param (this.parseConstructorParam())
+        if ((strlen param.name) > 0) {
+          this.declareBinding("p" param.name)
+        }
         push member.params param
       }
       this.expectValue(")")
       
       ; Constructor body
       if (this.matchValue("{")) {
+        this.suppressBlockScope = true
         def bodyNode (this.parseBlock())
         member.body = bodyNode
       }
-      
+
+      this.popScope()
+
       return member
     }
     
@@ -1605,12 +1613,19 @@ class TSParserSimple {
         member.async = true
       }
       
+      ; A method's parameters and body share one scope, and duplicate
+      ; parameters are always an error in a method.
+      this.pushScope(true)
+
       this.expectValue("(")
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length member.params) > 0) {
           this.expectValue(",")
         }
         def param (this.parseParam())
+        if ((strlen param.name) > 0) {
+          this.declareBinding("p" param.name)
+        }
         push member.params param
       }
       this.expectValue(")")
@@ -1623,9 +1638,12 @@ class TSParserSimple {
       
       ; Method body
       if (this.matchValue("{")) {
+        this.suppressBlockScope = true
         def bodyNode (this.parseBlock())
         member.body = bodyNode
       }
+
+      this.popScope()
     } {
       ; Property
       member.nodeType = "PropertyDefinition"
@@ -5220,12 +5238,19 @@ class TSParserSimple {
           def fnNode (new TSNode())
           fnNode.nodeType = "FunctionExpression"
           this.advance()
+          ; A method's parameters and body share one scope, and duplicate
+          ; parameters are always an error in a method.
+          this.pushScope(true)
           ; Parse parameters
           while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
             if ((array_length fnNode.params) > 0) {
               this.expectValue(",")
             }
-            push fnNode.params (this.parseParam())
+            def mParam (this.parseParam())
+            if ((strlen mParam.name) > 0) {
+              this.declareBinding("p" mParam.name)
+            }
+            push fnNode.params mParam
           }
           this.expectValue(")")
           ; Parse optional return type
@@ -5235,8 +5260,10 @@ class TSParserSimple {
           }
           ; Parse body
           if (this.matchValue("{")) {
+            this.suppressBlockScope = true
             fnNode.body = (this.parseBlock())
           }
+          this.popScope()
           prop.left = fnNode
           ; ESTree: kind is "get", "set", or "init" for methods
           if ((isGetter == false) && (isSetter == false)) {
