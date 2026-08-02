@@ -128,6 +128,10 @@ class TSParserSimple {
   ; must resolve to a declaration somewhere in the module, which can only be
   ; checked once the whole module has been read.
   def pendingExportRefs:[string]
+  ; True while parsing a statement that sits in a single-statement position (an
+  ; if/loop/with body that is not a block). A labelled function declaration is
+  ; never allowed there, even under Annex B.
+  def inSingleStatementBody:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -850,7 +854,12 @@ class TSParserSimple {
       def afterKind:string (this.peekNextValue())
       def afterKindType:string (this.peekNextType())
       def startsBinding:boolean false
-      if ((afterKindType == "Identifier") || (afterKindType == "TSType")) { startsBinding = true }
+      if ((afterKindType == "Identifier") || (afterKindType == "TSType") || (afterKindType == "TSKeyword")) { startsBinding = true }
+      ; A contextual keyword after `let` is still a binding position, which is
+      ; how `let let;` gets reported instead of parsing as an expression.
+      if (afterKindType == "Keyword") {
+        if ((afterKind != "in") && (afterKind != "instanceof")) { startsBinding = true }
+      }
       if (afterKind == "{") { startsBinding = true }
       if (afterKind == "[") { startsBinding = true }
       if (tokVal != "let") { startsBinding = true }
@@ -907,7 +916,10 @@ class TSParserSimple {
       def withObj (this.parseExprSeq())
       withNode.left = withObj
       this.expectValue(")")
+      def savedWithBody:boolean this.inSingleStatementBody
+      this.inSingleStatementBody = true
       def withBody (this.parseStatement())
+      this.inSingleStatementBody = savedWithBody
       withNode.body = withBody
       return withNode
     }
@@ -977,7 +989,11 @@ class TSParserSimple {
     }
     if (bodyStart == "function") {
       ; Annex B allows a plain function declaration here in sloppy code, but a
-      ; generator never, and nothing at all in strict code.
+      ; generator never, nothing at all in strict code, and nothing at all when
+      ; the labelled statement is itself an if/loop/with body.
+      if (this.inSingleStatementBody) {
+        this.syntaxError("Parse error: a labelled function declaration cannot be a statement body")
+      }
       if (this.strictMode) {
         this.syntaxError("Parse error: a function declaration cannot be the body of a labelled statement in strict mode")
       } {
@@ -1791,10 +1807,20 @@ class TSParserSimple {
     this.expectValue("class")
 
     ; Name is optional: `class {}` is legal as an expression and after
-    ; `export default`.
-    if (this.matchType("Identifier")) {
-      def nameTok (this.expect("Identifier"))
+    ; `export default`. A class is always strict code, so its name obeys the
+    ; strict rules, and a class declaration binds lexically.
+    def classNameFollows:boolean (this.isNameToken())
+    ; `class extends B {}` and `class implements I {}` are anonymous; those
+    ; words open a heritage clause rather than naming the class.
+    if (this.matchValue("extends")) { classNameFollows = false }
+    if (this.matchValue("implements")) { classNameFollows = false }
+    if (classNameFollows) {
+      def savedNameStrict:boolean this.strictMode
+      this.strictMode = true
+      def nameTok (this.expectBindingName())
+      this.strictMode = savedNameStrict
       node.name = nameTok.value
+      this.declareBinding("l" nameTok.value)
     }
 
     ; Parse generic type parameters <T, U>
@@ -2184,7 +2210,23 @@ class TSParserSimple {
         push member.params param
       }
       this.expectValue(")")
-      
+
+      if (accessorKind == "get") {
+        if ((array_length member.params) != 0) {
+          this.syntaxError("Parse error: a getter takes no parameters")
+        }
+      }
+      if (accessorKind == "set") {
+        if ((array_length member.params) != 1) {
+          this.syntaxError("Parse error: a setter takes exactly one parameter")
+        } {
+          def setP:TSNode (itemAt member.params 0)
+          if (setP.nodeType == "RestElement") {
+            this.syntaxError("Parse error: a setter parameter may not be a rest element")
+          }
+        }
+      }
+
       ; Return type
       if (this.matchValue(":")) {
         def returnType (this.parseTypeAnnotation())
@@ -2439,13 +2481,19 @@ class TSParserSimple {
     node.left = test
     this.expectValue(")")
     
+    def savedConsBody:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = true
     def consequent (this.parseStatement())
+    this.inSingleStatementBody = savedConsBody
     node.body = consequent
     
     ; else clause
     if (this.matchValue("else")) {
       this.advance()
+      def savedAltBody:boolean this.inSingleStatementBody
+      this.inSingleStatementBody = true
       def alternate (this.parseStatement())
+      this.inSingleStatementBody = savedAltBody
       node.right = alternate
     }
     
@@ -2466,9 +2514,12 @@ class TSParserSimple {
     node.left = test
     this.expectValue(")")
     
+    def savedBodyFlag0:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = true
     this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
     this.iterationDepth = (this.iterationDepth - 1)
+    this.inSingleStatementBody = savedBodyFlag0
     node.body = body
     
     return node
@@ -2486,9 +2537,12 @@ class TSParserSimple {
     
     this.expectValue("do")
     
+    def savedBodyFlag1:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = true
     this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
     this.iterationDepth = (this.iterationDepth - 1)
+    this.inSingleStatementBody = savedBodyFlag1
     node.body = body
     
     this.expectValue("while")
@@ -2553,7 +2607,14 @@ class TSParserSimple {
     ; First parse potential variable declaration
     def tokVal (this.peekValue())
     
-    if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
+    def headIsDecl:boolean true
+    if (tokVal == "let") {
+      def afterLet:string (this.peekNextValue())
+      if ((afterLet == "in") || (afterLet == "of") || (afterLet == "=") || (afterLet == ";") || (afterLet == ".") || (afterLet == "(")) {
+        headIsDecl = false
+      }
+    }
+    if (((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) && headIsDecl) {
       def kind tokVal
       this.advance()
       def headDeclKind:string "v"
@@ -2602,9 +2663,12 @@ class TSParserSimple {
         node.right = right
         this.expectValue(")")
         
+        def savedBodyFlag2:boolean this.inSingleStatementBody
+        this.inSingleStatementBody = true
         this.iterationDepth = (this.iterationDepth + 1)
         def body (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
+        this.inSingleStatementBody = savedBodyFlag2
         node.body = body
         this.popScope()
         return node
@@ -2628,9 +2692,12 @@ class TSParserSimple {
         node.right = right
         this.expectValue(")")
         
+        def savedBodyFlag3:boolean this.inSingleStatementBody
+        this.inSingleStatementBody = true
         this.iterationDepth = (this.iterationDepth + 1)
         def body (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
+        this.inSingleStatementBody = savedBodyFlag3
         node.body = body
         this.popScope()
         return node
@@ -2707,9 +2774,12 @@ class TSParserSimple {
           def ofRight (this.parseExpr())
           node.right = ofRight
           this.expectValue(")")
+          def savedBodyFlag4:boolean this.inSingleStatementBody
+          this.inSingleStatementBody = true
           this.iterationDepth = (this.iterationDepth + 1)
         def ofBody (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
+        this.inSingleStatementBody = savedBodyFlag4
           node.body = ofBody
           this.popScope()
           return node
@@ -2725,9 +2795,12 @@ class TSParserSimple {
               node.left = (unwrap initExpr.left)
               node.right = (unwrap initExpr.right)
               this.expectValue(")")
+              def savedBodyFlag5:boolean this.inSingleStatementBody
+              this.inSingleStatementBody = true
               this.iterationDepth = (this.iterationDepth + 1)
               def inBody (this.parseStatement())
               this.iterationDepth = (this.iterationDepth - 1)
+              this.inSingleStatementBody = savedBodyFlag5
               node.body = inBody
               this.popScope()
               return node
@@ -2773,9 +2846,12 @@ class TSParserSimple {
     
     this.expectValue(")")
     
+    def savedBodyFlag6:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = true
     this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
     this.iterationDepth = (this.iterationDepth - 1)
+    this.inSingleStatementBody = savedBodyFlag6
     node.body = body
     
     this.popScope()
@@ -3040,6 +3116,13 @@ class TSParserSimple {
     ; literal is not: `[0] = 1` and `({a: 0} = 1)` are errors.
     if (this.patternAllowsMemberTarget) {
       def lhs (this.parsePostfix())
+      if (this.strictMode) {
+        if (lhs.nodeType == "Identifier") {
+          if ((lhs.name == "eval") || (lhs.name == "arguments")) {
+            this.syntaxError("Parse error: cannot assign to '" + lhs.name + "' in strict mode")
+          }
+        }
+      }
       def lt:string lhs.nodeType
       if ((lt != "Identifier") && (lt != "MemberExpression") && (lt != "ArrayPattern") && (lt != "ObjectPattern") && (lt != "ArrayExpression") && (lt != "ObjectExpression")) {
         this.syntaxError("Parse error: '" + lt + "' is not a valid destructuring target")
@@ -3522,6 +3605,9 @@ class TSParserSimple {
     
     this.expectValue("{")
 
+    def savedSingleBody:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = false
+
     def ownScope:boolean true
     if (this.suppressBlockScope) {
       ownScope = false
@@ -3555,6 +3641,7 @@ class TSParserSimple {
       this.popScope()
     }
     this.strictMode = savedStrict
+    this.inSingleStatementBody = savedSingleBody
 
     this.expectValue("}")
     return block

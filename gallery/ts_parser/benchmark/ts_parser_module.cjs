@@ -1496,6 +1496,7 @@ class TSParserSimple  {
     this.inParamList = false;
     this.parsingFunctionExpression = false;
     this.pendingExportRefs = [];
+    this.inSingleStatementBody = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -2174,8 +2175,13 @@ class TSParserSimple  {
       const afterKind = this.peekNextValue();
       const afterKindType = this.peekNextType();
       let startsBinding = false;
-      if ( (afterKindType == "Identifier") || (afterKindType == "TSType") ) {
+      if ( ((afterKindType == "Identifier") || (afterKindType == "TSType")) || (afterKindType == "TSKeyword") ) {
         startsBinding = true;
+      }
+      if ( afterKindType == "Keyword" ) {
+        if ( (afterKind != "in") && (afterKind != "instanceof") ) {
+          startsBinding = true;
+        }
       }
       if ( afterKind == "{" ) {
         startsBinding = true;
@@ -2230,7 +2236,10 @@ class TSParserSimple  {
       const withObj = this.parseExprSeq();
       withNode.left = withObj;
       this.expectValue(")");
+      const savedWithBody = this.inSingleStatementBody;
+      this.inSingleStatementBody = true;
       const withBody = this.parseStatement();
+      this.inSingleStatementBody = savedWithBody;
       withNode.body = withBody;
       return withNode;
     }
@@ -2282,6 +2291,9 @@ class TSParserSimple  {
       this.syntaxError(("Parse error: '" + bodyStart) + "' declaration cannot be the body of a labelled statement");
     }
     if ( bodyStart == "function" ) {
+      if ( this.inSingleStatementBody ) {
+        this.syntaxError("Parse error: a labelled function declaration cannot be a statement body");
+      }
       if ( this.strictMode ) {
         this.syntaxError("Parse error: a function declaration cannot be the body of a labelled statement in strict mode");
       } else {
@@ -2897,9 +2909,20 @@ class TSParserSimple  {
       this.advance();
     }
     this.expectValue("class");
-    if ( this.matchType("Identifier") ) {
-      const nameTok = this.expect("Identifier");
+    let classNameFollows = this.isNameToken();
+    if ( this.matchValue("extends") ) {
+      classNameFollows = false;
+    }
+    if ( this.matchValue("implements") ) {
+      classNameFollows = false;
+    }
+    if ( classNameFollows ) {
+      const savedNameStrict = this.strictMode;
+      this.strictMode = true;
+      const nameTok = this.expectBindingName();
+      this.strictMode = savedNameStrict;
       node.name = nameTok.value;
+      this.declareBinding("l", nameTok.value);
     }
     if ( this.matchValue("<") ) {
       const typeParams = this.parseTypeParams();
@@ -3224,6 +3247,21 @@ class TSParserSimple  {
         member.params.push(param_1);
       };
       this.expectValue(")");
+      if ( accessorKind == "get" ) {
+        if ( (member.params.length) != 0 ) {
+          this.syntaxError("Parse error: a getter takes no parameters");
+        }
+      }
+      if ( accessorKind == "set" ) {
+        if ( (member.params.length) != 1 ) {
+          this.syntaxError("Parse error: a setter takes exactly one parameter");
+        } else {
+          const setP = member.params[0];
+          if ( setP.nodeType == "RestElement" ) {
+            this.syntaxError("Parse error: a setter parameter may not be a rest element");
+          }
+        }
+      }
       if ( this.matchValue(":") ) {
         const returnType = this.parseTypeAnnotation();
         member.typeAnnotation = returnType;
@@ -3411,11 +3449,17 @@ class TSParserSimple  {
     const test = this.parseExpr();
     node.left = test;
     this.expectValue(")");
+    const savedConsBody = this.inSingleStatementBody;
+    this.inSingleStatementBody = true;
     const consequent = this.parseStatement();
+    this.inSingleStatementBody = savedConsBody;
     node.body = consequent;
     if ( this.matchValue("else") ) {
       this.advance();
+      const savedAltBody = this.inSingleStatementBody;
+      this.inSingleStatementBody = true;
       const alternate = this.parseStatement();
+      this.inSingleStatementBody = savedAltBody;
       node.right = alternate;
     }
     return node;
@@ -3432,9 +3476,12 @@ class TSParserSimple  {
     const test = this.parseExpr();
     node.left = test;
     this.expectValue(")");
+    const savedBodyFlag0 = this.inSingleStatementBody;
+    this.inSingleStatementBody = true;
     this.iterationDepth = this.iterationDepth + 1;
     const body = this.parseStatement();
     this.iterationDepth = this.iterationDepth - 1;
+    this.inSingleStatementBody = savedBodyFlag0;
     node.body = body;
     return node;
   };
@@ -3446,9 +3493,12 @@ class TSParserSimple  {
     node.line = startTok.line;
     node.col = startTok.col;
     this.expectValue("do");
+    const savedBodyFlag1 = this.inSingleStatementBody;
+    this.inSingleStatementBody = true;
     this.iterationDepth = this.iterationDepth + 1;
     const body = this.parseStatement();
     this.iterationDepth = this.iterationDepth - 1;
+    this.inSingleStatementBody = savedBodyFlag1;
     node.body = body;
     this.expectValue("while");
     this.expectValue("(");
@@ -3490,7 +3540,14 @@ class TSParserSimple  {
     this.expectValue("(");
     this.pushScope(false);
     const tokVal = this.peekValue();
-    if ( ((tokVal == "let") || (tokVal == "const")) || (tokVal == "var") ) {
+    let headIsDecl = true;
+    if ( tokVal == "let" ) {
+      const afterLet = this.peekNextValue();
+      if ( (((((afterLet == "in") || (afterLet == "of")) || (afterLet == "=")) || (afterLet == ";")) || (afterLet == ".")) || (afterLet == "(") ) {
+        headIsDecl = false;
+      }
+    }
+    if ( (((tokVal == "let") || (tokVal == "const")) || (tokVal == "var")) && headIsDecl ) {
       const kind = tokVal;
       this.advance();
       let headDeclKind = "v";
@@ -3540,9 +3597,12 @@ class TSParserSimple  {
         const right = this.parseExpr();
         node.right = right;
         this.expectValue(")");
+        const savedBodyFlag2 = this.inSingleStatementBody;
+        this.inSingleStatementBody = true;
         this.iterationDepth = this.iterationDepth + 1;
         const body = this.parseStatement();
         this.iterationDepth = this.iterationDepth - 1;
+        this.inSingleStatementBody = savedBodyFlag2;
         node.body = body;
         this.popScope();
         return node;
@@ -3565,9 +3625,12 @@ class TSParserSimple  {
         const right_1 = this.parseExpr();
         node.right = right_1;
         this.expectValue(")");
+        const savedBodyFlag3 = this.inSingleStatementBody;
+        this.inSingleStatementBody = true;
         this.iterationDepth = this.iterationDepth + 1;
         const body_1 = this.parseStatement();
         this.iterationDepth = this.iterationDepth - 1;
+        this.inSingleStatementBody = savedBodyFlag3;
         node.body = body_1;
         this.popScope();
         return node;
@@ -3634,9 +3697,12 @@ class TSParserSimple  {
           const ofRight = this.parseExpr();
           node.right = ofRight;
           this.expectValue(")");
+          const savedBodyFlag4 = this.inSingleStatementBody;
+          this.inSingleStatementBody = true;
           this.iterationDepth = this.iterationDepth + 1;
           const ofBody = this.parseStatement();
           this.iterationDepth = this.iterationDepth - 1;
+          this.inSingleStatementBody = savedBodyFlag4;
           node.body = ofBody;
           this.popScope();
           return node;
@@ -3648,9 +3714,12 @@ class TSParserSimple  {
               node.left = initExpr.left;
               node.right = initExpr.right;
               this.expectValue(")");
+              const savedBodyFlag5 = this.inSingleStatementBody;
+              this.inSingleStatementBody = true;
               this.iterationDepth = this.iterationDepth + 1;
               const inBody = this.parseStatement();
               this.iterationDepth = this.iterationDepth - 1;
+              this.inSingleStatementBody = savedBodyFlag5;
               node.body = inBody;
               this.popScope();
               return node;
@@ -3686,9 +3755,12 @@ class TSParserSimple  {
       node.right = update;
     }
     this.expectValue(")");
+    const savedBodyFlag6 = this.inSingleStatementBody;
+    this.inSingleStatementBody = true;
     this.iterationDepth = this.iterationDepth + 1;
     const body_2 = this.parseStatement();
     this.iterationDepth = this.iterationDepth - 1;
+    this.inSingleStatementBody = savedBodyFlag6;
     node.body = body_2;
     this.popScope();
     return node;
@@ -3891,6 +3963,13 @@ class TSParserSimple  {
     }
     if ( this.patternAllowsMemberTarget ) {
       const lhs = this.parsePostfix();
+      if ( this.strictMode ) {
+        if ( lhs.nodeType == "Identifier" ) {
+          if ( (lhs.name == "eval") || (lhs.name == "arguments") ) {
+            this.syntaxError(("Parse error: cannot assign to '" + lhs.name) + "' in strict mode");
+          }
+        }
+      }
       const lt = lhs.nodeType;
       if ( (((((lt != "Identifier") && (lt != "MemberExpression")) && (lt != "ArrayPattern")) && (lt != "ObjectPattern")) && (lt != "ArrayExpression")) && (lt != "ObjectExpression") ) {
         this.syntaxError(("Parse error: '" + lt) + "' is not a valid destructuring target");
@@ -4270,6 +4349,8 @@ class TSParserSimple  {
     block.line = startTok.line;
     block.col = startTok.col;
     this.expectValue("{");
+    const savedSingleBody = this.inSingleStatementBody;
+    this.inSingleStatementBody = false;
     let ownScope = true;
     if ( this.suppressBlockScope ) {
       ownScope = false;
@@ -4298,6 +4379,7 @@ class TSParserSimple  {
       this.popScope();
     }
     this.strictMode = savedStrict;
+    this.inSingleStatementBody = savedSingleBody;
     this.expectValue("}");
     return block;
   };
