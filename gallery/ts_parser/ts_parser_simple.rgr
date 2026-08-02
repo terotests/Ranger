@@ -144,6 +144,9 @@ class TSParserSimple {
   ; True only while parsing the top level of the program. Import and export
   ; declarations are ModuleItems and may appear nowhere else.
   def atModuleTopLevel:boolean false
+  ; Set while parsing `export default <decl>`, where an anonymous class or
+  ; function declaration is allowed.
+  def inExportDefault:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -979,7 +982,9 @@ class TSParserSimple {
       }
       def classDecl (this.parseClass())
       if ((strlen classDecl.name) == 0) {
-        this.syntaxError("Parse error: a class declaration needs a name")
+        if (this.inExportDefault == false) {
+          this.syntaxError("Parse error: a class declaration needs a name")
+        }
       }
       return classDecl
     }
@@ -1110,6 +1115,7 @@ class TSParserSimple {
       this.expectValue(")")
       def savedWithBody:boolean this.inSingleStatementBody
       this.inSingleStatementBody = true
+      this.atModuleTopLevel = false
       def withBody (this.parseStatement())
       this.inSingleStatementBody = savedWithBody
       withNode.body = withBody
@@ -1609,7 +1615,10 @@ class TSParserSimple {
       
       def nextVal (this.peekValue())
       if ((nextVal == "class") || (nextVal == "function") || (nextVal == "interface")) {
+        def savedExportDefault:boolean this.inExportDefault
+        this.inExportDefault = true
         def decl (this.parseStatement())
+        this.inExportDefault = savedExportDefault
         node.left = decl
       } {
         def expr (this.parseExpr())
@@ -2723,7 +2732,9 @@ class TSParserSimple {
     def savedConsBody:boolean this.inSingleStatementBody
     def savedConsIf:boolean this.singleBodyIsIfBranch
     this.inSingleStatementBody = true
+    this.atModuleTopLevel = false
     this.singleBodyIsIfBranch = true
+    this.atModuleTopLevel = false
     def consequent (this.parseStatement())
     this.inSingleStatementBody = savedConsBody
     this.singleBodyIsIfBranch = savedConsIf
@@ -2735,6 +2746,7 @@ class TSParserSimple {
       def savedAltBody:boolean this.inSingleStatementBody
       def savedAltIf:boolean this.singleBodyIsIfBranch
       this.inSingleStatementBody = true
+      this.atModuleTopLevel = false
       this.singleBodyIsIfBranch = true
       def alternate (this.parseStatement())
       this.inSingleStatementBody = savedAltBody
@@ -2761,6 +2773,7 @@ class TSParserSimple {
     
     def savedBodyFlag0:boolean this.inSingleStatementBody
     this.inSingleStatementBody = true
+    this.atModuleTopLevel = false
     this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
     this.iterationDepth = (this.iterationDepth - 1)
@@ -2784,6 +2797,7 @@ class TSParserSimple {
     
     def savedBodyFlag1:boolean this.inSingleStatementBody
     this.inSingleStatementBody = true
+    this.atModuleTopLevel = false
     this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
     this.iterationDepth = (this.iterationDepth - 1)
@@ -2925,6 +2939,7 @@ class TSParserSimple {
         
         def savedBodyFlag2:boolean this.inSingleStatementBody
         this.inSingleStatementBody = true
+        this.atModuleTopLevel = false
         this.iterationDepth = (this.iterationDepth + 1)
         def body (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
@@ -2954,6 +2969,7 @@ class TSParserSimple {
         
         def savedBodyFlag3:boolean this.inSingleStatementBody
         this.inSingleStatementBody = true
+        this.atModuleTopLevel = false
         this.iterationDepth = (this.iterationDepth + 1)
         def body (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
@@ -3033,6 +3049,11 @@ class TSParserSimple {
         if (this.matchValue("of")) {
           node.nodeType = "ForOfStatement"
           node.await = isAwait
+          ; `for (let of ...)` is ambiguous with a let declaration and is
+          ; disallowed outright, however the head continues.
+          if (tokVal == "let") {
+            this.syntaxError("Parse error: a for-of head may not start with 'let'")
+          }
           this.checkAssignmentTarget(initExpr)
           this.advance()
           node.left = initExpr
@@ -3041,6 +3062,7 @@ class TSParserSimple {
           this.expectValue(")")
           def savedBodyFlag4:boolean this.inSingleStatementBody
           this.inSingleStatementBody = true
+          this.atModuleTopLevel = false
           this.iterationDepth = (this.iterationDepth + 1)
         def ofBody (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
@@ -3064,6 +3086,7 @@ class TSParserSimple {
               this.expectValue(")")
               def savedBodyFlag5:boolean this.inSingleStatementBody
               this.inSingleStatementBody = true
+              this.atModuleTopLevel = false
               this.iterationDepth = (this.iterationDepth + 1)
               def inBody (this.parseStatement())
               this.iterationDepth = (this.iterationDepth - 1)
@@ -3115,6 +3138,7 @@ class TSParserSimple {
     
     def savedBodyFlag6:boolean this.inSingleStatementBody
     this.inSingleStatementBody = true
+    this.atModuleTopLevel = false
     this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
     this.iterationDepth = (this.iterationDepth - 1)
@@ -6622,6 +6646,19 @@ class TSParserSimple {
         if (this.isObjectPropertyKeyToken()) {
           prop.name = keyTok.value
           this.advance()
+        } {
+          if (isComputed) {
+            ; `({[x]})` has a key but no value.
+            def afterComputed:string (this.peekValue())
+            if ((afterComputed != ":") && (afterComputed != "(")) {
+              this.syntaxError("Parse error: a computed property needs a value")
+            }
+          } {
+            ; Anything that cannot start a property key at all.
+            if (this.matchValue("(")) {
+              this.syntaxError("Parse error: a property key cannot be parenthesised")
+            }
+          }
         }
         
         ; A getter takes no parameters and a setter takes exactly one, which

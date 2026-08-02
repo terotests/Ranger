@@ -2002,6 +2002,7 @@ class TSParserSimple  {
     this.singleBodyIsIfBranch = false;
     this.lastTokenLine = 0;
     this.atModuleTopLevel = false;
+    this.inExportDefault = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -2794,7 +2795,9 @@ class TSParserSimple  {
       }
       const classDecl = this.parseClass();
       if ( (classDecl.name.length) == 0 ) {
-        this.syntaxError("Parse error: a class declaration needs a name");
+        if ( this.inExportDefault == false ) {
+          this.syntaxError("Parse error: a class declaration needs a name");
+        }
       }
       return classDecl;
     }
@@ -2910,6 +2913,7 @@ class TSParserSimple  {
       this.expectValue(")");
       const savedWithBody = this.inSingleStatementBody;
       this.inSingleStatementBody = true;
+      this.atModuleTopLevel = false;
       const withBody = this.parseStatement();
       this.inSingleStatementBody = savedWithBody;
       withNode.body = withBody;
@@ -3306,7 +3310,10 @@ class TSParserSimple  {
       this.advance();
       const nextVal = this.peekValue();
       if ( ((nextVal == "class") || (nextVal == "function")) || (nextVal == "interface") ) {
+        const savedExportDefault = this.inExportDefault;
+        this.inExportDefault = true;
         const decl = this.parseStatement();
+        this.inExportDefault = savedExportDefault;
         node.left = decl;
       } else {
         const expr = this.parseExpr();
@@ -4165,7 +4172,9 @@ class TSParserSimple  {
     const savedConsBody = this.inSingleStatementBody;
     const savedConsIf = this.singleBodyIsIfBranch;
     this.inSingleStatementBody = true;
+    this.atModuleTopLevel = false;
     this.singleBodyIsIfBranch = true;
+    this.atModuleTopLevel = false;
     const consequent = this.parseStatement();
     this.inSingleStatementBody = savedConsBody;
     this.singleBodyIsIfBranch = savedConsIf;
@@ -4175,6 +4184,7 @@ class TSParserSimple  {
       const savedAltBody = this.inSingleStatementBody;
       const savedAltIf = this.singleBodyIsIfBranch;
       this.inSingleStatementBody = true;
+      this.atModuleTopLevel = false;
       this.singleBodyIsIfBranch = true;
       const alternate = this.parseStatement();
       this.inSingleStatementBody = savedAltBody;
@@ -4197,6 +4207,7 @@ class TSParserSimple  {
     this.expectValue(")");
     const savedBodyFlag0 = this.inSingleStatementBody;
     this.inSingleStatementBody = true;
+    this.atModuleTopLevel = false;
     this.iterationDepth = this.iterationDepth + 1;
     const body = this.parseStatement();
     this.iterationDepth = this.iterationDepth - 1;
@@ -4214,6 +4225,7 @@ class TSParserSimple  {
     this.expectValue("do");
     const savedBodyFlag1 = this.inSingleStatementBody;
     this.inSingleStatementBody = true;
+    this.atModuleTopLevel = false;
     this.iterationDepth = this.iterationDepth + 1;
     const body = this.parseStatement();
     this.iterationDepth = this.iterationDepth - 1;
@@ -4330,6 +4342,7 @@ class TSParserSimple  {
         this.expectValue(")");
         const savedBodyFlag2 = this.inSingleStatementBody;
         this.inSingleStatementBody = true;
+        this.atModuleTopLevel = false;
         this.iterationDepth = this.iterationDepth + 1;
         const body = this.parseStatement();
         this.iterationDepth = this.iterationDepth - 1;
@@ -4358,6 +4371,7 @@ class TSParserSimple  {
         this.expectValue(")");
         const savedBodyFlag3 = this.inSingleStatementBody;
         this.inSingleStatementBody = true;
+        this.atModuleTopLevel = false;
         this.iterationDepth = this.iterationDepth + 1;
         const body_1 = this.parseStatement();
         this.iterationDepth = this.iterationDepth - 1;
@@ -4427,6 +4441,9 @@ class TSParserSimple  {
         if ( this.matchValue("of") ) {
           node.nodeType = "ForOfStatement";
           node.await = isAwait;
+          if ( tokVal == "let" ) {
+            this.syntaxError("Parse error: a for-of head may not start with 'let'");
+          }
           this.checkAssignmentTarget(initExpr);
           this.advance();
           node.left = initExpr;
@@ -4435,6 +4452,7 @@ class TSParserSimple  {
           this.expectValue(")");
           const savedBodyFlag4 = this.inSingleStatementBody;
           this.inSingleStatementBody = true;
+          this.atModuleTopLevel = false;
           this.iterationDepth = this.iterationDepth + 1;
           const ofBody = this.parseStatement();
           this.iterationDepth = this.iterationDepth - 1;
@@ -4454,6 +4472,7 @@ class TSParserSimple  {
               this.expectValue(")");
               const savedBodyFlag5 = this.inSingleStatementBody;
               this.inSingleStatementBody = true;
+              this.atModuleTopLevel = false;
               this.iterationDepth = this.iterationDepth + 1;
               const inBody = this.parseStatement();
               this.iterationDepth = this.iterationDepth - 1;
@@ -4495,6 +4514,7 @@ class TSParserSimple  {
     this.expectValue(")");
     const savedBodyFlag6 = this.inSingleStatementBody;
     this.inSingleStatementBody = true;
+    this.atModuleTopLevel = false;
     this.iterationDepth = this.iterationDepth + 1;
     const body_2 = this.parseStatement();
     this.iterationDepth = this.iterationDepth - 1;
@@ -7246,6 +7266,17 @@ class TSParserSimple  {
         if ( this.isObjectPropertyKeyToken() ) {
           prop.name = keyTok.value;
           this.advance();
+        } else {
+          if ( isComputed ) {
+            const afterComputed = this.peekValue();
+            if ( (afterComputed != ":") && (afterComputed != "(") ) {
+              this.syntaxError("Parse error: a computed property needs a value");
+            }
+          } else {
+            if ( this.matchValue("(") ) {
+              this.syntaxError("Parse error: a property key cannot be parenthesised");
+            }
+          }
         }
         if ( this.matchValue("(") ) {
           isMethod = true;
