@@ -263,6 +263,22 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-ATTRS: property attributes. defineProperty defaults all three to FALSE,
   // plain assignment defaults them TRUE -- the engine could not tell the two
   // apart, so every descriptor reported true and freeze/seal did nothing.
+  // D-ARGCHECK: Object statics reject non-objects. Accepting them silently was
+  // the largest failure bucket in built-ins/Object -- the call did nothing and
+  // the assertion after it measured whatever the no-op left behind.
+  ["argchk-defineprop-primitive", "try { Object.defineProperty(5, 'a', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-defineprop-undefined", "try { Object.defineProperty(undefined, 'a', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-defineprop-bad-desc", "try { Object.defineProperty({}, 'a', 42); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-keys-null", "try { Object.keys(null); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-keys-undefined", "try { Object.keys(undefined); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-getproto-null", "try { Object.getPrototypeOf(null); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-getownpropdesc-null", "try { Object.getOwnPropertyDescriptor(null, 'a'); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-create-primitive", "try { Object.create(5); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-freeze-primitive-ok", "try { Object.freeze(5); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-create-null-legal", "var o = Object.create(null); o.a = 1; return o.a;", "attrs"],
+  ["argchk-keys-array-ok", "return Object.keys([1, 2]).length;", "attrs"],
+  ["attr-create-descriptors", "var o = Object.create(null, { p: { value: 7, enumerable: true } }); return o.p;", "attrs"],
+
   ["attr-defineprop-not-enumerable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "attrs"],
   ["attr-defineprop-not-writable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').writable;", "attrs"],
   ["attr-defineprop-not-configurable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').configurable;", "attrs"],

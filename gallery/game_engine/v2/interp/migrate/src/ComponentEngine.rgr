@@ -4851,6 +4851,43 @@ class ComponentEngine {
                     if ((array_length node.children) > 0) {
                         src = (this.evaluateExpr((itemAt node.children 0)))
                     }
+                    ; D-ARGCHECK: the Object statics that REQUIRE an object
+                    ; reject anything else with a TypeError. Accepting a
+                    ; primitive silently was the single largest failure bucket
+                    ; in built-ins/Object: the call did nothing, the test
+                    ; continued, and the assertion that followed measured
+                    ; whatever the no-op left behind.
+                    if (this.objectStaticNeedsObject(methodName)) {
+                        if (src.valueType != 5) {
+                            ; Arrays and functions are objects too; only true
+                            ; primitives and null/undefined are rejected.
+                            def okKind:boolean false
+                            if (src.valueType == 4) { okKind = true }
+                            if (src.valueType == 6) { okKind = true }
+                            if (src.valueType == 9) { okKind = true }
+                            if (src.valueType == 10) { okKind = true }
+                            ; Object.create(null) is legal and is the standard
+                            ; way to make a prototype-less object, so null is
+                            ; allowed for create alone.
+                            if (methodName == "create") {
+                                if (src.isNull()) {
+                                    okKind = true
+                                }
+                            }
+                            if (false == okKind) {
+                                return (this.throwSpecError("TypeError" ("Object." + methodName + " called on a non-object")))
+                            }
+                        }
+                    }
+                    ; defineProperty's descriptor must itself be an object.
+                    if ((methodName == "defineProperty") || (methodName == "defineProperties")) {
+                        if ((array_length node.children) > 2) {
+                            def dCheck:EvalValue (this.evaluateExpr((itemAt node.children 2)))
+                            if (dCheck.valueType != 5) {
+                                return (this.throwSpecError("TypeError" "Property description must be an object"))
+                            }
+                        }
+                    }
                     if (methodName == "keys") {
                         def items:[EvalValue]
                         def ks:[string] (this.objectEnumerableKeys(src))
@@ -7346,6 +7383,25 @@ class ComponentEngine {
         return (EvalValue.undefined())
     }
 
+    ; D-ARGCHECK: Object statics whose first argument must be an object. Note
+    ; what is NOT here: keys/values/entries/assign/getOwnPropertyNames coerce in
+    ; ES2015+ rather than throwing, but throw on null/undefined specifically —
+    ; handled by the nullish check at the call site. freeze/seal/isFrozen/
+    ; isSealed/isExtensible accept anything and are deliberately absent.
+    fn objectStaticNeedsObject:boolean (name:string) {
+        if (name == "defineProperty") { return true }
+        if (name == "defineProperties") { return true }
+        if (name == "getOwnPropertyDescriptor") { return true }
+        if (name == "getPrototypeOf") { return true }
+        if (name == "setPrototypeOf") { return true }
+        if (name == "keys") { return true }
+        if (name == "values") { return true }
+        if (name == "entries") { return true }
+        if (name == "getOwnPropertyNames") { return true }
+        if (name == "create") { return true }
+        return false
+    }
+
     fn errorKindNames:[string] () {
         def out:[string]
         push out "Error"
@@ -8455,6 +8511,23 @@ class ComponentEngine {
         def out:[string]
         if (v.isObject()) {
             out = (keys v.objectMap)
+            return out
+        }
+        ; D-ARRAYKEYS: an array's own keys are its INDICES, as strings. Elements
+        ; live in arrayValue rather than objectMap, so Object.keys([1,2]) used to
+        ; answer nothing at all instead of ["0","1"].
+        if (v.isArray()) {
+            def i:int 0
+            while (i < (array_length v.arrayValue)) {
+                push out (to_string i)
+                i = (i + 1)
+            }
+            def extra:[string] (keys v.objectMap)
+            def j:int 0
+            while (j < (array_length extra)) {
+                push out (itemAt extra j)
+                j = (j + 1)
+            }
         }
         return out
     }
@@ -8465,6 +8538,10 @@ class ComponentEngine {
     ; defined as non-enumerable still showed up in Object.keys.
     fn objectEnumerableKeys:[string] (v:EvalValue) {
         def out:[string]
+        if (v.isArray()) {
+            ; Array indices are always enumerable.
+            return (this.objectKeys(v))
+        }
         if (v.isObject()) {
             def all:[string] (keys v.objectMap)
             def i:int 0
