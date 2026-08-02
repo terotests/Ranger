@@ -265,6 +265,22 @@ class ComponentEngine {
     ; D-ERRORS: the engine-provided error constructors are seeded lazily, once,
     ; so that `thrown.constructor === TypeError` holds by reference.
     def errorCtorsReady:boolean false
+    ; D-STRICT: whether the code currently running is strict. Set from a
+    ; "use strict" prologue on the program or on a function body, saved and
+    ; restored around every call.
+    ;
+    ; Deliberate approximation: strictness propagates DYNAMICALLY, so a function
+    ; declared in sloppy code but CALLED from strict code runs strict, where the
+    ; spec makes it lexical. Getting that exactly right means stamping each
+    ; function value with the strictness of the scope that created it. The
+    ; dynamic rule is right for every nesting -- which is what the suite is
+    ; written as -- and wrong only for a callback that crosses the boundary
+    ; outward.
+    def strictMode:boolean false
+    ; D-STRICT: how many guest function frames are on the stack. Top-level `this`
+    ; is the global object even under a strict program, so "am I inside a call"
+    ; has to be answerable separately from "am I strict".
+    def callDepth:int 0
     ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
     ; for the engine's lifetime so identity and stored properties survive reads.
     def builtinProtos:[string:EvalValue]
@@ -1025,6 +1041,81 @@ class ComponentEngine {
         return false
     }
 
+    ; D-STRICT: why a property write would be refused, or "" when it would go
+    ; through. Mirrors the conditions EvalValue.setMember silently returns on --
+    ; the two must agree, or strict mode would throw for a write that then
+    ; succeeded, or stay silent about one that did not.
+    fn insideFunctionCall:boolean () {
+        return (callDepth > 0)
+    }
+
+    fn writeRefusalError:string (obj:EvalValue key:string) {
+        if (obj.valueType != 5) {
+            return ""
+        }
+        ; An accessor with a setter takes the write; one without cannot.
+        if (has obj.getterMap key) {
+            if (false == (has obj.setterMap key)) {
+                return ("Cannot set property " + key + ", which has only a getter")
+            }
+            return ""
+        }
+        if obj.frozenFlag {
+            return ("Cannot assign to read only property " + key + " of a frozen object")
+        }
+        if (has obj.objectMap key) {
+            if (false == (obj.isWritable(key))) {
+                return ("Cannot assign to read only property " + key)
+            }
+            return ""
+        }
+        if (false == obj.extensibleFlag) {
+            return ("Cannot add property " + key + " to a non-extensible object")
+        }
+        return ""
+    }
+
+    ; D-STRICT: a "use strict" prologue -- a bare string-literal statement at the
+    ; head of a program or a function body. Only the leading run of directives
+    ; counts, so a string in the middle of a body is just an expression.
+    fn bodyIsStrict:boolean (bodyNode:TSNode) {
+        def i:int 0
+        while (i < (array_length bodyNode.children)) {
+            def st:TSNode (itemAt bodyNode.children i)
+            if (st.nodeType != "ExpressionStatement") {
+                return false
+            }
+            if (null? st.left) {
+                return false
+            }
+            def ex:TSNode (unwrap st.left)
+            if (ex.nodeType != "StringLiteral") {
+                return false
+            }
+            if (ex.value == "use strict") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The strictness a function body runs under: its own directive, or the
+    ; strictness already in force.
+    fn strictForBody:boolean (fnNode:TSNode) {
+        if strictMode {
+            return true
+        }
+        if (null? fnNode.body) {
+            return false
+        }
+        def b:TSNode (unwrap fnNode.body)
+        if (b.nodeType != "BlockStatement") {
+            return false
+        }
+        return (this.bodyIsStrict(b))
+    }
+
     fn parseProgramFromSrc:TSNode (src:string) {
         def lexer (new TSLexer(src))
         def tokens:[Token] (lexer.tokenize())
@@ -1186,6 +1277,8 @@ class ComponentEngine {
         source = src
         def ast:TSNode (this.parseProgramFromSrc(src))
         programAst = ast
+        ; D-STRICT: a program-level "use strict" applies to the whole script.
+        strictMode = (this.bodyIsStrict(ast))
         ; Fresh module scope for this script; hostScope (registerGlobal) is kept.
         def scope:EvalContext (new EvalContext())
         scope.parent = hostScope
@@ -2152,10 +2245,16 @@ class ComponentEngine {
         }
         
         ; Process function body - evaluating statements and looking for return
+        ; D-STRICT: same rule as the other two call paths.
+        def savedStrict:boolean strictMode
+        strictMode = (this.strictForBody(fnNode))
+        callDepth = (callDepth + 1)
         def body:TSNode (this.getFunctionBody(fnNode))
         def result:EvalValue (this.evaluateFunctionBodyValue(body))
-        
+
         ; Restore caller context and return flags
+        strictMode = savedStrict
+        callDepth = (callDepth - 1)
         context = savedContext
         scriptDidReturn = savedDidReturn
         scriptReturnValue = savedReturnValue
@@ -3661,6 +3760,16 @@ class ComponentEngine {
             }
             def cur:EvalValue (obj.getMember(key))
             result = (this.applyAssignOp(op cur rightValue))
+            ; D-STRICT: sloppy mode drops a refused write on the floor; strict
+            ; mode reports it. This is the single most-tested strict-mode rule
+            ; in the suite -- assigning to a non-writable property, to a frozen
+            ; object, or adding one to a non-extensible object.
+            if strictMode {
+                def wErr:string (this.writeRefusalError(obj key))
+                if ((strlen wErr) > 0) {
+                    return (this.throwSpecError("TypeError" wErr))
+                }
+            }
             obj.setMember(key result)
         }
         if ((strlen objName) > 0) {
@@ -3741,6 +3850,16 @@ class ComponentEngine {
                 }
                 if (leftNode.nodeType == "Identifier") {
                     def varName:string leftNode.name
+                    ; D-STRICT: assigning to a name that was never declared
+                    ; creates an implicit global in sloppy mode and is a
+                    ; ReferenceError in strict mode.
+                    if strictMode {
+                        if (false == (context.has(varName))) {
+                            if (false == (this.isEngineGlobalName(varName))) {
+                                return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
+                            }
+                        }
+                    }
                     def current:EvalValue (context.lookup(varName))
                     def result:EvalValue (this.applyAssignOp(op current rightValue))
                     context.assign(varName result)
@@ -3984,6 +4103,11 @@ class ComponentEngine {
             effArgs = merged
         }
         this.bindParams(fnNode effArgs)
+        ; D-STRICT: a body with a "use strict" prologue runs strict, and so does
+        ; everything it calls.
+        def savedStrict:boolean strictMode
+        strictMode = (this.strictForBody(fnNode))
+        callDepth = (callDepth + 1)
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
@@ -3993,6 +4117,8 @@ class ComponentEngine {
                 result = (this.evaluateExpr(body))
             }
         }
+        strictMode = savedStrict
+        callDepth = (callDepth - 1)
         context = savedContext
         currentModule = savedModule
         scriptDidReturn = savedDidReturn
@@ -4705,6 +4831,15 @@ class ComponentEngine {
         if (nt == "ThisExpression") {
             ; D-GLOBALTHIS: outside any function, `this` is the global object.
             if (false == (context.has("this"))) {
+                ; D-STRICT: a strict function called without a receiver has
+                ; `this` undefined -- there is no substitution of the global
+                ; object, which is what the suite checks a strict function's
+                ; identity with.
+                if strictMode {
+                    if (this.insideFunctionCall()) {
+                        return (EvalValue.undefined())
+                    }
+                }
                 return (this.theGlobalObject())
             }
             return (context.lookup("this"))
@@ -9459,8 +9594,14 @@ class ComponentEngine {
             context.define("this" thisVal)
         }
         this.bindParams(fnNode argVals)
+        ; D-STRICT: same rule on the node-call path.
+        def savedStrict:boolean strictMode
+        strictMode = (this.strictForBody(fnNode))
+        callDepth = (callDepth + 1)
         def body:TSNode (this.getFunctionBody(fnNode))
         def result:EvalValue (this.evaluateFunctionBodyValue(body))
+        strictMode = savedStrict
+        callDepth = (callDepth - 1)
         context = savedContext
         currentModule = savedModule
         scriptDidReturn = savedDidReturn

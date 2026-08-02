@@ -520,6 +520,26 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["fnproto-typeof", "return typeof Function.prototype;", "instanceof"],
   ["fnproto-callable", "return Function.prototype();", "instanceof"],
 
+  // D-STRICT: sloppy mode drops a refused write on the floor; strict mode
+  // reports it. Both halves are asserted, since the sloppy behaviour is just as
+  // much a requirement as the strict one.
+  ["strict-nonwritable", "'use strict'; try { var o = {}; Object.defineProperty(o, 'p', { value: 10, writable: false }); o.p = 20; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-compound-assign", "'use strict'; try { var o = {}; Object.defineProperty(o, 'p', { value: 10, writable: false, configurable: true }); o.p *= 20; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-frozen", "'use strict'; try { var o = Object.freeze({ a: 1 }); o.a = 2; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-non-extensible", "'use strict'; try { var o = {}; Object.preventExtensions(o); o.n = 1; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-getter-only", "'use strict'; try { var o = {}; Object.defineProperty(o, 'g', { get: function () { return 1; } }); o.g = 2; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-undeclared", "'use strict'; try { undeclaredXyz = 5; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-nested-fn", "'use strict'; try { function inner() { var o = Object.freeze({ a: 1 }); o.a = 2; } inner(); return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-this-undefined", "'use strict'; function f() { return this; } return String(f());", "strict"],
+  ["strict-this-receiver", "'use strict'; var o = { f: function () { return this.k; }, k: 3 }; return o.f();", "strict"],
+  ["strict-write-ok", "'use strict'; var o = { a: 1 }; o.a = 2; return o.a;", "strict"],
+  ["strict-declared-ok", "'use strict'; var q = 1; q = 2; return q;", "strict"],
+  ["strict-setter-ok", "'use strict'; var o = {}; var seen = 0; Object.defineProperty(o, 's', { set: function (v) { seen = v; }, get: function () { return seen; } }); o.s = 2; return seen;", "strict"],
+  ["sloppy-nonwritable", "var o = {}; Object.defineProperty(o, 'p', { value: 10, writable: false }); o.p = 20; return o.p;", "strict"],
+  ["sloppy-frozen", "var o = Object.freeze({ a: 1 }); o.a = 2; return o.a;", "strict"],
+  ["sloppy-undeclared", "undeclaredAbc = 5; return undeclaredAbc;", "strict"],
+  ["sloppy-this-global", "function f() { return typeof this; } return f();", "strict"],
+
   ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
   ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
   ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],
