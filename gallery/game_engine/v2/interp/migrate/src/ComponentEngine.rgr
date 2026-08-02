@@ -236,6 +236,14 @@ class ComponentEngine {
     ; clears it. Kept separate from scriptDidReturn so a catch can resume.
     def scriptThrew:boolean false
     def scriptThrowValue:EvalValue (EvalValue.null())
+    ; D-ERRORS: the engine-provided error constructors are seeded lazily, once,
+    ; so that `thrown.constructor === TypeError` holds by reference.
+    def errorCtorsReady:boolean false
+    ; When true (the spec default) an unresolvable identifier read is a
+    ; ReferenceError and calling a non-function is a TypeError, instead of
+    ; silently evaluating to null. Kept as a switch because the failure mode it
+    ; replaces — silence — is what made whole test corpora pass vacuously.
+    def strictReferences:boolean true
 
     ; Lexical-closure registry: a function/arrow value carries an integer
     ; closureId into this map, which holds the scope it was defined in, so a
@@ -2495,6 +2503,13 @@ class ComponentEngine {
     ; reducer's onButton) returns the correct value.
     ; --------------------------------------------------------------------------
     fn runStatementList:void (stmts:[TSNode]) {
+        ; D-FNHOIST: function declarations inside a body are hoisted to the top of
+        ; that body and bound in the ENCLOSING scope, so they are callable before
+        ; their own line and can recurse. Without this a nested `function f() {}`
+        ; was skipped entirely — the declaration ran nowhere and `f()` resolved to
+        ; nothing, which is a large blind spot: it is the ordinary way to write a
+        ; helper inside a function.
+        this.hoistFunctionDeclarations(stmts)
         def i:int 0
         while (i < (array_length stmts)) {
             ; Stop the block on return, a pending throw, or a loop break/continue
@@ -2517,8 +2532,28 @@ class ComponentEngine {
         }
     }
 
+    ; Bind every FunctionDeclaration in a statement list into the current scope,
+    ; before any of the list runs. The value is a closure over the current scope
+    ; so the function sees its siblings and itself (recursion).
+    fn hoistFunctionDeclarations:void (stmts:[TSNode]) {
+        def i:int 0
+        while (i < (array_length stmts)) {
+            def s:TSNode (itemAt stmts i)
+            if (s.nodeType == "FunctionDeclaration") {
+                if ((strlen s.name) > 0) {
+                    context.define(s.name (this.captureClosure(s)))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     fn runStatementValue:void (stmt:TSNode) {
         if (scriptDidReturn || scriptThrew) {
+            return
+        }
+        ; Already bound by hoisting; the declaration itself does nothing here.
+        if (stmt.nodeType == "FunctionDeclaration") {
             return
         }
         if (stmt.nodeType == "ReturnStatement") {
@@ -2857,6 +2892,15 @@ class ComponentEngine {
         ; Statement-position unary with a side effect (delete obj.x, void expr).
         if (node.nodeType == "UnaryExpression") {
             def ignored:EvalValue (this.evaluateUnaryExpr(node))
+        }
+
+        ; D-ERRORS: a bare reference in statement position still resolves, and an
+        ; unresolvable one throws. `nope;` on its own line is a ReferenceError.
+        if (node.nodeType == "Identifier") {
+            def ignoredId:EvalValue (this.lookupIdentifier(node.name))
+        }
+        if (node.nodeType == "MemberExpression") {
+            def ignoredMem:EvalValue (this.evaluateMemberExpr(node))
         }
     }
     
@@ -4229,10 +4273,7 @@ class ComponentEngine {
         def nt:string node.nodeType
 
         if (nt == "Identifier") {
-            if (node.name == "undefined") {
-                return (EvalValue.undefined())
-            }
-            return (context.lookup(node.name))
+            return (this.lookupIdentifier(node.name))
         }
         if (nt == "MemberExpression") {
             return (this.evaluateMemberExpr(node))
@@ -4313,10 +4354,7 @@ class ComponentEngine {
         
         ; Identifier (variable lookup)
         if (node.nodeType == "Identifier") {
-            if (node.name == "undefined") {
-                return (EvalValue.undefined())
-            }
-            return (context.lookup(node.name))
+            return (this.lookupIdentifier(node.name))
         }
         
         ; Binary expression
@@ -4471,7 +4509,17 @@ class ComponentEngine {
                 ; The stored closure already carries its lexical scope, so invoke
                 ; it directly. Placed before the built-in method table so a user
                 ; property (e.g. a custom `toString`) wins over the fallback.
-                if (obj.valueType == 5) {
+                ; D-FNPROPS: a function is an object, so a property hung off one
+                ; (`assert.sameValue = function ...`) is dispatched the same way.
+                ; Arrays and Map/Set can carry properties too, but their built-in
+                ; method table must still win, so only an own property counts.
+                def canHoldProps:boolean false
+                if (obj.valueType == 5) { canHoldProps = true }
+                if (obj.valueType == 6) { canHoldProps = true }
+                if (obj.valueType == 4) { canHoldProps = (has obj.objectMap methodName) }
+                if (obj.valueType == 9) { canHoldProps = (has obj.objectMap methodName) }
+                if (obj.valueType == 10) { canHoldProps = (has obj.objectMap methodName) }
+                if canHoldProps {
                     def objMember:EvalValue (obj.getMember(methodName))
                     if (objMember.valueType == 6) {
                         if objMember.functionNode {
@@ -5813,9 +5861,60 @@ class ComponentEngine {
                     return (this.callFnValueWithValues(calleeFn calleeArgs))
                 }
             }
+
+            ; D-ERRORS: nothing callable was found. Per spec this is a
+            ; ReferenceError when the name resolves to nothing at all, and a
+            ; TypeError when it resolves to a value that is not callable.
+            ; Falling through to null here is what let entire test corpora pass
+            ; vacuously: every call to an unimplemented global quietly did
+            ; nothing and the assertion after it never ran.
+            if strictReferences {
+                if (callee.nodeType == "Identifier") {
+                    def cName:string callee.name
+                    if (false == (this.isCallableName(cName))) {
+                        if (this.nameResolves(cName)) {
+                            return (this.throwSpecError("TypeError" (cName + " is not a function")))
+                        }
+                        return (this.throwSpecError("ReferenceError" (cName + " is not defined")))
+                    }
+                }
+            }
         }
-        
+
         return (EvalValue.null())
+    }
+
+    ; Whether a bare name resolves to anything at all (a binding, an engine
+    ; global, or an error constructor). Used to pick ReferenceError vs TypeError.
+    fn nameResolves:boolean (name:string) {
+        if (context.has(name)) {
+            return true
+        }
+        this.ensureErrorCtors()
+        if (hostScope.has(name)) {
+            return true
+        }
+        return (this.isEngineGlobalName(name))
+    }
+
+    ; Names the engine dispatches as calls without a binding (built-in globals
+    ; handled earlier in evaluateCallExpr). Reaching the fallback with one of
+    ; these means the engine chose not to handle that particular call, which is
+    ; not the guest's error, so it stays silent.
+    fn isCallableName:boolean (name:string) {
+        if (this.isSizedTypeName(name)) { return true }
+        if (name == "parseInt") { return true }
+        if (name == "parseFloat") { return true }
+        if (name == "isNaN") { return true }
+        if (name == "isFinite") { return true }
+        if (name == "String") { return true }
+        if (name == "Number") { return true }
+        if (name == "Boolean") { return true }
+        if (name == "Array") { return true }
+        if (name == "Object") { return true }
+        if (name == "require") { return true }
+        if (name == "super") { return true }
+        return false
     }
     
     fn evaluateBinaryExpr:EvalValue (node:TSNode) {
@@ -5880,6 +5979,24 @@ class ComponentEngine {
                     def tag:EvalValue (lv.getMember("__class__"))
                     if (tag.isString()) {
                         return (EvalValue.boolean(((tag.stringValue) == cname)))
+                    }
+                    ; D-ERRORS: an object built by `new F()` — an error object or
+                    ; any constructor-function instance — carries `constructor`.
+                    ; Compare it against the right-hand value BY IDENTITY, which
+                    ; is what makes the standard guard
+                    ;   if (!(this instanceof F)) return new F(...)
+                    ; terminate instead of recursing forever.
+                    def ctorHere:EvalValue (lv.getMember("constructor"))
+                    if (ctorHere.valueType == 6) {
+                        if node.right {
+                            def rv:EvalValue (this.evaluateExpr((unwrap node.right)))
+                            if (rv.valueType == 6) {
+                                return (EvalValue.boolean((ctorHere.equals(rv))))
+                            }
+                        }
+                        if ((strlen cname) > 0) {
+                            return (EvalValue.boolean(((ctorHere.functionName) == cname)))
+                        }
                     }
                 }
             }
@@ -6033,6 +6150,120 @@ class ComponentEngine {
 
     fn bindingExists:boolean (name:string) {
         return (context.has(name))
+    }
+
+    ; ==========================================================================
+    ; D-ERRORS: spec error objects, and throwing where the spec throws.
+    ; --------------------------------------------------------------------------
+    ; A thrown error has to be catchable AND identifiable. Test262's assert.throws
+    ; compares `thrown.constructor` against the global constructor BY IDENTITY and
+    ; reads `.name` off it, so the constructors are seeded once per engine as
+    ; singleton function values on hostScope and every error object points back at
+    ; that same value. Creating a fresh constructor per throw would silently fail
+    ; that identity check.
+    ; --------------------------------------------------------------------------
+    fn errorKindNames:[string] () {
+        def out:[string]
+        push out "Error"
+        push out "TypeError"
+        push out "ReferenceError"
+        push out "RangeError"
+        push out "SyntaxError"
+        push out "EvalError"
+        push out "URIError"
+        return out
+    }
+
+    fn ensureErrorCtors:void () {
+        if errorCtorsReady {
+            return
+        }
+        errorCtorsReady = true
+        def names:[string] (this.errorKindNames())
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            def c:EvalValue (EvalValue.nativeFunction(nm))
+            c.setMember("name" (EvalValue.string(nm)))
+            c.setMember("__errorctor__" (EvalValue.string(nm)))
+            hostScope.define(nm c)
+            i = (i + 1)
+        }
+    }
+
+    ; The constructor function value for a kind ("TypeError"), or null when the
+    ; name is not an error constructor.
+    fn errorCtorFor:EvalValue (kind:string) {
+        this.ensureErrorCtors()
+        return (hostScope.lookup(kind))
+    }
+
+    ; Build an error object: { name, message, constructor } plus a marker the
+    ; engine uses to recognise it. `constructor` is the shared singleton.
+    fn makeError:EvalValue (kind:string message:string) {
+        def keys0:[string]
+        def vals0:[EvalValue]
+        def e:EvalValue (EvalValue.object(keys0 vals0))
+        e.setMember("name" (EvalValue.string(kind)))
+        e.setMember("message" (EvalValue.string(message)))
+        e.setMember("__error__" (EvalValue.string(kind)))
+        def ctor:EvalValue (this.errorCtorFor(kind))
+        if (ctor.valueType == 6) {
+            e.setMember("constructor" ctor)
+        }
+        return e
+    }
+
+    ; Raise a spec error. Sets the same unwind flags a guest `throw` sets, so a
+    ; try/catch around the offending code catches it exactly like any other throw.
+    fn throwSpecError:EvalValue (kind:string message:string) {
+        scriptThrowValue = (this.makeError(kind message))
+        scriptThrew = true
+        return (EvalValue.undefined())
+    }
+
+    ; Names the engine resolves structurally rather than through a binding
+    ; (Math.PI, JSON.stringify, Object.keys …). Reading one of these bare must
+    ; not be a ReferenceError even though no binding exists for it.
+    fn isEngineGlobalName:boolean (name:string) {
+        if (name == "Math") { return true }
+        if (name == "JSON") { return true }
+        if (name == "Object") { return true }
+        if (name == "Array") { return true }
+        if (name == "String") { return true }
+        if (name == "Number") { return true }
+        if (name == "Boolean") { return true }
+        if (name == "Date") { return true }
+        if (name == "console") { return true }
+        if (name == "globalThis") { return true }
+        if (name == "NaN") { return true }
+        if (name == "Infinity") { return true }
+        if (name == "undefined") { return true }
+        if (name == "arguments") { return true }
+        return false
+    }
+
+    ; Read an identifier as a *reference*: an unresolvable name is a
+    ; ReferenceError, not a silent null. `typeof x` does not come through here
+    ; (it uses bindingExists), which is what the spec requires.
+    fn lookupIdentifier:EvalValue (name:string) {
+        if (name == "undefined") {
+            return (EvalValue.undefined())
+        }
+        if (context.has(name)) {
+            return (context.lookup(name))
+        }
+        this.ensureErrorCtors()
+        if (hostScope.has(name)) {
+            return (hostScope.lookup(name))
+        }
+        if (this.isEngineGlobalName(name)) {
+            return (EvalValue.undefined())
+        }
+        if strictReferences {
+            return (this.throwSpecError("ReferenceError" (name + " is not defined")))
+        }
+        return (EvalValue.null())
     }
 
     fn typeofTag:string (val:EvalValue) {
@@ -6293,6 +6524,23 @@ class ComponentEngine {
     ; Invoke a function/method node: new child scope, optional `this`, bind the
     ; argument expressions to params (evaluated in the caller's scope), run the
     ; body, restore. Shared by method calls, bound-method values, constructors.
+    ; D-ERRORS: `new F(args)` for an ordinary function F. Creates the instance,
+    ; stamps `constructor` so it can be compared against F by reference, runs the
+    ; body with `this` bound to it, and returns the object — unless the body
+    ; explicitly returned an object, which per spec wins.
+    fn constructFromFunction:EvalValue (fnV:EvalValue className:string argNodes:[TSNode]) {
+        def keys0:[string]
+        def vals0:[EvalValue]
+        def inst:EvalValue (EvalValue.object(keys0 vals0))
+        inst.setMember("constructor" fnV)
+        def fnNode:TSNode (unwrap fnV.functionNode)
+        def ret:EvalValue (this.callUserFunctionNode(fnNode argNodes inst true))
+        if (ret.valueType == 5) {
+            return ret
+        }
+        return inst
+    }
+
     fn callUserFunctionNode:EvalValue (fnNode:TSNode argNodes:[TSNode] thisVal:EvalValue hasThis:boolean) {
         def savedContext:EvalContext context
         def savedDidReturn:boolean scriptDidReturn
@@ -6429,6 +6677,44 @@ class ComponentEngine {
             }
             return st
         }
+        ; D-ERRORS: `new TypeError(msg)` / `new Error(msg)`. The constructor is a
+        ; seeded singleton, so the resulting object's `constructor` compares equal
+        ; to the global by reference — which is exactly what assert.throws tests.
+        if (false == viaNamespace) {
+            def ctorV:EvalValue (this.errorCtorFor(className))
+            if (ctorV.valueType == 6) {
+                def kindV:EvalValue (ctorV.getMember("__errorctor__"))
+                if (kindV.valueType == 2) {
+                    def msg:string ""
+                    if ((array_length node.children) > 0) {
+                        def mv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        if (false == (mv.isUndefined())) {
+                            msg = (mv.toString())
+                        }
+                    }
+                    return (this.makeError(kindV.stringValue msg))
+                }
+            }
+        }
+
+        ; D-ERRORS: `new F(...)` where F is an ordinary function, not a class.
+        ; The spec builds a fresh object, runs the body with `this` bound to it,
+        ; and yields that object unless the body returns one. sta.js defines
+        ; Test262Error this way, so without it every harness throw is an opaque
+        ; null and `thrown.constructor` cannot be read.
+        if (false == viaNamespace) {
+            if ((strlen className) > 0) {
+                if (context.has(className)) {
+                    def fnV:EvalValue (context.lookup(className))
+                    if (fnV.valueType == 6) {
+                        if fnV.functionNode {
+                            return (this.constructFromFunction(fnV className node.children))
+                        }
+                    }
+                }
+            }
+        }
+
         ; Resolve the class declaration in the right table (see fn comment).
         def clsModule:string currentModule
         def cls:TSNode (new TSNode())
@@ -6508,6 +6794,25 @@ class ComponentEngine {
             }
 
             def obj:EvalValue (this.evaluateExpr(leftExpr))
+
+            ; D-ERRORS: reading a property of null/undefined is a TypeError, with
+            ; the message shape engines use. Optional chaining (`a?.b`) is handled
+            ; before this point and must not throw.
+            if strictReferences {
+                if (node.optional == false) {
+                    if ((obj.isNull()) || (obj.isUndefined())) {
+                        def tgtDesc:string "undefined"
+                        if (obj.isNull()) {
+                            tgtDesc = "null"
+                        }
+                        def pn:string propName
+                        if ((strlen pn) == 0) {
+                            pn = "property"
+                        }
+                        return (this.throwSpecError("TypeError" ("Cannot read properties of " + tgtDesc + " (reading '" + pn + "')")))
+                    }
+                }
+            }
 
             ; Map/Set .size property (element count).
             if (propName == "size") {

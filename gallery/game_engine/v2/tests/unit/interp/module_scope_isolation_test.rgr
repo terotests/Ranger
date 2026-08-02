@@ -71,7 +71,12 @@ class ModuleScopeIsolationTest {
         s = (s + "function aThingName() { const t = new A.Thing(); return t.name(); }\n")
         s = (s + "function bThingName() { const t = new B.Thing(); return t.name(); }\n")
         s = (s + "function bareThingFails() { const t = new Thing(); if (t == null) { return 1; } return 0; }\n")
-        s = (s + "function bareWhoamiFails() { const w = whoami; if (w == null) { return 1; } return 0; }\n")
+        ; Reading an un-imported name is a ReferenceError (D-ERRORS), which is a
+        ; STRONGER isolation proof than the name merely reading as null: the
+        ; reference fails outright instead of quietly yielding a nullish value
+        ; that guest code could go on to test. Accepts either outcome so the
+        ; contract is about invisibility, not about which failure shape.
+        s = (s + "function bareWhoamiFails() { try { const w = whoami; if (w == null) { return 1; } return 0; } catch (e) { if (e.name == 'ReferenceError') { return 1; } return 0; } }\n")
         s = (s + "function moduleSeesSecret() { const v = A.readEntrySecret(); if (v == null) { return 0; } return 1; }\n")
         s = (s + "function bumpViaBoth() { A.bump(); return bump(); }\n")
         s = (s + "function crossCallback() { const p = new EntryProbe(); return A.callBack(p); }\n")

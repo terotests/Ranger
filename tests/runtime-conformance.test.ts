@@ -180,6 +180,46 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["err-optional-chain", "var o = null; return o?.x === undefined;", "errors"],
   ["err-nullish", "var x = 0; return (x ?? 5);", "errors"],
 
+  // --- errors thrown where the spec throws ----------------------------------
+  // The failure mode these replace was SILENCE: an unresolvable name evaluated
+  // to null and execution carried on, so a following assertion never ran and a
+  // test that should have failed reported success.
+  ["throw-ref-undeclared-read", "try { nopeXyz; } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-ref-undeclared-call", "try { nopeXyz(); } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-ref-message", "try { nopeXyz; } catch (e) { return e.message; } return 'no-throw';", "throwing"],
+  ["throw-type-null-prop", "try { var o = null; o.x; } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-type-undef-prop", "try { var u; u.x; } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-not-a-function", "try { var n = 5; n(); } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-typeof-no-throw", "return typeof nopeXyz;", "throwing"],
+  ["throw-ctor-identity", "try { nopeXyz; } catch (e) { return e.constructor === ReferenceError; } return 'no-throw';", "throwing"],
+  ["throw-ctor-name", "try { nopeXyz; } catch (e) { return e.constructor.name; } return 'no-throw';", "throwing"],
+  ["throw-ctor-distinct", "try { nopeXyz; } catch (e) { return e.constructor === TypeError; } return 'no-throw';", "throwing"],
+  ["throw-new-typeerror", "var e = new TypeError('boom'); return e.name + ':' + e.message;", "throwing"],
+  ["throw-new-error", "var e = new Error('x'); return e.message;", "throwing"],
+  ["throw-ctor-global-name", "return TypeError.name;", "throwing"],
+  ["throw-user-rethrow", "var f = function () { throw new RangeError('r'); }; try { f(); } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+
+  // Function declarations nested in a body: hoisted and bound in the enclosing
+  // scope, so they are callable before their own line and can recurse.
+  ["nested-fn-decl-call", "function g() { return 5; } return g();", "fnprops"],
+  ["nested-fn-decl-hoisted", "return g(); function g() { return 5; }", "fnprops"],
+  ["nested-fn-decl-recursive", "function fact(n) { if (n < 2) { return 1; } return n * fact(n - 1); } return fact(5);", "fnprops"],
+  ["nested-fn-decl-sees-outer", "var k = 4; function g() { return k + 1; } return g();", "fnprops"],
+  ["nested-fn-decl-prop", "function g() {} g.x = 7; return g.x;", "fnprops"],
+
+  // --- functions are objects ------------------------------------------------
+  // Test262's whole harness is built this way (`assert.sameValue = function`),
+  // so without it every assertion in the suite is a silent no-op.
+  ["fnprop-assign-read", "var g = function () {}; g.x = 7; return g.x;", "fnprops"],
+  ["fnprop-call", "var g = function () {}; g.sub = function () { return 7; }; return g.sub();", "fnprops"],
+  ["fnprop-missing", "var g = function () {}; return g.nope === undefined;", "fnprops"],
+  ["fnprop-name", "var g = function () {}; g.name2 = 'x'; return g.name2;", "fnprops"],
+  ["fnprop-nested-call", "var g = function () {}; g.a = {}; g.a.b = function () { return 3; }; return g.a.b();", "fnprops"],
+  ["fnprop-delete", "var g = function () {}; g.x = 1; delete g.x; return g.x === undefined;", "fnprops"],
+  ["fnprop-arrow-holder", "var f = function () {}; f.k = 2; return f.k;", "fnprops"],
+  ["fnprop-ctor-instanceof", "var F = function () { this.v = 1; }; var o = new F(); return o instanceof F;", "fnprops"],
+  ["fnprop-ctor-guard", "var F = function (m) { if (!(this instanceof F)) { return new F(m); } this.m = m; }; return F('x').m;", "fnprops"],
+
   // --- builtins -------------------------------------------------------------
   ["json-roundtrip", "var o = { a: [1, 2] }; return JSON.parse(JSON.stringify(o)).a[1];", "builtins"],
   ["json-nan-null", "return JSON.stringify(NaN);", "builtins"],
@@ -216,11 +256,6 @@ const KNOWN_GAPS = new Set<string>([
   // Accessors return the accessor function instead of invoking it.
   "obj-getter",
   "obj-setter",
-  // No prototype chain, so Error subclasses and property lookup through one
-  // do not behave.
-  "err-throw-message",
-  "err-instanceof",
-  "err-null-property",
   // Sequence expressions, labelled break and named function-expression
   // recursion evaluate to nothing.
   "seq-expr",

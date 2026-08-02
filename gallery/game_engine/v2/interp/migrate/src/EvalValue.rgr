@@ -156,6 +156,19 @@ class EvalValue {
         return v
     }
 
+    ; D-ERRORS: a function value with no body — an engine-provided constructor
+    ; such as TypeError. It is a real function value (typeof === "function", own
+    ; identity) so guest code can compare it by reference and read `.name`, but
+    ; it has no functionNode, so the call paths that require one skip it and the
+    ; engine handles the construction itself.
+    sfn nativeFunction:EvalValue (name:string) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        v.functionName = name
+        return v
+    }
+
     ; A method captured as a value (obj.method): the function node plus the
     ; receiver `this` it is bound to. Invoked like any function value.
     sfn boundMethod:EvalValue (fnNode:TSNode thisVal:EvalValue) {
@@ -347,10 +360,36 @@ class EvalValue {
             ; isUndefined alongside isNull (destructuring defaults, ??, ??=).
             return (EvalValue.undefined())
         }
+        ; D-FNPROPS: functions are objects. `f.x = 1` stores into the same
+        ; objectMap an object uses, so `f.x` reads it back and a property that
+        ; holds a function (`assert.sameValue = function ...`) is callable. A
+        ; missing own property reads as undefined, exactly as for an object;
+        ; built-in fallbacks (`name`, `length`, `call`) are resolved by the
+        ; engine before it reaches here.
+        if (valueType == 6) {
+            if (has objectMap key) {
+                return (unwrap (get objectMap key))
+            }
+            if (key == "name") {
+                return (EvalValue.string(functionName))
+            }
+            return (EvalValue.undefined())
+        }
         ; Array length property
         if (valueType == 4) {
             if (key == "length") {
                 return (EvalValue.fromInt((array_length arrayValue)))
+            }
+            ; A non-index property set on an array (`a.foo = 1`) lives in the
+            ; same map; index reads go through getIndex, never here.
+            if (has objectMap key) {
+                return (unwrap (get objectMap key))
+            }
+        }
+        ; Map/Set carry ordinary properties too (`size` is handled by the engine).
+        if ((valueType == 9) || (valueType == 10)) {
+            if (has objectMap key) {
+                return (unwrap (get objectMap key))
             }
         }
         ; String length property
@@ -363,18 +402,36 @@ class EvalValue {
     }
     
     ; Set or replace an object property (mutates in place).
+    ; D-FNPROPS: every object type accepts property writes — plain objects (5),
+    ; functions (6), arrays (4) and Map/Set (9/10). Primitives silently ignore
+    ; the write, which is sloppy-mode behaviour.
     fn setMember:void (key:string value:EvalValue) {
-        if (valueType != 5) {
+        if (valueType == 5) {
+            set objectMap key value
             return
         }
-        set objectMap key value
+        if (valueType == 6) {
+            set objectMap key value
+            return
+        }
+        if (valueType == 4) {
+            set objectMap key value
+            return
+        }
+        if ((valueType == 9) || (valueType == 10)) {
+            set objectMap key value
+            return
+        }
     }
 
     ; Remove an object property (mutates in place), rebuilding the map without it.
     fn removeMember:void (key:string) {
-        if (valueType != 5) {
-            return
-        }
+        ; D-FNPROPS: `delete` reaches every type that can hold properties.
+        if (valueType == 1) { return }
+        if (valueType == 2) { return }
+        if (valueType == 3) { return }
+        if (valueType == 0) { return }
+        if (valueType == 8) { return }
         if (has objectMap key) {
             def rebuilt:[string:EvalValue]
             def ks:[string] (keys objectMap)
