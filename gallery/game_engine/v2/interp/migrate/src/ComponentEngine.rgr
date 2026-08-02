@@ -5911,6 +5911,33 @@ class ComponentEngine {
                         }
                         return src
                     }
+                    ; Object.defineProperties(o, descs) — same rules as
+                    ; defineProperty, applied to each own key of the map.
+                    if (methodName == "defineProperties") {
+                        if ((array_length node.children) > 1) {
+                            def descs:EvalValue (this.evaluateExpr((itemAt node.children 1)))
+                            def dkeys:[string] (this.objectKeys(descs))
+                            def dpi:int 0
+                            while (dpi < (array_length dkeys)) {
+                                def dpk:string (itemAt dkeys dpi)
+                                def dpd:EvalValue (descs.getMember(dpk))
+                                def dg:EvalValue (dpd.getMember("get"))
+                                def ds:EvalValue (dpd.getMember("set"))
+                                if ((dg.valueType == 6) || (ds.valueType == 6)) {
+                                    if (dg.valueType == 6) {
+                                        src.defineGetter(dpk dg)
+                                    }
+                                    if (ds.valueType == 6) {
+                                        src.defineSetter(dpk ds)
+                                    }
+                                } {
+                                    src.setMember(dpk (dpd.getMember("value")))
+                                }
+                                dpi = (dpi + 1)
+                            }
+                        }
+                        return src
+                    }
                     if (methodName == "getOwnPropertyNames") {
                         def itemsN:[EvalValue]
                         def ksN:[string] (this.objectKeys(src))
@@ -6749,10 +6776,22 @@ class ComponentEngine {
             if (propName == "MAX_SAFE_INTEGER") { return (EvalValue.number(9007199254740991.0)) }
             if (propName == "MIN_SAFE_INTEGER") { return (EvalValue.number((0.0 - 9007199254740991.0))) }
             if (propName == "EPSILON") { return (EvalValue.number(0.0000000000000002220446049250313)) }
-            ; MAX_VALUE / MIN_VALUE are deliberately absent: neither denormal
-            ; extreme survives a Ranger double literal, and returning a value
-            ; that is merely CLOSE would be worse than the property missing —
-            ; the tests that read them are testing the exact bit pattern.
+            ; MAX_VALUE / MIN_VALUE come from string parsing rather than from a
+            ; source literal: neither extreme survives the Ranger lexer, but the
+            ; runtime's string-to-double conversion reproduces the exact bit
+            ; pattern, which is what these tests actually check.
+            if (propName == "MAX_VALUE") {
+                def mx@(optional):double (to_double "1.7976931348623157e308")
+                if mx {
+                    return (EvalValue.number((unwrap mx)))
+                }
+            }
+            if (propName == "MIN_VALUE") {
+                def mn@(optional):double (to_double "5e-324")
+                if mn {
+                    return (EvalValue.number((unwrap mn)))
+                }
+            }
         }
         return (EvalValue.null())
     }

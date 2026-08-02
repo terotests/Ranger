@@ -245,6 +245,13 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["symbol-factory-typeof", "var s = Symbol('x'); return typeof s;", "symbols"],
   ["symbol-factory-unique", "return Symbol('a') === Symbol('a');", "symbols"],
   ["symbol-description", "return Symbol('hi').description;", "symbols"],
+  ["es5-number-max-value", "return Number.MAX_VALUE;", "es5"],
+  ["es5-number-min-value", "return Number.MIN_VALUE;", "es5"],
+  ["es5-number-max-finite", "return Number.MAX_VALUE !== Infinity;", "es5"],
+  ["es5-number-min-positive", "return Number.MIN_VALUE > 0;", "es5"],
+  ["es5-define-properties", "var o = {}; Object.defineProperties(o, { a: { value: 1 }, b: { value: 2 } }); return o.a + o.b;", "es5"],
+  ["es5-define-properties-accessor", "var o = {}; Object.defineProperties(o, { x: { get: function () { return 8; } } }); return o.x;", "es5"],
+
   ["fnproto-call-this", "var f = function () { return this.v; }; return f.call({ v: 5 });", "fnproto"],
   ["fnproto-call-args", "var f = function (a, b) { return a + b; }; return f.call(null, 2, 3);", "fnproto"],
   ["fnproto-apply-array", "var f = function (a, b) { return a + b; }; return f.apply(null, [4, 6]);", "fnproto"],
