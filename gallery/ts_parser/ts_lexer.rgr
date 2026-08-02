@@ -238,11 +238,14 @@ class TSLexer {
         def startCol:int col
         this.advance() ; consume opening quote
         def value:string ""
+        def sawEscape:boolean false
         while (pos < len) {
             def ch:string (this.peek())
             if (ch == quote) {
                 this.advance()
-                return (this.makeToken("String" value startPos startLine startCol))
+                def strTok:Token (this.makeToken("String" value startPos startLine startCol))
+                strTok.hasEscape = sawEscape
+                return strTok
             }
             ; An unescaped line terminator may not appear in a string literal.
             if (ch == "\n") {
@@ -252,6 +255,7 @@ class TSLexer {
                 return (this.makeToken("Invalid" value startPos startLine startCol))
             }
             if (ch == "\\") {
+                sawEscape = true
                 this.advance()
                 def esc:string (this.advance())
                 if (esc == "n") {

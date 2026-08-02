@@ -62,6 +62,10 @@ class TSParserSimple {
   ; Set just before parsing a function body so the body block reuses the scope
   ; that already holds the parameters.
   def suppressBlockScope:boolean false
+  ; Whether the code being parsed is strict. Set by a "use strict" directive
+  ; prologue, and unconditionally inside a class body. Strict code reserves more
+  ; words, forbids `with`, and makes duplicate parameters an error.
+  def strictMode:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -291,7 +295,76 @@ class TSParserSimple {
     if ((strlen param.name) == 0) {
       return
     }
-    this.declareBinding("q" param.name)
+    if (this.strictMode) {
+      this.declareBinding("p" param.name)
+    } {
+      this.declareBinding("q" param.name)
+    }
+  }
+
+  ; Looks ahead for a "use strict" directive at the head of the statement list
+  ; about to be parsed. Does not consume anything -- the directives are ordinary
+  ; expression statements and still get parsed normally.
+  fn hasUseStrictDirective:boolean () {
+    def i:int this.pos
+    def n:int (array_length this.tokens)
+    def scanning:boolean true
+    while ((i < n) && scanning) {
+      def t:Token (itemAt this.tokens i)
+      if ((t.tokenType == "LineComment") || (t.tokenType == "BlockComment")) {
+        i = (i + 1)
+      } {
+        if (t.tokenType == "String") {
+          if (t.value == "use strict") {
+            ; Only an escape-free literal is a directive.
+            if (t.hasEscape == false) {
+              return true
+            }
+          }
+          i = (i + 1)
+          if (i < n) {
+            def semi:Token (itemAt this.tokens i)
+            if (semi.value == ";") {
+              i = (i + 1)
+            }
+          }
+        } {
+          scanning = false
+        }
+      }
+    }
+    return false
+  }
+
+  ; Words that are reserved only in strict code, plus the two names strict code
+  ; refuses to let you bind at all.
+  fn isStrictReservedWord:boolean (word:string) {
+    if (word == "implements") { return true }
+    if (word == "interface") { return true }
+    if (word == "let") { return true }
+    if (word == "package") { return true }
+    if (word == "private") { return true }
+    if (word == "protected") { return true }
+    if (word == "public") { return true }
+    if (word == "static") { return true }
+    if (word == "yield") { return true }
+    if (word == "eval") { return true }
+    if (word == "arguments") { return true }
+    return false
+  }
+
+  ; Reports a name that may not be bound here. Split from the reserved-word
+  ; tables so every binding position shares one rule.
+  fn checkBindableName:void (name:string) {
+    if (this.isAlwaysReservedWord(name)) {
+      this.syntaxError("Parse error: '" + name + "' is a reserved word and cannot be used as a name")
+      return
+    }
+    if (this.strictMode) {
+      if (this.isStrictReservedWord(name)) {
+        this.syntaxError("Parse error: '" + name + "' cannot be used as a name in strict mode")
+      }
+    }
   }
 
   ; True for words that are reserved in every context, so they can never name a
@@ -361,9 +434,7 @@ class TSParserSimple {
     def tt (this.peekType())
     if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword") || (tt == "Boolean") || (tt == "Null")) {
       def tok (this.peek())
-      if (this.isAlwaysReservedWord(tok.value)) {
-        this.syntaxError("Parse error: '" + tok.value + "' is a reserved word and cannot be used as a name")
-      }
+      this.checkBindableName(tok.value)
       this.advance()
       return tok
     }
@@ -518,6 +589,10 @@ class TSParserSimple {
 
     this.pushScope(true)
 
+    if (this.hasUseStrictDirective()) {
+      this.strictMode = true
+    }
+
     while ((this.isAtEnd()) == false) {
       def beforePos:int this.pos
       def stmt (this.parseStatement())
@@ -645,6 +720,26 @@ class TSParserSimple {
       return (this.parseIfStatement())
     }
     
+    if (tokVal == "with") {
+      def withNode (new TSNode())
+      withNode.nodeType = "WithStatement"
+      def withTok (this.peek())
+      withNode.start = withTok.start
+      withNode.line = withTok.line
+      withNode.col = withTok.col
+      if (this.strictMode) {
+        this.syntaxError("Parse error: 'with' is not allowed in strict mode")
+      }
+      this.advance()
+      this.expectValue("(")
+      def withObj (this.parseExprSeq())
+      withNode.left = withObj
+      this.expectValue(")")
+      def withBody (this.parseStatement())
+      withNode.body = withBody
+      return withNode
+    }
+
     if (tokVal == "while") {
       return (this.parseWhileStatement())
     }
@@ -1423,7 +1518,11 @@ class TSParserSimple {
     body.col = startTok.col
     
     this.expectValue("{")
-    
+
+    ; Everything inside a class body is strict code.
+    def savedClassStrict:boolean this.strictMode
+    this.strictMode = true
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       ; A bare `;` is an empty class element and carries no member.
       if (this.matchValue(";")) {
@@ -1438,7 +1537,9 @@ class TSParserSimple {
         }
       }
     }
-    
+
+    this.strictMode = savedClassStrict
+
     this.expectValue("}")
     return body
   }
@@ -2384,9 +2485,7 @@ class TSParserSimple {
     ; reserved in contexts this parser does not track yet (`yield` outside a
     ; generator, `let` in sloppy mode); rejecting them here loses valid programs.
     if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword")) {
-      if (this.isAlwaysReservedWord(tok.value)) {
-        this.syntaxError("Parse error: '" + tok.value + "' is a reserved word and cannot be bound")
-      }
+      this.checkBindableName(tok.value)
       this.advance()
       def id (new TSNode())
       id.nodeType = "Identifier"
@@ -2473,8 +2572,10 @@ class TSParserSimple {
             this.advance()
             prop.name = keyTok.value
           } {
-            def idTok (this.parseBindingTarget())
-            prop.name = idTok.name
+            ; The key is a property name, not a binding: `{ yield: a }` is legal
+            ; even in strict code, where `yield` may not be bound.
+            def idTok (this.parseMemberName())
+            prop.name = idTok.value
           }
 
           if (this.matchValue(":")) {
@@ -2760,6 +2861,15 @@ class TSParserSimple {
       this.pushScope(false)
     }
 
+    ; A "use strict" prologue is only a directive at the head of a function
+    ; body, never in a plain nested block.
+    def savedStrict:boolean this.strictMode
+    if (ownScope == false) {
+      if (this.hasUseStrictDirective()) {
+        this.strictMode = true
+      }
+    }
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def beforePos:int this.pos
       def stmt (this.parseStatement())
@@ -2770,6 +2880,7 @@ class TSParserSimple {
     if ownScope {
       this.popScope()
     }
+    this.strictMode = savedStrict
 
     this.expectValue("}")
     return block
@@ -3912,6 +4023,29 @@ class TSParserSimple {
   }
 
 
+  ; Only a reference or a destructuring pattern may be assigned to. `1 = 2`,
+  ; `({get a(){}}) = 0` and `for (([0]) in 0);` are all early errors.
+  fn checkAssignmentTarget:void (target:TSNode) {
+    def t:string target.nodeType
+    if (t == "Identifier") {
+      if (this.strictMode) {
+        if ((target.name == "eval") || (target.name == "arguments")) {
+          this.syntaxError("Parse error: cannot assign to '" + target.name + "' in strict mode")
+        }
+      }
+      return
+    }
+    if (t == "MemberExpression") { return }
+    if (t == "ObjectPattern") { return }
+    if (t == "ArrayPattern") { return }
+    if (t == "AssignmentPattern") { return }
+    ; A pattern that was parsed as a literal is re-read as a pattern elsewhere;
+    ; anything else is not a valid target.
+    if (t == "ObjectExpression") { return }
+    if (t == "ArrayExpression") { return }
+    this.syntaxError("Parse error: invalid assignment target (" + t + ")")
+  }
+
   fn parseAssign:TSNode () {
     def left (this.parseNullishCoalescing())
     
@@ -3919,6 +4053,7 @@ class TSParserSimple {
     
     ; Regular assignment
     if (tokVal == "=") {
+      this.checkAssignmentTarget(left)
       this.advance()
       def right (this.parseAssign())
       

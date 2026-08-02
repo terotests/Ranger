@@ -25,4 +25,8 @@ class Token {
     def col:int 0
     def start:int 0
     def end:int 0
+    ; True when a string literal contained a backslash escape. A directive
+    ; prologue is matched against the RAW source, so 'use\x20strict' is an
+    ; ordinary expression statement rather than a "use strict" directive.
+    def hasEscape:boolean false
 }

@@ -6,6 +6,7 @@ class Token  {
     this.col = 0;
     this.start = 0;
     this.end = 0;
+    this.hasEscape = false;
   }
 }
 class TSLexer  {
@@ -251,11 +252,14 @@ class TSLexer  {
     const startCol = this.col;
     this.advance();
     let value = "";
+    let sawEscape = false;
     while (this.pos < this.__len) {
       const ch = this.peek();
       if ( ch == quote ) {
         this.advance();
-        return this.makeToken("String", value, startPos, startLine, startCol);
+        const strTok = this.makeToken("String", value, startPos, startLine, startCol);
+        strTok.hasEscape = sawEscape;
+        return strTok;
       }
       if ( ch == "\n" ) {
         return this.makeToken("Invalid", value, startPos, startLine, startCol);
@@ -264,6 +268,7 @@ class TSLexer  {
         return this.makeToken("Invalid", value, startPos, startLine, startCol);
       }
       if ( ch == "\\" ) {
+        sawEscape = true;
         this.advance();
         const esc = this.advance();
         if ( esc == "n" ) {
@@ -1377,6 +1382,7 @@ class TSParserSimple  {
     this.scopeStart = [];
     this.scopeIsFn = [];
     this.suppressBlockScope = false;
+    this.strictMode = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -1570,7 +1576,87 @@ class TSParserSimple  {
     if ( (param.name.length) == 0 ) {
       return;
     }
-    this.declareBinding("q", param.name);
+    if ( this.strictMode ) {
+      this.declareBinding("p", param.name);
+    } else {
+      this.declareBinding("q", param.name);
+    }
+  };
+  hasUseStrictDirective () {
+    let i = this.pos;
+    const n = this.tokens.length;
+    let scanning = true;
+    while ((i < n) && scanning) {
+      const t = this.tokens[i];
+      if ( (t.tokenType == "LineComment") || (t.tokenType == "BlockComment") ) {
+        i = i + 1;
+      } else {
+        if ( t.tokenType == "String" ) {
+          if ( t.value == "use strict" ) {
+            if ( t.hasEscape == false ) {
+              return true;
+            }
+          }
+          i = i + 1;
+          if ( i < n ) {
+            const semi = this.tokens[i];
+            if ( semi.value == ";" ) {
+              i = i + 1;
+            }
+          }
+        } else {
+          scanning = false;
+        }
+      }
+    };
+    return false;
+  };
+  isStrictReservedWord (word) {
+    if ( word == "implements" ) {
+      return true;
+    }
+    if ( word == "interface" ) {
+      return true;
+    }
+    if ( word == "let" ) {
+      return true;
+    }
+    if ( word == "package" ) {
+      return true;
+    }
+    if ( word == "private" ) {
+      return true;
+    }
+    if ( word == "protected" ) {
+      return true;
+    }
+    if ( word == "public" ) {
+      return true;
+    }
+    if ( word == "static" ) {
+      return true;
+    }
+    if ( word == "yield" ) {
+      return true;
+    }
+    if ( word == "eval" ) {
+      return true;
+    }
+    if ( word == "arguments" ) {
+      return true;
+    }
+    return false;
+  };
+  checkBindableName (name) {
+    if ( this.isAlwaysReservedWord(name) ) {
+      this.syntaxError(("Parse error: '" + name) + "' is a reserved word and cannot be used as a name");
+      return;
+    }
+    if ( this.strictMode ) {
+      if ( this.isStrictReservedWord(name) ) {
+        this.syntaxError(("Parse error: '" + name) + "' cannot be used as a name in strict mode");
+      }
+    }
   };
   isAlwaysReservedWord (word) {
     if ( word == "break" ) {
@@ -1696,9 +1782,7 @@ class TSParserSimple  {
     const tt = this.peekType();
     if ( (((((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword")) || (tt == "Boolean")) || (tt == "Null") ) {
       const tok = this.peek();
-      if ( this.isAlwaysReservedWord(tok.value) ) {
-        this.syntaxError(("Parse error: '" + tok.value) + "' is a reserved word and cannot be used as a name");
-      }
+      this.checkBindableName(tok.value);
       this.advance();
       return tok;
     }
@@ -1818,6 +1902,9 @@ class TSParserSimple  {
     const prog = new TSNode();
     prog.nodeType = "Program";
     this.pushScope(true);
+    if ( this.hasUseStrictDirective() ) {
+      this.strictMode = true;
+    }
     while (this.isAtEnd() == false) {
       const beforePos = this.pos;
       const stmt = this.parseStatement();
@@ -1919,6 +2006,25 @@ class TSParserSimple  {
     }
     if ( tokVal == "if" ) {
       return this.parseIfStatement();
+    }
+    if ( tokVal == "with" ) {
+      const withNode = new TSNode();
+      withNode.nodeType = "WithStatement";
+      const withTok = this.peek();
+      withNode.start = withTok.start;
+      withNode.line = withTok.line;
+      withNode.col = withTok.col;
+      if ( this.strictMode ) {
+        this.syntaxError("Parse error: 'with' is not allowed in strict mode");
+      }
+      this.advance();
+      this.expectValue("(");
+      const withObj = this.parseExprSeq();
+      withNode.left = withObj;
+      this.expectValue(")");
+      const withBody = this.parseStatement();
+      withNode.body = withBody;
+      return withNode;
     }
     if ( tokVal == "while" ) {
       return this.parseWhileStatement();
@@ -2487,6 +2593,8 @@ class TSParserSimple  {
     body.line = startTok.line;
     body.col = startTok.col;
     this.expectValue("{");
+    const savedClassStrict = this.strictMode;
+    this.strictMode = true;
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       if ( this.matchValue(";") ) {
         this.advance();
@@ -2498,6 +2606,7 @@ class TSParserSimple  {
         }
       }
     };
+    this.strictMode = savedClassStrict;
     this.expectValue("}");
     return body;
   };
@@ -3223,9 +3332,7 @@ class TSParserSimple  {
     const tok = this.peek();
     const tt = this.peekType();
     if ( (((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword") ) {
-      if ( this.isAlwaysReservedWord(tok.value) ) {
-        this.syntaxError(("Parse error: '" + tok.value) + "' is a reserved word and cannot be bound");
-      }
+      this.checkBindableName(tok.value);
       this.advance();
       const id = new TSNode();
       id.nodeType = "Identifier";
@@ -3299,8 +3406,8 @@ class TSParserSimple  {
             this.advance();
             prop.name = keyTok.value;
           } else {
-            const idTok = this.parseBindingTarget();
-            prop.name = idTok.name;
+            const idTok = this.parseMemberName();
+            prop.name = idTok.value;
           }
           if ( this.matchValue(":") ) {
             this.advance();
@@ -3516,6 +3623,12 @@ class TSParserSimple  {
     if ( ownScope ) {
       this.pushScope(false);
     }
+    const savedStrict = this.strictMode;
+    if ( ownScope == false ) {
+      if ( this.hasUseStrictDirective() ) {
+        this.strictMode = true;
+      }
+    }
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       const beforePos = this.pos;
       const stmt = this.parseStatement();
@@ -3525,6 +3638,7 @@ class TSParserSimple  {
     if ( ownScope ) {
       this.popScope();
     }
+    this.strictMode = savedStrict;
     this.expectValue("}");
     return block;
   };
@@ -4374,10 +4488,41 @@ class TSParserSimple  {
     };
     return seq;
   };
+  checkAssignmentTarget (target) {
+    const t = target.nodeType;
+    if ( t == "Identifier" ) {
+      if ( this.strictMode ) {
+        if ( (target.name == "eval") || (target.name == "arguments") ) {
+          this.syntaxError(("Parse error: cannot assign to '" + target.name) + "' in strict mode");
+        }
+      }
+      return;
+    }
+    if ( t == "MemberExpression" ) {
+      return;
+    }
+    if ( t == "ObjectPattern" ) {
+      return;
+    }
+    if ( t == "ArrayPattern" ) {
+      return;
+    }
+    if ( t == "AssignmentPattern" ) {
+      return;
+    }
+    if ( t == "ObjectExpression" ) {
+      return;
+    }
+    if ( t == "ArrayExpression" ) {
+      return;
+    }
+    this.syntaxError(("Parse error: invalid assignment target (" + t) + ")");
+  };
   parseAssign () {
     const left = this.parseNullishCoalescing();
     const tokVal = this.peekValue();
     if ( tokVal == "=" ) {
+      this.checkAssignmentTarget(left);
       this.advance();
       const right = this.parseAssign();
       const assign = new TSNode();
