@@ -63,12 +63,10 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - [Documentation site](https://terotests.github.io/Ranger/docs/) — install, first program, types, optionals, and the **generated operator reference** (838 operators, compiled from the sources of the commit that publishes the site, so it cannot drift)
 - [Online playground](https://terotests.github.io/Ranger/) — try Ranger in the browser (`playground/`, Vite + current compiler)
 - `README.md` - language overview, installation, and syntax notes
-- `ai/QUICKREF.md` - fast reference for syntax and core concepts
-- `ai/INSTRUCTIONS.md` - fuller language guide for operators, templates, and compiler concepts
-- `ai/EXAMPLES.md` - short focused language examples
 - [`gallery/README.md`](gallery/README.md) - index of the larger examples: parsers, EVG/TSX document tooling, games, and `@process` host apps
 - [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
-- [`CHANGELOG.md`](CHANGELOG.md) - version history; [`PLAN_3.md`](PLAN_3.md) - roadmap
+- [`CHANGELOG.md`](CHANGELOG.md) - version history
+- `ai/` - the same language material condensed for AI assistants: `QUICKREF.md`, `INSTRUCTIONS.md`, `EXAMPLES.md`, `GRAMMAR.md`, `INTROSPECTION.md`
 
 ## Targets and compatibility
 
@@ -76,11 +74,17 @@ The compiler is _self hosting_: it is written in Ranger and compiled by itself,
 so it can run on several platforms. Node.js is the official host, because
 external plugins are only available as npm packages.
 
-It targets `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`,
-`Python`, `Kotlin` and `Rust` — at ES2015, PHP 5.4+, C++14, Java 7, Swift 3 and
-6, Go 1.8, Scala 2.x, C# 7.0 and Python 3.x respectively, with Rust
-preliminary. Older versions can be supported by writing custom operators that
-target a compiler flag. Support is uneven:
+**Primary targets** — exercised by the test suite: `JavaScript` / `TypeScript`
+(ES2015), `Go` (1.8), `Python` (3.x), `Rust`, `Kotlin`, `Swift` (3 and 6) and
+`C++` (C++14).
+
+**Non-primary targets** — `PHP`, `Java 7`, `C#` and `Scala` still have operator
+templates in `Lang.rgr`, but no test covers them and they have not been
+exercised for some time. Treat them as unmaintained: they may compile, and
+nothing verifies that they do.
+
+Older language versions can be supported by writing custom operators that target
+a compiler flag. Support is uneven:
 
 | Area | Current expectation |
 | --- | --- |
@@ -88,8 +92,18 @@ target a compiler flag. Support is uneven:
 | Self-hosting | Actively used, but full compiler generation quality is strongest in JavaScript |
 | JavaScript / ES6 | Best baseline target and most reliable place to start |
 | Go / Swift / Rust / Kotlin / C++ | Useful and increasingly capable, but expect edge cases and target-specific gaps |
+| PHP / Java / C# / Scala | Untested. Templates exist; no CI coverage |
 | **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. Another codegen path from the same sources, not a separate surface language. See `npm run test:llvm`, `npm run game:build:llvm`. |
 | Gallery examples | Good for understanding direction and capability, but some require manual setup or platform-specific tooling |
+
+**Targets are not equally demanding of the source.** A target with a garbage
+collector — JavaScript, Go, Python, Kotlin, Java, C# — takes almost any Ranger
+source as written. A target without one — C++, Rust, and Swift's reference
+counting — needs the ownership annotations (`@(weak)`, `@(strong)`, `@(lives)`,
+`@(temp)`, see [Annotations](#annotations)) wherever the object graph has a
+cycle or a non-owning reference. Code that runs on ES6 can therefore still fail
+to build, or leak, on C++ or Rust until those annotations are added. Write for
+the strictest target you intend to support, not for JavaScript.
 
 [Target languages](https://terotests.github.io/Ranger/docs/targets/overview/)
 documents what each target writes and the semantic differences a portable
@@ -131,9 +145,55 @@ rgrc -l=es6 -typescript myfile.rgr -o=output.ts
 rgrc -l=python myfile.rgr -o=output.py
 ```
 
-See [CHANGELOG.md](CHANGELOG.md) for full version history and [PLAN_3.md](PLAN_3.md) for the roadmap.
+See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ---
+
+## Common pitfalls
+
+The things people hit first, in the order they usually hit them.
+
+**Ranger is still a Lisp.** It reads like a braces-and-newlines language, but
+that surface is a set of shortcuts for S-expressions — the expressions are
+still there underneath. When something does not parse or does not type-check,
+the fix is almost always a pair of parentheses.
+
+**Negation needs the parentheses.** `!` is an operator like any other, so it
+takes its argument in prefix form:
+
+```
+if (! this.flag) { }     ; correct
+if !this.flag { }        ; FAIL: Could not match argument types for if
+```
+
+Because the bare form does not compile, people fall back to
+`if (this.flag == false)`. That works, but it is not needed — `(! this.flag)`
+is the direct form.
+
+**Singletons are an annotation, not a pattern you write by hand.** Mark the
+class and call the generated accessor:
+
+```
+class Config @singleton(true) {
+    def path:string "/etc/app"
+}
+
+def c (Config.__singleton())
+```
+
+**Optionals have to be wrapped and unwrapped.** Any variable declared without a
+value is optional, and several operators — `get` on a hash above all — always
+return one. Reading the value takes `unwrap` / `!!`, or `??` for a default;
+`wrap` makes an optional out of a plain value. Forgetting this shows up as a
+type error between `T` and `<optional>T`. See
+[Optional variables](#optional-variables).
+
+**Extending the language does not mean recompiling the compiler.**
+`compiler/Lang.rgr` is read at compile time, not baked into `bin/output.js`.
+Add or change an operator template there, and the very next compile uses it —
+no `npm run compile` in between. The compiler looks for `Lang.rgr` in the
+working directory first, so a copy beside your sources overrides the installed
+one, which makes an experiment cheap to try and cheap to throw away.
 
 ## Gallery and demos
 
@@ -430,8 +490,8 @@ explains templates and the second mechanism (type methods, which every target
 gets for free), and
 [the generated reference](https://terotests.github.io/Ranger/docs/reference/operators/statements/)
 lists every operator with its signature, per-target support, and compiled
-example output. [operators.md](operators.md) is an offline snapshot of the core
-operators only.
+example output. The `-operatordoc=<file>` compiler option writes the same kind
+of table locally when you need one without a network.
 
 # Plugins
 
@@ -572,9 +632,9 @@ variable types but need a signature. `Enum`, `class`, `systemclass`,
 [Types](https://terotests.github.io/Ranger/docs/language/types/) has the full
 table with example values, the buffer types and what each one compiles to.
 
-## String literals
+## Strings, enums and collections
 
-String literals are escaped using JSON escaping rules and can be multilne
+String literals use JSON escaping rules and can be multiline:
 
 ```
 def long_string "
@@ -583,73 +643,12 @@ def long_string "
 "
 ```
 
-## String Operations
-
-Ranger provides a comprehensive set of string manipulation operators. Here are some commonly used ones:
-
-```
-def text "Hello World"
-
-; Length and substring operations
-def len (strlen text)                    ; returns 11
-def sub (substring text 0 5)             ; returns "Hello"
-
-; Case conversion
-def lower (to_lowercase text)            ; returns "hello world"
-def upper (to_uppercase text)            ; returns "HELLO WORLD"
-
-; Search operations
-def idx (indexOf text "World")           ; returns 6
-def hasWorld (contains text "World")     ; returns true
-def starts (startsWith text "Hello")     ; returns true
-def ends (endsWith text "World")         ; returns true
-
-; String manipulation
-def replaced (replace text "World" "Ranger")  ; returns "Hello Ranger"
-def parts (strsplit text " ")            ; returns ["Hello", "World"]
-def trimmed (trim "  hello  ")           ; returns "hello"
-```
-
-For the complete list of string operators, with per-target support and compiled
-output, see the generated
-[string operator reference](https://terotests.github.io/Ranger/docs/reference/operators/string/).
-
-## Enums
-
-Enums will be compiled to type `int` but are type checked by the Ranger preprosessor
-
-```
-Enum LineJoin (
-    Undefined
-    Miter
-    Round
-    Bevel
-)
-class foo {
-    def lineType:LineJoin LineJoin.Undefined
-}
-```
-
-## Arrays and Hashes
-
-Arrays and hashes are automatically initialized and are ready to be used after their declaration
-
-```
-def list:[string]
-def usedKeywords:[string:string]
-def classMap:[string:myClass]
-
-set usedKeywords "foo" "bar"        ; write a key
-if (has usedKeywords "a key") { }   ; test a key
-def v (get usedKeywords "foo")      ; read a key — the result is @(optional)
-```
-
-Note that `get` always returns an optional value; see
-[Optional variables](#optional-variables) below. The complete set is in the
-generated
-[array](https://terotests.github.io/Ranger/docs/reference/operators/array/) and
-[map](https://terotests.github.io/Ranger/docs/reference/operators/map/)
-operator reference, with the code each one writes per target.
+The rest moved to the documentation site, where each operator also shows the
+code it writes per target:
+[Strings](https://terotests.github.io/Ranger/docs/language/strings/) (the
+operator set, concatenation, the code-point index rule) and
+[Types](https://terotests.github.io/Ranger/docs/language/types/) (arrays,
+hashes, `get` returning an optional, and `Enum`).
 
 ## Anonymous functions / lambdas
 
@@ -1159,15 +1158,34 @@ def strObjMap:[string:someClass]    ; map of string -> object of type someClass
 
 # Advanced topics
 
-## Compiling a new version of the compiler
+## Changing the compiler
 
-Then run command
+There are two levels of change, and only the second one needs a rebuild.
 
+**Level 1 — the language definition.** Operators, their per-target templates,
+the reserved words and the compilation rules live in `compiler/Lang.rgr`, which
+the compiler reads at compile time. Adding a target to an existing operator, or
+adding a whole operator, takes effect on the next compile with no rebuild step.
+The compiler looks for `Lang.rgr` in the working directory first and falls back
+to the copy beside `bin/output.js`, so a modified copy next to your sources
+overrides the installed one — which makes an experiment cheap to try and cheap
+to revert. `lib/stdops.rgr` (macros, the `ret` operator) works the same way.
+
+**Level 2 — the compiler itself.** The parser, the type checker and the writers
+are Ranger source under `compiler/`. Changing them means compiling the compiler
+with itself:
+
+```bash
+npm run compile      # compiler/ng_Compiler.rgr -> bin/output.js, and copies Lang.rgr to bin/
+npm test             # the suite runs against the compiler you just built
 ```
-ranger-compiler -compiler -copysrc
-```
 
-The result will be written to directory `bin/ng_Compiler.js`.
+`npm run compile` is the self-hosting step: the current `bin/output.js` compiles
+the new sources into the next `bin/output.js`. A change that breaks codegen can
+therefore break the compiler that builds the next one, so keep the previous
+`bin/output.js` until the tests pass; `versions/<target>/compiler.js` holds
+earlier builds. The standalone form is `ranger-compiler -compiler -copysrc`,
+which writes `bin/ng_Compiler.js`.
 
 # Annotations
 

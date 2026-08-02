@@ -1,5 +1,17 @@
 # Ranger 3.0 Roadmap
 
+> **Status: historical.** This is the roadmap that took the project from 2.x to
+> 3.0. The release is now 3.3.0, and the file has not kept up: of its 162
+> unchecked boxes, several have shipped and were never ticked — the codegen
+> tests for Swift, Rust, Kotlin and C++ (`tests/codegen-*.test.ts`), source map
+> generation (`-sourcemap`), strict mode (`-strict`) and the `docs/` folder all
+> exist. Others were never started (`.nvmrc`, the `tests/fixtures/string_peek.rgr`
+> family). Read this as a record of intent, not as the current plan.
+>
+> The live records are [CHANGELOG.md](CHANGELOG.md) for what shipped and
+> [ISSUES.md](ISSUES.md) for what is broken. Anything here that still matters
+> should move to one of those, and the rest of this file can then go.
+
 ## Executive Summary
 
 Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, transitioning from an experimental tool to a production-ready development environment. This plan outlines the transition from version 2.x to 3.0, including modernization of the toolchain, improved language target support, and ecosystem enhancements.

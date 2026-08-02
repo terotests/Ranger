@@ -45,6 +45,7 @@ export default defineConfig({
           items: [
             { label: "Program structure", slug: "language/structure" },
             { label: "Types", slug: "language/types" },
+            { label: "Strings", slug: "language/strings" },
             { label: "Optional values", slug: "language/optionals" },
             { label: "Operators", slug: "language/operators" },
           ],
