@@ -5725,6 +5725,37 @@ class ComponentEngine {
                     ; these constantly to set up their assertions, and each one
                     ; that is missing fails the test for a reason unrelated to
                     ; what it is actually checking.
+                    ; D-IEEE: Object.is is SameValue, which differs from === in
+                    ; exactly two places: NaN is same as NaN, and +0 is not the
+                    ; same as -0. Both are the cases it exists for, so both are
+                    ; handled explicitly rather than deferring to equals().
+                    if (methodName == "is") {
+                        if ((array_length node.children) > 1) {
+                            def isB:EvalValue (this.evaluateExpr((itemAt node.children 1)))
+                            if ((src.isNumber()) && (isB.isNumber())) {
+                                def an:double (src.toNumber())
+                                def bn:double (isB.toNumber())
+                                if (an != an) {
+                                    return (EvalValue.boolean((bn != bn)))
+                                }
+                                if (bn != bn) {
+                                    return (EvalValue.boolean(false))
+                                }
+                                if (an != bn) {
+                                    return (EvalValue.boolean(false))
+                                }
+                                if (an == 0.0) {
+                                    ; Same magnitude; 1/x separates the signs.
+                                    def ra:double (1.0 / an)
+                                    def rb:double (1.0 / bn)
+                                    return (EvalValue.boolean((ra == rb)))
+                                }
+                                return (EvalValue.boolean(true))
+                            }
+                            return (EvalValue.boolean((src.equals(isB))))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
                     if (methodName == "getPrototypeOf") {
                         if src.protoRef {
                             return (unwrap src.protoRef)
@@ -5952,6 +5983,13 @@ class ComponentEngine {
                             if (any == false) { best = v } { if (v > best) { best = v } }
                             any = true
                             mi = (mi + 1)
+                        }
+                        if (any == false) {
+                            ; D-IEEE: Math.max() with no arguments is -Infinity,
+                            ; its identity element. Returning 0 made it wrong for
+                            ; every empty-fold use.
+                            def negInfMax:double (0.0 - (1.0 / 0.0))
+                            return (EvalValue.number(negInfMax))
                         }
                         return (EvalValue.number(best))
                     }
@@ -6413,20 +6451,35 @@ class ComponentEngine {
         if (op == "*") {
             return (EvalValue.number((left.toNumber()) * (right.toNumber())))
         }
+        ; D-IEEE: division by zero is Infinity / -Infinity / NaN, not 0. The old
+        ; guard returned 0, which is wrong arithmetic AND breaks the standard
+        ; idiom for telling +0 from -0 (`1/a === 1/b`) — with both sides folding
+        ; to 0 the two zeroes became indistinguishable.
         if (op == "/") {
             def rightNum:double (right.toNumber())
-            if (rightNum != 0.0) {
-                return (EvalValue.number((left.toNumber()) / rightNum))
+            def leftNum:double (left.toNumber())
+            if (rightNum == 0.0) {
+                ; `left * (1/right)` gets all three cases right at once, and
+                ; crucially respects the SIGN of the zero divisor: 1/-0 is
+                ; -Infinity, not Infinity. Branching on left's sign alone would
+                ; miss that, because -0 == 0 compares true.
+                def recip:double (1.0 / rightNum)
+                return (EvalValue.number((leftNum * recip)))
             }
-            return (EvalValue.number(0.0))
+            return (EvalValue.number((leftNum / rightNum)))
         }
         if (op == "%") {
+            def rightMod:double (right.toNumber())
+            if (rightMod == 0.0) {
+                ; x % 0 is NaN, not 0.
+                return (EvalValue.number((0.0 / 0.0)))
+            }
             def leftInt:int (to_int (left.toNumber()))
-            def rightInt:int (to_int (right.toNumber()))
+            def rightInt:int (to_int rightMod)
             if (rightInt != 0) {
                 return (EvalValue.fromInt((leftInt % rightInt)))
             }
-            return (EvalValue.number(0.0))
+            return (EvalValue.number((0.0 / 0.0)))
         }
 
         ; Bitwise (JS coerces operands to int32; common idiom "x | 0" truncates to int)
@@ -6725,6 +6778,16 @@ class ComponentEngine {
         if (name == "undefined") {
             return (EvalValue.undefined())
         }
+        ; D-IEEE: Infinity and NaN are VALUES, not merely names the engine knows
+        ; about. They were resolving to undefined, so `x === -Infinity` compared
+        ; against NaN and was false for every x — a comparison that silently
+        ; never held.
+        if (name == "Infinity") {
+            return (EvalValue.number((1.0 / 0.0)))
+        }
+        if (name == "NaN") {
+            return (EvalValue.number((0.0 / 0.0)))
+        }
         if (context.has(name)) {
             return (context.lookup(name))
         }
@@ -6852,7 +6915,11 @@ class ComponentEngine {
                 return (EvalValue.boolean(((arg.toBool()) == false)))
             }
             if (op == "-") {
-                return (EvalValue.number(0.0 - (arg.toNumber())))
+                ; D-IEEE: negate by MULTIPLYING by -1, not by subtracting from
+                ; zero. `0.0 - 0.0` is +0, so subtraction silently destroyed
+                ; negative zero and the engine had no -0 at all.
+                def negOne:double (0.0 - 1.0)
+                return (EvalValue.number((negOne * (arg.toNumber()))))
             }
             if (op == "+") {
                 return (EvalValue.number((arg.toNumber())))
@@ -7691,6 +7758,21 @@ class ComponentEngine {
         }
         if (v.isUndefined()) {
             return "null"
+        }
+        ; D-IEEE: JSON has no NaN or Infinity; both serialise as null. Emitting
+        ; the literal text "NaN" produces JSON that will not parse back.
+        if (v.isNumber()) {
+            def nv:double (v.toNumber())
+            if (nv != nv) {
+                return "null"
+            }
+            def infJ:double (1.0 / 0.0)
+            if (nv == infJ) {
+                return "null"
+            }
+            if (nv == (0.0 - infJ)) {
+                return "null"
+            }
         }
         if (v.isBoolean()) {
             if (v.toBool()) {
