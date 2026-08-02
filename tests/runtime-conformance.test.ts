@@ -269,6 +269,15 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-GLOBALOBJ: built-in namespaces are real objects, not names the engine
   // merely recognises. They resolved to undefined, which was the largest ES5
   // failure bucket -- every property read off one failed.
+  ["ctor-array-call-length", "return Array(2).length;", "globals"],
+  ["ctor-array-call-items", "return Array(1, 2).length;", "globals"],
+  ["ctor-object-call-empty", "return typeof Object();", "globals"],
+  ["ctor-function-body", "var f = new Function('return 1;'); return f();", "globals"],
+  ["ctor-function-params", "var f = new Function('a', 'b', 'return a+b;'); return f(2, 3);", "globals"],
+  ["ctor-function-no-new", "var f = Function('return 7;'); return f();", "globals"],
+  ["ctor-function-typeof", "return typeof new Function('return 1;');", "globals"],
+  ["ctor-new-fn-expression", "var x = new function f1() { this.v = 1; }; return x.v;", "globals"],
+
   ["glob-typeof-math", "return typeof Math;", "globals"],
   ["glob-typeof-array", "return typeof Array;", "globals"],
   ["glob-typeof-function", "return typeof Function;", "globals"],

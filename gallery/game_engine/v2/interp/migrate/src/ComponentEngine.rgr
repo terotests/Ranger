@@ -990,6 +990,73 @@ class ComponentEngine {
     ; D-EVAL: run eval'd source in the current scope and return its completion
     ; value. A parse failure is a SyntaxError thrown into the guest, not a
     ; silent null — eval is precisely where guests expect to catch one.
+    ; D-CTORCALL: shared by `Array(n)` and `new Array(n)` so the two forms cannot
+    ; diverge. A single numeric argument pre-sizes; anything else is the element
+    ; list.
+    fn buildArrayFromArgs:EvalValue (argNodes:[TSNode]) {
+        def items:[EvalValue]
+        def n:int (array_length argNodes)
+        if (n == 1) {
+            def only:EvalValue (this.evaluateExpr((itemAt argNodes 0)))
+            if (only.isNumber()) {
+                def slots:int (to_int (only.toNumber()))
+                def si:int 0
+                while (si < slots) {
+                    push items (EvalValue.undefined())
+                    si = (si + 1)
+                }
+                return (EvalValue.array(items))
+            }
+            push items only
+            return (EvalValue.array(items))
+        }
+        def i:int 0
+        while (i < n) {
+            push items (this.evaluateExpr((itemAt argNodes i)))
+            i = (i + 1)
+        }
+        return (EvalValue.array(items))
+    }
+
+    ; D-FNCTOR: compile `Function(paramNames..., body)` into a real function
+    ; value by assembling source and parsing it, which is the same door eval
+    ; uses. A parse failure is a SyntaxError to the guest, as the spec requires.
+    fn buildFunctionFromSource:EvalValue (argNodes:[TSNode]) {
+        def n:int (array_length argNodes)
+        def params:string ""
+        def body:string ""
+        def i:int 0
+        while (i < n) {
+            def av:EvalValue (this.evaluateExpr((itemAt argNodes i)))
+            def txt:string (av.toString())
+            if (i == (n - 1)) {
+                body = txt
+            } {
+                if (i > 0) {
+                    params = (params + ", ")
+                }
+                params = (params + txt)
+            }
+            i = (i + 1)
+        }
+        def src:string ("function __anonfn__(" + params + ") {\n" + body + "\n}")
+        def lx (new TSLexer(src))
+        def toks:[Token] (lx.tokenize())
+        def p (new TSParserSimple())
+        p.initParser(toks)
+        def ast:TSNode (p.parseProgram())
+        if (p.errorCount > 0) {
+            return (this.throwSpecError("SyntaxError" "invalid function body passed to Function"))
+        }
+        if ((array_length ast.children) > 0) {
+            def decl:TSNode (itemAt ast.children 0)
+            if (decl.nodeType == "FunctionDeclaration") {
+                return (this.captureClosure(decl))
+            }
+        }
+        return (this.throwSpecError("SyntaxError" "invalid function body passed to Function"))
+    }
+
     fn runEvalSource:EvalValue (src:string) {
         ; A FRESH parser: `parser` is a shared member and its errorCount carries
         ; across parses, so re-entering it here made eval report a SyntaxError
@@ -5667,6 +5734,30 @@ class ComponentEngine {
                     }
                     return (this.runEvalSource(evSrcV.stringValue))
                 }
+                ; D-CTORCALL: the constructor globals called WITHOUT `new`.
+                ; `Array(2)` is identical to `new Array(2)`, and returned null
+                ; instead — so `Array(2).length` read a property of null. Same
+                ; for Object(x).
+                if (fnName == "Array") {
+                    return (this.buildArrayFromArgs(node.children))
+                }
+                if (fnName == "Object") {
+                    if ((array_length node.children) > 0) {
+                        def ov:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        if (false == ((ov.isNull()) || (ov.isUndefined()))) {
+                            return ov
+                        }
+                    }
+                    def okeys:[string]
+                    def ovals:[EvalValue]
+                    return (EvalValue.object(okeys ovals))
+                }
+                ; D-FNCTOR: `Function(body)` / `new Function(a, b, body)` compiles
+                ; a function from source. The last argument is the body, the rest
+                ; are parameter names. Built on the same parser eval uses.
+                if (fnName == "Function") {
+                    return (this.buildFunctionFromSource(node.children))
+                }
                 if (fnName == "parseInt") {
                     if ((array_length node.children) > 0) {
                         def pv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
@@ -8284,29 +8375,13 @@ class ComponentEngine {
         ; makes one holding those elements. The single-number case is the ES5
         ; idiom for pre-sizing, and without it `new Array(3).fill(0)` produced
         ; nothing at all.
+        ; `new Array(...)` and `Array(...)` share one builder so the forms
+        ; cannot diverge; same for Function.
         if (className == "Array") {
-            def actItems:[EvalValue]
-            def actN:int (array_length node.children)
-            if (actN == 1) {
-                def only:EvalValue (this.evaluateExpr((itemAt node.children 0)))
-                if (only.isNumber()) {
-                    def slots:int (to_int (only.toNumber()))
-                    def si:int 0
-                    while (si < slots) {
-                        push actItems (EvalValue.undefined())
-                        si = (si + 1)
-                    }
-                    return (EvalValue.array(actItems))
-                }
-                push actItems only
-                return (EvalValue.array(actItems))
-            }
-            def ai2:int 0
-            while (ai2 < actN) {
-                push actItems (this.evaluateExpr((itemAt node.children ai2)))
-                ai2 = (ai2 + 1)
-            }
-            return (EvalValue.array(actItems))
+            return (this.buildArrayFromArgs(node.children))
+        }
+        if (className == "Function") {
+            return (this.buildFunctionFromSource(node.children))
         }
         ; Built-in collections: new Map([[k,v]...]) / new Set([v...]).
         if (className == "Map") {
@@ -8375,6 +8450,19 @@ class ComponentEngine {
                         }
                     }
                 }
+            }
+        }
+
+        ; D-NEWFNEXPR: `new function f1() { ... }` — the callee is a function
+        ; EXPRESSION, not a name, so the name-keyed lookup below found nothing
+        ; and `new` produced null. Evaluate the callee and construct from the
+        ; resulting value.
+        if node.left {
+            def calleeN:TSNode (unwrap node.left)
+            def cnt:string calleeN.nodeType
+            if ((cnt == "FunctionExpression") || (cnt == "ArrowFunctionExpression")) {
+                def fnVal:EvalValue (this.captureClosure(calleeN))
+                return (this.constructFromFunction(fnVal calleeN.name node.children))
             }
         }
 
