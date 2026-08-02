@@ -306,20 +306,16 @@ class Hello {
         print "Hello World"
     }
 }
-
 ```
 
-Then compile it using `ranger-compiler` from the command line:
-
 ```
-ranger-compiler hello.rgr
-```
-
-The result will be written to `bin/output.js` by default, or you can choose the output name explicitly:
-
-```
+ranger-compiler hello.rgr            ; writes bin/output.js
 ranger-compiler hello.rgr -o=hello.js
 ```
+
+[The first program](https://terotests.github.io/Ranger/docs/start/first-program/)
+walks through the same program and shows the output the compiler writes for Go,
+Python and Rust.
 
 ## Compiling using TypeScript
 
@@ -395,13 +391,16 @@ res.fileSystem.files.forEach((file) => {
 
 ## Switching to different target language
 
-Include command line parameter `-l=<language>` and the compiler will produce the output files for the language in the output directory.
-Available languages are listed when you run the compiler without any parameters.
-
-The supported language versions are listed under
+`-l=<language>` selects the target; running the compiler with no arguments
+lists the available ones, and the supported versions are under
 [Host platforms and target languages](#host-platforms-and-target-languages).
-JavaScript additionally has the `-typescript` flag, which adds TypeScript
-annotations to the generated source.
+JavaScript additionally has `-typescript`, which adds TypeScript annotations to
+the generated source.
+
+[Target languages](https://terotests.github.io/Ranger/docs/targets/overview/)
+documents what each target writes for the main function, and the semantic
+differences a portable program has to know (integer division, the sign of `%`,
+string indexing, reference counting).
 
 # Operators
 
@@ -475,6 +474,16 @@ class Plugin {
 ```
 
 # Notes about the syntax
+
+> The rest of this README is the language reference. The documentation site
+> covers part of the same ground in shorter, edited pages —
+> [program structure](https://terotests.github.io/Ranger/docs/language/structure/),
+> [types](https://terotests.github.io/Ranger/docs/language/types/) and
+> [optional values](https://terotests.github.io/Ranger/docs/language/optionals/) —
+> and those pages carry the per-target detail (what an optional compiles to in
+> Go, Rust and Swift, for instance) that the sections below do not. What follows
+> here is the material the site does not have yet: traits, custom operators,
+> system classes, unions, class extensions, and the annotation list.
 
 Ranger syntax is originally based on Lisp -language syntax and most operators will use prefix notation. However, the Ranger modifies
 the original Lisp so that inside block expression `{ ... }` there is no need to insert parenthesis which makes the language appear to
