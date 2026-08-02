@@ -134,7 +134,7 @@ class TSParserSimple {
   ; track those contexts, so refusing them here loses valid programs.
   fn expectBindingName:Token () {
     def tt (this.peekType())
-    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword")) {
+    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword")) {
       def tok (this.peek())
       this.advance()
       return tok
@@ -197,6 +197,14 @@ class TSParserSimple {
       return true
     }
     if (t == "TSKeyword") {
+      return true
+    }
+    ; `a.true`, `a.null`, `a.default` — after a dot every reserved word, and the
+    ; boolean/null literals the lexer classifies separately, are valid names.
+    if (t == "Boolean") {
+      return true
+    }
+    if (t == "Null") {
       return true
     }
     return false
@@ -2062,7 +2070,7 @@ class TSParserSimple {
     ; Keywords are accepted as binding names because most of them are only
     ; reserved in contexts this parser does not track yet (`yield` outside a
     ; generator, `let` in sloppy mode); rejecting them here loses valid programs.
-    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword")) {
+    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword")) {
       this.advance()
       def id (new TSNode())
       id.nodeType = "Identifier"

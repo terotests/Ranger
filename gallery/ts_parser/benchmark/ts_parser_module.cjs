@@ -804,6 +804,12 @@ class TSLexer  {
     if ( this.isDigit(ch) ) {
       return this.readNumber();
     }
+    if ( ch == "." ) {
+      const afterDot = this.peekAt(1);
+      if ( this.isDigit(afterDot) ) {
+        return this.readNumber();
+      }
+    }
     if ( this.isAlpha(ch) ) {
       return this.readIdentifier();
     }
@@ -1255,7 +1261,7 @@ class TSParserSimple  {
   };
   expectBindingName () {
     const tt = this.peekType();
-    if ( ((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword") ) {
+    if ( (((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword") ) {
       const tok = this.peek();
       this.advance();
       return tok;
@@ -1306,6 +1312,12 @@ class TSParserSimple  {
       return true;
     }
     if ( t == "TSKeyword" ) {
+      return true;
+    }
+    if ( t == "Boolean" ) {
+      return true;
+    }
+    if ( t == "Null" ) {
       return true;
     }
     return false;
@@ -2709,7 +2721,7 @@ class TSParserSimple  {
     }
     const tok = this.peek();
     const tt = this.peekType();
-    if ( ((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword") ) {
+    if ( (((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword") ) {
       this.advance();
       const id = new TSNode();
       id.nodeType = "Identifier";

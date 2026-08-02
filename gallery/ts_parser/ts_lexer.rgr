@@ -673,8 +673,13 @@ class TSLexer {
         ; Template literals
         if (ch == "`") { return (this.readTemplateLiteral()) }
 
-        ; Numbers
+        ; Numbers, including a leading-dot literal: `.5`. Checked before the
+        ; punctuator table so `a(....5)` splits as `...` then `.5`.
         if (this.isDigit(ch)) { return (this.readNumber()) }
+        if (ch == ".") {
+            def afterDot:string (this.peekAt(1))
+            if (this.isDigit(afterDot)) { return (this.readNumber()) }
+        }
 
         ; Identifiers and keywords. An identifier may also *start* with a
         ; \uXXXX escape, as in `var \u0061bc;`.
