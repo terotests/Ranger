@@ -540,6 +540,32 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["sloppy-undeclared", "undeclaredAbc = 5; return undeclaredAbc;", "strict"],
   ["sloppy-this-global", "function f() { return typeof this; } return f();", "strict"],
 
+  // String.prototype methods the registry did not carry, plus ToString proper.
+  ["str-locale-compare-lt", "return 'a'.localeCompare('b');", "stringmethods"],
+  ["str-locale-compare-eq", "return 'a'.localeCompare('a');", "stringmethods"],
+  ["str-locale-lower", "return 'AB'.toLocaleLowerCase();", "stringmethods"],
+  ["str-locale-upper", "return 'ab'.toLocaleUpperCase();", "stringmethods"],
+  ["str-locale-string", "return 'ab'.toLocaleString();", "stringmethods"],
+  ["str-normalize", "return 'abc'.normalize();", "stringmethods"],
+  ["str-search-found", "return 'hello'.search('ll');", "stringmethods"],
+  ["str-search-missing", "return 'hello'.search('zz');", "stringmethods"],
+  ["str-codepointat", "return 'A'.codePointAt(0);", "stringmethods"],
+  ["str-codepointat-oob", "return String('abc'.codePointAt(9));", "stringmethods"],
+  ["str-substr", "return 'abcdef'.substr(1, 3);", "stringmethods"],
+  ["str-substr-negative", "return 'abcdef'.substr(-2);", "stringmethods"],
+  ["str-substr-no-len", "return 'abcdef'.substr(2);", "stringmethods"],
+  ["str-substr-past-end", "return 'abc'.substr(5, 2);", "stringmethods"],
+  ["str-split-limit", "return 'a,b,c'.split(',', 2).join('|');", "stringmethods"],
+  ["str-split-limit-zero", "return 'a,b,c'.split(',', 0).length;", "stringmethods"],
+  ["str-split-no-limit", "return 'a,b,c'.split(',').length;", "stringmethods"],
+  ["str-replace-fn", "return 'abc'.replace('b', function (m) { return m.toUpperCase(); });", "stringmethods"],
+  ["str-replace-fn-offset", "return 'abc'.replace('b', function (m, i) { return String(i); });", "stringmethods"],
+  ["str-replace-string", "return 'a-b-c'.replace('-', '+');", "stringmethods"],
+  ["tostring-object-method", "var o = { toString: function () { return 'X'; } }; return String(o);", "stringmethods"],
+  ["tostring-valueof-only", "var o = { valueOf: function () { return 7; } }; return String(o);", "stringmethods"],
+  ["tostring-array", "return String([1, 2]);", "stringmethods"],
+  ["tostring-plain", "return String({});", "stringmethods"],
+
   ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
   ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
   ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],
@@ -798,9 +824,6 @@ const KNOWN_GAPS = new Set<string>([
   "for-of-expr-lhs",
   // Destructuring: swap produces the wrong value.
   "destr-swap",
-  // ToString for objects and arrays is still wrong in the debug renderer.
-  "coerce-arr-to-string",
-  "coerce-obj-to-string",
   // Generators parse but do not run.
   "iter-generator",
   // Array/object details.

@@ -6155,7 +6155,12 @@ class ComponentEngine {
                 }
                 if (fnName == "String") {
                     if ((array_length node.children) > 0) {
-                        return (EvalValue.string(((this.evaluateExpr((itemAt node.children 0))).toString())))
+                        ; ToString, which for an object means running its own
+                        ; toString/valueOf. The raw EvalValue.toString() is the
+                        ; engine's debug dump, so `String({toString: …})`
+                        ; answered "{toString: [Function: ]}".
+                        def sArg:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        return (EvalValue.string((this.toStringOf(sArg))))
                     }
                     return (EvalValue.string(""))
                 }
@@ -6859,20 +6864,28 @@ class ComponentEngine {
             push out "at"
             push out "charAt"
             push out "charCodeAt"
+            push out "codePointAt"
             push out "concat"
             push out "endsWith"
             push out "includes"
             push out "indexOf"
             push out "lastIndexOf"
+            push out "localeCompare"
+            push out "normalize"
             push out "padEnd"
             push out "padStart"
             push out "repeat"
             push out "replace"
             push out "replaceAll"
+            push out "search"
             push out "slice"
             push out "split"
             push out "startsWith"
+            push out "substr"
             push out "substring"
+            push out "toLocaleLowerCase"
+            push out "toLocaleString"
+            push out "toLocaleUpperCase"
             push out "toLowerCase"
             push out "toUpperCase"
             push out "trim"
@@ -7101,7 +7114,15 @@ class ComponentEngine {
         if (kind == "string") {
             if (name == "at") { return 1 }
             if (name == "charCodeAt") { return 1 }
+            if (name == "codePointAt") { return 1 }
             if (name == "concat") { return 1 }
+            if (name == "localeCompare") { return 1 }
+            if (name == "normalize") { return 0 }
+            if (name == "search") { return 1 }
+            if (name == "substr") { return 2 }
+            if (name == "toLocaleLowerCase") { return 0 }
+            if (name == "toLocaleString") { return 0 }
+            if (name == "toLocaleUpperCase") { return 0 }
             if (name == "endsWith") { return 1 }
             if (name == "includes") { return 1 }
             if (name == "indexOf") { return 1 }
@@ -7110,7 +7131,7 @@ class ComponentEngine {
             if (name == "replace") { return 2 }
             if (name == "replaceAll") { return 2 }
             if (name == "slice") { return 2 }
-            if (name == "split") { return 1 }
+            if (name == "split") { return 2 }
             if (name == "startsWith") { return 1 }
             if (name == "trimEnd") { return 0 }
             if (name == "trimStart") { return 0 }
@@ -7433,6 +7454,76 @@ class ComponentEngine {
             if (prim.isString()) {
                 s = prim.stringValue
             }
+                    ; The locale-sensitive methods have no locale data behind
+                    ; them here, so they are the plain ones -- which is exactly
+                    ; what the spec permits an implementation with no locale
+                    ; support to do.
+                    if (name == "toLocaleLowerCase") {
+                        return (EvalValue.string((to_lowercase s)))
+                    }
+                    if (name == "toLocaleUpperCase") {
+                        return (EvalValue.string((to_uppercase s)))
+                    }
+                    if (name == "toLocaleString") {
+                        return (EvalValue.string(s))
+                    }
+                    if (name == "normalize") {
+                        return (EvalValue.string(s))
+                    }
+                    if (name == "localeCompare") {
+                        def other:string ""
+                        if ((array_length args) > 0) {
+                            other = (this.toStringOf((itemAt args 0)))
+                        }
+                        return (EvalValue.fromInt((this.compareStrings(s other))))
+                    }
+                    ; search takes a RegExp in general; with a string it is a
+                    ; plain index-of, which is what the ES5 tests in this area
+                    ; are written against.
+                    if (name == "search") {
+                        if ((array_length args) > 0) {
+                            def sneedle:string (this.toStringOf((itemAt args 0)))
+                            return (EvalValue.fromInt((indexOf s sneedle)))
+                        }
+                        return (EvalValue.fromInt(0))
+                    }
+                    if (name == "codePointAt") {
+                        def cpi:int 0
+                        if ((array_length args) > 0) {
+                            cpi = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        if ((cpi < 0) || (cpi >= (strlen s))) {
+                            return (EvalValue.undefined())
+                        }
+                        return (EvalValue.fromInt((charAt s cpi)))
+                    }
+                    ; substr takes a START and a LENGTH, unlike substring's two
+                    ; indices, and a negative start counts from the end.
+                    if (name == "substr") {
+                        def sbStart:int 0
+                        if ((array_length args) > 0) {
+                            sbStart = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        def sbLen:int ((strlen s) - sbStart)
+                        if (sbStart < 0) {
+                            sbStart = ((strlen s) + sbStart)
+                            if (sbStart < 0) { sbStart = 0 }
+                            sbLen = ((strlen s) - sbStart)
+                        }
+                        if ((array_length args) > 1) {
+                            def lenArg:EvalValue (itemAt args 1)
+                            if (false == (lenArg.isUndefined())) {
+                                sbLen = (to_int (lenArg.toNumber()))
+                            }
+                        }
+                        if (sbLen < 0) { sbLen = 0 }
+                        if (sbStart >= (strlen s)) {
+                            return (EvalValue.string(""))
+                        }
+                        def sbEnd:int (sbStart + sbLen)
+                        if (sbEnd > (strlen s)) { sbEnd = (strlen s) }
+                        return (EvalValue.string((substring s sbStart sbEnd)))
+                    }
                     ; (receiver already coerced to `s` above, per ToString)
                     if (name == "indexOf") {
                         if ((array_length args) > 0) {
@@ -7514,12 +7605,22 @@ class ComponentEngine {
                     if (name == "split") {
                         def sep:string ""
                         if ((array_length args) > 0) {
-                            sep = ((itemAt args 0).toString())
+                            sep = (this.toStringOf((itemAt args 0)))
                         }
                         def parts:[string] (strsplit s sep)
+                        ; The optional second argument caps the result length.
+                        def cap:int (array_length parts)
+                        if ((array_length args) > 1) {
+                            def limV:EvalValue (itemAt args 1)
+                            if (false == (limV.isUndefined())) {
+                                def lim:int (to_int (limV.toNumber()))
+                                if (lim < 0) { lim = 0 }
+                                if (lim < cap) { cap = lim }
+                            }
+                        }
                         def items:[EvalValue]
                         def pi:int 0
-                        while (pi < (array_length parts)) {
+                        while (pi < cap) {
                             push items (EvalValue.string((itemAt parts pi)))
                             pi = (pi + 1)
                         }
@@ -7574,12 +7675,8 @@ class ComponentEngine {
                     ; via indexOf/substring so behaviour is backend-independent.
                     if (name == "replace") {
                         def find:string ""
-                        def repl:string ""
                         if ((array_length args) > 0) {
-                            find = ((itemAt args 0).toString())
-                        }
-                        if ((array_length args) > 1) {
-                            repl = ((itemAt args 1).toString())
+                            find = (this.toStringOf((itemAt args 0)))
                         }
                         if ((strlen find) == 0) {
                             return (EvalValue.string(s))
@@ -7587,6 +7684,22 @@ class ComponentEngine {
                         def at:int (indexOf s find)
                         if (at < 0) {
                             return (EvalValue.string(s))
+                        }
+                        ; The replacement may be a FUNCTION, called with the
+                        ; match, its offset and the whole string. Stringifying it
+                        ; instead spliced "[Function: ]" into the result.
+                        def repl:string ""
+                        if ((array_length args) > 1) {
+                            def rv:EvalValue (itemAt args 1)
+                            if (rv.valueType == 6) {
+                                def rArgs:[EvalValue]
+                                push rArgs (EvalValue.string(find))
+                                push rArgs (EvalValue.fromInt(at))
+                                push rArgs (EvalValue.string(s))
+                                repl = (this.toStringOf((this.callFnValueWithValues(rv rArgs))))
+                            } {
+                                repl = (this.toStringOf(rv))
+                            }
                         }
                         def before:string (substring s 0 at)
                         def after:string (substring s (at + (strlen find)) (strlen s))
@@ -8571,6 +8684,13 @@ class ComponentEngine {
         if (r1.valueType != 0) {
             return r1
         }
+        ; With a string hint, a missing USER toString does not fall through to
+        ; valueOf: the inherited Object.prototype.toString applies and returns
+        ; the brand, so `String({valueOf: …})` is "[object Object]", not the
+        ; number valueOf would have given.
+        if wantString {
+            return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
+        }
         def r2:EvalValue (this.callPrimitiveMethod(v second))
         if (r2.valueType != 0) {
             return r2
@@ -8712,6 +8832,21 @@ class ComponentEngine {
             i = (i + 1)
         }
         return out
+    }
+
+    ; ToString: an object runs its own toString/valueOf, everything else answers
+    ; for itself.
+    fn toStringOf:string (v:EvalValue) {
+        if (v.isString()) {
+            return v.stringValue
+        }
+        def p:EvalValue v
+        if (v.valueType == 5) { p = (this.toPrimitive(v true)) }
+        if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
+        if (p.isString()) {
+            return p.stringValue
+        }
+        return (p.toString())
     }
 
     ; ToPropertyKey. A property name is whatever ToString says, so an object or
