@@ -6322,6 +6322,18 @@ class ComponentEngine {
     }
 
     ; The receiver kind a built-in constructor's prototype serves.
+    ; Inverse of kindForCtorName: the constructor whose prototype serves a kind.
+    fn ctorNameForKind:string (kind:string) {
+        if (kind == "array") { return "Array" }
+        if (kind == "string") { return "String" }
+        if (kind == "number") { return "Number" }
+        if (kind == "boolean") { return "Boolean" }
+        if (kind == "function") { return "Function" }
+        if (kind == "map") { return "Map" }
+        if (kind == "set") { return "Set" }
+        return ""
+    }
+
     fn kindForCtorName:string (nsName:string) {
         if (nsName == "Array") { return "array" }
         if (nsName == "String") { return "string" }
@@ -6430,6 +6442,13 @@ class ComponentEngine {
         def valsB:[EvalValue]
         def p:EvalValue (EvalValue.object(keysB valsB))
         set builtinProtos nsName p
+        ; D-PROTOCTOR: every prototype carries `constructor` back to its global.
+        ; Safe against the cycle (global sets prototype, prototype sets
+        ; constructor) because both cache their object BEFORE populating it.
+        def ctorG:EvalValue (this.builtinGlobalObject(nsName))
+        if (ctorG.valueType == 5) {
+            p.setMember("constructor" ctorG)
+        }
         def kind:string (this.kindForCtorName(nsName))
         if ((strlen kind) > 0) {
             def names:[string] (this.builtinNames(kind))
@@ -8856,6 +8875,22 @@ class ComponentEngine {
                         ; rejects. The direct-call path supplies the receiver
                         ; explicitly instead.
                         return (EvalValue.nativeMethod(mKind propName))
+                    }
+                }
+            }
+
+            ; D-PROTOCTOR: a property not found on the value itself falls back
+            ; to its kind's prototype object, which is how `[1,2].constructor`
+            ; reaches Array. Only non-objects need this: a plain object already
+            ; walks protoRef.
+            if ((strlen propName) > 0) {
+                def pcName:string (this.ctorNameForKind((this.receiverKind(obj))))
+                if ((strlen pcName) > 0) {
+                    if (obj.valueType != 5) {
+                        def kProto:EvalValue (this.builtinPrototype(pcName))
+                        if (has kProto.objectMap propName) {
+                            return (unwrap (get kProto.objectMap propName))
+                        }
                     }
                 }
             }

@@ -274,6 +274,14 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-RADIX / D-WRAPPER: Number.prototype.toString(radix), and boxed
   // primitives. new String(x) used to make an empty object, so whole
   // String.prototype areas scored zero -- their fixtures are built that way.
+  // D-PROTOCTOR: every prototype carries `constructor` back to its global, and
+  // a non-object value falls back to its kind's prototype to reach it.
+  ["protoctor-array", "return [1, 2].constructor === Array;", "protoreg"],
+  ["protoctor-string", "return 'a'.constructor === String;", "protoreg"],
+  ["protoctor-number", "return (5).constructor === Number;", "protoreg"],
+  ["protoctor-split-result", "return 'a,b'.split(',').constructor === Array;", "protoreg"],
+  ["protoctor-on-prototype", "return Array.prototype.constructor === Array;", "protoreg"],
+
   ["radix-base2", "return (5).toString(2);", "radix"],
   ["radix-base16", "return (255).toString(16);", "radix"],
   ["radix-base36", "return (35).toString(36);", "radix"],
