@@ -239,6 +239,9 @@ class ComponentEngine {
     ; D-ERRORS: the engine-provided error constructors are seeded lazily, once,
     ; so that `thrown.constructor === TypeError` holds by reference.
     def errorCtorsReady:boolean false
+    ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
+    ; for the engine's lifetime so identity and stored properties survive reads.
+    def builtinProtos:[string:EvalValue]
     ; When true (the spec default) an unresolvable identifier read is a
     ; ReferenceError and calling a non-function is a TypeError, instead of
     ; silently evaluating to null. Kept as a switch because the failure mode it
@@ -5905,8 +5908,22 @@ class ComponentEngine {
                     }
                 }
 
-                ; Fallback: unhandled method — respect quiet (was an unconditional print).
+                ; D-ERRORS: nothing handled this method. Calling a property that
+                ; is not a function is a TypeError, and answering null instead is
+                ; the silent-failure mode that made whole corpora unmeasurable:
+                ; the call does nothing and the assertion after it never runs.
+                ; Only raised for receivers that can hold properties — a method
+                ; the engine simply has not implemented on a primitive stays a
+                ; trace, since that is the engine's gap and not the guest's.
                 this.trace("Warning: Unhandled method call: " + methodName)
+                if strictReferences {
+                    def rcvHolds:boolean false
+                    if (obj.valueType == 5) { rcvHolds = true }
+                    if (obj.valueType == 6) { rcvHolds = true }
+                    if rcvHolds {
+                        return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+                    }
+                }
                 return (EvalValue.null())
             }
             
@@ -6355,6 +6372,72 @@ class ComponentEngine {
     ; that same value. Creating a fresh constructor per throw would silently fail
     ; that identity check.
     ; --------------------------------------------------------------------------
+    ; D-BUILTINPROTO: members of the engine's built-in constructor namespaces
+    ; that are VALUES rather than calls. Returns null (valueType 0) when the
+    ; name/property pair is not one of them, so the caller falls through.
+    fn builtinNamespaceMember:EvalValue (nsName:string propName:string) {
+        if (this.isBuiltinCtorName(nsName)) {
+            if (propName == "prototype") {
+                return (this.builtinPrototype(nsName))
+            }
+            if (propName == "name") {
+                return (EvalValue.string(nsName))
+            }
+        }
+        if (nsName == "Number") {
+            if (propName == "POSITIVE_INFINITY") { return (EvalValue.number((1.0 / 0.0))) }
+            if (propName == "NEGATIVE_INFINITY") { return (EvalValue.number((0.0 - (1.0 / 0.0)))) }
+            if (propName == "MAX_SAFE_INTEGER") { return (EvalValue.number(9007199254740991.0)) }
+            if (propName == "MIN_SAFE_INTEGER") { return (EvalValue.number((0.0 - 9007199254740991.0))) }
+            if (propName == "EPSILON") { return (EvalValue.number(0.0000000000000002220446049250313)) }
+            ; MAX_VALUE / MIN_VALUE are deliberately absent: neither denormal
+            ; extreme survives a Ranger double literal, and returning a value
+            ; that is merely CLOSE would be worse than the property missing —
+            ; the tests that read them are testing the exact bit pattern.
+        }
+        return (EvalValue.null())
+    }
+
+    fn isBuiltinCtorName:boolean (name:string) {
+        if (name == "Object") { return true }
+        if (name == "Array") { return true }
+        if (name == "String") { return true }
+        if (name == "Number") { return true }
+        if (name == "Boolean") { return true }
+        if (name == "Function") { return true }
+        if (name == "Symbol") { return true }
+        if (name == "Map") { return true }
+        if (name == "Set") { return true }
+        if (name == "Date") { return true }
+        if (name == "RegExp") { return true }
+        return (this.isErrorCtorName(name))
+    }
+
+    fn isErrorCtorName:boolean (name:string) {
+        def names:[string] (this.errorKindNames())
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The prototype object for a built-in constructor, created once per engine so
+    ; a property assigned to it persists and compares equal across reads.
+    fn builtinPrototype:EvalValue (nsName:string) {
+        if (has builtinProtos nsName) {
+            return (unwrap (get builtinProtos nsName))
+        }
+        def keysB:[string]
+        def valsB:[EvalValue]
+        def p:EvalValue (EvalValue.object(keysB valsB))
+        set builtinProtos nsName p
+        return p
+    }
+
     fn errorKindNames:[string] () {
         def out:[string]
         push out "Error"
@@ -7032,6 +7115,15 @@ class ComponentEngine {
                         def pi:double (M_PI)
                         return (EvalValue.number(pi))
                     }
+                }
+                ; D-BUILTINPROTO: `Array.prototype`, `Object.prototype`, … as
+                ; real objects. They used to read as undefined, so any test that
+                ; touched one cascaded into "cannot read properties of undefined"
+                ; for a reason unrelated to what it was checking. The object is
+                ; stable per engine, so a property put on it stays there.
+                def nsHit:EvalValue (this.builtinNamespaceMember(leftExpr.name propName))
+                if (nsHit.valueType != 0) {
+                    return nsHit
                 }
             }
 
