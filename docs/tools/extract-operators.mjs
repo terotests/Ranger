@@ -35,6 +35,23 @@ function collectionAccessors(body) {
   return ACCESSORS.filter((name) => new RegExp(`\\(\\s*${name}\\b`).test(text));
 }
 
+/**
+ * What the body of the macro reads, in one word.
+ *
+ * `keys` and `get` read a hash map. `size` and `at` read an array. The word
+ * goes into the heading, because the parameters of a `defn` carry no type and
+ * two macros of one name are otherwise identical on the page.
+ */
+function readsKind(accessors) {
+  if (accessors.includes("keys")) {
+    return "a hash map";
+  }
+  if (accessors.includes("at") || accessors.includes("itemAt") || accessors.includes("size")) {
+    return "an array";
+  }
+  return "";
+}
+
 function probeProgram(source) {
   const imports = source.import ? `Import "${source.import}"\n` : "";
   return `${imports}class DocProbe {\n    sfn m@(main):void () {\n    }\n}\n`;
@@ -188,6 +205,7 @@ async function main() {
       model.macros.push({
         id: `${source.id}/macro.${macro.name}.${macro.params.length}.${macro.line}`,
         reads: collectionAccessors(macro.definition),
+        readsKind: readsKind(collectionAccessors(macro.definition)),
         source: source.id,
         name: macro.name,
         params: macro.params,

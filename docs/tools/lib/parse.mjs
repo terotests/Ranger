@@ -258,7 +258,7 @@ function leadingComment(lines, line) {
  * source text: the definitions are in file order, so one forward scan per file
  * finds each head after the head before it.
  */
-function anchorLine(lines, name, from) {
+function anchorLine(lines, name, from, requireBrace = false) {
   for (let i = from; i < lines.length; i += 1) {
     const text = lines[i].replace(/\r$/, "").trim();
     if (text.length === 0 || text.startsWith(";")) {
@@ -270,11 +270,36 @@ function anchorLine(lines, name, from) {
     const after = text.slice(name.length);
     // The head is "<name> <implementation>:<type> ( … ) {", "<name> ( … ) {" or
     // "<name>@(annotation) …".
-    if (/^[\s(@]/.test(after) || after.length === 0) {
-      return i;
+    if (!/^[\s(@]/.test(after) && after.length > 0) {
+      continue;
     }
+    // An operator definition opens a body. A default template line inside a
+    // `templates` block also starts with a name — the line
+    // `* ( (e 1) " + " (e 2) )` inside the definition of `+` would otherwise
+    // anchor the `*` operator — and such a line opens no body.
+    if (requireBrace && !opensBody(lines, i)) {
+      continue;
+    }
+    return i;
   }
   return -1;
+}
+
+/** The declaration opens its body on this line or on the next line with text. */
+function opensBody(lines, index) {
+  for (let i = index; i < lines.length && i < index + 2; i += 1) {
+    const text = lines[i].replace(/\r$/, "").trim();
+    if (i > index && text.length === 0) {
+      continue;
+    }
+    if (text.includes("{")) {
+      return true;
+    }
+    if (i > index) {
+      return false;
+    }
+  }
+  return false;
 }
 
 /** The line of a `fn <name>` declaration inside a method operator block. */
@@ -289,13 +314,26 @@ function anchorMethodLine(lines, name, from) {
   return -1;
 }
 
-/** The line where the block that starts on `start` closes. */
+/**
+ * The line where the declaration that starts on `start` ends.
+ *
+ * Both delimiters count. A declaration can close with a brace
+ * (`defn ForEach (list f) { … }`), with a parenthesis
+ * (`defn Compose (f1 f2) (fn:? (x:?) { … })`) or with neither beyond its
+ * argument list (`defn Print (x) (print '' + x)`, which ends on its own line).
+ * A scan for braces alone runs past the last form and swallows the
+ * declarations after it.
+ */
 function blockEnd(lines, start) {
-  let depth = 0;
+  let braces = 0;
+  let parens = 0;
   let seen = false;
+  // A string can span lines: a polyfill holds whole functions of the target
+  // language between two quotes. The state therefore lives outside the line
+  // loop, otherwise the braces of that C++ or Go code count as Ranger braces.
+  let quote = "";
   for (let i = start; i < lines.length; i += 1) {
     const line = lines[i];
-    let quote = "";
     for (let c = 0; c < line.length; c += 1) {
       const ch = line[c];
       if (quote) {
@@ -306,7 +344,7 @@ function blockEnd(lines, start) {
         }
         continue;
       }
-      if (ch === '"' || ch === "'") {
+      if (ch === '"' || ch === "'" || ch === "`") {
         quote = ch;
         continue;
       }
@@ -314,16 +352,42 @@ function blockEnd(lines, start) {
         break;
       }
       if (ch === "{") {
-        depth += 1;
+        braces += 1;
         seen = true;
       } else if (ch === "}") {
-        depth -= 1;
-        if (seen && depth <= 0) {
-          return i;
-        }
+        braces -= 1;
+      } else if (ch === "(") {
+        parens += 1;
+        seen = true;
+      } else if (ch === ")") {
+        parens -= 1;
       }
     }
-    if (seen && depth <= 0) {
+    if (seen && braces <= 0 && parens <= 0) {
+      return i;
+    }
+  }
+  // The scan reached the end of the file. One source does that: a polyfill
+  // string with an odd number of quote characters leaves the scanner inside a
+  // string for the rest of the file. The indentation then gives the end.
+  return closeByIndentation(lines, start);
+}
+
+/**
+ * The end of the declaration by its indentation: the first line at or before
+ * the indentation of the head that closes a block.
+ */
+function closeByIndentation(lines, start) {
+  const head = lines[start];
+  const headIndent = head.length - head.trimStart().length;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i].replace(/\r$/, "");
+    const text = line.trim();
+    if (text.length === 0) {
+      continue;
+    }
+    const indent = line.length - line.trimStart().length;
+    if (indent <= headIndent && text.startsWith("}")) {
       return i;
     }
   }
@@ -357,18 +421,31 @@ export function parseOperatorSource(relFile) {
 
   const definitions = [];
   let cursor = 0;
+  // Two passes per block. The anchors come first, because the head of the next
+  // definition bounds the slice of this one: a scan that drifts inside a
+  // polyfill of the target language then cannot swallow the definitions after
+  // it.
   for (const block of collectBlocks(parser.rootNode, [])) {
-    for (const node of block.body.children) {
-      const name = firstVref(node);
-      if (!name || node.children.length < 4) {
-        continue;
-      }
-      const implNode = node.children[1];
-      const returnNode = node.children[2];
-      const start = anchorLine(lines, name, cursor);
-      const end = start >= 0 ? blockEnd(lines, start) : -1;
+    const nodes = block.body.children.filter(
+      (node) => firstVref(node) && node.children.length >= 4,
+    );
+    const anchors = nodes.map((node) => {
+      const start = anchorLine(lines, firstVref(node), cursor, true);
       if (start >= 0) {
         cursor = start + 1;
+      }
+      return start;
+    });
+    for (let index = 0; index < nodes.length; index += 1) {
+      const node = nodes[index];
+      const name = firstVref(node);
+      const implNode = node.children[1];
+      const returnNode = node.children[2];
+      const start = anchors[index];
+      const nextStart = anchors.slice(index + 1).find((line) => line > start);
+      let end = start >= 0 ? blockEnd(lines, start) : -1;
+      if (start >= 0 && nextStart !== undefined && end >= nextStart) {
+        end = nextStart - 1;
       }
       definitions.push({
         name,

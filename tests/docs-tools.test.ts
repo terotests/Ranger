@@ -251,6 +251,52 @@ describe("operator sources", () => {
     expect(wrong).toEqual([]);
   });
 
+  it("slices a definition without swallowing the one after it", () => {
+    // Three defects lived here: a `defn` with no brace body ran to the next
+    // block, a scan that drifts inside a polyfill ran to the end of the file,
+    // and the `*` operator anchored on the default template line `* ( … )`
+    // inside the definition of `+`.
+    for (const source of registry.sources) {
+      const parsed = parse.parseOperatorSource(source.file);
+
+      for (const macro of parsed.macros) {
+        const declarations = (macro.definition.match(/^\s*defn\b/gm) || []).length;
+        expect(declarations, `${source.file}:${macro.line} ${macro.name}`).toBe(1);
+      }
+
+      for (const definition of parsed.definitions) {
+        if (Object.keys(definition.templates).length > 0) {
+          expect(
+            definition.definition,
+            `${source.file}:${definition.line} ${definition.name} lost its templates`,
+          ).toContain("templates");
+          expect(
+            (definition.definition.match(/\btemplates\b/g) || []).length,
+            `${source.file}:${definition.line} ${definition.name} holds two template blocks`,
+          ).toBe(1);
+        }
+      }
+
+      const ordered = [...parsed.definitions].sort((a, b) => a.line - b.line);
+      for (let i = 0; i < ordered.length - 1; i += 1) {
+        const end = ordered[i].line + ordered[i].definition.split("\n").length - 1;
+        expect(
+          end < ordered[i + 1].line,
+          `${source.file}: ${ordered[i].name} runs into ${ordered[i + 1].name}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("anchors the multiply operator on its definition, not on a template line", () => {
+    const parsed = parse.parseOperatorSource("compiler/Lang.rgr");
+    const lines = fs.readFileSync(path.join(ROOT, "compiler/Lang.rgr"), "utf8").split("\n");
+    for (const definition of parsed.definitions.filter((d: { name: string }) => d.name === "*")) {
+      const head = lines[definition.line - 1];
+      expect(head, `line ${definition.line} is a template line`).toMatch(/\*\s+\S+:\S+/);
+    }
+  });
+
   it("reads the optional annotation of an argument", () => {
     const parsed = parse.parseOperatorSource("compiler/Lang.rgr");
     const nullify = parsed.definitions.find((d: { name: string }) => d.name === "nullify");

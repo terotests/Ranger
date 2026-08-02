@@ -234,9 +234,17 @@ function main() {
   // and the same number of parameters. The heading therefore carries the
   // parameter names and the source line, and the entry states which collection
   // operators the body calls, which is what separates one from the other.
+  // Two counts: the name alone, and the name with the kind of collection that
+  // the body reads. The heading carries the kind when the name repeats, and the
+  // source line only when the kind does not separate them either.
+  const macroSignature = (macro) => `${macro.name} (${macro.params.join(" ")})`;
   const macroNames = new Map();
+  const macroKinds = new Map();
   for (const macro of model.macros) {
-    macroNames.set(macro.name, (macroNames.get(macro.name) || 0) + 1);
+    const signature = macroSignature(macro);
+    macroNames.set(signature, (macroNames.get(signature) || 0) + 1);
+    const key = `${signature}|${macro.readsKind}`;
+    macroKinds.set(key, (macroKinds.get(key) || 0) + 1);
   }
   const macroBody = [
     frontMatter({
@@ -262,12 +270,23 @@ function main() {
     "each heading carries the source line, so two entries with one name stay",
     "apart.",
     "",
+    "## The macros",
+    "",
   ];
   for (const macro of model.macros) {
-    const repeated = (macroNames.get(macro.name) || 0) > 1;
+    const signature = macroSignature(macro);
+    const repeated = (macroNames.get(signature) || 0) > 1;
+    const kindRepeated = (macroKinds.get(`${signature}|${macro.readsKind}`) || 0) > 1;
+    const suffix = [];
+    if (repeated && macro.readsKind) {
+      suffix.push(`reads ${macro.readsKind}`);
+    }
+    if (repeated && (kindRepeated || !macro.readsKind)) {
+      suffix.push(`line ${macro.line}`);
+    }
     macroBody.push(
-      `## \`${macro.name} (${macro.params.join(" ")})\`` +
-        (repeated ? ` — line ${macro.line}` : ""),
+      `### \`${signature}\`` +
+        (suffix.length > 0 ? ` — ${suffix.join(", ")}` : ""),
     );
     macroBody.push("");
     if (macro.comment) {
