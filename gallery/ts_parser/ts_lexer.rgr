@@ -19,6 +19,15 @@ class TSLexer {
     ; Annex B HTML close-comment (only legal at the start of a line).
     def prevLine:int 0
 
+    ; One character per currently-open brace: "b" for a block, "o" for an object
+    ; literal or a JSX expression container. A `}` is ambiguous for the regex/
+    ; division decision — `function f(){} /re/` is a regex, `({a:1}) / 2` and JSX
+    ; text `{a} / {b}` are division — and only the matching `{` can tell them
+    ; apart. Kept as a string so push/pop are plain concatenation and substring.
+    def braceKinds:string ""
+    ; Kind of the most recently closed brace, consumed by regexAllowed.
+    def lastCloseKind:string "o"
+
     Constructor (src:string) {
         source = src
         ; `len` must match the index space that peek()/advance()/`at` walk. Those
@@ -933,6 +942,20 @@ class TSLexer {
             push tokens tok
             ; Comments are not significant for regex-vs-division context.
             if ((tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment")) {
+                if (tok.tokenType == "Punctuator") {
+                    if (tok.value == "{") {
+                        braceKinds = (braceKinds + (this.braceKindHere()))
+                    }
+                    if (tok.value == "}") {
+                        def depth:int (strlen braceKinds)
+                        if (depth > 0) {
+                            lastCloseKind = (substring braceKinds (depth - 1) depth)
+                            braceKinds = (substring braceKinds 0 (depth - 1))
+                        } {
+                            lastCloseKind = "o"
+                        }
+                    }
+                }
                 prevType = tok.tokenType
                 prevValue = tok.value
                 prevLine = tok.line
@@ -942,6 +965,29 @@ class TSLexer {
             }
         }
         return tokens
+    }
+
+    ; Classify the `{` just tokenized, from the token that preceded it: "b" when
+    ; it opens a statement block, "o" when it opens an object literal or a JSX
+    ; expression container.
+    fn braceKindHere:string () {
+        if (prevType == "") { return "b" }
+        if (prevType == "Punctuator") {
+            if (prevValue == ")") { return "b" }
+            if (prevValue == ";") { return "b" }
+            if (prevValue == "{") { return "b" }
+            if (prevValue == "}") { return "b" }
+            if (prevValue == "=>") { return "b" }
+            return "o"
+        }
+        if (prevType == "Keyword") {
+            if (prevValue == "else") { return "b" }
+            if (prevValue == "do") { return "b" }
+            if (prevValue == "try") { return "b" }
+            if (prevValue == "finally") { return "b" }
+            return "o"
+        }
+        return "o"
     }
 
     ; True when a `/` at the current position starts a regex literal rather than
@@ -979,6 +1025,12 @@ class TSLexer {
             ; regex literal. The cost is `a < /re/.test(b)`, which is vanishingly
             ; rare; JSX closing tags are on the engine's main path.
             if (prevValue == "<") { return false }
+            ; `}` ends a block (an operand, so a regex, may follow) or an object
+            ; literal / JSX expression container (an operator follows).
+            if (prevValue == "}") {
+                if (lastCloseKind == "b") { return true }
+                return false
+            }
             return true
         }
         return true

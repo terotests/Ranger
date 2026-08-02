@@ -52,6 +52,14 @@ class TSParserSimple {
   def pos:int 0
   def currentToken@(optional):Token
   def quiet:boolean false   ; suppress error messages
+  ; Number of syntax diagnostics reported so far. Callers use it to ask "did
+  ; this parse cleanly?" — previously the only signal was text on stdout, so
+  ; nothing downstream could tell a good parse from a recovered one.
+  def errorCount:int 0
+  ; Depth of speculative parsing in progress. Diagnostics are still counted (the
+  ; count is rolled back with the position) but not printed, so a speculation
+  ; that is abandoned leaves no noise on the console.
+  def speculating:int 0
   def tsxMode:boolean false ; enable JSX/TSX parsing
   
   fn initParser:void (toks:[Token]) {
@@ -65,6 +73,18 @@ class TSParserSimple {
     }
   }
   
+  ; Single funnel for every syntax diagnostic: counts it, and prints unless the
+  ; parser was asked to stay quiet.
+  fn syntaxError:void (msg:string) {
+    this.errorCount = (this.errorCount + 1)
+    if (this.speculating > 0) {
+      return
+    }
+    if (this.quiet == false) {
+      print msg
+    }
+  }
+
   fn setQuiet:void (q:boolean) {
     this.quiet = q
   }
@@ -145,9 +165,7 @@ class TSParserSimple {
   fn expect:Token (expectedType:string) {
     def tok (this.peek())
     if (tok.tokenType != expectedType) {
-      if (this.quiet == false) {
-        print "Parse error: expected " + expectedType + " but got " + tok.tokenType
-      }
+      this.syntaxError("Parse error: expected " + expectedType + " but got " + tok.tokenType)
     }
     this.advance()
     return tok
@@ -156,9 +174,7 @@ class TSParserSimple {
   fn expectValue:Token (expectedValue:string) {
     def tok (this.peek())
     if (tok.value != expectedValue) {
-      if (this.quiet == false) {
-        print "Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'"
-      }
+      this.syntaxError("Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'")
     }
     this.advance()
     return tok
@@ -279,10 +295,8 @@ class TSParserSimple {
     if (this.pos != prevPos) {
       return
     }
-    if (this.quiet == false) {
-      def tok (this.peek())
-      print ("Parser recovery: skipping unexpected token '" + tok.value + "' (type " + tok.tokenType + ")")
-    }
+    def recTok (this.peek())
+    this.syntaxError("Parser recovery: skipping unexpected token '" + recTok.value + "' (type " + recTok.tokenType + ")")
     if ((this.isAtEnd()) == false) {
       this.advance()
     }
@@ -2097,6 +2111,15 @@ class TSParserSimple {
   ; A binding target: a plain identifier, or a nested object / array pattern.
   ; Patterns nest arbitrarily (`let {a:{b:[c]}} = x`), so this is mutually
   ; recursive with parseObjectPattern / parseArrayPattern.
+  ; True when the token after a speculatively-parsed pattern confirms it really
+  ; was one: `[a] = b`, `for ([a] in b)`, `for ({a} of b)`.
+  fn isAssignmentPatternFollow:boolean () {
+    if (this.matchValue("=")) { return true }
+    if (this.matchValue("in")) { return true }
+    if (this.matchValue("of")) { return true }
+    return false
+  }
+
   fn parseBindingTarget:TSNode () {
     if (this.matchValue("{")) {
       return (this.parseObjectPattern())
@@ -2963,9 +2986,7 @@ class TSParserSimple {
     }
     
     ; Fallback
-    if (this.quiet == false) {
-      print "Unknown type: " + tokVal
-    }
+    this.syntaxError("Unknown type: " + tokVal)
     this.advance()
     def errNode (new TSNode())
     errNode.nodeType = "TSAnyKeyword"
@@ -4571,13 +4592,44 @@ class TSParserSimple {
       return undefId
     }
     
-    ; Array literal [...]
+    ; Array literal [...] — or the target of a destructuring assignment. The two
+    ; are indistinguishable until the `=` / `in` / `of` after the closing
+    ; bracket, and `[{a = 1}] = b` is not a valid literal, so a pattern parse is
+    ; attempted first and rolled back when nothing consumes it.
     if (tokVal == "[") {
+      def arrSavedPos:int this.pos
+      def arrSavedTok:Token (unwrap this.currentToken)
+      def arrSavedErrors:int this.errorCount
+      this.speculating = (this.speculating + 1)
+      def arrPat (this.parseArrayPattern())
+      this.speculating = (this.speculating - 1)
+      if (this.errorCount == arrSavedErrors) {
+        if (this.isAssignmentPatternFollow()) {
+          return arrPat
+        }
+      }
+      this.pos = arrSavedPos
+      this.currentToken = arrSavedTok
+      this.errorCount = arrSavedErrors
       return (this.parseArrayLiteral())
     }
     
     ; Object literal {...}
     if (tokVal == "{") {
+      def objSavedPos:int this.pos
+      def objSavedTok:Token (unwrap this.currentToken)
+      def objSavedErrors:int this.errorCount
+      this.speculating = (this.speculating + 1)
+      def objPat (this.parseObjectPattern())
+      this.speculating = (this.speculating - 1)
+      if (this.errorCount == objSavedErrors) {
+        if (this.isAssignmentPatternFollow()) {
+          return objPat
+        }
+      }
+      this.pos = objSavedPos
+      this.currentToken = objSavedTok
+      this.errorCount = objSavedErrors
       return (this.parseObjectLiteral())
     }
     
@@ -4742,9 +4794,7 @@ class TSParserSimple {
     }
 
     ; Fallback
-    if (this.quiet == false) {
-      print "Unexpected token: " + tokVal
-    }
+    this.syntaxError("Unexpected token: " + tokVal)
     this.advance()
     def errId (new TSNode())
     errId.nodeType = "Identifier"

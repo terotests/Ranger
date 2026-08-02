@@ -18,6 +18,8 @@ class TSLexer  {
     this.prevType = "";
     this.prevValue = "";
     this.prevLine = 0;
+    this.braceKinds = "";
+    this.lastCloseKind = "o";
     this.source = src;
     this.__len = src.length;
   }
@@ -1032,6 +1034,20 @@ class TSLexer  {
       const tok = this.nextToken();
       tokens.push(tok);
       if ( (tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment") ) {
+        if ( tok.tokenType == "Punctuator" ) {
+          if ( tok.value == "{" ) {
+            this.braceKinds = this.braceKinds + this.braceKindHere();
+          }
+          if ( tok.value == "}" ) {
+            const depth = this.braceKinds.length;
+            if ( depth > 0 ) {
+              this.lastCloseKind = this.braceKinds.substring((depth - 1), depth );
+              this.braceKinds = this.braceKinds.substring(0, (depth - 1) );
+            } else {
+              this.lastCloseKind = "o";
+            }
+          }
+        }
         this.prevType = tok.tokenType;
         this.prevValue = tok.value;
         this.prevLine = tok.line;
@@ -1041,6 +1057,45 @@ class TSLexer  {
       }
     };
     return tokens;
+  };
+  braceKindHere () {
+    if ( this.prevType == "" ) {
+      return "b";
+    }
+    if ( this.prevType == "Punctuator" ) {
+      if ( this.prevValue == ")" ) {
+        return "b";
+      }
+      if ( this.prevValue == ";" ) {
+        return "b";
+      }
+      if ( this.prevValue == "{" ) {
+        return "b";
+      }
+      if ( this.prevValue == "}" ) {
+        return "b";
+      }
+      if ( this.prevValue == "=>" ) {
+        return "b";
+      }
+      return "o";
+    }
+    if ( this.prevType == "Keyword" ) {
+      if ( this.prevValue == "else" ) {
+        return "b";
+      }
+      if ( this.prevValue == "do" ) {
+        return "b";
+      }
+      if ( this.prevValue == "try" ) {
+        return "b";
+      }
+      if ( this.prevValue == "finally" ) {
+        return "b";
+      }
+      return "o";
+    }
+    return "o";
   };
   regexAllowed () {
     if ( this.prevType == "" ) {
@@ -1099,6 +1154,12 @@ class TSLexer  {
         return false;
       }
       if ( this.prevValue == "<" ) {
+        return false;
+      }
+      if ( this.prevValue == "}" ) {
+        if ( this.lastCloseKind == "b" ) {
+          return true;
+        }
         return false;
       }
       return true;
@@ -1193,6 +1254,8 @@ class TSParserSimple  {
     this.tokens = [];
     this.pos = 0;
     this.quiet = false;
+    this.errorCount = 0;
+    this.speculating = 0;
     this.tsxMode = false;
   }
   initParser (toks) {
@@ -1202,6 +1265,15 @@ class TSParserSimple  {
     if ( (toks.length) > 0 ) {
       this.currentToken = toks[0];
       this.skipIgnoredTokens();
+    }
+  };
+  syntaxError (msg) {
+    this.errorCount = this.errorCount + 1;
+    if ( this.speculating > 0 ) {
+      return;
+    }
+    if ( this.quiet == false ) {
+      console.log(msg);
     }
   };
   setQuiet (q) {
@@ -1271,9 +1343,7 @@ class TSParserSimple  {
   expect (expectedType) {
     const tok = this.peek();
     if ( tok.tokenType != expectedType ) {
-      if ( this.quiet == false ) {
-        console.log((("Parse error: expected " + expectedType) + " but got ") + tok.tokenType);
-      }
+      this.syntaxError((("Parse error: expected " + expectedType) + " but got ") + tok.tokenType);
     }
     this.advance();
     return tok;
@@ -1281,9 +1351,7 @@ class TSParserSimple  {
   expectValue (expectedValue) {
     const tok = this.peek();
     if ( tok.value != expectedValue ) {
-      if ( this.quiet == false ) {
-        console.log(((("Parse error: expected '" + expectedValue) + "' but got '") + tok.value) + "'");
-      }
+      this.syntaxError(((("Parse error: expected '" + expectedValue) + "' but got '") + tok.value) + "'");
     }
     this.advance();
     return tok;
@@ -1376,10 +1444,8 @@ class TSParserSimple  {
     if ( this.pos != prevPos ) {
       return;
     }
-    if ( this.quiet == false ) {
-      const tok = this.peek();
-      console.log(((("Parser recovery: skipping unexpected token '" + tok.value) + "' (type ") + tok.tokenType) + ")");
-    }
+    const recTok = this.peek();
+    this.syntaxError(((("Parser recovery: skipping unexpected token '" + recTok.value) + "' (type ") + recTok.tokenType) + ")");
     if ( this.isAtEnd() == false ) {
       this.advance();
     }
@@ -2742,6 +2808,18 @@ class TSParserSimple  {
     }
     return node;
   };
+  isAssignmentPatternFollow () {
+    if ( this.matchValue("=") ) {
+      return true;
+    }
+    if ( this.matchValue("in") ) {
+      return true;
+    }
+    if ( this.matchValue("of") ) {
+      return true;
+    }
+    return false;
+  };
   parseBindingTarget () {
     if ( this.matchValue("{") ) {
       return this.parseObjectPattern();
@@ -3412,9 +3490,7 @@ class TSParserSimple  {
     if ( tokVal == "{" ) {
       return this.parseTypeLiteral();
     }
-    if ( this.quiet == false ) {
-      console.log("Unknown type: " + tokVal);
-    }
+    this.syntaxError("Unknown type: " + tokVal);
     this.advance();
     const errNode = new TSNode();
     errNode.nodeType = "TSAnyKeyword";
@@ -4629,9 +4705,37 @@ class TSParserSimple  {
       return undefId;
     }
     if ( tokVal == "[" ) {
+      const arrSavedPos = this.pos;
+      const arrSavedTok = this.currentToken;
+      const arrSavedErrors = this.errorCount;
+      this.speculating = this.speculating + 1;
+      const arrPat = this.parseArrayPattern();
+      this.speculating = this.speculating - 1;
+      if ( this.errorCount == arrSavedErrors ) {
+        if ( this.isAssignmentPatternFollow() ) {
+          return arrPat;
+        }
+      }
+      this.pos = arrSavedPos;
+      this.currentToken = arrSavedTok;
+      this.errorCount = arrSavedErrors;
       return this.parseArrayLiteral();
     }
     if ( tokVal == "{" ) {
+      const objSavedPos = this.pos;
+      const objSavedTok = this.currentToken;
+      const objSavedErrors = this.errorCount;
+      this.speculating = this.speculating + 1;
+      const objPat = this.parseObjectPattern();
+      this.speculating = this.speculating - 1;
+      if ( this.errorCount == objSavedErrors ) {
+        if ( this.isAssignmentPatternFollow() ) {
+          return objPat;
+        }
+      }
+      this.pos = objSavedPos;
+      this.currentToken = objSavedTok;
+      this.errorCount = objSavedErrors;
       return this.parseObjectLiteral();
     }
     if ( (this.tsxMode == true) && (tokVal == "<") ) {
@@ -4774,9 +4878,7 @@ class TSParserSimple  {
         return ctxId;
       }
     }
-    if ( this.quiet == false ) {
-      console.log("Unexpected token: " + tokVal);
-    }
+    this.syntaxError("Unexpected token: " + tokVal);
     this.advance();
     const errId = new TSNode();
     errId.nodeType = "Identifier";
