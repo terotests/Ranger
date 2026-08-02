@@ -70,6 +70,10 @@ class EvalValue {
     ; while the implementation still lives in one place.
     def builtinKind:string ""
     def builtinName:string ""
+    ; D-STATICS: the namespace a built-in STATIC belongs to ("Object", "Math").
+    ; Empty for everything else, which is what distinguishes a static from a
+    ; prototype method held as a value.
+    def builtinNamespace:string ""
     ; D-CLASSOF: true only for a value produced by Function.prototype.bind. A
     ; built-in read off an object carries that object as `boundThis` too, but a
     ; METHOD CALL must rebind `this` to the call-site receiver -- which is what
@@ -225,6 +229,26 @@ class EvalValue {
         return v
     }
 
+    ; D-STATICS: a built-in STATIC (Object.keys, Math.floor) as a first-class
+    ; value. Like nativeMethod it is identified by a pair, but the first half is
+    ; the namespace rather than a receiver kind -- a static has no receiver.
+    sfn nativeStatic:EvalValue (ns:string name:string) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        v.functionName = name
+        v.builtinNamespace = ns
+        v.builtinName = name
+        return v
+    }
+
+    fn isBuiltinStatic:boolean () {
+        if (valueType != 6) {
+            return false
+        }
+        return ((strlen builtinNamespace) > 0)
+    }
+
     fn isBuiltinMethod:boolean () {
         if (valueType != 6) {
             return false
@@ -260,6 +284,7 @@ class EvalValue {
         v.boundArgs = boundArgs
         v.builtinKind = builtinKind
         v.builtinName = builtinName
+        v.builtinNamespace = builtinNamespace
         v.boundThis = recv
         if functionNode {
             v.functionNode = (unwrap functionNode)

@@ -3536,6 +3536,37 @@ class ComponentEngine {
     }
     
     ; Integer-exponent power (base ** expn); used by ** and **=.
+    ; Floor toward NEGATIVE infinity. `to_int` truncates toward zero, so it gets
+    ; -1.5 wrong -- which is what made Math.floor(-1.5) answer -1, and Math.ceil
+    ; and Math.round wrong with it, since all three were built on it.
+    fn floorNum:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (false == (this.isFiniteNum(v))) {
+            return v
+        }
+        def t:double (to_double (to_int v))
+        if (t > v) {
+            return (t - 1.0)
+        }
+        return t
+    }
+
+    fn isFiniteNum:boolean (v:double) {
+        if (v != v) {
+            return false
+        }
+        def inf:double (1.0 / 0.0)
+        if (v == inf) {
+            return false
+        }
+        if (v == (0.0 - inf)) {
+            return false
+        }
+        return true
+    }
+
     fn powNum:double (base:double expn:int) {
         def acc:double 1.0
         if (expn >= 0) {
@@ -4028,6 +4059,12 @@ class ComponentEngine {
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
         ; direct call uses, so the two paths cannot diverge. Its receiver is
         ; whatever bind/call/apply supplied.
+        ; D-STATICS: a static held as a value -- `var f = Object.keys; f(o)`, or
+        ; a static passed as a callback. Checked ahead of the method path
+        ; because a static carries a builtinName too.
+        if (fnValue.isBuiltinStatic()) {
+            return (this.invokeBuiltinStatic(fnValue.builtinNamespace fnValue.builtinName argVals))
+        }
         if (fnValue.isBuiltinMethod()) {
             def bRecv:EvalValue (EvalValue.undefined())
             if fnValue.boundThis {
@@ -5093,6 +5130,17 @@ class ComponentEngine {
                     ; in the registry and the value has no functionNode, so both
                     ; dispatch paths declined it. The receiver is the call-site
                     ; object, not whatever the value was read off.
+                    if (objMember.isBuiltinStatic()) {
+                        ; D-STATICS: only route a DIRECT `NS.f(...)` call through
+                        ; the value when the value-shaped implementation actually
+                        ; exists. The rest are still owned by the call-site
+                        ; chains below, which read the AST; intercepting those
+                        ; here would answer undefined for a static that works.
+                        if (this.hasInvocableStatic(objMember.builtinNamespace objMember.builtinName)) {
+                            def stArgs:[EvalValue] (this.collectCallArgs(node))
+                            return (this.invokeBuiltinStatic(objMember.builtinNamespace objMember.builtinName stArgs))
+                        }
+                    } {
                     if (objMember.isBuiltinMethod()) {
                         def biArgs:[EvalValue] (this.collectCallArgs(node))
                         def biFn:EvalValue objMember
@@ -5100,6 +5148,7 @@ class ComponentEngine {
                             biFn = (objMember.withThis(obj))
                         }
                         return (this.callFnValueWithValues(biFn biArgs))
+                    }
                     }
                     if (objMember.valueType == 6) {
                         if objMember.functionNode {
@@ -5758,112 +5807,13 @@ class ComponentEngine {
                     }
                 }
                 if (mathObjName == "Math") {
-                    ; Math.random() — real, unseeded randomness (host RNG). Zero
-                    ; args, so handle it before the single-argument methods.
-                    if (methodName == "random") {
-                        def rv:double (random)
-                        return (EvalValue.number(rv))
-                    }
-                    if ((array_length node.children) > 0) {
-                        def argNode:TSNode (itemAt node.children 0)
-                        def argVal:EvalValue (this.evaluateExpr(argNode))
-                        def num:double (argVal.toNumber())
-                        
-                        if (methodName == "round") {
-                            return (EvalValue.number((to_double (to_int (num + 0.5)))))
-                        }
-                        if (methodName == "floor") {
-                            return (EvalValue.number((to_double (to_int num))))
-                        }
-                        if (methodName == "ceil") {
-                            def intPart:int (to_int num)
-                            if (num > (to_double intPart)) {
-                                return (EvalValue.number((to_double (intPart + 1))))
-                            }
-                            return (EvalValue.number((to_double intPart)))
-                        }
-                        if (methodName == "abs") {
-                            if (num < 0.0) {
-                                return (EvalValue.number((0.0 - num)))
-                            }
-                            return (EvalValue.number(num))
-                        }
-                        if (methodName == "sin") {
-                            def s:double (sin num)
-                            return (EvalValue.number(s))
-                        }
-                        if (methodName == "cos") {
-                            def c:double (cos num)
-                            return (EvalValue.number(c))
-                        }
-                        if (methodName == "sqrt") {
-                            def r:double (sqrt num)
-                            return (EvalValue.number(r))
-                        }
-                        if (methodName == "sign") {
-                            if (num > 0.0) { return (EvalValue.number(1.0)) }
-                            if (num < 0.0) { return (EvalValue.number((0.0 - 1.0))) }
-                            return (EvalValue.number(0.0))
-                        }
-                        if (methodName == "trunc") {
-                            return (EvalValue.number((to_double (to_int num))))
-                        }
-                        if (methodName == "tan") {
-                            return (EvalValue.number((tan num)))
-                        }
-                    }
-                    ; Multi-argument Math methods (min/max variadic, pow/hypot 2-arg).
-                    if (methodName == "hypot") {
-                        def acc:double 0.0
-                        def hi:int 0
-                        while (hi < (array_length node.children)) {
-                            def hv:double ((this.evaluateExpr((itemAt node.children hi))).toNumber())
-                            acc = (acc + (hv * hv))
-                            hi = (hi + 1)
-                        }
-                        return (EvalValue.number((sqrt acc)))
-                    }
-                    if (methodName == "min") {
-                        def best:double 0.0
-                        def any:boolean false
-                        def mi:int 0
-                        while (mi < (array_length node.children)) {
-                            def v:double ((this.evaluateExpr((itemAt node.children mi))).toNumber())
-                            if (any == false) { best = v } { if (v < best) { best = v } }
-                            any = true
-                            mi = (mi + 1)
-                        }
-                        return (EvalValue.number(best))
-                    }
-                    if (methodName == "max") {
-                        def best:double 0.0
-                        def any:boolean false
-                        def mi:int 0
-                        while (mi < (array_length node.children)) {
-                            def v:double ((this.evaluateExpr((itemAt node.children mi))).toNumber())
-                            if (any == false) { best = v } { if (v > best) { best = v } }
-                            any = true
-                            mi = (mi + 1)
-                        }
-                        if (any == false) {
-                            ; D-IEEE: Math.max() with no arguments is -Infinity,
-                            ; its identity element. Returning 0 made it wrong for
-                            ; every empty-fold use.
-                            def negInfMax:double (0.0 - (1.0 / 0.0))
-                            return (EvalValue.number(negInfMax))
-                        }
-                        return (EvalValue.number(best))
-                    }
-                    if (methodName == "pow") {
-                        def pb:double 0.0
-                        def pe:int 0
-                        if ((array_length node.children) > 0) {
-                            pb = ((this.evaluateExpr((itemAt node.children 0))).toNumber())
-                        }
-                        if ((array_length node.children) > 1) {
-                            pe = (to_int ((this.evaluateExpr((itemAt node.children 1))).toNumber()))
-                        }
-                        return (EvalValue.number((this.powNum(pb pe))))
+                    ; D-STATICS: one implementation, reached from the call site and from a
+                    ; captured value alike. The 130-line chain that stood here duplicated
+                    ; the arithmetic and had floor, ceil, round and trunc all truncating
+                    ; toward zero, so every one of them was wrong for a negative argument.
+                    if (this.hasBuiltinStatic("Math" methodName)) {
+                        def mArgs:[EvalValue] (this.collectCallArgs(node))
+                        return (this.invokeBuiltinStatic("Math" methodName mArgs))
                     }
                 }
 
@@ -6775,6 +6725,320 @@ class ComponentEngine {
     ; kept for the engine's lifetime so identity holds and a property written to
     ; it persists. Constructor globals carry `prototype` and `name`; Math carries
     ; its constants. Returns null for a name that has no object form.
+    ; D-STATICS: the static methods each built-in namespace publishes. The list
+    ; is the authority on what exists as a VALUE; whether a given one can be
+    ; INVOKED through that value is invokeBuiltinStatic's business, and the two
+    ; are allowed to differ -- a name here that the invoker does not implement
+    ; still has to be describable, because the suite asks about it either way.
+    ; D-STATICS: run a static from already-evaluated argument VALUES. The
+    ; call-site chains read AST children directly, so they cannot serve a
+    ; captured static; this is the value-shaped door, and the two agree because
+    ; they share the same helpers underneath.
+    ;
+    ; Math lives here outright rather than in the call-site chain: every one of
+    ; its methods is a pure function of its arguments, and the old chain had
+    ; floor and round wrong for negative numbers -- both truncated toward zero.
+    fn invokeBuiltinStatic:EvalValue (nsName:string name:string args:[EvalValue]) {
+        def n0:double 0.0
+        if ((array_length args) > 0) {
+            n0 = (this.toNumberOf((itemAt args 0)))
+        }
+        if (nsName == "Math") {
+            if (name == "random") {
+                return (EvalValue.number((random)))
+            }
+            if (name == "abs") {
+                if (n0 < 0.0) { return (EvalValue.number((0.0 - n0))) }
+                return (EvalValue.number(n0))
+            }
+            if (name == "floor") {
+                return (EvalValue.number((this.floorNum(n0))))
+            }
+            if (name == "ceil") {
+                return (EvalValue.number((0.0 - (this.floorNum((0.0 - n0))))))
+            }
+            if (name == "trunc") {
+                if (n0 < 0.0) {
+                    return (EvalValue.number((0.0 - (this.floorNum((0.0 - n0))))))
+                }
+                return (EvalValue.number((this.floorNum(n0))))
+            }
+            if (name == "round") {
+                ; Math.round breaks ties UPWARD, so -1.5 rounds to -1 and not
+                ; to -2. floor(x + 0.5) gets that right for both signs.
+                return (EvalValue.number((this.floorNum((n0 + 0.5)))))
+            }
+            if (name == "sign") {
+                if (n0 > 0.0) { return (EvalValue.number(1.0)) }
+                if (n0 < 0.0) { return (EvalValue.number((0.0 - 1.0))) }
+                return (EvalValue.number(n0))
+            }
+            if (name == "sqrt") { return (EvalValue.number((sqrt n0))) }
+            if (name == "sin") { return (EvalValue.number((sin n0))) }
+            if (name == "cos") { return (EvalValue.number((cos n0))) }
+            if (name == "tan") { return (EvalValue.number((tan n0))) }
+            if (name == "asin") { return (EvalValue.number((asin n0))) }
+            if (name == "acos") { return (EvalValue.number((acos n0))) }
+            if (name == "atan2") {
+                def ay:double n0
+                def ax:double 0.0
+                if ((array_length args) > 1) {
+                    ax = (this.toNumberOf((itemAt args 1)))
+                }
+                return (EvalValue.number((atan2 ay ax)))
+            }
+            if (name == "pow") {
+                def pe:int 0
+                if ((array_length args) > 1) {
+                    pe = (to_int (this.toNumberOf((itemAt args 1))))
+                }
+                return (EvalValue.number((this.powNum(n0 pe))))
+            }
+            if (name == "hypot") {
+                def acc:double 0.0
+                def hi:int 0
+                while (hi < (array_length args)) {
+                    def hv:double (this.toNumberOf((itemAt args hi)))
+                    acc = (acc + (hv * hv))
+                    hi = (hi + 1)
+                }
+                return (EvalValue.number((sqrt acc)))
+            }
+            if ((name == "min") || (name == "max")) {
+                def wantMax:boolean (name == "max")
+                def inf:double (1.0 / 0.0)
+                def best:double inf
+                if wantMax { best = (0.0 - inf) }
+                def mi:int 0
+                while (mi < (array_length args)) {
+                    def v:double (this.toNumberOf((itemAt args mi)))
+                    ; NaN anywhere in the list wins outright.
+                    if (v != v) {
+                        return (EvalValue.number(v))
+                    }
+                    if wantMax {
+                        if (v > best) { best = v }
+                    } {
+                        if (v < best) { best = v }
+                    }
+                    mi = (mi + 1)
+                }
+                return (EvalValue.number(best))
+            }
+        }
+        if (nsName == "Array") {
+            if (name == "isArray") {
+                if ((array_length args) == 0) {
+                    return (EvalValue.boolean(false))
+                }
+                return (EvalValue.boolean(((itemAt args 0).isArray())))
+            }
+        }
+        if (nsName == "Number") {
+            if (name == "isNaN") {
+                if ((array_length args) == 0) { return (EvalValue.boolean(false)) }
+                def nv:EvalValue (itemAt args 0)
+                if (false == (nv.isNumber())) { return (EvalValue.boolean(false)) }
+                def nn:double nv.numberValue
+                return (EvalValue.boolean((nn != nn)))
+            }
+            if (name == "isFinite") {
+                if ((array_length args) == 0) { return (EvalValue.boolean(false)) }
+                def fv:EvalValue (itemAt args 0)
+                if (false == (fv.isNumber())) { return (EvalValue.boolean(false)) }
+                return (EvalValue.boolean((this.isFiniteNum(fv.numberValue))))
+            }
+            if (name == "isInteger") {
+                if ((array_length args) == 0) { return (EvalValue.boolean(false)) }
+                def iv:EvalValue (itemAt args 0)
+                if (false == (iv.isNumber())) { return (EvalValue.boolean(false)) }
+                def dn:double iv.numberValue
+                if (false == (this.isFiniteNum(dn))) { return (EvalValue.boolean(false)) }
+                return (EvalValue.boolean(((this.floorNum(dn)) == dn)))
+            }
+        }
+        if (nsName == "Object") {
+            def a0:EvalValue (EvalValue.undefined())
+            if ((array_length args) > 0) {
+                a0 = (itemAt args 0)
+            }
+            ; D-ARGCHECK: the same argument rules the call-site chain applies.
+            ; They have to be repeated here rather than assumed, since this is a
+            ; second door into the same statics.
+            if (this.objectStaticCoerces(name)) {
+                if ((a0.isNull()) || (a0.isUndefined())) {
+                    return (this.throwSpecError("TypeError" ("Object." + name + " called on null or undefined")))
+                }
+            }
+            if (this.objectStaticNeedsObject(name)) {
+                if (a0.valueType != 5) {
+                    def okKind:boolean false
+                    if (a0.valueType == 4) { okKind = true }
+                    if (a0.valueType == 6) { okKind = true }
+                    if (a0.valueType == 9) { okKind = true }
+                    if (a0.valueType == 10) { okKind = true }
+                    if (false == okKind) {
+                        return (this.throwSpecError("TypeError" ("Object." + name + " called on a non-object")))
+                    }
+                }
+            }
+            if (name == "keys") {
+                def items:[EvalValue]
+                def ks:[string] (this.objectEnumerableKeys(a0))
+                def ki:int 0
+                while (ki < (array_length ks)) {
+                    def k:string (itemAt ks ki)
+                    if (false == (this.isHiddenInstanceKey(k))) {
+                        push items (EvalValue.string(k))
+                    }
+                    ki = (ki + 1)
+                }
+                return (EvalValue.array(items))
+            }
+            if (name == "getPrototypeOf") {
+                if a0.protoRef {
+                    return (unwrap a0.protoRef)
+                }
+                return (EvalValue.null())
+            }
+            if (name == "isExtensible") {
+                return (EvalValue.boolean(a0.extensibleFlag))
+            }
+            if (name == "isFrozen") {
+                return (EvalValue.boolean(a0.frozenFlag))
+            }
+            if (name == "isSealed") {
+                return (EvalValue.boolean(a0.sealedFlag))
+            }
+            if (name == "defineProperty") {
+                def dk:string ""
+                def dd:EvalValue (EvalValue.undefined())
+                if ((array_length args) > 1) { dk = (this.toPropertyKey((itemAt args 1))) }
+                if ((array_length args) > 2) { dd = (itemAt args 2) }
+                def dErr:string (this.definePropertyOn(a0 dk dd))
+                if ((strlen dErr) > 0) {
+                    return (this.throwSpecError("TypeError" dErr))
+                }
+                return a0
+            }
+        }
+        ; Not invocable through a captured value yet. The name still EXISTS -- it
+        ; is published on the namespace object and describable -- so this is a
+        ; smaller gap than the value not being there at all, and it is called
+        ; out rather than silently answering undefined.
+        return (EvalValue.undefined())
+    }
+
+    fn builtinStaticNames:[string] (nsName:string) {
+        def out:[string]
+        if (nsName == "Object") {
+            push out "assign"
+            push out "create"
+            push out "defineProperties"
+            push out "defineProperty"
+            push out "entries"
+            push out "freeze"
+            push out "getOwnPropertyDescriptor"
+            push out "getOwnPropertyNames"
+            push out "getPrototypeOf"
+            push out "isExtensible"
+            push out "isFrozen"
+            push out "isSealed"
+            push out "keys"
+            push out "preventExtensions"
+            push out "seal"
+            push out "setPrototypeOf"
+            push out "values"
+            return out
+        }
+        if (nsName == "Math") {
+            push out "abs"
+            push out "acos"
+            push out "asin"
+            push out "atan2"
+            push out "ceil"
+            push out "cos"
+            push out "floor"
+            push out "hypot"
+            push out "max"
+            push out "min"
+            push out "pow"
+            push out "random"
+            push out "round"
+            push out "sign"
+            push out "sin"
+            push out "sqrt"
+            push out "tan"
+            push out "trunc"
+            return out
+        }
+        if (nsName == "Array") {
+            push out "isArray"
+            return out
+        }
+        if (nsName == "String") {
+            push out "fromCharCode"
+            return out
+        }
+        if (nsName == "Number") {
+            push out "isFinite"
+            push out "isInteger"
+            push out "isNaN"
+            push out "parseFloat"
+            push out "parseInt"
+            return out
+        }
+        if (nsName == "JSON") {
+            push out "parse"
+            push out "stringify"
+            return out
+        }
+        return out
+    }
+
+    ; D-STATICS: the subset of published statics that invokeBuiltinStatic can
+    ; actually run from values. The rest are still implemented by the call-site
+    ; chains, which read the AST -- they EXIST as values and are describable,
+    ; they just cannot be captured and called yet. Keeping the two lists apart
+    ; is what stops a direct `Object.create(...)` being intercepted and answered
+    ; with undefined.
+    fn hasInvocableStatic:boolean (nsName:string name:string) {
+        if (nsName == "Math") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
+        if (nsName == "Array") {
+            return (name == "isArray")
+        }
+        if (nsName == "Number") {
+            if (name == "isNaN") { return true }
+            if (name == "isFinite") { return true }
+            if (name == "isInteger") { return true }
+            return false
+        }
+        if (nsName == "Object") {
+            if (name == "keys") { return true }
+            if (name == "getPrototypeOf") { return true }
+            if (name == "isExtensible") { return true }
+            if (name == "isFrozen") { return true }
+            if (name == "isSealed") { return true }
+            if (name == "defineProperty") { return true }
+            return false
+        }
+        return false
+    }
+
+    fn hasBuiltinStatic:boolean (nsName:string name:string) {
+        def names:[string] (this.builtinStaticNames(nsName))
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn builtinGlobalObject:EvalValue (nsName:string) {
         if (has builtinGlobals nsName) {
             return (unwrap (get builtinGlobals nsName))
@@ -6784,44 +7048,73 @@ class ComponentEngine {
         def g:EvalValue (EvalValue.object(keysG valsG))
         set builtinGlobals nsName g
         g.setMember("name" (EvalValue.string(nsName)))
+        g.setAttrs("name" false false true)
         if (this.isBuiltinCtorName(nsName)) {
             g.setMember("prototype" (this.builtinPrototype(nsName)))
+            g.setAttrs("prototype" false false false)
         }
         if (nsName == "Math") {
             def pi:double (M_PI)
             g.setMember("PI" (EvalValue.number(pi)))
+            g.setAttrs("PI" false false false)
             def e1@(optional):double (to_double "2.718281828459045")
             if e1 {
                 g.setMember("E" (EvalValue.number((unwrap e1))))
+                g.setAttrs("E" false false false)
             }
             def ln2@(optional):double (to_double "0.6931471805599453")
             if ln2 {
                 g.setMember("LN2" (EvalValue.number((unwrap ln2))))
+                g.setAttrs("LN2" false false false)
             }
             def ln10@(optional):double (to_double "2.302585092994046")
             if ln10 {
                 g.setMember("LN10" (EvalValue.number((unwrap ln10))))
+                g.setAttrs("LN10" false false false)
             }
             def sq2@(optional):double (to_double "1.4142135623730951")
             if sq2 {
                 g.setMember("SQRT2" (EvalValue.number((unwrap sq2))))
+                g.setAttrs("SQRT2" false false false)
             }
+        }
+        ; D-STATICS: the namespace's own methods, as VALUES. They were resolved
+        ; structurally at the call site and existed nowhere else, so
+        ; `typeof Math.floor` was "undefined", `var f = Object.keys` captured
+        ; nothing, and getOwnPropertyDescriptor could not see a single one of
+        ; them. Stored on the namespace object, so repeated reads are the same
+        ; value and `desc.value === Object.keys` holds.
+        def statics:[string] (this.builtinStaticNames(nsName))
+        def si:int 0
+        while (si < (array_length statics)) {
+            def sn:string (itemAt statics si)
+            g.setMember(sn (EvalValue.nativeStatic(nsName sn)))
+            ; Writable and configurable but not enumerable, like every built-in.
+            g.setAttrs(sn true false true)
+            si = (si + 1)
         }
         if (nsName == "Number") {
             def mx@(optional):double (to_double "1.7976931348623157e308")
             if mx {
                 g.setMember("MAX_VALUE" (EvalValue.number((unwrap mx))))
+                g.setAttrs("MAX_VALUE" false false false)
             }
             def mn@(optional):double (to_double "5e-324")
             if mn {
                 g.setMember("MIN_VALUE" (EvalValue.number((unwrap mn))))
+                g.setAttrs("MIN_VALUE" false false false)
             }
             def inf:double (1.0 / 0.0)
             g.setMember("POSITIVE_INFINITY" (EvalValue.number(inf)))
+            g.setAttrs("POSITIVE_INFINITY" false false false)
             g.setMember("NEGATIVE_INFINITY" (EvalValue.number((0.0 - inf))))
+            g.setAttrs("NEGATIVE_INFINITY" false false false)
             g.setMember("NaN" (EvalValue.number((0.0 / 0.0))))
+            g.setAttrs("NaN" false false false)
             g.setMember("MAX_SAFE_INTEGER" (EvalValue.number(9007199254740991.0)))
+            g.setAttrs("MAX_SAFE_INTEGER" false false false)
             g.setMember("MIN_SAFE_INTEGER" (EvalValue.number((0.0 - 9007199254740991.0))))
+            g.setAttrs("MIN_SAFE_INTEGER" false false false)
         }
         return g
     }
