@@ -33,4 +33,4 @@ npm run game:build:llvm
 - Struct layouts (`%struct.Alien`, `%struct.Invaders`, �)
 - Lowered game logic: `Invaders_gameLoop`, `Invaders_render`, `RtPtrArray_*` runtime calls
 
-See the main [README](../../../README.md#experimental-llvm-backend-space-invaders) for WASM/freestanding experiments and test commands (`npm run test:llvm`).
+See the [gallery README](../../README.md#experimental-llvm-backend) for WASM/freestanding experiments and test commands (`npm run test:llvm`).
