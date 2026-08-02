@@ -98,6 +98,8 @@ class EvalValue {
     def extensibleFlag:boolean true
     def sealedFlag:boolean false
     def frozenFlag:boolean false
+    ; D-HOLES: set only on the shared hole singleton (see rawHole).
+    def isHole:boolean false
     def functionNode@(optional):TSNode  ; For function AST nodes
     ; D-FNSRC: the WHOLE source text this function's node was parsed from, not a
     ; slice. Function.prototype.toString cuts [node.start, node.end) out of it,
@@ -128,6 +130,29 @@ class EvalValue {
         def v:EvalValue (new EvalValue())
         v.valueType = 8
         return v
+    }
+
+    ; D-HOLES: an ABSENT array element, as distinct from one holding undefined.
+    ; It reads as undefined everywhere a value is wanted, so nothing that merely
+    ; consumes elements has to know about it -- but `1 in [0,,2]` is false and
+    ; forEach/filter/every/map skip it, which no undefined can express. Its own
+    ; valueType is 8, so any code that missed the distinction still sees
+    ; undefined rather than something it cannot classify.
+    sfn rawHole:EvalValue () {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 8
+        v.isHole = true
+        return v
+    }
+
+    sfn hole:EvalValue () {
+        def pool:EvalConstPool (EvalConstPool.__singleton())
+        return pool.holeValue
+    }
+
+    ; True when this element is absent rather than undefined.
+    fn holeSlot:boolean () {
+        return isHole
     }
 
     sfn rawBoolean:EvalValue (b:boolean) {
@@ -709,7 +734,11 @@ class EvalValue {
             if ai {
                 def aidx:int (unwrap ai)
                 if ((aidx >= 0) && (aidx < (array_length arrayValue))) {
-                    return (itemAt arrayValue aidx)
+                    def nslot:EvalValue (itemAt arrayValue aidx)
+                    if nslot.isHole {
+                        return (EvalValue.undefined())
+                    }
+                    return nslot
                 }
             }
         }
@@ -852,8 +881,10 @@ class EvalValue {
         if (valueType != 4) {
             return
         }
+        ; D-HOLES: the slots skipped over are ABSENT, not undefined -- `a[3]=1`
+        ; on an empty array leaves three holes, and `0 in a` is false.
         while (index >= (array_length arrayValue)) {
-            push arrayValue (EvalValue.null())
+            push arrayValue (EvalValue.hole())
         }
         set arrayValue index value
     }
@@ -985,7 +1016,14 @@ class EvalValue {
     fn getIndex:EvalValue (index:int) {
         if (valueType == 4) {
             if ((index >= 0) && (index < (array_length arrayValue))) {
-                return (itemAt arrayValue index)
+                ; D-HOLES: a hole READS as undefined. Only the code that asks
+                ; whether the element is present -- `in`, hasOwnProperty, the
+                ; iteration methods -- looks at the slot itself.
+                def slot:EvalValue (itemAt arrayValue index)
+                if slot.isHole {
+                    return (EvalValue.undefined())
+                }
+                return slot
             }
         }
         ; String character access
@@ -1065,4 +1103,5 @@ class EvalConstPool @singleton(true) {
     def undefinedValue:EvalValue (EvalValue.rawUndefined())
     def trueValue:EvalValue (EvalValue.rawBoolean(true))
     def falseValue:EvalValue (EvalValue.rawBoolean(false))
+    def holeValue:EvalValue (EvalValue.rawHole())
 }

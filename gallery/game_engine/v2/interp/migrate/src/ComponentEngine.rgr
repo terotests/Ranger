@@ -1270,9 +1270,12 @@ class ComponentEngine {
                 if (slots > 10000000) {
                     return (this.throwSpecError("RangeError" "Invalid array length"))
                 }
+                ; D-HOLES: `new Array(5)` has five ABSENT elements, so forEach
+                ; visits none of them -- filling with undefined made every
+                ; iteration method run five times.
                 def si:int 0
                 while (si < slots) {
-                    push items (EvalValue.undefined())
+                    push items (EvalValue.hole())
                     si = (si + 1)
                 }
                 return (EvalValue.array(items))
@@ -3159,10 +3162,16 @@ class ComponentEngine {
             def target:EvalValue (this.evaluateExpr(rightNode))
             def theKeys:[string]
             if (target.isArray()) {
-                def ai:int 0
-                while (ai < (array_length target.arrayValue)) {
-                    push theKeys (to_string ai)
-                    ai = (ai + 1)
+                ; D-HOLES: an ABSENT element has no key, so for-in skips it.
+                ; A non-index property set on the array is still visited.
+                def rawArrKeys:[string] (this.objectEnumerableKeys(target))
+                def aki:int 0
+                while (aki < (array_length rawArrKeys)) {
+                    def ark:string (itemAt rawArrKeys aki)
+                    if (false == (this.isHiddenInstanceKey(ark))) {
+                        push theKeys ark
+                    }
+                    aki = (aki + 1)
                 }
             } {
                 if (target.isObject()) {
@@ -4253,25 +4262,90 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvalValue.undefined())
                 }
-                if (indexVal.isNumber()) {
-                    if (obj.valueType == 4) {
-                        numericIndexes = true
-                        numIdx = (to_int (indexVal.toNumber()))
-                    }
-                }
-                if (numericIndexes == false) {
-                    key = (this.toPropertyKey(indexVal))
-                    if scriptThrew {
-                        return (EvalValue.undefined())
-                    }
+                key = (this.toPropertyKey(indexVal))
+                if scriptThrew {
+                    return (EvalValue.undefined())
                 }
             }
         }
+        ; D-ARRAYSPARSE: whether this key names an ELEMENT is decided by the key
+        ; text, not by whether the expression happened to be a number. `x["0"]`
+        ; is the element and `x[-1]` is a property, and routing on the operand's
+        ; type got both of those backwards.
+        if (obj.valueType == 4) {
+            def ai0:int (this.canonicalArrayIndex(key))
+            if (ai0 >= 0) {
+                numericIndexes = true
+                numIdx = ai0
+            }
+        }
         if numericIndexes {
-            def curIdx:EvalValue (obj.getIndex(numIdx))
-            result = (this.applyAssignOp(op curIdx rightValue))
-            obj.setIndexAt(numIdx result)
+            ; D-ARRAYSPARSE: the backing store is DENSE, so an index far past the
+            ; end cannot be materialised -- `x[2147483648] = 1` asked the host for
+            ; two billion slots and took the process down with "Invalid array
+            ; length". Such an index is stored as an ordinary property instead,
+            ; which keeps the value readable and cannot crash. What it does not do
+            ; is move `length`, and that is the documented limit of the model.
+            if (numIdx > 10000000) {
+                def farKey:string (this.toPropertyKey((EvalValue.fromInt(numIdx))))
+                def farCur:EvalValue (obj.getMember(farKey))
+                result = (this.applyAssignOp(op farCur rightValue))
+                obj.setMember(farKey result)
+            } {
+                def curIdx:EvalValue (obj.getIndex(numIdx))
+                result = (this.applyAssignOp(op curIdx rightValue))
+                obj.setIndexAt(numIdx result)
+            }
         } {
+            ; D-ARRAYLEN: writing an array's `length` RESIZES it -- truncating
+            ; drops the elements beyond the new end, growing adds holes -- and a
+            ; value that is not a uint32 is a RangeError. It used to be stored as
+            ; an ordinary property and ignored, so `x.length = 0` left the array
+            ; untouched and every assertion about it read the old contents.
+            if (obj.valueType == 4) {
+                if (key == "length") {
+                    def lenCur:EvalValue (EvalValue.fromInt((array_length obj.arrayValue)))
+                    def lenWant:EvalValue (this.applyAssignOp(op lenCur rightValue))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    def lenNum:double (this.toNumberOf(lenWant))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    ; ToUint32, which truncates toward zero before wrapping --
+                    ; `x.length = 1.5` must be a RangeError, and wrapping alone
+                    ; would have let 1.5 through unchanged.
+                    def lenTrunc:double (this.floorNum(lenNum))
+                    if (lenNum < 0.0) {
+                        lenTrunc = (0.0 - (this.floorNum((0.0 - lenNum))))
+                    }
+                    def lenU:double (this.wrapUint32(lenTrunc))
+                    if (lenU != lenNum) {
+                        return (this.throwSpecError("RangeError" "Invalid array length"))
+                    }
+                    ; The backing store is dense, so a length the spec allows but
+                    ; no host could hold is refused rather than attempted. Same
+                    ; bound `Array(n)` uses, so the two forms agree.
+                    if (lenU > 10000000.0) {
+                        return (this.throwSpecError("RangeError" "Invalid array length"))
+                    }
+                    def newLen:int (to_int lenU)
+                    def resized:[EvalValue]
+                    def li:int 0
+                    while (li < newLen) {
+                        if (li < (array_length obj.arrayValue)) {
+                            push resized (itemAt obj.arrayValue li)
+                        } {
+                            ; A slot past the old end is a HOLE.
+                            push resized (EvalValue.hole())
+                        }
+                        li = (li + 1)
+                    }
+                    obj.arrSetItems(resized)
+                    return lenWant
+                }
+            }
             ; D-ACCESSORS: a setter takes the write instead of storing a data
             ; property. Without this the setter would be shadowed by a plain
             ; value and never run again.
@@ -5563,12 +5637,10 @@ class ComponentEngine {
         if (nt == "NewExpression") {
             return (this.evaluateNewExpr(node))
         }
-        ; An array elision evaluates to undefined. The engine has no hole
-        ; representation, so a hole reads as undefined and `0 in [,1]` answers
-        ; true where the spec says false -- the LENGTH is right, the
-        ; distinction between a hole and an undefined element is not.
+        ; D-HOLES: an array elision is an ABSENT element. It reads as undefined
+        ; wherever a value is wanted, and `0 in [,1]` is false.
         if (nt == "ArrayHole") {
-            return (EvalValue.undefined())
+            return (EvalValue.hole())
         }
         ; D-REGEX: `/pattern/flags` as a value.
         if (nt == "RegExpLiteral") {
@@ -6276,10 +6348,7 @@ class ComponentEngine {
                         return (EvalValue.boolean(src.extensibleFlag))
                     }
                     if (methodName == "getPrototypeOf") {
-                        if src.protoRef {
-                            return (unwrap src.protoRef)
-                        }
-                        return (EvalValue.null())
+                        return (this.protoOfValue(src))
                     }
                     if (methodName == "setPrototypeOf") {
                         if ((array_length node.children) > 1) {
@@ -6697,13 +6766,25 @@ class ComponentEngine {
                 if (methodName == "isPrototypeOf") {
                     if ((array_length node.children) > 0) {
                         def cand:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        ; isPrototypeOf answers false for a PRIMITIVE without
+                        ; looking at all -- `String.prototype.isPrototypeOf('a')`
+                        ; is false, even though 'a' dispatches to it.
+                        def candIsObj:boolean false
+                        if (cand.valueType == 4) { candIsObj = true }
+                        if (cand.valueType == 5) { candIsObj = true }
+                        if (cand.valueType == 6) { candIsObj = true }
+                        if (cand.valueType == 9) { candIsObj = true }
+                        if (cand.valueType == 10) { candIsObj = true }
+                        if (false == candIsObj) {
+                            return (EvalValue.boolean(false))
+                        }
                         def walk:EvalValue cand
                         def steps:int 0
                         while (steps < 16) {
-                            if (null? walk.protoRef) {
+                            def nxt:EvalValue (this.protoOfValue(walk))
+                            if (nxt.isNull()) {
                                 steps = 16
                             } {
-                                def nxt:EvalValue (unwrap walk.protoRef)
                                 if (nxt.equals(obj)) {
                                     return (EvalValue.boolean(true))
                                 }
@@ -7944,10 +8025,7 @@ class ComponentEngine {
                 return (EvalValue.array(items))
             }
             if (name == "getPrototypeOf") {
-                if a0.protoRef {
-                    return (unwrap a0.protoRef)
-                }
-                return (EvalValue.null())
+                return (this.protoOfValue(a0))
             }
             if (name == "isExtensible") {
                 return (EvalValue.boolean(a0.extensibleFlag))
@@ -8578,6 +8656,32 @@ class ComponentEngine {
     ; chain until something that is not a plain object turns up (an array
     ; prototype, say) or until a built-in prototype identifies itself. Returns ""
     ; when the chain says nothing, which leaves the caller's own dispatch alone.
+    ; D-PROTOKIND: the prototype a value actually inherits from. An array, a
+    ; string, a function and a RegExp carry no protoRef of their own -- they
+    ; dispatch by KIND -- so asking for their prototype answered null and
+    ; `Array.prototype.isPrototypeOf([])` was false. Object.prototype terminates
+    ; the chain, and answering it for itself would loop.
+    fn protoOfValue:EvalValue (v:EvalValue) {
+        if v.protoRef {
+            return (unwrap v.protoRef)
+        }
+        def objProto:EvalValue (this.builtinPrototype("Object"))
+        if (v.equals(objProto)) {
+            return (EvalValue.null())
+        }
+        def cn:string (this.ctorNameForKind((this.receiverKind(v))))
+        if ((strlen cn) > 0) {
+            def kp:EvalValue (this.builtinPrototype(cn))
+            if (false == (v.equals(kp))) {
+                return kp
+            }
+        }
+        if (v.valueType == 5) {
+            return objProto
+        }
+        return (EvalValue.null())
+    }
+
     fn protoChainKind:string (v:EvalValue) {
         if (v.valueType != 5) {
             return ""
@@ -9378,7 +9482,43 @@ class ComponentEngine {
     ; Run a registered built-in. Reached both from a direct `recv.name(...)` call
     ; and from an extracted value invoked later via call/apply/bind, so the two
     ; paths cannot drift apart.
+    ; D-REGISTRY: a method the GUEST put on a built-in prototype, replacing the
+    ; registry's. `Array.prototype.toString = Object.prototype.toString` has to
+    ; make `[].toString()` brand the array, and the direct call path went
+    ; straight to the registry and never looked. Null when the prototype still
+    ; holds the registry's own entry -- compared by identity, which is exactly
+    ; what sharedNativeMethod exists to make possible.
+    fn overriddenPrototypeMethod:EvalValue (kind:string name:string) {
+        def cn:string (this.ctorNameForKind(kind))
+        if ((strlen cn) == 0) {
+            return (EvalValue.null())
+        }
+        ; Do not CREATE the prototype here: a prototype that has never been
+        ; touched cannot carry an override, and creating one would populate it
+        ; from the registry during dispatch.
+        if (false == (has builtinProtos cn)) {
+            return (EvalValue.null())
+        }
+        def p:EvalValue (unwrap (get builtinProtos cn))
+        if (false == (has p.objectMap name)) {
+            return (EvalValue.null())
+        }
+        def m:EvalValue (unwrap (get p.objectMap name))
+        if (m.valueType != 6) {
+            return (EvalValue.null())
+        }
+        def registered:EvalValue (this.sharedNativeMethod(kind name))
+        if (m.equals(registered)) {
+            return (EvalValue.null())
+        }
+        return m
+    }
+
     fn invokeBuiltin:EvalValue (kind:string name:string recv:EvalValue args:[EvalValue]) {
+        def override:EvalValue (this.overriddenPrototypeMethod(kind name))
+        if (override.valueType == 6) {
+            return (this.callFnValueWithValues((override.withThis(recv)) args))
+        }
         ; D-THISCHECK: Number.prototype and Boolean.prototype methods require a
         ; receiver of their own type. Borrowing one --
         ;   var o = {}; o.f = Boolean.prototype.toString; o.f();
@@ -10292,8 +10432,14 @@ class ComponentEngine {
                         }
                         def ii:int 0
                         while (ii < alen) {
-                            if ((target.equals((itemAt elems ii)))) {
-                                return (EvalValue.fromInt(ii))
+                            ; D-HOLES: indexOf searches only PRESENT elements, so
+                            ; `[1,,3].indexOf(undefined)` is -1. includes below
+                            ; deliberately does not skip: it treats a hole as
+                            ; undefined, which is the one place the two differ.
+                            if (false == ((itemAt elems ii).isHole)) {
+                                if ((target.equals((itemAt elems ii)))) {
+                                    return (EvalValue.fromInt(ii))
+                                }
                             }
                             ii = (ii + 1)
                         }
@@ -10353,12 +10499,20 @@ class ComponentEngine {
                             def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt elems ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                push cargs recv
-                                def unused:EvalValue (this.callFnValueWithValues(cb cargs))
-                                ii = (ii + 1)
+                                ; D-HOLES: an ABSENT element is not visited.
+                                if ((itemAt elems ii).isHole) {
+                                    ii = (ii + 1)
+                                } {
+                                    def cargs:[EvalValue]
+                                    push cargs (itemAt elems ii)
+                                    push cargs (EvalValue.fromInt(ii))
+                                    push cargs recv
+                                    def unused:EvalValue (this.callFnValueWithValues(cb cargs))
+                                    if scriptThrew {
+                                        return (EvalValue.undefined())
+                                    }
+                                    ii = (ii + 1)
+                                }
                             }
                         }
                         return (EvalValue.undefined())
@@ -10369,12 +10523,23 @@ class ComponentEngine {
                             def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt elems ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                push cargs recv
-                                push items (this.callFnValueWithValues(cb cargs))
-                                ii = (ii + 1)
+                                ; D-HOLES: map PRESERVES a hole rather than
+                                ; calling the callback on it -- the result has
+                                ; the same length and the same holes.
+                                if ((itemAt elems ii).isHole) {
+                                    push items (EvalValue.hole())
+                                    ii = (ii + 1)
+                                } {
+                                    def cargs:[EvalValue]
+                                    push cargs (itemAt elems ii)
+                                    push cargs (EvalValue.fromInt(ii))
+                                    push cargs recv
+                                    push items (this.callFnValueWithValues(cb cargs))
+                                    if scriptThrew {
+                                        return (EvalValue.undefined())
+                                    }
+                                    ii = (ii + 1)
+                                }
                             }
                         }
                         return (EvalValue.array(items))
@@ -10386,14 +10551,23 @@ class ComponentEngine {
                             def ii:int 0
                             while (ii < alen) {
                                 def el:EvalValue (itemAt elems ii)
-                                def cargs:[EvalValue]
-                                push cargs el
-                                push cargs (EvalValue.fromInt(ii))
-                                push cargs recv
-                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
-                                    push items el
+                                ; D-HOLES: an ABSENT element is not visited.
+                                if el.isHole {
+                                    ii = (ii + 1)
+                                } {
+                                    def cargs:[EvalValue]
+                                    push cargs el
+                                    push cargs (EvalValue.fromInt(ii))
+                                    push cargs recv
+                                    def keep:EvalValue (this.callFnValueWithValues(cb cargs))
+                                    if scriptThrew {
+                                        return (EvalValue.undefined())
+                                    }
+                                    if (keep.toBool()) {
+                                        push items el
+                                    }
+                                    ii = (ii + 1)
                                 }
-                                ii = (ii + 1)
                             }
                         }
                         return (EvalValue.array(items))
@@ -10438,14 +10612,23 @@ class ComponentEngine {
                             def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt elems ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                push cargs recv
-                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
-                                    return (EvalValue.boolean(true))
+                                ; D-HOLES: an ABSENT element is not visited.
+                                if ((itemAt elems ii).isHole) {
+                                    ii = (ii + 1)
+                                } {
+                                    def cargs:[EvalValue]
+                                    push cargs (itemAt elems ii)
+                                    push cargs (EvalValue.fromInt(ii))
+                                    push cargs recv
+                                    def hit:EvalValue (this.callFnValueWithValues(cb cargs))
+                                    if scriptThrew {
+                                        return (EvalValue.undefined())
+                                    }
+                                    if (hit.toBool()) {
+                                        return (EvalValue.boolean(true))
+                                    }
+                                    ii = (ii + 1)
                                 }
-                                ii = (ii + 1)
                             }
                         }
                         return (EvalValue.boolean(false))
@@ -10455,14 +10638,23 @@ class ComponentEngine {
                             def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt elems ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                push cargs recv
-                                if (((this.callFnValueWithValues(cb cargs)).toBool()) == false) {
-                                    return (EvalValue.boolean(false))
+                                ; D-HOLES: an ABSENT element is not visited.
+                                if ((itemAt elems ii).isHole) {
+                                    ii = (ii + 1)
+                                } {
+                                    def cargs:[EvalValue]
+                                    push cargs (itemAt elems ii)
+                                    push cargs (EvalValue.fromInt(ii))
+                                    push cargs recv
+                                    def okv:EvalValue (this.callFnValueWithValues(cb cargs))
+                                    if scriptThrew {
+                                        return (EvalValue.undefined())
+                                    }
+                                    if ((okv.toBool()) == false) {
+                                        return (EvalValue.boolean(false))
+                                    }
+                                    ii = (ii + 1)
                                 }
-                                ii = (ii + 1)
                             }
                         }
                         return (EvalValue.boolean(true))
@@ -10480,27 +10672,44 @@ class ComponentEngine {
                             if ((array_length args) > 1) {
                                 acc = (itemAt args 1)
                             } {
-                                if (alen > 0) {
-                                    acc = (itemAt elems startIdx)
-                                    if goRight {
-                                        startIdx = (startIdx - 1)
-                                    } {
-                                        startIdx = 1
+                                ; D-HOLES: the seed is the first PRESENT element,
+                                ; not element 0 -- `[,1,2].reduce(f)` seeds with
+                                ; 1. An array with no present element at all and
+                                ; no seed has no answer to give.
+                                def seedIdx:int startIdx
+                                def seeded:boolean false
+                                while (((seedIdx < alen) && (seedIdx >= 0)) && (seeded == false)) {
+                                    if (false == ((itemAt elems seedIdx).isHole)) {
+                                        acc = (itemAt elems seedIdx)
+                                        seeded = true
                                     }
-                                } {
+                                    if goRight {
+                                        seedIdx = (seedIdx - 1)
+                                    } {
+                                        seedIdx = (seedIdx + 1)
+                                    }
+                                }
+                                if (seeded == false) {
                                     ; Empty and no seed: there is no answer to
                                     ; give, and the spec says so out loud.
                                     return (this.throwSpecError("TypeError" ("Reduce of empty array with no initial value")))
                                 }
+                                startIdx = seedIdx
                             }
                             def ii:int startIdx
                             while ((ii < alen) && (ii >= 0)) {
-                                def cargs:[EvalValue]
-                                push cargs acc
-                                push cargs (itemAt elems ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                push cargs recv
-                                acc = (this.callFnValueWithValues(cb cargs))
+                                ; D-HOLES: an ABSENT element is not visited.
+                                if (false == ((itemAt elems ii).isHole)) {
+                                    def cargs:[EvalValue]
+                                    push cargs acc
+                                    push cargs (itemAt elems ii)
+                                    push cargs (EvalValue.fromInt(ii))
+                                    push cargs recv
+                                    acc = (this.callFnValueWithValues(cb cargs))
+                                    if scriptThrew {
+                                        return (EvalValue.undefined())
+                                    }
+                                }
                                 if goRight {
                                     ii = (ii - 1)
                                 } {
@@ -10753,8 +10962,11 @@ class ComponentEngine {
                         }
                         def q:int ((array_length elems) - 1)
                         while (q >= 0) {
-                            if ((target.equals((itemAt elems q)))) {
-                                return (EvalValue.fromInt(q))
+                            ; D-HOLES: only PRESENT elements are searched.
+                            if (false == ((itemAt elems q).isHole)) {
+                                if ((target.equals((itemAt elems q)))) {
+                                    return (EvalValue.fromInt(q))
+                                }
                             }
                             q = (q - 1)
                         }
@@ -12026,6 +12238,44 @@ class ComponentEngine {
     ; an array used as a key runs its own toString: `gOPD(obj, [1])` asks for
     ; "1". The raw EvalValue.toString() is the engine's DEBUG rendering, which
     ; for an array is not the same string at all.
+    ; D-ARRAYSPARSE: a canonical ARRAY INDEX, or -1 when the key is an ordinary
+    ; property name. The distinction is exact and observable: `x["0"]` reaches the
+    ; element, while `x["00"]`, `x[-1]`, `x["1.0"]` and `x[true]` are properties
+    ; that do not move `length`. Only ToString(ToUint32(k)) === k qualifies, and
+    ; 2^32-1 is deliberately excluded -- it is the one uint32 that is not an index.
+    fn canonicalArrayIndex:int (key:string) {
+        def n:int (strlen key)
+        if (n == 0) {
+            return (0 - 1)
+        }
+        if (n > 10) {
+            return (0 - 1)
+        }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt key i)
+            if (c < 48) { return (0 - 1) }
+            if (c > 57) { return (0 - 1) }
+            i = (i + 1)
+        }
+        ; A leading zero means the text is not ToString of the number.
+        if (n > 1) {
+            if ((charAt key 0) == 48) {
+                return (0 - 1)
+            }
+        }
+        def v:double 0.0
+        def j:int 0
+        while (j < n) {
+            v = ((v * 10.0) + (to_double ((charAt key j) - 48)))
+            j = (j + 1)
+        }
+        if (v >= 4294967295.0) {
+            return (0 - 1)
+        }
+        return (to_int v)
+    }
+
     fn toPropertyKey:string (v:EvalValue) {
         if (v.isString()) {
             return v.stringValue
@@ -12587,7 +12837,25 @@ class ComponentEngine {
                     if tgt.computed {
                         if tgt.right {
                             def iv:EvalValue (this.evaluateExpr((unwrap tgt.right)))
-                            obj.removeMember((iv.toString()))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
+                            ; D-ARRAYLEN: deleting an ELEMENT leaves a hole and
+                            ; does NOT shorten the array. removeMember only knows
+                            ; about the property map, so `delete a[1]` did
+                            ; nothing at all and the element stayed readable.
+                            def dkey:string (this.toPropertyKey(iv))
+                            if (obj.valueType == 4) {
+                                def didx@(optional):int (to_int dkey)
+                                if didx {
+                                    def dn:int (unwrap didx)
+                                    if ((dn >= 0) && (dn < (array_length obj.arrayValue))) {
+                                        obj.setIndexAt(dn (EvalValue.hole()))
+                                        return (EvalValue.boolean(true))
+                                    }
+                                }
+                            }
+                            obj.removeMember(dkey)
                         }
                     } {
                         obj.removeMember(tgt.name)
@@ -13565,6 +13833,27 @@ class ComponentEngine {
                             }
                         }
                     }
+                    ; D-ARRAYSPARSE: the same rule the write side uses. An
+                    ; ARRAY answers from its elements only for a canonical index;
+                    ; everything else -- `x[-1]`, `x["00"]`, a far index that had
+                    ; to be stored as a property -- is a property read.
+                    if (obj.valueType == 4) {
+                        def rk:string (this.toPropertyKey(indexVal))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                        def rIdx:int (this.canonicalArrayIndex(rk))
+                        if (rIdx >= 0) {
+                            if (rIdx <= 10000000) {
+                                return (obj.getIndex(rIdx))
+                            }
+                        }
+                        def viaFar:EvalValue (obj.getMember(rk))
+                        if (viaFar.valueType == 0) {
+                            return (EvalValue.undefined())
+                        }
+                        return viaFar
+                    }
                     if (indexVal.isNumber()) {
                         def idx:int (to_int (indexVal.toNumber()))
                         if (false == quiet) {
@@ -13573,11 +13862,11 @@ class ComponentEngine {
                         return (obj.getIndex(idx))
                     }
                     if (indexVal.isString()) {
-                        ; A string key that names an index reaches the character
-                        ; (or the element), and a key that names nothing reads
-                        ; as undefined -- `'abc'['foo']` is undefined, not null.
+                        ; A string key that names an index reaches the character,
+                        ; and a key that names nothing reads as undefined --
+                        ; `'abc'['foo']` is undefined, not null.
                         def sk:string indexVal.stringValue
-                        if ((obj.valueType == 2) || (obj.valueType == 4)) {
+                        if (obj.valueType == 2) {
                             def ski@(optional):int (to_int sk)
                             if ski {
                                 return (obj.getIndex((unwrap ski)))
@@ -13725,7 +14014,11 @@ class ComponentEngine {
         if (v.isArray()) {
             def i:int 0
             while (i < (array_length v.arrayValue)) {
-                push out (to_string i)
+                ; D-HOLES: an ABSENT element has no key, so Object.keys and
+                ; for-in skip it -- `Object.keys([1,,3])` is ["0","2"].
+                if (false == ((itemAt v.arrayValue i).isHole)) {
+                    push out (to_string i)
+                }
                 i = (i + 1)
             }
             def extra:[string] (keys v.objectMap)
@@ -13797,7 +14090,12 @@ class ComponentEngine {
             def ai@(optional):int (to_int key)
             if ai {
                 def aidx:int (unwrap ai)
-                return ((aidx >= 0) && (aidx < (array_length v.arrayValue)))
+                ; D-HOLES: a hole is an ABSENT property, so `1 in [0,,2]` is
+                ; false and hasOwnProperty("1") is false with it.
+                if ((aidx >= 0) && (aidx < (array_length v.arrayValue))) {
+                    return (false == ((itemAt v.arrayValue aidx).isHole))
+                }
+                return false
             }
             return false
         }

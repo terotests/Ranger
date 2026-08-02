@@ -99,12 +99,6 @@ them aside cannot quietly flatter the remaining number.
 
 ### 2.2 Correct-but-incomplete, left rather than fudged
 
-- **Array holes are not modelled.** `[4,5,,,,].length` is 5 — the elisions are real
-  element positions now — but a hole evaluates to `undefined` rather than being
-  absent, so `0 in [,1]` answers `true` where the spec says `false`. Telling them
-  apart needs a hole-aware element representation in `EvalValue`, not a change to
-  the array methods.
-
 - **A `Date`'s local time zone is UTC, and the clock stands still.** The time-value
   arithmetic of §15.9.1 is implemented in full (`DateTime.rgr`) and validated against
   Node over 209 differential cases, but the realm has no time-zone database and no
@@ -170,6 +164,32 @@ them aside cannot quietly flatter the remaining number.
   untouched — the re-validation that had been treated as the blocker was never needed.
   *The gap was real and worth pinning; the attributed cause was wrong, and pinning it
   as "the lexer" is what kept it unexamined.*
+
+- **Writing an array's `length` resizes it** — truncating drops the elements past the
+  new end, growing adds holes — and a value that is not a uint32 is a `RangeError`. It
+  used to be stored as an ordinary property and ignored, so `x.length = 0` left the
+  array untouched.
+
+- **Array holes are modelled.** A hole is a shared sentinel value whose `valueType`
+  is still 8, so anything that merely wants a value sees `undefined` and needs no
+  change; only the code that asks whether the element is *present* looks at the slot.
+  `0 in [,1]` is false, `forEach`/`filter`/`every`/`some`/`reduce`/`indexOf` skip
+  holes, `map` preserves them, `Object.keys` and `for-in` omit them. Created by an
+  elision, by `Array(n)`, by growing `length`, by `delete`, and by assigning past the
+  end. *The earlier note said this needed a hole-aware element representation — it
+  did, and that turned out to be one sentinel rather than a new container.*
+
+- **A method the guest puts on a built-in prototype wins over the registry.**
+  `Array.prototype.toString = Object.prototype.toString` now makes `[].toString()`
+  brand the array. ToPrimitive already looked; the direct call path went straight to
+  the registry. The two are told apart by identity against `sharedNativeMethod`, which
+  is what that per-(kind, name) cache exists to make possible.
+
+- **An array, a string, a function and a RegExp report the prototype they inherit
+  from.** They dispatch by KIND and carry no prototype link of their own, so
+  `Object.getPrototypeOf([])` answered null and `Array.prototype.isPrototypeOf([])`
+  was false. The link is now derived from the kind when none is stored, with
+  Object.prototype terminating the chain.
 
 - **A script's `var` and function declarations are properties of the global object,
   and `globalThis` IS `this`.** Only the *directly* top-level `var` statements were
@@ -264,6 +284,8 @@ Tagged in the source with these markers.
 | `D-REGEX` | The pattern grammar as a node tree, matched by backtracking. See §2.5. |
 | `D-ARGUMENTS` | `arguments` as an array-like OBJECT — brands as `[object Arguments]`, and `Array.isArray` says false. |
 | `D-FNSRC` | A function value carries the WHOLE source string it was parsed from, not a pre-cut slice, and `Function.prototype.toString` cuts `[node.start, node.end)` out of it. The whole string, because a nested function's offsets are absolute in the same one; a call swaps the source in effect so a closure returned by an eval'd factory records its own. |
+| `D-HOLES` | An absent array element is one shared sentinel whose `valueType` is 8, so a value-consuming path sees `undefined` without knowing about holes; only presence questions (`in`, `hasOwnProperty`, the iteration methods, key enumeration) inspect the slot. |
+| `D-ARRAYSPARSE` | Which key names an ELEMENT is decided by the key TEXT — only `ToString(ToUint32(k)) === k` — not by whether the operand was a number. An index too far past the end for the dense store is kept as an ordinary property, which cannot move `length` but also cannot crash the host. |
 | `D-GLOBALTHIS` | A script's `var` and function names are properties of the global object as well as bindings, kept in step on write; `globalThis` resolves to that same object. `let`/`const` are not properties — the declarative environment is separate. |
 | `D-DATE` | A Date is arithmetic on one time value (`DateTime.rgr`, ECMA-262 §15.9.1). Local time is UTC and the clock is `hostNowMs`, so every result is reproducible. The default ToPrimitive hint behaves as STRING for a Date and as NUMBER for everything else, which is what makes `date + ''` the date's text while `+date` is its time. |
 
@@ -287,17 +309,17 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 | `built-ins/Date` | **100%** (4/4, whole directory) |
 | `built-ins/String` | **100%** (709/709, whole directory) |
 | `built-ins/Math` | 91% (74/81) |
-| `built-ins/Object` | 76% (1578/2080) |
+| `built-ins/Object` | 77% (1598/2080) |
 | `language/statements` | 72% (403/562) |
-| `built-ins/Function` | 71% (257/361) |
-| `built-ins/Array` | 58% (124/212) |
-| ES5 overall | **82.6%** (743/900 sampled) |
+| `built-ins/Function` | 72% (260/361) |
+| `built-ins/Array` | 73% (155/212) |
+| ES5 overall | **83.1%** (748/900 sampled) |
 
 `built-ins/Number`, `built-ins/String` and `language/expressions` are each at 100% of
 their whole directory — no sampling, no exclusions beyond the era filter.
 
-The runtime-conformance suite is at 850 checks, every one of them derived from Node —
-838 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 910 checks, every one of them derived from Node —
+898 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

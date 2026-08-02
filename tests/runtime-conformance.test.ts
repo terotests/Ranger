@@ -1041,6 +1041,85 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["re-alternation-group", "return String(/^(a|b)*c$/.exec('ababc'));", "regexback"],
   ["re-split-capturing", "return String('2011-10-10'.split(/(-)/));", "regexback"],
 
+  // --- array length and holes -----------------------------------------------
+  // Writing `length` resizes the array; a value that is not a uint32 is a
+  // RangeError; deleting an element leaves a hole without shortening it.
+  ["arrlen-truncate", "var x = [1, 2, 3]; x.length = 1; return x.toString();", "arraylen"],
+  ["arrlen-truncate-empty", "var x = [1, 2, 3]; x.length = 0; return x.length;", "arraylen"],
+  ["arrlen-grow", "var x = [1]; x.length = 3; return x.toString();", "arraylen"],
+  ["arrlen-grow-reads-undefined", "var x = [1]; x.length = 3; return String(x[2]);", "arraylen"],
+  ["arrlen-string-coerced", "var x = [1, 2, 3]; x.length = '2'; return x.toString();", "arraylen"],
+  ["arrlen-negative-throws", "var x = []; try { x.length = -1; return 'no-throw'; } catch (e) { return e.name; }", "arraylen"],
+  ["arrlen-fractional-throws", "var x = []; try { x.length = 1.5; return 'no-throw'; } catch (e) { return e.name; }", "arraylen"],
+  ["arrlen-compound", "var x = [1, 2, 3]; x.length -= 1; return x.toString();", "arraylen"],
+  ["arrlen-sparse-assign", "var x = []; x[3] = 1; return x.length + '|' + x.toString();", "arraylen"],
+  ["arrlen-delete-leaves-hole", "var x = [1, 2, 3]; delete x[1]; return x.length + '|' + x.toString();", "arraylen"],
+  ["arrlen-delete-out-of-range", "var x = [1]; return String(delete x[9]) + '|' + x.length;", "arraylen"],
+  ["arrlen-join-after-truncate", "var x = [1, 2, 3]; x.length = 2; return x.join('-');", "arraylen"],
+  // Which keys are ELEMENTS is decided by the key text, not by the operand's
+  // type: only ToString(ToUint32(k)) === k reaches an element.
+  ["arridx-string-key-is-element", "var x = []; x['0'] = 7; return String(x[0]) + '|' + x.length;", "arraylen"],
+  ["arridx-leading-zero-is-property", "var x = []; x['00'] = 7; return String(x[0]) + '|' + x.length + '|' + x['00'];", "arraylen"],
+  ["arridx-negative-is-property", "var x = []; x[-1] = 1; return x.length + '|' + String(x[-1]);", "arraylen"],
+  ["arridx-boolean-key-is-property", "var x = []; x[true] = 1; return x.length + '|' + String(x[true]);", "arraylen"],
+  ["arridx-fractional-is-property", "var x = []; x[1.5] = 1; return x.length + '|' + String(x[1.5]);", "arraylen"],
+  ["arridx-max-uint32-is-property", "var x = []; x[4294967295] = 1; return x.length + '|' + String(x[4294967295]);", "arraylen"],
+  ["arridx-far-index-readable", "var x = []; x[2147483648] = 1; return String(x[2147483648]);", "arraylen"],
+
+  // --- array holes ----------------------------------------------------------
+  // An ABSENT element reads as undefined but is not present: `in` says false and
+  // the iteration methods skip it. This is what an undefined element cannot say.
+  ["hole-in-elision", "return String(0 in [, 1]);", "holes"],
+  ["hole-in-present", "return String(1 in [, 1]);", "holes"],
+  ["hole-in-middle", "return String(1 in [0, , 2]);", "holes"],
+  ["hole-delete-makes-absent", "var a = [1, 2, 3]; delete a[1]; return String(1 in a);", "holes"],
+  ["hole-sparse-assign-absent", "var a = []; a[3] = 1; return String(0 in a) + ',' + a.length;", "holes"],
+  ["hole-length-growth-absent", "var a = [1, 2, 3]; a.length = 5; return String(4 in a) + ',' + a.length;", "holes"],
+  ["hole-hasownproperty-absent", "return String([, 1].hasOwnProperty(0));", "holes"],
+  ["hole-hasownproperty-present", "return String([, 1].hasOwnProperty(1));", "holes"],
+  ["hole-foreach-skips", "var n = 0; new Array(10).forEach(function () { n++; }); return n;", "holes"],
+  ["hole-foreach-visits-explicit-undefined", "var n = 0; var a = new Array(10); a[1] = undefined; a.forEach(function () { n++; }); return n;", "holes"],
+  ["hole-filter-skips", "var a = new Array(10); a[1] = undefined; return a.filter(function () { return false; }).length;", "holes"],
+  ["hole-filter-counts-present", "return [, 1, , 2].filter(function () { return true; }).length;", "holes"],
+  ["hole-map-preserves", "return String([1, , 3].map(function (x) { return x * 2; }));", "holes"],
+  ["hole-map-hole-stays-absent", "return String(1 in [1, , 3].map(function (x) { return x * 2; }));", "holes"],
+  ["hole-every-vacuous", "return String([, , ].every(function () { return false; }));", "holes"],
+  ["hole-some-vacuous", "return String([, , ].some(function () { return true; }));", "holes"],
+  ["hole-indexof-skips", "return String([1, , 3].indexOf(undefined));", "holes"],
+  ["hole-reduce-skips", "return [1, , 3].reduce(function (a, b) { return a + b; }, 0);", "holes"],
+  ["hole-reduce-seeds-first-present", "return [, 1, 2].reduce(function (a, b) { return a + b; });", "holes"],
+  ["hole-object-keys-skips", "return String(Object.keys([1, , 3]));", "holes"],
+  ["hole-forin-skips", "var s = ''; for (var k in [1, , 3]) s += k; return s;", "holes"],
+  ["hole-length-counts", "return [, 1, , 2].length;", "holes"],
+  ["hole-join-renders-empty", "return String([, 1, , 2]);", "holes"],
+  ["hole-json-is-null", "return JSON.stringify([1, , 3]);", "holes"],
+
+  // --- prototype of an exotic value -----------------------------------------
+  // An array, a string, a function and a RegExp dispatch by KIND and carry no
+  // prototype link of their own, but the language still says what they inherit.
+  ["protoof-array", "return String(Object.getPrototypeOf([]) === Array.prototype);", "protoof"],
+  ["protoof-array-isprototypeof", "return String(Array.prototype.isPrototypeOf([]));", "protoof"],
+  ["protoof-array-via-object", "return String(Object.prototype.isPrototypeOf([]));", "protoof"],
+  ["protoof-array-not-unrelated", "return String(Array.prototype.isPrototypeOf({}));", "protoof"],
+  ["protoof-function", "return String(Object.getPrototypeOf(function () {}) === Function.prototype);", "protoof"],
+  ["protoof-object-terminates", "return String(Object.getPrototypeOf(Object.prototype));", "protoof"],
+  ["protoof-array-proto-chains-to-object", "return String(Object.getPrototypeOf(Array.prototype) === Object.prototype);", "protoof"],
+  ["protoof-primitive-is-false", "return String(String.prototype.isPrototypeOf('a'));", "protoof"],
+  ["protoof-user-instance", "function F() {} var o = new F(); return String(F.prototype.isPrototypeOf(o)) + ',' + String(Object.prototype.isPrototypeOf(o));", "protoof"],
+
+  // --- guest overrides of built-in prototype methods -------------------------
+  // A method the guest puts on a built-in prototype wins over the registry, on
+  // the direct call path as well as through ToPrimitive. These probes RESTORE
+  // what they replace: the suite shares one engine, so a destructive probe would
+  // poison every probe after it.
+  ["ovr-array-tostring-brands", "var saved = Array.prototype.toString; Array.prototype.toString = Object.prototype.toString; var r = [0, 1, 2].toString(); Array.prototype.toString = saved; return r;", "override"],
+  ["ovr-array-join", "var saved = Array.prototype.join; Array.prototype.join = function () { return 'J'; }; var r = [1, 2].join(); Array.prototype.join = saved; return r;", "override"],
+  ["ovr-string-charat", "var saved = String.prototype.charAt; String.prototype.charAt = function () { return 'X'; }; var r = 'abc'.charAt(0); String.prototype.charAt = saved; return r;", "override"],
+  ["ovr-number-tofixed", "var saved = Number.prototype.toFixed; Number.prototype.toFixed = function () { return 'N'; }; var r = (1.5).toFixed(1); Number.prototype.toFixed = saved; return r;", "override"],
+  ["ovr-restored-array-join", "return [1, 2].join('-');", "override"],
+  ["ovr-restored-string-charat", "return 'abc'.charAt(1);", "override"],
+  ["ovr-restored-array-tostring", "return [1, 2].toString();", "override"],
+
   // --- function source text -------------------------------------------------
   // Function.prototype.toString returns the function's own source, which is
   // what makes `f + 1` and `eval("(" + f + ")")` behave. It needs the parser to
@@ -1103,7 +1182,6 @@ const KNOWN_GAPS = new Set<string>([
   // Generators parse but do not run.
   "iter-generator",
   // Array/object details.
-  "arr-length-write",
   "obj-computed-key",
   // Builtins.
   "err-optional-chain",
