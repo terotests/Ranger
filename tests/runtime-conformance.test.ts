@@ -308,6 +308,17 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-REDEFINE: defineProperty validated against the property already there.
   // A non-configurable property is close to frozen; accepting a redefinition
   // let a test's SETUP succeed where the spec requires it to fail.
+  // D-INDEXDESC: array and string indices are real own properties but live
+  // outside objectMap, so their descriptors came back undefined.
+  ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
+  ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
+  ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],
+  ["idxdesc-array-length-not-enum", "return Object.getOwnPropertyDescriptor([7, 8], 'length').enumerable;", "validation"],
+  ["idxdesc-array-oob", "return Object.getOwnPropertyDescriptor([7], '5') === undefined;", "validation"],
+  ["idxdesc-string-value", "return Object.getOwnPropertyDescriptor('abc', '1').value;", "validation"],
+  ["idxdesc-string-not-writable", "return Object.getOwnPropertyDescriptor('abc', '0').writable;", "validation"],
+  ["idxdesc-string-length", "return Object.getOwnPropertyDescriptor('abc', 'length').value;", "validation"],
+
   ["redef-nonconf-to-conf", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { configurable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
   ["redef-nonconf-enum-flip", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { enumerable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
   ["redef-nonwritable-to-writable", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { writable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],

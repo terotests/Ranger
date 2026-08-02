@@ -5256,6 +5256,64 @@ class ComponentEngine {
                                 descA.setMember("configurable" (EvalValue.boolean(true)))
                                 return descA
                             }
+                            ; D-INDEXDESC: an array index or string index is a
+                            ; real own property, but lives in arrayValue /
+                            ; stringValue rather than objectMap, so the
+                            ; descriptor came back undefined for a property that
+                            ; plainly exists. `length` likewise.
+                            if (src.isArray()) {
+                                if (dk == "length") {
+                                    def keysL:[string]
+                                    def valsL:[EvalValue]
+                                    def dL:EvalValue (EvalValue.object(keysL valsL))
+                                    dL.setMember("value" (EvalValue.fromInt((array_length src.arrayValue))))
+                                    dL.setMember("writable" (EvalValue.boolean(true)))
+                                    dL.setMember("enumerable" (EvalValue.boolean(false)))
+                                    dL.setMember("configurable" (EvalValue.boolean(false)))
+                                    return dL
+                                }
+                                def aIdx@(optional):int (to_int dk)
+                                if aIdx {
+                                    def ai:int (unwrap aIdx)
+                                    if ((ai >= 0) && (ai < (array_length src.arrayValue))) {
+                                        def keysI:[string]
+                                        def valsI:[EvalValue]
+                                        def dI:EvalValue (EvalValue.object(keysI valsI))
+                                        dI.setMember("value" (itemAt src.arrayValue ai))
+                                        dI.setMember("writable" (EvalValue.boolean(true)))
+                                        dI.setMember("enumerable" (EvalValue.boolean(true)))
+                                        dI.setMember("configurable" (EvalValue.boolean(true)))
+                                        return dI
+                                    }
+                                }
+                            }
+                            if (src.isString()) {
+                                if (dk == "length") {
+                                    def keysS:[string]
+                                    def valsS:[EvalValue]
+                                    def dS:EvalValue (EvalValue.object(keysS valsS))
+                                    dS.setMember("value" (EvalValue.fromInt((strlen src.stringValue))))
+                                    dS.setMember("writable" (EvalValue.boolean(false)))
+                                    dS.setMember("enumerable" (EvalValue.boolean(false)))
+                                    dS.setMember("configurable" (EvalValue.boolean(false)))
+                                    return dS
+                                }
+                                def sIdx@(optional):int (to_int dk)
+                                if sIdx {
+                                    def si2:int (unwrap sIdx)
+                                    if ((si2 >= 0) && (si2 < (strlen src.stringValue))) {
+                                        def keysC:[string]
+                                        def valsC2:[EvalValue]
+                                        def dC:EvalValue (EvalValue.object(keysC valsC2))
+                                        def se:int (si2 + 1)
+                                        dC.setMember("value" (EvalValue.string((substring src.stringValue si2 se))))
+                                        dC.setMember("writable" (EvalValue.boolean(false)))
+                                        dC.setMember("enumerable" (EvalValue.boolean(true)))
+                                        dC.setMember("configurable" (EvalValue.boolean(false)))
+                                        return dC
+                                    }
+                                }
+                            }
                             if (this.objHasKey(src dk)) {
                                 def keysD:[string]
                                 def valsD:[EvalValue]
