@@ -87,6 +87,28 @@ class EvalContext {
         return (EvalValue.null())
     }
 
+    ; The scope that OWNS this name, or null when nothing up the chain does.
+    ; An assignment resolves its reference before the right-hand side runs, so
+    ; the target scope has to be captured then rather than looked up after --
+    ; the RHS may create a nearer binding (an eval can), and the write must
+    ; still land on the one the reference named.
+    fn ownsBinding:boolean (name:string) {
+        return (has bindings name)
+    }
+
+    fn contextOwning:EvalContext (name:string) {
+        if (has bindings name) {
+            return this
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.contextOwning(name))
+        }
+        ; Nothing up the chain owns it; the caller checks ownsBinding first, so
+        ; this only answers for a name that IS bound somewhere.
+        return this
+    }
+
     fn lookup:EvalValue (name:string) {
         ; D-WITH: the object scope shadows the bindings beneath it.
         if withObject {
@@ -3808,10 +3830,16 @@ class ComponentEngine {
             return rightValue
         }
         if (op == "+=") {
-            if ((current.isString()) || (rightValue.isString())) {
-                return (EvalValue.string((this.toStringOf(current)) + (this.toStringOf(rightValue))))
+            ; Same rule as `+`: BOTH operands convert first, and only then does
+            ; the string-vs-numeric decision get made. Testing isString() on the
+            ; raw values missed a boxed string entirely, so
+            ; `x = new String("1"); x += 1` gave 2 instead of "11".
+            def lp:EvalValue (this.toPrimitive(current false))
+            def rp:EvalValue (this.toPrimitive(rightValue false))
+            if ((lp.isString()) || (rp.isString())) {
+                return (EvalValue.string((this.toStringOf(lp)) + (this.toStringOf(rp))))
             }
-            return (EvalValue.number((this.toNumberOf(current)) + (this.toNumberOf(rightValue))))
+            return (EvalValue.number((this.toNumberOf(lp)) + (this.toNumberOf(rp))))
         }
         if (op == "-=") {
             return (EvalValue.number((this.toNumberOf(current)) - (this.toNumberOf(rightValue))))
@@ -3820,11 +3848,21 @@ class ComponentEngine {
             return (EvalValue.number((this.toNumberOf(current)) * (this.toNumberOf(rightValue))))
         }
         if (op == "/=") {
+            ; Division by zero is an INFINITY, not a no-op. Returning `current`
+            ; left the variable untouched, so `x = 1; x /= null` stayed 1.
             def rn:double (this.toNumberOf(rightValue))
-            if (rn != 0.0) {
-                return (EvalValue.number((this.toNumberOf(current)) / rn))
+            def ln:double (this.toNumberOf(current))
+            if (rn == 0.0) {
+                if (ln != ln) { return (EvalValue.number(ln)) }
+                if (ln == 0.0) { return (EvalValue.number((0.0 / 0.0))) }
+                def infD:double (1.0 / 0.0)
+                def negD:boolean (ln < 0.0)
+                if negD {
+                    return (EvalValue.number((0.0 - infD)))
+                }
+                return (EvalValue.number(infD))
             }
-            return current
+            return (EvalValue.number((ln / rn)))
         }
         if (op == "%=") {
             ; The floating remainder, same as the `%` operator -- the integer
@@ -4088,8 +4126,14 @@ class ComponentEngine {
                 ; arrives -- looking the base up afterwards found nothing and
                 ; wrote to the outer binding instead.
                 def preWith:EvalValue (EvalValue.null())
+                def preScope:EvalContext context
+                def preScopeValid:boolean false
                 if (leftNode.nodeType == "Identifier") {
                     preWith = (context.findWithObjectFor(leftNode.name))
+                    if (context.has(leftNode.name)) {
+                        preScope = (context.contextOwning(leftNode.name))
+                        preScopeValid = true
+                    }
                 }
                 def rightValue:EvalValue (EvalValue.null())
                 if node.right {
@@ -4158,6 +4202,18 @@ class ComponentEngine {
                         if strictMode {
                             return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
                         }
+                    }
+                    ; Read and write through the scope the reference named, not
+                    ; through whatever is nearest now.
+                    if preScopeValid {
+                        def owner:EvalContext preScope
+                        def ownCur:EvalValue (owner.lookup(varName))
+                        def ownRes:EvalValue (this.applyAssignOp(op ownCur rightValue))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                        owner.define(varName ownRes)
+                        return ownRes
                     }
                     def current:EvalValue (context.lookup(varName))
                     def result:EvalValue (this.applyAssignOp(op current rightValue))
