@@ -555,6 +555,15 @@ class TSParserSimple {
 
   ; Words that are reserved only in strict code, plus the two names strict code
   ; refuses to let you bind at all.
+  ; The words strict code reserves outright. Unlike isStrictReservedWord this
+  ; leaves out eval and arguments, which may be *read* in strict code -- only
+  ; binding or assigning to them is an error.
+  fn isStrictReservedReference:boolean (word:string) {
+    if (word == "eval") { return false }
+    if (word == "arguments") { return false }
+    return (this.isStrictReservedWord(word))
+  }
+
   fn isStrictReservedWord:boolean (word:string) {
     if (word == "implements") { return true }
     if (word == "interface") { return true }
@@ -930,6 +939,9 @@ class TSParserSimple {
     }
     
     if (tokVal == "class") {
+      if (this.inSingleStatementBody) {
+        this.syntaxError("Parse error: a class declaration cannot be a statement body")
+      }
       return (this.parseClass())
     }
     
@@ -1350,7 +1362,21 @@ class TSParserSimple {
     
     ; Check what kind of import
     def v (this.peekValue())
-    
+
+    ; import "module" — a side-effect import with no clause.
+    if ((this.peekType()) == "String") {
+      def bareStr (this.peek())
+      this.advance()
+      def bareSource (new TSNode())
+      bareSource.nodeType = "StringLiteral"
+      bareSource.value = bareStr.value
+      node.left = bareSource
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return node
+    }
+
     ; import { foo, bar } from "module"
     if (v == "{") {
       this.advance()
@@ -1415,6 +1441,16 @@ class TSParserSimple {
       ; Could be followed by , { named } or , * as ns
       if (this.matchValue(",")) {
         this.advance()
+        if (this.matchValue("*")) {
+          this.advance()
+          this.expectValue("as")
+          def nsName (this.expectBindingName())
+          this.declareBinding("l" nsName.value)
+          def nsSpec2 (new TSNode())
+          nsSpec2.nodeType = "ImportNamespaceSpecifier"
+          nsSpec2.name = nsName.value
+          push node.children nsSpec2
+        }
         if (this.matchValue("{")) {
           this.advance()
           while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
@@ -1448,6 +1484,11 @@ class TSParserSimple {
       source.nodeType = "StringLiteral"
       source.value = sourceStr.value
       node.left = source
+    } {
+      ; No `from`, so the whole declaration must have been `import "mod";`.
+      if (null? node.left) {
+        this.syntaxError("Parse error: an import declaration needs a module specifier")
+      }
     }
     
     if (this.matchValue(";")) {
@@ -1619,7 +1660,9 @@ class TSParserSimple {
       this.registerExportedDeclaration(decl)
       return node
     }
-    
+
+    ; Nothing else may follow `export`.
+    this.syntaxError("Parse error: '" + v + "' cannot follow 'export'")
     return node
   }
   
@@ -2711,6 +2754,12 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("throw")
+
+    ; Restricted production: the argument must start on the same line.
+    def throwArgTok (this.peek())
+    if (throwArgTok.line != this.lastTokenLine) {
+      this.syntaxError("Parse error: no line terminator is allowed after 'throw'")
+    }
     
     def arg (this.parseExpr())
     node.left = arg
@@ -5926,6 +5975,11 @@ class TSParserSimple {
 
     ; Identifier (including TSType keywords like 'symbol', 'string', 'number' used as variable names)
     if ((tokType == "Identifier") || (tokType == "TSType")) {
+      if (this.strictMode) {
+        if (this.isStrictReservedReference(tok.value)) {
+          this.syntaxError("Parse error: '" + tok.value + "' is reserved in strict mode")
+        }
+      }
       this.advance()
       def id (new TSNode())
       id.nodeType = "Identifier"
@@ -6234,7 +6288,7 @@ class TSParserSimple {
     ; bodies), so in expression position they name a binding.
     if (tokType == "TSKeyword") {
       if (this.strictMode) {
-        if (this.isStrictReservedWord(tokVal)) {
+        if (this.isStrictReservedReference(tokVal)) {
           this.syntaxError("Parse error: '" + tokVal + "' is reserved in strict mode")
         }
       }
@@ -6253,7 +6307,7 @@ class TSParserSimple {
         ; In strict code these are reserved outright, not merely unbindable:
         ; `'use strict'; +let;` and `let = 1` are both errors.
         if (this.strictMode) {
-          if (this.isStrictReservedWord(tokVal)) {
+          if (this.isStrictReservedReference(tokVal)) {
             this.syntaxError("Parse error: '" + tokVal + "' is reserved in strict mode")
           }
         }

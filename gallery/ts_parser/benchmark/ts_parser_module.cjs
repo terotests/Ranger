@@ -1939,6 +1939,15 @@ class TSParserSimple  {
     };
     return false;
   };
+  isStrictReservedReference (word) {
+    if ( word == "eval" ) {
+      return false;
+    }
+    if ( word == "arguments" ) {
+      return false;
+    }
+    return this.isStrictReservedWord(word);
+  };
   isStrictReservedWord (word) {
     if ( word == "implements" ) {
       return true;
@@ -2328,6 +2337,9 @@ class TSParserSimple  {
       return this.parseTypeAlias();
     }
     if ( tokVal == "class" ) {
+      if ( this.inSingleStatementBody ) {
+        this.syntaxError("Parse error: a class declaration cannot be a statement body");
+      }
       return this.parseClass();
     }
     if ( tokVal == "abstract" ) {
@@ -2671,6 +2683,18 @@ class TSParserSimple  {
       node.kind = "type";
     }
     const v = this.peekValue();
+    if ( this.peekType() == "String" ) {
+      const bareStr = this.peek();
+      this.advance();
+      const bareSource = new TSNode();
+      bareSource.nodeType = "StringLiteral";
+      bareSource.value = bareStr.value;
+      node.left = bareSource;
+      if ( this.matchValue(";") ) {
+        this.advance();
+      }
+      return node;
+    }
     if ( v == "{" ) {
       this.advance();
       let specifiers = [];
@@ -2718,6 +2742,16 @@ class TSParserSimple  {
       node.children.push(defaultSpec);
       if ( this.matchValue(",") ) {
         this.advance();
+        if ( this.matchValue("*") ) {
+          this.advance();
+          this.expectValue("as");
+          const nsName = this.expectBindingName();
+          this.declareBinding("l", nsName.value);
+          const nsSpec2 = new TSNode();
+          nsSpec2.nodeType = "ImportNamespaceSpecifier";
+          nsSpec2.name = nsName.value;
+          node.children.push(nsSpec2);
+        }
         if ( this.matchValue("{") ) {
           this.advance();
           while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
@@ -2749,6 +2783,10 @@ class TSParserSimple  {
       source.nodeType = "StringLiteral";
       source.value = sourceStr.value;
       node.left = source;
+    } else {
+      if ( typeof(node.left) === "undefined" ) {
+        this.syntaxError("Parse error: an import declaration needs a module specifier");
+      }
     }
     if ( this.matchValue(";") ) {
       this.advance();
@@ -2879,6 +2917,7 @@ class TSParserSimple  {
       this.registerExportedDeclaration(decl_2);
       return node;
     }
+    this.syntaxError(("Parse error: '" + v) + "' cannot follow 'export'");
     return node;
   };
   parseInterface () {
@@ -3723,6 +3762,10 @@ class TSParserSimple  {
     node.line = startTok.line;
     node.col = startTok.col;
     this.expectValue("throw");
+    const throwArgTok = this.peek();
+    if ( throwArgTok.line != this.lastTokenLine ) {
+      this.syntaxError("Parse error: no line terminator is allowed after 'throw'");
+    }
     const arg = this.parseExpr();
     node.left = arg;
     if ( this.matchValue(";") ) {
@@ -6223,6 +6266,11 @@ class TSParserSimple  {
       }
     }
     if ( (tokType == "Identifier") || (tokType == "TSType") ) {
+      if ( this.strictMode ) {
+        if ( this.isStrictReservedReference(tok.value) ) {
+          this.syntaxError(("Parse error: '" + tok.value) + "' is reserved in strict mode");
+        }
+      }
       this.advance();
       const id = new TSNode();
       id.nodeType = "Identifier";
@@ -6470,7 +6518,7 @@ class TSParserSimple  {
     }
     if ( tokType == "TSKeyword" ) {
       if ( this.strictMode ) {
-        if ( this.isStrictReservedWord(tokVal) ) {
+        if ( this.isStrictReservedReference(tokVal) ) {
           this.syntaxError(("Parse error: '" + tokVal) + "' is reserved in strict mode");
         }
       }
@@ -6500,7 +6548,7 @@ class TSParserSimple  {
       }
       if ( contextual ) {
         if ( this.strictMode ) {
-          if ( this.isStrictReservedWord(tokVal) ) {
+          if ( this.isStrictReservedReference(tokVal) ) {
             this.syntaxError(("Parse error: '" + tokVal) + "' is reserved in strict mode");
           }
         }
