@@ -1137,6 +1137,51 @@ class RangerCppClassWriter {
     return true
   }
 
+  ; A `const std::shared_ptr<T>&` parameter binds the caller's storage. That is
+  ; only safe when the storage stays put for the whole call. An argument that
+  ; names a member field or a collection element binds the slot itself, and the
+  ; callee can reach that slot through the object graph: reassigning the field
+  ; moves the object under the reference (the program then reads a different
+  ; object than a by-value target reads), and growing the vector frees the
+  ; buffer the reference points into (AddressSanitizer: heap-use-after-free).
+  ;
+  ; So the call site pays for instability. A stable source binds directly:
+  ;   - a local or a parameter (alive for the caller's whole frame)
+  ;   - `this` (WriteVRef emits shared_from_this(), a fresh temporary)
+  ;   - a `new` expression or a call result (a prvalue temporary that lives to
+  ;     the end of the full call expression)
+  ; Every other source is wrapped in std::shared_ptr<T>( ... ): the copy is a
+  ; temporary that pins the call-time object, which is exactly the guarantee
+  ; the by-value parameter used to give.
+  fn cppNeedsCallTempCopy:boolean (fnDesc:RangerAppFunctionDesc arg:RangerAppParamDesc n:CodeNode ctx:RangerAppWriterContext) {
+    if ((this.cppBorrowedObjectParam(fnDesc arg ctx)) == false) {
+      return false
+    }
+    if n.hasNewOper {
+      return false
+    }
+    if n.expression {
+      if n.hasFnCall {
+        return false
+      }
+      return true
+    }
+    if (n.vref == "this") {
+      return false
+    }
+    if ((array_length n.ns) >= 2) {
+      return true
+    }
+    if n.hasParamDesc {
+      def pd:RangerAppParamDesc n.paramDesc
+      if pd.is_class_variable {
+        return true
+      }
+      return false
+    }
+    return true
+  }
+
   ; The constructor of a `record` holds a marker parameter for each keyword,
   ; next to the parameter that carries the value. The marker has a name and no
   ; type, and only a language with keyword arguments writes it. C++ has none,
@@ -1227,7 +1272,15 @@ class RangerCppClassWriter {
           continue 
         }
         def n:CodeNode (itemAt givenArgs.children i)
+        def tempCopy:boolean (this.cppNeedsCallTempCopy((unwrap node.fnDesc) arg n ctx))
+        if tempCopy {
+          this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+          wr.out("(" false)
+        }
         this.WalkNode(n ctx wr)
+        if tempCopy {
+          wr.out(")" false)
+        }
       }
       ctx.unsetInExpr()
       wr.out(")" false)
@@ -1259,7 +1312,15 @@ class RangerCppClassWriter {
             wr.out(", " false)
           }
           written = written + 1
+          def tempCopy:boolean (this.cppNeedsCallTempCopy((unwrap constr) arg n ctx))
+          if tempCopy {
+            this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+            wr.out("(" false)
+          }
           this.WalkNode(n ctx wr)
+          if tempCopy {
+            wr.out(")" false)
+          }
         }
       }
       wr.out(")" false)

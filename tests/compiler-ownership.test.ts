@@ -3,6 +3,7 @@ import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import { getGeneratedCppCode } from "./helpers/compiler";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +18,7 @@ const JPEG_SCALER =
 
 /**
  * Compile a fixture with the -strict-ownership flag and return compiler stdout,
- * which (in Phase A) contains the inferred per-parameter OwnershipKind summary.
+ * which contains the inferred per-parameter OwnershipKind summary.
  */
 function inferOwnership(
   sourceFile: string,
@@ -43,7 +44,7 @@ function countOwnershipFunctions(stdout: string): number {
   return (stdout.match(/ownership\[infer\] fn /g) ?? []).length;
 }
 
-describe("Ranger Compiler - ownership inference (Phase A)", () => {
+describe("Ranger Compiler - ownership inference", () => {
   const out = inferOwnership(`${FIXTURES}/llvm_ownership_infer.rgr`);
 
   it("compiles cleanly with -strict-ownership", () => {
@@ -74,6 +75,76 @@ describe("Ranger Compiler - ownership inference (Phase A)", () => {
   });
 });
 
+describe("Ranger Compiler - ownership escape forms (PLAN_OWNERSHIP_SOUNDNESS 2-6)", () => {
+  const out = inferOwnership(`${FIXTURES}/ownership_escape_forms.rgr`, {
+    outFile: "escape_forms.js",
+  });
+
+  it("compiles cleanly with -strict-ownership", () => {
+    expect(out).not.toContain("Compilation FAILED");
+    expect(out).not.toContain("[FAIL]");
+  });
+
+  it("counts the short form of a member store (last = p)", () => {
+    expect(out).toContain("fn shortStore:\n  param 'p' -> moved (this.last)");
+  });
+
+  it("counts a store through a local alias (def q p; this.last = q)", () => {
+    expect(out).toContain("fn aliasStore:\n  param 'p' -> moved (this.last)");
+  });
+
+  it("counts a store behind unwrap (this.last = (unwrap maybe))", () => {
+    expect(out).toContain("fn unwrapStore:\n  param 'p' -> moved (this.last)");
+  });
+
+  it("counts the value of a map set, not the key (set slots \"x\" p)", () => {
+    expect(out).toContain("fn mapStore:\n  param 'p' -> moved (slots)");
+  });
+
+  it("propagates the callee summary through a method call (this.keep(p))", () => {
+    expect(out).toContain("fn viaMethod:\n  param 'p' -> moved (call keep.p)");
+  });
+
+  it("propagates the callee summary through a static call", () => {
+    expect(out).toContain("fn viaStatic:\n  param 'p' -> moved (call staticKeep.p)");
+  });
+
+  it("keeps a read-only parameter borrowed even when the function calls out", () => {
+    expect(out).toContain("fn readAndCall:\n  param 'p' -> borrowed");
+  });
+
+  it("never marks a primitive argument as escaping through a call", () => {
+    expect(out).not.toContain("param 'idx' -> unknown");
+    expect(out).not.toContain("param 'idx' -> moved");
+  });
+});
+
+describe("Ranger Compiler - borrowed const& call-site copy (PLAN_OWNERSHIP_SOUNDNESS 1)", () => {
+  const result = getGeneratedCppCode(`${FIXTURES}/ownership_alias_call.rgr`);
+
+  it("compiles the fixture to C++", () => {
+    expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+  });
+
+  it("keeps the borrowed parameter as const std::shared_ptr<T>&", () => {
+    expect(result.code).toContain(
+      "use( const std::shared_ptr<Node>& p )"
+    );
+  });
+
+  it("wraps a member-field argument in a call-time copy", () => {
+    // Binding the member itself would let the callee's reset() swap the
+    // object under the reference (and a vector element case is a
+    // use-after-free); the copy pins the call-time object.
+    expect(result.code).toMatch(/use\(std::shared_ptr<Node>\(\(?h->item\)?\)\)/);
+  });
+
+  it("does not copy a stable local argument", () => {
+    expect(result.code).toContain("use(orig)");
+    expect(result.code).not.toContain("use(std::shared_ptr<Node>(orig))");
+  });
+});
+
 describe("Ranger Compiler - ownership inference on gallery JPEG scaler", () => {
   const out = inferOwnership(JPEG_SCALER, {
     outDir: GALLERY_OUT,
@@ -99,11 +170,18 @@ describe("Ranger Compiler - ownership inference on gallery JPEG scaler", () => {
     expect(out).toContain("param 'filePath' -> borrowed");
   });
 
-  it("flags interprocedural escape as unresolved (Phase B)", () => {
-    expect(out).toContain("ownership[infer] fn decodeACRefineBlock:");
-    expect(out).toContain("param 'blockIdx' -> unknown");
-    expect(out).toContain(
-      "WARNING: ownership of 'blockIdx' could not be determined"
-    );
+  it("resolves every parameter — no unknowns, no warnings", () => {
+    // blockIdx (an int) was reported unknown before the primitive filter and
+    // the interprocedural fixpoint landed; a primitive can never carry
+    // ownership, and every object parameter resolves through the callee
+    // summaries in this program.
+    expect(out).toContain("param 'blockIdx' -> borrowed");
+    expect(out).not.toContain("-> unknown");
+    expect(out).not.toContain("WARNING: ownership");
+  });
+
+  it("finds the buffer parameters the decoder stores into members", () => {
+    expect(out).toContain("param 'buf' -> moved (this.data)");
+    expect(out).toContain("param 'bytes' -> moved (this.data)");
   });
 });

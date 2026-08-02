@@ -1,0 +1,37 @@
+; The call-site copy rule for a borrowed const& parameter
+; (PLAN_OWNERSHIP_SOUNDNESS finding 1):
+;   - use(p) only reads p -> the C++ signature is const std::shared_ptr<Node>&
+;   - a local argument is a stable name and binds directly, with no copy
+;   - a member-field argument is wrapped in std::shared_ptr<Node>( ... ),
+;     because the callee can reassign the field under the reference: without
+;     the copy this program reads "fresh" where every reference-semantics
+;     target reads "orig"
+
+class Node {
+    def name:string ""
+}
+
+class Holder {
+    def item@(optional):Node
+
+    fn use:string (p:Node) {
+        this.reset()
+        return p.name
+    }
+
+    fn reset:void () {
+        def fresh:Node (new Node())
+        fresh.name = "fresh"
+        this.item = fresh
+    }
+}
+
+fn main:void () {
+    def h:Holder (new Holder())
+    def orig:Node (new Node())
+    orig.name = "orig"
+    h.item = orig
+    def viaField:string (h.use((unwrap h.item)))
+    def viaLocal:string (h.use(orig))
+    print (viaField + " " + viaLocal)
+}
