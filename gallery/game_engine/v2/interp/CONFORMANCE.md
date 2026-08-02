@@ -103,15 +103,23 @@ them aside cannot quietly flatter the remaining number.
   a continuation-passing matcher, and Ranger has no function values to carry the
   continuation with. See §2.5.
 
-- **`Date` is a brand and a time value, not a calendar.** `new Date(ms)` produces an
-  object that brands as `[object Date]` and holds its time; `Date.parse`, the
-  component getters and the formatting methods are absent. It exists so that code
-  needing *an object that is not a Number* can have one.
+- **A `Date`'s local time zone is UTC, and the clock stands still.** The time-value
+  arithmetic of §15.9.1 is implemented in full (`DateTime.rgr`) and validated against
+  Node over 209 differential cases, but the realm has no time-zone database and no
+  host clock: `getTimezoneOffset()` is 0, `getHours()` agrees with `getUTCHours()`,
+  and `Date.now()` / `new Date()` report `hostNowMs`, which an embedder sets and which
+  is 0 by default. A fixed UTC host is a legal choice of host, not a wrong answer —
+  but it does mean nothing here observes real time.
 
 - **`Math.exp` and `Math.log` are series approximations.** The Ranger runtime has no
   intrinsic for either. Both reduce their argument first and are accurate to roughly
   1e-15 relative — close to the host but not bit-identical, so a test comparing an
   exact bit pattern would still see a difference.
+
+- **`Date.parse` accepts the Date Time String Format and nothing else.** Every other
+  format is `NaN`, which the spec permits — an implementation may accept whatever
+  else it likes, and this one likes nothing else. The strings this engine itself
+  produces (`toISOString`) round-trip; `toUTCString` and `toString` do not parse back.
 
 - **An invalid `Function` body is not reported as `SyntaxError`.** `Function(...)`
   assembles source and parses it, but the parser recovers differently inside a
@@ -151,7 +159,21 @@ them aside cannot quietly flatter the remaining number.
   *The gap was real and worth pinning; the attributed cause was wrong, and pinning it
   as "the lexer" is what kept it unexamined.*
 
+- **A function's source text is real, and a `Function()`-built one is its assembled
+  source.** `Function.prototype.toString` returns the slice the function's node spans
+  in the source it was parsed from — the parser records `end` on function nodes, and
+  the value carries the whole source string so a nested function's absolute offsets
+  still index into it. A built-in has no source and keeps the `[native code]` form the
+  spec allows.
+
 ### 2.4 Known-wrong, pinned rather than hidden
+
+- **A script's top-level `var` is not a property of the global object, and top-level
+  `this` is not the global object.** The global object exists and a bare name falls
+  back to it, but the module scope is not object-backed, so `var toString = f` at the
+  top level of a script does not become `globalThis.toString`. Making it work needs an
+  object-backed environment record on `EvalContext`. One `built-ins/String` file turns
+  on exactly this.
 
 - **`export` is not a visibility gate.** Every top-level binding in a virtual module
   is reachable through the namespace, exported or not. The cross-module block in the
@@ -216,6 +238,8 @@ Tagged in the source with these markers.
 | `D-ARRAYLIKE` | Array.prototype methods are generic over their receiver. The mutating ones still require a real array, since they write back into it. |
 | `D-REGEX` | The pattern grammar as a node tree, matched by backtracking. See §2.5. |
 | `D-ARGUMENTS` | `arguments` as an array-like OBJECT — brands as `[object Arguments]`, and `Array.isArray` says false. |
+| `D-FNSRC` | A function value carries the WHOLE source string it was parsed from, not a pre-cut slice, and `Function.prototype.toString` cuts `[node.start, node.end)` out of it. The whole string, because a nested function's offsets are absolute in the same one; a call swaps the source in effect so a closure returned by an eval'd factory records its own. |
+| `D-DATE` | A Date is arithmetic on one time value (`DateTime.rgr`, ECMA-262 §15.9.1). Local time is UTC and the clock is `hostNowMs`, so every result is reproducible. The default ToPrimitive hint behaves as STRING for a Date and as NUMBER for everything else, which is what makes `date + ''` the date's text while `+date` is its time. |
 
 ### Framework surface is deliberately outside the registry
 
@@ -232,17 +256,24 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 
 | Area | Result |
 |---|---|
+| `language/expressions` | **100%** (1318/1318, whole directory) |
 | `built-ins/Number` | **100%** (146/146, whole directory) |
-| `built-ins/String` | **99%** (700/709, whole directory) |
-| `language/expressions` | **99%** (1306/1318, whole directory) |
-| `built-ins/Math` | 92% |
-| `language/statements` | 76% |
-| `built-ins/Object` | 73% |
-| `built-ins/Function` | 68% |
-| `built-ins/Array` | 58% |
-| ES5 overall | **82%** (1232/1500 sampled) |
+| `built-ins/Date` | **100%** (4/4, whole directory) |
+| `built-ins/String` | **99.7%** (707/709, whole directory) |
+| `built-ins/Math` | 91% (74/81) |
+| `built-ins/Object` | 76% (1577/2080) |
+| `language/statements` | 72% (403/562) |
+| `built-ins/Function` | 71% (257/361) |
+| `built-ins/Array` | 58% (124/212) |
+| ES5 overall | **82.6%** (743/900 sampled) |
 
-The runtime-conformance suite is at 749 probes, every one of them derived from Node.
+`built-ins/String`'s two remaining files are both named above as deliberate gaps: the
+regex quantified-group backtracking case (§2.2) and the global-object-as-var-home case
+(§2.4). Nothing in String is unexplained.
+
+The runtime-conformance suite is at 823 probes, every one of them derived from Node.
+Date is additionally validated by 209 differential cases against Node covering the
+component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
 
 ---
 

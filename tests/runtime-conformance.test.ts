@@ -973,6 +973,53 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["math-max-empty", "return Math.max() === -Infinity;", "builtins"],
   ["date-epoch", "var d = new Date(0); return d.getTime();", "builtins"],
 
+  // --- Date -----------------------------------------------------------------
+  // A Date is arithmetic on one time value. Local time is UTC in this realm, so
+  // each accessor and its UTC twin agree -- these probes use the UTC forms,
+  // which are time-zone independent and so mean the same in Node.
+  ["date-value", "return new Date(6).valueOf();", "date"],
+  ["date-utc-year", "return new Date(951782400000).getUTCFullYear();", "date"],
+  ["date-utc-month", "return new Date(951782400000).getUTCMonth();", "date"],
+  ["date-utc-date", "return new Date(951782400000).getUTCDate();", "date"],
+  ["date-utc-day", "return new Date(951782400000).getUTCDay();", "date"],
+  ["date-utc-time-parts", "var d = new Date(1234567890123); return d.getUTCHours() + ':' + d.getUTCMinutes() + ':' + d.getUTCSeconds() + '.' + d.getUTCMilliseconds();", "date"],
+  ["date-before-epoch", "return new Date(-86400000).toISOString();", "date"],
+  ["date-far-past", "return new Date(-1e12).getUTCFullYear();", "date"],
+  ["date-leap-day", "return new Date(Date.UTC(2016, 1, 29)).getUTCDate();", "date"],
+  ["date-century-not-leap", "return new Date(Date.UTC(1900, 1, 28)).getUTCMonth();", "date"],
+  ["date-month-rolls-year", "return new Date(Date.UTC(2000, 12, 1)).getUTCFullYear();", "date"],
+  ["date-two-digit-year", "return new Date(Date.UTC(99, 0, 1)).getUTCFullYear();", "date"],
+  ["date-iso-roundtrip", "return Date.parse(new Date(1234567890123).toISOString());", "date"],
+  ["date-parse-date-only", "return Date.parse('2000-01-01');", "date"],
+  ["date-parse-offset", "return Date.parse('2000-01-01T12:34:56.789+02:00');", "date"],
+  ["date-parse-garbage", "return String(Date.parse('not a date'));", "date"],
+  ["date-parse-bad-month", "return String(Date.parse('2000-13-01'));", "date"],
+  ["date-utc-static", "return Date.UTC(2000, 0, 1);", "date"],
+  ["date-range-limit", "return String(new Date(8640000000000001).getTime());", "date"],
+  ["date-invalid-string", "return String(new Date('nope'));", "date"],
+  ["date-tostring-invalid-iso", "try { new Date(NaN).toISOString(); return 'no-throw'; } catch (e) { return e.name; }", "date"],
+  ["date-tojson-invalid", "return String(new Date(NaN).toJSON());", "date"],
+  ["date-settime", "var d = new Date(0); d.setTime(5000); return d.getTime();", "date"],
+  ["date-brand", "return Object.prototype.toString.call(new Date(0));", "date"],
+  ["date-typeof-parse", "return typeof Date.parse;", "date"],
+  ["date-typeof-now", "return typeof Date.now;", "date"],
+  ["date-call-no-new", "return typeof Date();", "date"],
+  ["date-plus-is-string", "return typeof (new Date(0) + '');", "date"],
+  ["date-unary-plus-is-number", "return +new Date(6);", "date"],
+  ["date-borrowed-is-typeerror", "try { Date.prototype.getTime.call({}); return 'no-throw'; } catch (e) { return e.name; }", "date"],
+  ["date-set-ms", "var d = new Date(0); d.setUTCMilliseconds(500); return d.getTime();", "date"],
+  ["date-set-seconds-rolls", "var d = new Date(0); d.setUTCSeconds(70); return d.getTime();", "date"],
+  ["date-set-hours-tail", "var d = new Date(0); d.setUTCHours(25, 1, 2, 3); return d.getTime();", "date"],
+  ["date-set-date-rolls-month", "var d = new Date(0); d.setUTCDate(32); return d.toISOString();", "date"],
+  ["date-set-fullyear-leap", "var d = new Date(0); d.setUTCFullYear(2020, 1, 29); return d.toISOString();", "date"],
+  ["date-set-fullyear-revives", "var d = new Date(NaN); d.setUTCFullYear(2020); return d.toISOString();", "date"],
+  ["date-set-month-stays-invalid", "var d = new Date(NaN); d.setUTCMonth(3); return String(d.getTime());", "date"],
+  ["date-set-nan-poisons", "var d = new Date(0); return String(d.setUTCSeconds(NaN));", "date"],
+  ["date-truncates-toward-zero", "return new Date(-6.5).valueOf();", "date"],
+  ["date-negative-zero-clipped", "return 1 / new Date(-0).valueOf();", "date"],
+  ["date-setter-arity", "return Date.prototype.setHours.length + ',' + Date.prototype.setUTCFullYear.length;", "date"],
+  ["date-gmtstring-alias", "return typeof Date.prototype.toGMTString;", "date"],
+
   // --- function source text -------------------------------------------------
   // Function.prototype.toString returns the function's own source, which is
   // what makes `f + 1` and `eval("(" + f + ")")` behave. It needs the parser to
@@ -1038,7 +1085,6 @@ const KNOWN_GAPS = new Set<string>([
   "arr-length-write",
   "obj-computed-key",
   // Builtins.
-  "date-epoch",
   "err-optional-chain",
   "err-nullish",
 ]);

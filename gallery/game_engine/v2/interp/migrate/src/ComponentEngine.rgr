@@ -12,6 +12,7 @@ Import "../../../../../ts_parser/ts_ast_patch.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
 Import "Regex.rgr"
+Import "DateTime.rgr"
 Import "../../../imaging/jpeg/JPEGMetadata.rgr"
 
 ; =============================================================================
@@ -252,6 +253,12 @@ class ComponentEngine {
     ; duration of an eval / Function() body / imported file, so a function value
     ; captured in there records the string its own start/end offsets index into.
     def currentSource:string ""
+    ; D-DATE: the realm's clock, in milliseconds since the epoch. Nothing in the
+    ; interpreter reads a host clock -- doing so would make every Date result
+    ; irreproducible and would tie the realm to one compilation target -- so
+    ; `Date.now()` and `new Date()` report this, and an embedder that wants a
+    ; moving clock advances it.
+    def hostNowMs:double 0.0
     def basePath:string "./"
     def assetPaths:[string]  ; Multiple asset directories for component resolution
     def pageWidth:double 595.0
@@ -3971,8 +3978,8 @@ class ComponentEngine {
             ; the string-vs-numeric decision get made. Testing isString() on the
             ; raw values missed a boxed string entirely, so
             ; `x = new String("1"); x += 1` gave 2 instead of "11".
-            def lp:EvalValue (this.toPrimitive(current false))
-            def rp:EvalValue (this.toPrimitive(rightValue false))
+            def lp:EvalValue (this.toPrimitiveDefault(current))
+            def rp:EvalValue (this.toPrimitiveDefault(rightValue))
             if ((lp.isString()) || (rp.isString())) {
                 return (EvalValue.string((this.toStringOf(lp)) + (this.toStringOf(rp))))
             }
@@ -6707,6 +6714,22 @@ class ComponentEngine {
                 if (fnName == "RegExp") {
                     return (this.buildRegexFromArgs(node.children))
                 }
+                ; D-DATE: `Date(...)` without `new` is NOT a constructor call.
+                ; It ignores every argument and returns a STRING -- the current
+                ; time rendered -- which is the one place in the language where
+                ; the two call forms produce different kinds of thing.
+                if (fnName == "Date") {
+                    def dtNoNew (new DateTime())
+                    def di:int 0
+                    while (di < (array_length node.children)) {
+                        def _dv:EvalValue (this.evaluateExpr((itemAt node.children di)))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                        di = (di + 1)
+                    }
+                    return (EvalValue.string((dtNoNew.toFullString((dtNoNew.timeClip(hostNowMs))))))
+                }
                 ; D-ERRORS: an error constructor called WITHOUT `new` builds the
                 ; same object -- `Error("x")` is `new Error("x")`. It was a
                 ; TypeError, which broke the test262 harness itself: sta.js
@@ -7225,8 +7248,8 @@ class ComponentEngine {
             ; D-TOPRIMITIVE: both operands convert FIRST, and only then does the
             ; string-vs-numeric decision get made -- an object with a valueOf
             ; returning a number must add, not concatenate.
-            def lp:EvalValue (this.toPrimitive(left false))
-            def rp:EvalValue (this.toPrimitive(right false))
+            def lp:EvalValue (this.toPrimitiveDefault(left))
+            def rp:EvalValue (this.toPrimitiveDefault(right))
             if ((lp.isString()) || (rp.isString())) {
                 return (EvalValue.string((this.toStringOf(lp)) + (this.toStringOf(rp))))
             }
@@ -7394,11 +7417,11 @@ class ComponentEngine {
         }
         ; One object: convert it to a primitive and retry.
         if lIsObj {
-            def lp:EvalValue (this.toPrimitive(left false))
+            def lp:EvalValue (this.toPrimitiveDefault(left))
             return (this.looseEquals(lp right))
         }
         if rIsObj {
-            def rp:EvalValue (this.toPrimitive(right false))
+            def rp:EvalValue (this.toPrimitiveDefault(right))
             return (this.looseEquals(left rp))
         }
         ; Same primitive type: strict comparison.
@@ -7718,6 +7741,25 @@ class ComponentEngine {
                 return (EvalValue.boolean(((this.floorNum(dn)) == dn)))
             }
         }
+        ; D-DATE: the three Date statics. `now` reads the realm's clock, which is
+        ; hostNowMs -- this realm has no host clock of its own, so it stands
+        ; still at the epoch unless the embedder advances it. That is a fixed
+        ; clock, not a wrong one, and it keeps every Date result reproducible.
+        if (nsName == "Date") {
+            def dtS (new DateTime())
+            if (name == "now") {
+                return (EvalValue.number((dtS.timeClip(hostNowMs))))
+            }
+            if (name == "parse") {
+                if ((array_length args) == 0) {
+                    return (EvalValue.number((0.0 / 0.0)))
+                }
+                return (EvalValue.number((dtS.parseISO((this.toStringOf((itemAt args 0)))))))
+            }
+            if (name == "UTC") {
+                return (EvalValue.number((this.dateFromParts(args true))))
+            }
+        }
         if (nsName == "Object") {
             def a0:EvalValue (EvalValue.undefined())
             if ((array_length args) > 0) {
@@ -7899,6 +7941,12 @@ class ComponentEngine {
             push out "stringify"
             return out
         }
+        if (nsName == "Date") {
+            push out "now"
+            push out "parse"
+            push out "UTC"
+            return out
+        }
         return out
     }
 
@@ -7955,6 +8003,9 @@ class ComponentEngine {
             if (name == "isSealed") { return true }
             if (name == "defineProperty") { return true }
             return false
+        }
+        if (nsName == "Date") {
+            return (this.hasBuiltinStatic(nsName name))
         }
         return false
     }
@@ -8100,6 +8151,7 @@ class ComponentEngine {
         if (kind == "function") { return "Function" }
         if (kind == "map") { return "Map" }
         if (kind == "set") { return "Set" }
+        if (kind == "date") { return "Date" }
         return ""
     }
 
@@ -8114,6 +8166,7 @@ class ComponentEngine {
         if (nsName == "Function") { return "function" }
         if (nsName == "Map") { return "map" }
         if (nsName == "Set") { return "set" }
+        if (nsName == "Date") { return "date" }
         if (nsName == "Object") { return "object" }
         return ""
     }
@@ -8217,6 +8270,55 @@ class ComponentEngine {
             push out "has"
             push out "keys"
             push out "values"
+        }
+        ; D-DATE: local time is UTC in this realm, so each accessor and its UTC
+        ; twin are the same function. Both names are registered because guests
+        ; and the suite reach for both.
+        if (kind == "date") {
+            push out "getDate"
+            push out "getDay"
+            push out "getFullYear"
+            push out "getHours"
+            push out "getMilliseconds"
+            push out "getMinutes"
+            push out "getMonth"
+            push out "getSeconds"
+            push out "getTime"
+            push out "getTimezoneOffset"
+            push out "getUTCDate"
+            push out "getUTCDay"
+            push out "getUTCFullYear"
+            push out "getUTCHours"
+            push out "getUTCMilliseconds"
+            push out "getUTCMinutes"
+            push out "getUTCMonth"
+            push out "getUTCSeconds"
+            push out "getYear"
+            push out "setDate"
+            push out "setFullYear"
+            push out "setHours"
+            push out "setMilliseconds"
+            push out "setMinutes"
+            push out "setMonth"
+            push out "setSeconds"
+            push out "setTime"
+            push out "setUTCDate"
+            push out "setUTCFullYear"
+            push out "setUTCHours"
+            push out "setUTCMilliseconds"
+            push out "setUTCMinutes"
+            push out "setUTCMonth"
+            push out "setUTCSeconds"
+            push out "setYear"
+            push out "toGMTString"
+            push out "toDateString"
+            push out "toISOString"
+            push out "toJSON"
+            push out "toLocaleDateString"
+            push out "toLocaleString"
+            push out "toLocaleTimeString"
+            push out "toTimeString"
+            push out "toUTCString"
         }
         push out "toString"
         push out "valueOf"
@@ -8376,6 +8478,9 @@ class ComponentEngine {
             ; D-REGEX: a RegExp dispatches to its own prototype so exec/test do
             ; not have to be looked for among the Object methods.
             if (has v.objectMap "__regex__") { return "regexp" }
+            ; D-DATE: likewise a Date, whose accessors are arithmetic on its
+            ; time value rather than anything Object.prototype offers.
+            if (has v.objectMap "__date__") { return "date" }
             return "object"
         }
         return ""
@@ -8400,6 +8505,52 @@ class ComponentEngine {
         ; what makes `[1,2].charAt(0)` a TypeError instead of returning "[" —
         ; the old unguarded branch stringified the array and indexed its debug
         ; format.
+        if (kind == "date") {
+            if (name == "setTime") { return 1 }
+            if (name == "setMilliseconds") { return 1 }
+            if (name == "setUTCMilliseconds") { return 1 }
+            if (name == "setSeconds") { return 2 }
+            if (name == "setUTCSeconds") { return 2 }
+            if (name == "setMinutes") { return 3 }
+            if (name == "setUTCMinutes") { return 3 }
+            if (name == "setHours") { return 4 }
+            if (name == "setUTCHours") { return 4 }
+            if (name == "setDate") { return 1 }
+            if (name == "setUTCDate") { return 1 }
+            if (name == "setMonth") { return 2 }
+            if (name == "setUTCMonth") { return 2 }
+            if (name == "setFullYear") { return 3 }
+            if (name == "setUTCFullYear") { return 3 }
+            if (name == "setYear") { return 1 }
+            if (name == "toGMTString") { return 0 }
+            if (name == "getDate") { return 0 }
+            if (name == "getDay") { return 0 }
+            if (name == "getFullYear") { return 0 }
+            if (name == "getHours") { return 0 }
+            if (name == "getMilliseconds") { return 0 }
+            if (name == "getMinutes") { return 0 }
+            if (name == "getMonth") { return 0 }
+            if (name == "getSeconds") { return 0 }
+            if (name == "getTime") { return 0 }
+            if (name == "getTimezoneOffset") { return 0 }
+            if (name == "getUTCDate") { return 0 }
+            if (name == "getUTCDay") { return 0 }
+            if (name == "getUTCFullYear") { return 0 }
+            if (name == "getUTCHours") { return 0 }
+            if (name == "getUTCMilliseconds") { return 0 }
+            if (name == "getUTCMinutes") { return 0 }
+            if (name == "getUTCMonth") { return 0 }
+            if (name == "getUTCSeconds") { return 0 }
+            if (name == "getYear") { return 0 }
+            if (name == "toDateString") { return 0 }
+            if (name == "toISOString") { return 0 }
+            if (name == "toJSON") { return 1 }
+            if (name == "toLocaleDateString") { return 0 }
+            if (name == "toLocaleString") { return 0 }
+            if (name == "toLocaleTimeString") { return 0 }
+            if (name == "toTimeString") { return 0 }
+            if (name == "toUTCString") { return 0 }
+        }
         if (kind == "string") {
             if (name == "at") { return 1 }
             if (name == "charCodeAt") { return 1 }
@@ -8794,6 +8945,291 @@ class ComponentEngine {
         return ((this.builtinArity(kind name)) >= 0)
     }
 
+    ; D-DATE: the (year, month, day, hours, minutes, seconds, ms) form, shared by
+    ; `new Date(y, m, ...)` and `Date.UTC` so the two cannot disagree. Both are
+    ; UTC here, local time being UTC in this realm.
+    fn dateFromParts:double (args:[EvalValue] isUTC:boolean) {
+        def dtp (new DateTime())
+        def nan:double (0.0 / 0.0)
+        def n:int (array_length args)
+        def y:double 1970.0
+        def mo:double 0.0
+        def dy:double 1.0
+        def hh:double 0.0
+        def mi:double 0.0
+        def se:double 0.0
+        def ms:double 0.0
+        if (n > 0) { y = (this.toNumberOf((itemAt args 0))) }
+        if (n > 1) { mo = (this.toNumberOf((itemAt args 1))) }
+        if (n > 2) { dy = (this.toNumberOf((itemAt args 2))) }
+        if (n > 3) { hh = (this.toNumberOf((itemAt args 3))) }
+        if (n > 4) { mi = (this.toNumberOf((itemAt args 4))) }
+        if (n > 5) { se = (this.toNumberOf((itemAt args 5))) }
+        if (n > 6) { ms = (this.toNumberOf((itemAt args 6))) }
+        if (y != y) {
+            return nan
+        }
+        ; A two-digit year means 19xx, which is the legacy rule the spec keeps
+        ; for this form only.
+        def yi:double (dtp.truncD(y))
+        if (dtp.isFiniteD(y)) {
+            if ((yi >= 0.0) && (yi <= 99.0)) {
+                yi = (1900.0 + yi)
+            }
+        } {
+            yi = y
+        }
+        def dayNum:double (dtp.makeDay(yi mo dy))
+        def tim:double (dtp.makeTime(hh mi se ms))
+        return (dtp.timeClip((dtp.makeDate(dayNum tim))))
+    }
+
+    ; D-DATE: build a Date object from already-evaluated constructor arguments,
+    ; shared by `new Date(...)` and by the reflective construction paths.
+    fn makeDateValue:EvalValue (args:[EvalValue]) {
+        def dtm (new DateTime())
+        def keysDt:[string]
+        def valsDt:[EvalValue]
+        def dt:EvalValue (EvalValue.object(keysDt valsDt))
+        def n:int (array_length args)
+        def ms:double hostNowMs
+        if (n == 1) {
+            def only:EvalValue (this.toPrimitive((itemAt args 0) false))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            if (only.valueType == 2) {
+                ms = (dtm.parseISO(only.stringValue))
+            } {
+                ms = (dtm.timeClip((this.toNumberOf(only))))
+            }
+        }
+        if (n > 1) {
+            ms = (this.dateFromParts(args false))
+        }
+        if (n == 0) {
+            ms = (dtm.timeClip(hostNowMs))
+        }
+        dt.setMember("__date__" (EvalValue.number(ms)))
+        dt.setAttrs("__date__" false false false)
+        dt.protoRef = (this.builtinPrototype("Date"))
+        return dt
+    }
+
+    fn isDateSetter:boolean (name:string) {
+        if (name == "setMilliseconds") { return true }
+        if (name == "setUTCMilliseconds") { return true }
+        if (name == "setSeconds") { return true }
+        if (name == "setUTCSeconds") { return true }
+        if (name == "setMinutes") { return true }
+        if (name == "setUTCMinutes") { return true }
+        if (name == "setHours") { return true }
+        if (name == "setUTCHours") { return true }
+        if (name == "setDate") { return true }
+        if (name == "setUTCDate") { return true }
+        if (name == "setMonth") { return true }
+        if (name == "setUTCMonth") { return true }
+        if (name == "setFullYear") { return true }
+        if (name == "setUTCFullYear") { return true }
+        if (name == "setYear") { return true }
+        return false
+    }
+
+    ; Which field of (year, month, date, hours, minutes, seconds, ms) a setter's
+    ; FIRST argument writes. The remaining arguments continue down the list, which
+    ; is exactly how the spec defines the optional tails of setHours and friends.
+    fn dateSetterFirstField:int (name:string) {
+        if (name == "setMilliseconds") { return 6 }
+        if (name == "setUTCMilliseconds") { return 6 }
+        if (name == "setSeconds") { return 5 }
+        if (name == "setUTCSeconds") { return 5 }
+        if (name == "setMinutes") { return 4 }
+        if (name == "setUTCMinutes") { return 4 }
+        if (name == "setHours") { return 3 }
+        if (name == "setUTCHours") { return 3 }
+        if (name == "setDate") { return 2 }
+        if (name == "setUTCDate") { return 2 }
+        if (name == "setMonth") { return 1 }
+        if (name == "setUTCMonth") { return 1 }
+        return 0
+    }
+
+    fn applyDateSetter:EvalValue (name:string recv:EvalValue tv:double args:[EvalValue]) {
+        def dts (new DateTime())
+        def nan:double (0.0 / 0.0)
+        def t:double tv
+        def setsYear:boolean false
+        if (name == "setFullYear") { setsYear = true }
+        if (name == "setUTCFullYear") { setsYear = true }
+        if (name == "setYear") { setsYear = true }
+        ; Only the year setters revive an invalid Date: they treat its time as
+        ; +0 and build from there. Every other setter leaves it invalid.
+        if (t != t) {
+            if setsYear {
+                t = 0.0
+            }
+        }
+        def fields:[double]
+        if (t != t) {
+            push fields nan
+            push fields nan
+            push fields nan
+            push fields nan
+            push fields nan
+            push fields nan
+            push fields nan
+        } {
+            push fields (to_double (dts.yearFromTime(t)))
+            push fields (to_double (dts.monthFromTime(t)))
+            push fields (to_double (dts.dateFromTime(t)))
+            push fields (to_double (dts.hourFromTime(t)))
+            push fields (to_double (dts.minFromTime(t)))
+            push fields (to_double (dts.secFromTime(t)))
+            push fields (to_double (dts.msFromTime(t)))
+        }
+        def first:int (this.dateSetterFirstField(name))
+        def ai:int 0
+        while (ai < (array_length args)) {
+            def slot:int (first + ai)
+            if (slot < 7) {
+                def av:double (this.toNumberOf((itemAt args ai)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                fields = (this.replaceAt(fields slot av))
+            }
+            ai = (ai + 1)
+        }
+        ; setYear is the Annex B one: a year in 0..99 means 19xx.
+        if (name == "setYear") {
+            def yv:double (itemAt fields 0)
+            if (dts.isFiniteD(yv)) {
+                def yi:double (dts.truncD(yv))
+                if ((yi >= 0.0) && (yi <= 99.0)) {
+                    fields = (this.replaceAt(fields 0 (1900.0 + yi)))
+                }
+            }
+        }
+        def dayNum:double (dts.makeDay((itemAt fields 0) (itemAt fields 1) (itemAt fields 2)))
+        def tim:double (dts.makeTime((itemAt fields 3) (itemAt fields 4) (itemAt fields 5) (itemAt fields 6)))
+        def out:double (dts.timeClip((dts.makeDate(dayNum tim))))
+        recv.setAttrs("__date__" true false false)
+        recv.setMember("__date__" (EvalValue.number(out)))
+        recv.setAttrs("__date__" false false false)
+        return (EvalValue.number(out))
+    }
+
+    fn replaceAt:[double] (xs:[double] idx:int v:double) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length xs)) {
+            if (i == idx) {
+                push out v
+            } {
+                push out (itemAt xs i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; D-DATE: Date.prototype, in one place. `this` must really be a Date --
+    ; the time value lives on the object, so there is nothing to compute from a
+    ; receiver that has none.
+    fn invokeDateMethod:EvalValue (name:string recv:EvalValue args:[EvalValue]) {
+        if (recv.valueType != 5) {
+            return (this.throwSpecError("TypeError" ("Date.prototype." + name + " called on a non-Date")))
+        }
+        if (false == (has recv.objectMap "__date__")) {
+            return (this.throwSpecError("TypeError" ("Date.prototype." + name + " called on a non-Date")))
+        }
+        def tv:double ((unwrap (get recv.objectMap "__date__")).toNumber())
+        def dtl (new DateTime())
+        ; setTime is the one mutator: it replaces the time value and reports it.
+        if (name == "setTime") {
+            def nv:double (0.0 / 0.0)
+            if ((array_length args) > 0) {
+                nv = (this.toNumberOf((itemAt args 0)))
+            }
+            def clipped:double (dtl.timeClip(nv))
+            recv.setAttrs("__date__" true false false)
+            recv.setMember("__date__" (EvalValue.number(clipped)))
+            recv.setAttrs("__date__" false false false)
+            return (EvalValue.number(clipped))
+        }
+        ; The setter family. Each one rebuilds the time value from the fields it
+        ; was NOT given plus the ones it was, so `setMinutes(70)` rolls into the
+        ; next hour rather than being rejected -- MakeTime and MakeDay normalise
+        ; out-of-range components by construction.
+        if (this.isDateSetter(name)) {
+            return (this.applyDateSetter(name recv tv args))
+        }
+        if (name == "getTime") { return (EvalValue.number(tv)) }
+        if (name == "valueOf") { return (EvalValue.number(tv)) }
+        ; The offset from UTC, which is zero because local time IS UTC here.
+        if (name == "getTimezoneOffset") {
+            if (tv != tv) { return (EvalValue.number(tv)) }
+            return (EvalValue.number(0.0))
+        }
+        ; The string forms report "Invalid Date" rather than propagating NaN.
+        if (name == "toString") { return (EvalValue.string((dtl.toFullString(tv)))) }
+        if (name == "toLocaleString") { return (EvalValue.string((dtl.toFullString(tv)))) }
+        if (name == "toDateString") { return (EvalValue.string((dtl.toDateString(tv)))) }
+        if (name == "toLocaleDateString") { return (EvalValue.string((dtl.toDateString(tv)))) }
+        if (name == "toTimeString") { return (EvalValue.string((dtl.toTimeString(tv)))) }
+        if (name == "toLocaleTimeString") { return (EvalValue.string((dtl.toTimeString(tv)))) }
+        if (name == "toUTCString") { return (EvalValue.string((dtl.toUTCString(tv)))) }
+        ; toGMTString is the Annex B alias of toUTCString, and the same function.
+        if (name == "toGMTString") { return (EvalValue.string((dtl.toUTCString(tv)))) }
+        ; toISOString is the exception: an unrepresentable instant is a
+        ; RangeError, not the string "Invalid Date".
+        if (name == "toISOString") {
+            if (tv != tv) {
+                return (this.throwSpecError("RangeError" "Invalid time value"))
+            }
+            return (EvalValue.string((dtl.toISOString(tv))))
+        }
+        if (name == "toJSON") {
+            if (tv != tv) {
+                return (EvalValue.null())
+            }
+            return (EvalValue.string((dtl.toISOString(tv))))
+        }
+        ; Every remaining accessor is NaN in, NaN out.
+        if (tv != tv) {
+            return (EvalValue.number(tv))
+        }
+        if ((name == "getFullYear") || (name == "getUTCFullYear")) {
+            return (EvalValue.fromInt((dtl.yearFromTime(tv))))
+        }
+        ; getYear is the Annex B one: the year less 1900.
+        if (name == "getYear") {
+            return (EvalValue.fromInt(((dtl.yearFromTime(tv)) - 1900)))
+        }
+        if ((name == "getMonth") || (name == "getUTCMonth")) {
+            return (EvalValue.fromInt((dtl.monthFromTime(tv))))
+        }
+        if ((name == "getDate") || (name == "getUTCDate")) {
+            return (EvalValue.fromInt((dtl.dateFromTime(tv))))
+        }
+        if ((name == "getDay") || (name == "getUTCDay")) {
+            return (EvalValue.fromInt((dtl.weekDay(tv))))
+        }
+        if ((name == "getHours") || (name == "getUTCHours")) {
+            return (EvalValue.fromInt((dtl.hourFromTime(tv))))
+        }
+        if ((name == "getMinutes") || (name == "getUTCMinutes")) {
+            return (EvalValue.fromInt((dtl.minFromTime(tv))))
+        }
+        if ((name == "getSeconds") || (name == "getUTCSeconds")) {
+            return (EvalValue.fromInt((dtl.secFromTime(tv))))
+        }
+        if ((name == "getMilliseconds") || (name == "getUTCMilliseconds")) {
+            return (EvalValue.fromInt((dtl.msFromTime(tv))))
+        }
+        return (this.throwSpecError("TypeError" ("Date.prototype." + name + " is not implemented")))
+    }
+
     ; Run a registered built-in. Reached both from a direct `recv.name(...)` call
     ; and from an extracted value invoked later via call/apply/bind, so the two
     ; paths cannot drift apart.
@@ -8818,6 +9254,12 @@ class ComponentEngine {
             if (boolRecv.valueType != 3) {
                 return (this.throwSpecError("TypeError" ("Boolean.prototype." + name + " called on a non-boolean")))
             }
+        }
+        ; D-DATE: every Date method is arithmetic on the receiver's time value,
+        ; so the whole family is answered in one place. Borrowing one onto a
+        ; non-Date is a TypeError, as it is for Number and Boolean.
+        if (kind == "date") {
+            return (this.invokeDateMethod(name recv args))
         }
         ; ---- toString / valueOf, per receiver kind --------------------------
         ; D-RADIX: Number.prototype.toString(radix). Base 10 is the default;
@@ -10643,6 +11085,12 @@ class ComponentEngine {
             if (has v.objectMap "__error__") {
                 return (EvalValue.string((this.errorToString(v))))
             }
+            ; D-DATE: the default Date.prototype.toString, which is the whole
+            ; date and time rather than a brand.
+            if (has v.objectMap "__date__") {
+                def dtd (new DateTime())
+                return (EvalValue.string((dtd.toFullString(((unwrap (get v.objectMap "__date__")).toNumber())))))
+            }
             return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
         }
         if (v.valueType == 4) {
@@ -10652,6 +11100,47 @@ class ComponentEngine {
             return (EvalValue.string((this.functionSourceText(v))))
         }
         return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
+    }
+
+    ; D-DATE: the DEFAULT hint -- no hint at all -- behaves as the NUMBER hint
+    ; for every object except a Date, which behaves as the STRING hint. That is
+    ; what makes `date + ""` the date's string form while `+date` and
+    ; `Number(date)` are still its time value.
+    ; The DEFAULT valueOf yields the object itself for almost everything, and
+    ; that is no primitive -- which is why a number hint normally falls through
+    ; to toString. Two kinds are different: a boxed primitive reports its
+    ; primitive, and a Date reports its time value. `+new Date(6)` is 6 for
+    ; exactly this reason.
+    fn defaultValueOfIsPrimitive:boolean (v:EvalValue) {
+        if (v.valueType != 5) {
+            return false
+        }
+        if (has v.objectMap "__primitive__") {
+            return true
+        }
+        if (has v.objectMap "__date__") {
+            return true
+        }
+        return false
+    }
+
+    fn defaultValueOfOf:EvalValue (v:EvalValue) {
+        if (has v.objectMap "__primitive__") {
+            return (unwrap (get v.objectMap "__primitive__"))
+        }
+        if (has v.objectMap "__date__") {
+            return (unwrap (get v.objectMap "__date__"))
+        }
+        return v
+    }
+
+    fn toPrimitiveDefault:EvalValue (v:EvalValue) {
+        if (v.valueType == 5) {
+            if (has v.objectMap "__date__") {
+                return (this.toPrimitive(v true))
+            }
+        }
+        return (this.toPrimitive(v false))
     }
 
     fn toPrimitive:EvalValue (v:EvalValue wantString:boolean) {
@@ -10669,12 +11158,7 @@ class ComponentEngine {
         if (objLike == false) {
             return v
         }
-        def boxed:boolean false
-        if (v.valueType == 5) {
-            if (has v.objectMap "__primitive__") {
-                boxed = true
-            }
-        }
+        def boxed:boolean (this.defaultValueOfIsPrimitive(v))
         def first:string "valueOf"
         def second:string "toString"
         if wantString {
@@ -10699,7 +11183,7 @@ class ComponentEngine {
                 return (this.defaultPrimitiveOf(v))
             }
             if boxed {
-                return (this.defaultPrimitiveOf(v))
+                return (this.defaultValueOfOf(v))
             }
         }
         def r2:EvalValue (this.callPrimitiveMethod(v second))
@@ -10714,7 +11198,7 @@ class ComponentEngine {
                 return (this.defaultPrimitiveOf(v))
             }
             if boxed {
-                return (this.defaultPrimitiveOf(v))
+                return (this.defaultValueOfOf(v))
             }
         }
         ; Neither step yielded a primitive, and neither fell back to a default.
@@ -12620,23 +13104,22 @@ class ComponentEngine {
             }
             return (this.toObjectValue(oArg))
         }
-        ; D-DATE: `new Date(...)` produced NULL, so any test that merely needed a
-        ; non-Number object to borrow a method onto crashed before reaching its
-        ; assertion. This is a minimal Date -- a branded object holding its time
-        ; value, with valueOf/getTime/toString -- not a calendar implementation.
-        ; Everything else Date offers is absent and stays absent.
+        ; D-DATE: `new Date(...)` in all three of its forms. No argument is the
+        ; realm's clock; one argument is a time value, or a string to parse
+        ; through Date.parse -- the spec routes it through ToPrimitive first, so
+        ; an object with a string valueOf is parsed rather than coerced to NaN;
+        ; two or more are the (year, month, ...) calendar form.
         if (className == "Date") {
-            def keysDt:[string]
-            def valsDt:[EvalValue]
-            def dt:EvalValue (EvalValue.object(keysDt valsDt))
-            def ms:double 0.0
-            if ((array_length node.children) > 0) {
-                ms = (this.toNumberOf((this.evaluateExpr((itemAt node.children 0)))))
+            def dtArgs:[EvalValue]
+            def dai:int 0
+            while (dai < (array_length node.children)) {
+                push dtArgs (this.evaluateExpr((itemAt node.children dai)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                dai = (dai + 1)
             }
-            dt.setMember("__date__" (EvalValue.number(ms)))
-            dt.setAttrs("__date__" false false false)
-            dt.protoRef = (this.builtinPrototype("Date"))
-            return dt
+            return (this.makeDateValue(dtArgs))
         }
         if (this.isWrapperCtorName(className)) {
             ; A NULL EvalValue here means "no argument was written", which the
