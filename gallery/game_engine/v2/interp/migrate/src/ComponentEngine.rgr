@@ -5908,6 +5908,65 @@ class ComponentEngine {
                     }
                 }
 
+                ; D-OBJPROTO: the Object.prototype methods every object carries.
+                ; Surfaced by the TypeError above: hasOwnProperty was the single
+                ; largest failure bucket the moment missing methods stopped
+                ; failing silently.
+                if (methodName == "hasOwnProperty") {
+                    def hk:string ""
+                    if ((array_length node.children) > 0) {
+                        hk = ((this.evaluateExpr((itemAt node.children 0))).toString())
+                    }
+                    ; OWN properties only — an inherited one must answer false,
+                    ; which is the entire point of the method.
+                    if (has obj.objectMap hk) {
+                        return (EvalValue.boolean(true))
+                    }
+                    if (has obj.getterMap hk) {
+                        return (EvalValue.boolean(true))
+                    }
+                    if (has obj.setterMap hk) {
+                        return (EvalValue.boolean(true))
+                    }
+                    if (obj.valueType == 4) {
+                        def hidx@(optional):int (to_int hk)
+                        if hidx {
+                            def hi:int (unwrap hidx)
+                            if ((hi >= 0) && (hi < (array_length obj.arrayValue))) {
+                                return (EvalValue.boolean(true))
+                            }
+                        }
+                    }
+                    return (EvalValue.boolean(false))
+                }
+                if (methodName == "propertyIsEnumerable") {
+                    def pk2:string ""
+                    if ((array_length node.children) > 0) {
+                        pk2 = ((this.evaluateExpr((itemAt node.children 0))).toString())
+                    }
+                    return (EvalValue.boolean((has obj.objectMap pk2)))
+                }
+                if (methodName == "isPrototypeOf") {
+                    if ((array_length node.children) > 0) {
+                        def cand:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        def walk:EvalValue cand
+                        def steps:int 0
+                        while (steps < 16) {
+                            if (null? walk.protoRef) {
+                                steps = 16
+                            } {
+                                def nxt:EvalValue (unwrap walk.protoRef)
+                                if (nxt.equals(obj)) {
+                                    return (EvalValue.boolean(true))
+                                }
+                                walk = nxt
+                                steps = (steps + 1)
+                            }
+                        }
+                    }
+                    return (EvalValue.boolean(false))
+                }
+
                 ; D-ERRORS: nothing handled this method. Calling a property that
                 ; is not a function is a TypeError, and answering null instead is
                 ; the silent-failure mode that made whole corpora unmeasurable:
