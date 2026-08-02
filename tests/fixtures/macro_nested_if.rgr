@@ -1,0 +1,15 @@
+class MacroNestedIf {
+    sfn m@(main):void () {
+        def a 1
+        def b 2
+        if (a > 0) {
+            if (b > 1) {
+                if (a < b) { print "deep" } { print "x" }
+            } {
+                print "y"
+            }
+        } {
+            if (b > 0) { print "z" } { print "w" }
+        }
+    }
+}

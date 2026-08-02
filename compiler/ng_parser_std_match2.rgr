@@ -864,16 +864,34 @@ extension RangerFlowParser {
           }
 
           if is_macro {
-            ; A macro template is expanded into Ranger source and walked again.
-            ; If the expansion contains a call to the same operator there is no
-            ; base case, so it nests forever. Unguarded this hangs the compiler
-            ; with no diagnostic -- not a stack overflow, just silence.
+            ; A macro template is expanded into Ranger source and walked again,
+            ; so an expansion that reaches the same call site again never
+            ; terminates. Unguarded this hangs the compiler with no diagnostic
+            ; at all -- not a stack overflow, just silence.
+            ;
+            ; The key is the operator name plus the position of the node being
+            ; expanded, never the name alone: `if ... else` is a macro that
+            ; expands to the three-argument `if`, so a nested if/else re-enters
+            ; the same operator legitimately while the outer one is in flight.
             def macroRoot:RangerAppWriterContext (ctx.getRoot())
-            if( macroRoot.macro_expansion_depth > 64 ) {
-              ctx.addError( callArgs ("Macro expansion of operator '" + fc.vref + "' does not terminate: nested more than 64 levels. A macro template that expands to a call to the same operator recurses forever.") )
+            def macroKey:string (fc.vref + "@" + (callArgs.getFilename()) + ":" + (to_string callArgs.sp))
+            def macroActive:boolean false
+            if( has macroRoot.active_macros macroKey ) {
+              macroActive = (unwrap (get macroRoot.active_macros macroKey))
+            }
+            if macroActive {
+              ctx.addError( callArgs ("Macro expansion of operator '" + fc.vref + "' is recursive: expanding it reaches the same call site again, so it never terminates.") )
               ctx.removeOpNs( added_ns )
               return true
             }
+            ; Backstop for a cycle that keeps producing fresh positions and so
+            ; never repeats a key.
+            if( macroRoot.macro_expansion_depth > 512 ) {
+              ctx.addError( callArgs ("Macro expansion of operator '" + fc.vref + "' does not terminate: nested more than 512 levels.") )
+              ctx.removeOpNs( added_ns )
+              return true
+            }
+            set macroRoot.active_macros macroKey true
             macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1
             def macroNode:CodeNode ( this.buildMacro( langOper callArgs ctx ) )
             def arg_len:int (array_length callArgs.children)
@@ -885,6 +903,9 @@ extension RangerFlowParser {
             macroNode.parent = callArgs
             this.WalkNode( macroNode ctx wr)
             macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1
+            ; Cleared on the way out so sequential or sibling uses of the same
+            ; macro are unaffected -- only genuine nesting is a cycle.
+            set macroRoot.active_macros macroKey false
             match.setRvBasedOn(nameNode callArgs)       
             ; print "--- macro was walked -- " 
             ctx.removeOpNs( added_ns )      

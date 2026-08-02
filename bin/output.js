@@ -3311,6 +3311,7 @@ class RangerAppWriterContext  {
     this.intRootCounter = 1;     /** note: unused */
     this.targetLangName = "";
     this.defined_imports = [];     /** note: unused */
+    this.active_macros = {};
     this.macro_expansion_depth = 0;
     this.already_imported = {};
     this.is_function = false;
@@ -15069,11 +15070,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             if ( is_macro ) {
               const macroRoot = ctx.getRoot();
-              if ( macroRoot.macro_expansion_depth > 64 ) {
-                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' does not terminate: nested more than 64 levels. A macro template that expands to a call to the same operator recurses forever.");
+              const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + ((callArgs.sp.toString()));
+              let macroActive = false;
+              if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && macroRoot.active_macros.hasOwnProperty(macroKey) ) ) {
+                macroActive = (( macroRoot.active_macros.hasOwnProperty(macroKey) ? macroRoot.active_macros[macroKey] : undefined ));
+              }
+              if ( macroActive ) {
+                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' is recursive: expanding it reaches the same call site again, so it never terminates.");
                 ctx.removeOpNs(added_ns);
                 return true;
               }
+              if ( macroRoot.macro_expansion_depth > 512 ) {
+                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' does not terminate: nested more than 512 levels.");
+                ctx.removeOpNs(added_ns);
+                return true;
+              }
+              macroRoot.active_macros[macroKey] = true;
               macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1;
               const macroNode = await this.buildMacro(langOper, callArgs, ctx);
               let arg_len_1 = callArgs.children.length;
@@ -15085,6 +15097,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               macroNode.parent = callArgs;
               await this.WalkNode(macroNode, ctx, wr);
               macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1;
+              macroRoot.active_macros[macroKey] = false;
               match.setRvBasedOn(nameNode, callArgs);
               ctx.removeOpNs(added_ns);
               return true;

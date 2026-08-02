@@ -11,26 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A recursive macro hung the compiler with no diagnostic** — macro expansion renders the template to Ranger source and walks the result again (`buildMacro` + `WalkNode` in `ng_parser_std_match2.rgr`), so a template that expands to a call to the same operator has no base case. Unguarded this was not a stack overflow and not an error: the compiler simply never returned, and had to be killed. Expansion now carries a depth counter on the root context and fails at 64 levels:
+- **A recursive macro hung the compiler with no diagnostic** — macro expansion renders the template to Ranger source and walks the result again (`buildMacro` + `WalkNode` in `ng_parser_std_match2.rgr`), so an expansion that reaches the same call site again never terminates. Unguarded this was not a stack overflow and not an error: the compiler simply never returned, and had to be killed. The root context now carries an `active_macros` map; re-entering a call site already being expanded fails immediately:
 
   ```text
-  <macro >:1:0
-    [FAIL] Macro expansion of operator 'selfmac' does not terminate: nested more
-           than 64 levels. A macro template that expands to a call to the same
-           operator recurses forever.
-       1 │ (selfmac 1)
-           ^── here
+  [FAIL] Macro expansion of operator 'selfmac' is recursive: expanding it
+         reaches the same call site again, so it never terminates.
   ```
 
-  The guard is a depth counter rather than a name check on purpose: it catches indirect cycles too (`macA` → `macB` → `macA`), which a "does this macro name itself" test cannot see. Both cases are covered by `tests/macro-recursion.test.ts`, which carries explicit timeouts because a regression here would hang the suite rather than fail it
+  The key is the operator name **plus the source position**, never the name alone. `if ... else` and `if!` are themselves macros that emit `if` — they lower to the three-argument `if`, which is not a macro — so a nested if/else legitimately re-enters the same operator while the outer expansion is in flight. A name-keyed guard would reject nearly every real program, the compiler's own source included. A depth ceiling of 512 remains as a backstop for a cycle that keeps producing fresh positions and so never repeats a key.
+
+  For the same reason there is no static "does this macro name itself" check: self-naming macro templates are legal, so such a check is false-positive by design. `tests/macro-recursion.test.ts` covers the direct cycle, the indirect one (`macA` → `macB` → `macA`) and the legitimate nested-if case, with explicit timeouts because a regression here would hang the suite rather than fail it
 
 - **Two `to_string (value:int)` operators, one of them dead and the other emitting `to_int`** — `Lang.rgr` declared the same signature twice. The first (`to_string _:string`) wins every match, which the second (`to_string cmdIntToString:string`) shadowed entirely: `cmdIntToString` appears nowhere else in the tree, and removing the block leaves the emission for go, csharp, es6, python, cpp, rust, kotlin and swift6 byte-identical. The winning block's `ranger` template emitted `(to_int x)` rather than `(to_string x)` — a copy-paste error, not a deliberate lowering: `to_int` has no `(value:int)` variant at all, so the rendered Ranger would not type check. `ranger` templates are not confined to a Ranger-to-Ranger build: `ng_LiveCompiler.rgr` forks a context with `targetLangName = "ranger"` to render expressions back to Ranger source for polyfill identity, so they run during a normal compile to any target
 
 - **Python had no template for nine operators** — `M_PI`, `fabs`, `tan`, `random` (both variants), `wait`, `file_exists`, `dir_exists` and `create_dir` could not compile for the `python` target. Added, and verified by running the generated Python rather than only compiling it (`tests/compiler-python.test.ts`), which the environment allows for Python but not for Kotlin or Swift
-
-### Added
-
-- **Static self-naming macro check** — `tests/operator-coverage.test.ts` also fails if any `@macro` template's text names its own operator, catching the direct case at the source before it can reach a build. Deliberately limited to `@macro` templates: 85 ordinary `ranger` templates name their own operator and are correct, because reproducing the source is exactly what a Ranger-to-Ranger emitter does
 
 ### Known gaps (Python)
 

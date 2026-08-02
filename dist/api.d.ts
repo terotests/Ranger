@@ -702,6 +702,9 @@ export declare class RangerAppWriterContext {
     targetLangName: string;
     parent?: RangerAppWriterContext;
     defined_imports: Array<string>;
+    active_macros: {
+        [key: string]: boolean;
+    };
     macro_expansion_depth: number;
     already_imported: {
         [key: string]: boolean;

@@ -97,35 +97,12 @@ describe("operator target coverage", () => {
   // target lagging the legacy one -- is a defect.
 
 
-  // The dynamic guard in ng_parser_std_match2.rgr catches runaway expansion at
-  // compile time, including indirect cycles. This is the cheap static half:
-  // a macro template whose text names its own operator can never terminate, so
-  // it should never reach the tree in the first place. Non-macro templates that
-  // name themselves are the norm and are correct -- 85 of them do, because that
-  // is what a Ranger-to-Ranger emitter is for -- so this looks only at @macro.
-  it("has no self-naming macro templates", () => {
-    const offenders: string[] = [];
-
-    for (const file of OPERATOR_FILES) {
-      const src = fs
-        .readFileSync(path.join(ROOT_DIR, file), "utf8")
-        .split(/\r?\n/);
-
-      let owner: string | null = null;
-      src.forEach((line, idx) => {
-        const decl = /^\s*([a-zA-Z_][\w.?!]*)\s+\S+\s*\(/.exec(line);
-        if (decl && !/^\s*(templates|if|for|while|return|def)\b/.test(line)) {
-          owner = decl[1];
-        }
-        const tmpl = /^\s*(?:[a-z0-9]+|\*)\s*@macro\([a-z]+\)\s*\(\s*['"]\(([a-zA-Z_][\w.?!]*)/.exec(line);
-        if (tmpl && owner && tmpl[1] === owner) {
-          offenders.push(`${file}:${idx + 1} macro '${owner}' expands to itself`);
-        }
-      });
-    }
-
-    expect(offenders.join("\n"), "self-naming macro templates").toBe("");
-  });
+  // No static "does this macro name itself" check lives here, deliberately.
+  // `if ... else` and `if!` are macros whose templates emit `if` -- they lower
+  // to the three-argument `if`, which is not a macro, so they terminate. Self
+  // naming is therefore legal and such a check would be false-positive by
+  // design. Recursion is caught exactly, at compile time, by the active-macro
+  // map in ng_parser_std_match2.rgr; see tests/macro-recursion.test.ts.
 
   // A template that emits a literal false / an empty string / a "not
   // implemented" comment compiles and then silently does the wrong thing at
