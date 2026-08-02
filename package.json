@@ -68,6 +68,7 @@
     "demo:wasm:serve": "bash scripts/compile-wasm.sh && node scripts/serve-wasm-demo.js",
     "compile:native": "bash scripts/compile-native.sh",
     "compile:wasm": "bash scripts/compile-wasm.sh",
+    "test:runtime": "vitest run --config tests/vitest.config.ts runtime-conformance.test.ts",
     "test:tsparser": "cross-env NODE_OPTIONS=--max-old-space-size=8192 vitest run --config tests/vitest.config.ts ts-lexer.test.ts",
     "test:watch": "vitest --config tests/vitest.config.ts",
     "gen:simple": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./generated/SimpleChessBoard.rgr -d=./generated/output -o=SimpleChessBoard.js -nodecli",

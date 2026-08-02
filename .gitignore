@@ -84,3 +84,6 @@ docs/site/src/content/docs/reference/methods/
 docs/site/src/content/docs/reference/macros.mdx
 docs/site/src/content/docs/reference/coverage.mdx
 docs/site/src/content/docs/reference/not-covered.mdx
+
+# Game engine interpreter — compiled module built on demand by tests/runtime-conformance.test.ts
+gallery/game_engine/v2/interp/bin/

@@ -1,0 +1,17 @@
+; =============================================================================
+; engine_module — Node module entry for the interpreter realm.
+; =============================================================================
+; Compiling this exposes ComponentEngine (and the value types it needs) as a
+; CommonJS module so the runtime-conformance suite can drive the REAL evaluator
+; from a test, rather than only measuring what the parser accepts.
+;
+; Build with: bash scripts/build-engine-module.sh
+; =============================================================================
+
+Import "../migrate/src/ComponentEngine.rgr"
+
+class EngineModule {
+    sfn m@(main):void () {
+        print "engine module loaded"
+    }
+}
