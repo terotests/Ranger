@@ -48,6 +48,10 @@ class RangerAppFunctionDesc {
   def all_paths_return:boolean false
   def mutates_self:boolean false
   def static_analysis_done:boolean false
+  ; Set by StaticAnalyzer.computeSelfRcNeeds (PLAN_RUST_OWNERSHIP 2b): this
+  ; method of a shared class uses `this` as a value, directly or through a
+  ; self-call chain, so its Rust form takes __self_rc : &Rc<RefCell<T>>.
+  def rust_needs_self_rc:boolean false
   def rust_uses_self:boolean false      ; Method accesses this.field or calls this.method()
   def rust_passes_self_to_weak:boolean false  ; Method passes 'this' to a function that assigns to weak field
   

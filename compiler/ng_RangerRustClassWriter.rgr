@@ -403,10 +403,20 @@ class RangerRustClassWriter {
             wr.out((this.adjustType( (itemAt node.ns i))) false)
           }
         }
-        ; Check if this is a local variable with rust_needs_rc_wrap (Rc<RefCell<T>>)
-        ; If so and there are more parts (method call), add .borrow_mut()
-        if (i == 0) {
-          if ((nsp_len > 1) && p.rust_needs_rc_wrap) {
+        ; Any Rc<RefCell<T>> segment of the path — a local at the root or a
+        ; strong shared-class field deeper in — borrows before the next part:
+        ; mutably for a call receiver or an assignment target, shared for a
+        ; read, so two reads of one cell can overlap. Weak and optional
+        ; segments have their own handling below.
+        if ((i < (nsp_len - 1)) && p.rust_needs_rc_wrap) {
+          def rcw_skip:boolean p.is_optional
+          def rcwNN@(optional):CodeNode p.nameNode
+          if (!null? rcwNN) {
+            if ((unwrap rcwNN).hasFlag("weak")) {
+              rcw_skip = true
+            }
+          }
+          if (rcw_skip == false) {
             if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
               wr.out(".borrow_mut()" false)
             } {
@@ -581,6 +591,29 @@ class RangerRustClassWriter {
       }
     }
     this.writeTypeDef(vnn ctx wr)
+  }
+
+  ; Does this expression read through a shared cell (a field path rooted in
+  ; an Rc<RefCell> name) or call anything that might? Used to decide whether
+  ; an assignment must pre-evaluate its right side.
+  fn rustRhsReadsSharedCell:boolean (node:CodeNode) {
+    if ((array_length node.ns) >= 2) {
+      if ((array_length node.nsp) > 0) {
+        def rp:RangerAppParamDesc (itemAt node.nsp 0)
+        if rp.rust_needs_rc_wrap {
+          return true
+        }
+      }
+    }
+    if node.hasFnCall {
+      return true
+    }
+    for node.children child:CodeNode i {
+      if (this.rustRhsReadsSharedCell(child)) {
+        return true
+      }
+    }
+    return false
   }
 
   fn writeStructField (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -819,27 +852,9 @@ class RangerRustClassWriter {
   ; Rc. The reference is safe next to the `&mut self` borrow because the
   ; callee only clones or downgrades the Rc; it never borrows the cell again.
   fn rustNeedsSelfRc:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
-    if fnDesc.is_lambda {
-      return false
-    }
-    if (null? fnDesc.container_class) {
-      return false
-    }
-    def cc:RangerAppClassDesc (unwrap fnDesc.container_class)
-    if ((this.rustClassIsShared(cc.name ctx)) == false) {
-      return false
-    }
-    if (null? fnDesc.fnBody) {
-      return false
-    }
-    def found false
-    def fb:CodeNode (unwrap fnDesc.fnBody)
-    fb.forTree({
-      if (item.vref == "this") {
-        found = true
-      }
-    })
-    return found
+    ; precomputed by StaticAnalyzer.computeSelfRcNeeds: the direct users of
+    ; `this` as a value plus, transitively, every method that self-calls one
+    return (fnDesc.rust_needs_self_rc)
   }
 
   ; How a def initializer relates to Rc<RefCell<T>> when the local is a
@@ -855,6 +870,21 @@ class RangerRustClassWriter {
         }
       }
       return 0
+    }
+    ; a macro expansion can wrap its result in an extra pair of parens
+    if ((array_length value.children) == 1) {
+      def only:CodeNode (value.getFirst())
+      if only.expression {
+        return (this.rustInitRcState(only ctx))
+      }
+    }
+    ; a `new` produces the raw struct and still needs the wrap; any other
+    ; expression whose value is a shared class — an element read, a map get,
+    ; a call — already evaluates to an owned Rc under the flag
+    if (value.hasNewOper == false) {
+      if (this.rustClassIsShared(value.eval_type_name ctx)) {
+        return 2
+      }
     }
     ; a call that returns a shared class already hands out an owned Rc
     if value.hasFnCall {
@@ -908,11 +938,25 @@ class RangerRustClassWriter {
     }
     def nsLen:int (array_length fc.ns)
     if (nsLen < 2) {
+      ; the receiver is an expression the writer cannot name, so there is no
+      ; Rc to pass; a silent skip would be a rustc error about a missing
+      ; argument, so say what to do instead
+      ctx.addError(node "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).")
       return false
     }
     def root:string (itemAt fc.ns 0)
     if ((root == "this") && (nsLen == 2)) {
-      ; a self-call inside another method that holds the Rc already
+      ; a self-call: the caller holds the Rc, because computeSelfRcNeeds
+      ; marked it transitively. From a constructor there is no Rc to hold —
+      ; the object is not in its cell yet — so the call cannot be written.
+      def cm@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+      if (!null? cm) {
+        def cmf:RangerAppFunctionDesc (unwrap cm)
+        if (cmf.rust_needs_self_rc == false) {
+          ctx.addError(node "A method that stores `this` cannot be called from here on Rust: the constructor runs before the object is inside its Rc. Call it on the constructed value instead.")
+          return false
+        }
+      }
       wr.out("__self_rc" false)
       return true
     }
@@ -1504,13 +1548,47 @@ class RangerRustClassWriter {
           ; Trait types use Rc<RefCell<...>> - borrow_mut for interior mutability
           wr.out(").borrow_mut()." false)
         } {
-          wr.out(")." false)
+          ; an Rc<RefCell<T>> receiver borrows mutably for the call
+          def obj_is_rc:boolean false
+          if obj.hasParamDesc {
+            def orp:RangerAppParamDesc obj.paramDesc
+            if orp.rust_needs_rc_wrap {
+              def orp_weak:boolean false
+              def orpNN@(optional):CodeNode orp.nameNode
+              if (!null? orpNN) {
+                if ((unwrap orpNN).hasFlag("weak")) {
+                  orp_weak = true
+                }
+              }
+              if (orp_weak == false) {
+                obj_is_rc = true
+              }
+            }
+          }
+          if obj_is_rc {
+            wr.out(").borrow_mut()." false)
+          } {
+            wr.out(")." false)
+          }
         }
       }
       
       wr.out(method.vref false)
       wr.out("(" false)
       ctx.setInExpr()
+      ; the hidden Rc argument of a method that stores `this`
+      def hc_wrote_selfrc:boolean false
+      if (!null? node.fnDesc) {
+        if (this.rustNeedsSelfRc((unwrap node.fnDesc) ctx)) {
+          if (((array_length obj.ns) <= 1) && (obj.expression == false)) {
+            wr.out("&" false)
+            this.WriteVRef(obj ctx wr)
+            hc_wrote_selfrc = true
+          } {
+            ctx.addError(node "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).")
+          }
+        }
+      }
 
       def pms (filter (args.children) {
         if (item.hasFlag("keyword")) {
@@ -1523,7 +1601,7 @@ class RangerRustClassWriter {
       def calledFnDesc@(optional):RangerAppFunctionDesc node.fnDesc
       
       for pms arg:CodeNode i {
-        if (i > 0) {
+        if ((i > 0) || hc_wrote_selfrc) {
           wr.out(", " false)
         }
         ; Check if this arg should use a pre-evaluated temp variable
@@ -2698,9 +2776,27 @@ class RangerRustClassWriter {
         if ((array_length node.children) > 2) {
           def valueNode:CodeNode (itemAt node.children 2)
           wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
+          ; a strong field of a shared class holds the Rc: wrap the initializer
+          def init_rc_wrap:boolean false
+          if pvar.rust_needs_rc_wrap {
+            def pvNN:CodeNode (unwrap pvar.nameNode)
+            if (pvNN.hasFlag("weak") == false) {
+              if (((strlen pvNN.array_type) == 0) && ((strlen pvNN.key_type) == 0)) {
+                if (pvar.is_optional == false) {
+                  init_rc_wrap = true
+                }
+              }
+            }
+          }
+          if init_rc_wrap {
+            wr.out("Rc::new(RefCell::new(" false)
+          }
           ctx.setInExpr()
           this.WalkNode(valueNode ctx wr)
           ctx.unsetInExpr()
+          if init_rc_wrap {
+            wr.out("))" false)
+          }
           wr.out(", " true)
         } {
           ; Initialize array fields with Vec::new()
@@ -3435,6 +3531,47 @@ class RangerRustClassWriter {
         }
       }
       
+      ; An assignment through a shared cell whose right side also reads a
+      ; shared cell must not hold borrow_mut and borrow at once: when two
+      ; names hold one object that panics (`RefCell already borrowed`). The
+      ; right side goes to a temporary first, so the borrows never overlap.
+      def preeval_rhs:boolean false
+      def preeval_name:string ""
+      if ((((is_weak == false) && (is_optional == false)) && (rhs_is_optional == false)) && (left_is_trait_type == false)) {
+        if ((array_length left.ns) >= 2) {
+          if ((array_length left.nsp) > 0) {
+            def lhsRootP:RangerAppParamDesc (itemAt left.nsp 0)
+            if lhsRootP.rust_needs_rc_wrap {
+              if (this.rustRhsReadsSharedCell(right)) {
+                preeval_rhs = true
+              }
+            }
+          }
+        } {
+          ; a bare Rc-wrapped name reassigned from a read through a cell:
+          ; the Ref temporary of the read must not span the assignment
+          if left.hasParamDesc {
+            def lhsBareP:RangerAppParamDesc left.paramDesc
+            if lhsBareP.rust_needs_rc_wrap {
+              if (this.rustRhsReadsSharedCell(right)) {
+                preeval_rhs = true
+              }
+            }
+          }
+        }
+      }
+      if preeval_rhs {
+        preeval_name = (ctx.rustGetTempVar())
+        wr.out((("let " + preeval_name) + " = ") false)
+        ctx.setInExpr()
+        this.WalkNode(right ctx wr)
+        if should_clone_rhs {
+          wr.out(".clone()" false)
+        }
+        ctx.unsetInExpr()
+        wr.out(";" true)
+      }
+
       ctx.setInExpr()
       ctx.setInLhs()  ; Mark that we're in LHS of assignment (for Rust as_mut vs as_ref)
       this.WalkNode(left ctx wr)
@@ -3514,10 +3651,17 @@ class RangerRustClassWriter {
           wr.out(".clone();" true)
         } {
           if is_self_ref {
-            ; Assignment to self-referential optional field: needs Some(Box::new(value.clone()))
-            wr.out(" = Some(Box::new(" false)
-            this.WalkNode(right ctx wr)
-            wr.out(".clone()));" true)
+            if (this.rustClassIsShared(field_type_name ctx)) {
+              ; an Rc field provides the indirection a Box used to
+              wr.out(" = Some(" false)
+              this.WalkNode(right ctx wr)
+              wr.out(".clone());" true)
+            } {
+              ; Assignment to self-referential optional field: needs Some(Box::new(value.clone()))
+              wr.out(" = Some(Box::new(" false)
+              this.WalkNode(right ctx wr)
+              wr.out(".clone()));" true)
+            }
           } {
             if left_is_trait_type {
               if rhs_is_already_boxed_trait {
@@ -3582,9 +3726,13 @@ class RangerRustClassWriter {
             wr.out("))" false)
           }
         } {
-          this.WalkNode(right ctx wr)
-          if should_clone_rhs {
-            wr.out(".clone()" false)
+          if preeval_rhs {
+            wr.out(preeval_name false)
+          } {
+            this.WalkNode(right ctx wr)
+            if should_clone_rhs {
+              wr.out(".clone()" false)
+            }
           }
         }
         ; If RHS is optional but LHS is not, need to unwrap
@@ -3828,9 +3976,12 @@ class RangerRustClassWriter {
         }
       }
       
-      ; Write the push operation
+      ; Write the push operation. The target is written through, so an
+      ; Rc<RefCell> segment on its path must borrow mutably.
       ctx.setInExpr()
+      ctx.setInLhs()
       this.WalkNode(left ctx wr)
+      ctx.unsetInLhs()
       wr.out(".push(" false)
       this.WalkNode(right ctx wr)
       
@@ -3896,6 +4047,11 @@ class RangerRustClassWriter {
         }
       }
       
+      ; an Rc field of a shared class provides its own indirection: no Box
+      if (this.rustClassIsShared(inner_type ctx)) {
+        needs_deref = false
+      }
+
       ctx.setInExpr()
       
       ; Handle weak references - need to upgrade() to get Rc, then borrow_mut() to access value

@@ -2044,9 +2044,92 @@ class StaticAnalyzer {
         }
       }
     }
+    ; an argument handed to a parameter the callee mutates is mutated too
+    if ((node.has_call || node.hasFnCall) || node.hasNewOper) {
+      def cmArgsAt:int 1
+      if (node.hasFnCall == false) {
+        if node.has_call {
+          cmArgsAt = 3
+        } {
+          cmArgsAt = 2
+        }
+      }
+      if ((array_length node.children) > cmArgsAt) {
+        def cmArgs:CodeNode (itemAt node.children cmArgsAt)
+        if (!null? node.fnDesc) {
+          def cmCallee:RangerAppFunctionDesc (unwrap node.fnDesc)
+          for cmArgs.children cmArg:CodeNode cmi {
+            if (cmi < (array_length cmCallee.params)) {
+              def cmParam:RangerAppParamDesc (itemAt cmCallee.params cmi)
+              if cmParam.sharing_mutates {
+                def cmName:string (this.escapeValueName(cmArg))
+                if ((strlen cmName) > 0) {
+                  push names cmName
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     for node.children child:CodeNode i {
       this.collectMutatedNames(child names)
     }
+  }
+
+  ; Which parameters does each function mutate, directly (a method call on
+  ; the name, a field store, a mutating operator) or by passing the name on
+  ; to a parameter that does? A fixpoint, because the chains nest.
+  fn computeSharingMutations:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    def changed:boolean true
+    def rounds:int 0
+    while changed {
+      changed = false
+      rounds = rounds + 1
+      if (rounds > 30) {
+        return
+      }
+      for root.definedClasses cl:RangerAppClassDesc ci {
+        for cl.methods m:RangerAppFunctionDesc i {
+          if (this.markSharingMutations(m)) {
+            changed = true
+          }
+        }
+        for cl.static_methods sm:RangerAppFunctionDesc i {
+          if (this.markSharingMutations(sm)) {
+            changed = true
+          }
+        }
+        if (!null? cl.constructor_fn) {
+          if (this.markSharingMutations((unwrap cl.constructor_fn))) {
+            changed = true
+          }
+        }
+      }
+    }
+  }
+
+  fn markSharingMutations:boolean (fn:RangerAppFunctionDesc) {
+    if (null? fn.fnBody) {
+      return false
+    }
+    def mutated:[string]
+    this.collectMutatedNames((unwrap fn.fnBody) mutated)
+    def changed:boolean false
+    for fn.params param:RangerAppParamDesc i {
+      if (param.sharing_mutates == false) {
+        if (this.nameIn(param.name mutated)) {
+          param.sharing_mutates = true
+          changed = true
+        }
+      }
+    }
+    return changed
   }
 
   fn nameIn:boolean (name:string names:[string]) {
@@ -2083,12 +2166,19 @@ class StaticAnalyzer {
       return true
     }
     if node.expression {
+      ; a macro expansion can wrap its result in an extra pair of parens
+      if ((array_length node.children) == 1) {
+        def only:CodeNode (node.getFirst())
+        if only.expression {
+          return (this.readsStoredObject(only))
+        }
+      }
       if ((array_length node.children) >= 2) {
         def first:CodeNode (node.getFirst())
         if (first.vref == "unwrap") {
           return (this.readsStoredObject((node.getSecond())))
         }
-        if ((first.vref == "itemAt") || (first.vref == "get")) {
+        if (((first.vref == "itemAt") || (first.vref == "at")) || (first.vref == "get")) {
           return true
         }
       }
@@ -2121,10 +2211,24 @@ class StaticAnalyzer {
         }
 
         ; a return of stored state hands the caller an alias of the object
-        ; graph; any caller can then mutate the stored object through it
+        ; graph; any caller can then mutate the stored object through it.
+        ; The short form counts too: `return dcTable0` returns the field as
+        ; surely as `return this.dcTable0`.
         if ((first.vref == "return") && ((array_length node.children) >= 2)) {
           def rv:CodeNode (node.getSecond())
-          if (this.readsStoredObject(rv)) {
+          def returnsStored:boolean (this.readsStoredObject(rv))
+          if (returnsStored == false) {
+            def rname:string (this.escapeValueName(rv))
+            if ((strlen rname) > 0) {
+              def rp:RangerAppParamDesc (fnCtx.getVariableDef(rname))
+              if ((strlen rp.name) > 0) {
+                if rp.is_class_variable {
+                  returnsStored = true
+                }
+              }
+            }
+          }
+          if returnsStored {
             def cf@(optional):RangerAppFunctionDesc currentFunction
             if (!null? cf) {
               def cfn:RangerAppFunctionDesc (unwrap cf)
@@ -2243,6 +2347,9 @@ class StaticAnalyzer {
     if (null? ctx) {
       return
     }
+    ; which parameters each function mutates, chains included — the alias
+    ; rules below read it through the per-function mutated-name sets
+    this.computeSharingMutations()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     for root.definedClasses cl:RangerAppClassDesc ci {
       ; a weak field can only exist against an Rc: the target class is shared
@@ -2354,6 +2461,93 @@ class StaticAnalyzer {
     }
     for node.children child:CodeNode i {
       this.walkForSharedLocals(child)
+    }
+  }
+
+  ; Does this body use `this` as a value (a bare `this` node, not the
+  ; receiver of a field or a call)?
+  fn fnUsesThisValue:boolean (fn:RangerAppFunctionDesc) {
+    if (null? fn.fnBody) {
+      return false
+    }
+    def found false
+    def fb:CodeNode (unwrap fn.fnBody)
+    fb.forTree({
+      if (item.vref == "this") {
+        found = true
+      }
+    })
+    return found
+  }
+
+  ; Does this body self-call a method that already needs the self Rc?
+  fn fnSelfCallsNeedy:boolean (fn:RangerAppFunctionDesc) {
+    if (null? fn.fnBody) {
+      return false
+    }
+    def found false
+    def fb:CodeNode (unwrap fn.fnBody)
+    fb.forTree({
+      if item.hasFnCall {
+        if ((array_length item.children) > 0) {
+          def fc:CodeNode (item.getFirst())
+          if ((array_length fc.ns) == 2) {
+            if ((itemAt fc.ns 0) == "this") {
+              if (!null? item.fnDesc) {
+                def cf:RangerAppFunctionDesc (unwrap item.fnDesc)
+                if cf.rust_needs_self_rc {
+                  found = true
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+    return found
+  }
+
+  ; Which methods of the shared classes need __self_rc: the direct users of
+  ; `this` as a value, plus — to a fixpoint — every method that self-calls
+  ; one, because the callee's hidden argument has to come from somewhere.
+  fn computeSelfRcNeeds:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      if (cl.rust_needs_ref_semantics == false) {
+        continue
+      }
+      for cl.methods m:RangerAppFunctionDesc i {
+        if (m.is_lambda == false) {
+          if (this.fnUsesThisValue(m)) {
+            m.rust_needs_self_rc = true
+          }
+        }
+      }
+    }
+    def changed:boolean true
+    def rounds:int 0
+    while changed {
+      changed = false
+      rounds = rounds + 1
+      if (rounds > 30) {
+        return
+      }
+      for root.definedClasses cl:RangerAppClassDesc ci {
+        if (cl.rust_needs_ref_semantics == false) {
+          continue
+        }
+        for cl.methods m:RangerAppFunctionDesc i {
+          if (m.rust_needs_self_rc == false) {
+            if (this.fnSelfCallsNeedy(m)) {
+              m.rust_needs_self_rc = true
+              changed = true
+            }
+          }
+        }
+      }
     }
   }
 

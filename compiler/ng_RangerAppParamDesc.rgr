@@ -106,6 +106,10 @@ class RangerAppParamDesc {
   def rust_assigned_to_weak:boolean false  ; Parameter is assigned to @(weak) field
   def rust_needs_rc_wrap:boolean false      ; Parameter needs Rc<RefCell<T>> type in Rust
   def rust_assigned_to_field:boolean false  ; Parameter is assigned to a class field (requires owned)
+  ; Set by StaticAnalyzer.computeSharingMutations (target-independent): the
+  ; function mutates the object this parameter names — directly, or by
+  ; passing it on to a parameter that does.
+  def sharing_mutates:boolean false
 
   ; Inferred ownership (target-independent escape summary, OwnershipKind).
   ; Computed by StaticAnalyzer.analyzeOwnershipAll; consumed later by LowIR / Rust adapters.

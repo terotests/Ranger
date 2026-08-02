@@ -746,6 +746,7 @@ class tester {
           ; experimental (PLAN_RUST_OWNERSHIP 2b): shared classes as Rc<RefCell<T>>
           if (appCtx.hasCompilerFlag("rust-shared-classes")) {
             ownAnalyzer.applySharedClassRcWrap()
+            ownAnalyzer.computeSelfRcNeeds()
           }
         }
       }

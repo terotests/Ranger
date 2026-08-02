@@ -234,12 +234,43 @@ the same as the ES6 output. A field read borrows shared
 two reads of one cell can overlap; that turned the probe's
 `RefCell already borrowed` panic into the right answer.
 
-What the flag still does not cover: a `this`-value method called through a
-receiver chain the writer cannot name (`(expr).method(x)`), and an
-assignment whose right side reads the same cell its left side writes
-(`a.name = b.name` when the two names hold one object needs the right side
-in a temporary first). The conformance suite over a larger program (the
-`evg` gallery) is the right gate before the flag can default on.
+The two edges after that are closed as well. `__self_rc` is transitive
+(`computeSelfRcNeeds`: the direct users of `this` as a value plus, to a
+fixpoint, every method that self-calls one), a `this`-value call through a
+receiver the writer cannot name is a compiler error that says to bind the
+receiver first, and a call from a constructor — where no Rc exists yet — is
+one too. An assignment whose right side reads a shared cell pre-evaluates
+the right side into a temporary (`a.name = c.name` with `c` an alias of `a`
+used to panic `RefCell already borrowed`; it now prints what the ES6 output
+prints), and the same rule covers a bare Rc name reassigned from a read
+through its own cell (`chunk = chunk.next` in a list walk).
+
+### The conformance gate, run against `jpeg_scaler.rgr`
+
+The gate was the flag on the largest program in the repository, compared
+against the C++ image (which is byte-identical to the ES6 image). It caught
+six real faults, each fixed and re-run:
+
+| Round | `rustc` | Huffman decode errors | Output |
+| --- | --- | --- | --- |
+| Flag off (the baseline fault) | 0 errors | 4332 | 625 bytes, wrong |
+| First flag-on build | 4 error kinds | — | constructor inits, self-referential `Box`, deref unwraps |
+| After those | 1 | — | `push` through a cell read `borrow()` |
+| Sharing analysis misses found by the gate | — | 4332 → 21 → 2 | `return dcTable0` (short-form field return), `at` (a macro whose expansion hides `itemAt` behind parens), and mutation through call arguments (`decodeDCFirstBlock(reader buf …)` mutates `buf`) — `computeSharingMutations` now propagates mutation through call chains to a fixpoint |
+| Final | **0 errors** | **2** | **8413 bytes** |
+
+The verdict on the program is now 18 `value` classes and 4 shared —
+`BufferChunk`, `HuffmanTable`, `JPEGComponent`, `CoeffBuffer`, exactly the
+decoder's mutable state — and the flag-off outputs of every target remain
+byte for byte what they were.
+
+**What remains open, precisely:** two Huffman symbols across two AC-refine
+scans decode wrongly (the ES6 and C++ runs decode the same scans with zero
+errors), so the final image is 8413 bytes against the reference's 180280.
+The divergence is bit-level in the progressive AC-refinement path and needs
+targeted instrumentation (per-scan reader positions and coefficient
+checksums) rather than more emission rules; every structural fault the gate
+found is fixed. Until that closes, the flag stays experimental.
 
 ## How to check
 
