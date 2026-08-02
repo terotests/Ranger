@@ -1182,8 +1182,6 @@ class TSParserSimple {
         }
         ; An import introduces a lexical binding at module scope.
         this.declareBinding("l" spec.value)
-        
-        this.registerExportName(spec.value)
 
         push specifiers spec
         
@@ -1350,6 +1348,7 @@ class TSParserSimple {
         } {
           spec.value = localName.value
         }
+        this.registerExportName(spec.value)
         
         push specifiers spec
         
@@ -6005,6 +6004,8 @@ class TSParserSimple {
           this.advance()
         }
         
+        ; A getter takes no parameters and a setter takes exactly one, which
+        ; may not be a rest element.
         ; Check for method shorthand or getter/setter: { foo() {} } or { get x() {} }
         if (this.matchValue("(")) {
           isMethod = true
@@ -6048,6 +6049,21 @@ class TSParserSimple {
             push fnNode.params mParam
           }
           this.expectValue(")")
+          if isGetter {
+            if ((array_length fnNode.params) != 0) {
+              this.syntaxError("Parse error: a getter takes no parameters")
+            }
+          }
+          if isSetter {
+            if ((array_length fnNode.params) != 1) {
+              this.syntaxError("Parse error: a setter takes exactly one parameter")
+            } {
+              def setParam:TSNode (itemAt fnNode.params 0)
+              if (setParam.nodeType == "RestElement") {
+                this.syntaxError("Parse error: a setter parameter may not be a rest element")
+              }
+            }
+          }
           ; Parse optional return type
           if (this.matchValue(":")) {
             this.advance()

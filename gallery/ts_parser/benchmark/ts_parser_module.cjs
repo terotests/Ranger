@@ -2447,7 +2447,6 @@ class TSParserSimple  {
           spec.value = importedName.value;
         }
         this.declareBinding("l", spec.value);
-        this.registerExportName(spec.value);
         specifiers.push(spec);
         if ( this.matchValue(",") ) {
           this.advance();
@@ -2578,6 +2577,7 @@ class TSParserSimple  {
         } else {
           spec.value = localName.value;
         }
+        this.registerExportName(spec.value);
         specifiers.push(spec);
         if ( this.matchValue(",") ) {
           this.advance();
@@ -6222,6 +6222,21 @@ class TSParserSimple  {
             fnNode.params.push(mParam);
           };
           this.expectValue(")");
+          if ( isGetter ) {
+            if ( (fnNode.params.length) != 0 ) {
+              this.syntaxError("Parse error: a getter takes no parameters");
+            }
+          }
+          if ( isSetter ) {
+            if ( (fnNode.params.length) != 1 ) {
+              this.syntaxError("Parse error: a setter takes exactly one parameter");
+            } else {
+              const setParam = fnNode.params[0];
+              if ( setParam.nodeType == "RestElement" ) {
+                this.syntaxError("Parse error: a setter parameter may not be a rest element");
+              }
+            }
+          }
           if ( this.matchValue(":") ) {
             this.advance();
             fnNode.typeAnnotation = this.parseType();
