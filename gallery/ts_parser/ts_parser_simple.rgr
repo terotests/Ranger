@@ -119,6 +119,11 @@ class TSParserSimple {
   ; Whether the source is a module. Scripts may not use import or export.
   ; Defaults to module, which is what the engine feeds it.
   def moduleMode:boolean true
+  ; Whether TypeScript-only syntax is accepted. A class field may carry a type
+  ; annotation in TS (`class A { a: number }`) but not in JavaScript, so a
+  ; caller parsing plain JS turns this off, the way every parser gates its TS
+  ; support.
+  def typeScriptMode:boolean true
   ; True while a parameter list is being read. A parameter default may not
   ; contain a yield expression, even inside a generator.
   def inParamList:boolean false
@@ -186,6 +191,10 @@ class TSParserSimple {
 
   fn setModuleMode:void (enabled:boolean) {
     this.moduleMode = enabled
+  }
+
+  fn setTypeScriptMode:void (enabled:boolean) {
+    this.typeScriptMode = enabled
   }
   
   fn peek:Token () {
@@ -598,6 +607,13 @@ class TSParserSimple {
     if (this.isAlwaysReservedWord(name)) {
       this.syntaxError("Parse error: '" + name + "' is a reserved word and cannot be used as a name")
       return
+    }
+    ; Module code reserves `await` throughout. Checked before the strict block,
+    ; which returns early and would otherwise hide it -- module code is strict.
+    if (this.moduleMode) {
+      if (name == "await") {
+        this.syntaxError("Parse error: 'await' cannot be used as a name in a module")
+      }
     }
     if (this.strictMode) {
       if (this.isStrictReservedWord(name)) {
@@ -2510,6 +2526,9 @@ class TSParserSimple {
       
       ; Type annotation
       if (this.matchValue(":")) {
+        if (this.typeScriptMode == false) {
+          this.syntaxError("Parse error: a class field cannot carry a type annotation in JavaScript")
+        }
         def typeAnnot (this.parseTypeAnnotation())
         member.typeAnnotation = typeAnnot
       }
@@ -6680,6 +6699,11 @@ class TSParserSimple {
           prop.computed = true
         }
         if (this.isObjectPropertyKeyToken()) {
+          if (this.strictMode) {
+            if (keyTok.legacyOctal) {
+              this.syntaxError("Parse error: a leading-zero numeric key is not allowed in strict mode")
+            }
+          }
           prop.name = keyTok.value
           this.advance()
         } {

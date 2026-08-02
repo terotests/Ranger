@@ -1866,6 +1866,10 @@ class TSLexer  {
       if ( ch == "\\" ) {
         value = value + this.advance();
         if ( this.pos < this.__len ) {
+          const escCh = this.peek();
+          if ( (escCh == "\n") || (escCh == "\r") ) {
+            break;
+          }
           value = value + this.advance();
         }
       } else {
@@ -2010,6 +2014,7 @@ class TSParserSimple  {
     this.patternAllowsMemberTarget = false;
     this.exportedNames = [];
     this.moduleMode = true;
+    this.typeScriptMode = true;
     this.inParamList = false;
     this.parsingFunctionExpression = false;
     this.pendingExportRefs = [];
@@ -2047,6 +2052,9 @@ class TSParserSimple  {
   };
   setModuleMode (enabled) {
     this.moduleMode = enabled;
+  };
+  setTypeScriptMode (enabled) {
+    this.typeScriptMode = enabled;
   };
   peek () {
     return this.currentToken;
@@ -2436,6 +2444,11 @@ class TSParserSimple  {
     if ( this.isAlwaysReservedWord(name) ) {
       this.syntaxError(("Parse error: '" + name) + "' is a reserved word and cannot be used as a name");
       return;
+    }
+    if ( this.moduleMode ) {
+      if ( name == "await" ) {
+        this.syntaxError("Parse error: 'await' cannot be used as a name in a module");
+      }
     }
     if ( this.strictMode ) {
       if ( this.isStrictReservedWord(name) ) {
@@ -4025,6 +4038,9 @@ class TSParserSimple  {
         member.kind = "static";
       }
       if ( this.matchValue(":") ) {
+        if ( this.typeScriptMode == false ) {
+          this.syntaxError("Parse error: a class field cannot carry a type annotation in JavaScript");
+        }
         const typeAnnot = this.parseTypeAnnotation();
         member.typeAnnotation = typeAnnot;
       }
@@ -7315,6 +7331,11 @@ class TSParserSimple  {
           prop.computed = true;
         }
         if ( this.isObjectPropertyKeyToken() ) {
+          if ( this.strictMode ) {
+            if ( keyTok.legacyOctal ) {
+              this.syntaxError("Parse error: a leading-zero numeric key is not allowed in strict mode");
+            }
+          }
           prop.name = keyTok.value;
           this.advance();
         } else {

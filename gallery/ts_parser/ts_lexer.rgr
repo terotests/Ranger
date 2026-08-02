@@ -1566,6 +1566,9 @@ class TSLexer {
             if (ch == "\\") {
                 value = value + (this.advance())
                 if (pos < len) {
+                    def escCh:string (this.peek())
+                    ; A backslash does not escape a line terminator here.
+                    if ((escCh == "\n") || (escCh == "\r")) { break }
                     value = value + (this.advance())
                 }
             } {
