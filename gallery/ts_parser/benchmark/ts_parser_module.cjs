@@ -614,6 +614,14 @@ class TSLexer  {
         i = i + 1;
       };
     }
+    if ( code > 65535 ) {
+      const rest = code - 65536;
+      const restD = rest;
+      const high = Math.floor((restD / 1024.0));
+      const hi = 55296 + high;
+      const lo = 56320 + (rest - (high * 1024));
+      return (String.fromCharCode(hi)) + (String.fromCharCode(lo));
+    }
     return String.fromCharCode(code);
   };
   readIdentifier () {
@@ -1392,6 +1400,7 @@ class TSParserSimple  {
     this.activeLabels = [];
     this.iterationLabels = [];
     this.pendingLabel = "";     /** note: unused */
+    this.inGenerator = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -1664,6 +1673,12 @@ class TSParserSimple  {
     if ( this.strictMode ) {
       if ( this.isStrictReservedWord(name) ) {
         this.syntaxError(("Parse error: '" + name) + "' cannot be used as a name in strict mode");
+      }
+      return;
+    }
+    if ( this.inGenerator ) {
+      if ( name == "yield" ) {
+        this.syntaxError("Parse error: 'yield' cannot be used as a name inside a generator");
       }
     }
   };
@@ -2272,6 +2287,7 @@ class TSParserSimple  {
         } else {
           spec.value = importedName.value;
         }
+        this.declareBinding("l", spec.value);
         specifiers.push(spec);
         if ( this.matchValue(",") ) {
           this.advance();
@@ -2868,6 +2884,8 @@ class TSParserSimple  {
         member.async = true;
       }
       this.pushScope(true);
+      const savedMethodGenerator = this.inGenerator;
+      this.inGenerator = member.generator;
       const savedMethodSuperCall = this.allowSuperCall;
       const savedMethodSuperProp = this.allowSuperProperty;
       const savedmethIter = this.iterationDepth;
@@ -2918,6 +2936,7 @@ class TSParserSimple  {
       this.popScope();
       this.allowSuperCall = savedMethodSuperCall;
       this.allowSuperProperty = savedMethodSuperProp;
+      this.inGenerator = savedMethodGenerator;
       this.iterationDepth = savedmethIter;
       this.switchDepth = savedmethSwitch;
       this.activeLabels = savedmethLabels;
@@ -3671,6 +3690,8 @@ class TSParserSimple  {
       this.advance();
       node.generator = true;
     }
+    const savedGenerator = this.inGenerator;
+    this.inGenerator = node.generator;
     if ( this.matchValue("(") == false ) {
       const nameTok = this.expectBindingName();
       node.name = nameTok.value;
@@ -3718,6 +3739,7 @@ class TSParserSimple  {
     this.popScope();
     this.allowSuperCall = savedSuperCall;
     this.allowSuperProperty = savedSuperProp;
+    this.inGenerator = savedGenerator;
     this.iterationDepth = savedfnIter;
     this.switchDepth = savedfnSwitch;
     this.activeLabels = savedfnLabels;
@@ -5098,7 +5120,7 @@ class TSParserSimple  {
       unary_2.col = opTok_3.col;
       return unary_2;
     }
-    if ( tokVal == "yield" ) {
+    if ( (tokVal == "yield") && this.inGenerator ) {
       const yieldTok = this.peek();
       this.advance();
       const yieldExpr = new TSNode();
@@ -5804,6 +5826,8 @@ class TSParserSimple  {
           fnNode.nodeType = "FunctionExpression";
           this.advance();
           this.pushScope(true);
+          const savedObjGenerator = this.inGenerator;
+          this.inGenerator = prop.generator;
           const savedObjSuperCall = this.allowSuperCall;
           const savedObjSuperProp = this.allowSuperProperty;
           const savedobjIter = this.iterationDepth;
@@ -5840,6 +5864,7 @@ class TSParserSimple  {
           this.popScope();
           this.allowSuperCall = savedObjSuperCall;
           this.allowSuperProperty = savedObjSuperProp;
+          this.inGenerator = savedObjGenerator;
           this.iterationDepth = savedobjIter;
           this.switchDepth = savedobjSwitch;
           this.activeLabels = savedobjLabels;
@@ -5932,6 +5957,7 @@ class TSParserSimple  {
       node.kind = "async";
     }
     this.pushScope(true);
+    const savedArrowGenerator = this.inGenerator;
     const savedArrowIter = this.iterationDepth;
     const savedArrowSwitch = this.switchDepth;
     const savedArrowLabels = this.activeLabels;
@@ -5982,6 +6008,7 @@ class TSParserSimple  {
     this.switchDepth = savedArrowSwitch;
     this.activeLabels = savedArrowLabels;
     this.iterationLabels = savedArrowIterLabels;
+    this.inGenerator = savedArrowGenerator;
     return node;
   };
   parseNewExpression () {

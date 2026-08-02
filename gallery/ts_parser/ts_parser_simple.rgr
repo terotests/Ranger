@@ -88,6 +88,9 @@ class TSParserSimple {
   def iterationLabels:[string]
   ; Label being attached to the statement about to be parsed, if any.
   def pendingLabel:string ""
+  ; Whether the enclosing function is a generator. Inside one, `yield` is an
+  ; operator and may not name a binding.
+  def inGenerator:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -385,6 +388,12 @@ class TSParserSimple {
     if (this.strictMode) {
       if (this.isStrictReservedWord(name)) {
         this.syntaxError("Parse error: '" + name + "' cannot be used as a name in strict mode")
+      }
+      return
+    }
+    if (this.inGenerator) {
+      if (name == "yield") {
+        this.syntaxError("Parse error: 'yield' cannot be used as a name inside a generator")
       }
     }
   }
@@ -1063,6 +1072,8 @@ class TSParserSimple {
         } {
           spec.value = importedName.value
         }
+        ; An import introduces a lexical binding at module scope.
+        this.declareBinding("l" spec.value)
         
         push specifiers spec
         
@@ -1864,6 +1875,8 @@ class TSParserSimple {
       ; A method's parameters and body share one scope, and duplicate
       ; parameters are always an error in a method.
       this.pushScope(true)
+      def savedMethodGenerator:boolean this.inGenerator
+      this.inGenerator = member.generator
       def savedMethodSuperCall:boolean this.allowSuperCall
       def savedMethodSuperProp:boolean this.allowSuperProperty
       ; A function is a break/continue boundary: labels do not cross it.
@@ -1921,6 +1934,7 @@ class TSParserSimple {
       this.popScope()
       this.allowSuperCall = savedMethodSuperCall
       this.allowSuperProperty = savedMethodSuperProp
+      this.inGenerator = savedMethodGenerator
       this.iterationDepth = savedmethIter
       this.switchDepth = savedmethSwitch
       this.activeLabels = savedmethLabels
@@ -2884,6 +2898,10 @@ class TSParserSimple {
       this.advance()
       node.generator = true
     }
+
+    ; The name belongs to this function's context, not the enclosing one.
+    def savedGenerator:boolean this.inGenerator
+    this.inGenerator = node.generator
     
     ; Name is optional: `function () {}` is legal both as an expression and as
     ; the body of `export default function () {}`. When present it may be a
@@ -2952,6 +2970,7 @@ class TSParserSimple {
     this.popScope()
     this.allowSuperCall = savedSuperCall
     this.allowSuperProperty = savedSuperProp
+    this.inGenerator = savedGenerator
     this.iterationDepth = savedfnIter
     this.switchDepth = savedfnSwitch
     this.activeLabels = savedfnLabels
@@ -4766,7 +4785,7 @@ class TSParserSimple {
     }
     
     ; yield expression: yield value, yield* generator()
-    if (tokVal == "yield") {
+    if ((tokVal == "yield") && this.inGenerator) {
       def yieldTok (this.peek())
       this.advance()
       
@@ -5644,6 +5663,8 @@ class TSParserSimple {
           ; A method's parameters and body share one scope, and duplicate
           ; parameters are always an error in a method.
           this.pushScope(true)
+          def savedObjGenerator:boolean this.inGenerator
+          this.inGenerator = prop.generator
           def savedObjSuperCall:boolean this.allowSuperCall
           def savedObjSuperProp:boolean this.allowSuperProperty
           ; A function is a break/continue boundary: labels do not cross it.
@@ -5684,6 +5705,7 @@ class TSParserSimple {
           this.popScope()
           this.allowSuperCall = savedObjSuperCall
           this.allowSuperProperty = savedObjSuperProp
+          this.inGenerator = savedObjGenerator
           this.iterationDepth = savedobjIter
           this.switchDepth = savedobjSwitch
           this.activeLabels = savedobjLabels
@@ -5816,6 +5838,7 @@ class TSParserSimple {
     ; An arrow's parameters and its body share one scope.
     this.pushScope(true)
     ; An arrow inherits `super` lexically but is still a break/continue boundary.
+    def savedArrowGenerator:boolean this.inGenerator
     def savedArrowIter:int this.iterationDepth
     def savedArrowSwitch:int this.switchDepth
     def savedArrowLabels:[string] this.activeLabels
@@ -5877,6 +5900,7 @@ class TSParserSimple {
     this.switchDepth = savedArrowSwitch
     this.activeLabels = savedArrowLabels
     this.iterationLabels = savedArrowIterLabels
+    this.inGenerator = savedArrowGenerator
 
     return node
   }

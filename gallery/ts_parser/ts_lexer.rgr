@@ -598,6 +598,17 @@ class TSLexer {
                 i = (i + 1)
             }
         }
+        ; strfromcode is a code-UNIT constructor, so a supplementary-plane code
+        ; point has to be written as its surrogate pair — otherwise \u{E01D5}
+        ; truncated to U+01D5 and collided with an unrelated identifier.
+        if (code > 65535) {
+            def rest:int (code - 65536)
+            def restD:double (to_double rest)
+            def high:int (floor (restD / 1024.0))
+            def hi:int (55296 + high)
+            def lo:int (56320 + (rest - (high * 1024)))
+            return ((strfromcode hi) + (strfromcode lo))
+        }
         return (strfromcode code)
     }
 
