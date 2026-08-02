@@ -19,6 +19,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import * as path from "path";
 import * as fs from "fs";
 import { execFileSync } from "child_process";
+import * as vm from "vm";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
 
@@ -1109,6 +1110,43 @@ const KNOWN_GAPS = new Set<string>([
   "err-nullish",
 ]);
 
+/**
+ * Probes that must run as a SCRIPT rather than inside a function, because what
+ * they check IS the script's global scope: a top-level `var` and a function
+ * declaration are properties of the global object, and top-level `this` is that
+ * object. A function wrapper makes those names locals and the rules invisible.
+ *
+ * Each entry is a whole program that assigns its answer to `__out__`. Node runs
+ * the same text in a `vm` context, which gives a real script global — `new
+ * Function` would reintroduce exactly the wrapper being avoided.
+ */
+const SCRIPT_PROBES: Array<[name: string, src: string]> = [
+  ["script-this-is-globalthis", "__out__ = String(this === globalThis);"],
+  ["script-var-is-global-property", "var q = 3;\n__out__ = String(this.q);"],
+  ["script-fndecl-is-global-property", "function f() { return 1; }\n__out__ = typeof this.f;"],
+  ["script-var-in-block-is-global-property", "if (true) { var w = 4; }\n__out__ = String(this.w);"],
+  ["script-var-in-try-is-global-property", "try { var t = 5; } catch (e) {}\n__out__ = String(this.t);"],
+  ["script-var-property-tracks-reassignment", "var r = 1;\nr = 2;\n__out__ = String(this.r);"],
+  ["script-let-is-not-global-property", "let m = 1;\n__out__ = String(this.m);"],
+  ["script-const-is-not-global-property", "const k = 1;\n__out__ = String(this.k);"],
+  ["script-hoisted-var-is-undefined-property", "__out__ = String(this.later);\nvar later = 9;"],
+  ["script-implicit-global-is-property", "zz = 7;\n__out__ = String(this.zz);"],
+  ["script-global-tostring-override", "var toString = function () { return '__THIS__'; };\n__out__ = String(this);"],
+  ["script-function-local-var-is-not-global", "var s = 1;\nfunction g() { var s = 2; return s; }\ng();\n__out__ = String(this.s);"],
+];
+
+/**
+ * Script-level probes that do NOT hold, asserted in both directions like
+ * KNOWN_GAPS so a fix forces the list to be updated.
+ */
+const SCRIPT_KNOWN_GAPS = new Set<string>([
+  // Top-level `var` INITIALISERS run ahead of the script's other statements
+  // rather than in source order, so a read before the declaration sees the
+  // initialised value instead of undefined. The binding hoists correctly; it is
+  // the order the initialiser runs in that is wrong.
+  "script-hoisted-var-is-undefined-property",
+]);
+
 /** A module and an entry that imports from it, to check export visibility. */
 const MODULE_SOURCE = [
   "const shown = 10;",
@@ -1255,6 +1293,46 @@ describe("runtime conformance (interp realm)", () => {
         expect(engineResults.get(name)).toEqual(nodeResults.get(name));
       });
     }
+  });
+
+  const scriptOutcome = (src: string) => {
+    const wrapped = "var __out__ = '<unset>';\n" + src + "\n";
+    const context: any = vm.createContext({});
+    vm.runInContext(wrapped, context);
+    const expected = String(context.__out__);
+
+    const e = new ComponentEngine();
+    e.quiet = true;
+    const original = console.log;
+    console.log = () => {};
+    let actual: string;
+    try {
+      e.loadScript(wrapped + "function __read__() { return __out__; }\n");
+      actual = String(engineValue(e, "__read__"));
+    } finally {
+      console.log = original;
+    }
+    return { expected, actual };
+  };
+
+  describe("script-level rules match Node running the same script", () => {
+    for (const [name, src] of SCRIPT_PROBES) {
+      if (SCRIPT_KNOWN_GAPS.has(name)) continue;
+      it(name, () => {
+        const { expected, actual } = scriptOutcome(src);
+        expect(actual).toEqual(expected);
+      });
+    }
+  });
+
+  it("script-level known gaps still fail (remove one when it is fixed)", () => {
+    const nowWorking: string[] = [];
+    for (const [name, src] of SCRIPT_PROBES) {
+      if (!SCRIPT_KNOWN_GAPS.has(name)) continue;
+      const { expected, actual } = scriptOutcome(src);
+      if (actual === expected) nowWorking.push(name);
+    }
+    expect(nowWorking).toEqual([]);
   });
 
   it("known gaps still fail (remove one from KNOWN_GAPS when it is fixed)", () => {

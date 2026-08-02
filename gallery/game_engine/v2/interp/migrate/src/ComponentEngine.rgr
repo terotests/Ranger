@@ -50,6 +50,11 @@ class EvalContext {
     def parent@(optional):EvalContext
     ; Root module scope for this script (propagated to child scopes).
     def moduleRoot@(optional):EvalContext
+    ; D-GLOBALTHIS: true only for the scope that IS a script's global scope. A
+    ; var bound there is also a property of the global object; a var of the same
+    ; name bound anywhere else is not, so the two have to be told apart before a
+    ; write is mirrored.
+    def isGlobalScope:boolean false
     
     fn define:void (name:string value:EvalValue) {
         set bindings name value
@@ -259,6 +264,12 @@ class ComponentEngine {
     ; `Date.now()` and `new Date()` report this, and an embedder that wants a
     ; moving clock advances it.
     def hostNowMs:double 0.0
+    ; D-GLOBALTHIS: the script's var-and-function names, which are properties of
+    ; the global object as well as bindings. Recorded so a later assignment can
+    ; keep the two in step; let/const are not here, and are not properties.
+    ; syncGlobalVar runs on EVERY identifier assignment, so "is this one of them"
+    ; has to be a map probe rather than a scan of a list.
+    def globalVarSet:[string:boolean]
     def basePath:string "./"
     def assetPaths:[string]  ; Multiple asset directories for component resolution
     def pageWidth:double 595.0
@@ -605,8 +616,11 @@ class ComponentEngine {
         def scope:EvalContext (new EvalContext())
         scope.parent = hostScope
         scope.moduleRoot = scope
+        scope.isGlobalScope = true
         moduleScope = scope
         context = scope
+        def freshGlobalVars:[string:boolean]
+        globalVarSet = freshGlobalVars
         this.clearLocalComponents()
         this.clearImportState()
         def emptyFiles:[string]
@@ -1407,8 +1421,11 @@ class ComponentEngine {
         def scope:EvalContext (new EvalContext())
         scope.parent = hostScope
         scope.moduleRoot = scope
+        scope.isGlobalScope = true
         moduleScope = scope
         context = scope
+        def freshGlobalVars:[string:boolean]
+        globalVarSet = freshGlobalVars
         this.clearLocalComponents()
         this.clearImportState()
         def emptyFiles:[string]
@@ -1416,6 +1433,10 @@ class ComponentEngine {
         this.processImports(ast)
         ; Functions first so const initializers may call helpers.
         this.registerComponents(ast)
+        ; D-GLOBALTHIS: the var and function names exist as properties of the
+        ; global object BEFORE any initialiser runs -- a hoisted var is
+        ; undefined, not absent -- so `var x = typeof this.f` sees f.
+        this.publishGlobalVarNames(ast)
         this.processVariables(ast)
         this.runTopLevelStatements(ast)
     }
@@ -2115,6 +2136,127 @@ class ComponentEngine {
             this.processTopLevelVarNode(node)
             i = i + 1
         }
+        this.publishGlobalVarNames(ast)
+    }
+
+    ; D-GLOBALTHIS: a script's `var` and function declarations are properties of
+    ; the global object, wherever in the script they were written. Only the
+    ; TOP-LEVEL statements were mirrored, so a `var` inside a block or a `try`
+    ; -- still script-scoped, since var hoisting does not stop at a block --
+    ; was a binding and not a property, and a function declaration was neither.
+    ; let/const/class are deliberately absent: they live in the declarative
+    ; environment, and `let x` really is not `globalThis.x`.
+    fn publishGlobalVarNames:void (ast:TSNode) {
+        def names:[string]
+        this.collectScriptVarNames(ast.children names 0)
+        def gObj:EvalValue (this.theGlobalObject())
+        ; ADDED to, never replaced: a second script loaded into the same realm
+        ; (loadAdditionalScript) publishes its own names without unregistering
+        ; the first script's, which would silently stop mirroring them.
+        def si:int 0
+        while (si < (array_length names)) {
+            set globalVarSet (itemAt names si) true
+            si = (si + 1)
+        }
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            if (context.has(nm)) {
+                gObj.setMember(nm (context.lookup(nm)))
+            } {
+                ; Hoisted but not yet initialised: the property exists and holds
+                ; undefined, which is what a read before the declaration sees.
+                if (false == (has gObj.objectMap nm)) {
+                    gObj.setMember(nm (EvalValue.undefined()))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn collectScriptVarNames:void (stmts:[TSNode] out:[string] depth:int) {
+        if (depth > 24) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length stmts)) {
+            def node:TSNode (itemAt stmts i)
+            def nt:string node.nodeType
+            if (nt == "FunctionDeclaration") {
+                if ((strlen node.name) > 0) {
+                    push out node.name
+                }
+            } {
+                ; A nested function carries its own vars; do not descend into it.
+                def opaque:boolean false
+                if (nt == "FunctionExpression") { opaque = true }
+                if (nt == "ArrowFunctionExpression") { opaque = true }
+                if (nt == "ClassDeclaration") { opaque = true }
+                if (false == opaque) {
+                    if (nt == "VariableDeclaration") {
+                        if ((node.kind == "var") || ((strlen node.kind) == 0)) {
+                            def ci:int 0
+                            while (ci < (array_length node.children)) {
+                                def decl:TSNode (itemAt node.children ci)
+                                if ((strlen decl.name) > 0) {
+                                    push out decl.name
+                                }
+                                ci = (ci + 1)
+                            }
+                        }
+                    } {
+                        this.collectScriptVarNames(node.children out (depth + 1))
+                        if node.body {
+                            def bodyKids:[TSNode]
+                            push bodyKids (unwrap node.body)
+                            this.collectScriptVarNames(bodyKids out (depth + 1))
+                        }
+                        if node.left {
+                            def leftKids:[TSNode]
+                            push leftKids (unwrap node.left)
+                            this.collectScriptVarNames(leftKids out (depth + 1))
+                        }
+                        if node.consequent {
+                            def consKids:[TSNode]
+                            push consKids (unwrap node.consequent)
+                            this.collectScriptVarNames(consKids out (depth + 1))
+                        }
+                        if node.alternate {
+                            def altKids:[TSNode]
+                            push altKids (unwrap node.alternate)
+                            this.collectScriptVarNames(altKids out (depth + 1))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A script's var IS a property of the global object, so writing the binding
+    ; has to write the property. Without this the two drift apart the first time
+    ; the name is reassigned, and the object keeps the value it was seeded with.
+    fn syncGlobalVar:void (name:string value:EvalValue) {
+        if (false == (this.isGlobalVarName(name))) {
+            return
+        }
+        ; A function-local `var` of the same name is a different binding and must
+        ; not touch the property.
+        if (false == (context.has(name))) {
+            return
+        }
+        def owner:EvalContext (context.contextOwning(name))
+        if (false == owner.isGlobalScope) {
+            return
+        }
+        def g:EvalValue (this.theGlobalObject())
+        g.setMember(name value)
+    }
+
+    ; True when this name is one the script's global object holds, so a write to
+    ; it has to update the property as well as the binding.
+    fn isGlobalVarName:boolean (name:string) {
+        return (has globalVarSet name)
     }
     
     fn processTopLevelVarNode:void (node:TSNode) {
@@ -2198,6 +2340,7 @@ class ComponentEngine {
                         def initNode:TSNode (unwrap decl.init)
                         def value:EvalValue (this.evaluateExpr(initNode))
                         context.define(varName value)
+                        this.syncGlobalVar(varName value)
                     } {
                         ; `let x;` with no initializer still creates a binding
                         ; (JS: bound to undefined), so a later reference/assignment
@@ -4399,11 +4542,13 @@ class ComponentEngine {
                             return (EvalValue.undefined())
                         }
                         owner.define(varName ownRes)
+                        this.syncGlobalVar(varName ownRes)
                         return ownRes
                     }
                     def current:EvalValue (context.lookup(varName))
                     def result:EvalValue (this.applyAssignOp(op current rightValue))
                     context.assign(varName result)
+                    this.syncGlobalVar(varName result)
                     return result
                 }
                 if (leftNode.nodeType == "MemberExpression") {
@@ -12308,6 +12453,12 @@ class ComponentEngine {
         ; failed — the largest failure bucket in ES5 was reading a property of
         ; undefined. Calls like Math.floor(x) still dispatch structurally before
         ; reaching here, so this adds reachability without changing dispatch.
+        ; D-GLOBALTHIS: `globalThis` IS the global object, not a namespace of its
+        ; own. Two different objects answered to `this` and to `globalThis`, so
+        ; `this === globalThis` was false at the top level of every script.
+        if (name == "globalThis") {
+            return (this.theGlobalObject())
+        }
         if (this.isEngineGlobalName(name)) {
             def g:EvalValue (this.builtinGlobalObject(name))
             if (g.valueType == 5) {

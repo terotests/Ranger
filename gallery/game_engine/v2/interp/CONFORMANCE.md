@@ -63,8 +63,16 @@ Two structural traps to avoid:
 
 | Harness shape | Bias |
 |---|---|
-| Test body wrapped in a function | **Low** — a nested function declaration binds differently |
-| Test body at top level | **High** — only `ExpressionStatement`s used to execute, so `throw`/`if`/`for` silently did not run |
+| Test body wrapped in a function | **Low** — the test's own top-level `var` and function declarations become locals, so anything about the global scope is invisible |
+| Test body at top level | **High** *(historically)* — only `ExpressionStatement`s used to execute, so `throw`/`if`/`for` silently did not run |
+
+The runner now uses the **top-level** shape, which is what Test262 itself specifies:
+each file is a script. The high-bias trap that shape used to carry is gone — every
+statement kind executes — and the change was verified not to be a leniency shift
+three ways: the negative controls still read **0 vacuous of 12** under it, all four
+positive controls still reach their end, and the ES5-wide score is **identical**
+(743/900) under both shapes. Only the handful of files that genuinely depend on
+script-level semantics move, which is the point.
 
 ### Scoring is segmented by spec era
 
@@ -163,6 +171,16 @@ them aside cannot quietly flatter the remaining number.
   *The gap was real and worth pinning; the attributed cause was wrong, and pinning it
   as "the lexer" is what kept it unexamined.*
 
+- **A script's `var` and function declarations are properties of the global object,
+  and `globalThis` IS `this`.** Only the *directly* top-level `var` statements were
+  mirrored, so a `var` inside a block or a `try` — still script-scoped, since var
+  hoisting does not stop at a block — was a binding and not a property, and a function
+  declaration was neither. Two different objects also answered to `this` and to
+  `globalThis`. A later write keeps the property and the binding in step, and a
+  function-local `var` of the same name is left alone. `let`/`const`/`class` are
+  deliberately absent: they live in the declarative environment and really are not
+  properties of the global object.
+
 - **A function's source text is real, and a `Function()`-built one is its assembled
   source.** `Function.prototype.toString` returns the slice the function's node spans
   in the source it was parsed from — the parser records `end` on function nodes, and
@@ -172,12 +190,11 @@ them aside cannot quietly flatter the remaining number.
 
 ### 2.4 Known-wrong, pinned rather than hidden
 
-- **A script's top-level `var` is not a property of the global object, and top-level
-  `this` is not the global object.** The global object exists and a bare name falls
-  back to it, but the module scope is not object-backed, so `var toString = f` at the
-  top level of a script does not become `globalThis.toString`. Making it work needs an
-  object-backed environment record on `EvalContext`. One `built-ins/String` file turns
-  on exactly this.
+- **A top-level `var`'s INITIALISER runs ahead of the script's other statements**
+  rather than in source order, so a read before the declaration sees the initialised
+  value where the spec says `undefined`. The binding hoists correctly; it is only the
+  order the initialiser runs in that is wrong. Pinned in the script-level probe block
+  as `script-hoisted-var-is-undefined-property`, asserted in both directions.
 
 - **`export` is not a visibility gate.** Every top-level binding in a virtual module
   is reachable through the namespace, exported or not. The cross-module block in the
@@ -247,6 +264,7 @@ Tagged in the source with these markers.
 | `D-REGEX` | The pattern grammar as a node tree, matched by backtracking. See §2.5. |
 | `D-ARGUMENTS` | `arguments` as an array-like OBJECT — brands as `[object Arguments]`, and `Array.isArray` says false. |
 | `D-FNSRC` | A function value carries the WHOLE source string it was parsed from, not a pre-cut slice, and `Function.prototype.toString` cuts `[node.start, node.end)` out of it. The whole string, because a nested function's offsets are absolute in the same one; a call swaps the source in effect so a closure returned by an eval'd factory records its own. |
+| `D-GLOBALTHIS` | A script's `var` and function names are properties of the global object as well as bindings, kept in step on write; `globalThis` resolves to that same object. `let`/`const` are not properties — the declarative environment is separate. |
 | `D-DATE` | A Date is arithmetic on one time value (`DateTime.rgr`, ECMA-262 §15.9.1). Local time is UTC and the clock is `hostNowMs`, so every result is reproducible. The default ToPrimitive hint behaves as STRING for a Date and as NUMBER for everything else, which is what makes `date + ''` the date's text while `+date` is its time. |
 
 ### Framework surface is deliberately outside the registry
@@ -267,18 +285,20 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 | `language/expressions` | **100%** (1318/1318, whole directory) |
 | `built-ins/Number` | **100%** (146/146, whole directory) |
 | `built-ins/Date` | **100%** (4/4, whole directory) |
-| `built-ins/String` | **99.9%** (708/709, whole directory) |
+| `built-ins/String` | **100%** (709/709, whole directory) |
 | `built-ins/Math` | 91% (74/81) |
-| `built-ins/Object` | 76% (1577/2080) |
+| `built-ins/Object` | 76% (1578/2080) |
 | `language/statements` | 72% (403/562) |
 | `built-ins/Function` | 71% (257/361) |
 | `built-ins/Array` | 58% (124/212) |
 | ES5 overall | **82.6%** (743/900 sampled) |
 
-`built-ins/String`'s one remaining file is the global-object-as-var-home case named in
-§2.4. Nothing in String is unexplained.
+`built-ins/Number`, `built-ins/String` and `language/expressions` are each at 100% of
+their whole directory — no sampling, no exclusions beyond the era filter.
 
-The runtime-conformance suite is at 838 probes, every one of them derived from Node.
+The runtime-conformance suite is at 850 checks, every one of them derived from Node —
+838 expression probes plus 12 script-level probes run through Node's `vm` so the
+script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
 
