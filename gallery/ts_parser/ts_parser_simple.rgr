@@ -366,10 +366,13 @@ class TSParserSimple {
           if (entryKind == "l") { clash = true }
         }
         ; A function declaration also clashes with a parameter binding, which
-        ; is what makes `catch (a) { function a(){} }` an error.
+        ; is what makes `catch (a) { function a(){} }` an error. An Annex B
+        ; function in an if/loop body is block scoped and does not.
         if (kind == "f") {
           if (entryKind == "p") {
-            if (i >= ownStart) { clash = true }
+            if (i >= ownStart) {
+              if (this.inSingleStatementBody == false) { clash = true }
+            }
           }
         }
         ; At module top level the var-scoped names must be unique, so a var and
@@ -2300,6 +2303,18 @@ class TSParserSimple {
       if ((newTokVal != "public") && (newTokVal != "private") && (newTokVal != "protected") && (newTokVal != "static") && (newTokVal != "abstract") && (newTokVal != "readonly") && (newTokVal != "async")) {
         keepParsing = false
       }
+      ; A modifier may appear once. `static static(){}` is a static method
+      ; named `static`, so only a repeat that would itself be read as a
+      ; modifier counts -- that is, one with another word after it.
+      if (newTokVal == "static") {
+        if (isStatic) {
+          def afterRepeat:string (this.peekNextValue())
+          if ((afterRepeat != "(") && (afterRepeat != "=") && (afterRepeat != ";") && (afterRepeat != "}")) {
+            this.syntaxError("Parse error: 'static' may appear only once on a class member")
+            keepParsing = false
+          }
+        }
+      }
       ; A modifier word that turned out to be the member's own name (e.g.
       ; `static(){}`) is not consumed above; stop rather than spin.
       if (this.pos == modifierStartPos) {
@@ -2595,7 +2610,37 @@ class TSParserSimple {
       }
     }
     
-    def nameTok (this.expect("Identifier"))
+    ; A constructor takes patterns and rest elements like any other parameter
+    ; list: `constructor(...d)` and `constructor({a})`.
+    if (this.matchValue("...")) {
+      this.advance()
+      param.nodeType = "RestElement"
+      param.kind = "rest"
+      if (this.sawRestParam) {
+        this.syntaxError("Parse error: a rest element must be the last parameter")
+      }
+      this.sawRestParam = true
+      this.restParamPending = true
+    }
+    if ((this.matchValue("{")) || (this.matchValue("["))) {
+      def ctorPattern (this.parseBindingTarget())
+      if (this.matchValue(":")) {
+        def ctorPatType (this.parseTypeAnnotation())
+        ctorPattern.typeAnnotation = ctorPatType
+      }
+      if (this.matchValue("=")) {
+        this.advance()
+        def ctorDefault (this.parseExpr())
+        def ctorAssign (new TSNode())
+        ctorAssign.nodeType = "AssignmentPattern"
+        ctorAssign.left = ctorPattern
+        ctorAssign.right = ctorDefault
+        return ctorAssign
+      }
+      return ctorPattern
+    }
+
+    def nameTok (this.expectBindingName())
     param.name = nameTok.value
     
     if (this.restParamPending) {
@@ -6543,6 +6588,19 @@ class TSParserSimple {
       return thisExpr
     }
     
+    ; A `*` is never the start of an expression; after ASI ends a yield,
+    ; `function* a(){ yield \n *a }` leaves one at statement position.
+    if (tokType == "Punctuator") {
+      if (tokVal == "*") {
+        this.syntaxError("Parse error: '*' cannot start an expression")
+        this.advance()
+        def starErr (new TSNode())
+        starErr.nodeType = "Identifier"
+        starErr.name = "error"
+        return starErr
+      }
+    }
+
     ; Contextual keywords used as plain identifiers. These are only reserved in
     ; contexts this parser does not track (module/strict code, generator or async
     ; bodies), so in expression position they name a binding.
@@ -7143,6 +7201,10 @@ class TSParserSimple {
     if (this.matchValue(".")) {
       this.advance()
       if (this.matchValue("target")) {
+        def targetTok (this.peek())
+        if (targetTok.hasEscape) {
+          this.syntaxError("Parse error: 'new.target' may not use an escape sequence")
+        }
         this.advance()
         node.nodeType = "MetaProperty"
         node.name = "new"

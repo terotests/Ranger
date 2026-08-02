@@ -986,6 +986,7 @@ class TSLexer  {
     const startLine = this.line;
     const startCol = this.col;
     let value = "";
+    let sawIdEscape = false;
     while (this.pos < this.__len) {
       const ch = this.peek();
       if ( this.isIdContinueHere() ) {
@@ -1016,13 +1017,18 @@ class TSLexer  {
             }
             return this.makeToken(this.identType(value), value, startPos, startLine, startCol);
           }
+          sawIdEscape = true;
           value = value + esc;
         } else {
-          return this.makeToken(this.identType(value), value, startPos, startLine, startCol);
+          const idTok = this.makeToken(this.identType(value), value, startPos, startLine, startCol);
+          idTok.hasEscape = sawIdEscape;
+          return idTok;
         }
       }
     };
-    return this.makeToken(this.identType(value), value, startPos, startLine, startCol);
+    const idTokEnd = this.makeToken(this.identType(value), value, startPos, startLine, startCol);
+    idTokEnd.hasEscape = sawIdEscape;
+    return idTokEnd;
   };
   identType (value) {
     if ( value == "var" ) {
@@ -2203,7 +2209,9 @@ class TSParserSimple  {
         if ( kind == "f" ) {
           if ( entryKind == "p" ) {
             if ( i >= ownStart ) {
-              clash = true;
+              if ( this.inSingleStatementBody == false ) {
+                clash = true;
+              }
             }
           }
         }
@@ -3855,6 +3863,15 @@ class TSParserSimple  {
       if ( ((((((newTokVal != "public") && (newTokVal != "private")) && (newTokVal != "protected")) && (newTokVal != "static")) && (newTokVal != "abstract")) && (newTokVal != "readonly")) && (newTokVal != "async") ) {
         keepParsing = false;
       }
+      if ( newTokVal == "static" ) {
+        if ( isStatic ) {
+          const afterRepeat = this.peekNextValue();
+          if ( (((afterRepeat != "(") && (afterRepeat != "=")) && (afterRepeat != ";")) && (afterRepeat != "}") ) {
+            this.syntaxError("Parse error: 'static' may appear only once on a class member");
+            keepParsing = false;
+          }
+        }
+      }
       if ( this.pos == modifierStartPos ) {
         keepParsing = false;
       }
@@ -4100,7 +4117,34 @@ class TSParserSimple  {
         this.advance();
       }
     }
-    const nameTok = this.expect("Identifier");
+    if ( this.matchValue("...") ) {
+      this.advance();
+      param.nodeType = "RestElement";
+      param.kind = "rest";
+      if ( this.sawRestParam ) {
+        this.syntaxError("Parse error: a rest element must be the last parameter");
+      }
+      this.sawRestParam = true;
+      this.restParamPending = true;
+    }
+    if ( this.matchValue("{") || this.matchValue("[") ) {
+      const ctorPattern = this.parseBindingTarget();
+      if ( this.matchValue(":") ) {
+        const ctorPatType = this.parseTypeAnnotation();
+        ctorPattern.typeAnnotation = ctorPatType;
+      }
+      if ( this.matchValue("=") ) {
+        this.advance();
+        const ctorDefault = this.parseExpr();
+        const ctorAssign = new TSNode();
+        ctorAssign.nodeType = "AssignmentPattern";
+        ctorAssign.left = ctorPattern;
+        ctorAssign.right = ctorDefault;
+        return ctorAssign;
+      }
+      return ctorPattern;
+    }
+    const nameTok = this.expectBindingName();
     param.name = nameTok.value;
     if ( this.restParamPending ) {
       this.restParamPending = false;
@@ -7202,6 +7246,16 @@ class TSParserSimple  {
       thisExpr.col = tok.col;
       return thisExpr;
     }
+    if ( tokType == "Punctuator" ) {
+      if ( tokVal == "*" ) {
+        this.syntaxError("Parse error: '*' cannot start an expression");
+        this.advance();
+        const starErr = new TSNode();
+        starErr.nodeType = "Identifier";
+        starErr.name = "error";
+        return starErr;
+      }
+    }
     if ( tokType == "TSKeyword" ) {
       if ( this.strictMode ) {
         if ( this.isStrictReservedReference(tokVal) ) {
@@ -7699,6 +7753,10 @@ class TSParserSimple  {
     if ( this.matchValue(".") ) {
       this.advance();
       if ( this.matchValue("target") ) {
+        const targetTok = this.peek();
+        if ( targetTok.hasEscape ) {
+          this.syntaxError("Parse error: 'new.target' may not use an escape sequence");
+        }
         this.advance();
         node.nodeType = "MetaProperty";
         node.name = "new";

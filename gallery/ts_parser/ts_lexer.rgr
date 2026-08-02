@@ -808,6 +808,7 @@ class TSLexer {
         def startLine:int line
         def startCol:int col
         def value:string ""
+        def sawIdEscape:boolean false
         while (pos < len) {
             def ch:string (this.peek())
             if (this.isIdContinueHere()) {
@@ -841,13 +842,18 @@ class TSLexer {
                         }
                         return (this.makeToken((this.identType(value)) value startPos startLine startCol))
                     }
+                    sawIdEscape = true
                     value = value + esc
                 } {
-                    return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+                    def idTok:Token (this.makeToken((this.identType(value)) value startPos startLine startCol))
+                    idTok.hasEscape = sawIdEscape
+                    return idTok
                 }
             }
         }
-        return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+        def idTokEnd:Token (this.makeToken((this.identType(value)) value startPos startLine startCol))
+        idTokEnd.hasEscape = sawIdEscape
+        return idTokEnd
     }
 
     ; Determine token type for an identifier
