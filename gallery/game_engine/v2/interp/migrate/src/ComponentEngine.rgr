@@ -1828,7 +1828,16 @@ class ComponentEngine {
                             k = (k + 1)
                         }
                     }
-                    context.define(el.name (EvalValue.array(items)))
+                    def restVal:EvalValue (EvalValue.array(items))
+                    ; D-DSTR: a rest element may itself be a pattern —
+                    ; `[...[x, y]]` binds x and y from the collected tail. Only
+                    ; the plain `...name` form was handled, so the nested case
+                    ; bound nothing at all.
+                    if el.left {
+                        this.bindPattern((unwrap el.left) restVal)
+                    } {
+                        context.define(el.name restVal)
+                    }
                 } {
                     def elemVal:EvalValue (EvalValue.undefined())
                     if (value.isArray()) {
@@ -1879,6 +1888,16 @@ class ComponentEngine {
                 def targetName:string srcKey
                 if prop.right {
                     def aliasNode:TSNode (unwrap prop.right)
+                    ; D-DSTR: the alias slot may hold a nested PATTERN rather
+                    ; than a name — `{a: {b}}` or `{a: [b]}`. Only the rename
+                    ; form was handled, so a nested pattern produced an empty
+                    ; target name and bound nothing.
+                    def an:string aliasNode.nodeType
+                    if ((an == "ObjectPattern") || (an == "ArrayPattern") || (an == "AssignmentPattern")) {
+                        this.bindPattern(aliasNode v)
+                        ci = (ci + 1)
+                        continue
+                    }
                     targetName = aliasNode.name
                 }
                 context.define(targetName v)
@@ -3504,10 +3523,31 @@ class ComponentEngine {
                 }
                 return
             }
+            ; D-DSTR: `function ({a} = {})` arrives as an AssignmentPattern
+            ; wrapping the pattern. bindPattern already applies the default and
+            ; recurses; the old else-branch defined a binding named "" instead.
+            if (pt == "AssignmentPattern") {
+                def av:EvalValue (EvalValue.undefined())
+                if (pi < na) {
+                    av = (itemAt argVals pi)
+                }
+                this.bindPattern(param av)
+                pi = (pi + 1)
+                continue
+            }
             if ((pt == "ObjectPattern") || (pt == "ArrayPattern")) {
                 def pv:EvalValue (EvalValue.undefined())
                 if (pi < na) {
                     pv = (itemAt argVals pi)
+                }
+                ; D-DSTR: a pattern parameter can carry a default too —
+                ; `function ({a = 5} = {})`. The default was only applied to
+                ; plain identifier parameters, so calling with no argument
+                ; destructured `undefined` and bound nothing.
+                if (pv.isUndefined()) {
+                    if param.init {
+                        pv = (this.evaluateExpr((unwrap param.init)))
+                    }
                 }
                 this.bindPattern(param pv)
             } {

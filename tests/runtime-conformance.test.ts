@@ -245,6 +245,12 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["symbol-factory-typeof", "var s = Symbol('x'); return typeof s;", "symbols"],
   ["symbol-factory-unique", "return Symbol('a') === Symbol('a');", "symbols"],
   ["symbol-description", "return Symbol('hi').description;", "symbols"],
+  ["dstr-param-rest-pattern", "var f = function ([...[x, y]]) { return x + y; }; return f([3, 4]);", "destructuring"],
+  ["dstr-arrow-rest-pattern", "var f = ([...[x, y]]) => x + y; return f([3, 4]);", "destructuring"],
+  ["dstr-param-obj-default", "var f = function ({ a = 5 } = {}) { return a; }; return f();", "destructuring"],
+  ["dstr-param-obj-nested", "var f = function ({ a: { b } }) { return b; }; return f({ a: { b: 8 } });", "destructuring"],
+  ["dstr-param-array-nested", "var f = function ([[a]]) { return a; }; return f([[5]]);", "destructuring"],
+  ["dstr-param-pattern-dflt", "var f = function ([_, x] = []) { return x; }; return f();", "destructuring"],
   ["class-nested-decl", "class N { m() { return 3; } } return new N().m();", "classes"],
   ["class-expr-nested", "var C = class { m() { return 3; } }; return new C().m();", "classes"],
   ["class-static-call", "class S { static s() { return 8; } } return S.s();", "classes"],
@@ -304,8 +310,7 @@ const KNOWN_GAPS = new Set<string>([
   "labeled-break",
   "fn-expr-named",
   "for-of-expr-lhs",
-  // Destructuring: nested object patterns and swap produce wrong values.
-  "destr-obj-nested",
+  // Destructuring: swap produces the wrong value.
   "destr-swap",
   // Coercion is not implemented: `==` behaves as `===`, and ToString for
   // objects and arrays is wrong.
