@@ -257,6 +257,12 @@ class TSLexer  {
         this.advance();
         return this.makeToken("String", value, startPos, startLine, startCol);
       }
+      if ( ch == "\n" ) {
+        return this.makeToken("Invalid", value, startPos, startLine, startCol);
+      }
+      if ( ch == "\r" ) {
+        return this.makeToken("Invalid", value, startPos, startLine, startCol);
+      }
       if ( ch == "\\" ) {
         this.advance();
         const esc = this.advance();
@@ -269,13 +275,59 @@ class TSLexer  {
             if ( esc == "r" ) {
               value = value + "\r";
             } else {
-              if ( esc == "\\" ) {
-                value = value + "\\";
+              if ( esc == "b" ) {
+                value = value + (String.fromCharCode(8));
               } else {
-                if ( esc == quote ) {
-                  value = value + quote;
+                if ( esc == "f" ) {
+                  value = value + (String.fromCharCode(12));
                 } else {
-                  value = value + esc;
+                  if ( esc == "v" ) {
+                    value = value + (String.fromCharCode(11));
+                  } else {
+                    if ( esc == "0" ) {
+                      const afterZero = this.peek();
+                      if ( this.isDigit(afterZero) ) {
+                        value = value + esc;
+                      } else {
+                        value = value + (String.fromCharCode(0));
+                      }
+                    } else {
+                      if ( esc == "x" ) {
+                        const h1 = this.peek();
+                        const hv1 = this.hexValue(h1);
+                        const h2 = this.peekAt(1);
+                        const hv2 = this.hexValue(h2);
+                        if ( (hv1 < 0) || (hv2 < 0) ) {
+                          return this.makeToken("Invalid", value, startPos, startLine, startCol);
+                        }
+                        this.advance();
+                        this.advance();
+                        value = value + (String.fromCharCode(((hv1 * 16) + hv2)));
+                      } else {
+                        if ( esc == "u" ) {
+                          const uEsc = this.readUnicodeEscapeBody();
+                          if ( (uEsc.length) == 0 ) {
+                            return this.makeToken("Invalid", value, startPos, startLine, startCol);
+                          }
+                          value = value + uEsc;
+                        } else {
+                          if ( esc == "\\" ) {
+                            value = value + "\\";
+                          } else {
+                            if ( esc == "\r" ) {
+                              if ( this.peek() == "\n" ) {
+                                this.advance();
+                              }
+                            }
+                            if ( (esc == "\n") || (esc == "\r") ) {
+                            } else {
+                              value = value + esc;
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -285,7 +337,7 @@ class TSLexer  {
         value = value + this.advance();
       }
     };
-    return this.makeToken("String", value, startPos, startLine, startCol);
+    return this.makeToken("Invalid", value, startPos, startLine, startCol);
   };
   readTemplateLiteral () {
     const startPos = this.pos;
@@ -510,6 +562,16 @@ class TSLexer  {
       return "";
     }
     this.advance();
+    const decoded = this.readUnicodeEscapeBody();
+    if ( (decoded.length) == 0 ) {
+      this.pos = savedPos;
+      this.line = savedLine;
+      this.col = savedCol;
+      return "";
+    }
+    return decoded;
+  };
+  readUnicodeEscapeBody () {
     let code = 0;
     if ( this.peek() == "{" ) {
       this.advance();
@@ -521,19 +583,16 @@ class TSLexer  {
         }
         const hv = this.hexValue(ch);
         if ( hv < 0 ) {
-          this.pos = savedPos;
-          this.line = savedLine;
-          this.col = savedCol;
           return "";
         }
         code = (code * 16) + hv;
         any = true;
         this.advance();
       };
-      if ( (any == false) || (this.peek() != "}") ) {
-        this.pos = savedPos;
-        this.line = savedLine;
-        this.col = savedCol;
+      if ( any == false ) {
+        return "";
+      }
+      if ( this.peek() != "}" ) {
         return "";
       }
       this.advance();
@@ -543,9 +602,6 @@ class TSLexer  {
         const hch = this.peek();
         const hv_1 = this.hexValue(hch);
         if ( hv_1 < 0 ) {
-          this.pos = savedPos;
-          this.line = savedLine;
-          this.col = savedCol;
           return "";
         }
         code = (code * 16) + hv_1;

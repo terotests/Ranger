@@ -244,25 +244,85 @@ class TSLexer {
                 this.advance()
                 return (this.makeToken("String" value startPos startLine startCol))
             }
+            ; An unescaped line terminator may not appear in a string literal.
+            if (ch == "\n") {
+                return (this.makeToken("Invalid" value startPos startLine startCol))
+            }
+            if (ch == "\r") {
+                return (this.makeToken("Invalid" value startPos startLine startCol))
+            }
             if (ch == "\\") {
                 this.advance()
                 def esc:string (this.advance())
-                if (esc == "n") { 
-                    value = value + "\n" 
+                if (esc == "n") {
+                    value = value + "\n"
                 } {
-                    if (esc == "t") { 
-                        value = value + "\t" 
+                    if (esc == "t") {
+                        value = value + "\t"
                     } {
-                        if (esc == "r") { 
-                            value = value + "\r" 
+                        if (esc == "r") {
+                            value = value + "\r"
                         } {
-                            if (esc == "\\") { 
-                                value = value + "\\" 
+                            if (esc == "b") {
+                                value = value + (strfromcode 8)
                             } {
-                                if (esc == quote) { 
-                                    value = value + quote 
+                                if (esc == "f") {
+                                    value = value + (strfromcode 12)
                                 } {
-                                    value = value + esc
+                                    if (esc == "v") {
+                                        value = value + (strfromcode 11)
+                                    } {
+                                        if (esc == "0") {
+                                            ; \0 is NUL only when no digit follows;
+                                            ; \01 is a legacy octal escape.
+                                            def afterZero:string (this.peek())
+                                            if (this.isDigit(afterZero)) {
+                                                value = value + esc
+                                            } {
+                                                value = value + (strfromcode 0)
+                                            }
+                                        } {
+                                            if (esc == "x") {
+                                                ; \xHH — exactly two hex digits.
+                                                def h1:string (this.peek())
+                                                def hv1:int (this.hexValue(h1))
+                                                def h2:string (this.peekAt(1))
+                                                def hv2:int (this.hexValue(h2))
+                                                if ((hv1 < 0) || (hv2 < 0)) {
+                                                    return (this.makeToken("Invalid" value startPos startLine startCol))
+                                                }
+                                                this.advance()
+                                                this.advance()
+                                                value = value + (strfromcode ((hv1 * 16) + hv2))
+                                            } {
+                                                if (esc == "u") {
+                                                    def uEsc:string (this.readUnicodeEscapeBody())
+                                                    if ((strlen uEsc) == 0) {
+                                                        return (this.makeToken("Invalid" value startPos startLine startCol))
+                                                    }
+                                                    value = value + uEsc
+                                                } {
+                                                    if (esc == "\\") {
+                                                        value = value + "\\"
+                                                    } {
+                                                        ; Line continuation: a
+                                                        ; backslash before a newline
+                                                        ; contributes nothing. CRLF
+                                                        ; counts as one terminator.
+                                                        if (esc == "\r") {
+                                                            if ((this.peek()) == "\n") {
+                                                                this.advance()
+                                                            }
+                                                        }
+                                                        if ((esc == "\n") || (esc == "\r")) {
+                                                        } {
+                                                            value = value + esc
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -272,7 +332,8 @@ class TSLexer {
                 value = value + (this.advance())
             }
         }
-        return (this.makeToken("String" value startPos startLine startCol))
+        ; Ran off the end without a closing quote.
+        return (this.makeToken("Invalid" value startPos startLine startCol))
     }
 
     fn readTemplateLiteral:Token () {
@@ -490,6 +551,19 @@ class TSLexer {
             return ""
         }
         this.advance()
+        def decoded:string (this.readUnicodeEscapeBody())
+        if ((strlen decoded) == 0) {
+            pos = savedPos
+            line = savedLine
+            col = savedCol
+            return ""
+        }
+        return decoded
+    }
+
+    ; Decodes the body of a \u escape; the position must be just past the "u".
+    ; Returns "" when the escape is malformed.
+    fn readUnicodeEscapeBody:string () {
         def code:int 0
         if ((this.peek()) == "{") {
             this.advance()
@@ -498,34 +572,20 @@ class TSLexer {
                 def ch:string (this.peek())
                 if (ch == "}") { break }
                 def hv:int (this.hexValue(ch))
-                if (hv < 0) {
-                    pos = savedPos
-                    line = savedLine
-                    col = savedCol
-                    return ""
-                }
+                if (hv < 0) { return "" }
                 code = ((code * 16) + hv)
                 any = true
                 this.advance()
             }
-            if ((any == false) || ((this.peek()) != "}")) {
-                pos = savedPos
-                line = savedLine
-                col = savedCol
-                return ""
-            }
+            if (any == false) { return "" }
+            if ((this.peek()) != "}") { return "" }
             this.advance()
         } {
             def i:int 0
             while (i < 4) {
                 def hch:string (this.peek())
                 def hv:int (this.hexValue(hch))
-                if (hv < 0) {
-                    pos = savedPos
-                    line = savedLine
-                    col = savedCol
-                    return ""
-                }
+                if (hv < 0) { return "" }
                 code = ((code * 16) + hv)
                 this.advance()
                 i = (i + 1)
