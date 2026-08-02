@@ -46,7 +46,20 @@ node bin/output.js myfile.rgr -l=rust -o=myfile.rs
 rustc myfile.rs -o myfile
 ```
 
-See [RUST_ISSUES.md](RUST_ISSUES.md) and [RUST_TODO.md](RUST_TODO.md).
+**Test the output.** A simple program builds: eight of ten sample fixtures give
+Rust that `rustc` accepts. Three limits are structural, and a program meets them
+without a message from the Ranger compiler:
+
+- **An object is a value.** A class becomes a plain `struct`, so two names do
+  not share one object. `def b:Counter a` moves, and a later read of `a` is
+  `error[E0382]: borrow of moved value`. The writer adds `.clone()` in many
+  places, so a program can compile and still give a wrong answer.
+- **Inheritance is not in the layout.** The subclass struct does not receive the
+  fields of the parent: `no field 'name' on type 'Cat'`.
+- **`weak` does not compile**, and the `Rc` that it downgrades is a temporary.
+
+See [RUST_ISSUES.md](RUST_ISSUES.md) for the measurements and the order of the
+work, and [RUST_TODO.md](RUST_TODO.md).
 
 ## C++ static analysis optimizer (`-l=cpp`)
 

@@ -92,12 +92,16 @@ this for each operator:
 | Default template | ✱ | The operator has no template of its own, and the `*` template writes the code. |
 | No template | ✕ | The operator has no template and no `*` template. The compiler writes no code, and a program that uses the operator does not compile for that target. |
 
-### Read the default template before you depend on it
+### What the default template can hold
 
 Most `*` templates are portable, because they hold an expression that each
-target language accepts: the template of `%` is `(e 1) " % " (e 2)`. Some are
-not. The `*` template is also the JavaScript template of many operators, so it
-can hold JavaScript:
+target language accepts. The template of `%` is `(e 1) " % " (e 2)`, and every
+target writes `%` for a remainder.
+
+The `*` template is also the JavaScript template of many operators. The
+JavaScript writer needs no entry of its own when the default holds its form.
+Such a template is correct for JavaScript and wrong for a target that falls
+back to it:
 
 ```lisp
 ceil  _:int (value:double) {
@@ -108,18 +112,14 @@ ceil  _:int (value:double) {
 }
 ```
 
-Python has no `ceil` template, so it takes the default one. The compilation
-reports success, and the Python file holds JavaScript:
+Python had no `ceil` template until this release, so it took the default one.
+The compilation reported success and the Python file held `Math.ceil(d)`, which
+Python cannot run. `ceil` now has a Python template, and the
+[coverage page](/Ranger/docs/reference/coverage/) states which operators are
+still in that state.
 
-```python
-c = Math.ceil(d)
-```
-
-The mark ✱ therefore states the origin of the code and not the correctness of
-it. The [coverage page](/Ranger/docs/reference/coverage/) counts the operators
-per target whose default template holds a JavaScript construct. Read the
-generated code of the operator page, and compile the output with the toolchain
-of the target.
+The mark ✱ therefore states the origin of the code. Compile the output of a new
+operator with the toolchain of the target before you depend on it.
 
 TypeScript is the JavaScript writer with type annotations, so a TypeScript
 program uses the `es6` template of the operator. The reference gives TypeScript

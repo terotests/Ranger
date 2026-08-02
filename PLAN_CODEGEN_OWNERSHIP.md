@@ -440,9 +440,41 @@ grep ceil tmp/x.py                                       # c = Math.ceil(d)
 ```
 
 `docs/tools/lib/model.mjs` now scans for this, and the coverage page lists the
-operators per target. The scan finds Python 13, Swift 9, Kotlin 7, Rust 3 and
-one or two on the rest. `int2double` reaches ten of the twelve targets as
+operators per target. The scan found Python 13, Swift 9, Kotlin 7, Rust 3 and
+one or two on the rest. `int2double` reached ten of the twelve targets as
 `parseFloat(…)`.
 
-The scan reads the template text, so it is a lower limit. The fix is a template
-per target for each operator in that list.
+**Fixed.** 14 operators gained a template for the targets that were falling
+back: `int2double` (eight targets), `empty` (five), `ceil`, `floor`, `sqrt`,
+`sin`, `cos`, `asin`, `acos`, `atan2`, `to_int`, `str2int`, `str2double`, and
+the three optional forms of `&&`. The scan now reports nothing.
+
+| Target | Templates added |
+| --- | --- |
+| Python | 13 |
+| Swift 6 | 11 |
+| Kotlin | 7 |
+| Rust | 3 |
+| C#, PHP | 2 each |
+| Go, Java, C++, Scala, Swift 3 | 1 each |
+
+The count is the change, not the total. The totals per target are on the
+coverage page, and they move with each release.
+
+`str2double` and `str2int` need a helper on Python, and the helper goes to the
+`after_imports` slot, not to the default `utilities` slot: Python calls `main()`
+from the bottom of the file, so a `def` below that call is not yet bound.
+
+The result is visible in the gallery. `jpeg_scaler.rgr` compiled to Rust held
+three errors, all `Rust has no ternary operator`, from the `str2double`
+fallback. It now builds with `rustc` and no error. The binary runs, and it
+writes a wrong image — that is the Rust object model above, not the templates.
+
+One gap stays open under this one: the C# writer emits `double` for an optional
+double, not `double?`. `str2double` therefore uses `Double.Parse`, which throws
+in the place of giving an empty value. `str2int` already did this with
+`Int32.Parse`. The pair is consistent and neither is optional-correct.
+
+A probe of the 13 numeric and string operators gives the same values on
+JavaScript, Python, PHP, C++, Rust and Go — the six toolchains this machine
+holds.
