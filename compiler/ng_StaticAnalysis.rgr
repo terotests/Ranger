@@ -1940,6 +1940,135 @@ class StaticAnalyzer {
     }
   }
 
+  ; The Rust reading of the summary (PLAN_RUST_OWNERSHIP step 1). An object
+  ; parameter the summary proves `borrowed` can be `&T`: no store into any
+  ; graph, no return, no storing callee down the chain. The mutation pass
+  ; guards the rest — a mutated, called-on or reassigned parameter keeps its
+  ; mode. The writer already emits `name : &T`, takes `&x` at the call site
+  ; and restores `.clone()` when a reference goes to an owned parameter, so
+  ; the upgrade is the flag alone. Run after analyzeOwnershipAll, and after
+  ; analyzeAll, for the rust target.
+  fn rustBorrowedObjectParam:boolean (cl:RangerAppClassDesc param:RangerAppParamDesc) {
+    if (param.varType != RangerContextVarType.FunctionParameter) {
+      return false
+    }
+    if (param.ownership_resolved == false) {
+      return false
+    }
+    if (param.ownership_kind != 2) {
+      return false
+    }
+    if (param.rust_borrow_type != 0) {
+      return false
+    }
+    if param.rust_needs_rc_wrap {
+      return false
+    }
+    if param.needs_cpp_reference {
+      return false
+    }
+    if param.rust_assigned_to_field {
+      return false
+    }
+    if param.is_mutating {
+      return false
+    }
+    if (param.mutation_count > 0) {
+      return false
+    }
+    if (param.set_cnt > 0) {
+      return false
+    }
+    ; a signature in an inheritance chain must stay stable across overrides
+    if cl.is_inherited {
+      return false
+    }
+    if cl.is_trait {
+      return false
+    }
+    if ((array_length cl.extends_classes) > 0) {
+      return false
+    }
+    if (null? param.nameNode) {
+      return false
+    }
+    def tn:CodeNode (unwrap param.nameNode)
+    if (tn.hasFlag("optional")) {
+      return false
+    }
+    if (tn.hasFlag("keyword")) {
+      return false
+    }
+    if ((strlen tn.array_type) > 0) {
+      return false
+    }
+    if ((strlen tn.key_type) > 0) {
+      return false
+    }
+    def typeName:string tn.type_name
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if (this.isPrimitiveTypeName(typeName)) {
+      return false
+    }
+    if (null? ctx) {
+      return false
+    }
+    def rootCtx:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((rootCtx.isDefinedClass(typeName)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (rootCtx.findClass(typeName))
+    if tc.is_system {
+      return false
+    }
+    if tc.is_union {
+      return false
+    }
+    if tc.is_system_union {
+      return false
+    }
+    if tc.is_trait {
+      return false
+    }
+    if tc.is_inherited {
+      return false
+    }
+    if ((array_length tc.extends_classes) > 0) {
+      return false
+    }
+    return true
+  }
+
+  fn applyOwnershipToRustBorrowsFn:void (cl:RangerAppClassDesc fn:RangerAppFunctionDesc) {
+    if fn.is_lambda {
+      return
+    }
+    for fn.params param:RangerAppParamDesc i {
+      if (this.rustBorrowedObjectParam(cl param)) {
+        param.rust_borrow_type = 1
+      }
+    }
+  }
+
+  fn applyOwnershipToRustBorrows:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      for cl.methods m:RangerAppFunctionDesc i {
+        this.applyOwnershipToRustBorrowsFn(cl m)
+      }
+      for cl.static_methods sm:RangerAppFunctionDesc i {
+        this.applyOwnershipToRustBorrowsFn(cl sm)
+      }
+      ; constructors stay owned: a constructor argument almost always ends in
+      ; a field, and the construction call path has its own emission rules
+    }
+  }
+
   ; Top-level ownership inference. Target-independent; it records the summary
   ; on each parameter and (when strict) reports it. VirtualCompiler runs it for
   ; every C++ compilation, because the C++ writer reads the summary, and for any

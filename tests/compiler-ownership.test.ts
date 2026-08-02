@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { getGeneratedCppCode } from "./helpers/compiler";
+import { getGeneratedCppCode, getGeneratedRustCode } from "./helpers/compiler";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -142,6 +142,27 @@ describe("Ranger Compiler - borrowed const& call-site copy (PLAN_OWNERSHIP_SOUND
   it("does not copy a stable local argument", () => {
     expect(result.code).toContain("use(orig)");
     expect(result.code).not.toContain("use(std::shared_ptr<Node>(orig))");
+  });
+});
+
+describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERSHIP 1)", () => {
+  const result = getGeneratedRustCode(`${FIXTURES}/llvm_ownership_infer.rgr`);
+
+  it("compiles the fixture to Rust", () => {
+    expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+  });
+
+  it("passes a borrowed object parameter as &T", () => {
+    expect(result.code).toContain("fn sumValue(&mut self, a : &Node, b : &Node)");
+  });
+
+  it("takes &x at the call site instead of a whole-struct clone", () => {
+    expect(result.code).toContain("sumValue(&root, &child)");
+    expect(result.code).not.toContain("sumValue(root.clone(), child.clone())");
+  });
+
+  it("keeps a moved parameter owned", () => {
+    expect(result.code).toContain("fn addToken(&mut self, mut t : Node)");
   });
 });
 

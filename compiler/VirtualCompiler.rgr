@@ -732,12 +732,17 @@ class tester {
       ; -strict-ownership runs it for any target and prints the result. The C++
       ; writer reads the result as well: a `borrowed` object parameter becomes
       ; `const std::shared_ptr<T>&` instead of a copy of the pointer, so the
-      ; pass must run for that target with or without the flag.
+      ; pass must run for that target with or without the flag. The Rust
+      ; writer reads it too: a proven-borrowed object parameter becomes `&T`
+      ; (applyOwnershipToRustBorrows, PLAN_RUST_OWNERSHIP step 1).
       def ownStrict:boolean (appCtx.hasCompilerFlag("strict-ownership"))
-      if (ownStrict || (appCtx.targetLangName == "cpp")) {
+      if ((ownStrict || (appCtx.targetLangName == "cpp")) || (appCtx.targetLangName == "rust")) {
         def ownAnalyzer:StaticAnalyzer (new StaticAnalyzer())
         ownAnalyzer.ctx = appCtx
         ownAnalyzer.analyzeOwnershipAll(ownStrict)
+        if (appCtx.targetLangName == "rust") {
+          ownAnalyzer.applyOwnershipToRustBorrows()
+        }
       }
 
       cli.step(4 "Generating code")
