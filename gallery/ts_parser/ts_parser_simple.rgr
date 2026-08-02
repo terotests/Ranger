@@ -1778,11 +1778,60 @@ class TSParserSimple {
 
       node.init = initDecl
     } {
-      ; Init could be expression or empty
+      ; No declaration keyword. The head is either an expression init, or the
+      ; left-hand side of for-in / for-of over an existing binding.
       node.nodeType = "ForStatement"
       if ((this.matchValue(";")) == false) {
         def initExpr (this.parseExpr())
-        node.init = initExpr
+
+        ; for (lhs of rhs) — `of` is not an operator, so parseExpr stopped here.
+        if (this.matchValue("of")) {
+          node.nodeType = "ForOfStatement"
+          node.await = isAwait
+          this.advance()
+          node.left = initExpr
+          def ofRight (this.parseExpr())
+          node.right = ofRight
+          this.expectValue(")")
+          def ofBody (this.parseStatement())
+          node.body = ofBody
+          return node
+        }
+
+        ; for (lhs in rhs) — `in` IS a binary operator, so parseExpr has already
+        ; folded the head into `lhs in rhs`. Split that node back apart rather
+        ; than threading a [no-In] flag through the whole expression grammar.
+        if (initExpr.nodeType == "BinaryExpression") {
+          if (initExpr.value == "in") {
+            if (this.matchValue(")")) {
+              node.nodeType = "ForInStatement"
+              node.left = (unwrap initExpr.left)
+              node.right = (unwrap initExpr.right)
+              this.expectValue(")")
+              def inBody (this.parseStatement())
+              node.body = inBody
+              return node
+            }
+          }
+        }
+
+        ; Plain init; a comma operator may follow: for (a, b, c;;)
+        if (this.matchValue(",")) {
+          def seq (new TSNode())
+          seq.nodeType = "SequenceExpression"
+          seq.start = initExpr.start
+          seq.line = initExpr.line
+          seq.col = initExpr.col
+          push seq.children initExpr
+          while (this.matchValue(",")) {
+            this.advance()
+            def more (this.parseExpr())
+            push seq.children more
+          }
+          node.init = seq
+        } {
+          node.init = initExpr
+        }
       }
     }
     

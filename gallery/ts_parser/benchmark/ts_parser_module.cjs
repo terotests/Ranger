@@ -2501,7 +2501,47 @@ class TSParserSimple  {
       node.nodeType = "ForStatement";
       if ( this.matchValue(";") == false ) {
         const initExpr = this.parseExpr();
-        node.init = initExpr;
+        if ( this.matchValue("of") ) {
+          node.nodeType = "ForOfStatement";
+          node.await = isAwait;
+          this.advance();
+          node.left = initExpr;
+          const ofRight = this.parseExpr();
+          node.right = ofRight;
+          this.expectValue(")");
+          const ofBody = this.parseStatement();
+          node.body = ofBody;
+          return node;
+        }
+        if ( initExpr.nodeType == "BinaryExpression" ) {
+          if ( initExpr.value == "in" ) {
+            if ( this.matchValue(")") ) {
+              node.nodeType = "ForInStatement";
+              node.left = initExpr.left;
+              node.right = initExpr.right;
+              this.expectValue(")");
+              const inBody = this.parseStatement();
+              node.body = inBody;
+              return node;
+            }
+          }
+        }
+        if ( this.matchValue(",") ) {
+          const seq = new TSNode();
+          seq.nodeType = "SequenceExpression";
+          seq.start = initExpr.start;
+          seq.line = initExpr.line;
+          seq.col = initExpr.col;
+          seq.children.push(initExpr);
+          while (this.matchValue(",")) {
+            this.advance();
+            const more_1 = this.parseExpr();
+            seq.children.push(more_1);
+          };
+          node.init = seq;
+        } else {
+          node.init = initExpr;
+        }
       }
     }
     this.expectValue(";");
