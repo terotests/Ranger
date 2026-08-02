@@ -4908,6 +4908,22 @@ class ComponentEngine {
                 if (obj.valueType == 10) { canHoldProps = (has obj.objectMap methodName) }
                 if canHoldProps {
                     def objMember:EvalValue (obj.getMember(methodName))
+                    ; D-CLASSOF: a built-in stored under some other name and then
+                    ; called as a method. The suite writes this constantly --
+                    ;   arr.getClass = Object.prototype.toString;
+                    ;   arr.getClass();
+                    ; -- and it used to answer undefined, because the name is not
+                    ; in the registry and the value has no functionNode, so both
+                    ; dispatch paths declined it. The receiver is the call-site
+                    ; object, not whatever the value was read off.
+                    if (objMember.isBuiltinMethod()) {
+                        def biArgs:[EvalValue] (this.collectCallArgs(node))
+                        def biFn:EvalValue objMember
+                        if (false == objMember.boundExplicit) {
+                            biFn = (objMember.withThis(obj))
+                        }
+                        return (this.callFnValueWithValues(biFn biArgs))
+                    }
                     if (objMember.valueType == 6) {
                         if objMember.functionNode {
                             def objCargs:[EvalValue] (this.collectCallArgs(node))
@@ -6156,6 +6172,18 @@ class ComponentEngine {
                     if (tag.isString()) {
                         return (EvalValue.boolean(((tag.stringValue) == cname)))
                     }
+                    ; D-ERRORS: every native error inherits from Error, so
+                    ; `e instanceof Error` holds for a TypeError as much as
+                    ; `e instanceof TypeError` does. The identity check below
+                    ; compares constructors and would say false, which is the one
+                    ; case where the missing inheritance chain is observable in
+                    ; ordinary guest code -- `catch (e) { e instanceof Error }`
+                    ; is how half the suite's negative tests confirm a throw.
+                    if (has lv.objectMap "__error__") {
+                        if (cname == "Error") {
+                            return (EvalValue.boolean(true))
+                        }
+                    }
                     ; D-ERRORS: an object built by `new F()` — an error object or
                     ; any constructor-function instance — carries `constructor`.
                     ; Compare it against the right-hand value BY IDENTITY, which
@@ -6654,6 +6682,27 @@ class ComponentEngine {
         if (ctorG.valueType == 5) {
             p.setMember("constructor" ctorG)
         }
+        ; D-CLASSOF: Number.prototype, String.prototype and Boolean.prototype are
+        ; themselves boxed primitives holding +0, "" and false. That is not a
+        ; curiosity -- it is what makes `Number.prototype.toString()` answer "0"
+        ; instead of "[object Object]", and the toString/toFixed areas are
+        ; written to check exactly that.
+        if (nsName == "Number") {
+            p.setMember("__primitive__" (EvalValue.number(0.0)))
+            p.setMember("__wrapper__" (EvalValue.string("Number")))
+        }
+        if (nsName == "String") {
+            p.setMember("__primitive__" (EvalValue.string("")))
+            p.setMember("__wrapper__" (EvalValue.string("String")))
+            ; String.prototype.length is 0 per spec, but publishing it here makes
+            ; the prototype win `'abc'.length` -- the property lookup consults the
+            ; prototype before the primitive's own length. Left off deliberately:
+            ; one obscure assertion is not worth breaking every string length.
+        }
+        if (nsName == "Boolean") {
+            p.setMember("__primitive__" (EvalValue.boolean(false)))
+            p.setMember("__wrapper__" (EvalValue.string("Boolean")))
+        }
         def kind:string (this.kindForCtorName(nsName))
         if ((strlen kind) > 0) {
             def names:[string] (this.builtinNames(kind))
@@ -6990,10 +7039,14 @@ class ComponentEngine {
                 }
             }
             ; D-WRAPPER: a boxed primitive stringifies as the primitive, not as
-            ; the object holding it.
-            def tprim:EvalValue (this.unwrapPrimitive(recv))
-            if (false == (tprim.equals(recv))) {
-                return (EvalValue.string((tprim.toString())))
+            ; the object holding it. Not for kind "object": that is
+            ; Object.prototype.toString, which brands the wrapper instead of
+            ; unwrapping it.
+            if (kind != "object") {
+                def tprim:EvalValue (this.unwrapPrimitive(recv))
+                if (false == (tprim.equals(recv))) {
+                    return (EvalValue.string((tprim.toString())))
+                }
             }
         }
         if (name == "toString") {
@@ -7001,9 +7054,11 @@ class ComponentEngine {
                 return (EvalValue.string((this.arrayJoinString(recv ","))))
             }
             if (kind == "object") {
-                ; A user `toString` property would have been found before the
-                ; registry, so reaching here means the default really applies.
-                return (EvalValue.string("[object Object]"))
+                ; D-CLASSOF: this is Object.prototype.toString. A user `toString`
+                ; property would have been found before the registry, so reaching
+                ; here means the default really applies -- and the default brands
+                ; whatever `this` is, which via .call/.apply is any value at all.
+                return (EvalValue.string(("[object " + (this.objectClassOf(recv)) + "]")))
             }
             if (kind == "function") {
                 return (EvalValue.string(("function " + recv.functionName + "() { [native code] }")))
@@ -7937,6 +7992,7 @@ class ComponentEngine {
                 }
                 def b3:EvalValue (recv.withThis(bindThis))
                 b3.boundArgs = partial
+                b3.boundExplicit = true
                 b3.functionName = ("bound " + recv.functionName)
                 return b3
             }
@@ -7986,12 +8042,58 @@ class ComponentEngine {
         w.setMember("__primitive__" p)
         w.setMember("__wrapper__" (EvalValue.string(ctorName)))
         ; A boxed string exposes `length` as a real own property, which is what
-        ; `with ('ab') { length }` resolves against.
+        ; `with ('ab') { length }` resolves against, plus one own property per
+        ; index. Both are what `Object.keys(new String('ab'))` reports -- the
+        ; indices are enumerable, `length` is not.
         if (ctorName == "String") {
-            w.setMember("length" (EvalValue.fromInt((strlen p.stringValue))))
+            def sw:string p.stringValue
+            def ci:int 0
+            while (ci < (strlen sw)) {
+                w.setMember((to_string ci) (EvalValue.string((substring sw ci (ci + 1)))))
+                w.setAttrs((to_string ci) false true false)
+                ci = (ci + 1)
+            }
+            w.setMember("length" (EvalValue.fromInt((strlen sw))))
+            w.setAttrs("length" false false false)
         }
         w.protoRef = (this.builtinPrototype(ctorName))
         return w
+    }
+
+    ; ==========================================================================
+    ; D-CLASSOF: the [[Class]] brand, as ES5 15.2.4.2 exposes it through
+    ; Object.prototype.toString.
+    ; --------------------------------------------------------------------------
+    ; This is the only place the language lets a program observe a value's
+    ; internal type, and the suite leans on it hard: 86 ES5 files capture
+    ; `Object.prototype.toString` under the name `getClass` and assert the brand
+    ; of what they just built. The engine answered "[object Object]" for
+    ; everything, so an array, a boxed number and a plain object were
+    ; indistinguishable and every one of those assertions failed.
+    ;
+    ; A boxed primitive brands as its constructor, not as Object -- that is the
+    ; whole point of the wrapper -- so the check reads the internal slot rather
+    ; than the value type.
+    ; --------------------------------------------------------------------------
+    fn objectClassOf:string (v:EvalValue) {
+        if (v.isUndefined()) { return "Undefined" }
+        if (v.valueType == 0) { return "Null" }
+        if (v.valueType == 4) { return "Array" }
+        if (v.valueType == 6) { return "Function" }
+        if (v.valueType == 2) { return "String" }
+        if (v.valueType == 1) { return "Number" }
+        if (v.valueType == 3) { return "Boolean" }
+        if (v.valueType == 5) {
+            if (has v.objectMap "__wrapper__") {
+                return ((unwrap (get v.objectMap "__wrapper__")).toString())
+            }
+            ; An error INSTANCE brands as Error; Error.prototype is an ordinary
+            ; object and brands as Object, which is why the marker is checked on
+            ; the own map rather than through the prototype chain.
+            if (has v.objectMap "__error__") { return "Error" }
+            if (has v.objectMap "__arguments__") { return "Arguments" }
+        }
+        return "Object"
     }
 
     ; The primitive inside a wrapper, or the value itself when it is not one.
@@ -8088,7 +8190,7 @@ class ComponentEngine {
         if (v.isArray()) {
             return (EvalValue.string((this.arrayJoinString(v ","))))
         }
-        return (EvalValue.string("[object Object]"))
+        return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
     }
 
     ; ToNumber, honouring ToPrimitive for objects.
@@ -9402,6 +9504,13 @@ class ComponentEngine {
         if (k == "__class__") { return true }
         if (k == "__module__") { return true }
         if (k == "__nsmodule__") { return true }
+        ; D-WRAPPER / D-ERRORS internal slots. `new String('ab')` has exactly one
+        ; own enumerable property per index, not a `__primitive__` alongside it.
+        if (k == "__primitive__") { return true }
+        if (k == "__wrapper__") { return true }
+        if (k == "__error__") { return true }
+        if (k == "__errorctor__") { return true }
+        if (k == "__symbol__") { return true }
         return false
     }
 

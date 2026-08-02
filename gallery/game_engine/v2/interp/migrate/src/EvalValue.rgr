@@ -70,6 +70,12 @@ class EvalValue {
     ; while the implementation still lives in one place.
     def builtinKind:string ""
     def builtinName:string ""
+    ; D-CLASSOF: true only for a value produced by Function.prototype.bind. A
+    ; built-in read off an object carries that object as `boundThis` too, but a
+    ; METHOD CALL must rebind `this` to the call-site receiver -- which is what
+    ; makes `arr.getClass = Object.prototype.toString; arr.getClass()` brand the
+    ; array. Only an explicit bind() survives that rebinding, per spec.
+    def boundExplicit:boolean false
     ; D-ATTRS: per-property attributes, as a bitmask keyed by property name.
     ;   bit 0 = writable, bit 1 = enumerable, bit 2 = configurable
     ; An ABSENT key means all three true, which is what plain assignment

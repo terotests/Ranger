@@ -368,6 +368,40 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["with-null-throws", "try { with (null) {} } catch (e) { return e.name; } return 'no-throw';", "with"],
   ["with-nested", "var o = { a: 1 }; var p = { b: 2 }; var r; with (o) { with (p) { r = a + b; } } return r;", "with"],
 
+  // D-CLASSOF: Object.prototype.toString is the only way a program can observe
+  // a value's internal type. The `getClass` idiom below -- storing the built-in
+  // under another name and calling it as a method -- is how the suite writes it.
+  ["classof-array", "return Object.prototype.toString.call([1, 2]);", "classof"],
+  ["classof-object", "return Object.prototype.toString.call({});", "classof"],
+  ["classof-number", "return Object.prototype.toString.call(5);", "classof"],
+  ["classof-string", "return Object.prototype.toString.call('a');", "classof"],
+  ["classof-boolean", "return Object.prototype.toString.call(true);", "classof"],
+  ["classof-null", "return Object.prototype.toString.call(null);", "classof"],
+  ["classof-undefined", "return Object.prototype.toString.call(undefined);", "classof"],
+  ["classof-function", "return Object.prototype.toString.call(function () {});", "classof"],
+  ["classof-boxed-number", "return Object.prototype.toString.call(new Number(1));", "classof"],
+  ["classof-boxed-string", "return Object.prototype.toString.call(new String('a'));", "classof"],
+  ["classof-boxed-boolean", "return Object.prototype.toString.call(new Boolean(true));", "classof"],
+  ["classof-error", "try { null.x; } catch (e) { return Object.prototype.toString.call(e); }", "classof"],
+  ["classof-getclass-array", "var a = [1]; a.getClass = Object.prototype.toString; return a.getClass();", "classof"],
+  ["classof-getclass-object", "var o = {}; o.getClass = Object.prototype.toString; return o.getClass();", "classof"],
+  ["classof-plain-tostring", "return ({}).toString();", "classof"],
+  ["classof-array-tostring", "return [1, 2].toString();", "classof"],
+  ["classof-number-proto", "return Object.prototype.toString.call(Number.prototype);", "classof"],
+  ["classof-object-proto", "return Object.prototype.toString.call(Object.prototype);", "classof"],
+  ["classof-bind-keeps-this", "var f = Object.prototype.toString.bind([1]); var o = {}; o.g = f; return o.g();", "classof"],
+  // Boxed prototypes: Number.prototype et al hold a primitive of their own.
+  ["boxproto-number-tostring", "return Number.prototype.toString();", "classof"],
+  ["boxproto-boolean-tostring", "return Boolean.prototype.toString();", "classof"],
+  ["boxproto-number-valueof", "return Number.prototype.valueOf();", "classof"],
+  ["boxproto-string-length-intact", "return 'abcd'.length;", "classof"],
+  ["boxproto-no-leaked-slots", "return Object.keys(new String('ab')).join(',');", "classof"],
+  // Native errors all inherit from Error.
+  ["errproto-type-is-error", "try { null.x; } catch (e) { return e instanceof Error; }", "classof"],
+  ["errproto-type-is-type", "try { null.x; } catch (e) { return e instanceof TypeError; }", "classof"],
+  ["errproto-range-is-error", "try { (5).toString(1); } catch (e) { return e instanceof Error; }", "classof"],
+  ["errproto-user-not-error", "function F() {} var f = new F(); return f instanceof Error;", "classof"],
+
   ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
   ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
   ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],
