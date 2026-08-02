@@ -1669,6 +1669,13 @@ class TSParserSimple  {
           }
         }
         if ( kind == "f" ) {
+          if ( entryKind == "p" ) {
+            if ( i >= ownStart ) {
+              clash = true;
+            }
+          }
+        }
+        if ( kind == "f" ) {
           if ( entryKind == "f" ) {
             if ( i >= ownStart ) {
               if ( (this.scopeIsFn[scopeIdx]) == 0 ) {
@@ -3897,10 +3904,18 @@ class TSParserSimple  {
       this.popScope();
       node.left = catchNode;
     }
+    let sawHandler = false;
+    if ( (typeof(node.left) === "undefined") == false ) {
+      sawHandler = true;
+    }
     if ( this.matchValue("finally") ) {
       this.advance();
       const finallyBlock = this.parseBlock();
       node.right = finallyBlock;
+      sawHandler = true;
+    }
+    if ( sawHandler == false ) {
+      this.syntaxError("Parse error: 'try' requires a catch or a finally clause");
     }
     return node;
   };
@@ -6297,6 +6312,16 @@ class TSParserSimple  {
         contextual = true;
       }
       if ( contextual ) {
+        if ( this.strictMode ) {
+          if ( this.isStrictReservedWord(tokVal) ) {
+            this.syntaxError(("Parse error: '" + tokVal) + "' is reserved in strict mode");
+          }
+        }
+        if ( this.inGenerator ) {
+          if ( tokVal == "yield" ) {
+            this.syntaxError("Parse error: 'yield' is reserved inside a generator");
+          }
+        }
         this.advance();
         const ctxId = new TSNode();
         ctxId.nodeType = "Identifier";
@@ -6683,6 +6708,9 @@ class TSParserSimple  {
         node.nodeType = "MetaProperty";
         node.name = "new";
         node.value = "target";
+        if ( this.functionDepth == 0 ) {
+          this.syntaxError("Parse error: 'new.target' is only allowed inside a function");
+        }
         return node;
       }
       const badMeta = this.peek();

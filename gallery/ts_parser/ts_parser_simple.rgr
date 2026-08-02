@@ -339,6 +339,13 @@ class TSParserSimple {
         if (hoists) {
           if (entryKind == "l") { clash = true }
         }
+        ; A function declaration also clashes with a parameter binding, which
+        ; is what makes `catch (a) { function a(){} }` an error.
+        if (kind == "f") {
+          if (entryKind == "p") {
+            if (i >= ownStart) { clash = true }
+          }
+        }
         ; Two function declarations in the same plain block.
         if (kind == "f") {
           if (entryKind == "f") {
@@ -3027,13 +3034,22 @@ class TSParserSimple {
       node.left = catchNode
     }
     
+    def sawHandler:boolean false
+    if ((null? node.left) == false) { sawHandler = true }
+
     ; finally clause
     if (this.matchValue("finally")) {
       this.advance()
       def finallyBlock (this.parseBlock())
       node.right = finallyBlock
+      sawHandler = true
     }
-    
+
+    ; `try {}` on its own is not a statement.
+    if (sawHandler == false) {
+      this.syntaxError("Parse error: 'try' requires a catch or a finally clause")
+    }
+
     return node
   }
 
@@ -6110,6 +6126,18 @@ class TSParserSimple {
       if (tokVal == "as") { contextual = true }
       if (tokVal == "from") { contextual = true }
       if contextual {
+        ; In strict code these are reserved outright, not merely unbindable:
+        ; `'use strict'; +let;` and `let = 1` are both errors.
+        if (this.strictMode) {
+          if (this.isStrictReservedWord(tokVal)) {
+            this.syntaxError("Parse error: '" + tokVal + "' is reserved in strict mode")
+          }
+        }
+        if (this.inGenerator) {
+          if (tokVal == "yield") {
+            this.syntaxError("Parse error: 'yield' is reserved inside a generator")
+          }
+        }
         this.advance()
         def ctxId (new TSNode())
         ctxId.nodeType = "Identifier"
@@ -6607,6 +6635,9 @@ class TSParserSimple {
         node.nodeType = "MetaProperty"
         node.name = "new"
         node.value = "target"
+        if (this.functionDepth == 0) {
+          this.syntaxError("Parse error: 'new.target' is only allowed inside a function")
+        }
         return node
       }
       ; `new.target` is the only meta property; `new.prop` is a syntax error.
