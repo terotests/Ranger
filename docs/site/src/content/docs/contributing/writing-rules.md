@@ -36,7 +36,7 @@ the pull request that introduces it.
 optional, class, record, function, lambda, block, statement, expression,
 argument, parameter, array, hash, buffer, string, integer, node, playground,
 repository, release, flag, annotation, plugin, polyfill, process, module,
-package, source file, output file.
+package, source file, output file, macro, singleton.
 
 **Verbs:** compile, parse, generate, write, read, install, run, build, publish,
 deploy, cache.

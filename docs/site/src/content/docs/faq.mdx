@@ -52,10 +52,12 @@ The operator is `!`, and it is in prefix form like every other operator:
 
 <TargetOutput example={ex("faq/not-operator")} targets={model.generated.targets} />
 
-## How do I make one instance of a class?
+## How do I create a singleton class?
 
-Add the annotation `@singleton(true)` to the class. The compiler then writes a
-static function `__singleton()`, and each call gives the same instance.
+A singleton class has one instance, and each part of the program uses that
+instance. Add the annotation `@singleton(true)` to the class. The compiler then
+writes a static function `__singleton()`, and each call gives the same
+instance.
 
 <TargetOutput example={ex("faq/singleton")} targets={model.generated.targets} />
 
