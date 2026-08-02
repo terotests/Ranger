@@ -324,6 +324,23 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
 
   ["globalthis-typeof", "return typeof this;", "with"],
 
+  // D-TOPRIMITIVE: objects convert via valueOf/toString before every operator
+  // that is not ===. Reading raw values sent an object straight to its debug
+  // form, so arithmetic on it concatenated text instead of adding numbers.
+  ["toprim-valueof-add", "var o = { valueOf: function () { return 5; } }; return o + 1;", "coercion"],
+  ["toprim-tostring-add", "var o = { toString: function () { return 'x'; } }; return o + 'y';", "coercion"],
+  ["toprim-valueof-wins", "var o = { valueOf: function () { return 2; }, toString: function () { return 'z'; } }; return o + 1;", "coercion"],
+  ["toprim-array-concat", "return [1, 2] + '';", "coercion"],
+  ["toprim-object-concat", "return ({}) + '';", "coercion"],
+  ["toprim-string-lexical-lt", "return '10' < '9';", "coercion"],
+  ["toprim-string-lexical-gt", "return 'b' > 'a';", "coercion"],
+  ["toprim-numeric-compare", "return 10 < 9;", "coercion"],
+  ["toprim-mixed-compare", "return '10' < 9;", "coercion"],
+  ["toprim-nan-compare", "return (0 / 0) < 1;", "coercion"],
+  ["toprim-valueof-compare", "var o = { valueOf: function () { return 5; } }; return o > 3;", "coercion"],
+  ["toprim-wrapper-add", "return new Boolean(true) + true;", "coercion"],
+  ["toprim-subtract-object", "var o = { valueOf: function () { return 9; } }; return o - 4;", "coercion"],
+
   ["with-read", "var o = { a: 5 }; var r; with (o) { r = a; } return r;", "with"],
   ["with-shadows-outer", "var a = 1; var o = { a: 9 }; var r; with (o) { r = a; } return r;", "with"],
   ["with-writes-through", "var o = { a: 1 }; with (o) { a = 7; } return o.a;", "with"],
@@ -596,7 +613,6 @@ const KNOWN_GAPS = new Set<string>([
   "coerce-loose-eq",
   "coerce-arr-to-string",
   "coerce-obj-to-string",
-  "coerce-valueof",
   // Generators parse but do not run.
   "iter-generator",
   // Array/object details.

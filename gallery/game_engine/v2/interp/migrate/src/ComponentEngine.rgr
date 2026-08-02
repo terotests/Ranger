@@ -6206,18 +6206,21 @@ class ComponentEngine {
         
         ; Arithmetic
         if (op == "+") {
-            def isLeftStr:boolean (left.isString())
-            def isRightStr:boolean (right.isString())
-            if (isLeftStr || isRightStr) {
-                return (EvalValue.string((left.toString()) + (right.toString())))
+            ; D-TOPRIMITIVE: both operands convert FIRST, and only then does the
+            ; string-vs-numeric decision get made -- an object with a valueOf
+            ; returning a number must add, not concatenate.
+            def lp:EvalValue (this.toPrimitive(left false))
+            def rp:EvalValue (this.toPrimitive(right false))
+            if ((lp.isString()) || (rp.isString())) {
+                return (EvalValue.string((lp.toString()) + (rp.toString())))
             }
-            return (EvalValue.number((left.toNumber()) + (right.toNumber())))
+            return (EvalValue.number((this.toNumberOf(lp)) + (this.toNumberOf(rp))))
         }
         if (op == "-") {
-            return (EvalValue.number((left.toNumber()) - (right.toNumber())))
+            return (EvalValue.number((this.toNumberOf(left)) - (this.toNumberOf(right))))
         }
         if (op == "*") {
-            return (EvalValue.number((left.toNumber()) * (right.toNumber())))
+            return (EvalValue.number((this.toNumberOf(left)) * (this.toNumberOf(right))))
         }
         ; D-IEEE: division by zero is Infinity / -Infinity / NaN, not 0. The old
         ; guard returned 0, which is wrong arithmetic AND breaks the standard
@@ -6290,17 +6293,30 @@ class ComponentEngine {
         }
 
         ; Comparison
-        if (op == "<") {
-            return (EvalValue.boolean((left.toNumber()) < (right.toNumber())))
-        }
-        if (op == ">") {
-            return (EvalValue.boolean((left.toNumber()) > (right.toNumber())))
-        }
-        if (op == "<=") {
-            return (EvalValue.boolean((left.toNumber()) <= (right.toNumber())))
-        }
-        if (op == ">=") {
-            return (EvalValue.boolean((left.toNumber()) >= (right.toNumber())))
+        ; D-TOPRIMITIVE: the relational operators compare STRINGS when both
+        ; operands convert to strings, and numbers otherwise. Comparing
+        ; "10" < "9" numerically is wrong; lexicographic is correct.
+        if ((op == "<") || (op == ">") || (op == "<=") || (op == ">=")) {
+            def lr:EvalValue (this.toPrimitive(left false))
+            def rr:EvalValue (this.toPrimitive(right false))
+            if ((lr.isString()) && (rr.isString())) {
+                def ls:string lr.stringValue
+                def rs:string rr.stringValue
+                def cmp:int (this.compareStrings(ls rs))
+                if (op == "<") { return (EvalValue.boolean((cmp < 0))) }
+                if (op == ">") { return (EvalValue.boolean((cmp > 0))) }
+                if (op == "<=") { return (EvalValue.boolean((cmp <= 0))) }
+                return (EvalValue.boolean((cmp >= 0)))
+            }
+            def ln2:double (this.toNumberOf(lr))
+            def rn2:double (this.toNumberOf(rr))
+            ; Any NaN makes every relational comparison false.
+            if (ln2 != ln2) { return (EvalValue.boolean(false)) }
+            if (rn2 != rn2) { return (EvalValue.boolean(false)) }
+            if (op == "<") { return (EvalValue.boolean((ln2 < rn2))) }
+            if (op == ">") { return (EvalValue.boolean((ln2 > rn2))) }
+            if (op == "<=") { return (EvalValue.boolean((ln2 <= rn2))) }
+            return (EvalValue.boolean((ln2 >= rn2)))
         }
         
         ; Equality. `===`/`!==` are strict (EvalValue.equals — value for
@@ -7951,6 +7967,117 @@ class ComponentEngine {
             }
         }
         return v
+    }
+
+    ; ==========================================================================
+    ; D-TOPRIMITIVE: converting an object to a primitive, the way every operator
+    ; that is not `===` does it.
+    ; --------------------------------------------------------------------------
+    ; The operators read raw values, so an object went straight to its debug
+    ; form: `({valueOf: function () { return 5; }}) + 1` produced a string
+    ; instead of 6, and every comparison against an object compared text. The
+    ; whole language/expressions area turns on this -- addition, the relational
+    ; operators, the bitwise operators and compound assignment all funnel
+    ; through ToPrimitive then ToNumber.
+    ;
+    ; Number hint tries valueOf then toString; string hint the other way. A
+    ; method that returns an object is skipped, per spec, rather than accepted.
+    ; --------------------------------------------------------------------------
+    fn callPrimitiveMethod:EvalValue (obj:EvalValue name:string) {
+        def m:EvalValue (obj.getMember(name))
+        if (m.valueType == 6) {
+            if m.functionNode {
+                def noArgs:[EvalValue]
+                def bound:EvalValue (m.withThis(obj))
+                def out:EvalValue (this.callFnValueWithValues(bound noArgs))
+                if (out.valueType != 5) {
+                    return out
+                }
+            }
+        }
+        return (EvalValue.null())
+    }
+
+    ; Lexicographic comparison by code unit: -1, 0 or 1. Ranger has no string
+    ; relational operator, and comparing via toNumber would make "10" < "9"
+    ; answer the numeric question instead of the textual one.
+    fn compareStrings:int (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def n:int la
+        if (lb < n) {
+            n = lb
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) { return (0 - 1) }
+            if (ca > cb) { return 1 }
+            i = (i + 1)
+        }
+        if (la < lb) { return (0 - 1) }
+        if (la > lb) { return 1 }
+        return 0
+    }
+
+    fn toPrimitive:EvalValue (v:EvalValue wantString:boolean) {
+        ; Arrays are object-like too and must convert, which is why `[1,2] + ''`
+        ; is "1,2" rather than the engine's debug rendering.
+        if (v.isArray()) {
+            return (EvalValue.string((this.arrayJoinString(v ","))))
+        }
+        if (v.valueType != 5) {
+            return v
+        }
+        ; A boxed primitive is its primitive.
+        if (has v.objectMap "__primitive__") {
+            return (unwrap (get v.objectMap "__primitive__"))
+        }
+        def first:string "valueOf"
+        def second:string "toString"
+        if wantString {
+            first = "toString"
+            second = "valueOf"
+        }
+        def r1:EvalValue (this.callPrimitiveMethod(v first))
+        if (r1.valueType != 0) {
+            return r1
+        }
+        def r2:EvalValue (this.callPrimitiveMethod(v second))
+        if (r2.valueType != 0) {
+            return r2
+        }
+        ; No usable method: fall back to the engine's own rendering, which for
+        ; an array is its join and for a plain object "[object Object]".
+        if (v.isArray()) {
+            return (EvalValue.string((this.arrayJoinString(v ","))))
+        }
+        return (EvalValue.string("[object Object]"))
+    }
+
+    ; ToNumber, honouring ToPrimitive for objects.
+    fn toNumberOf:double (v:EvalValue) {
+        def p:EvalValue (this.toPrimitive(v false))
+        if (p.isString()) {
+            def sv:string p.stringValue
+            def trimmed:string (trim sv)
+            if ((strlen trimmed) == 0) {
+                return 0.0
+            }
+            def d@(optional):double (to_double trimmed)
+            if d {
+                return (unwrap d)
+            }
+            return (0.0 / 0.0)
+        }
+        if (p.isUndefined()) {
+            return (0.0 / 0.0)
+        }
+        if (p.isNull()) {
+            return 0.0
+        }
+        return (p.toNumber())
     }
 
     fn arrayNeedsCallback:boolean (name:string) {
