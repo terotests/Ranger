@@ -3960,6 +3960,11 @@ class TSParserSimple  {
       member.optional = true;
       this.advance();
     }
+    if ( this.matchPunct("!") ) {
+      if ( this.typeScriptMode ) {
+        this.advance();
+      }
+    }
     if ( this.matchValue("(") ) {
       member.nodeType = "MethodDefinition";
       if ( isStatic ) {

@@ -2428,6 +2428,13 @@ class TSParserSimple {
       member.optional = true
       this.advance()
     }
+
+    ; TypeScript definite-assignment assertion: `name!: T`.
+    if (this.matchPunct("!")) {
+      if (this.typeScriptMode) {
+        this.advance()
+      }
+    }
     
     ; Method or property?
     if (this.matchValue("(")) {
