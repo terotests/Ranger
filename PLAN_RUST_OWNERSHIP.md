@@ -55,7 +55,7 @@ hold one object. Fault 1 is independent, and fixable now.
 | --- | --- | --- |
 | 1 | `&T` for an object parameter the summary proves `borrowed` (no clone at the call site) | Done |
 | 2a | Class-level sharing decision as a diagnostic: `-strict-ownership` prints which classes need `Rc<RefCell<T>>`, and why | Done |
-| 2b | The emission: a shared class becomes `Rc<RefCell<T>>`, reusing the machinery the trait support already has; `weak` then stores a real `Weak<RefCell<T>>` | Started, behind `-rust-shared-classes`: the sharing program of the docs compiles and prints `a 1`; two gaps remain, listed below |
+| 2b | The emission: a shared class becomes `Rc<RefCell<T>>`, reusing the machinery the trait support already has; `weak` then stores a real `Weak<RefCell<T>>` | Behind `-rust-shared-classes`: the sharing program prints `a 1`, and the parent–child `weak` program compiles, runs, and reads back through the weak reference — finding 4c of PLAN_CODEGEN_OWNERSHIP, live on Rust for the first time |
 | 3 | `moved` parameter takes the value without a clone when the argument is dead after the call | Open, needs liveness, and only pays once step 2b exists |
 
 ### Step 2a, measured
@@ -188,18 +188,47 @@ that shares an object between two names works on Rust. Without the flag,
 every Rust output is byte-identical to before
 (`tests/compiler-ownership.test.ts` asserts both).
 
-Two gaps stand between the flag and the parent–child program, both visible
-in its `rustc` errors:
+The two gaps that stood between the flag and the parent–child program are
+closed:
 
-1. **`this` as a value.** `c.parent = this` still emits
-   `Rc::downgrade(&Rc::new(RefCell::new(self)))` — a fresh cell around a
-   copy of self, dead on arrival. A method of a shared class runs inside
-   `&mut self` and cannot reach the `Rc` that holds it; the receiver has to
-   arrive as (or with) the `Rc`, which is the C++ `shared_from_this`
-   question in Rust form and the real object-model change.
-2. **Collections of a shared class.** `kids:[Child]` stays `Vec<Child>`
-   while a pushed value is `Rc<RefCell<Child>>`; the element type has to
-   follow the class.
+1. **`this` as a value.** A method of a shared class runs inside `&mut self`
+   and cannot reach the `Rc` that holds it — the `shared_from_this` question
+   in Rust form. A method whose body uses `this` as a value now takes a
+   hidden first parameter `__self_rc : &Rc<RefCell<T>>`
+   (`rustNeedsSelfRc` / `writeSelfRcReceiverArg`), and every call site
+   passes the receiver's Rc alongside the `borrow_mut()` — safe, because
+   the callee only clones or downgrades the Rc and never borrows the cell
+   again. `c.parent = this` emits `Some(Rc::downgrade(__self_rc))`: a live
+   back reference, where the old output built a fresh cell around a copy of
+   self, dead on arrival.
+2. **Collections of a shared class.** The element type follows the class:
+   `kids:[Child]` is `Vec<Rc<RefCell<Child>>>`, and a `HashMap` value the
+   same.
+
+A weak read completes the loop: `(unwrap c.parent)` upgrades to the Rc
+itself (`…parent.clone().unwrap().upgrade().unwrap()`), and a def from it is
+recognized as an already-owned Rc — no second cell, no `RefMut` type error.
+The program
+
+```lisp
+p.adopt(c)
+def back:Parent (unwrap c.parent)
+print back.name
+```
+
+compiles with `rustc` and prints `papa`, the same as the ES6 output. This is
+finding 4c of PLAN_CODEGEN_OWNERSHIP — `weak` on Rust — working for the
+first time, ten lines of writer change once the object model existed.
+
+What the flag still does not cover (found by inspection, not yet by a
+failing program): a `this`-value method called through a receiver chain the
+writer cannot name (`(expr).method(x)`), a strong optional field of a shared
+class, a shared class returned from a method (the return type does not
+follow the class yet), and elements read out of shared collections. Each
+belongs to the same pattern: a place where a value of a shared class is
+produced or consumed and the Rc must follow it. The conformance suite over
+a larger program (the `evg` gallery) is the right gate before the flag can
+default on.
 
 ## How to check
 

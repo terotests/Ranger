@@ -20708,11 +20708,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.out("Vec<f64>", false);
             break;
           case 7 : 
-            wr.out(((("HashMap<" + this.getObjectTypeString(node.key_type, ctx)) + ",") + this.getObjectTypeString(node.array_type, ctx)) + ">", false);
+            let helem = this.getObjectTypeString(node.array_type, ctx);
+            if ( this.rustClassIsShared(node.array_type, ctx) ) {
+              helem = ("Rc<RefCell<" + helem) + ">>";
+            }
+            wr.out(((("HashMap<" + this.getObjectTypeString(node.key_type, ctx)) + ",") + helem) + ">", false);
             wr.addImport("std::collections::HashMap");
             break;
           case 6 : 
-            wr.out(("Vec<" + this.getObjectTypeString(node.array_type, ctx)) + ">", false);
+            let aelem = this.getObjectTypeString(node.array_type, ctx);
+            if ( this.rustClassIsShared(node.array_type, ctx) ) {
+              aelem = ("Rc<RefCell<" + aelem) + ">>";
+            }
+            wr.out(("Vec<" + aelem) + ">", false);
             break;
           default: 
             if ( node.type_name == "void" ) {
@@ -21017,28 +21025,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( (node.children.length) > 2 ) {
             wr.out(" = ", false);
             const value_1 = node.getThird();
-            let init_already_wrapped = false;
+            let init_rc_state = 0;
             if ( local_needs_rc_wrap ) {
-              if ( value_1.expression == false ) {
-                if ( value_1.hasParamDesc ) {
-                  const ip = value_1.paramDesc;
-                  if ( ip.rust_needs_rc_wrap ) {
-                    init_already_wrapped = true;
-                  }
-                }
-              }
+              init_rc_state = this.rustInitRcState(value_1, ctx);
             }
-            if ( local_needs_rc_wrap && (init_already_wrapped == false) ) {
+            if ( local_needs_rc_wrap && (init_rc_state == 0) ) {
               wr.out("Rc::new(RefCell::new(", false);
             }
             ctx.setInExpr();
             await this.WalkNode(value_1, ctx, wr);
             ctx.unsetInExpr();
             if ( local_needs_rc_wrap ) {
-              if ( init_already_wrapped ) {
-                wr.out(".clone()", false);
-              } else {
+              if ( init_rc_state == 0 ) {
                 wr.out("))", false);
+              }
+              if ( init_rc_state == 1 ) {
+                wr.out(".clone()", false);
               }
             }
             if ( rhs_is_optional_field ) {
@@ -21104,6 +21106,100 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
         }
       };
+      rustClassIsShared (typeName, ctx) {
+        if ( (typeName.length) == 0 ) {
+          return false;
+        }
+        if ( ctx.hasCompilerFlag("rust-shared-classes") == false ) {
+          return false;
+        }
+        const typeClass = ctx.findClass(typeName);
+        if ( typeof(typeClass) === "undefined" ) {
+          return false;
+        }
+        const tc = typeClass;
+        return tc.rust_needs_ref_semantics;
+      };
+      async rustNeedsSelfRc (fnDesc, ctx) {
+        if ( fnDesc.is_lambda ) {
+          return false;
+        }
+        if ( typeof(fnDesc.container_class) === "undefined" ) {
+          return false;
+        }
+        const cc = fnDesc.container_class;
+        if ( this.rustClassIsShared(cc.name, ctx) == false ) {
+          return false;
+        }
+        if ( typeof(fnDesc.fnBody) === "undefined" ) {
+          return false;
+        }
+        let found = false;
+        const fb = fnDesc.fnBody;
+        await fb.forTree(((item, i) => { 
+          if ( item.vref == "this" ) {
+            found = true;
+          }
+        }));
+        return found;
+      };
+      rustInitRcState (value, ctx) {
+        if ( value.expression == false ) {
+          if ( value.hasParamDesc ) {
+            const ip = value.paramDesc;
+            if ( ip.rust_needs_rc_wrap ) {
+              return 1;
+            }
+          }
+          return 0;
+        }
+        if ( (value.children.length) >= 2 ) {
+          const first = value.getFirst();
+          if ( first.vref == "unwrap" ) {
+            const arg = value.getSecond();
+            if ( arg.hasParamDesc ) {
+              const pp = arg.paramDesc;
+              if ( (typeof(pp.nameNode) !== "undefined" && pp.nameNode != null )  ) {
+                const nn = pp.nameNode;
+                if ( nn.hasFlag("weak") ) {
+                  if ( this.rustClassIsShared(nn.type_name, ctx) ) {
+                    return 2;
+                  }
+                }
+              }
+            }
+          }
+        }
+        return 0;
+      };
+      async writeSelfRcReceiverArg (node, fc, ctx, wr) {
+        if ( typeof(node.fnDesc) === "undefined" ) {
+          return false;
+        }
+        if ( await this.rustNeedsSelfRc((node.fnDesc), ctx) == false ) {
+          return false;
+        }
+        const nsLen = fc.ns.length;
+        if ( nsLen < 2 ) {
+          return false;
+        }
+        const root = fc.ns[0];
+        if ( (root == "this") && (nsLen == 2) ) {
+          wr.out("__self_rc", false);
+          return true;
+        }
+        let path = root;
+        if ( root == "this" ) {
+          path = "self";
+        }
+        let i = 1;
+        while (i < (nsLen - 1)) {
+          path = (path + ".") + (fc.ns[i]);
+          i = i + 1;
+        };
+        wr.out("&" + path, false);
+        return true;
+      };
       async writeArgsDef (fnDesc, ctx, wr) {
         const pms = operatorsOf.filter_48(fnDesc.params, ((item, index) => { 
           if ( item.nameNode.hasFlag("keyword") ) {
@@ -21111,9 +21207,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return true;
         }));
+        let wrote_selfrc = false;
+        if ( await this.rustNeedsSelfRc(fnDesc, ctx) ) {
+          const scc = fnDesc.container_class;
+          wr.out(("__self_rc : &Rc<RefCell<" + scc.name) + ">>", false);
+          wrote_selfrc = true;
+        }
         for ( let i = 0; i < pms.length; i++) {
           var arg = pms[i];
-          if ( i > 0 ) {
+          if ( (i > 0) || wrote_selfrc ) {
             wr.out(", ", false);
           }
           const nameN = arg.nameNode;
@@ -21861,13 +21963,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               await this.WriteVRef(fc, ctx, wr);
             }
             wr.out("(", false);
+            const pre_wrote_selfrc = await this.writeSelfRcReceiverArg(node, fc, ctx, wr);
             const fnD2 = node.fnDesc;
             if ( (typeof(fnD2) !== "undefined" && fnD2 != null )  ) {
               const fnDesc = fnD2;
               for ( let i = 0; i < fnDesc.params.length; i++) {
                 var arg = fnDesc.params[i];
                 const n = givenArgs.children[i];
-                if ( i > 0 ) {
+                if ( (i > 0) || pre_wrote_selfrc ) {
                   wr.out(", ", false);
                 }
                 const tmpVar = tempVars[i];
@@ -22247,10 +22350,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           await this.WriteVRef(fc, ctx, wr);
           wr.out("(", false);
+          const std_wrote_selfrc = await this.writeSelfRcReceiverArg(node, fc, ctx, wr);
           for ( let i_4 = 0; i_4 < node.fnDesc.params.length; i_4++) {
             var arg_4 = node.fnDesc.params[i_4];
             const n_4 = givenArgs.children[i_4];
-            if ( i_4 > 0 ) {
+            if ( (i_4 > 0) || std_wrote_selfrc ) {
               wr.out(", ", false);
             }
             if ( typeof(n_4) === "undefined" ) {
@@ -23199,6 +23303,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           await this.WalkNode(left, ctx, wr);
           ctx.unsetInLhs();
           if ( is_weak ) {
+            if ( right.vref == "this" ) {
+              const wcc = ctx.getCurrentClass();
+              if ( (typeof(wcc) !== "undefined" && wcc != null )  ) {
+                const wcl = wcc;
+                if ( this.rustClassIsShared(wcl.name, ctx) ) {
+                  if ( is_optional ) {
+                    wr.out(" = Some(Rc::downgrade(__self_rc));", true);
+                  } else {
+                    wr.out(" = Rc::downgrade(__self_rc);", true);
+                  }
+                  ctx.unsetInExpr();
+                  return;
+                }
+              }
+            }
             let rhs_is_rc_wrapped = false;
             if ( right.hasParamDesc ) {
               const rhsParam = right.paramDesc;
@@ -23567,6 +23686,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.setInExpr();
           if ( is_weak_ref ) {
             await this.WalkNode(arg_3, ctx, wr);
+            if ( this.rustClassIsShared(inner_type, ctx) ) {
+              wr.out(".clone().unwrap().upgrade().unwrap()", false);
+              ctx.unsetInExpr();
+              return;
+            }
             if ( is_self_field ) {
               wr.out(".clone().unwrap().upgrade().unwrap().borrow_mut()", false);
             } else {

@@ -278,11 +278,20 @@ class RangerRustClassWriter {
         wr.out("Vec<f64>" false)
       }
       case RangerNodeType.Hash {
-        wr.out((((("HashMap<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + (this.getObjectTypeString(node.array_type ctx))) + ">") false)
+        ; an element of a shared class follows the class (PLAN_RUST_OWNERSHIP 2b)
+        def helem:string (this.getObjectTypeString(node.array_type ctx))
+        if (this.rustClassIsShared(node.array_type ctx)) {
+          helem = (("Rc<RefCell<" + helem) + ">>")
+        }
+        wr.out((((("HashMap<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + helem) + ">") false)
         wr.addImport("std::collections::HashMap")
       }
       case RangerNodeType.Array {
-        wr.out((("Vec<" + (this.getObjectTypeString(node.array_type ctx))) + ">") false)
+        def aelem:string (this.getObjectTypeString(node.array_type ctx))
+        if (this.rustClassIsShared(node.array_type ctx)) {
+          aelem = (("Rc<RefCell<" + aelem) + ">>")
+        }
+        wr.out((("Vec<" + aelem) + ">") false)
       }
       default {
         if (node.type_name == "void") {
@@ -640,21 +649,17 @@ class RangerRustClassWriter {
         def value:CodeNode (node.getThird())
         ; An initializer that is already Rc<RefCell<T>> shares the object:
         ; clone the Rc, never wrap a second cell around it — `def b a` is the
-        ; language's aliasing form and both names must reach one cell.
-        def init_already_wrapped:boolean false
+        ; language's aliasing form and both names must reach one cell. An
+        ; upgrade of a weak field is already an owned Rc and needs neither
+        ; the wrap nor the clone.
+        ; 0 = raw value, 1 = another wrapped name (clone), 2 = owned Rc
+        def init_rc_state:int 0
         if local_needs_rc_wrap {
-          if (value.expression == false) {
-            if value.hasParamDesc {
-              def ip:RangerAppParamDesc value.paramDesc
-              if ip.rust_needs_rc_wrap {
-                init_already_wrapped = true
-              }
-            }
-          }
+          init_rc_state = (this.rustInitRcState(value ctx))
         }
 
         ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
-        if (local_needs_rc_wrap && (init_already_wrapped == false)) {
+        if (local_needs_rc_wrap && (init_rc_state == 0)) {
           wr.out("Rc::new(RefCell::new(" false)
         }
 
@@ -664,10 +669,11 @@ class RangerRustClassWriter {
 
         ; Close Rc::new(RefCell::new(...)) if we opened it
         if local_needs_rc_wrap {
-          if init_already_wrapped {
-            wr.out(".clone()" false)
-          } {
+          if (init_rc_state == 0) {
             wr.out("))" false)
+          }
+          if (init_rc_state == 1) {
+            wr.out(".clone()" false)
           }
         }
         
@@ -748,6 +754,119 @@ class RangerRustClassWriter {
   ; type, and Rust has no keyword argument, so the marker must not reach the
   ; signature: without this filter `record Point { def xpos:int 0 }` comes out
   ; as `pub fn new(xpos : , xpos : i64) -> Point`, which does not parse.
+  ; PLAN_RUST_OWNERSHIP 2b (-rust-shared-classes) support: is the named class
+  ; one the sharing analysis marked, with the flag on?
+  fn rustClassIsShared:boolean (typeName:string ctx:RangerAppWriterContext) {
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if ((ctx.hasCompilerFlag("rust-shared-classes")) == false) {
+      return false
+    }
+    def typeClass@(optional):RangerAppClassDesc (ctx.findClass(typeName))
+    if (null? typeClass) {
+      return false
+    }
+    def tc:RangerAppClassDesc (unwrap typeClass)
+    return (tc.rust_needs_ref_semantics)
+  }
+
+  ; A method of a shared class that uses `this` as a value needs the Rc that
+  ; holds the receiver, and `&mut self` cannot reach it — the shared_from_this
+  ; question in Rust form. Such a method takes a hidden first parameter
+  ; `__self_rc : &Rc<RefCell<T>>`, and every call site passes the receiver's
+  ; Rc. The reference is safe next to the `&mut self` borrow because the
+  ; callee only clones or downgrades the Rc; it never borrows the cell again.
+  fn rustNeedsSelfRc:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if fnDesc.is_lambda {
+      return false
+    }
+    if (null? fnDesc.container_class) {
+      return false
+    }
+    def cc:RangerAppClassDesc (unwrap fnDesc.container_class)
+    if ((this.rustClassIsShared(cc.name ctx)) == false) {
+      return false
+    }
+    if (null? fnDesc.fnBody) {
+      return false
+    }
+    def found false
+    def fb:CodeNode (unwrap fnDesc.fnBody)
+    fb.forTree({
+      if (item.vref == "this") {
+        found = true
+      }
+    })
+    return found
+  }
+
+  ; How a def initializer relates to Rc<RefCell<T>> when the local is a
+  ; shared-class name: 0 = a raw value that needs the wrap, 1 = another
+  ; wrapped name (share it by cloning the Rc), 2 = an expression that already
+  ; produces an owned Rc (the upgrade of a weak field).
+  fn rustInitRcState:int (value:CodeNode ctx:RangerAppWriterContext) {
+    if (value.expression == false) {
+      if value.hasParamDesc {
+        def ip:RangerAppParamDesc value.paramDesc
+        if ip.rust_needs_rc_wrap {
+          return 1
+        }
+      }
+      return 0
+    }
+    if ((array_length value.children) >= 2) {
+      def first:CodeNode (value.getFirst())
+      if (first.vref == "unwrap") {
+        def arg:CodeNode (value.getSecond())
+        if arg.hasParamDesc {
+          def pp:RangerAppParamDesc arg.paramDesc
+          if (!null? pp.nameNode) {
+            def nn:CodeNode (unwrap pp.nameNode)
+            if (nn.hasFlag("weak")) {
+              if (this.rustClassIsShared(nn.type_name ctx)) {
+                return 2
+              }
+            }
+          }
+        }
+      }
+    }
+    return 0
+  }
+
+  ; Write the receiver's Rc as the hidden first argument of a call to a
+  ; method that needs it. True when something was written.
+  fn writeSelfRcReceiverArg:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (null? node.fnDesc) {
+      return false
+    }
+    if ((this.rustNeedsSelfRc((unwrap node.fnDesc) ctx)) == false) {
+      return false
+    }
+    def nsLen:int (array_length fc.ns)
+    if (nsLen < 2) {
+      return false
+    }
+    def root:string (itemAt fc.ns 0)
+    if ((root == "this") && (nsLen == 2)) {
+      ; a self-call inside another method that holds the Rc already
+      wr.out("__self_rc" false)
+      return true
+    }
+    def path:string root
+    if (root == "this") {
+      path = "self"
+    }
+    def i 1
+    while (i < (nsLen - 1)) {
+      path = ((path + ".") + (itemAt fc.ns i))
+      i = i + 1
+    }
+    wr.out(("&" + path) false)
+    return true
+  }
+
   fn writeArgsDef (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     def pms (filter (fnDesc.params) {
       if (item.nameNode.hasFlag("keyword")) {
@@ -755,8 +874,14 @@ class RangerRustClassWriter {
       }
       return true
     })
+    def wrote_selfrc:boolean false
+    if (this.rustNeedsSelfRc(fnDesc ctx)) {
+      def scc:RangerAppClassDesc (unwrap fnDesc.container_class)
+      wr.out((("__self_rc : &Rc<RefCell<" + scc.name) + ">>") false)
+      wrote_selfrc = true
+    }
     for pms arg:RangerAppParamDesc i {
-      if (i > 0) {
+      if ((i > 0) || wrote_selfrc) {
         wr.out(", " false)
       }
       def nameN:CodeNode (unwrap arg.nameNode)
@@ -1713,12 +1838,13 @@ class RangerRustClassWriter {
           this.WriteVRef(fc ctx wr)
         }
         wr.out("(" false)
+        def pre_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
         def fnD2@(optional):RangerAppFunctionDesc node.fnDesc
         if (!null? fnD2) {
           def fnDesc:RangerAppFunctionDesc (unwrap fnD2)
           for fnDesc.params arg:RangerAppParamDesc i {
             def n@(optional):CodeNode (itemAt givenArgs.children i)
-            if (i > 0) {
+            if ((i > 0) || pre_wrote_selfrc) {
               wr.out(", " false)
             }
             def tmpVar:string (itemAt tempVars i)
@@ -2135,9 +2261,10 @@ class RangerRustClassWriter {
       ; Note: Don't add self. here as WriteVRef already handles member variables
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
+      def std_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
       for node.fnDesc.params arg:RangerAppParamDesc i {
         def n@(optional):CodeNode (itemAt givenArgs.children i)
-        if (i > 0) {
+        if ((i > 0) || std_wrote_selfrc) {
           wr.out(", " false)
         }
         if (null? n) {
@@ -3250,6 +3377,25 @@ class RangerRustClassWriter {
       
       ; Handle weak reference assignments - use Rc::downgrade() to create Weak pointer
       if is_weak {
+        ; `x.weakField = this` inside a shared class: the enclosing method
+        ; holds the receiver's Rc as __self_rc (rustNeedsSelfRc is true by
+        ; construction, because this very statement uses `this` as a value),
+        ; and the downgrade of that Rc is the live back reference.
+        if (right.vref == "this") {
+          def wcc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          if (!null? wcc) {
+            def wcl:RangerAppClassDesc (unwrap wcc)
+            if (this.rustClassIsShared(wcl.name ctx)) {
+              if is_optional {
+                wr.out(" = Some(Rc::downgrade(__self_rc));" true)
+              } {
+                wr.out(" = Rc::downgrade(__self_rc);" true)
+              }
+              ctx.unsetInExpr()
+              return
+            }
+          }
+        }
         ; Check if RHS is a parameter that's already Rc<RefCell<T>> (rust_needs_rc_wrap)
         def rhs_is_rc_wrapped:boolean false
         if right.hasParamDesc {
@@ -3690,6 +3836,14 @@ class RangerRustClassWriter {
       ; Handle weak references - need to upgrade() to get Rc, then borrow_mut() to access value
       if is_weak_ref {
         this.WalkNode(arg ctx wr)
+        ; A weak field of a shared class upgrades to the Rc itself
+        ; (PLAN_RUST_OWNERSHIP 2b): the unwrapped value stays
+        ; Rc<RefCell<T>>, and use sites borrow it like any shared name.
+        if (this.rustClassIsShared(inner_type ctx)) {
+          wr.out(".clone().unwrap().upgrade().unwrap()" false)
+          ctx.unsetInExpr()
+          return
+        }
         if is_self_field {
           ; Clone the Option<Weak<...>> first, then upgrade and borrow
           wr.out(".clone().unwrap().upgrade().unwrap().borrow_mut()" false)

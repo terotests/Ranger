@@ -247,6 +247,42 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes behind -rust-shared-c
     expect(plain).toContain("let mut b : Counter = a;");
     expect(plain).not.toContain("Rc<RefCell<Counter>>");
   });
+
+  execSync(
+    `node "${OUTPUT_JS}" -l=rust -rust-shared-classes "./${FIXTURES}/ownership_shared_weak.rgr" -d="${outDir}" -o="shared_weak.rs"`,
+    { cwd: ROOT_DIR, env, timeout: 30000, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  const weakRs = fs.readFileSync(
+    path.join(ROOT_DIR, outDir, "shared_weak.rs"),
+    "utf-8"
+  );
+
+  it("passes the receiver's Rc to a method that uses `this` as a value", () => {
+    // `c.parent = this` needs the Rc that holds the receiver; &mut self
+    // cannot reach it, so the method takes a hidden __self_rc parameter and
+    // the call site passes the receiver's Rc alongside.
+    expect(weakRs).toContain(
+      "fn adopt(&mut self, __self_rc : &Rc<RefCell<Parent>>, mut c : Rc<RefCell<Child>>)"
+    );
+    expect(weakRs).toContain("adopt(&p, c.clone())");
+  });
+
+  it("downgrades the live Rc for a weak back reference, never a fresh cell", () => {
+    expect(weakRs).toContain("parent = Some(Rc::downgrade(__self_rc));");
+    expect(weakRs).not.toContain("Rc::downgrade(&Rc::new(RefCell::new(self))");
+  });
+
+  it("gives a collection of a shared class Rc elements", () => {
+    expect(weakRs).toContain("kids : Vec<Rc<RefCell<Child>>>");
+  });
+
+  it("upgrades a weak read to the Rc itself, with no extra cell", () => {
+    // This program compiles with rustc and prints `papa`, the same as the
+    // ES6 output — the weak back reference is alive and readable.
+    expect(weakRs).toContain(
+      "let mut back : Rc<RefCell<Parent>> = c.borrow_mut().parent.clone().unwrap().upgrade().unwrap();"
+    );
+  });
 });
 
 describe("Ranger Compiler - ownership inference on gallery JPEG scaler", () => {
