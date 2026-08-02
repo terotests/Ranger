@@ -1091,6 +1091,7 @@ class ComponentEngine {
         def toks:[Token] (lx.tokenize())
         def p (new TSParserSimple())
         p.initParser(toks)
+        p.setModuleMode((this.sourceIsModule(src)))
         def ast:TSNode (p.parseProgram())
         if (p.errorCount > 0) {
             return (this.throwSpecError("SyntaxError" "invalid function body passed to Function"))
@@ -1114,6 +1115,11 @@ class ComponentEngine {
         def evParser (new TSParserSimple())
         evParser.initParser(evTokens)
         evParser.tsxMode = jsxParsing
+        ; D-SOURCETYPE: eval'd code is a SCRIPT unless it uses import/export.
+        ; Defaulting to module mode made it strict, so sloppy source passed to
+        ; eval was reported as a SyntaxError -- eval is exactly where guests
+        ; hand over sloppy code.
+        evParser.setModuleMode((this.sourceIsModule(src)))
         def ast:TSNode (evParser.parseProgram())
         if (evParser.errorCount > 0) {
             return (this.throwSpecError("SyntaxError" "invalid source passed to eval"))
@@ -2877,16 +2883,33 @@ class ComponentEngine {
         ; D-WITH: evaluate the object, push a scope fronted by it, run the body.
         if (stmt.nodeType == "WithStatement") {
             if stmt.left {
-                def wObj:EvalValue (this.evaluateExpr((unwrap stmt.left)))
-                if ((wObj.isNull()) || (wObj.isUndefined())) {
+                def wRaw:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                if ((wRaw.isNull()) || (wRaw.isUndefined())) {
                     def _w:EvalValue (this.throwSpecError("TypeError" "with(...) requires an object"))
                     return
                 }
+                ; D-WITH: the operand goes through ToObject, so a primitive is
+                ; boxed rather than rejected — only null and undefined throw.
+                def wObj:EvalValue wRaw
+                if (wRaw.valueType == 2) { wObj = (this.makeWrapper("String" wRaw)) }
+                if (wRaw.valueType == 1) { wObj = (this.makeWrapper("Number" wRaw)) }
+                if (wRaw.valueType == 3) { wObj = (this.makeWrapper("Boolean" wRaw)) }
                 def savedW:EvalContext context
                 context = (context.createChild())
                 context.withObject = wObj
                 if stmt.body {
                     this.runBlockOrStatement((unwrap stmt.body))
+                }
+                ; D-WITH: `var` inside the body belongs to the enclosing
+                ; function/global scope, not to the with scope, which exists
+                ; only for the duration of the statement. Bindings created in
+                ; it are therefore lifted out before it is discarded.
+                def liftKeys:[string] (keys context.bindings)
+                def li:int 0
+                while (li < (array_length liftKeys)) {
+                    def lk:string (itemAt liftKeys li)
+                    savedW.assign(lk (unwrap (get context.bindings lk)))
+                    li = (li + 1)
                 }
                 context = savedW
             }
@@ -7911,6 +7934,11 @@ class ComponentEngine {
         }
         w.setMember("__primitive__" p)
         w.setMember("__wrapper__" (EvalValue.string(ctorName)))
+        ; A boxed string exposes `length` as a real own property, which is what
+        ; `with ('ab') { length }` resolves against.
+        if (ctorName == "String") {
+            w.setMember("length" (EvalValue.fromInt((strlen p.stringValue))))
+        }
         w.protoRef = (this.builtinPrototype(ctorName))
         return w
     }

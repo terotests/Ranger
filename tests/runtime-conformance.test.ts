@@ -318,6 +318,10 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // through it becomes a global binding. A large family of sloppy-script tests
   // declares its fixtures that way on their FIRST line, so without it they
   // failed before reaching what they actually test.
+  ["with-coerces-primitive", "var r; with ('ab') { r = length; } return r;", "with"],
+  ["with-var-lifts-out", "var o = { a: 1 }; with (o) { var lifted = 5; } return lifted;", "with"],
+  ["eval-sloppy-source", "return eval('var q = 1; q + 1');", "with"],
+
   ["globalthis-typeof", "return typeof this;", "with"],
 
   ["with-read", "var o = { a: 5 }; var r; with (o) { r = a; } return r;", "with"],
