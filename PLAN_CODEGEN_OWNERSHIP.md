@@ -1,8 +1,5 @@
 # PLAN_CODEGEN_OWNERSHIP — better C++ and Swift output
 
-Status: investigation, measured on this tree. No compiler change is in this
-branch. Every number below has the command that produces it.
-
 Question: can an annotation improve the C++ and the Swift output, given that
 the compiler already counts references and already reads the flow of the code?
 
@@ -11,6 +8,20 @@ the compiler already computes the fact and then throws it away, or because the
 program already states the fact with a keyword that the writers ignore. One
 finding needs an annotation, and that annotation exists already (`weak`); two
 writers do not read it.
+
+## Status
+
+| # | Change | State |
+| --- | --- | --- |
+| 1 | `const std::shared_ptr<T>&` for a borrowed object parameter (C++) | Done |
+| 2 | `enable_shared_from_this` only where the output uses it (C++) | Done |
+| 3 | `final class` (Swift) | Done |
+| 4a | `weak var` (Swift) | Done, for a field that is also `optional` |
+| 4b | `std::weak_ptr` (C++) | Done, through the `r_weak<T>` wrapper |
+| 5 | `record` as a value type (C++, Swift) | Not done, and see below: the measurement found a different fault in `record`, which is fixed |
+
+The sections below hold the measurement of each finding as it stood before the
+change, and the "Result" line states what the same measurement gives now.
 
 ---
 
@@ -24,12 +35,14 @@ it in place becomes `T&` in the place of `T`. This works, it is automatic, and
 
 **The ownership inference (all targets, `-strict-ownership`).** Each parameter
 gets an OwnershipKind: `borrowed`, `moved`, `owned`, `shared` or `unknown`.
-`compiler/ng_StaticAnalysis.rgr` states the limit in its own comment:
+`compiler/ng_StaticAnalysis.rgr` stated the limit in its own comment:
 
 > Phase A only records + reports; it does not change code generation.
 
-So the compiler knows more about the program than the output shows. The
-findings below are the difference.
+So the compiler knew more about the program than the output showed. The
+findings below are the difference. Finding 1 closes it for C++: the pass now
+runs for every C++ compilation, with or without the flag, and the C++ writer
+reads the result. Every other writer still ignores it.
 
 ---
 
@@ -76,6 +89,23 @@ int  TokenBag::sumValue( std::shared_ptr<Node> a , std::shared_ptr<Node> b ) {
 
 This is Phase B of a design that is already staged. It needs no annotation.
 
+**Result.** `cppBorrowedObjectParam` in `ng_RangerCppClassWriter.rgr`, with the
+pass wired into `VirtualCompiler.rgr` for the C++ target. Two guards keep the
+change safe: a parameter that the program assigns to stays a copy, and every
+parameter of a class that takes part in inheritance stays a copy, because a
+base and an override must keep the same signature and the inference runs per
+function. The pass also covers static methods now; it did not before.
+
+| Measurement, `jpeg_scaler.rgr` | Before | Now |
+| --- | --- | --- |
+| `std::shared_ptr<T>` object parameters by value | 64 | 0 |
+| `const std::shared_ptr<T>&` object parameters | 0 | 64 |
+
+Built with `g++ -std=c++17` and run five times over
+`gallery/pdf_writer/assets/images/Example.jpg` at `-width 600`: 4.4 s before,
+3.9 s after. Both binaries write the same output file, byte for byte
+(`md5sum`).
+
 ---
 
 ## Finding 2 — every class inherits `enable_shared_from_this`, and no class uses it
@@ -97,6 +127,16 @@ per instance, for a feature that neither program uses.
 **Change:** emit the base only for a class whose output holds a
 `shared_from_this()` call. The writer knows, because the writer emits that
 call.
+
+**Result.** `cppNeedsSharedFromThis` in `ng_RangerCppClassWriter.rgr`. It
+reports true for a class whose body uses `this` as a value, and for a class
+that another class extends, because a subclass calls `shared_from_this()`
+through the base.
+
+| File | Classes with the base, before | Now | Calls |
+| --- | --- | --- | --- |
+| `jpeg_scaler.rgr` | 22 | 0 | 0 |
+| `gallery/js_parser/js_ast.rgr` | 41 | 0 | 0 |
 
 ---
 
@@ -126,6 +166,53 @@ The keyword is already in the program, so this needs no annotation either. The
 risk is higher than for findings 1 and 2: a value type changes assignment from
 sharing to copying, so the change needs the conformance suite behind it.
 
+**Not done, and the reason is stronger than the risk.** A `record` is a
+reference on the nine targets that collect memory, because an object of
+JavaScript, of Java or of Python is a reference. Making it a value on C++ and
+on Swift would make the same program behave in two ways: `a = b` would share on
+one target and copy on another. That is a decision about the language, not
+about a writer, and it belongs to the whole toolchain or to none of it.
+
+**What the measurement found instead: the record constructor was broken on
+eleven of the twelve targets.** See the section below.
+
+---
+
+## Finding 3b — the record constructor did not compile
+
+The compiler builds the constructor of a `record` from its fields
+(`buildRecordConstructor` in `ng_RangerFlowParser.rgr`). The signature it builds
+holds two parameters per field: a marker that carries the name of the keyword
+and no type, and the parameter that carries the value.
+
+```text
+Constructor (xpos@(keyword) xpos:int ypos@(keyword) ypos:int)
+```
+
+Only the JavaScript writer dropped the marker. Every other writer put it in the
+signature, and the result did not compile:
+
+| Target | Before | Now |
+| --- | --- | --- |
+| C++ | `Point::Point( xpos , int xpos , ypos , int ypos )` | `Point::Point( int xpos , int ypos )` |
+| Rust | `pub fn new(xpos : , xpos : i64, ypos : , ypos : i64)` | `pub fn new(xpos : i64, ypos : i64)` |
+| Swift | `init(xpos : , xpos : Int, ypos : , ypos : Int )` | `init(xpos : Int, ypos : Int )` |
+| Go | `func CreateNew_Point(xpos (), xpos int64, …)` against a call of two arguments | `func CreateNew_Point(xpos int64, ypos int64)` |
+| Scala | `class Point (xpos : , xpos : Int, …)` | `class Point (xpos : Int, ypos : Int)` |
+| Java | `Point( final  xpos , final Integer xpos , … )` | `Point( final Integer xpos , final Integer ypos )` |
+| Kotlin | `class Point( xpos : , xpos : Int, … )`, call `Point(xpos, 3, ypos, 4)` | `class Point( xpos : Int, ypos : Int )`, call `Point(3, 4)` |
+| C# | `Point(  xpos , int xpos , … )` | `Point( int xpos , int ypos )` |
+| Python | `def __init__(self, xpos, xpos, ypos, ypos)` | `def __init__(self, xpos, ypos)` |
+| PHP | call `new Point($xpos, 3, $ypos, 4)` with `$xpos` undefined | `new Point(3, 4)` |
+| JavaScript / TypeScript | `constructor(xpos, ypos)` | unchanged, it was already right |
+
+The fix is the filter that the JavaScript writer already held, in the parameter
+writer and in the constructor-call writer of each target.
+
+`tests/fixtures/record_basic.rgr` now builds and prints `3` `4` `Done` on C++
+(`g++`), Rust (`rustc`), Go (`go run`), Python, PHP and Node — the six
+toolchains this machine holds.
+
 ---
 
 ## Finding 4 — a Swift class is never `final`
@@ -143,6 +230,10 @@ an open one.
 **Change:** emit `final class` for a class that no class in the compilation
 extends. The compiler holds the class list, so the test is a lookup. No
 annotation.
+
+**Result.** `ng_RangerSwift6ClassWriter.rgr` reads `is_inherited`, which the
+flow parser sets for every class that another class names after `extends`.
+`jpeg_scaler.rgr` gives 22 `final class` of 22, `js_ast.rgr` 41 of 41.
 
 ---
 
@@ -163,6 +254,56 @@ on Swift, and the program has no way to say otherwise.
 **Change:** `std::weak_ptr<T>` for a `weak` field in C++, with a `.lock()` at
 the read; `weak var` in Swift. The Rust writer is the model.
 
+**Result, Swift: done.** `writeVarDef` in `ng_RangerSwift6ClassWriter.rgr`
+emits `weak var x : T?` for a field that states `weak` and `optional` and whose
+type is a class of the compilation. Swift needs both parts, because a weak
+reference must be a `var` and must be optional. `@(weak)` without `optional`
+keeps the strong form rather than emitting Swift that does not compile.
+
+```ranger
+def parent@(weak optional):Node
+```
+
+```swift
+final class Node : Hashable  {
+  var name : String = ""
+  weak var parent : Node?
+}
+```
+
+**Result, C++: done.** Swift needs the keyword only; C++ needs `.lock()` at
+every read of the field, which would touch every place the writer emits a field
+access. The smaller form of the change is a `r_weak<T>` wrapper above the
+classes of the file: it holds a `std::weak_ptr<T>` and gives `operator->`, an
+assignment from `std::shared_ptr<T>`, a conversion back to it and a test
+against `NULL`. Every read site stays as it was. The writer emits the wrapper
+only into a file that holds a `weak` field
+(`cppIsWeakField` / `cppProgramHasWeakField` / `writeCppWeakHelper`).
+
+```cpp
+class Child {
+  public :
+    std::string name;
+    r_weak<Parent> parent;
+};
+
+std::string  Child::parentName() {
+  if ( parent == NULL ) {
+    return std::string("orphan");
+  }
+  std::shared_ptr<Parent> p = parent;
+  return p->name;
+}
+```
+
+The measurement is a leak check, not a timing. A parent that holds its children
+and a child that points back, built with `g++ -std=c++17 -fsanitize=address`:
+
+| Back reference | AddressSanitizer at exit |
+| --- | --- |
+| `def parent@(optional):Parent` | `168 byte(s) leaked in 3 allocation(s)` |
+| `def parent@(weak optional):Parent` | no leak |
+
 `strong`, `lives` and `temp` change no output on any target. Compiled the same
 program with and without each of them for C++, Rust and Swift: the output is
 identical. `lives` and `temp` are read by the lifetime bookkeeping in
@@ -176,11 +317,13 @@ The inference decided 255 of 256 parameters in a 110-function program. It
 called one `unknown`. An annotation is worth its cost in three places only:
 
 1. **`weak`** — a back reference is a decision about semantics, not a fact that
-   a flow analysis can find. Finding 5.
+   a flow analysis can find. Finding 5. The three targets that need it now read
+   it.
 2. **`unknown`** — a parameter that the pass cannot decide. An annotation would
    let the program state the answer in the place of taking the slow path. One
-   parameter in the program measured above, so the value is small today. It
-   grows if Phase B lands and `unknown` starts to cost performance.
+   parameter in the program measured above, so the value is small. It is a real
+   cost now that the C++ writer reads the summary: an `unknown` parameter keeps
+   the copy of the pointer that a `borrowed` one drops.
 3. **A promise across a compilation unit** — the pass reads the body it has. A
    parameter of a function that a plugin or a target-specific block writes has
    no body to read.
@@ -191,17 +334,25 @@ Everything else in this document is a fact that the compiler already holds.
 
 ## Order of work
 
-| # | Change | Value | Risk | Needs an annotation |
-| --- | --- | --- | --- | --- |
-| 1 | `const&` for a borrowed object parameter (C++) | High: 64 parameters in one file, every call | Low. The inference already separates borrowed from moved, and a wrong answer is a compile error, not silent | No |
-| 2 | `enable_shared_from_this` only where used (C++) | Medium: two pointers per object | Low | No |
-| 3 | `final class` (Swift) | Medium: devirtualization | Low | No |
-| 4 | `weak` in C++ and Swift | Correctness, not speed: it removes a leak | Medium: a `.lock()` at each read | The annotation exists |
-| 5 | `record` as a value type (C++, Swift) | High for a program with many small records | High: assignment changes meaning | No |
+| # | Change | Value | Risk | Needs an annotation | State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `const&` for a borrowed object parameter (C++) | High: 64 parameters in one file, every call | Low. The inference already separates borrowed from moved, and a wrong answer is a compile error, not silent | No | Done |
+| 2 | `enable_shared_from_this` only where used (C++) | Medium: two pointers per object | Low | No | Done |
+| 3 | `final class` (Swift) | Medium: devirtualization | Low | No | Done |
+| 4 | `weak` in C++ and Swift | Correctness, not speed: it removes a leak | Medium: a `.lock()` at each read | The annotation exists | Done |
+| 5 | `record` as a value type (C++, Swift) | High for a program with many small records | High: assignment changes meaning, and differently per target | No | Not done, by decision |
+| 3b | the record constructor (11 targets) | Correctness: the output did not compile | Low: the JavaScript writer held the answer already | No | Done |
 
-Steps 1 to 3 are the ones to take first: each is local to one writer, each has
+Steps 1 to 3 were the ones to take first: each is local to one writer, each has
 a measurement above to check against, and none changes the meaning of a
-program.
+program. Step 4 followed, and it does change the meaning of a program — but
+only of a program that asks for the change with the annotation.
+
+Step 5 stays open, and the reason is not the risk. A value type would make the
+same program share on nine targets and copy on two. That is a change to the
+language, and it needs a decision about the language, not a change to two
+writers. Measuring it did find a fault worth the work: the constructor of a
+`record` did not compile on eleven of the twelve targets (finding 3b).
 
 ## How to check a change
 
@@ -215,3 +366,13 @@ The conformance suite in `tests/conformance/` runs the same program on several
 targets and compares the output, so it is the gate for findings 4 and 5. For
 findings 1 to 3 the C++ and the Swift galleries must still compile and run:
 `gallery/pdf_writer/src/tools/jpeg_scaler.rgr` and `gallery/js_parser`.
+
+The end-to-end check that findings 1 and 2 were measured against:
+
+```sh
+node bin/output.js -l=cpp ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr \
+  -d=./tmp -o=x.cpp
+cd tmp && g++ -std=c++17 -I. x.cpp -o jpeg
+./jpeg -width 600 ../gallery/pdf_writer/assets/images/Example.jpg out.jpg
+md5sum out.jpg      # must match the file the previous compiler produced
+```

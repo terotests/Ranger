@@ -724,8 +724,19 @@ class RangerRustClassWriter {
       }
     }
   }
+  ; The constructor of a `record` holds a marker parameter for each keyword,
+  ; next to the parameter that carries the value. The marker has a name and no
+  ; type, and Rust has no keyword argument, so the marker must not reach the
+  ; signature: without this filter `record Point { def xpos:int 0 }` comes out
+  ; as `pub fn new(xpos : , xpos : i64) -> Point`, which does not parse.
   fn writeArgsDef (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    for fnDesc.params arg:RangerAppParamDesc i {
+    def pms (filter (fnDesc.params) {
+      if (item.nameNode.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+    for pms arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out(", " false)
       }
@@ -2309,11 +2320,18 @@ class RangerRustClassWriter {
       def givenArgs:CodeNode (node.getThird())
       if (!null? constr) {
         def c:RangerAppFunctionDesc (unwrap constr)
+        ; A keyword marker of a record constructor names the field and carries
+        ; no value. The signature drops it, so the call drops it as well.
+        def written 0
         for c.params arg:RangerAppParamDesc i {
+          if ((unwrap arg.nameNode).hasFlag("keyword")) {
+            continue
+          }
           def n:CodeNode (itemAt givenArgs.children i)
-          if (i > 0) {
+          if (written > 0) {
             wr.out(", " false)
           }
+          written = written + 1
           this.WalkNode(n ctx wr)
           ; In Rust, values are moved when passed, so clone when passing a variable
           def argNameN:CodeNode (unwrap arg.nameNode)
@@ -2435,10 +2453,17 @@ class RangerRustClassWriter {
       def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
         def c:RangerAppFunctionDesc (unwrap constr)
+        ; The keyword marker of a record constructor has a name and no type;
+        ; only a language with keyword arguments writes it, and Rust has none.
+        def written 0
         for c.params arg:RangerAppParamDesc i {
-          if (i > 0) {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
+          if (written > 0) {
             wr.out(", " false)
           }
+          written = written + 1
           wr.out((arg.name + " : ") false)
           def nameN:CodeNode (unwrap arg.nameNode)
           this.writeTypeDef(nameN ctx wr)

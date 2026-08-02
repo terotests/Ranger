@@ -1405,7 +1405,10 @@ class StaticAnalyzer {
   ;   push self.coll p     -> p moved into a member/parameter collection
   ;   return p             -> p escapes to caller
   ;   pure function        -> args never transfer ownership (borrowed)
-  ; Phase A only records + reports; it does not change code generation.
+  ; The pass itself only records + reports. The C++ writer reads the result:
+  ; a `borrowed` object parameter becomes `const std::shared_ptr<T>&` instead
+  ; of a copy of the pointer (cppBorrowedObjectParam). Every other writer still
+  ; ignores it, so for them the pass stays a diagnostic.
 
   fn ownershipKindName:string (kind:int) {
     if (kind == 1) { return "owned" }
@@ -1664,13 +1667,20 @@ class StaticAnalyzer {
     for cl.methods m:RangerAppFunctionDesc i {
       this.analyzeOwnership(m strict)
     }
+    ; A static method takes parameters like any other method, and a writer that
+    ; reads the summary (the C++ writer) needs the answer for it as well.
+    for cl.static_methods sm:RangerAppFunctionDesc i {
+      this.analyzeOwnership(sm strict)
+    }
     if (!null? cl.constructor_fn) {
       this.analyzeOwnership((unwrap cl.constructor_fn) strict)
     }
   }
 
-  ; Top-level ownership inference. Target-independent; Phase A only records the
-  ; summary and (when strict) reports it. Does not run the Rust-specific passes.
+  ; Top-level ownership inference. Target-independent; it records the summary
+  ; on each parameter and (when strict) reports it. VirtualCompiler runs it for
+  ; every C++ compilation, because the C++ writer reads the summary, and for any
+  ; target under -strict-ownership. Does not run the Rust-specific passes.
   fn analyzeOwnershipAll:void (strict:boolean) {
     if (null? ctx) {
       return

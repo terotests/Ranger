@@ -86,11 +86,15 @@ The analyzer emits a reference when a local is assigned from a member field
 
 No source changes are needed; the pass runs automatically.
 
-## Ownership inference (`-strict-ownership`, all targets)
+## Ownership inference
 
 A second pass reads where each parameter goes and gives it an OwnershipKind:
 `borrowed` (read only, does not escape), `moved` (stored into another object's
 graph, `x.field = p` or `push self.items p`), `owned`, `shared` or `unknown`.
+It covers instance methods, static methods and the constructor of every class.
+
+The pass runs for a C++ compilation always, because the C++ writer reads the
+result. `-strict-ownership` runs it for any target and prints it:
 
 ```bash
 node bin/output.js program.rgr -l=cpp -strict-ownership
@@ -102,18 +106,86 @@ ownership[infer] fn attach:
   param 'child' -> moved (parent.left)
 ```
 
-**Phase A is diagnostics only.** `ng_StaticAnalysis.rgr` says so in the source:
-"Phase A only records + reports; it does not change code generation." No writer
-reads the result yet, so the inference costs nothing and changes nothing in the
-output.
+**The C++ writer passes a `borrowed` object parameter as
+`const std::shared_ptr<T>&`.** The caller holds the object for the whole call,
+so the callee needs no reference count of its own, and each call saves one
+atomic increment and one atomic decrement. `const` applies to the pointer and
+not to the object, so `p->mutate()` still compiles. A parameter that the
+program assigns to, or that the pass calls `moved`, `owned`, `shared` or
+`unknown`, stays a copy, and so does every parameter of a class that takes part
+in inheritance — a base and an override must keep the same signature.
 
-The gap this leaves is measurable. `gallery/pdf_writer/src/tools/jpeg_scaler.rgr`
-gives `borrowed` to 255 of 256 parameters across 110 functions, while its C++
-output passes 64 object parameters as `std::shared_ptr<T>` by value and none by
-reference. Value types are already handled: 102 parameters of that file are
-`const std::string&` or `const std::vector<T>&`. See
-[PLAN_CODEGEN_OWNERSHIP.md](PLAN_CODEGEN_OWNERSHIP.md) for the measurements and
-for what Phase B would change.
+`gallery/pdf_writer/src/tools/jpeg_scaler.rgr` gives `borrowed` to 255 of 256
+parameters across 110 functions. Its C++ output held 64 object parameters by
+value and none by reference; it now holds 64 by reference and none by value.
+Built with `g++ -std=c++17` and run five times over a photograph, the program
+takes 4.4 s before the change and 3.9 s after it, and writes the same bytes.
+
+## `enable_shared_from_this` (C++)
+
+A class gets `public std::enable_shared_from_this<T>` when the writer emits a
+`shared_from_this()` call for it — that is, where the program uses `this` as a
+value — or when another class extends it, because a subclass can call through
+the base. Every other class does without. The base costs a `std::weak_ptr` in
+every object of the class.
+
+`jpeg_scaler.rgr` had the base on all 22 of its classes and `js_ast.rgr` on all
+41, with zero calls to `shared_from_this()` in either. Both now emit none.
+
+## `weak` fields (C++)
+
+A field that states `weak` becomes `r_weak<T>` in the place of
+`std::shared_ptr<T>`. `r_weak<T>` is a small wrapper that the writer puts above
+the classes of the file. It holds a `std::weak_ptr<T>` and gives the shared
+pointer back at the read, so every read site of the generated code stays as it
+was — a field access, a null test and an assignment all work unchanged. The
+wrapper appears only in a file that holds a `weak` field.
+
+A parent that holds its children and a child that points back keeps itself in
+memory with a strong back reference: `g++ -fsanitize=address` reports
+`168 byte(s) leaked in 3 allocation(s)` for that program. With `weak` on the
+back reference the same program leaks nothing.
+
+## `final class` and `weak var` (Swift)
+
+Swift calls a method of a `final` class directly, and must go through the
+witness table for an open one. A class that no class in the compilation extends
+is therefore `final`.
+
+A field that states `weak` **together with** `optional` becomes `weak var x : T?`.
+Swift needs both: a weak reference must be a `var`, and it must be optional,
+because Swift sets it to nil when the object goes away. `@(weak)` alone keeps
+the strong form.
+
+```ranger
+def parent@(weak optional):Node
+```
+
+```swift
+weak var parent : Node?
+```
+
+## The `record` constructor (all targets)
+
+The compiler builds the constructor of a `record` from its fields, and the
+signature it builds holds two parameters per field: a marker that carries the
+name of the keyword and no type, next to the parameter that carries the value.
+
+```text
+Constructor (xpos@(keyword) xpos:int ypos@(keyword) ypos:int)
+```
+
+Only a language with keyword arguments writes the marker. Every writer now
+drops it, in the signature and at the constructor call. Before, only the
+JavaScript writer did, so the record constructor of the eleven other targets
+did not compile — for example `pub fn new(xpos : , xpos : i64, …)` on Rust and
+`Point::Point( xpos , int xpos , … )` on C++.
+
+See [PLAN_CODEGEN_OWNERSHIP.md](PLAN_CODEGEN_OWNERSHIP.md) for the
+before-and-after of each target, and for the one change that is not made:
+`record` as a value type in C++ and in Swift. That one stays open because it
+would make the same program share an object on nine targets and copy it on
+two.
 
 ## HTTP servers (Go target)
 

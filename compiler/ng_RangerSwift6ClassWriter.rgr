@@ -397,10 +397,28 @@ class RangerSwift6ClassWriter {
       if p.is_static {
         wr.out("static " false)
       }
-      if ((p.set_cnt > 0) || p.is_class_variable || (nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
-        wr.out((("var " + p.compiledName) + " : ") false)
+      ; A `weak` field must not hold the object alive. Swift has the keyword,
+      ; and it needs two things: the storage must be a `var`, and the type must
+      ; be optional, because Swift sets a weak reference to nil when the object
+      ; goes away. A field that states `weak` without `optional` therefore keeps
+      ; the strong form, rather than emitting Swift that does not compile. See
+      ; docs/site/src/content/docs/targets/memory.md.
+      def is_weak:boolean false
+      if (nn.hasFlag("weak")) {
+        if (nn.hasFlag("optional")) {
+          if (ctx.isDefinedClass(nn.type_name)) {
+            is_weak = true
+          }
+        }
+      }
+      if is_weak {
+        wr.out((("weak var " + p.compiledName) + " : ") false)
       } {
-        wr.out((("let " + p.compiledName) + " : ") false)
+        if ((p.set_cnt > 0) || p.is_class_variable || (nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
+          wr.out((("var " + p.compiledName) + " : ") false)
+        } {
+          wr.out((("let " + p.compiledName) + " : ") false)
+        }
       }
       this.writeTypeDef( (unwrap p.nameNode) ctx wr)
       if ((array_length node.children) > 2) {
@@ -432,8 +450,20 @@ class RangerSwift6ClassWriter {
     }
   }
   
+  ; The constructor of a `record` holds a marker parameter for each keyword,
+  ; next to the parameter that carries the value. The marker has a name and no
+  ; type. Swift writes the name of a parameter at the call already, so the
+  ; marker adds nothing and must not reach the signature: without this filter
+  ; `record Point { def xpos:int 0 def ypos:int 0 }` comes out as
+  ; `init(xpos : , xpos : Int, ypos : , ypos : Int )`, which does not compile.
   fn writeArgsDef:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    for fnDesc.params arg:RangerAppParamDesc i {
+    def pms (filter (fnDesc.params) {
+      if (item.nameNode.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+    for pms arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out(", " false)
       }
@@ -702,11 +732,16 @@ class RangerSwift6ClassWriter {
         wr.out("(" false)
         if (!null? cl.constructor_fn) {
           def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+          def written 0
           for constr.params arg:RangerAppParamDesc i {
+            if ((unwrap arg.nameNode).hasFlag("keyword")) {
+              continue
+            }
             def n:CodeNode (itemAt givenArgs.children i)
-            if (i > 0) {
+            if (written > 0) {
               wr.out(", " false)
             }
+            written = written + 1
             wr.out((arg.name + " : ") false)
             if ((unwrap arg.nameNode).hasFlag("mutates")) {
               wr.out("&" false)
@@ -723,11 +758,18 @@ class RangerSwift6ClassWriter {
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
+        ; A keyword marker of a record constructor names the field and carries
+        ; no value. The signature drops it, so the call drops it as well.
+        def written 0
         for constr.params arg:RangerAppParamDesc i {
+          if ((unwrap arg.nameNode).hasFlag("keyword")) {
+            continue
+          }
           def n:CodeNode (itemAt givenArgs.children i)
-          if (i > 0) {
+          if (written > 0) {
             wr.out(", " false)
           }
+          written = written + 1
           wr.out((arg.name + " : ") false)
           if ((unwrap arg.nameNode).hasFlag("mutates")) {
             wr.out("&" false)
@@ -843,6 +885,15 @@ class RangerSwift6ClassWriter {
     wr.indent(-1)
     wr.out("}" true)
 
+    ; Swift can call a method of a final class directly. It must call a method
+    ; of an open class through the witness table, because a subclass could
+    ; replace the method. A class that no class in this compilation extends
+    ; therefore gets `final`. `is_inherited` is set by the flow parser for
+    ; every class that another class names after `extends`.
+    if cl.is_inherited {
+    } {
+      wr.out("final " false)
+    }
     wr.out(("class " + cl.compiledName) false)
 
     def parentClass:RangerAppClassDesc

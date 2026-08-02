@@ -394,8 +394,19 @@ class RangerCSharpClassWriter {
   }
 
 
+  ; The constructor of a `record` holds a marker parameter for each keyword,
+  ; next to the parameter that carries the value. The marker has a name and no
+  ; type, so it must not reach the signature: without this filter the
+  ; constructor of `record Point { def xpos:int 0 def ypos:int 0 }` comes out
+  ; with four parameters, two of them without a type.
   fn writeArgsDef:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    for fnDesc.params arg:RangerAppParamDesc i {
+    def pms (filter (fnDesc.params) {
+      if (item.nameNode.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+    for pms arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out("," false)
       }

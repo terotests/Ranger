@@ -1,6 +1,6 @@
 ---
 title: Memory and ownership
-description: How the compiler analyses object lifetime, what the analysis changes in the output today, and what the memory annotations do for each target.
+description: How the compiler analyses object lifetime, what the analysis changes in the output, and what the memory annotations do for each target.
 ---
 
 Nine of the twelve target languages collect the memory that a program stops
@@ -9,8 +9,8 @@ For those three the compiler must decide where each object lives and who keeps
 it alive.
 
 This page states what the compiler analyses, and what that analysis changes in
-the output today. Each statement here comes from the compiler sources and from
-the code that the compiler writes.
+the output. Each statement here comes from the compiler sources and from the
+code that the compiler writes.
 
 ## Two analyses
 
@@ -52,7 +52,9 @@ five states:
 | `shared` | More than one owner. |
 | `unknown` | The pass cannot decide. |
 
-The flag `-strict-ownership` runs the pass and prints the result:
+The pass runs for a C++ compilation always, because the C++ writer reads the
+result. For any other target the flag `-strict-ownership` runs it. The flag
+also prints the result, on every target:
 
 ```sh
 rgrc program.rgr -l=cpp -strict-ownership
@@ -67,25 +69,151 @@ ownership[infer] fn sumValue:
   param 'b' -> borrowed
 ```
 
-**The pass reports and does not change the output.** The comment in
-`compiler/ng_StaticAnalysis.rgr` states it: "Phase A only records + reports; it
-does not change code generation." The result is a diagnostic today, and the
-writers do not read it.
-
 The numbers are large. The compilation of
 `gallery/pdf_writer/src/tools/jpeg_scaler.rgr` analyses 110 functions and gives
-`borrowed` to 255 parameters of 256. In the C++ output of the same file, 64
-object parameters are `std::shared_ptr<T>` by value and none is a reference.
+`borrowed` to 255 parameters of 256. The one that is not `borrowed` is
+`unknown`: the pass sees the parameter go into a call whose own summary is not
+yet known, so it stops there and says so.
+
+## What the C++ writer does with the result
+
+### A borrowed object parameter is a reference
+
+An object parameter is a `std::shared_ptr<T>`. Passing it by value costs one
+atomic increment on the call and one atomic decrement on the return. A
+`borrowed` parameter does not escape the function, so the caller holds the
+object for the whole call and the callee needs no count of its own. Such a
+parameter becomes `const std::shared_ptr<T>&`:
+
+```cpp
+// borrowed
+std::vector<int64_t> JPEGDecoder::decodeBlock(
+    const std::shared_ptr<BitReader>& reader ,
+    const std::shared_ptr<JPEGComponent>& c ) {
+```
+
+`const` applies to the pointer and not to the object, so `reader->readBit()`
+still compiles. A parameter that the program assigns to, or that the inference
+calls `moved`, `owned`, `shared` or `unknown`, stays a copy.
+
+The check skips a method of a class that takes part in inheritance. A base and
+an override must have the same signature, and the inference runs per function,
+so a base could say `borrowed` where the override says `moved`. That would turn
+an override into an overload without a message.
+
+| `jpeg_scaler.rgr`, C++ output | Before | Now |
+| --- | --- | --- |
+| `std::shared_ptr<T>` object parameters by value | 64 | 0 |
+| `const std::shared_ptr<T>&` object parameters | 0 | 64 |
+| `const std::string&` / `const std::vector<T>&` parameters | 102 | 102 |
+
+The same program, built with `g++ -std=c++17` and run five times to scale a
+photograph to 600 pixels of width, takes 4.4 seconds before the change and 3.9
+seconds after it. The two builds write the same file, byte for byte.
+
+### `enable_shared_from_this` only where the output needs it
+
+A class gets `public std::enable_shared_from_this<T>` when the writer emits a
+`shared_from_this()` call for it, which happens where the program uses `this`
+as a value. A class that another class extends keeps the base as well, because
+a subclass can call through it. Every other class does without.
+
+The base is not free: it puts a `std::weak_ptr` into every object of the class,
+so a program with many small objects pays two pointers each.
+
+| File | Classes with the base, before | Now | Calls to `shared_from_this()` |
+| --- | --- | --- | --- |
+| `jpeg_scaler.rgr` | 22 | 0 | 0 |
+| `gallery/js_parser/js_ast.rgr` | 41 | 0 | 0 |
+
+### `weak` fields hold no count
+
+A field that states `weak` becomes `r_weak<T>` in the place of
+`std::shared_ptr<T>`. `r_weak<T>` is a small wrapper that the compiler writes
+into the file above the classes. It holds a `std::weak_ptr<T>`, and it gives
+the shared pointer back at the read, so a field access, a null test and an
+assignment stay exactly as they were:
+
+```ranger
+class Child {
+    def name:string ""
+    def parent@(weak optional):Parent
+}
+```
+
+```cpp
+class Child {
+  public :
+    std::string name;
+    r_weak<Parent> parent;
+};
+```
+
+```cpp
+std::string Child::parentName() {
+  if ( parent == NULL ) {
+    return std::string("orphan");
+  }
+  std::shared_ptr<Parent> p = parent;   // the wrapper locks here
+  return p->name;
+}
+```
+
+The wrapper appears only in a file that holds a `weak` field.
+
+A parent that holds its children and a child that points back at its parent is
+the case this answers. With a strong back reference the pair keeps itself in
+memory; `g++ -fsanitize=address` on the program above reports
+`168 byte(s) leaked in 3 allocation(s)`. With `weak` on the back reference the
+same program leaks nothing.
+
+## What the Swift writer does
+
+### `final class`
+
+Swift calls a method of a `final` class directly. It must call a method of an
+open class through the witness table, because a subclass could replace the
+method. A class that no class in the compilation extends is therefore `final`.
+
+```swift
+final class HuffmanTable : Hashable {
+```
+
+Both gallery programs above hold no inheritance, so every class of each is
+`final`: 22 of 22 in `jpeg_scaler.rgr`, 41 of 41 in `js_ast.rgr`.
+
+### `weak var`
+
+A field that states `weak` together with `optional` becomes a Swift weak
+reference:
+
+```ranger
+class Node {
+    def name:string ""
+    def parent@(weak optional):Node
+}
+```
+
+```swift
+final class Node : Hashable  {
+  var name : String = ""
+  weak var parent : Node?
+}
+```
+
+Swift needs both parts: the storage must be a `var`, and the type must be
+optional, because Swift sets a weak reference to nil when the object goes away.
+A field that states `weak` without `optional` therefore keeps the strong form.
 
 ## What the annotations change
 
 Ranger has four annotations for memory: `weak`, `strong`, `lives` and `temp`.
-The table states what each target does with them today, measured by a
-compilation of the same program with and without each annotation.
+The table states what each target does with them, measured by a compilation of
+the same program with and without each annotation.
 
 | Annotation | Rust | C++ | Swift | The nine other targets |
 | --- | --- | --- | --- | --- |
-| `weak` | The field becomes `Option<Weak<RefCell<T>>>`, and the assignment becomes `Rc::downgrade(…)` | No change. The field stays `std::shared_ptr<T>` | No change. The field stays `var x : T?` | No change, and none is necessary |
+| `weak` | The field becomes `Option<Weak<RefCell<T>>>`, and the assignment becomes `Rc::downgrade(…)` | The field becomes `r_weak<T>`, which holds a `std::weak_ptr<T>` | With `optional`, the field becomes `weak var x : T?` | No change, and none is necessary |
 | `strong` | — | No change | No change | No change |
 | `lives` | No change | No change | No change | No change |
 | `temp` | No change | No change | No change | No change |
@@ -93,19 +221,16 @@ compilation of the same program with and without each annotation.
 `lives` and `temp` are read by the lifetime bookkeeping of the compiler
 (`compiler/ng_RangerAppParamDesc.rgr`), not by a writer of a target language.
 
-The [questions page](/Ranger/docs/faq/) holds the same information with a
-compiled example, and it states what to write in a program while C++ and Swift
-do not read `weak`: break the reference cycle in the program.
-
 ## What this means for a program
 
-- **On C++ and on Swift, two objects that hold each other stay in memory.**
-  The `weak` annotation does not prevent it today. Give one direction of the
-  pair a name or an index in the place of a reference, or clear the back
-  reference before the pair goes out of use.
-- **On Rust, `weak` works.** Use it for a back reference.
-- **The mutation pass needs no help.** A local that takes a member field and
-  changes it in place becomes a reference by itself.
+- **`weak` works on the three targets that count or own references.** Use it
+  for a back reference. Two objects that hold each other with strong references
+  stay in memory on C++, on Rust and on Swift. On Swift write
+  `@(weak optional)`, because a Swift weak reference must be optional.
+- **The two C++ passes need no help.** A local that takes a member field and
+  changes it in place becomes a reference, and a parameter that the function
+  only reads becomes a reference, both by themselves.
 - **`-strict-ownership` is a reading tool.** It states where the compiler
   believes each argument goes. Use it to check that a function you believe to
-  be pure holds only `borrowed` parameters.
+  be pure holds only `borrowed` parameters, and to find the parameters that the
+  pass calls `unknown`: those are the ones that still cost a copy in C++.
