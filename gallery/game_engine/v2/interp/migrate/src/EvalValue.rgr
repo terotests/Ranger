@@ -555,6 +555,30 @@ class EvalValue {
         return (EvalValue.undefined())
     }
 
+    ; D-FNPROPS: `f.length` is the function's declared arity -- the parameters
+    ; ahead of the first one with a default value and ahead of any rest
+    ; parameter, per spec. It read as undefined before, which is the kind of
+    ; thing a callback dispatcher branches on.
+    fn functionArity:int () {
+        if (null? functionNode) {
+            return 0
+        }
+        def fnNode:TSNode (unwrap functionNode)
+        def n:int 0
+        while (n < (array_length fnNode.params)) {
+            def p:TSNode (itemAt fnNode.params n)
+            def pt:string p.nodeType
+            if (pt == "RestElement") {
+                return n
+            }
+            if (pt == "AssignmentPattern") {
+                return n
+            }
+            n = (n + 1)
+        }
+        return n
+    }
+
     ; Object member access
     fn getMember:EvalValue (key:string) {
         if (valueType == 5) {
@@ -596,6 +620,9 @@ class EvalValue {
             }
             if (key == "name") {
                 return (EvalValue.string(functionName))
+            }
+            if (key == "length") {
+                return (EvalValue.fromInt((this.functionArity())))
             }
             if protoRef {
                 def fpr:EvalValue (unwrap protoRef)

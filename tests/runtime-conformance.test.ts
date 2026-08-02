@@ -426,6 +426,26 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["thischeck-boxed-ok", "var o = new Boolean(true); o.f = Boolean.prototype.toString; return o.f();", "defineown"],
   ["thischeck-string-coerces", "var o = { toString: function () { return 'xy'; } }; return String.prototype.charAt.call(o, 1);", "defineown"],
 
+  // D-FNPROPS: a function's own length/name/prototype, and their descriptors.
+  ["fnprops-length", "var f = function (a, b) {}; return f.length;", "fnprops"],
+  ["fnprops-length-zero", "var f = function () {}; return f.length;", "fnprops"],
+  ["fnprops-length-default", "var f = function (a, b) { return a + b; }; return f.length;", "fnprops"],
+  ["fnprops-length-decl", "function g(a, b, c) {} return g.length;", "fnprops"],
+  ["fnprops-desc-length", "var f = function (a, b) {}; var d = Object.getOwnPropertyDescriptor(f, 'length'); return d.value + ':' + d.writable + ':' + d.enumerable + ':' + d.configurable;", "fnprops"],
+  ["fnprops-desc-name", "var f = function foo() {}; var d = Object.getOwnPropertyDescriptor(f, 'name'); return d.value + ':' + d.enumerable + ':' + d.configurable;", "fnprops"],
+  ["fnprops-desc-prototype", "var f = function () {}; var d = Object.getOwnPropertyDescriptor(f, 'prototype'); return (typeof d.value) + ':' + d.writable + ':' + d.enumerable + ':' + d.configurable;", "fnprops"],
+  ["fnprops-desc-has-no-get", "var f = function () {}; var d = Object.getOwnPropertyDescriptor(f, 'length'); return d.hasOwnProperty('get');", "fnprops"],
+  // Property keys go through ToString, so an object key runs its own toString.
+  ["propkey-array", "var o = { '1': 1 }; return Object.getOwnPropertyDescriptor(o, [1]).value;", "fnprops"],
+  ["propkey-number", "var o = { '1': 1 }; return Object.getOwnPropertyDescriptor(o, 1).value;", "fnprops"],
+  ["propkey-object", "var o = { xy: 1 }; var k = { toString: function () { return 'xy'; } }; return Object.getOwnPropertyDescriptor(o, k).value;", "fnprops"],
+  ["propkey-define", "var o = {}; Object.defineProperty(o, [1], { value: 5 }); return o['1'];", "fnprops"],
+  // Built-in prototype methods are non-enumerable.
+  ["protoenum-string", "return Object.keys(String.prototype).length;", "fnprops"],
+  ["protoenum-array", "return Object.keys(Array.prototype).length;", "fnprops"],
+  ["protoenum-forin", "var n = 0; for (var k in String.prototype) { n++; } return n;", "fnprops"],
+  ["protoenum-still-there", "return typeof String.prototype.charAt;", "fnprops"],
+
   ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
   ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
   ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],

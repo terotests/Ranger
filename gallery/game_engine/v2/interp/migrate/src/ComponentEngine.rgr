@@ -2691,7 +2691,20 @@ class ComponentEngine {
                 }
             } {
                 if (target.isObject()) {
-                    theKeys = (keys target.objectMap)
+                    ; D-ATTRS: for-in visits ENUMERABLE properties only, and
+                    ; never the engine's internal bookkeeping keys. Reading the
+                    ; raw map made `for (var k in String.prototype)` walk all 27
+                    ; built-in methods, and a defineProperty'd property show up
+                    ; despite defaulting to non-enumerable.
+                    def rawKeys:[string] (this.objectEnumerableKeys(target))
+                    def ki:int 0
+                    while (ki < (array_length rawKeys)) {
+                        def rk:string (itemAt rawKeys ki)
+                        if (false == (this.isHiddenInstanceKey(rk))) {
+                            push theKeys rk
+                        }
+                        ki = (ki + 1)
+                    }
                 }
             }
             def i:int 0
@@ -5340,7 +5353,7 @@ class ComponentEngine {
                     ; silently accepted — see defineProperty below.
                     if (methodName == "getOwnPropertyDescriptor") {
                         if ((array_length node.children) > 1) {
-                            def dk:string ((this.evaluateExpr((itemAt node.children 1))).toString())
+                            def dk:string (this.toPropertyKey((this.evaluateExpr((itemAt node.children 1)))))
                             ; D-ACCESSORS: an accessor property reports get/set,
                             ; never a `value` — reporting it as data would make
                             ; the descriptor lie about the property's nature.
@@ -5427,6 +5440,35 @@ class ComponentEngine {
                                     }
                                 }
                             }
+                            ; D-FNPROPS: a function's own length/name/prototype.
+                            ; They are resolved by getMember rather than stored,
+                            ; so objHasKey said they were absent and the
+                            ; descriptor came back undefined for three
+                            ; properties every function has.
+                            if (src.valueType == 6) {
+                                if ((dk == "length") || (dk == "name")) {
+                                    if (false == (has src.objectMap dk)) {
+                                        def keysF:[string]
+                                        def valsF:[EvalValue]
+                                        def dF:EvalValue (EvalValue.object(keysF valsF))
+                                        dF.setMember("value" (src.getMember(dk)))
+                                        dF.setMember("writable" (EvalValue.boolean(false)))
+                                        dF.setMember("enumerable" (EvalValue.boolean(false)))
+                                        dF.setMember("configurable" (EvalValue.boolean(true)))
+                                        return dF
+                                    }
+                                }
+                                if (dk == "prototype") {
+                                    def keysP:[string]
+                                    def valsP:[EvalValue]
+                                    def dP:EvalValue (EvalValue.object(keysP valsP))
+                                    dP.setMember("value" (src.getMember("prototype")))
+                                    dP.setMember("writable" (EvalValue.boolean(true)))
+                                    dP.setMember("enumerable" (EvalValue.boolean(false)))
+                                    dP.setMember("configurable" (EvalValue.boolean(false)))
+                                    return dP
+                                }
+                            }
                             if (this.objHasKey(src dk)) {
                                 def keysD:[string]
                                 def valsD:[EvalValue]
@@ -5442,7 +5484,7 @@ class ComponentEngine {
                     }
                     if (methodName == "defineProperty") {
                         if ((array_length node.children) > 2) {
-                            def pk:string ((this.evaluateExpr((itemAt node.children 1))).toString())
+                            def pk:string (this.toPropertyKey((this.evaluateExpr((itemAt node.children 1)))))
                             def pd:EvalValue (this.evaluateExpr((itemAt node.children 2)))
                             def pErr:string (this.definePropertyOn(src pk pd))
                             if ((strlen pErr) > 0) {
@@ -6662,6 +6704,8 @@ class ComponentEngine {
         def ctorG:EvalValue (this.builtinGlobalObject(nsName))
         if (ctorG.valueType == 5) {
             p.setMember("constructor" ctorG)
+            ; Non-enumerable, like every other property of a built-in prototype.
+            p.setAttrs("constructor" true false true)
         }
         ; D-CLASSOF: Number.prototype, String.prototype and Boolean.prototype are
         ; themselves boxed primitives holding +0, "" and false. That is not a
@@ -6695,6 +6739,12 @@ class ComponentEngine {
                 ; called, so it is skipped rather than published.
                 if (this.hasBuiltin(kind nm)) {
                     p.setMember(nm (EvalValue.nativeMethod(kind nm)))
+                    ; D-ATTRS: every built-in method is writable and
+                    ; configurable but NOT enumerable, so `for (var k in
+                    ; String.prototype)` yields nothing and Object.keys of a
+                    ; prototype is empty. Publishing them enumerable made every
+                    ; prototype look like a bag of own data.
+                    p.setAttrs(nm true false true)
                 }
                 i = (i + 1)
             }
@@ -8278,6 +8328,23 @@ class ComponentEngine {
     ; new property to a non-extensible object is likewise rejected. Accepting
     ; any of these silently let a test's setup succeed where the spec requires
     ; it to fail. Returns "" when the redefinition is allowed.
+    ; ToPropertyKey. A property name is whatever ToString says, so an object or
+    ; an array used as a key runs its own toString: `gOPD(obj, [1])` asks for
+    ; "1". The raw EvalValue.toString() is the engine's DEBUG rendering, which
+    ; for an array is not the same string at all.
+    fn toPropertyKey:string (v:EvalValue) {
+        if (v.isString()) {
+            return v.stringValue
+        }
+        def p:EvalValue v
+        if (v.valueType == 5) { p = (this.toPrimitive(v true)) }
+        if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
+        if (p.isString()) {
+            return p.stringValue
+        }
+        return (p.toString())
+    }
+
     ; ToPropertyDescriptor rejects anything that is not an Object -- which
     ; includes arrays and functions, so the check cannot simply be "is a plain
     ; object". `Object.defineProperty(o, 'k', function () {})` is legal and
