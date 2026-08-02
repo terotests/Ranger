@@ -1672,6 +1672,12 @@ class TSParserSimple {
     ; export declaration (function, class, interface, type, var/const/let, enum)
     if ((v == "function") || (v == "class") || (v == "interface") || (v == "type") || (v == "var") || (v == "const") || (v == "let") || (v == "enum") || (v == "abstract")) {
       def decl (this.parseStatement())
+      ; Only `export default` may export an anonymous function or class.
+      if ((v == "function") || (v == "class")) {
+        if ((strlen decl.name) == 0) {
+          this.syntaxError("Parse error: an exported " + v + " declaration needs a name")
+        }
+      }
       node.left = decl
       this.registerExportedDeclaration(decl)
       return node
@@ -2853,6 +2859,11 @@ class TSParserSimple {
         } {
           def vt (this.expectBindingName())
           varNameStr = vt.value
+          if (headDeclKind == "l") {
+            if (vt.value == "let") {
+              this.syntaxError("Parse error: 'let' cannot be the name of a lexical binding")
+            }
+          }
           this.declareBinding(headDeclKind vt.value)
         }
       }
@@ -3489,6 +3500,14 @@ class TSParserSimple {
             prop.right = (this.parseBindingElement())
           } {
             prop.shorthand = true
+            ; A shorthand key is an IdentifierReference: neither a literal nor
+            ; a reserved word. `({0} = 0)` and `({function} = 0)` are errors.
+            if ((keyType == "String") || (keyType == "Number")) {
+              this.syntaxError("Parse error: a shorthand property name cannot be a literal")
+            }
+            if (this.isAlwaysReservedWord(prop.name)) {
+              this.syntaxError("Parse error: '" + prop.name + "' cannot be a shorthand property name")
+            }
             ; A shorthand property binds its own key name; the aliased form
             ; binds through parseBindingElement instead.
             if ((strlen this.declaringKind) > 0) {
@@ -5790,8 +5809,14 @@ class TSParserSimple {
       ; Re-check tokVal in case we consumed tokens above
       tokVal = (this.peekValue())
       
-      ; Function call ()
+      ; Function call (). An arrow function body is not a callee, so
+      ; `() => {}()` needs parentheses around the arrow.
       if (tokVal == "(") {
+        if (expr.nodeType == "ArrowFunctionExpression") {
+          if (expr.parenthesized == false) {
+            this.syntaxError("Parse error: an arrow function must be parenthesised to be called")
+          }
+        }
         this.advance()
         def call (new TSNode())
         call.nodeType = "CallExpression"

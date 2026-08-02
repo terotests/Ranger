@@ -3175,6 +3175,11 @@ class TSParserSimple  {
     }
     if ( ((((((((v == "function") || (v == "class")) || (v == "interface")) || (v == "type")) || (v == "var")) || (v == "const")) || (v == "let")) || (v == "enum")) || (v == "abstract") ) {
       const decl_1 = this.parseStatement();
+      if ( (v == "function") || (v == "class") ) {
+        if ( (decl_1.name.length) == 0 ) {
+          this.syntaxError(("Parse error: an exported " + v) + " declaration needs a name");
+        }
+      }
       node.left = decl_1;
       this.registerExportedDeclaration(decl_1);
       return node;
@@ -4089,6 +4094,11 @@ class TSParserSimple  {
         } else {
           const vt = this.expectBindingName();
           varNameStr = vt.value;
+          if ( headDeclKind == "l" ) {
+            if ( vt.value == "let" ) {
+              this.syntaxError("Parse error: 'let' cannot be the name of a lexical binding");
+            }
+          }
           this.declareBinding(headDeclKind, vt.value);
         }
       }
@@ -4614,6 +4624,12 @@ class TSParserSimple  {
             prop.right = this.parseBindingElement();
           } else {
             prop.shorthand = true;
+            if ( (keyType == "String") || (keyType == "Number") ) {
+              this.syntaxError("Parse error: a shorthand property name cannot be a literal");
+            }
+            if ( this.isAlwaysReservedWord(prop.name) ) {
+              this.syntaxError(("Parse error: '" + prop.name) + "' cannot be a shorthand property name");
+            }
             if ( (this.declaringKind.length) > 0 ) {
               this.checkBindableName(prop.name);
               this.declareBinding(this.declaringKind, prop.name);
@@ -6361,6 +6377,11 @@ class TSParserSimple  {
       }
       tokVal = this.peekValue();
       if ( tokVal == "(" ) {
+        if ( expr.nodeType == "ArrowFunctionExpression" ) {
+          if ( expr.parenthesized == false ) {
+            this.syntaxError("Parse error: an arrow function must be parenthesised to be called");
+          }
+        }
         this.advance();
         const call_1 = new TSNode();
         call_1.nodeType = "CallExpression";
