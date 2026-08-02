@@ -2101,6 +2101,43 @@ class StaticAnalyzer {
       if ((array_length node.children) > 0) {
         def first:CodeNode (node.getFirst())
 
+        ; a named value stored into any object graph is held there while the
+        ; name (or another alias of the object) stays reachable: shared
+        if (((((first.vref == "push") || (first.vref == "set")) || (first.vref == "put")) || (first.vref == "insert")) && ((array_length node.children) >= 3)) {
+          def storeAt:int 2
+          if (first.vref != "push") {
+            storeAt = 3
+          }
+          if ((array_length node.children) > storeAt) {
+            def stored:CodeNode (itemAt node.children storeAt)
+            def storedName:string (this.escapeValueName(stored))
+            if ((strlen storedName) > 0) {
+              def storedClass:string (this.sharedClassNameOf(storedName fnCtx))
+              if ((strlen storedClass) > 0) {
+                this.markClassShared(storedClass ("stored in " + fnName))
+              }
+            }
+          }
+        }
+
+        ; a return of stored state hands the caller an alias of the object
+        ; graph; any caller can then mutate the stored object through it
+        if ((first.vref == "return") && ((array_length node.children) >= 2)) {
+          def rv:CodeNode (node.getSecond())
+          if (this.readsStoredObject(rv)) {
+            def cf@(optional):RangerAppFunctionDesc currentFunction
+            if (!null? cf) {
+              def cfn:RangerAppFunctionDesc (unwrap cf)
+              if (!null? cfn.nameNode) {
+                def rt:CodeNode (unwrap cfn.nameNode)
+                if ((((strlen rt.array_type) == 0) && ((strlen rt.key_type) == 0)) && ((this.isPrimitiveTypeName(rt.type_name)) == false)) {
+                  this.markClassShared(rt.type_name (("returns a stored object from " + fnName)))
+                }
+              }
+            }
+          }
+        }
+
         ; def x y / def x (this.f) / def x (itemAt coll i): x aliases another
         ; live name or a stored object. Sharing is observable only through a
         ; mutation, so an alias nobody mutates does not count.
@@ -2128,11 +2165,31 @@ class StaticAnalyzer {
         }
 
         ; x = y with a bare local/param on the left: the same alias event.
+        ; A field on the left stores the named value into an object graph.
         if ((first.vref == "=") && ((array_length node.children) >= 3)) {
           def lhs:CodeNode (node.getSecond())
           def rhs:CodeNode (itemAt node.children 2)
+          if ((array_length lhs.ns) >= 2) {
+            def fsName:string (this.escapeValueName(rhs))
+            if ((strlen fsName) > 0) {
+              def fsClass:string (this.sharedClassNameOf(fsName fnCtx))
+              if ((strlen fsClass) > 0) {
+                this.markClassShared(fsClass ("stored in " + fnName))
+              }
+            }
+          }
           if (((array_length lhs.ns) < 2) && ((strlen lhs.vref) > 0)) {
             def lp:RangerAppParamDesc (fnCtx.getVariableDef(lhs.vref))
+            if (((strlen lp.name) > 0) && lp.is_class_variable) {
+              ; short-form field store: `current = n`
+              def sfName:string (this.escapeValueName(rhs))
+              if ((strlen sfName) > 0) {
+                def sfClass:string (this.sharedClassNameOf(sfName fnCtx))
+                if ((strlen sfClass) > 0) {
+                  this.markClassShared(sfClass ("stored in " + fnName))
+                }
+              }
+            }
             if (((strlen lp.name) > 0) && (lp.is_class_variable == false)) {
               def cn:string (this.sharedClassNameOf(lhs.vref fnCtx))
               if ((strlen cn) > 0) {
@@ -2174,6 +2231,7 @@ class StaticAnalyzer {
     }
     if (!null? fn.fnBody) {
       if (!null? fn.fnCtx) {
+        currentFunction = fn
         def mutated:[string]
         this.collectMutatedNames((unwrap fn.fnBody) mutated)
         this.walkForSharing((unwrap fn.fnBody) (unwrap fn.fnCtx) fn.name mutated)

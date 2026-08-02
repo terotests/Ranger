@@ -220,15 +220,26 @@ compiles with `rustc` and prints `papa`, the same as the ES6 output. This is
 finding 4c of PLAN_CODEGEN_OWNERSHIP — `weak` on Rust — working for the
 first time, ten lines of writer change once the object model existed.
 
-What the flag still does not cover (found by inspection, not yet by a
-failing program): a `this`-value method called through a receiver chain the
-writer cannot name (`(expr).method(x)`), a strong optional field of a shared
-class, a shared class returned from a method (the return type does not
-follow the class yet), and elements read out of shared collections. Each
-belongs to the same pattern: a place where a value of a shared class is
-produced or consumed and the Rc must follow it. The conformance suite over
-a larger program (the `evg` gallery) is the right gate before the flag can
-default on.
+The next round closed the produced-or-consumed surfaces. A shared class in
+a return position hands out the Rc (`writeRustReturnType`), a strong
+optional field is `Option<Rc<RefCell<T>>>` (`writeStructField`), a call
+result or a strong-optional unwrap that already carries an Rc is taken as
+one (`rustInitRcState`), and the sharing analysis learned the two events
+that make those surfaces matter: a named value stored into any object graph,
+and a function that returns stored state. The aliasing probe — store an
+object into a list and an optional field, read it back through two getters,
+mutate through one name — compiles with `rustc`, runs, and prints `yy`,
+the same as the ES6 output. A field read borrows shared
+(`n.borrow().name`) while a write and a method receiver borrow mutably, so
+two reads of one cell can overlap; that turned the probe's
+`RefCell already borrowed` panic into the right answer.
+
+What the flag still does not cover: a `this`-value method called through a
+receiver chain the writer cannot name (`(expr).method(x)`), and an
+assignment whose right side reads the same cell its left side writes
+(`a.name = b.name` when the two names hold one object needs the right side
+in a temporary first). The conformance suite over a larger program (the
+`evg` gallery) is the right gate before the flag can default on.
 
 ## How to check
 

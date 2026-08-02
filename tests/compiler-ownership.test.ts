@@ -181,7 +181,7 @@ describe("Ranger Compiler - class sharing analysis (PLAN_RUST_OWNERSHIP 2)", () 
     // linked-list chunk is aliased from a field into a mutated local.
     expect(jpeg).toContain("ownership[rust] class Color -> value");
     expect(jpeg).toContain(
-      "ownership[rust] class BufferChunk -> Rc<RefCell> (stored object mutated through a local in toBuffer)"
+      "ownership[rust] class BufferChunk -> Rc<RefCell> (stored in allocateNewChunk)"
     );
     const shared = (jpeg.match(/ownership\[rust\] class .* -> Rc<RefCell>/g) ?? []).length;
     expect(shared).toBe(1);
@@ -278,10 +278,42 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes behind -rust-shared-c
 
   it("upgrades a weak read to the Rc itself, with no extra cell", () => {
     // This program compiles with rustc and prints `papa`, the same as the
-    // ES6 output — the weak back reference is alive and readable.
+    // ES6 output — the weak back reference is alive and readable. The read
+    // borrows shared, so two reads of one cell can overlap.
     expect(weakRs).toContain(
-      "let mut back : Rc<RefCell<Parent>> = c.borrow_mut().parent.clone().unwrap().upgrade().unwrap();"
+      "let mut back : Rc<RefCell<Parent>> = c.borrow().parent.clone().unwrap().upgrade().unwrap();"
     );
+  });
+
+  execSync(
+    `node "${OUTPUT_JS}" -l=rust -rust-shared-classes "./${FIXTURES}/ownership_shared_surfaces.rgr" -d="${outDir}" -o="shared_surfaces.rs"`,
+    { cwd: ROOT_DIR, env, timeout: 30000, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  const surfacesRs = fs.readFileSync(
+    path.join(ROOT_DIR, outDir, "shared_surfaces.rs"),
+    "utf-8"
+  );
+
+  it("marks a class shared when a getter returns stored state", () => {
+    // `def m:Node (b.firstItem())` aliases the stored element; the program
+    // compiles with rustc, runs, and prints `yy` like the ES6 output —
+    // mutating through one alias is visible through the other.
+    expect(surfacesRs).toContain("fn firstItem(&mut self, ) -> Rc<RefCell<Node>>");
+  });
+
+  it("gives a strong optional field of a shared class the Rc form", () => {
+    expect(surfacesRs).toContain("current : Option<Rc<RefCell<Node>>>");
+  });
+
+  it("takes a call result that is already an Rc without a second cell", () => {
+    expect(surfacesRs).toContain("let mut m : Rc<RefCell<Node>> = b.firstItem();");
+  });
+
+  it("borrows mut for a write and shared for a read of one cell", () => {
+    // A write keeps borrow_mut; a read borrows shared, so the print of two
+    // aliases of one object does not panic with `RefCell already borrowed`.
+    expect(surfacesRs).toContain('n.borrow_mut().name = "x".to_string();');
+    expect(surfacesRs).toContain("n.borrow().name");
   });
 });
 

@@ -1,0 +1,28 @@
+class Node {
+    def name:string ""
+}
+
+class Box {
+    def items:[Node]
+    def current@(optional):Node
+
+    fn firstItem:Node () {
+        return (itemAt items 0)
+    }
+
+    fn getCurrent:Node () {
+        return (unwrap current)
+    }
+}
+
+fn main:void () {
+    def b:Box (new Box())
+    def n:Node (new Node())
+    n.name = "x"
+    push b.items n
+    b.current = n
+    def m:Node (b.firstItem())
+    m.name = "y"
+    def k:Node (b.getCurrent())
+    print (n.name + k.name)
+}

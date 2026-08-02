@@ -13,6 +13,11 @@ class MethodCallList {
 }
 
 class RangerRustClassWriter {
+  ; True while a method-call receiver is being written: the receiver of a
+  ; call must borrow mutably (every method takes &mut self), where a plain
+  ; field read borrows shared so that two reads of one cell can overlap.
+  def rust_writing_call_receiver:boolean false
+
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "self"
@@ -402,7 +407,11 @@ class RangerRustClassWriter {
         ; If so and there are more parts (method call), add .borrow_mut()
         if (i == 0) {
           if ((nsp_len > 1) && p.rust_needs_rc_wrap) {
-            wr.out(".borrow_mut()" false)
+            if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
+              wr.out(".borrow_mut()" false)
+            } {
+              wr.out(".borrow()" false)
+            }
           }
         }
         ; Check if this field has weak annotation
@@ -561,13 +570,45 @@ class RangerRustClassWriter {
       wr.out((this.adjustType(part)) false)
     }
   }
+  ; A shared class in a return position hands out the Rc
+  ; (PLAN_RUST_OWNERSHIP 2b); every other return type is unchanged.
+  fn writeRustReturnType:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    def vnn:CodeNode (unwrap variant.nameNode)
+    if (((strlen vnn.array_type) == 0) && ((strlen vnn.key_type) == 0)) {
+      if (this.rustClassIsShared(vnn.type_name ctx)) {
+        wr.out((("Rc<RefCell<" + (this.getObjectTypeString(vnn.type_name ctx))) + ">>") false)
+        return
+      }
+    }
+    this.writeTypeDef(vnn ctx wr)
+  }
+
   fn writeStructField (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       wr.out(((this.adjustType(p.compiledName)) + " : ") false)
       def nameN:CodeNode (unwrap p.nameNode)
-      this.writeTypeDef(nameN ctx wr)
+      ; A field of a shared class holds the Rc (PLAN_RUST_OWNERSHIP 2b). A
+      ; weak field keeps its Weak form, and a collection wraps its element
+      ; inside writeTypeDef instead.
+      def shared_field:boolean false
+      if p.rust_needs_rc_wrap {
+        if (nameN.hasFlag("weak") == false) {
+          if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
+            shared_field = true
+          }
+        }
+      }
+      if shared_field {
+        if p.is_optional {
+          wr.out((("Option<Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>>") false)
+        } {
+          wr.out((("Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>") false)
+        }
+      } {
+        this.writeTypeDef(nameN ctx wr)
+      }
       wr.out(", " true)
     }
   }
@@ -815,6 +856,20 @@ class RangerRustClassWriter {
       }
       return 0
     }
+    ; a call that returns a shared class already hands out an owned Rc
+    if value.hasFnCall {
+      if (!null? value.fnDesc) {
+        def cfd:RangerAppFunctionDesc (unwrap value.fnDesc)
+        if (!null? cfd.nameNode) {
+          def rt:CodeNode (unwrap cfd.nameNode)
+          if (((strlen rt.array_type) == 0) && ((strlen rt.key_type) == 0)) {
+            if (this.rustClassIsShared(rt.type_name ctx)) {
+              return 2
+            }
+          }
+        }
+      }
+    }
     if ((array_length value.children) >= 2) {
       def first:CodeNode (value.getFirst())
       if (first.vref == "unwrap") {
@@ -825,6 +880,13 @@ class RangerRustClassWriter {
             def nn:CodeNode (unwrap pp.nameNode)
             if (nn.hasFlag("weak")) {
               if (this.rustClassIsShared(nn.type_name ctx)) {
+                return 2
+              }
+            }
+            ; unwrap of a strong optional field of a shared class:
+            ; .clone().unwrap() gives an owned Rc as well
+            if pp.rust_needs_rc_wrap {
+              if (((strlen nn.array_type) == 0) && ((strlen nn.key_type) == 0)) {
                 return 2
               }
             }
@@ -1832,10 +1894,14 @@ class RangerRustClassWriter {
             wr.out(((containerClass.name + "::") + methodName) false)
           } {
             ; Fallback to WriteVRef
+            rust_writing_call_receiver = true
             this.WriteVRef(fc ctx wr)
+            rust_writing_call_receiver = false
           }
         } {
+          rust_writing_call_receiver = true
           this.WriteVRef(fc ctx wr)
+          rust_writing_call_receiver = false
         }
         wr.out("(" false)
         def pre_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
@@ -1943,7 +2009,9 @@ class RangerRustClassWriter {
         
         ; Now write the actual function call with temp vars substituted
         ; Note: Don't add self. here as WriteVRef already handles member variables
+        rust_writing_call_receiver = true
         this.WriteVRef(fc ctx wr)
+        rust_writing_call_receiver = false
         wr.out("(" false)
         for node.fnDesc.params arg:RangerAppParamDesc i {
           def n@(optional):CodeNode (itemAt givenArgs.children i)
@@ -2259,7 +2327,9 @@ class RangerRustClassWriter {
 
       ; Standard path - no double borrow issue
       ; Note: Don't add self. here as WriteVRef already handles member variables
+      rust_writing_call_receiver = true
       this.WriteVRef(fc ctx wr)
+      rust_writing_call_receiver = false
       wr.out("(" false)
       def std_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
       for node.fnDesc.params arg:RangerAppParamDesc i {
@@ -2687,7 +2757,7 @@ class RangerRustClassWriter {
       wr.out((("pub fn " + variant.name) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") -> " false)
-      this.writeTypeDef(vnn ctx wr)
+      this.writeRustReturnType(variant ctx wr)
       wr.out(" {" true)
       wr.indent(1)
       wr.newline()
@@ -2766,8 +2836,7 @@ class RangerRustClassWriter {
         }
         this.writeArgsDef(variant ctx wr)
         wr.out(") -> " false)
-        def vnn:CodeNode (unwrap variant.nameNode)
-        this.writeTypeDef(vnn ctx wr)
+        this.writeRustReturnType(variant ctx wr)
         wr.out(" {" true)
         wr.indent(1)
         wr.newline()
@@ -2844,8 +2913,7 @@ class RangerRustClassWriter {
               }
               this.writeArgsDef(variant ctx wr)
               wr.out(") -> " false)
-              def vnn:CodeNode (unwrap variant.nameNode)
-              this.writeTypeDef(vnn ctx wr)
+              this.writeRustReturnType(variant ctx wr)
               wr.out(" {" true)
               wr.indent(1)
               wr.newline()
@@ -2887,8 +2955,7 @@ class RangerRustClassWriter {
             this.writeTypeDef(nameN ctx wr)
           }
           wr.out(") -> " false)
-          def vnn:CodeNode (unwrap variant.nameNode)
-          this.writeTypeDef(vnn ctx wr)
+          this.writeRustReturnType(variant ctx wr)
           wr.out(";" true)
         }
       }
@@ -2910,8 +2977,7 @@ class RangerRustClassWriter {
             this.writeTypeDef(nameN ctx wr)
           }
           wr.out(") -> " false)
-          def vnn:CodeNode (unwrap variant.nameNode)
-          this.writeTypeDef(vnn ctx wr)
+          this.writeRustReturnType(variant ctx wr)
           wr.out(" {" true)
           wr.indent(1)
           ; Check if method is static - if so, don't pass self
@@ -2963,8 +3029,7 @@ class RangerRustClassWriter {
                   this.writeTypeDef(nameN ctx wr)
                 }
                 wr.out(") -> " false)
-                def vnn:CodeNode (unwrap variant.nameNode)
-                this.writeTypeDef(vnn ctx wr)
+                this.writeRustReturnType(variant ctx wr)
                 wr.out(" {" true)
                 wr.indent(1)
                 ; Determine if we should use the child's version or inherited version
