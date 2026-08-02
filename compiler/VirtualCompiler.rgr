@@ -206,6 +206,7 @@ class tester {
       'plugins' '(node compiler only) run specified npm plugins -plugins="plugin1,plugin2"'
       'strict' 'Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.'
       'strict-ownership' 'Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)'
+      'rust-shared-classes' '(experimental) Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target)'
       'typescript' 'Writes JavaScript code with TypeScript annotations'
       'esm' 'Writes JavaScript code with ESM module syntax'
       'npm' 'Write the package.json to the output directory' 
@@ -742,6 +743,10 @@ class tester {
         ownAnalyzer.analyzeOwnershipAll(ownStrict)
         if (appCtx.targetLangName == "rust") {
           ownAnalyzer.applyOwnershipToRustBorrows()
+          ; experimental (PLAN_RUST_OWNERSHIP 2b): shared classes as Rc<RefCell<T>>
+          if (appCtx.hasCompilerFlag("rust-shared-classes")) {
+            ownAnalyzer.applySharedClassRcWrap()
+          }
         }
       }
 

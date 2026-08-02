@@ -209,6 +209,46 @@ describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERS
   });
 });
 
+describe("Ranger Compiler - Rc<RefCell> for shared classes behind -rust-shared-classes (PLAN_RUST_OWNERSHIP 2b)", () => {
+  const outDir = "tests/.output-ownership-rust";
+  const env = {
+    ...process.env,
+    RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
+  };
+  execSync(
+    `node "${OUTPUT_JS}" -l=rust -rust-shared-classes "./${FIXTURES}/ownership_shared_counter.rgr" -d="${outDir}" -o="shared_counter.rs"`,
+    { cwd: ROOT_DIR, env, timeout: 30000, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  const flagged = fs.readFileSync(
+    path.join(ROOT_DIR, outDir, "shared_counter.rs"),
+    "utf-8"
+  );
+  execSync(
+    `node "${OUTPUT_JS}" -l=rust "./${FIXTURES}/ownership_shared_counter.rgr" -d="${outDir}" -o="plain_counter.rs"`,
+    { cwd: ROOT_DIR, env, timeout: 30000, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  const plain = fs.readFileSync(
+    path.join(ROOT_DIR, outDir, "plain_counter.rs"),
+    "utf-8"
+  );
+
+  it("wraps a shared class in Rc<RefCell<T>> and aliases by cloning the Rc", () => {
+    // `def b:Counter a` must give both names one cell — this is the program
+    // the docs use to define the object model, and it now compiles on Rust
+    // and prints `a 1` like every other target.
+    expect(flagged).toContain(
+      "let mut a : Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));"
+    );
+    expect(flagged).toContain("let mut b : Rc<RefCell<Counter>> = a.clone();");
+    expect(flagged).toContain("b.borrow_mut().add(1);");
+  });
+
+  it("changes nothing without the flag", () => {
+    expect(plain).toContain("let mut b : Counter = a;");
+    expect(plain).not.toContain("Rc<RefCell<Counter>>");
+  });
+});
+
 describe("Ranger Compiler - ownership inference on gallery JPEG scaler", () => {
   const out = inferOwnership(JPEG_SCALER, {
     outDir: GALLERY_OUT,

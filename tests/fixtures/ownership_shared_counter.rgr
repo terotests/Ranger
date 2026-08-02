@@ -1,0 +1,13 @@
+class Counter {
+    def value:int 0
+    fn add:void (amount:int) {
+        value = value + amount
+    }
+}
+
+fn main:void () {
+    def a:Counter (new Counter())
+    def b:Counter a
+    b.add(1)
+    print ("a " + (to_string a.value))
+}

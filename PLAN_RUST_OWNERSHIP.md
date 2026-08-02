@@ -55,7 +55,7 @@ hold one object. Fault 1 is independent, and fixable now.
 | --- | --- | --- |
 | 1 | `&T` for an object parameter the summary proves `borrowed` (no clone at the call site) | Done |
 | 2a | Class-level sharing decision as a diagnostic: `-strict-ownership` prints which classes need `Rc<RefCell<T>>`, and why | Done |
-| 2b | The emission: a shared class becomes `Rc<RefCell<T>>`, reusing the machinery the trait support already has; `weak` then stores a real `Weak<RefCell<T>>` | Open |
+| 2b | The emission: a shared class becomes `Rc<RefCell<T>>`, reusing the machinery the trait support already has; `weak` then stores a real `Weak<RefCell<T>>` | Started, behind `-rust-shared-classes`: the sharing program of the docs compiles and prints `a 1`; two gaps remain, listed below |
 | 3 | `moved` parameter takes the value without a clone when the argument is dead after the call | Open, needs liveness, and only pays once step 2b exists |
 
 ### Step 2a, measured
@@ -167,6 +167,39 @@ Order of work when this step is taken: first a class-level diagnostic
 measured against the gallery; then the emission behind a flag; then the flag
 becomes the default and `weak` lands on Rust. That is the same
 diagnose-then-consume staging that carried the C++ work.
+
+### Where the emission stands (`-rust-shared-classes`)
+
+`applySharedClassRcWrap` gives every field, parameter and local of a shared
+class the `rust_needs_rc_wrap` mode the writer already implements, and the
+def-writer learned the one missing move: an initializer that is already
+`Rc<RefCell<T>>` is an alias, so it clones the Rc rather than wrapping a
+second cell. That is enough for the program the docs define the object model
+with:
+
+```rust
+let mut a : Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));
+let mut b : Rc<RefCell<Counter>> = a.clone();
+b.borrow_mut().add(1);
+```
+
+`rustc` accepts it and it prints `a 1` — the first time a Ranger program
+that shares an object between two names works on Rust. Without the flag,
+every Rust output is byte-identical to before
+(`tests/compiler-ownership.test.ts` asserts both).
+
+Two gaps stand between the flag and the parent–child program, both visible
+in its `rustc` errors:
+
+1. **`this` as a value.** `c.parent = this` still emits
+   `Rc::downgrade(&Rc::new(RefCell::new(self)))` — a fresh cell around a
+   copy of self, dead on arrival. A method of a shared class runs inside
+   `&mut self` and cannot reach the `Rc` that holds it; the receiver has to
+   arrive as (or with) the `Rc`, which is the C++ `shared_from_this`
+   question in Rust form and the real object-model change.
+2. **Collections of a shared class.** `kids:[Child]` stays `Vec<Child>`
+   while a pushed value is `Rc<RefCell<Child>>`; the element type has to
+   follow the class.
 
 ## How to check
 

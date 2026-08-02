@@ -2234,6 +2234,108 @@ class StaticAnalyzer {
     }
   }
 
+  ; PLAN_RUST_OWNERSHIP step 2b, behind -rust-shared-classes: give every
+  ; name that holds an object of a shared class the Rc<RefCell<T>> mode the
+  ; writer already implements for weak-wrapped values (rust_needs_rc_wrap).
+  ; Fields, parameters and locals of a shared class all take the flag; a
+  ; parameter that step 1 made &T goes back to the wrapped mode, because the
+  ; two cannot combine.
+  fn sharedClassOfDesc:string (p:RangerAppParamDesc) {
+    if (null? p.nameNode) {
+      return ""
+    }
+    def tn:CodeNode (unwrap p.nameNode)
+    if ((strlen tn.array_type) > 0) {
+      return ""
+    }
+    if ((strlen tn.key_type) > 0) {
+      return ""
+    }
+    def typeName:string tn.type_name
+    if ((strlen typeName) == 0) {
+      return ""
+    }
+    if (this.isPrimitiveTypeName(typeName)) {
+      return ""
+    }
+    if (null? ctx) {
+      return ""
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((root.isDefinedClass(typeName)) == false) {
+      return ""
+    }
+    def cl:RangerAppClassDesc (root.findClass(typeName))
+    if (cl.rust_needs_ref_semantics == false) {
+      return ""
+    }
+    return typeName
+  }
+
+  fn markDescRcWrap:void (p:RangerAppParamDesc) {
+    if ((strlen (this.sharedClassOfDesc(p))) > 0) {
+      p.rust_needs_rc_wrap = true
+      ; an Rc-wrapped value passes as a clone of the Rc; the borrow modes of
+      ; the mutation pass do not apply to it
+      p.rust_borrow_type = 0
+      p.needs_cpp_reference = false
+    }
+  }
+
+  fn walkForSharedLocals:void (node:CodeNode) {
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "def") {
+          def nameNode:CodeNode (node.getSecond())
+          if (!null? nameNode.paramDesc) {
+            this.markDescRcWrap((unwrap nameNode.paramDesc))
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.walkForSharedLocals(child)
+    }
+  }
+
+  fn applySharedClassRcWrap:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      for cl.variables cv:RangerAppParamDesc vi {
+        this.markDescRcWrap(cv)
+      }
+      for cl.methods m:RangerAppFunctionDesc i {
+        for m.params param:RangerAppParamDesc pi {
+          this.markDescRcWrap(param)
+        }
+        if (!null? m.fnBody) {
+          this.walkForSharedLocals((unwrap m.fnBody))
+        }
+      }
+      for cl.static_methods sm:RangerAppFunctionDesc i {
+        for sm.params param:RangerAppParamDesc pi {
+          this.markDescRcWrap(param)
+        }
+        if (!null? sm.fnBody) {
+          this.walkForSharedLocals((unwrap sm.fnBody))
+        }
+      }
+      if (!null? cl.constructor_fn) {
+        def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        for constr.params param:RangerAppParamDesc pi {
+          this.markDescRcWrap(param)
+        }
+        if (!null? constr.fnBody) {
+          this.walkForSharedLocals((unwrap constr.fnBody))
+        }
+      }
+    }
+  }
+
   ; The Rust reading of the summary (PLAN_RUST_OWNERSHIP step 1). An object
   ; parameter the summary proves `borrowed` can be `&T`: no store into any
   ; graph, no return, no storing callee down the chain. The mutation pass

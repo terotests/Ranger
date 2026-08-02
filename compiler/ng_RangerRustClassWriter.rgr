@@ -636,20 +636,39 @@ class RangerRustClassWriter {
       
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
-        
-        ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
+
+        def value:CodeNode (node.getThird())
+        ; An initializer that is already Rc<RefCell<T>> shares the object:
+        ; clone the Rc, never wrap a second cell around it — `def b a` is the
+        ; language's aliasing form and both names must reach one cell.
+        def init_already_wrapped:boolean false
         if local_needs_rc_wrap {
+          if (value.expression == false) {
+            if value.hasParamDesc {
+              def ip:RangerAppParamDesc value.paramDesc
+              if ip.rust_needs_rc_wrap {
+                init_already_wrapped = true
+              }
+            }
+          }
+        }
+
+        ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
+        if (local_needs_rc_wrap && (init_already_wrapped == false)) {
           wr.out("Rc::new(RefCell::new(" false)
         }
-        
+
         ctx.setInExpr()
-        def value:CodeNode (node.getThird())
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
-        
+
         ; Close Rc::new(RefCell::new(...)) if we opened it
         if local_needs_rc_wrap {
-          wr.out("))" false)
+          if init_already_wrapped {
+            wr.out(".clone()" false)
+          } {
+            wr.out("))" false)
+          }
         }
         
         ; If RHS was optional field, unwrap it
