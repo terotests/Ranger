@@ -2207,6 +2207,23 @@ class TSParserSimple  {
             }
           }
         }
+        if ( this.moduleMode ) {
+          if ( (this.scopeIsFn[scopeIdx]) == 1 ) {
+            if ( depth == 1 ) {
+              if ( i >= ownStart ) {
+                if ( (kind == "f") && (entryKind == "v") ) {
+                  clash = true;
+                }
+                if ( (kind == "v") && (entryKind == "f") ) {
+                  clash = true;
+                }
+                if ( (kind == "f") && (entryKind == "f") ) {
+                  clash = true;
+                }
+              }
+            }
+          }
+        }
         if ( kind == "f" ) {
           if ( entryKind == "f" ) {
             if ( i >= ownStart ) {
@@ -3756,6 +3773,15 @@ class TSParserSimple  {
         body.children.push(member);
         if ( this.matchValue(";") ) {
           this.advance();
+        } else {
+          if ( member.nodeType == "PropertyDefinition" ) {
+            if ( this.matchValue("}") == false ) {
+              const nextMember = this.peek();
+              if ( nextMember.line == this.lastTokenLine ) {
+                this.syntaxError("Parse error: missing ';' between class members");
+              }
+            }
+          }
         }
       }
     };
@@ -5036,6 +5062,13 @@ class TSParserSimple  {
       node.kind = "overload";
       if ( this.matchValue(";") ) {
         this.advance();
+      } else {
+        const afterSig = this.peek();
+        if ( this.isAtEnd() == false ) {
+          if ( afterSig.line == this.lastTokenLine ) {
+            this.syntaxError("Parse error: a function declaration needs a body");
+          }
+        }
       }
     }
     this.popScope();
@@ -7302,8 +7335,35 @@ class TSParserSimple  {
           if ( starNameOk == false ) {
             this.syntaxError("Parse error: '*' must be followed by a method name");
           } else {
-            if ( (nextVal != "(") && (currVal != "[") ) {
-              this.syntaxError("Parse error: a generator property must be a method");
+            if ( currVal == "[" ) {
+              let scanIdx = this.pos + 1;
+              let depth = 1;
+              const total = this.tokens.length;
+              while (scanIdx < total) {
+                const st = this.tokens[scanIdx];
+                if ( st.tokenType == "Punctuator" ) {
+                  if ( st.value == "[" ) {
+                    depth = depth + 1;
+                  }
+                  if ( st.value == "]" ) {
+                    depth = depth - 1;
+                    if ( depth == 0 ) {
+                      break;
+                    }
+                  }
+                }
+                scanIdx = scanIdx + 1;
+              };
+              if ( (scanIdx + 1) < total ) {
+                const afterKey = this.tokens[(scanIdx + 1)];
+                if ( afterKey.value != "(" ) {
+                  this.syntaxError("Parse error: a generator property must be a method");
+                }
+              }
+            } else {
+              if ( nextVal != "(" ) {
+                this.syntaxError("Parse error: a generator property must be a method");
+              }
             }
           }
         }

@@ -372,6 +372,19 @@ class TSParserSimple {
             if (i >= ownStart) { clash = true }
           }
         }
+        ; At module top level the var-scoped names must be unique, so a var and
+        ; a function declaration of the same name collide.
+        if (this.moduleMode) {
+          if ((itemAt this.scopeIsFn scopeIdx) == 1) {
+            if (depth == 1) {
+              if (i >= ownStart) {
+                if ((kind == "f") && (entryKind == "v")) { clash = true }
+                if ((kind == "v") && (entryKind == "f")) { clash = true }
+                if ((kind == "f") && (entryKind == "f")) { clash = true }
+              }
+            }
+          }
+        }
         ; Two function declarations in the same plain block.
         if (kind == "f") {
           if (entryKind == "f") {
@@ -2187,9 +2200,19 @@ class TSParserSimple {
 
         push body.children member
 
-        ; Optional trailing semicolon
+        ; Optional trailing semicolon. Without one the next member has to start
+        ; on a new line: `class A { a static(){} }` runs two together.
         if (this.matchValue(";")) {
           this.advance()
+        } {
+          if (member.nodeType == "PropertyDefinition") {
+            if ((this.matchValue("}")) == false) {
+              def nextMember (this.peek())
+              if (nextMember.line == this.lastTokenLine) {
+                this.syntaxError("Parse error: missing ';' between class members")
+              }
+            }
+          }
         }
       }
     }
@@ -3788,6 +3811,14 @@ class TSParserSimple {
       node.kind = "overload"
       if (this.matchValue(";")) {
         this.advance()
+      } {
+        ; `function a() 1` is not a declaration at all.
+        def afterSig (this.peek())
+        if ((this.isAtEnd()) == false) {
+          if (afterSig.line == this.lastTokenLine) {
+            this.syntaxError("Parse error: a function declaration needs a body")
+          }
+        }
       }
     }
 
@@ -6664,8 +6695,32 @@ class TSParserSimple {
           if (starNameOk == false) {
             this.syntaxError("Parse error: '*' must be followed by a method name")
           } {
-            if ((nextVal != "(") && (currVal != "[")) {
-              this.syntaxError("Parse error: a generator property must be a method")
+            if (currVal == "[") {
+              ; Scan past the computed key; a `(` must follow it.
+              def scanIdx:int (this.pos + 1)
+              def depth:int 1
+              def total:int (array_length this.tokens)
+              while (scanIdx < total) {
+                def st:Token (itemAt this.tokens scanIdx)
+                if (st.tokenType == "Punctuator") {
+                  if (st.value == "[") { depth = (depth + 1) }
+                  if (st.value == "]") {
+                    depth = (depth - 1)
+                    if (depth == 0) { break }
+                  }
+                }
+                scanIdx = (scanIdx + 1)
+              }
+              if ((scanIdx + 1) < total) {
+                def afterKey:Token (itemAt this.tokens (scanIdx + 1))
+                if (afterKey.value != "(") {
+                  this.syntaxError("Parse error: a generator property must be a method")
+                }
+              }
+            } {
+              if (nextVal != "(") {
+                this.syntaxError("Parse error: a generator property must be a method")
+              }
             }
           }
         }
