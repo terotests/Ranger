@@ -533,22 +533,26 @@ class TSLexer {
         def sawDot:boolean false
         ; Legacy octal (`01`) has no fractional part, so `01.a` is `01` then `.a`.
         def legacyOctal:boolean false
+        def nonOctalDecimal:boolean false
         if ((this.peek()) == "0") {
             def secondCh:string (this.peekAt(1))
             if (this.isDigit(secondCh)) {
                 ; Only octal digits make it a legacy octal literal; `09.5` is a
                 ; NonOctalDecimalIntegerLiteral and does take a fraction.
                 legacyOctal = true
+                ; A digit 8 or 9 makes it a NonOctalDecimalIntegerLiteral, which
+                ; still may not appear in strict code but DOES take a fraction.
                 def scan:int (pos + 1)
                 while (scan < len) {
                     def sc:string (at source scan)
                     if (this.isDigit(sc)) {
-                        if ((sc == "8") || (sc == "9")) { legacyOctal = false }
+                        if ((sc == "8") || (sc == "9")) { nonOctalDecimal = true }
                         scan = (scan + 1)
                     } {
                         break
                     }
                 }
+                if nonOctalDecimal { legacyOctal = false }
             }
         }
         def scanning:boolean true
@@ -612,6 +616,7 @@ class TSLexer {
         }
         def numTok:Token (this.makeToken("Number" value startPos startLine startCol))
         numTok.legacyOctal = legacyOctal
+        if nonOctalDecimal { numTok.legacyOctal = true }
         return numTok
     }
 

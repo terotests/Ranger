@@ -412,6 +412,72 @@ class TSParserSimple {
   ; strict. `function eval() { "use strict"; }` and
   ; `({ a(eval) { "use strict"; } })` are early errors even though the offending
   ; names were read before the directive was seen.
+  ; Duplicate parameters are legal only in a sloppy function with a SIMPLE
+  ; parameter list; a pattern, default or rest element makes them an error.
+  fn checkNonSimpleParamDuplicates:void (params:[TSNode]) {
+    def simple:boolean true
+    def i:int 0
+    while (i < (array_length params)) {
+      def p:TSNode (itemAt params i)
+      if (p.nodeType != "Parameter") { simple = false }
+      if ((null? p.init) == false) { simple = false }
+      i = (i + 1)
+    }
+    if simple {
+      return
+    }
+    def names:[string] (this.collectParamNames(params))
+    def a:int 0
+    while (a < (array_length names)) {
+      def b:int 0
+      while (b < a) {
+        if ((itemAt names a) == (itemAt names b)) {
+          this.syntaxError("Parse error: duplicate parameter '" + (itemAt names a) + "' in a non-simple parameter list")
+        }
+        b = (b + 1)
+      }
+      a = (a + 1)
+    }
+  }
+
+  fn collectParamNames:[string] (params:[TSNode]) {
+    def out:[string]
+    def i:int 0
+    while (i < (array_length params)) {
+      def p:TSNode (itemAt params i)
+      if ((strlen p.name) > 0) {
+        push out p.name
+      }
+      def sub:[string] (this.collectPatternNames(p))
+      def j:int 0
+      while (j < (array_length sub)) {
+        push out (itemAt sub j)
+        j = (j + 1)
+      }
+      i = (i + 1)
+    }
+    return out
+  }
+
+  fn collectPatternNames:[string] (node:TSNode) {
+    def out:[string]
+    def i:int 0
+    while (i < (array_length node.children)) {
+      def c:TSNode (itemAt node.children i)
+      if ((strlen c.name) > 0) {
+        push out c.name
+      }
+      def sub:[string] (this.collectPatternNames(c))
+      def j:int 0
+      while (j < (array_length sub)) {
+        push out (itemAt sub j)
+        j = (j + 1)
+      }
+      i = (i + 1)
+    }
+    return out
+  }
+
   fn recheckStrictSignature:void (name:string params:[TSNode]) {
     ; A function whose body opens with "use strict" must have a SIMPLE
     ; parameter list -- no patterns, defaults or rest elements.
@@ -3520,6 +3586,8 @@ class TSParserSimple {
       node.typeAnnotation = returnType
     }
     
+    this.checkNonSimpleParamDuplicates(node.params)
+
     ; Body. A TypeScript overload signature has none -- `function f(a: string):
     ; void;` -- and must not consume a block or bind the name, so that the
     ; implementation below it is not a redeclaration.
@@ -3557,6 +3625,14 @@ class TSParserSimple {
   }
   
   fn parseParam:TSNode () {
+    def savedParamCtx:boolean this.inParamList
+    this.inParamList = true
+    def result:TSNode (this.parseParamInner())
+    this.inParamList = savedParamCtx
+    return result
+  }
+
+  fn parseParamInner:TSNode () {
     ; Check for parameter decorators (@inject, @Required, etc.)
     def decorators:[TSNode]
     while (this.matchValue("@")) {
@@ -5865,7 +5941,7 @@ class TSParserSimple {
     if (tokType == "Number") {
       if (this.strictMode) {
         if (tok.legacyOctal) {
-          this.syntaxError("Parse error: legacy octal literals are not allowed in strict mode")
+          this.syntaxError("Parse error: a leading-zero numeric literal is not allowed in strict mode")
         }
       }
       this.advance()
@@ -6156,6 +6232,14 @@ class TSParserSimple {
     ; Contextual keywords used as plain identifiers. These are only reserved in
     ; contexts this parser does not track (module/strict code, generator or async
     ; bodies), so in expression position they name a binding.
+    if (tokType == "TSKeyword") {
+      if (this.strictMode) {
+        if (this.isStrictReservedWord(tokVal)) {
+          this.syntaxError("Parse error: '" + tokVal + "' is reserved in strict mode")
+        }
+      }
+    }
+
     if (tokType == "Keyword") {
       def contextual:boolean false
       if (tokVal == "let") { contextual = true }

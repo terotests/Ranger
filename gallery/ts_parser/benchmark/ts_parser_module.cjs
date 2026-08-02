@@ -522,6 +522,7 @@ class TSLexer  {
     }
     let sawDot = false;
     let legacyOctal = false;
+    let nonOctalDecimal = false;
     if ( this.peek() == "0" ) {
       const secondCh = this.peekAt(1);
       if ( this.isDigit(secondCh) ) {
@@ -531,13 +532,16 @@ class TSLexer  {
           const sc = this.source[scan];
           if ( this.isDigit(sc) ) {
             if ( (sc == "8") || (sc == "9") ) {
-              legacyOctal = false;
+              nonOctalDecimal = true;
             }
             scan = scan + 1;
           } else {
             break;
           }
         };
+        if ( nonOctalDecimal ) {
+          legacyOctal = false;
+        }
       }
     }
     let scanning = true;
@@ -599,6 +603,9 @@ class TSLexer  {
     }
     const numTok = this.makeToken("Number", value, startPos, startLine, startCol);
     numTok.legacyOctal = legacyOctal;
+    if ( nonOctalDecimal ) {
+      numTok.legacyOctal = true;
+    }
     return numTok;
   };
   hexValue (ch) {
@@ -1799,6 +1806,71 @@ class TSParserSimple  {
     } else {
       this.declareBinding("q", param.name);
     }
+  };
+  checkNonSimpleParamDuplicates (params) {
+    let simple = true;
+    let i = 0;
+    while (i < (params.length)) {
+      const p = params[i];
+      if ( p.nodeType != "Parameter" ) {
+        simple = false;
+      }
+      if ( (typeof(p.init) === "undefined") == false ) {
+        simple = false;
+      }
+      i = i + 1;
+    };
+    if ( simple ) {
+      return;
+    }
+    const names = this.collectParamNames(params);
+    let a = 0;
+    while (a < (names.length)) {
+      let b = 0;
+      while (b < a) {
+        if ( (names[a]) == (names[b]) ) {
+          this.syntaxError(("Parse error: duplicate parameter '" + (names[a])) + "' in a non-simple parameter list");
+        }
+        b = b + 1;
+      };
+      a = a + 1;
+    };
+  };
+  collectParamNames (params) {
+    let out = [];
+    let i = 0;
+    while (i < (params.length)) {
+      const p = params[i];
+      if ( (p.name.length) > 0 ) {
+        out.push(p.name);
+      }
+      const sub = this.collectPatternNames(p);
+      let j = 0;
+      while (j < (sub.length)) {
+        out.push(sub[j]);
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+    return out;
+  };
+  collectPatternNames (node) {
+    let out = [];
+    let i = 0;
+    while (i < (node.children.length)) {
+      const c = node.children[i];
+      if ( (c.name.length) > 0 ) {
+        out.push(c.name);
+      }
+      const sub = this.collectPatternNames(c);
+      let j = 0;
+      while (j < (sub.length)) {
+        out.push(sub[j]);
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+    return out;
   };
   recheckStrictSignature (name, params) {
     let k = 0;
@@ -4353,6 +4425,7 @@ class TSParserSimple  {
       const returnType = this.parseTypeAnnotation();
       node.typeAnnotation = returnType;
     }
+    this.checkNonSimpleParamDuplicates(node.params);
     if ( this.matchValue("{") ) {
       this.suppressBlockScope = true;
       const body = this.parseBlock();
@@ -4382,6 +4455,13 @@ class TSParserSimple  {
     return node;
   };
   parseParam () {
+    const savedParamCtx = this.inParamList;
+    this.inParamList = true;
+    const result = this.parseParamInner();
+    this.inParamList = savedParamCtx;
+    return result;
+  };
+  parseParamInner () {
     let decorators = [];
     while (this.matchValue("@")) {
       const dec = this.parseDecorator();
@@ -6156,7 +6236,7 @@ class TSParserSimple  {
     if ( tokType == "Number" ) {
       if ( this.strictMode ) {
         if ( tok.legacyOctal ) {
-          this.syntaxError("Parse error: legacy octal literals are not allowed in strict mode");
+          this.syntaxError("Parse error: a leading-zero numeric literal is not allowed in strict mode");
         }
       }
       this.advance();
@@ -6387,6 +6467,13 @@ class TSParserSimple  {
       thisExpr.line = tok.line;
       thisExpr.col = tok.col;
       return thisExpr;
+    }
+    if ( tokType == "TSKeyword" ) {
+      if ( this.strictMode ) {
+        if ( this.isStrictReservedWord(tokVal) ) {
+          this.syntaxError(("Parse error: '" + tokVal) + "' is reserved in strict mode");
+        }
+      }
     }
     if ( tokType == "Keyword" ) {
       let contextual = false;
