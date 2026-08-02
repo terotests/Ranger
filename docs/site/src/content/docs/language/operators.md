@@ -86,11 +86,15 @@ time, also when the program uses the operator many times.
 An operator does not have a template for every target. The reference states
 this for each operator:
 
-| State | Meaning |
-| --- | --- |
-| Own template | The operator has a template for that target. |
-| Default template | The operator uses the `*` template. |
-| No template | The compiler writes no code. A program that uses the operator does not compile for that target. |
+| State | Mark | Meaning |
+| --- | --- | --- |
+| Own template | ✔ | The operator has a template for that target. The operator works. |
+| Default template | ✱ | The operator has no template of its own, and the `*` template writes the code. The operator works. |
+| No template | ✕ | The operator has no template and no `*` template. The compiler writes no code, and a program that uses the operator does not compile for that target. |
+
+The first two states both mean that the operator works. The reference gives
+them the same colour and a different mark, because the difference is the origin
+of the code and not the availability of the operator.
 
 The [coverage page](/Ranger/docs/reference/coverage/) counts the three states
 per target.

@@ -2,9 +2,18 @@
 /**
  * The target support row of one operator.
  *
- *   template  the operator has a template for this target
- *   fallback  the operator uses the `*` template of the definition
- *   none      the compiler writes no code for this target
+ * Three states, and two of them mean that the operator works:
+ *
+ *   template  the operator has a template of its own for this target
+ *   fallback  the operator has no template of its own, and the `*` template of
+ *             the definition writes the code. The operator works.
+ *   none      the operator has no template and no `*` template. The compiler
+ *             writes no code, and a program that uses the operator does not
+ *             compile for this target.
+ *
+ * The state is not given by colour alone: each item carries a mark and a text
+ * that a screen reader reads. WCAG 1.4.1 does not permit colour as the only
+ * way to give information.
  */
 interface Props {
   support: Record<string, string>;
@@ -12,20 +21,27 @@ interface Props {
 }
 
 const { support, targets } = Astro.props;
-const labels: Record<string, string> = {
-  template: "template",
-  fallback: "default template",
-  none: "no template",
+
+/** The mark is decorative; the text after it carries the same information. */
+export const STATES: Record<string, { mark: string; text: string }> = {
+  template: { mark: "✔", text: "own template" },
+  fallback: { mark: "✱", text: "default template" },
+  none: { mark: "✕", text: "no template" },
 };
 ---
 
-<ul class="ranger-support">
+<ul class="ranger-support" aria-label="Target support">
   {
     targets.map((target) => {
       const state = support[target.id] || "none";
+      const { mark, text } = STATES[state];
       return (
-        <li class={`ranger-support-${state}`} title={labels[state]}>
+        <li class={`ranger-support-${state}`}>
+          <span class="ranger-support-mark" aria-hidden="true">
+            {mark}
+          </span>
           {target.title}
+          <span class="ranger-sr-only">: {text}</span>
         </li>
       );
     })
