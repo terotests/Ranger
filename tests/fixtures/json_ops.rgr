@@ -1,0 +1,77 @@
+; The JSON library operators on their own: build an object, write it as text,
+; read the text back and reach every value in it.
+Import "stdlib.rgr"
+
+class JsonOps {
+    sfn m@(main):void () {
+        def obj:JSONDataObject (json_object)
+        set obj "name" "ranger"
+        set obj "count" 3
+        set obj "ratio" 0.5
+        set obj "ok" true
+
+        def items:JSONArrayObject (json_array)
+        push items "first"
+        push items 2
+
+        def child:JSONDataObject (json_object)
+        set child "kind" "child"
+        push items child
+
+        set obj "items" items
+
+        def text:string (to_string obj)
+        def back:JSONDataObject (json_object)
+        try {
+            back = (from_string text)
+        } {
+            print "parse failed"
+        }
+
+        def name (getStr back "name")
+        if (!null? name) {
+            print ("name=" + (unwrap name))
+        }
+        def count (getInt back "count")
+        if (!null? count) {
+            print ("count=" + (unwrap count))
+        }
+        def ratio (getDouble back "ratio")
+        if (!null? ratio) {
+            print ("ratio=" + (unwrap ratio))
+        }
+        def ok (getBoolean back "ok")
+        if (!null? ok) {
+            if (unwrap ok) {
+                print "ok=yes"
+            }
+        }
+
+        def arr (getArray back "items")
+        if (!null? arr) {
+            def a (unwrap arr)
+            print ("items=" + (array_length a))
+            def v0 (getValue a 0)
+            case v0 s:string {
+                print ("first=" + s)
+            }
+            def v2 (getValue a 2)
+            case v2 o:JSONDataObject {
+                def kind (getStr o "kind")
+                if (!null? kind) {
+                    print ("kind=" + (unwrap kind))
+                }
+            }
+        }
+
+        def theKeys (keys back)
+        print ("keys=" + (array_length theKeys))
+
+        def missing (getStr back "nope")
+        if (null? missing) {
+            print "missing=none"
+        }
+
+        print "json-ops-ok"
+    }
+}

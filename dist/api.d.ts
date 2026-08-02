@@ -12,7 +12,7 @@ export declare class CmdParams {
     getParam(name: string): string | undefined;
     collect(): void;
     toDictionary(): Record<string, any>;
-    static fromDictionary(dict: Record<string, any>): Promise<CmdParams>;
+    static fromDictionary(dict: Record<string, any>): CmdParams;
 }
 export declare class test_cmdparams {
     constructor();
@@ -28,7 +28,7 @@ export declare class InputFSFolder {
     constructor();
     forTree(cb: (item: InputFSFolder) => void): void;
     toDictionary(): Record<string, any>;
-    static fromDictionary(dict: Record<string, any>): Promise<InputFSFolder>;
+    static fromDictionary(dict: Record<string, any>): InputFSFolder;
 }
 export declare class InputFSFile {
     name: string;
@@ -49,7 +49,7 @@ export declare class InputEnv {
     constructor();
     setEnv(name: string, value: string): void;
     toDictionary(): Record<string, any>;
-    static fromDictionary(dict: Record<string, any>): Promise<InputEnv>;
+    static fromDictionary(dict: Record<string, any>): InputEnv;
 }
 export declare class test_input_filesystem {
     constructor();
@@ -416,7 +416,7 @@ export declare class CodeNodeLiteral {
     attrs: Array<CodeNodeLiteral>;
     constructor();
     toDictionary(): Record<string, any>;
-    static fromDictionary(dict: Record<string, any>): Promise<CodeNodeLiteral>;
+    static fromDictionary(dict: Record<string, any>): CodeNodeLiteral;
 }
 export declare class CodeNode {
     code?: SourceCode;
@@ -1847,6 +1847,8 @@ export declare class RangerPythonClassWriter extends RangerGenericClassWriter {
     CreatePropertyGet(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     CreateLambdaCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     CreateLambda(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
+    getPythonTypeName(node: CodeNode, ctx: RangerAppWriterContext): string;
+    writeTypeDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClassVarDef(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     writeArgsDef(fnDesc: RangerAppFunctionDesc, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     writeArrayLiteral(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;

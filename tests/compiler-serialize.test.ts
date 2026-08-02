@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { compileAndRun, compileRanger } from "./helpers/compiler";
+import {
+  compileAndRun,
+  compileAndRunPython,
+  compileAndRunRust,
+  compileRanger,
+  isPythonAvailable,
+  isRustAvailable,
+} from "./helpers/compiler";
 
 const FIXTURES = "tests/fixtures/serialize";
 
@@ -73,7 +80,7 @@ describe("@serialize(true) across target backends", () => {
   // kotlin is left out because a hash field in a @serialize class does not
   // compile there yet: the `keys` operator for JSONDataObject has no kotlin
   // template. Same defect class as the Swift 6 gaps below, still open.
-  const targets = ["es6", "swift3", "swift6", "go"];
+  const targets = ["es6", "swift3", "swift6", "go", "python", "rust"];
 
   for (const target of targets) {
     it(`compiles a serialized class with object arrays for ${target}`, () => {
@@ -97,6 +104,61 @@ describe("@serialize(true) across target backends", () => {
       ).toBe(true);
     }
   });
+});
+
+// A serializer that compiles is not a serializer that works: the generated
+// toDictionary / fromDictionary have to give the same values back. The
+// JavaScript round trip above is the reference, and these two run the same
+// program on the targets that had no JSON templates at all.
+describe("@serialize(true) round trip on Python and Rust", () => {
+  const programs = [
+    {
+      fixture: "serialize_roundtrip",
+      expected: [
+        "title=parent",
+        "tags=a",
+        "one=solo",
+        "kid=first:7",
+        "hash=hashed",
+        "serialize-roundtrip-ok",
+      ],
+    },
+    { fixture: "serialize_cyclic", expected: ["serialize-cyclic-ok"] },
+    {
+      fixture: "serialize_manual",
+      expected: ["kid=manual", "serialize-manual-ok"],
+    },
+  ];
+
+  for (const { fixture, expected } of programs) {
+    it.skipIf(!isPythonAvailable())(`runs ${fixture} on Python`, () => {
+      const { compile, run } = compileAndRunPython(
+        `${FIXTURES}/${fixture}.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      for (const line of expected) {
+        expect(run?.output).toContain(line);
+      }
+    });
+
+    it.skipIf(!isRustAvailable())(`runs ${fixture} on Rust`, () => {
+      const { compile, run } = compileAndRunRust(`${FIXTURES}/${fixture}.rgr`);
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      for (const line of expected) {
+        expect(run?.output).toContain(line);
+      }
+    });
+  }
 });
 
 describe("@serialize(true) diagnostics for non serializable types", () => {

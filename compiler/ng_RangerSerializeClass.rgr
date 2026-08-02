@@ -226,7 +226,7 @@ class RangerSerializeClass {
             ; TODO: serializing primitives...
             if(this.canSerializeClass(nn.array_type ctx)) {
                 wr.out("def values:JSONArrayObject (json_array)" , true)
-                wr.out("for this." + pvar.compiledName +" item:"+nn.array_type + " i {" , true)
+                wr.out("for this." + pvar.name +" item:"+nn.array_type + " i {" , true)
                     wr.indent(1)
                     wr.out("def obj@(lives):JSONDataObject (item.toDictionary())" true)
                     wr.out("push values obj" true)
@@ -235,7 +235,7 @@ class RangerSerializeClass {
                 wr.out("set res  \"" + pvar.name + "\" values " , true)
             } {
                 wr.out("def values:JSONArrayObject (json_array)" , true)
-                wr.out("for this." + pvar.compiledName +" item:"+nn.array_type + " i {" , true)
+                wr.out("for this." + pvar.name +" item:"+nn.array_type + " i {" , true)
                     wr.indent(1)
                     wr.out("push values item" true)
                     wr.indent(-1)
@@ -247,10 +247,10 @@ class RangerSerializeClass {
         if(nn.value_type == RangerNodeType.Hash) {
             if(this.canSerializeClass(nn.array_type ctx)) {
                 wr.out("def values:JSONDataObject (json_object)" , true)
-                wr.out("def keyList (keys this." + pvar.compiledName + ")" , true)
+                wr.out("def keyList (keys this." + pvar.name + ")" , true)
                 wr.out("for keyList keyname:string index {" , true)
                     wr.indent(1)
-                    wr.out("def item (unwrap (get this." + pvar.compiledName + " keyname))" , true)
+                    wr.out("def item (unwrap (get this." + pvar.name + " keyname))" , true)
 
                     if( ctx.isDefinedClass(nn.array_type) ) {
                       wr.out("def obj@(lives):JSONDataObject (item.toDictionary())" true)
@@ -264,11 +264,11 @@ class RangerSerializeClass {
             } {
                 if( (ctx.isDefinedClass(nn.array_type) ) == false ) {
                     wr.out("def values:JSONDataObject (json_object)" , true)
-                    wr.out("def keyList (keys this." + pvar.compiledName + ")" , true)
+                    wr.out("def keyList (keys this." + pvar.name + ")" , true)
                     wr.out("for keyList keyname:string index {" , true)
-        ;            wr.out("for this." + pvar.compiledName + " keyname {" , true)
+        ;            wr.out("for this." + pvar.name + " keyname {" , true)
                         wr.indent(1)
-                        wr.out("def item (unwrap (get this." + pvar.compiledName + " keyname))" , true)
+                        wr.out("def item (unwrap (get this." + pvar.name + " keyname))" , true)
                         wr.out("set values keyname item " true)                      
                         wr.indent(-1)
                     wr.out("}" true)          
@@ -279,15 +279,15 @@ class RangerSerializeClass {
         }
         if(nn.hasFlag("optional")) {
             if( (ctx.isDefinedClass(nn.type_name) ) == false ) {
-                wr.out("set res  \"" + pvar.name + "\" (unwrap this." + pvar.compiledName +") " , true )
+                wr.out("set res  \"" + pvar.name + "\" (unwrap this." + pvar.name +") " , true )
             } {
-                wr.out("set res  \"" + pvar.name + "\" (call (unwrap this." + pvar.compiledName +") toDictionary ()) " , true )
+                wr.out("set res  \"" + pvar.name + "\" (call (unwrap this." + pvar.name +") toDictionary ()) " , true )
             }
         } {
             if( (ctx.isDefinedClass(nn.type_name) ) == false ) {
-                wr.out("set res  \"" + pvar.name + "\" (this." + pvar.compiledName +") " , true )
+                wr.out("set res  \"" + pvar.name + "\" (this." + pvar.name +") " , true )
             } {
-                wr.out("set res  \"" + pvar.name + "\" (this." + pvar.compiledName +".toDictionary()) " , true )
+                wr.out("set res  \"" + pvar.name + "\" (this." + pvar.name +".toDictionary()) " , true )
             }
         }
     }
@@ -302,16 +302,20 @@ class RangerSerializeClass {
                 wr.out("if(!null? values) {" true)
                 wr.indent(1)
                 wr.out("def arr (unwrap values)" true)
-                wr.out("arr.forEach({" , true)
+                wr.out("def arr_len (array_length arr)" true)
+                wr.out("def arr_i 0" true)
+                wr.out("while (arr_i < arr_len) {" true)
                     wr.indent(1)
+                    wr.out("def item (getValue arr arr_i)" true)
                     wr.out("case item oo:JSONDataObject {" true)
                     wr.indent(1)
                         wr.out("def newObj (" + nn.array_type + ".fromDictionary(oo))" , true)
                         wr.out("push obj." + pvar.name + " newObj" , true)
                     wr.indent(-1)
                     wr.out("}" true)
+                    wr.out("arr_i = arr_i + 1" true)
                     wr.indent(-1)
-                wr.out("})" true)          
+                wr.out("}" true)
                 wr.indent(-1)
                 wr.out("}" true)
             } {
@@ -319,16 +323,19 @@ class RangerSerializeClass {
                 wr.out("if(!null? values) {" true)
                 wr.indent(1)
                 wr.out("def arr (unwrap values)" true)
-                wr.out("arr.forEach({" , true)
+                wr.out("def arr_len (array_length arr)" true)
+                wr.out("def arr_i 0" true)
+                wr.out("while (arr_i < arr_len) {" true)
                     wr.indent(1)
+                    wr.out("def item (getValue arr arr_i)" true)
                     wr.out("case item oo:" + nn.array_type + " {" , true)
                     wr.indent(1)
-;                        wr.out("def newObj (" + nn.array_type + ".fromDictionary(oo))" , true)
                         wr.out("push obj." + pvar.name + " oo" , true)
                     wr.indent(-1)
                     wr.out("}" true)
+                    wr.out("arr_i = arr_i + 1" true)
                     wr.indent(-1)
-                wr.out("})" true)          
+                wr.out("}" true)
                 wr.indent(-1)
                 wr.out("}" true)                
             }        
@@ -341,11 +348,12 @@ class RangerSerializeClass {
                 wr.indent(1)                
                 wr.out("def theObj" + pvar.name + " (unwrap values)" , true)    
                 wr.out("def obj_keys (keys theObj" + pvar.name + ")" , true)
-                wr.out("obj_keys.forEach({" , true)
+                wr.out("def key_len (array_length obj_keys)" true)
+                wr.out("def key_i 0" true)
+                wr.out("while (key_i < key_len) {" true)
                     wr.indent(1)
+                    wr.out("def item (itemAt obj_keys key_i)" true)
                     if( ctx.isDefinedClass(nn.array_type) ) {
-                      ;wr.out("try {" true)
-                      ;wr.indent(1)
                       wr.out("def theValue (getObject theObj" + pvar.name + " item ) " , true)
                       wr.out("if(!null? theValue) {" true)
                       wr.indent(1)
@@ -353,13 +361,11 @@ class RangerSerializeClass {
                       wr.out("set obj." + pvar.name + " item newObj " , true)
                       wr.indent(-1)
                       wr.out("}" true)
-                      ;wr.indent(-1)
-                      ;wr.out("} {" true)                      
-                      ;wr.out("}" true)
                     } {
                     }
+                    wr.out("key_i = key_i + 1" true)
                     wr.indent(-1)
-                wr.out("})" true)          
+                wr.out("}" true)
                 wr.indent(-1)
                 wr.out("}" true)
             } {
@@ -369,8 +375,11 @@ class RangerSerializeClass {
                 wr.indent(1)                
                 wr.out("def theObj" + pvar.name + " (unwrap values)" , true)    
                 wr.out("def obj_keys (keys theObj" + pvar.name + ")" , true)
-                wr.out("obj_keys.forEach({" , true)
+                wr.out("def key_len (array_length obj_keys)" true)
+                wr.out("def key_i 0" true)
+                wr.out("while (key_i < key_len) {" true)
                     wr.indent(1)
+                    wr.out("def item (itemAt obj_keys key_i)" true)
                     if( ctx.isDefinedClass(nn.array_type) ) {
 
                     } {
@@ -410,8 +419,9 @@ class RangerSerializeClass {
                           }
                         }
                     }
+                    wr.out("key_i = key_i + 1" true)
                     wr.indent(-1)
-                wr.out("})" true)          
+                wr.out("}" true)
                 wr.indent(-1)
                 wr.out("}" true)
                 
@@ -540,7 +550,7 @@ class RangerSerializeClass {
             def nn:CodeNode (unwrap pvar.nameNode)
             if(nn.hasFlag("optional")) {
                 wr.out("; optional variable" true)
-                wr.out("if (!null? this." + pvar.compiledName + ") {",  true)
+                wr.out("if (!null? this." + pvar.name + ") {",  true)
                     wr.indent(1)
                     this.createWRWriter2( pvar nn ctx wr)            
                     wr.indent(-1)

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **JSON for the Python and the Rust target** — `lib/JSON.rgr` declared no `python` and no `rust` template in any of its operator blocks, and `systemclass JSONDataObject` / `JSONArrayObject` / `JSONValueUnion` named no type for either target. A template block is part of the match, so the absence was not a fallback to some generic form: every program that touched a JSON object stopped in the type check with `Could not match argument types for json_object`, and `@serialize(true)` could not work on either target. The [FAQ answer on `toDictionary` / `fromDictionary`](https://terotests.github.io/Ranger/docs/faq/#how-do-i-write-an-object-to-json-and-read-it-back) showed that message in place of the Python and the Rust tab. Both targets now hold `print`, `getStr`, `getInt`, `getDouble`, `getBoolean`, `getObject`, `getArray`, `keys`, `isArray`, `asArray`, `getValue`, `array_length`, all six `set` variants, `push`, `json_object`, `json_array`, `from_string` and `to_string`, and `lib/stdlib.rgr` holds the union `case` for both:
+
+  - **Python** maps the three shapes onto `dict`, `list` and `object`, and reads and writes the text with the `json` module of the standard library. A getter is an inline lambda that checks the type of the value, so no polyfill is needed: `getInt` rejects a `bool`, because `bool` is a subclass of `int` in Python and `{"ok": true}` must not read back as an integer.
+  - **Rust** has no JSON type in the standard library, and the target writes code that `rustc` builds with no crate. The compiler adds the enum `RJson` as a polyfill, together with a reader and a writer for the text. A JSON object is a `std::collections::HashMap<String, RJson>` and a JSON array is a `Vec<RJson>`, both spelled in full so that the output needs no `use` line. The trait `RJsonValue` converts an argument of the union type `JSONArrayUnion` to the variant that fits it, which is what `push` and the `set` of a union value need.
+
+  `tests/fixtures/json_ops.rgr` builds an object, writes it as text, reads it back and reaches every value in it. `tests/compiler-json.test.ts` runs the generated program on JavaScript, on Python and on Rust and compares the three outputs, so a missing template can not pass as a compile-only success. `tests/compiler-serialize.test.ts` adds `python` and `rust` to the target list and runs the round trip of `serialize_roundtrip.rgr` — nested object, object array and object hash — on both
+
+### Fixed
+
+- **The `@serialize(true)` reader needed a lambda** — the generated `fromDictionary` read an object array and an object hash with `arr.forEach({ ... })`. The callback is the one construct that neither the Python nor the Rust writer emits: Python got a multi-statement `lambda` (`SyntaxError`) and Rust got the JavaScript arrow form (`expected one of ), ,, ., ? or an operator, found =>`). `ng_RangerSerializeClass.rgr` now writes an index loop over `array_length` / `getValue` for an array and over `keys` / `itemAt` for a hash. The loop uses the operators that every target already declares, so the reader no longer depends on the callback support of the target. A side effect on the JavaScript output: `fromDictionary` is no longer `async`, because the callback was what marked it so — `await` on the return value still works, and `dist/api.d.ts` states `T` in place of `Promise<T>`
+
+- **`try { } { }` wrote JavaScript for the Python and the Rust target** — neither had a template, so both fell through to the `*` form and the output held `try { ... } catch(e) { }` verbatim. Python now writes a `try:` / `except Exception:` statement, and each suite opens with `pass` because a generated catch block is often empty and a Python suite needs a statement. Rust has no exceptions, so the compiler writes the try block and states in a comment that it does not write the catch block
+
+- **The Rust file header sat after the first `use` line** — the writer put `#![allow(unused_parens)]` and the four other inner attributes into the class content, while an `(imp "...")` from an operator template writes its `use` line into the import slice, which is ahead of the content. An inner attribute has to precede every item of the file, so `rustc` rejected the output of every program that used a hash map with `an inner attribute is not permitted in this context`. The header now goes into the `before_imports` slice
+
+- **A Rust systemclass reached the output under its Ranger name** — `writeTypeDef` and `getObjectTypeString` in `ng_RangerRustClassWriter.rgr` did not read `systemNames`, so a `JSONDataObject` parameter compiled to `dict : JSONDataObject` and `rustc` saw an undeclared type. Both now name the type that the systemclass declares for `rust`
+
+- **`get` on a Rust hash map gave `Option<&T>`** — the operator is typed to give an optional `T`, and `HashMap::get` hands back a reference and takes one, so `scores.get("Alice".to_string())` did not compile at all. The template is now `get(&key).cloned()`
+
+- **A Rust hash field was constructed as `None`** — the constructor of a class initialized an array field with `Vec::new()` and an optional field with `None`, and a hash field fell into the second branch, so a `[string:T]` field made `rustc` report `expected HashMap<String, T>, found Option<_>`. A hash field now takes `HashMap::new()`
+
+- **A Python class field with no value read an undefined attribute** — `writeVarInitDef` wrote `self.one` with no assignment for a field that is neither an array nor a hash, and the constructor raised `AttributeError` the first time the class was used. The field now takes `None`, as a local variable already did
+
+- **A Python `(typeof N)` template wrote the Ranger type name** — the Python writer inherited the generic `writeTypeDef`, which writes `node.type_name`, so the union `case` produced `isinstance(item, JSONDataObject)` in place of `isinstance(item, dict)`. The Python writer now maps the built-in types and reads `systemNames`
+
+### Known gaps closed
+
+- **Python has no JSON support at all** (listed under 3.3.1) is closed by the entry above. The lambda gap of the `operator type:[T]` block stays open: `.map()`, `.filter()` and the other callback operators still emit a multi-statement Python lambda. The `@serialize(true)` reader no longer depends on that support
+
 ## [3.3.1] - 2026-08-01
 
 ### Fixed

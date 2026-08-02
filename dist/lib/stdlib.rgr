@@ -26,6 +26,18 @@ operators {
                         (block 3)
                         nl i "}"
             )
+            python (
+                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", bool):" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
+            )
+            rust (
+                (forkctx _ ) (def 2) "if let RJson::Bool(" (e 2) ") = &" (e 1) " {" nl I
+                        "let " (e 2) " : bool = *" (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
         }
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):int code:block )  {
@@ -45,6 +57,18 @@ operators {
             kotlin (
                 (forkctx _ ) (def 2) "if( " (e 1) " is Int ) /* union case for int */ {" nl I
                         "val " (e 2) " : Int = " (e 1) " as Int;" nl
+                        (block 3)
+                        nl i "}"
+            )
+            python (
+                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", int) and not isinstance(" (e 1) ", bool):" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
+            )
+            rust (
+                (forkctx _ ) (def 2) "if let RJson::Int(" (e 2) ") = &" (e 1) " {" nl I
+                        "let " (e 2) " : i64 = *" (e 2) ";" nl
                         (block 3)
                         nl i "}"
             )
@@ -70,6 +94,18 @@ operators {
                         (block 3)
                         nl i "}"
             )
+            python (
+                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", float):" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
+            )
+            rust (
+                (forkctx _ ) (def 2) "if let RJson::Double(" (e 2) ") = &" (e 1) " {" nl I
+                        "let " (e 2) " : f64 = *" (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
         }
     }
 
@@ -90,6 +126,18 @@ operators {
             kotlin (
                 (forkctx _ ) (def 2) "if( " (e 1) " is String ) /* union case for string */ {" nl I
                         "val " (e 2) " : String = " (e 1) " as String;" nl
+                        (block 3)
+                        nl i "}"
+            )
+            python (
+                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", str):" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
+            )
+            rust (
+                (forkctx _ ) (def 2) "if let RJson::Str(" (e 2) ") = &" (e 1) " {" nl I
+                        "let " (e 2) " : String = " (e 2) ".clone();" nl
                         (block 3)
                         nl i "}"
             )
@@ -157,6 +205,12 @@ operators {
                         "val " (e 2) " : " (typeof 2) " = " (e 1) " as " (typeof 2) ";" nl
                         (block 3)
                         nl i "}"
+            ) 
+            python (
+                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", " (typeof 2) "):" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
             ) 
             cpp (
                 (forkctx _ ) (def 2) "if( mpark::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I

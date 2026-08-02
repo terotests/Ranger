@@ -116,6 +116,15 @@ class RangerRustClassWriter {
       if tc.is_extended_by_children {
         return ("Rc<RefCell<dyn " + type_string + "Trait>>")
       }
+      ; A systemclass names one type per target. Without this the Ranger name
+      ; reached the output and rustc saw an undeclared type: JSONDataObject
+      ; instead of the HashMap that JSON.rgr declares for Rust.
+      if tc.is_system {
+        def sysName@(optional):string (get tc.systemNames "rust")
+        if (!null? sysName) {
+          return (unwrap sysName)
+        }
+      }
     }
     return type_string
   }
@@ -288,7 +297,7 @@ class RangerRustClassWriter {
           if tc.is_extended_by_children {
             wr.out(("Rc<RefCell<dyn " + node.type_name + "Trait>>") false)
           } {
-            wr.out((this.getTypeString(node.type_name)) false)
+            wr.out((this.getObjectTypeString(node.type_name ctx)) false)
           }
         } {
           wr.out((this.getTypeString(node.type_name)) false)
@@ -2363,18 +2372,23 @@ class RangerRustClassWriter {
     
     def wr:CodeWriter orig_wr
     
-    ; Write file header with allow directives for common warnings
+    ; Write file header with allow directives for common warnings.
+    ; The lines go into the "before_imports" slice: an inner attribute (#![..])
+    ; has to precede every item in the file, and an (imp "...") from an operator
+    ; template writes a `use` line ahead of the class content. Written here they
+    ; ended up after that line and rustc rejected the file.
     if (fileHeaderWritten == false) {
-      wr.out("#![allow(unused_parens)]" true)
-      wr.out("#![allow(unused_mut)]" true)
-      wr.out("#![allow(unused_variables)]" true)
-      wr.out("#![allow(non_snake_case)]" true)
-      wr.out("#![allow(dead_code)]" true)
-      wr.out("" true)
-      wr.out("use std::rc::Rc;" true)
-      wr.out("use std::rc::Weak;" true)
-      wr.out("use std::cell::RefCell;" true)
-      wr.out("" true)
+      def header:CodeWriter (wr.getTag("before_imports"))
+      header.out("#![allow(unused_parens)]" true)
+      header.out("#![allow(unused_mut)]" true)
+      header.out("#![allow(unused_variables)]" true)
+      header.out("#![allow(non_snake_case)]" true)
+      header.out("#![allow(dead_code)]" true)
+      header.out("" true)
+      header.out("use std::rc::Rc;" true)
+      header.out("use std::rc::Weak;" true)
+      header.out("use std::cell::RefCell;" true)
+      header.out("" true)
       fileHeaderWritten = true
     }
     
@@ -2452,9 +2466,17 @@ class RangerRustClassWriter {
           if (pvar.isArray()) {
             wr.out(((this.adjustType(pvar.compiledName)) + ": Vec::new(), ") true)
           } {
-            ; Initialize optional fields with None
-            if pvar.is_optional {
-              wr.out(((this.adjustType(pvar.compiledName)) + ": None, ") true)
+            ; A hash field is a HashMap, never an Option: without this branch
+            ; the constructor wrote `None` into a HashMap field and rustc
+            ; rejected the struct literal.
+            if (pvar.isHash()) {
+              wr.out(((this.adjustType(pvar.compiledName)) + ": HashMap::new(), ") true)
+              wr.addImport("std::collections::HashMap")
+            } {
+              ; Initialize optional fields with None
+              if pvar.is_optional {
+                wr.out(((this.adjustType(pvar.compiledName)) + ": None, ") true)
+              }
             }
           }
         }

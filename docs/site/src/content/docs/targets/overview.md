@@ -58,3 +58,11 @@ complete file is behind the link under the code.
   compiler writes the correct operation for each target.
 - **Reference counting.** The Rust and the C++ output use reference counting.
   The annotations `weak`, `strong`, `lives` and `temp` control it.
+- **The catch block in Rust.** Rust has no exceptions. The compiler writes the
+  try block of `try { } { }` and it does not write the catch block. A program
+  for the Rust target must report a fault with a return value.
+- **JSON in Rust.** The Rust output uses no crate, so the compiler adds the
+  enum `RJson` and the functions that read and write the text. A JSON object is
+  a `HashMap<String, RJson>` and a JSON array is a `Vec<RJson>`.
+- **JSON in Python.** A JSON object is a `dict`, a JSON array is a `list`, and
+  the module `json` of the standard library reads and writes the text.
