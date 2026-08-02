@@ -207,7 +207,18 @@ class TSLexer  {
     }
     const ch = this.source[this.pos];
     this.pos = this.pos + 1;
+    const chCode = ch.charCodeAt(0 );
+    let isTerminator = false;
     if ( ((ch == "\n") || (ch == "\r")) || (ch == "\r\n") ) {
+      isTerminator = true;
+    }
+    if ( chCode == 8232 ) {
+      isTerminator = true;
+    }
+    if ( chCode == 8233 ) {
+      isTerminator = true;
+    }
+    if ( isTerminator ) {
       this.line = this.line + 1;
       this.col = 1;
     } else {
@@ -395,6 +406,45 @@ class TSLexer  {
       return true;
     }
     if ( ch == "\r\n" ) {
+      return true;
+    }
+    if ( (ch.length) == 0 ) {
+      return false;
+    }
+    const code = ch.charCodeAt(0 );
+    if ( code == 11 ) {
+      return true;
+    }
+    if ( code == 12 ) {
+      return true;
+    }
+    if ( code == 160 ) {
+      return true;
+    }
+    if ( code == 5760 ) {
+      return true;
+    }
+    if ( code >= 8192 ) {
+      if ( code <= 8202 ) {
+        return true;
+      }
+    }
+    if ( code == 8232 ) {
+      return true;
+    }
+    if ( code == 8233 ) {
+      return true;
+    }
+    if ( code == 8239 ) {
+      return true;
+    }
+    if ( code == 8287 ) {
+      return true;
+    }
+    if ( code == 12288 ) {
+      return true;
+    }
+    if ( code == 65279 ) {
       return true;
     }
     return false;

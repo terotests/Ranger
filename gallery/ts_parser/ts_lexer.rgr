@@ -79,7 +79,12 @@ class TSLexer {
         ; A lone CR is a line terminator in JS just as LF is; counting only LF
         ; made `continue \r label` look like it was on one line, which changes
         ; whether automatic semicolon insertion applies.
-        if ((ch == "\n") || (ch == "\r") || (ch == "\r\n")) {
+        def chCode:int (charAt ch 0)
+        def isTerminator:boolean false
+        if ((ch == "\n") || (ch == "\r") || (ch == "\r\n")) { isTerminator = true }
+        if (chCode == 8232) { isTerminator = true }
+        if (chCode == 8233) { isTerminator = true }
+        if isTerminator {
             line = line + 1
             col = 1
         } {
@@ -230,12 +235,30 @@ class TSLexer {
         return false
     }
 
+    ; JS WhiteSpace is much wider than the ASCII four: it includes the vertical
+    ; tab and form feed, NBSP, the BOM, and every Unicode space separator.
+    ; Treating those as ordinary characters made `a\u00a0b` two statements.
     fn isWhitespace:boolean (ch:string) {
         if (ch == " ") { return true }
         if (ch == "\t") { return true }
         if (ch == "\n") { return true }
         if (ch == "\r") { return true }
         if (ch == "\r\n") { return true }
+        if ((strlen ch) == 0) { return false }
+        def code:int (charAt ch 0)
+        if (code == 11) { return true }      ; vertical tab
+        if (code == 12) { return true }      ; form feed
+        if (code == 160) { return true }     ; no-break space
+        if (code == 5760) { return true }    ; ogham space mark
+        if (code >= 8192) {
+            if (code <= 8202) { return true } ; en quad .. hair space
+        }
+        if (code == 8232) { return true }    ; line separator
+        if (code == 8233) { return true }    ; paragraph separator
+        if (code == 8239) { return true }    ; narrow no-break space
+        if (code == 8287) { return true }    ; medium mathematical space
+        if (code == 12288) { return true }   ; ideographic space
+        if (code == 65279) { return true }   ; zero width no-break space (BOM)
         return false
     }
 
