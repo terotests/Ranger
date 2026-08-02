@@ -6353,8 +6353,17 @@ class ComponentEngine {
             if ((recv.isNull()) || (recv.isUndefined())) {
                 return (this.throwSpecError("TypeError" ("String.prototype." + name + " called on null or undefined")))
             }
-            def s:string recv.stringValue
-                    def s:string (recv.stringValue)
+            ; D-REGISTRY: String.prototype methods coerce `this` via ToString.
+            ; Reading stringValue directly gave "" for any non-string receiver,
+            ; so String.prototype.charAt.call(512, 1) answered "" instead of "1"
+            ; — silently, which is why it cost score rather than raising an
+            ; error. The old unguarded branch used toString() and got this right
+            ; by accident; the typed one has to do it on purpose.
+            def s:string (recv.toString())
+            if (recv.isString()) {
+                s = recv.stringValue
+            }
+                    ; (receiver already coerced to `s` above, per ToString)
                     if (name == "indexOf") {
                         if ((array_length args) > 0) {
                             def needle:string ((itemAt args 0).toString())

@@ -257,6 +257,14 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // the array and indexed its debug format to return "[".
   // The canonical ES5 idioms, structurally impossible before the registry:
   // a built-in reached from its constructor's prototype rather than an instance.
+  // String.prototype methods coerce `this` via ToString. Reading stringValue
+  // directly gave "" for a non-string receiver -- silently, which is why it
+  // cost Test262 score rather than raising an error.
+  ["coerce-charat-number-recv", "return String.prototype.charAt.call(512, 1);", "protoreg"],
+  ["coerce-indexof-number-recv", "return String.prototype.indexOf.call(512, '1');", "protoreg"],
+  ["coerce-slice-bool-recv", "return String.prototype.slice.call(true, 1);", "protoreg"],
+  ["coerce-toupper-number-recv", "return String.prototype.toUpperCase.call(12);", "protoreg"],
+
   ["proto-array-slice-call", "return Array.prototype.slice.call([1, 2, 3], 1).join(',');", "protoreg"],
   ["proto-array-join-call", "return Array.prototype.join.call([1, 2, 3], '-');", "protoreg"],
   ["proto-array-map-call", "return Array.prototype.map.call([1, 2], function (x) { return x * 2; }).join(',');", "protoreg"],
