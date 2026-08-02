@@ -124,6 +124,11 @@ class TSParserSimple {
   ; caller parsing plain JS turns this off, the way every parser gates its TS
   ; support.
   def typeScriptMode:boolean true
+  ; Which edition of ECMAScript to accept. Class fields (`class A { a = 1 }`)
+  ; arrived in ES2022, so a caller targeting an earlier edition rejects them --
+  ; the same knob acorn and Babel expose. Defaults to the current edition, so
+  ; the engine sees modern JavaScript.
+  def ecmaVersion:int 2024
   ; True inside a lexical declaration, where `let` may not be referenced at all:
   ; `for (let [a = let];;) {}` is an error.
   def noLetReference:boolean false
@@ -201,6 +206,10 @@ class TSParserSimple {
 
   fn setTypeScriptMode:void (enabled:boolean) {
     this.typeScriptMode = enabled
+  }
+
+  fn setEcmaVersion:void (year:int) {
+    this.ecmaVersion = year
   }
   
   fn peek:Token () {
@@ -859,6 +868,11 @@ class TSParserSimple {
   ; token without an error; fall back to expect() for genuinely invalid syntax
   ; (which still advances, so callers keep making progress).
   fn parseMemberName:Token () {
+    ; Private name access: `this.#p`. The `#` is a separate token, so consume
+    ; it and let the name that follows carry the member.
+    if (this.matchPunct("#")) {
+      this.advance()
+    }
     if (this.isNameToken()) {
       def tok (this.peek())
       this.advance()
@@ -2586,8 +2600,13 @@ class TSParserSimple {
       this.activeLabels = savedmethLabels
       this.iterationLabels = savedmethIterLabels
     } {
-      ; Property
+      ; Property — a class field, which is ES2022.
       member.nodeType = "PropertyDefinition"
+      if (this.ecmaVersion < 2022) {
+        if (this.typeScriptMode == false) {
+          this.syntaxError("Parse error: class fields need ES2022")
+        }
+      }
       if (isStatic) {
         member.kind = "static"
       }

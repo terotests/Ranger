@@ -2021,6 +2021,7 @@ class TSParserSimple  {
     this.exportedNames = [];
     this.moduleMode = true;
     this.typeScriptMode = true;
+    this.ecmaVersion = 2024;
     this.noLetReference = false;
     this.inForOfHead = false;     /** note: unused */
     this.inParamList = false;
@@ -2063,6 +2064,9 @@ class TSParserSimple  {
   };
   setTypeScriptMode (enabled) {
     this.typeScriptMode = enabled;
+  };
+  setEcmaVersion (year) {
+    this.ecmaVersion = year;
   };
   peek () {
     return this.currentToken;
@@ -2729,6 +2733,9 @@ class TSParserSimple  {
     return false;
   };
   parseMemberName () {
+    if ( this.matchPunct("#") ) {
+      this.advance();
+    }
     if ( this.isNameToken() ) {
       const tok = this.peek();
       this.advance();
@@ -4098,6 +4105,11 @@ class TSParserSimple  {
       this.iterationLabels = savedmethIterLabels;
     } else {
       member.nodeType = "PropertyDefinition";
+      if ( this.ecmaVersion < 2022 ) {
+        if ( this.typeScriptMode == false ) {
+          this.syntaxError("Parse error: class fields need ES2022");
+        }
+      }
       if ( isStatic ) {
         member.kind = "static";
       }
