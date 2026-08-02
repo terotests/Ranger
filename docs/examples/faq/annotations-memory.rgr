@@ -1,0 +1,26 @@
+;; topic: faq/annotations-memory
+;; title: A back reference with the weak annotation
+;; category: statements
+
+class Node {
+    def name:string ""
+    def child@(optional):Node
+    ; The parent must not keep the child alive: the two would then hold each
+    ; other, and a target that counts references would free neither.
+    def parent@(weak optional):Node
+}
+
+class Main {
+    sfn main:void () {
+        def root:Node (new Node())
+        root.name = "root"
+        def leaf:Node (new Node())
+        leaf.name = "leaf"
+
+        root.child = leaf
+        leaf.parent = root
+
+        def kid:Node (!! root.child)
+        print ("child of root " + kid.name)
+    }
+}
