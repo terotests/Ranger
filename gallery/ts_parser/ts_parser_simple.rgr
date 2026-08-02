@@ -128,6 +128,20 @@ class TSParserSimple {
     }
   }
   
+  ; Like expect("Identifier"), but also accepts keyword tokens. Most JS keywords
+  ; are only *contextually* reserved (`yield` outside a generator, `await`
+  ; outside async, `let`/`static`/`of` in sloppy mode), and this parser does not
+  ; track those contexts, so refusing them here loses valid programs.
+  fn expectBindingName:Token () {
+    def tt (this.peekType())
+    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword")) {
+      def tok (this.peek())
+      this.advance()
+      return tok
+    }
+    return (this.expect("Identifier"))
+  }
+
   fn expect:Token (expectedType:string) {
     def tok (this.peek())
     if (tok.tokenType != expectedType) {
@@ -322,7 +336,19 @@ class TSParserSimple {
     }
     
     if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
-      return (this.parseVarDecl())
+      ; `let` is only a declaration keyword when a binding follows. In sloppy
+      ; mode it is a perfectly good identifier, so `let = 1` and `let.a` are
+      ; expression statements.
+      def afterKind:string (this.peekNextValue())
+      def afterKindType:string (this.peekNextType())
+      def startsBinding:boolean false
+      if ((afterKindType == "Identifier") || (afterKindType == "TSType")) { startsBinding = true }
+      if (afterKind == "{") { startsBinding = true }
+      if (afterKind == "[") { startsBinding = true }
+      if (tokVal != "let") { startsBinding = true }
+      if startsBinding {
+        return (this.parseVarDecl())
+      }
     }
 
     if (tokVal == "function") {
@@ -1116,12 +1142,17 @@ class TSParserSimple {
     this.expectValue("{")
     
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
-      def member (this.parseClassMember())
-      push body.children member
-      
-      ; Optional semicolon
+      ; A bare `;` is an empty class element and carries no member.
       if (this.matchValue(";")) {
         this.advance()
+      } {
+        def member (this.parseClassMember())
+        push body.children member
+
+        ; Optional trailing semicolon
+        if (this.matchValue(";")) {
+          this.advance()
+        }
       }
     }
     
@@ -1698,6 +1729,30 @@ class TSParserSimple {
       }
       
       push initDecl.children declarator
+
+      ; Further declarators: `for (var a = 1, b = 2; ...)`
+      while (this.matchValue(",")) {
+        this.advance()
+        def more (new TSNode())
+        more.nodeType = "VariableDeclarator"
+        def moreTarget (this.parseBindingTarget())
+        if (moreTarget.nodeType == "Identifier") {
+          more.name = moreTarget.name
+        } {
+          more.left = moreTarget
+        }
+        if (this.matchValue(":")) {
+          def moreType (this.parseTypeAnnotation())
+          more.typeAnnotation = moreType
+        }
+        if (this.matchValue("=")) {
+          this.advance()
+          def moreInit (this.parseExpr())
+          more.init = moreInit
+        }
+        push initDecl.children more
+      }
+
       node.init = initDecl
     } {
       ; Init could be expression or empty
@@ -1877,7 +1932,7 @@ class TSParserSimple {
           declarator.col = pattern.col
         } {
           ; Simple identifier
-          def nameTok (this.expect("Identifier"))
+          def nameTok (this.expectBindingName())
           declarator.name = nameTok.value
           declarator.start = nameTok.start
           declarator.line = nameTok.line
@@ -2216,7 +2271,7 @@ class TSParserSimple {
       push param.decorators d
     }
     
-    def nameTok (this.expect("Identifier"))
+    def nameTok (this.expectBindingName())
     param.name = nameTok.value
     param.start = nameTok.start
     param.line = nameTok.line
@@ -4508,6 +4563,31 @@ class TSParserSimple {
       return thisExpr
     }
     
+    ; Contextual keywords used as plain identifiers. These are only reserved in
+    ; contexts this parser does not track (module/strict code, generator or async
+    ; bodies), so in expression position they name a binding.
+    if (tokType == "Keyword") {
+      def contextual:boolean false
+      if (tokVal == "let") { contextual = true }
+      if (tokVal == "yield") { contextual = true }
+      if (tokVal == "await") { contextual = true }
+      if (tokVal == "of") { contextual = true }
+      if (tokVal == "static") { contextual = true }
+      if (tokVal == "as") { contextual = true }
+      if (tokVal == "from") { contextual = true }
+      if contextual {
+        this.advance()
+        def ctxId (new TSNode())
+        ctxId.nodeType = "Identifier"
+        ctxId.name = tok.value
+        ctxId.start = tok.start
+        ctxId.end = tok.end
+        ctxId.line = tok.line
+        ctxId.col = tok.col
+        return ctxId
+      }
+    }
+
     ; Fallback
     if (this.quiet == false) {
       print "Unexpected token: " + tokVal
@@ -4627,6 +4707,15 @@ class TSParserSimple {
           }
         }
         
+        ; Generator method shorthand: { *a() {} } and { async *a() {} }
+        if (currVal == "*") {
+          this.advance()
+          prop.generator = true
+          currVal = (this.peekValue())
+          nextType = (this.peekNextType())
+          nextVal = (this.peekNextValue())
+        }
+
         ; Check for getter/setter - must look ahead to see if next is identifier or [
         if (currVal == "get") {
           if ((nextType == "Identifier") || (nextVal == "[")) {

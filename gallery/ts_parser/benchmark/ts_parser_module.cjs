@@ -1112,6 +1112,15 @@ class TSParserSimple  {
       }
     };
   };
+  expectBindingName () {
+    const tt = this.peekType();
+    if ( ((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword") ) {
+      const tok = this.peek();
+      this.advance();
+      return tok;
+    }
+    return this.expect("Identifier");
+  };
   expect (expectedType) {
     const tok = this.peek();
     if ( tok.tokenType != expectedType ) {
@@ -1259,7 +1268,24 @@ class TSParserSimple  {
       }
     }
     if ( ((tokVal == "let") || (tokVal == "const")) || (tokVal == "var") ) {
-      return this.parseVarDecl();
+      const afterKind = this.peekNextValue();
+      const afterKindType = this.peekNextType();
+      let startsBinding = false;
+      if ( (afterKindType == "Identifier") || (afterKindType == "TSType") ) {
+        startsBinding = true;
+      }
+      if ( afterKind == "{" ) {
+        startsBinding = true;
+      }
+      if ( afterKind == "[" ) {
+        startsBinding = true;
+      }
+      if ( tokVal != "let" ) {
+        startsBinding = true;
+      }
+      if ( startsBinding ) {
+        return this.parseVarDecl();
+      }
     }
     if ( tokVal == "function" ) {
       return this.parseFuncDecl(false);
@@ -1840,10 +1866,14 @@ class TSParserSimple  {
     body.col = startTok.col;
     this.expectValue("{");
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
-      const member = this.parseClassMember();
-      body.children.push(member);
       if ( this.matchValue(";") ) {
         this.advance();
+      } else {
+        const member = this.parseClassMember();
+        body.children.push(member);
+        if ( this.matchValue(";") ) {
+          this.advance();
+        }
       }
     };
     this.expectValue("}");
@@ -2288,6 +2318,27 @@ class TSParserSimple  {
         declarator_2.init = initVal;
       }
       initDecl.children.push(declarator_2);
+      while (this.matchValue(",")) {
+        this.advance();
+        const more = new TSNode();
+        more.nodeType = "VariableDeclarator";
+        const moreTarget = this.parseBindingTarget();
+        if ( moreTarget.nodeType == "Identifier" ) {
+          more.name = moreTarget.name;
+        } else {
+          more.left = moreTarget;
+        }
+        if ( this.matchValue(":") ) {
+          const moreType = this.parseTypeAnnotation();
+          more.typeAnnotation = moreType;
+        }
+        if ( this.matchValue("=") ) {
+          this.advance();
+          const moreInit = this.parseExpr();
+          more.init = moreInit;
+        }
+        initDecl.children.push(more);
+      };
       node.init = initDecl;
     } else {
       node.nodeType = "ForStatement";
@@ -2423,7 +2474,7 @@ class TSParserSimple  {
           declarator.line = pattern_1.line;
           declarator.col = pattern_1.col;
         } else {
-          const nameTok = this.expect("Identifier");
+          const nameTok = this.expectBindingName();
           declarator.name = nameTok.value;
           declarator.start = nameTok.start;
           declarator.line = nameTok.line;
@@ -2685,7 +2736,7 @@ class TSParserSimple  {
       var d_2 = decorators[i_2];
       param.decorators.push(d_2);
     };
-    const nameTok = this.expect("Identifier");
+    const nameTok = this.expectBindingName();
     param.name = nameTok.value;
     param.start = nameTok.start;
     param.line = nameTok.line;
@@ -4422,6 +4473,41 @@ class TSParserSimple  {
       thisExpr.col = tok.col;
       return thisExpr;
     }
+    if ( tokType == "Keyword" ) {
+      let contextual = false;
+      if ( tokVal == "let" ) {
+        contextual = true;
+      }
+      if ( tokVal == "yield" ) {
+        contextual = true;
+      }
+      if ( tokVal == "await" ) {
+        contextual = true;
+      }
+      if ( tokVal == "of" ) {
+        contextual = true;
+      }
+      if ( tokVal == "static" ) {
+        contextual = true;
+      }
+      if ( tokVal == "as" ) {
+        contextual = true;
+      }
+      if ( tokVal == "from" ) {
+        contextual = true;
+      }
+      if ( contextual ) {
+        this.advance();
+        const ctxId = new TSNode();
+        ctxId.nodeType = "Identifier";
+        ctxId.name = tok.value;
+        ctxId.start = tok.start;
+        ctxId.end = tok.end;
+        ctxId.line = tok.line;
+        ctxId.col = tok.col;
+        return ctxId;
+      }
+    }
     if ( this.quiet == false ) {
       console.log("Unexpected token: " + tokVal);
     }
@@ -4510,6 +4596,13 @@ class TSParserSimple  {
             nextType = this.peekNextType();
             nextVal = this.peekNextValue();
           }
+        }
+        if ( currVal == "*" ) {
+          this.advance();
+          prop.generator = true;
+          currVal = this.peekValue();
+          nextType = this.peekNextType();
+          nextVal = this.peekNextValue();
         }
         if ( currVal == "get" ) {
           if ( (nextType == "Identifier") || (nextVal == "[") ) {
