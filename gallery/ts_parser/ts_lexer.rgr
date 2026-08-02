@@ -379,6 +379,76 @@ class TSLexer {
         return (this.makeToken("Number" value startPos startLine startCol))
     }
 
+    ; Hex digit value, or -1 when the character is not a hex digit.
+    fn hexValue:int (ch:string) {
+        if ((strlen ch) == 0) { return -1 }
+        def code:int (charAt ch 0)
+        if (code >= 48) { if (code <= 57) { return (code - 48) } }
+        if (code >= 97) { if (code <= 102) { return ((code - 97) + 10) } }
+        if (code >= 65) { if (code <= 70) { return ((code - 65) + 10) } }
+        return -1
+    }
+
+    ; Reads a \uXXXX or \u{XXXXX} escape at the current position (which must be
+    ; the backslash) and returns the character it denotes. Returns "" when the
+    ; escape is malformed, leaving the position untouched.
+    fn readUnicodeEscape:string () {
+        def savedPos:int pos
+        def savedLine:int line
+        def savedCol:int col
+        if ((this.peek()) != "\\") { return "" }
+        this.advance()
+        if ((this.peek()) != "u") {
+            pos = savedPos
+            line = savedLine
+            col = savedCol
+            return ""
+        }
+        this.advance()
+        def code:int 0
+        if ((this.peek()) == "{") {
+            this.advance()
+            def any:boolean false
+            while (pos < len) {
+                def ch:string (this.peek())
+                if (ch == "}") { break }
+                def hv:int (this.hexValue(ch))
+                if (hv < 0) {
+                    pos = savedPos
+                    line = savedLine
+                    col = savedCol
+                    return ""
+                }
+                code = ((code * 16) + hv)
+                any = true
+                this.advance()
+            }
+            if ((any == false) || ((this.peek()) != "}")) {
+                pos = savedPos
+                line = savedLine
+                col = savedCol
+                return ""
+            }
+            this.advance()
+        } {
+            def i:int 0
+            while (i < 4) {
+                def hch:string (this.peek())
+                def hv:int (this.hexValue(hch))
+                if (hv < 0) {
+                    pos = savedPos
+                    line = savedLine
+                    col = savedCol
+                    return ""
+                }
+                code = ((code * 16) + hv)
+                this.advance()
+                i = (i + 1)
+            }
+        }
+        return (strfromcode code)
+    }
+
     fn readIdentifier:Token () {
         def startPos:int pos
         def startLine:int line
@@ -389,7 +459,23 @@ class TSLexer {
             if (this.isAlphaNumCh(ch)) {
                 value = value + (this.advance())
             } {
-                return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+                ; An identifier character may be written as a \uXXXX escape.
+                if (ch == "\\") {
+                    def esc:string (this.readUnicodeEscape())
+                    if ((strlen esc) == 0) {
+                        ; Malformed escape. If it is the first thing we saw there
+                        ; is no identifier here at all; consume the backslash so
+                        ; the tokenizer always makes progress and cannot spin.
+                        if ((strlen value) == 0) {
+                            this.advance()
+                            return (this.makeToken("Punctuator" "\\" startPos startLine startCol))
+                        }
+                        return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+                    }
+                    value = value + esc
+                } {
+                    return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+                }
             }
         }
         return (this.makeToken((this.identType(value)) value startPos startLine startCol))
@@ -546,8 +632,12 @@ class TSLexer {
         ; Numbers
         if (this.isDigit(ch)) { return (this.readNumber()) }
 
-        ; Identifiers and keywords
+        ; Identifiers and keywords. An identifier may also *start* with a
+        ; \uXXXX escape, as in `var \u0061bc;`.
         if (this.isAlpha(ch)) { return (this.readIdentifier()) }
+        if (ch == "\\") {
+            if ((this.peekAt(1)) == "u") { return (this.readIdentifier()) }
+        }
 
         ; Multi-char punctuators
         def next:string (this.peekAt(1))

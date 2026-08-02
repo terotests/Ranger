@@ -391,6 +391,88 @@ class TSLexer  {
     };
     return this.makeToken("Number", value, startPos, startLine, startCol);
   };
+  hexValue (ch) {
+    if ( (ch.length) == 0 ) {
+      return -1;
+    }
+    const code = ch.charCodeAt(0 );
+    if ( code >= 48 ) {
+      if ( code <= 57 ) {
+        return code - 48;
+      }
+    }
+    if ( code >= 97 ) {
+      if ( code <= 102 ) {
+        return (code - 97) + 10;
+      }
+    }
+    if ( code >= 65 ) {
+      if ( code <= 70 ) {
+        return (code - 65) + 10;
+      }
+    }
+    return -1;
+  };
+  readUnicodeEscape () {
+    const savedPos = this.pos;
+    const savedLine = this.line;
+    const savedCol = this.col;
+    if ( this.peek() != "\\" ) {
+      return "";
+    }
+    this.advance();
+    if ( this.peek() != "u" ) {
+      this.pos = savedPos;
+      this.line = savedLine;
+      this.col = savedCol;
+      return "";
+    }
+    this.advance();
+    let code = 0;
+    if ( this.peek() == "{" ) {
+      this.advance();
+      let any = false;
+      while (this.pos < this.__len) {
+        const ch = this.peek();
+        if ( ch == "}" ) {
+          break;
+        }
+        const hv = this.hexValue(ch);
+        if ( hv < 0 ) {
+          this.pos = savedPos;
+          this.line = savedLine;
+          this.col = savedCol;
+          return "";
+        }
+        code = (code * 16) + hv;
+        any = true;
+        this.advance();
+      };
+      if ( (any == false) || (this.peek() != "}") ) {
+        this.pos = savedPos;
+        this.line = savedLine;
+        this.col = savedCol;
+        return "";
+      }
+      this.advance();
+    } else {
+      let i = 0;
+      while (i < 4) {
+        const hch = this.peek();
+        const hv_1 = this.hexValue(hch);
+        if ( hv_1 < 0 ) {
+          this.pos = savedPos;
+          this.line = savedLine;
+          this.col = savedCol;
+          return "";
+        }
+        code = (code * 16) + hv_1;
+        this.advance();
+        i = i + 1;
+      };
+    }
+    return String.fromCharCode(code);
+  };
   readIdentifier () {
     const startPos = this.pos;
     const startLine = this.line;
@@ -401,7 +483,19 @@ class TSLexer  {
       if ( this.isAlphaNumCh(ch) ) {
         value = value + this.advance();
       } else {
-        return this.makeToken(this.identType(value), value, startPos, startLine, startCol);
+        if ( ch == "\\" ) {
+          const esc = this.readUnicodeEscape();
+          if ( (esc.length) == 0 ) {
+            if ( (value.length) == 0 ) {
+              this.advance();
+              return this.makeToken("Punctuator", "\\", startPos, startLine, startCol);
+            }
+            return this.makeToken(this.identType(value), value, startPos, startLine, startCol);
+          }
+          value = value + esc;
+        } else {
+          return this.makeToken(this.identType(value), value, startPos, startLine, startCol);
+        }
       }
     };
     return this.makeToken(this.identType(value), value, startPos, startLine, startCol);
@@ -674,6 +768,11 @@ class TSLexer  {
     }
     if ( this.isAlpha(ch) ) {
       return this.readIdentifier();
+    }
+    if ( ch == "\\" ) {
+      if ( this.peekAt(1) == "u" ) {
+        return this.readIdentifier();
+      }
     }
     const next_1 = this.peekAt(1);
     if ( ch == "=" ) {
@@ -1542,11 +1641,11 @@ class TSParserSimple  {
       while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
         const spec = new TSNode();
         spec.nodeType = "ExportSpecifier";
-        const localName = this.expect("Identifier");
+        const localName = this.expectBindingName();
         spec.name = localName.value;
         if ( this.matchValue("as") ) {
           this.advance();
-          const exportedName = this.expect("Identifier");
+          const exportedName = this.expectBindingName();
           spec.value = exportedName.value;
         } else {
           spec.value = localName.value;
@@ -1961,8 +2060,24 @@ class TSParserSimple  {
       }
       return member;
     }
-    const nameTok = this.parseMemberName();
-    member.name = nameTok.value;
+    if ( this.matchValue("*") ) {
+      this.advance();
+      member.generator = true;
+    }
+    if ( this.matchValue("#") ) {
+      this.advance();
+      member.value = "#";
+    }
+    if ( this.matchValue("[") ) {
+      this.advance();
+      const keyExpr = this.parseExpr();
+      this.expectValue("]");
+      member.computed = true;
+      member.init = keyExpr;
+    } else {
+      const nameTok = this.parseMemberName();
+      member.name = nameTok.value;
+    }
     if ( accessibility != "" ) {
       member.kind = accessibility;
     }
@@ -2658,8 +2773,8 @@ class TSParserSimple  {
       this.advance();
       node.generator = true;
     }
-    if ( this.matchType("Identifier") ) {
-      const nameTok = this.expect("Identifier");
+    if ( this.matchValue("(") == false ) {
+      const nameTok = this.expectBindingName();
       node.name = nameTok.value;
     }
     if ( this.matchValue("<") ) {
@@ -2709,6 +2824,19 @@ class TSParserSimple  {
         restElem.left = pattern;
         return restElem;
       }
+      if ( this.matchValue(":") ) {
+        const patType = this.parseTypeAnnotation();
+        pattern.typeAnnotation = patType;
+      }
+      if ( this.matchValue("=") ) {
+        this.advance();
+        const patDefault = this.parseExpr();
+        const patAssign = new TSNode();
+        patAssign.nodeType = "AssignmentPattern";
+        patAssign.left = pattern;
+        patAssign.right = patDefault;
+        return patAssign;
+      }
       return pattern;
     }
     if ( this.matchValue("[") ) {
@@ -2722,6 +2850,19 @@ class TSParserSimple  {
         restElem_1.nodeType = "RestElement";
         restElem_1.left = pattern_1;
         return restElem_1;
+      }
+      if ( this.matchValue(":") ) {
+        const patType_1 = this.parseTypeAnnotation();
+        pattern_1.typeAnnotation = patType_1;
+      }
+      if ( this.matchValue("=") ) {
+        this.advance();
+        const patDefault_1 = this.parseExpr();
+        const patAssign_1 = new TSNode();
+        patAssign_1.nodeType = "AssignmentPattern";
+        patAssign_1.left = pattern_1;
+        patAssign_1.right = patDefault_1;
+        return patAssign_1;
       }
       return pattern_1;
     }
@@ -4827,9 +4968,21 @@ class TSParserSimple  {
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
         if ( (node.children.length) > 0 ) {
           this.expectValue(",");
+          if ( this.matchValue(")") ) {
+            break;
+          }
         }
-        const arg = this.parseExpr();
-        node.children.push(arg);
+        if ( this.matchValue("...") ) {
+          this.advance();
+          const spreadArg = this.parseExpr();
+          const spread = new TSNode();
+          spread.nodeType = "SpreadElement";
+          spread.left = spreadArg;
+          node.children.push(spread);
+        } else {
+          const arg = this.parseExpr();
+          node.children.push(arg);
+        }
       };
       this.expectValue(")");
     }

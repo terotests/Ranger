@@ -694,13 +694,14 @@ class TSParserSimple {
         def spec (new TSNode())
         spec.nodeType = "ExportSpecifier"
         
-        def localName (this.expect("Identifier"))
+        def localName (this.expectBindingName())
         spec.name = localName.value
         
-        ; Check for 'as' alias
+        ; Check for 'as' alias. The exported name is a ModuleExportName, so
+        ; `export { a as default }` and reserved words are both legal there.
         if (this.matchValue("as")) {
           this.advance()
-          def exportedName (this.expect("Identifier"))
+          def exportedName (this.expectBindingName())
           spec.value = exportedName.value
         } {
           spec.value = localName.value
@@ -1258,11 +1259,33 @@ class TSParserSimple {
       return member
     }
     
-    ; Member name — reserved words are legal here (methods named `set`, `get`,
-    ; `delete`, fields named `default`, etc.), so accept any name token.
-    def nameTok (this.parseMemberName())
-    member.name = nameTok.value
-    
+    ; Generator method: *m() {} / static *m() {} / async *m() {}
+    if (this.matchValue("*")) {
+      this.advance()
+      member.generator = true
+    }
+
+    ; Private name: #x. Recorded on `value` so it does not clobber `kind`,
+    ; which carries the accessibility / static / abstract modifier.
+    if (this.matchValue("#")) {
+      this.advance()
+      member.value = "#"
+    }
+
+    ; Computed member name: ["prototype"]() {} / [Symbol.iterator]() {}
+    if (this.matchValue("[")) {
+      this.advance()
+      def keyExpr (this.parseExpr())
+      this.expectValue("]")
+      member.computed = true
+      member.init = keyExpr
+    } {
+      ; Member name — reserved words are legal here (methods named `set`, `get`,
+      ; `delete`, fields named `default`, etc.), so accept any name token.
+      def nameTok (this.parseMemberName())
+      member.name = nameTok.value
+    }
+
     ; Apply modifiers
     if (accessibility != "") {
       member.kind = accessibility
@@ -2171,9 +2194,10 @@ class TSParserSimple {
     }
     
     ; Name is optional: `function () {}` is legal both as an expression and as
-    ; the body of `export default function () {}`.
-    if (this.matchType("Identifier")) {
-      def nameTok (this.expect("Identifier"))
+    ; the body of `export default function () {}`. When present it may be a
+    ; contextual keyword, as in `function* yield() {}`.
+    if ((this.matchValue("(")) == false) {
+      def nameTok (this.expectBindingName())
       node.name = nameTok.value
     }
 
@@ -2238,6 +2262,21 @@ class TSParserSimple {
         restElem.left = pattern
         return restElem
       }
+      ; Optional type annotation on the pattern: ({a}: T) => ...
+      if (this.matchValue(":")) {
+        def patType (this.parseTypeAnnotation())
+        pattern.typeAnnotation = patType
+      }
+      ; Default value: function a({b} = {b: 1}) {}
+      if (this.matchValue("=")) {
+        this.advance()
+        def patDefault (this.parseExpr())
+        def patAssign (new TSNode())
+        patAssign.nodeType = "AssignmentPattern"
+        patAssign.left = pattern
+        patAssign.right = patDefault
+        return patAssign
+      }
       return pattern
     }
     
@@ -2253,6 +2292,21 @@ class TSParserSimple {
         restElem.nodeType = "RestElement"
         restElem.left = pattern
         return restElem
+      }
+      ; Optional type annotation on the pattern: ({a}: T) => ...
+      if (this.matchValue(":")) {
+        def patType (this.parseTypeAnnotation())
+        pattern.typeAnnotation = patType
+      }
+      ; Default value: function a({b} = {b: 1}) {}
+      if (this.matchValue("=")) {
+        this.advance()
+        def patDefault (this.parseExpr())
+        def patAssign (new TSNode())
+        patAssign.nodeType = "AssignmentPattern"
+        patAssign.left = pattern
+        patAssign.right = patDefault
+        return patAssign
       }
       return pattern
     }
@@ -5013,9 +5067,22 @@ class TSParserSimple {
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length node.children) > 0) {
           this.expectValue(",")
+          ; Allow a trailing comma in the argument list
+          if (this.matchValue(")")) {
+            break
+          }
         }
-        def arg (this.parseExpr())
-        push node.children arg
+        if (this.matchValue("...")) {
+          this.advance()
+          def spreadArg (this.parseExpr())
+          def spread (new TSNode())
+          spread.nodeType = "SpreadElement"
+          spread.left = spreadArg
+          push node.children spread
+        } {
+          def arg (this.parseExpr())
+          push node.children arg
+        }
       }
       this.expectValue(")")
     }
