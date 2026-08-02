@@ -59,6 +59,9 @@ class EvalValue {
     ; the member-access sites in ComponentEngine look them up and call them.
     def getterMap:[string:EvalValue]
     def setterMap:[string:EvalValue]
+    ; D-FNPROTO: arguments fixed by Function.prototype.bind, prepended ahead of
+    ; the call-site arguments every time the bound function is invoked.
+    def boundArgs:[EvalValue]
     def functionNode@(optional):TSNode  ; For function AST nodes
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
@@ -206,6 +209,7 @@ class EvalValue {
         v.closureId = closureId
         v.homeModule = homeModule
         v.objectMap = objectMap
+        v.boundArgs = boundArgs
         v.boundThis = recv
         if functionNode {
             v.functionNode = (unwrap functionNode)

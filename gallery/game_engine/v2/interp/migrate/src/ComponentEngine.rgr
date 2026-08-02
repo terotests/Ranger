@@ -3729,7 +3729,23 @@ class ComponentEngine {
         if fnValue.boundThis {
             context.define("this" (unwrap fnValue.boundThis))
         }
-        this.bindParams(fnNode argVals)
+        ; D-FNPROTO: arguments fixed by bind() come first, then the call site's.
+        def effArgs:[EvalValue] argVals
+        if ((array_length fnValue.boundArgs) > 0) {
+            def merged:[EvalValue]
+            def bi:int 0
+            while (bi < (array_length fnValue.boundArgs)) {
+                push merged (itemAt fnValue.boundArgs bi)
+                bi = (bi + 1)
+            }
+            def ci2:int 0
+            while (ci2 < (array_length argVals)) {
+                push merged (itemAt argVals ci2)
+                ci2 = (ci2 + 1)
+            }
+            effArgs = merged
+        }
+        this.bindParams(fnNode effArgs)
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
@@ -6070,6 +6086,70 @@ class ComponentEngine {
                             if (sM.nodeType == "MethodDefinition") {
                                 return (this.callUserFunctionNode(sM node.children (EvalValue.null()) false))
                             }
+                        }
+                    }
+                }
+
+                ; D-FNPROTO: Function.prototype call / apply / bind. ES5 core and
+                ; used pervasively — Test262 reaches for them constantly to invoke
+                ; a function with a chosen receiver, so their absence failed tests
+                ; that were not about them at all.
+                if (obj.valueType == 6) {
+                    if obj.functionNode {
+                        if (methodName == "call") {
+                            def callThis:EvalValue (EvalValue.undefined())
+                            def callArgs:[EvalValue]
+                            def cai:int 0
+                            while (cai < (array_length node.children)) {
+                                def cv:EvalValue (this.evaluateExpr((itemAt node.children cai)))
+                                if (cai == 0) {
+                                    callThis = cv
+                                } {
+                                    push callArgs cv
+                                }
+                                cai = (cai + 1)
+                            }
+                            def callBound:EvalValue (obj.withThis(callThis))
+                            return (this.callFnValueWithValues(callBound callArgs))
+                        }
+                        if (methodName == "apply") {
+                            def applyThis:EvalValue (EvalValue.undefined())
+                            def applyArgs:[EvalValue]
+                            if ((array_length node.children) > 0) {
+                                applyThis = (this.evaluateExpr((itemAt node.children 0)))
+                            }
+                            if ((array_length node.children) > 1) {
+                                def arr:EvalValue (this.evaluateExpr((itemAt node.children 1)))
+                                if (arr.isArray()) {
+                                    def aai:int 0
+                                    while (aai < (array_length arr.arrayValue)) {
+                                        push applyArgs (itemAt arr.arrayValue aai)
+                                        aai = (aai + 1)
+                                    }
+                                }
+                            }
+                            def applyBound:EvalValue (obj.withThis(applyThis))
+                            return (this.callFnValueWithValues(applyBound applyArgs))
+                        }
+                        if (methodName == "bind") {
+                            def bindThis:EvalValue (EvalValue.undefined())
+                            def partial:[EvalValue]
+                            def bai:int 0
+                            while (bai < (array_length node.children)) {
+                                def bv:EvalValue (this.evaluateExpr((itemAt node.children bai)))
+                                if (bai == 0) {
+                                    bindThis = bv
+                                } {
+                                    push partial bv
+                                }
+                                bai = (bai + 1)
+                            }
+                            ; The receiver is fixed permanently; partially applied
+                            ; arguments are prepended at call time.
+                            def bound:EvalValue (obj.withThis(bindThis))
+                            bound.boundArgs = partial
+                            bound.functionName = ("bound " + obj.functionName)
+                            return bound
                         }
                     }
                 }
