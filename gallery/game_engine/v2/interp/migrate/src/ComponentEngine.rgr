@@ -3822,7 +3822,22 @@ class ComponentEngine {
         if (q < 0.0) {
             qi = (0.0 - (this.floorNum((0.0 - q))))
         }
-        return (EvalValue.number((a - (qi * b))))
+        def rem:double (a - (qi * b))
+        ; The remainder takes the sign of the DIVIDEND, and that includes zero:
+        ; -1 % -1 is -0, not +0. Subtraction produces +0 for both, so the sign
+        ; is put back by multiplying.
+        if (rem == 0.0) {
+            def negOneD:double (0.0 - 1.0)
+            if (a < 0.0) {
+                return (EvalValue.number((0.0 * negOneD)))
+            }
+            def aRecip:double (1.0 / a)
+            if (aRecip < 0.0) {
+                return (EvalValue.number((0.0 * negOneD)))
+            }
+            return (EvalValue.number(0.0))
+        }
+        return (EvalValue.number(rem))
     }
 
     fn applyAssignOp:EvalValue (op:string current:EvalValue rightValue:EvalValue) {
@@ -6803,18 +6818,21 @@ class ComponentEngine {
                     ; TypeError too. Built-in constructor NAMES are function
                     ; values now, so they pass this on their own.
                     if (irKind == "Identifier") {
-                        if (false == (this.isBuiltinCtorName(instRight.name))) {
-                            if (context.has(instRight.name)) {
-                                def irVal:EvalValue (context.lookup(instRight.name))
-                                if (irVal.valueType != 6) {
+                        ; Only reject what is DEFINITELY not callable: a
+                        ; namespace object like Math or JSON, or a binding that
+                        ; holds a non-function. Anything unresolved here is left
+                        ; to the checks below, which know about classes.
+                        def irName:string instRight.name
+                        if (context.has(irName)) {
+                            def irVal:EvalValue (context.lookup(irName))
+                            if (irVal.valueType != 6) {
+                                return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
+                            }
+                        } {
+                            if (this.isEngineGlobalName(irName)) {
+                                def irG:EvalValue (this.builtinGlobalObject(irName))
+                                if (irG.valueType != 6) {
                                     return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
-                                }
-                            } {
-                                if (this.isEngineGlobalName(instRight.name)) {
-                                    def irG:EvalValue (this.builtinGlobalObject(instRight.name))
-                                    if (irG.valueType != 6) {
-                                        return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
-                                    }
                                 }
                             }
                         }
@@ -12021,12 +12039,25 @@ class ComponentEngine {
             if (ncKind == "BooleanLiteral") { calleeIsExpr = true }
             if (ncKind == "NullLiteral") { calleeIsExpr = true }
             if (ncKind == "NewExpression") { calleeIsExpr = true }
+            if (ncKind == "ThisExpression") { calleeIsExpr = true }
             if calleeIsExpr {
                 return (this.throwSpecError("TypeError" "expression is not a constructor"))
             }
             if (ncKind == "Identifier") {
                 def ncName:string newCallee.name
+                ; `new undefined` and `new Math` are TypeErrors: neither names a
+                ; constructor. undefined is a value, and Math is a namespace
+                ; object rather than a function.
+                if (ncName == "undefined") {
+                    return (this.throwSpecError("TypeError" "undefined is not a constructor"))
+                }
                 if (false == (this.isBuiltinCtorName(ncName))) {
+                    if (this.isEngineGlobalName(ncName)) {
+                        def ncG:EvalValue (this.builtinGlobalObject(ncName))
+                        if (ncG.valueType != 6) {
+                            return (this.throwSpecError("TypeError" (ncName + " is not a constructor")))
+                        }
+                    }
                     if (false == (this.isEngineGlobalName(ncName))) {
                         if (false == (context.has(ncName))) {
                             ; A class is not a scope binding in this engine, so
