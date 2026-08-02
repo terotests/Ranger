@@ -242,6 +242,9 @@ class ComponentEngine {
     ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
     ; for the engine's lifetime so identity and stored properties survive reads.
     def builtinProtos:[string:EvalValue]
+    ; D-GLOBALOBJ: one object per built-in global name (Math, JSON, Array, ...),
+    ; so the name resolves to something real rather than undefined.
+    def builtinGlobals:[string:EvalValue]
     ; D-CLASSEXPR: counter for generated class-expression table keys.
     def classExprSeq:int 0
     ; When true (the spec default) an unresolvable identifier read is a
@@ -3410,7 +3413,10 @@ class ComponentEngine {
             def objNode:TSNode (unwrap leftNode.left)
             if (objNode.nodeType == "Identifier") {
                 objName = objNode.name
-                obj = (context.lookup(objName))
+                ; D-GLOBALOBJ: resolve through lookupIdentifier, not the raw
+                ; scope, so a write to a built-in global (`Math.value = 1`)
+                ; lands on the real object instead of vanishing.
+                obj = (this.lookupIdentifier(objName))
             } {
                 obj = (this.evaluateExpr(objNode))
             }
@@ -4857,6 +4863,11 @@ class ComponentEngine {
                     ; in built-ins/Object: the call did nothing, the test
                     ; continued, and the assertion that followed measured
                     ; whatever the no-op left behind.
+                    if (this.objectStaticCoerces(methodName)) {
+                        if ((src.isNull()) || (src.isUndefined())) {
+                            return (this.throwSpecError("TypeError" ("Object." + methodName + " called on null or undefined")))
+                        }
+                    }
                     if (this.objectStaticNeedsObject(methodName)) {
                         if (src.valueType != 5) {
                             ; Arrays and functions are objects too; only true
@@ -4880,14 +4891,11 @@ class ComponentEngine {
                         }
                     }
                     ; defineProperty's descriptor must itself be an object.
-                    if ((methodName == "defineProperty") || (methodName == "defineProperties")) {
-                        if ((array_length node.children) > 2) {
-                            def dCheck:EvalValue (this.evaluateExpr((itemAt node.children 2)))
-                            if (dCheck.valueType != 5) {
-                                return (this.throwSpecError("TypeError" "Property description must be an object"))
-                            }
-                        }
-                    }
+                    ; The descriptor check lives inside defineProperty's own
+                    ; branch, using the value it already evaluated. Checking here
+                    ; evaluated the argument a SECOND time, so an inline object
+                    ; literal produced two distinct objects and any test
+                    ; comparing the stored accessor by identity failed.
                     if (methodName == "keys") {
                         def items:[EvalValue]
                         def ks:[string] (this.objectEnumerableKeys(src))
@@ -5125,6 +5133,9 @@ class ComponentEngine {
                         if ((array_length node.children) > 2) {
                             def pk:string ((this.evaluateExpr((itemAt node.children 1))).toString())
                             def pd:EvalValue (this.evaluateExpr((itemAt node.children 2)))
+                            if (pd.valueType != 5) {
+                                return (this.throwSpecError("TypeError" "Property description must be an object"))
+                            }
                             def gv:EvalValue (pd.getMember("get"))
                             def sv:EvalValue (pd.getMember("set"))
                             if ((gv.valueType == 6) || (sv.valueType == 6)) {
@@ -6087,6 +6098,61 @@ class ComponentEngine {
 
     ; The prototype object for a built-in constructor, created once per engine so
     ; a property assigned to it persists and compares equal across reads.
+    ; D-GLOBALOBJ: one object per built-in global, created on first reference and
+    ; kept for the engine's lifetime so identity holds and a property written to
+    ; it persists. Constructor globals carry `prototype` and `name`; Math carries
+    ; its constants. Returns null for a name that has no object form.
+    fn builtinGlobalObject:EvalValue (nsName:string) {
+        if (has builtinGlobals nsName) {
+            return (unwrap (get builtinGlobals nsName))
+        }
+        def keysG:[string]
+        def valsG:[EvalValue]
+        def g:EvalValue (EvalValue.object(keysG valsG))
+        set builtinGlobals nsName g
+        g.setMember("name" (EvalValue.string(nsName)))
+        if (this.isBuiltinCtorName(nsName)) {
+            g.setMember("prototype" (this.builtinPrototype(nsName)))
+        }
+        if (nsName == "Math") {
+            def pi:double (M_PI)
+            g.setMember("PI" (EvalValue.number(pi)))
+            def e1@(optional):double (to_double "2.718281828459045")
+            if e1 {
+                g.setMember("E" (EvalValue.number((unwrap e1))))
+            }
+            def ln2@(optional):double (to_double "0.6931471805599453")
+            if ln2 {
+                g.setMember("LN2" (EvalValue.number((unwrap ln2))))
+            }
+            def ln10@(optional):double (to_double "2.302585092994046")
+            if ln10 {
+                g.setMember("LN10" (EvalValue.number((unwrap ln10))))
+            }
+            def sq2@(optional):double (to_double "1.4142135623730951")
+            if sq2 {
+                g.setMember("SQRT2" (EvalValue.number((unwrap sq2))))
+            }
+        }
+        if (nsName == "Number") {
+            def mx@(optional):double (to_double "1.7976931348623157e308")
+            if mx {
+                g.setMember("MAX_VALUE" (EvalValue.number((unwrap mx))))
+            }
+            def mn@(optional):double (to_double "5e-324")
+            if mn {
+                g.setMember("MIN_VALUE" (EvalValue.number((unwrap mn))))
+            }
+            def inf:double (1.0 / 0.0)
+            g.setMember("POSITIVE_INFINITY" (EvalValue.number(inf)))
+            g.setMember("NEGATIVE_INFINITY" (EvalValue.number((0.0 - inf))))
+            g.setMember("NaN" (EvalValue.number((0.0 / 0.0))))
+            g.setMember("MAX_SAFE_INTEGER" (EvalValue.number(9007199254740991.0)))
+            g.setMember("MIN_SAFE_INTEGER" (EvalValue.number((0.0 - 9007199254740991.0))))
+        }
+        return g
+    }
+
     ; The receiver kind a built-in constructor's prototype serves.
     fn kindForCtorName:string (nsName:string) {
         if (nsName == "Array") { return "array" }
@@ -7388,17 +7454,27 @@ class ComponentEngine {
     ; ES2015+ rather than throwing, but throw on null/undefined specifically —
     ; handled by the nullish check at the call site. freeze/seal/isFrozen/
     ; isSealed/isExtensible accept anything and are deliberately absent.
+    ; Statics that genuinely REQUIRE an object argument in the current spec.
     fn objectStaticNeedsObject:boolean (name:string) {
         if (name == "defineProperty") { return true }
         if (name == "defineProperties") { return true }
-        if (name == "getOwnPropertyDescriptor") { return true }
-        if (name == "getPrototypeOf") { return true }
         if (name == "setPrototypeOf") { return true }
+        if (name == "create") { return true }
+        return false
+    }
+
+    ; Statics that COERCE their argument to an object and throw only on
+    ; null/undefined. ES5.1 threw for any non-object here, and modelling that
+    ; older rule made Object.keys('abc') a TypeError instead of ["0","1","2"] --
+    ; Test262 tracks the current spec, so the stricter reading cost score even
+    ; on tests tagged es5id.
+    fn objectStaticCoerces:boolean (name:string) {
         if (name == "keys") { return true }
         if (name == "values") { return true }
         if (name == "entries") { return true }
         if (name == "getOwnPropertyNames") { return true }
-        if (name == "create") { return true }
+        if (name == "getOwnPropertyDescriptor") { return true }
+        if (name == "getPrototypeOf") { return true }
         return false
     }
 
@@ -7553,7 +7629,18 @@ class ComponentEngine {
         if (hostScope.has(name)) {
             return (hostScope.lookup(name))
         }
+        ; D-GLOBALOBJ: the built-in namespaces are real OBJECTS, not merely names
+        ; the engine recognises structurally. They resolved to undefined, so
+        ; `Math.value = 1` silently vanished, passing Math where an object is
+        ; expected was a TypeError, and every `X.prototype` read off one of them
+        ; failed — the largest failure bucket in ES5 was reading a property of
+        ; undefined. Calls like Math.floor(x) still dispatch structurally before
+        ; reaching here, so this adds reachability without changing dispatch.
         if (this.isEngineGlobalName(name)) {
+            def g:EvalValue (this.builtinGlobalObject(name))
+            if (g.valueType == 5) {
+                return g
+            }
             return (EvalValue.undefined())
         }
         ; D-CLASSREF: a class is registered in the class table, not bound in a
@@ -7627,6 +7714,18 @@ class ComponentEngine {
                     return (EvalValue.string("undefined"))
                 }
                 if (false == (this.bindingExists(name))) {
+                    ; D-GLOBALOBJ: a built-in global is not a scope binding, but
+                    ; it exists — typeof must say so. Constructors report
+                    ; "function", namespaces like Math and JSON report "object".
+                    if (this.isEngineGlobalName(name)) {
+                        if (this.isBuiltinCtorName(name)) {
+                            return (EvalValue.string("function"))
+                        }
+                        def gv:EvalValue (this.builtinGlobalObject(name))
+                        if (gv.valueType == 5) {
+                            return (EvalValue.string("object"))
+                        }
+                    }
                     return (EvalValue.string("undefined"))
                 }
                 def val:EvalValue (context.lookup(name))
@@ -8513,6 +8612,16 @@ class ComponentEngine {
             out = (keys v.objectMap)
             return out
         }
+        ; A string coerces to an object whose own keys are its character
+        ; indices, which is what Object.keys('abc') returns.
+        if (v.isString()) {
+            def si:int 0
+            while (si < (strlen v.stringValue)) {
+                push out (to_string si)
+                si = (si + 1)
+            }
+            return out
+        }
         ; D-ARRAYKEYS: an array's own keys are its INDICES, as strings. Elements
         ; live in arrayValue rather than objectMap, so Object.keys([1,2]) used to
         ; answer nothing at all instead of ["0","1"].
@@ -8540,6 +8649,9 @@ class ComponentEngine {
         def out:[string]
         if (v.isArray()) {
             ; Array indices are always enumerable.
+            return (this.objectKeys(v))
+        }
+        if (v.isString()) {
             return (this.objectKeys(v))
         }
         if (v.isObject()) {
