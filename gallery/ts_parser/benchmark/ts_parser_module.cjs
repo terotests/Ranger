@@ -2509,8 +2509,9 @@ class TSParserSimple  {
     if ( this.matchType("Identifier") ) {
       const defaultSpec = new TSNode();
       defaultSpec.nodeType = "ImportDefaultSpecifier";
-      const defaultName = this.expect("Identifier");
+      const defaultName = this.expectBindingName();
       defaultSpec.name = defaultName.value;
+      this.declareBinding("l", defaultName.value);
       node.children.push(defaultSpec);
       if ( this.matchValue(",") ) {
         this.advance();
@@ -2528,6 +2529,7 @@ class TSParserSimple  {
             } else {
               spec_1.value = importedName_1.value;
             }
+            this.declareBinding("l", spec_1.value);
             node.children.push(spec_1);
             if ( this.matchValue(",") ) {
               this.advance();
@@ -2589,6 +2591,7 @@ class TSParserSimple  {
     const v = this.peekValue();
     if ( v == "default" ) {
       node.nodeType = "ExportDefaultDeclaration";
+      this.registerExportName("default");
       this.advance();
       const nextVal = this.peekValue();
       if ( ((nextVal == "class") || (nextVal == "function")) || (nextVal == "interface") ) {

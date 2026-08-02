@@ -1264,8 +1264,9 @@ class TSParserSimple {
     if (this.matchType("Identifier")) {
       def defaultSpec (new TSNode())
       defaultSpec.nodeType = "ImportDefaultSpecifier"
-      def defaultName (this.expect("Identifier"))
+      def defaultName (this.expectBindingName())
       defaultSpec.name = defaultName.value
+      this.declareBinding("l" defaultName.value)
       push node.children defaultSpec
       
       ; Could be followed by , { named } or , * as ns
@@ -1285,6 +1286,7 @@ class TSParserSimple {
             } {
               spec.value = importedName.value
             }
+            this.declareBinding("l" spec.value)
             push node.children spec
             if (this.matchValue(",")) {
               this.advance()
@@ -1364,6 +1366,7 @@ class TSParserSimple {
     ; export default
     if (v == "default") {
       node.nodeType = "ExportDefaultDeclaration"
+      this.registerExportName("default")
       this.advance()
       
       def nextVal (this.peekValue())
