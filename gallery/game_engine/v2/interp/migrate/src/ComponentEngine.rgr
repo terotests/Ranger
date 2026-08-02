@@ -2071,6 +2071,22 @@ class ComponentEngine {
     fn processTopLevelVarNode:void (node:TSNode) {
         if (node.nodeType == "VariableDeclaration") {
             this.processModuleVariableDeclaration(node)
+            ; D-GLOBALTHIS: a top-level `var` is a property of the global object
+            ; as well as a binding, so `var toString = f; String(this)` uses f.
+            ; let/const are NOT -- they live in the declarative environment.
+            if ((node.kind == "var") || ((strlen node.kind) == 0)) {
+                def gObjV:EvalValue (this.theGlobalObject())
+                def vi:int 0
+                while (vi < (array_length node.children)) {
+                    def d:TSNode (itemAt node.children vi)
+                    if ((strlen d.name) > 0) {
+                        if (context.has(d.name)) {
+                            gObjV.setMember(d.name (context.lookup(d.name)))
+                        }
+                    }
+                    vi = (vi + 1)
+                }
+            }
             return
         }
         if (node.nodeType == "ExportNamedDeclaration") {
@@ -4280,6 +4296,19 @@ class ComponentEngine {
                         ; name is a ReferenceError in strict mode.
                         if strictMode {
                             return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
+                        }
+                    }
+                    ; D-GLOBALTHIS: an assignment to an UNDECLARED name at top
+                    ; level creates a property of the global object, not just a
+                    ; binding -- which is what makes `toString = f; String(this)`
+                    ; use f. Inside a function the implicit global is created the
+                    ; same way, so both routes see one object.
+                    if (false == declared) {
+                        if (op == "=") {
+                            def gObjA:EvalValue (this.theGlobalObject())
+                            gObjA.setMember(varName rightValue)
+                            context.assign(varName rightValue)
+                            return rightValue
                         }
                     }
                     ; Read and write through the scope the reference named, not
@@ -6755,6 +6784,20 @@ class ComponentEngine {
                 if (callee.nodeType == "NewExpression") { litCallee = true }
                 if (callee.nodeType == "ObjectExpression") { litCallee = true }
                 if (callee.nodeType == "ArrayExpression") { litCallee = true }
+                ; A callee that is itself a CALL -- `String("a")()` -- has to be
+                ; evaluated to know: `f()()` is legal when the inner call
+                ; returns a function.
+                if (callee.nodeType == "CallExpression") {
+                    def innerV:EvalValue (this.evaluateExpr(callee))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    if (innerV.valueType == 6) {
+                        def innerArgs:[EvalValue] (this.collectCallArgs(node))
+                        return (this.callFnValueWithValues(innerV innerArgs))
+                    }
+                    litCallee = true
+                }
                 if litCallee {
                     def litArgs:[EvalValue] (this.collectCallArgs(node))
                     if scriptThrew {
@@ -8975,11 +9018,13 @@ class ComponentEngine {
                             def limV:EvalValue (itemAt args 1)
                             if (false == (limV.isUndefined())) {
                                 hasLimit = true
-                                limitN = (this.toIntegerOf(limV))
+                                ; The limit is ToUINT32, not a clamped integer:
+                                ; -(2^32)+1 wraps to 1, so the result keeps one
+                                ; element rather than none.
+                                limitN = (this.toUint32Of(limV))
                                 if scriptThrew {
                                     return (EvalValue.undefined())
                                 }
-                                if (limitN < 0) { limitN = 0 }
                             }
                         }
                         ; An absent or undefined separator does NOT split: the
@@ -10304,6 +10349,31 @@ class ComponentEngine {
     fn callPrimitiveMethod:EvalValue (obj:EvalValue name:string) {
         primitiveMethodUsable = false
         def m:EvalValue (obj.getMember(name))
+        ; An ARRAY or FUNCTION receiver has no prototype link of its own, so a
+        ; guest override on Array.prototype or Function.prototype has to be
+        ; looked for there. Without this, `Array.prototype.toString = …` was
+        ; invisible to every conversion.
+        def needsProtoLookup:boolean false
+        if (m.valueType != 6) { needsProtoLookup = true }
+        if (m.valueType == 6) {
+            if (null? m.functionNode) { needsProtoLookup = true }
+        }
+        if needsProtoLookup {
+            def pcn:string (this.ctorNameForKind((this.receiverKind(obj))))
+            if ((strlen pcn) > 0) {
+                if (obj.valueType != 5) {
+                    def kp:EvalValue (this.builtinPrototype(pcn))
+                    if (has kp.objectMap name) {
+                        def kpm:EvalValue (unwrap (get kp.objectMap name))
+                        if (kpm.valueType == 6) {
+                            if kpm.functionNode {
+                                m = kpm
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (m.valueType == 6) {
             if m.functionNode {
                 def noArgs:[EvalValue]
@@ -10685,6 +10755,23 @@ class ComponentEngine {
         def m:double (t - (q * two32))
         if (m < 0.0) { m = (m + two32) }
         return m
+    }
+
+    ; ToUint32, as an int. Values at or above 2^31 saturate, since Ranger's int
+    ; is signed 32-bit -- a limit that large is beyond any real string anyway.
+    fn toUint32Of:int (v:EvalValue) {
+        def d:double (this.toNumberOf(v))
+        if (d != d) { return 0 }
+        if (false == (this.isFiniteNum(d))) { return 0 }
+        def t:double (this.floorNum(d))
+        if (d < 0.0) {
+            t = (0.0 - (this.floorNum((0.0 - d))))
+        }
+        def m:double (this.wrapUint32(t))
+        if (m > 2147483647.0) {
+            return 2147483647
+        }
+        return (to_int m)
     }
 
     fn toUint16Of:int (v:EvalValue) {
@@ -11138,8 +11225,11 @@ class ComponentEngine {
             return v.stringValue
         }
         def p:EvalValue v
+        ; Functions convert too -- a guest override of Function.prototype.toString
+        ; has to be honoured, and the engine's debug form is not the answer.
         if (v.valueType == 5) { p = (this.toPrimitive(v true)) }
         if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
+        if (v.valueType == 6) { p = (this.toPrimitive(v true)) }
         if (p.isString()) {
             return p.stringValue
         }
@@ -11157,6 +11247,7 @@ class ComponentEngine {
         def p:EvalValue v
         if (v.valueType == 5) { p = (this.toPrimitive(v true)) }
         if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
+        if (v.valueType == 6) { p = (this.toPrimitive(v true)) }
         if (p.isString()) {
             return p.stringValue
         }
