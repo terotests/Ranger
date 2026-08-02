@@ -2028,6 +2028,13 @@ class TSParserSimple  {
     if ( t == "Null" ) {
       return true;
     }
+    return false;
+  };
+  isMemberKeyToken () {
+    if ( this.isNameToken() ) {
+      return true;
+    }
+    const t = this.peekType();
     if ( t == "Number" ) {
       return true;
     }
@@ -2198,6 +2205,11 @@ class TSParserSimple  {
       }
     }
     if ( tokVal == "function" ) {
+      if ( this.inSingleStatementBody ) {
+        if ( this.strictMode ) {
+          this.syntaxError("Parse error: a function declaration cannot be a statement body in strict mode");
+        }
+      }
       return this.parseFuncDecl(false);
     }
     if ( tokVal == "async" ) {
@@ -3176,7 +3188,12 @@ class TSParserSimple  {
       member.computed = true;
       member.init = keyExpr;
     } else {
-      const nameTok = this.parseMemberName();
+      let nameTok = this.peek();
+      if ( this.isMemberKeyToken() ) {
+        this.advance();
+      } else {
+        nameTok = this.expect("Identifier");
+      }
       member.name = nameTok.value;
     }
     if ( accessibility != "" ) {
@@ -3682,6 +3699,10 @@ class TSParserSimple  {
           this.advance();
           const moreInit = this.parseExpr();
           more.init = moreInit;
+        } else {
+          if ( kind == "const" ) {
+            this.syntaxError("Parse error: a 'const' declaration must have an initializer");
+          }
         }
         initDecl.children.push(more);
       };
@@ -5234,7 +5255,7 @@ class TSParserSimple  {
     const t = target.nodeType;
     if ( t == "Identifier" ) {
       if ( this.strictMode ) {
-        if ( (target.name == "eval") || (target.name == "arguments") ) {
+        if ( ((target.name == "eval") || (target.name == "arguments")) || (target.name == "yield") ) {
           this.syntaxError(("Parse error: cannot assign to '" + target.name) + "' in strict mode");
         }
       }
@@ -5279,6 +5300,21 @@ class TSParserSimple  {
       return;
     }
     this.syntaxError(("Parse error: invalid assignment target (" + t) + ")");
+  };
+  checkUpdateTarget (target) {
+    const t = target.nodeType;
+    if ( t == "Identifier" ) {
+      if ( this.strictMode ) {
+        if ( (target.name == "eval") || (target.name == "arguments") ) {
+          this.syntaxError(("Parse error: cannot update '" + target.name) + "' in strict mode");
+        }
+      }
+      return;
+    }
+    if ( t == "MemberExpression" ) {
+      return;
+    }
+    this.syntaxError(("Parse error: '" + t) + "' is not a valid update target");
   };
   parseAssign () {
     const left = this.parseNullishCoalescing();
@@ -5589,7 +5625,7 @@ class TSParserSimple  {
       const opTok = this.peek();
       this.advance();
       const arg = this.parseUnary();
-      this.checkAssignmentTarget(arg);
+      this.checkUpdateTarget(arg);
       const update = new TSNode();
       update.nodeType = "UpdateExpression";
       update.value = opTok.value;
@@ -5932,6 +5968,7 @@ class TSParserSimple  {
       }
       if ( (tokVal == "++") || (tokVal == "--") ) {
         const opTok = this.peek();
+        this.checkUpdateTarget(expr);
         this.advance();
         const update = new TSNode();
         update.nodeType = "UpdateExpression";

@@ -658,14 +658,19 @@ class TSParserSimple {
     if (t == "Null") {
       return true
     }
-    ; Class and object members may be named by a literal: `{ 3() {} }`,
-    ; `class a { "b"() {} }`.
-    if (t == "Number") {
+    return false
+  }
+
+  ; A class or object member may additionally be named by a literal --
+  ; `{ 3() {} }`, `class a { "b"() {} }` -- which a member *access* may not:
+  ; `new X()."s"` is a syntax error.
+  fn isMemberKeyToken:boolean () {
+    if (this.isNameToken()) {
       return true
     }
-    if (t == "String") {
-      return true
-    }
+    def t (this.peekType())
+    if (t == "Number") { return true }
+    if (t == "String") { return true }
     return false
   }
 
@@ -873,6 +878,13 @@ class TSParserSimple {
     }
 
     if (tokVal == "function") {
+      ; Annex B allows a function declaration as an if/else body in sloppy code
+      ; only; strict code and every other single-statement position forbid it.
+      if (this.inSingleStatementBody) {
+        if (this.strictMode) {
+          this.syntaxError("Parse error: a function declaration cannot be a statement body in strict mode")
+        }
+      }
       return (this.parseFuncDecl(false))
     }
     
@@ -2129,8 +2141,13 @@ class TSParserSimple {
       member.init = keyExpr
     } {
       ; Member name — reserved words are legal here (methods named `set`, `get`,
-      ; `delete`, fields named `default`, etc.), so accept any name token.
-      def nameTok (this.parseMemberName())
+      ; `delete`, fields named `default`, etc.), and so are literals.
+      def nameTok (this.peek())
+      if (this.isMemberKeyToken()) {
+        this.advance()
+      } {
+        nameTok = (this.expect("Identifier"))
+      }
       member.name = nameTok.value
     }
 
@@ -2757,6 +2774,10 @@ class TSParserSimple {
           this.advance()
           def moreInit (this.parseExpr())
           more.init = moreInit
+        } {
+          if (kind == "const") {
+            this.syntaxError("Parse error: a 'const' declaration must have an initializer")
+          }
         }
         push initDecl.children more
       }
@@ -4794,7 +4815,7 @@ class TSParserSimple {
     def t:string target.nodeType
     if (t == "Identifier") {
       if (this.strictMode) {
-        if ((target.name == "eval") || (target.name == "arguments")) {
+        if ((target.name == "eval") || (target.name == "arguments") || (target.name == "yield")) {
           this.syntaxError("Parse error: cannot assign to '" + target.name + "' in strict mode")
         }
       }
@@ -4833,6 +4854,22 @@ class TSParserSimple {
       return
     }
     this.syntaxError("Parse error: invalid assignment target (" + t + ")")
+  }
+
+  ; ++ and -- need a *reference*: `1--` and `0++` are errors, and a pattern is
+  ; not a valid target either.
+  fn checkUpdateTarget:void (target:TSNode) {
+    def t:string target.nodeType
+    if (t == "Identifier") {
+      if (this.strictMode) {
+        if ((target.name == "eval") || (target.name == "arguments")) {
+          this.syntaxError("Parse error: cannot update '" + target.name + "' in strict mode")
+        }
+      }
+      return
+    }
+    if (t == "MemberExpression") { return }
+    this.syntaxError("Parse error: '" + t + "' is not a valid update target")
   }
 
   fn parseAssign:TSNode () {
@@ -5251,7 +5288,7 @@ class TSParserSimple {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
-      this.checkAssignmentTarget(arg)
+      this.checkUpdateTarget(arg)
 
       def update (new TSNode())
       update.nodeType = "UpdateExpression"
@@ -5681,6 +5718,7 @@ class TSParserSimple {
       ; Postfix ++ and --
       if ((tokVal == "++") || (tokVal == "--")) {
         def opTok (this.peek())
+        this.checkUpdateTarget(expr)
         this.advance()
         def update (new TSNode())
         update.nodeType = "UpdateExpression"
