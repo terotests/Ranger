@@ -103,6 +103,11 @@ class TSParserSimple {
   ; Set while the parameter currently being read is a rest element, so its
   ; default (which the grammar forbids) can be reported.
   def restParamPending:boolean false
+  ; True while a *destructuring assignment* pattern is being read. There a
+  ; target may be any LeftHandSideExpression -- `[a.b] = c`, `[(a)] = 1`,
+  ; `({x: obj[k]} = v)` -- whereas a declaration or parameter may only bind a
+  ; name or a nested pattern.
+  def patternAllowsMemberTarget:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -2487,6 +2492,10 @@ class TSParserSimple {
         this.advance()
         def initVal (this.parseExpr())
         declarator.init = initVal
+      } {
+        if (kind == "const") {
+          this.syntaxError("Parse error: a 'const' declaration must have an initializer")
+        }
       }
       
       push initDecl.children declarator
@@ -2749,6 +2758,8 @@ class TSParserSimple {
       if (node.kind == "const") { declKind = "l" }
       def savedVarDeclaring:string this.declaringKind
       this.declaringKind = declKind
+      def savedVarMemberTarget:boolean this.patternAllowsMemberTarget
+      this.patternAllowsMemberTarget = false
 
       ; Destructuring object pattern { a, b } = obj
       if (nextVal == "{") {
@@ -2777,6 +2788,7 @@ class TSParserSimple {
       }
 
       this.declaringKind = savedVarDeclaring
+      this.patternAllowsMemberTarget = savedVarMemberTarget
 
       ; Type annotation
       if (this.matchValue(":")) {
@@ -2833,6 +2845,10 @@ class TSParserSimple {
     }
     if (this.matchValue("[")) {
       return (this.parseArrayPattern())
+    }
+    ; In an assignment pattern anything assignable is a legal target.
+    if (this.patternAllowsMemberTarget) {
+      return (this.parsePostfix())
     }
     def tok (this.peek())
     def tt (this.peekType())
@@ -5470,12 +5486,16 @@ class TSParserSimple {
       def arrSavedTok:Token (unwrap this.currentToken)
       def arrSavedErrors:int this.errorCount
       this.speculating = (this.speculating + 1)
+      def savedArrMemberTarget:boolean this.patternAllowsMemberTarget
+      this.patternAllowsMemberTarget = true
       def arrPat (this.parseArrayPattern())
+      this.patternAllowsMemberTarget = savedArrMemberTarget
       this.speculating = (this.speculating - 1)
-      if (this.errorCount == arrSavedErrors) {
-        if (this.isAssignmentPatternFollow()) {
-          return arrPat
-        }
+      ; If an `=` / `in` / `of` follows, this really was a pattern -- keep it
+      ; *and* whatever errors it found. Rolling those back would let an invalid
+      ; pattern such as `[...x, y] = 0` re-parse as a perfectly good literal.
+      if (this.isAssignmentPatternFollow()) {
+        return arrPat
       }
       this.pos = arrSavedPos
       this.currentToken = arrSavedTok
@@ -5489,12 +5509,16 @@ class TSParserSimple {
       def objSavedTok:Token (unwrap this.currentToken)
       def objSavedErrors:int this.errorCount
       this.speculating = (this.speculating + 1)
+      def savedObjMemberTarget:boolean this.patternAllowsMemberTarget
+      this.patternAllowsMemberTarget = true
       def objPat (this.parseObjectPattern())
+      this.patternAllowsMemberTarget = savedObjMemberTarget
       this.speculating = (this.speculating - 1)
-      if (this.errorCount == objSavedErrors) {
-        if (this.isAssignmentPatternFollow()) {
-          return objPat
-        }
+      ; If an `=` / `in` / `of` follows, this really was a pattern -- keep it
+      ; *and* whatever errors it found. Rolling those back would let an invalid
+      ; pattern such as `[...x, y] = 0` re-parse as a perfectly good literal.
+      if (this.isAssignmentPatternFollow()) {
+        return objPat
       }
       this.pos = objSavedPos
       this.currentToken = objSavedTok

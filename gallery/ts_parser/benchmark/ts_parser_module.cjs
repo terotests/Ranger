@@ -1468,6 +1468,7 @@ class TSParserSimple  {
     this.sawRestParam = false;
     this.lastBlockEnabledStrict = false;
     this.restParamPending = false;
+    this.patternAllowsMemberTarget = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -3434,6 +3435,10 @@ class TSParserSimple  {
         this.advance();
         const initVal = this.parseExpr();
         declarator_2.init = initVal;
+      } else {
+        if ( kind == "const" ) {
+          this.syntaxError("Parse error: a 'const' declaration must have an initializer");
+        }
       }
       initDecl.children.push(declarator_2);
       while (this.matchValue(",")) {
@@ -3642,6 +3647,8 @@ class TSParserSimple  {
       }
       const savedVarDeclaring = this.declaringKind;
       this.declaringKind = declKind;
+      const savedVarMemberTarget = this.patternAllowsMemberTarget;
+      this.patternAllowsMemberTarget = false;
       if ( nextVal == "{" ) {
         const pattern = this.parseObjectPattern();
         declarator.left = pattern;
@@ -3665,6 +3672,7 @@ class TSParserSimple  {
         }
       }
       this.declaringKind = savedVarDeclaring;
+      this.patternAllowsMemberTarget = savedVarMemberTarget;
       if ( this.matchValue(":") ) {
         const typeAnnot = this.parseTypeAnnotation();
         declarator.typeAnnotation = typeAnnot;
@@ -3709,6 +3717,9 @@ class TSParserSimple  {
     }
     if ( this.matchValue("[") ) {
       return this.parseArrayPattern();
+    }
+    if ( this.patternAllowsMemberTarget ) {
+      return this.parsePostfix();
     }
     const tok = this.peek();
     const tt = this.peekType();
@@ -5737,12 +5748,13 @@ class TSParserSimple  {
       const arrSavedTok = this.currentToken;
       const arrSavedErrors = this.errorCount;
       this.speculating = this.speculating + 1;
+      const savedArrMemberTarget = this.patternAllowsMemberTarget;
+      this.patternAllowsMemberTarget = true;
       const arrPat = this.parseArrayPattern();
+      this.patternAllowsMemberTarget = savedArrMemberTarget;
       this.speculating = this.speculating - 1;
-      if ( this.errorCount == arrSavedErrors ) {
-        if ( this.isAssignmentPatternFollow() ) {
-          return arrPat;
-        }
+      if ( this.isAssignmentPatternFollow() ) {
+        return arrPat;
       }
       this.pos = arrSavedPos;
       this.currentToken = arrSavedTok;
@@ -5754,12 +5766,13 @@ class TSParserSimple  {
       const objSavedTok = this.currentToken;
       const objSavedErrors = this.errorCount;
       this.speculating = this.speculating + 1;
+      const savedObjMemberTarget = this.patternAllowsMemberTarget;
+      this.patternAllowsMemberTarget = true;
       const objPat = this.parseObjectPattern();
+      this.patternAllowsMemberTarget = savedObjMemberTarget;
       this.speculating = this.speculating - 1;
-      if ( this.errorCount == objSavedErrors ) {
-        if ( this.isAssignmentPatternFollow() ) {
-          return objPat;
-        }
+      if ( this.isAssignmentPatternFollow() ) {
+        return objPat;
       }
       this.pos = objSavedPos;
       this.currentToken = objSavedTok;
