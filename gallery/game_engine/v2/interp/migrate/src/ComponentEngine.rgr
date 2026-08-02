@@ -4025,6 +4025,18 @@ class ComponentEngine {
                 obj = (this.evaluateExpr(objNode))
             }
         }
+        ; Writing a property of null or undefined is a TypeError, in either
+        ; mode. It was silently dropped, so a test that expected the throw saw
+        ; nothing happen at all.
+        if strictReferences {
+            if ((obj.isNull()) || (obj.isUndefined())) {
+                def baseDesc:string "undefined"
+                if (obj.isNull()) { baseDesc = "null" }
+                def wname:string leftNode.name
+                if ((strlen wname) == 0) { wname = "property" }
+                return (this.throwSpecError("TypeError" ("Cannot set properties of " + (baseDesc + (" (setting '" + (wname + "')"))))))
+            }
+        }
         def result:EvalValue rightValue
         if leftNode.computed {
             if leftNode.right {
@@ -4598,10 +4610,15 @@ class ComponentEngine {
             effArgs = merged
         }
         this.bindParams(fnNode effArgs)
-        ; D-STRICT: a body with a "use strict" prologue runs strict, and so does
-        ; everything it calls.
+        ; D-STRICT: the function's OWN strictness governs the code it runs. It
+        ; was taken from the body directive plus the ambient flag, so a strict
+        ; callback handed to a sloppy helper -- which is exactly what
+        ; assert.throws does -- ran sloppy.
         def savedStrict:boolean strictMode
         strictMode = (this.strictForBody(fnNode))
+        if fnValue.strictFn {
+            strictMode = true
+        }
         callDepth = (callDepth + 1)
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
@@ -6494,6 +6511,29 @@ class ComponentEngine {
                     ; name could still have been served by the unguarded block,
                     ; so throwing would have been wrong.
                     if (obj.valueType == 4) { rcvHolds = true }
+                    ; An ACCESSOR whose value is not callable still runs its
+                    ; getter first -- `o.bar(foo())` where bar is a getter
+                    ; returning 42 must call the getter, then throw.
+                    if (obj.valueType == 5) {
+                        if (has obj.getterMap methodName) {
+                            def accG:EvalValue (obj.findGetter(methodName 0))
+                            if (accG.valueType == 6) {
+                                def accArgs:[EvalValue]
+                                def accOut:EvalValue (this.callFnValueWithValues((accG.withThis(obj)) accArgs))
+                                if scriptThrew {
+                                    return (EvalValue.undefined())
+                                }
+                                def accCallArgs:[EvalValue] (this.collectCallArgs(node))
+                                if scriptThrew {
+                                    return (EvalValue.undefined())
+                                }
+                                if (accOut.valueType == 6) {
+                                    return (this.callFnValueWithValues(accOut accCallArgs))
+                                }
+                                return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+                            }
+                        }
+                    }
                     ; A primitive receiver too: `(5).nope()` is a TypeError, not
                     ; a silent undefined. Only null and undefined receivers are
                     ; left out, and those fail earlier on the property read.
@@ -6940,6 +6980,10 @@ class ComponentEngine {
                     ; TypeError too. Built-in constructor NAMES are function
                     ; values now, so they pass this on their own.
                     if (irKind == "Identifier") {
+                        ; A function whose `prototype` is not an object is a
+                        ; TypeError as well, which the chain walk below reports
+                        ; -- but only if it is reached, so a binding holding a
+                        ; function is left alone here.
                         ; Only reject what is DEFINITELY not callable: a
                         ; namespace object like Math or JSON, or a binding that
                         ; holds a non-function. Anything unresolved here is left
@@ -6966,6 +7010,12 @@ class ComponentEngine {
                     if (irKind == "ObjectExpression") {
                         return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
                     }
+                    if (irKind == "ThisExpression") {
+                        def irThis:EvalValue (this.evaluateExpr(instRight))
+                        if (irThis.valueType != 6) {
+                            return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
+                        }
+                    }
                 }
                 if (this.isBuiltinCtorName(cname)) {
                     def bRes:int (this.builtinInstanceOf(lv cname))
@@ -6973,7 +7023,13 @@ class ComponentEngine {
                         return (EvalValue.boolean((bRes == 1)))
                     }
                 }
-                if (lv.isObject()) {
+                ; A FUNCTION left-operand is object-like too, and its
+                ; prototype-chain answer (including the TypeError for a
+                ; non-object F.prototype) has to be reached the same way.
+                def lvObjectLike:boolean (lv.isObject())
+                if (lv.valueType == 6) { lvObjectLike = true }
+                if (lv.valueType == 4) { lvObjectLike = true }
+                if lvObjectLike {
                     def tag:EvalValue (lv.getMember("__class__"))
                     if (tag.isString()) {
                         return (EvalValue.boolean(((tag.stringValue) == cname)))
