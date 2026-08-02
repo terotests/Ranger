@@ -5280,6 +5280,10 @@ class ComponentEngine {
                             if ((strlen dErr) > 0) {
                                 return (this.throwSpecError("TypeError" dErr))
                             }
+                            def rErr:string (this.redefineError(src pk pd))
+                            if ((strlen rErr) > 0) {
+                                return (this.throwSpecError("TypeError" rErr))
+                            }
                             def gv:EvalValue (pd.getMember("get"))
                             def sv:EvalValue (pd.getMember("set"))
                             if ((gv.valueType == 6) || (sv.valueType == 6)) {
@@ -7834,6 +7838,54 @@ class ComponentEngine {
                         return "setter must be a function"
                     }
                 }
+            }
+        }
+        return ""
+    }
+
+    ; D-REDEFINE: whether a defineProperty call is legal against the property
+    ; that is already there. A NON-CONFIGURABLE property is close to frozen: its
+    ; configurable and enumerable flags cannot change, and if it is also
+    ; non-writable neither its writability nor its value may change. Adding a
+    ; new property to a non-extensible object is likewise rejected. Accepting
+    ; any of these silently let a test's setup succeed where the spec requires
+    ; it to fail. Returns "" when the redefinition is allowed.
+    fn redefineError:string (obj:EvalValue key:string desc:EvalValue) {
+        if (false == (has obj.objectMap key)) {
+            if (false == obj.extensibleFlag) {
+                return "cannot add property to a non-extensible object"
+            }
+            return ""
+        }
+        if (obj.isConfigurable(key)) {
+            return ""
+        }
+        ; Non-configurable from here on.
+        if (has desc.objectMap "configurable") {
+            if ((desc.getMember("configurable")).toBool()) {
+                return "cannot redefine a non-configurable property as configurable"
+            }
+        }
+        if (has desc.objectMap "enumerable") {
+            def wantE:boolean ((desc.getMember("enumerable")).toBool())
+            if (wantE != (obj.isEnumerable(key))) {
+                return "cannot change enumerable of a non-configurable property"
+            }
+        }
+        if (obj.isWritable(key)) {
+            return ""
+        }
+        ; Non-configurable AND non-writable: value and writability are frozen.
+        if (has desc.objectMap "writable") {
+            if ((desc.getMember("writable")).toBool()) {
+                return "cannot make a non-configurable, non-writable property writable"
+            }
+        }
+        if (has desc.objectMap "value") {
+            def cur:EvalValue (obj.getMember(key))
+            def want:EvalValue (desc.getMember("value"))
+            if (false == (cur.equals(want))) {
+                return "cannot change the value of a non-configurable, non-writable property"
             }
         }
         return ""

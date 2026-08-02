@@ -305,6 +305,18 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["cb-map-null", "try { [1].map(null); } catch (e) { return e.name; } return 'no-throw';", "validation"],
   ["cb-reduce-nonfn", "try { [1].reduce('x'); } catch (e) { return e.name; } return 'no-throw';", "validation"],
   ["cb-foreach-ok", "var n = 0; [1, 2].forEach(function (x) { n = n + x; }); return n;", "validation"],
+  // D-REDEFINE: defineProperty validated against the property already there.
+  // A non-configurable property is close to frozen; accepting a redefinition
+  // let a test's SETUP succeed where the spec requires it to fail.
+  ["redef-nonconf-to-conf", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { configurable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-nonconf-enum-flip", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { enumerable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-nonwritable-to-writable", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { writable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-nonwritable-value", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { value: 2 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-nonextensible-add", "var o = {}; Object.preventExtensions(o); try { Object.defineProperty(o, 'q', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-same-value-ok", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-configurable-ok", "var o = {}; Object.defineProperty(o, 'p', { value: 1, configurable: true }); try { Object.defineProperty(o, 'p', { value: 2 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-fresh-define-ok", "var o = {}; try { Object.defineProperty(o, 'p', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+
   ["desc-value-and-get", "try { Object.defineProperty({}, 'p', { value: 1, get: function () {} }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
   ["desc-writable-and-set", "try { Object.defineProperty({}, 'p', { writable: true, set: function () {} }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
   ["desc-get-not-function", "try { Object.defineProperty({}, 'p', { get: 5 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
