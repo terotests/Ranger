@@ -86,6 +86,35 @@ The analyzer emits a reference when a local is assigned from a member field
 
 No source changes are needed; the pass runs automatically.
 
+## Ownership inference (`-strict-ownership`, all targets)
+
+A second pass reads where each parameter goes and gives it an OwnershipKind:
+`borrowed` (read only, does not escape), `moved` (stored into another object's
+graph, `x.field = p` or `push self.items p`), `owned`, `shared` or `unknown`.
+
+```bash
+node bin/output.js program.rgr -l=cpp -strict-ownership
+```
+
+```text
+ownership[infer] fn attach:
+  param 'parent' -> borrowed
+  param 'child' -> moved (parent.left)
+```
+
+**Phase A is diagnostics only.** `ng_StaticAnalysis.rgr` says so in the source:
+"Phase A only records + reports; it does not change code generation." No writer
+reads the result yet, so the inference costs nothing and changes nothing in the
+output.
+
+The gap this leaves is measurable. `gallery/pdf_writer/src/tools/jpeg_scaler.rgr`
+gives `borrowed` to 255 of 256 parameters across 110 functions, while its C++
+output passes 64 object parameters as `std::shared_ptr<T>` by value and none by
+reference. Value types are already handled: 102 parameters of that file are
+`const std::string&` or `const std::vector<T>&`. See
+[PLAN_CODEGEN_OWNERSHIP.md](PLAN_CODEGEN_OWNERSHIP.md) for the measurements and
+for what Phase B would change.
+
 ## HTTP servers (Go target)
 
 Classes annotated with `@(HttpServer)` can use HTTP operators and route

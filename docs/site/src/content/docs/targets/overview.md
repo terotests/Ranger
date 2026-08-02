@@ -48,6 +48,13 @@ The compiler writes the main routine in the form of the target:
 The reference shows the body of that function for each operator, and the
 complete file is behind the link under the code.
 
+## Memory
+
+C++, Rust and Swift do not collect memory. The
+[memory and ownership page](/Ranger/docs/targets/memory/) states what the
+compiler analyses for them, what the analysis changes in the output today, and
+what the four memory annotations do for each target.
+
 ## Differences that a program must know
 
 - **Integer division.** `/` on two integers gives a double. Use `to_int` when

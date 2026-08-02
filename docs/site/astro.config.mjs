@@ -72,7 +72,10 @@ export default defineConfig({
         },
         {
           label: "Targets",
-          items: [{ label: "Target languages", slug: "targets/overview" }],
+          items: [
+            { label: "Target languages", slug: "targets/overview" },
+            { label: "Memory and ownership", slug: "targets/memory" },
+          ],
         },
         {
           label: "Operator reference",
