@@ -326,6 +326,9 @@ class TSLexer  {
                             }
                             if ( (esc == "\n") || (esc == "\r") ) {
                             } else {
+                              if ( (esc == "8") || (esc == "9") ) {
+                                return this.makeToken("Invalid", value, startPos, startLine, startCol);
+                              }
                               value = value + esc;
                             }
                           }
@@ -1451,6 +1454,7 @@ class TSParserSimple  {
     this.inGenerator = false;
     this.functionDepth = 0;
     this.sawRestParam = false;
+    this.lastBlockEnabledStrict = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -1649,6 +1653,31 @@ class TSParserSimple  {
     } else {
       this.declareBinding("q", param.name);
     }
+  };
+  recheckStrictSignature (name, params) {
+    if ( (name.length) > 0 ) {
+      if ( this.isStrictReservedWord(name) ) {
+        this.syntaxError(("Parse error: '" + name) + "' cannot name a function whose body is strict");
+      }
+    }
+    let i = 0;
+    while (i < (params.length)) {
+      const p = params[i];
+      if ( (p.name.length) > 0 ) {
+        if ( this.isStrictReservedWord(p.name) ) {
+          this.syntaxError(("Parse error: '" + p.name) + "' cannot be a parameter of a strict function");
+        }
+        let j = 0;
+        while (j < i) {
+          const q = params[j];
+          if ( q.name == p.name ) {
+            this.syntaxError(("Parse error: duplicate parameter '" + p.name) + "' in a strict function");
+          }
+          j = j + 1;
+        };
+      }
+      i = i + 1;
+    };
   };
   hasUseStrictDirective () {
     let i = this.pos;
@@ -2352,7 +2381,8 @@ class TSParserSimple  {
     if ( v == "*" ) {
       this.advance();
       this.expectValue("as");
-      const namespaceName = this.expect("Identifier");
+      const namespaceName = this.expectBindingName();
+      this.declareBinding("l", namespaceName.value);
       const nsSpec = new TSNode();
       nsSpec.nodeType = "ImportNamespaceSpecifier";
       nsSpec.name = namespaceName.value;
@@ -2769,11 +2799,29 @@ class TSParserSimple  {
     this.expectValue("{");
     const savedClassStrict = this.strictMode;
     this.strictMode = true;
+    let sawConstructor = false;
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       if ( this.matchValue(";") ) {
         this.advance();
       } else {
         const member = this.parseClassMember();
+        if ( member.computed == false ) {
+          if ( member.name == "constructor" ) {
+            if ( member.kind != "static" ) {
+              if ( member.nodeType == "MethodDefinition" ) {
+                if ( sawConstructor ) {
+                  this.syntaxError("Parse error: a class may only have one constructor");
+                }
+                sawConstructor = true;
+              }
+            }
+          }
+          if ( member.kind == "static" ) {
+            if ( member.name == "prototype" ) {
+              this.syntaxError("Parse error: a static class member may not be named 'prototype'");
+            }
+          }
+        }
         body.children.push(member);
         if ( this.matchValue(";") ) {
           this.advance();
@@ -2993,6 +3041,9 @@ class TSParserSimple  {
         this.suppressBlockScope = true;
         const bodyNode_1 = this.parseBlock();
         member.body = bodyNode_1;
+        if ( this.lastBlockEnabledStrict ) {
+          this.recheckStrictSignature(member.name, member.params);
+        }
       }
       this.popScope();
       this.allowSuperCall = savedMethodSuperCall;
@@ -3676,6 +3727,10 @@ class TSParserSimple  {
           break;
         }
       }
+      if ( this.matchValue(",") ) {
+        this.syntaxError("Parse error: an object pattern may not contain an elision");
+        this.advance();
+      }
       if ( this.matchValue("...") ) {
         this.advance();
         const restProp = new TSNode();
@@ -3831,6 +3886,9 @@ class TSParserSimple  {
     this.suppressBlockScope = true;
     const body = this.parseBlock();
     node.body = body;
+    if ( this.lastBlockEnabledStrict ) {
+      this.recheckStrictSignature(node.name, node.params);
+    }
     this.popScope();
     this.allowSuperCall = savedSuperCall;
     this.allowSuperProperty = savedSuperProp;
@@ -3967,8 +4025,12 @@ class TSParserSimple  {
       this.pushScope(false);
     }
     const savedStrict = this.strictMode;
+    this.lastBlockEnabledStrict = false;
     if ( ownScope == false ) {
       if ( this.hasUseStrictDirective() ) {
+        if ( savedStrict == false ) {
+          this.lastBlockEnabledStrict = true;
+        }
         this.strictMode = true;
       }
     }
@@ -5966,6 +6028,9 @@ class TSParserSimple  {
           if ( this.matchValue("{") ) {
             this.suppressBlockScope = true;
             fnNode.body = this.parseBlock();
+            if ( this.lastBlockEnabledStrict ) {
+              this.recheckStrictSignature(prop.name, fnNode.params);
+            }
           }
           this.popScope();
           this.allowSuperCall = savedObjSuperCall;
@@ -6110,6 +6175,9 @@ class TSParserSimple  {
       this.suppressBlockScope = true;
       const body = this.parseBlock();
       node.body = body;
+      if ( this.lastBlockEnabledStrict ) {
+        this.recheckStrictSignature("", node.params);
+      }
     } else {
       const body_1 = this.parseExpr();
       node.body = body_1;

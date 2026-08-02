@@ -96,6 +96,10 @@ class TSParserSimple {
   ; Whether a rest element has already been seen in the parameter list being
   ; parsed. A rest element must be last and may not carry a default.
   def sawRestParam:boolean false
+  ; Set when the block just parsed was a function body whose directive prologue
+  ; turned strict mode on. The function's name and parameters were already read
+  ; by then, so they have to be re-checked against the strict rules afterwards.
+  def lastBlockEnabledStrict:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -329,6 +333,36 @@ class TSParserSimple {
       this.declareBinding("p" param.name)
     } {
       this.declareBinding("q" param.name)
+    }
+  }
+
+  ; Re-checks a function's name and parameters after its body turned out to be
+  ; strict. `function eval() { "use strict"; }` and
+  ; `({ a(eval) { "use strict"; } })` are early errors even though the offending
+  ; names were read before the directive was seen.
+  fn recheckStrictSignature:void (name:string params:[TSNode]) {
+    if ((strlen name) > 0) {
+      if (this.isStrictReservedWord(name)) {
+        this.syntaxError("Parse error: '" + name + "' cannot name a function whose body is strict")
+      }
+    }
+    def i:int 0
+    while (i < (array_length params)) {
+      def p:TSNode (itemAt params i)
+      if ((strlen p.name) > 0) {
+        if (this.isStrictReservedWord(p.name)) {
+          this.syntaxError("Parse error: '" + p.name + "' cannot be a parameter of a strict function")
+        }
+        def j:int 0
+        while (j < i) {
+          def q:TSNode (itemAt params j)
+          if (q.name == p.name) {
+            this.syntaxError("Parse error: duplicate parameter '" + p.name + "' in a strict function")
+          }
+          j = (j + 1)
+        }
+      }
+      i = (i + 1)
     }
   }
 
@@ -1098,8 +1132,9 @@ class TSParserSimple {
     if (v == "*") {
       this.advance()
       this.expectValue("as")
-      def namespaceName (this.expect("Identifier"))
-      
+      def namespaceName (this.expectBindingName())
+      this.declareBinding("l" namespaceName.value)
+
       def nsSpec (new TSNode())
       nsSpec.nodeType = "ImportNamespaceSpecifier"
       nsSpec.name = namespaceName.value
@@ -1667,6 +1702,7 @@ class TSParserSimple {
     ; Everything inside a class body is strict code.
     def savedClassStrict:boolean this.strictMode
     this.strictMode = true
+    def sawConstructor:boolean false
 
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       ; A bare `;` is an empty class element and carries no member.
@@ -1674,6 +1710,27 @@ class TSParserSimple {
         this.advance()
       } {
         def member (this.parseClassMember())
+
+        ; A class has at most one constructor, however its name was written.
+        if (member.computed == false) {
+          if (member.name == "constructor") {
+            if (member.kind != "static") {
+              if (member.nodeType == "MethodDefinition") {
+                if sawConstructor {
+                  this.syntaxError("Parse error: a class may only have one constructor")
+                }
+                sawConstructor = true
+              }
+            }
+          }
+          ; A static member may not be named `prototype`.
+          if (member.kind == "static") {
+            if (member.name == "prototype") {
+              this.syntaxError("Parse error: a static class member may not be named 'prototype'")
+            }
+          }
+        }
+
         push body.children member
 
         ; Optional trailing semicolon
@@ -1946,6 +2003,9 @@ class TSParserSimple {
         this.suppressBlockScope = true
         def bodyNode (this.parseBlock())
         member.body = bodyNode
+        if (this.lastBlockEnabledStrict) {
+          this.recheckStrictSignature(member.name member.params)
+        }
       }
 
       this.popScope()
@@ -2811,6 +2871,12 @@ class TSParserSimple {
         }
       }
 
+      ; Unlike an array pattern, an object pattern has no elisions.
+      if (this.matchValue(",")) {
+        this.syntaxError("Parse error: an object pattern may not contain an elision")
+        this.advance()
+      }
+
       ; Rest pattern ...rest
       if (this.matchValue("...")) {
         this.advance()
@@ -3019,6 +3085,9 @@ class TSParserSimple {
     this.suppressBlockScope = true
     def body (this.parseBlock())
     node.body = body
+    if (this.lastBlockEnabledStrict) {
+      this.recheckStrictSignature(node.name node.params)
+    }
 
     this.popScope()
     this.allowSuperCall = savedSuperCall
@@ -3188,8 +3257,12 @@ class TSParserSimple {
     ; A "use strict" prologue is only a directive at the head of a function
     ; body, never in a plain nested block.
     def savedStrict:boolean this.strictMode
+    this.lastBlockEnabledStrict = false
     if (ownScope == false) {
       if (this.hasUseStrictDirective()) {
+        if (savedStrict == false) {
+          this.lastBlockEnabledStrict = true
+        }
         this.strictMode = true
       }
     }
@@ -5765,6 +5838,9 @@ class TSParserSimple {
           if (this.matchValue("{")) {
             this.suppressBlockScope = true
             fnNode.body = (this.parseBlock())
+            if (this.lastBlockEnabledStrict) {
+              this.recheckStrictSignature(prop.name fnNode.params)
+            }
           }
           this.popScope()
           this.allowSuperCall = savedObjSuperCall
@@ -5959,6 +6035,9 @@ class TSParserSimple {
       this.suppressBlockScope = true
       def body (this.parseBlock())
       node.body = body
+      if (this.lastBlockEnabledStrict) {
+        this.recheckStrictSignature("" node.params)
+      }
     } {
       def body (this.parseExpr())
       node.body = body
