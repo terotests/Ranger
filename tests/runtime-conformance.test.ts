@@ -217,6 +217,13 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["fnprop-nested-call", "var g = function () {}; g.a = {}; g.a.b = function () { return 3; }; return g.a.b();", "fnprops"],
   ["fnprop-delete", "var g = function () {}; g.x = 1; delete g.x; return g.x === undefined;", "fnprops"],
   ["fnprop-arrow-holder", "var f = function () {}; f.k = 2; return f.k;", "fnprops"],
+  ["proto-object", "var F = function () {}; return typeof F.prototype;", "prototypes"],
+  ["proto-persists", "var F = function () {}; F.prototype.m = function () { return 3; }; return typeof F.prototype.m;", "prototypes"],
+  ["proto-method-via-instance", "var F = function () {}; F.prototype.m = function () { return 3; }; var o = new F(); return o.m();", "prototypes"],
+  ["proto-prop-read", "var F = function () {}; F.prototype.k = 9; var o = new F(); return o.k;", "prototypes"],
+  ["proto-own-shadows", "var F = function () { this.k = 1; }; F.prototype.k = 9; var o = new F(); return o.k;", "prototypes"],
+  ["proto-this-binding", "var F = function () { this.v = 5; }; F.prototype.get = function () { return this.v; }; var o = new F(); return o.get();", "prototypes"],
+  ["proto-miss-undefined", "var F = function () {}; var o = new F(); return o.nope === undefined;", "prototypes"],
   ["fnprop-ctor-instanceof", "var F = function () { this.v = 1; }; var o = new F(); return o instanceof F;", "fnprops"],
   ["fnprop-ctor-guard", "var F = function (m) { if (!(this instanceof F)) { return new F(m); } this.m = m; }; return F('x').m;", "fnprops"],
 
@@ -250,9 +257,6 @@ const KNOWN_GAPS = new Set<string>([
   "regex-exec",
   "regex-flags",
   "regex-replace",
-  // `this` inside a method is not bound.
-  "method-this",
-  "arrow-this-lexical",
   // Accessors return the accessor function instead of invoking it.
   "obj-getter",
   "obj-setter",

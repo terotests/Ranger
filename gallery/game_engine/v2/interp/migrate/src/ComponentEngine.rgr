@@ -1019,10 +1019,40 @@ class ComponentEngine {
                 if stmt.left {
                     this.evaluateExprForSideEffect((unwrap stmt.left))
                 }
+            } {
+                ; D-TOPLEVEL: every other statement runs too. Only expression
+                ; statements used to execute here, so a top-level `if`, `for`,
+                ; `while`, `try` or `throw` was silently skipped — the program
+                ; simply did not run, which reads identically to a program that
+                ; ran and did nothing. Declarations are excluded because
+                ; registerComponents/processVariables already bound them.
+                if (false == (this.isTopLevelDeclaration(stmt))) {
+                    this.runStatementValue(stmt)
+                }
+            }
+            if scriptThrew {
+                ; An uncaught top-level throw stops the rest of the program, as
+                ; it does in any JS engine.
+                i = (array_length ast.children)
             }
             i = i + 1
         }
         context = saved
+    }
+
+    ; Statements already bound by registerComponents / processVariables before
+    ; top-level execution; re-running them would double-evaluate initialisers.
+    fn isTopLevelDeclaration:boolean (stmt:TSNode) {
+        if (stmt.nodeType == "FunctionDeclaration") { return true }
+        if (stmt.nodeType == "ClassDeclaration") { return true }
+        if (stmt.nodeType == "VariableDeclaration") { return true }
+        if (stmt.nodeType == "ImportDeclaration") { return true }
+        if (stmt.nodeType == "ExportNamedDeclaration") { return true }
+        if (stmt.nodeType == "ExportDefaultDeclaration") { return true }
+        if (stmt.nodeType == "ExportAllDeclaration") { return true }
+        if (stmt.nodeType == "TSInterfaceDeclaration") { return true }
+        if (stmt.nodeType == "TSTypeAliasDeclaration") { return true }
+        return false
     }
 
     ; Evaluate an ADDITIONAL guest source in the SAME realm/module scope (no
@@ -4524,7 +4554,21 @@ class ComponentEngine {
                     if (objMember.valueType == 6) {
                         if objMember.functionNode {
                             def objCargs:[EvalValue] (this.collectCallArgs(node))
-                            return (this.callFnValueWithValues(objMember objCargs))
+                            ; D-PROTO: `o.m()` calls m with `this` = o, whether m
+                            ; is an own property or inherited from a prototype.
+                            ; Arrows are excluded: they take `this` lexically from
+                            ; where they were written, so binding a receiver here
+                            ; would shadow the correct one.
+                            def mNode:TSNode (unwrap objMember.functionNode)
+                            def isArrow:boolean (mNode.nodeType == "ArrowFunctionExpression")
+                            if (objMember.boundThis) {
+                                return (this.callFnValueWithValues(objMember objCargs))
+                            }
+                            if isArrow {
+                                return (this.callFnValueWithValues(objMember objCargs))
+                            }
+                            def bound:EvalValue (objMember.withThis(obj))
+                            return (this.callFnValueWithValues(bound objCargs))
                         }
                     }
                 }
@@ -6533,6 +6577,9 @@ class ComponentEngine {
         def vals0:[EvalValue]
         def inst:EvalValue (EvalValue.object(keys0 vals0))
         inst.setMember("constructor" fnV)
+        ; D-PROTO: link the instance to the constructor's prototype object, so
+        ; methods put on `F.prototype` are reachable through the instance.
+        inst.protoRef = (fnV.getMember("prototype"))
         def fnNode:TSNode (unwrap fnV.functionNode)
         def ret:EvalValue (this.callUserFunctionNode(fnNode argNodes inst true))
         if (ret.valueType == 5) {

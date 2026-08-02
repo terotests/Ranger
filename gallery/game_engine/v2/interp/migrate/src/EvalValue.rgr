@@ -47,6 +47,12 @@ class EvalValue {
     ; bound-method), consumed at call time so the body evaluates rooted in its
     ; OWN module scope — the D-MODULES scope-isolation contract.
     def homeModule:string ""
+    ; D-PROTO: the prototype link. On a function value this is its `.prototype`
+    ; object (created on first read, so `F.prototype.m = ...` persists); on an
+    ; object it is the prototype it inherits from, set by `new F()`. A property
+    ; miss walks this chain, which is how a method defined on a prototype is
+    ; found through an instance.
+    def protoRef@(optional):EvalValue
     def functionNode@(optional):TSNode  ; For function AST nodes
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
@@ -178,6 +184,29 @@ class EvalValue {
         v.functionNode = fnNode
         v.functionName = fnNode.name
         v.boundThis = thisVal
+        return v
+    }
+
+    ; D-PROTO: the same function value with a receiver bound. Used when a method
+    ; is reached through an object (own property or prototype) so `this` inside
+    ; it is the receiver. Copies the closure/provenance fields, which a fresh
+    ; boundMethod() would lose — dropping them would re-root the body in the
+    ; wrong module scope.
+    fn withThis:EvalValue (recv:EvalValue) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.identityId = identityId
+        v.functionName = functionName
+        v.closureId = closureId
+        v.homeModule = homeModule
+        v.objectMap = objectMap
+        v.boundThis = recv
+        if functionNode {
+            v.functionNode = (unwrap functionNode)
+        }
+        if protoRef {
+            v.protoRef = (unwrap protoRef)
+        }
         return v
     }
 
@@ -349,11 +378,36 @@ class EvalValue {
         return false
     }
     
+    ; D-PROTO: one step of the prototype-chain walk. Depth-bounded so a cyclic
+    ; chain (which guest code can build: `a.__proto__ = b; b.__proto__ = a`)
+    ; terminates instead of hanging the host.
+    fn getMemberDepth:EvalValue (key:string depth:int) {
+        if (depth > 16) {
+            return (EvalValue.undefined())
+        }
+        if (has objectMap key) {
+            return (unwrap (get objectMap key))
+        }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            def nd:int (depth + 1)
+            return (pr.getMemberDepth(key nd))
+        }
+        return (EvalValue.undefined())
+    }
+
     ; Object member access
     fn getMember:EvalValue (key:string) {
         if (valueType == 5) {
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
+            }
+            ; D-PROTO: an own-property miss walks the prototype chain, so a
+            ; method defined as `F.prototype.m = ...` is reachable through an
+            ; instance made by `new F()`.
+            if protoRef {
+                def pr:EvalValue (unwrap protoRef)
+                return (pr.getMemberDepth(key 1))
             }
             ; D-IDENTITY: a missing object property reads as `undefined`, never
             ; `null`. Callers that use a missing member as "nullish" already test
@@ -370,8 +424,23 @@ class EvalValue {
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
             }
+            ; D-PROTO: `F.prototype` is created on first read and stored, so
+            ; `F.prototype.m = fn` persists and `new F()` can link to the SAME
+            ; object. Creating a fresh one per read would silently discard every
+            ; method assigned to it.
+            if (key == "prototype") {
+                def keys0:[string]
+                def vals0:[EvalValue]
+                def p:EvalValue (EvalValue.object(keys0 vals0))
+                set objectMap "prototype" p
+                return p
+            }
             if (key == "name") {
                 return (EvalValue.string(functionName))
+            }
+            if protoRef {
+                def fpr:EvalValue (unwrap protoRef)
+                return (fpr.getMemberDepth(key 1))
             }
             return (EvalValue.undefined())
         }
