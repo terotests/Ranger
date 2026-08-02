@@ -1495,6 +1495,7 @@ class TSParserSimple  {
     this.moduleMode = true;
     this.inParamList = false;
     this.parsingFunctionExpression = false;
+    this.pendingExportRefs = [];
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -2074,6 +2075,9 @@ class TSParserSimple  {
     const prog = new TSNode();
     prog.nodeType = "Program";
     this.pushScope(true);
+    if ( this.moduleMode ) {
+      this.strictMode = true;
+    }
     if ( this.hasUseStrictDirective() ) {
       this.strictMode = true;
     }
@@ -2083,8 +2087,31 @@ class TSParserSimple  {
       prog.children.push(stmt);
       this.guardNoProgress(beforePos);
     };
+    this.checkPendingExportRefs();
     this.popScope();
     return prog;
+  };
+  isDeclaredAnywhere (name) {
+    let i = 0;
+    const total = this.scopeNames.length;
+    while (i < total) {
+      const entry = this.scopeNames[i];
+      if ( (entry.substring(2, (entry.length) )) == name ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  checkPendingExportRefs () {
+    let i = 0;
+    while (i < (this.pendingExportRefs.length)) {
+      const name = this.pendingExportRefs[i];
+      if ( this.isDeclaredAnywhere(name) == false ) {
+        this.syntaxError(("Parse error: export of undeclared name '" + name) + "'");
+      }
+      i = i + 1;
+    };
   };
   parseStatement () {
     const tokVal = this.peekValue();
@@ -2250,6 +2277,19 @@ class TSParserSimple  {
     const labelTok = this.expect("Identifier");
     node.name = labelTok.value;
     this.expectValue(":");
+    const bodyStart = this.peekValue();
+    if ( ((bodyStart == "let") || (bodyStart == "const")) || (bodyStart == "class") ) {
+      this.syntaxError(("Parse error: '" + bodyStart) + "' declaration cannot be the body of a labelled statement");
+    }
+    if ( bodyStart == "function" ) {
+      if ( this.strictMode ) {
+        this.syntaxError("Parse error: a function declaration cannot be the body of a labelled statement in strict mode");
+      } else {
+        if ( this.peekNextValue() == "*" ) {
+          this.syntaxError("Parse error: a generator declaration cannot be the body of a labelled statement");
+        }
+      }
+    }
     if ( this.isInStringList(node.name, this.activeLabels) ) {
       this.syntaxError(("Parse error: label '" + node.name) + "' has already been declared");
     }
@@ -2579,6 +2619,7 @@ class TSParserSimple  {
           spec.value = localName.value;
         }
         this.registerExportName(spec.value);
+        this.pendingExportRefs.push(localName.value);
         specifiers.push(spec);
         if ( this.matchValue(",") ) {
           this.advance();
@@ -2593,6 +2634,8 @@ class TSParserSimple  {
         source.nodeType = "StringLiteral";
         source.value = sourceStr.value;
         node.left = source;
+        let emptyRefs = [];
+        this.pendingExportRefs = emptyRefs;
       }
       if ( this.matchValue(";") ) {
         this.advance();
@@ -3716,7 +3759,7 @@ class TSParserSimple  {
       if ( this.matchValue("(") ) {
         this.advance();
         const savedCatchDeclaring = this.declaringKind;
-        this.declaringKind = "q";
+        this.declaringKind = "p";
         const param = this.parseBindingTarget();
         this.declaringKind = savedCatchDeclaring;
         catchNode.name = param.name;

@@ -124,6 +124,10 @@ class TSParserSimple {
   ; enclosing one (so `function* yield(){}` at top level is fine but
   ; `function *g(){ function yield(){} }` is not).
   def parsingFunctionExpression:boolean false
+  ; Local names an `export { ... }` clause referred to without a `from`. They
+  ; must resolve to a declaration somewhere in the module, which can only be
+  ; checked once the whole module has been read.
+  def pendingExportRefs:[string]
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -714,6 +718,10 @@ class TSParserSimple {
 
     this.pushScope(true)
 
+    ; Module code is strict whether or not it says so.
+    if (this.moduleMode) {
+      this.strictMode = true
+    }
     if (this.hasUseStrictDirective()) {
       this.strictMode = true
     }
@@ -725,9 +733,37 @@ class TSParserSimple {
       this.guardNoProgress(beforePos)
     }
 
+    this.checkPendingExportRefs()
+
     this.popScope()
 
     return prog
+  }
+
+  fn isDeclaredAnywhere:boolean (name:string) {
+    def i:int 0
+    def total:int (array_length this.scopeNames)
+    while (i < total) {
+      def entry:string (itemAt this.scopeNames i)
+      if ((substring entry 2 (strlen entry)) == name) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  ; Every name an `export { ... }` clause exports must be declared somewhere in
+  ; the module. Deferred to the end because an export may precede its binding.
+  fn checkPendingExportRefs:void () {
+    def i:int 0
+    while (i < (array_length this.pendingExportRefs)) {
+      def name:string (itemAt this.pendingExportRefs i)
+      if ((this.isDeclaredAnywhere(name)) == false) {
+        this.syntaxError("Parse error: export of undeclared name '" + name + "'")
+      }
+      i = (i + 1)
+    }
   }
   
   ; === Parse Statement ===
@@ -933,6 +969,23 @@ class TSParserSimple {
     node.name = labelTok.value
     
     this.expectValue(":")
+
+    ; A labelled statement's body is a Statement, never a Declaration.
+    def bodyStart:string (this.peekValue())
+    if ((bodyStart == "let") || (bodyStart == "const") || (bodyStart == "class")) {
+      this.syntaxError("Parse error: '" + bodyStart + "' declaration cannot be the body of a labelled statement")
+    }
+    if (bodyStart == "function") {
+      ; Annex B allows a plain function declaration here in sloppy code, but a
+      ; generator never, and nothing at all in strict code.
+      if (this.strictMode) {
+        this.syntaxError("Parse error: a function declaration cannot be the body of a labelled statement in strict mode")
+      } {
+        if ((this.peekNextValue()) == "*") {
+          this.syntaxError("Parse error: a generator declaration cannot be the body of a labelled statement")
+        }
+      }
+    }
 
     if (this.isInStringList(node.name this.activeLabels)) {
       this.syntaxError("Parse error: label '" + node.name + "' has already been declared")
@@ -1350,6 +1403,7 @@ class TSParserSimple {
           spec.value = localName.value
         }
         this.registerExportName(spec.value)
+        push this.pendingExportRefs localName.value
         
         push specifiers spec
         
@@ -1368,6 +1422,9 @@ class TSParserSimple {
         source.nodeType = "StringLiteral"
         source.value = sourceStr.value
         node.left = source
+        ; A re-export names the OTHER module's bindings, not this one's.
+        def emptyRefs:[string]
+        this.pendingExportRefs = emptyRefs
       }
       
       if (this.matchValue(";")) {
@@ -2811,8 +2868,9 @@ class TSParserSimple {
         ; `catch ({message})` are both legal.
         def savedCatchDeclaring:string this.declaringKind
         ; Parameter-like, not lexical: `catch (a) { var a = 1; }` is legal,
-        ; `catch (a) { let a; }` is not.
-        this.declaringKind = "q"
+        ; `catch (a) { let a; }` is not. The reporting kind is used so a name
+        ; repeated inside the pattern -- `catch ({a, a})` -- is caught.
+        this.declaringKind = "p"
         def param (this.parseBindingTarget())
         this.declaringKind = savedCatchDeclaring
         catchNode.name = param.name
