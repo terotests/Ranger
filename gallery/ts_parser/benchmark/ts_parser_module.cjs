@@ -3240,10 +3240,20 @@ class TSParserSimple  {
       isAwait = true;
     }
     this.expectValue("(");
+    this.pushScope(false);
     const tokVal = this.peekValue();
     if ( ((tokVal == "let") || (tokVal == "const")) || (tokVal == "var") ) {
       const kind = tokVal;
       this.advance();
+      let headDeclKind = "v";
+      if ( kind == "let" ) {
+        headDeclKind = "l";
+      }
+      if ( kind == "const" ) {
+        headDeclKind = "l";
+      }
+      const savedHeadDeclaring = this.declaringKind;
+      this.declaringKind = headDeclKind;
       let hasPattern = false;
       let patternNode = new TSNode();
       let varNameStr = "";
@@ -3256,10 +3266,12 @@ class TSParserSimple  {
           hasPattern = true;
           patternNode = this.parseObjectPattern();
         } else {
-          const vt = this.expect("Identifier");
+          const vt = this.expectBindingName();
           varNameStr = vt.value;
+          this.declareBinding(headDeclKind, vt.value);
         }
       }
+      this.declaringKind = savedHeadDeclaring;
       const nextVal = this.peekValue();
       if ( nextVal == "of" ) {
         node.nodeType = "ForOfStatement";
@@ -3284,6 +3296,7 @@ class TSParserSimple  {
         const body = this.parseStatement();
         this.iterationDepth = this.iterationDepth - 1;
         node.body = body;
+        this.popScope();
         return node;
       }
       if ( nextVal == "in" ) {
@@ -3308,6 +3321,7 @@ class TSParserSimple  {
         const body_1 = this.parseStatement();
         this.iterationDepth = this.iterationDepth - 1;
         node.body = body_1;
+        this.popScope();
         return node;
       }
       node.nodeType = "ForStatement";
@@ -3335,7 +3349,10 @@ class TSParserSimple  {
         this.advance();
         const more = new TSNode();
         more.nodeType = "VariableDeclarator";
+        const savedMoreDeclaring = this.declaringKind;
+        this.declaringKind = headDeclKind;
         const moreTarget = this.parseBindingTarget();
+        this.declaringKind = savedMoreDeclaring;
         if ( moreTarget.nodeType == "Identifier" ) {
           more.name = moreTarget.name;
         } else {
@@ -3369,6 +3386,7 @@ class TSParserSimple  {
           const ofBody = this.parseStatement();
           this.iterationDepth = this.iterationDepth - 1;
           node.body = ofBody;
+          this.popScope();
           return node;
         }
         if ( initExpr.nodeType == "BinaryExpression" ) {
@@ -3382,6 +3400,7 @@ class TSParserSimple  {
               const inBody = this.parseStatement();
               this.iterationDepth = this.iterationDepth - 1;
               node.body = inBody;
+              this.popScope();
               return node;
             }
           }
@@ -3419,6 +3438,7 @@ class TSParserSimple  {
     const body_2 = this.parseStatement();
     this.iterationDepth = this.iterationDepth - 1;
     node.body = body_2;
+    this.popScope();
     return node;
   };
   parseSwitchStatement () {
@@ -3693,6 +3713,10 @@ class TSParserSimple  {
             prop.right = this.parseBindingElement();
           } else {
             prop.shorthand = true;
+            if ( (this.declaringKind.length) > 0 ) {
+              this.checkBindableName(prop.name);
+              this.declareBinding(this.declaringKind, prop.name);
+            }
             if ( this.matchValue("=") ) {
               this.advance();
               const defaultExpr = this.parseExpr();

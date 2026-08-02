@@ -2283,7 +2283,12 @@ class TSParserSimple {
     }
     
     this.expectValue("(")
-    
+
+    ; The head's declarations live in a scope of their own, between the body and
+    ; the enclosing function: `for (const a = 1;;) { var a; }` is a clash. Every
+    ; exit from this function pops it again.
+    this.pushScope(false)
+
     ; Check for for...of or for...in
     ; First parse potential variable declaration
     def tokVal (this.peekValue())
@@ -2291,6 +2296,11 @@ class TSParserSimple {
     if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
       def kind tokVal
       this.advance()
+      def headDeclKind:string "v"
+      if (kind == "let") { headDeclKind = "l" }
+      if (kind == "const") { headDeclKind = "l" }
+      def savedHeadDeclaring:string this.declaringKind
+      this.declaringKind = headDeclKind
       ; Binding target: a destructuring pattern ([a,b] / {x,y}) or an identifier.
       ; Enables for ([k,v] of map) / for ({id} of items).
       def hasPattern:boolean false
@@ -2305,10 +2315,12 @@ class TSParserSimple {
           hasPattern = true
           patternNode = (this.parseObjectPattern())
         } {
-          def vt (this.expect("Identifier"))
+          def vt (this.expectBindingName())
           varNameStr = vt.value
+          this.declareBinding(headDeclKind vt.value)
         }
       }
+      this.declaringKind = savedHeadDeclaring
 
       def nextVal (this.peekValue())
       if (nextVal == "of") {
@@ -2334,6 +2346,7 @@ class TSParserSimple {
         def body (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
         node.body = body
+        this.popScope()
         return node
       }
       
@@ -2359,6 +2372,7 @@ class TSParserSimple {
         def body (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
         node.body = body
+        this.popScope()
         return node
       }
       
@@ -2391,7 +2405,10 @@ class TSParserSimple {
         this.advance()
         def more (new TSNode())
         more.nodeType = "VariableDeclarator"
+        def savedMoreDeclaring:string this.declaringKind
+        this.declaringKind = headDeclKind
         def moreTarget (this.parseBindingTarget())
+        this.declaringKind = savedMoreDeclaring
         if (moreTarget.nodeType == "Identifier") {
           more.name = moreTarget.name
         } {
@@ -2430,6 +2447,7 @@ class TSParserSimple {
         def ofBody (this.parseStatement())
         this.iterationDepth = (this.iterationDepth - 1)
           node.body = ofBody
+          this.popScope()
           return node
         }
 
@@ -2447,6 +2465,7 @@ class TSParserSimple {
               def inBody (this.parseStatement())
               this.iterationDepth = (this.iterationDepth - 1)
               node.body = inBody
+              this.popScope()
               return node
             }
           }
@@ -2495,6 +2514,7 @@ class TSParserSimple {
     this.iterationDepth = (this.iterationDepth - 1)
     node.body = body
     
+    this.popScope()
     return node
   }
   
@@ -2836,6 +2856,12 @@ class TSParserSimple {
             prop.right = (this.parseBindingElement())
           } {
             prop.shorthand = true
+            ; A shorthand property binds its own key name; the aliased form
+            ; binds through parseBindingElement instead.
+            if ((strlen this.declaringKind) > 0) {
+              this.checkBindableName(prop.name)
+              this.declareBinding(this.declaringKind prop.name)
+            }
             ; Shorthand with default: { a = 1 }
             if (this.matchValue("=")) {
               this.advance()
