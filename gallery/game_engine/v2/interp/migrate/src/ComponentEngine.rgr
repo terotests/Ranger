@@ -242,6 +242,8 @@ class ComponentEngine {
     ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
     ; for the engine's lifetime so identity and stored properties survive reads.
     def builtinProtos:[string:EvalValue]
+    ; D-CLASSEXPR: counter for generated class-expression table keys.
+    def classExprSeq:int 0
     ; When true (the spec default) an unresolvable identifier read is a
     ; ReferenceError and calling a non-function is a TypeError, instead of
     ; silently evaluating to null. Kept as a switch because the failure mode it
@@ -2582,6 +2584,17 @@ class ComponentEngine {
                     context.define(s.name (this.captureClosure(s)))
                 }
             }
+            ; D-CLASSHOIST: a class declared inside a body was skipped the same
+            ; way a nested function was — `new A()` found nothing. Registering it
+            ; in the class table makes `new` resolve it. The table is keyed by
+            ; name rather than scoped, so an inner class is visible wider than
+            ; the spec allows; that is strictly better than not resolving at all,
+            ; and shadowing follows declaration order as it would anyway.
+            if (s.nodeType == "ClassDeclaration") {
+                if ((strlen s.name) > 0) {
+                    set classes s.name s
+                }
+            }
             i = (i + 1)
         }
     }
@@ -4360,6 +4373,13 @@ class ComponentEngine {
         }
         ; Arrow / function expression as a value: capture the defining scope so the
         ; resulting closure is lexical when stored, returned or passed around.
+        ; D-CLASSEXPR: `var C = class { ... }`. The class table is keyed by name,
+        ; so an anonymous class expression is registered under a generated one
+        ; and the value carries that key. `new C()` then resolves through the
+        ; value rather than through the source-level name, which it does not have.
+        if (nt == "ClassExpression") {
+            return (this.registerClassExpression(node))
+        }
         if (nt == "ArrowFunctionExpression") {
             return (this.captureClosure(node))
         }
@@ -5908,6 +5928,24 @@ class ComponentEngine {
                     }
                 }
 
+                ; D-CLASSSTATIC: `A.s()` where A names a class. A class is not a
+                ; scope binding in this engine, so the receiver evaluated to
+                ; nothing and the call went nowhere; resolve the static method
+                ; from the class table by the callee's own name instead.
+                if callee.left {
+                    def sObjNode:TSNode (unwrap callee.left)
+                    if (sObjNode.nodeType == "Identifier") {
+                        def sClsName:string sObjNode.name
+                        def sCls:TSNode (this.classNodeByName(sClsName))
+                        if (sCls.nodeType == "ClassDeclaration") {
+                            def sM:TSNode (this.findStaticMethodOnClassNode(sCls methodName))
+                            if (sM.nodeType == "MethodDefinition") {
+                                return (this.callUserFunctionNode(sM node.children (EvalValue.null()) false))
+                            }
+                        }
+                    }
+                }
+
                 ; D-OBJPROTO: the Object.prototype methods every object carries.
                 ; Surfaced by the TypeError above: hasOwnProperty was the single
                 ; largest failure bucket the moment missing methods stopped
@@ -5986,6 +6024,29 @@ class ComponentEngine {
                 return (EvalValue.null())
             }
             
+            ; D-CLASSEXTENDS: `super(...)` inside a derived constructor runs the
+            ; base constructor against the instance being built. Previously it
+            ; did nothing, so every field the base set was simply missing.
+            def isSuperCall:boolean (callee.nodeType == "Super")
+            if (callee.nodeType == "Identifier") {
+                if (callee.name == "super") {
+                    isSuperCall = true
+                }
+            }
+            if isSuperCall {
+                {
+                    def selfV:EvalValue (context.lookup("this"))
+                    if (selfV.valueType == 5) {
+                        def ownCls:string (this.instanceClassName(selfV))
+                        def ownNode:TSNode (this.classNodeByName(ownCls))
+                        if (ownNode.nodeType == "ClassDeclaration") {
+                            this.runSuperConstructor(ownNode selfV node.children 0)
+                        }
+                    }
+                    return (EvalValue.undefined())
+                }
+            }
+
             ; Handle regular function calls
             if (callee.nodeType == "Identifier") {
                 def fnName:string callee.name
@@ -6634,6 +6695,18 @@ class ComponentEngine {
         if (this.isEngineGlobalName(name)) {
             return (EvalValue.undefined())
         }
+        ; D-CLASSREF: a class is registered in the class table, not bound in a
+        ; scope, so its bare name resolved to nothing — and once unresolved names
+        ; began throwing, `A.staticMethod()` failed on the receiver before the
+        ; call was even attempted. A class name resolves to a value carrying the
+        ; class name so it is both referenceable and dispatchable.
+        def clsRef:TSNode (this.classNodeByName(name))
+        if (clsRef.nodeType == "ClassDeclaration") {
+            def cv:EvalValue (EvalValue.nativeFunction(name))
+            cv.setMember("__classname__" (EvalValue.string(name)))
+            cv.setMember("name" (EvalValue.string(name)))
+            return cv
+        }
         if strictReferences {
             return (this.throwSpecError("ReferenceError" (name + " is not defined")))
         }
@@ -6826,7 +6899,89 @@ class ComponentEngine {
         return (unwrap cn)
     }
 
-    fn findMethodOnClassNode:TSNode (cls:TSNode methodName:string) {
+    ; D-CLASSSTATIC: a `static m() {}` member, which the parser tags kind="static".
+    ; Kept separate from findMethodOnClassNode so a static and an instance method
+    ; of the same name never resolve to each other.
+    ; D-CLASSEXPR: give a class expression a table key and hand back a value that
+    ; refers to it. A named class expression keeps its own name so recursive
+    ; self-reference inside the body still resolves.
+    ; D-CLASSEXTENDS: the superclass name of a class declaration. The parser puts
+    ; `extends X` on `left` as a TSExpressionWithTypeArguments, so it is read from
+    ; there rather than from a dedicated field.
+    fn superClassNameOf:string (cls:TSNode) {
+        if (null? cls.left) { return "" }
+        def sup:TSNode (unwrap cls.left)
+        if ((strlen sup.name) > 0) {
+            return sup.name
+        }
+        if sup.left {
+            def inner:TSNode (unwrap sup.left)
+            return inner.name
+        }
+        return ""
+    }
+
+    ; Run the base-class constructor against an instance under construction.
+    ; Walks the chain so a three-deep hierarchy initialises every level.
+    fn runSuperConstructor:void (cls:TSNode inst:EvalValue argNodes:[TSNode] depth:int) {
+        if (depth > 16) {
+            return
+        }
+        def supName:string (this.superClassNameOf(cls))
+        if ((strlen supName) == 0) {
+            return
+        }
+        def supCls:TSNode (this.classNodeByName(supName))
+        if (supCls.nodeType != "ClassDeclaration") {
+            return
+        }
+        ; Base field initialisers first, then its constructor — the same order
+        ; `new` uses, so a field the base constructor overwrites ends up correct.
+        if supCls.body {
+            def sBody:TSNode (unwrap supCls.body)
+            def savedCtxS:EvalContext context
+            context = (context.createChild())
+            context.define("this" inst)
+            def bi:int 0
+            while (bi < (array_length sBody.children)) {
+                def bm:TSNode (itemAt sBody.children bi)
+                if (bm.nodeType == "PropertyDefinition") {
+                    if bm.init {
+                        def bv:EvalValue (this.evaluateExpr((unwrap bm.init)))
+                        inst.setMember(bm.name bv)
+                    }
+                }
+                bi = (bi + 1)
+            }
+            context = savedCtxS
+        }
+        def sCtor:TSNode (this.findConstructorOnClassNode(supCls))
+        if (sCtor.nodeType == "MethodDefinition") {
+            def _sr:EvalValue (this.callUserFunctionNode(sCtor argNodes inst true))
+        } {
+            ; No explicit constructor: an implicit one just forwards upward.
+            def nd:int (depth + 1)
+            this.runSuperConstructor(supCls inst argNodes nd)
+        }
+    }
+
+    fn registerClassExpression:EvalValue (node:TSNode) {
+        def nm:string node.name
+        if ((strlen nm) == 0) {
+            classExprSeq = (classExprSeq + 1)
+            nm = ("__classexpr" + (to_string classExprSeq))
+        }
+        def decl:TSNode node
+        decl.nodeType = "ClassDeclaration"
+        decl.name = nm
+        set classes nm decl
+        def cv:EvalValue (EvalValue.nativeFunction(nm))
+        cv.setMember("__classname__" (EvalValue.string(nm)))
+        cv.setMember("name" (EvalValue.string(node.name)))
+        return cv
+    }
+
+    fn findStaticMethodOnClassNode:TSNode (cls:TSNode methodName:string) {
         def empty:TSNode (new TSNode())
         if (null? cls.body) { return empty }
         def body:TSNode (unwrap cls.body)
@@ -6834,11 +6989,66 @@ class ComponentEngine {
         while (i < (array_length body.children)) {
             def m:TSNode (itemAt body.children i)
             if (m.nodeType == "MethodDefinition") {
-                if (m.name == methodName) {
-                    return m
+                if (m.kind == "static") {
+                    if (m.name == methodName) {
+                        return m
+                    }
                 }
             }
             i = (i + 1)
+        }
+        return empty
+    }
+
+    ; Resolve a class by name in the module-aware order `new` uses.
+    fn classNodeByName:TSNode (name:string) {
+        def empty:TSNode (new TSNode())
+        if ((strlen name) == 0) { return empty }
+        if ((strlen currentModule) > 0) {
+            def mc:TSNode (this.moduleClassNode(currentModule name))
+            if (mc.nodeType == "ClassDeclaration") {
+                return mc
+            }
+        }
+        def cn@(optional):TSNode (get classes name)
+        if cn {
+            return (unwrap cn)
+        }
+        return empty
+    }
+
+    ; D-CLASSEXTENDS: resolve an instance method, walking the `extends` chain so
+    ; an inherited method is found. Own members win, then each ancestor in turn;
+    ; depth-bounded so a cycle in the table cannot hang the host.
+    fn findMethodOnClassNode:TSNode (cls:TSNode methodName:string) {
+        def empty:TSNode (new TSNode())
+        def cur:TSNode cls
+        def depth:int 0
+        while (depth < 16) {
+            if (null? cur.body) {
+                return empty
+            }
+            def body:TSNode (unwrap cur.body)
+            def i 0
+            while (i < (array_length body.children)) {
+                def m:TSNode (itemAt body.children i)
+                if (m.nodeType == "MethodDefinition") {
+                    if (m.name == methodName) {
+                        return m
+                    }
+                }
+                i = (i + 1)
+            }
+            def supName:string (this.superClassNameOf(cur))
+            if ((strlen supName) == 0) {
+                return empty
+            }
+            def supCls:TSNode (this.classNodeByName(supName))
+            if (supCls.nodeType != "ClassDeclaration") {
+                return empty
+            }
+            cur = supCls
+            depth = (depth + 1)
         }
         return empty
     }
@@ -7099,6 +7309,23 @@ class ComponentEngine {
             }
         }
 
+        ; D-CLASSEXPR: `new C()` where C is a variable holding a class value
+        ; (from a class expression, or a class name captured as a reference).
+        ; Resolved before the name-keyed lookup, which would miss it.
+        if (false == viaNamespace) {
+            if ((strlen className) > 0) {
+                if (context.has(className)) {
+                    def refV:EvalValue (context.lookup(className))
+                    if (refV.valueType == 6) {
+                        def tagV2:EvalValue (refV.getMember("__classname__"))
+                        if (tagV2.valueType == 2) {
+                            className = tagV2.stringValue
+                        }
+                    }
+                }
+            }
+        }
+
         ; Resolve the class declaration in the right table (see fn comment).
         def clsModule:string currentModule
         def cls:TSNode (new TSNode())
@@ -7146,6 +7373,24 @@ class ComponentEngine {
                     if m.init {
                         def iv:EvalValue (this.evaluateExpr((unwrap m.init)))
                         inst.setMember(m.name iv)
+                    }
+                }
+                ; D-CLASSACCESSORS: `get v() {}` / `set v(x) {}` in a class body
+                ; install as real accessors on the instance. Without this the
+                ; member read returned the accessor FUNCTION instead of calling
+                ; it, which type-checks as a function and silently misbehaves.
+                if (m.nodeType == "MethodDefinition") {
+                    def mk:string m.accessor
+                    if ((strlen mk) == 0) {
+                        mk = m.kind
+                    }
+                    if ((mk == "get") || (mk == "set")) {
+                        def accFn:EvalValue (EvalValue.boundMethod(m inst))
+                        if (mk == "get") {
+                            inst.defineGetter(m.name accFn)
+                        } {
+                            inst.defineSetter(m.name accFn)
+                        }
                     }
                 }
                 i = (i + 1)

@@ -245,6 +245,14 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["symbol-factory-typeof", "var s = Symbol('x'); return typeof s;", "symbols"],
   ["symbol-factory-unique", "return Symbol('a') === Symbol('a');", "symbols"],
   ["symbol-description", "return Symbol('hi').description;", "symbols"],
+  ["class-nested-decl", "class N { m() { return 3; } } return new N().m();", "classes"],
+  ["class-expr-nested", "var C = class { m() { return 3; } }; return new C().m();", "classes"],
+  ["class-static-call", "class S { static s() { return 8; } } return S.s();", "classes"],
+  ["class-accessor-get", "class G { get v() { return 4; } } return new G().v;", "classes"],
+  ["class-accessor-set", "class T { set v(x) { this._v = x; } } var t = new T(); t.v = 6; return t._v;", "classes"],
+  ["class-extends-super", "class P { constructor() { this.x = 1; } } class Q extends P { constructor() { super(); this.y = 2; } } var q = new Q(); return q.x + q.y;", "classes"],
+  ["class-extends-field", "class P2 { constructor() { this.x = 10; } } class Q2 extends P2 { constructor() { super(); } } return new Q2().x;", "classes"],
+  ["class-extends-method", "class P3 { m() { return 7; } } class Q3 extends P3 {} return new Q3().m();", "classes"],
   ["objproto-hasown-true", "var o = { a: 1 }; return o.hasOwnProperty('a');", "objproto"],
   ["objproto-hasown-false", "var o = { a: 1 }; return o.hasOwnProperty('b');", "objproto"],
   ["objproto-hasown-not-inherited", "var F = function () {}; F.prototype.k = 1; var o = new F(); return o.hasOwnProperty('k');", "objproto"],
@@ -285,15 +293,6 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
  * Recorded 2026-08-02 against gallery/game_engine/v2/interp.
  */
 const KNOWN_GAPS = new Set<string>([
-  // Classes parse but do not evaluate: `new A()` yields nothing.
-  "class-basic",
-  "class-method",
-  "class-expr",
-  "class-static",
-  "class-getter",
-  "class-extends",
-  "class-super",
-  "class-instanceof",
   // No RegExp implementation.
   "regex-test",
   "regex-exec",
