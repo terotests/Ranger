@@ -1384,6 +1384,9 @@ class TSParserSimple  {
     this.suppressBlockScope = false;
     this.strictMode = false;
     this.declaringKind = "";
+    this.allowSuperCall = false;
+    this.allowSuperProperty = false;
+    this.inDerivedClass = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -2558,7 +2561,10 @@ class TSParserSimple  {
       const typeParams = this.parseTypeParams();
       node.params = typeParams;
     }
+    const savedDerived = this.inDerivedClass;
+    this.inDerivedClass = false;
     if ( this.matchValue("extends") ) {
+      this.inDerivedClass = true;
       this.advance();
       const superClass = this.parsePostfix();
       const extendsNode = new TSNode();
@@ -2584,6 +2590,7 @@ class TSParserSimple  {
     }
     const body = this.parseClassBody();
     node.body = body;
+    this.inDerivedClass = savedDerived;
     return node;
   };
   parseClassBody () {
@@ -2686,6 +2693,10 @@ class TSParserSimple  {
       member.kind = "constructor";
       this.advance();
       this.pushScope(true);
+      const savedCtorSuperCall = this.allowSuperCall;
+      const savedCtorSuperProp = this.allowSuperProperty;
+      this.allowSuperCall = this.inDerivedClass;
+      this.allowSuperProperty = true;
       this.expectValue("(");
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
         if ( (member.params.length) > 0 ) {
@@ -2704,6 +2715,8 @@ class TSParserSimple  {
         member.body = bodyNode;
       }
       this.popScope();
+      this.allowSuperCall = savedCtorSuperCall;
+      this.allowSuperProperty = savedCtorSuperProp;
       return member;
     }
     if ( this.matchValue("*") ) {
@@ -2744,6 +2757,22 @@ class TSParserSimple  {
         member.async = true;
       }
       this.pushScope(true);
+      const savedMethodSuperCall = this.allowSuperCall;
+      const savedMethodSuperProp = this.allowSuperProperty;
+      let isCtorNamed = false;
+      if ( member.name == "constructor" ) {
+        if ( isStatic == false ) {
+          if ( member.computed == false ) {
+            isCtorNamed = true;
+          }
+        }
+      }
+      if ( isCtorNamed ) {
+        this.allowSuperCall = this.inDerivedClass;
+      } else {
+        this.allowSuperCall = false;
+      }
+      this.allowSuperProperty = true;
       this.expectValue("(");
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
         if ( (member.params.length) > 0 ) {
@@ -2766,6 +2795,8 @@ class TSParserSimple  {
         member.body = bodyNode_1;
       }
       this.popScope();
+      this.allowSuperCall = savedMethodSuperCall;
+      this.allowSuperProperty = savedMethodSuperProp;
     } else {
       member.nodeType = "PropertyDefinition";
       if ( isStatic ) {
@@ -3505,6 +3536,10 @@ class TSParserSimple  {
       this.declareBinding("v", node.name);
     }
     this.pushScope(true);
+    const savedSuperCall = this.allowSuperCall;
+    const savedSuperProp = this.allowSuperProperty;
+    this.allowSuperCall = false;
+    this.allowSuperProperty = false;
     if ( this.matchValue("<") ) {
       const typeParams = this.parseTypeParams();
       for ( let i = 0; i < typeParams.length; i++) {
@@ -3530,6 +3565,8 @@ class TSParserSimple  {
     const body = this.parseBlock();
     node.body = body;
     this.popScope();
+    this.allowSuperCall = savedSuperCall;
+    this.allowSuperProperty = savedSuperProp;
     return node;
   };
   parseParam () {
@@ -5416,6 +5453,20 @@ class TSParserSimple  {
       return clsExpr;
     }
     if ( tokVal == "super" ) {
+      const afterSuper = this.peekNextValue();
+      if ( afterSuper == "(" ) {
+        if ( this.allowSuperCall == false ) {
+          this.syntaxError("Parse error: 'super()' is only valid in a derived class constructor");
+        }
+      } else {
+        if ( (afterSuper == ".") || (afterSuper == "[") ) {
+          if ( this.allowSuperProperty == false ) {
+            this.syntaxError("Parse error: 'super' property access is only valid in a method");
+          }
+        } else {
+          this.syntaxError("Parse error: 'super' must be called or have a property accessed");
+        }
+      }
       this.advance();
       const superExpr = new TSNode();
       superExpr.nodeType = "Super";
@@ -5598,6 +5649,10 @@ class TSParserSimple  {
           fnNode.nodeType = "FunctionExpression";
           this.advance();
           this.pushScope(true);
+          const savedObjSuperCall = this.allowSuperCall;
+          const savedObjSuperProp = this.allowSuperProperty;
+          this.allowSuperCall = false;
+          this.allowSuperProperty = true;
           while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
             if ( (fnNode.params.length) > 0 ) {
               this.expectValue(",");
@@ -5618,6 +5673,8 @@ class TSParserSimple  {
             fnNode.body = this.parseBlock();
           }
           this.popScope();
+          this.allowSuperCall = savedObjSuperCall;
+          this.allowSuperProperty = savedObjSuperProp;
           prop.left = fnNode;
           if ( (isGetter == false) && (isSetter == false) ) {
             prop.kind = "init";

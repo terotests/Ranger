@@ -71,6 +71,13 @@ class TSParserSimple {
   ; register all the names they bind; cleared while reading the initialiser or
   ; a computed key, which are ordinary expressions.
   def declaringKind:string ""
+  ; Where `super` is legal. A SuperCall needs a derived-class constructor; a
+  ; SuperProperty needs any method. Both are lexical, so an arrow inherits them
+  ; from its enclosing function while a plain function clears them.
+  def allowSuperCall:boolean false
+  def allowSuperProperty:boolean false
+  ; Whether the class whose body is being parsed has an extends clause.
+  def inDerivedClass:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -1480,7 +1487,10 @@ class TSParserSimple {
     }
     
     ; Parse extends clause. The superclass is an expression, not a type.
+    def savedDerived:boolean this.inDerivedClass
+    this.inDerivedClass = false
     if (this.matchValue("extends")) {
+      this.inDerivedClass = true
       this.advance()
       def superClass (this.parsePostfix())
       def extendsNode (new TSNode())
@@ -1510,7 +1520,9 @@ class TSParserSimple {
     ; Parse class body
     def body (this.parseClassBody())
     node.body = body
-    
+
+    this.inDerivedClass = savedDerived
+
     return node
   }
   
@@ -1640,6 +1652,11 @@ class TSParserSimple {
       this.advance()
       
       this.pushScope(true)
+      def savedCtorSuperCall:boolean this.allowSuperCall
+      def savedCtorSuperProp:boolean this.allowSuperProperty
+      ; `super()` is legal here only when the class has an extends clause.
+      this.allowSuperCall = this.inDerivedClass
+      this.allowSuperProperty = true
 
       this.expectValue("(")
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
@@ -1662,6 +1679,8 @@ class TSParserSimple {
       }
 
       this.popScope()
+      this.allowSuperCall = savedCtorSuperCall
+      this.allowSuperProperty = savedCtorSuperProp
 
       return member
     }
@@ -1722,6 +1741,22 @@ class TSParserSimple {
       ; A method's parameters and body share one scope, and duplicate
       ; parameters are always an error in a method.
       this.pushScope(true)
+      def savedMethodSuperCall:boolean this.allowSuperCall
+      def savedMethodSuperProp:boolean this.allowSuperProperty
+      ; A member literally named "constructor" is the constructor even when it
+      ; was written as a string key: class a extends b { "constructor"(){} }.
+      def isCtorNamed:boolean false
+      if (member.name == "constructor") {
+        if (isStatic == false) {
+          if (member.computed == false) { isCtorNamed = true }
+        }
+      }
+      if isCtorNamed {
+        this.allowSuperCall = this.inDerivedClass
+      } {
+        this.allowSuperCall = false
+      }
+      this.allowSuperProperty = true
 
       this.expectValue("(")
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
@@ -1750,6 +1785,8 @@ class TSParserSimple {
       }
 
       this.popScope()
+      this.allowSuperCall = savedMethodSuperCall
+      this.allowSuperProperty = savedMethodSuperProp
     } {
       ; Property
       member.nodeType = "PropertyDefinition"
@@ -2707,6 +2744,12 @@ class TSParserSimple {
     ; `function f(a) { let a; }` is a redeclaration.
     this.pushScope(true)
 
+    ; A plain function is its own `super` boundary.
+    def savedSuperCall:boolean this.allowSuperCall
+    def savedSuperProp:boolean this.allowSuperProperty
+    this.allowSuperCall = false
+    this.allowSuperProperty = false
+
     ; Type parameters <T, U>
     if (this.matchValue("<")) {
       def typeParams (this.parseTypeParams())
@@ -2740,6 +2783,8 @@ class TSParserSimple {
     node.body = body
 
     this.popScope()
+    this.allowSuperCall = savedSuperCall
+    this.allowSuperProperty = savedSuperProp
 
     return node
   }
@@ -5197,6 +5242,20 @@ class TSParserSimple {
     ; super — valid as `super(...)` and `super.x` / `super[x]`; the call and
     ; member suffixes are attached by parsePostfix.
     if (tokVal == "super") {
+      def afterSuper:string (this.peekNextValue())
+      if (afterSuper == "(") {
+        if (this.allowSuperCall == false) {
+          this.syntaxError("Parse error: 'super()' is only valid in a derived class constructor")
+        }
+      } {
+        if ((afterSuper == ".") || (afterSuper == "[")) {
+          if (this.allowSuperProperty == false) {
+            this.syntaxError("Parse error: 'super' property access is only valid in a method")
+          }
+        } {
+          this.syntaxError("Parse error: 'super' must be called or have a property accessed")
+        }
+      }
       this.advance()
       def superExpr (new TSNode())
       superExpr.nodeType = "Super"
@@ -5414,6 +5473,10 @@ class TSParserSimple {
           ; A method's parameters and body share one scope, and duplicate
           ; parameters are always an error in a method.
           this.pushScope(true)
+          def savedObjSuperCall:boolean this.allowSuperCall
+          def savedObjSuperProp:boolean this.allowSuperProperty
+          this.allowSuperCall = false
+          this.allowSuperProperty = true
           ; Parse parameters
           while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
             if ((array_length fnNode.params) > 0) {
@@ -5437,6 +5500,8 @@ class TSParserSimple {
             fnNode.body = (this.parseBlock())
           }
           this.popScope()
+          this.allowSuperCall = savedObjSuperCall
+          this.allowSuperProperty = savedObjSuperProp
           prop.left = fnNode
           ; ESTree: kind is "get", "set", or "init" for methods
           if ((isGetter == false) && (isSetter == false)) {
