@@ -11,6 +11,7 @@ Import "../../../../../ts_parser/ts_lexer.rgr"
 Import "../../../../../ts_parser/ts_ast_patch.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
+Import "Regex.rgr"
 Import "../../../imaging/jpeg/JPEGMetadata.rgr"
 
 ; =============================================================================
@@ -5010,6 +5011,10 @@ class ComponentEngine {
         if (nt == "NewExpression") {
             return (this.evaluateNewExpr(node))
         }
+        ; D-REGEX: `/pattern/flags` as a value.
+        if (nt == "RegExpLiteral") {
+            return (this.regexFromLiteral(node.value))
+        }
         ; The comma operator evaluates every operand and yields the LAST. It had
         ; no case at all, so `(1, 2)` evaluated to undefined and any side effect
         ; in an earlier operand never ran.
@@ -6264,6 +6269,9 @@ class ComponentEngine {
                 if (fnName == "Array") {
                     return (this.buildArrayFromArgs(node.children))
                 }
+                if (fnName == "RegExp") {
+                    return (this.buildRegexFromArgs(node.children))
+                }
                 if (fnName == "Object") {
                     def ov:EvalValue (EvalValue.null())
                     if ((array_length node.children) > 0) {
@@ -7498,6 +7506,7 @@ class ComponentEngine {
         if (kind == "string") { return "String" }
         if (kind == "number") { return "Number" }
         if (kind == "boolean") { return "Boolean" }
+        if (kind == "regexp") { return "RegExp" }
         if (kind == "function") { return "Function" }
         if (kind == "map") { return "Map" }
         if (kind == "set") { return "Set" }
@@ -7511,6 +7520,7 @@ class ComponentEngine {
         ; Boolean was missing, so Boolean.prototype published no methods at all
         ; and every read of one fell through to Object.prototype.
         if (nsName == "Boolean") { return "boolean" }
+        if (nsName == "RegExp") { return "regexp" }
         if (nsName == "Function") { return "function" }
         if (nsName == "Map") { return "map" }
         if (nsName == "Set") { return "set" }
@@ -7539,6 +7549,7 @@ class ComponentEngine {
             push out "indexOf"
             push out "lastIndexOf"
             push out "localeCompare"
+            push out "match"
             push out "normalize"
             push out "padEnd"
             push out "padStart"
@@ -7586,6 +7597,10 @@ class ComponentEngine {
             push out "sort"
             push out "splice"
             push out "unshift"
+        }
+        if (kind == "regexp") {
+            push out "exec"
+            push out "test"
         }
         if (kind == "number") {
             push out "toExponential"
@@ -7767,7 +7782,12 @@ class ComponentEngine {
         if (v.valueType == 6) { return "function" }
         if (v.valueType == 9) { return "map" }
         if (v.valueType == 10) { return "set" }
-        if (v.valueType == 5) { return "object" }
+        if (v.valueType == 5) {
+            ; D-REGEX: a RegExp dispatches to its own prototype so exec/test do
+            ; not have to be looked for among the Object methods.
+            if (has v.objectMap "__regex__") { return "regexp" }
+            return "object"
+        }
         return ""
     }
 
@@ -7796,6 +7816,7 @@ class ComponentEngine {
             if (name == "codePointAt") { return 1 }
             if (name == "concat") { return 1 }
             if (name == "localeCompare") { return 1 }
+            if (name == "match") { return 1 }
             if (name == "normalize") { return 0 }
             if (name == "search") { return 1 }
             if (name == "substr") { return 2 }
@@ -7868,6 +7889,10 @@ class ComponentEngine {
             if (name == "sort") { return 1 }
             if (name == "splice") { return 2 }
             if (name == "unshift") { return 1 }
+        }
+        if (kind == "regexp") {
+            if (name == "exec") { return 1 }
+            if (name == "test") { return 1 }
         }
         if (kind == "number") {
             if (name == "toExponential") { return 1 }
@@ -8304,15 +8329,69 @@ class ComponentEngine {
                         }
                         return (EvalValue.fromInt((this.compareStrings(s other))))
                     }
-                    ; search takes a RegExp in general; with a string it is a
-                    ; plain index-of, which is what the ES5 tests in this area
-                    ; are written against.
+                    ; D-REGEX: search returns the INDEX of the first match, or
+                    ; -1. lastIndex plays no part, so the pattern is matched
+                    ; from the start whatever its flags say.
                     if (name == "search") {
+                        def sre:EvalValue (EvalValue.undefined())
                         if ((array_length args) > 0) {
-                            def sneedle:string (this.toStringOf((itemAt args 0)))
-                            return (EvalValue.fromInt((indexOf s sneedle)))
+                            sre = (itemAt args 0)
                         }
-                        return (EvalValue.fromInt(0))
+                        def sreV:EvalValue (this.toRegexValue(sre))
+                        def sprog:RegexProgram (this.compileRegexOf(sreV))
+                        if (false == sprog.valid) {
+                            return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + sprog.errorMessage)))
+                        }
+                        def sm (new RegexMatcher)
+                        sm.setup(sprog s)
+                        def smatch:RegexMatch (sm.exec(0))
+                        if smatch.matched {
+                            return (EvalValue.fromInt(smatch.start))
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
+                    ; D-REGEX: match. Without /g it is exec; with /g it collects
+                    ; every match's text and reports no captures, per spec.
+                    if (name == "match") {
+                        def mre:EvalValue (EvalValue.undefined())
+                        if ((array_length args) > 0) {
+                            mre = (itemAt args 0)
+                        }
+                        def mreV:EvalValue (this.toRegexValue(mre))
+                        def mprog:RegexProgram (this.compileRegexOf(mreV))
+                        if (false == mprog.valid) {
+                            return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + mprog.errorMessage)))
+                        }
+                        if (false == mprog.global) {
+                            return (this.regexExec(mreV s))
+                        }
+                        mreV.setMember("lastIndex" (EvalValue.fromInt(0)))
+                        def mitems:[EvalValue]
+                        def mfrom:int 0
+                        def mlooping:boolean true
+                        while (mlooping) {
+                            def mm (new RegexMatcher)
+                            mm.setup(mprog s)
+                            def one:RegexMatch (mm.exec(mfrom))
+                            if (false == one.matched) {
+                                mlooping = false
+                            } {
+                                push mitems (EvalValue.string((substring s one.start one.end)))
+                                ; An empty match would spin forever otherwise.
+                                if (one.end == one.start) {
+                                    mfrom = (one.end + 1)
+                                } {
+                                    mfrom = one.end
+                                }
+                                if (mfrom > (strlen s)) {
+                                    mlooping = false
+                                }
+                            }
+                        }
+                        if ((array_length mitems) == 0) {
+                            return (EvalValue.null())
+                        }
+                        return (EvalValue.array(mitems))
                     }
                     if (name == "codePointAt") {
                         def cpi:int 0
@@ -8469,15 +8548,105 @@ class ComponentEngine {
                         ; string. Defaulting to "" split it into characters.
                         def haveSep:boolean false
                         def sep:string ""
+                        def sepRe:EvalValue (EvalValue.null())
                         if ((array_length args) > 0) {
                             def sepV:EvalValue (itemAt args 0)
                             if (false == (sepV.isUndefined())) {
                                 haveSep = true
-                                sep = (this.toStringOf(sepV))
-                                if scriptThrew {
-                                    return (EvalValue.undefined())
+                                ; D-REGEX: a RegExp separator splits on every
+                                ; match and interleaves its captures into the
+                                ; result, which is what makes
+                                ; `"a1b".split(/(\d)/)` yield ["a","1","b"].
+                                if (this.isRegexValue(sepV)) {
+                                    sepRe = sepV
+                                } {
+                                    sep = (this.toStringOf(sepV))
+                                    if scriptThrew {
+                                        return (EvalValue.undefined())
+                                    }
                                 }
                             }
+                        }
+                        if (sepRe.valueType == 5) {
+                            def spProg:RegexProgram (this.compileRegexOf(sepRe))
+                            if (false == spProg.valid) {
+                                return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + spProg.errorMessage)))
+                            }
+                            def spItems:[EvalValue]
+                            def spCursor:int 0
+                            def spScan:int 0
+                            def spLooping:boolean true
+                            if ((strlen s) == 0) {
+                                ; An empty subject yields [""] unless the
+                                ; pattern matches it, in which case [].
+                                def em (new RegexMatcher)
+                                em.setup(spProg s)
+                                def emm:RegexMatch (em.exec(0))
+                                if (false == emm.matched) {
+                                    push spItems (EvalValue.string(""))
+                                }
+                                spLooping = false
+                            }
+                            while spLooping {
+                                if (spScan > (strlen s)) {
+                                    spLooping = false
+                                } {
+                                    def sm2 (new RegexMatcher)
+                                    sm2.setup(spProg s)
+                                    def one2:RegexMatch (sm2.exec(spScan))
+                                    if (false == one2.matched) {
+                                        spLooping = false
+                                    } {
+                                        ; A match at the very end, or an empty
+                                        ; one at the cursor, does not split.
+                                        if (one2.end == 0) {
+                                            spScan = 1
+                                        } {
+                                            if ((one2.start == (strlen s)) && (one2.end == one2.start)) {
+                                                spLooping = false
+                                            } {
+                                                if ((one2.end == one2.start) && (one2.start == spCursor)) {
+                                                    spScan = (spScan + 1)
+                                                } {
+                                                    push spItems (EvalValue.string((substring s spCursor one2.start)))
+                                                    def gi2:int 1
+                                                    while (gi2 < (array_length one2.capStart)) {
+                                                        def cs2:int (itemAt one2.capStart gi2)
+                                                        def ce2:int (itemAt one2.capEnd gi2)
+                                                        if (cs2 < 0) {
+                                                            push spItems (EvalValue.undefined())
+                                                        } {
+                                                            push spItems (EvalValue.string((substring s cs2 ce2)))
+                                                        }
+                                                        gi2 = (gi2 + 1)
+                                                    }
+                                                    spCursor = one2.end
+                                                    spScan = one2.end
+                                                    if (one2.end == one2.start) {
+                                                        spScan = (one2.end + 1)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (spCursor <= (strlen s)) {
+                                if ((strlen s) > 0) {
+                                    push spItems (EvalValue.string((substring s spCursor (strlen s))))
+                                }
+                            }
+                            def spOut:[EvalValue]
+                            def spCap:int (array_length spItems)
+                            if hasLimit {
+                                if (limitN < spCap) { spCap = limitN }
+                            }
+                            def spi:int 0
+                            while (spi < spCap) {
+                                push spOut (itemAt spItems spi)
+                                spi = (spi + 1)
+                            }
+                            return (EvalValue.array(spOut))
                         }
                         if (false == haveSep) {
                             def whole:[EvalValue]
@@ -8571,33 +8740,104 @@ class ComponentEngine {
                     }
                     ; replace (first match) and replaceAll — string search only, done
                     ; via indexOf/substring so behaviour is backend-independent.
+                    ; D-REGEX: replace. A RegExp pattern replaces the first
+                    ; match, or every match with /g; a string pattern replaces
+                    ; the first occurrence only. The replacement may be a
+                    ; FUNCTION, called with the match, its captures, the offset
+                    ; and the subject.
                     if (name == "replace") {
+                        def rpat:EvalValue (EvalValue.undefined())
+                        if ((array_length args) > 0) {
+                            rpat = (itemAt args 0)
+                        }
+                        def rrep:EvalValue (EvalValue.undefined())
+                        if ((array_length args) > 1) {
+                            rrep = (itemAt args 1)
+                        }
+                        def repIsFn:boolean (rrep.valueType == 6)
+                        def repText:string ""
+                        if (false == repIsFn) {
+                            repText = (this.toStringOf(rrep))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
+                        }
+                        if (this.isRegexValue(rpat)) {
+                            def rprog:RegexProgram (this.compileRegexOf(rpat))
+                            if (false == rprog.valid) {
+                                return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + rprog.errorMessage)))
+                            }
+                            def outR:string ""
+                            def cursor:int 0
+                            def rlooping:boolean true
+                            while rlooping {
+                                def rm (new RegexMatcher)
+                                rm.setup(rprog s)
+                                def one:RegexMatch (rm.exec(cursor))
+                                if (false == one.matched) {
+                                    rlooping = false
+                                } {
+                                    outR = (outR + (substring s cursor one.start))
+                                    if repIsFn {
+                                        def cbArgs:[EvalValue] (this.replacerArgs(one s))
+                                        def cbOut:EvalValue (this.callFnValueWithValues(rrep cbArgs))
+                                        if scriptThrew {
+                                            return (EvalValue.undefined())
+                                        }
+                                        outR = (outR + (this.toStringOf(cbOut)))
+                                    } {
+                                        outR = (outR + (this.expandReplacement(repText s one)))
+                                    }
+                                    if (one.end == one.start) {
+                                        ; An empty match consumes one character
+                                        ; so the scan cannot stall.
+                                        if (one.end < (strlen s)) {
+                                            outR = (outR + (substring s one.end (one.end + 1)))
+                                        }
+                                        cursor = (one.end + 1)
+                                    } {
+                                        cursor = one.end
+                                    }
+                                    if (false == rprog.global) {
+                                        rlooping = false
+                                    }
+                                    if (cursor > (strlen s)) {
+                                        rlooping = false
+                                    }
+                                }
+                            }
+                            if (cursor <= (strlen s)) {
+                                outR = (outR + (substring s cursor (strlen s)))
+                            }
+                            return (EvalValue.string(outR))
+                        }
                         def find:string ""
                         if ((array_length args) > 0) {
-                            find = (this.toStringOf((itemAt args 0)))
-                        }
-                        if ((strlen find) == 0) {
-                            return (EvalValue.string(s))
+                            find = (this.toStringOf(rpat))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
                         }
                         def at:int (indexOf s find)
                         if (at < 0) {
                             return (EvalValue.string(s))
                         }
-                        ; The replacement may be a FUNCTION, called with the
-                        ; match, its offset and the whole string. Stringifying it
-                        ; instead spliced "[Function: ]" into the result.
                         def repl:string ""
-                        if ((array_length args) > 1) {
-                            def rv:EvalValue (itemAt args 1)
-                            if (rv.valueType == 6) {
-                                def rArgs:[EvalValue]
-                                push rArgs (EvalValue.string(find))
-                                push rArgs (EvalValue.fromInt(at))
-                                push rArgs (EvalValue.string(s))
-                                repl = (this.toStringOf((this.callFnValueWithValues(rv rArgs))))
-                            } {
-                                repl = (this.toStringOf(rv))
+                        if repIsFn {
+                            def sArgs:[EvalValue]
+                            push sArgs (EvalValue.string(find))
+                            push sArgs (EvalValue.fromInt(at))
+                            push sArgs (EvalValue.string(s))
+                            def sOut:EvalValue (this.callFnValueWithValues(rrep sArgs))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
                             }
+                            repl = (this.toStringOf(sOut))
+                        } {
+                            def lit (new RegexMatch)
+                            lit.start = at
+                            lit.end = (at + (strlen find))
+                            repl = (this.expandReplacement(repText s lit))
                         }
                         def before:string (substring s 0 at)
                         def after:string (substring s (at + (strlen find)) (strlen s))
@@ -9316,6 +9556,28 @@ class ComponentEngine {
                         return (EvalValue.fromInt((0 - 1)))
                     }
         }
+        ; ---- RegExp.prototype ----------------------------------------------
+        if (kind == "regexp") {
+            def reSubject:string ""
+            if ((array_length args) > 0) {
+                reSubject = (this.toStringOf((itemAt args 0)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+            } {
+                reSubject = "undefined"
+            }
+            if (name == "exec") {
+                return (this.regexExec(recv reSubject))
+            }
+            if (name == "test") {
+                def hit:EvalValue (this.regexExec(recv reSubject))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                return (EvalValue.boolean((hit.isArray())))
+            }
+        }
         ; ---- Number.prototype ----------------------------------------------
         if (kind == "number") {
             def fprim:EvalValue (this.unwrapPrimitive(recv))
@@ -9561,6 +9823,7 @@ class ComponentEngine {
             ; the own map rather than through the prototype chain.
             if (has v.objectMap "__error__") { return "Error" }
             if (has v.objectMap "__date__") { return "Date" }
+            if (has v.objectMap "__regex__") { return "RegExp" }
             if (has v.objectMap "__arguments__") { return "Arguments" }
         }
         return "Object"
@@ -10049,6 +10312,291 @@ class ComponentEngine {
     ; new property to a non-extensible object is likewise rejected. Accepting
     ; any of these silently let a test's setup succeed where the spec requires
     ; it to fail. Returns "" when the redefinition is allowed.
+    ; ==========================================================================
+    ; D-REGEX: RegExp values, and the four String methods specified against them.
+    ; --------------------------------------------------------------------------
+    ; A RegExp is an ordinary object carrying its source and flags plus the
+    ; internal marker `__regex__`. The compiled program is NOT stored on it --
+    ; Ranger has no way to put a RegexProgram inside an EvalValue -- so it is
+    ; recompiled from source at each use. That is slower than caching and
+    ; entirely invisible to the guest, which is the trade this design makes.
+    ; --------------------------------------------------------------------------
+    fn buildRegexFromArgs:EvalValue (argNodes:[TSNode]) {
+        def pattern:string ""
+        def flags:string ""
+        if ((array_length argNodes) > 0) {
+            def pv:EvalValue (this.evaluateExpr((itemAt argNodes 0)))
+            if (this.isRegexValue(pv)) {
+                pattern = (this.regexSourceOf(pv))
+                flags = (this.regexFlagsOf(pv))
+            } {
+                if (false == (pv.isUndefined())) {
+                    pattern = (this.toStringOf(pv))
+                }
+            }
+        }
+        if ((array_length argNodes) > 1) {
+            def fv:EvalValue (this.evaluateExpr((itemAt argNodes 1)))
+            if (false == (fv.isUndefined())) {
+                flags = (this.toStringOf(fv))
+            }
+        }
+        ; A malformed pattern is a SyntaxError at construction, not at first use.
+        def probe (new RegexCompiler)
+        def prog:RegexProgram (probe.compile(pattern flags))
+        if (false == prog.valid) {
+            return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + prog.errorMessage)))
+        }
+        return (this.makeRegexValue(pattern flags))
+    }
+
+    fn makeRegexValue:EvalValue (pattern:string flags:string) {
+        def keysR:[string]
+        def valsR:[EvalValue]
+        def r:EvalValue (EvalValue.object(keysR valsR))
+        r.setMember("__regex__" (EvalValue.string(pattern)))
+        r.setAttrs("__regex__" false false false)
+        r.setMember("source" (EvalValue.string(pattern)))
+        r.setAttrs("source" false false false)
+        r.setMember("flags" (EvalValue.string(flags)))
+        r.setAttrs("flags" false false false)
+        r.setMember("global" (EvalValue.boolean(((indexOf flags "g") >= 0))))
+        r.setAttrs("global" false false false)
+        r.setMember("ignoreCase" (EvalValue.boolean(((indexOf flags "i") >= 0))))
+        r.setAttrs("ignoreCase" false false false)
+        r.setMember("multiline" (EvalValue.boolean(((indexOf flags "m") >= 0))))
+        r.setAttrs("multiline" false false false)
+        ; lastIndex is the one writable property -- exec advances it.
+        r.setMember("lastIndex" (EvalValue.fromInt(0)))
+        r.protoRef = (this.builtinPrototype("RegExp"))
+        return r
+    }
+
+    fn isRegexValue:boolean (v:EvalValue) {
+        if (v.valueType != 5) {
+            return false
+        }
+        return (has v.objectMap "__regex__")
+    }
+
+    fn regexFlagsOf:string (v:EvalValue) {
+        def f:EvalValue (v.getMember("flags"))
+        if (f.isString()) {
+            return f.stringValue
+        }
+        return ""
+    }
+
+    fn regexSourceOf:string (v:EvalValue) {
+        def sv:EvalValue (v.getMember("source"))
+        if (sv.isString()) {
+            return sv.stringValue
+        }
+        return ""
+    }
+
+    ; Compile the pattern a RegExp value carries. A malformed pattern is a
+    ; SyntaxError to the guest, which is where the spec puts it.
+    fn compileRegexOf:RegexProgram (v:EvalValue) {
+        def c (new RegexCompiler)
+        return (c.compile((this.regexSourceOf(v)) (this.regexFlagsOf(v))))
+    }
+
+    ; The `/.../flags` literal text the lexer hands over, split at the LAST
+    ; slash -- the pattern may contain escaped ones.
+    fn regexFromLiteral:EvalValue (text:string) {
+        def n:int (strlen text)
+        def last:int (0 - 1)
+        def i:int 1
+        def esc:boolean false
+        def inClass:boolean false
+        while (i < n) {
+            def ch:string (substring text i (i + 1))
+            if esc {
+                esc = false
+            } {
+                if (ch == "\\") {
+                    esc = true
+                } {
+                    if (ch == "[") { inClass = true }
+                    if (ch == "]") { inClass = false }
+                    if (ch == "/") {
+                        if (false == inClass) { last = i }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (last < 0) {
+            return (this.makeRegexValue("" ""))
+        }
+        def pattern:string (substring text 1 last)
+        def flags:string (substring text (last + 1) n)
+        return (this.makeRegexValue(pattern flags))
+    }
+
+    ; The array `exec` returns: the whole match at index 0, then each capture,
+    ; plus `index` and `input`. A capture that did not participate is undefined,
+    ; not "".
+    fn regexResultArray:EvalValue (m:RegexMatch subject:string) {
+        def items:[EvalValue]
+        push items (EvalValue.string((substring subject m.start m.end)))
+        def gi:int 1
+        while (gi < (array_length m.capStart)) {
+            def cs:int (itemAt m.capStart gi)
+            def ce:int (itemAt m.capEnd gi)
+            if (cs < 0) {
+                push items (EvalValue.undefined())
+            } {
+                push items (EvalValue.string((substring subject cs ce)))
+            }
+            gi = (gi + 1)
+        }
+        def arr:EvalValue (EvalValue.array(items))
+        arr.setMember("index" (EvalValue.fromInt(m.start)))
+        arr.setMember("input" (EvalValue.string(subject)))
+        return arr
+    }
+
+    ; RegExp.prototype.exec, honouring lastIndex for a global pattern.
+    fn regexExec:EvalValue (re:EvalValue subject:string) {
+        def prog:RegexProgram (this.compileRegexOf(re))
+        if (false == prog.valid) {
+            return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + prog.errorMessage)))
+        }
+        def from:int 0
+        if prog.global {
+            from = (this.toIntegerOf((re.getMember("lastIndex"))))
+        }
+        if (from > (strlen subject)) {
+            re.setMember("lastIndex" (EvalValue.fromInt(0)))
+            return (EvalValue.null())
+        }
+        def matcher (new RegexMatcher)
+        matcher.setup(prog subject)
+        def m:RegexMatch (matcher.exec(from))
+        if (false == m.matched) {
+            if prog.global {
+                re.setMember("lastIndex" (EvalValue.fromInt(0)))
+            }
+            return (EvalValue.null())
+        }
+        if prog.global {
+            re.setMember("lastIndex" (EvalValue.fromInt(m.end)))
+        }
+        return (this.regexResultArray(m subject))
+    }
+
+    ; Coerce whatever a String method was handed into a RegExp: an existing one
+    ; passes through, anything else becomes a pattern via ToString. An undefined
+    ; argument is the empty pattern, which matches everywhere.
+    fn toRegexValue:EvalValue (v:EvalValue) {
+        if (this.isRegexValue(v)) {
+            return v
+        }
+        if (v.isUndefined()) {
+            return (this.makeRegexValue("" ""))
+        }
+        if (v.valueType == 0) {
+            return (this.makeRegexValue("" ""))
+        }
+        return (this.makeRegexValue((this.toStringOf(v)) ""))
+    }
+
+    ; The replacement text for one match, expanding $&, $1..$99, $` and $'.
+    fn expandReplacement:string (tmpl:string subject:string m:RegexMatch) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen tmpl)
+        while (i < n) {
+            def ch:string (substring tmpl i (i + 1))
+            if (ch == "$") {
+                if ((i + 1) < n) {
+                    def nx:string (substring tmpl (i + 1) (i + 2))
+                    if (nx == "$") {
+                        out = (out + "$")
+                        i = (i + 2)
+                    } {
+                        if (nx == "&") {
+                            out = (out + (substring subject m.start m.end))
+                            i = (i + 2)
+                        } {
+                            if (nx == "`") {
+                                out = (out + (substring subject 0 m.start))
+                                i = (i + 2)
+                            } {
+                                if (nx == "'") {
+                                    out = (out + (substring subject m.end (strlen subject)))
+                                    i = (i + 2)
+                                } {
+                                    def d1:int (charAt tmpl (i + 1))
+                                    if ((d1 >= 48) && (d1 <= 57)) {
+                                        ; Two digits when that names a real
+                                        ; group, otherwise one.
+                                        def num:int (d1 - 48)
+                                        def used:int 2
+                                        if ((i + 2) < n) {
+                                            def d2:int (charAt tmpl (i + 2))
+                                            if ((d2 >= 48) && (d2 <= 57)) {
+                                                def two:int ((num * 10) + (d2 - 48))
+                                                if (two < (array_length m.capStart)) {
+                                                    num = two
+                                                    used = 3
+                                                }
+                                            }
+                                        }
+                                        if ((num > 0) && (num < (array_length m.capStart))) {
+                                            def cs:int (itemAt m.capStart num)
+                                            def ce:int (itemAt m.capEnd num)
+                                            if (cs >= 0) {
+                                                out = (out + (substring subject cs ce))
+                                            }
+                                            i = (i + used)
+                                        } {
+                                            out = (out + ch)
+                                            i = (i + 1)
+                                        }
+                                    } {
+                                        out = (out + ch)
+                                        i = (i + 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } {
+                    out = (out + ch)
+                    i = (i + 1)
+                }
+            } {
+                out = (out + ch)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; The arguments a function replacer receives: the match, each capture, the
+    ; offset and the whole subject.
+    fn replacerArgs:[EvalValue] (m:RegexMatch subject:string) {
+        def out:[EvalValue]
+        push out (EvalValue.string((substring subject m.start m.end)))
+        def gi:int 1
+        while (gi < (array_length m.capStart)) {
+            def cs:int (itemAt m.capStart gi)
+            def ce:int (itemAt m.capEnd gi)
+            if (cs < 0) {
+                push out (EvalValue.undefined())
+            } {
+                push out (EvalValue.string((substring subject cs ce)))
+            }
+            gi = (gi + 1)
+        }
+        push out (EvalValue.fromInt(m.start))
+        push out (EvalValue.string(subject))
+        return out
+    }
+
     ; D-ARRAYLIKE: the optional thisArg every higher-order Array method takes as
     ; its SECOND argument. It was ignored, so a callback written against a
     ; receiver -- `arr.filter(function (v) { return v === this.n; }, ctx)` --
@@ -10418,6 +10966,7 @@ class ComponentEngine {
         if (name == "Number") { return true }
         if (name == "Boolean") { return true }
         if (name == "Date") { return true }
+        if (name == "RegExp") { return true }
         if (name == "console") { return true }
         if (name == "globalThis") { return true }
         if (name == "NaN") { return true }
@@ -11192,6 +11741,11 @@ class ComponentEngine {
                 }
             }
         }
+        ; D-REGEX: `new RegExp(pattern, flags)`. A RegExp argument is copied,
+        ; which is what `new RegExp(/x/)` means.
+        if (className == "RegExp") {
+            return (this.buildRegexFromArgs(node.children))
+        }
         ; D-TOOBJECT: `new Object(...)` had no case here at all -- it fell through
         ; to class instantiation and produced something that could not hold a
         ; property, so `var o = new Object(); o.a = 1; o.a` read undefined. Both
@@ -11619,6 +12173,7 @@ class ComponentEngine {
         if (k == "__protokind__") { return true }
         if (k == "__date__") { return true }
         if (k == "__nsbrand__") { return true }
+        if (k == "__regex__") { return true }
         return false
     }
 
