@@ -90,47 +90,60 @@ class CmdParams {
     }
     ;
     static fromDictionary(dict) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const obj = new CmdParams();
-            try {
-                const values = (dict["flags"] instanceof Object) ? dict["flags"] : undefined;
-                if ((typeof (values) !== "undefined" && values != null)) {
-                    const theObjflags = values;
-                    const obj_keys = Object.keys(theObjflags);
-                    yield operatorsOf.forEach_12(obj_keys, ((item, index) => {
-                        const v = typeof (theObjflags[item]) === "undefined" ? undefined : (theObjflags[item]);
-                        if ((typeof (v) !== "undefined" && v != null)) {
-                            obj.flags[item] = v;
-                        }
-                    }));
+        const obj = new CmdParams();
+        try {
+            const values = (dict["flags"] instanceof Object) ? dict["flags"] : undefined;
+            if ((typeof (values) !== "undefined" && values != null)) {
+                const theObjflags = values;
+                const obj_keys = Object.keys(theObjflags);
+                const key_len = obj_keys.length;
+                let key_i = 0;
+                while (key_i < key_len) {
+                    const item = obj_keys[key_i];
+                    const v = typeof (theObjflags[item]) === "undefined" ? undefined : (theObjflags[item]);
+                    if ((typeof (v) !== "undefined" && v != null)) {
+                        obj.flags[item] = v;
+                    }
+                    key_i = key_i + 1;
                 }
-                const values_1 = (dict["params"] instanceof Object) ? dict["params"] : undefined;
-                if ((typeof (values_1) !== "undefined" && values_1 != null)) {
-                    const theObjparams = values_1;
-                    const obj_keys_1 = Object.keys(theObjparams);
-                    yield operatorsOf.forEach_12(obj_keys_1, ((item, index) => {
-                        const v_1 = (typeof (theObjparams[item]) != "string") ? undefined : theObjparams[item];
-                        if ((typeof (v_1) !== "undefined" && v_1 != null)) {
-                            obj.params[item] = v_1;
-                        }
-                    }));
-                }
-                const values_2 = (dict["values"] instanceof Array) ? dict["values"] : undefined;
-                if ((typeof (values_2) !== "undefined" && values_2 != null)) {
-                    const arr = values_2;
-                    operatorsOfJSONArrayObject_57.forEach_58(arr, ((item, index) => {
-                        if (typeof (item) === 'string') /* union case for string */ {
-                            var oo = item;
-                            obj.values.push(oo);
-                        }
-                        ;
-                    }));
-                }
+                ;
             }
-            catch (e) {
+            const values_1 = (dict["params"] instanceof Object) ? dict["params"] : undefined;
+            if ((typeof (values_1) !== "undefined" && values_1 != null)) {
+                const theObjparams = values_1;
+                const obj_keys_1 = Object.keys(theObjparams);
+                const key_len_1 = obj_keys_1.length;
+                let key_i_1 = 0;
+                while (key_i_1 < key_len_1) {
+                    const item_1 = obj_keys_1[key_i_1];
+                    const v_1 = (typeof (theObjparams[item_1]) != "string") ? undefined : theObjparams[item_1];
+                    if ((typeof (v_1) !== "undefined" && v_1 != null)) {
+                        obj.params[item_1] = v_1;
+                    }
+                    key_i_1 = key_i_1 + 1;
+                }
+                ;
             }
-            return obj;
-        });
+            const values_2 = (dict["values"] instanceof Array) ? dict["values"] : undefined;
+            if ((typeof (values_2) !== "undefined" && values_2 != null)) {
+                const arr = values_2;
+                const arr_len = arr.length;
+                let arr_i = 0;
+                while (arr_i < arr_len) {
+                    const item_2 = arr[arr_i];
+                    if (typeof (item_2) === 'string') /* union case for string */ {
+                        var oo = item_2;
+                        obj.values.push(oo);
+                    }
+                    ;
+                    arr_i = arr_i + 1;
+                }
+                ;
+            }
+        }
+        catch (e) {
+        }
+        return obj;
     }
     ;
 }
@@ -211,54 +224,62 @@ class InputFSFolder {
     }
     ;
     static fromDictionary(dict) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const obj = new InputFSFolder();
-            try {
-                const v = (typeof (dict["name"]) != "string") ? undefined : dict["name"];
-                if ((typeof (v) !== "undefined" && v != null)) {
-                    obj.name = v;
-                }
-                const v_1 = (typeof (dict["data"]) != "string") ? undefined : dict["data"];
-                if ((typeof (v_1) !== "undefined" && v_1 != null)) {
-                    obj.data = v_1;
-                }
-                const v_2 = typeof (dict["is_folder"]) === "undefined" ? undefined : (dict["is_folder"]);
-                if ((typeof (v_2) !== "undefined" && v_2 != null)) {
-                    obj.is_folder = v_2;
-                }
-                const v_3 = typeof (dict["base64bin"]) === "undefined" ? undefined : (dict["base64bin"]);
-                if ((typeof (v_3) !== "undefined" && v_3 != null)) {
-                    obj.base64bin = v_3;
-                }
-                const values = (dict["folders"] instanceof Array) ? dict["folders"] : undefined;
-                if ((typeof (values) !== "undefined" && values != null)) {
-                    const arr = values;
-                    yield operatorsOf_57.forEach_58(arr, ((item, index) => __awaiter(this, void 0, void 0, function* () {
-                        if (item instanceof Object) /* union case */ {
-                            var oo = item;
-                            const newObj = yield InputFSFolder.fromDictionary(oo);
-                            obj.folders.push(newObj);
-                        }
-                        ;
-                    })));
-                }
-                const values_1 = (dict["files"] instanceof Array) ? dict["files"] : undefined;
-                if ((typeof (values_1) !== "undefined" && values_1 != null)) {
-                    const arr_1 = values_1;
-                    yield operatorsOf_57.forEach_58(arr_1, ((item, index) => {
-                        if (item instanceof Object) /* union case */ {
-                            var oo_1 = item;
-                            const newObj_1 = InputFSFile.fromDictionary(oo_1);
-                            obj.files.push(newObj_1);
-                        }
-                        ;
-                    }));
-                }
+        const obj = new InputFSFolder();
+        try {
+            const v = (typeof (dict["name"]) != "string") ? undefined : dict["name"];
+            if ((typeof (v) !== "undefined" && v != null)) {
+                obj.name = v;
             }
-            catch (e) {
+            const v_1 = (typeof (dict["data"]) != "string") ? undefined : dict["data"];
+            if ((typeof (v_1) !== "undefined" && v_1 != null)) {
+                obj.data = v_1;
             }
-            return obj;
-        });
+            const v_2 = typeof (dict["is_folder"]) === "undefined" ? undefined : (dict["is_folder"]);
+            if ((typeof (v_2) !== "undefined" && v_2 != null)) {
+                obj.is_folder = v_2;
+            }
+            const v_3 = typeof (dict["base64bin"]) === "undefined" ? undefined : (dict["base64bin"]);
+            if ((typeof (v_3) !== "undefined" && v_3 != null)) {
+                obj.base64bin = v_3;
+            }
+            const values = (dict["folders"] instanceof Array) ? dict["folders"] : undefined;
+            if ((typeof (values) !== "undefined" && values != null)) {
+                const arr = values;
+                const arr_len = arr.length;
+                let arr_i = 0;
+                while (arr_i < arr_len) {
+                    const item = arr[arr_i];
+                    if (item instanceof Object) /* union case */ {
+                        var oo = item;
+                        const newObj = InputFSFolder.fromDictionary(oo);
+                        obj.folders.push(newObj);
+                    }
+                    ;
+                    arr_i = arr_i + 1;
+                }
+                ;
+            }
+            const values_1 = (dict["files"] instanceof Array) ? dict["files"] : undefined;
+            if ((typeof (values_1) !== "undefined" && values_1 != null)) {
+                const arr_1 = values_1;
+                const arr_len_1 = arr_1.length;
+                let arr_i_1 = 0;
+                while (arr_i_1 < arr_len_1) {
+                    const item_1 = arr_1[arr_i_1];
+                    if (item_1 instanceof Object) /* union case */ {
+                        var oo_1 = item_1;
+                        const newObj_1 = InputFSFile.fromDictionary(oo_1);
+                        obj.files.push(newObj_1);
+                    }
+                    ;
+                    arr_i_1 = arr_i_1 + 1;
+                }
+                ;
+            }
+        }
+        catch (e) {
+        }
+        return obj;
     }
     ;
 }
@@ -345,39 +366,42 @@ class InputEnv {
     }
     ;
     static fromDictionary(dict) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const obj = new InputEnv();
-            try {
-                const v = typeof (dict["use_real"]) === "undefined" ? undefined : (dict["use_real"]);
-                if ((typeof (v) !== "undefined" && v != null)) {
-                    obj.use_real = v;
-                }
-                const theValue = (dict["filesystem"] instanceof Object) ? dict["filesystem"] : undefined;
-                if ((typeof (theValue) !== "undefined" && theValue != null)) {
-                    const newObj = yield InputFSFolder.fromDictionary((theValue));
-                    obj.filesystem = newObj;
-                }
-                const values = (dict["envVars"] instanceof Object) ? dict["envVars"] : undefined;
-                if ((typeof (values) !== "undefined" && values != null)) {
-                    const theObjenvVars = values;
-                    const obj_keys = Object.keys(theObjenvVars);
-                    yield operatorsOf.forEach_12(obj_keys, ((item, index) => {
-                        const v_1 = (typeof (theObjenvVars[item]) != "string") ? undefined : theObjenvVars[item];
-                        if ((typeof (v_1) !== "undefined" && v_1 != null)) {
-                            obj.envVars[item] = v_1;
-                        }
-                    }));
-                }
-                const theValue_1 = (dict["commandLine"] instanceof Object) ? dict["commandLine"] : undefined;
-                if ((typeof (theValue_1) !== "undefined" && theValue_1 != null)) {
-                    const newObj_1 = yield CmdParams.fromDictionary((theValue_1));
-                    obj.commandLine = newObj_1;
-                }
+        const obj = new InputEnv();
+        try {
+            const v = typeof (dict["use_real"]) === "undefined" ? undefined : (dict["use_real"]);
+            if ((typeof (v) !== "undefined" && v != null)) {
+                obj.use_real = v;
             }
-            catch (e) {
+            const theValue = (dict["filesystem"] instanceof Object) ? dict["filesystem"] : undefined;
+            if ((typeof (theValue) !== "undefined" && theValue != null)) {
+                const newObj = InputFSFolder.fromDictionary((theValue));
+                obj.filesystem = newObj;
             }
-            return obj;
-        });
+            const values = (dict["envVars"] instanceof Object) ? dict["envVars"] : undefined;
+            if ((typeof (values) !== "undefined" && values != null)) {
+                const theObjenvVars = values;
+                const obj_keys = Object.keys(theObjenvVars);
+                const key_len = obj_keys.length;
+                let key_i = 0;
+                while (key_i < key_len) {
+                    const item = obj_keys[key_i];
+                    const v_1 = (typeof (theObjenvVars[item]) != "string") ? undefined : theObjenvVars[item];
+                    if ((typeof (v_1) !== "undefined" && v_1 != null)) {
+                        obj.envVars[item] = v_1;
+                    }
+                    key_i = key_i + 1;
+                }
+                ;
+            }
+            const theValue_1 = (dict["commandLine"] instanceof Object) ? dict["commandLine"] : undefined;
+            if ((typeof (theValue_1) !== "undefined" && theValue_1 != null)) {
+                const newObj_1 = CmdParams.fromDictionary((theValue_1));
+                obj.commandLine = newObj_1;
+            }
+        }
+        catch (e) {
+        }
+        return obj;
     }
     ;
 }
@@ -1719,147 +1743,175 @@ class CodeNodeLiteral {
     }
     ;
     static fromDictionary(dict) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const obj = new CodeNodeLiteral();
-            try {
-                const v = typeof (dict["expression"]) === "undefined" ? undefined : (dict["expression"]);
-                if ((typeof (v) !== "undefined" && v != null)) {
-                    obj.expression = v;
-                }
-                const v_1 = (typeof (dict["vref"]) != "string") ? undefined : dict["vref"];
-                if ((typeof (v_1) !== "undefined" && v_1 != null)) {
-                    obj.vref = v_1;
-                }
-                const v_2 = typeof (dict["is_block_node"]) === "undefined" ? undefined : (dict["is_block_node"]);
-                if ((typeof (v_2) !== "undefined" && v_2 != null)) {
-                    obj.is_block_node = v_2;
-                }
-                const v_3 = (typeof (dict["type_name"]) != "string") ? undefined : dict["type_name"];
-                if ((typeof (v_3) !== "undefined" && v_3 != null)) {
-                    obj.type_name = v_3;
-                }
-                const v_4 = (typeof (dict["key_type"]) != "string") ? undefined : dict["key_type"];
-                if ((typeof (v_4) !== "undefined" && v_4 != null)) {
-                    obj.key_type = v_4;
-                }
-                const v_5 = (typeof (dict["array_type"]) != "string") ? undefined : dict["array_type"];
-                if ((typeof (v_5) !== "undefined" && v_5 != null)) {
-                    obj.array_type = v_5;
-                }
-                const values = (dict["ns"] instanceof Array) ? dict["ns"] : undefined;
-                if ((typeof (values) !== "undefined" && values != null)) {
-                    const arr = values;
-                    yield operatorsOf_57.forEach_58(arr, ((item, index) => {
-                        if (typeof (item) === 'string') /* union case for string */ {
-                            var oo = item;
-                            obj.ns.push(oo);
-                        }
-                        ;
-                    }));
-                }
-                const v_6 = typeof (dict["has_vref_annotation"]) === "undefined" ? undefined : (dict["has_vref_annotation"]);
-                if ((typeof (v_6) !== "undefined" && v_6 != null)) {
-                    obj.has_vref_annotation = v_6;
-                }
-                const theValue = (dict["vref_annotation"] instanceof Object) ? dict["vref_annotation"] : undefined;
-                if ((typeof (theValue) !== "undefined" && theValue != null)) {
-                    const newObj = yield CodeNodeLiteral.fromDictionary((theValue));
-                    obj.vref_annotation = newObj;
-                }
-                const v_7 = typeof (dict["has_type_annotation"]) === "undefined" ? undefined : (dict["has_type_annotation"]);
-                if ((typeof (v_7) !== "undefined" && v_7 != null)) {
-                    obj.has_type_annotation = v_7;
-                }
-                const theValue_1 = (dict["type_annotation"] instanceof Object) ? dict["type_annotation"] : undefined;
-                if ((typeof (theValue_1) !== "undefined" && theValue_1 != null)) {
-                    const newObj_1 = yield CodeNodeLiteral.fromDictionary((theValue_1));
-                    obj.type_annotation = newObj_1;
-                }
-                const v_8 = isNaN(parseFloat(dict["double_value"])) ? undefined : parseFloat(dict["double_value"]);
-                if ((typeof (v_8) !== "undefined" && v_8 != null)) {
-                    obj.double_value = v_8;
-                }
-                const v_9 = (typeof (dict["string_value"]) != "string") ? undefined : dict["string_value"];
-                if ((typeof (v_9) !== "undefined" && v_9 != null)) {
-                    obj.string_value = v_9;
-                }
-                const v_10 = isNaN(parseInt(dict["int_value"])) ? undefined : parseInt(dict["int_value"]);
-                if ((typeof (v_10) !== "undefined" && v_10 != null)) {
-                    obj.int_value = v_10;
-                }
-                const v_11 = typeof (dict["boolean_value"]) === "undefined" ? undefined : (dict["boolean_value"]);
-                if ((typeof (v_11) !== "undefined" && v_11 != null)) {
-                    obj.boolean_value = v_11;
-                }
-                const theValue_2 = (dict["expression_value"] instanceof Object) ? dict["expression_value"] : undefined;
-                if ((typeof (theValue_2) !== "undefined" && theValue_2 != null)) {
-                    const newObj_2 = yield CodeNodeLiteral.fromDictionary((theValue_2));
-                    obj.expression_value = newObj_2;
-                }
-                const values_1 = (dict["props"] instanceof Object) ? dict["props"] : undefined;
-                if ((typeof (values_1) !== "undefined" && values_1 != null)) {
-                    const theObjprops = values_1;
-                    const obj_keys = Object.keys(theObjprops);
-                    yield operatorsOf.forEach_12(obj_keys, ((item, index) => __awaiter(this, void 0, void 0, function* () {
-                        const theValue_3 = (theObjprops[item] instanceof Object) ? theObjprops[item] : undefined;
-                        if ((typeof (theValue_3) !== "undefined" && theValue_3 != null)) {
-                            const newObj_3 = yield CodeNodeLiteral.fromDictionary((theValue_3));
-                            obj.props[item] = newObj_3;
-                        }
-                    })));
-                }
-                const values_2 = (dict["prop_keys"] instanceof Array) ? dict["prop_keys"] : undefined;
-                if ((typeof (values_2) !== "undefined" && values_2 != null)) {
-                    const arr_1 = values_2;
-                    yield operatorsOf_57.forEach_58(arr_1, ((item, index) => {
-                        if (typeof (item) === 'string') /* union case for string */ {
-                            var oo_1 = item;
-                            obj.prop_keys.push(oo_1);
-                        }
-                        ;
-                    }));
-                }
-                const values_3 = (dict["comments"] instanceof Array) ? dict["comments"] : undefined;
-                if ((typeof (values_3) !== "undefined" && values_3 != null)) {
-                    const arr_2 = values_3;
-                    yield operatorsOf_57.forEach_58(arr_2, ((item, index) => __awaiter(this, void 0, void 0, function* () {
-                        if (item instanceof Object) /* union case */ {
-                            var oo_2 = item;
-                            const newObj_4 = yield CodeNodeLiteral.fromDictionary(oo_2);
-                            obj.comments.push(newObj_4);
-                        }
-                        ;
-                    })));
-                }
-                const values_4 = (dict["children"] instanceof Array) ? dict["children"] : undefined;
-                if ((typeof (values_4) !== "undefined" && values_4 != null)) {
-                    const arr_3 = values_4;
-                    yield operatorsOf_57.forEach_58(arr_3, ((item, index) => __awaiter(this, void 0, void 0, function* () {
-                        if (item instanceof Object) /* union case */ {
-                            var oo_3 = item;
-                            const newObj_5 = yield CodeNodeLiteral.fromDictionary(oo_3);
-                            obj.children.push(newObj_5);
-                        }
-                        ;
-                    })));
-                }
-                const values_5 = (dict["attrs"] instanceof Array) ? dict["attrs"] : undefined;
-                if ((typeof (values_5) !== "undefined" && values_5 != null)) {
-                    const arr_4 = values_5;
-                    yield operatorsOf_57.forEach_58(arr_4, ((item, index) => __awaiter(this, void 0, void 0, function* () {
-                        if (item instanceof Object) /* union case */ {
-                            var oo_4 = item;
-                            const newObj_6 = yield CodeNodeLiteral.fromDictionary(oo_4);
-                            obj.attrs.push(newObj_6);
-                        }
-                        ;
-                    })));
-                }
+        const obj = new CodeNodeLiteral();
+        try {
+            const v = typeof (dict["expression"]) === "undefined" ? undefined : (dict["expression"]);
+            if ((typeof (v) !== "undefined" && v != null)) {
+                obj.expression = v;
             }
-            catch (e) {
+            const v_1 = (typeof (dict["vref"]) != "string") ? undefined : dict["vref"];
+            if ((typeof (v_1) !== "undefined" && v_1 != null)) {
+                obj.vref = v_1;
             }
-            return obj;
-        });
+            const v_2 = typeof (dict["is_block_node"]) === "undefined" ? undefined : (dict["is_block_node"]);
+            if ((typeof (v_2) !== "undefined" && v_2 != null)) {
+                obj.is_block_node = v_2;
+            }
+            const v_3 = (typeof (dict["type_name"]) != "string") ? undefined : dict["type_name"];
+            if ((typeof (v_3) !== "undefined" && v_3 != null)) {
+                obj.type_name = v_3;
+            }
+            const v_4 = (typeof (dict["key_type"]) != "string") ? undefined : dict["key_type"];
+            if ((typeof (v_4) !== "undefined" && v_4 != null)) {
+                obj.key_type = v_4;
+            }
+            const v_5 = (typeof (dict["array_type"]) != "string") ? undefined : dict["array_type"];
+            if ((typeof (v_5) !== "undefined" && v_5 != null)) {
+                obj.array_type = v_5;
+            }
+            const values = (dict["ns"] instanceof Array) ? dict["ns"] : undefined;
+            if ((typeof (values) !== "undefined" && values != null)) {
+                const arr = values;
+                const arr_len = arr.length;
+                let arr_i = 0;
+                while (arr_i < arr_len) {
+                    const item = arr[arr_i];
+                    if (typeof (item) === 'string') /* union case for string */ {
+                        var oo = item;
+                        obj.ns.push(oo);
+                    }
+                    ;
+                    arr_i = arr_i + 1;
+                }
+                ;
+            }
+            const v_6 = typeof (dict["has_vref_annotation"]) === "undefined" ? undefined : (dict["has_vref_annotation"]);
+            if ((typeof (v_6) !== "undefined" && v_6 != null)) {
+                obj.has_vref_annotation = v_6;
+            }
+            const theValue = (dict["vref_annotation"] instanceof Object) ? dict["vref_annotation"] : undefined;
+            if ((typeof (theValue) !== "undefined" && theValue != null)) {
+                const newObj = CodeNodeLiteral.fromDictionary((theValue));
+                obj.vref_annotation = newObj;
+            }
+            const v_7 = typeof (dict["has_type_annotation"]) === "undefined" ? undefined : (dict["has_type_annotation"]);
+            if ((typeof (v_7) !== "undefined" && v_7 != null)) {
+                obj.has_type_annotation = v_7;
+            }
+            const theValue_1 = (dict["type_annotation"] instanceof Object) ? dict["type_annotation"] : undefined;
+            if ((typeof (theValue_1) !== "undefined" && theValue_1 != null)) {
+                const newObj_1 = CodeNodeLiteral.fromDictionary((theValue_1));
+                obj.type_annotation = newObj_1;
+            }
+            const v_8 = isNaN(parseFloat(dict["double_value"])) ? undefined : parseFloat(dict["double_value"]);
+            if ((typeof (v_8) !== "undefined" && v_8 != null)) {
+                obj.double_value = v_8;
+            }
+            const v_9 = (typeof (dict["string_value"]) != "string") ? undefined : dict["string_value"];
+            if ((typeof (v_9) !== "undefined" && v_9 != null)) {
+                obj.string_value = v_9;
+            }
+            const v_10 = isNaN(parseInt(dict["int_value"])) ? undefined : parseInt(dict["int_value"]);
+            if ((typeof (v_10) !== "undefined" && v_10 != null)) {
+                obj.int_value = v_10;
+            }
+            const v_11 = typeof (dict["boolean_value"]) === "undefined" ? undefined : (dict["boolean_value"]);
+            if ((typeof (v_11) !== "undefined" && v_11 != null)) {
+                obj.boolean_value = v_11;
+            }
+            const theValue_2 = (dict["expression_value"] instanceof Object) ? dict["expression_value"] : undefined;
+            if ((typeof (theValue_2) !== "undefined" && theValue_2 != null)) {
+                const newObj_2 = CodeNodeLiteral.fromDictionary((theValue_2));
+                obj.expression_value = newObj_2;
+            }
+            const values_1 = (dict["props"] instanceof Object) ? dict["props"] : undefined;
+            if ((typeof (values_1) !== "undefined" && values_1 != null)) {
+                const theObjprops = values_1;
+                const obj_keys = Object.keys(theObjprops);
+                const key_len = obj_keys.length;
+                let key_i = 0;
+                while (key_i < key_len) {
+                    const item_1 = obj_keys[key_i];
+                    const theValue_3 = (theObjprops[item_1] instanceof Object) ? theObjprops[item_1] : undefined;
+                    if ((typeof (theValue_3) !== "undefined" && theValue_3 != null)) {
+                        const newObj_3 = CodeNodeLiteral.fromDictionary((theValue_3));
+                        obj.props[item_1] = newObj_3;
+                    }
+                    key_i = key_i + 1;
+                }
+                ;
+            }
+            const values_2 = (dict["prop_keys"] instanceof Array) ? dict["prop_keys"] : undefined;
+            if ((typeof (values_2) !== "undefined" && values_2 != null)) {
+                const arr_1 = values_2;
+                const arr_len_1 = arr_1.length;
+                let arr_i_1 = 0;
+                while (arr_i_1 < arr_len_1) {
+                    const item_2 = arr_1[arr_i_1];
+                    if (typeof (item_2) === 'string') /* union case for string */ {
+                        var oo_1 = item_2;
+                        obj.prop_keys.push(oo_1);
+                    }
+                    ;
+                    arr_i_1 = arr_i_1 + 1;
+                }
+                ;
+            }
+            const values_3 = (dict["comments"] instanceof Array) ? dict["comments"] : undefined;
+            if ((typeof (values_3) !== "undefined" && values_3 != null)) {
+                const arr_2 = values_3;
+                const arr_len_2 = arr_2.length;
+                let arr_i_2 = 0;
+                while (arr_i_2 < arr_len_2) {
+                    const item_3 = arr_2[arr_i_2];
+                    if (item_3 instanceof Object) /* union case */ {
+                        var oo_2 = item_3;
+                        const newObj_4 = CodeNodeLiteral.fromDictionary(oo_2);
+                        obj.comments.push(newObj_4);
+                    }
+                    ;
+                    arr_i_2 = arr_i_2 + 1;
+                }
+                ;
+            }
+            const values_4 = (dict["children"] instanceof Array) ? dict["children"] : undefined;
+            if ((typeof (values_4) !== "undefined" && values_4 != null)) {
+                const arr_3 = values_4;
+                const arr_len_3 = arr_3.length;
+                let arr_i_3 = 0;
+                while (arr_i_3 < arr_len_3) {
+                    const item_4 = arr_3[arr_i_3];
+                    if (item_4 instanceof Object) /* union case */ {
+                        var oo_3 = item_4;
+                        const newObj_5 = CodeNodeLiteral.fromDictionary(oo_3);
+                        obj.children.push(newObj_5);
+                    }
+                    ;
+                    arr_i_3 = arr_i_3 + 1;
+                }
+                ;
+            }
+            const values_5 = (dict["attrs"] instanceof Array) ? dict["attrs"] : undefined;
+            if ((typeof (values_5) !== "undefined" && values_5 != null)) {
+                const arr_4 = values_5;
+                const arr_len_4 = arr_4.length;
+                let arr_i_4 = 0;
+                while (arr_i_4 < arr_len_4) {
+                    const item_5 = arr_4[arr_i_4];
+                    if (item_5 instanceof Object) /* union case */ {
+                        var oo_4 = item_5;
+                        const newObj_6 = CodeNodeLiteral.fromDictionary(oo_4);
+                        obj.attrs.push(newObj_6);
+                    }
+                    ;
+                    arr_i_4 = arr_i_4 + 1;
+                }
+                ;
+            }
+        }
+        catch (e) {
+        }
+        return obj;
     }
     ;
 }
@@ -9000,7 +9052,7 @@ class RangerSerializeClass {
         if (nn.value_type == 6) {
             if (this.canSerializeClass(nn.array_type, ctx)) {
                 wr.out("def values:JSONArrayObject (json_array)", true);
-                wr.out(((("for this." + pvar.compiledName) + " item:") + nn.array_type) + " i {", true);
+                wr.out(((("for this." + pvar.name) + " item:") + nn.array_type) + " i {", true);
                 wr.indent(1);
                 wr.out("def obj@(lives):JSONDataObject (item.toDictionary())", true);
                 wr.out("push values obj", true);
@@ -9010,7 +9062,7 @@ class RangerSerializeClass {
             }
             else {
                 wr.out("def values:JSONArrayObject (json_array)", true);
-                wr.out(((("for this." + pvar.compiledName) + " item:") + nn.array_type) + " i {", true);
+                wr.out(((("for this." + pvar.name) + " item:") + nn.array_type) + " i {", true);
                 wr.indent(1);
                 wr.out("push values item", true);
                 wr.indent(-1);
@@ -9022,10 +9074,10 @@ class RangerSerializeClass {
         if (nn.value_type == 7) {
             if (this.canSerializeClass(nn.array_type, ctx)) {
                 wr.out("def values:JSONDataObject (json_object)", true);
-                wr.out(("def keyList (keys this." + pvar.compiledName) + ")", true);
+                wr.out(("def keyList (keys this." + pvar.name) + ")", true);
                 wr.out("for keyList keyname:string index {", true);
                 wr.indent(1);
-                wr.out(("def item (unwrap (get this." + pvar.compiledName) + " keyname))", true);
+                wr.out(("def item (unwrap (get this." + pvar.name) + " keyname))", true);
                 if (ctx.isDefinedClass(nn.array_type)) {
                     wr.out("def obj@(lives):JSONDataObject (item.toDictionary())", true);
                     wr.out("set values keyname obj ", true);
@@ -9040,10 +9092,10 @@ class RangerSerializeClass {
             else {
                 if (ctx.isDefinedClass(nn.array_type) == false) {
                     wr.out("def values:JSONDataObject (json_object)", true);
-                    wr.out(("def keyList (keys this." + pvar.compiledName) + ")", true);
+                    wr.out(("def keyList (keys this." + pvar.name) + ")", true);
                     wr.out("for keyList keyname:string index {", true);
                     wr.indent(1);
-                    wr.out(("def item (unwrap (get this." + pvar.compiledName) + " keyname))", true);
+                    wr.out(("def item (unwrap (get this." + pvar.name) + " keyname))", true);
                     wr.out("set values keyname item ", true);
                     wr.indent(-1);
                     wr.out("}", true);
@@ -9054,18 +9106,18 @@ class RangerSerializeClass {
         }
         if (nn.hasFlag("optional")) {
             if (ctx.isDefinedClass(nn.type_name) == false) {
-                wr.out(((("set res  \"" + pvar.name) + "\" (unwrap this.") + pvar.compiledName) + ") ", true);
+                wr.out(((("set res  \"" + pvar.name) + "\" (unwrap this.") + pvar.name) + ") ", true);
             }
             else {
-                wr.out(((("set res  \"" + pvar.name) + "\" (call (unwrap this.") + pvar.compiledName) + ") toDictionary ()) ", true);
+                wr.out(((("set res  \"" + pvar.name) + "\" (call (unwrap this.") + pvar.name) + ") toDictionary ()) ", true);
             }
         }
         else {
             if (ctx.isDefinedClass(nn.type_name) == false) {
-                wr.out(((("set res  \"" + pvar.name) + "\" (this.") + pvar.compiledName) + ") ", true);
+                wr.out(((("set res  \"" + pvar.name) + "\" (this.") + pvar.name) + ") ", true);
             }
             else {
-                wr.out(((("set res  \"" + pvar.name) + "\" (this.") + pvar.compiledName) + ".toDictionary()) ", true);
+                wr.out(((("set res  \"" + pvar.name) + "\" (this.") + pvar.name) + ".toDictionary()) ", true);
             }
         }
     }
@@ -9077,16 +9129,20 @@ class RangerSerializeClass {
                 wr.out("if(!null? values) {", true);
                 wr.indent(1);
                 wr.out("def arr (unwrap values)", true);
-                wr.out("arr.forEach({", true);
+                wr.out("def arr_len (array_length arr)", true);
+                wr.out("def arr_i 0", true);
+                wr.out("while (arr_i < arr_len) {", true);
                 wr.indent(1);
+                wr.out("def item (getValue arr arr_i)", true);
                 wr.out("case item oo:JSONDataObject {", true);
                 wr.indent(1);
                 wr.out(("def newObj (" + nn.array_type) + ".fromDictionary(oo))", true);
                 wr.out(("push obj." + pvar.name) + " newObj", true);
                 wr.indent(-1);
                 wr.out("}", true);
+                wr.out("arr_i = arr_i + 1", true);
                 wr.indent(-1);
-                wr.out("})", true);
+                wr.out("}", true);
                 wr.indent(-1);
                 wr.out("}", true);
             }
@@ -9095,15 +9151,19 @@ class RangerSerializeClass {
                 wr.out("if(!null? values) {", true);
                 wr.indent(1);
                 wr.out("def arr (unwrap values)", true);
-                wr.out("arr.forEach({", true);
+                wr.out("def arr_len (array_length arr)", true);
+                wr.out("def arr_i 0", true);
+                wr.out("while (arr_i < arr_len) {", true);
                 wr.indent(1);
+                wr.out("def item (getValue arr arr_i)", true);
                 wr.out(("case item oo:" + nn.array_type) + " {", true);
                 wr.indent(1);
                 wr.out(("push obj." + pvar.name) + " oo", true);
                 wr.indent(-1);
                 wr.out("}", true);
+                wr.out("arr_i = arr_i + 1", true);
                 wr.indent(-1);
-                wr.out("})", true);
+                wr.out("}", true);
                 wr.indent(-1);
                 wr.out("}", true);
             }
@@ -9116,8 +9176,11 @@ class RangerSerializeClass {
                 wr.indent(1);
                 wr.out(("def theObj" + pvar.name) + " (unwrap values)", true);
                 wr.out(("def obj_keys (keys theObj" + pvar.name) + ")", true);
-                wr.out("obj_keys.forEach({", true);
+                wr.out("def key_len (array_length obj_keys)", true);
+                wr.out("def key_i 0", true);
+                wr.out("while (key_i < key_len) {", true);
                 wr.indent(1);
+                wr.out("def item (itemAt obj_keys key_i)", true);
                 if (ctx.isDefinedClass(nn.array_type)) {
                     wr.out(("def theValue (getObject theObj" + pvar.name) + " item ) ", true);
                     wr.out("if(!null? theValue) {", true);
@@ -9129,8 +9192,9 @@ class RangerSerializeClass {
                 }
                 else {
                 }
+                wr.out("key_i = key_i + 1", true);
                 wr.indent(-1);
-                wr.out("})", true);
+                wr.out("}", true);
                 wr.indent(-1);
                 wr.out("}", true);
             }
@@ -9140,8 +9204,11 @@ class RangerSerializeClass {
                 wr.indent(1);
                 wr.out(("def theObj" + pvar.name) + " (unwrap values)", true);
                 wr.out(("def obj_keys (keys theObj" + pvar.name) + ")", true);
-                wr.out("obj_keys.forEach({", true);
+                wr.out("def key_len (array_length obj_keys)", true);
+                wr.out("def key_i 0", true);
+                wr.out("while (key_i < key_len) {", true);
                 wr.indent(1);
+                wr.out("def item (itemAt obj_keys key_i)", true);
                 if (ctx.isDefinedClass(nn.array_type)) {
                 }
                 else {
@@ -9181,8 +9248,9 @@ class RangerSerializeClass {
                     }
                     ;
                 }
+                wr.out("key_i = key_i + 1", true);
                 wr.indent(-1);
-                wr.out("})", true);
+                wr.out("}", true);
                 wr.indent(-1);
                 wr.out("}", true);
             }
@@ -9302,7 +9370,7 @@ class RangerSerializeClass {
             const nn_2 = pvar_2.nameNode;
             if (nn_2.hasFlag("optional")) {
                 wr.out("; optional variable", true);
-                wr.out(("if (!null? this." + pvar_2.compiledName) + ") {", true);
+                wr.out(("if (!null? this." + pvar_2.name) + ") {", true);
                 wr.indent(1);
                 this.createWRWriter2(pvar_2, nn_2, ctx, wr);
                 wr.indent(-1);
@@ -22220,6 +22288,12 @@ class RangerRustClassWriter extends RangerGenericClassWriter {
             if (tc.is_extended_by_children) {
                 return ("Rc<RefCell<dyn " + type_string) + "Trait>>";
             }
+            if (tc.is_system) {
+                const sysName = (tc.systemNames.hasOwnProperty("rust") ? tc.systemNames["rust"] : undefined);
+                if ((typeof (sysName) !== "undefined" && sysName != null)) {
+                    return sysName;
+                }
+            }
         }
         return type_string;
     }
@@ -22377,7 +22451,7 @@ class RangerRustClassWriter extends RangerGenericClassWriter {
                             wr.out(("Rc<RefCell<dyn " + node.type_name) + "Trait>>", false);
                         }
                         else {
-                            wr.out(this.getTypeString(node.type_name), false);
+                            wr.out(this.getObjectTypeString(node.type_name, ctx), false);
                         }
                     }
                     else {
@@ -24235,16 +24309,17 @@ class RangerRustClassWriter extends RangerGenericClassWriter {
             ctx.setCurrentClass(cl);
             const wr = orig_wr;
             if (this.fileHeaderWritten == false) {
-                wr.out("#![allow(unused_parens)]", true);
-                wr.out("#![allow(unused_mut)]", true);
-                wr.out("#![allow(unused_variables)]", true);
-                wr.out("#![allow(non_snake_case)]", true);
-                wr.out("#![allow(dead_code)]", true);
-                wr.out("", true);
-                wr.out("use std::rc::Rc;", true);
-                wr.out("use std::rc::Weak;", true);
-                wr.out("use std::cell::RefCell;", true);
-                wr.out("", true);
+                const header = wr.getTag("before_imports");
+                header.out("#![allow(unused_parens)]", true);
+                header.out("#![allow(unused_mut)]", true);
+                header.out("#![allow(unused_variables)]", true);
+                header.out("#![allow(non_snake_case)]", true);
+                header.out("#![allow(dead_code)]", true);
+                header.out("", true);
+                header.out("use std::rc::Rc;", true);
+                header.out("use std::rc::Weak;", true);
+                header.out("use std::cell::RefCell;", true);
+                header.out("", true);
                 this.fileHeaderWritten = true;
             }
             let hasTraitObjectField = false;
@@ -24326,8 +24401,14 @@ class RangerRustClassWriter extends RangerGenericClassWriter {
                             wr.out(this.adjustType(pvar_2.compiledName) + ": Vec::new(), ", true);
                         }
                         else {
-                            if (pvar_2.is_optional) {
-                                wr.out(this.adjustType(pvar_2.compiledName) + ": None, ", true);
+                            if (pvar_2.isHash()) {
+                                wr.out(this.adjustType(pvar_2.compiledName) + ": HashMap::new(), ", true);
+                                wr.addImport("std::collections::HashMap");
+                            }
+                            else {
+                                if (pvar_2.is_optional) {
+                                    wr.out(this.adjustType(pvar_2.compiledName) + ": None, ", true);
+                                }
                             }
                         }
                     }
@@ -30550,8 +30631,13 @@ class RangerPythonClassWriter extends RangerGenericClassWriter {
                     if (nn.value_type == 6) {
                         wr.out(" = []", false);
                     }
-                    if (nn.value_type == 7) {
-                        wr.out(" = {}", false);
+                    else {
+                        if (nn.value_type == 7) {
+                            wr.out(" = {}", false);
+                        }
+                        else {
+                            wr.out(" = None", false);
+                        }
                     }
                 }
                 wr.newline();
@@ -30683,6 +30769,52 @@ class RangerPythonClassWriter extends RangerGenericClassWriter {
                 yield this.WalkNode(item, lambdaCtx, wr);
             }
             ;
+        });
+    }
+    ;
+    getPythonTypeName(node, ctx) {
+        let v_type = node.value_type;
+        if (((v_type == 10) || (v_type == 11)) || (v_type == 0)) {
+            v_type = node.typeNameAsType(ctx);
+        }
+        if (node.eval_type != 0) {
+            v_type = node.eval_type;
+        }
+        switch (v_type) {
+            case 3:
+                return "int";
+            case 13:
+                return "int";
+            case 14:
+                return "int";
+            case 2:
+                return "float";
+            case 4:
+                return "str";
+            case 5:
+                return "bool";
+            case 6:
+                return "list";
+            case 7:
+                return "dict";
+        }
+        ;
+        const tn = node.type_name;
+        if (ctx.isDefinedClass(tn)) {
+            const cc = ctx.findClass(tn);
+            if (cc.is_system) {
+                const sysName = (cc.systemNames.hasOwnProperty("python") ? cc.systemNames["python"] : undefined);
+                if ((typeof (sysName) !== "undefined" && sysName != null)) {
+                    return sysName;
+                }
+            }
+        }
+        return tn;
+    }
+    ;
+    writeTypeDef(node, ctx, wr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            wr.out(this.getPythonTypeName(node, ctx), false);
         });
     }
     ;
@@ -47352,40 +47484,6 @@ class operatorsOf_41 {
         return __awaiter(this, void 0, void 0, function* () {
             const parser = new RangerFlowParser();
             return yield parser.CreateFunctionObject(node, ctx, wr);
-        });
-    }
-    ;
-}
-class operatorsOfJSONArrayObject_57 {
-    constructor() {
-    }
-    static forEach_58(__self, cb) {
-        let cnt = __self.length;
-        let i_32 = 0;
-        while (cnt > 0) {
-            const value_8 = __self[i_32];
-            cb(value_8, i_32);
-            cnt = cnt - 1;
-            i_32 = i_32 + 1;
-        }
-        ;
-    }
-    ;
-}
-class operatorsOf_57 {
-    constructor() {
-    }
-    static forEach_58(__self, cb) {
-        return __awaiter(this, void 0, void 0, function* () {
-            let cnt_1 = __self.length;
-            let i_33 = 0;
-            while (cnt_1 > 0) {
-                const value_9 = __self[i_33];
-                yield cb(value_9, i_33);
-                cnt_1 = cnt_1 - 1;
-                i_33 = i_33 + 1;
-            }
-            ;
         });
     }
     ;

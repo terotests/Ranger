@@ -170,6 +170,44 @@ language {
             init _init
         }
         python {
+            ; The keywords of the language. A field named `as` wrote
+            ; `self.as = []`, which is a SyntaxError, so the program stopped
+            ; before the first statement of the main function.
+            and _and
+            as _as
+            assert _assert
+            async _async
+            await _await
+            break _break
+            class _class
+            continue _continue
+            def _def
+            del _del
+            elif _elif
+            else _else
+            except _except
+            finally _finally
+            for _for
+            from _from
+            global _global
+            if _if
+            import _import
+            in _in
+            is _is
+            lambda _lambda
+            nonlocal _nonlocal
+            not _not
+            or _or
+            pass _pass
+            raise _raise
+            return _return
+            try _try
+            while _while
+            with _with
+            yield _yield
+            None _None
+            True _True
+            False _False
             str _str
             int _int
             float _float
@@ -2229,6 +2267,14 @@ case class customException(smth:String)  extends Exception
                 swift3 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
                 swift6 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
                 cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I (block 2) i nl "}" nl )
+                ; Python needs a statement in each suite, and a generated catch
+                ; block is often empty (the @serialize writer emits one), so both
+                ; suites open with `pass`.
+                python ( nl "try:" nl I "pass" nl (block 1) i nl "except Exception:" nl I "pass" nl (block 2) i nl )
+                ; Rust has no exceptions and the target writes code that rustc
+                ; builds without a crate, so there is nothing for the catch block
+                ; to catch: the try block is written and the catch block is not.
+                rust ( nl "/* try: Rust has no exceptions, so the catch block is not written */" nl (block 1) nl )
                 * ( nl "try {" nl I (block 1) i nl "} catch(e) {" nl I (block 2) i nl "}" nl )
             }
         }
@@ -3749,7 +3795,9 @@ r_optional_primitive<double> cpp_get_map_string_double_value( std::map<std::stri
                 ranger ( "(get " (e 1) " " (e 2) ")")                 
                 llvm ( "(get " (e 1) " " (e 2) ")")
                 java7 ( (e 1) ".get(" (e 2) ")" )
-                rust ( (e 1) ".get(" (e 2) ")" )
+                ; HashMap::get hands back Option<&T>, and the operator is typed
+                ; to give an optional T, so the borrow is cloned away.
+                rust ( (e 1) ".get(&" (e 2) ").cloned()" )
                 cpp ( "r_map_get_val(" (e 1) ", " (e 2) ")"
 (create_polyfill
 "

@@ -185,11 +185,17 @@ class RangerPythonClassWriter {
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
       } {
+        ; A field with no value still needs one. Without the None branch the
+        ; line read `self.one`, which raises AttributeError the first time the
+        ; class is constructed. writeVarDef below does the same for locals.
         if (nn.value_type == RangerNodeType.Array) {
           wr.out(" = []" false)
-        }
-        if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = {}" false)
+        } {
+          if (nn.value_type == RangerNodeType.Hash) {
+            wr.out(" = {}" false)
+          } {
+            wr.out(" = None" false)
+          }
         }
       }
       wr.newline()
@@ -305,6 +311,62 @@ class RangerPythonClassWriter {
       this.WalkNode(item lambdaCtx wr)
     }
   } 
+
+  ; The Python target writes no type annotations, so a type name only reaches
+  ; the output through a `(typeof N)` template — `isinstance` in the union
+  ; `case` is the one that matters. The name there has to be the Python type,
+  ; not the Ranger one: `isinstance(item, dict)`, never
+  ; `isinstance(item, JSONDataObject)`.
+  fn getPythonTypeName:string (node:CodeNode ctx:RangerAppWriterContext) {
+    def v_type:RangerNodeType node.value_type
+    if (((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef)) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
+    }
+    if (node.eval_type != RangerNodeType.NoType) {
+      v_type = node.eval_type
+    }
+    switch v_type {
+      case RangerNodeType.Integer {
+        return "int"
+      }
+      case RangerNodeType.Enum {
+        return "int"
+      }
+      case RangerNodeType.Char {
+        return "int"
+      }
+      case RangerNodeType.Double {
+        return "float"
+      }
+      case RangerNodeType.String {
+        return "str"
+      }
+      case RangerNodeType.Boolean {
+        return "bool"
+      }
+      case RangerNodeType.Array {
+        return "list"
+      }
+      case RangerNodeType.Hash {
+        return "dict"
+      }
+    }
+    def tn:string node.type_name
+    if (ctx.isDefinedClass(tn)) {
+      def cc:RangerAppClassDesc (ctx.findClass(tn))
+      if cc.is_system {
+        def sysName@(optional):string (get cc.systemNames "python")
+        if (!null? sysName) {
+          return (unwrap sysName)
+        }
+      }
+    }
+    return tn
+  }
+
+  fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out((this.getPythonTypeName(node ctx)) false)
+  }
 
   fn writeClassVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ; Python doesn't need class variable declarations at class level

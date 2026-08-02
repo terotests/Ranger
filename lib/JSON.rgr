@@ -7,6 +7,16 @@
 ; https://msdn.microsoft.com/en-us/library/system.json.jsonobject(v=vs.95).aspx
 
 
+; Python and Rust hold the same three shapes as every other target: an object,
+; an array and a value that is one of the two plus the scalars.
+;
+; Python has the shapes in the language, so the mapping is dict / list / object
+; and the `json` module of the standard library reads and writes the text.
+;
+; Rust has no JSON type in the standard library and the target writes code that
+; `rustc` builds without a crate, so the value is the RJson enum that the
+; polyfills below declare. An object is a HashMap of it and an array is a Vec of
+; it, both spelled in full so that no `use` line is needed.
 systemclass JSONDataObject {
     es6 Object
     java7 JSONObject ( (imp "org.json.JSONObject") )
@@ -14,6 +24,8 @@ systemclass JSONDataObject {
     go "map[string]interface{}"
     swift3 '[String:Any]'
     swift6 '[String:Any]'
+    python dict
+    rust "std::collections::HashMap<String, RJson>"
 }
 
 systemclass JSONArrayObject {
@@ -23,6 +35,8 @@ systemclass JSONArrayObject {
     go "[]interface{}"
     swift3 '[Any]'
     swift6 '[Any]'
+    python list
+    rust "Vec<RJson>"
 }
 
 systemclass JSONKeyValue {
@@ -36,6 +50,8 @@ systemclass JSONValueUnion {
     go "interface{}"
     swift3 Any
     swift6 Any
+    python object
+    rust RJson
 }
 
 systemunion JSONValueUnion ( JSONDataObject JSONArrayObject string int double boolean )
@@ -75,7 +91,9 @@ operators {
                 "console.log(JSON.stringify(" (e 1) "));" nl
             )
             java7 @macro(true) ("print (to_string " (e 1) " )" (imp "org.json.JSONObject"))
-        }        
+            python ( "print(json.dumps(" (e 1) "))" (imp "json") )
+            rust @macro(true) ("print (to_string " (e 1) " )")
+        }
     }
 
     getStr _@(optional):string (e:JSONDataObject key:string) {
@@ -138,13 +156,25 @@ func r_get_opt_json_string( data map[string]interface{}, key string ) *GoNullabl
     res.has_value = false
     return res
 }
-")            
+")
 
+            )
+            python ( "(lambda v: v if isinstance(v, str) else None)(" (e 1) ".get(" (e 2) "))" )
+            rust ( "r_json_get_str(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_get_str(o: &std::collections::HashMap<String, RJson>, k: &str) -> Option<String> {
+    match o.get(k) { Some(RJson::Str(v)) => Some(v.clone()), _ => None }
+}
+")
             )
 
 
-        }                
-    } 
+        }
+    }
 
     getInt _@(optional):int (e:JSONDataObject key:string) {
          templates {
@@ -172,12 +202,24 @@ func r_get_opt_json_int( data map[string]interface{}, key string ) *GoNullable  
     res.has_value = false
     return res
 }
-")            
+")
 
             )
-            
-        }                
-    } 
+            python ( "(lambda v: v if isinstance(v, int) and not isinstance(v, bool) else None)(" (e 1) ".get(" (e 2) "))" )
+            rust ( "r_json_get_int(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_get_int(o: &std::collections::HashMap<String, RJson>, k: &str) -> Option<i64> {
+    match o.get(k) { Some(RJson::Int(v)) => Some(*v), Some(RJson::Double(v)) => Some(*v as i64), _ => None }
+}
+")
+            )
+
+        }
+    }
 
     getDouble _@(optional):double (e:JSONDataObject key:string) {
          templates {
@@ -205,12 +247,24 @@ func r_get_opt_json_double( data map[string]interface{}, key string ) *GoNullabl
     res.has_value = false
     return res
 }
-")            
+")
 
             )
-            
-        }                
-    } 
+            python ( "(lambda v: float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None)(" (e 1) ".get(" (e 2) "))" )
+            rust ( "r_json_get_double(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_get_double(o: &std::collections::HashMap<String, RJson>, k: &str) -> Option<f64> {
+    match o.get(k) { Some(RJson::Double(v)) => Some(*v), Some(RJson::Int(v)) => Some(*v as f64), _ => None }
+}
+")
+            )
+
+        }
+    }
 
     getBoolean _@(optional):boolean (e:JSONDataObject key:string) {
          templates {
@@ -238,11 +292,23 @@ func r_get_opt_json_bool( data map[string]interface{}, key string ) *GoNullable 
     res.has_value = false
     return res
 }
-")            
+")
 
             )
-        }                
-    } 
+            python ( "(lambda v: v if isinstance(v, bool) else None)(" (e 1) ".get(" (e 2) "))" )
+            rust ( "r_json_get_bool(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_get_bool(o: &std::collections::HashMap<String, RJson>, k: &str) -> Option<bool> {
+    match o.get(k) { Some(RJson::Bool(v)) => Some(*v), _ => None }
+}
+")
+            )
+        }
+    }
 
     getObject _@(optional):JSONDataObject (e:JSONDataObject key:string) {
          templates {
@@ -286,11 +352,23 @@ func r_get_opt_json_obj( data map[string]interface{}, key string ) *GoNullable  
     res.has_value = false
     return res
 }
-")            
+")
 
             )
-        }                
-    } 
+            python ( "(lambda v: v if isinstance(v, dict) else None)(" (e 1) ".get(" (e 2) "))" )
+            rust ( "r_json_get_obj(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_get_obj(o: &std::collections::HashMap<String, RJson>, k: &str) -> Option<std::collections::HashMap<String, RJson>> {
+    match o.get(k) { Some(RJson::Obj(v)) => Some(v.clone()), _ => None }
+}
+")
+            )
+        }
+    }
 
 
     ; todo: proper array detection for optionals
@@ -320,11 +398,23 @@ func r_get_opt_array( data map[string]interface{}, key string ) *GoNullable  {
     res.has_value = false
     return res
 }
-')            
+')
 
             )
-        }                
-    } 
+            python ( "(lambda v: v if isinstance(v, list) else None)(" (e 1) ".get(" (e 2) "))" )
+            rust ( "r_json_get_arr(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_get_arr(o: &std::collections::HashMap<String, RJson>, k: &str) -> Option<Vec<RJson>> {
+    match o.get(k) { Some(RJson::Arr(v)) => Some(v.clone()), _ => None }
+}
+")
+            )
+        }
+    }
 
     keys _:[string] (e:JSONDataObject) {
         templates {
@@ -383,6 +473,13 @@ static ArrayList<String> __getJSONKeys(JSONObject obj)
                     "return strkeys" nl i "})()"
                 (imp "reflect"))
             php  ("array_keys(" (e 1) ")")
+            python ( "list(" (e 1) ".keys())" )
+            rust ( (e 1) ".keys().cloned().collect::<Vec<String>>()"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
         }
     }
 
@@ -400,7 +497,14 @@ func r_is_obj_array( data inteface{} ) bool {
     }
     return false
 }
-")            
+")
+            )
+            python ( "isinstance(" (e 1) ", list)" )
+            rust ( "matches!(&" (e 1) ", RJson::Arr(_))"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
             )
         }
     }
@@ -408,7 +512,19 @@ func r_is_obj_array( data inteface{} ) bool {
     asArray _@(optional):JSONArrayObject (e:JSONValueUnion) {
         templates {
             es6 ( (e 1) " instanceof Array ? " (e 1 ) " : undefined")
-        }        
+            python ( "(lambda v: v if isinstance(v, list) else None)(" (e 1) ")" )
+            rust ( "r_json_as_arr(&" (e 1) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_as_arr(v: &RJson) -> Option<Vec<RJson>> {
+    match v { RJson::Arr(a) => Some(a.clone()), _ => None }
+}
+")
+            )
+        }
     }
 
     getValue _:JSONValueUnion (e:JSONArrayObject index:int) {
@@ -438,19 +554,39 @@ static Object __getJSONValue(JSONArray o, Integer item)
             kotlin ( (e 1) ".get(" (e 2) ")")
             go ( (e 1) "[" (e 2) "]")
             php ( (e 1) "[" (e 2) "]")
+            python ( (e 1) "[" (e 2) "]")
+            rust ( "r_json_at(&" (e 1) ", " (e 2) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_at(a: &Vec<RJson>, i: i64) -> RJson {
+    if i < 0 || (i as usize) >= a.len() { return RJson::Null; }
+    a[i as usize].clone()
+}
+")
+            )
         }
     }
 
     array_length _:int (e:JSONArrayObject) {
         templates {
             ranger ("(array_length " (e 1) ")")
-            es6 ( (e 1) ".length") 
+            es6 ( (e 1) ".length")
             java7 ( (e 1) ".length()" )
             kotlin ( (e 1) ".length()" )
             swift3 ( (e 1) ".count")
             swift6 ( (e 1) ".count")
             go( "int64(len(" (e 1) "))" )
             php ( "count(" (e 1) ")" )
+            python ( "len(" (e 1) ")" )
+            rust ( "((" (e 1) ").len() as i64)"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
         }
     }
 
@@ -464,6 +600,13 @@ static Object __getJSONValue(JSONArray o, Integer item)
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
             swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+            python ( (e 1) "[" (e 2) "] = " (e 3) )
+            rust ( (e 1) ".insert((" (e 2) ").to_string(), RJson::Int((" (e 3) ") as i64));"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
         }
     }
 
@@ -477,6 +620,13 @@ static Object __getJSONValue(JSONArray o, Integer item)
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
             swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+            python ( (e 1) "[" (e 2) "] = " (e 3) )
+            rust ( (e 1) ".insert((" (e 2) ").to_string(), RJson::Str((" (e 3) ").to_string()));"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
         }
     }
 
@@ -490,6 +640,13 @@ static Object __getJSONValue(JSONArray o, Integer item)
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
             swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+            python ( (e 1) "[" (e 2) "] = " (e 3) )
+            rust ( (e 1) ".insert((" (e 2) ").to_string(), RJson::Int(" (e 3) "));"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
         }
     }
 
@@ -503,6 +660,13 @@ static Object __getJSONValue(JSONArray o, Integer item)
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
             swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+            python ( (e 1) "[" (e 2) "] = " (e 3) )
+            rust ( (e 1) ".insert((" (e 2) ").to_string(), RJson::Double(" (e 3) "));"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
         }
     }
 
@@ -516,6 +680,13 @@ static Object __getJSONValue(JSONArray o, Integer item)
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
             swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+            python ( (e 1) "[" (e 2) "] = " (e 3) )
+            rust ( (e 1) ".insert((" (e 2) ").to_string(), RJson::Bool(" (e 3) "));"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
         }
     }
 
@@ -529,6 +700,61 @@ static Object __getJSONValue(JSONArray o, Integer item)
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
             swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+            python ( (e 1) "[" (e 2) "] = " (e 3) )
+            ; The value is one of the six members of the union, so the RJsonValue
+            ; trait picks the variant that fits the type the argument has.
+            rust ( (e 1) ".insert((" (e 2) ").to_string(), (" (e 3) ").r_json_value());"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+trait RJsonValue { fn r_json_value(&self) -> RJson; }
+impl RJsonValue for i64 { fn r_json_value(&self) -> RJson { RJson::Int(*self) } }
+impl RJsonValue for i32 { fn r_json_value(&self) -> RJson { RJson::Int(*self as i64) } }
+impl RJsonValue for f64 { fn r_json_value(&self) -> RJson { RJson::Double(*self) } }
+impl RJsonValue for bool { fn r_json_value(&self) -> RJson { RJson::Bool(*self) } }
+impl RJsonValue for String { fn r_json_value(&self) -> RJson { RJson::Str(self.clone()) } }
+impl RJsonValue for str { fn r_json_value(&self) -> RJson { RJson::Str(self.to_string()) } }
+impl RJsonValue for Vec<RJson> { fn r_json_value(&self) -> RJson { RJson::Arr(self.clone()) } }
+impl RJsonValue for std::collections::HashMap<String, RJson> { fn r_json_value(&self) -> RJson { RJson::Obj(self.clone()) } }
+impl RJsonValue for RJson { fn r_json_value(&self) -> RJson { self.clone() } }
+")
+            )
+        }
+    }
+
+    ; Rust narrows a union by matching the enum variant, and the variant is not
+    ; the type name that `(typeof 2)` writes, so the generic `case` in stdlib.rgr
+    ; can not serve it. These two entries name the JSON shapes directly. A target
+    ; that has no template here does not match them and reaches the generic one.
+    case _@(newcontext):void ( arg@(union):JSONValueUnion item@(define):JSONDataObject code:block ) {
+        templates {
+            rust (
+                (forkctx _ ) (def 2) "if let RJson::Obj(" (e 2) ") = &" (e 1) " {" nl I
+                        "let mut " (e 2) " : std::collections::HashMap<String, RJson> = " (e 2) ".clone();" nl
+                        (block 3)
+                        nl i "}"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
+        }
+    }
+
+    case _@(newcontext):void ( arg@(union):JSONValueUnion item@(define):JSONArrayObject code:block ) {
+        templates {
+            rust (
+                (forkctx _ ) (def 2) "if let RJson::Arr(" (e 2) ") = &" (e 1) " {" nl I
+                        "let mut " (e 2) " : Vec<RJson> = " (e 2) ".clone();" nl
+                        (block 3)
+                        nl i "}"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
         }
     }
 
@@ -566,9 +792,108 @@ function r_json_to_array($str) {
 }
 "
 
-)            
+)
             )
-        }        
+            python ( "json.loads(" (e 1) ")" (imp "json") )
+            rust ( "r_json_parse_obj(&" (e 1) ")"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_skip_ws(s: &[u8], i: &mut usize) {
+    while *i < s.len() && (s[*i] == 32 || s[*i] == 9 || s[*i] == 10 || s[*i] == 13) { *i += 1; }
+}
+fn r_json_read_string(s: &[u8], i: &mut usize) -> String {
+    let mut out: Vec<u8> = Vec::new();
+    *i += 1;
+    while *i < s.len() && s[*i] != 34 {
+        if s[*i] == 92 && (*i + 1) < s.len() {
+            *i += 1;
+            let e = s[*i];
+            if e == 110 { out.push(10); }
+            else if e == 116 { out.push(9); }
+            else if e == 114 { out.push(13); }
+            else if e == 98 { out.push(8); }
+            else if e == 102 { out.push(12); }
+            else if e == 117 {
+                let mut code: u32 = 0;
+                let mut k = 0;
+                while k < 4 && (*i + 1) < s.len() {
+                    *i += 1;
+                    code = code * 16 + (s[*i] as char).to_digit(16).unwrap_or(0);
+                    k += 1;
+                }
+                let mut buf = [0u8; 4];
+                let ch = char::from_u32(code).unwrap_or(63 as char);
+                out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+            }
+            else { out.push(e); }
+        } else {
+            out.push(s[*i]);
+        }
+        *i += 1;
+    }
+    *i += 1;
+    String::from_utf8_lossy(&out).to_string()
+}
+fn r_json_read_value(s: &[u8], i: &mut usize) -> RJson {
+    r_json_skip_ws(s, i);
+    if *i >= s.len() { return RJson::Null; }
+    let c = s[*i];
+    if c == 123 {
+        let mut o: std::collections::HashMap<String, RJson> = std::collections::HashMap::new();
+        *i += 1;
+        loop {
+            r_json_skip_ws(s, i);
+            if *i >= s.len() || s[*i] == 125 { *i += 1; break; }
+            if s[*i] == 44 { *i += 1; continue; }
+            if s[*i] != 34 { *i += 1; continue; }
+            let key = r_json_read_string(s, i);
+            r_json_skip_ws(s, i);
+            if *i < s.len() && s[*i] == 58 { *i += 1; }
+            let value = r_json_read_value(s, i);
+            o.insert(key, value);
+        }
+        return RJson::Obj(o);
+    }
+    if c == 91 {
+        let mut a: Vec<RJson> = Vec::new();
+        *i += 1;
+        loop {
+            r_json_skip_ws(s, i);
+            if *i >= s.len() || s[*i] == 93 { *i += 1; break; }
+            if s[*i] == 44 { *i += 1; continue; }
+            let value = r_json_read_value(s, i);
+            a.push(value);
+        }
+        return RJson::Arr(a);
+    }
+    if c == 34 { return RJson::Str(r_json_read_string(s, i)); }
+    if c == 116 { *i += 4; return RJson::Bool(true); }
+    if c == 102 { *i += 5; return RJson::Bool(false); }
+    if c == 110 { *i += 4; return RJson::Null; }
+    let start = *i;
+    let mut is_double = false;
+    while *i < s.len() {
+        let d = s[*i];
+        if d == 46 || d == 101 || d == 69 { is_double = true; }
+        if d == 44 || d == 125 || d == 93 || d == 32 || d == 10 || d == 13 || d == 9 { break; }
+        *i += 1;
+    }
+    let text = String::from_utf8_lossy(&s[start..*i]).to_string();
+    if is_double { RJson::Double(text.parse::<f64>().unwrap_or(0.0)) } else { RJson::Int(text.parse::<i64>().unwrap_or(0)) }
+}
+fn r_json_parse_obj(text: &str) -> std::collections::HashMap<String, RJson> {
+    let mut i: usize = 0;
+    match r_json_read_value(text.as_bytes(), &mut i) {
+        RJson::Obj(o) => o,
+        _ => std::collections::HashMap::new(),
+    }
+}
+")
+            )
+        }
     }
 
     to_string _:string (e:JSONDataObject) {
@@ -599,10 +924,70 @@ func __toJSONData ( data interface{} ) string {
 	b, _ := json.Marshal(data)
 	return string(b)
 }
-")            
+")
             )
             php ( "json_encode(" (e 1) ")")
-        }        
+            python ( "json.dumps(" (e 1) ")" (imp "json") )
+            rust ( "r_json_to_string(&RJson::Obj(" (e 1) ".clone()))"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_escape(s: &str, out: &mut String) {
+    out.push(34 as u8 as char);
+    for c in s.chars() {
+        let n = c as u32;
+        if n == 34 || n == 92 { out.push(92 as u8 as char); out.push(c); }
+        else if n == 10 { out.push(92 as u8 as char); out.push('n'); }
+        else if n == 13 { out.push(92 as u8 as char); out.push('r'); }
+        else if n == 9 { out.push(92 as u8 as char); out.push('t'); }
+        else if n < 0x20 {
+            out.push(92 as u8 as char);
+            out.push('u');
+            out.push_str(&format!(\"{:04x}\", n));
+        }
+        else { out.push(c); }
+    }
+    out.push(34 as u8 as char);
+}
+fn r_json_write(v: &RJson, out: &mut String) {
+    match v {
+        RJson::Null => out.push_str(\"null\"),
+        RJson::Bool(b) => out.push_str(if *b { \"true\" } else { \"false\" }),
+        RJson::Int(i) => out.push_str(&i.to_string()),
+        RJson::Double(d) => { if d.is_finite() { out.push_str(&format!(\"{}\", d)) } else { out.push_str(\"null\") } }
+        RJson::Str(s) => r_json_escape(s, out),
+        RJson::Arr(a) => {
+            out.push('[');
+            for (i, it) in a.iter().enumerate() {
+                if i > 0 { out.push(','); }
+                r_json_write(it, out);
+            }
+            out.push(']');
+        }
+        RJson::Obj(o) => {
+            let mut keys: Vec<&String> = o.keys().collect();
+            keys.sort();
+            out.push('{');
+            for (i, k) in keys.iter().enumerate() {
+                if i > 0 { out.push(','); }
+                r_json_escape(k, out);
+                out.push(':');
+                r_json_write(&o[*k], out);
+            }
+            out.push('}');
+        }
+    }
+}
+fn r_json_to_string(v: &RJson) -> String {
+    let mut out = String::new();
+    r_json_write(v, &mut out);
+    out
+}
+")
+            )
+        }
     }
 
     to_string _:string (e:JSONArrayObject) {
@@ -621,10 +1006,70 @@ func __toJSONData ( data interface{} ) string {
 	b, _ := json.Marshal(data)
 	return string(b)
 }
-")            
+")
             )
             php ( "json_encode(" (e 1) ")")
-        }        
+            python ( "json.dumps(" (e 1) ")" (imp "json") )
+            rust ( "r_json_to_string(&RJson::Arr(" (e 1) ".clone()))"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+fn r_json_escape(s: &str, out: &mut String) {
+    out.push(34 as u8 as char);
+    for c in s.chars() {
+        let n = c as u32;
+        if n == 34 || n == 92 { out.push(92 as u8 as char); out.push(c); }
+        else if n == 10 { out.push(92 as u8 as char); out.push('n'); }
+        else if n == 13 { out.push(92 as u8 as char); out.push('r'); }
+        else if n == 9 { out.push(92 as u8 as char); out.push('t'); }
+        else if n < 0x20 {
+            out.push(92 as u8 as char);
+            out.push('u');
+            out.push_str(&format!(\"{:04x}\", n));
+        }
+        else { out.push(c); }
+    }
+    out.push(34 as u8 as char);
+}
+fn r_json_write(v: &RJson, out: &mut String) {
+    match v {
+        RJson::Null => out.push_str(\"null\"),
+        RJson::Bool(b) => out.push_str(if *b { \"true\" } else { \"false\" }),
+        RJson::Int(i) => out.push_str(&i.to_string()),
+        RJson::Double(d) => { if d.is_finite() { out.push_str(&format!(\"{}\", d)) } else { out.push_str(\"null\") } }
+        RJson::Str(s) => r_json_escape(s, out),
+        RJson::Arr(a) => {
+            out.push('[');
+            for (i, it) in a.iter().enumerate() {
+                if i > 0 { out.push(','); }
+                r_json_write(it, out);
+            }
+            out.push(']');
+        }
+        RJson::Obj(o) => {
+            let mut keys: Vec<&String> = o.keys().collect();
+            keys.sort();
+            out.push('{');
+            for (i, k) in keys.iter().enumerate() {
+                if i > 0 { out.push(','); }
+                r_json_escape(k, out);
+                out.push(':');
+                r_json_write(&o[*k], out);
+            }
+            out.push('}');
+        }
+    }
+}
+fn r_json_to_string(v: &RJson) -> String {
+    let mut out = String::new();
+    r_json_write(v, &mut out);
+    out
+}
+")
+            )
+        }
     }
 
     push _@(moves@( 2 1 ) ):void ( e@(mutates):JSONArrayObject el:JSONArrayUnion) {
@@ -637,7 +1082,26 @@ func __toJSONData ( data interface{} ) string {
             swift6 ( (e 1) ".append(" (e 2) ");")
             go( (e 1) " = append(" (e 1) "," (e 2) ")")
             php ( "array_push(" (e 1) ", " (e 2) ");")
-        }           
+            python ( (e 1) ".append(" (e 2) ")")
+            rust ( (e 1) ".push((" (e 2) ").r_json_value());"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+(create_polyfill "
+trait RJsonValue { fn r_json_value(&self) -> RJson; }
+impl RJsonValue for i64 { fn r_json_value(&self) -> RJson { RJson::Int(*self) } }
+impl RJsonValue for i32 { fn r_json_value(&self) -> RJson { RJson::Int(*self as i64) } }
+impl RJsonValue for f64 { fn r_json_value(&self) -> RJson { RJson::Double(*self) } }
+impl RJsonValue for bool { fn r_json_value(&self) -> RJson { RJson::Bool(*self) } }
+impl RJsonValue for String { fn r_json_value(&self) -> RJson { RJson::Str(self.clone()) } }
+impl RJsonValue for str { fn r_json_value(&self) -> RJson { RJson::Str(self.to_string()) } }
+impl RJsonValue for Vec<RJson> { fn r_json_value(&self) -> RJson { RJson::Arr(self.clone()) } }
+impl RJsonValue for std::collections::HashMap<String, RJson> { fn r_json_value(&self) -> RJson { RJson::Obj(self.clone()) } }
+impl RJsonValue for RJson { fn r_json_value(&self) -> RJson { self.clone() } }
+")
+            )
+        }
     }
     json_array json@(expands):JSONArrayObject () {
         templates {
@@ -649,7 +1113,14 @@ func __toJSONData ( data interface{} ) string {
             kotlin ("JSONArray()")
             go ( "make([]interface{},0)" )
             php ( "array()" )
-        }        
+            python ( "[]" )
+            rust ( "Vec::<RJson>::new()"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
+        }
     }
     json_object json:JSONDataObject () {
         templates {
@@ -661,7 +1132,14 @@ func __toJSONData ( data interface{} ) string {
             kotlin ("JSONObject()")
             go ( "make(map[string]interface{})" )
             php ( "array()")
-        }        
+            python ( "{}" )
+            rust ( "std::collections::HashMap::<String, RJson>::new()"
+(create_polyfill "
+#[derive(Clone, Debug, PartialEq)]
+enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson>), Obj(std::collections::HashMap<String, RJson>) }
+")
+            )
+        }
     }
     json_array json@(expands):JSONArrayObject ( e@(block):JSONArrayUnion ) {
         templates {
@@ -672,7 +1150,8 @@ func __toJSONData ( data interface{} ) string {
             java7 ("new JSONArray" (imp "org.json.JSONArray") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
             go ( "make([]interface{},0)" )
             php ( "array()" )
-        }        
+            python ("[" ( repeat_from 1 (  (block 1) ) ) "]")
+        }
     }
     json_obj json@(expands):JSONDataObject ( e@(block):JSONObjectUnion ) {
         templates {
