@@ -2,6 +2,7 @@
 ; Extends the JavaScript lexer with TypeScript-specific keywords and tokens
 
 Import "ts_token.rgr"
+Import "ts_unicode_id.rgr"
 
 class TSLexer {
     def source:string ""
@@ -24,6 +25,12 @@ class TSLexer {
     ; division decision — `function f(){} /re/` is a regex, `({a:1}) / 2` and JSX
     ; text `{a} / {b}` are division — and only the matching `{` can tell them
     ; apart. Kept as a string so push/pop are plain concatenation and substring.
+    ; Unicode identifier tables, decoded on first use.
+    def unicodeIds:TSUnicodeId (new TSUnicodeId())
+    def idStartTable:[int]
+    def idContinueTable:[int]
+    def idTablesReady:boolean false
+
     def braceKinds:string ""
     ; Kind of the most recently closed brace, consumed by regexAllowed.
     def lastCloseKind:string "o"
@@ -95,6 +102,70 @@ class TSLexer {
         return false
     }
 
+    fn ensureIdTables:void () {
+        if idTablesReady {
+            return
+        }
+        def startSpec:string (unicodeIds.idStartSpec())
+        idStartTable = (unicodeIds.decodeRangeTable(startSpec))
+        def contSpec:string (unicodeIds.idContinueSpec())
+        idContinueTable = (unicodeIds.decodeRangeTable(contSpec))
+        idTablesReady = true
+    }
+
+    ; The code point at pos + offset, combining a surrogate pair into the single
+    ; code point it encodes. Identifier classification has to work on code
+    ; POINTS: the halves of a pair are not identifier characters on their own.
+    fn codePointAt:int (offset:int) {
+        def idx:int (pos + offset)
+        if (idx >= len) { return -1 }
+        def first:string (at source idx)
+        def hi:int (charAt first 0)
+        if (hi >= 55296) {
+            if (hi <= 56319) {
+                if ((idx + 1) < len) {
+                    def second:string (at source (idx + 1))
+                    def lo:int (charAt second 0)
+                    if (lo >= 56320) {
+                        if (lo <= 57343) {
+                            return ((((hi - 55296) * 1024) + (lo - 56320)) + 65536)
+                        }
+                    }
+                }
+            }
+        }
+        return hi
+    }
+
+    ; Number of code units the code point at the current position occupies.
+    fn codePointWidth:int () {
+        def cp:int (this.codePointAt(0))
+        if (cp > 65535) { return 2 }
+        return 1
+    }
+
+    fn isIdStartHere:boolean () {
+        def cp:int (this.codePointAt(0))
+        if (cp < 0) { return false }
+        if (cp < 128) {
+            def ch:string (at source pos)
+            return (this.isAlpha(ch))
+        }
+        this.ensureIdTables()
+        return (unicodeIds.inRangeTable(idStartTable cp))
+    }
+
+    fn isIdContinueHere:boolean () {
+        def cp:int (this.codePointAt(0))
+        if (cp < 0) { return false }
+        if (cp < 128) {
+            def ch:string (at source pos)
+            return (this.isAlphaNumCh(ch))
+        }
+        this.ensureIdTables()
+        return (unicodeIds.inRangeTable(idContinueTable cp))
+    }
+
     fn isAlpha:boolean (ch:string) {
         if ((strlen ch) == 0) { return false }
         def code:int (charAt ch 0)
@@ -111,8 +182,11 @@ class TSLexer {
         }
         if (ch == "_") { return true }
         if (ch == "$") { return true }
-        ; Unicode letters (Latin Extended, etc.) - codes > 127
-        if (code > 127) { return true }
+        ; Above ASCII, only what Unicode calls ID_Start may begin an identifier.
+        if (code > 127) {
+            this.ensureIdTables()
+            return (unicodeIds.inRangeTable(idStartTable code))
+        }
         return false
     }
 
@@ -148,8 +222,11 @@ class TSLexer {
                 return true
             }
         }
-        ; Unicode letters (Latin Extended, etc.) - codes > 127
-        if (code > 127) { return true }
+        ; Above ASCII, only what Unicode calls ID_Continue may continue one.
+        if (code > 127) {
+            this.ensureIdTables()
+            return (unicodeIds.inRangeTable(idContinueTable code))
+        }
         return false
     }
 
@@ -708,8 +785,12 @@ class TSLexer {
         def value:string ""
         while (pos < len) {
             def ch:string (this.peek())
-            if (this.isAlphaNumCh(ch)) {
+            if (this.isIdContinueHere()) {
+                def width:int (this.codePointWidth())
                 value = value + (this.advance())
+                if (width == 2) {
+                    value = value + (this.advance())
+                }
             } {
                 ; An identifier character may be written as a \uXXXX escape.
                 if (ch == "\\") {
@@ -933,7 +1014,7 @@ class TSLexer {
 
         ; Identifiers and keywords. An identifier may also *start* with a
         ; \uXXXX escape, as in `var \u0061bc;`.
-        if (this.isAlpha(ch)) { return (this.readIdentifier()) }
+        if (this.isIdStartHere()) { return (this.readIdentifier()) }
         if (ch == "\\") {
             if ((this.peekAt(1)) == "u") { return (this.readIdentifier()) }
         }
@@ -1172,7 +1253,15 @@ class TSLexer {
         if ((strlen ch) == 0) {
             return (this.makeToken("EOF" "" pos line col))
         }
+        ; A non-ASCII character that is not an identifier character and not a
+        ; punctuator gets its own type. Calling it a Punctuator made the `/` in
+        ; JSX text like `←/→` open a regex, and it must not be an expression
+        ; either.
+        def fallbackCode:int (charAt ch 0)
         this.advance()
+        if (fallbackCode > 127) {
+            return (this.makeToken("Unknown" ch startPos startLine startCol))
+        }
         return (this.makeToken("Punctuator" ch startPos startLine startCol))
     }
 
@@ -1271,6 +1360,8 @@ class TSLexer {
         if (prevType == "String") { return false }
         if (prevType == "Template") { return false }
         if (prevType == "Regex") { return false }
+        ; An unclassified character is text, not an operator position.
+        if (prevType == "Unknown") { return false }
         if (prevType == "Identifier") { return false }
         if (prevType == "TSType") { return false }
         if (prevType == "Keyword") {
