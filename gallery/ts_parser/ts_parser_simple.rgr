@@ -78,6 +78,16 @@ class TSParserSimple {
   def allowSuperProperty:boolean false
   ; Whether the class whose body is being parsed has an extends clause.
   def inDerivedClass:boolean false
+  ; Break / continue context. A bare `break` needs an enclosing iteration or
+  ; switch, a bare `continue` needs an iteration, and a labelled form needs the
+  ; label to be in scope -- `continue` additionally needs it on an iteration.
+  ; All of it is reset at a function boundary, since labels do not cross one.
+  def iterationDepth:int 0
+  def switchDepth:int 0
+  def activeLabels:[string]
+  def iterationLabels:[string]
+  ; Label being attached to the statement about to be parsed, if any.
+  def pendingLabel:string ""
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -809,11 +819,87 @@ class TSParserSimple {
     node.name = labelTok.value
     
     this.expectValue(":")
-    
+
+    if (this.isInStringList(node.name this.activeLabels)) {
+      this.syntaxError("Parse error: label '" + node.name + "' has already been declared")
+    }
+    push this.activeLabels node.name
+
+    ; `continue label` is only valid when the label names an iteration. A chain
+    ; of labels all attach to the same statement, so skip over any further
+    ; `name :` pairs before deciding: `a: b: while (1) { continue a; }`.
+    def scanIdx:int this.pos
+    def tokenTotal:int (array_length this.tokens)
+    def scanning:boolean true
+    while (scanning) {
+      def cur:Token (itemAt this.tokens scanIdx)
+      if ((cur.tokenType == "LineComment") || (cur.tokenType == "BlockComment")) {
+        scanIdx = (scanIdx + 1)
+      } {
+        def isName:boolean false
+        if ((cur.tokenType == "Identifier") || (cur.tokenType == "TSType")) { isName = true }
+        if (isName == false) {
+          scanning = false
+        } {
+          def nextIdx:int (scanIdx + 1)
+          def sawColon:boolean false
+          while (nextIdx < tokenTotal) {
+            def nxt:Token (itemAt this.tokens nextIdx)
+            if ((nxt.tokenType == "LineComment") || (nxt.tokenType == "BlockComment")) {
+              nextIdx = (nextIdx + 1)
+            } {
+              if (nxt.value == ":") { sawColon = true }
+              break
+            }
+          }
+          if sawColon {
+            scanIdx = (nextIdx + 1)
+          } {
+            scanning = false
+          }
+        }
+      }
+      if (scanIdx >= tokenTotal) {
+        scanning = false
+      }
+    }
+    def labelledTok:Token (itemAt this.tokens scanIdx)
+    def labelled:string labelledTok.value
+    if ((labelled == "for") || (labelled == "while") || (labelled == "do")) {
+      push this.iterationLabels node.name
+    }
+
     def body (this.parseStatement())
     node.body = body
-    
+
+    this.activeLabels = (this.listWithoutString(this.activeLabels node.name))
+    this.iterationLabels = (this.listWithoutString(this.iterationLabels node.name))
+
     return node
+  }
+
+  fn isInStringList:boolean (value:string list:[string]) {
+    def i:int 0
+    while (i < (array_length list)) {
+      if ((itemAt list i) == value) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  fn listWithoutString:[string] (list:[string] value:string) {
+    def out:[string]
+    def i:int 0
+    while (i < (array_length list)) {
+      def item:string (itemAt list i)
+      if (item != value) {
+        push out item
+      }
+      i = (i + 1)
+    }
+    return out
   }
   
   ; === Helper: peek next token value ===
@@ -874,6 +960,18 @@ class TSParserSimple {
       }
     }
 
+    if ((strlen node.name) == 0) {
+      if (this.iterationDepth == 0) {
+        if (this.switchDepth == 0) {
+          this.syntaxError("Parse error: 'break' outside of a loop or switch")
+        }
+      }
+    } {
+      if ((this.isInStringList(node.name this.activeLabels)) == false) {
+        this.syntaxError("Parse error: 'break " + node.name + "' does not name an enclosing label")
+      }
+    }
+
     if (this.matchValue(";")) {
       this.advance()
     }
@@ -898,6 +996,16 @@ class TSParserSimple {
       if (labelTok.line == startTok.line) {
         this.advance()
         node.name = labelTok.value
+      }
+    }
+
+    if ((strlen node.name) == 0) {
+      if (this.iterationDepth == 0) {
+        this.syntaxError("Parse error: 'continue' outside of a loop")
+      }
+    } {
+      if ((this.isInStringList(node.name this.iterationLabels)) == false) {
+        this.syntaxError("Parse error: 'continue " + node.name + "' does not name an enclosing loop")
       }
     }
 
@@ -1654,6 +1762,17 @@ class TSParserSimple {
       this.pushScope(true)
       def savedCtorSuperCall:boolean this.allowSuperCall
       def savedCtorSuperProp:boolean this.allowSuperProperty
+      ; A function is a break/continue boundary: labels do not cross it.
+      def savedctorIter:int this.iterationDepth
+      def savedctorSwitch:int this.switchDepth
+      def savedctorLabels:[string] this.activeLabels
+      def savedctorIterLabels:[string] this.iterationLabels
+      def freshctorLabels:[string]
+      def freshctorIterLabels:[string]
+      this.iterationDepth = 0
+      this.switchDepth = 0
+      this.activeLabels = freshctorLabels
+      this.iterationLabels = freshctorIterLabels
       ; `super()` is legal here only when the class has an extends clause.
       this.allowSuperCall = this.inDerivedClass
       this.allowSuperProperty = true
@@ -1681,6 +1800,10 @@ class TSParserSimple {
       this.popScope()
       this.allowSuperCall = savedCtorSuperCall
       this.allowSuperProperty = savedCtorSuperProp
+      this.iterationDepth = savedctorIter
+      this.switchDepth = savedctorSwitch
+      this.activeLabels = savedctorLabels
+      this.iterationLabels = savedctorIterLabels
 
       return member
     }
@@ -1743,6 +1866,17 @@ class TSParserSimple {
       this.pushScope(true)
       def savedMethodSuperCall:boolean this.allowSuperCall
       def savedMethodSuperProp:boolean this.allowSuperProperty
+      ; A function is a break/continue boundary: labels do not cross it.
+      def savedmethIter:int this.iterationDepth
+      def savedmethSwitch:int this.switchDepth
+      def savedmethLabels:[string] this.activeLabels
+      def savedmethIterLabels:[string] this.iterationLabels
+      def freshmethLabels:[string]
+      def freshmethIterLabels:[string]
+      this.iterationDepth = 0
+      this.switchDepth = 0
+      this.activeLabels = freshmethLabels
+      this.iterationLabels = freshmethIterLabels
       ; A member literally named "constructor" is the constructor even when it
       ; was written as a string key: class a extends b { "constructor"(){} }.
       def isCtorNamed:boolean false
@@ -1787,6 +1921,10 @@ class TSParserSimple {
       this.popScope()
       this.allowSuperCall = savedMethodSuperCall
       this.allowSuperProperty = savedMethodSuperProp
+      this.iterationDepth = savedmethIter
+      this.switchDepth = savedmethSwitch
+      this.activeLabels = savedmethLabels
+      this.iterationLabels = savedmethIterLabels
     } {
       ; Property
       member.nodeType = "PropertyDefinition"
@@ -2035,7 +2173,9 @@ class TSParserSimple {
     node.left = test
     this.expectValue(")")
     
+    this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
+    this.iterationDepth = (this.iterationDepth - 1)
     node.body = body
     
     return node
@@ -2053,7 +2193,9 @@ class TSParserSimple {
     
     this.expectValue("do")
     
+    this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
+    this.iterationDepth = (this.iterationDepth - 1)
     node.body = body
     
     this.expectValue("while")
@@ -2155,7 +2297,9 @@ class TSParserSimple {
         node.right = right
         this.expectValue(")")
         
+        this.iterationDepth = (this.iterationDepth + 1)
         def body (this.parseStatement())
+        this.iterationDepth = (this.iterationDepth - 1)
         node.body = body
         return node
       }
@@ -2178,7 +2322,9 @@ class TSParserSimple {
         node.right = right
         this.expectValue(")")
         
+        this.iterationDepth = (this.iterationDepth + 1)
         def body (this.parseStatement())
+        this.iterationDepth = (this.iterationDepth - 1)
         node.body = body
         return node
       }
@@ -2247,7 +2393,9 @@ class TSParserSimple {
           def ofRight (this.parseExpr())
           node.right = ofRight
           this.expectValue(")")
-          def ofBody (this.parseStatement())
+          this.iterationDepth = (this.iterationDepth + 1)
+        def ofBody (this.parseStatement())
+        this.iterationDepth = (this.iterationDepth - 1)
           node.body = ofBody
           return node
         }
@@ -2262,7 +2410,9 @@ class TSParserSimple {
               node.left = (unwrap initExpr.left)
               node.right = (unwrap initExpr.right)
               this.expectValue(")")
+              this.iterationDepth = (this.iterationDepth + 1)
               def inBody (this.parseStatement())
+              this.iterationDepth = (this.iterationDepth - 1)
               node.body = inBody
               return node
             }
@@ -2307,7 +2457,9 @@ class TSParserSimple {
     
     this.expectValue(")")
     
+    this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
+    this.iterationDepth = (this.iterationDepth - 1)
     node.body = body
     
     return node
@@ -2328,7 +2480,9 @@ class TSParserSimple {
     this.expectValue(")")
     
     this.expectValue("{")
-    
+
+    this.switchDepth = (this.switchDepth + 1)
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def caseNode (new TSNode())
       
@@ -2367,7 +2521,9 @@ class TSParserSimple {
       
       push node.children caseNode
     }
-    
+
+    this.switchDepth = (this.switchDepth - 1)
+
     this.expectValue("}")
     return node
   }
@@ -2747,6 +2903,17 @@ class TSParserSimple {
     ; A plain function is its own `super` boundary.
     def savedSuperCall:boolean this.allowSuperCall
     def savedSuperProp:boolean this.allowSuperProperty
+    ; A function is a break/continue boundary: labels do not cross it.
+    def savedfnIter:int this.iterationDepth
+    def savedfnSwitch:int this.switchDepth
+    def savedfnLabels:[string] this.activeLabels
+    def savedfnIterLabels:[string] this.iterationLabels
+    def freshfnLabels:[string]
+    def freshfnIterLabels:[string]
+    this.iterationDepth = 0
+    this.switchDepth = 0
+    this.activeLabels = freshfnLabels
+    this.iterationLabels = freshfnIterLabels
     this.allowSuperCall = false
     this.allowSuperProperty = false
 
@@ -2785,6 +2952,10 @@ class TSParserSimple {
     this.popScope()
     this.allowSuperCall = savedSuperCall
     this.allowSuperProperty = savedSuperProp
+    this.iterationDepth = savedfnIter
+    this.switchDepth = savedfnSwitch
+    this.activeLabels = savedfnLabels
+    this.iterationLabels = savedfnIterLabels
 
     return node
   }
@@ -5475,6 +5646,17 @@ class TSParserSimple {
           this.pushScope(true)
           def savedObjSuperCall:boolean this.allowSuperCall
           def savedObjSuperProp:boolean this.allowSuperProperty
+          ; A function is a break/continue boundary: labels do not cross it.
+          def savedobjIter:int this.iterationDepth
+          def savedobjSwitch:int this.switchDepth
+          def savedobjLabels:[string] this.activeLabels
+          def savedobjIterLabels:[string] this.iterationLabels
+          def freshobjLabels:[string]
+          def freshobjIterLabels:[string]
+          this.iterationDepth = 0
+          this.switchDepth = 0
+          this.activeLabels = freshobjLabels
+          this.iterationLabels = freshobjIterLabels
           this.allowSuperCall = false
           this.allowSuperProperty = true
           ; Parse parameters
@@ -5502,6 +5684,10 @@ class TSParserSimple {
           this.popScope()
           this.allowSuperCall = savedObjSuperCall
           this.allowSuperProperty = savedObjSuperProp
+          this.iterationDepth = savedobjIter
+          this.switchDepth = savedobjSwitch
+          this.activeLabels = savedobjLabels
+          this.iterationLabels = savedobjIterLabels
           prop.left = fnNode
           ; ESTree: kind is "get", "set", or "init" for methods
           if ((isGetter == false) && (isSetter == false)) {
@@ -5629,6 +5815,17 @@ class TSParserSimple {
     
     ; An arrow's parameters and its body share one scope.
     this.pushScope(true)
+    ; An arrow inherits `super` lexically but is still a break/continue boundary.
+    def savedArrowIter:int this.iterationDepth
+    def savedArrowSwitch:int this.switchDepth
+    def savedArrowLabels:[string] this.activeLabels
+    def savedArrowIterLabels:[string] this.iterationLabels
+    def freshArrowLabels:[string]
+    def freshArrowIterLabels:[string]
+    this.iterationDepth = 0
+    this.switchDepth = 0
+    this.activeLabels = freshArrowLabels
+    this.iterationLabels = freshArrowIterLabels
 
     ; Parse parameters
     if (this.matchValue("(")) {
@@ -5676,6 +5873,10 @@ class TSParserSimple {
     }
 
     this.popScope()
+    this.iterationDepth = savedArrowIter
+    this.switchDepth = savedArrowSwitch
+    this.activeLabels = savedArrowLabels
+    this.iterationLabels = savedArrowIterLabels
 
     return node
   }

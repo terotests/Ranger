@@ -43,7 +43,7 @@ class TSLexer  {
     }
     const ch = this.source[this.pos];
     this.pos = this.pos + 1;
-    if ( (ch == "\n") || (ch == "\r\n") ) {
+    if ( ((ch == "\n") || (ch == "\r")) || (ch == "\r\n") ) {
       this.line = this.line + 1;
       this.col = 1;
     } else {
@@ -1387,6 +1387,11 @@ class TSParserSimple  {
     this.allowSuperCall = false;
     this.allowSuperProperty = false;
     this.inDerivedClass = false;
+    this.iterationDepth = 0;
+    this.switchDepth = 0;
+    this.activeLabels = [];
+    this.iterationLabels = [];
+    this.pendingLabel = "";     /** note: unused */
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -2073,9 +2078,81 @@ class TSParserSimple  {
     const labelTok = this.expect("Identifier");
     node.name = labelTok.value;
     this.expectValue(":");
+    if ( this.isInStringList(node.name, this.activeLabels) ) {
+      this.syntaxError(("Parse error: label '" + node.name) + "' has already been declared");
+    }
+    this.activeLabels.push(node.name);
+    let scanIdx = this.pos;
+    const tokenTotal = this.tokens.length;
+    let scanning = true;
+    while (scanning) {
+      const cur = this.tokens[scanIdx];
+      if ( (cur.tokenType == "LineComment") || (cur.tokenType == "BlockComment") ) {
+        scanIdx = scanIdx + 1;
+      } else {
+        let isName = false;
+        if ( (cur.tokenType == "Identifier") || (cur.tokenType == "TSType") ) {
+          isName = true;
+        }
+        if ( isName == false ) {
+          scanning = false;
+        } else {
+          let nextIdx = scanIdx + 1;
+          let sawColon = false;
+          while (nextIdx < tokenTotal) {
+            const nxt = this.tokens[nextIdx];
+            if ( (nxt.tokenType == "LineComment") || (nxt.tokenType == "BlockComment") ) {
+              nextIdx = nextIdx + 1;
+            } else {
+              if ( nxt.value == ":" ) {
+                sawColon = true;
+              }
+              break;
+            }
+          };
+          if ( sawColon ) {
+            scanIdx = nextIdx + 1;
+          } else {
+            scanning = false;
+          }
+        }
+      }
+      if ( scanIdx >= tokenTotal ) {
+        scanning = false;
+      }
+    };
+    const labelledTok = this.tokens[scanIdx];
+    const labelled = labelledTok.value;
+    if ( ((labelled == "for") || (labelled == "while")) || (labelled == "do") ) {
+      this.iterationLabels.push(node.name);
+    }
     const body = this.parseStatement();
     node.body = body;
+    this.activeLabels = this.listWithoutString(this.activeLabels, node.name);
+    this.iterationLabels = this.listWithoutString(this.iterationLabels, node.name);
     return node;
+  };
+  isInStringList (value, list) {
+    let i = 0;
+    while (i < (list.length)) {
+      if ( (list[i]) == value ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  listWithoutString (list, value) {
+    let out = [];
+    let i = 0;
+    while (i < (list.length)) {
+      const item = list[i];
+      if ( item != value ) {
+        out.push(item);
+      }
+      i = i + 1;
+    };
+    return out;
   };
   peekNextValue () {
     const nextPos = this.pos + 1;
@@ -2118,6 +2195,17 @@ class TSParserSimple  {
         node.name = labelTok.value;
       }
     }
+    if ( (node.name.length) == 0 ) {
+      if ( this.iterationDepth == 0 ) {
+        if ( this.switchDepth == 0 ) {
+          this.syntaxError("Parse error: 'break' outside of a loop or switch");
+        }
+      }
+    } else {
+      if ( this.isInStringList(node.name, this.activeLabels) == false ) {
+        this.syntaxError(("Parse error: 'break " + node.name) + "' does not name an enclosing label");
+      }
+    }
     if ( this.matchValue(";") ) {
       this.advance();
     }
@@ -2136,6 +2224,15 @@ class TSParserSimple  {
       if ( labelTok.line == startTok.line ) {
         this.advance();
         node.name = labelTok.value;
+      }
+    }
+    if ( (node.name.length) == 0 ) {
+      if ( this.iterationDepth == 0 ) {
+        this.syntaxError("Parse error: 'continue' outside of a loop");
+      }
+    } else {
+      if ( this.isInStringList(node.name, this.iterationLabels) == false ) {
+        this.syntaxError(("Parse error: 'continue " + node.name) + "' does not name an enclosing loop");
       }
     }
     if ( this.matchValue(";") ) {
@@ -2695,6 +2792,16 @@ class TSParserSimple  {
       this.pushScope(true);
       const savedCtorSuperCall = this.allowSuperCall;
       const savedCtorSuperProp = this.allowSuperProperty;
+      const savedctorIter = this.iterationDepth;
+      const savedctorSwitch = this.switchDepth;
+      const savedctorLabels = this.activeLabels;
+      const savedctorIterLabels = this.iterationLabels;
+      let freshctorLabels = [];
+      let freshctorIterLabels = [];
+      this.iterationDepth = 0;
+      this.switchDepth = 0;
+      this.activeLabels = freshctorLabels;
+      this.iterationLabels = freshctorIterLabels;
       this.allowSuperCall = this.inDerivedClass;
       this.allowSuperProperty = true;
       this.expectValue("(");
@@ -2717,6 +2824,10 @@ class TSParserSimple  {
       this.popScope();
       this.allowSuperCall = savedCtorSuperCall;
       this.allowSuperProperty = savedCtorSuperProp;
+      this.iterationDepth = savedctorIter;
+      this.switchDepth = savedctorSwitch;
+      this.activeLabels = savedctorLabels;
+      this.iterationLabels = savedctorIterLabels;
       return member;
     }
     if ( this.matchValue("*") ) {
@@ -2759,6 +2870,16 @@ class TSParserSimple  {
       this.pushScope(true);
       const savedMethodSuperCall = this.allowSuperCall;
       const savedMethodSuperProp = this.allowSuperProperty;
+      const savedmethIter = this.iterationDepth;
+      const savedmethSwitch = this.switchDepth;
+      const savedmethLabels = this.activeLabels;
+      const savedmethIterLabels = this.iterationLabels;
+      let freshmethLabels = [];
+      let freshmethIterLabels = [];
+      this.iterationDepth = 0;
+      this.switchDepth = 0;
+      this.activeLabels = freshmethLabels;
+      this.iterationLabels = freshmethIterLabels;
       let isCtorNamed = false;
       if ( member.name == "constructor" ) {
         if ( isStatic == false ) {
@@ -2797,6 +2918,10 @@ class TSParserSimple  {
       this.popScope();
       this.allowSuperCall = savedMethodSuperCall;
       this.allowSuperProperty = savedMethodSuperProp;
+      this.iterationDepth = savedmethIter;
+      this.switchDepth = savedmethSwitch;
+      this.activeLabels = savedmethLabels;
+      this.iterationLabels = savedmethIterLabels;
     } else {
       member.nodeType = "PropertyDefinition";
       if ( isStatic ) {
@@ -2977,7 +3102,9 @@ class TSParserSimple  {
     const test = this.parseExpr();
     node.left = test;
     this.expectValue(")");
+    this.iterationDepth = this.iterationDepth + 1;
     const body = this.parseStatement();
+    this.iterationDepth = this.iterationDepth - 1;
     node.body = body;
     return node;
   };
@@ -2989,7 +3116,9 @@ class TSParserSimple  {
     node.line = startTok.line;
     node.col = startTok.col;
     this.expectValue("do");
+    this.iterationDepth = this.iterationDepth + 1;
     const body = this.parseStatement();
+    this.iterationDepth = this.iterationDepth - 1;
     node.body = body;
     this.expectValue("while");
     this.expectValue("(");
@@ -3069,7 +3198,9 @@ class TSParserSimple  {
         const right = this.parseExpr();
         node.right = right;
         this.expectValue(")");
+        this.iterationDepth = this.iterationDepth + 1;
         const body = this.parseStatement();
+        this.iterationDepth = this.iterationDepth - 1;
         node.body = body;
         return node;
       }
@@ -3091,7 +3222,9 @@ class TSParserSimple  {
         const right_1 = this.parseExpr();
         node.right = right_1;
         this.expectValue(")");
+        this.iterationDepth = this.iterationDepth + 1;
         const body_1 = this.parseStatement();
+        this.iterationDepth = this.iterationDepth - 1;
         node.body = body_1;
         return node;
       }
@@ -3150,7 +3283,9 @@ class TSParserSimple  {
           const ofRight = this.parseExpr();
           node.right = ofRight;
           this.expectValue(")");
+          this.iterationDepth = this.iterationDepth + 1;
           const ofBody = this.parseStatement();
+          this.iterationDepth = this.iterationDepth - 1;
           node.body = ofBody;
           return node;
         }
@@ -3161,7 +3296,9 @@ class TSParserSimple  {
               node.left = initExpr.left;
               node.right = initExpr.right;
               this.expectValue(")");
+              this.iterationDepth = this.iterationDepth + 1;
               const inBody = this.parseStatement();
+              this.iterationDepth = this.iterationDepth - 1;
               node.body = inBody;
               return node;
             }
@@ -3196,7 +3333,9 @@ class TSParserSimple  {
       node.right = update;
     }
     this.expectValue(")");
+    this.iterationDepth = this.iterationDepth + 1;
     const body_2 = this.parseStatement();
+    this.iterationDepth = this.iterationDepth - 1;
     node.body = body_2;
     return node;
   };
@@ -3213,6 +3352,7 @@ class TSParserSimple  {
     node.left = discriminant;
     this.expectValue(")");
     this.expectValue("{");
+    this.switchDepth = this.switchDepth + 1;
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       const caseNode = new TSNode();
       if ( this.matchValue("case") ) {
@@ -3246,6 +3386,7 @@ class TSParserSimple  {
       };
       node.children.push(caseNode);
     };
+    this.switchDepth = this.switchDepth - 1;
     this.expectValue("}");
     return node;
   };
@@ -3538,6 +3679,16 @@ class TSParserSimple  {
     this.pushScope(true);
     const savedSuperCall = this.allowSuperCall;
     const savedSuperProp = this.allowSuperProperty;
+    const savedfnIter = this.iterationDepth;
+    const savedfnSwitch = this.switchDepth;
+    const savedfnLabels = this.activeLabels;
+    const savedfnIterLabels = this.iterationLabels;
+    let freshfnLabels = [];
+    let freshfnIterLabels = [];
+    this.iterationDepth = 0;
+    this.switchDepth = 0;
+    this.activeLabels = freshfnLabels;
+    this.iterationLabels = freshfnIterLabels;
     this.allowSuperCall = false;
     this.allowSuperProperty = false;
     if ( this.matchValue("<") ) {
@@ -3567,6 +3718,10 @@ class TSParserSimple  {
     this.popScope();
     this.allowSuperCall = savedSuperCall;
     this.allowSuperProperty = savedSuperProp;
+    this.iterationDepth = savedfnIter;
+    this.switchDepth = savedfnSwitch;
+    this.activeLabels = savedfnLabels;
+    this.iterationLabels = savedfnIterLabels;
     return node;
   };
   parseParam () {
@@ -5651,6 +5806,16 @@ class TSParserSimple  {
           this.pushScope(true);
           const savedObjSuperCall = this.allowSuperCall;
           const savedObjSuperProp = this.allowSuperProperty;
+          const savedobjIter = this.iterationDepth;
+          const savedobjSwitch = this.switchDepth;
+          const savedobjLabels = this.activeLabels;
+          const savedobjIterLabels = this.iterationLabels;
+          let freshobjLabels = [];
+          let freshobjIterLabels = [];
+          this.iterationDepth = 0;
+          this.switchDepth = 0;
+          this.activeLabels = freshobjLabels;
+          this.iterationLabels = freshobjIterLabels;
           this.allowSuperCall = false;
           this.allowSuperProperty = true;
           while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
@@ -5675,6 +5840,10 @@ class TSParserSimple  {
           this.popScope();
           this.allowSuperCall = savedObjSuperCall;
           this.allowSuperProperty = savedObjSuperProp;
+          this.iterationDepth = savedobjIter;
+          this.switchDepth = savedobjSwitch;
+          this.activeLabels = savedobjLabels;
+          this.iterationLabels = savedobjIterLabels;
           prop.left = fnNode;
           if ( (isGetter == false) && (isSetter == false) ) {
             prop.kind = "init";
@@ -5763,6 +5932,16 @@ class TSParserSimple  {
       node.kind = "async";
     }
     this.pushScope(true);
+    const savedArrowIter = this.iterationDepth;
+    const savedArrowSwitch = this.switchDepth;
+    const savedArrowLabels = this.activeLabels;
+    const savedArrowIterLabels = this.iterationLabels;
+    let freshArrowLabels = [];
+    let freshArrowIterLabels = [];
+    this.iterationDepth = 0;
+    this.switchDepth = 0;
+    this.activeLabels = freshArrowLabels;
+    this.iterationLabels = freshArrowIterLabels;
     if ( this.matchValue("(") ) {
       this.advance();
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
@@ -5799,6 +5978,10 @@ class TSParserSimple  {
       node.body = body_1;
     }
     this.popScope();
+    this.iterationDepth = savedArrowIter;
+    this.switchDepth = savedArrowSwitch;
+    this.activeLabels = savedArrowLabels;
+    this.iterationLabels = savedArrowIterLabels;
     return node;
   };
   parseNewExpression () {

@@ -63,7 +63,10 @@ class TSLexer {
         }
         def ch:string (at source pos)
         pos = pos + 1
-        if ((ch == "\n") || (ch == "\r\n")) {
+        ; A lone CR is a line terminator in JS just as LF is; counting only LF
+        ; made `continue \r label` look like it was on one line, which changes
+        ; whether automatic semicolon insertion applies.
+        if ((ch == "\n") || (ch == "\r") || (ch == "\r\n")) {
             line = line + 1
             col = 1
         } {
