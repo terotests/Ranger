@@ -927,6 +927,64 @@ class RangerCppClassWriter {
     wr.out("}" false)
   } 
 
+  ; A `weak` field must not keep the object alive. C++ has std::weak_ptr, but a
+  ; weak pointer gives no member access: each read needs a `.lock()` first. So
+  ; the field takes the small wrapper `r_weak<T>` that holds the weak pointer
+  ; and gives the shared pointer back at the read. Every read site of the
+  ; generated code stays as it was, and the pair that holds each other no longer
+  ; keeps itself in memory.
+  fn cppIsWeakField:boolean (nn:CodeNode ctx:RangerAppWriterContext) {
+    if ((nn.hasFlag("weak")) == false) {
+      return false
+    }
+    def tn:string nn.type_name
+    if ((strlen tn) == 0) {
+      return false
+    }
+    if ((ctx.isDefinedClass(tn)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (ctx.findClass(tn))
+    if ((tc.isNormalClass()) == false) {
+      return false
+    }
+    return true
+  }
+
+  fn cppProgramHasWeakField:boolean (ctx:RangerAppWriterContext) {
+    def found false
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc i {
+      for cl.variables pvar:RangerAppParamDesc j {
+        if (!null? pvar.nameNode) {
+          if (this.cppIsWeakField((unwrap pvar.nameNode) ctx)) {
+            found = true
+          }
+        }
+      }
+    }
+    return found
+  }
+
+  fn writeCppWeakHelper:void (wr:CodeWriter) {
+    wr.out("// a `weak` field: it holds no reference count, and it reads like a std::shared_ptr" true)
+    wr.out("template <class T> class r_weak {" true)
+    wr.out("  public :" true)
+    wr.out("    std::weak_ptr<T> w;" true)
+    wr.out("    r_weak() { }" true)
+    wr.out("    r_weak(std::nullptr_t) { }" true)
+    wr.out("    r_weak(const std::shared_ptr<T>& s) : w(s) { }" true)
+    wr.out("    r_weak<T>& operator=(const std::shared_ptr<T>& s) { w = s; return *this; }" true)
+    wr.out("    r_weak<T>& operator=(std::nullptr_t) { w.reset(); return *this; }" true)
+    wr.out("    operator std::shared_ptr<T>() const { return w.lock(); }" true)
+    wr.out("    std::shared_ptr<T> lock() const { return w.lock(); }" true)
+    wr.out("    T* operator->() const { return w.lock().get(); }" true)
+    wr.out("    explicit operator bool() const { return !w.expired(); }" true)
+    wr.out("    bool operator==(std::nullptr_t) const { return w.expired(); }" true)
+    wr.out("    bool operator!=(std::nullptr_t) const { return !w.expired(); }" true)
+    wr.out("};" true)
+  }
+
   fn writeCppHeaderVar:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter do_initialize:boolean) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
@@ -942,7 +1000,12 @@ class RangerCppClassWriter {
       } {
         wr.out("" false)
       }
-      this.writeTypeDef((unwrap p.nameNode) ctx wr)
+      def pnn:CodeNode (unwrap p.nameNode)
+      if (this.cppIsWeakField(pnn ctx)) {
+        wr.out(("r_weak<" + pnn.type_name + ">") false)
+      } {
+        this.writeTypeDef(pnn ctx wr)
+      }
       wr.out(" " false)
       wr.out(p.compiledName false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -1001,13 +1064,101 @@ class RangerCppClassWriter {
     return false
   }
 
+  ; An object parameter is a std::shared_ptr<T>. Passing it by value costs one
+  ; atomic increment on the call and one atomic decrement on the return, for a
+  ; function that only reads the object. The ownership inference already knows
+  ; the answer: a `borrowed` parameter does not escape the function, so the
+  ; caller keeps the object alive for the whole call and the callee needs no
+  ; count of its own. Such a parameter becomes `const std::shared_ptr<T>&`.
+  ;
+  ; `const` applies to the pointer, not to the object, so `p->mutate()` still
+  ; compiles. Only a reassignment of the parameter itself would break, and
+  ; `set_cnt` excludes that case.
+  ;
+  ; The check skips a method of a class that takes part in inheritance. A base
+  ; and an override must have the same signature, and the inference runs per
+  ; function, so a base could say `borrowed` where the override says `moved`.
+  ; That would turn an override into an overload without a message.
+  ;
+  ; `needs_cpp_reference` is not a reason to keep the copy here, although
+  ; `cppReadonlyValueParam` treats it as one for a value type. On an object it
+  ; is a Rust signal (`&mut`) that C++ already ignores: a change of a field goes
+  ; through `operator->` and works on a copy of the pointer as well, and `const`
+  ; on the pointer does not stop it.
+  fn cppBorrowedObjectParam:boolean (fnDesc:RangerAppFunctionDesc arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if fnDesc.is_lambda {
+      return false
+    }
+    if (arg.ownership_resolved == false) {
+      return false
+    }
+    if (arg.ownership_kind != 2) {
+      return false
+    }
+    if (arg.set_cnt > 0) {
+      return false
+    }
+    if (null? arg.nameNode) {
+      return false
+    }
+    if (!null? fnDesc.container_class) {
+      def cc:RangerAppClassDesc (unwrap fnDesc.container_class)
+      if cc.is_inherited {
+        return false
+      }
+      if cc.is_trait {
+        return false
+      }
+      if ((array_length cc.extends_classes) > 0) {
+        return false
+      }
+    }
+    def typeNode:CodeNode (unwrap arg.nameNode)
+    def tn:string typeNode.type_name
+    if ((strlen tn) == 0) {
+      return false
+    }
+    if ((ctx.isDefinedClass(tn)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (ctx.findClass(tn))
+    if tc.is_system {
+      return false
+    }
+    if tc.is_union {
+      return false
+    }
+    if tc.is_system_union {
+      return false
+    }
+    if tc.is_trait {
+      return false
+    }
+    return true
+  }
+
+  ; The constructor of a `record` holds a marker parameter for each keyword,
+  ; next to the parameter that carries the value. The marker has a name and no
+  ; type, and only a language with keyword arguments writes it. C++ has none,
+  ; so the marker must not reach the signature: without this filter the
+  ; constructor of `record Point { def xpos:int 0 def ypos:int 0 }` comes out as
+  ; `Point::Point( xpos , int xpos , ypos , int ypos )`, which does not compile.
   fn writeArgsDef:void  (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    for fnDesc.params arg:RangerAppParamDesc i {
+    def pms (filter (fnDesc.params) {
+      if (item.nameNode.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+    for pms arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out("," false)
       }
       wr.out(" " false)
       def constRef:boolean (this.cppReadonlyValueParam(arg))
+      if (constRef == false) {
+        constRef = (this.cppBorrowedObjectParam(fnDesc arg ctx))
+      }
       if constRef {
         wr.out("const " false)
       }
@@ -1095,14 +1246,20 @@ class RangerCppClassWriter {
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
       if (!null? constr) {
+        ; A keyword marker of a record constructor names the field; it carries
+        ; no value. The signature drops it (writeArgsDef), so the call must
+        ; drop it as well, and the comma follows the arguments that are left.
+        def written 0
         for constr.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
           def n:CodeNode (itemAt givenArgs.children i)
-          if (i > 0) {
+          if (written > 0) {
             wr.out(", " false)
           }
-          if ( true || (!null? arg.nameNode) ) {
-            this.WalkNode(n ctx wr)
-          }
+          written = written + 1
+          this.WalkNode(n ctx wr)
         }
       }
       wr.out(")" false)
@@ -1139,6 +1296,60 @@ class RangerCppClassWriter {
     wr.out("}" false)
   }
   
+  ; std::enable_shared_from_this is only necessary for a class that the writer
+  ; emits shared_from_this() for, and it emits that for `this` used as a value
+  ; (see WriteVRef). The base is not free: it puts a std::weak_ptr into every
+  ; object of the class, so a program with many small objects pays two pointers
+  ; each for a feature that it never reads. Measured before this check:
+  ; jpeg_scaler.rgr 22 classes with the base and 0 calls, js_ast.rgr 41 and 0.
+  ;
+  ; A class that something extends keeps the base whatever its own body does,
+  ; because a subclass can call shared_from_this() through it.
+  fn cppUsesThisValue:boolean (body@(optional):CodeNode) {
+    def found false
+    if (null? body) {
+      return false
+    }
+    def b:CodeNode (unwrap body)
+    b.forTree({
+      if (item.vref == "this") {
+        found = true
+      }
+    })
+    return found
+  }
+
+  fn cppNeedsSharedFromThis:boolean (node:CodeNode) {
+    def cl:RangerAppClassDesc node.clDesc
+    if (null? cl) {
+      return true
+    }
+    if cl.is_inherited {
+      return true
+    }
+    def found false
+    for cl.defined_variants fnVar:string i {
+      def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+      for mVs.variants variant:RangerAppFunctionDesc j {
+        if (this.cppUsesThisValue(variant.fnBody)) {
+          found = true
+        }
+      }
+    }
+    for cl.static_methods variant:RangerAppFunctionDesc i {
+      if (this.cppUsesThisValue(variant.fnBody)) {
+        found = true
+      }
+    }
+    if (!null? cl.constructor_fn) {
+      def cfn:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+      if (this.cppUsesThisValue(cfn.fnBody)) {
+        found = true
+      }
+    }
+    return found
+  }
+
   fn writeClassHeader:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
@@ -1146,7 +1357,7 @@ class RangerCppClassWriter {
     }
     def inheritedVars:[string:boolean]
     wr.out(("class " + cl.name) , false)
-    if ( ( array_length cl.extends_classes ) > 0 ) { 
+    if ( ( array_length cl.extends_classes ) > 0 ) {
       wr.out(" : " false)
       for cl.extends_classes pName:string i {
         wr.out("public " false)
@@ -1157,7 +1368,9 @@ class RangerCppClassWriter {
         }
       }
     } {
-      wr.out(" : public std::enable_shared_from_this<" + cl.name +  "> " , false)
+      if (this.cppNeedsSharedFromThis(node)) {
+        wr.out(" : public std::enable_shared_from_this<" + cl.name +  "> " , false)
+      }
     }
 
     wr.out(" { " true)
@@ -1292,7 +1505,11 @@ class RangerCppClassWriter {
       wr.createTag("c++unions")
       wr.createTag("utilities")
       wr.out("" true)
-      wr.out("// header definitions" true)      
+      if (this.cppProgramHasWeakField(ctx)) {
+        this.writeCppWeakHelper(wr)
+        wr.out("" true)
+      }
+      wr.out("// header definitions" true)
       wr.createTag("c++Header")
       wr.out("" true)
 

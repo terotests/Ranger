@@ -547,3 +547,80 @@ Store `Weak<RefCell<dyn Trait>>` instead of `Rc`.
 Annotate classes with `@RcWrapped` to have `new()` return `Rc<RefCell<Self>>`.
 
 </details>
+
+---
+
+## Measured on the current tree (August 2026)
+
+The notes above come from one project (`evg_component_tool`). This section is a
+sweep of the sample fixtures and of one gallery program, so the numbers are
+about the target in general.
+
+### Sample of ten fixtures
+
+Eight of ten generate Rust that `rustc` builds with no error: `hello`,
+`array_push`, `class_array`, `record_basic`, `string_ops`, `buffer_test`,
+`forward_ref`, `infix_method_call`. Two do not.
+
+| Fixture | `rustc` says | Cause |
+| --- | --- | --- |
+| `inheritance.rgr` | `no field 'name' on type 'Cat'` ×2 | The subclass struct never receives the fields of the parent. |
+| `hash_map.rgr` | `an inner attribute is not permitted in this context` ×5, plus two type mismatches | A polyfill writes the `#![allow(…)]` header again below the top of the file. An inner attribute is legal only at the top. |
+
+### An object is a value, not a reference
+
+```lisp
+def a:Counter (new Counter())
+def b:Counter a
+b.add(1)
+print ("a " + (to_string a.value))
+```
+
+This prints `a 1` on JavaScript, Go, Python, C++ and Swift, because an object is
+a reference on those targets. The Rust output gives `Counter` a plain `struct`,
+so the second name moves the value:
+
+```text
+error[E0382]: borrow of moved value: `a`
+   move occurs because `a` has type `Counter`, which does not implement the `Copy` trait
+```
+
+The writer adds `.clone()` in many places to work around this — 321 calls in the
+Rust output of `jpeg_scaler.rgr` — so a program can compile and still give a
+wrong answer, because each name then holds its own copy.
+
+### `weak` does not compile
+
+```rust
+c.parent = Some(Rc::downgrade(&Rc::new(RefCell::new(p.clone()))));
+…
+let mut p : Parent = self.parent.clone().unwrap().upgrade().unwrap().borrow_mut();
+```
+
+`rustc` rejects the second line: `RefMut<Parent>` where `Parent` is expected.
+The first line holds a fault that `rustc` does not report: the `Rc` is a
+temporary, so the `Weak` is dead at the end of the statement and `upgrade()`
+gives `None`.
+
+This is the same cause as the section above. With no `Rc` holding the parent
+there is nothing to downgrade, so `weak` needs the object model first.
+
+### Operator coverage (fixed)
+
+`jpeg_scaler.rgr` compiled to Rust held three errors, all
+`Rust has no ternary operator`. The cause was `str2double`: it had no Rust
+template, so it took the default one, which is JavaScript
+(`isNaN( parseFloat(x) ) ? undefined : parseFloat(x)`).
+
+`empty`, `int2double` and `str2double` now have Rust templates, and the file
+builds with `rustc` and no error. It still writes a wrong image, for the reason
+in the two sections above.
+
+### The order of the work
+
+1. **The object model.** A class needs a shape that two names can share.
+   Everything below waits for it: `weak`, inheritance and the correctness of a
+   program that shares an object.
+2. **Inheritance.** The subclass struct needs the fields of the parent.
+3. **The inner attribute.** A polyfill must not write `#![…]` below the top of
+   the file. This one is local and small.

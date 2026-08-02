@@ -408,8 +408,19 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.out((("var $" + p.compiledName) + ";") true)
     }
   }
+  ; The constructor of a `record` holds a marker parameter for each keyword,
+  ; next to the parameter that carries the value. The marker has a name and no
+  ; type, so it must not reach the signature: without this filter the
+  ; constructor of `record Point { def xpos:int 0 def ypos:int 0 }` comes out
+  ; with four parameters, two of them without a type.
   fn writeArgsDef:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    for fnDesc.params arg:RangerAppParamDesc i {
+    def pms (filter (fnDesc.params) {
+      if (item.nameNode.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+    for pms arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out("," false)
       }
@@ -470,15 +481,19 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
       if (!null? constr) {
+        ; A keyword marker of a record constructor names the field and carries
+        ; no value. The signature drops it, so the call drops it as well.
+        def written 0
         for constr.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
           def n:CodeNode (itemAt givenArgs.children i)
-          if (i > 0) {
+          if (written > 0) {
             wr.out(", " false)
           }
-          if( true || (!null? arg.nameNode)) {
-            this.WalkNode(n ctx wr)
-          }
-          
+          written = written + 1
+          this.WalkNode(n ctx wr)
         }
       }
       wr.out(")" false)

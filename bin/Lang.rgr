@@ -519,6 +519,9 @@ func _r_sha256(value string) string {
                 rust ( "" (e 1) ".atan2(" (e 2) ")" )
                 scala ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "scala.math"))
                 cpp ( "atan2(" (e 1) ", " (e 2) ")" (imp "<math.h>"))
+                swift6 ( "atan2(" (e 1) ", " (e 2) ")" (imp "Foundation"))
+                kotlin ( "Math.atan2(" (e 1) ", " (e 2) ")" (imp "java.lang.Math"))
+                python ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "math"))
                 * ( "Math.atan2(" (e 1) ", " (e 2) ")" )
             }
         }
@@ -1192,6 +1195,11 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 cpp ( (e 1) )
                 java7 ( "Optional.of(" (e 1 ) ")")
                 go ( (e 1 ) )
+                swift6 ( "nil" )
+                kotlin ( "null" )
+                rust ( "None" )
+                python ( "None" )
+                php ( "null" )
                 * ( "undefined")
             }
         }
@@ -1682,6 +1690,15 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                     ranger ( "(int2double " (e 1) ")" ) 
                     kotlin ( (e 1) ".toDouble()" )
                     swift6 ( "Double(" (e 1) ")" )
+                    swift3 ( "Double(" (e 1) ")" )
+                    go ( "float64(" (e 1) ")" )
+                    rust ( "((" (e 1) ") as f64)" )
+                    python ( "float(" (e 1) ")" )
+                    java7 ( "((double)(" (e 1) "))" )
+                    csharp ( "((double)(" (e 1) "))" )
+                    cpp ( "((double)(" (e 1) "))" )
+                    php ( "floatval(" (e 1) ")" )
+                    scala ( "(" (e 1) ").toDouble" )
                     * ( "parseFloat(" (e 1) ")" ) 
                 } 
         }
@@ -1711,6 +1728,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 rust ( "" (e 1) ".ceil() as i64" )
                 scala ( "math.ceil(" (e 1) ").toInt" (imp "scala.math"))
                 java7 ( "(int)Math.ceil(" (e 1) ")" (imp "java.lang.Math"))
+                python ( "math.ceil(" (e 1) ")" (imp "math"))
                 * ( "Math.ceil(" (e 1) ")")
             }
         }
@@ -1727,6 +1745,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 scala ( "math.floor(" (e 1) ").toInt" (imp "scala.math"))                
                 java7 ( "(int)Math.floor(" (e 1) ")" (imp "java.lang.Math"))
                 kotlin ( "(Math.floor(" (e 1) ")).toInt()" (imp "java.lang.Math"))
+                swift6 ( "Int(floor(" (e 1) "))" (imp "Foundation"))
+                python ( "math.floor(" (e 1) ")" (imp "math"))
                 * ( "Math.floor(" (e 1) ")")
             }
         }
@@ -1742,6 +1762,9 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 rust ( "" (e 1) ".asin()" )                
                 scala ( "math.asin(" (e 1) ")" (imp "scala.math"))                
                 java7 ( "Math.asin(" (e 1) ")" (imp "java.lang.Math"))
+                swift6 ( "asin(" (e 1) ")" (imp "Foundation"))
+                kotlin ( "Math.asin(" (e 1) ")" (imp "java.lang.Math"))
+                python ( "math.asin(" (e 1) ")" (imp "math"))
                 * ( "Math.asin(" (e 1) ")")
             }
         }
@@ -1759,6 +1782,9 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 rust ( "" (e 1) ".acos()" )                
                 scala ( "math.acos(" (e 1) ")" (imp "scala.math"))                
                 java7 ( "Math.acos(" (e 1) ")" (imp "java.lang.Math"))
+                swift6 ( "acos(" (e 1) ")" (imp "Foundation"))
+                kotlin ( "Math.acos(" (e 1) ")" (imp "java.lang.Math"))
+                python ( "math.acos(" (e 1) ")" (imp "math"))
                 * ( "Math.acos(" (e 1) ")")
             }
         }
@@ -1774,6 +1800,9 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 rust ( "" (e 1) ".cos()" )                
                 scala ( "math.cos(" (e 1) ")" (imp "scala.math"))                
                 java7 ( "Math.cos(" (e 1) ")" (imp "java.lang.Math"))
+                swift6 ( "cos(" (e 1) ")" (imp "Foundation"))
+                kotlin ( "Math.cos(" (e 1) ")" (imp "java.lang.Math"))
+                python ( "math.cos(" (e 1) ")" (imp "math"))
                 * ( "Math.cos(" (e 1) ")")
             }
         }
@@ -1789,6 +1818,9 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 rust ( "" (e 1) ".sin()" )                
                 scala ( "math.sin(" (e 1) ")" (imp "scala.math"))                
                 java7 ( "Math.sin(" (e 1) ")" (imp "java.lang.Math"))
+                swift6 ( "sin(" (e 1) ")" (imp "Foundation"))
+                kotlin ( "Math.sin(" (e 1) ")" (imp "java.lang.Math"))
+                python ( "math.sin(" (e 1) ")" (imp "math"))
                 * ( "Math.sin(" (e 1) ")")
             }
         }
@@ -1805,6 +1837,9 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 scala ( "math.sqrt(" (e 1) ")" (imp "scala.math"))                
                 java7 ( "Math.sqrt(" (e 1) ")" (imp "java.lang.Math"))
                 rust ( (e 1) ".sqrt()" )
+                swift6 ( "sqrt(" (e 1) ")" (imp "Foundation"))
+                kotlin ( "Math.sqrt(" (e 1) ")" (imp "java.lang.Math"))
+                python ( "math.sqrt(" (e 1) ")" (imp "math"))
                 * ( "Math.sqrt(" (e 1) ")")
             }
         }        
@@ -3052,6 +3087,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 php ( "floor(" (e 1) ")")
                 java7 ( "Double.valueOf(" (e 1) ").intValue()")
                 cpp ( "(int)floor( " (e 1) ")" (imp "<math.h>"))
+                python ( "math.floor(" (e 1) ")" (imp "math"))
                 * ( "Math.floor( " (e 1) ")" )
             }
         }        
@@ -3531,6 +3567,15 @@ func rangerStr2IntPrefix(_ s: String) -> Int? {
                 )
                 csharp( "Int32.Parse(" (e 1) ")" )
                 rust ( (e 1) ".parse::<i64>().ok()" )
+                python ( "r_str_to_int(" (e 1) ")"
+(polyfill "after_imports" "
+def r_str_to_int(s):
+  try:
+    return int(s)
+  except (TypeError, ValueError):
+    return None
+")
+                )
                 * ( "isNaN( parseInt(" (e 1) ") ) ? undefined : parseInt(" (e 1) ")")
             }
         }
@@ -3609,6 +3654,17 @@ Double _getDoubleOrNull ( String str ) {
                 kotlin (  (e 1) ".toDoubleOrNull()")
                 swift3 ("Double(" (e 1) ")")
                 swift6 ("Double(" (e 1) ")")
+                rust ( (e 1) ".parse::<f64>().ok()" )
+                csharp ( "Double.Parse(" (e 1) ")" )
+                python ( "r_str_to_double(" (e 1) ")"
+(polyfill "after_imports" "
+def r_str_to_double(s):
+  try:
+    return float(s)
+  except (TypeError, ValueError):
+    return None
+")
+                )
                 * ( "isNaN( parseFloat(" (e 1) ") ) ? undefined : parseFloat(" (e 1) ")")
             }
         }
@@ -5509,6 +5565,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 java7 ( (e 1) ".isPresent()  && " (e 2) ".isPresent()") 
                 rust ( (e 1) ".is_some()  && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " != nil  && " (e 2) " != nil") 
+                swift6 ( (e 1) " != nil  && " (e 2) " != nil") 
                 go ( "" (e 1) ".has_value  && " "" (e 2) ".has_value")
                 cpp ( "" (e 1) "!= NULL  && " "" (e 2) " != NULL") 
                 kotlin ( (e 1) " != null  && " (e 2) " != null") 
@@ -5527,6 +5584,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
                 rust ( (e 1) " && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " && " (e 2) " != nil") 
+                swift6 ( (e 1) " && " (e 2) " != nil") 
                 go ( (e 1) " && " "" (e 2) ".has_value") 
                 cpp ( (e 1) " && " "" (e 2) "!= NULL ") 
                 kotlin ( (e 1) " && " (e 2) " != null") 
@@ -5545,6 +5603,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
                 rust ( ""(e 1) ".is_some() && " (e 2) ) 
                 swift3 ( ""(e 1) " != nil && " (e 2) ) 
+                swift6 ( ""(e 1) " != nil && " (e 2) ) 
                 go ( "" (e 1) ".has_value && " (e 2) ) 
                 cpp ( "" (e 1) " != NULL && " (e 2) ) 
                 kotlin ( ""(e 1) " != null && " (e 2) ) 

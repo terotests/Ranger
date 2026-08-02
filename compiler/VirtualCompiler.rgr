@@ -205,6 +205,7 @@ class tester {
       'plugins-only' 'ignore built-in language output and use only plugins'
       'plugins' '(node compiler only) run specified npm plugins -plugins="plugin1,plugin2"'
       'strict' 'Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.'
+      'strict-ownership' 'Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)'
       'typescript' 'Writes JavaScript code with TypeScript annotations'
       'esm' 'Writes JavaScript code with ESM module syntax'
       'npm' 'Write the package.json to the output directory' 
@@ -727,13 +728,16 @@ class tester {
         cli.step(3 "Type checking")
       }
 
-      ; Ownership inference (Phase A: target-independent escape summary).
-      ; Runs for any target when -strict-ownership is set; records inferred
-      ; OwnershipKind per parameter and reports it without changing codegen.
-      if (appCtx.hasCompilerFlag("strict-ownership")) {
+      ; Ownership inference (target-independent escape summary).
+      ; -strict-ownership runs it for any target and prints the result. The C++
+      ; writer reads the result as well: a `borrowed` object parameter becomes
+      ; `const std::shared_ptr<T>&` instead of a copy of the pointer, so the
+      ; pass must run for that target with or without the flag.
+      def ownStrict:boolean (appCtx.hasCompilerFlag("strict-ownership"))
+      if (ownStrict || (appCtx.targetLangName == "cpp")) {
         def ownAnalyzer:StaticAnalyzer (new StaticAnalyzer())
         ownAnalyzer.ctx = appCtx
-        ownAnalyzer.analyzeOwnershipAll(true)
+        ownAnalyzer.analyzeOwnershipAll(ownStrict)
       }
 
       cli.step(4 "Generating code")

@@ -1079,8 +1079,20 @@ class RangerGolangClassWriter {
       }
     }
   }
+  ; The constructor of a `record` holds a marker parameter for each keyword,
+  ; next to the parameter that carries the value. The marker has a name and no
+  ; type, and Go has no keyword argument. `writeNewCall` already drops it from
+  ; the call; without this filter the declaration keeps it, so the two do not
+  ; agree: `func CreateNew_Point(xpos (), xpos int64, ypos (), ypos int64)`
+  ; against a call with two arguments.
   fn writeArgsDef:void  (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    for fnDesc.params arg:RangerAppParamDesc i {
+    def pms (filter (fnDesc.params) {
+      if (item.nameNode.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+    for pms arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out(", " false)
       }
@@ -1639,10 +1651,17 @@ class RangerGolangClassWriter {
     wr.out((("func CreateNew_" + cl.name) + "(") false)
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
+      ; The keyword marker of a record constructor has a name and no type; only
+      ; a language with keyword arguments writes it, and this one has none.
+      def written 0
       for constr.params arg:RangerAppParamDesc i  {
-        if (i > 0) {
+        if (arg.nameNode.hasFlag("keyword")) {
+          continue
+        }
+        if (written > 0) {
           wr.out(", " false)
         }
+        written = written + 1
         wr.out((arg.name + " ") false)
         this.writeTypeDef((unwrap arg.nameNode) ctx wr)
       }

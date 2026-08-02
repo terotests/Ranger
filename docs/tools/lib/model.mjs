@@ -131,6 +131,28 @@ export function definitionKey(def) {
 }
 
 /**
+ * Constructs that only JavaScript accepts.
+ *
+ * The `*` template of an operator is the default for every target that holds no
+ * template of its own, and it is also the JavaScript template of many
+ * operators. When such a template holds `Math.ceil(…)` or `parseFloat(…)`, a
+ * target that falls back to it receives JavaScript in its output file, and the
+ * compilation still reports success. `ceil` is the example: Python has no
+ * template of its own, so a Python file gets `Math.ceil(d)`.
+ *
+ * This is a scan of the template text, not a compilation, so it finds the
+ * common constructs and not every one of them. The coverage page states that.
+ */
+const JAVASCRIPT_ONLY =
+  /\bundefined\b|\bparseFloat\(|\bparseInt\(|\bJSON\.|\bconsole\.|\bMath\.|\bObject\.keys|\btypeof\s*\(|\btypeof\s/;
+
+/** True when the default template of the definition holds a JavaScript construct. */
+export function defaultTemplateIsJavaScript(def) {
+  const template = (def.templates || {})["*"];
+  return typeof template === "string" && JAVASCRIPT_ONLY.test(template);
+}
+
+/**
  * Targets that the definition writes code for, and how.
  *
  * A target can compile through the writer of another target: TypeScript is the

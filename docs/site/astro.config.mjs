@@ -67,12 +67,16 @@ export default defineConfig({
             { label: "Types", slug: "language/types" },
             { label: "Strings", slug: "language/strings" },
             { label: "Optional values", slug: "language/optionals" },
+            { label: "Ownership and lifetime", slug: "language/ownership" },
             { label: "Operators", slug: "language/operators" },
           ],
         },
         {
           label: "Targets",
-          items: [{ label: "Target languages", slug: "targets/overview" }],
+          items: [
+            { label: "Target languages", slug: "targets/overview" },
+            { label: "Memory and ownership", slug: "targets/memory" },
+          ],
         },
         {
           label: "Operator reference",

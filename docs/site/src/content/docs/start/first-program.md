@@ -44,4 +44,6 @@ generated code of each operator for each target language.
 
 - [Program structure](/Ranger/docs/language/structure/) describes classes and functions.
 - [Types](/Ranger/docs/language/types/) describes the type system.
+- [Ownership and lifetime](/Ranger/docs/language/ownership/) describes who keeps
+  an object alive, which C++, Swift and Rust need.
 - [Target languages](/Ranger/docs/targets/overview/) describes what each target supports.

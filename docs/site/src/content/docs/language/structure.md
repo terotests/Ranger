@@ -31,7 +31,7 @@ class Counter {
 | Keyword | Function |
 | --- | --- |
 | `class` | A class with data and functions. |
-| `record` | A class that holds data only. |
+| `record` | A class that holds data only. The compiler writes a constructor that takes one argument per field, in the order of the fields. `record Point { def x:int 0 def y:int 0 }` gives `(new Point(3 4))`. A record is a reference on every target, like a class. |
 | `systemclass` | A class that the target language gives. The compiler writes no code for it. |
 | `fn` | A function of an object. |
 | `sfn` | A static function of the class. |

@@ -11,7 +11,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { CATEGORIES, CATEGORY_BY_ID } from "./lib/model.mjs";
+import { CATEGORIES, CATEGORY_BY_ID, defaultTemplateIsJavaScript } from "./lib/model.mjs";
 import { operatorFileName } from "./lib/opid.mjs";
 import { CONTENT, DATA, DESCRIPTIONS, ROOT, readJson } from "./lib/paths.mjs";
 
@@ -515,13 +515,25 @@ function coveragePage(model, examples, targets) {
   const documentedSources = new Set(
     model.sources.filter((s) => s.status !== "legacy").map((s) => s.id),
   );
+  const documentedOperators = model.operators.filter((o) => documentedSources.has(o.source));
   const perTarget = targets.map((target) => {
     const counts = { template: 0, fallback: 0, none: 0 };
-    for (const operator of model.operators.filter((o) => documentedSources.has(o.source))) {
+    for (const operator of documentedOperators) {
       counts[operator.support[target.id] || "none"] += 1;
     }
     return `| ${target.title} | ${counts.template} | ${counts.fallback} | ${counts.none} |`;
   });
+
+  // A target that falls back to a JavaScript default template receives
+  // JavaScript in its output file, and the compilation still reports success.
+  const jsFallback = targets
+    .map((target) => {
+      const names = documentedOperators
+        .filter((o) => o.support[target.id] === "fallback" && defaultTemplateIsJavaScript(o))
+        .map((o) => o.name);
+      return { target, names: [...new Set(names)].sort() };
+    })
+    .filter((row) => row.names.length > 0 && row.target.id !== "es6" && row.target.id !== "ts");
 
   return [
     frontMatter({
@@ -557,6 +569,29 @@ function coveragePage(model, examples, targets) {
     "| Target | Own template | Default template | No template |",
     "| --- | --- | --- | --- |",
     ...perTarget,
+    "",
+    "## A default template that holds JavaScript",
+    "",
+    "The `*` template is also the JavaScript template of many operators. A",
+    "target that has no template of its own then receives JavaScript in its",
+    "output file, and the compilation reports success.",
+    "",
+    "This is a scan of the template text for a construct that only JavaScript",
+    "accepts, such as `Math.` or `parseFloat(`. It finds the common ones and not",
+    "each one, so a count here is a lower limit.",
+    "",
+    ...(jsFallback.length > 0
+      ? [
+          "| Target | Operators | Names |",
+          "| --- | --- | --- |",
+          ...jsFallback.map(
+            (row) =>
+              `| ${row.target.title} | ${row.names.length} | ${row.names
+                .map((n) => `\`${n}\``)
+                .join(", ")} |`,
+          ),
+        ]
+      : ["No operator of the table above is in this state. Each target that has no", "template of its own for an operator takes a default template that the", "target language accepts."]),
     "",
     model.problems.length > 0 ? "## Problems\n" : "",
     ...model.problems.map((p) => `- \`${p.kind}\`: ${p.file || p.source} ${p.detail || ""}`),
