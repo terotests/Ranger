@@ -25,6 +25,7 @@ class TSNode {
   ; ESTree Property flags (ES2015)
   def shorthand:boolean false ; { x } shorthand property
   def computed:boolean false  ; { [expr]: value } computed property
+  def accessor:string ""      ; "get" / "set" for a class accessor member
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions
@@ -1820,6 +1821,17 @@ class TSParserSimple {
               }
             }
           }
+          ; A constructor may not be an accessor or a generator.
+          if namesConstructor {
+            if (member.kind != "static") {
+              if ((member.kind == "get") || (member.kind == "set")) {
+                this.syntaxError("Parse error: a class constructor may not be an accessor")
+              }
+              if (member.generator) {
+                this.syntaxError("Parse error: a class constructor may not be a generator")
+              }
+            }
+          }
           ; A static member may not be named `prototype`.
           if (member.kind == "static") {
             if (member.name == "prototype") {
@@ -1987,6 +1999,24 @@ class TSParserSimple {
       return member
     }
     
+    ; Accessor: get x() {} / set x(v) {}. Recognised so the member's own name
+    ; is `x` rather than `get`, which the constructor and static-prototype
+    ; checks depend on.
+    def accessorKind:string ""
+    if ((this.matchValue("get")) || (this.matchValue("set"))) {
+      def accessorWord:string (this.peekValue())
+      def afterAccessor:string (this.peekNextValue())
+      def afterAccessorType:string (this.peekNextType())
+      def looksLikeAccessor:boolean false
+      if ((afterAccessorType == "Identifier") || (afterAccessorType == "TSType") || (afterAccessorType == "Keyword") || (afterAccessorType == "String") || (afterAccessorType == "Number")) { looksLikeAccessor = true }
+      if (afterAccessor == "[") { looksLikeAccessor = true }
+      if (afterAccessor == "#") { looksLikeAccessor = true }
+      if looksLikeAccessor {
+        this.advance()
+        accessorKind = accessorWord
+      }
+    }
+
     ; Generator method: *m() {} / static *m() {} / async *m() {}
     if (this.matchValue("*")) {
       this.advance()
@@ -2032,6 +2062,12 @@ class TSParserSimple {
       member.nodeType = "MethodDefinition"
       if (isStatic) {
         member.kind = "static"
+      }
+      if ((strlen accessorKind) > 0) {
+        if (isStatic == false) {
+          member.kind = accessorKind
+        }
+        member.accessor = accessorKind
       }
       if (isAbstract) {
         member.kind = "abstract"

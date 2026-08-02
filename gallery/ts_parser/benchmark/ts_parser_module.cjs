@@ -1454,6 +1454,7 @@ class TSNode  {
     this.prefix = false;
     this.shorthand = false;
     this.computed = false;
+    this.accessor = "";
     this.method = false;
     this.generator = false;
     this.async = false;
@@ -2924,6 +2925,16 @@ class TSParserSimple  {
               }
             }
           }
+          if ( namesConstructor ) {
+            if ( member.kind != "static" ) {
+              if ( (member.kind == "get") || (member.kind == "set") ) {
+                this.syntaxError("Parse error: a class constructor may not be an accessor");
+              }
+              if ( member.generator ) {
+                this.syntaxError("Parse error: a class constructor may not be a generator");
+              }
+            }
+          }
           if ( member.kind == "static" ) {
             if ( member.name == "prototype" ) {
               this.syntaxError("Parse error: a static class member may not be named 'prototype'");
@@ -3060,6 +3071,26 @@ class TSParserSimple  {
       this.iterationLabels = savedctorIterLabels;
       return member;
     }
+    let accessorKind = "";
+    if ( this.matchValue("get") || this.matchValue("set") ) {
+      const accessorWord = this.peekValue();
+      const afterAccessor = this.peekNextValue();
+      const afterAccessorType = this.peekNextType();
+      let looksLikeAccessor = false;
+      if ( ((((afterAccessorType == "Identifier") || (afterAccessorType == "TSType")) || (afterAccessorType == "Keyword")) || (afterAccessorType == "String")) || (afterAccessorType == "Number") ) {
+        looksLikeAccessor = true;
+      }
+      if ( afterAccessor == "[" ) {
+        looksLikeAccessor = true;
+      }
+      if ( afterAccessor == "#" ) {
+        looksLikeAccessor = true;
+      }
+      if ( looksLikeAccessor ) {
+        this.advance();
+        accessorKind = accessorWord;
+      }
+    }
     if ( this.matchValue("*") ) {
       this.advance();
       member.generator = true;
@@ -3090,6 +3121,12 @@ class TSParserSimple  {
       member.nodeType = "MethodDefinition";
       if ( isStatic ) {
         member.kind = "static";
+      }
+      if ( (accessorKind.length) > 0 ) {
+        if ( isStatic == false ) {
+          member.kind = accessorKind;
+        }
+        member.accessor = accessorKind;
       }
       if ( isAbstract ) {
         member.kind = "abstract";
