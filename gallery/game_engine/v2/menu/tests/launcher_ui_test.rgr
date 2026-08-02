@@ -66,8 +66,10 @@ class LauncherUiTest {
         ui.init(480 270)
 
         ; ---- catalog DISCOVERED from the real v2 games folder ---------------
-        ; Games: Pomppija + Ylos3D (WASM). Tests: Cannon 3D + Pinball prototypes.
-        ; Categories appear in first-seen order (Games, then Tests).
+        ; Games: Pomppija, Ylos3D (WASM), Ylos3D. Tests: Cannon 3D + Pinball
+        ; prototypes. GameCatalog.categories() forces "Games" to the front when
+        ; present and leaves the rest in first-seen order, so the row is
+        ; Games, then Tests.
         t.ok("at least one category discovered" ((ui.categoryCount()) >= 1))
         t.ok("at least two categories (Games + Tests)" ((ui.categoryCount()) >= 2))
         t.ok("at least one game discovered" ((ui.gameCount()) >= 1))

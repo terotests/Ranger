@@ -181,7 +181,7 @@ class RgLauncherUi {
         this.footer.fontSize = 13.0
         def footLh:int (to_int (this.layer.ctx.lineHeight(this.footer.fontSize)))
         this.footerY = ((height - footLh) - 12)
-        this.footer.text = "A avaa, nuolet liikkuvat"
+        this.footer.text = "Nuolet liikkuvat, Space avaa, Q lopettaa"
         this.layoutCenteredLabel(this.footer cx this.footerY)
         this.layer.add(this.footer)
 
@@ -303,10 +303,10 @@ class RgLauncherUi {
         }
         if (this.page == 0) {
             this.sub.text = "valitse kategoria"
-            this.footer.text = "A avaa, nuolet liikkuvat"
+            this.footer.text = "Nuolet liikkuvat, Space avaa, Q lopettaa"
         } {
             this.sub.text = (itemAt this.categoryNames this.activeCat)
-            this.footer.text = "A pelaa, Q/B takaisin"
+            this.footer.text = "Space pelaa, Q takaisin"
         }
         ; Re-centre chrome labels whenever the copy changes (category name lengths
         ; differ; a fixed 200px box left the shorter Finnish strings off-centre).
