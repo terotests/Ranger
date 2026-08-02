@@ -36,8 +36,11 @@ pass; a probe **inside** it must still fail. Fixing a gap therefore *breaks the 
 until the list is updated, so the list cannot quietly rot, and an evaluator that
 returns nothing is counted as a failure rather than a pass.
 
-Over one working session, 18 entries removed themselves this way — each caught by the
-suite failing because a gap had closed, not by anyone remembering to check.
+Across this work 27 entries removed themselves this way — each caught by the suite
+failing because a gap had closed, not by anyone remembering to check. Two of them
+(`lex-escaped-quote-edges`, `lex-escaped-quote-single`) had been pinned as
+known-wrong-and-too-risky-to-touch; when the real cause turned out to be somewhere
+else entirely, the assertion is what said so.
 
 ### Vacuous passes are the thing to guard against
 
@@ -47,6 +50,12 @@ returned null and execution continued, so the assertion after it never ran.
 Measured against Test262 this produced a *fictional* 82.6% pass rate on an engine
 with no RegExp, no Proxy and no Temporal. Nine of thirteen deliberately-failing
 control probes "passed".
+
+A control that starts passing is not automatically a bug: when RegExp was
+implemented, its "this feature is absent" control reached the end because the
+feature had become real. That one moved to the **positive** controls rather than
+being deleted, so the set still measures something. The current reading is
+**0 vacuous of 12**, with every positive control reaching its end.
 
 Any Test262 harness used here **must** therefore run negative controls first —
 guaranteed-failing snippets that must fail. If they pass, the score means nothing.
@@ -74,7 +83,7 @@ These are **decisions**, with the reasoning. They are not TODOs that were forgot
 | Area | Why |
 |---|---|
 | **Temporal** | A specification roughly the size of the rest of the standard library. Poor value against every other item. |
-| **RegExp** | Deferred by explicit direction: base spec (ES5, then ES6) first. |
+| ~~**RegExp**~~ | *No longer deferred.* Implemented — see §2.5. |
 | **intl402** | Internationalisation; out of scope for a game-engine guest realm. |
 
 The era scorer **excludes these by name and reports the excluded count**, so setting
@@ -82,17 +91,32 @@ them aside cannot quietly flatter the remaining number.
 
 ### 2.2 Correct-but-incomplete, left rather than fudged
 
-- **`Object(5)` does not box a primitive** into a wrapper object. It returns the
-  primitive. Boxing needs a wrapper-object model the evaluator does not have, and a
-  half-boxed value would be worse than an honest primitive.
+- **Array holes are not modelled.** `[4,5,,,,].length` is 5 — the elisions are real
+  element positions now — but a hole evaluates to `undefined` rather than being
+  absent, so `0 in [,1]` answers `true` where the spec says `false`. Telling them
+  apart needs a hole-aware element representation in `EvalValue`, not a change to
+  the array methods.
+
+- **A quantified group takes the first alternative that matches** rather than
+  backtracking across alternatives from outside itself. `/^(a+)\1*,\1+$/` therefore
+  fails to find a match that requires `(a+)` to give back characters. Fixing it means
+  a continuation-passing matcher, and Ranger has no function values to carry the
+  continuation with. See §2.5.
+
+- **`Date` is a brand and a time value, not a calendar.** `new Date(ms)` produces an
+  object that brands as `[object Date]` and holds its time; `Date.parse`, the
+  component getters and the formatting methods are absent. It exists so that code
+  needing *an object that is not a Number* can have one.
+
+- **`Math.exp` and `Math.log` are series approximations.** The Ranger runtime has no
+  intrinsic for either. Both reduce their argument first and are accurate to roughly
+  1e-15 relative — close to the host but not bit-identical, so a test comparing an
+  exact bit pattern would still see a difference.
 
 - **An invalid `Function` body is not reported as `SyntaxError`.** `Function(...)`
   assembles source and parses it, but the parser recovers differently inside a
   function body than at top level, so `errorCount` stays zero. `eval` *does* report
   SyntaxError correctly; only the `Function` constructor path is affected.
-
-- **`Function.prototype` is a plain object, not callable.** Spec says it is a function
-  that returns `undefined`. Nothing in the guest realm depends on calling it.
 
 - **`Number.MAX_VALUE` / `MIN_VALUE` were initially omitted** rather than approximated,
   because the tests that read them check exact bit patterns. They are now present,
@@ -101,19 +125,33 @@ them aside cannot quietly flatter the remaining number.
   decision to omit rather than approximate was right; the conclusion that they were
   unreachable was wrong.*
 
-- **A failed write to a non-writable property is silent.** This models sloppy mode.
-  Strict mode would throw, and the evaluator does not track strictness per scope.
+- **Strictness propagates dynamically for the code being run, lexically for a
+  function's own flag.** A function's `strictFn` is stamped where it is created, so
+  `caller`/`arguments` poisoning is exact. The ambient "is the running code strict"
+  flag is saved and restored per call, which is right for every nesting and wrong
+  only for a callback that was defined in sloppy code and is called from strict code.
 
-### 2.3 Known-wrong, pinned rather than hidden
+### 2.3 Closed since this document was written
 
-- **The lexer drops an escaped quote adjacent to a string's own delimiters.**
-  `'\'a\' + \'b\''` yields `` a' + 'b `` — the first and last escaped quotes vanish
-  while the middle ones survive. This silently corrupts string values.
+- **`Object(5)` now boxes a primitive** into a wrapper object, and `new Object()`
+  produces an object that can hold a property — it previously fell through to class
+  instantiation and produced something that could not.
 
-  Pinned as `lex-escaped-quote-edges` / `lex-escaped-quote-single`, asserted to
-  **still fail**. Not fixed because `ts_lexer.rgr` is what the 3380/3380
-  `test262-parser-tests` result runs on, and a change there needs that suite
-  re-validated. This is the first thing to pick up.
+- **`Function.prototype` is callable**, as the spec requires.
+
+- **A failed write to a non-writable property throws in strict mode.** The evaluator
+  tracks strictness now (`D-STRICT`), and `writeRefusalError` mirrors the conditions
+  `setMember` silently returns on, so the two cannot disagree.
+
+- **The "lexer drops an escaped quote adjacent to a delimiter" gap was never the
+  lexer.** The lexer's token value is already delimiter-free; the evaluator ran it
+  through `unquote()` a second time, which removed whatever matching pair it found at
+  the ends. Reading the token value directly was the whole fix, and `ts_lexer.rgr` is
+  untouched — the re-validation that had been treated as the blocker was never needed.
+  *The gap was real and worth pinning; the attributed cause was wrong, and pinning it
+  as "the lexer" is what kept it unexamined.*
+
+### 2.4 Known-wrong, pinned rather than hidden
 
 - **`export` is not a visibility gate.** Every top-level binding in a virtual module
   is reachable through the namespace, exported or not. The cross-module block in the
@@ -125,7 +163,29 @@ them aside cannot quietly flatter the remaining number.
   that table is keyed by name rather than scoped. Strictly better than `new C()`
   resolving to nothing; shadowing still follows declaration order.
 
-### 2.4 Structural ceiling, now removed (recorded for context)
+### 2.5 RegExp — what it does and does not do
+
+Implemented because `String.prototype.match`, `replace`, `search` and `split` are all
+specified against it: without a RegExp those four could not be written at all, and
+every failure in them was the same missing piece.
+
+The ES5 pattern grammar compiles to a node tree, matched by backtracking. Backtracking
+is recursion over a node **list** — match node *i*, then ask yourself to match the rest
+from wherever that landed — so a failure deep in the tail unwinds into the quantifier
+that produced it and the next count is tried.
+
+| Supported | Absent |
+|---|---|
+| classes with ranges, negation, `\d \w \s` | `u` and `y` flags |
+| `* + ? {n,m}` and their lazy forms | named groups |
+| groups, non-capturing groups, alternation | lookbehind |
+| `^ $ \b \B`, backreferences, lookahead | Unicode property escapes |
+| `i`, `g`, `m` | full backtracking across a group's alternatives |
+
+The compiled program is recompiled from source at each use: a `RegexProgram` cannot be
+stored inside an `EvalValue`. Slower, and invisible to the guest.
+
+### 2.6 Structural ceiling, now removed (recorded for context)
 
 Built-in methods used to be an internal `methodName` if-chain rather than first-class
 values, so `Array.prototype.slice.call(...)` **could not work** no matter how many
@@ -149,6 +209,13 @@ Tagged in the source with these markers.
 | `D-ERRORS` | Error constructors are seeded singletons, so `thrown.constructor === TypeError` holds **by identity** — which is what `assert.throws` actually compares. |
 | `D-GLOBALOBJ` | Built-in namespaces are real objects, not names recognised structurally. Calls still dispatch structurally first, so reachability is added without changing dispatch. |
 | `D-IEEE` | Division by zero, negative zero, `Infinity`/`NaN` as values. The zero case is `left * (1/right)` because that respects the **divisor's** sign. |
+| `D-STATICS` | Built-in **statics** are values too, keyed `(namespace, name)`. Two lists on purpose: what EXISTS as a describable value, and the subset invocable from a captured value. Keeping them apart is what stops a direct `Object.create(...)` being intercepted and answered with `undefined`. |
+| `D-CLASSOF` | The `[[Class]]` brand behind `Object.prototype.toString`. The only way a program can observe an internal type, and 86 ES5 files capture the method under the name `getClass` to assert it. |
+| `D-STRICT` | Strict mode. `writeRefusalError` mirrors `setMember`'s silent-refusal conditions so the two cannot disagree. A function's own strictness is stamped on the value at creation, because poisoning `caller`/`arguments` turns on the ACCESSED function's strictness, not the accessing code's. |
+| `D-STRNUM` | ToNumber on a string follows the StringNumericLiteral grammar rather than the host parser, which is lenient (`"12x"` → 12) and knows nothing of `0x`/`0b`/`0o`. |
+| `D-ARRAYLIKE` | Array.prototype methods are generic over their receiver. The mutating ones still require a real array, since they write back into it. |
+| `D-REGEX` | The pattern grammar as a node tree, matched by backtracking. See §2.5. |
+| `D-ARGUMENTS` | `arguments` as an array-like OBJECT — brands as `[object Arguments]`, and `Array.isArray` says false. |
 
 ### Framework surface is deliberately outside the registry
 
@@ -159,7 +226,27 @@ emergent from where a branch happened to sit in a chain.
 
 ---
 
-## 4. Running the suites
+## 4. Where the score stands
+
+Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
+
+| Area | Result |
+|---|---|
+| `built-ins/Number` | **100%** (146/146, whole directory) |
+| `built-ins/String` | **99%** (700/709, whole directory) |
+| `language/expressions` | **99%** (1306/1318, whole directory) |
+| `built-ins/Math` | 92% |
+| `language/statements` | 76% |
+| `built-ins/Object` | 73% |
+| `built-ins/Function` | 68% |
+| `built-ins/Array` | 58% |
+| ES5 overall | **82%** (1232/1500 sampled) |
+
+The runtime-conformance suite is at 749 probes, every one of them derived from Node.
+
+---
+
+## 5. Running the suites
 
 ```bash
 npm run test:runtime      # runtime conformance probes (fast, ~0.5s)

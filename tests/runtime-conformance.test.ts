@@ -700,6 +700,46 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["toprim-both-objects", "try { var o = { valueOf: function () { return {}; }, toString: function () { return {}; } }; Number(o); return 'no-throw'; } catch (e) { return e.name; }", "numbers"],
   ["toprim-string-hint-default", "var o = { valueOf: function () { return 7; } }; return String(o);", "numbers"],
 
+  // D-ARGUMENTS
+  ["args-length", "function f() { return arguments.length; } return f(1, 2, 3);", "latest"],
+  ["args-index", "function f() { return arguments[1]; } return f(1, 2, 3);", "latest"],
+  ["args-empty", "function f() { return arguments.length; } return f();", "latest"],
+  ["args-brand", "function f() { return Object.prototype.toString.call(arguments); } return f();", "latest"],
+  ["args-not-array", "function f() { return Array.isArray(arguments); } return f();", "latest"],
+  ["args-generic-slice", "function f() { return Array.prototype.slice.call(arguments, 1).join(','); } return f(1, 2, 3);", "latest"],
+  // Errors stringify as "Name: message".
+  ["err-tostring", "return String(new TypeError('test'));", "latest"],
+  ["err-tostring-empty", "return String(new Error());", "latest"],
+  ["err-borrowed-trim", "return String.prototype.trim.call(new Error('test'));", "latest"],
+  ["err-call-without-new", "var e = Error('x'); return e.name + ':' + e.message;", "latest"],
+  // The global object carries its value and function properties.
+  ["global-nan", "return typeof this.NaN;", "latest"],
+  ["global-parseint", "return typeof this.parseInt;", "latest"],
+  ["global-object-ctor", "return this.Object === Object;", "latest"],
+  // instanceof walks the prototype chain by identity.
+  ["instof-proto-chain", "function F() {} var o = Object.create(F.prototype); return o instanceof F;", "latest"],
+  ["instof-bad-prototype", "try { function F() {} F.prototype = undefined; ({}) instanceof F; return 'no-throw'; } catch (e) { return e.name; }", "latest"],
+  ["instof-non-callable", "try { 1 instanceof Math; return 'no-throw'; } catch (e) { return e.name; }", "latest"],
+  ["instof-error-ctor", "return new TypeError() instanceof Error;", "latest"],
+  // Aliased constructors and borrowed methods on any receiver.
+  ["alias-ctor", "var C = String.prototype.constructor; return String(new C('choosing one'));", "latest"],
+  ["borrow-onto-function", "function f() {} Function.prototype.slice = String.prototype.slice; return typeof f.slice(0, 4);", "latest"],
+  // NaN is falsy; the remainder keeps the dividend's sign.
+  ["nan-falsy", "return !NaN;", "latest"],
+  ["nan-and", "return String(NaN && 1);", "latest"],
+  ["neg-zero-remainder", "return 1 / (-1 % -1);", "latest"],
+  ["float-remainder", "return 5.5 % 2;", "latest"],
+  ["div-by-zero-compound", "var x = 1; x /= 0; return String(x);", "latest"],
+  ["plus-equals-boxed", "var x = new String('1'); x += 1; return x;", "latest"],
+  // Math functions built from series.
+  ["math-exp-zero", "return Math.exp(0);", "latest"],
+  ["math-log-one", "return Math.log(1);", "latest"],
+  ["math-log-zero", "return String(Math.log(0));", "latest"],
+  ["math-atan-typeof", "return typeof Math.atan;", "latest"],
+  // Array elisions keep their positions.
+  ["elision-length", "return [4, 5, , , ,].length;", "latest"],
+  ["elision-value", "return String([, 1][0]);", "latest"],
+
   ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
   ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
   ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],
