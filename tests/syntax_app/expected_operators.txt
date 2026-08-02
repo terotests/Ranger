@@ -1,0 +1,11 @@
+## operators
+  macro_operator = 42
+  template_operator = 42
+  operator_nested = 6
+  operator_star = 11000
+  operator_plus = (4,6)
+  enum_operator_red = 1
+  enum_operator_blue = 3
+  block_operator = 40
+  type_method_sum = 10
+  type_method_map = 30

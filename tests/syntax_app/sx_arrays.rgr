@@ -1,0 +1,144 @@
+Import "sx_base.rgr"
+
+; Array operators of compiler/Lang.rgr.
+;   push set set_at insert remove remove_index removeLast clear
+;   itemAt at get lift first last last_index indexOf has
+;   size length array_length array_extract make sort reverse join
+;   the ([] ...) literal, and the for loop with break and continue
+class ArraysSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "arrays"
+    }
+
+    ; Comparator for `sort`. A named function keeps the signature explicit.
+    fn cmpInt:int (left:int right:int) {
+        if (left < right) {
+            return -1
+        }
+        if (left > right) {
+            return 1
+        }
+        return 0
+    }
+
+    fn run:void () {
+        ; The untyped and the typed static literal.
+        def plain ([] 1 2 3)
+        this.sayInt("literal_untyped" (array_length plain))
+
+        def nums:[int] ([] _:int (10 20 30 40 50))
+        this.sayInt("literal_typed" (array_length nums))
+        this.sayInt("itemAt" (itemAt nums 2))
+        this.sayInt("at" (at nums 0))
+        ; `get` on an array gives an optional, unlike `itemAt` and `at`.
+        def gotLast@(optional):int (get nums 4)
+        this.sayInt("get" (unwrap gotLast))
+        this.sayInt("first" (first nums))
+        this.sayInt("last" (last nums))
+        ; `last_index` is not used here: its macro expands to the
+        ; unparenthesised `(array_length x) - 1`, which does not type check.
+        ; sx_gaps.rgr keeps the case.
+        this.sayInt("size" (size nums))
+        this.sayInt("length" (length nums))
+        this.sayInt("indexOf" (indexOf nums 30))
+        this.sayBool("has" (has nums))
+
+        ; `lift` gives an optional, so an index outside the array is not a crash.
+        def inside@(optional):int (lift nums 1)
+        this.sayBool("lift_in" (!null? inside))
+        this.sayInt("lift_value" (unwrap inside))
+
+        ; Element assignment, two spellings.
+        set nums 0 11
+        set_at nums 1 22
+        this.sayInt("set" (itemAt nums 0))
+        this.sayInt("set_at" (itemAt nums 1))
+
+        ; Growing and shrinking.
+        def work:[string]
+        push work "a"
+        push work "b"
+        push work "c"
+        push work "d"
+        insert work 1 "x"
+        this.say("after_insert" (join work ","))
+        remove_index work 0
+        this.say("after_remove_index" (join work ","))
+        removeLast work
+        this.say("after_removeLast" (join work ","))
+
+        ; array_extract removes the item at the index and gives it back.
+        def taken:[string]
+        push taken "p"
+        push taken "q"
+        push taken "r"
+        def pulled:string (array_extract taken 1)
+        this.say("array_extract" pulled)
+        this.say("after_extract" (join taken ","))
+
+        clear work
+        this.sayInt("after_clear" (array_length work))
+
+        ; `make` is not used here: its es6 template writes `new Array(len)` and
+        ; drops the fill value, so every element reads back as undefined.
+        ; sx_gaps.rgr keeps the case.
+
+        ; The for loop gives the item and the index, and takes break/continue.
+        def evens@(mutable):int 0
+        def indexSum@(mutable):int 0
+        for nums v:int i {
+            indexSum = (indexSum + i)
+            if ((v % 2) != 0) {
+                continue
+            }
+            evens = (evens + 1)
+        }
+        this.sayInt("for_even_count" evens)
+        this.sayInt("for_index_sum" indexSum)
+
+        def firstBig@(mutable):int 0
+        for nums v:int i {
+            if (v > 25) {
+                firstBig = v
+                break
+            }
+        }
+        this.sayInt("for_break" firstBig)
+
+        ; An array of objects, iterated through the base class type.
+        def bags:[StringBag]
+        def b1 (new StringBag)
+        b1.addItem("one")
+        def b2 (new StringBag)
+        b2.addItem("two")
+        b2.addItem("three")
+        push bags b1
+        push bags b2
+        def totalItems@(mutable):int 0
+        for bags bag:StringBag i {
+            totalItems = (totalItems + (bag.itemCount()))
+        }
+        this.sayInt("object_array" totalItems)
+
+        ; Nested arrays. `for` does not match an array of arrays -- the item
+        ; type has to be a plain type -- so the outer walk is a while loop over
+        ; the index and the inner one is an ordinary for.
+        def grid:[[int]]
+        def row0:[int] ([] _:int (1 2))
+        def row1:[int] ([] _:int (3 4))
+        push grid row0
+        push grid row1
+        def gridSum@(mutable):int 0
+        def ri@(mutable):int 0
+        while (ri < (array_length grid)) {
+            def row:[int] (itemAt grid ri)
+            for row cell:int ci {
+                gridSum = (gridSum + cell)
+            }
+            ri = (ri + 1)
+        }
+        this.sayInt("nested_sum" gridSum)
+    }
+}

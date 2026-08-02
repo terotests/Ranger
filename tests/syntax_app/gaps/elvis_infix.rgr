@@ -1,0 +1,10 @@
+; GAP: the elvis operator is documented as infix -- `(value ?? fallback)` in
+; ai/QUICKREF.md and in README.md -- but it is not auto-infixed.
+; Error: [FAIL] WriteVREF -> Undefined variable ??
+class GapElvisInfix {
+    sfn m@(main):void () {
+        def maybe@(optional):int (wrap 5)
+        def value:int (maybe ?? 0)
+        print ("value=" + value)
+    }
+}

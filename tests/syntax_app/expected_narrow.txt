@@ -1,0 +1,13 @@
+## narrow
+  sort = 13579
+  reverse = 123
+  remove = b,c
+  error_msg = true
+  for_hash_value = 77
+  for_hash_key = 7
+  charbuffer_toString = abc
+  iso_add_days = 2024-03-01
+  iso_compare_lt = -1
+  iso_compare_eq = 0
+  iso_between = true
+  iso_outside = false

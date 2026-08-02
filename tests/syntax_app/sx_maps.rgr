@@ -1,0 +1,90 @@
+Import "sx_base.rgr"
+
+; Hash map operators of compiler/Lang.rgr.
+;   set get has keys remove, the for loop over a map in both of its shapes,
+;   maps of objects and maps of arrays.
+class MapsSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "maps"
+    }
+
+    fn run:void () {
+        def ages:[string:int]
+        set ages "ada" 36
+        set ages "alan" 41
+        set ages "grace" 45
+
+        this.sayBool("has_hit" (has ages "ada"))
+        this.sayBool("has_miss" (has ages "nobody"))
+
+        ; `get` always gives an optional, whatever the value type is.
+        def maybe@(optional):int (get ages "alan")
+        this.sayBool("get_ok" (!null? maybe))
+        this.sayInt("get_value" (unwrap maybe))
+        def missing@(optional):int (get ages "nobody")
+        this.sayBool("get_miss" (null? missing))
+
+        ; The elvis operator. It is written in prefix form, `(?? value fallback)`;
+        ; the infix spelling `(value ?? fallback)` is not auto-infixed and fails
+        ; with "Undefined variable ??".
+        def graceAge@(optional):int (get ages "grace")
+        this.sayInt("elvis_hit" (?? graceAge 0))
+        def nobodyAge@(optional):int (get ages "nobody")
+        this.sayInt("elvis_miss" (?? nobodyAge -1))
+
+        ; `keys` gives the key array. Its order is the order of the underlying
+        ; hash, which differs per target -- Go randomises it -- so the app walks
+        ; a fixed probe list instead of printing the keys directly.
+        def names:[string] (keys ages)
+        this.sayInt("key_count" (array_length names))
+
+        def probe:[string] ([] _:string ("ada" "alan" "grace" "nobody"))
+        def present@(mutable):string ""
+        def total@(mutable):int 0
+        for probe candidate:string i {
+            if (has ages candidate) {
+                present = ((present + candidate) + ";")
+                def value@(optional):int (get ages candidate)
+                total = (total + (?? value 0))
+            }
+        }
+        this.say("present_keys" present)
+        this.sayInt("value_sum" total)
+
+        ; The key strings, measured through the key array.
+        def keyChars@(mutable):int 0
+        for names key:string i {
+            keyChars = (keyChars + (strlen key))
+        }
+        this.sayInt("key_chars" keyChars)
+
+        ; Overwriting a key replaces the value and does not add a key.
+        set ages "ada" 37
+        def adaAge@(optional):int (get ages "ada")
+        this.sayInt("overwrite" (?? adaAge 0))
+        this.sayInt("count_after_overwrite" (array_length (keys ages)))
+
+        ; A map of arrays and a map of objects.
+        def buckets:[string:[int]]
+        def small:[int] ([] _:int (1 2 3))
+        set buckets "small" small
+        def readBack:[int] (unwrap (get buckets "small"))
+        this.sayInt("map_of_array" (array_length readBack))
+
+        def bagsByName:[string:StringBag]
+        def bag (new StringBag)
+        bag.addItem("only")
+        set bagsByName "first" bag
+        def gotBag:StringBag (unwrap (get bagsByName "first"))
+        this.sayInt("map_of_object" (gotBag.itemCount()))
+
+        ; A map keyed by string with double values, to exercise the second
+        ; `get` overload of Lang.rgr.
+        def ratios:[string:double]
+        set ratios "half" 0.5
+        def halfValue@(optional):double (get ratios "half")
+        this.sayD("map_double" (unwrap halfValue))
+    }
+}

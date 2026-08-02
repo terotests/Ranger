@@ -1,0 +1,15 @@
+; GAP: `for` does not match an array of arrays. The item type of the loop has
+; to be a plain type.
+; Error: [FAIL] Could not match argument types for for
+class GapForNested {
+    sfn m@(main):void () {
+        def grid:[[int]]
+        def row:[int] ([] _:int (1 2))
+        push grid row
+        def total@(mutable):int 0
+        for grid line:[int] i {
+            total = (total + (array_length line))
+        }
+        print ("total=" + total)
+    }
+}

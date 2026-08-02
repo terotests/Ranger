@@ -1,0 +1,10 @@
+; GAP: `make` compiles, but the es6 template writes `new Array(len)` and drops
+; the fill value, so every element reads back as undefined.
+; This program compiles and then prints the wrong answer.
+class GapMake {
+    sfn m@(main):void () {
+        def nums:[int] ([] _:int (1 2))
+        def filled:[int] (make nums 3 7)
+        print ("value=" + (itemAt filled 2))
+    }
+}

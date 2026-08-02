@@ -1,0 +1,97 @@
+Import "sx_base.rgr"
+
+; Operators that work on the reference target but whose `templates {}` block
+; covers only part of the target list. They are kept out of syntax_app.rgr so
+; that one narrow operator does not stop every other section from compiling;
+; the test compiles this section on its own and records which targets take it.
+;
+;   sort reverse remove       array operators with few templates
+;   error_msg                 the message of the caught error
+;   for over a hash map       es6 only, in both of its shapes
+;   toString                  the charbuffer to string conversion
+;   iso_add_days iso_compare iso_between   the ISO date operators
+class NarrowSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "narrow"
+    }
+
+    fn mustFail@(throws):int (value:int) {
+        if (value < 0) {
+            throw "negative value"
+        }
+        return value
+    }
+
+    fn run:void () {
+        ; sort takes a comparator and gives a new array.
+        def unsorted:[int] ([] _:int (5 3 9 1 7))
+        def sorted:[int] (sort unsorted {
+            if (left < right) {
+                return -1
+            }
+            if (left > right) {
+                return 1
+            }
+            return 0
+        })
+        def sortedText@(mutable):string ""
+        for sorted v:int i {
+            sortedText = (sortedText + (to_string v))
+        }
+        this.say("sort" sortedText)
+
+        ; reverse turns the array around in place.
+        def toReverse:[int] ([] _:int (1 2 3))
+        reverse toReverse
+        def reversedText@(mutable):string ""
+        for toReverse v:int i {
+            reversedText = (reversedText + (to_string v))
+        }
+        this.say("reverse" reversedText)
+
+        ; remove drops the item at an index.
+        def work:[string] ([] _:string ("a" "b" "c"))
+        remove work 0
+        this.say("remove" (join work ","))
+
+        ; error_msg gives the text of the error the catch block received.
+        def message@(mutable):string ""
+        try {
+            def bad:int (this.mustFail(-1))
+            message = (to_string bad)
+        } {
+            message = (error_msg)
+        }
+        this.sayBool("error_msg" ((strlen message) > 0))
+
+        ; The for loop over a hash map, in both of its shapes.
+        def ages:[string:int]
+        set ages "ada" 36
+        set ages "alan" 41
+        def total@(mutable):int 0
+        for ages value:int key {
+            total = (total + value)
+        }
+        this.sayInt("for_hash_value" total)
+
+        def keyChars@(mutable):int 0
+        for ages key:string {
+            keyChars = (keyChars + (strlen key))
+        }
+        this.sayInt("for_hash_key" keyChars)
+
+        ; toString on a charbuffer.
+        def chars:charbuffer (to_charbuffer "abc")
+        this.say("charbuffer_toString" (toString chars))
+
+        ; The ISO calendar operators. The dates are literals, so the result
+        ; does not depend on the clock.
+        this.say("iso_add_days" (iso_add_days "2024-02-27" 3))
+        this.sayInt("iso_compare_lt" (iso_compare "2024-01-01" "2024-06-01"))
+        this.sayInt("iso_compare_eq" (iso_compare "2024-01-01" "2024-01-01"))
+        this.sayBool("iso_between" (iso_between "2024-03-01" "2024-01-01" "2024-06-01"))
+        this.sayBool("iso_outside" (iso_between "2023-03-01" "2024-01-01" "2024-06-01"))
+    }
+}

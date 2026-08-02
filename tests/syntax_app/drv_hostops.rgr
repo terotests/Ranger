@@ -1,0 +1,11 @@
+; Driver: compiles the `hostops` section. The test compiles it and does not run
+; it -- its operators read the machine, not the program.
+Import "sx_hostops.rgr"
+
+class HostOpsDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new HostOpsSection)
+        s.run()
+        s.render()
+    }
+}

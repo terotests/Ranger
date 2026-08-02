@@ -1,0 +1,186 @@
+Import "sx_base.rgr"
+
+; Classes and the object model.
+;   class, Constructor, fn, sfn, Extends, inherited fields and methods,
+;   method override, `this`, extension, record (keyword and positional),
+;   trait with `does`, static factory, class as an array and map element.
+
+; Shape has no Constructor on purpose. When a base class declares one and a
+; subclass declares its own, the JavaScript writer emits `super(<names of the
+; base constructor parameters>)` inside the subclass constructor, and those
+; names do not exist there -- the generated program throws
+; "ReferenceError: shapeName is not defined". README.md notes the same thing:
+; "calling the parent class constructor does not work properly".
+; sx_gaps.rgr keeps the case; here the base is initialised through a method.
+class Shape {
+    def name:string "shape"
+    def sides:int 0
+
+    fn init:Shape (shapeName:string shapeSides:int) {
+        name = shapeName
+        sides = shapeSides
+        return this
+    }
+
+    fn describe:string () {
+        def text ((name + "/") + (to_string sides))
+        return text
+    }
+
+    fn area:double () {
+        return 0.0
+    }
+
+    ; A static factory: `sfn` plus `new`.
+    sfn unit:Shape () {
+        def s (new Shape)
+        s.init("unit" 1)
+        return s
+    }
+}
+
+class Rectangle {
+    Extends(Shape)
+
+    def width:double 0.0
+    def height:double 0.0
+
+    Constructor (w:double h:double) {
+        name = "rectangle"
+        sides = 4
+        width = w
+        height = h
+    }
+
+    ; Overrides the base implementation.
+    fn area:double () {
+        return (width * height)
+    }
+
+    ; Uses a field the base class declared.
+    fn sideCount:int () {
+        return sides
+    }
+}
+
+; Square extends Shape and not Rectangle: a grandchild does not see the fields
+; of its grandparent ("Undefined variable name in class Square"), so the
+; hierarchy here is one level deep. sx_gaps.rgr keeps the two level case.
+class Square {
+    Extends(Shape)
+
+    def edgeLength:double 0.0
+
+    Constructor (edge:double) {
+        name = "square"
+        sides = 4
+        edgeLength = edge
+    }
+
+    fn area:double () {
+        return (edgeLength * edgeLength)
+    }
+}
+
+; An extension adds a field and a method to a class declared elsewhere.
+extension Shape {
+    def tag:string "none"
+
+    fn tagged:string () {
+        def text ((this.describe()) + ("#" + tag))
+        return text
+    }
+}
+
+; A record used both ways the compiler builds its constructor.
+record Point {
+    def xpos:int 0
+    def ypos:int 0
+}
+
+class OopSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "oop"
+    }
+
+    fn run:void () {
+        ; Object creation and an instance method.
+        def tri (new Shape)
+        tri.init("triangle" 3)
+        this.say("describe" (tri.describe()))
+        this.sayInt("field" tri.sides)
+
+        ; Static function on the class.
+        def unit (Shape.unit())
+        this.say("static_factory" (unit.describe()))
+
+        ; Inheritance: inherited field, inherited method, override.
+        def rect (new Rectangle(3.0 4.0))
+        this.say("inherited_method" (rect.describe()))
+        this.sayInt("inherited_field" (rect.sideCount()))
+        this.sayD("override" (rect.area()))
+
+        ; A second subclass of the same base, with its own override.
+        def sq (new Square(2.5))
+        this.say("sibling_subclass" (sq.describe()))
+        this.sayD("sibling_area" (sq.area()))
+
+        ; Polymorphism through the base type.
+        def shapes:[Shape]
+        push shapes tri
+        push shapes rect
+        push shapes sq
+        def totalArea@(mutable):double 0.0
+        def totalSides@(mutable):int 0
+        for shapes s:Shape i {
+            totalArea = (totalArea + (s.area()))
+            totalSides = (totalSides + s.sides)
+        }
+        this.sayD("polymorphic_area" totalArea)
+        this.sayInt("polymorphic_sides" totalSides)
+
+        ; The extension field and method.
+        tri.tag = "t1"
+        this.say("extension" (tri.tagged()))
+
+        ; Records, built with keywords and positionally.
+        def p (new Point xpos 3 ypos 4)
+        this.sayInt("record_keyword_x" p.xpos)
+        this.sayInt("record_keyword_y" p.ypos)
+        def q (new Point 5 6)
+        this.sayInt("record_positional_x" q.xpos)
+        this.sayInt("record_positional_y" q.ypos)
+        p.xpos = 30
+        this.sayInt("record_assign" p.xpos)
+
+        ; A class stored in a map, then read back and used.
+        def byName:[string:Shape]
+        set byName "rect" rect
+        def readBack:Shape (unwrap (get byName "rect"))
+        this.sayD("map_of_class" (readBack.area()))
+
+        ; Traits: the generic TypedBag of sx_base.rgr, at two element types.
+        def sbag (new StringBag)
+        sbag.addItem("a")
+        sbag.addItem("b")
+        sbag.addItem("c")
+        this.sayInt("trait_string_bag" (sbag.itemCount()))
+        def ibag (new IntBag)
+        ibag.addItem(1)
+        ibag.addItem(2)
+        this.sayInt("trait_int_bag" (ibag.itemCount()))
+
+        ; `cast` re-labels a value as another type. The second argument is the
+        ; keyword marker `to:` followed by the target type.
+        def asShape:Shape rect
+        def asRect:Rectangle (cast asShape to:Rectangle)
+        this.sayD("cast" (asRect.area()))
+
+        ; Object identity: two references to one object see one mutation.
+        def alias:Shape rect
+        alias.sides = 44
+        this.sayInt("reference_semantics" rect.sides)
+    }
+}

@@ -1,0 +1,76 @@
+{
+  "$comment": "Constructs that do not work today. Each key is a file in this directory. `outcome` is what the target does with it: `compile-error` when the Ranger compiler rejects the program, `run-error` when the target toolchain or the generated program fails, `wrong-output` when it builds, runs and prints the wrong answer. `target` names the target to measure on and defaults to es6; a probe whose target has no toolchain on the machine is skipped. `prints` states the wrong answer of a wrong-output probe, so that a fix is seen and a different defect is not mistaken for the same one. tests/syntax-app.test.ts measures each probe and fails when the state changes, so that a fix is noticed. When a gap is fixed, move the case back into the matching section of the app and delete the probe together with its entry here.",
+  "go_for_object_array": {
+    "outcome": "run-error",
+    "target": "go",
+    "note": "Go target: a for loop over an array whose element type is an object does not declare the item variable, so the generated Go says 'undefined: row'. A loop over [int] is written correctly. The shared render() of sx_base.rgr walks the rows by index because of this."
+  },
+  "create_dir_in_if_not": {
+    "outcome": "compile-error",
+    "note": "create_dir writes raw target source; if! is a macro whose block is parsed again as Ranger. The pair fails with 'Undefined variable require'. A plain if works."
+  },
+  "elvis_infix": {
+    "outcome": "compile-error",
+    "note": "The elvis operator is documented as infix in ai/QUICKREF.md and README.md, but it is not auto-infixed. Use the prefix form (?? value fallback)."
+  },
+  "empty_typed": {
+    "outcome": "compile-error",
+    "note": "(empty x) keeps the generic return type T, so it cannot be assigned to a typed optional."
+  },
+  "for_nested_array": {
+    "outcome": "compile-error",
+    "note": "for does not match an array of arrays. Walk the outer array with a while loop over the index."
+  },
+  "inheritance_three_levels": {
+    "outcome": "compile-error",
+    "note": "A grandchild class does not see the fields its grandparent declares."
+  },
+  "lambda_array": {
+    "outcome": "compile-error",
+    "note": "An array of function values cannot be declared; the element type is not parsed as a function signature."
+  },
+  "last_index": {
+    "outcome": "compile-error",
+    "note": "The last_index macro expands to the unparenthesised (array_length x) - 1, which does not type check. Adding the parentheses in compiler/Lang.rgr would fix it."
+  },
+  "make_fill": {
+    "outcome": "wrong-output",
+    "note": "make compiles, but the es6 template writes new Array(len) and drops the fill value, so every element reads back as undefined.",
+    "prints": "value=undefined"
+  },
+  "nullify_const": {
+    "outcome": "run-error",
+    "note": "nullify does not count as a mutation, so the JavaScript writer declares the variable const and the generated program throws 'Assignment to constant variable'."
+  },
+  "stdlib_contains": {
+    "outcome": "compile-error",
+    "note": "The block parameter `item` does not bind inside [T].contains(cb); the name collides with the core contains(string,string) operator. The sibling any, with the same signature, works."
+  },
+  "stdlib_has": {
+    "outcome": "compile-error",
+    "note": "[T].has(el) in lib/stdlib.rgr calls (indexOf el) with the receiver missing; it should be (indexOf self el)."
+  },
+  "string_ordering": {
+    "outcome": "compile-error",
+    "note": "< <= > >= have no (string,string) overload, so strings cannot be ordered and an array of strings cannot be sorted with the obvious comparator."
+  },
+  "string_plus_boolean": {
+    "outcome": "compile-error",
+    "note": "+ has (string,int), (string,double), (string,enum) and (string,string) overloads but no (string,boolean) one. Put the boolean through to_string first."
+  },
+  "super_constructor": {
+    "outcome": "run-error",
+    "note": "When a base class has a Constructor and a subclass declares its own, the JavaScript writer emits super(<base constructor parameter names>) inside the subclass constructor, and those names do not exist there. README.md notes the same."
+  },
+  "python_empty_method": {
+    "outcome": "run-error",
+    "target": "python",
+    "note": "Python target: a method with an empty body emits `def name(self):` with nothing under it, and the module fails to import with IndentationError. An empty method is the usual default of an overridable hook, so the base class of the app gives its `run` a body."
+  },
+  "go_if_not_single_branch": {
+    "outcome": "wrong-output",
+    "target": "go",
+    "prints": "branch=unset",
+    "note": "Go target: `if!` with one block does not negate. The generated Go runs the block when the condition is true. ES6 and Python print branch=not-huge."
+  }
+}

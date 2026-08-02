@@ -1,0 +1,74 @@
+; The `@process` runtime operators of compiler/Lang.rgr.
+;
+;   proc_start proc_stop proc_send proc_hibernate proc_wakeup
+;   begin_dispatch_turn end_dispatch_turn find_process
+;   markStateDirty, @process, @name, @singleton and RangerProcessBase
+;
+; The section has its own main and is compiled by the test on every target.
+; It runs on the reference target, where the process runtime is complete.
+
+Import "RangerProcess.rgr"
+
+class SxAppRoot @process(true) @name("sx.root") @singleton(true) extends RangerProcessBase {
+    fn start:void () {
+    }
+
+    fn openCounter:SxCounter () {
+        def page:SxCounter (new SxCounter)
+        proc_start page
+        return page
+    }
+}
+
+class SxCounter @process(true) @name("sx.counter") extends RangerProcessBase {
+
+    def count:int 0
+    def note:string ""
+
+    fn start:void () {
+    }
+
+    ; A message handler. `proc_send` reaches it by name.
+    fn onBump:void (amount:string) {
+        def parsed@(optional):int (str2int amount)
+        count = (count + (?? parsed 0))
+        this.markStateDirty()
+    }
+
+    fn onNote:void (name:string value:string) {
+        note = ((name + "=") + value)
+        this.markStateDirty()
+    }
+}
+
+class SxProcessMain {
+    sfn m@(main):void () {
+        def root (new SxAppRoot)
+        proc_start root
+
+        def counter:SxCounter (root.openCounter())
+
+        ; A dispatch turn batches the messages and gives one notify.
+        begin_dispatch_turn root
+        proc_send counter onBump "2"
+        proc_send counter onBump "3"
+        proc_send counter onNote "kind" "demo"
+        end_dispatch_turn root
+
+        print ("count = " + counter.count)
+        print ("note = " + counter.note)
+
+        ; A named process can be looked up by its @name path.
+        def found@(optional):RangerProcessBase (find_process "sx.counter")
+        print ("found = " + (? (!null? found) "yes" "no"))
+
+        ; Hibernate writes the state of the subtree, wakeup reads it back.
+        def state:string (proc_hibernate counter)
+        print ("hibernated = " + (? ((strlen state) > 0) "yes" "no"))
+        proc_wakeup counter state
+
+        proc_stop counter
+        proc_stop root
+        print "ok"
+    }
+}

@@ -1,0 +1,109 @@
+Import "sx_base.rgr"
+
+; Optional values.
+;   @(optional) declarations, null? !null? unwrap !! ?? wrap empty nullify
+;   the one argument `if` over an optional, optional fields and optional
+;   return values.
+class Holder {
+    def name:string ""
+    def next@(optional):Holder
+
+    Constructor (holderName:string) {
+        name = holderName
+    }
+
+    ; A function that may or may not have a value to give back.
+    fn findNext@(optional):Holder () {
+        return next
+    }
+}
+
+class OptionalsSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "optionals"
+    }
+
+    ; An optional parameter and an optional return value in one signature.
+    fn describe:string (value@(optional):string) {
+        if (null? value) {
+            return "<none>"
+        }
+        def text:string (unwrap value)
+        return text
+    }
+
+    fn run:void () {
+        ; A variable declared without a value is optional.
+        def empty1@(optional):string
+        this.sayBool("declared_null" (null? empty1))
+        this.sayBool("declared_not_set" (! (!null? empty1)))
+
+        ; `wrap` puts a value into an optional.
+        def wrapped@(optional):string (wrap "here")
+        this.sayBool("wrap_set" (!null? wrapped))
+        this.say("wrap_value" (unwrap wrapped))
+
+        ; `!!` is the forced unwrap, the short spelling of `unwrap`.
+        this.say("force_unwrap" (!! wrapped))
+
+        ; `??` supplies a fallback. It is a prefix operator.
+        def absent@(optional):string
+        this.say("elvis_absent" (?? absent "fallback"))
+        this.say("elvis_present" (?? wrapped "fallback"))
+
+        ; `empty` is not used here: `(empty sample)` keeps the generic type T
+        ; and does not assign to a typed optional. sx_gaps.rgr keeps the case.
+
+        ; `nullify` is not used here: it does not count as a mutation, so the
+        ; JavaScript writer declares the variable `const` and the generated
+        ; program throws "Assignment to constant variable" at run time.
+        ; sx_gaps.rgr keeps the case.
+        def clearMe@(mutable optional):string (wrap "temporary")
+        this.sayBool("before_reassign" (!null? clearMe))
+        clearMe = "replaced"
+        this.say("optional_reassign" (unwrap clearMe))
+
+        ; `if` accepts an optional directly: the block runs when it has a value.
+        def counted@(mutable):int 0
+        def maybeSet@(optional):string (wrap "yes")
+        if (maybeSet) {
+            counted = (counted + 1)
+        }
+        def maybeUnset@(optional):string
+        if (maybeUnset) {
+            counted = (counted + 10)
+        }
+        this.sayInt("if_optional" counted)
+
+        ; Optional int and optional double have their own operator overloads.
+        def maybeInt@(optional):int (wrap 5)
+        this.sayBool("opt_int_set" (!null? maybeInt))
+        this.sayInt("opt_int" (unwrap maybeInt))
+        def maybeDouble@(optional):double (wrap 1.25)
+        this.sayD("opt_double" (unwrap maybeDouble))
+
+        ; Optional parameters and optional fields on a class.
+        this.say("param_none" (this.describe(absent)))
+        this.say("param_some" (this.describe(wrapped)))
+
+        def head (new Holder("head"))
+        def tail (new Holder("tail"))
+        this.sayBool("field_unset" (null? head.next))
+        head.next = tail
+        this.sayBool("field_set" (!null? head.next))
+        def found@(optional):Holder (head.findNext())
+        this.sayBool("return_optional" (!null? found))
+        def foundValue:Holder (unwrap found)
+        this.say("return_value" foundValue.name)
+
+        ; An optional in an array element and in a map value.
+        def maybeNames:[string]
+        def source@(optional):string (wrap "from-optional")
+        if (!null? source) {
+            push maybeNames (unwrap source)
+        }
+        this.sayInt("optional_to_array" (array_length maybeNames))
+    }
+}

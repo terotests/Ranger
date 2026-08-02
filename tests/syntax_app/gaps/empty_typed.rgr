@@ -1,0 +1,10 @@
+; GAP: `(empty x)` keeps the generic return type T, so it cannot be assigned to
+; a typed optional.
+; Error: [FAIL] Variable was assigned an incompatible type. Types were string vs T
+class GapEmpty {
+    sfn m@(main):void () {
+        def sample:string "x"
+        def none@(optional):string (empty sample)
+        print ("null=" + (? (null? none) "yes" "no"))
+    }
+}

@@ -1,0 +1,13 @@
+## bitwise
+  and = 12
+  or = 61
+  xor = 49
+  shl = 240
+  shr = 15
+  ushr = 15
+  not = -61
+  flags = 9
+  bit0 = true
+  bit1 = false
+  bit3 = true
+  popcount255 = 8

@@ -1,0 +1,10 @@
+; GAP: the `last_index` macro expands to the unparenthesised
+; `(array_length x) - 1`, which does not type check.
+; Error: [FAIL] Could not match argument types for  (inside <macro>)
+class GapLastIndex {
+    sfn m@(main):void () {
+        def nums:[int] ([] _:int (10 20 30))
+        def li:int (last_index nums)
+        print ("li=" + li)
+    }
+}

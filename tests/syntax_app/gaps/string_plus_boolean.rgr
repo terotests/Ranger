@@ -1,0 +1,10 @@
+; GAP: `+` has (string,int), (string,double), (string,enum) and (string,string)
+; overloads but no (string,boolean) one, so a boolean has to go through
+; `to_string` before it can be concatenated.
+; Error: [FAIL] Could not match argument types for +
+class GapStringPlusBoolean {
+    sfn m@(main):void () {
+        def flag:boolean true
+        print ("flag=" + flag)
+    }
+}

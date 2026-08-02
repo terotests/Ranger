@@ -1,0 +1,44 @@
+Import "sx_base.rgr"
+
+; Bit level operators: bit_and bit_or bit_xor bit_not bit_shl bit_shr bit_ushr
+class BitwiseSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "bitwise"
+    }
+
+    fn run:void () {
+        def a:int 60
+        def b:int 13
+
+        this.sayInt("and" (bit_and a b))
+        this.sayInt("or" (bit_or a b))
+        this.sayInt("xor" (bit_xor a b))
+        this.sayInt("shl" (bit_shl a 2))
+        this.sayInt("shr" (bit_shr a 2))
+        this.sayInt("ushr" (bit_ushr a 2))
+
+        ; bit_not is two's complement, so ~60 is -61 on every target that has
+        ; signed integers of the same width.
+        this.sayInt("not" (bit_not a))
+
+        ; A small bit field, built and read back with the same operators.
+        def flags@(mutable):int 0
+        flags = (bit_or flags (bit_shl 1 0))
+        flags = (bit_or flags (bit_shl 1 3))
+        this.sayInt("flags" flags)
+        this.sayBool("bit0" ((bit_and flags 1) != 0))
+        this.sayBool("bit1" ((bit_and flags 2) != 0))
+        this.sayBool("bit3" ((bit_and flags 8) != 0))
+
+        ; Popcount over a loop, so the shifts run more than once.
+        def n@(mutable):int 255
+        def bits@(mutable):int 0
+        while (n > 0) {
+            bits = (bits + (bit_and n 1))
+            n = (bit_shr n 1)
+        }
+        this.sayInt("popcount255" bits)
+    }
+}

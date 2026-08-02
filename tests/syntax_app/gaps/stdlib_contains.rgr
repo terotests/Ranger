@@ -1,0 +1,15 @@
+; GAP: the block parameter `item` does not bind inside `[T].contains(cb)`,
+; because the name collides with the core `contains(string,string)` operator.
+; The sibling `any`, which has the same signature, works.
+; Error: [FAIL] WriteVREF -> Undefined variable item
+Import "stdlib.rgr"
+
+class GapStdlibContains {
+    sfn m@(main):void () {
+        def nums:[int] ([] _:int (1 2 3))
+        def hit (nums.contains({
+            return (item == 2)
+        }))
+        print ("hit=" + (? hit "yes" "no"))
+    }
+}

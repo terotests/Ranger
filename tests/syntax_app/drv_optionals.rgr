@@ -1,0 +1,11 @@
+; Driver: compiles and runs the `optionals` section on its own, so that a target
+; that rejects one section does not hide the others.
+Import "sx_optionals.rgr"
+
+class OptionalsDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new OptionalsSection)
+        s.run()
+        s.render()
+    }
+}

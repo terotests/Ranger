@@ -1,0 +1,11 @@
+; Driver: compiles and runs the `strings` section on its own, so that a target
+; that rejects one section does not hide the others.
+Import "sx_strings.rgr"
+
+class StringsDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new StringsSection)
+        s.run()
+        s.render()
+    }
+}

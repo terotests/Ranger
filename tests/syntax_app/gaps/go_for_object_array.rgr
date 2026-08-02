@@ -1,0 +1,24 @@
+; GAP (Go target): a `for` loop over an array whose element type is an object
+; does not declare the item variable. The Ranger compiler accepts the program
+; and the generated Go does not build:
+;
+;   ./x.go:34:18: undefined: row
+;
+; A loop over [int] is written correctly, so the defect is in the object case.
+; This probe compiles on ES6, which is why gaps.json records it as
+; "wrong-output" rather than "compile-error": the ES6 run is correct and the
+; gap is visible only in the target matrix.
+class Row {
+    def label:string ""
+}
+class GapGoForObjectArray {
+    sfn m@(main):void () {
+        def rows:[Row]
+        def r (new Row)
+        r.label = "a"
+        push rows r
+        for rows row:Row i {
+            print row.label
+        }
+    }
+}

@@ -1,0 +1,163 @@
+Import "sx_base.rgr"
+
+; Operators whose result depends on the machine the program runs on: the file
+; system, the environment, the command line, the clock, the terminal and the
+; random generator. They are compiled but never run by the test, because their
+; output is not the same twice.
+;
+; The section also holds the language switch blocks (`if_javascript`, `if_go`
+; and the rest), which by definition emit code for one target only.
+;
+;   files:       file_exists dir_exists file_mtime create_dir read_file
+;                write_file buffer_read_file buffer_write_file async_read_file
+;   paths:       normalize path_dirname install_directory current_directory
+;   environment: env_var shell_arg shell_arg_cnt has_option get_option
+;   digests:     sha256 md5
+;   terminal:    write clear_screen move_cursor hide_cursor show_cursor
+;                on_keypress poll_keypress
+;   timing:      sleep_ms wait timer random
+;   immutable:   create_immutable_array create_immutable_hash
+;   misc:        gitdoc exit
+class HostOpsSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "hostops"
+    }
+
+    ; Reads and writes below the given directory. Nothing calls it in the test.
+    fn touchFiles:void (dir:string) {
+        ; `create_dir` writes raw target source, and `if!` is a macro whose
+        ; block is parsed again as Ranger, so the two do not nest: the pair
+        ; fails with "Undefined variable require". A plain `if` works.
+        def missing:boolean (! (dir_exists dir))
+        if (missing) {
+            create_dir dir
+        }
+        write_file dir "sx_probe.txt" "written by the ranger syntax app"
+        if (file_exists dir "sx_probe.txt") {
+            def content@(optional):string (read_file dir "sx_probe.txt")
+            if (!null? content) {
+                def text:string (unwrap content)
+                this.sayInt("read_back" (strlen text))
+            }
+            def stamp:int (file_mtime dir "sx_probe.txt")
+            this.sayBool("has_mtime" (stamp > 0))
+        }
+
+        ; The same round trip over a byte buffer.
+        def payload:buffer (buffer_from_string "bytes")
+        buffer_write_file dir "sx_probe.bin" payload
+        def readBytes:buffer (buffer_read_file dir "sx_probe.bin")
+        this.sayInt("buffer_round_trip" (buffer_length readBytes))
+    }
+
+    fn paths:void () {
+        this.sayBool("normalize" ((strlen (normalize "a//b/../c")) > 0))
+        this.sayBool("path_dirname" ((strlen (path_dirname "/tmp/one/two.txt")) > 0))
+        this.sayBool("install_directory" ((strlen (install_directory)) >= 0))
+        this.sayBool("current_directory" ((strlen (current_directory)) >= 0))
+    }
+
+    fn environment:void () {
+        ; env_var gives an optional: the variable may not be set.
+        def home@(optional):string (env_var "HOME")
+        this.sayBool("env_var" (!null? home))
+        this.sayInt("shell_arg_cnt" (shell_arg_cnt))
+        if ((shell_arg_cnt) > 0) {
+            this.say("shell_arg" (shell_arg 0))
+        }
+        this.sayBool("has_option" (has_option "verbose"))
+        this.say("get_option" (get_option "verbose"))
+        ; get_required_option stops the compilation when the flag is missing,
+        ; so the test compiles this file with -sxopt=on.
+        this.say("get_required_option" (get_required_option "sxopt"))
+    }
+
+    fn digests:void () {
+        this.sayInt("sha256_length" (strlen (sha256 "ranger")))
+        this.sayInt("md5_length" (strlen (md5 "ranger")))
+    }
+
+    fn terminal:void () {
+        write "no newline"
+        clear_screen
+        move_cursor 1 1
+        hide_cursor
+        show_cursor
+        ; on_keypress takes the name of a string variable that already exists;
+        ; it does not declare one.
+        def key:string ""
+        on_keypress key {
+            this.say("key" key)
+        }
+        def polled:string (poll_keypress)
+        this.sayInt("poll_keypress" (strlen polled))
+    }
+
+    fn timing:void () {
+        sleep_ms 1
+        golang_wait 0.01
+        this.sayBool("random_in_range" ((random) < 1.0))
+        this.sayInt("random_int" (random 1 6))
+    }
+
+    ; The immutable collections need the element type at the declaration; the
+    ; operator alone leaves T unresolved.
+    fn immutableCollections:void () {
+        def list:[int] (create_immutable_array)
+        def lookup:[string:int] (create_immutable_hash)
+        this.say("immutable" "created")
+    }
+
+    ; The remaining host operators: the documentation marker, the two delays,
+    ; the named timer, the asynchronous read and the process exit.
+    fn misc:void () {
+        gitdoc "the ranger syntax test app"
+        wait 0.01
+        wait 0.01 {
+            this.say("wait" "after")
+        }
+        timer "sx_probe" {
+            this.say("timer" "inside")
+        }
+        def payload@(optional):string (async_read_file "." "package.json")
+        if (!null? payload) {
+            this.sayInt("async_read_file" (strlen (unwrap payload)))
+        }
+        exit 0
+    }
+
+    ; The language switches. Each block is emitted for one target only, so the
+    ; printed output would differ per target; nothing runs this function.
+    fn switches:void () {
+        if_javascript {
+            this.say("host" "javascript")
+        }
+        if_go {
+            this.say("host" "go")
+        }
+        if_java {
+            this.say("host" "java")
+        }
+        if_swift {
+            this.say("host" "swift")
+        }
+        if_php {
+            this.say("host" "php")
+        }
+        if_cpp {
+            this.say("host" "cpp")
+        }
+        if_csharp {
+            this.say("host" "csharp")
+        }
+        if_scala {
+            this.say("host" "scala")
+        }
+    }
+
+    fn run:void () {
+        this.say("hostops" "compiled but not run")
+    }
+}
