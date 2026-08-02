@@ -5834,23 +5834,24 @@ class ComponentEngine {
                     if (has obj.setterMap hk) {
                         return (EvalValue.boolean(true))
                     }
-                    if (obj.valueType == 4) {
-                        def hidx@(optional):int (to_int hk)
-                        if hidx {
-                            def hi:int (unwrap hidx)
-                            if ((hi >= 0) && (hi < (array_length obj.arrayValue))) {
-                                return (EvalValue.boolean(true))
-                            }
-                        }
-                    }
-                    return (EvalValue.boolean(false))
+                    ; D-FNPROPS / D-INDEXDESC: array indices, array length and a
+                    ; function's synthesised length/name/prototype are own
+                    ; properties too, even though none of them lives in
+                    ; objectMap. objHasKey is the single answer to "does this
+                    ; value own that name".
+                    return (EvalValue.boolean((this.objHasKey(obj hk))))
                 }
                 if (methodName == "propertyIsEnumerable") {
                     def pk2:string ""
                     if ((array_length node.children) > 0) {
                         pk2 = ((this.evaluateExpr((itemAt node.children 0))).toString())
                     }
-                    return (EvalValue.boolean((has obj.objectMap pk2)))
+                    ; Own AND enumerable -- an own property that defineProperty
+                    ; made non-enumerable must answer false.
+                    if (false == (this.objHasKey(obj pk2))) {
+                        return (EvalValue.boolean(false))
+                    }
+                    return (EvalValue.boolean((obj.isEnumerable(pk2))))
                 }
                 if (methodName == "isPrototypeOf") {
                     if ((array_length node.children) > 0) {
@@ -6231,6 +6232,17 @@ class ComponentEngine {
                     def rn:TSNode (unwrap node.right)
                     cname = rn.name
                 }
+                ; D-INSTANCEOF: the built-in constructors. `[] instanceof Array`,
+                ; `({}) instanceof Object` and `f instanceof Function` were all
+                ; false, because the check below only knows about `__class__`
+                ; tags and `constructor` identity -- neither of which a literal
+                ; carries. These are the shapes the suite tests with constantly.
+                if (this.isBuiltinCtorName(cname)) {
+                    def bRes:int (this.builtinInstanceOf(lv cname))
+                    if (bRes >= 0) {
+                        return (EvalValue.boolean((bRes == 1)))
+                    }
+                }
                 if (lv.isObject()) {
                     def tag:EvalValue (lv.getMember("__class__"))
                     if (tag.isString()) {
@@ -6534,6 +6546,62 @@ class ComponentEngine {
         return (EvalValue.null())
     }
 
+    ; D-INSTANCEOF: `v instanceof <BuiltinCtor>`. Answers 1 for yes, 0 for no,
+    ; and -1 for "this constructor has nothing to say about that value", which
+    ; leaves the caller's `__class__` / constructor-identity checks in charge.
+    ;
+    ; A primitive is never an instance of anything, which is why the wrapper
+    ; constructors answer 0 for their own primitive: `'a' instanceof String` is
+    ; false while `new String('a') instanceof String` is true.
+    fn builtinInstanceOf:int (v:EvalValue cname:string) {
+        if ((v.valueType == 0) || (v.isUndefined())) {
+            return 0
+        }
+        def isObjectLike:boolean false
+        if (v.valueType == 4) { isObjectLike = true }
+        if (v.valueType == 5) { isObjectLike = true }
+        if (v.valueType == 6) { isObjectLike = true }
+        if (v.valueType == 9) { isObjectLike = true }
+        if (v.valueType == 10) { isObjectLike = true }
+        if (false == isObjectLike) {
+            return 0
+        }
+        if (cname == "Object") {
+            return 1
+        }
+        if (cname == "Function") {
+            if (v.valueType == 6) { return 1 }
+            return 0
+        }
+        if (cname == "Array") {
+            if (v.valueType == 4) { return 1 }
+            if ((this.protoChainKind(v)) == "array") { return 1 }
+            return 0
+        }
+        if (cname == "Map") {
+            if (v.valueType == 9) { return 1 }
+            return 0
+        }
+        if (cname == "Set") {
+            if (v.valueType == 10) { return 1 }
+            return 0
+        }
+        if (this.isWrapperCtorName(cname)) {
+            if (v.valueType == 5) {
+                if (has v.objectMap "__wrapper__") {
+                    return (this.boolAsInt(((this.objectClassOf(v)) == cname)))
+                }
+            }
+            return 0
+        }
+        return (0 - 1)
+    }
+
+    fn boolAsInt:int (b:boolean) {
+        if b { return 1 }
+        return 0
+    }
+
     fn isBuiltinCtorName:boolean (name:string) {
         if (name == "Object") { return true }
         if (name == "Array") { return true }
@@ -6739,6 +6807,12 @@ class ComponentEngine {
         def keysB:[string]
         def valsB:[EvalValue]
         def p:EvalValue (EvalValue.object(keysB valsB))
+        ; Function.prototype is itself a function -- `typeof Function.prototype`
+        ; is "function" and calling it returns undefined. Every other built-in
+        ; prototype is an ordinary object.
+        if (nsName == "Function") {
+            p = (EvalValue.nativeFunction(""))
+        }
         set builtinProtos nsName p
         ; D-PROTOCTOR: every prototype carries `constructor` back to its global.
         ; Safe against the cycle (global sets prototype, prototype sets
@@ -8137,10 +8211,21 @@ class ComponentEngine {
                 }
                 if ((array_length args) > 1) {
                     def arr:EvalValue (itemAt args 1)
-                    if (arr.isArray()) {
+                    ; CreateListFromArrayLike: any object with a length works,
+                    ; which is what lets `f.apply(null, arguments)` forward a
+                    ; call. A primitive that is not null/undefined is a
+                    ; TypeError rather than an empty argument list.
+                    if (false == ((arr.isNull()) || (arr.isUndefined()))) {
+                        def okArgs:boolean false
+                        if (arr.valueType == 4) { okArgs = true }
+                        if (arr.valueType == 5) { okArgs = true }
+                        if (false == okArgs) {
+                            return (this.throwSpecError("TypeError" "CreateListFromArrayLike called on non-object"))
+                        }
+                        def alist:[EvalValue] (this.arrayLikeElements(arr))
                         def k:int 0
-                        while (k < (array_length arr.arrayValue)) {
-                            push aargs (itemAt arr.arrayValue k)
+                        while (k < (array_length alist)) {
+                            push aargs (itemAt alist k)
                             k = (k + 1)
                         }
                     }
@@ -9934,6 +10019,30 @@ class ComponentEngine {
     fn objHasKey:boolean (v:EvalValue key:string) {
         if (v.isObject()) {
             return (has v.objectMap key)
+        }
+        ; D-FNPROPS: length, name and prototype are OWN properties of every
+        ; function even though the engine synthesises them on read rather than
+        ; storing them, so hasOwnProperty has to know about them by name.
+        if (v.valueType == 6) {
+            if (has v.objectMap key) {
+                return true
+            }
+            if (key == "length") { return true }
+            if (key == "name") { return true }
+            if (key == "prototype") { return true }
+            return false
+        }
+        if (v.valueType == 4) {
+            if (has v.objectMap key) {
+                return true
+            }
+            if (key == "length") { return true }
+            def ai@(optional):int (to_int key)
+            if ai {
+                def aidx:int (unwrap ai)
+                return ((aidx >= 0) && (aidx < (array_length v.arrayValue)))
+            }
+            return false
         }
         return false
     }

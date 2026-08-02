@@ -629,7 +629,12 @@ class EvalValue {
                 return (EvalValue.string(functionName))
             }
             if (key == "length") {
-                return (EvalValue.fromInt((this.functionArity())))
+                ; Function.prototype.bind fixes arguments, so the bound
+                ; function's arity is the target's minus however many were
+                ; fixed, never below zero.
+                def ar:int ((this.functionArity()) - (array_length boundArgs))
+                if (ar < 0) { ar = 0 }
+                return (EvalValue.fromInt(ar))
             }
             if protoRef {
                 def fpr:EvalValue (unwrap protoRef)
