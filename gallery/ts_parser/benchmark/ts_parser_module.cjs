@@ -1455,6 +1455,7 @@ class TSNode  {
     this.shorthand = false;
     this.computed = false;
     this.accessor = "";
+    this.parenthesized = false;
     this.method = false;
     this.generator = false;
     this.async = false;
@@ -5252,6 +5253,10 @@ class TSParserSimple  {
       return;
     }
     if ( t == "ObjectExpression" ) {
+      if ( target.parenthesized ) {
+        this.syntaxError("Parse error: a parenthesised object literal is not a valid assignment target");
+        return;
+      }
       let i = 0;
       while (i < (target.children.length)) {
         const prop = target.children[i];
@@ -5268,6 +5273,9 @@ class TSParserSimple  {
       return;
     }
     if ( t == "ArrayExpression" ) {
+      if ( target.parenthesized ) {
+        this.syntaxError("Parse error: a parenthesised array literal is not a valid assignment target");
+      }
       return;
     }
     this.syntaxError(("Parse error: invalid assignment target (" + t) + ")");
@@ -5291,6 +5299,10 @@ class TSParserSimple  {
     }
     if ( (((((((((((tokVal == "+=") || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=")) || (tokVal == "**=")) || (tokVal == "&=")) || (tokVal == "|=")) || (tokVal == "^=")) || (tokVal == "<<=")) || (tokVal == ">>=")) || (tokVal == ">>>=") ) {
       this.checkAssignmentTarget(left);
+      const leftKind = left.nodeType;
+      if ( (((leftKind == "ArrayExpression") || (leftKind == "ObjectExpression")) || (leftKind == "ArrayPattern")) || (leftKind == "ObjectPattern") ) {
+        this.syntaxError("Parse error: a compound assignment cannot have a destructuring target");
+      }
       this.advance();
       const right_1 = this.parseAssign();
       const assign_1 = new TSNode();
@@ -6288,6 +6300,7 @@ class TSParserSimple  {
     node.line = tok.line;
     node.col = tok.col;
     this.expectValue("{");
+    let sawProto = false;
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       const loopStartPos = this.pos;
       if ( this.matchValue("...") ) {
@@ -6445,6 +6458,20 @@ class TSParserSimple  {
             }
           }
         }
+        if ( prop.name == "__proto__" ) {
+          if ( prop.shorthand == false ) {
+            if ( prop.computed == false ) {
+              if ( prop.method == false ) {
+                if ( (prop.kind != "get") && (prop.kind != "set") ) {
+                  if ( sawProto ) {
+                    this.syntaxError("Parse error: duplicate __proto__ in an object literal");
+                  }
+                  sawProto = true;
+                }
+              }
+            }
+          }
+        }
         node.children.push(prop);
       }
       if ( this.matchValue(",") ) {
@@ -6497,6 +6524,7 @@ class TSParserSimple  {
     this.advance();
     const expr_1 = this.parseExprSeq();
     this.expectValue(")");
+    expr_1.parenthesized = true;
     return expr_1;
   };
   parseArrowFunction () {

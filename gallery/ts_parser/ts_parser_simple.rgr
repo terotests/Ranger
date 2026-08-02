@@ -26,6 +26,10 @@ class TSNode {
   def shorthand:boolean false ; { x } shorthand property
   def computed:boolean false  ; { [expr]: value } computed property
   def accessor:string ""      ; "get" / "set" for a class accessor member
+  ; True for a node written inside parentheses. A parenthesised object or array
+  ; literal is not a valid assignment target -- `({a} = b)` destructures but
+  ; `({a}) = b` does not -- so the two have to be told apart.
+  def parenthesized:boolean false
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions
@@ -4803,6 +4807,10 @@ class TSParserSimple {
     ; A pattern that was parsed as a literal is re-read as a pattern elsewhere;
     ; anything else is not a valid target.
     if (t == "ObjectExpression") {
+      if (target.parenthesized) {
+        this.syntaxError("Parse error: a parenthesised object literal is not a valid assignment target")
+        return
+      }
       def i:int 0
       while (i < (array_length target.children)) {
         def prop:TSNode (itemAt target.children i)
@@ -4818,7 +4826,12 @@ class TSParserSimple {
       }
       return
     }
-    if (t == "ArrayExpression") { return }
+    if (t == "ArrayExpression") {
+      if (target.parenthesized) {
+        this.syntaxError("Parse error: a parenthesised array literal is not a valid assignment target")
+      }
+      return
+    }
     this.syntaxError("Parse error: invalid assignment target (" + t + ")")
   }
 
@@ -4848,6 +4861,11 @@ class TSParserSimple {
     ; shift forms &=, |=, ^=, <<=, >>=, >>>=
     if ((tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=") || (tokVal == "%=") || (tokVal == "**=") || (tokVal == "&=") || (tokVal == "|=") || (tokVal == "^=") || (tokVal == "<<=") || (tokVal == ">>=") || (tokVal == ">>>=")) {
       this.checkAssignmentTarget(left)
+      ; Only `=` has a destructuring form; `[a] += b` is an error.
+      def leftKind:string left.nodeType
+      if ((leftKind == "ArrayExpression") || (leftKind == "ObjectExpression") || (leftKind == "ArrayPattern") || (leftKind == "ObjectPattern")) {
+        this.syntaxError("Parse error: a compound assignment cannot have a destructuring target")
+      }
       this.advance()
       def right (this.parseAssign())
       
@@ -6110,6 +6128,8 @@ class TSParserSimple {
     
     this.expectValue("{")
     
+    def sawProto:boolean false
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def loopStartPos:int this.pos
       ; Check for spread property
@@ -6299,6 +6319,23 @@ class TSParserSimple {
           }
         }
         
+        ; `__proto__: value` may appear only once. A shorthand, a method, an
+        ; accessor or a computed key does not count.
+        if (prop.name == "__proto__") {
+          if (prop.shorthand == false) {
+            if (prop.computed == false) {
+              if (prop.method == false) {
+                if ((prop.kind != "get") && (prop.kind != "set")) {
+                  if sawProto {
+                    this.syntaxError("Parse error: duplicate __proto__ in an object literal")
+                  }
+                  sawProto = true
+                }
+              }
+            }
+          }
+        }
+
         push node.children prop
       }
       
@@ -6377,6 +6414,7 @@ class TSParserSimple {
     this.advance()  ; consume (
     def expr (this.parseExprSeq())
     this.expectValue(")")
+    expr.parenthesized = true
     return expr
   }
   
