@@ -56,6 +56,12 @@ class TSParserSimple {
   ; this parse cleanly?" — previously the only signal was text on stdout, so
   ; nothing downstream could tell a good parse from a recovered one.
   def errorCount:int 0
+  def scopeNames:[string]
+  def scopeStart:[int]
+  def scopeIsFn:[int]
+  ; Set just before parsing a function body so the body block reuses the scope
+  ; that already holds the parameters.
+  def suppressBlockScope:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -148,6 +154,146 @@ class TSParserSimple {
     }
   }
   
+  ; ---------------------------------------------------------------------------
+  ; Binding scopes — enough to catch duplicate-declaration early errors.
+  ;
+  ; scopeNames holds one "k|name" entry per declaration, where k is `l` for a
+  ; lexical binding (let / const / class), `v` for a var-like one (var /
+  ; function) and `p` for a parameter. scopeStart records where each open scope
+  ; begins in that list, and scopeIsFn marks which of those scopes are function
+  ; boundaries, since `var` hoists to the nearest one.
+  ; ---------------------------------------------------------------------------
+
+  fn listPrefix:[string] (list:[string] n:int) {
+    def out:[string]
+    def i:int 0
+    while (i < n) {
+      push out (itemAt list i)
+      i = (i + 1)
+    }
+    return out
+  }
+
+  fn intListPrefix:[int] (list:[int] n:int) {
+    def out:[int]
+    def i:int 0
+    while (i < n) {
+      push out (itemAt list i)
+      i = (i + 1)
+    }
+    return out
+  }
+
+  fn pushScope:void (isFunctionBoundary:boolean) {
+    push this.scopeStart (array_length this.scopeNames)
+    if isFunctionBoundary {
+      push this.scopeIsFn 1
+    } {
+      push this.scopeIsFn 0
+    }
+  }
+
+  fn popScope:void () {
+    def depth:int (array_length this.scopeStart)
+    if (depth == 0) {
+      return
+    }
+    def start:int (itemAt this.scopeStart (depth - 1))
+    this.scopeNames = (this.listPrefix(this.scopeNames start))
+    this.scopeStart = (this.intListPrefix(this.scopeStart (depth - 1)))
+    this.scopeIsFn = (this.intListPrefix(this.scopeIsFn (depth - 1)))
+  }
+
+  ; Records a binding and reports a clash. A lexical name may not repeat in its
+  ; own scope at all; a var-like name may repeat, but not over a lexical one in
+  ; any scope out to the enclosing function boundary.
+  fn declareBinding:void (kind:string name:string) {
+    if ((strlen name) == 0) {
+      return
+    }
+    def depth:int (array_length this.scopeStart)
+    if (depth == 0) {
+      return
+    }
+    def total:int (array_length this.scopeNames)
+    def scopeIdx:int (depth - 1)
+    def limit:int 0
+    if (kind == "v") {
+      ; Walk out to (and including) the nearest function boundary.
+      def walk:int scopeIdx
+      def keepWalking:boolean true
+      while ((walk >= 0) && keepWalking) {
+        if ((itemAt this.scopeIsFn walk) == 1) {
+          keepWalking = false
+        } {
+          walk = (walk - 1)
+        }
+      }
+      if (walk < 0) {
+        limit = 0
+      } {
+        limit = (itemAt this.scopeStart walk)
+      }
+    } {
+      limit = (itemAt this.scopeStart scopeIdx)
+    }
+
+    def ownStart:int (itemAt this.scopeStart scopeIdx)
+    def i:int limit
+    while (i < total) {
+      def entry:string (itemAt this.scopeNames i)
+      def sep:int 1
+      def entryKind:string (substring entry 0 1)
+      def entryName:string (substring entry 2 (strlen entry))
+      if (entryName == name) {
+        def clash:boolean false
+        ; Two lexical declarations of the same name in one scope.
+        if (kind == "l") {
+          if (i >= ownStart) { clash = true }
+        }
+        ; A var over a lexical binding anywhere up to the function boundary.
+        if (kind == "v") {
+          if (entryKind == "l") { clash = true }
+        }
+        ; A parameter repeated in the same list.
+        if (kind == "p") {
+          if (i >= ownStart) {
+            if (entryKind == "p") { clash = true }
+          }
+        }
+        if clash {
+          this.syntaxError("Parse error: '" + name + "' has already been declared")
+          push this.scopeNames (kind + "|" + name)
+          return
+        }
+      }
+      i = (i + 1)
+    }
+    push this.scopeNames (kind + "|" + name)
+  }
+
+  ; Declares every name a declarator introduces. `var` hoists to the enclosing
+  ; function, `let` / `const` bind in the current block.
+  fn declareBindingKind:void (declKind:string declarator:TSNode) {
+    def k:string "v"
+    if (declKind == "let") { k = "l" }
+    if (declKind == "const") { k = "l" }
+    if ((strlen declarator.name) > 0) {
+      this.declareBinding(k declarator.name)
+    }
+  }
+
+  ; Records a parameter. Duplicate *simple* parameters are legal in a sloppy
+  ; plain function, so they are recorded under a kind that does not report a
+  ; clash against another parameter — but still collides with a `let` or
+  ; `const` of the same name in the body.
+  fn declareParam:void (param:TSNode) {
+    if ((strlen param.name) == 0) {
+      return
+    }
+    this.declareBinding("q" param.name)
+  }
+
   ; True for words that are reserved in every context, so they can never name a
   ; binding: `function null() {}`, `var new = 1`, `import * as enum from "x"`.
   ; Words reserved only in some contexts (let, yield, await, static, of, as,
@@ -369,14 +515,18 @@ class TSParserSimple {
   fn parseProgram:TSNode () {
     def prog (new TSNode())
     prog.nodeType = "Program"
-    
+
+    this.pushScope(true)
+
     while ((this.isAtEnd()) == false) {
       def beforePos:int this.pos
       def stmt (this.parseStatement())
       push prog.children stmt
       this.guardNoProgress(beforePos)
     }
-    
+
+    this.popScope()
+
     return prog
   }
   
@@ -2171,6 +2321,7 @@ class TSParserSimple {
         declarator.init = initExpr
       }
 
+      this.declareBindingKind(node.kind declarator)
       push node.children declarator
 
       ; another declarator follows only after a comma
@@ -2406,7 +2557,14 @@ class TSParserSimple {
     if ((this.matchValue("(")) == false) {
       def nameTok (this.expectBindingName())
       node.name = nameTok.value
+      ; A function declaration binds its name in the enclosing scope, and hoists
+      ; like a var.
+      this.declareBinding("v" node.name)
     }
+
+    ; The parameters and the body's top level share one scope, so
+    ; `function f(a) { let a; }` is a redeclaration.
+    this.pushScope(true)
 
     ; Type parameters <T, U>
     if (this.matchValue("<")) {
@@ -2424,6 +2582,7 @@ class TSParserSimple {
         this.expectValue(",")
       }
       def param (this.parseParam())
+      this.declareParam(param)
       push node.params param
     }
     this.expectValue(")")
@@ -2435,9 +2594,12 @@ class TSParserSimple {
     }
     
     ; Body
+    this.suppressBlockScope = true
     def body (this.parseBlock())
     node.body = body
-    
+
+    this.popScope()
+
     return node
   }
   
@@ -2570,14 +2732,27 @@ class TSParserSimple {
     block.col = startTok.col
     
     this.expectValue("{")
-    
+
+    def ownScope:boolean true
+    if (this.suppressBlockScope) {
+      ownScope = false
+      this.suppressBlockScope = false
+    }
+    if ownScope {
+      this.pushScope(false)
+    }
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def beforePos:int this.pos
       def stmt (this.parseStatement())
       push block.children stmt
       this.guardNoProgress(beforePos)
     }
-    
+
+    if ownScope {
+      this.popScope()
+    }
+
     this.expectValue("}")
     return block
   }
@@ -5187,6 +5362,9 @@ class TSParserSimple {
       node.kind = "async"
     }
     
+    ; An arrow's parameters and its body share one scope.
+    this.pushScope(true)
+
     ; Parse parameters
     if (this.matchValue("(")) {
       this.advance()
@@ -5195,15 +5373,21 @@ class TSParserSimple {
           this.expectValue(",")
         }
         def param (this.parseParam())
+        ; Duplicate arrow parameters are always an error, unlike a sloppy
+        ; function's, so they are recorded under the reporting kind.
+        if ((strlen param.name) > 0) {
+          this.declareBinding("p" param.name)
+        }
         push node.params param
       }
       this.expectValue(")")
     } {
       ; Single identifier parameter: x =>
-      def paramTok (this.expect("Identifier"))
+      def paramTok (this.expectBindingName())
       def param (new TSNode())
       param.nodeType = "Parameter"
       param.name = paramTok.value
+      this.declareBinding("p" param.name)
       push node.params param
     }
     
@@ -5218,13 +5402,16 @@ class TSParserSimple {
     
     ; Parse body: expression or block
     if (this.matchValue("{")) {
+      this.suppressBlockScope = true
       def body (this.parseBlock())
       node.body = body
     } {
       def body (this.parseExpr())
       node.body = body
     }
-    
+
+    this.popScope()
+
     return node
   }
   

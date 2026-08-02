@@ -1373,6 +1373,10 @@ class TSParserSimple  {
     this.pos = 0;
     this.quiet = false;
     this.errorCount = 0;
+    this.scopeNames = [];
+    this.scopeStart = [];
+    this.scopeIsFn = [];
+    this.suppressBlockScope = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -1448,6 +1452,125 @@ class TSParserSimple  {
         return;
       }
     };
+  };
+  listPrefix (list, n) {
+    let out = [];
+    let i = 0;
+    while (i < n) {
+      out.push(list[i]);
+      i = i + 1;
+    };
+    return out;
+  };
+  intListPrefix (list, n) {
+    let out = [];
+    let i = 0;
+    while (i < n) {
+      out.push(list[i]);
+      i = i + 1;
+    };
+    return out;
+  };
+  pushScope (isFunctionBoundary) {
+    this.scopeStart.push(this.scopeNames.length);
+    if ( isFunctionBoundary ) {
+      this.scopeIsFn.push(1);
+    } else {
+      this.scopeIsFn.push(0);
+    }
+  };
+  popScope () {
+    const depth = this.scopeStart.length;
+    if ( depth == 0 ) {
+      return;
+    }
+    const start = this.scopeStart[(depth - 1)];
+    this.scopeNames = this.listPrefix(this.scopeNames, start);
+    this.scopeStart = this.intListPrefix(this.scopeStart, (depth - 1));
+    this.scopeIsFn = this.intListPrefix(this.scopeIsFn, (depth - 1));
+  };
+  declareBinding (kind, name) {
+    if ( (name.length) == 0 ) {
+      return;
+    }
+    const depth = this.scopeStart.length;
+    if ( depth == 0 ) {
+      return;
+    }
+    const total = this.scopeNames.length;
+    const scopeIdx = depth - 1;
+    let limit = 0;
+    if ( kind == "v" ) {
+      let walk = scopeIdx;
+      let keepWalking = true;
+      while ((walk >= 0) && keepWalking) {
+        if ( (this.scopeIsFn[walk]) == 1 ) {
+          keepWalking = false;
+        } else {
+          walk = walk - 1;
+        }
+      };
+      if ( walk < 0 ) {
+        limit = 0;
+      } else {
+        limit = this.scopeStart[walk];
+      }
+    } else {
+      limit = this.scopeStart[scopeIdx];
+    }
+    const ownStart = this.scopeStart[scopeIdx];
+    let i = limit;
+    while (i < total) {
+      const entry = this.scopeNames[i];
+      const sep = 1;
+      const entryKind = entry.substring(0, 1 );
+      const entryName = entry.substring(2, (entry.length) );
+      if ( entryName == name ) {
+        let clash = false;
+        if ( kind == "l" ) {
+          if ( i >= ownStart ) {
+            clash = true;
+          }
+        }
+        if ( kind == "v" ) {
+          if ( entryKind == "l" ) {
+            clash = true;
+          }
+        }
+        if ( kind == "p" ) {
+          if ( i >= ownStart ) {
+            if ( entryKind == "p" ) {
+              clash = true;
+            }
+          }
+        }
+        if ( clash ) {
+          this.syntaxError(("Parse error: '" + name) + "' has already been declared");
+          this.scopeNames.push((kind + "|") + name);
+          return;
+        }
+      }
+      i = i + 1;
+    };
+    this.scopeNames.push((kind + "|") + name);
+  };
+  declareBindingKind (declKind, declarator) {
+    let k = "v";
+    if ( declKind == "let" ) {
+      k = "l";
+    }
+    if ( declKind == "const" ) {
+      k = "l";
+    }
+    if ( (declarator.name.length) > 0 ) {
+      this.declareBinding(k, declarator.name);
+    }
+  };
+  declareParam (param) {
+    if ( (param.name.length) == 0 ) {
+      return;
+    }
+    this.declareBinding("q", param.name);
   };
   isAlwaysReservedWord (word) {
     if ( word == "break" ) {
@@ -1694,12 +1817,14 @@ class TSParserSimple  {
   parseProgram () {
     const prog = new TSNode();
     prog.nodeType = "Program";
+    this.pushScope(true);
     while (this.isAtEnd() == false) {
       const beforePos = this.pos;
       const stmt = this.parseStatement();
       prog.children.push(stmt);
       this.guardNoProgress(beforePos);
     };
+    this.popScope();
     return prog;
   };
   parseStatement () {
@@ -3051,6 +3176,7 @@ class TSParserSimple  {
         const initExpr = this.parseExpr();
         declarator.init = initExpr;
       }
+      this.declareBindingKind(node.kind, declarator);
       node.children.push(declarator);
       if ( this.matchValue(",") ) {
         this.advance();
@@ -3237,7 +3363,9 @@ class TSParserSimple  {
     if ( this.matchValue("(") == false ) {
       const nameTok = this.expectBindingName();
       node.name = nameTok.value;
+      this.declareBinding("v", node.name);
     }
+    this.pushScope(true);
     if ( this.matchValue("<") ) {
       const typeParams = this.parseTypeParams();
       for ( let i = 0; i < typeParams.length; i++) {
@@ -3251,6 +3379,7 @@ class TSParserSimple  {
         this.expectValue(",");
       }
       const param = this.parseParam();
+      this.declareParam(param);
       node.params.push(param);
     };
     this.expectValue(")");
@@ -3258,8 +3387,10 @@ class TSParserSimple  {
       const returnType = this.parseTypeAnnotation();
       node.typeAnnotation = returnType;
     }
+    this.suppressBlockScope = true;
     const body = this.parseBlock();
     node.body = body;
+    this.popScope();
     return node;
   };
   parseParam () {
@@ -3365,12 +3496,23 @@ class TSParserSimple  {
     block.line = startTok.line;
     block.col = startTok.col;
     this.expectValue("{");
+    let ownScope = true;
+    if ( this.suppressBlockScope ) {
+      ownScope = false;
+      this.suppressBlockScope = false;
+    }
+    if ( ownScope ) {
+      this.pushScope(false);
+    }
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       const beforePos = this.pos;
       const stmt = this.parseStatement();
       block.children.push(stmt);
       this.guardNoProgress(beforePos);
     };
+    if ( ownScope ) {
+      this.popScope();
+    }
     this.expectValue("}");
     return block;
   };
@@ -5364,6 +5506,7 @@ class TSParserSimple  {
       this.advance();
       node.kind = "async";
     }
+    this.pushScope(true);
     if ( this.matchValue("(") ) {
       this.advance();
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
@@ -5371,14 +5514,18 @@ class TSParserSimple  {
           this.expectValue(",");
         }
         const param = this.parseParam();
+        if ( (param.name.length) > 0 ) {
+          this.declareBinding("p", param.name);
+        }
         node.params.push(param);
       };
       this.expectValue(")");
     } else {
-      const paramTok = this.expect("Identifier");
+      const paramTok = this.expectBindingName();
       const param_1 = new TSNode();
       param_1.nodeType = "Parameter";
       param_1.name = paramTok.value;
+      this.declareBinding("p", param_1.name);
       node.params.push(param_1);
     }
     if ( this.matchValue(":") ) {
@@ -5388,12 +5535,14 @@ class TSParserSimple  {
     }
     this.expectValue("=>");
     if ( this.matchValue("{") ) {
+      this.suppressBlockScope = true;
       const body = this.parseBlock();
       node.body = body;
     } else {
       const body_1 = this.parseExpr();
       node.body = body_1;
     }
+    this.popScope();
     return node;
   };
   parseNewExpression () {
