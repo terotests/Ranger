@@ -6470,7 +6470,37 @@ class TSParserSimple  {
         yieldExpr.delegate = true;
       }
       const nextVal = this.peekValue();
-      if ( (((nextVal != ";") && (nextVal != "}")) && (nextVal != ",")) && (nextVal != ")") ) {
+      let endsYield = false;
+      if ( nextVal == ";" ) {
+        endsYield = true;
+      }
+      if ( nextVal == "}" ) {
+        endsYield = true;
+      }
+      if ( nextVal == "," ) {
+        endsYield = true;
+      }
+      if ( nextVal == ")" ) {
+        endsYield = true;
+      }
+      if ( nextVal == "]" ) {
+        endsYield = true;
+      }
+      if ( nextVal == ":" ) {
+        endsYield = true;
+      }
+      if ( this.isAtEnd() ) {
+        endsYield = true;
+      }
+      const yieldNextTok = this.peek();
+      if ( yieldNextTok.line != this.lastTokenLine ) {
+        endsYield = true;
+      }
+      if ( endsYield ) {
+        if ( yieldExpr.delegate ) {
+          this.syntaxError("Parse error: 'yield*' requires an operand");
+        }
+      } else {
         yieldExpr.left = this.parseAssign();
       }
       return yieldExpr;

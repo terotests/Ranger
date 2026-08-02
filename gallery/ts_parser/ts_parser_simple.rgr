@@ -5683,9 +5683,26 @@ class TSParserSimple {
         yieldExpr.delegate = true
       }
       
-      ; Parse argument if not at statement end
+      ; Parse argument if not at statement end. `]` and `:` end it too --
+      ; `[yield]` and `{[yield]: a}` are a bare yield in a computed key.
       def nextVal (this.peekValue())
-      if ((nextVal != ";") && (nextVal != "}") && (nextVal != ",") && (nextVal != ")")) {
+      def endsYield:boolean false
+      if (nextVal == ";") { endsYield = true }
+      if (nextVal == "}") { endsYield = true }
+      if (nextVal == ",") { endsYield = true }
+      if (nextVal == ")") { endsYield = true }
+      if (nextVal == "]") { endsYield = true }
+      if (nextVal == ":") { endsYield = true }
+      if (this.isAtEnd()) { endsYield = true }
+      ; A line terminator after `yield` ends it as well.
+      def yieldNextTok (this.peek())
+      if (yieldNextTok.line != this.lastTokenLine) { endsYield = true }
+      if (endsYield) {
+        ; `yield*` always needs an operand.
+        if (yieldExpr.delegate) {
+          this.syntaxError("Parse error: 'yield*' requires an operand")
+        }
+      } {
         yieldExpr.left = (this.parseAssign())
       }
       
