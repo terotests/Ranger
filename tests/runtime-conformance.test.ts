@@ -255,6 +255,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-REGISTRY: built-in dispatch keyed by receiver kind. Before the registry
   // these nine methods fired on ANY receiver, so [1,2].charAt(0) stringified
   // the array and indexed its debug format to return "[".
+  ["reg-arr-first-class-typeof", "return typeof [1, 2].slice;", "registry"],
+  ["reg-arr-slice-call", "return [1, 2, 3].slice.call([9, 8, 7], 1).join(',');", "registry"],
+  ["reg-arr-join-call", "return [].join.call([1, 2, 3], '-');", "registry"],
+  ["reg-arr-map-call", "return [].map.call([1, 2], function (x) { return x * 3; }).join(',');", "registry"],
+  ["reg-arr-indexof-apply", "return [].indexOf.apply([5, 6, 7], [6]);", "registry"],
+  ["reg-arr-bind-method", "var f = [1, 2, 3].join.bind([4, 5]); return f('-');", "registry"],
+  ["reg-arr-unbound-throws", "var f = [1, 2].slice; try { f(0); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-arr-map", "return [1, 2, 3].map(function (x) { return x * 2; }).join(',');", "registry"],
+  ["reg-arr-reduce", "return [1, 2, 3].reduce(function (a, b) { return a + b; }, 0);", "registry"],
+  ["reg-arr-sort-cmp", "return [3, 1, 2].sort(function (a, b) { return a - b; }).join(',');", "registry"],
+  ["reg-array-ctor-length", "return new Array(3).fill(7).join(',');", "registry"],
+  ["reg-array-ctor-items", "return new Array(1, 2).join(',');", "registry"],
+
   ["reg-str-first-class-typeof", "return typeof 'abc'.slice;", "registry"],
   ["reg-str-call-receiver", "return 'abc'.slice.call('xyz', 1);", "registry"],
   ["reg-str-apply-args", "return 'abc'.indexOf.apply('hello', ['ll']);", "registry"],

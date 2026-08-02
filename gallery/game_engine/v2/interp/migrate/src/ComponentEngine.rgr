@@ -4790,460 +4790,11 @@ class ComponentEngine {
                 ; first-class values as a side effect.
 
 
-                ; ---- Array methods (receiver is an array value) ----
-                if (obj.isArray()) {
-                    def alen:int (array_length obj.arrayValue)
-                    if (methodName == "indexOf") {
-                        def target:EvalValue (EvalValue.null())
-                        if ((array_length node.children) > 0) {
-                            target = (this.evaluateExpr((itemAt node.children 0)))
-                        }
-                        def ii:int 0
-                        while (ii < alen) {
-                            if ((target.equals((itemAt obj.arrayValue ii)))) {
-                                return (EvalValue.fromInt(ii))
-                            }
-                            ii = (ii + 1)
-                        }
-                        return (EvalValue.fromInt((0 - 1)))
-                    }
-                    if (methodName == "includes") {
-                        def target:EvalValue (EvalValue.null())
-                        if ((array_length node.children) > 0) {
-                            target = (this.evaluateExpr((itemAt node.children 0)))
-                        }
-                        def ii:int 0
-                        while (ii < alen) {
-                            if ((target.equals((itemAt obj.arrayValue ii)))) {
-                                return (EvalValue.boolean(true))
-                            }
-                            ii = (ii + 1)
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "join") {
-                        def sep:string ","
-                        if ((array_length node.children) > 0) {
-                            sep = ((this.evaluateExpr((itemAt node.children 0))).toString())
-                        }
-                        def out:string ""
-                        def ii:int 0
-                        while (ii < alen) {
-                            if (ii > 0) { out = (out + sep) }
-                            out = (out + ((itemAt obj.arrayValue ii).toString()))
-                            ii = (ii + 1)
-                        }
-                        return (EvalValue.string(out))
-                    }
-                    if (methodName == "slice") {
-                        def a:int 0
-                        def b:int alen
-                        if ((array_length node.children) > 0) {
-                            a = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
-                        }
-                        if ((array_length node.children) > 1) {
-                            b = (to_int ((this.evaluateExpr((itemAt node.children 1))).toNumber()))
-                        }
-                        if (a < 0) { a = (alen + a) }
-                        if (b < 0) { b = (alen + b) }
-                        if (a < 0) { a = 0 }
-                        if (b > alen) { b = alen }
-                        def items:[EvalValue]
-                        def ii:int a
-                        while (ii < b) {
-                            push items (itemAt obj.arrayValue ii)
-                            ii = (ii + 1)
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "forEach") {
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def ii:int 0
-                            while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt obj.arrayValue ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                def unused:EvalValue (this.callFnValueWithValues(cb cargs))
-                                ii = (ii + 1)
-                            }
-                        }
-                        return (EvalValue.undefined())
-                    }
-                    if (methodName == "map") {
-                        def items:[EvalValue]
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def ii:int 0
-                            while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt obj.arrayValue ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                push items (this.callFnValueWithValues(cb cargs))
-                                ii = (ii + 1)
-                            }
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "filter") {
-                        def items:[EvalValue]
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def ii:int 0
-                            while (ii < alen) {
-                                def el:EvalValue (itemAt obj.arrayValue ii)
-                                def cargs:[EvalValue]
-                                push cargs el
-                                push cargs (EvalValue.fromInt(ii))
-                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
-                                    push items el
-                                }
-                                ii = (ii + 1)
-                            }
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "find") {
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def ii:int 0
-                            while (ii < alen) {
-                                def el:EvalValue (itemAt obj.arrayValue ii)
-                                def cargs:[EvalValue]
-                                push cargs el
-                                push cargs (EvalValue.fromInt(ii))
-                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
-                                    return el
-                                }
-                                ii = (ii + 1)
-                            }
-                        }
-                        return (EvalValue.undefined())
-                    }
-                    if (methodName == "findIndex") {
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def ii:int 0
-                            while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt obj.arrayValue ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
-                                    return (EvalValue.fromInt(ii))
-                                }
-                                ii = (ii + 1)
-                            }
-                        }
-                        return (EvalValue.fromInt((0 - 1)))
-                    }
-                    if (methodName == "some") {
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def ii:int 0
-                            while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt obj.arrayValue ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
-                                    return (EvalValue.boolean(true))
-                                }
-                                ii = (ii + 1)
-                            }
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "every") {
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def ii:int 0
-                            while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt obj.arrayValue ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                if (((this.callFnValueWithValues(cb cargs)).toBool()) == false) {
-                                    return (EvalValue.boolean(false))
-                                }
-                                ii = (ii + 1)
-                            }
-                        }
-                        return (EvalValue.boolean(true))
-                    }
-                    if (methodName == "reduce") {
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def acc:EvalValue (EvalValue.null())
-                            def startIdx:int 0
-                            if ((array_length node.children) > 1) {
-                                acc = (this.evaluateExpr((itemAt node.children 1)))
-                            } {
-                                if (alen > 0) {
-                                    acc = (itemAt obj.arrayValue 0)
-                                    startIdx = 1
-                                }
-                            }
-                            def ii:int startIdx
-                            while (ii < alen) {
-                                def cargs:[EvalValue]
-                                push cargs acc
-                                push cargs (itemAt obj.arrayValue ii)
-                                push cargs (EvalValue.fromInt(ii))
-                                acc = (this.callFnValueWithValues(cb cargs))
-                                ii = (ii + 1)
-                            }
-                            return acc
-                        }
-                        return (EvalValue.null())
-                    }
-                    ; ---- mutators (mutate obj in place; same instance so refs see it) ----
-                    if (methodName == "push") {
-                        def nlen:int (array_length obj.arrayValue)
-                        def ai:int 0
-                        while (ai < (array_length node.children)) {
-                            nlen = (obj.arrPush((this.evaluateExpr((itemAt node.children ai)))))
-                            ai = (ai + 1)
-                        }
-                        return (EvalValue.fromInt(nlen))
-                    }
-                    if (methodName == "pop") {
-                        def n:int (array_length obj.arrayValue)
-                        if (n == 0) {
-                            return (EvalValue.undefined())
-                        }
-                        def last:EvalValue (itemAt obj.arrayValue (n - 1))
-                        def items:[EvalValue]
-                        def q:int 0
-                        while (q < (n - 1)) {
-                            push items (itemAt obj.arrayValue q)
-                            q = (q + 1)
-                        }
-                        obj.arrSetItems(items)
-                        return last
-                    }
-                    if (methodName == "shift") {
-                        def n:int (array_length obj.arrayValue)
-                        if (n == 0) {
-                            return (EvalValue.undefined())
-                        }
-                        def first:EvalValue (itemAt obj.arrayValue 0)
-                        def items:[EvalValue]
-                        def q:int 1
-                        while (q < n) {
-                            push items (itemAt obj.arrayValue q)
-                            q = (q + 1)
-                        }
-                        obj.arrSetItems(items)
-                        return first
-                    }
-                    if (methodName == "unshift") {
-                        def items:[EvalValue]
-                        def ai:int 0
-                        while (ai < (array_length node.children)) {
-                            push items (this.evaluateExpr((itemAt node.children ai)))
-                            ai = (ai + 1)
-                        }
-                        def q:int 0
-                        while (q < (array_length obj.arrayValue)) {
-                            push items (itemAt obj.arrayValue q)
-                            q = (q + 1)
-                        }
-                        obj.arrSetItems(items)
-                        return (EvalValue.fromInt((array_length items)))
-                    }
-                    if (methodName == "reverse") {
-                        def n:int (array_length obj.arrayValue)
-                        def items:[EvalValue]
-                        def q:int (n - 1)
-                        while (q >= 0) {
-                            push items (itemAt obj.arrayValue q)
-                            q = (q - 1)
-                        }
-                        obj.arrSetItems(items)
-                        return obj
-                    }
-                    if (methodName == "fill") {
-                        def fv:EvalValue (EvalValue.undefined())
-                        if ((array_length node.children) > 0) {
-                            fv = (this.evaluateExpr((itemAt node.children 0)))
-                        }
-                        def n:int (array_length obj.arrayValue)
-                        def items:[EvalValue]
-                        def q:int 0
-                        while (q < n) {
-                            push items fv
-                            q = (q + 1)
-                        }
-                        obj.arrSetItems(items)
-                        return obj
-                    }
-                    if (methodName == "sort") {
-                        def hasCmp:boolean ((array_length node.children) > 0)
-                        def cmp:EvalValue (EvalValue.null())
-                        if hasCmp {
-                            cmp = (this.resolveCallbackValue((itemAt node.children 0)))
-                        }
-                        def items:[EvalValue]
-                        def q:int 0
-                        while (q < (array_length obj.arrayValue)) {
-                            push items (itemAt obj.arrayValue q)
-                            q = (q + 1)
-                        }
-                        def sn:int (array_length items)
-                        def a:int 1
-                        while (a < sn) {
-                            def keyv:EvalValue (itemAt items a)
-                            def b:int (a - 1)
-                            def moving:boolean true
-                            while (moving && (b >= 0)) {
-                                def cur:EvalValue (itemAt items b)
-                                def gt:boolean false
-                                if hasCmp {
-                                    def cargs:[EvalValue]
-                                    push cargs cur
-                                    push cargs keyv
-                                    if (((this.callFnValueWithValues(cmp cargs)).toNumber()) > 0.0) {
-                                        gt = true
-                                    }
-                                } {
-                                    if ((this.strCmp((cur.toString()) (keyv.toString()))) > 0) {
-                                        gt = true
-                                    }
-                                }
-                                if gt {
-                                    set items (b + 1) cur
-                                    b = (b - 1)
-                                } {
-                                    moving = false
-                                }
-                            }
-                            set items (b + 1) keyv
-                            a = (a + 1)
-                        }
-                        obj.arrSetItems(items)
-                        return obj
-                    }
-                    if (methodName == "splice") {
-                        def n:int (array_length obj.arrayValue)
-                        def start:int 0
-                        if ((array_length node.children) > 0) {
-                            start = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
-                        }
-                        if (start < 0) {
-                            start = (n + start)
-                        }
-                        if (start < 0) {
-                            start = 0
-                        }
-                        if (start > n) {
-                            start = n
-                        }
-                        def delCount:int (n - start)
-                        if ((array_length node.children) > 1) {
-                            delCount = (to_int ((this.evaluateExpr((itemAt node.children 1))).toNumber()))
-                        }
-                        if (delCount < 0) {
-                            delCount = 0
-                        }
-                        if (delCount > (n - start)) {
-                            delCount = (n - start)
-                        }
-                        ; removed slice (returned)
-                        def removed:[EvalValue]
-                        def q:int 0
-                        while (q < delCount) {
-                            push removed (itemAt obj.arrayValue (start + q))
-                            q = (q + 1)
-                        }
-                        ; rebuild: head + inserted items + tail
-                        def rebuilt:[EvalValue]
-                        def h:int 0
-                        while (h < start) {
-                            push rebuilt (itemAt obj.arrayValue h)
-                            h = (h + 1)
-                        }
-                        def ii:int 2
-                        while (ii < (array_length node.children)) {
-                            push rebuilt (this.evaluateExpr((itemAt node.children ii)))
-                            ii = (ii + 1)
-                        }
-                        def t:int (start + delCount)
-                        while (t < n) {
-                            push rebuilt (itemAt obj.arrayValue t)
-                            t = (t + 1)
-                        }
-                        obj.arrSetItems(rebuilt)
-                        return (EvalValue.array(removed))
-                    }
-                    ; ---- non-mutating extras ----
-                    if (methodName == "concat") {
-                        def items:[EvalValue]
-                        def q:int 0
-                        while (q < (array_length obj.arrayValue)) {
-                            push items (itemAt obj.arrayValue q)
-                            q = (q + 1)
-                        }
-                        def ai:int 0
-                        while (ai < (array_length node.children)) {
-                            def av:EvalValue (this.evaluateExpr((itemAt node.children ai)))
-                            if (av.isArray()) {
-                                def r:int 0
-                                while (r < (array_length av.arrayValue)) {
-                                    push items (itemAt av.arrayValue r)
-                                    r = (r + 1)
-                                }
-                            } {
-                                push items av
-                            }
-                            ai = (ai + 1)
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "flat") {
-                        def items:[EvalValue]
-                        def q:int 0
-                        while (q < (array_length obj.arrayValue)) {
-                            def el:EvalValue (itemAt obj.arrayValue q)
-                            if (el.isArray()) {
-                                def r:int 0
-                                while (r < (array_length el.arrayValue)) {
-                                    push items (itemAt el.arrayValue r)
-                                    r = (r + 1)
-                                }
-                            } {
-                                push items el
-                            }
-                            q = (q + 1)
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "at") {
-                        def n:int (array_length obj.arrayValue)
-                        def idx:int 0
-                        if ((array_length node.children) > 0) {
-                            idx = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
-                        }
-                        if (idx < 0) {
-                            idx = (n + idx)
-                        }
-                        if ((idx >= 0) && (idx < n)) {
-                            return (itemAt obj.arrayValue idx)
-                        }
-                        return (EvalValue.undefined())
-                    }
-                    if (methodName == "lastIndexOf") {
-                        def target:EvalValue (EvalValue.null())
-                        if ((array_length node.children) > 0) {
-                            target = (this.evaluateExpr((itemAt node.children 0)))
-                        }
-                        def q:int ((array_length obj.arrayValue) - 1)
-                        while (q >= 0) {
-                            if ((target.equals((itemAt obj.arrayValue q)))) {
-                                return (EvalValue.fromInt(q))
-                            }
-                            q = (q - 1)
-                        }
-                        return (EvalValue.fromInt((0 - 1)))
-                    }
-                }
+                ; D-REGISTRY: the guarded Array block moved into the registry.
+                ; The higher-order methods came across unchanged too: their
+                ; callback arrived via resolveCallbackValue(node.children[0]),
+                ; which is the same function value args[0] already holds.
+
 
                 ; ---- Map methods ----
                 if (obj.isMap()) {
@@ -6626,6 +6177,32 @@ class ComponentEngine {
             if (name == "padStart") { return 2 }
             if (name == "padEnd") { return 2 }
         }
+        if (kind == "array") {
+            if (name == "at") { return 1 }
+            if (name == "concat") { return 1 }
+            if (name == "every") { return 1 }
+            if (name == "fill") { return 1 }
+            if (name == "filter") { return 1 }
+            if (name == "find") { return 1 }
+            if (name == "findIndex") { return 1 }
+            if (name == "flat") { return 0 }
+            if (name == "forEach") { return 1 }
+            if (name == "includes") { return 1 }
+            if (name == "indexOf") { return 1 }
+            if (name == "join") { return 1 }
+            if (name == "lastIndexOf") { return 1 }
+            if (name == "map") { return 1 }
+            if (name == "pop") { return 0 }
+            if (name == "push") { return 1 }
+            if (name == "reduce") { return 2 }
+            if (name == "reverse") { return 0 }
+            if (name == "shift") { return 0 }
+            if (name == "slice") { return 2 }
+            if (name == "some") { return 1 }
+            if (name == "sort") { return 1 }
+            if (name == "splice") { return 2 }
+            if (name == "unshift") { return 1 }
+        }
         if (kind == "number") {
             if (name == "toFixed") { return 1 }
         }
@@ -7001,6 +6578,467 @@ class ComponentEngine {
             if (name == "padEnd") {
                 return (EvalValue.string((this.padString(s args false))))
             }
+        }
+        ; ---- Array.prototype -----------------------------------------------
+        if (kind == "array") {
+            ; D-REGISTRY: same as for strings — an unbound extraction invoked
+            ; with no receiver is a TypeError, not an operation on an empty
+            ; array, which is what reading arrayValue off undefined would give.
+            if ((recv.isNull()) || (recv.isUndefined())) {
+                return (this.throwSpecError("TypeError" ("Array.prototype." + name + " called on null or undefined")))
+            }
+            def alen:int (array_length recv.arrayValue)
+                    def alen:int (array_length recv.arrayValue)
+                    if (name == "indexOf") {
+                        def target:EvalValue (EvalValue.null())
+                        if ((array_length args) > 0) {
+                            target = (itemAt args 0)
+                        }
+                        def ii:int 0
+                        while (ii < alen) {
+                            if ((target.equals((itemAt recv.arrayValue ii)))) {
+                                return (EvalValue.fromInt(ii))
+                            }
+                            ii = (ii + 1)
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
+                    if (name == "includes") {
+                        def target:EvalValue (EvalValue.null())
+                        if ((array_length args) > 0) {
+                            target = (itemAt args 0)
+                        }
+                        def ii:int 0
+                        while (ii < alen) {
+                            if ((target.equals((itemAt recv.arrayValue ii)))) {
+                                return (EvalValue.boolean(true))
+                            }
+                            ii = (ii + 1)
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "join") {
+                        def sep:string ","
+                        if ((array_length args) > 0) {
+                            sep = ((itemAt args 0).toString())
+                        }
+                        def out:string ""
+                        def ii:int 0
+                        while (ii < alen) {
+                            if (ii > 0) { out = (out + sep) }
+                            out = (out + ((itemAt recv.arrayValue ii).toString()))
+                            ii = (ii + 1)
+                        }
+                        return (EvalValue.string(out))
+                    }
+                    if (name == "slice") {
+                        def a:int 0
+                        def b:int alen
+                        if ((array_length args) > 0) {
+                            a = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        if ((array_length args) > 1) {
+                            b = (to_int ((itemAt args 1).toNumber()))
+                        }
+                        if (a < 0) { a = (alen + a) }
+                        if (b < 0) { b = (alen + b) }
+                        if (a < 0) { a = 0 }
+                        if (b > alen) { b = alen }
+                        def items:[EvalValue]
+                        def ii:int a
+                        while (ii < b) {
+                            push items (itemAt recv.arrayValue ii)
+                            ii = (ii + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "forEach") {
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                def unused:EvalValue (this.callFnValueWithValues(cb cargs))
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.undefined())
+                    }
+                    if (name == "map") {
+                        def items:[EvalValue]
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                push items (this.callFnValueWithValues(cb cargs))
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "filter") {
+                        def items:[EvalValue]
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def ii:int 0
+                            while (ii < alen) {
+                                def el:EvalValue (itemAt recv.arrayValue ii)
+                                def cargs:[EvalValue]
+                                push cargs el
+                                push cargs (EvalValue.fromInt(ii))
+                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
+                                    push items el
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "find") {
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def ii:int 0
+                            while (ii < alen) {
+                                def el:EvalValue (itemAt recv.arrayValue ii)
+                                def cargs:[EvalValue]
+                                push cargs el
+                                push cargs (EvalValue.fromInt(ii))
+                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
+                                    return el
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.undefined())
+                    }
+                    if (name == "findIndex") {
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
+                                    return (EvalValue.fromInt(ii))
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
+                    if (name == "some") {
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                if ((this.callFnValueWithValues(cb cargs)).toBool()) {
+                                    return (EvalValue.boolean(true))
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "every") {
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                if (((this.callFnValueWithValues(cb cargs)).toBool()) == false) {
+                                    return (EvalValue.boolean(false))
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.boolean(true))
+                    }
+                    if (name == "reduce") {
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def acc:EvalValue (EvalValue.null())
+                            def startIdx:int 0
+                            if ((array_length args) > 1) {
+                                acc = (itemAt args 1)
+                            } {
+                                if (alen > 0) {
+                                    acc = (itemAt recv.arrayValue 0)
+                                    startIdx = 1
+                                }
+                            }
+                            def ii:int startIdx
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs acc
+                                push cargs (itemAt recv.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                acc = (this.callFnValueWithValues(cb cargs))
+                                ii = (ii + 1)
+                            }
+                            return acc
+                        }
+                        return (EvalValue.null())
+                    }
+                    ; ---- mutators (mutate recv in place; same instance so refs see it) ----
+                    if (name == "push") {
+                        def nlen:int (array_length recv.arrayValue)
+                        def ai:int 0
+                        while (ai < (array_length args)) {
+                            nlen = (recv.arrPush((itemAt args ai)))
+                            ai = (ai + 1)
+                        }
+                        return (EvalValue.fromInt(nlen))
+                    }
+                    if (name == "pop") {
+                        def n:int (array_length recv.arrayValue)
+                        if (n == 0) {
+                            return (EvalValue.undefined())
+                        }
+                        def last:EvalValue (itemAt recv.arrayValue (n - 1))
+                        def items:[EvalValue]
+                        def q:int 0
+                        while (q < (n - 1)) {
+                            push items (itemAt recv.arrayValue q)
+                            q = (q + 1)
+                        }
+                        recv.arrSetItems(items)
+                        return last
+                    }
+                    if (name == "shift") {
+                        def n:int (array_length recv.arrayValue)
+                        if (n == 0) {
+                            return (EvalValue.undefined())
+                        }
+                        def first:EvalValue (itemAt recv.arrayValue 0)
+                        def items:[EvalValue]
+                        def q:int 1
+                        while (q < n) {
+                            push items (itemAt recv.arrayValue q)
+                            q = (q + 1)
+                        }
+                        recv.arrSetItems(items)
+                        return first
+                    }
+                    if (name == "unshift") {
+                        def items:[EvalValue]
+                        def ai:int 0
+                        while (ai < (array_length args)) {
+                            push items (itemAt args ai)
+                            ai = (ai + 1)
+                        }
+                        def q:int 0
+                        while (q < (array_length recv.arrayValue)) {
+                            push items (itemAt recv.arrayValue q)
+                            q = (q + 1)
+                        }
+                        recv.arrSetItems(items)
+                        return (EvalValue.fromInt((array_length items)))
+                    }
+                    if (name == "reverse") {
+                        def n:int (array_length recv.arrayValue)
+                        def items:[EvalValue]
+                        def q:int (n - 1)
+                        while (q >= 0) {
+                            push items (itemAt recv.arrayValue q)
+                            q = (q - 1)
+                        }
+                        recv.arrSetItems(items)
+                        return recv
+                    }
+                    if (name == "fill") {
+                        def fv:EvalValue (EvalValue.undefined())
+                        if ((array_length args) > 0) {
+                            fv = (itemAt args 0)
+                        }
+                        def n:int (array_length recv.arrayValue)
+                        def items:[EvalValue]
+                        def q:int 0
+                        while (q < n) {
+                            push items fv
+                            q = (q + 1)
+                        }
+                        recv.arrSetItems(items)
+                        return recv
+                    }
+                    if (name == "sort") {
+                        def hasCmp:boolean ((array_length args) > 0)
+                        def cmp:EvalValue (EvalValue.null())
+                        if hasCmp {
+                            cmp = (itemAt args 0)
+                        }
+                        def items:[EvalValue]
+                        def q:int 0
+                        while (q < (array_length recv.arrayValue)) {
+                            push items (itemAt recv.arrayValue q)
+                            q = (q + 1)
+                        }
+                        def sn:int (array_length items)
+                        def a:int 1
+                        while (a < sn) {
+                            def keyv:EvalValue (itemAt items a)
+                            def b:int (a - 1)
+                            def moving:boolean true
+                            while (moving && (b >= 0)) {
+                                def cur:EvalValue (itemAt items b)
+                                def gt:boolean false
+                                if hasCmp {
+                                    def cargs:[EvalValue]
+                                    push cargs cur
+                                    push cargs keyv
+                                    if (((this.callFnValueWithValues(cmp cargs)).toNumber()) > 0.0) {
+                                        gt = true
+                                    }
+                                } {
+                                    if ((this.strCmp((cur.toString()) (keyv.toString()))) > 0) {
+                                        gt = true
+                                    }
+                                }
+                                if gt {
+                                    set items (b + 1) cur
+                                    b = (b - 1)
+                                } {
+                                    moving = false
+                                }
+                            }
+                            set items (b + 1) keyv
+                            a = (a + 1)
+                        }
+                        recv.arrSetItems(items)
+                        return recv
+                    }
+                    if (name == "splice") {
+                        def n:int (array_length recv.arrayValue)
+                        def start:int 0
+                        if ((array_length args) > 0) {
+                            start = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        if (start < 0) {
+                            start = (n + start)
+                        }
+                        if (start < 0) {
+                            start = 0
+                        }
+                        if (start > n) {
+                            start = n
+                        }
+                        def delCount:int (n - start)
+                        if ((array_length args) > 1) {
+                            delCount = (to_int ((itemAt args 1).toNumber()))
+                        }
+                        if (delCount < 0) {
+                            delCount = 0
+                        }
+                        if (delCount > (n - start)) {
+                            delCount = (n - start)
+                        }
+                        ; removed slice (returned)
+                        def removed:[EvalValue]
+                        def q:int 0
+                        while (q < delCount) {
+                            push removed (itemAt recv.arrayValue (start + q))
+                            q = (q + 1)
+                        }
+                        ; rebuild: head + inserted items + tail
+                        def rebuilt:[EvalValue]
+                        def h:int 0
+                        while (h < start) {
+                            push rebuilt (itemAt recv.arrayValue h)
+                            h = (h + 1)
+                        }
+                        def ii:int 2
+                        while (ii < (array_length args)) {
+                            push rebuilt (itemAt args ii)
+                            ii = (ii + 1)
+                        }
+                        def t:int (start + delCount)
+                        while (t < n) {
+                            push rebuilt (itemAt recv.arrayValue t)
+                            t = (t + 1)
+                        }
+                        recv.arrSetItems(rebuilt)
+                        return (EvalValue.array(removed))
+                    }
+                    ; ---- non-mutating extras ----
+                    if (name == "concat") {
+                        def items:[EvalValue]
+                        def q:int 0
+                        while (q < (array_length recv.arrayValue)) {
+                            push items (itemAt recv.arrayValue q)
+                            q = (q + 1)
+                        }
+                        def ai:int 0
+                        while (ai < (array_length args)) {
+                            def av:EvalValue (itemAt args ai)
+                            if (av.isArray()) {
+                                def r:int 0
+                                while (r < (array_length av.arrayValue)) {
+                                    push items (itemAt av.arrayValue r)
+                                    r = (r + 1)
+                                }
+                            } {
+                                push items av
+                            }
+                            ai = (ai + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "flat") {
+                        def items:[EvalValue]
+                        def q:int 0
+                        while (q < (array_length recv.arrayValue)) {
+                            def el:EvalValue (itemAt recv.arrayValue q)
+                            if (el.isArray()) {
+                                def r:int 0
+                                while (r < (array_length el.arrayValue)) {
+                                    push items (itemAt el.arrayValue r)
+                                    r = (r + 1)
+                                }
+                            } {
+                                push items el
+                            }
+                            q = (q + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "at") {
+                        def n:int (array_length recv.arrayValue)
+                        def idx:int 0
+                        if ((array_length args) > 0) {
+                            idx = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        if (idx < 0) {
+                            idx = (n + idx)
+                        }
+                        if ((idx >= 0) && (idx < n)) {
+                            return (itemAt recv.arrayValue idx)
+                        }
+                        return (EvalValue.undefined())
+                    }
+                    if (name == "lastIndexOf") {
+                        def target:EvalValue (EvalValue.null())
+                        if ((array_length args) > 0) {
+                            target = (itemAt args 0)
+                        }
+                        def q:int ((array_length recv.arrayValue) - 1)
+                        while (q >= 0) {
+                            if ((target.equals((itemAt recv.arrayValue q)))) {
+                                return (EvalValue.fromInt(q))
+                            }
+                            q = (q - 1)
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
         }
         ; ---- Number.prototype ----------------------------------------------
         if (kind == "number") {
@@ -7775,6 +7813,34 @@ class ComponentEngine {
                     }
                 }
             }
+        }
+        ; D-ARRAYCTOR: `new Array(n)` makes an n-slot array; `new Array(a, b)`
+        ; makes one holding those elements. The single-number case is the ES5
+        ; idiom for pre-sizing, and without it `new Array(3).fill(0)` produced
+        ; nothing at all.
+        if (className == "Array") {
+            def actItems:[EvalValue]
+            def actN:int (array_length node.children)
+            if (actN == 1) {
+                def only:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                if (only.isNumber()) {
+                    def slots:int (to_int (only.toNumber()))
+                    def si:int 0
+                    while (si < slots) {
+                        push actItems (EvalValue.undefined())
+                        si = (si + 1)
+                    }
+                    return (EvalValue.array(actItems))
+                }
+                push actItems only
+                return (EvalValue.array(actItems))
+            }
+            def ai2:int 0
+            while (ai2 < actN) {
+                push actItems (this.evaluateExpr((itemAt node.children ai2)))
+                ai2 = (ai2 + 1)
+            }
+            return (EvalValue.array(actItems))
         }
         ; Built-in collections: new Map([[k,v]...]) / new Set([v...]).
         if (className == "Map") {
