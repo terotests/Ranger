@@ -650,6 +650,13 @@ class EvalValue {
             ; object. Creating a fresh one per read would silently discard every
             ; method assigned to it.
             if (key == "prototype") {
+                ; A BUILT-IN function has no `prototype` property -- it is not a
+                ; constructor. Minting one on demand made
+                ; `String.prototype.slice.prototype` an object where the spec
+                ; says undefined.
+                if ((strlen builtinName) > 0) {
+                    return (EvalValue.undefined())
+                }
                 def keys0:[string]
                 def vals0:[EvalValue]
                 def p:EvalValue (EvalValue.object(keys0 vals0))
@@ -922,6 +929,21 @@ class EvalValue {
                 def charStr:string (substring stringValue index (index + 1))
                 return (EvalValue.string(charStr))
             }
+            ; An index past the end is a MISSING property, which reads as
+            ; undefined. Answering null made `s[11] === undefined` false.
+            return (EvalValue.undefined())
+        }
+        if (valueType == 4) {
+            return (EvalValue.undefined())
+        }
+        ; An OBJECT indexed by number -- a boxed string, say -- reads the
+        ; property of that name; a missing one is undefined, not null.
+        if (valueType == 5) {
+            def ik:string (to_string index)
+            if (has objectMap ik) {
+                return (unwrap (get objectMap ik))
+            }
+            return (EvalValue.undefined())
         }
         return (EvalValue.null())
     }

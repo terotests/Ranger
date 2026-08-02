@@ -2282,7 +2282,7 @@ class ComponentEngine {
         strictMode = (this.strictForBody(fnNode))
         callDepth = (callDepth + 1)
         def body:TSNode (this.getFunctionBody(fnNode))
-        def result:EvalValue (this.evaluateFunctionBodyValue(body))
+        def result:EvalValue (this.callResultOf((this.evaluateFunctionBodyValue(body))))
 
         ; Restore caller context and return flags
         strictMode = savedStrict
@@ -2480,6 +2480,17 @@ class ComponentEngine {
         if node.body { this.hoistVarsIn((unwrap node.body) nd) }
         if node.left { this.hoistVarsIn((unwrap node.left) nd) }
         if node.right { this.hoistVarsIn((unwrap node.right) nd) }
+    }
+
+    ; A function that falls off its end returns UNDEFINED. The engine models
+    ; "no return statement ran" as null, and letting that escape made
+    ; `String(f())` answer "null" and every `=== undefined` check on a
+    ; procedure's result fail.
+    fn callResultOf:EvalValue (v:EvalValue) {
+        if (v.valueType == 0) {
+            return (EvalValue.undefined())
+        }
+        return v
     }
 
     fn evaluateFunctionBodyValue:EvalValue (body:TSNode) {
@@ -4091,7 +4102,7 @@ class ComponentEngine {
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
             if (body.nodeType == "BlockStatement") {
-                result = (this.evaluateFunctionBodyValue(body))
+                result = (this.callResultOf((this.evaluateFunctionBodyValue(body))))
             } {
                 result = (this.evaluateExpr(body))
             }
@@ -4251,7 +4262,7 @@ class ComponentEngine {
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
             if (body.nodeType == "BlockStatement") {
-                result = (this.evaluateFunctionBodyValue(body))
+                result = (this.callResultOf((this.evaluateFunctionBodyValue(body))))
             } {
                 result = (this.evaluateExpr(body))
             }
@@ -7222,6 +7233,9 @@ class ComponentEngine {
         set builtinGlobals nsName g
         g.setMember("name" (EvalValue.string(nsName)))
         g.setAttrs("name" false false true)
+        ; Math and JSON brand as themselves, not as Object.
+        if (nsName == "Math") { g.setMember("__nsbrand__" (EvalValue.string("Math"))) }
+        if (nsName == "JSON") { g.setMember("__nsbrand__" (EvalValue.string("JSON"))) }
         if (this.isBuiltinCtorName(nsName)) {
             g.setMember("prototype" (this.builtinPrototype(nsName)))
             g.setAttrs("prototype" false false false)
@@ -8240,6 +8254,23 @@ class ComponentEngine {
                         return (EvalValue.string(out))
                     }
                     if (name == "split") {
+                        ; Spec order: the LIMIT is converted before the
+                        ; separator, so when both are objects with throwing
+                        ; conversions it is the limit's that escapes. Doing the
+                        ; separator first reported the wrong exception.
+                        def hasLimit:boolean false
+                        def limitN:int 0
+                        if ((array_length args) > 1) {
+                            def limV:EvalValue (itemAt args 1)
+                            if (false == (limV.isUndefined())) {
+                                hasLimit = true
+                                limitN = (this.toIntegerOf(limV))
+                                if scriptThrew {
+                                    return (EvalValue.undefined())
+                                }
+                                if (limitN < 0) { limitN = 0 }
+                            }
+                        }
                         ; An absent or undefined separator does NOT split: the
                         ; result is a one-element array holding the whole
                         ; string. Defaulting to "" split it into characters.
@@ -8250,32 +8281,26 @@ class ComponentEngine {
                             if (false == (sepV.isUndefined())) {
                                 haveSep = true
                                 sep = (this.toStringOf(sepV))
+                                if scriptThrew {
+                                    return (EvalValue.undefined())
+                                }
                             }
                         }
                         if (false == haveSep) {
                             def whole:[EvalValue]
-                            def wcap:boolean true
-                            if ((array_length args) > 1) {
-                                def wl:EvalValue (itemAt args 1)
-                                if (false == (wl.isUndefined())) {
-                                    if ((this.toIntegerOf(wl)) < 1) { wcap = false }
+                            if hasLimit {
+                                if (limitN > 0) {
+                                    push whole (EvalValue.string(s))
                                 }
-                            }
-                            if wcap {
+                            } {
                                 push whole (EvalValue.string(s))
                             }
                             return (EvalValue.array(whole))
                         }
                         def parts:[string] (strsplit s sep)
-                        ; The optional second argument caps the result length.
                         def cap:int (array_length parts)
-                        if ((array_length args) > 1) {
-                            def limV:EvalValue (itemAt args 1)
-                            if (false == (limV.isUndefined())) {
-                                def lim:int (to_int (limV.toNumber()))
-                                if (lim < 0) { lim = 0 }
-                                if (lim < cap) { cap = lim }
-                            }
+                        if hasLimit {
+                            if (limitN < cap) { cap = limitN }
                         }
                         def items:[EvalValue]
                         def pi:int 0
@@ -9311,6 +9336,9 @@ class ComponentEngine {
         if (v.valueType == 1) { return "Number" }
         if (v.valueType == 3) { return "Boolean" }
         if (v.valueType == 5) {
+            if (has v.objectMap "__nsbrand__") {
+                return ((unwrap (get v.objectMap "__nsbrand__")).toString())
+            }
             if (has v.objectMap "__wrapper__") {
                 return ((unwrap (get v.objectMap "__wrapper__")).toString())
             }
@@ -10695,7 +10723,7 @@ class ComponentEngine {
         strictMode = (this.strictForBody(fnNode))
         callDepth = (callDepth + 1)
         def body:TSNode (this.getFunctionBody(fnNode))
-        def result:EvalValue (this.evaluateFunctionBodyValue(body))
+        def result:EvalValue (this.callResultOf((this.evaluateFunctionBodyValue(body))))
         strictMode = savedStrict
         callDepth = (callDepth - 1)
         context = savedContext
@@ -10828,6 +10856,20 @@ class ComponentEngine {
         ; object, so `new String('abc').slice(1)` found no string to work on —
         ; entire String.prototype areas scored zero because their fixtures are
         ; built this way.
+        ; D-REGISTRY: `new f()` where f is a BUILT-IN method is a TypeError --
+        ; those are not constructors. The suite checks it for method after
+        ; method (`var F = String.prototype.slice; new F()`), and without the
+        ; check the engine quietly produced an object.
+        if ((strlen className) > 0) {
+            if (context.has(className)) {
+                def ctorCand:EvalValue (context.lookup(className))
+                if (ctorCand.valueType == 6) {
+                    if ((strlen ctorCand.builtinName) > 0) {
+                        return (this.throwSpecError("TypeError" (className + " is not a constructor")))
+                    }
+                }
+            }
+        }
         ; D-TOOBJECT: `new Object(...)` had no case here at all -- it fell through
         ; to class instantiation and produced something that could not hold a
         ; property, so `var o = new Object(); o.a = 1; o.a` read undefined. Both
@@ -11123,7 +11165,22 @@ class ComponentEngine {
                         return (obj.getIndex(idx))
                     }
                     if (indexVal.isString()) {
-                        return (obj.getMember(indexVal.stringValue))
+                        ; A string key that names an index reaches the character
+                        ; (or the element), and a key that names nothing reads
+                        ; as undefined -- `'abc'['foo']` is undefined, not null.
+                        def sk:string indexVal.stringValue
+                        if ((obj.valueType == 2) || (obj.valueType == 4)) {
+                            def ski@(optional):int (to_int sk)
+                            if ski {
+                                return (obj.getIndex((unwrap ski)))
+                            }
+                            def viaMember:EvalValue (obj.getMember(sk))
+                            if (viaMember.valueType == 0) {
+                                return (EvalValue.undefined())
+                            }
+                            return viaMember
+                        }
+                        return (obj.getMember(sk))
                     }
                 }
             }
@@ -11229,6 +11286,7 @@ class ComponentEngine {
         if (k == "__symbol__") { return true }
         if (k == "__protokind__") { return true }
         if (k == "__date__") { return true }
+        if (k == "__nsbrand__") { return true }
         return false
     }
 
@@ -11654,6 +11712,11 @@ class ComponentEngine {
         }
 
         def built:EvalValue (EvalValue.object(keys values))
+        ; D-PROTO: an object literal inherits from Object.prototype. Without the
+        ; link a plain object had no toString, hasOwnProperty or valueOf to
+        ; inherit at all, so a guest override of one of them was invisible and
+        ; ToPrimitive could not find the default either.
+        built.protoRef = (this.builtinPrototype("Object"))
         def ai:int 0
         while (ai < (array_length accKeys)) {
             def ak:string (itemAt accKeys ai)
