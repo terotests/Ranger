@@ -3757,56 +3757,69 @@ class ComponentEngine {
     ; Compute the result of a (compound) assignment operator given the current
     ; LHS value and the RHS value. Handles all of = += -= *= /= %= **= and the
     ; bitwise (& | ^ << >> >>>) and logical (&& || ??) compound forms.
+    ; The floating-point remainder, with the sign of the dividend.
+    fn evaluateRemainder:EvalValue (a:double b:double) {
+        if (a != a) { return (EvalValue.number(a)) }
+        if (b != b) { return (EvalValue.number(b)) }
+        if (b == 0.0) { return (EvalValue.number((0.0 / 0.0))) }
+        if (false == (this.isFiniteNum(a))) { return (EvalValue.number((0.0 / 0.0))) }
+        if (false == (this.isFiniteNum(b))) { return (EvalValue.number(a)) }
+        def q:double (a / b)
+        def qi:double (this.floorNum(q))
+        if (q < 0.0) {
+            qi = (0.0 - (this.floorNum((0.0 - q))))
+        }
+        return (EvalValue.number((a - (qi * b))))
+    }
+
     fn applyAssignOp:EvalValue (op:string current:EvalValue rightValue:EvalValue) {
         if (op == "=") {
             return rightValue
         }
         if (op == "+=") {
             if ((current.isString()) || (rightValue.isString())) {
-                return (EvalValue.string((current.toString()) + (rightValue.toString())))
+                return (EvalValue.string((this.toStringOf(current)) + (this.toStringOf(rightValue))))
             }
-            return (EvalValue.number((current.toNumber()) + (rightValue.toNumber())))
+            return (EvalValue.number((this.toNumberOf(current)) + (this.toNumberOf(rightValue))))
         }
         if (op == "-=") {
-            return (EvalValue.number((current.toNumber()) - (rightValue.toNumber())))
+            return (EvalValue.number((this.toNumberOf(current)) - (this.toNumberOf(rightValue))))
         }
         if (op == "*=") {
-            return (EvalValue.number((current.toNumber()) * (rightValue.toNumber())))
+            return (EvalValue.number((this.toNumberOf(current)) * (this.toNumberOf(rightValue))))
         }
         if (op == "/=") {
-            def rn:double (rightValue.toNumber())
+            def rn:double (this.toNumberOf(rightValue))
             if (rn != 0.0) {
-                return (EvalValue.number((current.toNumber()) / rn))
+                return (EvalValue.number((this.toNumberOf(current)) / rn))
             }
             return current
         }
         if (op == "%=") {
-            def ri:int (to_int (rightValue.toNumber()))
-            if (ri != 0) {
-                return (EvalValue.fromInt(((to_int (current.toNumber())) % ri)))
-            }
-            return current
+            ; The floating remainder, same as the `%` operator -- the integer
+            ; version threw away the fraction.
+            return (this.evaluateRemainder((this.toNumberOf(current)) (this.toNumberOf(rightValue))))
         }
         if (op == "**=") {
-            return (EvalValue.number((this.powNum((current.toNumber()) (to_int (rightValue.toNumber()))))))
+            return (EvalValue.number((this.powNum((this.toNumberOf(current)) (to_int (this.toNumberOf(rightValue)))))))
         }
         if (op == "&=") {
-            return (EvalValue.fromInt((bit_and (to_int (current.toNumber())) (to_int (rightValue.toNumber())))))
+            return (EvalValue.fromInt((bit_and (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
         }
         if (op == "|=") {
-            return (EvalValue.fromInt((bit_or (to_int (current.toNumber())) (to_int (rightValue.toNumber())))))
+            return (EvalValue.fromInt((bit_or (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
         }
         if (op == "^=") {
-            return (EvalValue.fromInt((bit_xor (to_int (current.toNumber())) (to_int (rightValue.toNumber())))))
+            return (EvalValue.fromInt((bit_xor (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
         }
         if (op == "<<=") {
-            return (EvalValue.fromInt((bit_shl (to_int (current.toNumber())) (bit_and (to_int (rightValue.toNumber())) 31))))
+            return (EvalValue.fromInt((bit_shl (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
         }
         if (op == ">>=") {
-            return (EvalValue.fromInt((bit_shr (to_int (current.toNumber())) (bit_and (to_int (rightValue.toNumber())) 31))))
+            return (EvalValue.fromInt((bit_shr (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
         }
         if (op == ">>>=") {
-            return (EvalValue.fromInt((bit_ushr (to_int (current.toNumber())) (bit_and (to_int (rightValue.toNumber())) 31))))
+            return (EvalValue.fromInt((bit_ushr (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
         }
         if (op == "&&=") {
             if (current.toBool()) {
@@ -3930,7 +3943,15 @@ class ComponentEngine {
             def leftNode:TSNode (unwrap node.left)
             if (leftNode.nodeType == "Identifier") {
                 def varName:string leftNode.name
-                def oldNum:double ((context.lookup(varName)).toNumber())
+                ; ++ and -- READ the target, so an undeclared name is a
+                ; ReferenceError rather than a silent NaN.
+                if (false == (context.has(varName))) {
+                    if (false == (this.isEngineGlobalName(varName))) {
+                        return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
+                    }
+                }
+                ; ToNumber, so an object operand runs its own valueOf.
+                def oldNum:double (this.toNumberOf((context.lookup(varName))))
                 def newVal:EvalValue (EvalValue.number((oldNum + delta)))
                 context.assign(varName newVal)
                 if node.prefix {
@@ -3990,14 +4011,23 @@ class ComponentEngine {
                 }
                 if (leftNode.nodeType == "Identifier") {
                     def varName:string leftNode.name
-                    ; D-STRICT: assigning to a name that was never declared
-                    ; creates an implicit global in sloppy mode and is a
-                    ; ReferenceError in strict mode.
-                    if strictMode {
-                        if (false == (context.has(varName))) {
-                            if (false == (this.isEngineGlobalName(varName))) {
-                                return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
-                            }
+                    def declared:boolean (context.has(varName))
+                    if (false == declared) {
+                        if (this.isEngineGlobalName(varName)) {
+                            declared = true
+                        }
+                    }
+                    ; A COMPOUND assignment READS the target first, and reading
+                    ; a name that was never declared is a ReferenceError in
+                    ; either mode. Only a plain `=` creates an implicit global.
+                    if (false == declared) {
+                        if (op != "=") {
+                            return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
+                        }
+                        ; D-STRICT: even a plain assignment to an undeclared
+                        ; name is a ReferenceError in strict mode.
+                        if strictMode {
+                            return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
                         }
                     }
                     def current:EvalValue (context.lookup(varName))
@@ -4980,6 +5010,21 @@ class ComponentEngine {
         if (nt == "NewExpression") {
             return (this.evaluateNewExpr(node))
         }
+        ; The comma operator evaluates every operand and yields the LAST. It had
+        ; no case at all, so `(1, 2)` evaluated to undefined and any side effect
+        ; in an earlier operand never ran.
+        if (nt == "SequenceExpression") {
+            def seqOut:EvalValue (EvalValue.undefined())
+            def si:int 0
+            while (si < (array_length node.children)) {
+                seqOut = (this.evaluateExpr((itemAt node.children si)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                si = (si + 1)
+            }
+            return seqOut
+        }
         if (nt == "ThisExpression") {
             ; D-GLOBALTHIS: outside any function, `this` is the global object.
             if (false == (context.has("this"))) {
@@ -5374,15 +5419,8 @@ class ComponentEngine {
                 ; BUILD its fixture failed later at an unrelated assertion.
                 if (arrStaticName == "String") {
                     if (methodName == "fromCharCode") {
-                        def fcs:string ""
-                        def fci:int 0
-                        while (fci < (array_length node.children)) {
-                            def cv:EvalValue (this.evaluateExpr((itemAt node.children fci)))
-                            def code:int (to_int (cv.toNumber()))
-                            fcs = (fcs + (strfromcode code))
-                            fci = (fci + 1)
-                        }
-                        return (EvalValue.string(fcs))
+                        def fcArgs:[EvalValue] (this.collectCallArgs(node))
+                        return (this.invokeBuiltinStatic("String" "fromCharCode" fcArgs))
                     }
                 }
                 if (arrStaticName == "Number") {
@@ -6573,17 +6611,24 @@ class ComponentEngine {
             return (EvalValue.number((leftNum / rightNum)))
         }
         if (op == "%") {
-            def rightMod:double (right.toNumber())
+            ; The remainder is a FLOATING-POINT one: 5.5 % 2 is 1.5. Truncating
+            ; both operands to int threw the fraction away, and the sign follows
+            ; the dividend.
+            def leftMod:double (this.toNumberOf(left))
+            def rightMod:double (this.toNumberOf(right))
             if (rightMod == 0.0) {
                 ; x % 0 is NaN, not 0.
                 return (EvalValue.number((0.0 / 0.0)))
             }
-            def leftInt:int (to_int (left.toNumber()))
-            def rightInt:int (to_int rightMod)
-            if (rightInt != 0) {
-                return (EvalValue.fromInt((leftInt % rightInt)))
+            if (leftMod != leftMod) { return (EvalValue.number(leftMod)) }
+            if (rightMod != rightMod) { return (EvalValue.number(rightMod)) }
+            if (false == (this.isFiniteNum(leftMod))) {
+                return (EvalValue.number((0.0 / 0.0)))
             }
-            return (EvalValue.number((0.0 / 0.0)))
+            if (false == (this.isFiniteNum(rightMod))) {
+                return (EvalValue.number(leftMod))
+            }
+            return (this.evaluateRemainder(leftMod rightMod))
         }
 
         ; Bitwise (JS coerces operands to int32; common idiom "x | 0" truncates to int)
@@ -6593,36 +6638,36 @@ class ComponentEngine {
             return (EvalValue.fromInt((bit_or leftInt rightInt)))
         }
         if (op == "&") {
-            def leftInt:int (to_int (this.toNumberOf(left)))
-            def rightInt:int (to_int (this.toNumberOf(right)))
+            def leftInt:int (this.toInt32Of(left))
+            def rightInt:int (this.toInt32Of(right))
             return (EvalValue.fromInt((bit_and leftInt rightInt)))
         }
         if (op == "^") {
-            def leftInt:int (to_int (this.toNumberOf(left)))
-            def rightInt:int (to_int (this.toNumberOf(right)))
+            def leftInt:int (this.toInt32Of(left))
+            def rightInt:int (this.toInt32Of(right))
             return (EvalValue.fromInt((bit_xor leftInt rightInt)))
         }
         ; Shifts (JS coerces to int32; shift count masked to low 5 bits). Common in
         ; AssemblyScript fixed-point / bit-packing code.
         if (op == "<<") {
-            def leftInt:int (to_int (left.toNumber()))
-            def cnt:int (bit_and (to_int (right.toNumber())) 31)
+            def leftInt:int (this.toInt32Of(left))
+            def cnt:int (bit_and (this.toInt32Of(right)) 31)
             return (EvalValue.fromInt((bit_shl leftInt cnt)))
         }
         if (op == ">>") {
-            def leftInt:int (to_int (left.toNumber()))
-            def cnt:int (bit_and (to_int (right.toNumber())) 31)
+            def leftInt:int (this.toInt32Of(left))
+            def cnt:int (bit_and (this.toInt32Of(right)) 31)
             return (EvalValue.fromInt((bit_shr leftInt cnt)))
         }
         if (op == ">>>") {
-            def leftInt:int (to_int (left.toNumber()))
-            def cnt:int (bit_and (to_int (right.toNumber())) 31)
+            def leftInt:int (this.toInt32Of(left))
+            def cnt:int (bit_and (this.toInt32Of(right)) 31)
             return (EvalValue.fromInt((bit_ushr leftInt cnt)))
         }
         ; Exponentiation (a ** b). Integer-exponent fast path (covers game/AS use);
         ; falls back to repeated multiply for the truncated integer exponent.
         if (op == "**") {
-            return (EvalValue.number((this.powNum((left.toNumber()) (to_int (right.toNumber()))))))
+            return (EvalValue.number((this.powNum((left.toNumber()) (this.toInt32Of(right))))))
         }
 
         ; Comparison
@@ -6965,6 +7010,25 @@ class ComponentEngine {
                 return (EvalValue.number(best))
             }
         }
+        if (nsName == "String") {
+            if (name == "fromCharCode") {
+                ; Each argument is ToUint16, not a truncated ToNumber: -5.4321
+                ; is 65531, and an object argument runs its own valueOf. The old
+                ; version read `.toNumber()` straight off the value, so every
+                ; object argument became 0.
+                def fcs:string ""
+                def fci:int 0
+                while (fci < (array_length args)) {
+                    def code:int (this.toUint16Of((itemAt args fci)))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    fcs = (fcs + (strfromcode code))
+                    fci = (fci + 1)
+                }
+                return (EvalValue.string(fcs))
+            }
+        }
         if (nsName == "Array") {
             if (name == "isArray") {
                 if ((array_length args) == 0) {
@@ -7069,6 +7133,34 @@ class ComponentEngine {
     }
 
     ; The declared arity of each built-in constructor.
+    ; The declared arity of each built-in static. Only the ones the suite reads
+    ; are listed; anything else answers 1, which is the common case.
+    fn builtinStaticArity:int (nsName:string name:string) {
+        if (nsName == "Object") {
+            if (name == "defineProperty") { return 3 }
+            if (name == "defineProperties") { return 2 }
+            if (name == "create") { return 2 }
+            if (name == "getOwnPropertyDescriptor") { return 2 }
+            if (name == "setPrototypeOf") { return 2 }
+            if (name == "assign") { return 2 }
+            return 1
+        }
+        if (nsName == "Math") {
+            if (name == "random") { return 0 }
+            if (name == "atan2") { return 2 }
+            if (name == "pow") { return 2 }
+            if (name == "hypot") { return 2 }
+            if (name == "max") { return 2 }
+            if (name == "min") { return 2 }
+            return 1
+        }
+        if (nsName == "JSON") {
+            if (name == "stringify") { return 3 }
+            return 2
+        }
+        return 1
+    }
+
     fn builtinCtorArity:int (nsName:string) {
         if (nsName == "Object") { return 1 }
         if (nsName == "Array") { return 1 }
@@ -7185,6 +7277,9 @@ class ComponentEngine {
         if (nsName == "Array") {
             return (name == "isArray")
         }
+        if (nsName == "String") {
+            return (name == "fromCharCode")
+        }
         if (nsName == "Number") {
             if (name == "isNaN") { return true }
             if (name == "isFinite") { return true }
@@ -7282,7 +7377,12 @@ class ComponentEngine {
         def si:int 0
         while (si < (array_length statics)) {
             def sn:string (itemAt statics si)
-            g.setMember(sn (EvalValue.nativeStatic(nsName sn)))
+            def stv:EvalValue (EvalValue.nativeStatic(nsName sn))
+            stv.setMember("length" (EvalValue.fromInt((this.builtinStaticArity(nsName sn)))))
+            stv.setAttrs("length" false false true)
+            stv.setMember("name" (EvalValue.string(sn)))
+            stv.setAttrs("name" false false true)
+            g.setMember(sn stv)
             ; Writable and configurable but not enumerable, like every built-in.
             g.setAttrs(sn true false true)
             si = (si + 1)
@@ -8177,11 +8277,27 @@ class ComponentEngine {
                     }
                     ; (receiver already coerced to `s` above, per ToString)
                     if (name == "indexOf") {
+                        ; The optional POSITION argument was never read, so its
+                        ; conversion never ran (a throwing valueOf escaped
+                        ; unnoticed) and the search always started at 0.
+                        def needle:string "undefined"
                         if ((array_length args) > 0) {
-                            def needle:string (this.toStringOf((itemAt args 0)))
-                            return (EvalValue.fromInt((indexOf s needle)))
+                            needle = (this.toStringOf((itemAt args 0)))
+                            if scriptThrew { return (EvalValue.undefined()) }
                         }
-                        return (EvalValue.fromInt((0 - 1)))
+                        def from:int 0
+                        if ((array_length args) > 1) {
+                            from = (this.toIntegerOf((itemAt args 1)))
+                            if scriptThrew { return (EvalValue.undefined()) }
+                        }
+                        if (from < 0) { from = 0 }
+                        if (from > (strlen s)) { from = (strlen s) }
+                        def hay:string (substring s from (strlen s))
+                        def at:int (indexOf hay needle)
+                        if (at < 0) {
+                            return (EvalValue.fromInt((0 - 1)))
+                        }
+                        return (EvalValue.fromInt((at + from)))
                     }
                     if (name == "includes") {
                         if ((array_length args) > 0) {
@@ -8235,10 +8351,11 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             idx = (this.toIntegerOf((itemAt args 0)))
                         }
-                        if (idx < (strlen s)) {
+                        if ((idx >= 0) && (idx < (strlen s))) {
                             return (EvalValue.fromInt((charAt s idx)))
                         }
-                        return (EvalValue.number(0.0))
+                        ; Out of range is NaN, not 0 -- 0 is a real code unit.
+                        return (EvalValue.number((0.0 / 0.0)))
                     }
                     if (name == "repeat") {
                         def n:int 0
@@ -8311,11 +8428,29 @@ class ComponentEngine {
                         return (EvalValue.array(items))
                     }
                     if (name == "lastIndexOf") {
+                        def needle:string "undefined"
                         if ((array_length args) > 0) {
-                            def needle:string (this.toStringOf((itemAt args 0)))
-                            return (EvalValue.fromInt((lastIndexOf s needle)))
+                            needle = (this.toStringOf((itemAt args 0)))
+                            if scriptThrew { return (EvalValue.undefined()) }
                         }
-                        return (EvalValue.fromInt((0 - 1)))
+                        ; The position is ToNUMBER, not ToInteger: NaN means
+                        ; "search the whole string", which is why it is checked
+                        ; before truncating.
+                        def limit:int (strlen s)
+                        if ((array_length args) > 1) {
+                            def posV:EvalValue (itemAt args 1)
+                            def posN:double (this.toNumberOf(posV))
+                            if scriptThrew { return (EvalValue.undefined()) }
+                            if (posN == posN) {
+                                def pi2:int (this.toIntegerOf(posV))
+                                if (pi2 < 0) { pi2 = 0 }
+                                if (pi2 < limit) { limit = pi2 }
+                            }
+                        }
+                        def end:int (limit + (strlen needle))
+                        if (end > (strlen s)) { end = (strlen s) }
+                        def hay2:string (substring s 0 end)
+                        return (EvalValue.fromInt((lastIndexOf hay2 needle)))
                     }
                     if (name == "at") {
                         def L:int (strlen s)
@@ -8335,7 +8470,10 @@ class ComponentEngine {
                         def out:string s
                         def ci:int 0
                         while (ci < (array_length args)) {
-                            out = (out + ((itemAt args ci).toString()))
+                            out = (out + (this.toStringOf((itemAt args ci))))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
                             ci = (ci + 1)
                         }
                         return (EvalValue.string(out))
@@ -9440,10 +9578,29 @@ class ComponentEngine {
     }
 
     fn toPrimitive:EvalValue (v:EvalValue wantString:boolean) {
-        ; Arrays are object-like too and must convert, which is why `[1,2] + ''`
-        ; is "1,2" rather than the engine's debug rendering.
+        ; Arrays and functions are object-like too and must convert, which is
+        ; why `[1,2] + ''` is "1,2". A guest override of Array.prototype or
+        ; Function.prototype toString wins over the built-in rendering, so the
+        ; method is looked for BEFORE falling back to it.
         if (v.isArray()) {
+            def ar:EvalValue (this.callPrimitiveMethod(v "toString"))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            if primitiveMethodUsable {
+                return ar
+            }
             return (EvalValue.string((this.arrayJoinString(v ","))))
+        }
+        if (v.valueType == 6) {
+            def fr:EvalValue (this.callPrimitiveMethod(v "toString"))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            if primitiveMethodUsable {
+                return fr
+            }
+            return (EvalValue.string(("function " + v.functionName + "() { [native code] }")))
         }
         if (v.valueType != 5) {
             return v
@@ -9487,10 +9644,14 @@ class ComponentEngine {
         ; that is the spec's TypeError -- an object whose valueOf and toString
         ; both return objects cannot be converted, and the suite checks that it
         ; says so rather than inventing an answer.
+        ; The DEFAULT valueOf returns the object itself, which is not a
+        ; primitive either, so one usable-but-object-returning method is enough
+        ; to make the conversion impossible.
         if (this.hasUserMethod(v "valueOf")) {
-            if (this.hasUserMethod(v "toString")) {
-                return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
-            }
+            return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
+        }
+        if (this.hasUserMethod(v "toString")) {
+            return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
         }
         ; Otherwise the inherited Object.prototype.toString applies, which is
         ; what makes `String({valueOf: function () { return 7; }})` the brand
@@ -9695,6 +9856,54 @@ class ComponentEngine {
             return (0 - (to_int (0.0 - d)))
         }
         return (to_int d)
+    }
+
+    ; ToUint16: ToInteger, then reduced modulo 2^16 into [0, 65535].
+    ; ToInt32: ToNumber, truncate, then wrap modulo 2^32 into the signed range.
+    ; The bitwise and shift operators are all specified against it, and reading
+    ; `.toNumber()` off the value skipped the object conversion entirely --
+    ; `({valueOf: function () { return 1; }}) << 1` answered 0.
+    fn toInt32Of:int (v:EvalValue) {
+        def d:double (this.toNumberOf(v))
+        if (d != d) { return 0 }
+        if (false == (this.isFiniteNum(d))) { return 0 }
+        def t:double (this.floorNum(d))
+        if (d < 0.0) {
+            t = (0.0 - (this.floorNum((0.0 - d))))
+        }
+        def m:double (this.wrapUint32(t))
+        def half:double 2147483648.0
+        if (m >= half) {
+            m = (m - (half * 2.0))
+        }
+        return (to_int m)
+    }
+
+    ; The value reduced into [0, 2^32).
+    fn wrapUint32:double (t:double) {
+        def two32:double 4294967296.0
+        def q:double (this.floorNum((t / two32)))
+        def m:double (t - (q * two32))
+        if (m < 0.0) { m = (m + two32) }
+        return m
+    }
+
+    fn toUint16Of:int (v:EvalValue) {
+        def d:double (this.toNumberOf(v))
+        ; NaN and the infinities all map to +0 before the modulo, so
+        ; String.fromCharCode(Infinity) is "\u0000" rather than "\uffff".
+        if (d != d) {
+            return 0
+        }
+        if (false == (this.isFiniteNum(d))) {
+            return 0
+        }
+        def i:int (this.toIntegerOf(v))
+        def m:int (i % 65536)
+        if (m < 0) {
+            m = (m + 65536)
+        }
+        return m
     }
 
     fn toNumberOf:double (v:EvalValue) {

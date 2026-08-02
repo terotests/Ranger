@@ -901,9 +901,7 @@ const KNOWN_GAPS = new Set<string>([
   "regex-exec",
   "regex-flags",
   "regex-replace",
-  // Sequence expressions, labelled break and named function-expression
-  // recursion evaluate to nothing.
-  "seq-expr",
+  // Labelled break and named function-expression recursion evaluate to nothing.
   "labeled-break",
   "fn-expr-named",
   "for-of-expr-lhs",
