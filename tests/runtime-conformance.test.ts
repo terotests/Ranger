@@ -269,6 +269,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-GLOBALOBJ: built-in namespaces are real objects, not names the engine
   // merely recognises. They resolved to undefined, which was the largest ES5
   // failure bucket -- every property read off one failed.
+  // D-CBCHECK / D-DESCVALID: higher-order Array methods need a callable, and a
+  // descriptor is either a data or an accessor descriptor, never both.
+  ["cb-foreach-nonfn", "try { [1, 2].forEach(5); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["cb-every-nonfn", "try { [1].every(true); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["cb-map-null", "try { [1].map(null); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["cb-reduce-nonfn", "try { [1].reduce('x'); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["cb-foreach-ok", "var n = 0; [1, 2].forEach(function (x) { n = n + x; }); return n;", "validation"],
+  ["desc-value-and-get", "try { Object.defineProperty({}, 'p', { value: 1, get: function () {} }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["desc-writable-and-set", "try { Object.defineProperty({}, 'p', { writable: true, set: function () {} }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["desc-get-not-function", "try { Object.defineProperty({}, 'p', { get: 5 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["desc-valid-data-ok", "try { Object.defineProperty({}, 'p', { value: 1, writable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["desc-valid-accessor-ok", "try { Object.defineProperty({}, 'p', { get: function () { return 1; } }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+
   ["ctor-array-call-length", "return Array(2).length;", "globals"],
   ["ctor-array-call-items", "return Array(1, 2).length;", "globals"],
   ["ctor-object-call-empty", "return typeof Object();", "globals"],

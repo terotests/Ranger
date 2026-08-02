@@ -5276,6 +5276,10 @@ class ComponentEngine {
                             if (pd.valueType != 5) {
                                 return (this.throwSpecError("TypeError" "Property description must be an object"))
                             }
+                            def dErr:string (this.descriptorError(pd))
+                            if ((strlen dErr) > 0) {
+                                return (this.throwSpecError("TypeError" dErr))
+                            }
                             def gv:EvalValue (pd.getMember("get"))
                             def sv:EvalValue (pd.getMember("set"))
                             if ((gv.valueType == 6) || (sv.valueType == 6)) {
@@ -7088,6 +7092,18 @@ class ComponentEngine {
             if ((recv.isNull()) || (recv.isUndefined())) {
                 return (this.throwSpecError("TypeError" ("Array.prototype." + name + " called on null or undefined")))
             }
+            ; D-CBCHECK: the higher-order methods require a callable. Given a
+            ; non-function they used to iterate and quietly produce nothing, so
+            ; `arr.forEach(5)` succeeded where the spec demands a TypeError.
+            if (this.arrayNeedsCallback(name)) {
+                def cb0:EvalValue (EvalValue.undefined())
+                if ((array_length args) > 0) {
+                    cb0 = (itemAt args 0)
+                }
+                if (cb0.valueType != 6) {
+                    return (this.throwSpecError("TypeError" (name + " requires a function argument")))
+                }
+            }
             def alen:int (array_length recv.arrayValue)
                     def alen:int (array_length recv.arrayValue)
                     if (name == "indexOf") {
@@ -7619,6 +7635,52 @@ class ComponentEngine {
     ; handled by the nullish check at the call site. freeze/seal/isFrozen/
     ; isSealed/isExtensible accept anything and are deliberately absent.
     ; Statics that genuinely REQUIRE an object argument in the current spec.
+    ; Array methods whose first argument must be callable.
+    fn arrayNeedsCallback:boolean (name:string) {
+        if (name == "forEach") { return true }
+        if (name == "map") { return true }
+        if (name == "filter") { return true }
+        if (name == "find") { return true }
+        if (name == "findIndex") { return true }
+        if (name == "some") { return true }
+        if (name == "every") { return true }
+        if (name == "reduce") { return true }
+        return false
+    }
+
+    ; D-DESCVALID: a property descriptor may be a DATA descriptor (value and/or
+    ; writable) or an ACCESSOR descriptor (get and/or set), never both, and its
+    ; get/set must be callable. Accepting a contradictory descriptor silently
+    ; produced a property that matched neither shape.
+    fn descriptorError:string (d:EvalValue) {
+        def hasValue:boolean (has d.objectMap "value")
+        def hasWritable:boolean (has d.objectMap "writable")
+        def hasGet:boolean (has d.objectMap "get")
+        def hasSet:boolean (has d.objectMap "set")
+        if (hasGet || hasSet) {
+            if (hasValue || hasWritable) {
+                return "descriptor cannot be both a data and an accessor descriptor"
+            }
+            if hasGet {
+                def g:EvalValue (d.getMember("get"))
+                if (g.valueType != 6) {
+                    if (false == (g.isUndefined())) {
+                        return "getter must be a function"
+                    }
+                }
+            }
+            if hasSet {
+                def st:EvalValue (d.getMember("set"))
+                if (st.valueType != 6) {
+                    if (false == (st.isUndefined())) {
+                        return "setter must be a function"
+                    }
+                }
+            }
+        }
+        return ""
+    }
+
     fn objectStaticNeedsObject:boolean (name:string) {
         if (name == "defineProperty") { return true }
         if (name == "defineProperties") { return true }
