@@ -4830,7 +4830,7 @@ class TSParserSimple  {
           break;
         }
       }
-      if ( this.matchValue(",") ) {
+      if ( this.matchPunct(",") ) {
         this.syntaxError("Parse error: an object pattern may not contain an elision");
         this.advance();
       }
@@ -6456,6 +6456,37 @@ class TSParserSimple  {
       unary.col = opTok_1.col;
       return unary;
     }
+    if ( tokIsPunct == false ) {
+      if ( ((tokVal == "typeof") || (tokVal == "void")) || (tokVal == "delete") ) {
+        const opAfter = this.peekNextValue();
+        if ( opAfter == "(" ) {
+          let scanIdx = this.pos + 1;
+          let depth = 0;
+          const total = this.tokens.length;
+          while (scanIdx < total) {
+            const st = this.tokens[scanIdx];
+            if ( st.tokenType == "Punctuator" ) {
+              if ( st.value == "(" ) {
+                depth = depth + 1;
+              }
+              if ( st.value == ")" ) {
+                depth = depth - 1;
+                if ( depth == 0 ) {
+                  break;
+                }
+              }
+            }
+            scanIdx = scanIdx + 1;
+          };
+          if ( (scanIdx + 1) < total ) {
+            const afterParen = this.tokens[(scanIdx + 1)];
+            if ( afterParen.value == "=>" ) {
+              this.syntaxError("Parse error: an arrow function must be parenthesised to be a unary operand");
+            }
+          }
+        }
+      }
+    }
     if ( (tokVal == "void") || (tokVal == "delete") ) {
       const opTok_2 = this.peek();
       this.advance();
@@ -6795,6 +6826,11 @@ class TSParserSimple  {
         satisfiesExpr.line = expr.line;
         satisfiesExpr.col = expr.col;
         expr = satisfiesExpr;
+      }
+      if ( this.peekType() == "Template" ) {
+        if ( expr.nodeType == "UpdateExpression" ) {
+          this.syntaxError("Parse error: an update expression cannot tag a template");
+        }
       }
       const tokType = this.peekType();
       if ( tokType == "Template" ) {

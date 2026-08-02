@@ -3515,7 +3515,7 @@ class TSParserSimple {
       }
 
       ; Unlike an array pattern, an object pattern has no elisions.
-      if (this.matchValue(",")) {
+      if (this.matchPunct(",")) {
         this.syntaxError("Parse error: an object pattern may not contain an elision")
         this.advance()
       }
@@ -5650,6 +5650,35 @@ class TSParserSimple {
       return unary
     }
 
+    if (tokIsPunct == false) {
+      if ((tokVal == "typeof") || (tokVal == "void") || (tokVal == "delete")) {
+        ; An arrow function is not a UnaryExpression operand; it needs parens.
+        def opAfter:string (this.peekNextValue())
+        if (opAfter == "(") {
+          def scanIdx:int (this.pos + 1)
+          def depth:int 0
+          def total:int (array_length this.tokens)
+          while (scanIdx < total) {
+            def st:Token (itemAt this.tokens scanIdx)
+            if (st.tokenType == "Punctuator") {
+              if (st.value == "(") { depth = (depth + 1) }
+              if (st.value == ")") {
+                depth = (depth - 1)
+                if (depth == 0) { break }
+              }
+            }
+            scanIdx = (scanIdx + 1)
+          }
+          if ((scanIdx + 1) < total) {
+            def afterParen:Token (itemAt this.tokens (scanIdx + 1))
+            if (afterParen.value == "=>") {
+              this.syntaxError("Parse error: an arrow function must be parenthesised to be a unary operand")
+            }
+          }
+        }
+      }
+    }
+
     if ((tokVal == "void") || (tokVal == "delete")) {
       def opTok (this.peek())
       this.advance()
@@ -6059,6 +6088,14 @@ class TSParserSimple {
         expr = satisfiesExpr
       }
       
+      ; Tagged template literal — the tag is a MemberExpression, so an update
+      ; expression cannot carry one: `a++\u0060\u0060`.
+      if ((this.peekType()) == "Template") {
+        if (expr.nodeType == "UpdateExpression") {
+          this.syntaxError("Parse error: an update expression cannot tag a template")
+        }
+      }
+
       ; Tagged template literal: tag`template`
       def tokType (this.peekType())
       if (tokType == "Template") {
