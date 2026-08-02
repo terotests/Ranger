@@ -1,0 +1,10 @@
+; GAP: `<` `<=` `>` `>=` have no (string,string) overload, so strings cannot be
+; ordered and an array of strings cannot be sorted with the obvious comparator.
+; Error: [FAIL] Could not match argument types for <
+class GapStringOrdering {
+    sfn m@(main):void () {
+        def a:string "alpha"
+        def b:string "beta"
+        print ("lt=" + (? (a < b) "yes" "no"))
+    }
+}

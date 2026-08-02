@@ -1,0 +1,17 @@
+## maps
+  has_hit = true
+  has_miss = false
+  get_ok = true
+  get_value = 41
+  get_miss = true
+  elvis_hit = 45
+  elvis_miss = -1
+  key_count = 3
+  present_keys = ada;alan;grace;
+  value_sum = 122
+  key_chars = 12
+  overwrite = 37
+  count_after_overwrite = 3
+  map_of_array = 3
+  map_of_object = 1
+  map_double = 500

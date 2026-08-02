@@ -1,0 +1,10 @@
+; Driver: compiles and runs the `narrow` section on its own.
+Import "sx_narrow.rgr"
+
+class NarrowDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new NarrowSection)
+        s.run()
+        s.render()
+    }
+}

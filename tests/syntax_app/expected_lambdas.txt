@@ -1,0 +1,12 @@
+## lambdas
+  local_lambda = 42
+  predicate_true = true
+  predicate_false = false
+  callback_sum = 10
+  callback_index_sum = 6
+  apply_twice = 23
+  lambda_as_value = 20
+  capture = 105
+  capture_mutation = 3
+  field_lambda = 16
+  lambda_chain = 102

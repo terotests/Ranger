@@ -1,0 +1,81 @@
+; =============================================================================
+; Ranger syntax test app
+; =============================================================================
+;
+; One program that uses as much of the language and of the compiler/Lang.rgr
+; operator set as can be written portably, printing a deterministic report.
+;
+; Run it on the reference target:
+;
+;   RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
+;     node bin/output.js -es6 ./tests/syntax_app/syntax_app.rgr \
+;     -nodecli -d=tests/.output -o=syntax_app.js
+;   node tests/.output/syntax_app.js
+;
+; tests/syntax-app.test.ts compiles it to every target of the `targets` block
+; of compiler/Lang.rgr and runs it wherever the toolchain is installed, then
+; compares the output with expected_output.txt.
+;
+; What the app deliberately leaves out, and why, is in README.md next to this
+; file. The short version: anything whose result depends on the host (files,
+; the clock, the environment, the terminal, sockets, randomness) is in
+; sx_hostops.rgr, which is compiled but not run, and the constructs that do
+; not compile at all are in known_gaps.md.
+
+Import "sx_base.rgr"
+Import "sx_numeric.rgr"
+Import "sx_bitwise.rgr"
+Import "sx_strings.rgr"
+Import "sx_arrays.rgr"
+Import "sx_maps.rgr"
+Import "sx_optionals.rgr"
+Import "sx_control.rgr"
+Import "sx_oop.rgr"
+Import "sx_lambdas.rgr"
+Import "sx_buffers.rgr"
+Import "sx_operators.rgr"
+Import "sx_stdlib.rgr"
+
+class SyntaxApp {
+
+    def sections:[SyntaxSection]
+
+    ; Builds the section list. Every entry is stored through the base class
+    ; type, so the loop below runs on inherited and overridden methods only.
+    fn build:void () {
+        push sections (new NumericSection)
+        push sections (new BitwiseSection)
+        push sections (new StringsSection)
+        push sections (new ArraysSection)
+        push sections (new MapsSection)
+        push sections (new OptionalsSection)
+        push sections (new ControlSection)
+        push sections (new OopSection)
+        push sections (new LambdasSection)
+        push sections (new BuffersSection)
+        push sections (new OperatorsSection)
+        push sections (new StdlibSection)
+    }
+
+    fn runAll:int () {
+        def checks@(mutable):int 0
+        for sections section:SyntaxSection i {
+            section.run()
+            section.render()
+            checks = (checks + (section.rowCount()))
+        }
+        return checks
+    }
+
+    sfn m@(main):void () {
+        def app (new SyntaxApp)
+        app.build()
+        print "# ranger syntax app"
+        def sectionCount (array_length app.sections)
+        print ("sections = " + sectionCount)
+        def checks (app.runAll())
+        print "# summary"
+        print ("checks = " + checks)
+        print "ok"
+    }
+}

@@ -1,0 +1,11 @@
+; Driver: compiles and runs the `numeric` section on its own, so that a target
+; that rejects one section does not hide the others.
+Import "sx_numeric.rgr"
+
+class NumericDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new NumericSection)
+        s.run()
+        s.render()
+    }
+}

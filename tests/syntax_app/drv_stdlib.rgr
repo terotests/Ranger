@@ -1,0 +1,11 @@
+; Driver: compiles and runs the `stdlib` section on its own, so that a target
+; that rejects one section does not hide the others.
+Import "sx_stdlib.rgr"
+
+class StdlibDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new StdlibSection)
+        s.run()
+        s.render()
+    }
+}

@@ -1,0 +1,114 @@
+; -----------------------------------------------------------------------------
+; Ranger syntax test app - shared harness
+; -----------------------------------------------------------------------------
+; Exercises: Enum, record, trait (with and without @params), class, inheritance,
+; Extends, static functions, optional fields, arrays of objects.
+;
+; Every section of the app extends SyntaxSection and reports its findings
+; through `say`, so the printed output of the whole app is one deterministic
+; list of "label = value" lines.
+
+Enum SectionKind (
+    Core
+    Collections
+    Language
+)
+
+; A record is a fields-only value carrier; the compiler builds its constructor.
+record CheckRow {
+    def label:string ""
+    def value:string ""
+}
+
+; A plain trait: shared state and behaviour plugged into a class with `does`.
+trait Reporting {
+    def rows:[CheckRow]
+
+    fn say:void (rowLabel:string rowValue:string) {
+        def row (new CheckRow label rowLabel value rowValue)
+        push rows row
+    }
+
+    fn sayInt:void (rowLabel:string rowValue:int) {
+        this.say(rowLabel (to_string rowValue))
+    }
+
+    fn sayBool:void (rowLabel:string rowValue:boolean) {
+        this.say(rowLabel (? rowValue "true" "false"))
+    }
+
+    ; Doubles are reported as a scaled integer. Targets disagree about how many
+    ; digits a double prints, and that disagreement is not what this app
+    ; measures, so the value is rounded to three decimals and printed as int.
+    fn sayD:void (rowLabel:string rowValue:double) {
+        def shifted:double (rowValue * 1000.0)
+        def rounded:int (floor (shifted + 0.5))
+        this.sayInt(rowLabel rounded)
+    }
+
+    fn rowCount:int () {
+        def n (array_length rows)
+        return n
+    }
+}
+
+; A generic trait: `@params` gives a trait the type variables a class cannot
+; declare, so one implementation serves several element types.
+trait TypedBag @params(T) {
+    def bagItems:[T]
+
+    fn addItem:void (item:T) {
+        push bagItems item
+    }
+
+    fn itemCount:int () {
+        def n (array_length bagItems)
+        return n
+    }
+}
+
+class StringBag {
+    does TypedBag @params(string)
+}
+
+class IntBag {
+    does TypedBag @params(int)
+}
+
+; The base class of every section. Sections override `title` and `run`.
+class SyntaxSection {
+    does Reporting
+
+    def kind:SectionKind SectionKind.Core
+
+    fn title:string () {
+        return "section"
+    }
+
+    ; Every section overrides this, so the body never runs. It is still not
+    ; empty: the Python writer emits `def run(self):` with nothing under it for
+    ; an empty method, and the generated module then fails to import with
+    ; "IndentationError: expected an indented block". See known_gaps.md.
+    fn run:void () {
+        this.say("base" "not overridden")
+    }
+
+    ; Renders the collected rows. Inherited by every section, so a target that
+    ; loses inherited methods fails here first.
+    ;
+    ; The walk is an index loop and not `for rows row:CheckRow i`, because the
+    ; Go writer does not declare the item variable of a for loop whose element
+    ; type is an object -- the generated Go says "undefined: row". Keeping that
+    ; construct out of the shared harness leaves it to the `arrays` and `oop`
+    ; sections, where the report can attribute it. See known_gaps.md.
+    fn render:void () {
+        print ("## " + (this.title()))
+        def n:int (array_length rows)
+        def i@(mutable):int 0
+        while (i < n) {
+            def row:CheckRow (itemAt rows i)
+            print ((("  " + row.label) + " = ") + row.value)
+            i = (i + 1)
+        }
+    }
+}

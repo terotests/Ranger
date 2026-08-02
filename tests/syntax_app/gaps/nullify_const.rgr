@@ -1,0 +1,10 @@
+; GAP: `nullify` does not count as a mutation, so the JavaScript writer declares
+; the variable `const` and the generated program throws
+; "TypeError: Assignment to constant variable." at run time.
+class GapNullify {
+    sfn m@(main):void () {
+        def value@(mutable optional):string (wrap "temporary")
+        nullify value
+        print ("null=" + (? (null? value) "yes" "no"))
+    }
+}

@@ -1,0 +1,11 @@
+; Driver: compiles and runs the `operators` section on its own, so that a target
+; that rejects one section does not hide the others.
+Import "sx_operators.rgr"
+
+class OperatorsDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new OperatorsSection)
+        s.run()
+        s.render()
+    }
+}

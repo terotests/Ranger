@@ -1,0 +1,100 @@
+Import "sx_base.rgr"
+
+; String operators of compiler/Lang.rgr.
+;   strlen length first at charAt substring trim trim_right
+;   indexOf indexOfFrom lastIndexOf startsWith endsWith contains replace
+;   to_lowercase to_uppercase strsplit join pushString
+;   charcode ccode strfromcode rawbytechar
+;   str2int str2double to_int to_double to_string has regex_test
+class StringsSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "strings"
+    }
+
+    fn run:void () {
+        def s:string "Ranger Compiler"
+
+        this.sayInt("strlen" (strlen s))
+        this.sayInt("length" (length s))
+        this.say("first" (first s))
+        this.say("at3" (at s 3))
+        this.sayInt("charAt0" (charAt s 0))
+
+        this.say("substring2" (substring s 7))
+        this.say("substring3" (substring s 0 6))
+
+        this.say("concat" ("a" + "b"))
+        this.say("concat_int" ("n=" + 42))
+        this.say("concat_double_len" (to_string (strlen ("d=" + 1.5))))
+        this.say("concat_left_int" (7 + "x"))
+
+        this.say("trim" (trim "  padded  "))
+        this.say("trim_right" (trim_right "padded  "))
+
+        this.sayInt("indexOf" (indexOf s "Comp"))
+        this.sayInt("indexOf_miss" (indexOf s "zzz"))
+        this.sayInt("indexOfFrom" (indexOfFrom "abcabc" "b" 2))
+        this.sayInt("lastIndexOf" (lastIndexOf "abcabc" "b"))
+        this.sayBool("startsWith" (startsWith s "Ran"))
+        this.sayBool("endsWith" (endsWith s "ler"))
+        this.sayBool("contains" (contains s "ger C"))
+        this.say("replace" (replace "a-b-c" "-" "+"))
+
+        this.say("lower" (to_lowercase s))
+        this.say("upper" (to_uppercase s))
+
+        ; Split and join round trip.
+        def parts:[string] (strsplit "one,two,three" ",")
+        this.sayInt("split_count" (array_length parts))
+        this.say("split_1" (itemAt parts 1))
+        this.say("join" (join parts "|"))
+
+        ; pushString exists so that a Rust &str reaches a [String].
+        def acc:[string]
+        pushString acc "x"
+        pushString acc "y"
+        this.say("pushString" (join acc "-"))
+
+        ; Character codes. `charcode` and `ccode` give a char, `strfromcode`
+        ; turns a code back into a one character string.
+        def code:char (charcode "A")
+        this.sayInt("charcode_A" (to_int code))
+        this.sayInt("ccode_z" (to_int (ccode "z")))
+        this.say("strfromcode_int" (strfromcode 66))
+        this.say("strfromcode_char" (strfromcode code))
+        this.sayInt("rawbytechar_len" (strlen (rawbytechar 65)))
+
+        ; String to number. str2int and str2double give optionals.
+        def n@(optional):int (str2int "123")
+        this.sayBool("str2int_ok" (!null? n))
+        this.sayInt("str2int" (unwrap n))
+        def bad@(optional):int (str2int "not a number")
+        this.sayBool("str2int_bad" (null? bad))
+        def dv@(optional):double (str2double "2.5")
+        this.sayD("str2double" (unwrap dv))
+        ; to_int and to_double of a string give an optional, like str2int.
+        def parsedInt@(optional):int (to_int "77")
+        this.sayInt("to_int_str" (unwrap parsedInt))
+        def parsedDouble@(optional):double (to_double "0.25")
+        this.sayD("to_double_str" (unwrap parsedDouble))
+
+        ; `has` on a string is "length greater than zero".
+        this.sayBool("has_text" (has s))
+        this.sayBool("has_empty" (has ""))
+
+        ; Regular expression search. The pattern is a plain string, with no
+        ; delimiters around it.
+        this.sayBool("regex_hit" (regex_test s "C[a-z]+r"))
+        this.sayBool("regex_miss" (regex_test s "^Compiler"))
+
+        ; Equality and inequality of strings.
+        this.sayBool("str_eq" (s == "Ranger Compiler"))
+        this.sayBool("str_neq" (s != "other"))
+
+        ; A multiline literal, JSON escaping rules.
+        def esc:string "tab\tquote\"end"
+        this.sayInt("escaped_len" (strlen esc))
+    }
+}

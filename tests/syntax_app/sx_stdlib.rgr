@@ -1,0 +1,125 @@
+Import "sx_base.rgr"
+Import "stdlib.rgr"
+
+; The collection methods of lib/stdlib.rgr. They are declared in an
+; `operator type:[T] all { }` block, which means they are ordinary Ranger
+; functions and compile for every target that compiles the library.
+;   arrays: forEach map filter reduce find count contains any all slice
+;           has clone groupBy
+;   maps:   values map_length get_or
+class StdlibSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "stdlib"
+    }
+
+    fn run:void () {
+        def nums:[int] ([] _:int (1 2 3 4 5 6))
+
+        ; forEach walks the array and gives the item and the index.
+        def sum@(mutable):int 0
+        nums.forEach({
+            sum = (sum + item)
+        })
+        this.sayInt("forEach_sum" sum)
+
+        ; map builds a new array of the same element type.
+        def doubled:[int] (nums.map({
+            return (item * 2)
+        }))
+        this.sayInt("map_length" (array_length doubled))
+        this.sayInt("map_first" (itemAt doubled 0))
+        this.sayInt("map_last" (itemAt doubled 5))
+
+        ; filter keeps the items the predicate accepts.
+        def evens:[int] (nums.filter({
+            return ((item % 2) == 0)
+        }))
+        this.sayInt("filter_count" (array_length evens))
+        this.sayInt("filter_first" (itemAt evens 0))
+
+        ; reduce folds the array into one value, starting from the seed.
+        def folded:int (nums.reduce({
+            return (left + right)
+        } 0))
+        this.sayInt("reduce_sum" folded)
+
+        ; find gives the first item the predicate accepts, as an optional.
+        def found@(optional):int (nums.find({
+            return (item > 3)
+        }))
+        this.sayBool("find_ok" (!null? found))
+        this.sayInt("find" (unwrap found))
+
+        ; count answers a question about the whole array. `contains` is not
+        ; used: the block parameter `item` does not bind inside it, because the
+        ; name collides with the core `contains(string,string)` operator.
+        ; sx_gaps.rgr keeps the case.
+        this.sayInt("count" (nums.count({
+            return (item > 2)
+        })))
+
+        ; any and all are the existential and the universal test.
+        this.sayBool("any_true" (nums.any({
+            return (item > 5)
+        })))
+        this.sayBool("any_false" (nums.any({
+            return (item > 99)
+        })))
+        this.sayBool("all_true" (nums.all({
+            return (item > 0)
+        })))
+        this.sayBool("all_false" (nums.all({
+            return (item > 3)
+        })))
+
+        ; slice takes a range and clone copies. `[T].has(el)` is not used: its
+        ; body calls `(indexOf el)` with the receiver missing, so it does not
+        ; compile. sx_gaps.rgr keeps the case.
+        def middle:[int] (nums.slice(1 4))
+        this.sayInt("slice_count" (array_length middle))
+        this.sayInt("slice_first" (itemAt middle 0))
+        def copy:[int] (nums.clone())
+        push copy 7
+        this.sayInt("clone_length" (array_length copy))
+        this.sayInt("clone_source_unchanged" (array_length nums))
+
+        ; The map methods.
+        def scores:[string:int]
+        set scores "a" 10
+        set scores "b" 20
+        set scores "c" 30
+        this.sayInt("map_length_op" (scores.map_length()))
+        def values:[int] (scores.values())
+        this.sayInt("values_count" (array_length values))
+        def valueTotal@(mutable):int 0
+        for values v:int i {
+            valueTotal = (valueTotal + v)
+        }
+        this.sayInt("values_sum" valueTotal)
+        this.sayInt("get_or_hit" (scores.get_or("b" -1)))
+        this.sayInt("get_or_miss" (scores.get_or("zz" -1)))
+
+        ; groupBy keeps the first item of each key the callback gives.
+        def words:[string] ([] _:string ("apple" "avocado" "banana" "blueberry" "cherry"))
+        def firstOfEach:[string] (words.groupBy({
+            return (first item)
+        }))
+        this.sayInt("groupBy_count" (array_length firstOfEach))
+        this.say("groupBy_items" (join firstOfEach ","))
+
+        ; A chain: filter, then map, then reduce.
+        def odds:[int] (nums.filter({
+            return ((item % 2) == 1)
+        }))
+        def scaled:[int] (odds.map({
+            return (item * 10)
+        }))
+        def chained:int (scaled.reduce({
+            return (left + right)
+        } 0))
+        this.sayInt("chain_head" (itemAt scaled 0))
+        this.sayInt("chain_total" chained)
+    }
+}

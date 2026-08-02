@@ -1,0 +1,11 @@
+; Driver: compiles and runs the `oop` section on its own, so that a target
+; that rejects one section does not hide the others.
+Import "sx_oop.rgr"
+
+class OopDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new OopSection)
+        s.run()
+        s.render()
+    }
+}

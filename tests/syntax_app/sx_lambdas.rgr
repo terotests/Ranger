@@ -1,0 +1,97 @@
+Import "sx_base.rgr"
+
+; Anonymous functions.
+;   a lambda in a local variable, a lambda as a parameter with a full
+;   signature, the block form where the parameter names come from the
+;   signature, a lambda that captures a local, and a lambda stored on a field.
+class LambdasSection {
+    Extends(SyntaxSection)
+
+    ; A field holding a function value.
+    def transform@(optional):(fn:int (value:int))
+
+    fn title:string () {
+        return "lambdas"
+    }
+
+    ; Takes a callback with an explicit signature and calls it.
+    fn eachNumber:void (values:[int] callback:(fn:void (value:int index:int))) {
+        for values v:int i {
+            callback(v i)
+        }
+    }
+
+    ; Takes a function that gives a value back.
+    fn applyTwice:int (value:int op:(fn:int (n:int))) {
+        def once:int (op(value))
+        def twice:int (op(once))
+        return twice
+    }
+
+    fn run:void () {
+        ; A lambda bound to a local variable, then called.
+        def double (fn:int (n:int) {
+            return (n * 2)
+        })
+        this.sayInt("local_lambda" (double(21)))
+
+        def isLong (fn:boolean (text:string) {
+            return ((strlen text) > 3)
+        })
+        this.sayBool("predicate_true" (isLong("abcd")))
+        this.sayBool("predicate_false" (isLong("ab")))
+
+        ; A lambda passed to a function, written as a block: the parameter
+        ; names of the signature are in scope inside the block.
+        def numbers:[int] ([] _:int (1 2 3 4))
+        def sum@(mutable):int 0
+        def indexes@(mutable):int 0
+        this.eachNumber(numbers {
+            sum = (sum + value)
+            indexes = (indexes + index)
+        })
+        this.sayInt("callback_sum" sum)
+        this.sayInt("callback_index_sum" indexes)
+
+        ; A lambda that gives a value back, passed as a block.
+        this.sayInt("apply_twice" (this.applyTwice(3 {
+            return (n + 10)
+        })))
+
+        ; The same function passed as a value rather than as a block.
+        this.sayInt("lambda_as_value" (this.applyTwice(5 double)))
+
+        ; Capture: the lambda reads a local declared before it.
+        def offset:int 100
+        def addOffset (fn:int (n:int) {
+            return (n + offset)
+        })
+        this.sayInt("capture" (addOffset(5)))
+
+        ; Capture and mutate: the lambda writes to a local of the enclosing
+        ; function.
+        def counter@(mutable):int 0
+        def bump (fn:void () {
+            counter = (counter + 1)
+        })
+        bump()
+        bump()
+        bump()
+        this.sayInt("capture_mutation" counter)
+
+        ; A function value on a field, set then called.
+        transform = double
+        if (!null? transform) {
+            def f:(fn:int (value:int)) (unwrap transform)
+            this.sayInt("field_lambda" (f(8)))
+        }
+
+        ; An array of function values is not declarable -- `[(fn:int (n:int))]`
+        ; reports "Undefined variable n" at the element type -- so the chaining
+        ; case is written out by hand. sx_gaps.rgr keeps the array form.
+        def chained@(mutable):int 1
+        chained = (double(chained))
+        chained = (addOffset(chained))
+        this.sayInt("lambda_chain" chained)
+    }
+}

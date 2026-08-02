@@ -1,0 +1,22 @@
+; GAP: a grandchild class does not see the fields its grandparent declares.
+; Error: [FAIL] WriteVREF -> Undefined variable name in class Grandchild
+class Base {
+    def name:string "base"
+}
+class Middle {
+    Extends(Base)
+    def extra:int 1
+}
+class Grandchild {
+    Extends(Middle)
+    Constructor () {
+        name = "grandchild"
+        extra = 2
+    }
+}
+class GapThreeLevels {
+    sfn m@(main):void () {
+        def g (new Grandchild)
+        print ("name=" + g.name)
+    }
+}

@@ -1,0 +1,5 @@
+count = 5
+note = kind=demo
+found = yes
+hibernated = no
+ok

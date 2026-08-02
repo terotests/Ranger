@@ -1,0 +1,11 @@
+; GAP: `[T].has(el)` in lib/stdlib.rgr calls `(indexOf el)` with the receiver
+; missing -- it should be `(indexOf self el)`.
+; Error: [FAIL] Could not match argument types for indexOf (in lib/stdlib.rgr)
+Import "stdlib.rgr"
+
+class GapStdlibHas {
+    sfn m@(main):void () {
+        def nums:[int] ([] _:int (1 2 3))
+        print ("has=" + (? (nums.has(2)) "yes" "no"))
+    }
+}

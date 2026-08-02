@@ -1,0 +1,58 @@
+; The HTTP and SSE operators of compiler/Lang.rgr. Only the Go target writes a
+; server, so this file has its own main and is compiled -- never started -- by
+; the test.
+;
+;   http_get_method http_get_path http_get_param http_get_query
+;   http_get_header http_set_status http_set_header
+;   http_send http_send_bytes http_send_buffer
+;   sse_send sse_is_connected
+;   start stop
+;
+; The route annotations `@(GET "/path")`, `@(POST "/path")` and
+; `@(SSE "/path")` and the `@(HttpServer)` class annotation come with them.
+
+class SyntaxAppServer@(HttpServer) {
+
+    def name:string "ranger syntax app server"
+    def hits:int 0
+
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        def method:string (http_get_method req)
+        def path:string (http_get_path req)
+        def accept:string (http_get_header req "Accept")
+        def who:string (http_get_query req "who")
+
+        http_set_header res "Content-Type" "text/plain"
+        http_set_status res 200
+        http_send res (((method + " ") + path) + ((" accept=" + accept) + (" who=" + who)))
+    }
+
+    fn handleEcho@(POST "/echo"):void (req:HttpRequest res:HttpResponse) {
+        def body:string (http_get_param req "body")
+
+        ; Bytes and buffers have their own send operators.
+        def chars:charbuffer (to_charbuffer body)
+        http_set_status res 201
+        http_send_bytes res chars
+
+        def raw:buffer (buffer_from_string body)
+        http_send_buffer res raw
+    }
+
+    fn handleEvents@(SSE "/events"):void (client:SSEClient) {
+        sse_send client "connected" "welcome"
+        def open:boolean (sse_is_connected client)
+        if (open) {
+            sse_send client "message" "still here"
+        }
+    }
+}
+
+class SyntaxAppServerMain {
+    sfn m@(main):void () {
+        def server:SyntaxAppServer (new SyntaxAppServer())
+        print ("starting " + server.name)
+        start server 3000
+        stop server
+    }
+}

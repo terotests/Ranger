@@ -213,15 +213,35 @@ target, and the operator polyfill system are documented in
 ## Testing
 
 ```bash
-npm test              # Run all tests
-npm run test:es6      # JavaScript/ES6 tests only
-npm run test:python   # Python target tests
-npm run test:go       # Go target tests
-npm run test:rust     # Rust target tests
+npm test                  # Run all tests
+npm run test:es6          # JavaScript/ES6 tests only
+npm run test:python       # Python target tests
+npm run test:go           # Go target tests
+npm run test:rust         # Rust target tests
+npm run test:syntaxapp    # The syntax app on every target
 ```
 
 ES6/JavaScript has full runtime coverage; Python and Go have compilation and
 runtime tests; Rust has compilation tests, with runtime tests in progress.
+
+### Syntax app (every target, measured)
+
+[`tests/syntax_app/`](tests/syntax_app/README.md) is one program that uses 203
+of the 207 core operator names of `compiler/Lang.rgr` together with classes,
+inheritance, traits, records, enums, extensions, lambdas, optionals, buffers,
+custom operators and the collection methods of `lib/stdlib.rgr`.
+`npm run test:syntaxapp` compiles it — and each of its sections on its own — to
+all fourteen targets the CLI accepts, then builds and runs the output with
+`node`, `tsc`, `go`, `python3`, `rustc`, `g++`, `javac`, `php` and `lli`,
+whichever of them the machine has, and compares what each one printed with the
+output of the reference target.
+
+The result is a matrix that the test asserts against a checked-in baseline, so
+a target getting worse **and** a target getting better both fail until the
+record is updated (`npm run test:syntaxapp:update`). The current measurement is
+in [`tests/syntax_app/TARGET_REPORT.md`](tests/syntax_app/TARGET_REPORT.md) and
+what does not work at all is in
+[`tests/syntax_app/known_gaps.md`](tests/syntax_app/known_gaps.md).
 
 ## Known issues
 

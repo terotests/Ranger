@@ -1,0 +1,19 @@
+; GAP (Python target): a method with an empty body emits `def name(self):` with
+; nothing under it, and the generated module fails to import:
+;
+;   IndentationError: expected an indented block after function definition
+;
+; An empty method is the usual way to write the default of an overridable hook,
+; so this stops any program that has one. The base class of the syntax app
+; gives its `run` a body because of it.
+class Hook {
+    fn onEvent:void () {
+    }
+}
+class GapPythonEmptyMethod {
+    sfn m@(main):void () {
+        def h (new Hook)
+        h.onEvent()
+        print "ok"
+    }
+}

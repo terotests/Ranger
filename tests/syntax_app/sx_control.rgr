@@ -1,0 +1,193 @@
+Import "sx_base.rgr"
+
+; Control flow.
+;   if / if-else / if! / the ternary `?`
+;   switch with case and default over int, string and char
+;   while with break and continue
+;   try / throw / error_msg
+Enum Severity (
+    Low
+    Medium
+    High
+)
+
+class ControlSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "control"
+    }
+
+    ; A function that throws, so the try block has something to catch. The
+    ; @(throws) annotation is required: without it the compiler asks for a try
+    ; block around the `throw` itself.
+    fn mustBePositive@(throws):int (value:int) {
+        if (value < 0) {
+            throw "negative value"
+        }
+        return value
+    }
+
+    fn classify:string (value:int) {
+        def label@(mutable):string "?"
+        switch value {
+            case 0 {
+                label = "zero"
+            }
+            case 1 {
+                label = "one"
+            }
+            case 2 {
+                label = "two"
+            }
+            default {
+                label = "many"
+            }
+        }
+        return label
+    }
+
+    fn severityName:string (level:Severity) {
+        def label@(mutable):string "?"
+        if (level == Severity.Low) {
+            label = "low"
+        }
+        if (level == Severity.Medium) {
+            label = "medium"
+        }
+        if (level == Severity.High) {
+            label = "high"
+        }
+        return label
+    }
+
+    fn run:void () {
+        def x:int 7
+
+        ; if, if-else and the negated if.
+        def branch@(mutable):string ""
+        if (x > 5) {
+            branch = "big"
+        }
+        this.say("if" branch)
+
+        if (x > 100) {
+            branch = "huge"
+        } {
+            branch = "small"
+        }
+        this.say("if_else" branch)
+
+        if! (x > 100) {
+            branch = "not-huge"
+        }
+        this.say("if_not" branch)
+
+        if! (x > 100) {
+            branch = "then"
+        } {
+            branch = "else"
+        }
+        this.say("if_not_else" branch)
+
+        ; The ternary is an expression, so it nests.
+        this.say("ternary" (? (x > 5) "gt" "le"))
+        this.say("ternary_nested" (? (x > 5) (? (x > 6) "gt6" "gt5") "le5"))
+        this.sayInt("ternary_int" (? (x == 7) 1 0))
+
+        ; switch over an int, a string and a char.
+        this.say("switch_0" (this.classify(0)))
+        this.say("switch_2" (this.classify(2)))
+        this.say("switch_default" (this.classify(9)))
+
+        def word:string "beta"
+        def wordLabel@(mutable):string "?"
+        switch word {
+            case "alpha" {
+                wordLabel = "first"
+            }
+            case "beta" {
+                wordLabel = "second"
+            }
+            default {
+                wordLabel = "other"
+            }
+        }
+        this.say("switch_string" wordLabel)
+
+        def letter:char (charcode "b")
+        def letterLabel@(mutable):string "?"
+        switch letter {
+            case 97 {
+                letterLabel = "a"
+            }
+            case 98 {
+                letterLabel = "b"
+            }
+            default {
+                letterLabel = "z"
+            }
+        }
+        this.say("switch_char" letterLabel)
+
+        ; Enum values compare with == and travel as a parameter.
+        this.say("enum_low" (this.severityName(Severity.Low)))
+        this.say("enum_high" (this.severityName(Severity.High)))
+        def current:Severity Severity.Medium
+        this.sayBool("enum_eq" (current == Severity.Medium))
+        this.sayBool("enum_neq" (current != Severity.High))
+        this.say("enum_concat" ("level=" + current))
+
+        ; while, with continue and break.
+        def sum@(mutable):int 0
+        def i@(mutable):int 0
+        while (i < 10) {
+            i = (i + 1)
+            if ((i % 2) == 0) {
+                continue
+            }
+            if (i > 7) {
+                break
+            }
+            sum = (sum + i)
+        }
+        this.sayInt("while_sum" sum)
+        this.sayInt("while_last_i" i)
+
+        ; A nested loop, to be sure break only leaves the inner one.
+        def pairs@(mutable):int 0
+        def outer@(mutable):int 0
+        while (outer < 3) {
+            def inner@(mutable):int 0
+            while (inner < 5) {
+                if (inner > 1) {
+                    break
+                }
+                pairs = (pairs + 1)
+                inner = (inner + 1)
+            }
+            outer = (outer + 1)
+        }
+        this.sayInt("nested_while" pairs)
+
+        ; try / throw / error_msg.
+        def caught@(mutable):string "none"
+        def okValue@(mutable):int 0
+        try {
+            okValue = (this.mustBePositive(3))
+        } {
+            caught = "unexpected"
+        }
+        this.sayInt("try_ok" okValue)
+        this.say("try_no_error" caught)
+
+        def failed@(mutable):boolean false
+        try {
+            def bad:int (this.mustBePositive(-1))
+            okValue = bad
+        } {
+            failed = true
+        }
+        this.sayBool("catch_ran" failed)
+    }
+}

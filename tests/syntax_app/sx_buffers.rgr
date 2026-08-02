@@ -1,0 +1,87 @@
+Import "sx_base.rgr"
+
+; The buffer types of compiler/Lang.rgr.
+;   buffer:        buffer_alloc/length/get/set/fill/copy/slice
+;                  buffer_from_string buffer_to_string buffer_to_base64
+;   int_buffer:    int_buffer_alloc/length/get/set/fill/copy
+;   double_buffer: double_buffer_alloc/length/get/set/fill/copy
+;   charbuffer:    to_charbuffer, length, charAt, substring
+class BuffersSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "buffers"
+    }
+
+    fn run:void () {
+        ; A byte buffer, written and read one byte at a time.
+        def bytes:buffer (buffer_alloc 8)
+        this.sayInt("buffer_length" (buffer_length bytes))
+        buffer_set bytes 0 65
+        buffer_set bytes 1 66
+        buffer_set bytes 2 67
+        this.sayInt("buffer_get" (buffer_get bytes 1))
+
+        ; fill writes one value over the half open range [start, end).
+        buffer_fill bytes 9 3 5
+        this.sayInt("buffer_fill_inside" (buffer_get bytes 4))
+        this.sayInt("buffer_fill_outside" (buffer_get bytes 2))
+        this.sayInt("buffer_fill_end_excluded" (buffer_get bytes 5))
+
+        ; copy takes the destination first: (dest destOffset src srcOffset len).
+        def target:buffer (buffer_alloc 4)
+        buffer_copy target 0 bytes 0 3
+        this.sayInt("buffer_copy" (buffer_get target 2))
+
+        ; slice gives a new buffer with part of the source.
+        def part:buffer (buffer_slice bytes 0 3)
+        this.sayInt("buffer_slice_length" (buffer_length part))
+        this.sayInt("buffer_slice_value" (buffer_get part 0))
+
+        ; Text in and out of a byte buffer.
+        def text:buffer (buffer_from_string "Ranger")
+        this.sayInt("buffer_from_string" (buffer_length text))
+        this.say("buffer_to_string" (buffer_to_string text))
+        this.say("buffer_to_base64" (buffer_to_base64 text))
+
+        ; An int buffer holds integers rather than bytes.
+        def ints:int_buffer (int_buffer_alloc 5)
+        this.sayInt("int_buffer_length" (int_buffer_length ints))
+        int_buffer_set ints 0 1000
+        int_buffer_set ints 1 2000
+        this.sayInt("int_buffer_get" (int_buffer_get ints 1))
+        int_buffer_fill ints 9 2 5
+        this.sayInt("int_buffer_fill" (int_buffer_get ints 4))
+        def intTarget:int_buffer (int_buffer_alloc 3)
+        int_buffer_copy intTarget 0 ints 0 3
+        this.sayInt("int_buffer_copy" (int_buffer_get intTarget 0))
+        this.sayInt("int_buffer_copy_2" (int_buffer_get intTarget 1))
+
+        ; A double buffer, the same operations over doubles.
+        def doubles:double_buffer (double_buffer_alloc 4)
+        this.sayInt("double_buffer_length" (double_buffer_length doubles))
+        double_buffer_set doubles 0 1.5
+        double_buffer_set doubles 1 2.5
+        this.sayD("double_buffer_get" (double_buffer_get doubles 1))
+        double_buffer_fill doubles 0.25 2 4
+        this.sayD("double_buffer_fill" (double_buffer_get doubles 3))
+        def doubleTarget:double_buffer (double_buffer_alloc 2)
+        double_buffer_copy doubleTarget 0 doubles 0 2
+        this.sayD("double_buffer_copy" (double_buffer_get doubleTarget 0))
+
+        ; A charbuffer is the character oriented view of a string.
+        def chars:charbuffer (to_charbuffer "Hello")
+        this.sayInt("charbuffer_length" (length chars))
+        this.sayInt("charbuffer_charAt" (to_int (charAt chars 1)))
+        this.say("charbuffer_substring" (substring chars 1 3))
+
+        ; A running total over an int buffer, so the reads happen in a loop.
+        def total@(mutable):int 0
+        def i@(mutable):int 0
+        while (i < (int_buffer_length ints)) {
+            total = (total + (int_buffer_get ints i))
+            i = (i + 1)
+        }
+        this.sayInt("int_buffer_sum" total)
+    }
+}

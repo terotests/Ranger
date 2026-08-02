@@ -1,0 +1,13 @@
+; GAP (Go target): `if!` with one block does not negate. The generated Go runs
+; the block when the condition is true rather than when it is false, so the
+; program compiles, runs and prints the wrong answer.
+class GapGoIfNot {
+    sfn m@(main):void () {
+        def x:int 7
+        def branch@(mutable):string "unset"
+        if! (x > 100) {
+            branch = "not-huge"
+        }
+        print ("branch=" + branch)
+    }
+}

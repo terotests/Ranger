@@ -1,0 +1,26 @@
+; GAP: when a base class has a Constructor and a subclass declares its own, the
+; JavaScript writer emits `super(<base constructor parameter names>)` inside the
+; subclass constructor. Those names do not exist there, so the generated program
+; throws "ReferenceError: baseName is not defined" at run time.
+; README.md notes the same: "calling the parent class constructor does not work
+; properly".
+class CtorBase {
+    def name:string ""
+    Constructor (baseName:string) {
+        name = baseName
+    }
+}
+class CtorChild {
+    Extends(CtorBase)
+    def size:int 0
+    Constructor (childSize:int) {
+        name = "child"
+        size = childSize
+    }
+}
+class GapSuperConstructor {
+    sfn m@(main):void () {
+        def c (new CtorChild(3))
+        print ("name=" + c.name)
+    }
+}

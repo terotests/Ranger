@@ -1,0 +1,13 @@
+; GAP: an array of function values cannot be declared; the element type is not
+; parsed as a function signature.
+; Error: [FAIL] WriteVREF -> Undefined variable n
+class GapLambdaArray {
+    sfn m@(main):void () {
+        def double (fn:int (n:int) {
+            return (n * 2)
+        })
+        def ops:[(fn:int (n:int))]
+        push ops double
+        print ("count=" + (array_length ops))
+    }
+}

@@ -1,0 +1,11 @@
+; Driver: compiles and runs the `lambdas` section on its own, so that a target
+; that rejects one section does not hide the others.
+Import "sx_lambdas.rgr"
+
+class LambdasDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new LambdasSection)
+        s.run()
+        s.render()
+    }
+}

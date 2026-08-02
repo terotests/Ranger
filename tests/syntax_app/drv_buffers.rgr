@@ -1,0 +1,11 @@
+; Driver: compiles and runs the `buffers` section on its own, so that a target
+; that rejects one section does not hide the others.
+Import "sx_buffers.rgr"
+
+class BuffersDriver {
+    sfn m@(main):void () {
+        def s:SyntaxSection (new BuffersSection)
+        s.run()
+        s.render()
+    }
+}

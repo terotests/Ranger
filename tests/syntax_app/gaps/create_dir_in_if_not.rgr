@@ -1,0 +1,12 @@
+; GAP: `create_dir` writes raw target source and `if!` is a macro whose block is
+; parsed again as Ranger, so the two do not nest.
+; Error: [FAIL] WriteVREF -> Undefined variable require
+class GapCreateDirInIfNot {
+    sfn m@(main):void () {
+        def dir:string "./tests/.output/sx_probe_dir"
+        if! (dir_exists dir) {
+            create_dir dir
+        }
+        print "ok"
+    }
+}

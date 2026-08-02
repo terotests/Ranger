@@ -1,0 +1,80 @@
+Import "sx_base.rgr"
+
+; Numeric and math operators of compiler/Lang.rgr.
+;   + - * / % idiv max
+;   int2double to_double to_int double2str
+;   sqrt floor ceil sin cos tan asin acos atan2 fabs M_PI
+class NumericSection {
+    Extends(SyntaxSection)
+
+    fn title:string () {
+        return "numeric"
+    }
+
+    fn run:void () {
+        def a:int 17
+        def b:int 5
+
+        this.sayInt("add" (a + b))
+        this.sayInt("sub" (a - b))
+        this.sayInt("mul" (a * b))
+        this.sayInt("mod" (a % b))
+        this.sayInt("idiv" (idiv a b))
+        this.sayInt("max" (max a b))
+        this.sayInt("neg" (0 - a))
+        this.sayInt("nested" ((a + b) * (a - b)))
+
+        ; `/` is real division even between two integers.
+        this.sayD("realdiv" (a / b))
+
+        def d1:double 12.5
+        def d2:double 4.0
+        this.sayD("dadd" (d1 + d2))
+        this.sayD("dsub" (d1 - d2))
+        this.sayD("dmul" (d1 * d2))
+        this.sayD("ddiv" (d1 / d2))
+
+        ; Conversions in both directions.
+        def promoted:double (int2double a)
+        this.sayD("int2double" promoted)
+        this.sayD("to_double" (to_double b))
+        this.sayInt("to_int" (to_int 9.87))
+        this.say("double2str_len" (to_string (strlen (double2str 1.5))))
+        this.say("to_string_int" (to_string a))
+        this.say("to_string_bool" (to_string true))
+
+        ; Math library.
+        this.sayD("sqrt" (sqrt 16.0))
+        ; floor and ceil give an int in Ranger, not a double.
+        this.sayInt("floor" (floor 3.7))
+        this.sayInt("ceil" (ceil 3.2))
+        this.sayD("fabs" (fabs (0.0 - 2.25)))
+        this.sayD("sin0" (sin 0.0))
+        this.sayD("cos0" (cos 0.0))
+        this.sayD("tan0" (tan 0.0))
+        this.sayD("asin0" (asin 0.0))
+        this.sayD("acos1" (acos 1.0))
+        this.sayD("atan2" (atan2 0.0 1.0))
+        this.sayD("pi" (M_PI))
+
+        ; Comparisons on int and on double.
+        this.sayBool("lt" (b < a))
+        this.sayBool("lte" (b <= b))
+        this.sayBool("gt" (a > b))
+        this.sayBool("gte" (a >= a))
+        this.sayBool("eq" (a == 17))
+        this.sayBool("neq" (a != b))
+        this.sayBool("deq" (d2 == 4.0))
+        this.sayBool("dlt" (d2 < d1))
+
+        ; Boolean algebra, including the multi-argument && and ||.
+        def t:boolean true
+        def f:boolean false
+        this.sayBool("not" (! f))
+        this.sayBool("and2" (t && t))
+        this.sayBool("and3" (t && t && t))
+        this.sayBool("and5" (t && t && t && t && t))
+        this.sayBool("or2" (f || t))
+        this.sayBool("or4" (f || f || f || t))
+    }
+}
