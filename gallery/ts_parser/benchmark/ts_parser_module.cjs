@@ -381,6 +381,15 @@ class TSLexer  {
               if ( esc == "$" ) {
                 value = value + "$";
               } else {
+                if ( this.isDigit(esc) ) {
+                  if ( esc != "0" ) {
+                    return this.makeToken("Invalid", value, startPos, startLine, startCol);
+                  }
+                  const afterZero = this.peek();
+                  if ( this.isDigit(afterZero) ) {
+                    return this.makeToken("Invalid", value, startPos, startLine, startCol);
+                  }
+                }
                 value = value + esc;
               }
             }
@@ -390,7 +399,7 @@ class TSLexer  {
         value = value + this.advance();
       }
     };
-    return this.makeToken("Template", value, startPos, startLine, startCol);
+    return this.makeToken("Invalid", value, startPos, startLine, startCol);
   };
   digitVal (ch) {
     if ( (ch.length) == 0 ) {
@@ -651,6 +660,18 @@ class TSLexer  {
       } else {
         if ( ch == "\\" ) {
           const esc = this.readUnicodeEscape();
+          if ( (esc.length) == 1 ) {
+            const escCode = esc.charCodeAt(0 );
+            let escOk = this.isAlphaNumCh(esc);
+            if ( escCode >= 55296 ) {
+              if ( escCode <= 57343 ) {
+                escOk = false;
+              }
+            }
+            if ( escOk == false ) {
+              return this.makeToken("Invalid", value, startPos, startLine, startCol);
+            }
+          }
           if ( (esc.length) == 0 ) {
             if ( (value.length) == 0 ) {
               this.advance();
@@ -1793,6 +1814,11 @@ class TSParserSimple  {
     if ( this.inGenerator ) {
       if ( name == "yield" ) {
         this.syntaxError("Parse error: 'yield' cannot be used as a name inside a generator");
+      }
+    }
+    if ( this.moduleMode ) {
+      if ( name == "await" ) {
+        this.syntaxError("Parse error: 'await' cannot be used as a name in a module");
       }
     }
     if ( this.declaringKind == "l" ) {

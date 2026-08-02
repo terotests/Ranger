@@ -384,6 +384,17 @@ class TSLexer {
                             if (esc == "$") { 
                                 value = value + "$" 
                             } {
+                                ; A template literal has no legacy octal
+                                ; escapes at all, in any mode.
+                                if (this.isDigit(esc)) {
+                                    if (esc != "0") {
+                                        return (this.makeToken("Invalid" value startPos startLine startCol))
+                                    }
+                                    def afterZero:string (this.peek())
+                                    if (this.isDigit(afterZero)) {
+                                        return (this.makeToken("Invalid" value startPos startLine startCol))
+                                    }
+                                }
                                 value = value + esc
                             }
                         }
@@ -395,7 +406,8 @@ class TSLexer {
                 value = value + (this.advance())
             }
         }
-        return (this.makeToken("Template" value startPos startLine startCol))
+        ; Ran off the end without a closing backtick.
+        return (this.makeToken("Invalid" value startPos startLine startCol))
     }
 
     ; Value of a single digit char in any radix up to 16 (0-9, a-f, A-F); -1 if
@@ -642,6 +654,17 @@ class TSLexer {
                 ; An identifier character may be written as a \uXXXX escape.
                 if (ch == "\\") {
                     def esc:string (this.readUnicodeEscape())
+                    if ((strlen esc) == 1) {
+                        def escCode:int (charAt esc 0)
+                        def escOk:boolean (this.isAlphaNumCh(esc))
+                        ; A lone surrogate is not a character at all.
+                        if (escCode >= 55296) {
+                            if (escCode <= 57343) { escOk = false }
+                        }
+                        if (escOk == false) {
+                            return (this.makeToken("Invalid" value startPos startLine startCol))
+                        }
+                    }
                     if ((strlen esc) == 0) {
                         ; Malformed escape. If it is the first thing we saw there
                         ; is no identifier here at all; consume the backslash so

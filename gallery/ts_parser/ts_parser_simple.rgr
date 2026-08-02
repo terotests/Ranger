@@ -467,6 +467,12 @@ class TSParserSimple {
         this.syntaxError("Parse error: 'yield' cannot be used as a name inside a generator")
       }
     }
+    ; `await` is reserved throughout module code.
+    if (this.moduleMode) {
+      if (name == "await") {
+        this.syntaxError("Parse error: 'await' cannot be used as a name in a module")
+      }
+    }
     ; `let` is never a legal lexical binding name, even in sloppy code:
     ; `let let = 1` and `for (let let of a)` are both errors.
     if (this.declaringKind == "l") {
