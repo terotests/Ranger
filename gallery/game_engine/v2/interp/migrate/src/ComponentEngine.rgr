@@ -52,6 +52,12 @@ class EvalContext {
     fn define:void (name:string value:EvalValue) {
         set bindings name value
     }
+
+    ; D-HOIST: is the name bound in THIS scope, ignoring the chain? Hoisting
+    ; must not clobber a binding the frame already made (a parameter, say).
+    fn hasOwnBinding:boolean (name:string) {
+        return (has bindings name)
+    }
     
     fn lookup:EvalValue (name:string) {
         ; D-WITH: the object scope shadows the bindings beneath it.
@@ -277,6 +283,10 @@ class ComponentEngine {
     ; written as -- and wrong only for a callback that crosses the boundary
     ; outward.
     def strictMode:boolean false
+    ; D-TOPRIMITIVE: whether the last callPrimitiveMethod actually ran a method
+    ; and got a primitive back. Needed because "no usable method" and "the
+    ; method returned undefined" are both null-shaped in this engine.
+    def primitiveMethodUsable:boolean false
     ; D-STRICT: how many guest function frames are on the stack. Top-level `this`
     ; is the global object even under a strict program, so "am I inside a call"
     ; has to be answerable separately from "am I strict".
@@ -2421,6 +2431,57 @@ class ComponentEngine {
     
     ; Evaluate function body and return result as EvalValue (not EVGElement)
     ; This allows functions to return arrays, primitives, etc.
+    ; D-HOIST: pre-declare every `var` name reachable from these statements
+    ; without descending into nested functions -- those have their own scope.
+    ; `let` and `const` are deliberately absent: they are in the temporal dead
+    ; zone until their declaration runs, which is not what this models.
+    fn hoistVarNames:void (stmts:[TSNode]) {
+        def i:int 0
+        while (i < (array_length stmts)) {
+            this.hoistVarsIn((itemAt stmts i) 0)
+            i = (i + 1)
+        }
+    }
+
+    fn hoistVarsIn:void (node:TSNode depth:int) {
+        if (depth > 24) {
+            return
+        }
+        def nt:string node.nodeType
+        ; A nested function carries its own vars; stop here.
+        if (nt == "FunctionDeclaration") { return }
+        if (nt == "FunctionExpression") { return }
+        if (nt == "ArrowFunctionExpression") { return }
+        if (nt == "ClassDeclaration") { return }
+        if (nt == "VariableDeclaration") {
+            ; The kind lives in `kind`, not `value`. let/const are skipped: they
+            ; are in the temporal dead zone until their declaration runs.
+            if ((node.kind == "var") || ((strlen node.kind) == 0)) {
+                def ci:int 0
+                while (ci < (array_length node.children)) {
+                    def decl:TSNode (itemAt node.children ci)
+                    def nm:string decl.name
+                    if ((strlen nm) > 0) {
+                        if (false == (context.hasOwnBinding(nm))) {
+                            context.define(nm (EvalValue.undefined()))
+                        }
+                    }
+                    ci = (ci + 1)
+                }
+            }
+            return
+        }
+        def nd:int (depth + 1)
+        def k:int 0
+        while (k < (array_length node.children)) {
+            this.hoistVarsIn((itemAt node.children k) nd)
+            k = (k + 1)
+        }
+        if node.body { this.hoistVarsIn((unwrap node.body) nd) }
+        if node.left { this.hoistVarsIn((unwrap node.left) nd) }
+        if node.right { this.hoistVarsIn((unwrap node.right) nd) }
+    }
+
     fn evaluateFunctionBodyValue:EvalValue (body:TSNode) {
         ; Value-returning control flow: a `return` inside an if/else or nested
         ; block propagates its value out of the function. Save/restore the flags
@@ -2430,6 +2491,12 @@ class ComponentEngine {
             def savedReturnValue:EvalValue scriptReturnValue
             scriptDidReturn = false
             scriptReturnValue = (EvalValue.null())
+            ; D-HOIST: every `var` in the body exists from the first statement,
+            ; holding undefined until its declaration runs. Without this, code
+            ; that reads a variable declared LATER -- which the suite does
+            ; constantly to check that ToInteger(undefined) is 0 -- raised a
+            ; ReferenceError instead.
+            this.hoistVarNames(body.children)
             this.runStatementList(body.children)
             def blockOut:EvalValue scriptReturnValue
             scriptDidReturn = savedDidReturn
@@ -5219,6 +5286,30 @@ class ComponentEngine {
                     def rArgs:[EvalValue] (this.collectCallArgs(node))
                     return (this.invokeBuiltin(rKind methodName obj rArgs))
                 }
+                ; D-PROTOKIND: a PRIMITIVE receiver can carry a borrowed method
+                ; too. `Number.prototype.myUp = String.prototype.toUpperCase;
+                ; (11).myUp()` puts the method on Number.prototype, and the
+                ; number itself has no property map to find it in -- the lookup
+                ; has to go to its kind's prototype object.
+                if ((obj.valueType == 1) || (obj.valueType == 2) || (obj.valueType == 3)) {
+                    def pcCtor:string (this.ctorNameForKind(rKind))
+                    if ((strlen pcCtor) > 0) {
+                        def kProto2:EvalValue (this.builtinPrototype(pcCtor))
+                        if (has kProto2.objectMap methodName) {
+                            def borrowed:EvalValue (unwrap (get kProto2.objectMap methodName))
+                            if (borrowed.isBuiltinMethod()) {
+                                def bwArgs:[EvalValue] (this.collectCallArgs(node))
+                                return (this.invokeBuiltin(borrowed.builtinKind borrowed.builtinName obj bwArgs))
+                            }
+                            if (borrowed.valueType == 6) {
+                                if borrowed.functionNode {
+                                    def bwArgs2:[EvalValue] (this.collectCallArgs(node))
+                                    return (this.callFnValueWithValues((borrowed.withThis(obj)) bwArgs2))
+                                }
+                            }
+                        }
+                    }
+                }
                 ; D-PROTOKIND: an object can INHERIT a built-in method rather
                 ; than have one of its own kind. `F.prototype = new Array(...)`
                 ; makes every instance array-like, and the higher-order methods
@@ -7989,17 +8080,16 @@ class ComponentEngine {
             ; — silently, which is why it cost score rather than raising an
             ; error. The old unguarded branch used toString() and got this right
             ; by accident; the typed one has to do it on purpose.
-            def prim:EvalValue (this.unwrapPrimitive(recv))
-            ; ToString proper, not the engine's debug rendering: an object
-            ; receiver runs its own toString/valueOf, so
-            ; `String.prototype.charAt.call({toString: …}, 1)` indexes what the
-            ; object says it is rather than a "{...}" dump of its fields.
-            if (prim.valueType == 5) {
-                prim = (this.toPrimitive(prim true))
-            }
-            def s:string (prim.toString())
-            if (prim.isString()) {
-                s = prim.stringValue
+            ; ToString proper, not the engine's debug rendering: an object or an
+            ; ARRAY receiver runs its own toString/valueOf, so
+            ; `String.prototype.substring.call([1,2,3], 1, 3)` operates on
+            ; "1,2,3" and not on a "{...}" dump. Arrays were missed before, and
+            ; they are how the suite borrows these methods most often.
+            def s:string (this.toStringOf((this.unwrapPrimitive(recv))))
+            ; A user toString can throw, and that has to escape rather than be
+            ; carried on as an empty string.
+            if scriptThrew {
+                return (EvalValue.undefined())
             }
                     ; The locale-sensitive methods have no locale data behind
                     ; them here, so they are the plain ones -- which is exactly
@@ -8037,7 +8127,7 @@ class ComponentEngine {
                     if (name == "codePointAt") {
                         def cpi:int 0
                         if ((array_length args) > 0) {
-                            cpi = (to_int ((itemAt args 0).toNumber()))
+                            cpi = (this.toIntegerOf((itemAt args 0)))
                         }
                         if ((cpi < 0) || (cpi >= (strlen s))) {
                             return (EvalValue.undefined())
@@ -8049,7 +8139,7 @@ class ComponentEngine {
                     if (name == "substr") {
                         def sbStart:int 0
                         if ((array_length args) > 0) {
-                            sbStart = (to_int ((itemAt args 0).toNumber()))
+                            sbStart = (this.toIntegerOf((itemAt args 0)))
                         }
                         def sbLen:int ((strlen s) - sbStart)
                         if (sbStart < 0) {
@@ -8074,21 +8164,21 @@ class ComponentEngine {
                     ; (receiver already coerced to `s` above, per ToString)
                     if (name == "indexOf") {
                         if ((array_length args) > 0) {
-                            def needle:string ((itemAt args 0).toString())
+                            def needle:string (this.toStringOf((itemAt args 0)))
                             return (EvalValue.fromInt((indexOf s needle)))
                         }
                         return (EvalValue.fromInt((0 - 1)))
                     }
                     if (name == "includes") {
                         if ((array_length args) > 0) {
-                            def needle:string ((itemAt args 0).toString())
+                            def needle:string (this.toStringOf((itemAt args 0)))
                             return (EvalValue.boolean(((indexOf s needle) >= 0)))
                         }
                         return (EvalValue.boolean(false))
                     }
                     if (name == "startsWith") {
                         if ((array_length args) > 0) {
-                            def pre:string ((itemAt args 0).toString())
+                            def pre:string (this.toStringOf((itemAt args 0)))
                             def pl:int (strlen pre)
                             if (pl > (strlen s)) {
                                 return (EvalValue.boolean(false))
@@ -8099,7 +8189,7 @@ class ComponentEngine {
                     }
                     if (name == "endsWith") {
                         if ((array_length args) > 0) {
-                            def suf:string ((itemAt args 0).toString())
+                            def suf:string (this.toStringOf((itemAt args 0)))
                             def sl:int (strlen suf)
                             def L:int (strlen s)
                             if (sl > L) {
@@ -8114,10 +8204,10 @@ class ComponentEngine {
                         def a:int 0
                         def b:int L
                         if ((array_length args) > 0) {
-                            a = (to_int ((itemAt args 0).toNumber()))
+                            a = (this.toIntegerOf((itemAt args 0)))
                         }
                         if ((array_length args) > 1) {
-                            b = (to_int ((itemAt args 1).toNumber()))
+                            b = (this.toIntegerOf((itemAt args 1)))
                         }
                         if (a < 0) { a = (L + a) }
                         if (b < 0) { b = (L + b) }
@@ -8129,7 +8219,7 @@ class ComponentEngine {
                     if (name == "charCodeAt") {
                         def idx:int 0
                         if ((array_length args) > 0) {
-                            idx = (to_int ((itemAt args 0).toNumber()))
+                            idx = (this.toIntegerOf((itemAt args 0)))
                         }
                         if (idx < (strlen s)) {
                             return (EvalValue.fromInt((charAt s idx)))
@@ -8139,7 +8229,7 @@ class ComponentEngine {
                     if (name == "repeat") {
                         def n:int 0
                         if ((array_length args) > 0) {
-                            n = (to_int ((itemAt args 0).toNumber()))
+                            n = (this.toIntegerOf((itemAt args 0)))
                         }
                         def out:string ""
                         def r:int 0
@@ -8150,9 +8240,31 @@ class ComponentEngine {
                         return (EvalValue.string(out))
                     }
                     if (name == "split") {
+                        ; An absent or undefined separator does NOT split: the
+                        ; result is a one-element array holding the whole
+                        ; string. Defaulting to "" split it into characters.
+                        def haveSep:boolean false
                         def sep:string ""
                         if ((array_length args) > 0) {
-                            sep = (this.toStringOf((itemAt args 0)))
+                            def sepV:EvalValue (itemAt args 0)
+                            if (false == (sepV.isUndefined())) {
+                                haveSep = true
+                                sep = (this.toStringOf(sepV))
+                            }
+                        }
+                        if (false == haveSep) {
+                            def whole:[EvalValue]
+                            def wcap:boolean true
+                            if ((array_length args) > 1) {
+                                def wl:EvalValue (itemAt args 1)
+                                if (false == (wl.isUndefined())) {
+                                    if ((this.toIntegerOf(wl)) < 1) { wcap = false }
+                                }
+                            }
+                            if wcap {
+                                push whole (EvalValue.string(s))
+                            }
+                            return (EvalValue.array(whole))
                         }
                         def parts:[string] (strsplit s sep)
                         ; The optional second argument caps the result length.
@@ -8175,7 +8287,7 @@ class ComponentEngine {
                     }
                     if (name == "lastIndexOf") {
                         if ((array_length args) > 0) {
-                            def needle:string ((itemAt args 0).toString())
+                            def needle:string (this.toStringOf((itemAt args 0)))
                             return (EvalValue.fromInt((lastIndexOf s needle)))
                         }
                         return (EvalValue.fromInt((0 - 1)))
@@ -8184,7 +8296,7 @@ class ComponentEngine {
                         def L:int (strlen s)
                         def idx:int 0
                         if ((array_length args) > 0) {
-                            idx = (to_int ((itemAt args 0).toNumber()))
+                            idx = (this.toIntegerOf((itemAt args 0)))
                         }
                         if (idx < 0) {
                             idx = (L + idx)
@@ -8256,10 +8368,10 @@ class ComponentEngine {
                         def find:string ""
                         def repl:string ""
                         if ((array_length args) > 0) {
-                            find = ((itemAt args 0).toString())
+                            find = (this.toStringOf((itemAt args 0)))
                         }
                         if ((array_length args) > 1) {
-                            repl = ((itemAt args 1).toString())
+                            repl = (this.toStringOf((itemAt args 1)))
                         }
                         if ((strlen find) == 0) {
                             return (EvalValue.string(s))
@@ -8290,7 +8402,7 @@ class ComponentEngine {
             if (name == "charAt") {
                 def ci:int 0
                 if ((array_length args) > 0) {
-                    ci = (to_int ((itemAt args 0).toNumber()))
+                    ci = (this.toIntegerOf((itemAt args 0)))
                 }
                 if (ci < 0) { return (EvalValue.string("")) }
                 if (ci >= (strlen s)) { return (EvalValue.string("")) }
@@ -8301,7 +8413,7 @@ class ComponentEngine {
                 def a0:int 0
                 def a1:int (strlen s)
                 if ((array_length args) > 0) {
-                    a0 = (to_int ((itemAt args 0).toNumber()))
+                    a0 = (this.toIntegerOf((itemAt args 0)))
                 }
                 if ((array_length args) > 1) {
                     def av1:EvalValue (itemAt args 1)
@@ -9237,15 +9349,40 @@ class ComponentEngine {
     ; method that returns an object is skipped, per spec, rather than accepted.
     ; --------------------------------------------------------------------------
     fn callPrimitiveMethod:EvalValue (obj:EvalValue name:string) {
+        primitiveMethodUsable = false
         def m:EvalValue (obj.getMember(name))
         if (m.valueType == 6) {
             if m.functionNode {
                 def noArgs:[EvalValue]
                 def bound:EvalValue (m.withThis(obj))
                 def out:EvalValue (this.callFnValueWithValues(bound noArgs))
-                if (out.valueType != 5) {
-                    return out
+                ; A throw from the guest's own valueOf/toString is the answer.
+                ; Swallowing it here let ToPrimitive carry on and raise its own
+                ; TypeError instead, so the exception the test threw never
+                ; reached the catch that was waiting for it.
+                if scriptThrew {
+                    return (EvalValue.undefined())
                 }
+                ; An OBJECT result is not a primitive, so the method is skipped
+                ; and the other one tried. Arrays and functions are objects too.
+                if (out.valueType == 5) {
+                    return (EvalValue.null())
+                }
+                if (out.valueType == 4) {
+                    return (EvalValue.null())
+                }
+                if (out.valueType == 6) {
+                    return (EvalValue.null())
+                }
+                ; A method that falls off its end returns UNDEFINED, which is a
+                ; perfectly good primitive. The engine represents "no return" as
+                ; null, which is also this function's "not usable" sentinel, so
+                ; the two are told apart by the flag rather than by the value.
+                primitiveMethodUsable = true
+                if (out.valueType == 0) {
+                    return (EvalValue.undefined())
+                }
+                return out
             }
         }
         return (EvalValue.null())
@@ -9294,19 +9431,28 @@ class ComponentEngine {
             second = "valueOf"
         }
         def r1:EvalValue (this.callPrimitiveMethod(v first))
-        if (r1.valueType != 0) {
+        if scriptThrew {
+            return (EvalValue.undefined())
+        }
+        if primitiveMethodUsable {
             return r1
         }
         ; With a string hint and no user toString, the DEFAULT toString applies
         ; and succeeds, so valueOf is never reached: `String({valueOf: …})` is
         ; the brand, not the number valueOf would have given.
         if wantString {
-            if (false == (this.hasUserMethod(v "toString"))) {
+            ; Only when `toString` resolves to the BUILT-IN one. A property that
+            ; exists but is not callable (`{toString: undefined}`) is skipped,
+            ; and valueOf gets its turn.
+            if (this.usesDefaultToString(v)) {
                 return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
             }
         }
         def r2:EvalValue (this.callPrimitiveMethod(v second))
-        if (r2.valueType != 0) {
+        if scriptThrew {
+            return (EvalValue.undefined())
+        }
+        if primitiveMethodUsable {
             return r2
         }
         ; Neither yielded a primitive. If the object supplied its own methods,
@@ -9328,6 +9474,30 @@ class ComponentEngine {
     ; A method the GUEST defined, as opposed to one inherited from a built-in
     ; prototype. The difference decides whether a failed ToPrimitive is an error
     ; or falls back to the default rendering.
+    ; True when `toString` on this object is the inherited built-in rather than
+    ; something the guest supplied -- callable or not.
+    fn usesDefaultToString:boolean (v:EvalValue) {
+        ; An OWN `toString` shadows the default even when its value is
+        ; undefined: the property is there, it is simply not callable, so
+        ; ToPrimitive skips it and valueOf gets its turn.
+        if (has v.objectMap "toString") {
+            return false
+        }
+        def m:EvalValue (v.getMember("toString"))
+        if (m.valueType == 6) {
+            if (null? m.functionNode) {
+                return true
+            }
+            return false
+        }
+        ; Present but not a function: not the default, and not usable either --
+        ; ToPrimitive skips it and tries valueOf.
+        if (false == (m.isUndefined())) {
+            return false
+        }
+        return true
+    }
+
     fn hasUserMethod:boolean (v:EvalValue name:string) {
         def m:EvalValue (v.getMember(name))
         if (m.valueType != 6) {
