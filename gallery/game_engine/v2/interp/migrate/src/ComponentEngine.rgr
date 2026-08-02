@@ -6785,6 +6785,44 @@ class ComponentEngine {
                 ; false, because the check below only knows about `__class__`
                 ; tags and `constructor` identity -- neither of which a literal
                 ; carries. These are the shapes the suite tests with constantly.
+                ; The right operand must be an object. `true instanceof true`
+                ; is a TypeError, not a quiet false.
+                if node.right {
+                    def instRight:TSNode (unwrap node.right)
+                    def irKind:string instRight.nodeType
+                    def irBad:boolean false
+                    if (irKind == "NumericLiteral") { irBad = true }
+                    if (irKind == "StringLiteral") { irBad = true }
+                    if (irKind == "BooleanLiteral") { irBad = true }
+                    if (irKind == "NullLiteral") { irBad = true }
+                    if irBad {
+                        return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
+                    }
+                    ; Only a FUNCTION implements [[HasInstance]], so a plain
+                    ; object on the right -- `1 instanceof Math` -- is a
+                    ; TypeError too. Built-in constructor NAMES are function
+                    ; values now, so they pass this on their own.
+                    if (irKind == "Identifier") {
+                        if (false == (this.isBuiltinCtorName(instRight.name))) {
+                            if (context.has(instRight.name)) {
+                                def irVal:EvalValue (context.lookup(instRight.name))
+                                if (irVal.valueType != 6) {
+                                    return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
+                                }
+                            } {
+                                if (this.isEngineGlobalName(instRight.name)) {
+                                    def irG:EvalValue (this.builtinGlobalObject(instRight.name))
+                                    if (irG.valueType != 6) {
+                                        return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (irKind == "ObjectExpression") {
+                        return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
+                    }
+                }
                 if (this.isBuiltinCtorName(cname)) {
                     def bRes:int (this.builtinInstanceOf(lv cname))
                     if (bRes >= 0) {
@@ -6890,7 +6928,7 @@ class ComponentEngine {
             def lp:EvalValue (this.toPrimitive(left false))
             def rp:EvalValue (this.toPrimitive(right false))
             if ((lp.isString()) || (rp.isString())) {
-                return (EvalValue.string((lp.toString()) + (rp.toString())))
+                return (EvalValue.string((this.toStringOf(lp)) + (this.toStringOf(rp))))
             }
             return (EvalValue.number((this.toNumberOf(lp)) + (this.toNumberOf(rp))))
         }
@@ -6905,8 +6943,10 @@ class ComponentEngine {
         ; idiom for telling +0 from -0 (`1/a === 1/b`) — with both sides folding
         ; to 0 the two zeroes became indistinguishable.
         if (op == "/") {
-            def rightNum:double (right.toNumber())
-            def leftNum:double (left.toNumber())
+            ; ToNumber, not the raw value: a boxed number or an object with a
+            ; valueOf has to convert, and reading numberValue off one gave 0.
+            def rightNum:double (this.toNumberOf(right))
+            def leftNum:double (this.toNumberOf(left))
             if (rightNum == 0.0) {
                 ; `left * (1/right)` gets all three cases right at once, and
                 ; crucially respects the SIGN of the zero divisor: 1/-0 is

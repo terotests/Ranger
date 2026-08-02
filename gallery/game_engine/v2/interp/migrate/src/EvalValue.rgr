@@ -446,6 +446,11 @@ class EvalValue {
             return false
         }
         if (valueType == 1) {
+            ; NaN is FALSY. `n != 0.0` is true for NaN, so `!NaN` answered false
+            ; and every `if (nan)` took the wrong branch.
+            if (numberValue != numberValue) {
+                return false
+            }
             return (numberValue != 0.0)
         }
         if (valueType == 2) {
