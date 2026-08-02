@@ -17,6 +17,7 @@ class TSLexer  {
     this.__len = 0;
     this.prevType = "";
     this.prevValue = "";
+    this.prevLine = 0;
     this.source = src;
     this.__len = src.length;
   }
@@ -200,6 +201,23 @@ class TSLexer  {
       }
       if ( ch == "\r\n" ) {
         return this.makeToken("LineComment", value, startPos, startLine, startCol);
+      }
+      value = value + this.advance();
+    };
+    return this.makeToken("LineComment", value, startPos, startLine, startCol);
+  };
+  readHtmlComment () {
+    const startPos = this.pos;
+    const startLine = this.line;
+    const startCol = this.col;
+    let value = "";
+    while (this.pos < this.__len) {
+      const ch = this.peek();
+      if ( ch == "\n" ) {
+        break;
+      }
+      if ( ch == "\r\n" ) {
+        break;
       }
       value = value + this.advance();
     };
@@ -748,7 +766,9 @@ class TSLexer  {
               const prevCode = prevCh.charCodeAt(0 );
               const nextCode = nextCh.charCodeAt(0 );
               if ( this.isLetterCode(prevCode) && this.isLetterCode(nextCode) ) {
-                wordApostrophe = true;
+                if ( this.prevType != "Keyword" ) {
+                  wordApostrophe = true;
+                }
               }
             }
           }
@@ -759,6 +779,24 @@ class TSLexer  {
         return this.makeToken("Punctuator", "'", startPos, startLine, startCol);
       }
       return this.readString("'");
+    }
+    if ( ch == "<" ) {
+      if ( this.peekAt(1) == "!" ) {
+        if ( this.peekAt(2) == "-" ) {
+          if ( this.peekAt(3) == "-" ) {
+            return this.readHtmlComment();
+          }
+        }
+      }
+    }
+    if ( ch == "-" ) {
+      if ( this.peekAt(1) == "-" ) {
+        if ( this.peekAt(2) == ">" ) {
+          if ( (this.prevType == "") || (this.line > this.prevLine) ) {
+            return this.readHtmlComment();
+          }
+        }
+      }
     }
     if ( ch == "`" ) {
       return this.readTemplateLiteral();
@@ -990,6 +1028,7 @@ class TSLexer  {
       if ( (tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment") ) {
         this.prevType = tok.tokenType;
         this.prevValue = tok.value;
+        this.prevLine = tok.line;
       }
       if ( tok.tokenType == "EOF" ) {
         return tokens;
@@ -1051,6 +1090,9 @@ class TSLexer  {
         return false;
       }
       if ( this.prevValue == "--" ) {
+        return false;
+      }
+      if ( this.prevValue == "<" ) {
         return false;
       }
       return true;
@@ -1533,11 +1575,11 @@ class TSParserSimple  {
           this.advance();
           spec.kind = "type";
         }
-        const importedName = this.expect("Identifier");
+        const importedName = this.expectBindingName();
         spec.name = importedName.value;
         if ( this.matchValue("as") ) {
           this.advance();
-          const localName = this.expect("Identifier");
+          const localName = this.expectBindingName();
           spec.value = localName.value;
         } else {
           spec.value = importedName.value;
@@ -1572,11 +1614,11 @@ class TSParserSimple  {
           while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
             const spec_1 = new TSNode();
             spec_1.nodeType = "ImportSpecifier";
-            const importedName_1 = this.expect("Identifier");
+            const importedName_1 = this.expectBindingName();
             spec_1.name = importedName_1.value;
             if ( this.matchValue("as") ) {
               this.advance();
-              const localName_1 = this.expect("Identifier");
+              const localName_1 = this.expectBindingName();
               spec_1.value = localName_1.value;
             } else {
               spec_1.value = importedName_1.value;
@@ -2542,8 +2584,9 @@ class TSParserSimple  {
       this.advance();
       if ( this.matchValue("(") ) {
         this.advance();
-        const param = this.expect("Identifier");
-        catchNode.name = param.value;
+        const param = this.parseBindingTarget();
+        catchNode.name = param.name;
+        catchNode.left = param;
         if ( this.matchValue(":") ) {
           const typeAnnot = this.parseTypeAnnotation();
           catchNode.typeAnnotation = typeAnnot;

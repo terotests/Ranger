@@ -15,6 +15,9 @@ class TSLexer {
     ; decide this lexically without it: `a / b` divides, `return /a/` does not.
     def prevType:string ""
     def prevValue:string ""
+    ; Line of the last significant token, used to tell whether `-->` opens an
+    ; Annex B HTML close-comment (only legal at the start of a line).
+    def prevLine:int 0
 
     Constructor (src:string) {
         source = src
@@ -178,6 +181,21 @@ class TSLexer {
             if (ch == "\r\n") {
                 return (this.makeToken("LineComment" value startPos startLine startCol))
             }
+            value = value + (this.advance())
+        }
+        return (this.makeToken("LineComment" value startPos startLine startCol))
+    }
+
+    ; Annex B HTML-like comment: everything to the end of the line.
+    fn readHtmlComment:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peek())
+            if (ch == "\n") { break }
+            if (ch == "\r\n") { break }
             value = value + (this.advance())
         }
         return (this.makeToken("LineComment" value startPos startLine startCol))
@@ -613,7 +631,12 @@ class TSLexer {
                             def prevCode:int (charAt prevCh 0)
                             def nextCode:int (charAt nextCh 0)
                             if ((this.isLetterCode(prevCode)) && (this.isLetterCode(nextCode))) {
-                                wordApostrophe = true
+                                ; Only inside a word, never after a keyword:
+                                ; `return'x'`, `typeof'x'` and `case'a':` are all
+                                ; valid JS whose string literal must survive.
+                                if (prevType != "Keyword") {
+                                    wordApostrophe = true
+                                }
                             }
                         }
                     }
@@ -626,6 +649,27 @@ class TSLexer {
             return (this.readString("'"))
         }
         
+        ; Annex B HTML-like comments. `<!--` opens a single-line comment anywhere;
+        ; `-->` does so only when it is the first token on its line.
+        if (ch == "<") {
+            if ((this.peekAt(1)) == "!") {
+                if ((this.peekAt(2)) == "-") {
+                    if ((this.peekAt(3)) == "-") {
+                        return (this.readHtmlComment())
+                    }
+                }
+            }
+        }
+        if (ch == "-") {
+            if ((this.peekAt(1)) == "-") {
+                if ((this.peekAt(2)) == ">") {
+                    if ((prevType == "") || (line > prevLine)) {
+                        return (this.readHtmlComment())
+                    }
+                }
+            }
+        }
+
         ; Template literals
         if (ch == "`") { return (this.readTemplateLiteral()) }
 
@@ -886,6 +930,7 @@ class TSLexer {
             if ((tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment")) {
                 prevType = tok.tokenType
                 prevValue = tok.value
+                prevLine = tok.line
             }
             if (tok.tokenType == "EOF") {
                 return tokens
@@ -925,6 +970,10 @@ class TSLexer {
             if (prevValue == "]") { return false }
             if (prevValue == "++") { return false }
             if (prevValue == "--") { return false }
+            ; `<` is excluded so a JSX closing tag `</Text>` is not swallowed as a
+            ; regex literal. The cost is `a < /re/.test(b)`, which is vanishingly
+            ; rare; JSX closing tags are on the engine's main path.
+            if (prevValue == "<") { return false }
             return true
         }
         return true

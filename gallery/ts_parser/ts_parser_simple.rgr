@@ -555,13 +555,13 @@ class TSParserSimple {
           spec.kind = "type"
         }
         
-        def importedName (this.expect("Identifier"))
+        def importedName (this.expectBindingName())
         spec.name = importedName.value
         
         ; Check for 'as' alias
         if (this.matchValue("as")) {
           this.advance()
-          def localName (this.expect("Identifier"))
+          def localName (this.expectBindingName())
           spec.value = localName.value  ; local name in value
         } {
           spec.value = importedName.value
@@ -605,11 +605,11 @@ class TSParserSimple {
           while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
             def spec (new TSNode())
             spec.nodeType = "ImportSpecifier"
-            def importedName (this.expect("Identifier"))
+            def importedName (this.expectBindingName())
             spec.name = importedName.value
             if (this.matchValue("as")) {
               this.advance()
-              def localName (this.expect("Identifier"))
+              def localName (this.expectBindingName())
               spec.value = localName.value
             } {
               spec.value = importedName.value
@@ -1890,9 +1890,12 @@ class TSParserSimple {
       
       if (this.matchValue("(")) {
         this.advance()
-        def param (this.expect("Identifier"))
-        catchNode.name = param.value
-        
+        ; The catch parameter is a full binding target: `catch ([a, ...b])` and
+        ; `catch ({message})` are both legal.
+        def param (this.parseBindingTarget())
+        catchNode.name = param.name
+        catchNode.left = param
+
         ; Optional type annotation
         if (this.matchValue(":")) {
           def typeAnnot (this.parseTypeAnnotation())
