@@ -780,6 +780,30 @@ class EvalValue {
             }
             objectMap = rebuilt
         }
+        ; D-ACCESSORS: an accessor property lives in getterMap/setterMap, so
+        ; deleting one has to clear those too. It did not, and the property
+        ; survived every `delete` -- which is observable the moment a write
+        ; lands on the name afterwards and finds a getter still there.
+        if (has getterMap key) {
+            def rg:[string:EvalValue]
+            def gk:[string] (keys getterMap)
+            for gk kk2:string idx2 {
+                if (kk2 != key) {
+                    set rg kk2 (unwrap (get getterMap kk2))
+                }
+            }
+            getterMap = rg
+        }
+        if (has setterMap key) {
+            def rs:[string:EvalValue]
+            def sk:[string] (keys setterMap)
+            for sk kk3:string idx3 {
+                if (kk3 != key) {
+                    set rs kk3 (unwrap (get setterMap kk3))
+                }
+            }
+            setterMap = rs
+        }
     }
     
     ; Set an array element by index (extends with null when needed).

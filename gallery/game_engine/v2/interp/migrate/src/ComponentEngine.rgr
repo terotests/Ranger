@@ -60,6 +60,33 @@ class EvalContext {
         return (has bindings name)
     }
     
+    ; D-WITH: the nearest `with` object that owns this name, counting ACCESSOR
+    ; properties -- an object whose `x` is a getter still shadows the binding
+    ; beneath it, and only the engine can invoke the getter, so the search and
+    ; the call are split between here and there.
+    fn findWithObjectFor:EvalValue (name:string) {
+        if withObject {
+            def wo:EvalValue (unwrap withObject)
+            if (has wo.objectMap name) {
+                return wo
+            }
+            if (has wo.getterMap name) {
+                return wo
+            }
+            if (has wo.setterMap name) {
+                return wo
+            }
+        }
+        if (has bindings name) {
+            return (EvalValue.null())
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.findWithObjectFor(name))
+        }
+        return (EvalValue.null())
+    }
+
     fn lookup:EvalValue (name:string) {
         ; D-WITH: the object scope shadows the bindings beneath it.
         if withObject {
@@ -4012,6 +4039,46 @@ class ComponentEngine {
                 }
                 if (leftNode.nodeType == "Identifier") {
                     def varName:string leftNode.name
+                    ; D-WITH: a name the with object owns is read and written
+                    ; THROUGH that object, accessors included. Checked before
+                    ; the declaration rules below, because such a name IS
+                    ; resolvable even though no binding holds it.
+                    def wobj:EvalValue (context.findWithObjectFor(varName))
+                    if (wobj.valueType == 5) {
+                        def wcur:EvalValue (EvalValue.undefined())
+                        if (has wobj.getterMap varName) {
+                            def wgf:EvalValue (wobj.findGetter(varName 0))
+                            if (wgf.valueType == 6) {
+                                def wgArgs2:[EvalValue]
+                                wcur = (this.callFnValueWithValues((wgf.withThis(wobj)) wgArgs2))
+                            }
+                        } {
+                            if (has wobj.objectMap varName) {
+                                wcur = (unwrap (get wobj.objectMap varName))
+                            }
+                        }
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                        def wres:EvalValue (this.applyAssignOp(op wcur rightValue))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                        def wsf:EvalValue (wobj.findSetter(varName 0))
+                        if (wsf.valueType == 6) {
+                            def wsArgs:[EvalValue]
+                            push wsArgs wres
+                            def _ws:EvalValue (this.callFnValueWithValues((wsf.withThis(wobj)) wsArgs))
+                            return wres
+                        }
+                        if (has wobj.getterMap varName) {
+                            ; A getter with no setter: the write is refused,
+                            ; silently in sloppy mode.
+                            return wres
+                        }
+                        wobj.setMember(varName wres)
+                        return wres
+                    }
                     def declared:boolean (context.has(varName))
                     if (false == declared) {
                         if (this.isEngineGlobalName(varName)) {
@@ -10993,6 +11060,22 @@ class ComponentEngine {
 
     fn lookupIdentifier:EvalValue (name:string) {
         if (name == "undefined") {
+            return (EvalValue.undefined())
+        }
+        ; D-WITH: a name the with object serves through a GETTER. EvalContext
+        ; cannot call it -- it has no evaluator -- so the read happens here.
+        def wg:EvalValue (context.findWithObjectFor(name))
+        if (wg.valueType == 5) {
+            if (has wg.getterMap name) {
+                def wgFn:EvalValue (wg.findGetter(name 0))
+                if (wgFn.valueType == 6) {
+                    def wgArgs:[EvalValue]
+                    return (this.callFnValueWithValues((wgFn.withThis(wg)) wgArgs))
+                }
+            }
+            if (has wg.objectMap name) {
+                return (unwrap (get wg.objectMap name))
+            }
             return (EvalValue.undefined())
         }
         ; D-IEEE: Infinity and NaN are VALUES, not merely names the engine knows
