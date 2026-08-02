@@ -869,9 +869,9 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["eval-typeof", "return typeof eval;", "eval"],
 
   // Lexer: an escaped quote directly inside the opening/closing quote of a
-  // string literal is DROPPED, while escaped quotes in the middle survive.
-  // Found while implementing eval; recorded rather than hidden, since it
-  // corrupts string values silently.
+  // string literal was DROPPED. The cause was not the lexer at all: the
+  // evaluator unquoted the token value a second time, so real characters went
+  // with the delimiters that were no longer there.
   ["lex-escaped-quote-edges", "var s = '\\'a\\' + \\'b\\''; return s;", "literals"],
   ["lex-escaped-quote-single", "var s = '\\'hi\\''; return s;", "literals"],
 
@@ -942,9 +942,6 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
  * Recorded 2026-08-02 against gallery/game_engine/v2/interp.
  */
 const KNOWN_GAPS = new Set<string>([
-  // Lexer drops an escaped quote adjacent to the string's own delimiters.
-  "lex-escaped-quote-edges",
-  "lex-escaped-quote-single",
   // Labelled break and named function-expression recursion evaluate to nothing.
   "labeled-break",
   "fn-expr-named",

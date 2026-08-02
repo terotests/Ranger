@@ -5246,7 +5246,12 @@ class ComponentEngine {
         }
         
         if (node.nodeType == "StringLiteral") {
-            return (EvalValue.string((this.unquote(node.value))))
+            ; The lexer already removed the delimiters, so unquoting again ate
+            ; real characters whenever the CONTENT began and ended with the same
+            ; quote: `'\'hi\''` became `hi`, and `eval('"BJ"')` was handed the
+            ; identifier BJ. That is the "lexer drops escaped quotes" gap -- it
+            ; was never the lexer.
+            return (EvalValue.string(node.value))
         }
         
         if (node.nodeType == "TemplateLiteral") {
