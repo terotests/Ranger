@@ -7328,6 +7328,10 @@ class ComponentEngine {
             if (name == "tan") { return (EvalValue.number((tan n0))) }
             if (name == "asin") { return (EvalValue.number((asin n0))) }
             if (name == "acos") { return (EvalValue.number((acos n0))) }
+            if (name == "atan") {
+                ; No atan intrinsic, but atan2(x, 1) is the same angle.
+                return (EvalValue.number((atan2 n0 1.0)))
+            }
             if (name == "atan2") {
                 def ay:double n0
                 def ax:double 0.0
@@ -7565,6 +7569,7 @@ class ComponentEngine {
             push out "abs"
             push out "acos"
             push out "asin"
+            push out "atan"
             push out "atan2"
             push out "ceil"
             push out "cos"
@@ -8572,6 +8577,13 @@ class ComponentEngine {
                 ; A RegExp stringifies as its literal form -- `String(/abc/i)`
                 ; is "/abc/i", not a brand.
                 return (EvalValue.string(("/" + ((this.regexSourceOf(recv)) + ("/" + (this.regexFlagsOf(recv)))))))
+            }
+            ; An ERROR stringifies as "Name: message", which is what a borrowed
+            ; String method sees when it coerces one.
+            if (recv.valueType == 5) {
+                if (has recv.objectMap "__error__") {
+                    return (EvalValue.string((this.errorToString(recv))))
+                }
             }
             return (EvalValue.string((recv.toString())))
         }
@@ -10285,6 +10297,9 @@ class ComponentEngine {
                 if (has v.objectMap "__regex__") {
                     return (EvalValue.string(("/" + ((this.regexSourceOf(v)) + ("/" + (this.regexFlagsOf(v)))))))
                 }
+                if (has v.objectMap "__error__") {
+                    return (EvalValue.string((this.errorToString(v))))
+                }
                 return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
             }
         }
@@ -10310,6 +10325,9 @@ class ComponentEngine {
         }
         if (has v.objectMap "__regex__") {
             return (EvalValue.string(("/" + ((this.regexSourceOf(v)) + ("/" + (this.regexFlagsOf(v)))))))
+        }
+        if (has v.objectMap "__error__") {
+            return (EvalValue.string((this.errorToString(v))))
         }
         ; Otherwise the inherited Object.prototype.toString applies, which is
         ; what makes `String({valueOf: function () { return 7; }})` the brand
@@ -10689,6 +10707,24 @@ class ComponentEngine {
         r.setMember("lastIndex" (EvalValue.fromInt(0)))
         r.protoRef = (this.builtinPrototype("RegExp"))
         return r
+    }
+
+    ; "Name: message", with either half omitted when empty -- the shape
+    ; Error.prototype.toString produces.
+    fn errorToString:string (e:EvalValue) {
+        def nm:string "Error"
+        def nv:EvalValue (e.getMember("name"))
+        if (nv.isString()) { nm = nv.stringValue }
+        def msg:string ""
+        def mv:EvalValue (e.getMember("message"))
+        if (mv.isString()) { msg = mv.stringValue }
+        if ((strlen msg) == 0) {
+            return nm
+        }
+        if ((strlen nm) == 0) {
+            return msg
+        }
+        return (nm + (": " + msg))
     }
 
     fn isRegexValue:boolean (v:EvalValue) {
@@ -11301,14 +11337,30 @@ class ComponentEngine {
     ; ReferenceError, not a silent null. `typeof x` does not come through here
     ; (it uses bindingExists), which is what the spec requires.
     ; D-GLOBALTHIS: created on first use so identity is stable.
+    fn seedGlobalConstants:void (g:EvalValue) {
+        ; The value properties of the global object. `this.NaN` read undefined
+        ; because they lived only as names the resolver knew about.
+        if (false == (has g.objectMap "NaN")) {
+            g.setMember("NaN" (EvalValue.number((0.0 / 0.0))))
+            g.setAttrs("NaN" false false false)
+            g.setMember("Infinity" (EvalValue.number((1.0 / 0.0))))
+            g.setAttrs("Infinity" false false false)
+            g.setMember("undefined" (EvalValue.undefined()))
+            g.setAttrs("undefined" false false false)
+        }
+    }
+
     fn theGlobalObject:EvalValue () {
         if globalObject {
-            return (unwrap globalObject)
+            def existing:EvalValue (unwrap globalObject)
+            this.seedGlobalConstants(existing)
+            return existing
         }
         def keysG:[string]
         def valsG:[EvalValue]
         def g:EvalValue (EvalValue.object(keysG valsG))
         globalObject = g
+        this.seedGlobalConstants(g)
         return g
     }
 
