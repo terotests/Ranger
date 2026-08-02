@@ -252,6 +252,27 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["es5-define-properties", "var o = {}; Object.defineProperties(o, { a: { value: 1 }, b: { value: 2 } }); return o.a + o.b;", "es5"],
   ["es5-define-properties-accessor", "var o = {}; Object.defineProperties(o, { x: { get: function () { return 8; } } }); return o.x;", "es5"],
 
+  // D-REGISTRY: built-in dispatch keyed by receiver kind. Before the registry
+  // these nine methods fired on ANY receiver, so [1,2].charAt(0) stringified
+  // the array and indexed its debug format to return "[".
+  ["reg-array-tostring", "return [1, 2].toString();", "registry"],
+  ["reg-object-tostring", "return ({}).toString();", "registry"],
+  ["reg-nested-array-tostring", "return [[1, 2], [3]].toString();", "registry"],
+  ["reg-number-tostring", "return (5).toString();", "registry"],
+  ["reg-string-charat", "return 'abc'.charAt(1);", "registry"],
+  ["reg-array-charat-throws", "try { [1, 2].charAt(0); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-object-trim-throws", "try { ({}).trim(); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-array-tofixed-throws", "try { [1].toFixed(1); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-string-substring-swap", "return 'abcdef'.substring(4, 1);", "registry"],
+  ["reg-string-padstart", "return 'x'.padStart(4, '-');", "registry"],
+  ["reg-string-padend", "return 'x'.padEnd(4, '-');", "registry"],
+  ["reg-builtin-as-value", "var f = function () { return this.v; }; var c = f.call; return typeof c;", "registry"],
+  ["reg-builtin-unbound-throws", "var f = function () { return this.v; }; var c = f.call; try { c({ v: 4 }); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-builtin-explicit-receiver", "var f = function () { return this.v; }; return f.call.call(f, { v: 4 });", "registry"],
+  ["reg-builtin-composed", "var f = function (a) { return a * 2; }; var g = f.bind(null, 5); return g();", "registry"],
+  // A throw inside a returned expression must reach the enclosing catch.
+  ["throw-in-return-catchable", "try { return (function () { throw new TypeError('x'); })(); } catch (e) { return e.name; }", "registry"],
+
   ["fnproto-call-this", "var f = function () { return this.v; }; return f.call({ v: 5 });", "fnproto"],
   ["fnproto-call-args", "var f = function (a, b) { return a + b; }; return f.call(null, 2, 3);", "fnproto"],
   ["fnproto-apply-array", "var f = function (a, b) { return a + b; }; return f.apply(null, [4, 6]);", "fnproto"],

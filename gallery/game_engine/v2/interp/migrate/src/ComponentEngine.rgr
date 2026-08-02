@@ -2682,6 +2682,15 @@ class ComponentEngine {
             } {
                 scriptReturnValue = (EvalValue.null())
             }
+            ; D-THROW: if evaluating the returned expression threw, the function
+            ; did NOT return — it is unwinding. Setting scriptDidReturn here as
+            ; well left both flags raised, and an enclosing catch handler is a
+            ; statement list, which stops immediately on a pending return. The
+            ; result was that `try { return f(); } catch (e) { ... }` silently
+            ; skipped its own handler whenever f threw.
+            if scriptThrew {
+                return
+            }
             scriptDidReturn = true
             return
         }
@@ -4756,175 +4765,25 @@ class ComponentEngine {
                     }
                 }
 
-                ; Handle Number methods
-                if (methodName == "toFixed") {
-                    def numVal:double (obj.toNumber())
-                    def decimals:int 0
-                    if ((array_length node.children) > 0) {
-                        def argNode:TSNode (itemAt node.children 0)
-                        def argVal:EvalValue (this.evaluateExpr(argNode))
-                        decimals = (to_int (argVal.toNumber()))
-                    }
-                    ; Format the number with specified decimal places
-                    ; Multiply, round, then divide to get the right precision
-                    def multiplier:double 1.0
-                    def i:int 0
-                    while (i < decimals) {
-                        multiplier = multiplier * 10.0
-                        i = i + 1
-                    }
-                    def rounded:double (to_double (to_int ((numVal * multiplier) + 0.5)))
-                    def result:double (rounded / multiplier)
-                    
-                    ; Convert to string with proper decimal places
-                    def resultStr:string (to_string result)
-                    ; Find decimal point
-                    def dotIdx:int (indexOf resultStr ".")
-                    if (decimals == 0) {
-                        ; Return integer part only
-                        if (dotIdx >= 0) {
-                            return (EvalValue.string((substring resultStr 0 dotIdx)))
-                        }
-                        return (EvalValue.string(resultStr))
-                    }
-                    if (dotIdx < 0) {
-                        ; No decimal point, add one with zeros
-                        resultStr = resultStr + "."
-                        def z:int 0
-                        while (z < decimals) {
-                            resultStr = resultStr + "0"
-                            z = z + 1
-                        }
-                        return (EvalValue.string(resultStr))
-                    }
-                    ; Pad or truncate decimals
-                    def currentDecimals:int ((strlen resultStr) - dotIdx - 1)
-                    if (currentDecimals < decimals) {
-                        ; Pad with zeros
-                        def p:int currentDecimals
-                        while (p < decimals) {
-                            resultStr = resultStr + "0"
-                            p = p + 1
-                        }
-                    } {
-                        ; Truncate
-                        resultStr = (substring resultStr 0 (dotIdx + 1 + decimals))
-                    }
-                    return (EvalValue.string(resultStr))
+                ; D-REGISTRY: the registry is consulted after user properties
+                ; (guest code always wins) but before the legacy if-chain, so a
+                ; migrated method takes over from its old branch without that
+                ; branch having to be deleted in the same step. Methods move
+                ; across one group at a time, each move independently verified.
+                def rKind:string (this.receiverKind(obj))
+                if (this.hasBuiltin(rKind methodName)) {
+                    def rArgs:[EvalValue] (this.collectCallArgs(node))
+                    return (this.invokeBuiltin(rKind methodName obj rArgs))
                 }
-                
-                ; Handle String methods
-                if (methodName == "toString") {
-                    return (EvalValue.string((obj.toString())))
-                }
-                if (methodName == "toUpperCase") {
-                    return (EvalValue.string((to_uppercase (obj.toString()))))
-                }
-                if (methodName == "toLowerCase") {
-                    return (EvalValue.string((to_lowercase (obj.toString()))))
-                }
-                if (methodName == "trim") {
-                    return (EvalValue.string((trim (obj.toString()))))
-                }
-                if (methodName == "charAt") {
-                    def str:string (obj.toString())
-                    def idx:int 0
-                    if ((array_length node.children) > 0) {
-                        def argNode:TSNode (itemAt node.children 0)
-                        def argVal:EvalValue (this.evaluateExpr(argNode))
-                        idx = (to_int (argVal.toNumber()))
-                    }
-                    if (idx < (strlen str)) {
-                        ; Use substring to get single character as string (charAt returns int)
-                        return (EvalValue.string((substring str idx (idx + 1))))
-                    }
-                    return (EvalValue.string(""))
-                }
-                if (methodName == "substring") {
-                    def str:string (obj.toString())
-                    def startIdx:int 0
-                    def endIdx:int (strlen str)
-                    if ((array_length node.children) > 0) {
-                        def argNode:TSNode (itemAt node.children 0)
-                        def argVal:EvalValue (this.evaluateExpr(argNode))
-                        startIdx = (to_int (argVal.toNumber()))
-                    }
-                    if ((array_length node.children) > 1) {
-                        def argNode2:TSNode (itemAt node.children 1)
-                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
-                        endIdx = (to_int (argVal2.toNumber()))
-                    }
-                    return (EvalValue.string((substring str startIdx endIdx)))
-                }
-                if (methodName == "padStart") {
-                    def str:string (obj.toString())
-                    def targetLen:int (strlen str)
-                    def padStr:string " "
-                    if ((array_length node.children) > 0) {
-                        def argNode:TSNode (itemAt node.children 0)
-                        def argVal:EvalValue (this.evaluateExpr(argNode))
-                        targetLen = (to_int (argVal.toNumber()))
-                    }
-                    if ((array_length node.children) > 1) {
-                        def argNode2:TSNode (itemAt node.children 1)
-                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
-                        padStr = (argVal2.toString())
-                        if ((strlen padStr) == 0) {
-                            padStr = " "
-                        }
-                    }
-                    ; Pad the string at the start
-                    def currentLen:int (strlen str)
-                    if (currentLen >= targetLen) {
-                        return (EvalValue.string(str))
-                    }
-                    def padding:string ""
-                    def padLen:int (strlen padStr)
-                    while ((strlen padding) < (targetLen - currentLen)) {
-                        padding = padding + padStr
-                    }
-                    ; Trim padding to exact length needed
-                    def neededPad:int (targetLen - currentLen)
-                    if ((strlen padding) > neededPad) {
-                        padding = (substring padding 0 neededPad)
-                    }
-                    return (EvalValue.string(padding + str))
-                }
-                if (methodName == "padEnd") {
-                    def str:string (obj.toString())
-                    def targetLen:int (strlen str)
-                    def padStr:string " "
-                    if ((array_length node.children) > 0) {
-                        def argNode:TSNode (itemAt node.children 0)
-                        def argVal:EvalValue (this.evaluateExpr(argNode))
-                        targetLen = (to_int (argVal.toNumber()))
-                    }
-                    if ((array_length node.children) > 1) {
-                        def argNode2:TSNode (itemAt node.children 1)
-                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
-                        padStr = (argVal2.toString())
-                        if ((strlen padStr) == 0) {
-                            padStr = " "
-                        }
-                    }
-                    ; Pad the string at the end
-                    def currentLen:int (strlen str)
-                    if (currentLen >= targetLen) {
-                        return (EvalValue.string(str))
-                    }
-                    def padding:string ""
-                    def padLen:int (strlen padStr)
-                    while ((strlen padding) < (targetLen - currentLen)) {
-                        padding = padding + padStr
-                    }
-                    ; Trim padding to exact length needed
-                    def neededPad:int (targetLen - currentLen)
-                    if ((strlen padding) > neededPad) {
-                        padding = (substring padding 0 neededPad)
-                    }
-                    return (EvalValue.string(str + padding))
-                }
-                
+
+                ; D-REGISTRY: the unguarded Number/String block that stood here
+                ; is gone. Its nine methods (toFixed, toString, toUpperCase,
+                ; toLowerCase, trim, charAt, substring, padStart, padEnd) fired
+                ; on ANY receiver, so [1,2].charAt(0) stringified the array and
+                ; indexed its debug format to return "[". They are registered
+                ; per receiver kind now, which is also what makes calling one on
+                ; the wrong type the TypeError the spec requires.
+
                 ; ---- String methods (receiver is a string value) ----
                 if (obj.isString()) {
                     def s:string (obj.stringValue)
@@ -6143,17 +6002,6 @@ class ComponentEngine {
                     }
                 }
 
-                ; D-REGISTRY: the registry is consulted after user properties
-                ; (guest code always wins) but before the legacy if-chain, so a
-                ; migrated method takes over from its old branch without that
-                ; branch having to be deleted in the same step. Methods move
-                ; across one group at a time, each move independently verified.
-                def rKind:string (this.receiverKind(obj))
-                if (this.hasBuiltin(rKind methodName)) {
-                    def rArgs:[EvalValue] (this.collectCallArgs(node))
-                    return (this.invokeBuiltin(rKind methodName obj rArgs))
-                }
-
                 ; D-FNPROTO: Function.prototype call / apply / bind. ES5 core and
                 ; used pervasively — Test262 reaches for them constantly to invoke
                 ; a function with a chosen receiver, so their absence failed tests
@@ -6289,6 +6137,11 @@ class ComponentEngine {
                     def rcvHolds:boolean false
                     if (obj.valueType == 5) { rcvHolds = true }
                     if (obj.valueType == 6) { rcvHolds = true }
+                    ; D-REGISTRY: arrays join the list now that the registry says
+                    ; exactly which methods an array has. Before, an unregistered
+                    ; name could still have been served by the unguarded block,
+                    ; so throwing would have been wrong.
+                    if (obj.valueType == 4) { rcvHolds = true }
                     if rcvHolds {
                         return (this.throwSpecError("TypeError" (methodName + " is not a function")))
                     }
@@ -6928,7 +6781,128 @@ class ComponentEngine {
             if (name == "apply") { return 2 }
             if (name == "bind") { return 1 }
         }
+        ; toString exists on every kind, but with a DIFFERENT implementation per
+        ; kind. That is the whole point of keying on the receiver: the old single
+        ; branch answered "[1, 2]" for an array and "{}" for an object, both of
+        ; which are the engine's debug format rather than the language's.
+        if (name == "toString") { return 0 }
+        if (name == "valueOf") { return 0 }
+        ; String methods belong to strings ONLY. Registering them per-kind is
+        ; what makes `[1,2].charAt(0)` a TypeError instead of returning "[" —
+        ; the old unguarded branch stringified the array and indexed its debug
+        ; format.
+        if (kind == "string") {
+            if (name == "charAt") { return 1 }
+            if (name == "toUpperCase") { return 0 }
+            if (name == "toLowerCase") { return 0 }
+            if (name == "trim") { return 0 }
+            if (name == "substring") { return 2 }
+            if (name == "padStart") { return 2 }
+            if (name == "padEnd") { return 2 }
+        }
+        if (kind == "number") {
+            if (name == "toFixed") { return 1 }
+        }
         return (0 - 1)
+    }
+
+    ; Number.prototype.toFixed formatting, lifted verbatim from the old chain
+    ; branch so the migration cannot change its behaviour.
+    fn toFixedString:string (numVal:double decimals:int) {
+        def multiplier:double 1.0
+        def i:int 0
+        while (i < decimals) {
+            multiplier = multiplier * 10.0
+            i = i + 1
+        }
+        def rounded:double (to_double (to_int ((numVal * multiplier) + 0.5)))
+        def result:double (rounded / multiplier)
+        def resultStr:string (to_string result)
+        def dotIdx:int (indexOf resultStr ".")
+        if (decimals == 0) {
+            if (dotIdx >= 0) {
+                return (substring resultStr 0 dotIdx)
+            }
+            return resultStr
+        }
+        if (dotIdx < 0) {
+            resultStr = resultStr + "."
+            def z:int 0
+            while (z < decimals) {
+                resultStr = resultStr + "0"
+                z = z + 1
+            }
+            return resultStr
+        }
+        def currentDecimals:int ((strlen resultStr) - dotIdx - 1)
+        if (currentDecimals < decimals) {
+            def p:int currentDecimals
+            while (p < decimals) {
+                resultStr = resultStr + "0"
+                p = p + 1
+            }
+        } {
+            def cut:int (dotIdx + 1 + decimals)
+            resultStr = (substring resultStr 0 cut)
+        }
+        return resultStr
+    }
+
+    ; padStart / padEnd share everything but which side the filler goes on.
+    fn padString:string (s:string args:[EvalValue] atStart:boolean) {
+        def target:int 0
+        if ((array_length args) > 0) {
+            target = (to_int ((itemAt args 0).toNumber()))
+        }
+        def filler:string " "
+        if ((array_length args) > 1) {
+            def fv:EvalValue (itemAt args 1)
+            if (false == (fv.isUndefined())) {
+                filler = (fv.toString())
+            }
+        }
+        if ((strlen filler) == 0) {
+            return s
+        }
+        if (target <= (strlen s)) {
+            return s
+        }
+        def pad:string ""
+        while ((strlen pad) < (target - (strlen s))) {
+            pad = (pad + filler)
+        }
+        def need:int (target - (strlen s))
+        pad = (substring pad 0 need)
+        if atStart {
+            return (pad + s)
+        }
+        return (s + pad)
+    }
+
+    ; ToString for a value used as an ARRAY ELEMENT during join/toString: null
+    ; and undefined render as empty, everything else by its own rules.
+    fn elementToString:string (v:EvalValue) {
+        if (v.isNull()) { return "" }
+        if (v.isUndefined()) { return "" }
+        if (v.isArray()) {
+            return (this.arrayJoinString(v ","))
+        }
+        return (v.toString())
+    }
+
+    ; Array.prototype.join semantics, used by toString with a comma. Nested
+    ; arrays flatten by recursion, which is why [[1,2],[3]] is "1,2,3".
+    fn arrayJoinString:string (arr:EvalValue sep:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length arr.arrayValue)) {
+            if (i > 0) {
+                out = (out + sep)
+            }
+            out = (out + (this.elementToString((itemAt arr.arrayValue i))))
+            i = (i + 1)
+        }
+        return out
     }
 
     fn hasBuiltin:boolean (kind:string name:string) {
@@ -6939,7 +6913,88 @@ class ComponentEngine {
     ; and from an extracted value invoked later via call/apply/bind, so the two
     ; paths cannot drift apart.
     fn invokeBuiltin:EvalValue (kind:string name:string recv:EvalValue args:[EvalValue]) {
+        ; ---- toString / valueOf, per receiver kind --------------------------
+        if (name == "toString") {
+            if (kind == "array") {
+                return (EvalValue.string((this.arrayJoinString(recv ","))))
+            }
+            if (kind == "object") {
+                ; A user `toString` property would have been found before the
+                ; registry, so reaching here means the default really applies.
+                return (EvalValue.string("[object Object]"))
+            }
+            if (kind == "function") {
+                return (EvalValue.string(("function " + recv.functionName + "() { [native code] }")))
+            }
+            return (EvalValue.string((recv.toString())))
+        }
+        if (name == "valueOf") {
+            return recv
+        }
+        ; ---- String.prototype ----------------------------------------------
+        if (kind == "string") {
+            def s:string recv.stringValue
+            if (name == "toUpperCase") { return (EvalValue.string((to_uppercase s))) }
+            if (name == "toLowerCase") { return (EvalValue.string((to_lowercase s))) }
+            if (name == "trim") { return (EvalValue.string((trim s))) }
+            if (name == "charAt") {
+                def ci:int 0
+                if ((array_length args) > 0) {
+                    ci = (to_int ((itemAt args 0).toNumber()))
+                }
+                if (ci < 0) { return (EvalValue.string("")) }
+                if (ci >= (strlen s)) { return (EvalValue.string("")) }
+                def ce:int (ci + 1)
+                return (EvalValue.string((substring s ci ce)))
+            }
+            if (name == "substring") {
+                def a0:int 0
+                def a1:int (strlen s)
+                if ((array_length args) > 0) {
+                    a0 = (to_int ((itemAt args 0).toNumber()))
+                }
+                if ((array_length args) > 1) {
+                    def av1:EvalValue (itemAt args 1)
+                    if (false == (av1.isUndefined())) {
+                        a1 = (to_int (av1.toNumber()))
+                    }
+                }
+                if (a0 < 0) { a0 = 0 }
+                if (a1 < 0) { a1 = 0 }
+                if (a0 > (strlen s)) { a0 = (strlen s) }
+                if (a1 > (strlen s)) { a1 = (strlen s) }
+                ; substring swaps its arguments when start > end.
+                if (a0 > a1) {
+                    def tmp:int a0
+                    a0 = a1
+                    a1 = tmp
+                }
+                return (EvalValue.string((substring s a0 a1)))
+            }
+            if (name == "padStart") {
+                return (EvalValue.string((this.padString(s args true))))
+            }
+            if (name == "padEnd") {
+                return (EvalValue.string((this.padString(s args false))))
+            }
+        }
+        ; ---- Number.prototype ----------------------------------------------
+        if (kind == "number") {
+            if (name == "toFixed") {
+                def digits:int 0
+                if ((array_length args) > 0) {
+                    digits = (to_int ((itemAt args 0).toNumber()))
+                }
+                return (EvalValue.string((this.toFixedString((recv.toNumber()) digits))))
+            }
+        }
         if (kind == "function") {
+            ; call/apply/bind operate ON a function. Reaching them with a
+            ; non-callable receiver — `var c = f.call; c(x)` — is a TypeError,
+            ; which is exactly what an unbound extraction must produce.
+            if (recv.valueType != 6) {
+                return (this.throwSpecError("TypeError" (name + " called on a non-function")))
+            }
             if (name == "call") {
                 def callThis:EvalValue (EvalValue.undefined())
                 def rest:[EvalValue]
@@ -7935,8 +7990,14 @@ class ComponentEngine {
                 if (this.hasBuiltin(mKind propName)) {
                     def owned:boolean (has obj.objectMap propName)
                     if (false == owned) {
-                        def bv:EvalValue (EvalValue.nativeMethod(mKind propName))
-                        return (bv.withThis(obj))
+                        ; D-REGISTRY: the extracted method is UNBOUND, as the spec
+                        ; requires — `f.call` is Function.prototype.call itself,
+                        ; not a version pre-bound to f, which is precisely why
+                        ; `var c = f.call; c(x)` is a TypeError in JS. Binding
+                        ; here would have made the engine accept code Node
+                        ; rejects. The direct-call path supplies the receiver
+                        ; explicitly instead.
+                        return (EvalValue.nativeMethod(mKind propName))
                     }
                 }
             }
