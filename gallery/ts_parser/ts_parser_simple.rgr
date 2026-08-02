@@ -175,6 +175,25 @@ class TSParserSimple {
   }
   
   fn matchValue:boolean (value:string) {
+    ; Never match against the *contents* of a literal. Every caller uses this to
+    ; test for a punctuator or a keyword, so a string whose text happens to be
+    ; ")" or "}" must not close a delimiter loop: `a(")")` terminated its own
+    ; argument list, and `({"[": 1})` was read as a computed key.
+    def t (this.peekType())
+    if (t == "String") { return false }
+    if (t == "Template") { return false }
+    if (t == "Regex") { return false }
+    def v (this.peekValue())
+    return (v == value)
+  }
+
+  ; Like matchValue, but only for real punctuator tokens. matchValue compares
+  ; the token *value*, so the string literal "(" matched a test for an opening
+  ; paren — `a(')')` and `({"[": 1})` both misparsed as a result.
+  fn matchPunct:boolean (value:string) {
+    if ((this.peekType()) != "Punctuator") {
+      return false
+    }
     def v (this.peekValue())
     return (v == value)
   }
@@ -205,6 +224,14 @@ class TSParserSimple {
       return true
     }
     if (t == "Null") {
+      return true
+    }
+    ; Class and object members may be named by a literal: `{ 3() {} }`,
+    ; `class a { "b"() {} }`.
+    if (t == "Number") {
+      return true
+    }
+    if (t == "String") {
       return true
     }
     return false
@@ -481,7 +508,8 @@ class TSParserSimple {
     
     ; Check for return value
     def v (this.peekValue())
-    if ((v != ";") && ((this.isAtEnd()) == false)) {
+    ; No argument when the statement ends here: `;`, a closing brace, or EOF.
+    if ((v != ";") && (v != "}") && ((this.isAtEnd()) == false)) {
       def arg (this.parseExprSeq())
       node.left = arg
     }
@@ -1195,6 +1223,7 @@ class TSParserSimple {
     
     def keepParsing true
     while (keepParsing) {
+      def modifierStartPos:int this.pos
       def tokVal (this.peekValue())
       
       if (tokVal == "public") {
@@ -1210,6 +1239,10 @@ class TSParserSimple {
         this.advance()
       }
       if (tokVal == "static") {
+        ; `static` is a modifier only when a member follows. In
+        ; `class a { static(){} }` it is the method's own name.
+        def afterStatic:string (this.peekNextValue())
+        if ((afterStatic != "(") && (afterStatic != "=") && (afterStatic != ";") && (afterStatic != "}")) {
         isStatic = true
         this.advance()
         
@@ -1221,6 +1254,7 @@ class TSParserSimple {
           member.line = startTok.line
           member.col = startTok.col
           return member
+        }
         }
       }
       if (tokVal == "abstract") {
@@ -1238,6 +1272,11 @@ class TSParserSimple {
       
       def newTokVal (this.peekValue())
       if ((newTokVal != "public") && (newTokVal != "private") && (newTokVal != "protected") && (newTokVal != "static") && (newTokVal != "abstract") && (newTokVal != "readonly") && (newTokVal != "async")) {
+        keepParsing = false
+      }
+      ; A modifier word that turned out to be the member's own name (e.g.
+      ; `static(){}`) is not consumed above; stop rather than spin.
+      if (this.pos == modifierStartPos) {
         keepParsing = false
       }
     }
@@ -1281,7 +1320,7 @@ class TSParserSimple {
     }
 
     ; Computed member name: ["prototype"]() {} / [Symbol.iterator]() {}
-    if (this.matchValue("[")) {
+    if (this.matchPunct("[")) {
       this.advance()
       def keyExpr (this.parseExpr())
       this.expectValue("]")
@@ -2140,7 +2179,7 @@ class TSParserSimple {
         prop.nodeType = "Property"
 
         ; Computed key: { [expr]: target }
-        if (this.matchValue("[")) {
+        if (this.matchPunct("[")) {
           this.advance()
           def keyExpr (this.parseExpr())
           this.expectValue("]")
@@ -4850,7 +4889,7 @@ class TSParserSimple {
         def keyTok (this.peek())
         
         ; Computed property key [expression]
-        if (this.matchValue("[")) {
+        if (this.matchPunct("[")) {
           this.advance()
           def keyExpr (this.parseExpr())
           this.expectValue("]")
@@ -4950,11 +4989,10 @@ class TSParserSimple {
     ; Find matching )
     def parenDepth 1
     while ((parenDepth > 0) && ((this.isAtEnd()) == false)) {
-      def v (this.peekValue())
-      if (v == "(") {
+      if (this.matchPunct("(")) {
         parenDepth = parenDepth + 1
       }
-      if (v == ")") {
+      if (this.matchPunct(")")) {
         parenDepth = parenDepth - 1
       }
       if (parenDepth > 0) {

@@ -1297,6 +1297,23 @@ class TSParserSimple  {
     return t == tokenType;
   };
   matchValue (value) {
+    const t = this.peekType();
+    if ( t == "String" ) {
+      return false;
+    }
+    if ( t == "Template" ) {
+      return false;
+    }
+    if ( t == "Regex" ) {
+      return false;
+    }
+    const v = this.peekValue();
+    return v == value;
+  };
+  matchPunct (value) {
+    if ( this.peekType() != "Punctuator" ) {
+      return false;
+    }
     const v = this.peekValue();
     return v == value;
   };
@@ -1318,6 +1335,12 @@ class TSParserSimple  {
       return true;
     }
     if ( t == "Null" ) {
+      return true;
+    }
+    if ( t == "Number" ) {
+      return true;
+    }
+    if ( t == "String" ) {
       return true;
     }
     return false;
@@ -1529,7 +1552,7 @@ class TSParserSimple  {
     node.col = startTok.col;
     this.expectValue("return");
     const v = this.peekValue();
-    if ( (v != ";") && (this.isAtEnd() == false) ) {
+    if ( ((v != ";") && (v != "}")) && (this.isAtEnd() == false) ) {
       const arg = this.parseExprSeq();
       node.left = arg;
     }
@@ -2053,6 +2076,7 @@ class TSParserSimple  {
     let accessibility = "";
     let keepParsing = true;
     while (keepParsing) {
+      const modifierStartPos = this.pos;
       const tokVal = this.peekValue();
       if ( tokVal == "public" ) {
         accessibility = "public";
@@ -2067,15 +2091,18 @@ class TSParserSimple  {
         this.advance();
       }
       if ( tokVal == "static" ) {
-        isStatic = true;
-        this.advance();
-        if ( this.matchValue("{") ) {
-          member.nodeType = "StaticBlock";
-          member.body = this.parseBlock();
-          member.start = startTok.start;
-          member.line = startTok.line;
-          member.col = startTok.col;
-          return member;
+        const afterStatic = this.peekNextValue();
+        if ( (((afterStatic != "(") && (afterStatic != "=")) && (afterStatic != ";")) && (afterStatic != "}") ) {
+          isStatic = true;
+          this.advance();
+          if ( this.matchValue("{") ) {
+            member.nodeType = "StaticBlock";
+            member.body = this.parseBlock();
+            member.start = startTok.start;
+            member.line = startTok.line;
+            member.col = startTok.col;
+            return member;
+          }
         }
       }
       if ( tokVal == "abstract" ) {
@@ -2092,6 +2119,9 @@ class TSParserSimple  {
       }
       const newTokVal = this.peekValue();
       if ( ((((((newTokVal != "public") && (newTokVal != "private")) && (newTokVal != "protected")) && (newTokVal != "static")) && (newTokVal != "abstract")) && (newTokVal != "readonly")) && (newTokVal != "async") ) {
+        keepParsing = false;
+      }
+      if ( this.pos == modifierStartPos ) {
         keepParsing = false;
       }
     };
@@ -2122,7 +2152,7 @@ class TSParserSimple  {
       this.advance();
       member.value = "#";
     }
-    if ( this.matchValue("[") ) {
+    if ( this.matchPunct("[") ) {
       this.advance();
       const keyExpr = this.parseExpr();
       this.expectValue("]");
@@ -2780,7 +2810,7 @@ class TSParserSimple  {
       } else {
         const prop = new TSNode();
         prop.nodeType = "Property";
-        if ( this.matchValue("[") ) {
+        if ( this.matchPunct("[") ) {
           this.advance();
           const keyExpr = this.parseExpr();
           this.expectValue("]");
@@ -4855,7 +4885,7 @@ class TSParserSimple  {
           }
         }
         const keyTok = this.peek();
-        if ( this.matchValue("[") ) {
+        if ( this.matchPunct("[") ) {
           this.advance();
           const keyExpr = this.parseExpr();
           this.expectValue("]");
@@ -4928,11 +4958,10 @@ class TSParserSimple  {
     this.advance();
     let parenDepth = 1;
     while ((parenDepth > 0) && (this.isAtEnd() == false)) {
-      const v = this.peekValue();
-      if ( v == "(" ) {
+      if ( this.matchPunct("(") ) {
         parenDepth = parenDepth + 1;
       }
-      if ( v == ")" ) {
+      if ( this.matchPunct(")") ) {
         parenDepth = parenDepth - 1;
       }
       if ( parenDepth > 0 ) {
