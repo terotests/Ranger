@@ -4796,137 +4796,11 @@ class ComponentEngine {
                 ; which is the same function value args[0] already holds.
 
 
-                ; ---- Map methods ----
-                if (obj.isMap()) {
-                    if (methodName == "set") {
-                        def k:EvalValue (EvalValue.null())
-                        def v:EvalValue (EvalValue.undefined())
-                        if ((array_length node.children) > 0) {
-                            k = (this.evaluateExpr((itemAt node.children 0)))
-                        }
-                        if ((array_length node.children) > 1) {
-                            v = (this.evaluateExpr((itemAt node.children 1)))
-                        }
-                        obj.mapSet(k v)
-                        return obj
-                    }
-                    if (methodName == "get") {
-                        if ((array_length node.children) > 0) {
-                            return (obj.mapGet((this.evaluateExpr((itemAt node.children 0)))))
-                        }
-                        return (EvalValue.undefined())
-                    }
-                    if (methodName == "has") {
-                        if ((array_length node.children) > 0) {
-                            return (EvalValue.boolean((obj.mapHas((this.evaluateExpr((itemAt node.children 0)))))))
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "delete") {
-                        if ((array_length node.children) > 0) {
-                            return (EvalValue.boolean((obj.mapDelete((this.evaluateExpr((itemAt node.children 0)))))))
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "clear") {
-                        obj.collClear()
-                        return (EvalValue.undefined())
-                    }
-                    if (methodName == "keys") {
-                        def items:[EvalValue]
-                        def i:int 0
-                        while (i < (array_length obj.arrayValue)) {
-                            push items (itemAt obj.arrayValue i)
-                            i = (i + 1)
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "values") {
-                        def items:[EvalValue]
-                        def i:int 0
-                        while (i < (array_length obj.mapVals)) {
-                            push items (itemAt obj.mapVals i)
-                            i = (i + 1)
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "entries") {
-                        def items:[EvalValue]
-                        def i:int 0
-                        while (i < (array_length obj.arrayValue)) {
-                            def pair:[EvalValue]
-                            push pair (itemAt obj.arrayValue i)
-                            push pair (itemAt obj.mapVals i)
-                            push items (EvalValue.array(pair))
-                            i = (i + 1)
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "forEach") {
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def i:int 0
-                            while (i < (array_length obj.arrayValue)) {
-                                def cargs:[EvalValue]
-                                push cargs (itemAt obj.mapVals i)
-                                push cargs (itemAt obj.arrayValue i)
-                                def unused:EvalValue (this.callFnValueWithValues(cb cargs))
-                                i = (i + 1)
-                            }
-                        }
-                        return (EvalValue.undefined())
-                    }
-                }
+                ; D-REGISTRY: Map and Set moved into the registry. They share
+                ; six method names (has, delete, clear, keys, values, forEach),
+                ; which is exactly why dispatch keys on receiver kind first.
 
-                ; ---- Set methods ----
-                if (obj.isSet()) {
-                    if (methodName == "add") {
-                        if ((array_length node.children) > 0) {
-                            obj.setAdd((this.evaluateExpr((itemAt node.children 0))))
-                        }
-                        return obj
-                    }
-                    if (methodName == "has") {
-                        if ((array_length node.children) > 0) {
-                            return (EvalValue.boolean((obj.setHas((this.evaluateExpr((itemAt node.children 0)))))))
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "delete") {
-                        if ((array_length node.children) > 0) {
-                            return (EvalValue.boolean((obj.setDelete((this.evaluateExpr((itemAt node.children 0)))))))
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "clear") {
-                        obj.collClear()
-                        return (EvalValue.undefined())
-                    }
-                    if ((methodName == "values") || (methodName == "keys")) {
-                        def items:[EvalValue]
-                        def i:int 0
-                        while (i < (array_length obj.arrayValue)) {
-                            push items (itemAt obj.arrayValue i)
-                            i = (i + 1)
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "forEach") {
-                        if ((array_length node.children) > 0) {
-                            def cb:EvalValue (this.resolveCallbackValue((itemAt node.children 0)))
-                            def i:int 0
-                            while (i < (array_length obj.arrayValue)) {
-                                def el:EvalValue (itemAt obj.arrayValue i)
-                                def cargs:[EvalValue]
-                                push cargs el
-                                push cargs el
-                                def unused:EvalValue (this.callFnValueWithValues(cb cargs))
-                                i = (i + 1)
-                            }
-                        }
-                        return (EvalValue.undefined())
-                    }
-                }
+
 
                 ; Array.isArray(x) — static; callee object identifier is `Array`.
                 def arrStaticName:string ""
@@ -6090,6 +5964,107 @@ class ComponentEngine {
 
     ; The prototype object for a built-in constructor, created once per engine so
     ; a property assigned to it persists and compares equal across reads.
+    ; The receiver kind a built-in constructor's prototype serves.
+    fn kindForCtorName:string (nsName:string) {
+        if (nsName == "Array") { return "array" }
+        if (nsName == "String") { return "string" }
+        if (nsName == "Number") { return "number" }
+        if (nsName == "Function") { return "function" }
+        if (nsName == "Map") { return "map" }
+        if (nsName == "Set") { return "set" }
+        if (nsName == "Object") { return "object" }
+        return ""
+    }
+
+    ; Every registered method name for a kind. Kept beside builtinArity, which
+    ; remains the authority on whether a name exists: builtinPrototype asserts
+    ; each name here is registered, so the two cannot silently drift apart.
+    fn builtinNames:[string] (kind:string) {
+        def out:[string]
+        if (kind == "function") {
+            push out "call"
+            push out "apply"
+            push out "bind"
+        }
+        if (kind == "string") {
+            push out "at"
+            push out "charAt"
+            push out "charCodeAt"
+            push out "concat"
+            push out "endsWith"
+            push out "includes"
+            push out "indexOf"
+            push out "lastIndexOf"
+            push out "padEnd"
+            push out "padStart"
+            push out "repeat"
+            push out "replace"
+            push out "replaceAll"
+            push out "slice"
+            push out "split"
+            push out "startsWith"
+            push out "substring"
+            push out "toLowerCase"
+            push out "toUpperCase"
+            push out "trim"
+            push out "trimEnd"
+            push out "trimStart"
+        }
+        if (kind == "array") {
+            push out "at"
+            push out "concat"
+            push out "every"
+            push out "fill"
+            push out "filter"
+            push out "find"
+            push out "findIndex"
+            push out "flat"
+            push out "forEach"
+            push out "includes"
+            push out "indexOf"
+            push out "join"
+            push out "lastIndexOf"
+            push out "map"
+            push out "pop"
+            push out "push"
+            push out "reduce"
+            push out "reverse"
+            push out "shift"
+            push out "slice"
+            push out "some"
+            push out "sort"
+            push out "splice"
+            push out "unshift"
+        }
+        if (kind == "map") {
+            push out "clear"
+            push out "delete"
+            push out "entries"
+            push out "forEach"
+            push out "get"
+            push out "has"
+            push out "keys"
+            push out "set"
+            push out "values"
+        }
+        if (kind == "set") {
+            push out "add"
+            push out "clear"
+            push out "delete"
+            push out "forEach"
+            push out "has"
+            push out "keys"
+            push out "values"
+        }
+        push out "toString"
+        push out "valueOf"
+        return out
+    }
+
+    ; The prototype object for a built-in constructor, created once per engine so
+    ; a property assigned to it persists and compares equal across reads. It is
+    ; POPULATED from the registry, which is what makes `Array.prototype.slice` a
+    ; real value reachable without an instance — the whole point of the refactor.
     fn builtinPrototype:EvalValue (nsName:string) {
         if (has builtinProtos nsName) {
             return (unwrap (get builtinProtos nsName))
@@ -6098,6 +6073,21 @@ class ComponentEngine {
         def valsB:[EvalValue]
         def p:EvalValue (EvalValue.object(keysB valsB))
         set builtinProtos nsName p
+        def kind:string (this.kindForCtorName(nsName))
+        if ((strlen kind) > 0) {
+            def names:[string] (this.builtinNames(kind))
+            def i:int 0
+            while (i < (array_length names)) {
+                def nm:string (itemAt names i)
+                ; Registry is the authority: a name listed here that is not
+                ; registered would hand out a value that does nothing when
+                ; called, so it is skipped rather than published.
+                if (this.hasBuiltin(kind nm)) {
+                    p.setMember(nm (EvalValue.nativeMethod(kind nm)))
+                }
+                i = (i + 1)
+            }
+        }
         return p
     }
 
@@ -6176,6 +6166,26 @@ class ComponentEngine {
             if (name == "substring") { return 2 }
             if (name == "padStart") { return 2 }
             if (name == "padEnd") { return 2 }
+        }
+        if (kind == "map") {
+            if (name == "clear") { return 0 }
+            if (name == "delete") { return 1 }
+            if (name == "entries") { return 0 }
+            if (name == "forEach") { return 1 }
+            if (name == "get") { return 1 }
+            if (name == "has") { return 1 }
+            if (name == "keys") { return 0 }
+            if (name == "set") { return 2 }
+            if (name == "values") { return 0 }
+        }
+        if (kind == "set") {
+            if (name == "add") { return 1 }
+            if (name == "clear") { return 0 }
+            if (name == "delete") { return 1 }
+            if (name == "forEach") { return 1 }
+            if (name == "has") { return 1 }
+            if (name == "keys") { return 0 }
+            if (name == "values") { return 0 }
         }
         if (kind == "array") {
             if (name == "at") { return 1 }
@@ -6578,6 +6588,135 @@ class ComponentEngine {
             if (name == "padEnd") {
                 return (EvalValue.string((this.padString(s args false))))
             }
+        }
+        ; ---- Map / Set -------------------------------------------------------
+        if (kind == "map") {
+                    if (name == "set") {
+                        def k:EvalValue (EvalValue.null())
+                        def v:EvalValue (EvalValue.undefined())
+                        if ((array_length args) > 0) {
+                            k = (itemAt args 0)
+                        }
+                        if ((array_length args) > 1) {
+                            v = (itemAt args 1)
+                        }
+                        recv.mapSet(k v)
+                        return recv
+                    }
+                    if (name == "get") {
+                        if ((array_length args) > 0) {
+                            return (recv.mapGet((itemAt args 0)))
+                        }
+                        return (EvalValue.undefined())
+                    }
+                    if (name == "has") {
+                        if ((array_length args) > 0) {
+                            return (EvalValue.boolean((recv.mapHas((itemAt args 0)))))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "delete") {
+                        if ((array_length args) > 0) {
+                            return (EvalValue.boolean((recv.mapDelete((itemAt args 0)))))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "clear") {
+                        recv.collClear()
+                        return (EvalValue.undefined())
+                    }
+                    if (name == "keys") {
+                        def items:[EvalValue]
+                        def i:int 0
+                        while (i < (array_length recv.arrayValue)) {
+                            push items (itemAt recv.arrayValue i)
+                            i = (i + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "values") {
+                        def items:[EvalValue]
+                        def i:int 0
+                        while (i < (array_length recv.mapVals)) {
+                            push items (itemAt recv.mapVals i)
+                            i = (i + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "entries") {
+                        def items:[EvalValue]
+                        def i:int 0
+                        while (i < (array_length recv.arrayValue)) {
+                            def pair:[EvalValue]
+                            push pair (itemAt recv.arrayValue i)
+                            push pair (itemAt recv.mapVals i)
+                            push items (EvalValue.array(pair))
+                            i = (i + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "forEach") {
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def i:int 0
+                            while (i < (array_length recv.arrayValue)) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt recv.mapVals i)
+                                push cargs (itemAt recv.arrayValue i)
+                                def unused:EvalValue (this.callFnValueWithValues(cb cargs))
+                                i = (i + 1)
+                            }
+                        }
+                        return (EvalValue.undefined())
+                    }
+        }
+        if (kind == "set") {
+                    if (name == "add") {
+                        if ((array_length args) > 0) {
+                            recv.setAdd((itemAt args 0))
+                        }
+                        return recv
+                    }
+                    if (name == "has") {
+                        if ((array_length args) > 0) {
+                            return (EvalValue.boolean((recv.setHas((itemAt args 0)))))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "delete") {
+                        if ((array_length args) > 0) {
+                            return (EvalValue.boolean((recv.setDelete((itemAt args 0)))))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "clear") {
+                        recv.collClear()
+                        return (EvalValue.undefined())
+                    }
+                    if ((name == "values") || (name == "keys")) {
+                        def items:[EvalValue]
+                        def i:int 0
+                        while (i < (array_length recv.arrayValue)) {
+                            push items (itemAt recv.arrayValue i)
+                            i = (i + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "forEach") {
+                        if ((array_length args) > 0) {
+                            def cb:EvalValue (itemAt args 0)
+                            def i:int 0
+                            while (i < (array_length recv.arrayValue)) {
+                                def el:EvalValue (itemAt recv.arrayValue i)
+                                def cargs:[EvalValue]
+                                push cargs el
+                                push cargs el
+                                def unused:EvalValue (this.callFnValueWithValues(cb cargs))
+                                i = (i + 1)
+                            }
+                        }
+                        return (EvalValue.undefined())
+                    }
         }
         ; ---- Array.prototype -----------------------------------------------
         if (kind == "array") {

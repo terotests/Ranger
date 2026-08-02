@@ -255,6 +255,23 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-REGISTRY: built-in dispatch keyed by receiver kind. Before the registry
   // these nine methods fired on ANY receiver, so [1,2].charAt(0) stringified
   // the array and indexed its debug format to return "[".
+  // The canonical ES5 idioms, structurally impossible before the registry:
+  // a built-in reached from its constructor's prototype rather than an instance.
+  ["proto-array-slice-call", "return Array.prototype.slice.call([1, 2, 3], 1).join(',');", "protoreg"],
+  ["proto-array-join-call", "return Array.prototype.join.call([1, 2, 3], '-');", "protoreg"],
+  ["proto-array-map-call", "return Array.prototype.map.call([1, 2], function (x) { return x * 2; }).join(',');", "protoreg"],
+  ["proto-string-slice-call", "return String.prototype.slice.call('hello', 1, 3);", "protoreg"],
+  ["proto-string-trim-call", "return String.prototype.trim.call('  x  ');", "protoreg"],
+  ["proto-array-slice-typeof", "return typeof Array.prototype.slice;", "protoreg"],
+  ["proto-function-call-typeof", "return typeof Function.prototype.call;", "protoreg"],
+  ["proto-method-identity", "return Array.prototype.slice === Array.prototype.slice;", "protoreg"],
+  ["proto-indexof-call", "return Array.prototype.indexOf.call([7, 8, 9], 8);", "protoreg"],
+  ["reg-map-get", "var m = new Map(); m.set('a', 1); return m.get('a');", "registry"],
+  ["reg-map-delete", "var m = new Map(); m.set('a', 1); m.delete('a'); return m.has('a');", "registry"],
+  ["reg-set-dedup", "var s = new Set(); s.add(1); s.add(1); return s.size;", "registry"],
+  ["reg-set-foreach", "var n = 0; var s = new Set([1, 2, 3]); s.forEach(function (v) { n = n + v; }); return n;", "registry"],
+  ["reg-map-foreach", "var n = 0; var m = new Map([['a', 1], ['b', 2]]); m.forEach(function (v) { n = n + v; }); return n;", "registry"],
+
   ["reg-arr-first-class-typeof", "return typeof [1, 2].slice;", "registry"],
   ["reg-arr-slice-call", "return [1, 2, 3].slice.call([9, 8, 7], 1).join(',');", "registry"],
   ["reg-arr-join-call", "return [].join.call([1, 2, 3], '-');", "registry"],
