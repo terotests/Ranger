@@ -266,6 +266,28 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-ARGCHECK: Object statics reject non-objects. Accepting them silently was
   // the largest failure bucket in built-ins/Object -- the call did nothing and
   // the assertion after it measured whatever the no-op left behind.
+  // D-GLOBALOBJ: built-in namespaces are real objects, not names the engine
+  // merely recognises. They resolved to undefined, which was the largest ES5
+  // failure bucket -- every property read off one failed.
+  ["glob-typeof-math", "return typeof Math;", "globals"],
+  ["glob-typeof-array", "return typeof Array;", "globals"],
+  ["glob-typeof-function", "return typeof Function;", "globals"],
+  ["glob-math-writable", "Math.value = 'Math'; return Math.value;", "globals"],
+  ["glob-math-as-descriptor", "var o = {}; Math.value = 'Math'; Object.defineProperty(o, 'p', Math); return o.p;", "globals"],
+  ["glob-math-identity", "return Math === Math;", "globals"],
+  ["glob-array-prototype", "return typeof Array.prototype;", "globals"],
+  ["glob-math-floor-works", "return Math.floor(2.7);", "globals"],
+  ["glob-json-works", "return JSON.stringify({ a: 1 });", "globals"],
+  ["stat-fromcharcode", "return String.fromCharCode(65);", "globals"],
+  ["stat-fromcharcode-multi", "return String.fromCharCode(72, 105);", "globals"],
+  ["stat-number-parsefloat", "return Number.parseFloat('1.5');", "globals"],
+  ["stat-array-of", "return Array.of(1, 2).length;", "globals"],
+  ["stat-array-from-array", "return Array.from([1, 2]).length;", "globals"],
+  ["stat-array-from-string", "return Array.from('abc').length;", "globals"],
+  ["stat-object-keys-string", "return Object.keys('abc').length;", "globals"],
+  ["stat-object-keys-number", "return Object.keys(5).length;", "globals"],
+  ["stat-getproto-string", "return typeof Object.getPrototypeOf('a');", "globals"],
+
   ["argchk-defineprop-primitive", "try { Object.defineProperty(5, 'a', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
   ["argchk-defineprop-undefined", "try { Object.defineProperty(undefined, 'a', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
   ["argchk-defineprop-bad-desc", "try { Object.defineProperty({}, 'a', 42); } catch (e) { return e.name; } return 'no-throw';", "attrs"],

@@ -4816,7 +4816,80 @@ class ComponentEngine {
                         arrStaticName = arrObjNode.name
                     }
                 }
+                ; D-STATICS: constructor statics the engine was missing. Each was
+                ; a plain absence rather than a wrong answer, but the call
+                ; returned undefined instead of throwing, so a test using one to
+                ; BUILD its fixture failed later at an unrelated assertion.
+                if (arrStaticName == "String") {
+                    if (methodName == "fromCharCode") {
+                        def fcs:string ""
+                        def fci:int 0
+                        while (fci < (array_length node.children)) {
+                            def cv:EvalValue (this.evaluateExpr((itemAt node.children fci)))
+                            def code:int (to_int (cv.toNumber()))
+                            fcs = (fcs + (strfromcode code))
+                            fci = (fci + 1)
+                        }
+                        return (EvalValue.string(fcs))
+                    }
+                }
+                if (arrStaticName == "Number") {
+                    if (methodName == "parseFloat") {
+                        if ((array_length node.children) > 0) {
+                            def pfv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                            return (EvalValue.number((pfv.toNumber())))
+                        }
+                        return (EvalValue.number((0.0 / 0.0)))
+                    }
+                    if (methodName == "parseInt") {
+                        if ((array_length node.children) > 0) {
+                            def piv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                            return (EvalValue.fromInt((to_int (piv.toNumber()))))
+                        }
+                        return (EvalValue.number((0.0 / 0.0)))
+                    }
+                }
                 if (arrStaticName == "Array") {
+                    ; Array.of(...) collects its arguments; Array.from(x) copies
+                    ; an array-like. Both are how tests build fixtures.
+                    if (methodName == "of") {
+                        def ofItems:[EvalValue]
+                        def ofI:int 0
+                        while (ofI < (array_length node.children)) {
+                            push ofItems (this.evaluateExpr((itemAt node.children ofI)))
+                            ofI = (ofI + 1)
+                        }
+                        return (EvalValue.array(ofItems))
+                    }
+                    if (methodName == "from") {
+                        def frItems:[EvalValue]
+                        if ((array_length node.children) > 0) {
+                            def srcV:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                            if (srcV.isArray()) {
+                                def fi:int 0
+                                while (fi < (array_length srcV.arrayValue)) {
+                                    push frItems (itemAt srcV.arrayValue fi)
+                                    fi = (fi + 1)
+                                }
+                            }
+                            if (srcV.isString()) {
+                                def sIdx:int 0
+                                while (sIdx < (strlen srcV.stringValue)) {
+                                    def sEnd:int (sIdx + 1)
+                                    push frItems (EvalValue.string((substring srcV.stringValue sIdx sEnd)))
+                                    sIdx = (sIdx + 1)
+                                }
+                            }
+                            if (srcV.isSet()) {
+                                def stI:int 0
+                                while (stI < (array_length srcV.arrayValue)) {
+                                    push frItems (itemAt srcV.arrayValue stI)
+                                    stI = (stI + 1)
+                                }
+                            }
+                        }
+                        return (EvalValue.array(frItems))
+                    }
                     if (methodName == "isArray") {
                         def tv:EvalValue (EvalValue.null())
                         if ((array_length node.children) > 0) {
@@ -7588,6 +7661,10 @@ class ComponentEngine {
     ; (Math.PI, JSON.stringify, Object.keys …). Reading one of these bare must
     ; not be a ReferenceError even though no binding exists for it.
     fn isEngineGlobalName:boolean (name:string) {
+        if (name == "Function") { return true }
+        if (name == "Map") { return true }
+        if (name == "Set") { return true }
+        if (name == "Symbol") { return true }
         if (name == "Math") { return true }
         if (name == "JSON") { return true }
         if (name == "Object") { return true }
