@@ -1981,13 +1981,7 @@ class StaticAnalyzer {
     cl.rust_ref_reason = reason
   }
 
-  ; The class name a named value holds, or "" for a primitive, a collection
-  ; or an unknown name.
-  fn sharedClassNameOf:string (name:string fnCtx:RangerAppWriterContext) {
-    if ((strlen name) == 0) {
-      return ""
-    }
-    def p:RangerAppParamDesc (fnCtx.getVariableDef(name))
+  fn classNameOfDesc:string (p:RangerAppParamDesc) {
     if ((strlen p.name) == 0) {
       return ""
     }
@@ -2005,6 +1999,38 @@ class StaticAnalyzer {
       return ""
     }
     return tn.type_name
+  }
+
+  ; The class name a named value holds, or "" for a primitive, a collection
+  ; or an unknown name.
+  fn sharedClassNameOf:string (name:string fnCtx:RangerAppWriterContext) {
+    if ((strlen name) == 0) {
+      return ""
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(name))
+    return (this.classNameOfDesc(p))
+  }
+
+  ; The class name a value NODE holds. The function context only resolves
+  ; function-level names — a local defined inside a while or an if body lives
+  ; in a sub-context — so the node's own desc is the primary source.
+  fn nodeClassNameOf:string (node:CodeNode fnCtx:RangerAppWriterContext) {
+    if (node.expression == false) {
+      if node.hasParamDesc {
+        if (!null? node.paramDesc) {
+          return (this.classNameOfDesc((unwrap node.paramDesc)))
+        }
+      }
+    }
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "unwrap") {
+          return (this.nodeClassNameOf((node.getSecond()) fnCtx))
+        }
+      }
+    }
+    return (this.sharedClassNameOf((this.escapeValueName(node)) fnCtx))
   }
 
   ; The names a function mutates an object through: the receiver of a method
@@ -2202,7 +2228,7 @@ class StaticAnalyzer {
             def stored:CodeNode (itemAt node.children storeAt)
             def storedName:string (this.escapeValueName(stored))
             if ((strlen storedName) > 0) {
-              def storedClass:string (this.sharedClassNameOf(storedName fnCtx))
+              def storedClass:string (this.nodeClassNameOf(stored fnCtx))
               if ((strlen storedClass) > 0) {
                 this.markClassShared(storedClass ("stored in " + fnName))
               }
@@ -2248,11 +2274,19 @@ class StaticAnalyzer {
         if ((first.vref == "def") && ((array_length node.children) >= 3)) {
           def defName:CodeNode (node.getSecond())
           def initVal:CodeNode (itemAt node.children 2)
-          def cn:string (this.sharedClassNameOf(defName.vref fnCtx))
+          ; the def's own desc, because a block-scoped local is invisible to
+          ; the function-level context
+          def cn:string ""
+          if (!null? defName.paramDesc) {
+            cn = (this.classNameOfDesc((unwrap defName.paramDesc)))
+          }
+          if ((strlen cn) == 0) {
+            cn = (this.sharedClassNameOf(defName.vref fnCtx))
+          }
           if ((strlen cn) > 0) {
             def srcName:string (this.escapeValueName(initVal))
             if ((strlen srcName) > 0) {
-              def srcClass:string (this.sharedClassNameOf(srcName fnCtx))
+              def srcClass:string (this.nodeClassNameOf(initVal fnCtx))
               if ((strlen srcClass) > 0) {
                 if ((this.varIsMutated(defName.vref fnCtx mutated)) || (this.varIsMutated(srcName fnCtx mutated))) {
                   this.markClassShared(cn ("aliased and mutated in " + fnName))
@@ -2276,7 +2310,7 @@ class StaticAnalyzer {
           if ((array_length lhs.ns) >= 2) {
             def fsName:string (this.escapeValueName(rhs))
             if ((strlen fsName) > 0) {
-              def fsClass:string (this.sharedClassNameOf(fsName fnCtx))
+              def fsClass:string (this.nodeClassNameOf(rhs fnCtx))
               if ((strlen fsClass) > 0) {
                 this.markClassShared(fsClass ("stored in " + fnName))
               }
@@ -2288,14 +2322,14 @@ class StaticAnalyzer {
               ; short-form field store: `current = n`
               def sfName:string (this.escapeValueName(rhs))
               if ((strlen sfName) > 0) {
-                def sfClass:string (this.sharedClassNameOf(sfName fnCtx))
+                def sfClass:string (this.nodeClassNameOf(rhs fnCtx))
                 if ((strlen sfClass) > 0) {
                   this.markClassShared(sfClass ("stored in " + fnName))
                 }
               }
             }
             if (((strlen lp.name) > 0) && (lp.is_class_variable == false)) {
-              def cn:string (this.sharedClassNameOf(lhs.vref fnCtx))
+              def cn:string (this.classNameOfDesc(lp))
               if ((strlen cn) > 0) {
                 def srcName:string (this.escapeValueName(rhs))
                 if ((strlen srcName) > 0) {
@@ -2455,6 +2489,14 @@ class StaticAnalyzer {
           def nameNode:CodeNode (node.getSecond())
           if (!null? nameNode.paramDesc) {
             this.markDescRcWrap((unwrap nameNode.paramDesc))
+          }
+        }
+        ; the iteration variable of a for loop binds an element: over a
+        ; shared-element collection it holds the element's Rc
+        if ((first.vref == "for") && ((array_length node.children) >= 3)) {
+          def itemNode:CodeNode (itemAt node.children 2)
+          if (!null? itemNode.paramDesc) {
+            this.markDescRcWrap((unwrap itemNode.paramDesc))
           }
         }
       }

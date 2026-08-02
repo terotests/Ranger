@@ -177,10 +177,10 @@ describe("Ranger Compiler - class sharing analysis (PLAN_RUST_OWNERSHIP 2)", () 
   });
 
   it("keeps never-shared classes as plain values", () => {
-    // 18 of the 22 jpeg_scaler classes never share an object. The four
-    // exceptions are exactly the decoder's mutable state: the buffer chunk
-    // list, the huffman tables handed out by getters, and the component /
-    // coefficient objects read from collections into mutated locals.
+    // 16 of the 22 jpeg_scaler classes never share an object. The six
+    // exceptions are exactly the codec's mutable state — the classes that
+    // had to become references before the flag-on Rust binary produced the
+    // byte-identical image.
     expect(jpeg).toContain("ownership[rust] class Color -> value");
     expect(jpeg).toContain(
       "ownership[rust] class BufferChunk -> Rc<RefCell> (stored in allocateNewChunk)"
@@ -190,8 +190,10 @@ describe("Ranger Compiler - class sharing analysis (PLAN_RUST_OWNERSHIP 2)", () 
     );
     expect(jpeg).toContain("ownership[rust] class CoeffBuffer -> Rc<RefCell>");
     expect(jpeg).toContain("ownership[rust] class JPEGComponent -> Rc<RefCell>");
+    expect(jpeg).toContain("ownership[rust] class QuantizationTable -> Rc<RefCell>");
+    expect(jpeg).toContain("ownership[rust] class ExifTag -> Rc<RefCell>");
     const shared = (jpeg.match(/ownership\[rust\] class .* -> Rc<RefCell>/g) ?? []).length;
-    expect(shared).toBe(4);
+    expect(shared).toBe(6);
   });
 });
 

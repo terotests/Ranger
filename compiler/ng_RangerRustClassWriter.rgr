@@ -1901,6 +1901,7 @@ class RangerRustClassWriter {
         ; we need to pre-evaluate ALL args that reference self to avoid borrow conflicts
         
         def tempVars:[string]
+        def tempWriteback:[string]
         def tmpIdx:int 0
         def fnD3@(optional):RangerAppFunctionDesc node.fnDesc
         for givenArgs.children argNode:CodeNode argIdx {
@@ -1935,9 +1936,17 @@ class RangerRustClassWriter {
             this.WalkNode(argNode ctx wr)
             ctx.unsetInExpr()
             wr.out(".clone();" true)
+            ; a mutable temp is a copy of the argument; the callee's writes
+            ; land in the copy, so a writable source takes the copy back
+            if (needsMutDecl && (argNode.expression == false)) {
+              push tempWriteback tmpName
+            } {
+              push tempWriteback ""
+            }
           } {
             ; Don't pre-eval, use empty marker
             push tempVars ""
+            push tempWriteback ""
           }
         }
         
@@ -2057,6 +2066,17 @@ class RangerRustClassWriter {
         wr.out(")" false)
         if ((ctx.expressionLevel()) == 0) {
           wr.out(";" true)
+        }
+        for tempWriteback wbName:string wbi {
+          if ((strlen wbName) > 0) {
+            def wbArg:CodeNode (itemAt givenArgs.children wbi)
+            ctx.setInExpr()
+            ctx.setInLhs()
+            this.WalkNode(wbArg ctx wr)
+            ctx.unsetInLhs()
+            ctx.unsetInExpr()
+            wr.out(((" = " + wbName) + ";") true)
+          }
         }
         return
       }
@@ -3940,10 +3960,13 @@ class RangerRustClassWriter {
         }
         ctx.unsetInExpr()
       } {
-        ; For non-optional arrays, use the standard .length = 0 pattern
+        ; A Rust Vec clears with .clear(); the target is written through, so
+        ; an Rc<RefCell> segment on its path borrows mutably.
         ctx.setInExpr()
+        ctx.setInLhs()
         this.WalkNode(target ctx wr)
-        wr.out(".length = 0;" true)
+        ctx.unsetInLhs()
+        wr.out(".clear();" true)
         ctx.unsetInExpr()
       }
       return
@@ -3983,6 +4006,26 @@ class RangerRustClassWriter {
       this.WalkNode(left ctx wr)
       ctx.unsetInLhs()
       wr.out(".push(" false)
+      ; an element of a shared class is an Rc: wrap a raw value, clone a
+      ; wrapped name, take an owned Rc as it is
+      if (this.rustClassIsShared(arr_type ctx)) {
+        def push_rc_state:int (this.rustInitRcState(right ctx))
+        if (push_rc_state == 0) {
+          wr.out("Rc::new(RefCell::new(" false)
+          this.WalkNode(right ctx wr)
+          wr.out("))" false)
+        }
+        if (push_rc_state == 1) {
+          this.WalkNode(right ctx wr)
+          wr.out(".clone()" false)
+        }
+        if (push_rc_state == 2) {
+          this.WalkNode(right ctx wr)
+        }
+        ctx.unsetInExpr()
+        wr.out(");" true)
+        return
+      }
       this.WalkNode(right ctx wr)
       
       ; Add .to_string() if pushing to a string array and the value is a string literal

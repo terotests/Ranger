@@ -264,13 +264,61 @@ The verdict on the program is now 18 `value` classes and 4 shared —
 decoder's mutable state — and the flag-off outputs of every target remain
 byte for byte what they were.
 
-**What remains open, precisely:** two Huffman symbols across two AC-refine
-scans decode wrongly (the ES6 and C++ runs decode the same scans with zero
-errors), so the final image is 8413 bytes against the reference's 180280.
-The divergence is bit-level in the progressive AC-refinement path and needs
-targeted instrumentation (per-scan reader positions and coefficient
-checksums) rather than more emission rules; every structural fault the gate
-found is fixed. Until that closes, the flag stays experimental.
+### The gate is closed: the flag-on Rust binary writes the reference image, byte for byte
+
+The remaining divergence was hunted with staged instrumentation — per-block
+reader positions in the AC-refine scans, then per-stage checksums (decoded
+pixels, scaled pixels, quantization tables, encoder code tables, quantized
+coefficients, total bits written) — each round comparing the ES6 run against
+the Rust run and fixing the first stage that differed. Every fault it found
+was a compiler fault, and three of them sat in the flag-off Rust writer all
+along:
+
+1. **`clear` was silently dropped from every Rust program.** The operator's
+   template said `rust ( custom )` where the dispatcher expects
+   `( (custom _) )`, so nothing was emitted — and the custom handler behind
+   it emitted JavaScript (`.length = 0;`) for a plain array anyway. A
+   re-parsed Huffman table therefore kept its old symbols
+   (`resetArrays` ends with `clear values`), which was the source of the
+   two AC-refine decode errors. Both halves fixed; `clear` now emits
+   `.clear();` with the target borrowed mutably.
+2. **A pre-evaluated mutable argument was never written back.** The
+   borrow-conflict pre-evaluation cloned `self.dcYCodes` into `__arg_2`,
+   passed `&mut __arg_2`, and dropped the result, so the encoder ran with
+   empty code tables. A mutable temp whose source is a writable name now
+   assigns itself back after the call.
+3. **`to_int` truncated on Rust where the reference targets floor.** The
+   template table splits the twelve targets: JS, C++, Python and PHP floor;
+   Rust (`as i64`), C#, Go, Swift, Kotlin and Scala truncate — and the two
+   differ on every negative quotient, which is exactly the encoder's
+   quantization of negative coefficients. The Rust template now floors.
+   (The other truncating targets remain to be aligned; recorded here.)
+
+The sharing analysis grew four eyes it was missing, each found the same way:
+a local defined inside a while or an if body lives in a sub-context the
+function-level lookup cannot see (the walk now resolves through the node's
+own desc); the `at` operator is a macro whose expansion hides `itemAt`
+behind an extra pair of parens; the iteration variable of a `for` loop binds
+a collection element; and a raw `new` pushed into a shared-element vector
+takes the cell wrap at the push. The verdict on the program settled at 16
+`value` classes and 6 shared — `BufferChunk`, `HuffmanTable`,
+`JPEGComponent`, `QuantizationTable`, `CoeffBuffer`, `ExifTag`, precisely
+the codec's mutable state.
+
+The result, with all instrumentation removed and clean sources:
+
+| Measurement | Reference (ES6 = C++) | Rust, `-rust-shared-classes` |
+| --- | --- | --- |
+| Huffman decode errors | 0 | **0** |
+| Decoded pixel checksum | 80391 | **80391** |
+| Scaled pixel checksum | 318566 | **318566** |
+| Bits written by the encoder | 1434621 | **1434621** |
+| Output file | 180280 bytes, `2d08fcfb…` | **180280 bytes, `2d08fcfb…` — byte-identical** |
+
+The wrong-image fault of PLAN_CODEGEN_OWNERSHIP — "the binary runs, and it
+writes a wrong image" — is closed on Rust under the flag. The C++ output is
+untouched, and the flag-off Rust output changes only where the three writer
+fixes above apply, each a correctness fix in its own right.
 
 ## How to check
 

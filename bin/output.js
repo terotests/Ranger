@@ -22006,6 +22006,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           if ( needs_arg_preevaluation && (ctx.expressionLevel() == 0) ) {
             let tempVars = [];
+            let tempWriteback = [];
             let tmpIdx = 0;
             const fnD3 = node.fnDesc;
             for ( let argIdx = 0; argIdx < givenArgs.children.length; argIdx++) {
@@ -22037,8 +22038,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 await this.WalkNode(argNode, ctx, wr);
                 ctx.unsetInExpr();
                 wr.out(".clone();", true);
+                if ( needsMutDecl && (argNode.expression == false) ) {
+                  tempWriteback.push(tmpName);
+                } else {
+                  tempWriteback.push("");
+                }
               } else {
                 tempVars.push("");
+                tempWriteback.push("");
               }
             };
             let call_as_static_preeval = false;
@@ -22147,6 +22154,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( ctx.expressionLevel() == 0 ) {
               wr.out(";", true);
             }
+            for ( let wbi = 0; wbi < tempWriteback.length; wbi++) {
+              var wbName = tempWriteback[wbi];
+              if ( (wbName.length) > 0 ) {
+                const wbArg = givenArgs.children[wbi];
+                ctx.setInExpr();
+                ctx.setInLhs();
+                await this.WalkNode(wbArg, ctx, wr);
+                ctx.unsetInLhs();
+                ctx.unsetInExpr();
+                wr.out((" = " + wbName) + ";", true);
+              }
+            };
             return;
           }
           const is_self_call = part == "this";
@@ -23778,8 +23797,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             ctx.unsetInExpr();
           } else {
             ctx.setInExpr();
+            ctx.setInLhs();
             await this.WalkNode(target, ctx, wr);
-            wr.out(".length = 0;", true);
+            ctx.unsetInLhs();
+            wr.out(".clear();", true);
             ctx.unsetInExpr();
           }
           return;
@@ -23809,6 +23830,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           await this.WalkNode(left_1, ctx, wr);
           ctx.unsetInLhs();
           wr.out(".push(", false);
+          if ( this.rustClassIsShared(arr_type, ctx) ) {
+            const push_rc_state = this.rustInitRcState(right_1, ctx);
+            if ( push_rc_state == 0 ) {
+              wr.out("Rc::new(RefCell::new(", false);
+              await this.WalkNode(right_1, ctx, wr);
+              wr.out("))", false);
+            }
+            if ( push_rc_state == 1 ) {
+              await this.WalkNode(right_1, ctx, wr);
+              wr.out(".clone()", false);
+            }
+            if ( push_rc_state == 2 ) {
+              await this.WalkNode(right_1, ctx, wr);
+            }
+            ctx.unsetInExpr();
+            wr.out(");", true);
+            return;
+          }
           await this.WalkNode(right_1, ctx, wr);
           if ( arr_type == "string" ) {
             if ( right_1.value_type == 4 ) {
@@ -42224,11 +42263,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         cl.rust_needs_ref_semantics = true;
         cl.rust_ref_reason = reason;
       };
-      sharedClassNameOf (name, fnCtx) {
-        if ( (name.length) == 0 ) {
-          return "";
-        }
-        const p = fnCtx.getVariableDef(name);
+      classNameOfDesc (p) {
         if ( (p.name.length) == 0 ) {
           return "";
         }
@@ -42246,6 +42281,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return "";
         }
         return tn.type_name;
+      };
+      sharedClassNameOf (name, fnCtx) {
+        if ( (name.length) == 0 ) {
+          return "";
+        }
+        const p = fnCtx.getVariableDef(name);
+        return this.classNameOfDesc(p);
+      };
+      nodeClassNameOf (node, fnCtx) {
+        if ( node.expression == false ) {
+          if ( node.hasParamDesc ) {
+            if ( (typeof(node.paramDesc) !== "undefined" && node.paramDesc != null )  ) {
+              return this.classNameOfDesc((node.paramDesc));
+            }
+          }
+        }
+        if ( node.expression ) {
+          if ( (node.children.length) >= 2 ) {
+            const first = node.getFirst();
+            if ( first.vref == "unwrap" ) {
+              return this.nodeClassNameOf(node.getSecond(), fnCtx);
+            }
+          }
+        }
+        return this.sharedClassNameOf(this.escapeValueName(node), fnCtx);
       };
       collectMutatedNames (node, names) {
         if ( node.hasFnCall ) {
@@ -42428,7 +42488,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const stored = node.children[storeAt];
                   const storedName = this.escapeValueName(stored);
                   if ( (storedName.length) > 0 ) {
-                    const storedClass = this.sharedClassNameOf(storedName, fnCtx);
+                    const storedClass = this.nodeClassNameOf(stored, fnCtx);
                     if ( (storedClass.length) > 0 ) {
                       this.markClassShared(storedClass, "stored in " + fnName);
                     }
@@ -42465,11 +42525,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( (first.vref == "def") && ((node.children.length) >= 3) ) {
                 const defName = node.getSecond();
                 const initVal = node.children[2];
-                const cn = this.sharedClassNameOf(defName.vref, fnCtx);
+                let cn = "";
+                if ( (typeof(defName.paramDesc) !== "undefined" && defName.paramDesc != null )  ) {
+                  cn = this.classNameOfDesc((defName.paramDesc));
+                }
+                if ( (cn.length) == 0 ) {
+                  cn = this.sharedClassNameOf(defName.vref, fnCtx);
+                }
                 if ( (cn.length) > 0 ) {
                   const srcName = this.escapeValueName(initVal);
                   if ( (srcName.length) > 0 ) {
-                    const srcClass = this.sharedClassNameOf(srcName, fnCtx);
+                    const srcClass = this.nodeClassNameOf(initVal, fnCtx);
                     if ( (srcClass.length) > 0 ) {
                       if ( this.varIsMutated(defName.vref, fnCtx, mutated) || this.varIsMutated(srcName, fnCtx, mutated) ) {
                         this.markClassShared(cn, "aliased and mutated in " + fnName);
@@ -42490,7 +42556,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( (lhs.ns.length) >= 2 ) {
                   const fsName = this.escapeValueName(rhs);
                   if ( (fsName.length) > 0 ) {
-                    const fsClass = this.sharedClassNameOf(fsName, fnCtx);
+                    const fsClass = this.nodeClassNameOf(rhs, fnCtx);
                     if ( (fsClass.length) > 0 ) {
                       this.markClassShared(fsClass, "stored in " + fnName);
                     }
@@ -42501,14 +42567,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( ((lp.name.length) > 0) && lp.is_class_variable ) {
                     const sfName = this.escapeValueName(rhs);
                     if ( (sfName.length) > 0 ) {
-                      const sfClass = this.sharedClassNameOf(sfName, fnCtx);
+                      const sfClass = this.nodeClassNameOf(rhs, fnCtx);
                       if ( (sfClass.length) > 0 ) {
                         this.markClassShared(sfClass, "stored in " + fnName);
                       }
                     }
                   }
                   if ( ((lp.name.length) > 0) && (lp.is_class_variable == false) ) {
-                    const cn_1 = this.sharedClassNameOf(lhs.vref, fnCtx);
+                    const cn_1 = this.classNameOfDesc(lp);
                     if ( (cn_1.length) > 0 ) {
                       const srcName_1 = this.escapeValueName(rhs);
                       if ( (srcName_1.length) > 0 ) {
@@ -42658,6 +42724,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const nameNode = node.getSecond();
                     if ( (typeof(nameNode.paramDesc) !== "undefined" && nameNode.paramDesc != null )  ) {
                       this.markDescRcWrap(nameNode.paramDesc);
+                    }
+                  }
+                  if ( (first.vref == "for") && ((node.children.length) >= 3) ) {
+                    const itemNode = node.children[2];
+                    if ( (typeof(itemNode.paramDesc) !== "undefined" && itemNode.paramDesc != null )  ) {
+                      this.markDescRcWrap(itemNode.paramDesc);
                     }
                   }
                 }
