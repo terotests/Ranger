@@ -1215,6 +1215,9 @@ class TSLexer  {
         if ( re.tokenType == "Regex" ) {
           return re;
         }
+        if ( re.tokenType == "Invalid" ) {
+          return re;
+        }
       }
     }
     if ( ch == "\"" ) {
@@ -1582,6 +1585,121 @@ class TSLexer  {
     }
     return "o";
   };
+  regexBodyValid (body, unicodeMode) {
+    const n = body.length;
+    let groups = 0;
+    let maxBackRef = 0;
+    let i = 0;
+    let inClass = false;
+    let prevWasAssertion = false;
+    let skipTo = -1;
+    while (i < n) {
+      skipTo = -1;
+      const ch = body.substring(i, (i + 1) );
+      if ( ch == "\\" ) {
+        const esc = body.substring((i + 1), (i + 2) );
+        if ( esc == "u" ) {
+          if ( (body.substring((i + 2), (i + 3) )) == "{" ) {
+            let cp = 0;
+            let j = i + 3;
+            let digits = 0;
+            while (j < n) {
+              const hc = body.substring(j, (j + 1) );
+              if ( hc == "}" ) {
+                break;
+              }
+              const hv = this.hexValue(hc);
+              if ( hv < 0 ) {
+                break;
+              }
+              cp = (cp * 16) + hv;
+              digits = digits + 1;
+              j = j + 1;
+            };
+            if ( digits > 0 ) {
+              if ( cp > 1114111 ) {
+                return false;
+              }
+            }
+            if ( (body.substring(j, (j + 1) )) == "}" ) {
+              skipTo = j + 1;
+            }
+          }
+        } else {
+          const escCode = esc.charCodeAt(0 );
+          if ( escCode >= 49 ) {
+            if ( escCode <= 57 ) {
+              const refNum = escCode - 48;
+              if ( refNum > maxBackRef ) {
+                maxBackRef = refNum;
+              }
+            }
+          }
+        }
+        if ( skipTo >= 0 ) {
+          i = skipTo;
+        } else {
+          i = i + 2;
+        }
+        prevWasAssertion = false;
+      } else {
+        if ( inClass ) {
+          if ( ch == "]" ) {
+            inClass = false;
+          }
+          i = i + 1;
+        } else {
+          if ( ch == "[" ) {
+            inClass = true;
+            prevWasAssertion = false;
+            i = i + 1;
+          } else {
+            if ( ch == "(" ) {
+              const after = body.substring((i + 1), (i + 3) );
+              if ( (after == "?=") || (after == "?!") ) {
+                prevWasAssertion = false;
+              } else {
+                if ( (body.substring((i + 1), (i + 2) )) != "?" ) {
+                  groups = groups + 1;
+                }
+              }
+              i = i + 1;
+            } else {
+              if ( unicodeMode ) {
+                if ( ch == "}" ) {
+                  return false;
+                }
+                if ( ch == "]" ) {
+                  return false;
+                }
+                if ( ch == "{" ) {
+                  let k = i + 1;
+                  let numDigits = 0;
+                  while (k < n) {
+                    const dc = body.substring(k, (k + 1) );
+                    if ( this.isDigit(dc) ) {
+                      numDigits = numDigits + 1;
+                      k = k + 1;
+                    } else {
+                      break;
+                    }
+                  };
+                  if ( numDigits == 0 ) {
+                    return false;
+                  }
+                }
+              }
+              i = i + 1;
+            }
+          }
+        }
+      }
+    };
+    if ( maxBackRef > groups ) {
+      return false;
+    }
+    return true;
+  };
   stringContainsChar (haystack, ch) {
     let i = 0;
     const n = haystack.length;
@@ -1758,6 +1876,15 @@ class TSLexer  {
       }
     };
     if ( badFlag ) {
+      return this.makeToken("Invalid", value, startPos, startLine, startCol);
+    }
+    if ( this.peek() == "\\" ) {
+      return this.makeToken("Invalid", value, startPos, startLine, startCol);
+    }
+    const bodyLen = (value.length) - ((flags.length) + 2);
+    const body = value.substring(1, (1 + bodyLen) );
+    const unicodeMode = this.stringContainsChar(flags, "u");
+    if ( this.regexBodyValid(body, unicodeMode) == false ) {
       return this.makeToken("Invalid", value, startPos, startLine, startCol);
     }
     return this.makeToken("Regex", value, startPos, startLine, startCol);

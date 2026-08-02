@@ -940,6 +940,12 @@ class TSLexer {
                 if (re.tokenType == "Regex") {
                     return re
                 }
+                ; A malformed-but-terminated literal has already been consumed,
+                ; so report it rather than re-lexing the `/` at a stale
+                ; position. An unterminated one rewound and has an empty type.
+                if (re.tokenType == "Invalid") {
+                    return re
+                }
                 ; Unterminated: fall through and lex `/` as a punctuator.
             }
         }
@@ -1341,6 +1347,114 @@ class TSLexer {
     ; True when a `/` at the current position starts a regex literal rather than
     ; a division operator. Decided from the previous significant token: `/` after
     ; something that can END an expression is division, otherwise it opens a regex.
+    ; Checks the parts of the pattern grammar that a plain scan can settle:
+    ; unescaped `{` / `}` / `]` in Unicode mode, a \u{...} beyond the code point
+    ; range, a back-reference with no matching group, and a quantifier applied
+    ; to a lookahead assertion.
+    fn regexBodyValid:boolean (body:string unicodeMode:boolean) {
+        def n:int (strlen body)
+        def groups:int 0
+        def maxBackRef:int 0
+        def i:int 0
+        def inClass:boolean false
+        def prevWasAssertion:boolean false
+        def skipTo:int -1
+        while (i < n) {
+            skipTo = -1
+            def ch:string (substring body i (i + 1))
+            if (ch == "\\") {
+                def esc:string (substring body (i + 1) (i + 2))
+                if (esc == "u") {
+                    if ((substring body (i + 2) (i + 3)) == "{") {
+                        def cp:int 0
+                        def j:int (i + 3)
+                        def digits:int 0
+                        while (j < n) {
+                            def hc:string (substring body j (j + 1))
+                            if (hc == "}") { break }
+                            def hv:int (this.hexValue(hc))
+                            if (hv < 0) { break }
+                            cp = ((cp * 16) + hv)
+                            digits = (digits + 1)
+                            j = (j + 1)
+                        }
+                        if (digits > 0) {
+                            if (cp > 1114111) { return false }
+                        }
+                        ; Skip the whole escape, closing brace included, so the `}`
+                        ; is not read as a stray one.
+                        if ((substring body j (j + 1)) == "}") {
+                            skipTo = (j + 1)
+                        }
+                    }
+                } {
+                    def escCode:int (charAt esc 0)
+                    if (escCode >= 49) {
+                        if (escCode <= 57) {
+                            def refNum:int (escCode - 48)
+                            if (refNum > maxBackRef) { maxBackRef = refNum }
+                        }
+                    }
+                }
+                if (skipTo >= 0) {
+                    i = skipTo
+                } {
+                    i = (i + 2)
+                }
+                prevWasAssertion = false
+            } {
+                if (inClass) {
+                    if (ch == "]") { inClass = false }
+                    i = (i + 1)
+                } {
+                    if (ch == "[") {
+                        inClass = true
+                        prevWasAssertion = false
+                        i = (i + 1)
+                    } {
+                        if (ch == "(") {
+                            def after:string (substring body (i + 1) (i + 3))
+                            if ((after == "?=") || (after == "?!")) {
+                                ; Remember where this assertion group ends.
+                                prevWasAssertion = false
+                            } {
+                                if ((substring body (i + 1) (i + 2)) != "?") {
+                                    groups = (groups + 1)
+                                }
+                            }
+                            i = (i + 1)
+                        } {
+                            if (unicodeMode) {
+                                ; In Unicode mode these are only legal escaped
+                                ; or as part of a well-formed quantifier.
+                                if (ch == "}") { return false }
+                                if (ch == "]") { return false }
+                                if (ch == "{") {
+                                    ; `{` must open a {n}, {n,} or {n,m} bound.
+                                    def k:int (i + 1)
+                                    def numDigits:int 0
+                                    while (k < n) {
+                                        def dc:string (substring body k (k + 1))
+                                        if (this.isDigit(dc)) {
+                                            numDigits = (numDigits + 1)
+                                            k = (k + 1)
+                                        } {
+                                            break
+                                        }
+                                    }
+                                    if (numDigits == 0) { return false }
+                                }
+                            }
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+        }
+        if (maxBackRef > groups) { return false }
+        return true
+    }
+
     fn stringContainsChar:boolean (haystack:string ch:string) {
         def i:int 0
         def n:int (strlen haystack)
@@ -1475,6 +1589,18 @@ class TSLexer {
             }
         }
         if badFlag {
+            return (this.makeToken("Invalid" value startPos startLine startCol))
+        }
+        ; A `\` immediately after the flags means an escaped flag, which is not
+        ; allowed: `/./\u0069`.
+        if ((this.peek()) == "\\") {
+            return (this.makeToken("Invalid" value startPos startLine startCol))
+        }
+        ; The body between the slashes, without them or the flags.
+        def bodyLen:int ((strlen value) - ((strlen flags) + 2))
+        def body:string (substring value 1 (1 + bodyLen))
+        def unicodeMode:boolean (this.stringContainsChar(flags "u"))
+        if ((this.regexBodyValid(body unicodeMode)) == false) {
             return (this.makeToken("Invalid" value startPos startLine startCol))
         }
         return (this.makeToken("Regex" value startPos startLine startCol))
