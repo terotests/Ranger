@@ -4853,7 +4853,7 @@ class ComponentEngine {
                     }
                     if (methodName == "keys") {
                         def items:[EvalValue]
-                        def ks:[string] (this.objectKeys(src))
+                        def ks:[string] (this.objectEnumerableKeys(src))
                         def i:int 0
                         while (i < (array_length ks)) {
                             def k:string (itemAt ks i)
@@ -4866,7 +4866,7 @@ class ComponentEngine {
                     }
                     if (methodName == "values") {
                         def items:[EvalValue]
-                        def ks:[string] (this.objectKeys(src))
+                        def ks:[string] (this.objectEnumerableKeys(src))
                         def i:int 0
                         while (i < (array_length ks)) {
                             def k:string (itemAt ks i)
@@ -4879,7 +4879,7 @@ class ComponentEngine {
                     }
                     if (methodName == "entries") {
                         def items:[EvalValue]
-                        def ks:[string] (this.objectKeys(src))
+                        def ks:[string] (this.objectEnumerableKeys(src))
                         def i:int 0
                         while (i < (array_length ks)) {
                             def k:string (itemAt ks i)
@@ -4943,6 +4943,51 @@ class ComponentEngine {
                         }
                         return (EvalValue.boolean(false))
                     }
+                    ; D-ATTRS: object integrity. All three were absent, so
+                    ; freeze silently did nothing and isFrozen answered nothing
+                    ; — the whole family scored 0%.
+                    if (methodName == "freeze") {
+                        if (src.valueType == 5) {
+                            src.markAllNonConfigurable(true)
+                            src.frozenFlag = true
+                            src.sealedFlag = true
+                            src.extensibleFlag = false
+                        }
+                        return src
+                    }
+                    if (methodName == "seal") {
+                        if (src.valueType == 5) {
+                            src.markAllNonConfigurable(false)
+                            src.sealedFlag = true
+                            src.extensibleFlag = false
+                        }
+                        return src
+                    }
+                    if (methodName == "preventExtensions") {
+                        if (src.valueType == 5) {
+                            src.extensibleFlag = false
+                        }
+                        return src
+                    }
+                    if (methodName == "isFrozen") {
+                        ; A non-object is trivially frozen, per ES2015.
+                        if (src.valueType != 5) {
+                            return (EvalValue.boolean(true))
+                        }
+                        return (EvalValue.boolean(src.frozenFlag))
+                    }
+                    if (methodName == "isSealed") {
+                        if (src.valueType != 5) {
+                            return (EvalValue.boolean(true))
+                        }
+                        return (EvalValue.boolean(src.sealedFlag))
+                    }
+                    if (methodName == "isExtensible") {
+                        if (src.valueType != 5) {
+                            return (EvalValue.boolean(false))
+                        }
+                        return (EvalValue.boolean(src.extensibleFlag))
+                    }
                     if (methodName == "getPrototypeOf") {
                         if src.protoRef {
                             return (unwrap src.protoRef)
@@ -4964,6 +5009,35 @@ class ComponentEngine {
                         def created:EvalValue (EvalValue.object(keysC valsC))
                         if (src.valueType == 5) {
                             created.protoRef = src
+                        }
+                        ; D-ATTRS: the optional second argument is a descriptor
+                        ; map, with the same defaults as defineProperty. It was
+                        ; ignored, so Object.create(proto, {...}) produced an
+                        ; object missing every property it was asked for.
+                        if ((array_length node.children) > 1) {
+                            def cDescs:EvalValue (this.evaluateExpr((itemAt node.children 1)))
+                            if (cDescs.valueType == 5) {
+                                def cKeys:[string] (this.objectKeys(cDescs))
+                                def cI:int 0
+                                while (cI < (array_length cKeys)) {
+                                    def cK:string (itemAt cKeys cI)
+                                    def cD:EvalValue (cDescs.getMember(cK))
+                                    def cG:EvalValue (cD.getMember("get"))
+                                    def cS:EvalValue (cD.getMember("set"))
+                                    if ((cG.valueType == 6) || (cS.valueType == 6)) {
+                                        if (cG.valueType == 6) {
+                                            created.defineGetter(cK cG)
+                                        }
+                                        if (cS.valueType == 6) {
+                                            created.defineSetter(cK cS)
+                                        }
+                                    } {
+                                        set created.objectMap cK (cD.getMember("value"))
+                                        created.setAttrs(cK ((cD.getMember("writable")).toBool()) ((cD.getMember("enumerable")).toBool()) ((cD.getMember("configurable")).toBool()))
+                                    }
+                                    cI = (cI + 1)
+                                }
+                            }
                         }
                         return created
                     }
@@ -5002,9 +5076,9 @@ class ComponentEngine {
                                 def valsD:[EvalValue]
                                 def desc:EvalValue (EvalValue.object(keysD valsD))
                                 desc.setMember("value" (src.getMember(dk)))
-                                desc.setMember("writable" (EvalValue.boolean(true)))
-                                desc.setMember("enumerable" (EvalValue.boolean(true)))
-                                desc.setMember("configurable" (EvalValue.boolean(true)))
+                                desc.setMember("writable" (EvalValue.boolean((src.isWritable(dk)))))
+                                desc.setMember("enumerable" (EvalValue.boolean((src.isEnumerable(dk)))))
+                                desc.setMember("configurable" (EvalValue.boolean((src.isConfigurable(dk)))))
                                 return desc
                             }
                         }
@@ -5028,7 +5102,18 @@ class ComponentEngine {
                                 }
                                 return src
                             }
-                            src.setMember(pk (pd.getMember("value")))
+                            ; D-ATTRS: defineProperty defaults every attribute
+                            ; to FALSE, unlike plain assignment which defaults
+                            ; them all true. Recording that is what lets a
+                            ; descriptor report honestly. Written through the
+                            ; raw map because setMember would refuse a second
+                            ; defineProperty on a non-writable property, while
+                            ; redefining a CONFIGURABLE one is allowed.
+                            def dW:boolean ((pd.getMember("writable")).toBool())
+                            def dE:boolean ((pd.getMember("enumerable")).toBool())
+                            def dC:boolean ((pd.getMember("configurable")).toBool())
+                            set src.objectMap pk (pd.getMember("value"))
+                            src.setAttrs(pk dW dE dC)
                         }
                         return src
                     }
@@ -5052,7 +5137,8 @@ class ComponentEngine {
                                         src.defineSetter(dpk ds)
                                     }
                                 } {
-                                    src.setMember(dpk (dpd.getMember("value")))
+                                    set src.objectMap dpk (dpd.getMember("value"))
+                                    src.setAttrs(dpk ((dpd.getMember("writable")).toBool()) ((dpd.getMember("enumerable")).toBool()) ((dpd.getMember("configurable")).toBool()))
                                 }
                                 dpi = (dpi + 1)
                             }
@@ -8369,6 +8455,26 @@ class ComponentEngine {
         def out:[string]
         if (v.isObject()) {
             out = (keys v.objectMap)
+        }
+        return out
+    }
+
+    ; D-ATTRS: own ENUMERABLE keys. Object.keys/values/entries and JSON
+    ; serialisation see only these; getOwnPropertyNames still sees everything.
+    ; Before attributes existed the two were indistinguishable, so a property
+    ; defined as non-enumerable still showed up in Object.keys.
+    fn objectEnumerableKeys:[string] (v:EvalValue) {
+        def out:[string]
+        if (v.isObject()) {
+            def all:[string] (keys v.objectMap)
+            def i:int 0
+            while (i < (array_length all)) {
+                def k:string (itemAt all i)
+                if (v.isEnumerable(k)) {
+                    push out k
+                }
+                i = (i + 1)
+            }
         }
         return out
     }

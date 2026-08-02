@@ -70,6 +70,19 @@ class EvalValue {
     ; while the implementation still lives in one place.
     def builtinKind:string ""
     def builtinName:string ""
+    ; D-ATTRS: per-property attributes, as a bitmask keyed by property name.
+    ;   bit 0 = writable, bit 1 = enumerable, bit 2 = configurable
+    ; An ABSENT key means all three true, which is what plain assignment
+    ; (`o.k = 1`) creates. Object.defineProperty defaults them to FALSE instead,
+    ; and the engine could not previously tell the two apart — every descriptor
+    ; reported writable/enumerable/configurable true regardless of how the
+    ; property was made.
+    def attrFlags:[string:int]
+    ; Object-level integrity: preventExtensions / seal / freeze. Stored as flags
+    ; rather than derived, because "frozen" must stay true for an empty object.
+    def extensibleFlag:boolean true
+    def sealedFlag:boolean false
+    def frozenFlag:boolean false
     def functionNode@(optional):TSNode  ; For function AST nodes
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
@@ -419,6 +432,54 @@ class EvalValue {
         return false
     }
     
+    ; ---- D-ATTRS: property attribute accessors ---------------------------
+    ; Absent means the property was made by plain assignment: all three true.
+    fn attrOf:int (key:string) {
+        if (has attrFlags key) {
+            return (unwrap (get attrFlags key))
+        }
+        return 7
+    }
+
+    fn isWritable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 1) != 0)
+    }
+
+    fn isEnumerable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 2) != 0)
+    }
+
+    fn isConfigurable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 4) != 0)
+    }
+
+    fn setAttrs:void (key:string w:boolean e:boolean c:boolean) {
+        def f:int 0
+        if w { f = (bit_or f 1) }
+        if e { f = (bit_or f 2) }
+        if c { f = (bit_or f 4) }
+        set attrFlags key f
+    }
+
+    ; freeze/seal act on every EXISTING property; later additions are blocked by
+    ; extensibleFlag instead, which is why both are tracked.
+    fn markAllNonConfigurable:void (alsoNonWritable:boolean) {
+        def ks:[string] (keys objectMap)
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            def w:boolean (this.isWritable(k))
+            if alsoNonWritable {
+                w = false
+            }
+            this.setAttrs(k w (this.isEnumerable(k)) false)
+            i = (i + 1)
+        }
+    }
+
     ; D-ACCESSORS: accessor lookup, walking the prototype chain like a data
     ; property does — a getter defined on a prototype serves every instance.
     fn findGetter:EvalValue (key:string depth:int) {
@@ -568,6 +629,22 @@ class EvalValue {
     ; the write, which is sloppy-mode behaviour.
     fn setMember:void (key:string value:EvalValue) {
         if (valueType == 5) {
+            ; D-ATTRS: a write is refused when the property is non-writable, or
+            ; when the object is frozen, or when it is a NEW property on a
+            ; non-extensible object. Sloppy mode ignores the failure silently,
+            ; which is what this models; strict mode would throw.
+            if frozenFlag {
+                return
+            }
+            if (has objectMap key) {
+                if (false == (this.isWritable(key))) {
+                    return
+                }
+            } {
+                if (false == extensibleFlag) {
+                    return
+                }
+            }
             set objectMap key value
             return
         }
@@ -587,6 +664,13 @@ class EvalValue {
 
     ; Remove an object property (mutates in place), rebuilding the map without it.
     fn removeMember:void (key:string) {
+        ; D-ATTRS: a non-configurable property cannot be deleted, which is what
+        ; seal and freeze rely on.
+        if (has objectMap key) {
+            if (false == (this.isConfigurable(key))) {
+                return
+            }
+        }
         ; D-FNPROPS: `delete` reaches every type that can hold properties.
         if (valueType == 1) { return }
         if (valueType == 2) { return }

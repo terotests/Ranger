@@ -260,6 +260,29 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // String.prototype methods coerce `this` via ToString. Reading stringValue
   // directly gave "" for a non-string receiver -- silently, which is why it
   // cost Test262 score rather than raising an error.
+  // D-ATTRS: property attributes. defineProperty defaults all three to FALSE,
+  // plain assignment defaults them TRUE -- the engine could not tell the two
+  // apart, so every descriptor reported true and freeze/seal did nothing.
+  ["attr-defineprop-not-enumerable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "attrs"],
+  ["attr-defineprop-not-writable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').writable;", "attrs"],
+  ["attr-defineprop-not-configurable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').configurable;", "attrs"],
+  ["attr-assignment-enumerable", "var o = {}; o.a = 1; return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "attrs"],
+  ["attr-explicit-true-honoured", "var o = {}; Object.defineProperty(o, 'a', { value: 1, enumerable: true }); return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "attrs"],
+  ["attr-keys-skips-non-enumerable", "var o = { b: 2 }; Object.defineProperty(o, 'a', { value: 1 }); return Object.keys(o).join(',');", "attrs"],
+  ["attr-getownpropertynames-all", "var o = { b: 2 }; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyNames(o).length;", "attrs"],
+  ["attr-non-writable-rejects", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); o.a = 99; return o.a;", "attrs"],
+  ["attr-freeze-blocks-write", "var o = { a: 1 }; Object.freeze(o); o.a = 2; return o.a;", "attrs"],
+  ["attr-freeze-blocks-add", "var o = { a: 1 }; Object.freeze(o); o.b = 2; return o.b === undefined;", "attrs"],
+  ["attr-freeze-blocks-delete", "var o = { a: 1 }; Object.freeze(o); delete o.a; return o.a;", "attrs"],
+  ["attr-is-frozen-true", "var o = { a: 1 }; Object.freeze(o); return Object.isFrozen(o);", "attrs"],
+  ["attr-is-frozen-false", "var o = { a: 1 }; return Object.isFrozen(o);", "attrs"],
+  ["attr-seal-blocks-add", "var o = { a: 1 }; Object.seal(o); o.b = 2; return o.b === undefined;", "attrs"],
+  ["attr-seal-allows-write", "var o = { a: 1 }; Object.seal(o); o.a = 5; return o.a;", "attrs"],
+  ["attr-is-sealed", "var o = {}; Object.seal(o); return Object.isSealed(o);", "attrs"],
+  ["attr-prevent-extensions", "var o = {}; Object.preventExtensions(o); o.a = 1; return o.a === undefined;", "attrs"],
+  ["attr-is-extensible-true", "var o = {}; return Object.isExtensible(o);", "attrs"],
+  ["attr-is-extensible-false", "var o = {}; Object.preventExtensions(o); return Object.isExtensible(o);", "attrs"],
+
   ["coerce-charat-number-recv", "return String.prototype.charAt.call(512, 1);", "protoreg"],
   ["coerce-indexof-number-recv", "return String.prototype.indexOf.call(512, '1');", "protoreg"],
   ["coerce-slice-bool-recv", "return String.prototype.slice.call(true, 1);", "protoreg"],
