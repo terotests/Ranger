@@ -588,7 +588,9 @@ class ComponentEngine {
         sym.functionNode = fnNode
         sym.helperFunctions = helperFns
         this.upsertLocalComponent(sym)
-        this.defineModuleBinding(localName (EvalValue.function(fnNode)))
+        def __fnv:EvalValue (EvalValue.function(fnNode))
+        __fnv.strictFn = (this.strictForBody(fnNode))
+        this.defineModuleBinding(localName __fnv)
         this.trace("Imported: " + localName + " (" + exportName + ") from " + sourcePath)
     }
 
@@ -1045,6 +1047,17 @@ class ComponentEngine {
     ; through. Mirrors the conditions EvalValue.setMember silently returns on --
     ; the two must agree, or strict mode would throw for a write that then
     ; succeeded, or stay silent about one that did not.
+    ; D-STRICT: is THIS function strict? Poisoning `caller`/`arguments` turns on
+    ; the accessed function's own strictness, not the accessing code's -- a
+    ; sloppy function called from strict code keeps both properties, which is
+    ; what the noStrict half of the suite checks.
+    ;
+    ; The flag is stamped onto the value where the function is created, so a
+    ; function that is strict only by lexical inheritance counts too.
+    fn functionIsStrict:boolean (fv:EvalValue) {
+        return fv.strictFn
+    }
+
     fn insideFunctionCall:boolean () {
         return (callDepth > 0)
     }
@@ -1402,7 +1415,9 @@ class ComponentEngine {
                         if ch.newNode {
                             def fnNode:TSNode (unwrap ch.newNode)
                             this.updateLocalComponentNode(ch.name fnNode)
-                            moduleScope.define(ch.name (EvalValue.function(fnNode)))
+                            def __fnv:EvalValue (EvalValue.function(fnNode))
+                            __fnv.strictFn = (this.strictForBody(fnNode))
+                            moduleScope.define(ch.name __fnv)
                             this.trace("Patched function: " + ch.name)
                         }
                     }
@@ -1753,7 +1768,9 @@ class ComponentEngine {
     fn materializeImportedNode:void (node:TSNode) {
         if (node.nodeType == "FunctionDeclaration") {
             if (node.name != "render") {
-                this.defineModuleBinding(node.name (EvalValue.function(node)))
+                def __fnv:EvalValue (EvalValue.function(node))
+                __fnv.strictFn = (this.strictForBody(node))
+                this.defineModuleBinding(node.name __fnv)
             }
             return
         }
@@ -1949,7 +1966,9 @@ class ComponentEngine {
         sym.symbolType = "component"
         sym.functionNode = node
         this.upsertLocalComponent(sym)
-        this.defineModuleBinding(node.name (EvalValue.function(node)))
+        def __fnv:EvalValue (EvalValue.function(node))
+        __fnv.strictFn = (this.strictForBody(node))
+        this.defineModuleBinding(node.name __fnv)
         this.trace("Registered local component: " + node.name)
     }
     
@@ -3789,6 +3808,15 @@ class ComponentEngine {
                     return result
                 }
             }
+            ; D-STRICT: writing `caller` or `arguments` on a strict function is
+            ; the same TypeError reading them is.
+            if (obj.valueType == 6) {
+                if ((key == "caller") || (key == "arguments")) {
+                    if (this.functionIsStrict(obj)) {
+                        return (this.throwSpecError("TypeError" ("'" + key + "' may not be assigned on a strict function")))
+                    }
+                }
+            }
             def cur:EvalValue (obj.getMember(key))
             result = (this.applyAssignOp(op cur rightValue))
             ; D-STRICT: sloppy mode drops a refused write on the floor; strict
@@ -4029,6 +4057,10 @@ class ComponentEngine {
     ; resolves free variables against where it was defined, not where it is called.
     fn captureClosure:EvalValue (fnNode:TSNode) {
         def fv:EvalValue (EvalValue.function(fnNode))
+        ; D-STRICT: a function is strict if its own body says so or if the scope
+        ; that created it was strict. Recorded here rather than asked at use
+        ; time, because by then the defining scope is gone.
+        fv.strictFn = (this.strictForBody(fnNode))
         def id:int (array_length closureScopes)
         def cell (new ClosureCell)
         cell.ctx = context
@@ -4303,7 +4335,9 @@ class ComponentEngine {
                 while (hi < (array_length sym.helperFunctions)) {
                     def helperFn:TSNode (itemAt sym.helperFunctions hi)
                     def helperName:string helperFn.name
-                    def helperValue:EvalValue (EvalValue.function(helperFn))
+                    def __fnv:EvalValue (EvalValue.function(helperFn))
+                    __fnv.strictFn = (this.strictForBody(helperFn))
+                    def helperValue:EvalValue __fnv
                     context.define(helperName helperValue)
                     print ("Registered helper function: " + helperName)
                     hi = hi + 1
@@ -10327,6 +10361,19 @@ class ComponentEngine {
             ; D-ACCESSORS: a getter wins over any data property of the same name
             ; and is invoked with `this` = the receiver. Checked here, before the
             ; data-property paths, because an accessor that fell through to
+            ; D-STRICT: `caller` and `arguments` are poisoned on a strict
+            ; function -- reading or writing either is a TypeError, which is how
+            ; the spec removes the stack-walking that sloppy mode allowed. This
+            ; is a whole family of tests in built-ins/Function.
+            if (obj.valueType == 6) {
+                if ((propName == "caller") || (propName == "arguments")) {
+                    if (false == (has obj.objectMap propName)) {
+                        if (this.functionIsStrict(obj)) {
+                            return (this.throwSpecError("TypeError" ("'" + propName + "' may not be accessed on a strict function")))
+                        }
+                    }
+                }
+            }
             ; getMember would return the FUNCTION rather than calling it.
             if ((strlen propName) > 0) {
                 def gFn:EvalValue (obj.findGetter(propName 0))

@@ -80,6 +80,11 @@ class EvalValue {
     ; makes `arr.getClass = Object.prototype.toString; arr.getClass()` brand the
     ; array. Only an explicit bind() survives that rebinding, per spec.
     def boundExplicit:boolean false
+    ; D-STRICT: whether this function is strict -- its own "use strict" prologue
+    ; OR the strictness of the scope that created it. Poisoning caller/arguments
+    ; turns on the accessed function's strictness, not the accessing code's, so
+    ; it has to travel with the value.
+    def strictFn:boolean false
     ; D-ATTRS: per-property attributes, as a bitmask keyed by property name.
     ;   bit 0 = writable, bit 1 = enumerable, bit 2 = configurable
     ; An ABSENT key means all three true, which is what plain assignment
@@ -285,6 +290,7 @@ class EvalValue {
         v.builtinKind = builtinKind
         v.builtinName = builtinName
         v.builtinNamespace = builtinNamespace
+        v.strictFn = strictFn
         v.boundThis = recv
         if functionNode {
             v.functionNode = (unwrap functionNode)
