@@ -255,6 +255,17 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-REGISTRY: built-in dispatch keyed by receiver kind. Before the registry
   // these nine methods fired on ANY receiver, so [1,2].charAt(0) stringified
   // the array and indexed its debug format to return "[".
+  ["reg-str-first-class-typeof", "return typeof 'abc'.slice;", "registry"],
+  ["reg-str-call-receiver", "return 'abc'.slice.call('xyz', 1);", "registry"],
+  ["reg-str-apply-args", "return 'abc'.indexOf.apply('hello', ['ll']);", "registry"],
+  ["reg-str-bind-builtin", "var f = 'abc'.toUpperCase.bind('hey'); return f();", "registry"],
+  ["reg-str-unbound-throws", "var f = 'abc'.slice; try { f(1); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-str-indexof", "return 'hello'.indexOf('ll');", "registry"],
+  ["reg-str-split-len", "return 'a,b,c'.split(',').length;", "registry"],
+  ["reg-str-replaceall", "return 'aXbXc'.replaceAll('X', '-');", "registry"],
+  ["reg-str-concat", "return 'a'.concat('b', 'c');", "registry"],
+  ["reg-str-charcodeat", "return 'hello'.charCodeAt(0);", "registry"],
+
   ["reg-array-tostring", "return [1, 2].toString();", "registry"],
   ["reg-object-tostring", "return ({}).toString();", "registry"],
   ["reg-nested-array-tostring", "return [[1, 2], [3]].toString();", "registry"],

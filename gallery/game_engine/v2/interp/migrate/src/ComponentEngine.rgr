@@ -4784,200 +4784,11 @@ class ComponentEngine {
                 ; per receiver kind now, which is also what makes calling one on
                 ; the wrong type the TypeError the spec requires.
 
-                ; ---- String methods (receiver is a string value) ----
-                if (obj.isString()) {
-                    def s:string (obj.stringValue)
-                    if (methodName == "indexOf") {
-                        if ((array_length node.children) > 0) {
-                            def needle:string ((this.evaluateExpr((itemAt node.children 0))).toString())
-                            return (EvalValue.fromInt((indexOf s needle)))
-                        }
-                        return (EvalValue.fromInt((0 - 1)))
-                    }
-                    if (methodName == "includes") {
-                        if ((array_length node.children) > 0) {
-                            def needle:string ((this.evaluateExpr((itemAt node.children 0))).toString())
-                            return (EvalValue.boolean(((indexOf s needle) >= 0)))
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "startsWith") {
-                        if ((array_length node.children) > 0) {
-                            def pre:string ((this.evaluateExpr((itemAt node.children 0))).toString())
-                            def pl:int (strlen pre)
-                            if (pl > (strlen s)) {
-                                return (EvalValue.boolean(false))
-                            }
-                            return (EvalValue.boolean(((substring s 0 pl) == pre)))
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "endsWith") {
-                        if ((array_length node.children) > 0) {
-                            def suf:string ((this.evaluateExpr((itemAt node.children 0))).toString())
-                            def sl:int (strlen suf)
-                            def L:int (strlen s)
-                            if (sl > L) {
-                                return (EvalValue.boolean(false))
-                            }
-                            return (EvalValue.boolean(((substring s (L - sl) L) == suf)))
-                        }
-                        return (EvalValue.boolean(false))
-                    }
-                    if (methodName == "slice") {
-                        def L:int (strlen s)
-                        def a:int 0
-                        def b:int L
-                        if ((array_length node.children) > 0) {
-                            a = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
-                        }
-                        if ((array_length node.children) > 1) {
-                            b = (to_int ((this.evaluateExpr((itemAt node.children 1))).toNumber()))
-                        }
-                        if (a < 0) { a = (L + a) }
-                        if (b < 0) { b = (L + b) }
-                        if (a < 0) { a = 0 }
-                        if (b > L) { b = L }
-                        if (a >= b) { return (EvalValue.string("")) }
-                        return (EvalValue.string((substring s a b)))
-                    }
-                    if (methodName == "charCodeAt") {
-                        def idx:int 0
-                        if ((array_length node.children) > 0) {
-                            idx = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
-                        }
-                        if (idx < (strlen s)) {
-                            return (EvalValue.fromInt((charAt s idx)))
-                        }
-                        return (EvalValue.number(0.0))
-                    }
-                    if (methodName == "repeat") {
-                        def n:int 0
-                        if ((array_length node.children) > 0) {
-                            n = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
-                        }
-                        def out:string ""
-                        def r:int 0
-                        while (r < n) {
-                            out = (out + s)
-                            r = (r + 1)
-                        }
-                        return (EvalValue.string(out))
-                    }
-                    if (methodName == "split") {
-                        def sep:string ""
-                        if ((array_length node.children) > 0) {
-                            sep = ((this.evaluateExpr((itemAt node.children 0))).toString())
-                        }
-                        def parts:[string] (strsplit s sep)
-                        def items:[EvalValue]
-                        def pi:int 0
-                        while (pi < (array_length parts)) {
-                            push items (EvalValue.string((itemAt parts pi)))
-                            pi = (pi + 1)
-                        }
-                        return (EvalValue.array(items))
-                    }
-                    if (methodName == "lastIndexOf") {
-                        if ((array_length node.children) > 0) {
-                            def needle:string ((this.evaluateExpr((itemAt node.children 0))).toString())
-                            return (EvalValue.fromInt((lastIndexOf s needle)))
-                        }
-                        return (EvalValue.fromInt((0 - 1)))
-                    }
-                    if (methodName == "at") {
-                        def L:int (strlen s)
-                        def idx:int 0
-                        if ((array_length node.children) > 0) {
-                            idx = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
-                        }
-                        if (idx < 0) {
-                            idx = (L + idx)
-                        }
-                        if ((idx >= 0) && (idx < L)) {
-                            return (EvalValue.string((substring s idx (idx + 1))))
-                        }
-                        return (EvalValue.undefined())
-                    }
-                    if (methodName == "concat") {
-                        def out:string s
-                        def ci:int 0
-                        while (ci < (array_length node.children)) {
-                            out = (out + ((this.evaluateExpr((itemAt node.children ci))).toString()))
-                            ci = (ci + 1)
-                        }
-                        return (EvalValue.string(out))
-                    }
-                    if (methodName == "trimStart") {
-                        def L:int (strlen s)
-                        def a:int 0
-                        while ((a < L) && ((substring s a (a + 1)) == " ")) {
-                            a = (a + 1)
-                        }
-                        return (EvalValue.string((substring s a L)))
-                    }
-                    if (methodName == "trimEnd") {
-                        def b:int (strlen s)
-                        while ((b > 0) && ((substring s (b - 1) b) == " ")) {
-                            b = (b - 1)
-                        }
-                        return (EvalValue.string((substring s 0 b)))
-                    }
-                    ; replace (first match) and replaceAll — string search only, done
-                    ; via indexOf/substring so behaviour is backend-independent.
-                    if (methodName == "replace") {
-                        def find:string ""
-                        def repl:string ""
-                        if ((array_length node.children) > 0) {
-                            find = ((this.evaluateExpr((itemAt node.children 0))).toString())
-                        }
-                        if ((array_length node.children) > 1) {
-                            repl = ((this.evaluateExpr((itemAt node.children 1))).toString())
-                        }
-                        if ((strlen find) == 0) {
-                            return (EvalValue.string(s))
-                        }
-                        def at:int (indexOf s find)
-                        if (at < 0) {
-                            return (EvalValue.string(s))
-                        }
-                        def before:string (substring s 0 at)
-                        def after:string (substring s (at + (strlen find)) (strlen s))
-                        return (EvalValue.string((before + (repl + after))))
-                    }
-                    if (methodName == "replaceAll") {
-                        def find:string ""
-                        def repl:string ""
-                        if ((array_length node.children) > 0) {
-                            find = ((this.evaluateExpr((itemAt node.children 0))).toString())
-                        }
-                        if ((array_length node.children) > 1) {
-                            repl = ((this.evaluateExpr((itemAt node.children 1))).toString())
-                        }
-                        if ((strlen find) == 0) {
-                            return (EvalValue.string(s))
-                        }
-                        def out:string ""
-                        def fl:int (strlen find)
-                        def L:int (strlen s)
-                        def i2:int 0
-                        while (i2 < L) {
-                            if ((i2 + fl) <= L) {
-                                if ((substring s i2 (i2 + fl)) == find) {
-                                    out = (out + repl)
-                                    i2 = (i2 + fl)
-                                } {
-                                    out = (out + (substring s i2 (i2 + 1)))
-                                    i2 = (i2 + 1)
-                                }
-                            } {
-                                out = (out + (substring s i2 (i2 + 1)))
-                                i2 = (i2 + 1)
-                            }
-                        }
-                        return (EvalValue.string(out))
-                    }
-                }
+                ; D-REGISTRY: the guarded String block moved into the registry
+                ; verbatim -- it was already receiver-typed, so this step moves
+                ; code without changing semantics, and the methods become
+                ; first-class values as a side effect.
+
 
                 ; ---- Array methods (receiver is an array value) ----
                 if (obj.isArray()) {
@@ -6792,6 +6603,21 @@ class ComponentEngine {
         ; the old unguarded branch stringified the array and indexed its debug
         ; format.
         if (kind == "string") {
+            if (name == "at") { return 1 }
+            if (name == "charCodeAt") { return 1 }
+            if (name == "concat") { return 1 }
+            if (name == "endsWith") { return 1 }
+            if (name == "includes") { return 1 }
+            if (name == "indexOf") { return 1 }
+            if (name == "lastIndexOf") { return 1 }
+            if (name == "repeat") { return 1 }
+            if (name == "replace") { return 2 }
+            if (name == "replaceAll") { return 2 }
+            if (name == "slice") { return 2 }
+            if (name == "split") { return 1 }
+            if (name == "startsWith") { return 1 }
+            if (name == "trimEnd") { return 0 }
+            if (name == "trimStart") { return 0 }
             if (name == "charAt") { return 1 }
             if (name == "toUpperCase") { return 0 }
             if (name == "toLowerCase") { return 0 }
@@ -6933,7 +6759,205 @@ class ComponentEngine {
         }
         ; ---- String.prototype ----------------------------------------------
         if (kind == "string") {
+            ; D-REGISTRY: an unbound extraction invoked bare — `var f = s.slice;
+            ; f(1)` — arrives with no receiver. Per spec that is a TypeError,
+            ; not an operation on the empty string, which is what reading
+            ; stringValue off undefined would have silently produced.
+            if ((recv.isNull()) || (recv.isUndefined())) {
+                return (this.throwSpecError("TypeError" ("String.prototype." + name + " called on null or undefined")))
+            }
             def s:string recv.stringValue
+                    def s:string (recv.stringValue)
+                    if (name == "indexOf") {
+                        if ((array_length args) > 0) {
+                            def needle:string ((itemAt args 0).toString())
+                            return (EvalValue.fromInt((indexOf s needle)))
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
+                    if (name == "includes") {
+                        if ((array_length args) > 0) {
+                            def needle:string ((itemAt args 0).toString())
+                            return (EvalValue.boolean(((indexOf s needle) >= 0)))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "startsWith") {
+                        if ((array_length args) > 0) {
+                            def pre:string ((itemAt args 0).toString())
+                            def pl:int (strlen pre)
+                            if (pl > (strlen s)) {
+                                return (EvalValue.boolean(false))
+                            }
+                            return (EvalValue.boolean(((substring s 0 pl) == pre)))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "endsWith") {
+                        if ((array_length args) > 0) {
+                            def suf:string ((itemAt args 0).toString())
+                            def sl:int (strlen suf)
+                            def L:int (strlen s)
+                            if (sl > L) {
+                                return (EvalValue.boolean(false))
+                            }
+                            return (EvalValue.boolean(((substring s (L - sl) L) == suf)))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (name == "slice") {
+                        def L:int (strlen s)
+                        def a:int 0
+                        def b:int L
+                        if ((array_length args) > 0) {
+                            a = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        if ((array_length args) > 1) {
+                            b = (to_int ((itemAt args 1).toNumber()))
+                        }
+                        if (a < 0) { a = (L + a) }
+                        if (b < 0) { b = (L + b) }
+                        if (a < 0) { a = 0 }
+                        if (b > L) { b = L }
+                        if (a >= b) { return (EvalValue.string("")) }
+                        return (EvalValue.string((substring s a b)))
+                    }
+                    if (name == "charCodeAt") {
+                        def idx:int 0
+                        if ((array_length args) > 0) {
+                            idx = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        if (idx < (strlen s)) {
+                            return (EvalValue.fromInt((charAt s idx)))
+                        }
+                        return (EvalValue.number(0.0))
+                    }
+                    if (name == "repeat") {
+                        def n:int 0
+                        if ((array_length args) > 0) {
+                            n = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        def out:string ""
+                        def r:int 0
+                        while (r < n) {
+                            out = (out + s)
+                            r = (r + 1)
+                        }
+                        return (EvalValue.string(out))
+                    }
+                    if (name == "split") {
+                        def sep:string ""
+                        if ((array_length args) > 0) {
+                            sep = ((itemAt args 0).toString())
+                        }
+                        def parts:[string] (strsplit s sep)
+                        def items:[EvalValue]
+                        def pi:int 0
+                        while (pi < (array_length parts)) {
+                            push items (EvalValue.string((itemAt parts pi)))
+                            pi = (pi + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (name == "lastIndexOf") {
+                        if ((array_length args) > 0) {
+                            def needle:string ((itemAt args 0).toString())
+                            return (EvalValue.fromInt((lastIndexOf s needle)))
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
+                    if (name == "at") {
+                        def L:int (strlen s)
+                        def idx:int 0
+                        if ((array_length args) > 0) {
+                            idx = (to_int ((itemAt args 0).toNumber()))
+                        }
+                        if (idx < 0) {
+                            idx = (L + idx)
+                        }
+                        if ((idx >= 0) && (idx < L)) {
+                            return (EvalValue.string((substring s idx (idx + 1))))
+                        }
+                        return (EvalValue.undefined())
+                    }
+                    if (name == "concat") {
+                        def out:string s
+                        def ci:int 0
+                        while (ci < (array_length args)) {
+                            out = (out + ((itemAt args ci).toString()))
+                            ci = (ci + 1)
+                        }
+                        return (EvalValue.string(out))
+                    }
+                    if (name == "trimStart") {
+                        def L:int (strlen s)
+                        def a:int 0
+                        while ((a < L) && ((substring s a (a + 1)) == " ")) {
+                            a = (a + 1)
+                        }
+                        return (EvalValue.string((substring s a L)))
+                    }
+                    if (name == "trimEnd") {
+                        def b:int (strlen s)
+                        while ((b > 0) && ((substring s (b - 1) b) == " ")) {
+                            b = (b - 1)
+                        }
+                        return (EvalValue.string((substring s 0 b)))
+                    }
+                    ; replace (first match) and replaceAll — string search only, done
+                    ; via indexOf/substring so behaviour is backend-independent.
+                    if (name == "replace") {
+                        def find:string ""
+                        def repl:string ""
+                        if ((array_length args) > 0) {
+                            find = ((itemAt args 0).toString())
+                        }
+                        if ((array_length args) > 1) {
+                            repl = ((itemAt args 1).toString())
+                        }
+                        if ((strlen find) == 0) {
+                            return (EvalValue.string(s))
+                        }
+                        def at:int (indexOf s find)
+                        if (at < 0) {
+                            return (EvalValue.string(s))
+                        }
+                        def before:string (substring s 0 at)
+                        def after:string (substring s (at + (strlen find)) (strlen s))
+                        return (EvalValue.string((before + (repl + after))))
+                    }
+                    if (name == "replaceAll") {
+                        def find:string ""
+                        def repl:string ""
+                        if ((array_length args) > 0) {
+                            find = ((itemAt args 0).toString())
+                        }
+                        if ((array_length args) > 1) {
+                            repl = ((itemAt args 1).toString())
+                        }
+                        if ((strlen find) == 0) {
+                            return (EvalValue.string(s))
+                        }
+                        def out:string ""
+                        def fl:int (strlen find)
+                        def L:int (strlen s)
+                        def i2:int 0
+                        while (i2 < L) {
+                            if ((i2 + fl) <= L) {
+                                if ((substring s i2 (i2 + fl)) == find) {
+                                    out = (out + repl)
+                                    i2 = (i2 + fl)
+                                } {
+                                    out = (out + (substring s i2 (i2 + 1)))
+                                    i2 = (i2 + 1)
+                                }
+                            } {
+                                out = (out + (substring s i2 (i2 + 1)))
+                                i2 = (i2 + 1)
+                            }
+                        }
+                        return (EvalValue.string(out))
+                    }
             if (name == "toUpperCase") { return (EvalValue.string((to_uppercase s))) }
             if (name == "toLowerCase") { return (EvalValue.string((to_lowercase s))) }
             if (name == "trim") { return (EvalValue.string((trim s))) }
