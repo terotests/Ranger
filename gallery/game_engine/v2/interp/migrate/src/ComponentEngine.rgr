@@ -271,6 +271,10 @@ class ComponentEngine {
     ; D-GLOBALOBJ: one object per built-in global name (Math, JSON, Array, ...),
     ; so the name resolves to something real rather than undefined.
     def builtinGlobals:[string:EvalValue]
+    ; D-GLOBALTHIS: the global object. Top-level `this` is bound to it, and a
+    ; property written through it (`this.p1 = 1`) becomes a global binding --
+    ; which is how a large family of sloppy-script tests declares its fixtures.
+    def globalObject@(optional):EvalValue
     ; D-CLASSEXPR: counter for generated class-expression table keys.
     def classExprSeq:int 0
     ; When true (the spec default) an unresolvable identifier read is a
@@ -4634,6 +4638,10 @@ class ComponentEngine {
             return (this.evaluateNewExpr(node))
         }
         if (nt == "ThisExpression") {
+            ; D-GLOBALTHIS: outside any function, `this` is the global object.
+            if (false == (context.has("this"))) {
+                return (this.theGlobalObject())
+            }
             return (context.lookup("this"))
         }
         if (nt == "BinaryExpression") {
@@ -8167,6 +8175,18 @@ class ComponentEngine {
     ; Read an identifier as a *reference*: an unresolvable name is a
     ; ReferenceError, not a silent null. `typeof x` does not come through here
     ; (it uses bindingExists), which is what the spec requires.
+    ; D-GLOBALTHIS: created on first use so identity is stable.
+    fn theGlobalObject:EvalValue () {
+        if globalObject {
+            return (unwrap globalObject)
+        }
+        def keysG:[string]
+        def valsG:[EvalValue]
+        def g:EvalValue (EvalValue.object(keysG valsG))
+        globalObject = g
+        return g
+    }
+
     fn lookupIdentifier:EvalValue (name:string) {
         if (name == "undefined") {
             return (EvalValue.undefined())
@@ -8201,6 +8221,12 @@ class ComponentEngine {
                 return g
             }
             return (EvalValue.undefined())
+        }
+        ; D-GLOBALTHIS: a bare name may have been created as a property of the
+        ; global object (`this.p1 = 1` at top level), which is a global binding.
+        def gObj:EvalValue (this.theGlobalObject())
+        if (has gObj.objectMap name) {
+            return (unwrap (get gObj.objectMap name))
         }
         ; D-CLASSREF: a class is registered in the class table, not bound in a
         ; scope, so its bare name resolved to nothing — and once unresolved names

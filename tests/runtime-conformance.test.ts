@@ -314,6 +314,12 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // chain. It was rejected at PARSE time because the engine treated every
   // guest source as a module, and module code is always strict -- so sloppy
   // syntax failed before the evaluator ever saw it.
+  // D-GLOBALTHIS: top-level `this` is the global object, and a property set
+  // through it becomes a global binding. A large family of sloppy-script tests
+  // declares its fixtures that way on their FIRST line, so without it they
+  // failed before reaching what they actually test.
+  ["globalthis-typeof", "return typeof this;", "with"],
+
   ["with-read", "var o = { a: 5 }; var r; with (o) { r = a; } return r;", "with"],
   ["with-shadows-outer", "var a = 1; var o = { a: 9 }; var r; with (o) { r = a; } return r;", "with"],
   ["with-writes-through", "var o = { a: 1 }; with (o) { a = 7; } return o.a;", "with"],
