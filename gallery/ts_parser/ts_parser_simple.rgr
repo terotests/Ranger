@@ -3963,12 +3963,12 @@ class TSParserSimple {
     ; A "use strict" prologue is only a directive at the head of a function
     ; body, never in a plain nested block.
     def savedStrict:boolean this.strictMode
-    def savedBlockStrictFlag:boolean this.lastBlockEnabledStrict
+    def myStrictDirective:boolean false
     this.lastBlockEnabledStrict = false
     if (ownScope == false) {
       if (this.hasUseStrictDirective()) {
         if (savedStrict == false) {
-          this.lastBlockEnabledStrict = true
+          myStrictDirective = true
         }
         this.strictMode = true
       }
@@ -3984,10 +3984,9 @@ class TSParserSimple {
 
     if ownScope {
       this.popScope()
-      ; A nested block's directive result belongs to that block, not to the
-      ; function whose body this is.
-      this.lastBlockEnabledStrict = savedBlockStrictFlag
     }
+    ; Report THIS block's directive result; a nested body's belongs to it.
+    this.lastBlockEnabledStrict = myStrictDirective
     this.strictMode = savedStrict
     this.inSingleStatementBody = savedSingleBody
 

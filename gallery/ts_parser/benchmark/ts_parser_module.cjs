@@ -1600,6 +1600,9 @@ class TSLexer  {
     if ( this.prevType == "" ) {
       return "b";
     }
+    if ( this.line > this.prevLine ) {
+      return "b";
+    }
     if ( this.prevType == "Punctuator" ) {
       if ( this.prevValue == ")" ) {
         return "b";
@@ -1614,6 +1617,15 @@ class TSLexer  {
         return "b";
       }
       if ( this.prevValue == "=>" ) {
+        return "b";
+      }
+      if ( this.prevValue == ":" ) {
+        return "b";
+      }
+      if ( this.prevValue == "++" ) {
+        return "b";
+      }
+      if ( this.prevValue == "--" ) {
         return "b";
       }
       return "o";
@@ -1846,6 +1858,9 @@ class TSLexer  {
     while (this.pos < this.__len) {
       const ch = this.peek();
       if ( ch == "\n" ) {
+        break;
+      }
+      if ( ch == "\r" ) {
         break;
       }
       if ( ch == "\\" ) {
@@ -5162,12 +5177,12 @@ class TSParserSimple  {
       this.pushScope(false);
     }
     const savedStrict = this.strictMode;
-    const savedBlockStrictFlag = this.lastBlockEnabledStrict;
+    let myStrictDirective = false;
     this.lastBlockEnabledStrict = false;
     if ( ownScope == false ) {
       if ( this.hasUseStrictDirective() ) {
         if ( savedStrict == false ) {
-          this.lastBlockEnabledStrict = true;
+          myStrictDirective = true;
         }
         this.strictMode = true;
       }
@@ -5181,8 +5196,8 @@ class TSParserSimple  {
     };
     if ( ownScope ) {
       this.popScope();
-      this.lastBlockEnabledStrict = savedBlockStrictFlag;
     }
+    this.lastBlockEnabledStrict = myStrictDirective;
     this.strictMode = savedStrict;
     this.inSingleStatementBody = savedSingleBody;
     this.expectValue("}");

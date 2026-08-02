@@ -1351,12 +1351,19 @@ class TSLexer {
     ; expression container.
     fn braceKindHere:string () {
         if (prevType == "") { return "b" }
+        ; A `{` on a line of its own follows a statement that automatic
+        ; semicolon insertion has already ended, so it opens a block:
+        ; `return \n {} \n /re/`.
+        if (line > prevLine) { return "b" }
         if (prevType == "Punctuator") {
             if (prevValue == ")") { return "b" }
             if (prevValue == ";") { return "b" }
             if (prevValue == "{") { return "b" }
             if (prevValue == "}") { return "b" }
             if (prevValue == "=>") { return "b" }
+            if (prevValue == ":") { return "b" }
+            if (prevValue == "++") { return "b" }
+            if (prevValue == "--") { return "b" }
             return "o"
         }
         if (prevType == "Keyword") {
@@ -1552,8 +1559,10 @@ class TSLexer {
         def closed:boolean false
         while (pos < len) {
             def ch:string (this.peek())
-            ; An unescaped newline terminates the literal: it is not a regex.
+            ; An unescaped line terminator terminates the literal: it is not a
+            ; regex. A backslash before one does not rescue it either.
             if (ch == "\n") { break }
+            if (ch == "\r") { break }
             if (ch == "\\") {
                 value = value + (this.advance())
                 if (pos < len) {
