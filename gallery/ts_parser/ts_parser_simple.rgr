@@ -136,6 +136,11 @@ class TSParserSimple {
   ; if/loop/with body that is not a block). A labelled function declaration is
   ; never allowed there, even under Annex B.
   def inSingleStatementBody:boolean false
+  ; True when that single-statement position is an if/else branch, the only
+  ; place Annex B lets a function declaration appear outside a block.
+  def singleBodyIsIfBranch:boolean false
+  ; Line of the most recently consumed token, for automatic semicolon insertion.
+  def lastTokenLine:int 0
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -198,6 +203,12 @@ class TSParserSimple {
   }
   
   fn advance:void () {
+    ; Remember the line the consumed token was on, so automatic semicolon
+    ; insertion can tell whether a line terminator separates two statements.
+    if (this.pos < (array_length this.tokens)) {
+      def consumed:Token (itemAt this.tokens this.pos)
+      this.lastTokenLine = consumed.line
+    }
     this.pos = this.pos + 1
     if (this.pos < (array_length this.tokens)) {
       this.currentToken = (itemAt this.tokens this.pos)
@@ -912,6 +923,11 @@ class TSParserSimple {
       if (this.inSingleStatementBody) {
         if (this.strictMode) {
           this.syntaxError("Parse error: a function declaration cannot be a statement body in strict mode")
+        } {
+          ; Annex B permits this only as an if/else branch.
+          if (this.singleBodyIsIfBranch == false) {
+            this.syntaxError("Parse error: a function declaration cannot be a loop or with body")
+          }
         }
       }
       return (this.parseFuncDecl(false))
@@ -2536,18 +2552,24 @@ class TSParserSimple {
     this.expectValue(")")
     
     def savedConsBody:boolean this.inSingleStatementBody
+    def savedConsIf:boolean this.singleBodyIsIfBranch
     this.inSingleStatementBody = true
+    this.singleBodyIsIfBranch = true
     def consequent (this.parseStatement())
     this.inSingleStatementBody = savedConsBody
+    this.singleBodyIsIfBranch = savedConsIf
     node.body = consequent
     
     ; else clause
     if (this.matchValue("else")) {
       this.advance()
       def savedAltBody:boolean this.inSingleStatementBody
+      def savedAltIf:boolean this.singleBodyIsIfBranch
       this.inSingleStatementBody = true
+      this.singleBodyIsIfBranch = true
       def alternate (this.parseStatement())
       this.inSingleStatementBody = savedAltBody
+      this.singleBodyIsIfBranch = savedAltIf
       node.right = alternate
     }
     
@@ -3740,6 +3762,18 @@ class TSParserSimple {
     
     if (this.matchValue(";")) {
       this.advance()
+    } {
+      ; Without a semicolon the statement may only end at a closing brace, at
+      ; end of input, or across a line terminator. `yield v` and `x isnt y`
+      ; are two expressions with nothing between them.
+      if ((this.isAtEnd()) == false) {
+        def nextTok (this.peek())
+        if (nextTok.value != "}") {
+          if (nextTok.line == this.lastTokenLine) {
+            this.syntaxError("Parse error: missing ';' between statements")
+          }
+        }
+      }
     }
     
     return stmt
@@ -5771,6 +5805,12 @@ class TSParserSimple {
       ; Postfix ++ and --
       if ((tokVal == "++") || (tokVal == "--")) {
         def opTok (this.peek())
+        ; Restricted production: a line terminator before ++/-- ends the
+        ; statement instead, so `a \n --b` is `a; --b`.
+        if (opTok.line != this.lastTokenLine) {
+          keepParsing = false
+          break
+        }
         this.checkUpdateTarget(expr)
         this.advance()
         def update (new TSNode())
@@ -5802,7 +5842,7 @@ class TSParserSimple {
     
     ; Single unparenthesised arrow parameter: `x => body`. Must be checked before
     ; the plain-identifier branch, which would otherwise consume the parameter.
-    if ((tokType == "Identifier") || (tokType == "TSType")) {
+    if ((tokType == "Identifier") || (tokType == "TSType") || (tokType == "Keyword") || (tokType == "TSKeyword")) {
       if ((this.peekNextValue()) == "=>") {
         return (this.parseArrowFunction())
       }

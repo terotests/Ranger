@@ -488,6 +488,18 @@ class TSLexer  {
       const secondCh = this.peekAt(1);
       if ( this.isDigit(secondCh) ) {
         legacyOctal = true;
+        let scan = this.pos + 1;
+        while (scan < this.__len) {
+          const sc = this.source[scan];
+          if ( this.isDigit(sc) ) {
+            if ( (sc == "8") || (sc == "9") ) {
+              legacyOctal = false;
+            }
+            scan = scan + 1;
+          } else {
+            break;
+          }
+        };
       }
     }
     let scanning = true;
@@ -1498,6 +1510,8 @@ class TSParserSimple  {
     this.parsingFunctionExpression = false;
     this.pendingExportRefs = [];
     this.inSingleStatementBody = false;
+    this.singleBodyIsIfBranch = false;
+    this.lastTokenLine = 0;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -1546,6 +1560,10 @@ class TSParserSimple  {
     return tok.value;
   };
   advance () {
+    if ( this.pos < (this.tokens.length) ) {
+      const consumed = this.tokens[this.pos];
+      this.lastTokenLine = consumed.line;
+    }
     this.pos = this.pos + 1;
     if ( this.pos < (this.tokens.length) ) {
       this.currentToken = this.tokens[this.pos];
@@ -2233,6 +2251,10 @@ class TSParserSimple  {
       if ( this.inSingleStatementBody ) {
         if ( this.strictMode ) {
           this.syntaxError("Parse error: a function declaration cannot be a statement body in strict mode");
+        } else {
+          if ( this.singleBodyIsIfBranch == false ) {
+            this.syntaxError("Parse error: a function declaration cannot be a loop or with body");
+          }
         }
       }
       return this.parseFuncDecl(false);
@@ -3496,16 +3518,22 @@ class TSParserSimple  {
     node.left = test;
     this.expectValue(")");
     const savedConsBody = this.inSingleStatementBody;
+    const savedConsIf = this.singleBodyIsIfBranch;
     this.inSingleStatementBody = true;
+    this.singleBodyIsIfBranch = true;
     const consequent = this.parseStatement();
     this.inSingleStatementBody = savedConsBody;
+    this.singleBodyIsIfBranch = savedConsIf;
     node.body = consequent;
     if ( this.matchValue("else") ) {
       this.advance();
       const savedAltBody = this.inSingleStatementBody;
+      const savedAltIf = this.singleBodyIsIfBranch;
       this.inSingleStatementBody = true;
+      this.singleBodyIsIfBranch = true;
       const alternate = this.parseStatement();
       this.inSingleStatementBody = savedAltBody;
+      this.singleBodyIsIfBranch = savedAltIf;
       node.right = alternate;
     }
     return node;
@@ -4461,6 +4489,15 @@ class TSParserSimple  {
     stmt.left = expr;
     if ( this.matchValue(";") ) {
       this.advance();
+    } else {
+      if ( this.isAtEnd() == false ) {
+        const nextTok = this.peek();
+        if ( nextTok.value != "}" ) {
+          if ( nextTok.line == this.lastTokenLine ) {
+            this.syntaxError("Parse error: missing ';' between statements");
+          }
+        }
+      }
     }
     return stmt;
   };
@@ -6013,6 +6050,10 @@ class TSParserSimple  {
       }
       if ( (tokVal == "++") || (tokVal == "--") ) {
         const opTok = this.peek();
+        if ( opTok.line != this.lastTokenLine ) {
+          keepParsing = false;
+          break;
+        }
         this.checkUpdateTarget(expr);
         this.advance();
         const update = new TSNode();
@@ -6037,7 +6078,7 @@ class TSParserSimple  {
     const tokType = this.peekType();
     const tokVal = this.peekValue();
     const tok = this.peek();
-    if ( (tokType == "Identifier") || (tokType == "TSType") ) {
+    if ( (((tokType == "Identifier") || (tokType == "TSType")) || (tokType == "Keyword")) || (tokType == "TSKeyword") ) {
       if ( this.peekNextValue() == "=>" ) {
         return this.parseArrowFunction();
       }

@@ -494,7 +494,21 @@ class TSLexer {
         def legacyOctal:boolean false
         if ((this.peek()) == "0") {
             def secondCh:string (this.peekAt(1))
-            if (this.isDigit(secondCh)) { legacyOctal = true }
+            if (this.isDigit(secondCh)) {
+                ; Only octal digits make it a legacy octal literal; `09.5` is a
+                ; NonOctalDecimalIntegerLiteral and does take a fraction.
+                legacyOctal = true
+                def scan:int (pos + 1)
+                while (scan < len) {
+                    def sc:string (at source scan)
+                    if (this.isDigit(sc)) {
+                        if ((sc == "8") || (sc == "9")) { legacyOctal = false }
+                        scan = (scan + 1)
+                    } {
+                        break
+                    }
+                }
+            }
         }
         def scanning:boolean true
         while ((pos < len) && scanning) {
