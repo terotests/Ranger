@@ -245,6 +245,23 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["symbol-factory-typeof", "var s = Symbol('x'); return typeof s;", "symbols"],
   ["symbol-factory-unique", "return Symbol('a') === Symbol('a');", "symbols"],
   ["symbol-description", "return Symbol('hi').description;", "symbols"],
+  ["eval-expr", "return eval('1 + 2');", "eval"],
+  ["eval-sees-scope", "var a = 7; return eval('a + 1');", "eval"],
+  ["eval-declares-var", "eval('var q = 5;'); return q;", "eval"],
+  ["eval-declares-fn", "eval('function g(){ return 4; }'); return g();", "eval"],
+  ["eval-non-string", "return eval(42);", "eval"],
+  ["eval-syntax-error", "try { eval('var ='); } catch (e) { return e.name; } return 'no-throw';", "eval"],
+  ["eval-throw-propagates", "try { eval('throw new TypeError(1);'); } catch (e) { return e.name; } return 'no-throw';", "eval"],
+  ["eval-completion-value", "return eval('1; 2; 3');", "eval"],
+  ["eval-typeof", "return typeof eval;", "eval"],
+
+  // Lexer: an escaped quote directly inside the opening/closing quote of a
+  // string literal is DROPPED, while escaped quotes in the middle survive.
+  // Found while implementing eval; recorded rather than hidden, since it
+  // corrupts string values silently.
+  ["lex-escaped-quote-edges", "var s = '\\'a\\' + \\'b\\''; return s;", "literals"],
+  ["lex-escaped-quote-single", "var s = '\\'hi\\''; return s;", "literals"],
+
   ["ieee-div-zero-pos", "return 1 / 0;", "ieee"],
   ["ieee-div-zero-neg", "return -1 / 0;", "ieee"],
   ["ieee-div-neg-zero", "var z = -0; return 1 / z;", "ieee"],
@@ -312,6 +329,9 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
  * Recorded 2026-08-02 against gallery/game_engine/v2/interp.
  */
 const KNOWN_GAPS = new Set<string>([
+  // Lexer drops an escaped quote adjacent to the string's own delimiters.
+  "lex-escaped-quote-edges",
+  "lex-escaped-quote-single",
   // No RegExp implementation.
   "regex-test",
   "regex-exec",

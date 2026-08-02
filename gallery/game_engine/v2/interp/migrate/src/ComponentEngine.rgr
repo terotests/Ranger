@@ -984,6 +984,56 @@ class ComponentEngine {
         return (parser.parseProgram())
     }
 
+    ; D-EVAL: run eval'd source in the current scope and return its completion
+    ; value. A parse failure is a SyntaxError thrown into the guest, not a
+    ; silent null — eval is precisely where guests expect to catch one.
+    fn runEvalSource:EvalValue (src:string) {
+        ; A FRESH parser: `parser` is a shared member and its errorCount carries
+        ; across parses, so re-entering it here made eval report a SyntaxError
+        ; for any source that followed an earlier recovered parse — which looked
+        ; exactly like "eval cannot handle string literals".
+        def evLexer (new TSLexer(src))
+        def evTokens:[Token] (evLexer.tokenize())
+        def evParser (new TSParserSimple())
+        evParser.initParser(evTokens)
+        evParser.tsxMode = jsxParsing
+        def ast:TSNode (evParser.parseProgram())
+        if (evParser.errorCount > 0) {
+            return (this.throwSpecError("SyntaxError" "invalid source passed to eval"))
+        }
+        ; Declarations first, so an eval'd function can be called by later
+        ; statements in the same string.
+        this.hoistFunctionDeclarations(ast.children)
+        def out:EvalValue (EvalValue.undefined())
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def stmt:TSNode (itemAt ast.children i)
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    out = (this.evaluateExpr((unwrap stmt.left)))
+                }
+            } {
+                if (false == (this.isTopLevelDeclaration(stmt))) {
+                    this.runStatementValue(stmt)
+                } {
+                    if (stmt.nodeType == "VariableDeclaration") {
+                        this.runStatementValue(stmt)
+                    }
+                    if (stmt.nodeType == "ClassDeclaration") {
+                        if ((strlen stmt.name) > 0) {
+                            set classes stmt.name stmt
+                        }
+                    }
+                }
+            }
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn clearLocalComponents:void () {
         def empty:[ImportedSymbol]
         localComponents = empty
@@ -6161,6 +6211,22 @@ class ComponentEngine {
                     minted.setMember("description" (EvalValue.string(sDesc)))
                     return minted
                 }
+                ; D-EVAL: direct eval. Parses the string and runs it in the
+                ; CURRENT scope, so declarations it makes are visible to the
+                ; caller and free variables resolve against the call site — that
+                ; is what distinguishes direct eval from a fresh realm. The value
+                ; is the last expression statement's, per completion-value rules.
+                if (fnName == "eval") {
+                    if ((array_length node.children) == 0) {
+                        return (EvalValue.undefined())
+                    }
+                    def evSrcV:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                    ; eval of a non-string returns the argument untouched.
+                    if (false == (evSrcV.isString())) {
+                        return evSrcV
+                    }
+                    return (this.runEvalSource(evSrcV.stringValue))
+                }
                 if (fnName == "parseInt") {
                     if ((array_length node.children) > 0) {
                         def pv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
@@ -6699,6 +6765,13 @@ class ComponentEngine {
             i = (i + 1)
         }
         hostScope.define("Symbol" sym)
+        ; D-EVAL: eval is seeded as a real function value so `typeof eval` is
+        ; "function". Calls are intercepted by name before reaching this value,
+        ; which is what keeps it DIRECT eval (running in the caller's scope)
+        ; rather than an ordinary function call with its own frame.
+        def ev:EvalValue (EvalValue.nativeFunction("eval"))
+        ev.setMember("name" (EvalValue.string("eval")))
+        hostScope.define("eval" ev)
     }
 
     fn ensureErrorCtors:void () {
