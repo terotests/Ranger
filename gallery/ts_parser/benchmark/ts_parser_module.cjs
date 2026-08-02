@@ -15,6 +15,8 @@ class TSLexer  {
     this.line = 1;
     this.col = 1;
     this.__len = 0;
+    this.prevType = "";
+    this.prevValue = "";
     this.source = src;
     this.__len = src.length;
   }
@@ -631,6 +633,12 @@ class TSLexer  {
       if ( next == "*" ) {
         return this.readBlockComment();
       }
+      if ( this.regexAllowed() ) {
+        const re = this.readRegex();
+        if ( re.tokenType == "Regex" ) {
+          return re;
+        }
+      }
     }
     if ( ch == "\"" ) {
       return this.readString("\"");
@@ -880,11 +888,132 @@ class TSLexer  {
     while (true) {
       const tok = this.nextToken();
       tokens.push(tok);
+      if ( (tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment") ) {
+        this.prevType = tok.tokenType;
+        this.prevValue = tok.value;
+      }
       if ( tok.tokenType == "EOF" ) {
         return tokens;
       }
     };
     return tokens;
+  };
+  regexAllowed () {
+    if ( this.prevType == "" ) {
+      return true;
+    }
+    if ( this.prevType == "Number" ) {
+      return false;
+    }
+    if ( this.prevType == "BigInt" ) {
+      return false;
+    }
+    if ( this.prevType == "String" ) {
+      return false;
+    }
+    if ( this.prevType == "Template" ) {
+      return false;
+    }
+    if ( this.prevType == "Regex" ) {
+      return false;
+    }
+    if ( this.prevType == "Identifier" ) {
+      return false;
+    }
+    if ( this.prevType == "TSType" ) {
+      return false;
+    }
+    if ( this.prevType == "Keyword" ) {
+      if ( this.prevValue == "this" ) {
+        return false;
+      }
+      if ( this.prevValue == "super" ) {
+        return false;
+      }
+      if ( this.prevValue == "true" ) {
+        return false;
+      }
+      if ( this.prevValue == "false" ) {
+        return false;
+      }
+      if ( this.prevValue == "null" ) {
+        return false;
+      }
+      return true;
+    }
+    if ( this.prevType == "Punctuator" ) {
+      if ( this.prevValue == ")" ) {
+        return false;
+      }
+      if ( this.prevValue == "]" ) {
+        return false;
+      }
+      if ( this.prevValue == "++" ) {
+        return false;
+      }
+      if ( this.prevValue == "--" ) {
+        return false;
+      }
+      return true;
+    }
+    return true;
+  };
+  readRegex () {
+    const startPos = this.pos;
+    const startLine = this.line;
+    const startCol = this.col;
+    let value = this.advance();
+    let inClass = false;
+    let closed = false;
+    while (this.pos < this.__len) {
+      const ch = this.peek();
+      if ( ch == "\n" ) {
+        break;
+      }
+      if ( ch == "\\" ) {
+        value = value + this.advance();
+        if ( this.pos < this.__len ) {
+          value = value + this.advance();
+        }
+      } else {
+        if ( ch == "[" ) {
+          inClass = true;
+          value = value + this.advance();
+        } else {
+          if ( ch == "]" ) {
+            inClass = false;
+            value = value + this.advance();
+          } else {
+            if ( ch == "/" ) {
+              if ( inClass ) {
+                value = value + this.advance();
+              } else {
+                value = value + this.advance();
+                closed = true;
+                break;
+              }
+            } else {
+              value = value + this.advance();
+            }
+          }
+        }
+      }
+    };
+    if ( closed == false ) {
+      this.pos = startPos;
+      this.line = startLine;
+      this.col = startCol;
+      return this.makeToken("", "", startPos, startLine, startCol);
+    }
+    while (this.pos < this.__len) {
+      const fch = this.peek();
+      if ( this.isAlphaNumCh(fch) ) {
+        value = value + this.advance();
+      } else {
+        break;
+      }
+    };
+    return this.makeToken("Regex", value, startPos, startLine, startCol);
   };
 }
 class TSNode  {
@@ -1129,7 +1258,7 @@ class TSParserSimple  {
         return this.parseEnum();
       }
     }
-    if ( (tokVal == "let") || (tokVal == "const") ) {
+    if ( ((tokVal == "let") || (tokVal == "const")) || (tokVal == "var") ) {
       return this.parseVarDecl();
     }
     if ( tokVal == "function" ) {
@@ -1666,8 +1795,10 @@ class TSParserSimple  {
       this.advance();
     }
     this.expectValue("class");
-    const nameTok = this.expect("Identifier");
-    node.name = nameTok.value;
+    if ( this.matchType("Identifier") ) {
+      const nameTok = this.expect("Identifier");
+      node.name = nameTok.value;
+    }
     if ( this.matchValue("<") ) {
       const typeParams = this.parseTypeParams();
       node.params = typeParams;
@@ -2433,8 +2564,10 @@ class TSParserSimple  {
       this.advance();
       node.generator = true;
     }
-    const nameTok = this.expect("Identifier");
-    node.name = nameTok.value;
+    if ( this.matchType("Identifier") ) {
+      const nameTok = this.expect("Identifier");
+      node.name = nameTok.value;
+    }
     if ( this.matchValue("<") ) {
       const typeParams = this.parseTypeParams();
       for ( let i = 0; i < typeParams.length; i++) {
@@ -4173,6 +4306,45 @@ class TSParserSimple  {
         importExpr.col = importTok.col;
         return importExpr;
       }
+    }
+    if ( tokType == "Regex" ) {
+      this.advance();
+      const re = new TSNode();
+      re.nodeType = "RegExpLiteral";
+      re.value = tok.value;
+      re.start = tok.start;
+      re.end = tok.end;
+      re.line = tok.line;
+      re.col = tok.col;
+      return re;
+    }
+    if ( tokVal == "function" ) {
+      const fnExpr = this.parseFuncDecl(false);
+      fnExpr.nodeType = "FunctionExpression";
+      return fnExpr;
+    }
+    if ( tokVal == "async" ) {
+      if ( this.peekNextValue() == "function" ) {
+        this.advance();
+        const asyncFnExpr = this.parseFuncDecl(true);
+        asyncFnExpr.nodeType = "FunctionExpression";
+        return asyncFnExpr;
+      }
+    }
+    if ( tokVal == "class" ) {
+      const clsExpr = this.parseClass();
+      clsExpr.nodeType = "ClassExpression";
+      return clsExpr;
+    }
+    if ( tokVal == "super" ) {
+      this.advance();
+      const superExpr = new TSNode();
+      superExpr.nodeType = "Super";
+      superExpr.start = tok.start;
+      superExpr.end = tok.end;
+      superExpr.line = tok.line;
+      superExpr.col = tok.col;
+      return superExpr;
     }
     if ( tokVal == "this" ) {
       this.advance();

@@ -10,6 +10,12 @@ class TSLexer {
     def col:int 1
     def len:int 0
 
+    ; Last significant (non-comment) token, used to disambiguate `/` between a
+    ; division operator and the start of a regular-expression literal. JS cannot
+    ; decide this lexically without it: `a / b` divides, `return /a/` does not.
+    def prevType:string ""
+    def prevValue:string ""
+
     Constructor (src:string) {
         source = src
         ; `len` must match the index space that peek()/advance()/`at` walk. Those
@@ -493,6 +499,14 @@ class TSLexer {
             if (next == "*") {
                 return (this.readBlockComment())
             }
+            ; Regex literal — only where an operand, not an operator, may appear.
+            if (this.regexAllowed()) {
+                def re:Token (this.readRegex())
+                if (re.tokenType == "Regex") {
+                    return re
+                }
+                ; Unterminated: fall through and lex `/` as a punctuator.
+            }
         }
 
         ; Strings
@@ -778,10 +792,113 @@ class TSLexer {
         while (true) {
             def tok:Token (this.nextToken())
             push tokens tok
+            ; Comments are not significant for regex-vs-division context.
+            if ((tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment")) {
+                prevType = tok.tokenType
+                prevValue = tok.value
+            }
             if (tok.tokenType == "EOF") {
                 return tokens
             }
         }
         return tokens
+    }
+
+    ; True when a `/` at the current position starts a regex literal rather than
+    ; a division operator. Decided from the previous significant token: `/` after
+    ; something that can END an expression is division, otherwise it opens a regex.
+    fn regexAllowed:boolean () {
+        if (prevType == "") { return true }
+        if (prevType == "Number") { return false }
+        if (prevType == "BigInt") { return false }
+        if (prevType == "String") { return false }
+        if (prevType == "Template") { return false }
+        if (prevType == "Regex") { return false }
+        if (prevType == "Identifier") { return false }
+        if (prevType == "TSType") { return false }
+        if (prevType == "Keyword") {
+            ; Only these keywords end an expression; after every other keyword
+            ; (return, typeof, case, in, of, new, delete, void, do, else, yield,
+            ; await, instanceof, ...) an operand — and so a regex — may follow.
+            if (prevValue == "this") { return false }
+            if (prevValue == "super") { return false }
+            if (prevValue == "true") { return false }
+            if (prevValue == "false") { return false }
+            if (prevValue == "null") { return false }
+            return true
+        }
+        if (prevType == "Punctuator") {
+            ; `)` and `]` close an expression; `}` is ambiguous (block end allows a
+            ; regex, object-literal end does not) and is resolved as block end,
+            ; which is the far more common position for a following `/`.
+            if (prevValue == ")") { return false }
+            if (prevValue == "]") { return false }
+            if (prevValue == "++") { return false }
+            if (prevValue == "--") { return false }
+            return true
+        }
+        return true
+    }
+
+    ; Reads /pattern/flags starting at the current `/`. Returns a Regex token, or
+    ; an empty value when the literal is unterminated so the caller can fall back
+    ; to treating the `/` as a punctuator.
+    fn readRegex:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        def value:string (this.advance())  ; consume opening /
+        def inClass:boolean false
+        def closed:boolean false
+        while (pos < len) {
+            def ch:string (this.peek())
+            ; An unescaped newline terminates the literal: it is not a regex.
+            if (ch == "\n") { break }
+            if (ch == "\\") {
+                value = value + (this.advance())
+                if (pos < len) {
+                    value = value + (this.advance())
+                }
+            } {
+                if (ch == "[") {
+                    inClass = true
+                    value = value + (this.advance())
+                } {
+                    if (ch == "]") {
+                        inClass = false
+                        value = value + (this.advance())
+                    } {
+                        if (ch == "/") {
+                            if (inClass) {
+                                value = value + (this.advance())
+                            } {
+                                value = value + (this.advance())
+                                closed = true
+                                break
+                            }
+                        } {
+                            value = value + (this.advance())
+                        }
+                    }
+                }
+            }
+        }
+        if (closed == false) {
+            ; Rewind; the caller re-lexes this `/` as a punctuator.
+            pos = startPos
+            line = startLine
+            col = startCol
+            return (this.makeToken("" "" startPos startLine startCol))
+        }
+        ; Trailing flags (g, i, m, s, u, y, d, v)
+        while (pos < len) {
+            def fch:string (this.peek())
+            if (this.isAlphaNumCh(fch)) {
+                value = value + (this.advance())
+            } {
+                break
+            }
+        }
+        return (this.makeToken("Regex" value startPos startLine startCol))
     }
 }

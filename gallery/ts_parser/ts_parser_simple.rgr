@@ -321,10 +321,10 @@ class TSParserSimple {
       }
     }
     
-    if ((tokVal == "let") || (tokVal == "const")) {
+    if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
       return (this.parseVarDecl())
     }
-    
+
     if (tokVal == "function") {
       return (this.parseFuncDecl(false))
     }
@@ -1056,10 +1056,14 @@ class TSParserSimple {
     }
     
     this.expectValue("class")
-    
-    def nameTok (this.expect("Identifier"))
-    node.name = nameTok.value
-    
+
+    ; Name is optional: `class {}` is legal as an expression and after
+    ; `export default`.
+    if (this.matchType("Identifier")) {
+      def nameTok (this.expect("Identifier"))
+      node.name = nameTok.value
+    }
+
     ; Parse generic type parameters <T, U>
     if (this.matchValue("<")) {
       def typeParams (this.parseTypeParams())
@@ -2060,9 +2064,13 @@ class TSParserSimple {
       node.generator = true
     }
     
-    def nameTok (this.expect("Identifier"))
-    node.name = nameTok.value
-    
+    ; Name is optional: `function () {}` is legal both as an expression and as
+    ; the body of `export default function () {}`.
+    if (this.matchType("Identifier")) {
+      def nameTok (this.expect("Identifier"))
+      node.name = nameTok.value
+    }
+
     ; Type parameters <T, U>
     if (this.matchValue("<")) {
       def typeParams (this.parseTypeParams())
@@ -4356,6 +4364,54 @@ class TSParserSimple {
       }
     }
     
+    ; Regex literal
+    if (tokType == "Regex") {
+      this.advance()
+      def re (new TSNode())
+      re.nodeType = "RegExpLiteral"
+      re.value = tok.value
+      re.start = tok.start
+      re.end = tok.end
+      re.line = tok.line
+      re.col = tok.col
+      return re
+    }
+
+    ; Function expression: function () {}, function* () {}, async function () {}
+    if (tokVal == "function") {
+      def fnExpr (this.parseFuncDecl(false))
+      fnExpr.nodeType = "FunctionExpression"
+      return fnExpr
+    }
+    if (tokVal == "async") {
+      if ((this.peekNextValue()) == "function") {
+        this.advance()  ; consume async
+        def asyncFnExpr (this.parseFuncDecl(true))
+        asyncFnExpr.nodeType = "FunctionExpression"
+        return asyncFnExpr
+      }
+    }
+
+    ; Class expression: class {} / class Name extends B {}
+    if (tokVal == "class") {
+      def clsExpr (this.parseClass())
+      clsExpr.nodeType = "ClassExpression"
+      return clsExpr
+    }
+
+    ; super — valid as `super(...)` and `super.x` / `super[x]`; the call and
+    ; member suffixes are attached by parsePostfix.
+    if (tokVal == "super") {
+      this.advance()
+      def superExpr (new TSNode())
+      superExpr.nodeType = "Super"
+      superExpr.start = tok.start
+      superExpr.end = tok.end
+      superExpr.line = tok.line
+      superExpr.col = tok.col
+      return superExpr
+    }
+
     ; this keyword
     if (tokVal == "this") {
       this.advance()
