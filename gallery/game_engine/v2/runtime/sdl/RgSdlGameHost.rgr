@@ -91,6 +91,11 @@ class RgSdlGameHost {
         def jump:boolean (((bit_and m 1) != 0) || ((bit_and m 4) != 0))
         this.host.bridge.input.setAction(player "jump" jump)
         this.host.bridge.input.setAction(player "action" ((bit_and m 4) != 0))
+        ; Q / Esc (bit 8) — host also exits the game loop on a rising edge; map
+        ; the logical actions so guests that poll "back"/"quit" see them too.
+        def quitHeld:boolean ((bit_and m 8) != 0)
+        this.host.bridge.input.setAction(player "back" quitHeld)
+        this.host.bridge.input.setAction(player "quit" quitHeld)
     }
 
     ; Forward newly-recorded haptic commands (bridge.input records what the guest
@@ -215,14 +220,24 @@ class RgSdlGameHost {
     }
 
     ; Advance the launcher menu one step from an input-mask edge transition:
-    ;   left(16)/right(32) edge -> moveSelection ; down(2) edge -> back ;
+    ;   left(16)/right(32) edge -> moveSelection ;
+    ;   down(2) or quit(8) edge on games page -> back ;
+    ;   quit(8) edge on categories -> return 2 (quit the launcher) ;
     ;   action(4) edge -> activate. Returns 1 when an ENTRY was activated (the
-    ;   caller reads ui.selectedDir()/selectedFile() and hands off), else 0.
-    ; This is the launcher's whole input contract — no gfx, no game, testable.
+    ;   caller reads ui.selectedDir()/selectedFile() and hands off), else 0
+    ;   (or 2 to quit). This is the launcher's whole input contract — no gfx,
+    ;   no game, testable.
     fn launcherStep:int (prev:int cur:int ui:RgLauncherUi) {
         if (this.edge(prev cur 16)) { ui.moveSelection(0 - 1) }
         if (this.edge(prev cur 32)) { ui.moveSelection(1) }
         if (this.edge(prev cur 2))  { ui.back() }
+        if (this.edge(prev cur 8)) {
+            if ((ui.currentPage()) == 1) {
+                ui.back()
+            } {
+                return 2
+            }
+        }
         if (this.edge(prev cur 4)) {
             def r:int (ui.activate())
             if (r == 1) { return 1 }
@@ -249,27 +264,31 @@ class RgSdlGameHost {
             def m:int (gfx_input_source_mask 0)
             def launch:int (this.launcherStep(prev m ui))
             prev = m
-            if (launch == 1) {
-                def d:string (ui.selectedDir())
-                def f:string (ui.selectedFile())
-                def eng:string (ui.selectedEngine())
-                gfx_close
-                this.resetAudioDevice()
-                ; wasm games run through the compiled loop, tsx through the
-                ; interpreted one — both drive the same bridge/presenter.
-                def _g:int 0
-                if (eng == "wasm") { _g = (this.runWasm(d f)) } { _g = (this.run(d f)) }
-                ; back from the game: reopen the launcher and resume on categories
-                gfx_clear_should_close
-                this.resetAudioDevice()
-                if ((gfx_open "Ranger" lw lh) == 0) { return 1 }
-                ui.back()
-                prev = 0
+            if (launch == 2) {
+                go = false
             } {
-                ui.render()
-                gfx_present (ui.raw()) lw lh
-                gfx_delay 16
-                if (gfx_should_close) { go = false }
+                if (launch == 1) {
+                    def d:string (ui.selectedDir())
+                    def f:string (ui.selectedFile())
+                    def eng:string (ui.selectedEngine())
+                    gfx_close
+                    this.resetAudioDevice()
+                    ; wasm games run through the compiled loop, tsx through the
+                    ; interpreted one — both drive the same bridge/presenter.
+                    def _g:int 0
+                    if (eng == "wasm") { _g = (this.runWasm(d f)) } { _g = (this.run(d f)) }
+                    ; back from the game: reopen the launcher and resume on categories
+                    gfx_clear_should_close
+                    this.resetAudioDevice()
+                    if ((gfx_open "Ranger" lw lh) == 0) { return 1 }
+                    ui.back()
+                    prev = 0
+                } {
+                    ui.render()
+                    gfx_present (ui.raw()) lw lh
+                    gfx_delay 16
+                    if (gfx_should_close) { go = false }
+                }
             }
         }
         gfx_close
@@ -310,8 +329,13 @@ class RgSdlGameHost {
         def fbL:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
         def fbR:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
         def go:boolean true
+        def prev:int 0
         while go {
             gfx_input_poll
+            def m:int (gfx_input_source_mask 0)
+            ; Q / Esc rising edge closes the game window (return to launcher)
+            if (this.edge(prev m 8)) { go = false }
+            prev = m
             this.wasmHost.frame(33.333)
             this.presentBridge(this.wasmHost.bridge fbL fbR)
             gfx_delay 16
@@ -339,9 +363,15 @@ class RgSdlGameHost {
         def fbL:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
         def fbR:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
         def go:boolean true
+        def prev:int 0
         while go {
             gfx_input_poll
-            this.mapMask(0 (gfx_input_source_mask 0))
+            def m0:int (gfx_input_source_mask 0)
+            ; Q / Esc rising edge closes the active game window and returns to
+            ; the launcher (v1 gameMenuBackHeld parity). Window-close still works.
+            if (this.edge(prev m0 8)) { go = false }
+            prev = m0
+            this.mapMask(0 m0)
             this.mapMask(1 (gfx_input_source_mask 1))
             this.host.frame(33.333)
             this.forwardRumble()

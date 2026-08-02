@@ -66,22 +66,35 @@ class LauncherUiTest {
         ui.init(480 270)
 
         ; ---- catalog DISCOVERED from the real v2 games folder ---------------
-        ; Only ylos2 (Pomppija) is a ported v2 game today, so the scan finds one
-        ; "Games" category with Pomppija in it. (Adding a game folder with a
-        ; game.info would extend this automatically — the test is intentionally
-        ; tied to the real filesystem, like v1's launcher.)
+        ; Games: Pomppija + Ylos3D (WASM). Tests: Cannon 3D + Pinball prototypes.
+        ; Categories appear in first-seen order (Games, then Tests).
         t.ok("at least one category discovered" ((ui.categoryCount()) >= 1))
+        t.ok("at least two categories (Games + Tests)" ((ui.categoryCount()) >= 2))
         t.ok("at least one game discovered" ((ui.gameCount()) >= 1))
         t.eqStr("first category is Games" (ui.selectedLabel()) "Games")
         t.eqStr("selected category name" (ui.selectedCategory()) "Games")
         ui.moveSelection(0 - 5)
         t.eqStr("left clamps to the first category" (ui.selectedLabel()) "Games")
+        ui.moveSelection(1)
+        t.eqStr("right moves to Tests" (ui.selectedLabel()) "Tests")
+        ui.moveSelection(0 - 1)
+        t.eqStr("back on Games" (ui.selectedLabel()) "Games")
 
         ; ---- it actually renders pixels + an accent card -------------------
         ui.render()
         t.ok("something was drawn into the canvas" ((LauncherUiTest.nonBackground(ui)) > 0))
         def catAccent:int (LauncherUiTest.countColor(ui 0 0 480 270 255 190 70))
         t.ok("the selected category card is accent-filled" (catAccent > 0))
+
+        ; title ("Ranger") and subtitle must not share the same vertical band —
+        ; previously both boxes overlapped at 480×270 (h/12 vs h/5).
+        t.ok("title sits above the subtitle" (ui.title.y < ui.sub.y))
+        t.ok("title and subtitle do not overlap vertically" ((ui.title.y + ui.title.h) <= ui.sub.y))
+        ; measured centering: label box straddles the canvas midline
+        def midX:int 240
+        t.ok("title box covers the horizontal center" ((ui.title.x < midX) && ((ui.title.x + ui.title.w) > midX)))
+        t.ok("subtitle box covers the horizontal center" ((ui.sub.x < midX) && ((ui.sub.x + ui.sub.w) > midX)))
+        t.ok("footer box covers the horizontal center" ((ui.footer.x < midX) && ((ui.footer.x + ui.footer.w) > midX)))
 
         ; ---- two-level navigation + real game handoff ----------------------
         def ui2:RgLauncherUi (new RgLauncherUi)
@@ -117,6 +130,16 @@ class LauncherUiTest {
         ui2.back()
         t.eqInt("back to the category page" (ui2.currentPage()) 0)
         t.eqStr("restored to the Games category" (ui2.selectedLabel()) "Games")
+
+        ; Tests category lists the prototype physics demos
+        ui2.moveSelection(1)
+        t.eqStr("Tests category is selectable" (ui2.selectedLabel()) "Tests")
+        def aT:int (ui2.activate())
+        t.eqInt("entering Tests does not launch" aT 0)
+        t.eqStr("first Tests entry is Cannon 3D" (ui2.selectedLabel()) "Cannon 3D")
+        ui2.moveSelection(1)
+        t.eqStr("second Tests entry is Pinball" (ui2.selectedLabel()) "Pinball")
+        ui2.back()
 
         ; page 1 renders the game cards (accent present somewhere)
         def _a2:int (ui2.activate())
