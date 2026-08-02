@@ -2030,6 +2030,7 @@ class TSParserSimple  {
     this.inSingleStatementBody = false;
     this.singleBodyIsIfBranch = false;
     this.lastTokenLine = 0;
+    this.lastTokenEndPos = 0;
     this.atModuleTopLevel = false;
     this.inExportDefault = false;
     this.speculating = 0;
@@ -2089,6 +2090,7 @@ class TSParserSimple  {
     if ( this.pos < (this.tokens.length) ) {
       const consumed = this.tokens[this.pos];
       this.lastTokenLine = consumed.line;
+      this.lastTokenEndPos = consumed.end;
     }
     this.pos = this.pos + 1;
     if ( this.pos < (this.tokens.length) ) {
@@ -3937,6 +3939,7 @@ class TSParserSimple  {
         this.suppressBlockScope = true;
         const bodyNode = this.parseBlock();
         member.body = bodyNode;
+        member.end = bodyNode.end;
       }
       this.popScope();
       this.allowSuperCall = savedCtorSuperCall;
@@ -4089,6 +4092,7 @@ class TSParserSimple  {
         this.suppressBlockScope = true;
         const bodyNode_1 = this.parseBlock();
         member.body = bodyNode_1;
+        member.end = bodyNode_1.end;
         if ( this.lastBlockEnabledStrict ) {
           this.recheckStrictSignature(member.name, member.params);
         }
@@ -5170,6 +5174,7 @@ class TSParserSimple  {
       this.suppressBlockScope = true;
       const body = this.parseBlock();
       node.body = body;
+      node.end = body.end;
       if ( this.lastBlockEnabledStrict ) {
         this.recheckStrictSignature(node.name, node.params);
       }
@@ -5364,6 +5369,8 @@ class TSParserSimple  {
     this.lastBlockEnabledStrict = myStrictDirective;
     this.strictMode = savedStrict;
     this.inSingleStatementBody = savedSingleBody;
+    const closeTok = this.peek();
+    block.end = closeTok.end;
     this.expectValue("}");
     return block;
   };
@@ -7464,6 +7471,8 @@ class TSParserSimple  {
       } else {
         const prop = new TSNode();
         prop.nodeType = "Property";
+        const propStartTok = this.peek();
+        prop.start = propStartTok.start;
         let isComputed = false;
         let isMethod = false;
         let isGetter = false;
@@ -7576,6 +7585,7 @@ class TSParserSimple  {
           prop.method = true;
           const fnNode = new TSNode();
           fnNode.nodeType = "FunctionExpression";
+          fnNode.start = prop.start;
           this.advance();
           this.pushScope(true);
           this.functionDepth = this.functionDepth + 1;
@@ -7629,7 +7639,9 @@ class TSParserSimple  {
           }
           if ( this.matchValue("{") ) {
             this.suppressBlockScope = true;
-            fnNode.body = this.parseBlock();
+            const objMethodBody = this.parseBlock();
+            fnNode.body = objMethodBody;
+            fnNode.end = objMethodBody.end;
             if ( this.lastBlockEnabledStrict ) {
               this.recheckStrictSignature(prop.name, fnNode.params);
             }
@@ -7809,12 +7821,14 @@ class TSParserSimple  {
       this.suppressBlockScope = true;
       const body = this.parseBlock();
       node.body = body;
+      node.end = body.end;
       if ( this.lastBlockEnabledStrict ) {
         this.recheckStrictSignature("", node.params);
       }
     } else {
       const body_1 = this.parseExpr();
       node.body = body_1;
+      node.end = this.lastTokenEndPos;
     }
     this.popScope();
     this.iterationDepth = savedArrowIter;

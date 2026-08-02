@@ -157,6 +157,10 @@ class TSParserSimple {
   def singleBodyIsIfBranch:boolean false
   ; Line of the most recently consumed token, for automatic semicolon insertion.
   def lastTokenLine:int 0
+  ; Source offset just past the most recently consumed token. A construct whose
+  ; end is not a fixed closing token -- a concise arrow body -- reads its `end`
+  ; from here once the body has been consumed.
+  def lastTokenEndPos:int 0
   ; True only while parsing the top level of the program. Import and export
   ; declarations are ModuleItems and may appear nowhere else.
   def atModuleTopLevel:boolean false
@@ -238,6 +242,7 @@ class TSParserSimple {
     if (this.pos < (array_length this.tokens)) {
       def consumed:Token (itemAt this.tokens this.pos)
       this.lastTokenLine = consumed.line
+      this.lastTokenEndPos = consumed.end
     }
     this.pos = this.pos + 1
     if (this.pos < (array_length this.tokens)) {
@@ -2404,6 +2409,7 @@ class TSParserSimple {
         this.suppressBlockScope = true
         def bodyNode (this.parseBlock())
         member.body = bodyNode
+        member.end = bodyNode.end
       }
 
       this.popScope()
@@ -2584,6 +2590,7 @@ class TSParserSimple {
         this.suppressBlockScope = true
         def bodyNode (this.parseBlock())
         member.body = bodyNode
+        member.end = bodyNode.end
         if (this.lastBlockEnabledStrict) {
           this.recheckStrictSignature(member.name member.params)
         }
@@ -3946,6 +3953,7 @@ class TSParserSimple {
       this.suppressBlockScope = true
       def body (this.parseBlock())
       node.body = body
+      node.end = body.end
       if (this.lastBlockEnabledStrict) {
         this.recheckStrictSignature(node.name node.params)
       }
@@ -4182,6 +4190,11 @@ class TSParserSimple {
     this.strictMode = savedStrict
     this.inSingleStatementBody = savedSingleBody
 
+    ; The closing brace ends the block. A function's source text is the slice
+    ; from its own start to its body's end, so this is what makes
+    ; `Function.prototype.toString` able to return real source.
+    def closeTok (this.peek())
+    block.end = closeTok.end
     this.expectValue("}")
     return block
   }
@@ -6852,7 +6865,9 @@ class TSParserSimple {
       } {
         def prop (new TSNode())
         prop.nodeType = "Property"
-        
+        def propStartTok (this.peek())
+        prop.start = propStartTok.start
+
         ; Flags for property type
         def isComputed:boolean false
         def isMethod:boolean false
@@ -6980,6 +6995,8 @@ class TSParserSimple {
           ; Parse method as function expression
           def fnNode (new TSNode())
           fnNode.nodeType = "FunctionExpression"
+          ; A method's source text starts at its KEY -- `foo() {}`, not `() {}`.
+          fnNode.start = prop.start
           this.advance()
           ; A method's parameters and body share one scope, and duplicate
           ; parameters are always an error in a method.
@@ -7039,7 +7056,9 @@ class TSParserSimple {
           ; Parse body
           if (this.matchValue("{")) {
             this.suppressBlockScope = true
-            fnNode.body = (this.parseBlock())
+            def objMethodBody:TSNode (this.parseBlock())
+            fnNode.body = objMethodBody
+            fnNode.end = objMethodBody.end
             if (this.lastBlockEnabledStrict) {
               this.recheckStrictSignature(prop.name fnNode.params)
             }
@@ -7275,12 +7294,14 @@ class TSParserSimple {
       this.suppressBlockScope = true
       def body (this.parseBlock())
       node.body = body
+      node.end = body.end
       if (this.lastBlockEnabledStrict) {
         this.recheckStrictSignature("" node.params)
       }
     } {
       def body (this.parseExpr())
       node.body = body
+      node.end = this.lastTokenEndPos
     }
 
     this.popScope()

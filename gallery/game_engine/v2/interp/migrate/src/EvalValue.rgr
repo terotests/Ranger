@@ -99,6 +99,12 @@ class EvalValue {
     def sealedFlag:boolean false
     def frozenFlag:boolean false
     def functionNode@(optional):TSNode  ; For function AST nodes
+    ; D-FNSRC: the WHOLE source text this function's node was parsed from, not a
+    ; slice. Function.prototype.toString cuts [node.start, node.end) out of it,
+    ; and a nested function captured while this one runs inherits it -- its own
+    ; offsets are absolute in the same string, so a pre-cut slice would be
+    ; useless to it. Empty for a builtin, which stringifies as [native code].
+    def srcText:string ""
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
     ; Constructors
@@ -291,6 +297,7 @@ class EvalValue {
         v.builtinName = builtinName
         v.builtinNamespace = builtinNamespace
         v.strictFn = strictFn
+        v.srcText = srcText
         v.boundThis = recv
         if functionNode {
             v.functionNode = (unwrap functionNode)

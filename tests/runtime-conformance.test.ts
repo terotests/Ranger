@@ -972,6 +972,50 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["math-floor-neg", "return Math.floor(-1.5);", "builtins"],
   ["math-max-empty", "return Math.max() === -Infinity;", "builtins"],
   ["date-epoch", "var d = new Date(0); return d.getTime();", "builtins"],
+
+  // --- function source text -------------------------------------------------
+  // Function.prototype.toString returns the function's own source, which is
+  // what makes `f + 1` and `eval("(" + f + ")")` behave. It needs the parser to
+  // record where each function node ends.
+  ["fnsrc-decl", "function f1() { return 1; }\nreturn f1.toString();", "fnsrc"],
+  ["fnsrc-expr", "var g = function (a, b) { return a + b; };\nreturn g.toString();", "fnsrc"],
+  ["fnsrc-arrow-block", "var h = (x) => { return x * 2; };\nreturn h.toString();", "fnsrc"],
+  ["fnsrc-arrow-concise", "var h = (x) => x * 2;\nreturn h.toString();", "fnsrc"],
+  ["fnsrc-method", "var o = { m: function () { return 2; } };\nreturn o.m.toString();", "fnsrc"],
+  ["fnsrc-concat", "function f1() {}\nreturn (f1 + 1) === (f1.toString() + 1);", "fnsrc"],
+  ["fnsrc-string-of", "function f1(a) { return a; }\nreturn String(f1);", "fnsrc"],
+  ["fnsrc-roundtrip", "function f1() { return 41; }\nvar back = eval('(' + f1.toString() + ')');\nreturn back() + 1;", "fnsrc"],
+  ["fnsrc-from-eval", "var q = eval('(function q() { return 7; })');\nreturn q.toString();", "fnsrc"],
+  ["fnsrc-nested-from-eval", "var mk = eval('(function () { return function inner() { return 3; }; })');\nreturn mk().toString();", "fnsrc"],
+  ["fnsrc-builtin-native", "return Object.keys.toString().indexOf('native code') > 0;", "fnsrc"],
+  ["fnsrc-fn-ctor-name", "return Function('a', 'return a').toString().indexOf('anonymous') > 0;", "fnsrc"],
+
+  // --- computed property access ---------------------------------------------
+  // A computed key is the same reference a written one is: same accessor, same
+  // strict-mode refusal. Only a numeric index into a real array differs.
+  ["computed-getter", "var o = {}; Object.defineProperty(o, 'bar', { get: function () { return 42; } }); return o['bar'];", "accessors"],
+  ["computed-getter-this", "var o = { n: 5 }; Object.defineProperty(o, 'bar', { get: function () { return this.n; } }); return o['bar'];", "accessors"],
+  ["computed-getter-numeric-key", "var o = {}; Object.defineProperty(o, '0', { get: function () { return 7; } }); return o[0];", "accessors"],
+  ["computed-setter", "var o = {}; Object.defineProperty(o, 'bar', { set: function (x) { this.seen = x; } }); o['bar'] = 9; return o.seen;", "accessors"],
+  ["computed-setter-not-shadowed", "var o = {}; Object.defineProperty(o, 'bar', { get: function () { return 1; }, set: function () {} }); o['bar'] = 9; return o.bar;", "accessors"],
+  ["computed-arg-order", "var o = {}; Object.defineProperty(o, 'bar', { get: function () { this.ran = true; return 42; } }); try { o.nope(o['bar']); } catch (e) {} return o.ran;", "accessors"],
+  ["computed-array-index-still-element", "var a = [1, 2, 3]; a[1] = 9; return a[1];", "accessors"],
+  ["computed-strict-refusal", "'use strict'; var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { o['p'] = 2; return 'no-throw'; } catch (e) { return e.name; }", "accessors"],
+
+  // --- ToPrimitive ordering -------------------------------------------------
+  // valueOf then toString for a number hint, the other way for a string hint --
+  // for arrays and functions and boxed primitives alike, not objects only.
+  ["toprim-fn-valueof", "function f() {} f.valueOf = function () { return 5; }; return f * 2;", "toprimitive"],
+  ["toprim-fn-tostring-object", "function f() {} f.valueOf = function () { return true; }; f.toString = function () { return {}; }; return String(f);", "toprimitive"],
+  ["toprim-array-valueof", "var a = [1, 2]; a.valueOf = function () { return 5; }; return a * 2;", "toprimitive"],
+  ["toprim-array-default-join", "return String([1, 2, 3]);", "toprimitive"],
+  ["toprim-boxed-string-override", "var s = new String('ABCDEF'); s.valueOf = function () { return 'ed'; }; s.toString = function () { return 'ed'; }; return s == 'ed';", "toprimitive"],
+  ["toprim-boxed-length-unchanged", "var s = new String('ABCDEF'); s.valueOf = function () { return 'ed'; }; return s.length;", "toprimitive"],
+  ["toprim-boxed-default", "return String(new String('abc')) + (1 + new Number(4));", "toprimitive"],
+  ["toprim-string-proto-empty", "return String.prototype == '';", "toprimitive"],
+  ["toprim-object-brand", "return String({});", "toprimitive"],
+  ["toprim-object-valueof-skipped-for-string", "return String({ valueOf: function () { return 7; } });", "toprimitive"],
+  ["toprim-both-objects-throws", "var o = { valueOf: function () { return {}; }, toString: function () { return {}; } }; try { return String(o); } catch (e) { return e.name; }", "toprimitive"],
 ];
 
 /**

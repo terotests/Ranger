@@ -247,6 +247,11 @@ class ComponentEngine {
     ; type-cast, never a JSX tag. Set false to run .as (AssemblyScript) sources.
     def jsxParsing:boolean true
     def source:string ""
+    ; D-FNSRC: the source text the code being evaluated RIGHT NOW was parsed
+    ; from. `source` is the main script and stays that; this one swaps for the
+    ; duration of an eval / Function() body / imported file, so a function value
+    ; captured in there records the string its own start/end offsets index into.
+    def currentSource:string ""
     def basePath:string "./"
     def assetPaths:[string]  ; Multiple asset directories for component resolution
     def pageWidth:double 595.0
@@ -653,6 +658,7 @@ class ComponentEngine {
         this.upsertLocalComponent(sym)
         def __fnv:EvalValue (EvalValue.function(fnNode))
         __fnv.strictFn = (this.strictForBody(fnNode))
+        __fnv.srcText = currentSource
         this.defineModuleBinding(localName __fnv)
         this.trace("Imported: " + localName + " (" + exportName + ") from " + sourcePath)
     }
@@ -734,6 +740,7 @@ class ComponentEngine {
     fn parse:EVGElement (src:string) {
         this.resetParseState()
         source = src
+        currentSource = src
         
         ; Tokenize and parse
         def lexer (new TSLexer(src))
@@ -1281,7 +1288,9 @@ class ComponentEngine {
             }
             i = (i + 1)
         }
-        def src:string ("function __anonfn__(" + params + ") {\n" + body + "\n}")
+        ; The assembled text IS the function's source text, and the spec names
+        ; the result "anonymous" -- both are observable through toString.
+        def src:string ("function anonymous(" + params + "\n) {\n" + body + "\n}")
         def lx (new TSLexer(src))
         def toks:[Token] (lx.tokenize())
         def p (new TSParserSimple())
@@ -1294,13 +1303,31 @@ class ComponentEngine {
         if ((array_length ast.children) > 0) {
             def decl:TSNode (itemAt ast.children 0)
             if (decl.nodeType == "FunctionDeclaration") {
-                return (this.captureClosure(decl))
+                ; D-FNSRC: the closure records the source it was parsed from, not
+                ; the caller's.
+                def savedFnSrc:string currentSource
+                currentSource = src
+                def built:EvalValue (this.captureClosure(decl))
+                currentSource = savedFnSrc
+                return built
             }
         }
         return (this.throwSpecError("SyntaxError" "invalid function body passed to Function"))
     }
 
     fn runEvalSource:EvalValue (src:string) {
+        ; D-FNSRC: while this string runs, it IS the source in effect, so a
+        ; function it defines records the text its own offsets index into. The
+        ; body has several exits, so the swap is done around the call rather
+        ; than inside it.
+        def savedEvalSrc:string currentSource
+        currentSource = src
+        def evOut:EvalValue (this.runEvalSourceIn(src))
+        currentSource = savedEvalSrc
+        return evOut
+    }
+
+    fn runEvalSourceIn:EvalValue (src:string) {
         ; A FRESH parser: `parser` is a shared member and its errorCount carries
         ; across parses, so re-entering it here made eval report a SyntaxError
         ; for any source that followed an earlier recovered parse — which looked
@@ -1364,6 +1391,7 @@ class ComponentEngine {
         ; existed the moment anything else touched it.
         this.ensureErrorCtors()
         source = src
+        currentSource = src
         def ast:TSNode (this.parseProgramFromSrc(src))
         programAst = ast
         ; D-STRICT: a program-level "use strict" applies to the whole script.
@@ -1474,6 +1502,7 @@ class ComponentEngine {
             return false
         }
         source = src
+        currentSource = src
         programAst = newAst
         this.clearLocalComponents()
         this.clearImportState()
@@ -1493,6 +1522,7 @@ class ComponentEngine {
                             this.updateLocalComponentNode(ch.name fnNode)
                             def __fnv:EvalValue (EvalValue.function(fnNode))
                             __fnv.strictFn = (this.strictForBody(fnNode))
+                            __fnv.srcText = currentSource
                             moduleScope.define(ch.name __fnv)
                             this.trace("Patched function: " + ch.name)
                         }
@@ -1846,6 +1876,7 @@ class ComponentEngine {
             if (node.name != "render") {
                 def __fnv:EvalValue (EvalValue.function(node))
                 __fnv.strictFn = (this.strictForBody(node))
+                __fnv.srcText = currentSource
                 this.defineModuleBinding(node.name __fnv)
             }
             return
@@ -2044,6 +2075,7 @@ class ComponentEngine {
         this.upsertLocalComponent(sym)
         def __fnv:EvalValue (EvalValue.function(node))
         __fnv.strictFn = (this.strictForBody(node))
+        __fnv.srcText = currentSource
         this.defineModuleBinding(node.name __fnv)
         this.trace("Registered local component: " + node.name)
     }
@@ -4054,31 +4086,42 @@ class ComponentEngine {
             }
         }
         def result:EvalValue rightValue
+        ; A COMPUTED key differs from a written one only in how the name is
+        ; obtained -- `o["bar"] = 1` is the same write `o.bar = 1` is, setter and
+        ; all. It used to have a shortcut of its own that stored a data property
+        ; directly, so an accessor was silently shadowed, a refused write in
+        ; strict mode passed unreported, and the poisoned `caller`/`arguments`
+        ; rule did not apply. Only a numeric index into a real ARRAY still takes
+        ; the element path; on a plain object a numeric key is the property named
+        ; by ToString(index).
+        def key:string leftNode.name
+        def numericIndexes:boolean false
+        def numIdx:int 0
         if leftNode.computed {
             if leftNode.right {
                 def indexVal:EvalValue (this.evaluateExpr((unwrap leftNode.right)))
-                ; A numeric key only indexes an ARRAY. On a plain object it is
-                ; the property named by ToString(index), and routing it through
-                ; setIndexAt dropped the write entirely: `o[1] = "one"` stored
-                ; nothing at all.
-                def numericIndexes:boolean false
-                if (indexVal.isNumber()) {
-                    if (obj.valueType == 4) { numericIndexes = true }
+                if scriptThrew {
+                    return (EvalValue.undefined())
                 }
-                if numericIndexes {
-                    def idx:int (to_int (indexVal.toNumber()))
-                    def cur:EvalValue (obj.getIndex(idx))
-                    result = (this.applyAssignOp(op cur rightValue))
-                    obj.setIndexAt(idx result)
-                } {
-                    def key:string (this.toPropertyKey(indexVal))
-                    def cur:EvalValue (obj.getMember(key))
-                    result = (this.applyAssignOp(op cur rightValue))
-                    obj.setMember(key result)
+                if (indexVal.isNumber()) {
+                    if (obj.valueType == 4) {
+                        numericIndexes = true
+                        numIdx = (to_int (indexVal.toNumber()))
+                    }
+                }
+                if (numericIndexes == false) {
+                    key = (this.toPropertyKey(indexVal))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
                 }
             }
+        }
+        if numericIndexes {
+            def curIdx:EvalValue (obj.getIndex(numIdx))
+            result = (this.applyAssignOp(op curIdx rightValue))
+            obj.setIndexAt(numIdx result)
         } {
-            def key:string leftNode.name
             ; D-ACCESSORS: a setter takes the write instead of storing a data
             ; property. Without this the setter would be shadowed by a plain
             ; value and never run again.
@@ -4515,6 +4558,7 @@ class ComponentEngine {
         ; that created it was strict. Recorded here rather than asked at use
         ; time, because by then the defining scope is gone.
         fv.strictFn = (this.strictForBody(fnNode))
+        fv.srcText = currentSource
         def id:int (array_length closureScopes)
         def cell (new ClosureCell)
         cell.ctx = context
@@ -4636,6 +4680,13 @@ class ComponentEngine {
             strictMode = true
         }
         callDepth = (callDepth + 1)
+        ; D-FNSRC: the code about to run came from this function's source, so a
+        ; function IT defines belongs to the same string. Without the swap a
+        ; closure returned by an eval'd factory would slice the main script.
+        def savedSrcText:string currentSource
+        if ((strlen fnValue.srcText) > 0) {
+            currentSource = fnValue.srcText
+        }
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
@@ -4645,6 +4696,7 @@ class ComponentEngine {
                 result = (this.evaluateExpr(body))
             }
         }
+        currentSource = savedSrcText
         strictMode = savedStrict
         callDepth = (callDepth - 1)
         context = savedContext
@@ -4796,6 +4848,7 @@ class ComponentEngine {
                     def helperName:string helperFn.name
                     def __fnv:EvalValue (EvalValue.function(helperFn))
                     __fnv.strictFn = (this.strictForBody(helperFn))
+                    __fnv.srcText = currentSource
                     def helperValue:EvalValue __fnv
                     context.define(helperName helperValue)
                     print ("Registered helper function: " + helperName)
@@ -8809,7 +8862,7 @@ class ComponentEngine {
                 return (EvalValue.string(("[object " + (this.objectClassOf(recv)) + "]")))
             }
             if (kind == "function") {
-                return (EvalValue.string(("function " + recv.functionName + "() { [native code] }")))
+                return (EvalValue.string((this.functionSourceText(recv))))
             }
             if (kind == "regexp") {
                 ; A RegExp stringifies as its literal form -- `String(/abc/i)`
@@ -10418,8 +10471,10 @@ class ComponentEngine {
     ; Number hint tries valueOf then toString; string hint the other way. A
     ; method that returns an object is skipped, per spec, rather than accepted.
     ; --------------------------------------------------------------------------
-    fn callPrimitiveMethod:EvalValue (obj:EvalValue name:string) {
-        primitiveMethodUsable = false
+    ; The valueOf/toString a receiver would actually run, as ToPrimitive sees it.
+    ; Shared by the call itself and by the "is this still the built-in?" question,
+    ; so the two cannot disagree about which method is in play.
+    fn resolvePrimitiveMethod:EvalValue (obj:EvalValue name:string) {
         def m:EvalValue (obj.getMember(name))
         ; An ARRAY or FUNCTION receiver has no prototype link of its own, so a
         ; guest override on Array.prototype or Function.prototype has to be
@@ -10439,13 +10494,58 @@ class ComponentEngine {
                         def kpm:EvalValue (unwrap (get kp.objectMap name))
                         if (kpm.valueType == 6) {
                             if kpm.functionNode {
-                                m = kpm
+                                return kpm
                             }
                         }
                     }
                 }
             }
         }
+        return m
+    }
+
+    ; True when `name` on this receiver is the inherited BUILT-IN rather than
+    ; something the guest supplied -- callable or not. An own property shadows
+    ; the default even when its value is undefined: the property is there, it is
+    ; simply not callable, so ToPrimitive skips it and the other method gets its
+    ; turn rather than the default rendering standing in.
+    fn usesDefaultMethod:boolean (v:EvalValue name:string) {
+        if (has v.objectMap name) {
+            ; A built-in prototype publishes its methods as OWN properties --
+            ; String.prototype.valueOf really is on String.prototype -- so
+            ; presence alone does not mean the guest supplied one. What settles
+            ; it is whether the value has a body the engine would run.
+            def own:EvalValue (unwrap (get v.objectMap name))
+            if (own.valueType == 6) {
+                if (null? own.functionNode) {
+                    return true
+                }
+            }
+            return false
+        }
+        def m:EvalValue (this.resolvePrimitiveMethod(v name))
+        if (m.valueType == 6) {
+            if (null? m.functionNode) {
+                return true
+            }
+            return false
+        }
+        ; Nothing resolved at all. An ARRAY or FUNCTION has no prototype object
+        ; of its own, so the built-in it would run is not reachable as a value
+        ; and the lookup comes back null -- that is still the default.
+        if (m.valueType == 0) {
+            return true
+        }
+        ; Present but not a function: not the default, and not usable either.
+        if (false == (m.isUndefined())) {
+            return false
+        }
+        return true
+    }
+
+    fn callPrimitiveMethod:EvalValue (obj:EvalValue name:string) {
+        primitiveMethodUsable = false
+        def m:EvalValue (this.resolvePrimitiveMethod(obj name))
         if (m.valueType == 6) {
             if m.functionNode {
                 def noArgs:[EvalValue]
@@ -10506,37 +10606,74 @@ class ComponentEngine {
         return 0
     }
 
-    fn toPrimitive:EvalValue (v:EvalValue wantString:boolean) {
-        ; Arrays and functions are object-like too and must convert, which is
-        ; why `[1,2] + ''` is "1,2". A guest override of Array.prototype or
-        ; Function.prototype toString wins over the built-in rendering, so the
-        ; method is looked for BEFORE falling back to it.
-        if (v.isArray()) {
-            def ar:EvalValue (this.callPrimitiveMethod(v "toString"))
-            if scriptThrew {
-                return (EvalValue.undefined())
+    ; D-FNSRC: Function.prototype.toString. A function parsed from guest source
+    ; returns that source verbatim -- the slice its node spans -- which is what
+    ; makes `f + 1` and `eval("(" + f + ")")` behave. A builtin has no source, so
+    ; it keeps the NativeFunction form the spec allows for one.
+    fn functionSourceText:string (v:EvalValue) {
+        if (null? v.functionNode) {
+            return ("function " + v.functionName + "() { [native code] }")
+        }
+        def fnode:TSNode (unwrap v.functionNode)
+        def total:int (strlen v.srcText)
+        if (total == 0) {
+            return ("function " + v.functionName + "() { [native code] }")
+        }
+        if (fnode.end <= fnode.start) {
+            return ("function " + v.functionName + "() { [native code] }")
+        }
+        if (fnode.end > total) {
+            return ("function " + v.functionName + "() { [native code] }")
+        }
+        return (substring v.srcText fnode.start fnode.end)
+    }
+
+    ; The rendering an object-like value converts to when the step in force
+    ; resolves to the BUILT-IN method rather than one the guest supplied.
+    fn defaultPrimitiveOf:EvalValue (v:EvalValue) {
+        ; A boxed primitive IS its primitive: both of its inherited methods
+        ; report it, so either hint lands here.
+        if (v.valueType == 5) {
+            if (has v.objectMap "__primitive__") {
+                return (unwrap (get v.objectMap "__primitive__"))
             }
-            if primitiveMethodUsable {
-                return ar
+            if (has v.objectMap "__regex__") {
+                return (EvalValue.string(("/" + ((this.regexSourceOf(v)) + ("/" + (this.regexFlagsOf(v)))))))
             }
+            if (has v.objectMap "__error__") {
+                return (EvalValue.string((this.errorToString(v))))
+            }
+            return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
+        }
+        if (v.valueType == 4) {
             return (EvalValue.string((this.arrayJoinString(v ","))))
         }
         if (v.valueType == 6) {
-            def fr:EvalValue (this.callPrimitiveMethod(v "toString"))
-            if scriptThrew {
-                return (EvalValue.undefined())
-            }
-            if primitiveMethodUsable {
-                return fr
-            }
-            return (EvalValue.string(("function " + v.functionName + "() { [native code] }")))
+            return (EvalValue.string((this.functionSourceText(v))))
         }
-        if (v.valueType != 5) {
+        return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
+    }
+
+    fn toPrimitive:EvalValue (v:EvalValue wantString:boolean) {
+        ; Arrays and functions are object-like too and must convert, which is why
+        ; `[1,2] + ''` is "1,2" and `+fn` is NaN. All three kinds run the SAME
+        ; ordered pair -- valueOf then toString for a number hint, the other way
+        ; for a string hint. Arrays and functions used to consult toString only,
+        ; so a `valueOf` the guest hung on one was never asked, and a boxed
+        ; primitive short-circuited to its primitive before either method got a
+        ; turn: `(new String("ABC")).valueOf = f` had no effect.
+        def objLike:boolean false
+        if (v.valueType == 4) { objLike = true }
+        if (v.valueType == 5) { objLike = true }
+        if (v.valueType == 6) { objLike = true }
+        if (objLike == false) {
             return v
         }
-        ; A boxed primitive is its primitive.
-        if (has v.objectMap "__primitive__") {
-            return (unwrap (get v.objectMap "__primitive__"))
+        def boxed:boolean false
+        if (v.valueType == 5) {
+            if (has v.objectMap "__primitive__") {
+                boxed = true
+            }
         }
         def first:string "valueOf"
         def second:string "toString"
@@ -10551,21 +10688,18 @@ class ComponentEngine {
         if primitiveMethodUsable {
             return r1
         }
-        ; With a string hint and no user toString, the DEFAULT toString applies
-        ; and succeeds, so valueOf is never reached: `String({valueOf: …})` is
-        ; the brand, not the number valueOf would have given.
-        if wantString {
-            ; Only when `toString` resolves to the BUILT-IN one. A property that
-            ; exists but is not callable (`{toString: undefined}`) is skipped,
-            ; and valueOf gets its turn.
-            if (this.usesDefaultToString(v)) {
-                if (has v.objectMap "__regex__") {
-                    return (EvalValue.string(("/" + ((this.regexSourceOf(v)) + ("/" + (this.regexFlagsOf(v)))))))
-                }
-                if (has v.objectMap "__error__") {
-                    return (EvalValue.string((this.errorToString(v))))
-                }
-                return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
+        ; The step produced nothing usable. When it resolved to the BUILT-IN
+        ; method, that method's own answer stands and the second step is never
+        ; reached -- which is what makes `String({valueOf: f})` the brand rather
+        ; than f's number. The default valueOf is the exception: it returns the
+        ; object itself, which is no primitive, so only a boxed primitive can
+        ; answer from that step.
+        if (this.usesDefaultMethod(v first)) {
+            if (first == "toString") {
+                return (this.defaultPrimitiveOf(v))
+            }
+            if boxed {
+                return (this.defaultPrimitiveOf(v))
             }
         }
         def r2:EvalValue (this.callPrimitiveMethod(v second))
@@ -10575,68 +10709,19 @@ class ComponentEngine {
         if primitiveMethodUsable {
             return r2
         }
-        ; Neither yielded a primitive. If the object supplied its own methods,
-        ; that is the spec's TypeError -- an object whose valueOf and toString
+        if (this.usesDefaultMethod(v second)) {
+            if (second == "toString") {
+                return (this.defaultPrimitiveOf(v))
+            }
+            if boxed {
+                return (this.defaultPrimitiveOf(v))
+            }
+        }
+        ; Neither step yielded a primitive, and neither fell back to a default.
+        ; That is the spec's TypeError -- an object whose valueOf and toString
         ; both return objects cannot be converted, and the suite checks that it
         ; says so rather than inventing an answer.
-        ; The DEFAULT valueOf returns the object itself, which is not a
-        ; primitive either, so one usable-but-object-returning method is enough
-        ; to make the conversion impossible.
-        if (this.hasUserMethod(v "valueOf")) {
-            return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
-        }
-        if (this.hasUserMethod(v "toString")) {
-            return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
-        }
-        if (has v.objectMap "__regex__") {
-            return (EvalValue.string(("/" + ((this.regexSourceOf(v)) + ("/" + (this.regexFlagsOf(v)))))))
-        }
-        if (has v.objectMap "__error__") {
-            return (EvalValue.string((this.errorToString(v))))
-        }
-        ; Otherwise the inherited Object.prototype.toString applies, which is
-        ; what makes `String({valueOf: function () { return 7; }})` the brand
-        ; rather than 7 -- the string hint never reaches valueOf when the
-        ; default toString is in play.
-        return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
-    }
-
-    ; A method the GUEST defined, as opposed to one inherited from a built-in
-    ; prototype. The difference decides whether a failed ToPrimitive is an error
-    ; or falls back to the default rendering.
-    ; True when `toString` on this object is the inherited built-in rather than
-    ; something the guest supplied -- callable or not.
-    fn usesDefaultToString:boolean (v:EvalValue) {
-        ; An OWN `toString` shadows the default even when its value is
-        ; undefined: the property is there, it is simply not callable, so
-        ; ToPrimitive skips it and valueOf gets its turn.
-        if (has v.objectMap "toString") {
-            return false
-        }
-        def m:EvalValue (v.getMember("toString"))
-        if (m.valueType == 6) {
-            if (null? m.functionNode) {
-                return true
-            }
-            return false
-        }
-        ; Present but not a function: not the default, and not usable either --
-        ; ToPrimitive skips it and tries valueOf.
-        if (false == (m.isUndefined())) {
-            return false
-        }
-        return true
-    }
-
-    fn hasUserMethod:boolean (v:EvalValue name:string) {
-        def m:EvalValue (v.getMember(name))
-        if (m.valueType != 6) {
-            return false
-        }
-        if (null? m.functionNode) {
-            return false
-        }
-        return true
+        return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
     }
 
     ; ToNumber, honouring ToPrimitive for objects.
@@ -12653,6 +12738,7 @@ class ComponentEngine {
                     }
                     if ((mk == "get") || (mk == "set")) {
                         def accFn:EvalValue (EvalValue.boundMethod(m inst))
+                        accFn.srcText = currentSource
                         if (mk == "get") {
                             inst.defineGetter(m.name accFn)
                         } {
@@ -12823,8 +12909,27 @@ class ComponentEngine {
                 if node.right {
                     def indexExpr:TSNode (unwrap node.right)
                     def indexVal:EvalValue (this.evaluateExpr(indexExpr))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
                     if (false == quiet) {
                         this.trace("  Index value: " + (indexVal.toString()) + " type=" + (to_string indexVal.valueType))
+                    }
+                    ; D-ACCESSORS: a computed key reaches an accessor exactly as a
+                    ; written one does -- `o["bar"]` must run the getter `o.bar`
+                    ; runs. Only the written form was checked, above, so the
+                    ; getter was skipped and the read answered undefined.
+                    def ckey:string ""
+                    if (indexVal.isString()) { ckey = indexVal.stringValue }
+                    if (indexVal.isNumber()) { ckey = (this.toPropertyKey(indexVal)) }
+                    if ((strlen ckey) > 0) {
+                        def cgFn:EvalValue (obj.findGetter(ckey 0))
+                        if (cgFn.valueType == 6) {
+                            if cgFn.functionNode {
+                                def cgArgs:[EvalValue]
+                                return (this.callFnValueWithValues((cgFn.withThis(obj)) cgArgs))
+                            }
+                        }
                     }
                     if (indexVal.isNumber()) {
                         def idx:int (to_int (indexVal.toNumber()))
@@ -12868,6 +12973,7 @@ class ComponentEngine {
                 def mnode:TSNode (this.findMethodOnClassNode(mcls propName))
                 if (mnode.nodeType == "MethodDefinition") {
                     def bm:EvalValue (EvalValue.boundMethod(mnode obj))
+                    bm.srcText = currentSource
                     ; provenance travels with the value: a stored method of a
                     ; module instance still roots in its module when invoked
                     bm.homeModule = (this.instanceModuleTag(obj))
