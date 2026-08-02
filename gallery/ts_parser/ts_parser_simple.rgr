@@ -229,7 +229,7 @@ class TSParserSimple {
     while (this.pos < (array_length this.tokens)) {
       def tok (this.peek())
       def tokType:string tok.tokenType
-      if ((tokType == "LineComment") || (tokType == "BlockComment")) {
+      if ((tokType == "LineComment") || (tokType == "BlockComment") || (tokType == "HtmlComment")) {
         this.pos = this.pos + 1
         if (this.pos < (array_length this.tokens)) {
           this.currentToken = (itemAt this.tokens this.pos)
@@ -868,6 +868,17 @@ class TSParserSimple {
     }
 
     this.atModuleTopLevel = false
+
+    if (this.moduleMode) {
+      def ti:int 0
+      while (ti < (array_length this.tokens)) {
+        def t:Token (itemAt this.tokens ti)
+        if (t.tokenType == "HtmlComment") {
+          this.syntaxError("Parse error: HTML-like comments are not allowed in module code")
+        }
+        ti = (ti + 1)
+      }
+    }
 
     this.checkPendingExportRefs()
 
@@ -2804,10 +2815,14 @@ class TSParserSimple {
     
     this.expectValue("throw")
 
-    ; Restricted production: the argument must start on the same line.
+    ; Restricted production: the argument must start on the same line, and it
+    ; is not optional.
     def throwArgTok (this.peek())
     if (throwArgTok.line != this.lastTokenLine) {
       this.syntaxError("Parse error: no line terminator is allowed after 'throw'")
+    }
+    if ((this.isAtEnd()) || (throwArgTok.value == ";") || (throwArgTok.value == "}")) {
+      this.syntaxError("Parse error: 'throw' requires an argument")
     }
     
     def arg (this.parseExpr())
@@ -6883,6 +6898,12 @@ class TSParserSimple {
       node.typeAnnotation = retType
     }
     
+    def arrowTok (this.peek())
+    if (arrowTok.value == "=>") {
+      if (arrowTok.line != this.lastTokenLine) {
+        this.syntaxError("Parse error: no line terminator is allowed before '=>'")
+      }
+    }
     this.expectValue("=>")
     
     ; Parse body: expression or block

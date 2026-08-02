@@ -453,7 +453,7 @@ class TSLexer  {
       }
       value = value + this.advance();
     };
-    return this.makeToken("LineComment", value, startPos, startLine, startCol);
+    return this.makeToken("HtmlComment", value, startPos, startLine, startCol);
   };
   readBlockComment () {
     const startPos = this.pos;
@@ -1503,7 +1503,7 @@ class TSLexer  {
     while (true) {
       const tok = this.nextToken();
       tokens.push(tok);
-      if ( (tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment") ) {
+      if ( ((tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment")) && (tok.tokenType != "HtmlComment") ) {
         if ( tok.tokenType == "Punctuator" ) {
           if ( tok.value == "(" ) {
             let headerOpen = "e";
@@ -2019,7 +2019,7 @@ class TSParserSimple  {
     while (this.pos < (this.tokens.length)) {
       const tok = this.peek();
       const tokType = tok.tokenType;
-      if ( (tokType == "LineComment") || (tokType == "BlockComment") ) {
+      if ( ((tokType == "LineComment") || (tokType == "BlockComment")) || (tokType == "HtmlComment") ) {
         this.pos = this.pos + 1;
         if ( this.pos < (this.tokens.length) ) {
           this.currentToken = this.tokens[this.pos];
@@ -2659,6 +2659,16 @@ class TSParserSimple  {
       this.guardNoProgress(beforePos);
     };
     this.atModuleTopLevel = false;
+    if ( this.moduleMode ) {
+      let ti = 0;
+      while (ti < (this.tokens.length)) {
+        const t = this.tokens[ti];
+        if ( t.tokenType == "HtmlComment" ) {
+          this.syntaxError("Parse error: HTML-like comments are not allowed in module code");
+        }
+        ti = ti + 1;
+      };
+    }
     this.checkPendingExportRefs();
     this.popScope();
     return prog;
@@ -4180,6 +4190,9 @@ class TSParserSimple  {
     const throwArgTok = this.peek();
     if ( throwArgTok.line != this.lastTokenLine ) {
       this.syntaxError("Parse error: no line terminator is allowed after 'throw'");
+    }
+    if ( (this.isAtEnd() || (throwArgTok.value == ";")) || (throwArgTok.value == "}") ) {
+      this.syntaxError("Parse error: 'throw' requires an argument");
     }
     const arg = this.parseExpr();
     node.left = arg;
@@ -7380,6 +7393,12 @@ class TSParserSimple  {
       this.advance();
       const retType = this.parseType();
       node.typeAnnotation = retType;
+    }
+    const arrowTok = this.peek();
+    if ( arrowTok.value == "=>" ) {
+      if ( arrowTok.line != this.lastTokenLine ) {
+        this.syntaxError("Parse error: no line terminator is allowed before '=>'");
+      }
     }
     this.expectValue("=>");
     if ( this.matchValue("{") ) {

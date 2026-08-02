@@ -281,7 +281,9 @@ class TSLexer {
         return (this.makeToken("LineComment" value startPos startLine startCol))
     }
 
-    ; Annex B HTML-like comment: everything to the end of the line.
+    ; Annex B HTML-like comment: everything to the end of the line. Typed
+    ; separately from a line comment so the parser can reject it in module
+    ; code, where Annex B does not apply.
     fn readHtmlComment:Token () {
         def startPos:int pos
         def startLine:int line
@@ -293,7 +295,7 @@ class TSLexer {
             if (ch == "\r\n") { break }
             value = value + (this.advance())
         }
-        return (this.makeToken("LineComment" value startPos startLine startCol))
+        return (this.makeToken("HtmlComment" value startPos startLine startCol))
     }
 
     fn readBlockComment:Token () {
@@ -1277,7 +1279,7 @@ class TSLexer {
             def tok:Token (this.nextToken())
             push tokens tok
             ; Comments are not significant for regex-vs-division context.
-            if ((tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment")) {
+            if ((tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment") && (tok.tokenType != "HtmlComment")) {
                 if (tok.tokenType == "Punctuator") {
                     if (tok.value == "(") {
                         def headerOpen:string "e"
