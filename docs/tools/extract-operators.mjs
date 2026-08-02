@@ -17,7 +17,7 @@ import { categoryOf, definitionKey, shortSignature, targetSupport, typeString } 
 import { operatorAnchor, operatorId, slugType } from "./lib/opid.mjs";
 import { DATA, DOCS, ROOT, readJson, writeJson } from "./lib/paths.mjs";
 
-const TARGET_IDS = TARGETS.map((t) => t.id);
+
 
 /**
  * The collection operators that the body of a macro calls.
@@ -33,6 +33,23 @@ const ACCESSORS = ["keys", "get", "at", "size", "itemAt", "array_length", "push"
 function collectionAccessors(body) {
   const text = String(body || "");
   return ACCESSORS.filter((name) => new RegExp(`\\(\\s*${name}\\b`).test(text));
+}
+
+/**
+ * What the body of the macro reads, in one word.
+ *
+ * `keys` and `get` read a hash map. `size` and `at` read an array. The word
+ * goes into the heading, because the parameters of a `defn` carry no type and
+ * two macros of one name are otherwise identical on the page.
+ */
+function readsKind(accessors) {
+  if (accessors.includes("keys")) {
+    return "a hash map";
+  }
+  if (accessors.includes("at") || accessors.includes("itemAt") || accessors.includes("size")) {
+    return "an array";
+  }
+  return "";
 }
 
 function probeProgram(source) {
@@ -146,7 +163,7 @@ async function main() {
         doc: def.doc,
         comment: def.comment,
         templates: def.templates,
-        support: targetSupport(def, TARGET_IDS),
+        support: targetSupport(def, TARGETS),
         registered: registeredNames.has(def.name),
         file: source.file,
         line: def.line,
@@ -188,6 +205,7 @@ async function main() {
       model.macros.push({
         id: `${source.id}/macro.${macro.name}.${macro.params.length}.${macro.line}`,
         reads: collectionAccessors(macro.definition),
+        readsKind: readsKind(collectionAccessors(macro.definition)),
         source: source.id,
         name: macro.name,
         params: macro.params,

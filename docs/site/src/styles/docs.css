@@ -127,3 +127,23 @@
   font-size: 0.8rem;
   color: var(--sl-color-gray-2);
 }
+
+/*
+ * Code in a heading.
+ *
+ * A signature is long, and at the full heading size it fills the line and
+ * pushes the words after it out of view. The smaller size keeps the heading a
+ * heading and lets the text after the signature stay readable.
+ */
+.sl-markdown-content h2 code,
+.sl-markdown-content h3 code {
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+/* The words after the signature are description, not name. */
+.sl-markdown-content h2 code + em,
+.sl-markdown-content h2 > code ~ *,
+.sl-markdown-content h3 > code ~ * {
+  font-weight: 400;
+}

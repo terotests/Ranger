@@ -1,0 +1,27 @@
+;; topic: faq/array-mutation
+;; title: Build an array while the program runs
+;; category: array
+
+class Main {
+    sfn main:void () {
+        ; The items are not known in advance, so the program adds them one at
+        ; a time.
+        def numbers:[int]
+        def i 1
+        while (i < 4) {
+            push numbers (i * 10)
+            i = i + 1
+        }
+        print ("after push " + (array_length numbers))
+
+        set_at numbers 0 99
+        print ("first " + (itemAt numbers 0))
+
+        removeLast numbers
+        remove_index numbers 0
+        print ("left " + (array_length numbers))
+
+        clear numbers
+        print ("after clear " + (array_length numbers))
+    }
+}

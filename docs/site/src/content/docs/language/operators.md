@@ -92,6 +92,11 @@ this for each operator:
 | Default template | ✱ | The operator has no template of its own, and the `*` template writes the code. The operator works. |
 | No template | ✕ | The operator has no template and no `*` template. The compiler writes no code, and a program that uses the operator does not compile for that target. |
 
+TypeScript is the JavaScript writer with type annotations, so a TypeScript
+program uses the `es6` template of the operator. The reference gives TypeScript
+the state of JavaScript when the operator holds no TypeScript template of its
+own.
+
 The first two states both mean that the operator works. The reference gives
 them the same colour and a different mark, because the difference is the origin
 of the code and not the availability of the operator.

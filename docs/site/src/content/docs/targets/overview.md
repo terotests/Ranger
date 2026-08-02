@@ -13,7 +13,7 @@ The option `-l=<target>` selects the target language.
 | Target | Option | Output | Note |
 | --- | --- | --- | --- |
 | JavaScript | `-l=es6` | `.js` | The playground and the compiler itself use this target. |
-| TypeScript | `-l=es6 -typescript` | `.ts` | JavaScript output with type annotations. |
+| TypeScript | `-l=es6 -typescript` | `.ts` | The JavaScript writer with type annotations. A TypeScript program uses the JavaScript template of an operator, so its operator support is the support of JavaScript. |
 | Go | `-l=go` | `.go` | An optional value compiles to a structure with a `has_value` field. |
 | Rust | `-l=rust` | `.rs` | Reference counting with `Rc` and `RefCell`. |
 | Python | `-l=python` | `.py` | |
