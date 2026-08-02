@@ -41,7 +41,18 @@ function findNode(ast, predicate) {
     }
   }
   // Check other node references
-  for (const key of ["left", "right", "body", "init", "typeAnnotation"]) {
+  // ConditionalExpression stores its branches in test/consequent/alternate, so
+  // omitting them hid every node inside a ternary from this search.
+  for (const key of [
+    "left",
+    "right",
+    "body",
+    "init",
+    "typeAnnotation",
+    "test",
+    "consequent",
+    "alternate",
+  ]) {
     if (ast[key] && findNode(ast[key], predicate)) return true;
   }
   return false;

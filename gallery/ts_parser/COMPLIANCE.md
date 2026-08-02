@@ -1,6 +1,6 @@
 # TypeScript Parser Compliance Report
 
-> Generated: 2025-12-16  
+> Generated: 2026-08-02  
 > Parser: Ranger TypeScript Parser  
 > Compliance Score: **100.0%**
 
