@@ -985,6 +985,11 @@ class ComponentEngine {
     }
 
     fn loadScript:void (src:string) {
+        ; Seed the engine-provided globals before anything runs. Lazy seeding was
+        ; observable: `typeof Symbol` resolves through bindingExists, which does
+        ; not trigger the seed, so it answered "undefined" for a global that
+        ; existed the moment anything else touched it.
+        this.ensureErrorCtors()
         source = src
         def ast:TSNode (this.parseProgramFromSrc(src))
         programAst = ast
@@ -5630,6 +5635,80 @@ class ComponentEngine {
                         }
                         return src
                     }
+                    ; D-PROTO: prototype access as spec statics. Tests reach for
+                    ; these constantly to set up their assertions, and each one
+                    ; that is missing fails the test for a reason unrelated to
+                    ; what it is actually checking.
+                    if (methodName == "getPrototypeOf") {
+                        if src.protoRef {
+                            return (unwrap src.protoRef)
+                        }
+                        return (EvalValue.null())
+                    }
+                    if (methodName == "setPrototypeOf") {
+                        if ((array_length node.children) > 1) {
+                            def np:EvalValue (this.evaluateExpr((itemAt node.children 1)))
+                            if (np.valueType == 5) {
+                                src.protoRef = np
+                            }
+                        }
+                        return src
+                    }
+                    if (methodName == "create") {
+                        def keysC:[string]
+                        def valsC:[EvalValue]
+                        def created:EvalValue (EvalValue.object(keysC valsC))
+                        if (src.valueType == 5) {
+                            created.protoRef = src
+                        }
+                        return created
+                    }
+                    ; D-DESCRIPTORS: data descriptors only. Accessors need real
+                    ; getter/setter storage, which this evaluator does not have
+                    ; yet, so `get`/`set` in a descriptor are deliberately NOT
+                    ; silently accepted — see defineProperty below.
+                    if (methodName == "getOwnPropertyDescriptor") {
+                        if ((array_length node.children) > 1) {
+                            def dk:string ((this.evaluateExpr((itemAt node.children 1))).toString())
+                            if (this.objHasKey(src dk)) {
+                                def keysD:[string]
+                                def valsD:[EvalValue]
+                                def desc:EvalValue (EvalValue.object(keysD valsD))
+                                desc.setMember("value" (src.getMember(dk)))
+                                desc.setMember("writable" (EvalValue.boolean(true)))
+                                desc.setMember("enumerable" (EvalValue.boolean(true)))
+                                desc.setMember("configurable" (EvalValue.boolean(true)))
+                                return desc
+                            }
+                        }
+                        return (EvalValue.undefined())
+                    }
+                    if (methodName == "defineProperty") {
+                        if ((array_length node.children) > 2) {
+                            def pk:string ((this.evaluateExpr((itemAt node.children 1))).toString())
+                            def pd:EvalValue (this.evaluateExpr((itemAt node.children 2)))
+                            def gv:EvalValue (pd.getMember("get"))
+                            def sv:EvalValue (pd.getMember("set"))
+                            if ((gv.valueType == 6) || (sv.valueType == 6)) {
+                                ; Accepting an accessor descriptor and storing
+                                ; only its value would make the property read
+                                ; wrong forever, silently. Fail loudly instead.
+                                return (this.throwSpecError("TypeError" "accessor property descriptors are not supported by this evaluator"))
+                            }
+                            src.setMember(pk (pd.getMember("value")))
+                        }
+                        return src
+                    }
+                    if (methodName == "getOwnPropertyNames") {
+                        def itemsN:[EvalValue]
+                        def ksN:[string] (this.objectKeys(src))
+                        def iN:int 0
+                        while (iN < (array_length ksN)) {
+                            push itemsN (EvalValue.string((itemAt ksN iN)))
+                            iN = (iN + 1)
+                        }
+                        return (EvalValue.array(itemsN))
+                    }
                 }
                 if (arrStaticName == "JSON") {
                     if (methodName == "stringify") {
@@ -6218,11 +6297,50 @@ class ComponentEngine {
         return out
     }
 
+    ; D-SYMBOL: `Symbol` as a global with the well-known symbols. Each is a
+    ; distinct object value, so `Symbol.iterator !== Symbol.asyncIterator` and a
+    ; symbol compares equal only to itself — the property tests rely on that.
+    ; Symbol() as a factory is handled at the call site; this seeds the statics.
+    fn ensureSymbolGlobal:void () {
+        def existing:EvalValue (hostScope.lookup("Symbol"))
+        if (existing.valueType == 6) {
+            return
+        }
+        def sym:EvalValue (EvalValue.nativeFunction("Symbol"))
+        sym.setMember("name" (EvalValue.string("Symbol")))
+        def wk:[string]
+        push wk "iterator"
+        push wk "asyncIterator"
+        push wk "hasInstance"
+        push wk "toPrimitive"
+        push wk "toStringTag"
+        push wk "species"
+        push wk "isConcatSpreadable"
+        push wk "unscopables"
+        push wk "match"
+        push wk "replace"
+        push wk "search"
+        push wk "split"
+        def i:int 0
+        while (i < (array_length wk)) {
+            def nm:string (itemAt wk i)
+            def keysS:[string]
+            def valsS:[EvalValue]
+            def s:EvalValue (EvalValue.object(keysS valsS))
+            s.setMember("__symbol__" (EvalValue.string(nm)))
+            s.setMember("description" (EvalValue.string(("Symbol." + nm))))
+            sym.setMember(nm s)
+            i = (i + 1)
+        }
+        hostScope.define("Symbol" sym)
+    }
+
     fn ensureErrorCtors:void () {
         if errorCtorsReady {
             return
         }
         errorCtorsReady = true
+        this.ensureSymbolGlobal()
         def names:[string] (this.errorKindNames())
         def i:int 0
         while (i < (array_length names)) {

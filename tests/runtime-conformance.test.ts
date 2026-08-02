@@ -227,6 +227,22 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["fnprop-ctor-instanceof", "var F = function () { this.v = 1; }; var o = new F(); return o instanceof F;", "fnprops"],
   ["fnprop-ctor-guard", "var F = function (m) { if (!(this instanceof F)) { return new F(m); } this.m = m; }; return F('x').m;", "fnprops"],
 
+  // --- Symbol and property descriptors --------------------------------------
+  // Test262 reaches for these constantly to SET UP its assertions, so each one
+  // missing fails tests for reasons unrelated to what they actually check.
+  ["symbol-typeof", "return typeof Symbol;", "symbols"],
+  ["symbol-iterator-defined", "return Symbol.iterator !== undefined;", "symbols"],
+  ["symbol-self-equal", "return Symbol.iterator === Symbol.iterator;", "symbols"],
+  ["symbol-distinct", "return Symbol.iterator === Symbol.asyncIterator;", "symbols"],
+  ["obj-get-prototype-of", "var F = function () {}; var o = new F(); return Object.getPrototypeOf(o) === F.prototype;", "descriptors"],
+  ["obj-create", "var p = { k: 7 }; var o = Object.create(p); return o.k;", "descriptors"],
+  ["obj-set-prototype-of", "var p = { k: 3 }; var o = {}; Object.setPrototypeOf(o, p); return o.k;", "descriptors"],
+  ["obj-desc-value", "var o = { a: 1 }; return Object.getOwnPropertyDescriptor(o, 'a').value;", "descriptors"],
+  ["obj-desc-writable", "var o = { a: 1 }; return Object.getOwnPropertyDescriptor(o, 'a').writable;", "descriptors"],
+  ["obj-desc-missing", "var o = {}; return Object.getOwnPropertyDescriptor(o, 'z') === undefined;", "descriptors"],
+  ["obj-define-property", "var o = {}; Object.defineProperty(o, 'a', { value: 5 }); return o.a;", "descriptors"],
+  ["obj-own-property-names", "var o = { a: 1, b: 2 }; return Object.getOwnPropertyNames(o).length;", "descriptors"],
+
   // --- builtins -------------------------------------------------------------
   ["json-roundtrip", "var o = { a: [1, 2] }; return JSON.parse(JSON.stringify(o)).a[1];", "builtins"],
   ["json-nan-null", "return JSON.stringify(NaN);", "builtins"],
