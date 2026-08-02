@@ -1717,6 +1717,19 @@ class TSParserSimple  {
     }
   };
   recheckStrictSignature (name, params) {
+    let k = 0;
+    while (k < (params.length)) {
+      const sp = params[k];
+      const spKind = sp.nodeType;
+      if ( spKind != "Parameter" ) {
+        this.syntaxError("Parse error: a function with a 'use strict' directive must have a simple parameter list");
+      } else {
+        if ( (typeof(sp.init) === "undefined") == false ) {
+          this.syntaxError("Parse error: a function with a 'use strict' directive must have a simple parameter list");
+        }
+      }
+      k = k + 1;
+    };
     if ( (name.length) > 0 ) {
       if ( this.isStrictReservedWord(name) ) {
         this.syntaxError(("Parse error: '" + name) + "' cannot name a function whose body is strict");
@@ -2201,6 +2214,11 @@ class TSParserSimple  {
         startsBinding = true;
       }
       if ( startsBinding ) {
+        if ( this.inSingleStatementBody ) {
+          if ( tokVal != "var" ) {
+            this.syntaxError("Parse error: a lexical declaration cannot be a statement body");
+          }
+        }
         return this.parseVarDecl();
       }
     }
@@ -2943,6 +2961,8 @@ class TSParserSimple  {
     }
     const savedDerived = this.inDerivedClass;
     this.inDerivedClass = false;
+    const savedClassStrictAll = this.strictMode;
+    this.strictMode = true;
     if ( this.matchValue("extends") ) {
       this.inDerivedClass = true;
       this.advance();
@@ -2971,6 +2991,7 @@ class TSParserSimple  {
     const body = this.parseClassBody();
     node.body = body;
     this.inDerivedClass = savedDerived;
+    this.strictMode = savedClassStrictAll;
     return node;
   };
   parseClassBody () {
@@ -3714,6 +3735,7 @@ class TSParserSimple  {
         if ( this.matchValue("of") ) {
           node.nodeType = "ForOfStatement";
           node.await = isAwait;
+          this.checkAssignmentTarget(initExpr);
           this.advance();
           node.left = initExpr;
           const ofRight = this.parseExpr();
@@ -3733,7 +3755,9 @@ class TSParserSimple  {
           if ( initExpr.value == "in" ) {
             if ( this.matchValue(")") ) {
               node.nodeType = "ForInStatement";
-              node.left = initExpr.left;
+              const inLeft = initExpr.left;
+              this.checkAssignmentTarget(inLeft);
+              node.left = inLeft;
               node.right = initExpr.right;
               this.expectValue(")");
               const savedBodyFlag5 = this.inSingleStatementBody;
@@ -4099,6 +4123,12 @@ class TSParserSimple  {
             if ( (this.declaringKind.length) > 0 ) {
               this.checkBindableName(prop.name);
               this.declareBinding(this.declaringKind, prop.name);
+            } else {
+              if ( this.strictMode ) {
+                if ( (prop.name == "eval") || (prop.name == "arguments") ) {
+                  this.syntaxError(("Parse error: cannot assign to '" + prop.name) + "' in strict mode");
+                }
+              }
             }
             if ( this.matchValue("=") ) {
               this.advance();

@@ -395,6 +395,21 @@ class TSParserSimple {
   ; `({ a(eval) { "use strict"; } })` are early errors even though the offending
   ; names were read before the directive was seen.
   fn recheckStrictSignature:void (name:string params:[TSNode]) {
+    ; A function whose body opens with "use strict" must have a SIMPLE
+    ; parameter list -- no patterns, defaults or rest elements.
+    def k:int 0
+    while (k < (array_length params)) {
+      def sp:TSNode (itemAt params k)
+      def spKind:string sp.nodeType
+      if (spKind != "Parameter") {
+        this.syntaxError("Parse error: a function with a 'use strict' directive must have a simple parameter list")
+      } {
+        if ((null? sp.init) == false) {
+          this.syntaxError("Parse error: a function with a 'use strict' directive must have a simple parameter list")
+        }
+      }
+      k = (k + 1)
+    }
     if ((strlen name) > 0) {
       if (this.isStrictReservedWord(name)) {
         this.syntaxError("Parse error: '" + name + "' cannot name a function whose body is strict")
@@ -873,6 +888,13 @@ class TSParserSimple {
       if (afterKind == "[") { startsBinding = true }
       if (tokVal != "let") { startsBinding = true }
       if startsBinding {
+        ; A lexical declaration is not a Statement, so it cannot be the body of
+        ; an if/loop/with: `with (true) let a` is an error.
+        if (this.inSingleStatementBody) {
+          if (tokVal != "var") {
+            this.syntaxError("Parse error: a lexical declaration cannot be a statement body")
+          }
+        }
         return (this.parseVarDecl())
       }
     }
@@ -1848,6 +1870,9 @@ class TSParserSimple {
     ; Parse extends clause. The superclass is an expression, not a type.
     def savedDerived:boolean this.inDerivedClass
     this.inDerivedClass = false
+    ; A class is strict code throughout, heritage expression included.
+    def savedClassStrictAll:boolean this.strictMode
+    this.strictMode = true
     if (this.matchValue("extends")) {
       this.inDerivedClass = true
       this.advance()
@@ -1881,6 +1906,7 @@ class TSParserSimple {
     node.body = body
 
     this.inDerivedClass = savedDerived
+    this.strictMode = savedClassStrictAll
 
     return node
   }
@@ -2794,6 +2820,7 @@ class TSParserSimple {
         if (this.matchValue("of")) {
           node.nodeType = "ForOfStatement"
           node.await = isAwait
+          this.checkAssignmentTarget(initExpr)
           this.advance()
           node.left = initExpr
           def ofRight (this.parseExpr())
@@ -2817,7 +2844,9 @@ class TSParserSimple {
           if (initExpr.value == "in") {
             if (this.matchValue(")")) {
               node.nodeType = "ForInStatement"
-              node.left = (unwrap initExpr.left)
+              def inLeft:TSNode (unwrap initExpr.left)
+              this.checkAssignmentTarget(inLeft)
+              node.left = inLeft
               node.right = (unwrap initExpr.right)
               this.expectValue(")")
               def savedBodyFlag5:boolean this.inSingleStatementBody
@@ -3278,6 +3307,14 @@ class TSParserSimple {
             if ((strlen this.declaringKind) > 0) {
               this.checkBindableName(prop.name)
               this.declareBinding(this.declaringKind prop.name)
+            } {
+              ; An assignment pattern still may not target eval/arguments in
+              ; strict code: `({eval = 1} = 2)`.
+              if (this.strictMode) {
+                if ((prop.name == "eval") || (prop.name == "arguments")) {
+                  this.syntaxError("Parse error: cannot assign to '" + prop.name + "' in strict mode")
+                }
+              }
             }
             ; Shorthand with default: { a = 1 }
             if (this.matchValue("=")) {
