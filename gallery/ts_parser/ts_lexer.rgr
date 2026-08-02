@@ -243,12 +243,14 @@ class TSLexer {
         this.advance() ; consume opening quote
         def value:string ""
         def sawEscape:boolean false
+        def sawOctalEscape:boolean false
         while (pos < len) {
             def ch:string (this.peek())
             if (ch == quote) {
                 this.advance()
                 def strTok:Token (this.makeToken("String" value startPos startLine startCol))
                 strTok.hasEscape = sawEscape
+                strTok.legacyOctal = sawOctalEscape
                 return strTok
             }
             ; An unescaped line terminator may not appear in a string literal.
@@ -285,6 +287,7 @@ class TSLexer {
                                             ; \01 is a legacy octal escape.
                                             def afterZero:string (this.peek())
                                             if (this.isDigit(afterZero)) {
+                                                sawOctalEscape = true
                                                 value = value + esc
                                             } {
                                                 value = value + (strfromcode 0)
@@ -328,6 +331,11 @@ class TSLexer {
                                                             ; escape sequences.
                                                             if ((esc == "8") || (esc == "9")) {
                                                                 return (this.makeToken("Invalid" value startPos startLine startCol))
+                                                            }
+                                                            ; \1..\7 is a legacy
+                                                            ; octal escape.
+                                                            if (this.isDigit(esc)) {
+                                                                sawOctalEscape = true
                                                             }
                                                             value = value + esc
                                                         }
@@ -535,7 +543,9 @@ class TSLexer {
             }
             return (this.makeToken("Invalid" (substring source startPos pos) startPos startLine startCol))
         }
-        return (this.makeToken("Number" value startPos startLine startCol))
+        def numTok:Token (this.makeToken("Number" value startPos startLine startCol))
+        numTok.legacyOctal = legacyOctal
+        return numTok
     }
 
     ; Hex digit value, or -1 when the character is not a hex digit.
@@ -592,6 +602,7 @@ class TSLexer {
             }
             if (any == false) { return "" }
             if ((this.peek()) != "}") { return "" }
+            if (code > 1114111) { return "" }
             this.advance()
         } {
             def i:int 0

@@ -7,6 +7,7 @@ class Token  {
     this.start = 0;
     this.end = 0;
     this.hasEscape = false;
+    this.legacyOctal = false;
   }
 }
 class TSLexer  {
@@ -253,12 +254,14 @@ class TSLexer  {
     this.advance();
     let value = "";
     let sawEscape = false;
+    let sawOctalEscape = false;
     while (this.pos < this.__len) {
       const ch = this.peek();
       if ( ch == quote ) {
         this.advance();
         const strTok = this.makeToken("String", value, startPos, startLine, startCol);
         strTok.hasEscape = sawEscape;
+        strTok.legacyOctal = sawOctalEscape;
         return strTok;
       }
       if ( ch == "\n" ) {
@@ -292,6 +295,7 @@ class TSLexer  {
                     if ( esc == "0" ) {
                       const afterZero = this.peek();
                       if ( this.isDigit(afterZero) ) {
+                        sawOctalEscape = true;
                         value = value + esc;
                       } else {
                         value = value + (String.fromCharCode(0));
@@ -328,6 +332,9 @@ class TSLexer  {
                             } else {
                               if ( (esc == "8") || (esc == "9") ) {
                                 return this.makeToken("Invalid", value, startPos, startLine, startCol);
+                              }
+                              if ( this.isDigit(esc) ) {
+                                sawOctalEscape = true;
                               }
                               value = value + esc;
                             }
@@ -531,7 +538,9 @@ class TSLexer  {
       };
       return this.makeToken("Invalid", (this.source.substring(startPos, this.pos )), startPos, startLine, startCol);
     }
-    return this.makeToken("Number", value, startPos, startLine, startCol);
+    const numTok = this.makeToken("Number", value, startPos, startLine, startCol);
+    numTok.legacyOctal = legacyOctal;
+    return numTok;
   };
   hexValue (ch) {
     if ( (ch.length) == 0 ) {
@@ -601,6 +610,9 @@ class TSLexer  {
         return "";
       }
       if ( this.peek() != "}" ) {
+        return "";
+      }
+      if ( code > 1114111 ) {
         return "";
       }
       this.advance();
@@ -1455,6 +1467,7 @@ class TSParserSimple  {
     this.functionDepth = 0;
     this.sawRestParam = false;
     this.lastBlockEnabledStrict = false;
+    this.restParamPending = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -1578,7 +1591,14 @@ class TSParserSimple  {
     const total = this.scopeNames.length;
     const scopeIdx = depth - 1;
     let limit = 0;
+    let hoists = false;
     if ( kind == "v" ) {
+      hoists = true;
+    }
+    if ( kind == "f" ) {
+      hoists = true;
+    }
+    if ( hoists ) {
       let walk = scopeIdx;
       let keepWalking = true;
       while ((walk >= 0) && keepWalking) {
@@ -1610,9 +1630,18 @@ class TSParserSimple  {
             clash = true;
           }
         }
-        if ( kind == "v" ) {
+        if ( hoists ) {
           if ( entryKind == "l" ) {
             clash = true;
+          }
+        }
+        if ( kind == "f" ) {
+          if ( entryKind == "f" ) {
+            if ( i >= ownStart ) {
+              if ( (this.scopeIsFn[scopeIdx]) == 0 ) {
+                clash = true;
+              }
+            }
           }
         }
         if ( kind == "p" ) {
@@ -1758,6 +1787,11 @@ class TSParserSimple  {
     if ( this.inGenerator ) {
       if ( name == "yield" ) {
         this.syntaxError("Parse error: 'yield' cannot be used as a name inside a generator");
+      }
+    }
+    if ( this.declaringKind == "l" ) {
+      if ( name == "let" ) {
+        this.syntaxError("Parse error: 'let' cannot be the name of a lexical binding");
       }
     }
   };
@@ -3091,6 +3125,12 @@ class TSParserSimple  {
     }
     const nameTok = this.expect("Identifier");
     param.name = nameTok.value;
+    if ( this.restParamPending ) {
+      this.restParamPending = false;
+      if ( this.matchValue("=") ) {
+        this.syntaxError("Parse error: a rest parameter may not have a default");
+      }
+    }
     if ( this.matchValue("?") ) {
       param.optional = true;
       this.advance();
@@ -3813,6 +3853,12 @@ class TSParserSimple  {
           const restTarget = this.parseBindingTarget();
           restElem.left = restTarget;
           restElem.name = restTarget.name;
+          if ( this.matchValue("=") ) {
+            this.syntaxError("Parse error: a rest element may not have a default");
+          }
+          if ( this.matchValue(",") ) {
+            this.syntaxError("Parse error: a rest element must be last in an array pattern");
+          }
           node.children.push(restElem);
         } else {
           node.children.push(this.parseBindingElement());
@@ -3842,7 +3888,7 @@ class TSParserSimple  {
     if ( this.matchValue("(") == false ) {
       const nameTok = this.expectBindingName();
       node.name = nameTok.value;
-      this.declareBinding("v", node.name);
+      this.declareBinding("f", node.name);
     }
     this.pushScope(true);
     this.functionDepth = this.functionDepth + 1;
@@ -3917,6 +3963,7 @@ class TSParserSimple  {
     }
     if ( isRest ) {
       this.sawRestParam = true;
+      this.restParamPending = true;
     }
     if ( this.matchValue("{") ) {
       const savedParamDeclaring = this.declaringKind;
@@ -5608,6 +5655,11 @@ class TSParserSimple  {
       return id;
     }
     if ( tokType == "Number" ) {
+      if ( this.strictMode ) {
+        if ( tok.legacyOctal ) {
+          this.syntaxError("Parse error: legacy octal literals are not allowed in strict mode");
+        }
+      }
       this.advance();
       const num = new TSNode();
       num.nodeType = "NumericLiteral";
@@ -5630,6 +5682,11 @@ class TSParserSimple  {
       return bigint;
     }
     if ( tokType == "String" ) {
+      if ( this.strictMode ) {
+        if ( tok.legacyOctal ) {
+          this.syntaxError("Parse error: octal escape sequences are not allowed in strict mode");
+        }
+      }
       this.advance();
       const str = new TSNode();
       str.nodeType = "StringLiteral";

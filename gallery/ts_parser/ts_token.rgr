@@ -29,4 +29,8 @@ class Token {
     ; prologue is matched against the RAW source, so 'use\x20strict' is an
     ; ordinary expression statement rather than a "use strict" directive.
     def hasEscape:boolean false
+    ; True for a legacy octal literal (01) and for a string containing a legacy
+    ; octal escape ('\41'). Both are forbidden in strict code, which the lexer
+    ; cannot know about, so it records the fact and the parser decides.
+    def legacyOctal:boolean false
 }

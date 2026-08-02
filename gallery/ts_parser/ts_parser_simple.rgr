@@ -100,6 +100,9 @@ class TSParserSimple {
   ; turned strict mode on. The function's name and parameters were already read
   ; by then, so they have to be re-checked against the strict rules afterwards.
   def lastBlockEnabledStrict:boolean false
+  ; Set while the parameter currently being read is a rest element, so its
+  ; default (which the grammar forbids) can be reported.
+  def restParamPending:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -256,7 +259,12 @@ class TSParserSimple {
     def total:int (array_length this.scopeNames)
     def scopeIdx:int (depth - 1)
     def limit:int 0
-    if (kind == "v") {
+    ; A function declaration hoists like a var, but two of them in one *block*
+    ; clash -- at a function or program top level they do not.
+    def hoists:boolean false
+    if (kind == "v") { hoists = true }
+    if (kind == "f") { hoists = true }
+    if hoists {
       ; Walk out to (and including) the nearest function boundary.
       def walk:int scopeIdx
       def keepWalking:boolean true
@@ -289,9 +297,18 @@ class TSParserSimple {
         if (kind == "l") {
           if (i >= ownStart) { clash = true }
         }
-        ; A var over a lexical binding anywhere up to the function boundary.
-        if (kind == "v") {
+        ; A var or function over a lexical binding anywhere up to the function
+        ; boundary.
+        if (hoists) {
           if (entryKind == "l") { clash = true }
+        }
+        ; Two function declarations in the same plain block.
+        if (kind == "f") {
+          if (entryKind == "f") {
+            if (i >= ownStart) {
+              if ((itemAt this.scopeIsFn scopeIdx) == 0) { clash = true }
+            }
+          }
         }
         ; A parameter repeated in the same list.
         if (kind == "p") {
@@ -433,6 +450,13 @@ class TSParserSimple {
     if (this.inGenerator) {
       if (name == "yield") {
         this.syntaxError("Parse error: 'yield' cannot be used as a name inside a generator")
+      }
+    }
+    ; `let` is never a legal lexical binding name, even in sloppy code:
+    ; `let let = 1` and `for (let let of a)` are both errors.
+    if (this.declaringKind == "l") {
+      if (name == "let") {
+        this.syntaxError("Parse error: 'let' cannot be the name of a lexical binding")
       }
     }
   }
@@ -2066,6 +2090,13 @@ class TSParserSimple {
     def nameTok (this.expect("Identifier"))
     param.name = nameTok.value
     
+    if (this.restParamPending) {
+      this.restParamPending = false
+      if (this.matchValue("=")) {
+        this.syntaxError("Parse error: a rest parameter may not have a default")
+      }
+    }
+
     ; Optional marker
     if (this.matchValue("?")) {
       param.optional = true
@@ -2981,6 +3012,13 @@ class TSParserSimple {
           def restTarget (this.parseBindingTarget())
           restElem.left = restTarget
           restElem.name = restTarget.name
+          ; Nothing may follow a rest element, and it takes no default.
+          if (this.matchValue("=")) {
+            this.syntaxError("Parse error: a rest element may not have a default")
+          }
+          if (this.matchValue(",")) {
+            this.syntaxError("Parse error: a rest element must be last in an array pattern")
+          }
           push node.children restElem
         } {
           push node.children (this.parseBindingElement())
@@ -3027,7 +3065,7 @@ class TSParserSimple {
       node.name = nameTok.value
       ; A function declaration binds its name in the enclosing scope, and hoists
       ; like a var.
-      this.declareBinding("v" node.name)
+      this.declareBinding("f" node.name)
     }
 
     ; The parameters and the body's top level share one scope, so
@@ -3122,6 +3160,7 @@ class TSParserSimple {
     }
     if isRest {
       this.sawRestParam = true
+      this.restParamPending = true
     }
     
     ; Check for object destructuring { name, value = default }
@@ -5332,6 +5371,11 @@ class TSParserSimple {
     
     ; Number literal
     if (tokType == "Number") {
+      if (this.strictMode) {
+        if (tok.legacyOctal) {
+          this.syntaxError("Parse error: legacy octal literals are not allowed in strict mode")
+        }
+      }
       this.advance()
       def num (new TSNode())
       num.nodeType = "NumericLiteral"
@@ -5358,6 +5402,11 @@ class TSParserSimple {
     
     ; String literal
     if (tokType == "String") {
+      if (this.strictMode) {
+        if (tok.legacyOctal) {
+          this.syntaxError("Parse error: octal escape sequences are not allowed in strict mode")
+        }
+      }
       this.advance()
       def str (new TSNode())
       str.nodeType = "StringLiteral"
