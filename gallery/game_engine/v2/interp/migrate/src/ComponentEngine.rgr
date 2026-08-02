@@ -5274,6 +5274,16 @@ class ComponentEngine {
                 ; (`assert.sameValue = function ...`) is dispatched the same way.
                 ; Arrays and Map/Set can carry properties too, but their built-in
                 ; method table must still win, so only an own property counts.
+                ; D-ERRORS: calling a method on null or undefined is a TypeError,
+                ; the same as reading one. The read path already said so; the
+                ; CALL path fell through and answered nothing.
+                if strictReferences {
+                    if ((obj.isNull()) || (obj.isUndefined())) {
+                        def nullDesc:string "undefined"
+                        if (obj.isNull()) { nullDesc = "null" }
+                        return (this.throwSpecError("TypeError" ("Cannot read properties of " + (nullDesc + (" (reading '" + (methodName + "')"))))))
+                    }
+                }
                 def canHoldProps:boolean false
                 if (obj.valueType == 5) { canHoldProps = true }
                 if (obj.valueType == 6) { canHoldProps = true }
@@ -6153,7 +6163,19 @@ class ComponentEngine {
                     ; name could still have been served by the unguarded block,
                     ; so throwing would have been wrong.
                     if (obj.valueType == 4) { rcvHolds = true }
+                    ; A primitive receiver too: `(5).nope()` is a TypeError, not
+                    ; a silent undefined. Only null and undefined receivers are
+                    ; left out, and those fail earlier on the property read.
+                    if (obj.valueType == 1) { rcvHolds = true }
+                    if (obj.valueType == 2) { rcvHolds = true }
+                    if (obj.valueType == 3) { rcvHolds = true }
                     if rcvHolds {
+                        ; The ARGUMENTS are evaluated before the callability
+                        ; check, per spec, so `o.bar(foo())` still runs foo().
+                        def unusedArgs:[EvalValue] (this.collectCallArgs(node))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
                         return (this.throwSpecError("TypeError" (methodName + " is not a function")))
                     }
                 }
@@ -6402,6 +6424,21 @@ class ComponentEngine {
                         return (this.throwSpecError("ReferenceError" (cName + " is not defined")))
                     }
                 }
+                ; The same for `o.missing(...)`. The ARGUMENTS are evaluated
+                ; first, per spec -- the callability check comes after -- so a
+                ; call like `o.bar(foo())` must still run foo() before it
+                ; throws. Falling through to null skipped both.
+                if (callee.nodeType == "MemberExpression") {
+                    def missArgs:[EvalValue] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    def missName:string callee.name
+                    if ((strlen missName) == 0) {
+                        missName = "expression"
+                    }
+                    return (this.throwSpecError("TypeError" (missName + " is not a function")))
+                }
             }
         }
 
@@ -6565,12 +6602,38 @@ class ComponentEngine {
 
         ; `key in obj` / `index in array` — property/element presence test.
         if (op == "in") {
-            if (right.isObject()) {
-                return (EvalValue.boolean((this.objHasKey(right (left.toString())))))
+            ; The right operand must be an OBJECT. A primitive is a TypeError,
+            ; not a quiet false -- and a FUNCTION is an object, which is what
+            ; makes `"MAX_VALUE" in Number` true now that the built-in
+            ; constructors are function values.
+            def inKey:string (this.toPropertyKey(left))
+            if scriptThrew {
+                return (EvalValue.undefined())
             }
-            if (right.isArray()) {
-                def idx:int (to_int (left.toNumber()))
-                return (EvalValue.boolean(((idx >= 0) && (idx < (array_length right.arrayValue)))))
+            def inHolds:boolean false
+            if (right.valueType == 4) { inHolds = true }
+            if (right.valueType == 5) { inHolds = true }
+            if (right.valueType == 6) { inHolds = true }
+            if (right.valueType == 9) { inHolds = true }
+            if (right.valueType == 10) { inHolds = true }
+            if (false == inHolds) {
+                return (this.throwSpecError("TypeError" "Cannot use 'in' operator on a non-object"))
+            }
+            if (this.objHasKey(right inKey)) {
+                return (EvalValue.boolean(true))
+            }
+            ; `in` walks the PROTOTYPE CHAIN -- it is not hasOwnProperty.
+            def inWalk:EvalValue right
+            def inDepth:int 0
+            while (inDepth < 16) {
+                if (null? inWalk.protoRef) {
+                    return (EvalValue.boolean(false))
+                }
+                inWalk = (unwrap inWalk.protoRef)
+                if (this.objHasKey(inWalk inKey)) {
+                    return (EvalValue.boolean(true))
+                }
+                inDepth = (inDepth + 1)
             }
             return (EvalValue.boolean(false))
         }
@@ -7366,6 +7429,21 @@ class ComponentEngine {
                 g.setMember("SQRT2" (EvalValue.number((unwrap sq2))))
                 g.setAttrs("SQRT2" false false false)
             }
+            def l2e@(optional):double (to_double "1.4426950408889634")
+            if l2e {
+                g.setMember("LOG2E" (EvalValue.number((unwrap l2e))))
+                g.setAttrs("LOG2E" false false false)
+            }
+            def l10e@(optional):double (to_double "0.4342944819032518")
+            if l10e {
+                g.setMember("LOG10E" (EvalValue.number((unwrap l10e))))
+                g.setAttrs("LOG10E" false false false)
+            }
+            def sqh@(optional):double (to_double "0.7071067811865476")
+            if sqh {
+                g.setMember("SQRT1_2" (EvalValue.number((unwrap sqh))))
+                g.setAttrs("SQRT1_2" false false false)
+            }
         }
         ; D-STATICS: the namespace's own methods, as VALUES. They were resolved
         ; structurally at the call site and existed nowhere else, so
@@ -7586,10 +7664,8 @@ class ComponentEngine {
         if (nsName == "String") {
             p.setMember("__primitive__" (EvalValue.string("")))
             p.setMember("__wrapper__" (EvalValue.string("String")))
-            ; String.prototype.length is 0 per spec, but publishing it here makes
-            ; the prototype win `'abc'.length` -- the property lookup consults the
-            ; prototype before the primitive's own length. Left off deliberately:
-            ; one obscure assertion is not worth breaking every string length.
+            p.setMember("length" (EvalValue.fromInt(0)))
+            p.setAttrs("length" false false false)
         }
         if (nsName == "Boolean") {
             p.setMember("__primitive__" (EvalValue.boolean(false)))
@@ -11065,6 +11141,43 @@ class ComponentEngine {
         ; object, so `new String('abc').slice(1)` found no string to work on —
         ; entire String.prototype areas scored zero because their fixtures are
         ; built this way.
+        ; `new <expression>` where the expression is not a constructor is a
+        ; TypeError, and an unresolvable NAME is a ReferenceError. Neither was
+        ; raised: `new 1` and `new undefined` quietly produced an object.
+        if node.left {
+            def newCallee:TSNode (unwrap node.left)
+            def ncKind:string newCallee.nodeType
+            def calleeIsExpr:boolean false
+            if (ncKind == "NumericLiteral") { calleeIsExpr = true }
+            if (ncKind == "StringLiteral") { calleeIsExpr = true }
+            if (ncKind == "BooleanLiteral") { calleeIsExpr = true }
+            if (ncKind == "NullLiteral") { calleeIsExpr = true }
+            if (ncKind == "NewExpression") { calleeIsExpr = true }
+            if calleeIsExpr {
+                return (this.throwSpecError("TypeError" "expression is not a constructor"))
+            }
+            if (ncKind == "Identifier") {
+                def ncName:string newCallee.name
+                if (false == (this.isBuiltinCtorName(ncName))) {
+                    if (false == (this.isEngineGlobalName(ncName))) {
+                        if (false == (context.has(ncName))) {
+                            ; A class is not a scope binding in this engine, so
+                            ; the class table has to be consulted too before
+                            ; declaring the name unresolvable.
+                            def ncCls:TSNode (this.classNodeByName(ncName))
+                            if (ncCls.nodeType != "ClassDeclaration") {
+                                return (this.throwSpecError("ReferenceError" (ncName + " is not defined")))
+                            }
+                        } {
+                            def ncVal:EvalValue (context.lookup(ncName))
+                            if (ncVal.valueType != 6) {
+                                return (this.throwSpecError("TypeError" (ncName + " is not a constructor")))
+                            }
+                        }
+                    }
+                }
+            }
+        }
         ; D-REGISTRY: `new f()` where f is a BUILT-IN method is a TypeError --
         ; those are not constructors. The suite checks it for method after
         ; method (`var F = String.prototype.slice; new F()`), and without the
@@ -11343,9 +11456,19 @@ class ComponentEngine {
                 def pcName:string (this.ctorNameForKind((this.receiverKind(obj))))
                 if ((strlen pcName) > 0) {
                     if (obj.valueType != 5) {
-                        def kProto:EvalValue (this.builtinPrototype(pcName))
-                        if (has kProto.objectMap propName) {
-                            return (unwrap (get kProto.objectMap propName))
+                        ; A string's OWN length wins over String.prototype.length
+                        ; (which is 0). The prototype fallback is for inherited
+                        ; properties, and length is not one of them.
+                        def ownFirst:boolean false
+                        if (propName == "length") {
+                            if (obj.valueType == 2) { ownFirst = true }
+                            if (obj.valueType == 4) { ownFirst = true }
+                        }
+                        if (false == ownFirst) {
+                            def kProto:EvalValue (this.builtinPrototype(pcName))
+                            if (has kProto.objectMap propName) {
+                                return (unwrap (get kProto.objectMap propName))
+                            }
                         }
                     }
                 }
