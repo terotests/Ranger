@@ -1,0 +1,19 @@
+;; topic: faq/serialize
+;; title: A class to a dictionary and back
+
+class Point @serialize(true) {
+    def x:int 0
+    def y:int 0
+}
+
+class Main {
+    sfn main:void () {
+        def p:Point (new Point())
+        p.x = 3
+        p.y = 4
+
+        def data:JSONDataObject (p.toDictionary())
+        def back:Point (Point.fromDictionary(data))
+        print ("x " + back.x + " y " + back.y)
+    }
+}

@@ -55,8 +55,8 @@ The file holds Markdown paragraphs, inline code and links. The
 
 ## Add an operator source
 
-A new library with an `operators { }` block must have an entry in
-`docs/sources.json`:
+A new library with an `operators { }` block or an `operator type:` block must
+have an entry in `docs/sources.json`:
 
 ```json
 {
@@ -65,12 +65,45 @@ A new library with an `operators { }` block must have an entry in
   "title": "My library",
   "always": false,
   "import": "MyLib.rgr",
-  "summary": "What the operators of the library do."
+  "summary": "What the operators of the library do.",
+  "status": "stable"
 }
 ```
 
 The test `tests/docs-tools.test.ts` fails when a file in `lib/` declares
 operators and the registry has no entry for it.
+
+## The status of a source
+
+| Status | Effect |
+| --- | --- |
+| `stable` | The source gets reference pages and a place in the navigation. |
+| `legacy` | The source gets no page. The [not covered page](/Ranger/docs/reference/not-covered/) names it, with the `reason` field. |
+
+Measure before a change of status. The measurement is the `Import` statement:
+an operator of a library is available only after a program imports the file, so
+
+```sh
+grep -rn "Import.*MyLib.rgr" --include="*.rgr" . | grep -v dist/ | grep -v bin/
+```
+
+states who uses the library. A file that no maintained program imports is
+`legacy`. A `legacy` entry needs a `reason`, and the reason states the
+measurement.
+
+## Add an answer to the questions page
+
+An example of the [questions page](/Ranger/docs/faq/) has a `topic` header in
+the place of the `id` header:
+
+```lisp
+;; topic: faq/array-literal
+;; title: An array literal instead of repeated push
+```
+
+The page `docs/site/src/content/docs/faq.mdx` then reads the compiled output
+with `ex("faq/array-literal")`. A topic example compiles in the same way as an
+operator example, so the code on the page is the output of the compiler.
 
 ## Build the site
 

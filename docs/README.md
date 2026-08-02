@@ -13,8 +13,8 @@ that publishes the site, so the documentation cannot drift from the release.
 
 | Path | Content | In git |
 | --- | --- | --- |
-| `sources.json` | The files that declare operators. A file in `lib/` with an `operators { }` block must be listed. | yes |
-| `examples/` | Example programs. Each one compiles. | yes |
+| `sources.json` | The files that declare operators, and the status of each: `stable` (documented) or `legacy` (listed on the not-covered page, no reference pages). A file in `lib/` with an `operators { }` block or an `operator type:` block must be listed. | yes |
+| `examples/` | Example programs. Each one compiles. A header `id:` binds it to operators; a header `topic:` binds it to a guide page. | yes |
 | `descriptions/` | One Markdown file per operator, with the prose. | yes |
 | `tools/` | The generator (stages A to D). | yes |
 | `style/vale/` | The ASD-STE100 lint rules. | yes |
