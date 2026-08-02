@@ -2839,9 +2839,14 @@ class TSParserSimple {
         declarator.init = initExpr
       }
 
+      ; A `const` needs an initialiser -- except in TypeScript ambient code,
+      ; where `declare const a: number;` is a type-only declaration. A type
+      ; annotation is a good enough proxy: plain JS `const a;` never has one.
       if (node.kind == "const") {
         if (null? declarator.init) {
-          this.syntaxError("Parse error: a 'const' declaration must have an initializer")
+          if (null? declarator.typeAnnotation) {
+            this.syntaxError("Parse error: a 'const' declaration must have an initializer")
+          }
         }
       }
       push node.children declarator
@@ -3115,9 +3120,7 @@ class TSParserSimple {
     if ((this.matchValue("(")) == false) {
       def nameTok (this.expectBindingName())
       node.name = nameTok.value
-      ; A function declaration binds its name in the enclosing scope, and hoists
-      ; like a var.
-      this.declareBinding("f" node.name)
+      ; The name is bound below, once we know this is not an overload signature.
     }
 
     ; The parameters and the body's top level share one scope, so
@@ -3171,15 +3174,29 @@ class TSParserSimple {
       node.typeAnnotation = returnType
     }
     
-    ; Body
-    this.suppressBlockScope = true
-    def body (this.parseBlock())
-    node.body = body
-    if (this.lastBlockEnabledStrict) {
-      this.recheckStrictSignature(node.name node.params)
+    ; Body. A TypeScript overload signature has none -- `function f(a: string):
+    ; void;` -- and must not consume a block or bind the name, so that the
+    ; implementation below it is not a redeclaration.
+    if (this.matchValue("{")) {
+      this.suppressBlockScope = true
+      def body (this.parseBlock())
+      node.body = body
+      if (this.lastBlockEnabledStrict) {
+        this.recheckStrictSignature(node.name node.params)
+      }
+    } {
+      node.kind = "overload"
+      if (this.matchValue(";")) {
+        this.advance()
+      }
     }
 
     this.popScope()
+    if (node.kind != "overload") {
+      ; A function declaration binds its name in the enclosing scope, and hoists
+      ; like a var.
+      this.declareBinding("f" node.name)
+    }
     this.allowSuperCall = savedSuperCall
     this.allowSuperProperty = savedSuperProp
     this.inGenerator = savedGenerator

@@ -3716,7 +3716,9 @@ class TSParserSimple  {
       }
       if ( node.kind == "const" ) {
         if ( typeof(declarator.init) === "undefined" ) {
-          this.syntaxError("Parse error: a 'const' declaration must have an initializer");
+          if ( typeof(declarator.typeAnnotation) === "undefined" ) {
+            this.syntaxError("Parse error: a 'const' declaration must have an initializer");
+          }
         }
       }
       node.children.push(declarator);
@@ -3931,7 +3933,6 @@ class TSParserSimple  {
     if ( this.matchValue("(") == false ) {
       const nameTok = this.expectBindingName();
       node.name = nameTok.value;
-      this.declareBinding("f", node.name);
     }
     this.pushScope(true);
     this.functionDepth = this.functionDepth + 1;
@@ -3972,13 +3973,23 @@ class TSParserSimple  {
       const returnType = this.parseTypeAnnotation();
       node.typeAnnotation = returnType;
     }
-    this.suppressBlockScope = true;
-    const body = this.parseBlock();
-    node.body = body;
-    if ( this.lastBlockEnabledStrict ) {
-      this.recheckStrictSignature(node.name, node.params);
+    if ( this.matchValue("{") ) {
+      this.suppressBlockScope = true;
+      const body = this.parseBlock();
+      node.body = body;
+      if ( this.lastBlockEnabledStrict ) {
+        this.recheckStrictSignature(node.name, node.params);
+      }
+    } else {
+      node.kind = "overload";
+      if ( this.matchValue(";") ) {
+        this.advance();
+      }
     }
     this.popScope();
+    if ( node.kind != "overload" ) {
+      this.declareBinding("f", node.name);
+    }
     this.allowSuperCall = savedSuperCall;
     this.allowSuperProperty = savedSuperProp;
     this.inGenerator = savedGenerator;
