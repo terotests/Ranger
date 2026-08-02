@@ -616,7 +616,40 @@ class RegexCompiler {
 ; The matcher walks a node list and recurses on the REMAINDER, which is what
 ; makes backtracking fall out of ordinary control flow: a quantifier tries a
 ; count, asks the rest of the pattern to match from there, and moves to the next
-; count if that fails.
+; count if that fails. Where the remainder is not lexically at hand -- inside a
+; group, whose body must be able to give characters back to satisfy what follows
+; the group -- it is carried explicitly as a RegexCont chain.
+; A node list behind a reference, so a continuation frame holds a POINTER to it
+; rather than a copy. Ranger copies an array field on assignment; the frames are
+; allocated per attempt and a pattern's node lists never change once compiled.
+class RegexNodeList {
+    def nodes:[RegexNode]
+}
+
+; D-REGEX: the rest of the pattern, as data. A quantified GROUP cannot be matched
+; in isolation -- the outer pattern has to be able to reject what the group found
+; and ask it for a different inner match -- so the group descends into its body
+; carrying the continuation that resumes the quantifier once the body completes.
+; That is the continuation-passing matcher, encoded as an immutable linked list
+; instead of function values, which Ranger does not have. Before this, a group
+; took the first inner match that worked and `/^(a+)\1*,\1+$/` could not find a
+; match that needed `(a+)` to give characters back.
+class RegexCont {
+    ; The end of the chain: reaching it means the whole pattern matched.
+    def isEnd:boolean true
+    def next@(optional):RegexCont
+    def list@(optional):RegexNodeList
+    ; Where to resume in `list`: the index of the quantified group itself, since
+    ; the quantifier decides whether to go round again.
+    def idx:int 0
+    def quant@(optional):RegexNode
+    ; Repetitions completed once the body now running finishes.
+    def done:int 0
+    ; The capture to close, and where this repetition began.
+    def groupIndex:int 0
+    def groupStart:int 0
+}
+
 class RegexMatcher {
     def prog@(optional):RegexProgram
     def input:string ""
@@ -655,7 +688,7 @@ class RegexMatcher {
             def ai:int 0
             while (ai < (array_length alts)) {
                 def alt:RegexNode (itemAt alts ai)
-                def end:int (this.matchList(alt.children 0 start))
+                def end:int (this.matchList(alt.children 0 start (this.endCont())))
                 if (end >= 0) {
                     out.matched = true
                     out.start = start
@@ -690,22 +723,105 @@ class RegexMatcher {
         }
     }
 
-    ; Match nodes[i..] starting at `pos`. Returns the end position, or -1.
-    fn matchList:int (nodes:[RegexNode] i:int pos:int) {
+    ; Every capture index inside a node, its own included. Each repetition of a
+    ; quantified group CLEARS these before matching its body, per the spec's
+    ; RepeatMatcher: a group that participated on an earlier pass and not on this
+    ; one reports undefined, it does not keep the earlier text. `/(z)((a+)?(b+)?(c))*/`
+    ; against "zaacbbbcac" is the standard demonstration -- the `(b+)` is undefined
+    ; because the last repetition had no b, even though an earlier one did.
+    fn collectGroupIndexes:void (n:RegexNode out:[int]) {
+        if (n.groupIndex > 0) {
+            push out n.groupIndex
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            this.collectGroupIndexes((itemAt n.children i) out)
+            i = (i + 1)
+        }
+    }
+
+    fn clearGroupsIn:void (n:RegexNode) {
+        def idxs:[int]
+        this.collectGroupIndexes(n idxs)
+        def i:int 0
+        while (i < (array_length idxs)) {
+            def gi:int (itemAt idxs i)
+            if (gi < (array_length capStart)) {
+                set capStart gi (0 - 1)
+                set capEnd gi (0 - 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The empty continuation: nothing left to match, so reaching it is a match.
+    fn endCont:RegexCont () {
+        def c (new RegexCont)
+        c.isEnd = true
+        return c
+    }
+
+    ; Match nodes[i..] starting at `pos`, then whatever `cont` says comes after.
+    ; Returns the end position, or -1.
+    fn matchList:int (nodes:[RegexNode] i:int pos:int cont:RegexCont) {
         steps = (steps + 1)
         if (steps > stepLimit) {
             return (0 - 1)
         }
         if (i >= (array_length nodes)) {
-            return pos
+            if cont.isEnd {
+                return pos
+            }
+            return (this.resumeCont(cont pos))
         }
         def n:RegexNode (itemAt nodes i)
-        return (this.matchQuantified(nodes i n pos 0))
+        return (this.matchQuantified(nodes i n pos 0 cont false))
+    }
+
+    ; A group's body finished at `pos`; carry on where the group left off. The
+    ; capture is closed HERE rather than when the body matched, so a backreference
+    ; later in the same pattern sees the repetition that actually stuck.
+    fn resumeCont:int (cont:RegexCont pos:int) {
+        steps = (steps + 1)
+        if (steps > stepLimit) {
+            return (0 - 1)
+        }
+        def nxt:RegexCont (this.endCont())
+        if cont.next {
+            nxt = (unwrap cont.next)
+        }
+        def lst:RegexNodeList (unwrap cont.list)
+        if (null? cont.quant) {
+            return (this.matchList(lst.nodes cont.idx pos nxt))
+        }
+        def qn:RegexNode (unwrap cont.quant)
+        def savedS:[int] (this.copyInts(capStart))
+        def savedE:[int] (this.copyInts(capEnd))
+        if (cont.groupIndex > 0) {
+            set capStart cont.groupIndex cont.groupStart
+            set capEnd cont.groupIndex pos
+        }
+        ; A repetition that consumed nothing would repeat forever, so once the
+        ; minimum is met a zero-width body ends the expansion.
+        def blockMore:boolean false
+        if (pos == cont.groupStart) {
+            if (cont.done >= qn.min) {
+                blockMore = true
+            }
+        }
+        def r:int (this.matchQuantified(lst.nodes cont.idx qn pos cont.done nxt blockMore))
+        if (r >= 0) {
+            return r
+        }
+        this.restoreCaptures(savedS savedE)
+        return (0 - 1)
     }
 
     ; One node with its quantifier. `done` counts repetitions already matched.
     ; Greedy tries one more first and falls back to stopping; lazy the reverse.
-    fn matchQuantified:int (nodes:[RegexNode] i:int n:RegexNode pos:int done:int) {
+    ; `blockMore` refuses another repetition, which is how a zero-width group body
+    ; is stopped from looping.
+    fn matchQuantified:int (nodes:[RegexNode] i:int n:RegexNode pos:int done:int cont:RegexCont blockMore:boolean) {
         steps = (steps + 1)
         if (steps > stepLimit) {
             return (0 - 1)
@@ -715,9 +831,12 @@ class RegexMatcher {
         if (n.max >= 0) {
             if (done >= n.max) { canGo = false }
         }
+        if blockMore {
+            canGo = false
+        }
         if (false == n.greedy) {
             if canStop {
-                def lazyOut:int (this.matchList(nodes (i + 1) pos))
+                def lazyOut:int (this.matchList(nodes (i + 1) pos cont))
                 if (lazyOut >= 0) {
                     return lazyOut
                 }
@@ -728,14 +847,43 @@ class RegexMatcher {
             ; leaves none of its groups behind.
             def savedS:[int] (this.copyInts(capStart))
             def savedE:[int] (this.copyInts(capEnd))
-            def once:int (this.matchOnce(n pos))
-            if (once >= 0) {
-                ; A zero-width repetition would loop forever; stop expanding.
-                def progressed:boolean (once > pos)
-                if (progressed || (done < n.min)) {
-                    def deeper:int (this.matchQuantified(nodes i n once (done + 1)))
-                    if (deeper >= 0) {
-                        return deeper
+            if (n.kind == 3) {
+                ; A GROUP descends into its body carrying the continuation that
+                ; brings control back here. Its inner quantifiers then backtrack
+                ; against everything that follows the group, which is the whole
+                ; difference from matching the body in isolation.
+                def wrapper (new RegexNodeList)
+                wrapper.nodes = nodes
+                def frame (new RegexCont)
+                frame.isEnd = false
+                frame.next = cont
+                frame.list = wrapper
+                frame.idx = i
+                frame.quant = n
+                frame.done = (done + 1)
+                frame.groupIndex = n.groupIndex
+                frame.groupStart = pos
+                def ai:int 0
+                while (ai < (array_length n.children)) {
+                    def alt:RegexNode (itemAt n.children ai)
+                    this.clearGroupsIn(n)
+                    def r:int (this.matchList(alt.children 0 pos frame))
+                    if (r >= 0) {
+                        return r
+                    }
+                    this.restoreCaptures(savedS savedE)
+                    ai = (ai + 1)
+                }
+            } {
+                def once:int (this.matchOnce(n pos))
+                if (once >= 0) {
+                    ; A zero-width repetition would loop forever; stop expanding.
+                    def progressed:boolean (once > pos)
+                    if (progressed || (done < n.min)) {
+                        def deeper:int (this.matchQuantified(nodes i n once (done + 1) cont false))
+                        if (deeper >= 0) {
+                            return deeper
+                        }
                     }
                 }
             }
@@ -743,7 +891,7 @@ class RegexMatcher {
         }
         if n.greedy {
             if canStop {
-                return (this.matchList(nodes (i + 1) pos))
+                return (this.matchList(nodes (i + 1) pos cont))
             }
         }
         return (0 - 1)
@@ -801,28 +949,8 @@ class RegexMatcher {
             }
             return (0 - 1)
         }
-        if (n.kind == 3) {
-            ; A group matches the FIRST alternative that succeeds. This is a
-            ; simplification: a longer overall match that needs a later
-            ; alternative inside a quantified group will not be found. It costs
-            ; nothing on the patterns the suite uses, and the alternative is a
-            ; continuation-passing matcher, which Ranger cannot express without
-            ; function values.
-            def ai:int 0
-            while (ai < (array_length n.children)) {
-                def alt:RegexNode (itemAt n.children ai)
-                def end:int (this.matchList(alt.children 0 pos))
-                if (end >= 0) {
-                    if (n.groupIndex > 0) {
-                        set capStart n.groupIndex pos
-                        set capEnd n.groupIndex end
-                    }
-                    return end
-                }
-                ai = (ai + 1)
-            }
-            return (0 - 1)
-        }
+        ; A GROUP never reaches here: it needs the rest of the pattern in order
+        ; to backtrack, so matchQuantified handles it with a continuation.
         return (0 - 1)
     }
 
@@ -858,7 +986,9 @@ class RegexMatcher {
         def ai:int 0
         while (ai < (array_length n.children)) {
             def alt:RegexNode (itemAt n.children ai)
-            def end:int (this.matchList(alt.children 0 pos))
+            ; A lookahead is an INDEPENDENT sub-match: nothing after it can make
+            ; it give characters back, so it runs on an empty continuation.
+            def end:int (this.matchList(alt.children 0 pos (this.endCont())))
             if (end >= 0) {
                 ; A NEGATIVE lookahead leaves no captures behind.
                 if n.lookNegate {

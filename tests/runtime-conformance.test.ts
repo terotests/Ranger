@@ -1020,6 +1020,26 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["date-setter-arity", "return Date.prototype.setHours.length + ',' + Date.prototype.setUTCFullYear.length;", "date"],
   ["date-gmtstring-alias", "return typeof Date.prototype.toGMTString;", "date"],
 
+  // --- regex backtracking ---------------------------------------------------
+  // A quantified group's body must be able to give characters back so that what
+  // follows the group can match. That needs the rest of the pattern to be
+  // reachable from inside the group, which is what RegexCont carries.
+  ["re-backtrack-into-group", "return 'aaaaaaaaaa,aaaaaaaaaaaaaaa'.replace(/^(a+)\\1*,\\1+$/, '$1');", "regexback"],
+  ["re-backtrack-exec", "return String(/^(a+)\\1*,\\1+$/.exec('aaaaaaaaaa,aaaaaaaaaaaaaaa'));", "regexback"],
+  ["re-backtrack-short", "return String('aaa,aaaaaa'.match(/^(a+),\\1+$/));", "regexback"],
+  ["re-alt-inside-group", "return String(/(a|ab)(c|bcd)(d*)$/.exec('abcd'));", "regexback"],
+  ["re-alt-first-wins-when-it-can", "return String(/(a|ab)(c|bcd)(d*)/.exec('abcd'));", "regexback"],
+  ["re-nested-alt-groups", "return String(/((a)|(ab))((c)|(bc))/.exec('abc'));", "regexback"],
+  ["re-capture-reset-per-repetition", "return String(/(z)((a+)?(b+)?(c))*/.exec('zaacbbbcac'));", "regexback"],
+  ["re-backref-to-star-group", "return String(/(a*)b\\1+/.exec('baaaac'));", "regexback"],
+  ["re-star-group-no-runaway", "return String(/^(a+)*$/.test('aaaa'));", "regexback"],
+  ["re-nested-quant-fails-cleanly", "return String(/^(a+)+$/.test('aaaaaaaaab'));", "regexback"],
+  ["re-lookahead-capture", "return String(/(?=(a+))a*b\\1/.exec('baaabac'));", "regexback"],
+  ["re-optional-group-undefined", "return String(/(x)?y/.exec('y'));", "regexback"],
+  ["re-backref-to-unmatched-group", "return String(/(x)?\\1y/.exec('y'));", "regexback"],
+  ["re-alternation-group", "return String(/^(a|b)*c$/.exec('ababc'));", "regexback"],
+  ["re-split-capturing", "return String('2011-10-10'.split(/(-)/));", "regexback"],
+
   // --- function source text -------------------------------------------------
   // Function.prototype.toString returns the function's own source, which is
   // what makes `f + 1` and `eval("(" + f + ")")` behave. It needs the parser to

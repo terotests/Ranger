@@ -97,12 +97,6 @@ them aside cannot quietly flatter the remaining number.
   apart needs a hole-aware element representation in `EvalValue`, not a change to
   the array methods.
 
-- **A quantified group takes the first alternative that matches** rather than
-  backtracking across alternatives from outside itself. `/^(a+)\1*,\1+$/` therefore
-  fails to find a match that requires `(a+)` to give back characters. Fixing it means
-  a continuation-passing matcher, and Ranger has no function values to carry the
-  continuation with. See §2.5.
-
 - **A `Date`'s local time zone is UTC, and the clock stands still.** The time-value
   arithmetic of §15.9.1 is implemented in full (`DateTime.rgr`) and validated against
   Node over 209 differential cases, but the realm has no time-zone database and no
@@ -151,6 +145,16 @@ them aside cannot quietly flatter the remaining number.
   tracks strictness now (`D-STRICT`), and `writeRefusalError` mirrors the conditions
   `setMember` silently returns on, so the two cannot disagree.
 
+- **A quantified group backtracks across its body now.** It used to take the first
+  inner match that worked, so `/^(a+)\1*,\1+$/` could not find a match that needed
+  `(a+)` to give characters back. The continuation is now carried explicitly as a
+  `RegexCont` chain — an immutable linked list of "where to resume", which is what a
+  continuation-passing matcher needs and what Ranger's lack of function values had
+  been read as ruling out. *The gap was real; the conclusion that it was unfixable
+  without function values was wrong — the continuation is data, not a function.* The
+  same change made each repetition clear the captures inside it, per RepeatMatcher.
+  `built-ins/RegExp` moved 351/490 → 365/490 on this alone.
+
 - **The "lexer drops an escaped quote adjacent to a delimiter" gap was never the
   lexer.** The lexer's token value is already delimiter-free; the evaluator ran it
   through `unquote()` a second time, which removed whatever matching pair it found at
@@ -194,7 +198,9 @@ every failure in them was the same missing piece.
 The ES5 pattern grammar compiles to a node tree, matched by backtracking. Backtracking
 is recursion over a node **list** — match node *i*, then ask yourself to match the rest
 from wherever that landed — so a failure deep in the tail unwinds into the quantifier
-that produced it and the next count is tried.
+that produced it and the next count is tried. Inside a group the remainder is not
+lexically at hand, so it is carried as a `RegexCont` chain and the group's body
+backtracks against everything that follows the group.
 
 | Supported | Absent |
 |---|---|
@@ -202,7 +208,9 @@ that produced it and the next count is tried.
 | `* + ? {n,m}` and their lazy forms | named groups |
 | groups, non-capturing groups, alternation | lookbehind |
 | `^ $ \b \B`, backreferences, lookahead | Unicode property escapes |
-| `i`, `g`, `m` | full backtracking across a group's alternatives |
+| `i`, `g`, `m` | |
+| backtracking into a quantified group's body | |
+| capture reset per repetition | |
 
 The compiled program is recompiled from source at each use: a `RegexProgram` cannot be
 stored inside an `EvalValue`. Slower, and invisible to the guest.
@@ -259,7 +267,7 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 | `language/expressions` | **100%** (1318/1318, whole directory) |
 | `built-ins/Number` | **100%** (146/146, whole directory) |
 | `built-ins/Date` | **100%** (4/4, whole directory) |
-| `built-ins/String` | **99.7%** (707/709, whole directory) |
+| `built-ins/String` | **99.9%** (708/709, whole directory) |
 | `built-ins/Math` | 91% (74/81) |
 | `built-ins/Object` | 76% (1577/2080) |
 | `language/statements` | 72% (403/562) |
@@ -267,11 +275,10 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 | `built-ins/Array` | 58% (124/212) |
 | ES5 overall | **82.6%** (743/900 sampled) |
 
-`built-ins/String`'s two remaining files are both named above as deliberate gaps: the
-regex quantified-group backtracking case (§2.2) and the global-object-as-var-home case
-(§2.4). Nothing in String is unexplained.
+`built-ins/String`'s one remaining file is the global-object-as-var-home case named in
+§2.4. Nothing in String is unexplained.
 
-The runtime-conformance suite is at 823 probes, every one of them derived from Node.
+The runtime-conformance suite is at 838 probes, every one of them derived from Node.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
 
