@@ -1351,7 +1351,7 @@ class TSParserSimple  {
     this.expectValue("return");
     const v = this.peekValue();
     if ( (v != ";") && (this.isAtEnd() == false) ) {
-      const arg = this.parseExpr();
+      const arg = this.parseExprSeq();
       node.left = arg;
     }
     if ( this.matchValue(";") ) {
@@ -1980,7 +1980,7 @@ class TSParserSimple  {
       }
       if ( this.matchValue("=") ) {
         this.advance();
-        const initExpr = this.parseExpr();
+        const initExpr = this.parseExprSeq();
         member.init = initExpr;
       }
     }
@@ -2298,12 +2298,12 @@ class TSParserSimple  {
     }
     this.expectValue(";");
     if ( this.matchValue(";") == false ) {
-      const test = this.parseExpr();
+      const test = this.parseExprSeq();
       node.left = test;
     }
     this.expectValue(";");
     if ( this.matchValue(")") == false ) {
-      const update = this.parseExpr();
+      const update = this.parseExprSeq();
       node.right = update;
     }
     this.expectValue(")");
@@ -2451,6 +2451,48 @@ class TSParserSimple  {
     }
     return node;
   };
+  parseBindingTarget () {
+    if ( this.matchValue("{") ) {
+      return this.parseObjectPattern();
+    }
+    if ( this.matchValue("[") ) {
+      return this.parseArrayPattern();
+    }
+    const tok = this.peek();
+    const tt = this.peekType();
+    if ( ((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword") ) {
+      this.advance();
+      const id = new TSNode();
+      id.nodeType = "Identifier";
+      id.name = tok.value;
+      id.start = tok.start;
+      id.end = tok.end;
+      id.line = tok.line;
+      id.col = tok.col;
+      return id;
+    }
+    const bad = this.expect("Identifier");
+    const errId = new TSNode();
+    errId.nodeType = "Identifier";
+    errId.name = bad.value;
+    return errId;
+  };
+  parseBindingElement () {
+    const target = this.parseBindingTarget();
+    if ( this.matchValue("=") ) {
+      this.advance();
+      const defaultExpr = this.parseExpr();
+      const assignPat = new TSNode();
+      assignPat.nodeType = "AssignmentPattern";
+      assignPat.left = target;
+      assignPat.right = defaultExpr;
+      assignPat.start = target.start;
+      assignPat.line = target.line;
+      assignPat.col = target.col;
+      return assignPat;
+    }
+    return target;
+  };
   parseObjectPattern () {
     const node = new TSNode();
     node.nodeType = "ObjectPattern";
@@ -2470,29 +2512,43 @@ class TSParserSimple  {
         this.advance();
         const restProp = new TSNode();
         restProp.nodeType = "RestElement";
-        const restName = this.expect("Identifier");
-        restProp.name = restName.value;
+        const restTarget = this.parseBindingTarget();
+        restProp.left = restTarget;
+        restProp.name = restTarget.name;
         node.children.push(restProp);
       } else {
         const prop = new TSNode();
         prop.nodeType = "Property";
-        const keyTok = this.expect("Identifier");
-        prop.name = keyTok.value;
-        if ( this.matchValue(":") ) {
+        if ( this.matchValue("[") ) {
           this.advance();
-          const valueTok = this.expect("Identifier");
-          const valueId = new TSNode();
-          valueId.nodeType = "Identifier";
-          valueId.name = valueTok.value;
-          prop.right = valueId;
+          const keyExpr = this.parseExpr();
+          this.expectValue("]");
+          prop.computed = true;
+          prop.body = keyExpr;
+          this.expectValue(":");
+          prop.right = this.parseBindingElement();
         } else {
-          prop.shorthand = true;
-        }
-        if ( this.matchValue("=") ) {
-          this.advance();
-          const defaultExpr = this.parseExpr();
-          prop.init = defaultExpr;
-          prop.left = defaultExpr;
+          const keyTok = this.peek();
+          const keyType = this.peekType();
+          if ( (keyType == "String") || (keyType == "Number") ) {
+            this.advance();
+            prop.name = keyTok.value;
+          } else {
+            const idTok = this.parseBindingTarget();
+            prop.name = idTok.name;
+          }
+          if ( this.matchValue(":") ) {
+            this.advance();
+            prop.right = this.parseBindingElement();
+          } else {
+            prop.shorthand = true;
+            if ( this.matchValue("=") ) {
+              this.advance();
+              const defaultExpr = this.parseExpr();
+              prop.init = defaultExpr;
+              prop.left = defaultExpr;
+            }
+          }
         }
         node.children.push(prop);
       }
@@ -2524,25 +2580,12 @@ class TSParserSimple  {
           this.advance();
           const restElem = new TSNode();
           restElem.nodeType = "RestElement";
-          const restName = this.expect("Identifier");
-          restElem.name = restName.value;
+          const restTarget = this.parseBindingTarget();
+          restElem.left = restTarget;
+          restElem.name = restTarget.name;
           node.children.push(restElem);
         } else {
-          const elem = new TSNode();
-          const elemTok = this.expect("Identifier");
-          elem.nodeType = "Identifier";
-          elem.name = elemTok.value;
-          if ( this.matchValue("=") ) {
-            this.advance();
-            const defaultExpr = this.parseExpr();
-            const assignPat = new TSNode();
-            assignPat.nodeType = "AssignmentPattern";
-            assignPat.left = elem;
-            assignPat.right = defaultExpr;
-            node.children.push(assignPat);
-          } else {
-            node.children.push(elem);
-          }
+          node.children.push(this.parseBindingElement());
         }
       }
     };
@@ -2685,7 +2728,7 @@ class TSParserSimple  {
     stmt.start = startTok.start;
     stmt.line = startTok.line;
     stmt.col = startTok.col;
-    const expr = this.parseExpr();
+    const expr = this.parseExprSeq();
     stmt.left = expr;
     if ( this.matchValue(";") ) {
       this.advance();
@@ -3508,6 +3551,24 @@ class TSParserSimple  {
   parseExpr () {
     return this.parseAssign();
   };
+  parseExprSeq () {
+    const first = this.parseExpr();
+    if ( this.matchValue(",") == false ) {
+      return first;
+    }
+    const seq = new TSNode();
+    seq.nodeType = "SequenceExpression";
+    seq.start = first.start;
+    seq.line = first.line;
+    seq.col = first.col;
+    seq.children.push(first);
+    while (this.matchValue(",")) {
+      this.advance();
+      const next = this.parseExpr();
+      seq.children.push(next);
+    };
+    return seq;
+  };
   parseAssign () {
     const left = this.parseNullishCoalescing();
     const tokVal = this.peekValue();
@@ -4167,6 +4228,11 @@ class TSParserSimple  {
     const tokVal = this.peekValue();
     const tok = this.peek();
     if ( (tokType == "Identifier") || (tokType == "TSType") ) {
+      if ( this.peekNextValue() == "=>" ) {
+        return this.parseArrowFunction();
+      }
+    }
+    if ( (tokType == "Identifier") || (tokType == "TSType") ) {
       this.advance();
       const id = new TSNode();
       id.nodeType = "Identifier";
@@ -4548,7 +4614,7 @@ class TSParserSimple  {
       this.pos = savedPos;
       this.currentToken = savedTok;
       this.advance();
-      const expr = this.parseExpr();
+      const expr = this.parseExprSeq();
       this.expectValue(")");
       return expr;
     }
@@ -4565,7 +4631,7 @@ class TSParserSimple  {
     this.pos = savedPos;
     this.currentToken = savedTok;
     this.advance();
-    const expr_1 = this.parseExpr();
+    const expr_1 = this.parseExprSeq();
     this.expectValue(")");
     return expr_1;
   };

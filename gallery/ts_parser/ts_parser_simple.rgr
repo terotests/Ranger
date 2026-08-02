@@ -448,7 +448,7 @@ class TSParserSimple {
     ; Check for return value
     def v (this.peekValue())
     if ((v != ";") && ((this.isAtEnd()) == false)) {
-      def arg (this.parseExpr())
+      def arg (this.parseExprSeq())
       node.left = arg
     }
     
@@ -1295,7 +1295,7 @@ class TSParserSimple {
       ; Initializer
       if (this.matchValue("=")) {
         this.advance()
-        def initExpr (this.parseExpr())
+        def initExpr (this.parseExprSeq())
         member.init = initExpr
       }
     }
@@ -1712,7 +1712,7 @@ class TSParserSimple {
     
     ; Test condition
     if ((this.matchValue(";")) == false) {
-      def test (this.parseExpr())
+      def test (this.parseExprSeq())
       node.left = test
     }
     
@@ -1720,7 +1720,7 @@ class TSParserSimple {
     
     ; Update expression
     if ((this.matchValue(")")) == false) {
-      def update (this.parseExpr())
+      def update (this.parseExprSeq())
       node.right = update
     }
     
@@ -1917,6 +1917,58 @@ class TSParserSimple {
   
   ; === Object Pattern { a, b, c: d } ===
   
+  ; A binding target: a plain identifier, or a nested object / array pattern.
+  ; Patterns nest arbitrarily (`let {a:{b:[c]}} = x`), so this is mutually
+  ; recursive with parseObjectPattern / parseArrayPattern.
+  fn parseBindingTarget:TSNode () {
+    if (this.matchValue("{")) {
+      return (this.parseObjectPattern())
+    }
+    if (this.matchValue("[")) {
+      return (this.parseArrayPattern())
+    }
+    def tok (this.peek())
+    def tt (this.peekType())
+    ; Keywords are accepted as binding names because most of them are only
+    ; reserved in contexts this parser does not track yet (`yield` outside a
+    ; generator, `let` in sloppy mode); rejecting them here loses valid programs.
+    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword")) {
+      this.advance()
+      def id (new TSNode())
+      id.nodeType = "Identifier"
+      id.name = tok.value
+      id.start = tok.start
+      id.end = tok.end
+      id.line = tok.line
+      id.col = tok.col
+      return id
+    }
+    def bad (this.expect("Identifier"))
+    def errId (new TSNode())
+    errId.nodeType = "Identifier"
+    errId.name = bad.value
+    return errId
+  }
+
+  ; A binding element: a target plus an optional `= default`. Does not consume a
+  ; `:` — inside an object pattern that introduces an alias, not a type.
+  fn parseBindingElement:TSNode () {
+    def target (this.parseBindingTarget())
+    if (this.matchValue("=")) {
+      this.advance()
+      def defaultExpr (this.parseExpr())
+      def assignPat (new TSNode())
+      assignPat.nodeType = "AssignmentPattern"
+      assignPat.left = target
+      assignPat.right = defaultExpr
+      assignPat.start = target.start
+      assignPat.line = target.line
+      assignPat.col = target.col
+      return assignPat
+    }
+    return target
+  }
+
   fn parseObjectPattern:TSNode () {
     def node (new TSNode())
     node.nodeType = "ObjectPattern"
@@ -1924,9 +1976,9 @@ class TSParserSimple {
     node.start = startTok.start
     node.line = startTok.line
     node.col = startTok.col
-    
+
     this.expectValue("{")
-    
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length node.children) > 0) {
         this.expectValue(",")
@@ -1935,52 +1987,67 @@ class TSParserSimple {
           break
         }
       }
-      
+
       ; Rest pattern ...rest
       if (this.matchValue("...")) {
         this.advance()
         def restProp (new TSNode())
         restProp.nodeType = "RestElement"
-        def restName (this.expect("Identifier"))
-        restProp.name = restName.value
+        def restTarget (this.parseBindingTarget())
+        restProp.left = restTarget
+        restProp.name = restTarget.name
         push node.children restProp
       } {
-        ; Property pattern: name or name: alias
         def prop (new TSNode())
         prop.nodeType = "Property"
-        def keyTok (this.expect("Identifier"))
-        prop.name = keyTok.value
-        
-        ; Check for : alias
-        if (this.matchValue(":")) {
+
+        ; Computed key: { [expr]: target }
+        if (this.matchValue("[")) {
           this.advance()
-          def valueTok (this.expect("Identifier"))
-          def valueId (new TSNode())
-          valueId.nodeType = "Identifier"
-          valueId.name = valueTok.value
-          prop.right = valueId
+          def keyExpr (this.parseExpr())
+          this.expectValue("]")
+          prop.computed = true
+          prop.body = keyExpr
+          this.expectValue(":")
+          prop.right = (this.parseBindingElement())
         } {
-          prop.shorthand = true
+          ; Literal or identifier key. String and numeric keys are legal:
+          ; `{ "a": b }`, `{ 0: c }`.
+          def keyTok (this.peek())
+          def keyType (this.peekType())
+          if ((keyType == "String") || (keyType == "Number")) {
+            this.advance()
+            prop.name = keyTok.value
+          } {
+            def idTok (this.parseBindingTarget())
+            prop.name = idTok.name
+          }
+
+          if (this.matchValue(":")) {
+            this.advance()
+            prop.right = (this.parseBindingElement())
+          } {
+            prop.shorthand = true
+            ; Shorthand with default: { a = 1 }
+            if (this.matchValue("=")) {
+              this.advance()
+              def defaultExpr (this.parseExpr())
+              prop.init = defaultExpr
+              prop.left = defaultExpr
+            }
+          }
         }
-        
-        ; Check for default value = expr
-        if (this.matchValue("=")) {
-          this.advance()
-          def defaultExpr (this.parseExpr())
-          prop.init = defaultExpr
-          prop.left = defaultExpr  ; Also set left for compatibility
-        }
-        
+
         push node.children prop
       }
     }
-    
+
     this.expectValue("}")
     return node
   }
-  
+
   ; === Array Pattern [a, b, c] ===
-  
+
   fn parseArrayPattern:TSNode () {
     def node (new TSNode())
     node.nodeType = "ArrayPattern"
@@ -1988,9 +2055,9 @@ class TSParserSimple {
     node.start = startTok.start
     node.line = startTok.line
     node.col = startTok.col
-    
+
     this.expectValue("[")
-    
+
     while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length node.children) > 0) {
         this.expectValue(",")
@@ -1999,7 +2066,7 @@ class TSParserSimple {
           break
         }
       }
-      
+
       ; Check for holes (elision): [a, , b]
       if (this.matchValue(",")) {
         def hole (new TSNode())
@@ -2011,36 +2078,20 @@ class TSParserSimple {
           this.advance()
           def restElem (new TSNode())
           restElem.nodeType = "RestElement"
-          def restName (this.expect("Identifier"))
-          restElem.name = restName.value
+          def restTarget (this.parseBindingTarget())
+          restElem.left = restTarget
+          restElem.name = restTarget.name
           push node.children restElem
         } {
-          ; Element pattern
-          def elem (new TSNode())
-          def elemTok (this.expect("Identifier"))
-          elem.nodeType = "Identifier"
-          elem.name = elemTok.value
-          
-          ; Check for default value = expr
-          if (this.matchValue("=")) {
-            this.advance()
-            def defaultExpr (this.parseExpr())
-            def assignPat (new TSNode())
-            assignPat.nodeType = "AssignmentPattern"
-            assignPat.left = elem
-            assignPat.right = defaultExpr
-            push node.children assignPat
-          } {
-            push node.children elem
-          }
+          push node.children (this.parseBindingElement())
         }
       }
     }
-    
+
     this.expectValue("]")
     return node
   }
-  
+
   ; === Function Declaration ===
   
   fn parseFuncDecl:TSNode (isAsync:boolean) {
@@ -2225,7 +2276,7 @@ class TSParserSimple {
     stmt.line = startTok.line
     stmt.col = startTok.col
     
-    def expr (this.parseExpr())
+    def expr (this.parseExprSeq())
     stmt.left = expr
     
     if (this.matchValue(";")) {
@@ -3328,7 +3379,32 @@ class TSParserSimple {
   fn parseExpr:TSNode () {
     return (this.parseAssign())
   }
-  
+
+  ; Full `Expression` — an AssignmentExpression, or a comma-separated sequence of
+  ; them. Only valid where the grammar allows a comma operator: expression
+  ; statements, parenthesised expressions, `return`, and the `for` header. Every
+  ; other site (call arguments, array elements, declarators) must keep using
+  ; parseExpr, where a comma is a separator rather than an operator.
+  fn parseExprSeq:TSNode () {
+    def first (this.parseExpr())
+    if ((this.matchValue(",")) == false) {
+      return first
+    }
+    def seq (new TSNode())
+    seq.nodeType = "SequenceExpression"
+    seq.start = first.start
+    seq.line = first.line
+    seq.col = first.col
+    push seq.children first
+    while (this.matchValue(",")) {
+      this.advance()
+      def next (this.parseExpr())
+      push seq.children next
+    }
+    return seq
+  }
+
+
   fn parseAssign:TSNode () {
     def left (this.parseNullishCoalescing())
     
@@ -4184,6 +4260,14 @@ class TSParserSimple {
     def tokVal (this.peekValue())
     def tok (this.peek())
     
+    ; Single unparenthesised arrow parameter: `x => body`. Must be checked before
+    ; the plain-identifier branch, which would otherwise consume the parameter.
+    if ((tokType == "Identifier") || (tokType == "TSType")) {
+      if ((this.peekNextValue()) == "=>") {
+        return (this.parseArrowFunction())
+      }
+    }
+
     ; Identifier (including TSType keywords like 'symbol', 'string', 'number' used as variable names)
     if ((tokType == "Identifier") || (tokType == "TSType")) {
       this.advance()
@@ -4680,7 +4764,7 @@ class TSParserSimple {
       this.pos = savedPos
       this.currentToken = savedTok
       this.advance()
-      def expr (this.parseExpr())
+      def expr (this.parseExprSeq())
       this.expectValue(")")
       return expr
     }
@@ -4706,7 +4790,7 @@ class TSParserSimple {
     this.pos = savedPos
     this.currentToken = savedTok
     this.advance()  ; consume (
-    def expr (this.parseExpr())
+    def expr (this.parseExprSeq())
     this.expectValue(")")
     return expr
   }
