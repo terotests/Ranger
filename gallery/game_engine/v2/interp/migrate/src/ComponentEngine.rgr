@@ -4082,9 +4082,21 @@ class ComponentEngine {
             if node.left {
                 def leftNode:TSNode (unwrap node.left)
                 def op:string node.value
+                ; D-WITH: the REFERENCE is resolved before the right-hand side
+                ; runs. `with (o) { x = (delete o.x, 2) }` still writes to o,
+                ; even though o no longer has an `x` by the time the value
+                ; arrives -- looking the base up afterwards found nothing and
+                ; wrote to the outer binding instead.
+                def preWith:EvalValue (EvalValue.null())
+                if (leftNode.nodeType == "Identifier") {
+                    preWith = (context.findWithObjectFor(leftNode.name))
+                }
                 def rightValue:EvalValue (EvalValue.null())
                 if node.right {
                     rightValue = (this.evaluateExpr((unwrap node.right)))
+                }
+                if scriptThrew {
+                    return (EvalValue.undefined())
                 }
                 if (leftNode.nodeType == "Identifier") {
                     def varName:string leftNode.name
@@ -4092,7 +4104,7 @@ class ComponentEngine {
                     ; THROUGH that object, accessors included. Checked before
                     ; the declaration rules below, because such a name IS
                     ; resolvable even though no binding holds it.
-                    def wobj:EvalValue (context.findWithObjectFor(varName))
+                    def wobj:EvalValue preWith
                     if (wobj.valueType == 5) {
                         def wcur:EvalValue (EvalValue.undefined())
                         if (has wobj.getterMap varName) {
@@ -4172,6 +4184,28 @@ class ComponentEngine {
     fn bindParams:void (fnNode:TSNode argVals:[EvalValue]) {
         def np:int (array_length fnNode.params)
         def na:int (array_length argVals)
+        ; D-ARGUMENTS: every non-arrow function sees its call arguments as
+        ; `arguments`. Nothing bound it, so `arguments.length` and
+        ; `arguments[0]` both read undefined -- which quietly broke any callback
+        ; written against them, including the replacer functions the String
+        ; suite uses. It is an array-like OBJECT, not an array: its brand is
+        ; "[object Arguments]" and Array.isArray says false.
+        if (fnNode.nodeType != "ArrowFunctionExpression") {
+            def keysA:[string]
+            def valsA:[EvalValue]
+            def argObj:EvalValue (EvalValue.object(keysA valsA))
+            def ai0:int 0
+            while (ai0 < na) {
+                argObj.setMember((to_string ai0) (itemAt argVals ai0))
+                ai0 = (ai0 + 1)
+            }
+            argObj.setMember("length" (EvalValue.fromInt(na)))
+            argObj.setAttrs("length" true false true)
+            argObj.setMember("__arguments__" (EvalValue.boolean(true)))
+            argObj.setAttrs("__arguments__" false false false)
+            argObj.protoRef = (this.builtinPrototype("Object"))
+            context.define("arguments" argObj)
+        }
         def pi:int 0
         while (pi < np) {
             def param:TSNode (itemAt fnNode.params pi)
@@ -8415,6 +8449,11 @@ class ComponentEngine {
             if (kind == "function") {
                 return (EvalValue.string(("function " + recv.functionName + "() { [native code] }")))
             }
+            if (kind == "regexp") {
+                ; A RegExp stringifies as its literal form -- `String(/abc/i)`
+                ; is "/abc/i", not a brand.
+                return (EvalValue.string(("/" + ((this.regexSourceOf(recv)) + ("/" + (this.regexFlagsOf(recv)))))))
+            }
             return (EvalValue.string((recv.toString())))
         }
         if (name == "valueOf") {
@@ -8633,7 +8672,12 @@ class ComponentEngine {
                             a = (this.toIntegerOf((itemAt args 0)))
                         }
                         if ((array_length args) > 1) {
-                            b = (this.toIntegerOf((itemAt args 1)))
+                            ; An UNDEFINED end means "to the end of the string",
+                            ; not 0 -- `s.slice(-4, undefined)` keeps the tail.
+                            def eV:EvalValue (itemAt args 1)
+                            if (false == (eV.isUndefined())) {
+                                b = (this.toIntegerOf(eV))
+                            }
                         }
                         if (a < 0) { a = (L + a) }
                         if (b < 0) { b = (L + b) }
@@ -9047,7 +9091,7 @@ class ComponentEngine {
                 if ((array_length args) > 1) {
                     def av1:EvalValue (itemAt args 1)
                     if (false == (av1.isUndefined())) {
-                        a1 = (to_int (av1.toNumber()))
+                        a1 = (this.toIntegerOf(av1))
                     }
                 }
                 if (a0 < 0) { a0 = 0 }
@@ -10119,6 +10163,9 @@ class ComponentEngine {
             ; exists but is not callable (`{toString: undefined}`) is skipped,
             ; and valueOf gets its turn.
             if (this.usesDefaultToString(v)) {
+                if (has v.objectMap "__regex__") {
+                    return (EvalValue.string(("/" + ((this.regexSourceOf(v)) + ("/" + (this.regexFlagsOf(v)))))))
+                }
                 return (EvalValue.string(("[object " + (this.objectClassOf(v)) + "]")))
             }
         }
@@ -10141,6 +10188,9 @@ class ComponentEngine {
         }
         if (this.hasUserMethod(v "toString")) {
             return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
+        }
+        if (has v.objectMap "__regex__") {
+            return (EvalValue.string(("/" + ((this.regexSourceOf(v)) + ("/" + (this.regexFlagsOf(v)))))))
         }
         ; Otherwise the inherited Object.prototype.toString applies, which is
         ; what makes `String({valueOf: function () { return 7; }})` the brand
@@ -12342,6 +12392,7 @@ class ComponentEngine {
         if (k == "__date__") { return true }
         if (k == "__nsbrand__") { return true }
         if (k == "__regex__") { return true }
+        if (k == "__arguments__") { return true }
         return false
     }
 
