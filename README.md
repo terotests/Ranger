@@ -1,6 +1,6 @@
 # Ranger cross language compiler
 
-**Version 3.1.1** | Status: `experimental`
+**Version 3.3.0** | Status: `experimental`
 
 Ranger is a self-hosting cross-language compiler for writing portable algorithms, parsers, generators, and small tools once and compiling them to multiple target languages.
 
@@ -65,12 +65,9 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - `ai/QUICKREF.md` - fast reference for syntax and core concepts
 - `ai/INSTRUCTIONS.md` - fuller language guide for operators, templates, and compiler concepts
 - `ai/EXAMPLES.md` - short focused language examples
-- `gallery/` - larger examples and experiments such as parsers, EVG/TSX tooling, and games
-- `gallery/js_parser` - substantial parser example with benchmarks and README
-- `gallery/pdf_writer` - EVG / TSX document tooling and preview server
-- `gallery/invaders` - cross-target demo game
-- `gallery/game_engine` - retained-mode game runner, SDL launcher, and TSX games (Pong, Breakout, Invaders, Pac-Man); see `gallery/game_engine/scripting/GAME_SCRIPTING.md`
-- `gallery/invaders/llvm/invaders.ll` - checked-in LLVM IR sample from the experimental `-l=llvm` backend
+- [`gallery/README.md`](gallery/README.md) - index of the larger examples: parsers, EVG/TSX document tooling, games, and `@process` host apps
+- [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
+- [`CHANGELOG.md`](CHANGELOG.md) - version history; [`PLAN_3.md`](PLAN_3.md) - roadmap
 
 ## Compatibility Snapshot
 
@@ -102,15 +99,10 @@ Regenerate the fixture list with `node scripts/generate-conformance-table.mjs`.
 | `while_loop` | Conformance: while loop control flow | ES6, Go, Kotlin (when toolchain present) |
 <!-- END CONFORMANCE_TABLE -->
 
-## What's New in Version 3.0
+## Quick start
 
-- **New File Extension** - Transitioning from `.clj` to `.rgr` for Ranger identity
-- **Simplified CLI** - Use `rgrc` command for shorter invocations
-- **VSCode Extension** - Language server with syntax highlighting (in development)
-- **CI/CD Pipeline** - Automated testing and NPM publishing
-- **Unit Test Suite** - Comprehensive test coverage with Vitest
-
-### Quick Start
+Source files use the `.rgr` extension (`.clj` is the legacy extension and still
+works) and the CLI is `rgrc`:
 
 ```bash
 # Install globally
@@ -132,573 +124,35 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history and [PLAN_3.md](PLAN_3
 
 ## Host platforms and target languages
 
-The compiler is _self hosting_ which means that it has been written using the compiler itself and thus it can be hosted
-on several platforms. At the moment the official platform is node.js, because external plugins are only available as npm packages.
-
-The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, `Python`, and `Rust`. An **experimental LLVM backend** (`-l=llvm`) emits LLVM IR and optional freestanding WAT for WASM toolchains; it is not a separate surface language but another codegen path from the same Ranger sources.
-
-The quality of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaScript target. However, most targets already can compile reasonably good code.
-
-## Recent Updates (December 2025)
-
-### TypeScript Parser (TSParser) Enhancements
-
-The TSParser (`gallery/ts_parser`) now supports additional JavaScript/TypeScript syntax features:
-
-**New Operators:**
-- **UpdateExpression**: `i++`, `++i`, `i--`, `--i` with proper prefix/postfix semantics
-- **Compound Assignment**: `+=`, `-=`, `*=`, `/=`, `%=` operators
-- **Computed Member Access**: Array indexing `arr[i]` now correctly sets the `computed` flag
-
-These enhancements enable the EVG ComponentEngine to evaluate for loops and dynamic array operations in TSX files.
-
-### Swift 6 Target Support
-
-The Swift 6 target (`-l=swift6`) has been significantly enhanced with the following features:
-
-- Modern Swift 6 compatible code generation
-- Simple `main()` function entry point (avoids @main conflicts with operator overloads)
-- Proper integer-to-string conversion using `String()`
-- Array operations using `.append()` instead of `.push()`
-- File I/O with `Foundation` framework integration
-- String operations: `substring`, `indexOf`, `startsWith`, `endsWith`, `contains`, `split`, `trim`
-- Optional handling with `unwrap` and `!!` operators
-- Command-line argument access
-- CRLF grapheme cluster handling for cross-platform string compatibility
-
-**Successfully compiled projects:**
-
-- ✅ JavaScript ES6+ Parser (`gallery/js_parser`) - 4500+ lines, parses and pretty-prints ES6+ code
-- ✅ Space Invaders game (`gallery/invaders`)
-
-Example compilation:
-
-```bash
-node bin/output.js myfile.rgr -l=swift6 -o=myfile.swift
-sed -i '' $'s/\r$//' myfile.swift  # Fix line endings on macOS
-swiftc myfile.swift -o myfile
-```
-
-### Rust Target Support (Preliminary)
-
-The Rust target (`-l=rust`) now has preliminary support with the following features:
-
-- Classes compiled to structs with `impl` blocks
-- Constructors as `pub fn new()` returning owned structs
-- Static factory methods
-- Instance methods with `&mut self`
-- Proper String handling with `.to_string()` for literals
-- Array operations (`push`, `itemAt`, `set`) with `Vec<T>`
-- String concatenation using `format!` macro
-- Ternary expressions as `if/else` expressions
-- Automatic `#[derive(Clone)]` for structs
-- Smart mutability detection (`let` vs `let mut`)
-
-Example compilation:
-
-```bash
-node bin/output.js myfile.rgr -l=rust -o=myfile.rs
-rustc myfile.rs -o myfile
-```
-
-### C++ Static Analysis Optimizer (New)
-
-The C++ target (`-l=cpp`) now includes a static analysis pass that automatically detects mutation patterns and generates proper C++ references. This solves a common issue where local variables assigned from member fields were incorrectly copied instead of referenced.
-
-**The Problem:**
-
-```ranger
-fn writeByte:void (b:int) {
-    def buf:buffer currentChunk.data   ; Assigned from member field
-    buffer_set buf 0 b                  ; Mutates the buffer
-}
-```
-
-Without static analysis, this would generate:
-
-```cpp
-void writeByte(int b) {
-    std::vector<uint8_t> buf = currentChunk->data;  // COPY!
-    buf[0] = static_cast<uint8_t>(b);               // Modifies copy, not original!
-}
-```
-
-**The Solution:**
-
-The static analyzer detects when:
-
-1. A local variable is assigned from a member field (e.g., `obj.field`)
-2. That variable is later mutated with in-place operations (`buffer_set`, `push`, `set`, etc.)
-
-When both conditions are met, it generates a C++ reference:
-
-```cpp
-void writeByte(int b) {
-    std::vector<uint8_t>& buf = currentChunk->data;  // REFERENCE!
-    buf[0] = static_cast<uint8_t>(b);                // Modifies original
-}
-```
-
-**Mutating Operations Detected:**
-
-| Category   | Operators                                                     |
-| ---------- | ------------------------------------------------------------- |
-| Buffer     | `buffer_set`, `int_buffer_set`, `double_buffer_set`, `*_fill` |
-| Array      | `push`, `set`, `clear`, `remove`, `removeIndex`               |
-| Dictionary | `put`                                                         |
-
-This optimization is automatically applied when compiling to C++ - no source code changes required.
-
-### HTTP Server Support (New - December 2025)
-
-Ranger now supports defining HTTP servers using **annotation-based type aliasing**. Classes marked with `@(HttpServer)` can use HTTP operators and route annotations.
-
-**Example HTTP Server:**
-
-```ranger
-Import "stdlib.rgr"
-
-class MyServer@(HttpServer) {
-    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) {
-        http_set_header res "Content-Type" "text/html"
-        http_set_status res 200
-        http_send res "<h1>Hello from Ranger!</h1>"
-    }
-    
-    fn handleEvents@(SSE "/events"):void (client:SSEClient) {
-        sse_send client "message" "Welcome!"
-    }
-}
-
-sfn main@(main):void () {
-    def server:MyServer (new MyServer())
-    start server 3000
-}
-```
-
-**Key Features:**
-
-- **Systemclass types**: `HttpRequest`, `HttpResponse`, `SSEClient`, `HttpServer`
-- **HTTP operators**: `http_get_method`, `http_get_path`, `http_set_status`, `http_set_header`, `http_send`
-- **SSE operators**: `sse_send`, `sse_is_connected`
-- **Route annotations**: `@(GET "/path")`, `@(POST "/path")`, `@(SSE "/path")`
-- **Server lifecycle**: `start server port`, `stop server`
-
-**Compilation:**
-
-```bash
-# Compile to Go
-RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./myserver.rgr -d=./bin -o=myserver.go -nodecli
-
-# Run the server
-cd bin && go run myserver.go
-```
-
-Currently supports **Go** target. See `tests/fixtures/http_server.rgr` for a complete example.
-
-### EVG Document Preview Tools (New - December 2025)
-
-Ranger includes tools for creating and previewing documents using a React-like TSX syntax. The EVG (Extensible Vector Graphics) system supports multi-page documents with flexbox layout.
-
-**Live Preview Server:**
-
-```bash
-# Build the preview server (one-time)
-npm run evgpreview:build
-
-# Start live preview with auto-reload
-cd gallery/pdf_writer
-./bin/evg_preview_server examples/test_gallery.tsx 3006
-
-# Open http://localhost:3006 - auto-refreshes on file save!
-```
-
-**HTML Generation:**
-
-```bash
-# Build the HTML tool (one-time)
-npm run evg:tool:build:go
-
-# Convert TSX to HTML
-cd gallery/pdf_writer
-./bin/evg_tool examples/test_gallery.tsx output.html
-
-# With component imports
-./bin/evg_tool document.tsx --assets=../components;../assets
-```
-
-**Features:**
-
-- **Live reload** - Browser auto-refreshes when you save
-- **Component imports** - Reusable TSX components
-- **Multi-page documents** - Print, Section, Page elements
-- **Flexbox layout** - CSS-like positioning
-- **Images & fonts** - Asset serving from configurable paths
-
-See `gallery/pdf_writer/README.md` for full documentation and TSX syntax reference.
-
-### EVG ComponentEngine TypeScript Evaluation (New - December 2025)
-
-The EVG ComponentEngine now supports **full TypeScript control flow evaluation**, enabling dynamic document generation with loops and conditionals. Functions defined in TSX files can use for loops, array operations, and return arrays of elements.
-
-**Supported Features:**
-
-| Feature | Syntax | Description |
-|---------|--------|-------------|
-| For loops | `for (let i = 0; i < n; i++)` | Standard for loop with init/test/update |
-| Decrement loops | `for (let i = 5; i > 0; i--)` | Countdown loops |
-| Step loops | `for (let i = 0; i < n; i += 2)` | Custom step increments |
-| Array.push | `arr.push(<Element />)` | Build arrays of JSX elements |
-| Array indexing | `colors[i]` | Access array elements by index |
-| Compound assignment | `total += value` | `+=`, `-=`, `*=`, `/=`, `%=` operators |
-| Update expressions | `i++`, `++i`, `i--`, `--i` | Pre/post increment/decrement |
-| Function calls in JSX | `{buildItems()}` | Call functions that return element arrays |
-
-**Example - Dynamic List Generation:**
-
-```tsx
-const colors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6"];
-
-function buildColorBoxes() {
-  const boxes: any[] = [];
-  
-  for (let i = 0; i < colors.length; i++) {
-    const color = colors[i];
-    boxes.push(
-      <View backgroundColor={color} padding={8}>
-        <Label color="#ffffff">Box {i + 1}: {color}</Label>
-      </View>
-    );
-  }
-  
-  return boxes;
-}
-
-function render() {
-  return (
-    <Print>
-      <Section>
-        <Page>
-          <View padding={16}>
-            <Label fontSize={20} fontWeight="bold">Color Boxes</Label>
-            {buildColorBoxes()}
-          </View>
-        </Page>
-      </Section>
-    </Print>
-  );
-}
-```
-
-**Example - Progressive Widths with Accumulator:**
-
-```tsx
-function buildProgressBars() {
-  const bars: any[] = [];
-  let totalWidth = 0;
-  
-  for (let i = 1; i <= 5; i++) {
-    totalWidth += i * 20;  // 20, 60, 120, 200, 300
-    bars.push(
-      <View width={totalWidth} backgroundColor="#0ea5e9" padding={4}>
-        <Label color="#ffffff">Width: {totalWidth}px</Label>
-      </View>
-    );
-  }
-  
-  return bars;
-}
-```
-
-See `gallery/pdf_writer/examples/test_for_loop.tsx` for a complete demonstration.
-
-### Space Invaders Demo Game
-
-A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **several targets**:
-
-| Target         | Output              | Build Command               |
-| -------------- | ------------------- | --------------------------- |
-| ES6/JavaScript | `invaders.js`       | `npm run game:compile`      |
-| **LLVM native**| `tmp/invaders-native/invaders` | `npm run game:build:llvm` |
-| Rust           | `invaders_rust.exe` | `npm run game:build:rust`   |
-| Go             | `invaders_go.exe`   | `npm run game:build:go`     |
-| Kotlin         | `invaders.jar`      | `npm run game:build:kotlin` |
-| C++            | `invaders_cpp.exe`  | Cross-compile via WSL       |
-| Swift          | `invaders_swift`    | macOS/Linux only            |
-
-> **Note:** Kotlin target renders correctly but keyboard input has issues on Windows (uses PowerShell subprocess for key reading which is slow).
-
-```bash
-# Build all targets at once
-npm run game:build:all
-
-# Run the game
-npm run game:run        # JavaScript
-npm run game:run:rust   # Rust
-npm run game:run:go     # Go
-./tmp/invaders-native/invaders   # LLVM native (after game:build:llvm)
-```
-
-#### Experimental LLVM backend (Space Invaders)
-
-Ranger can lower the same `invaders.rgr` through a **Low IR → LLVM IR** pipeline (`-l=llvm`), then link with `clang` and a small C runtime (`runtime/ranger_term.c`) for terminal I/O.
-
-```bash
-npm run compile              # refresh bin/output.js after compiler changes
-npm run game:build:llvm      # invaders.rgr → tmp/invaders-native/invaders.ll → native binary
-npm run test:llvm            # LLVM/WASM fixture tests (vitest)
-npm run demo:wasm            # smaller freestanding WASM demo (tests/fixtures/llvm_wasm_demo.rgr)
-```
-
-**Checked-in sample:** [`gallery/invaders/llvm/invaders.ll`](gallery/invaders/llvm/invaders.ll) is LLVM IR kept in the repo so you can inspect codegen without building. Regenerate with `cp tmp/invaders-native/invaders.ll gallery/invaders/llvm/invaders.ll` after `game:build:llvm` (see [`gallery/invaders/llvm/README.md`](gallery/invaders/llvm/README.md)).
-
-Status: experimental — libc-linked native builds are the most reliable path. The freestanding WAT/WASM path (`-wasmrc`) now has a reference-counting runtime (free-list heap with `memory.grow`, typedesc-driven recursive object destruction), classes with reference-counted fields, singletons, strings, `[T]`/`[K:V]` collections, and lambdas/closures (function table + `call_indirect`, with value/object capture and mutation); the `gallery/game_engine/games/ranger_autopeli` guest is authored in Ranger and compiles to WASM this way. Terminal-import lowering for the full Space Invaders game is still incomplete. Smaller freestanding demos run under `npm run demo:wasm`.
-
-#### Cross-Compiling the Game
-
-The Space Invaders game demonstrates cross-platform compilation from a single source file.
-
-**JavaScript (ES6)**
-
-```bash
-npm run game:compile        # Generates invaders.js
-node gallery/invaders/invaders.js
-```
-
-**Rust**
-
-```bash
-npm run game:compile:rust   # Generates invaders.rs
-cd gallery/invaders && rustc invaders.rs -o invaders_rust.exe
-# Or use the combined command:
-npm run game:build:rust
-```
-
-**Go**
-
-```bash
-npm run game:compile:go     # Generates invaders.go
-cd gallery/invaders && go build -o invaders_go.exe invaders.go
-# Or use the combined command:
-npm run game:build:go
-```
-
-**C++ (Windows via WSL)**
-
-C++ compilation requires POSIX-threaded MinGW for `std::thread` and `std::mutex` support:
-
-```bash
-npm run game:compile:cpp    # Generates invaders.cpp
-
-# Cross-compile from WSL to Windows:
-wsl -d Ubuntu -- bash -c "
-  cd /mnt/c/path/to/Ranger/gallery/invaders && \
-  sed -i 's/\r$//' invaders.cpp && \
-  x86_64-w64-mingw32-g++-posix -std=c++17 -static -pthread invaders.cpp -o invaders_cpp.exe
-"
-```
-
-> **Note:** The standard MinGW compiler (`x86_64-w64-mingw32-g++`) uses win32 threads which don't support `<mutex>` and `<thread>`. You must use the POSIX variant (`g++-posix`).
-
-**Swift (macOS/Linux only)**
-
-```bash
-npm run game:compile:swift  # Generates invaders.swift
-swiftc invaders.swift -o invaders_swift
-```
-
-**LLVM native (macOS / Linux, experimental)**
-
-```bash
-npm run game:build:llvm
-./tmp/invaders-native/invaders
-```
-
-Requires `clang` on `PATH`. On macOS the script picks `arm64-apple-macos` or `x86_64-apple-macos` automatically.
-
-#### Platform-Specific Keyboard Input
-
-The game uses `on_keypress` and `poll_keypress` operators with platform-specific implementations:
-
-| Platform | Windows                           | Unix/Linux/macOS           |
-| -------- | --------------------------------- | -------------------------- |
-| Rust     | `windows-sys` crate               | `termios` + `libc`         |
-| Go       | `msvcrt.dll` (`_kbhit`, `_getch`) | `stty` + `os.Stdin`        |
-| C++      | `<conio.h>` (`_kbhit`, `_getch`)  | `<termios.h>` + `read()`   |
-| Swift    | `_kbhit` / `_getch` via C interop | `Darwin` / `Glibc` termios |
-
-The game uses terminal control operators (`clear_screen`, `move_cursor`, `hide_cursor`, etc.) and keyboard input (`on_keypress`, `poll_keypress`) that have platform-specific implementations for Windows and Unix.
-
-#### Target Comparison: Code Size and Executable Size
-
-The Space Invaders game provides an interesting comparison of how the same Ranger source code translates to different targets.
-
-**Source Code Sizes:**
-
-| Target     | Generated File   | Size (bytes) | Lines | Notes                           |
-| ---------- | ---------------- | ------------ | ----- | ------------------------------- |
-| **Ranger** | `invaders.rgr`   | 11,289       | ~400  | Original source                 |
-| **LLVM IR**| `llvm/invaders.ll` | ~60,000    | ~1,700 | Low-level IR (sample in repo)   |
-| Python     | `invaders.py`    | 9,271        | ~330  | Most compact generated code     |
-| JavaScript | `invaders.js`    | 10,301       | ~350  | Clean, readable output          |
-| Swift      | `invaders.swift` | 12,554       | ~470  | Verbose type annotations        |
-| Go         | `invaders.go`    | 13,701       | ~480  | Explicit error handling         |
-| C++        | `invaders.cpp`   | 14,148       | ~500  | Headers and type declarations   |
-| Rust       | `invaders.rs`    | 17,918       | ~600  | Most verbose (ownership, types) |
-
-**Executable Sizes (native binaries):**
-
-| Target | Executable           | Size   | Notes                             |
-| ------ | -------------------- | ------ | --------------------------------- |
-| **LLVM** | `tmp/invaders-native/invaders` | ~34 KB (arm64 macOS) | Smallest in recent local builds; libc + minimal runtime |
-| Swift  | `invaders_swift.exe` | 76 KB  | Dynamic link to system libraries  |
-| Rust   | `invaders_rust.exe`  | 291 KB | Optimized, statically linked      |
-| Go     | `invaders_go.exe`    | 2.3 MB | Includes Go runtime               |
-| C++    | `invaders_cpp.exe`   | 3.0 MB | Static linking with MinGW/pthread |
-
-**Analysis:**
-
-- **Python** generates the most compact code due to its concise syntax (no type annotations, no braces)
-- **Rust** generates the most verbose code because of explicit ownership (`clone()`, `&mut`), type annotations, and safety features
-- **Swift** produces the smallest native executable because it links dynamically to system libraries
-- **Go** and **C++** have large executables due to static linking of their runtimes
-- **JavaScript** runs on Node.js, so there's no standalone executable (interpreter required)
-
-The ~11KB Ranger source compiles to native executables ranging from 76KB to 3MB, demonstrating the trade-offs between different target languages' runtime requirements and linking strategies.
-
-**Known Issues:**
-
-- Console rendering may have timing artifacts on some terminals
-- Swift target requires macOS or Linux (not available on Windows)
-
-### JavaScript ES6+ Parser
-
-A comprehensive JavaScript ES6+ parser written entirely in Ranger, demonstrating the language's capability to build complex tools. The parser includes a full lexer, recursive descent parser, and pretty-printer.
-
-**Features:**
-
-- **Full ES6+ support** - Classes, arrow functions, async/await, generators, destructuring, spread operators, template literals
-- **Pretty-printer** - Parses JavaScript and outputs formatted code
-- **Comment preservation** - Line comments, block comments, and JSDoc are attached to AST nodes
-- **Multi-target** - Parser compiles to JavaScript, Swift, Go, Python, etc.
-
-**Quick Start (JavaScript):**
-
-```bash
-# Compile the parser
-node bin/output.js gallery/js_parser/js_parser_main.rgr -o=js_parser.js -d=gallery/js_parser
-
-# Parse and pretty-print a JavaScript file
-node gallery/js_parser/js_parser.js -i input.js -o output.js
-
-# Show AST structure
-node gallery/js_parser/js_parser.js -i input.js --ast
-```
-
-**Quick Start (Swift):**
-
-```bash
-# Compile to Swift (from gallery/js_parser directory)
-cd gallery/js_parser
-node ../../bin/output.js js_parser_main.rgr -l=swift6 -o js_parser.swift
-
-# Fix line endings and compile
-sed -i '' $'s/\r$//' bin/js_parser_main.swift
-swiftc -o js_parser_swift bin/js_parser_main.swift
-
-# Run the native Swift binary
-./js_parser_swift -i input.js --ast
-./js_parser_swift -d
-```
-
-**Quick Start (C++ on Windows via WSL):**
-
-```bash
-# Compile to C++ (from Ranger root)
-node bin/output.js gallery/js_parser/js_parser_main.rgr -l=cpp -d=gallery/js_parser -o=js_parser.cpp
-
-# Cross-compile from WSL to Windows
-wsl -d Ubuntu -- bash -c "
-  cd /mnt/c/path/to/Ranger/gallery/js_parser && \
-  sed -i 's/\r$//' js_parser.cpp && \
-  x86_64-w64-mingw32-g++-posix -std=c++17 -static -o js_parser_cpp.exe js_parser.cpp
-"
-
-# Run the native Windows binary
-./js_parser_cpp.exe -i input.js --ast
-./js_parser_cpp.exe -d
-```
-
-**Supported ES6+ Features:**
-
-| Category     | Features                                                               |
-| ------------ | ---------------------------------------------------------------------- |
-| Declarations | `let`, `const`, `var`, function declarations/expressions               |
-| Classes      | `class`, `extends`, `constructor`, `static`, getters, `super`          |
-| Functions    | Arrow functions (`=>`), async/await, generators (`function*`, `yield`) |
-| Operators    | Spread (`...`), rest parameters, destructuring (array/object)          |
-| Literals     | Template literals with interpolation, computed property names          |
-| Control Flow | `for-of`, `for-in`, `while`, `if/else`, `switch`, `try/catch`          |
-
-**Performance Benchmark (vs popular parsers):**
-
-The Ranger js_parser was benchmarked against popular JavaScript parsers. All parsers run in-process with warm-up:
-
-| Rank   | Parser               | Large (17KB) | XL (35KB)   |
-| ------ | -------------------- | ------------ | ----------- |
-| #1     | meriyah              | 0.51 ms      | 0.84 ms     |
-| **#2** | **Ranger js_parser** | **0.88 ms**  | **1.39 ms** |
-| #3     | acorn                | 1.41 ms      | 2.70 ms     |
-| #4     | esprima              | 1.41 ms      | 2.33 ms     |
-| #5     | espree (ESLint)      | 1.58 ms      | 3.47 ms     |
-| #6     | @babel/parser        | 2.63 ms      | 3.06 ms     |
-
-🥈 **Ranger ranks #2**, outperforming espree, acorn, esprima, and @babel/parser by **2-4x**.
-
-```bash
-# Run the benchmark yourself
-cd gallery/js_parser/benchmark
-npm install
-npm run benchmark:large
-```
-
-See [gallery/js_parser/benchmark](gallery/js_parser/benchmark) for the full benchmark suite.
-
-**Example transformation:**
-
-```javascript
-// Input
-const greet = async (name) => {
-  const msg = `Hello, ${name}!`;
-  return msg;
-};
-
-// Output (pretty-printed)
-const greet = async (name) => {
-  const msg = `Hello, ${name}!`;
-  return msg;
-};
-```
-
-See [gallery/js_parser/README.md](gallery/js_parser/README.md) for complete documentation.
-
-### Polyfill System
-
-Ranger supports automatic polyfill generation for operators that require helper functions in the target language. Polyfills are utility functions, types, or constants that are automatically added to the generated output when an operator needs them.
-
-Key features:
-
-- **Automatic deduplication** - Polyfills are only generated once even if the operator is used multiple times
-- **Per-target definitions** - Each target language can have its own polyfill implementation
-- **Platform-specific code** - Polyfills can contain platform conditionals (e.g., `#[cfg(windows)]` in Rust)
-
-Example: The `on_keypress` operator in Rust generates polyfill functions for raw terminal input handling that work on both Windows and Unix platforms.
-
-See the `ai/INSTRUCTIONS.md` file for details on creating operators with polyfills.
-
-### Unit Test Suite
-
-A comprehensive test suite has been added using Vitest:
+The compiler is _self hosting_: it is written in Ranger and compiled by itself,
+so it can run on several platforms. Node.js is the official host, because
+external plugins are only available as npm packages.
+
+The **experimental LLVM backend** (`-l=llvm`) emits LLVM IR and optional
+freestanding WAT for WASM toolchains. It is not a separate surface language but
+another codegen path from the same Ranger sources.
+
+Target versions: JavaScript ES2015, PHP 5.4+, C++14, Java 7, Swift 3 and
+Swift 6, Go 1.8, Scala 2.x, C# 7.0, Python 3.x, Kotlin, and Rust (preliminary).
+Older versions can be supported by writing custom operators that target a
+compiler flag.
+
+## Gallery and demos
+
+The `gallery/` folder holds the larger examples: parsers, EVG/TSX document
+tooling, games, and `@process` host apps. They show what the compiler can do,
+but they are research and showcase projects — some need extra toolchains or
+platform-specific setup. [gallery/README.md](gallery/README.md) indexes them
+and holds the writeups (build commands, benchmarks, target comparisons); each
+project also has its own README.
+
+## Target-specific notes
+
+Swift 6, Rust, the C++ static analysis optimizer, HTTP servers on the Go
+target, and the operator polyfill system are documented in
+[TARGET_NOTES.md](TARGET_NOTES.md).
+
+## Testing
 
 ```bash
 npm test              # Run all tests
@@ -708,80 +162,31 @@ npm run test:go       # Go target tests
 npm run test:rust     # Rust target tests
 ```
 
-Test coverage includes:
+ES6/JavaScript has full runtime coverage; Python and Go have compilation and
+runtime tests; Rust has compilation tests, with runtime tests in progress.
 
-- **ES6/JavaScript**: Full runtime tests (array operations, classes, inheritance, string operations, math, etc.)
-- **Python**: Compilation and runtime tests with pytest
-- **Go**: Compilation and runtime tests
-- **Rust**: Compilation tests (runtime tests in progress)
+## Known issues
 
-### Known Issues
+`toString` as a method name crashes the compiler (use `getSymbol` or a similar
+name), the Go target has integer division type conversion issues, and the
+Python target has inheritance constructor argument issues. See
+[ISSUES.md](ISSUES.md) for the full list and status.
 
-See `ISSUES.md` for a comprehensive list of known issues and their status. Key issues include:
+## AI documentation
 
-- `toString` method name causes compiler crash (use `getSymbol` or similar instead)
-- Go target has integer division type conversion issues
-- Python target has inheritance constructor argument issues
+The `ai/` folder is written for AI assistants, and is also the shortest path
+for human readers who do not want to read this README front to back:
 
-### AI Documentation
+- `ai/QUICKREF.md` - quick reference card
+- `ai/INSTRUCTIONS.md` - complete language guide
+- `ai/EXAMPLES.md` - code examples for common patterns
+- `ai/GRAMMAR.md` - formal grammar reference
+- `ai/INTROSPECTION.md` - compiler introspection API for IDE/AI integration
 
-The `ai/` folder contains documentation optimized for AI assistants:
-
-- `INSTRUCTIONS.md` - Complete language guide
-- `EXAMPLES.md` - Code examples for common patterns
-- `GRAMMAR.md` - Formal grammar reference
-- `QUICKREF.md` - Quick reference card
-- `INTROSPECTION.md` - Compiler introspection API for IDE/AI integration
-
-These files are also useful for human readers who want the shortest path to understanding Ranger without reading the whole README front to back.
-
-### Compiler Introspection API (New)
-
-The compiler now exposes powerful introspection capabilities for IDE integration and AI-assisted development:
-
-**Position-Based Type Querying**
-
-- Query what type is at any line/column position in source code
-- Convert between line/column and byte offsets
-- Find all typed nodes in a source file
-
-**Class Structure Introspection**
-
-- Check if classes have specific properties with optional type verification
-- Check if classes have specific methods with optional return type verification
-- Get all properties and methods with full signatures
-- Track inheritance relationships
-
-**Use Cases**
-
-- IDE autocomplete and hover information
-- AI code generation with type-safe suggestions
-- Incremental compilation planning
-- Codebase analysis and documentation
-
-Example usage:
-
-```typescript
-import {
-  compileForIntrospection,
-  classHasProperty,
-  getTypeAtPosition,
-} from "./tests/helpers/introspection";
-
-// Compile source code
-const result = await compileForIntrospection(sourceCode);
-
-// Check class structure
-if (classHasProperty(result, "Person", "name", "string")) {
-  // Safe to reference person.name
-}
-
-// Query type at cursor position (1-based line/column)
-const typeInfo = getTypeAtPosition(result.rootNode, sourceCode, 5, 12);
-console.log(typeInfo.evalTypeName); // e.g., "int"
-```
-
-See `ai/INTROSPECTION.md` for complete API documentation.
+The introspection API answers what type is at a given line/column, converts
+between positions and byte offsets, and reports the properties, methods and
+inheritance of a class — enough for editor hover, autocomplete, and type-safe
+code generation. `ai/INTROSPECTION.md` has the API and examples.
 
 ## Installing the compiler
 
@@ -992,24 +397,10 @@ res.fileSystem.files.forEach((file) => {
 Include command line parameter `-l=<language>` and the compiler will produce the output files for the language in the output directory.
 Available languages are listed when you run the compiler without any parameters.
 
-## Languages and versions supported
-
-Currently the compiler supports at least following language versions:
-
-- JavaScript ES2015
-- PHP versions 5.4 and above
-- C++ version C++14
-- Java version 7
-- Swift version 3
-- Golang version 1.8
-- Scala 2.xx
-- CSharp 7.0
-- Python 3.x
-- Rust (preliminary support)
-
-However, it is possible to add support for older versions by implementing custom operators, which target to certain compiler flags.
-
-Additionally, JavaScript has '-typescript' flag, which will add typescript annotations to the source file.
+The supported language versions are listed under
+[Host platforms and target languages](#host-platforms-and-target-languages).
+JavaScript additionally has the `-typescript` flag, which adds TypeScript
+annotations to the generated source.
 
 # Operators
 
