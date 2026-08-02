@@ -79,6 +79,58 @@ Two rules apply:
 - The generated code uses the JSON operators. The tabs above show which targets
   have them.
 
+## Which annotations change the code for C++, Rust and Swift?
+
+Most targets collect the memory that a program does not use. C++, Rust and
+Swift count references instead, and two objects that hold each other keep each
+other alive. Ranger has four annotations for this: `weak`, `strong`, `lives`
+and `temp`.
+
+The program below is the case that matters: a parent holds a child, and the
+child holds the parent back. The back reference carries `@(weak)`.
+
+<TargetOutput example={ex("faq/annotations-memory")} targets={model.generated.targets} />
+
+This is what the three targets do with that annotation. The statements come
+from the output above and from the writers of the compiler.
+
+### Rust
+
+The Rust writer reads `weak`. The field type becomes
+`Option<Weak<RefCell<Node>>>` in the place of `Option<Box<Node>>`, and the
+assignment becomes `Rc::downgrade(…)`. Open the Rust tab above and compare the
+two fields. Rust is therefore the target where the annotation does the work
+that its name states.
+
+### C++
+
+The C++ writer does not read `weak`. Both fields become
+`std::shared_ptr<Node>`, as the C++ tab above shows. A cycle between two
+objects therefore keeps both of them, and the memory stays until the program
+ends.
+
+Write the program so that it breaks the cycle: clear the back reference before
+the parent goes out of use, or hold the parent by an index or by a name in the
+place of a pointer.
+
+### Swift
+
+The Swift writer does not read `weak` either. The field is `var parent : Node?`
+with no `weak` keyword, so ARC keeps the cycle in the same way as C++. The same
+answer applies: break the cycle in the program.
+
+### The other three annotations
+
+| Annotation | Measured effect |
+| --- | --- |
+| `strong` | The target code does not change. |
+| `lives` | The target code does not change. The compiler uses the annotation for its own lifetime bookkeeping. |
+| `temp` | The target code does not change, for the same reason. |
+
+On a target that collects memory — JavaScript, TypeScript, Java, Kotlin, C#,
+Go, Python, PHP and Scala — none of the four changes the output. The collector
+handles a cycle.
+
 ## Why does my call not compile?
 
 Ranger is an s-expression language. A call is `(function argument argument)`,
