@@ -359,6 +359,20 @@ class TSLexer {
                 }
             }
         }
+        ; `0x` with no digits, or digits immediately followed by an identifier
+        ; character (`0b1a`, `0o8`), is a malformed literal rather than a number
+        ; followed by a name. Emitted as Invalid so the parser reports it.
+        def digitsRead:boolean (pos > (startPos + 2))
+        def tail:string (this.peek())
+        def runsOn:boolean false
+        if (this.isAlphaNumCh(tail)) { runsOn = true }
+        if ((digitsRead == false) || runsOn) {
+            while (pos < len) {
+                def tch:string (this.peek())
+                if (this.isAlphaNumCh(tch)) { this.advance() } { break }
+            }
+            return (this.makeToken("Invalid" (substring source startPos pos) startPos startLine startCol))
+        }
         return (this.makeToken("Number" (to_string acc) startPos startLine startCol))
     }
 
@@ -380,7 +394,16 @@ class TSLexer {
                 return (this.readRadix(8 startPos startLine startCol))
             }
         }
-        while (pos < len) {
+        ; A mantissa has at most one `.`; `0..a` is the number `0.` then `.a`.
+        def sawDot:boolean false
+        ; Legacy octal (`01`) has no fractional part, so `01.a` is `01` then `.a`.
+        def legacyOctal:boolean false
+        if ((this.peek()) == "0") {
+            def secondCh:string (this.peekAt(1))
+            if (this.isDigit(secondCh)) { legacyOctal = true }
+        }
+        def scanning:boolean true
+        while ((pos < len) && scanning) {
             def ch:string (this.peek())
             if (this.isDigit(ch)) {
                 value = value + (this.advance())
@@ -390,7 +413,8 @@ class TSLexer {
                 if (ch == "_") {
                     this.advance()
                 } {
-                    if (ch == ".") {
+                    if ((ch == ".") && (sawDot == false) && (legacyOctal == false)) {
+                        sawDot = true
                         value = value + (this.advance())
                     } {
                         ; Check for BigInt suffix: 123n
@@ -398,10 +422,44 @@ class TSLexer {
                             value = value + (this.advance())
                             return (this.makeToken("BigInt" value startPos startLine startCol))
                         }
-                        return (this.makeToken("Number" value startPos startLine startCol))
+                        ; Exponent: 1e5, 1.5e-3, 2E+10. Without this the `e` began
+                        ; a new identifier token and `1e5` lexed as `1` then `e5`.
+                        if ((ch == "e") || (ch == "E")) {
+                            def afterE:string (this.peekAt(1))
+                            def expDigit:string afterE
+                            def signLen:int 0
+                            if ((afterE == "+") || (afterE == "-")) {
+                                expDigit = (this.peekAt(2))
+                                signLen = 1
+                            }
+                            if (this.isDigit(expDigit)) {
+                                value = value + (this.advance())
+                                if (signLen > 0) {
+                                    value = value + (this.advance())
+                                }
+                                while (pos < len) {
+                                    def ech:string (this.peek())
+                                    if (this.isDigit(ech)) {
+                                        value = value + (this.advance())
+                                    } {
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                        scanning = false
                     }
                 }
             }
+        }
+        ; A literal may not run straight into an identifier: `3in`, `0a`, `1e5x`.
+        def numTail:string (this.peek())
+        if (this.isAlphaNumCh(numTail)) {
+            while (pos < len) {
+                def tch:string (this.peek())
+                if (this.isAlphaNumCh(tch)) { this.advance() } { break }
+            }
+            return (this.makeToken("Invalid" (substring source startPos pos) startPos startLine startCol))
         }
         return (this.makeToken("Number" value startPos startLine startCol))
     }

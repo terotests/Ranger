@@ -154,7 +154,7 @@ class TSParserSimple {
   ; track those contexts, so refusing them here loses valid programs.
   fn expectBindingName:Token () {
     def tt (this.peekType())
-    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword")) {
+    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword") || (tt == "Boolean") || (tt == "Null")) {
       def tok (this.peek())
       this.advance()
       return tok
@@ -544,7 +544,17 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("break")
-    
+
+    ; Optional label. It must be on the same line — a line terminator triggers
+    ; automatic semicolon insertion before it.
+    if (this.isNameToken()) {
+      def labelTok (this.peek())
+      if (labelTok.line == startTok.line) {
+        this.advance()
+        node.name = labelTok.value
+      }
+    }
+
     if (this.matchValue(";")) {
       this.advance()
     }
@@ -561,7 +571,17 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("continue")
-    
+
+    ; Optional label. It must be on the same line — a line terminator triggers
+    ; automatic semicolon insertion before it.
+    if (this.isNameToken()) {
+      def labelTok (this.peek())
+      if (labelTok.line == startTok.line) {
+        this.advance()
+        node.name = labelTok.value
+      }
+    }
+
     if (this.matchValue(";")) {
       this.advance()
     }
@@ -1147,10 +1167,10 @@ class TSParserSimple {
       node.params = typeParams
     }
     
-    ; Parse extends clause
+    ; Parse extends clause. The superclass is an expression, not a type.
     if (this.matchValue("extends")) {
       this.advance()
-      def superClass (this.parseType())
+      def superClass (this.parsePostfix())
       def extendsNode (new TSNode())
       extendsNode.nodeType = "TSExpressionWithTypeArguments"
       extendsNode.left = superClass

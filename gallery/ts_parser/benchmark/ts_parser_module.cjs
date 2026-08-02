@@ -370,6 +370,23 @@ class TSLexer  {
         }
       }
     };
+    const digitsRead = this.pos > (startPos + 2);
+    const tail = this.peek();
+    let runsOn = false;
+    if ( this.isAlphaNumCh(tail) ) {
+      runsOn = true;
+    }
+    if ( (digitsRead == false) || runsOn ) {
+      while (this.pos < this.__len) {
+        const tch = this.peek();
+        if ( this.isAlphaNumCh(tch) ) {
+          this.advance();
+        } else {
+          break;
+        }
+      };
+      return this.makeToken("Invalid", (this.source.substring(startPos, this.pos )), startPos, startLine, startCol);
+    }
     return this.makeToken("Number", ((acc.toString())), startPos, startLine, startCol);
   };
   readNumber () {
@@ -389,7 +406,16 @@ class TSLexer  {
         return this.readRadix(8, startPos, startLine, startCol);
       }
     }
-    while (this.pos < this.__len) {
+    let sawDot = false;
+    let legacyOctal = false;
+    if ( this.peek() == "0" ) {
+      const secondCh = this.peekAt(1);
+      if ( this.isDigit(secondCh) ) {
+        legacyOctal = true;
+      }
+    }
+    let scanning = true;
+    while ((this.pos < this.__len) && scanning) {
       const ch = this.peek();
       if ( this.isDigit(ch) ) {
         value = value + this.advance();
@@ -397,18 +423,54 @@ class TSLexer  {
         if ( ch == "_" ) {
           this.advance();
         } else {
-          if ( ch == "." ) {
+          if ( ((ch == ".") && (sawDot == false)) && (legacyOctal == false) ) {
+            sawDot = true;
             value = value + this.advance();
           } else {
             if ( ch == "n" ) {
               value = value + this.advance();
               return this.makeToken("BigInt", value, startPos, startLine, startCol);
             }
-            return this.makeToken("Number", value, startPos, startLine, startCol);
+            if ( (ch == "e") || (ch == "E") ) {
+              const afterE = this.peekAt(1);
+              let expDigit = afterE;
+              let signLen = 0;
+              if ( (afterE == "+") || (afterE == "-") ) {
+                expDigit = this.peekAt(2);
+                signLen = 1;
+              }
+              if ( this.isDigit(expDigit) ) {
+                value = value + this.advance();
+                if ( signLen > 0 ) {
+                  value = value + this.advance();
+                }
+                while (this.pos < this.__len) {
+                  const ech = this.peek();
+                  if ( this.isDigit(ech) ) {
+                    value = value + this.advance();
+                  } else {
+                    break;
+                  }
+                };
+              }
+            }
+            scanning = false;
           }
         }
       }
     };
+    const numTail = this.peek();
+    if ( this.isAlphaNumCh(numTail) ) {
+      while (this.pos < this.__len) {
+        const tch = this.peek();
+        if ( this.isAlphaNumCh(tch) ) {
+          this.advance();
+        } else {
+          break;
+        }
+      };
+      return this.makeToken("Invalid", (this.source.substring(startPos, this.pos )), startPos, startLine, startCol);
+    }
     return this.makeToken("Number", value, startPos, startLine, startCol);
   };
   hexValue (ch) {
@@ -1333,7 +1395,7 @@ class TSParserSimple  {
   };
   expectBindingName () {
     const tt = this.peekType();
-    if ( (((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword") ) {
+    if ( (((((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword")) || (tt == "Boolean")) || (tt == "Null") ) {
       const tok = this.peek();
       this.advance();
       return tok;
@@ -1635,6 +1697,13 @@ class TSParserSimple  {
     node.line = startTok.line;
     node.col = startTok.col;
     this.expectValue("break");
+    if ( this.isNameToken() ) {
+      const labelTok = this.peek();
+      if ( labelTok.line == startTok.line ) {
+        this.advance();
+        node.name = labelTok.value;
+      }
+    }
     if ( this.matchValue(";") ) {
       this.advance();
     }
@@ -1648,6 +1717,13 @@ class TSParserSimple  {
     node.line = startTok.line;
     node.col = startTok.col;
     this.expectValue("continue");
+    if ( this.isNameToken() ) {
+      const labelTok = this.peek();
+      if ( labelTok.line == startTok.line ) {
+        this.advance();
+        node.name = labelTok.value;
+      }
+    }
     if ( this.matchValue(";") ) {
       this.advance();
     }
@@ -2073,7 +2149,7 @@ class TSParserSimple  {
     }
     if ( this.matchValue("extends") ) {
       this.advance();
-      const superClass = this.parseType();
+      const superClass = this.parsePostfix();
       const extendsNode = new TSNode();
       extendsNode.nodeType = "TSExpressionWithTypeArguments";
       extendsNode.left = superClass;
