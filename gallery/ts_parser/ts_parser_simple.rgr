@@ -6799,9 +6799,17 @@ class TSParserSimple {
         spread.left = spreadArg
         push node.children spread
       } {
-        ; Check for empty slot (elision)
+        ; An ELISION -- `[,,x]` -- is a real element position, so it gets a
+        ; placeholder node. Skipping it silently made `[4,5,,,,].length` 2
+        ; instead of 5: the holes simply vanished from the AST.
         if (this.matchValue(",")) {
-          ; Don't add anything, just skip
+          def holeTok (this.peek())
+          def hole (new TSNode())
+          hole.nodeType = "ArrayHole"
+          hole.start = holeTok.start
+          hole.line = holeTok.line
+          hole.col = holeTok.col
+          push node.children hole
         } {
           def elem (this.parseExpr())
           push node.children elem

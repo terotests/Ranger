@@ -737,6 +737,13 @@ class EvalValue {
                 if (false == extensibleFlag) {
                     return
                 }
+                ; A non-writable data property on the PROTOTYPE also refuses the
+                ; write -- no own property is created to shadow it. Only the own
+                ; map was consulted, so `o.bar = x` shadowed an unwritable
+                ; inherited `bar` instead of being ignored.
+                if (this.protoRefuses(key 0)) {
+                    return
+                }
             }
             set objectMap key value
             return
@@ -756,6 +763,28 @@ class EvalValue {
     }
 
     ; Remove an object property (mutates in place), rebuilding the map without it.
+    ; Does an inherited data property refuse a write to this name?
+    fn protoRefuses:boolean (key:string depth:int) {
+        if (depth > 16) {
+            return false
+        }
+        if (null? protoRef) {
+            return false
+        }
+        def p:EvalValue (unwrap protoRef)
+        ; An accessor is handled by the setter path, not here.
+        if (has p.getterMap key) {
+            return false
+        }
+        if (has p.setterMap key) {
+            return false
+        }
+        if (has p.objectMap key) {
+            return (false == (p.isWritable(key)))
+        }
+        return (p.protoRefuses(key (depth + 1)))
+    }
+
     fn removeMember:void (key:string) {
         ; D-ATTRS: a non-configurable property cannot be deleted, which is what
         ; seal and freeze rely on.

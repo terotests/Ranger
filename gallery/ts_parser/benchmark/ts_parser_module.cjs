@@ -7424,6 +7424,13 @@ class TSParserSimple  {
         node.children.push(spread);
       } else {
         if ( this.matchValue(",") ) {
+          const holeTok = this.peek();
+          const hole = new TSNode();
+          hole.nodeType = "ArrayHole";
+          hole.start = holeTok.start;
+          hole.line = holeTok.line;
+          hole.col = holeTok.col;
+          node.children.push(hole);
         } else {
           const elem = this.parseExpr();
           node.children.push(elem);

@@ -1126,6 +1126,9 @@ class ComponentEngine {
         if (false == obj.extensibleFlag) {
             return ("Cannot add property " + key + " to a non-extensible object")
         }
+        if (obj.protoRefuses(key 0)) {
+            return ("Cannot assign to read only property " + key + " of an object")
+        }
         return ""
     }
 
@@ -3971,6 +3974,44 @@ class ComponentEngine {
             def leftNode:TSNode (unwrap node.left)
             if (leftNode.nodeType == "Identifier") {
                 def varName:string leftNode.name
+                ; D-WITH: ++ and -- go through the with object too, accessors
+                ; included, and the base is fixed before the getter runs -- a
+                ; getter that deletes itself still has the new value written
+                ; onto the object it came from.
+                def uw:EvalValue (context.findWithObjectFor(varName))
+                if (uw.valueType == 5) {
+                    def ucur:EvalValue (EvalValue.undefined())
+                    if (has uw.getterMap varName) {
+                        def ugf:EvalValue (uw.findGetter(varName 0))
+                        if (ugf.valueType == 6) {
+                            def ugArgs:[EvalValue]
+                            ucur = (this.callFnValueWithValues((ugf.withThis(uw)) ugArgs))
+                        }
+                    } {
+                        if (has uw.objectMap varName) {
+                            ucur = (unwrap (get uw.objectMap varName))
+                        }
+                    }
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    def uold:double (this.toNumberOf(ucur))
+                    def unew:EvalValue (EvalValue.number((uold + delta)))
+                    def usf:EvalValue (uw.findSetter(varName 0))
+                    if (usf.valueType == 6) {
+                        def usArgs:[EvalValue]
+                        push usArgs unew
+                        def _us:EvalValue (this.callFnValueWithValues((usf.withThis(uw)) usArgs))
+                    } {
+                        if (false == (has uw.getterMap varName)) {
+                            uw.setMember(varName unew)
+                        }
+                    }
+                    if node.prefix {
+                        return unew
+                    }
+                    return (EvalValue.number(uold))
+                }
                 ; ++ and -- READ the target, so an undeclared name is a
                 ; ReferenceError rather than a silent NaN.
                 if (false == (context.has(varName))) {
@@ -5077,6 +5118,13 @@ class ComponentEngine {
         }
         if (nt == "NewExpression") {
             return (this.evaluateNewExpr(node))
+        }
+        ; An array elision evaluates to undefined. The engine has no hole
+        ; representation, so a hole reads as undefined and `0 in [,1]` answers
+        ; true where the spec says false -- the LENGTH is right, the
+        ; distinction between a hole and an undefined element is not.
+        if (nt == "ArrayHole") {
+            return (EvalValue.undefined())
         }
         ; D-REGEX: `/pattern/flags` as a value.
         if (nt == "RegExpLiteral") {
