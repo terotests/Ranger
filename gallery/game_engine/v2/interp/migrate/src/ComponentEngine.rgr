@@ -6255,18 +6255,18 @@ class ComponentEngine {
 
         ; Bitwise (JS coerces operands to int32; common idiom "x | 0" truncates to int)
         if (op == "|") {
-            def leftInt:int (to_int (left.toNumber()))
-            def rightInt:int (to_int (right.toNumber()))
+            def leftInt:int (to_int (this.toNumberOf(left)))
+            def rightInt:int (to_int (this.toNumberOf(right)))
             return (EvalValue.fromInt((bit_or leftInt rightInt)))
         }
         if (op == "&") {
-            def leftInt:int (to_int (left.toNumber()))
-            def rightInt:int (to_int (right.toNumber()))
+            def leftInt:int (to_int (this.toNumberOf(left)))
+            def rightInt:int (to_int (this.toNumberOf(right)))
             return (EvalValue.fromInt((bit_and leftInt rightInt)))
         }
         if (op == "^") {
-            def leftInt:int (to_int (left.toNumber()))
-            def rightInt:int (to_int (right.toNumber()))
+            def leftInt:int (to_int (this.toNumberOf(left)))
+            def rightInt:int (to_int (this.toNumberOf(right)))
             return (EvalValue.fromInt((bit_xor leftInt rightInt)))
         }
         ; Shifts (JS coerces to int32; shift count masked to low 5 bits). Common in
@@ -6346,13 +6346,48 @@ class ComponentEngine {
     ; EvalValue.equals (no numeric/string cross-type coercion). This keeps the
     ; universal guest idiom `x != null` meaning "neither null nor undefined" now
     ; that a missing member reads as undefined (D-IDENTITY rule 6).
+    ; D-LOOSEEQ: abstract equality. Previously `==` was `===` plus a
+    ; null/undefined special case, so `1 == '1'`, `true == 1` and
+    ; `[1] == 1` were all false -- the comparisons `==` exists to make.
     fn looseEquals:boolean (left:EvalValue right:EvalValue) {
         def ln:boolean ((left.isNull()) || (left.isUndefined()))
         def rn:boolean ((right.isNull()) || (right.isUndefined()))
+        ; null and undefined equal each other and nothing else.
         if (ln || rn) {
             return (ln && rn)
         }
-        return (left.equals(right))
+        def lIsObj:boolean ((left.valueType == 5) || (left.isArray()))
+        def rIsObj:boolean ((right.valueType == 5) || (right.isArray()))
+        ; Two objects compare by reference, never by content.
+        if (lIsObj && rIsObj) {
+            return (left.equals(right))
+        }
+        ; One object: convert it to a primitive and retry.
+        if lIsObj {
+            def lp:EvalValue (this.toPrimitive(left false))
+            return (this.looseEquals(lp right))
+        }
+        if rIsObj {
+            def rp:EvalValue (this.toPrimitive(right false))
+            return (this.looseEquals(left rp))
+        }
+        ; Same primitive type: strict comparison.
+        if ((left.isString()) && (right.isString())) {
+            return (left.equals(right))
+        }
+        if ((left.isNumber()) && (right.isNumber())) {
+            return (left.equals(right))
+        }
+        if ((left.isBoolean()) && (right.isBoolean())) {
+            return (left.equals(right))
+        }
+        ; Mixed primitives compare numerically, which is what makes
+        ; 1 == '1' and true == 1 hold.
+        def lnum:double (this.toNumberOf(left))
+        def rnum:double (this.toNumberOf(right))
+        if (lnum != lnum) { return false }
+        if (rnum != rnum) { return false }
+        return (lnum == rnum)
     }
 
     fn bindingExists:boolean (name:string) {

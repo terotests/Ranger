@@ -327,6 +327,24 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // D-TOPRIMITIVE: objects convert via valueOf/toString before every operator
   // that is not ===. Reading raw values sent an object straight to its debug
   // form, so arithmetic on it concatenated text instead of adding numbers.
+  // D-LOOSEEQ: abstract equality. `==` used to be `===` plus a null/undefined
+  // case, so the comparisons it exists to make were all false.
+  ["looseeq-num-str", "return 1 == '1';", "coercion"],
+  ["looseeq-bool-num", "return true == 1;", "coercion"],
+  ["looseeq-false-zero", "return false == 0;", "coercion"],
+  ["looseeq-empty-zero", "return '' == 0;", "coercion"],
+  ["looseeq-null-undefined", "return null == undefined;", "coercion"],
+  ["looseeq-null-not-zero", "return null == 0;", "coercion"],
+  ["looseeq-nan", "return (0 / 0) == (0 / 0);", "coercion"],
+  ["looseeq-array-num", "return [1] == 1;", "coercion"],
+  ["looseeq-valueof", "var o = { valueOf: function () { return 3; } }; return o == 3;", "coercion"],
+  ["looseeq-obj-reference", "var a = {}; var b = {}; return a == b;", "coercion"],
+  ["looseeq-obj-self", "var a = {}; return a == a;", "coercion"],
+  ["looseeq-strict-unaffected", "return 1 === '1';", "coercion"],
+  ["looseeq-not-equal", "return 1 != '2';", "coercion"],
+  ["looseeq-undefined-zero", "return undefined == 0;", "coercion"],
+  ["looseeq-bitwise-coerce", "var o = { valueOf: function () { return 5; } }; return o | 0;", "coercion"],
+
   ["toprim-valueof-add", "var o = { valueOf: function () { return 5; } }; return o + 1;", "coercion"],
   ["toprim-tostring-add", "var o = { toString: function () { return 'x'; } }; return o + 'y';", "coercion"],
   ["toprim-valueof-wins", "var o = { valueOf: function () { return 2; }, toString: function () { return 'z'; } }; return o + 1;", "coercion"],
@@ -608,9 +626,7 @@ const KNOWN_GAPS = new Set<string>([
   "for-of-expr-lhs",
   // Destructuring: swap produces the wrong value.
   "destr-swap",
-  // Coercion is not implemented: `==` behaves as `===`, and ToString for
-  // objects and arrays is wrong.
-  "coerce-loose-eq",
+  // ToString for objects and arrays is still wrong in the debug renderer.
   "coerce-arr-to-string",
   "coerce-obj-to-string",
   // Generators parse but do not run.
