@@ -70,9 +70,17 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
 - [`CHANGELOG.md`](CHANGELOG.md) - version history; [`PLAN_3.md`](PLAN_3.md) - roadmap
 
-## Compatibility Snapshot
+## Targets and compatibility
 
-The project can target `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, `Python`, `Kotlin`, and `Rust`, but support is uneven.
+The compiler is _self hosting_: it is written in Ranger and compiled by itself,
+so it can run on several platforms. Node.js is the official host, because
+external plugins are only available as npm packages.
+
+It targets `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`,
+`Python`, `Kotlin` and `Rust` — at ES2015, PHP 5.4+, C++14, Java 7, Swift 3 and
+6, Go 1.8, Scala 2.x, C# 7.0 and Python 3.x respectively, with Rust
+preliminary. Older versions can be supported by writing custom operators that
+target a compiler flag. Support is uneven:
 
 | Area | Current expectation |
 | --- | --- |
@@ -80,8 +88,12 @@ The project can target `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, 
 | Self-hosting | Actively used, but full compiler generation quality is strongest in JavaScript |
 | JavaScript / ES6 | Best baseline target and most reliable place to start |
 | Go / Swift / Rust / Kotlin / C++ | Useful and increasingly capable, but expect edge cases and target-specific gaps |
-| **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. See `npm run test:llvm`, `npm run game:build:llvm`. |
+| **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. Another codegen path from the same sources, not a separate surface language. See `npm run test:llvm`, `npm run game:build:llvm`. |
 | Gallery examples | Good for understanding direction and capability, but some require manual setup or platform-specific tooling |
+
+[Target languages](https://terotests.github.io/Ranger/docs/targets/overview/)
+documents what each target writes and the semantic differences a portable
+program has to know.
 
 ### Conformance suite (Track 1)
 
@@ -122,21 +134,6 @@ rgrc -l=python myfile.rgr -o=output.py
 See [CHANGELOG.md](CHANGELOG.md) for full version history and [PLAN_3.md](PLAN_3.md) for the roadmap.
 
 ---
-
-## Host platforms and target languages
-
-The compiler is _self hosting_: it is written in Ranger and compiled by itself,
-so it can run on several platforms. Node.js is the official host, because
-external plugins are only available as npm packages.
-
-The **experimental LLVM backend** (`-l=llvm`) emits LLVM IR and optional
-freestanding WAT for WASM toolchains. It is not a separate surface language but
-another codegen path from the same Ranger sources.
-
-Target versions: JavaScript ES2015, PHP 5.4+, C++14, Java 7, Swift 3 and
-Swift 6, Go 1.8, Scala 2.x, C# 7.0, Python 3.x, Kotlin, and Rust (preliminary).
-Older versions can be supported by writing custom operators that target a
-compiler flag.
 
 ## Gallery and demos
 
@@ -393,9 +390,9 @@ res.fileSystem.files.forEach((file) => {
 
 `-l=<language>` selects the target; running the compiler with no arguments
 lists the available ones, and the supported versions are under
-[Host platforms and target languages](#host-platforms-and-target-languages).
-JavaScript additionally has `-typescript`, which adds TypeScript annotations to
-the generated source.
+[Targets and compatibility](#targets-and-compatibility). JavaScript
+additionally has `-typescript`, which adds TypeScript annotations to the
+generated source.
 
 [Target languages](https://terotests.github.io/Ranger/docs/targets/overview/)
 documents what each target writes for the main function, and the semantic
@@ -528,57 +525,37 @@ x = y
 
 Instead of common lisp syntax `(= x y)`
 
-## Main function
+## Functions, main and comments
 
-Each file can have a static main function, which is executed as the main program.
-
-```
-class Hello {
-    static fn main() {
-    }
-}
-
-```
-
-This is a static function which marks the start of execution for the program.
-
-## Functions and Static functions
-
-```
-class Hello {
-    fn SomeNonStaticFn () {
-    }
-    sfn SomeStaticFn () {
-        ; static function which instantiates Hello and calls non-static
-        def o (new Hello)
-        o.SomeNonStaticFn()
-    }
-}
-
-```
-
-Calling static function of a class can be done with
-
-```
-Hello.SomeStaticFn()
-```
-
-## Return values of functions
-
-Function not inferred or declared as `void` should always return value with `return` statement.
-
-## Comments
+`fn` declares a function of an object and `sfn` a static function of the class.
+Each file can have a static main function, which is the entry point of the
+program. A function that is not `void` must return a value with `return`. A
+comment starts with `;`.
 
 ```
 ; here is a comment
 class Hello {
-
+    sfn main@(main):void () {
+        def o (new Hello)
+        o.SomeNonStaticFn()
+    }
+    fn SomeNonStaticFn () {
+    }
+    sfn SomeStaticFn () {
+    }
 }
+
+Hello.SomeStaticFn()   ; calling a static function of a class
 ```
 
-## Type inference and variable definition
+[Program structure](https://terotests.github.io/Ranger/docs/language/structure/)
+covers `class`, `record`, `systemclass`, `Import`, `Extend` and `Enum` in one
+table, and explains how blocks are passed to operators.
 
-Type inference can be used to determine variable type for local variables and class properties
+## Types
+
+Type inference determines the type of local variables and class properties, or
+the program declares it after a colon:
 
 ```
 def x 100      ; inferred type = int
@@ -586,34 +563,14 @@ def y:int 200
 def o (new myClass) ; inferred type myClass
 ```
 
-## Standard types
+The primitive types are `int`, `boolean`, `string`, `double`, `char` and
+`charbuffer`, plus the fixed-width integer types; a function that returns
+nothing is `void`. Arrays, hashes and anonymous functions are usable as
+variable types but need a signature. `Enum`, `class`, `systemclass`,
+`systemunion` and `trait` need a declaration of their own.
 
-Basic primitive types are
-
-- int
-- boolean
-- string
-- double
-- char
-- charbuffer
-
-Type of function returning nothing is
-
-- void
-
-Type which can be used as variable types, but require signature are
-
-- Arrays
-- Hashes
-- Anonymous functions
-
-Types which require type declaration are
-
-- Enum
-- class
-- systemclass
-- systemunion
-- trait
+[Types](https://terotests.github.io/Ranger/docs/language/types/) has the full
+table with example values, the buffer types and what each one compiles to.
 
 ## String literals
 
@@ -681,35 +638,18 @@ Arrays and hashes are automatically initialized and are ready to be used after t
 def list:[string]
 def usedKeywords:[string:string]
 def classMap:[string:myClass]
+
+set usedKeywords "foo" "bar"        ; write a key
+if (has usedKeywords "a key") { }   ; test a key
+def v (get usedKeywords "foo")      ; read a key — the result is @(optional)
 ```
 
-### Operators for hashes
-
-if we have a hashmap
-
-```
-  def someMap:[string:string]
-```
-
-Operator `set` can be used to set key/value pair
-
-```
-  set someMap "foo" "bar"
-```
-
-Operator `has` can be used to check if a key exists in the hash
-
-```
-    if (has someMap "a key") {
-
-    }
-```
-
-Get is used to read the value associated with a key. The result is `@(optional)`
-
-```
-  (get someMap "foo")
-```
+Note that `get` always returns an optional value; see
+[Optional variables](#optional-variables) below. The complete set is in the
+generated
+[array](https://terotests.github.io/Ranger/docs/reference/operators/array/) and
+[map](https://terotests.github.io/Ranger/docs/reference/operators/map/)
+operator reference, with the code each one writes per target.
 
 ## Anonymous functions / lambdas
 
@@ -955,21 +895,15 @@ extension childClass {
 
 ## Optional variables
 
-In several target languages so called "optional" type can be used. In Ranger Option -type can be used as function or operator
-return value and as filter to opertors. To use optional variable directly it should be first unwrapped. Also, trying to unwrap
-non-nullable value should cause compiler error. In Ranger any variable which is declared not given value is considered optional.
-This corresponds to Swift `?` optional type.
-
-You can also declare variables optional using @optional annotation
+An optional value must be unwrapped before use, and unwrapping a non-nullable
+value is a compiler error. Any variable declared without a value is optional,
+which corresponds to the Swift `?` type. The `@(optional)` annotation declares
+one explicitly, and some operators — `(get <hash> <key>)` among them — always
+return one.
 
 ```
     def item@(optional):myClass
-```
 
-Some operators also return optional values, for example `(get <hash> <key>)` operator is returning always optional value. To use
-the value you must use `(unwrap <value>)` operator
-
-```
     def strMap:[string:string]
     def str (get strMap "myKey")
     if(!null? str) {
@@ -977,12 +911,16 @@ the value you must use `(unwrap <value>)` operator
     }
 ```
 
-**Warning\*** currently optinal variables in Ranger are not "safe" in the sense the language makes sure that you can not make
-programming errors - it is possible to create programming mistake by using a variable which automatically unwrapped. The plan
-is to try to make them safer in the future, and options are considered how to enable them
+[Optional values](https://terotests.github.io/Ranger/docs/language/optionals/)
+lists the operators (`??`, `!!`, `unwrap`, `null?`, `!null?`, `wrap`,
+`nullify`), what each target uses for an empty value, and the `-strict` flag.
 
-Another warning: Ranger does not protect you from mistakes when automatically unwrapping long reference chains like
-`obj.property.subProperty.foo` where `property` and `subProperty ` are optional variables.
+**Two warnings that apply to the current implementation.** Optionals are not
+"safe" in the sense of preventing programming errors: a variable that was
+unwrapped automatically can still be misused. Making them safer is planned, and
+the options are being considered. Ranger also does not protect against mistakes
+when automatically unwrapping long reference chains such as
+`obj.property.subProperty.foo`, where `property` and `subProperty` are optional.
 
 ## Control flow
 
