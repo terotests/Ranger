@@ -402,6 +402,30 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["errproto-range-is-error", "try { (5).toString(1); } catch (e) { return e instanceof Error; }", "classof"],
   ["errproto-user-not-error", "function F() {} var f = new F(); return f instanceof Error;", "classof"],
 
+  // D-DEFINEOWN: defineProperty and defineProperties run the SAME
+  // [[DefineOwnProperty]]. The plural form used to validate nothing at all.
+  ["defown-data-to-accessor", "try { var o = {}; Object.defineProperty(o, 'a', { value: 1, configurable: false }); Object.defineProperty(o, 'a', { get: function () { return 2; } }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-accessor-to-data", "try { var o = {}; Object.defineProperty(o, 'a', { get: function () { return 1; }, configurable: false }); Object.defineProperty(o, 'a', { value: 2 }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-accessor-swap-getter", "try { var o = {}; Object.defineProperty(o, 'a', { get: function () { return 1; }, configurable: false }); Object.defineProperty(o, 'a', { get: function () { return 2; } }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-accessor-same-getter", "try { var g = function () { return 1; }; var o = {}; Object.defineProperty(o, 'a', { get: g, configurable: false }); Object.defineProperty(o, 'a', { get: g }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-accessor-enumerable", "try { var g = function () { return 1; }; var o = {}; Object.defineProperty(o, 'a', { get: g, enumerable: true, configurable: false }); Object.defineProperty(o, 'a', { get: g, enumerable: false }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-plural-bad-desc", "try { Object.defineProperties({}, { p: true }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-plural-atomic", "var o = {}; try { Object.defineProperties(o, { p: true }); } catch (e) {} return o.hasOwnProperty('p');", "defineown"],
+  ["defown-plural-redefine", "try { var o = {}; Object.defineProperty(o, 'p', { value: 1, configurable: false }); Object.defineProperties(o, { p: { value: 2, configurable: true } }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-plural-applies", "var o = {}; Object.defineProperties(o, { a: { value: 1, enumerable: true }, b: { value: 2 } }); return o.a + ':' + o.b + ':' + Object.keys(o).join(',');", "defineown"],
+  ["defown-plural-attrs", "var o = {}; Object.defineProperties(o, { a: { value: 1 } }); return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "defineown"],
+  ["defown-function-desc", "var o = {}; Object.defineProperty(o, 'k', function () {}); return o.hasOwnProperty('k') + ':' + String(o.k);", "defineown"],
+  ["defown-array-desc", "var o = {}; Object.defineProperty(o, 'k', []); return o.hasOwnProperty('k');", "defineown"],
+  ["defown-accessor-desc-attrs", "var o = {}; Object.defineProperty(o, 'a', { get: function () { return 1; }, enumerable: true }); var d = Object.getOwnPropertyDescriptor(o, 'a'); return d.enumerable + ':' + d.configurable;", "defineown"],
+  // D-THISCHECK: a borrowed Number/Boolean prototype method rejects a foreign
+  // receiver rather than answering for it.
+  ["thischeck-boolean-borrowed", "try { var o = {}; o.f = Boolean.prototype.toString; return o.f(); } catch (e) { return e.name; }", "defineown"],
+  ["thischeck-number-borrowed", "try { var o = {}; o.f = Number.prototype.toString; return o.f(); } catch (e) { return e.name; }", "defineown"],
+  ["thischeck-number-tofixed", "try { var o = {}; o.f = Number.prototype.toFixed; return o.f(2); } catch (e) { return e.name; }", "defineown"],
+  ["thischeck-number-own-ok", "var n = 255; n.toString = Number.prototype.toString; return (255).toString(16);", "defineown"],
+  ["thischeck-boxed-ok", "var o = new Boolean(true); o.f = Boolean.prototype.toString; return o.f();", "defineown"],
+  ["thischeck-string-coerces", "var o = { toString: function () { return 'xy'; } }; return String.prototype.charAt.call(o, 1);", "defineown"],
+
   ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
   ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
   ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],

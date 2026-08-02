@@ -5360,8 +5360,13 @@ class ComponentEngine {
                                 } {
                                     descA.setMember("set" (EvalValue.undefined()))
                                 }
-                                descA.setMember("enumerable" (EvalValue.boolean(true)))
-                                descA.setMember("configurable" (EvalValue.boolean(true)))
+                                ; D-ATTRS: an accessor carries the same recorded
+                                ; attributes a data property does. Hardcoding
+                                ; both to true made every accessor report as
+                                ; configurable, which is the opposite of what
+                                ; defineProperty defaults them to.
+                                descA.setMember("enumerable" (EvalValue.boolean((src.isEnumerable(dk)))))
+                                descA.setMember("configurable" (EvalValue.boolean((src.isConfigurable(dk)))))
                                 return descA
                             }
                             ; D-INDEXDESC: an array index or string index is a
@@ -5439,68 +5444,44 @@ class ComponentEngine {
                         if ((array_length node.children) > 2) {
                             def pk:string ((this.evaluateExpr((itemAt node.children 1))).toString())
                             def pd:EvalValue (this.evaluateExpr((itemAt node.children 2)))
-                            if (pd.valueType != 5) {
-                                return (this.throwSpecError("TypeError" "Property description must be an object"))
+                            def pErr:string (this.definePropertyOn(src pk pd))
+                            if ((strlen pErr) > 0) {
+                                return (this.throwSpecError("TypeError" pErr))
                             }
-                            def dErr:string (this.descriptorError(pd))
-                            if ((strlen dErr) > 0) {
-                                return (this.throwSpecError("TypeError" dErr))
-                            }
-                            def rErr:string (this.redefineError(src pk pd))
-                            if ((strlen rErr) > 0) {
-                                return (this.throwSpecError("TypeError" rErr))
-                            }
-                            def gv:EvalValue (pd.getMember("get"))
-                            def sv:EvalValue (pd.getMember("set"))
-                            if ((gv.valueType == 6) || (sv.valueType == 6)) {
-                                ; D-ACCESSORS: a real accessor property. The
-                                ; functions are stored apart from objectMap so
-                                ; the property is never mistaken for a data one.
-                                if (gv.valueType == 6) {
-                                    src.defineGetter(pk gv)
-                                }
-                                if (sv.valueType == 6) {
-                                    src.defineSetter(pk sv)
-                                }
-                                return src
-                            }
-                            ; D-ATTRS: defineProperty defaults every attribute
-                            ; to FALSE, unlike plain assignment which defaults
-                            ; them all true. Recording that is what lets a
-                            ; descriptor report honestly. Written through the
-                            ; raw map because setMember would refuse a second
-                            ; defineProperty on a non-writable property, while
-                            ; redefining a CONFIGURABLE one is allowed.
-                            def dW:boolean ((pd.getMember("writable")).toBool())
-                            def dE:boolean ((pd.getMember("enumerable")).toBool())
-                            def dC:boolean ((pd.getMember("configurable")).toBool())
-                            set src.objectMap pk (pd.getMember("value"))
-                            src.setAttrs(pk dW dE dC)
                         }
                         return src
                     }
-                    ; Object.defineProperties(o, descs) — same rules as
-                    ; defineProperty, applied to each own key of the map.
+                    ; Object.defineProperties(o, descs) — the SAME rules as
+                    ; defineProperty, applied to each own key of the map. It used
+                    ; to have its own copy that validated nothing.
                     if (methodName == "defineProperties") {
                         if ((array_length node.children) > 1) {
                             def descs:EvalValue (this.evaluateExpr((itemAt node.children 1)))
                             def dkeys:[string] (this.objectKeys(descs))
+                            ; Every descriptor is validated before any is
+                            ; applied, per spec, so a bad one later in the map
+                            ; leaves the object untouched rather than half
+                            ; written -- which is exactly what the suite asserts
+                            ; with hasOwnProperty after the throw.
+                            def dvi:int 0
+                            while (dvi < (array_length dkeys)) {
+                                def dvk:string (itemAt dkeys dvi)
+                                def dvd:EvalValue (descs.getMember(dvk))
+                                if (false == (this.isDescriptorObject(dvd))) {
+                                    return (this.throwSpecError("TypeError" "Property description must be an object"))
+                                }
+                                def dvErr:string (this.descriptorError(dvd))
+                                if ((strlen dvErr) > 0) {
+                                    return (this.throwSpecError("TypeError" dvErr))
+                                }
+                                dvi = (dvi + 1)
+                            }
                             def dpi:int 0
                             while (dpi < (array_length dkeys)) {
                                 def dpk:string (itemAt dkeys dpi)
-                                def dpd:EvalValue (descs.getMember(dpk))
-                                def dg:EvalValue (dpd.getMember("get"))
-                                def ds:EvalValue (dpd.getMember("set"))
-                                if ((dg.valueType == 6) || (ds.valueType == 6)) {
-                                    if (dg.valueType == 6) {
-                                        src.defineGetter(dpk dg)
-                                    }
-                                    if (ds.valueType == 6) {
-                                        src.defineSetter(dpk ds)
-                                    }
-                                } {
-                                    set src.objectMap dpk (dpd.getMember("value"))
-                                    src.setAttrs(dpk ((dpd.getMember("writable")).toBool()) ((dpd.getMember("enumerable")).toBool()) ((dpd.getMember("configurable")).toBool()))
+                                def dpErr:string (this.definePropertyOn(src dpk (descs.getMember(dpk))))
+                                if ((strlen dpErr) > 0) {
+                                    return (this.throwSpecError("TypeError" dpErr))
                                 }
                                 dpi = (dpi + 1)
                             }
@@ -7018,6 +6999,27 @@ class ComponentEngine {
     ; and from an extracted value invoked later via call/apply/bind, so the two
     ; paths cannot drift apart.
     fn invokeBuiltin:EvalValue (kind:string name:string recv:EvalValue args:[EvalValue]) {
+        ; D-THISCHECK: Number.prototype and Boolean.prototype methods require a
+        ; receiver of their own type. Borrowing one --
+        ;   var o = {}; o.f = Boolean.prototype.toString; o.f();
+        ; -- is a TypeError, not "[object Object]". Reachable only since a
+        ; built-in stored under another name became callable at all, so the
+        ; check has to exist for the borrowing to be modelled honestly.
+        ; String.prototype is deliberately absent: those methods coerce their
+        ; receiver via ToString and throw only on null/undefined, which the
+        ; String block already does.
+        if (kind == "number") {
+            def numRecv:EvalValue (this.unwrapPrimitive(recv))
+            if (numRecv.valueType != 1) {
+                return (this.throwSpecError("TypeError" ("Number.prototype." + name + " called on a non-number")))
+            }
+        }
+        if (kind == "boolean") {
+            def boolRecv:EvalValue (this.unwrapPrimitive(recv))
+            if (boolRecv.valueType != 3) {
+                return (this.throwSpecError("TypeError" ("Boolean.prototype." + name + " called on a non-boolean")))
+            }
+        }
         ; ---- toString / valueOf, per receiver kind --------------------------
         ; D-RADIX: Number.prototype.toString(radix). Base 10 is the default;
         ; any other base needs real digit conversion, which was missing — the
@@ -7085,6 +7087,13 @@ class ComponentEngine {
             ; error. The old unguarded branch used toString() and got this right
             ; by accident; the typed one has to do it on purpose.
             def prim:EvalValue (this.unwrapPrimitive(recv))
+            ; ToString proper, not the engine's debug rendering: an object
+            ; receiver runs its own toString/valueOf, so
+            ; `String.prototype.charAt.call({toString: …}, 1)` indexes what the
+            ; object says it is rather than a "{...}" dump of its fields.
+            if (prim.valueType == 5) {
+                prim = (this.toPrimitive(prim true))
+            }
             def s:string (prim.toString())
             if (prim.isString()) {
                 s = prim.stringValue
@@ -8269,8 +8278,74 @@ class ComponentEngine {
     ; new property to a non-extensible object is likewise rejected. Accepting
     ; any of these silently let a test's setup succeed where the spec requires
     ; it to fail. Returns "" when the redefinition is allowed.
+    ; ToPropertyDescriptor rejects anything that is not an Object -- which
+    ; includes arrays and functions, so the check cannot simply be "is a plain
+    ; object". `Object.defineProperty(o, 'k', function () {})` is legal and
+    ; defines an undefined-valued property.
+    fn isDescriptorObject:boolean (v:EvalValue) {
+        if (v.valueType == 5) { return true }
+        if (v.valueType == 4) { return true }
+        if (v.valueType == 6) { return true }
+        if (v.valueType == 9) { return true }
+        if (v.valueType == 10) { return true }
+        return false
+    }
+
+    ; D-DEFINEOWN: one [[DefineOwnProperty]], shared by Object.defineProperty and
+    ; Object.defineProperties. The two had separate copies and only the singular
+    ; form validated anything, so `Object.defineProperties(o, {p: true})` quietly
+    ; created `p` with value undefined instead of throwing, and the plural form
+    ; would happily redefine a non-configurable property.
+    ;
+    ; Returns "" on success, or the TypeError message to raise.
+    fn definePropertyOn:string (obj:EvalValue key:string desc:EvalValue) {
+        if (false == (this.isDescriptorObject(desc))) {
+            return "Property description must be an object"
+        }
+        def dErr:string (this.descriptorError(desc))
+        if ((strlen dErr) > 0) {
+            return dErr
+        }
+        def rErr:string (this.redefineError(obj key desc))
+        if ((strlen rErr) > 0) {
+            return rErr
+        }
+        def gv:EvalValue (desc.getMember("get"))
+        def sv:EvalValue (desc.getMember("set"))
+        if ((gv.valueType == 6) || (sv.valueType == 6)) {
+            ; D-ACCESSORS: a real accessor property. The functions are stored
+            ; apart from objectMap so the property is never mistaken for a data
+            ; one.
+            if (gv.valueType == 6) {
+                obj.defineGetter(key gv)
+            }
+            if (sv.valueType == 6) {
+                obj.defineSetter(key sv)
+            }
+            obj.setAttrs(key false ((desc.getMember("enumerable")).toBool()) ((desc.getMember("configurable")).toBool()))
+            return ""
+        }
+        ; D-ATTRS: defineProperty defaults every attribute to FALSE, unlike plain
+        ; assignment which defaults them all true. Recording that is what lets a
+        ; descriptor report honestly. Written through the raw map because
+        ; setMember would refuse a second defineProperty on a non-writable
+        ; property, while redefining a CONFIGURABLE one is allowed.
+        set obj.objectMap key (desc.getMember("value"))
+        obj.setAttrs(key ((desc.getMember("writable")).toBool()) ((desc.getMember("enumerable")).toBool()) ((desc.getMember("configurable")).toBool()))
+        return ""
+    }
+
     fn redefineError:string (obj:EvalValue key:string desc:EvalValue) {
-        if (false == (has obj.objectMap key)) {
+        ; An accessor property lives in getterMap/setterMap rather than
+        ; objectMap, so existence has to be asked of all three. Checking only
+        ; objectMap made every accessor look absent, which meant none of the
+        ; rules below ever applied to one.
+        def isAccessor:boolean false
+        if (has obj.getterMap key) { isAccessor = true }
+        if (has obj.setterMap key) { isAccessor = true }
+        def exists:boolean isAccessor
+        if (has obj.objectMap key) { exists = true }
+        if (false == exists) {
             if (false == obj.extensibleFlag) {
                 return "cannot add property to a non-extensible object"
             }
@@ -8279,7 +8354,8 @@ class ComponentEngine {
         if (obj.isConfigurable(key)) {
             return ""
         }
-        ; Non-configurable from here on.
+        ; Non-configurable from here on. configurable and enumerable are frozen
+        ; whichever category the property is.
         if (has desc.objectMap "configurable") {
             if ((desc.getMember("configurable")).toBool()) {
                 return "cannot redefine a non-configurable property as configurable"
@@ -8290,6 +8366,36 @@ class ComponentEngine {
             if (wantE != (obj.isEnumerable(key))) {
                 return "cannot change enumerable of a non-configurable property"
             }
+        }
+        ; A non-configurable property cannot change category either. Both
+        ; directions matter: data -> accessor and accessor -> data.
+        def wantsAccessor:boolean false
+        if (has desc.objectMap "get") { wantsAccessor = true }
+        if (has desc.objectMap "set") { wantsAccessor = true }
+        def wantsData:boolean false
+        if (has desc.objectMap "value") { wantsData = true }
+        if (has desc.objectMap "writable") { wantsData = true }
+        if (isAccessor) {
+            if wantsData {
+                return "cannot redefine a non-configurable accessor property as a data property"
+            }
+            ; Same category: the accessor functions themselves are frozen too.
+            if (has desc.objectMap "get") {
+                def curG:EvalValue (obj.findGetter(key 0))
+                if (false == (curG.equals((desc.getMember("get"))))) {
+                    return "cannot change the getter of a non-configurable property"
+                }
+            }
+            if (has desc.objectMap "set") {
+                def curS:EvalValue (obj.findSetter(key 0))
+                if (false == (curS.equals((desc.getMember("set"))))) {
+                    return "cannot change the setter of a non-configurable property"
+                }
+            }
+            return ""
+        }
+        if wantsAccessor {
+            return "cannot redefine a non-configurable data property as an accessor property"
         }
         if (obj.isWritable(key)) {
             return ""
