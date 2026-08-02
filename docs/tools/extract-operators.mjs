@@ -19,6 +19,22 @@ import { DATA, DOCS, ROOT, readJson, writeJson } from "./lib/paths.mjs";
 
 const TARGET_IDS = TARGETS.map((t) => t.id);
 
+/**
+ * The collection operators that the body of a macro calls.
+ *
+ * A `defn` macro has no type annotation, so two macros can hold the same name
+ * and the same parameter count. The body is the only thing that separates
+ * them: a body that calls `keys` and `get` reads a hash, and a body that calls
+ * `at` and `size` reads an array. This is a report of the body, not a rule of
+ * the compiler.
+ */
+const ACCESSORS = ["keys", "get", "at", "size", "itemAt", "array_length", "push", "unwrap"];
+
+function collectionAccessors(body) {
+  const text = String(body || "");
+  return ACCESSORS.filter((name) => new RegExp(`\\(\\s*${name}\\b`).test(text));
+}
+
 function probeProgram(source) {
   const imports = source.import ? `Import "${source.import}"\n` : "";
   return `${imports}class DocProbe {\n    sfn m@(main):void () {\n    }\n}\n`;
@@ -170,7 +186,8 @@ async function main() {
 
     for (const macro of parsed.macros) {
       model.macros.push({
-        id: `${source.id}/macro.${macro.name}.${macro.params.length}`,
+        id: `${source.id}/macro.${macro.name}.${macro.params.length}.${macro.line}`,
+        reads: collectionAccessors(macro.definition),
         source: source.id,
         name: macro.name,
         params: macro.params,

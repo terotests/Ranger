@@ -229,6 +229,15 @@ function main() {
   });
 
   // The macros of lib/stdops.rgr.
+  //
+  // A `defn` macro has no type annotation, so several macros hold the same name
+  // and the same number of parameters. The heading therefore carries the
+  // parameter names and the source line, and the entry states which collection
+  // operators the body calls, which is what separates one from the other.
+  const macroNames = new Map();
+  for (const macro of model.macros) {
+    macroNames.set(macro.name, (macroNames.get(macro.name) || 0) + 1);
+  }
   const macroBody = [
     frontMatter({
       title: "Macros",
@@ -239,16 +248,45 @@ function main() {
     "the macro before it writes the target code. The macros below are in",
     `[lib/stdops.rgr](${REPOSITORY}/blob/master/lib/stdops.rgr).`,
     "",
+    "## How a macro with a repeated name works",
+    "",
+    "A `defn` declaration gives no type to its parameters. Several macros can",
+    "therefore hold the same name and the same number of parameters, and this",
+    "file holds four such names. The bodies are what separate them: the compiler",
+    "expands the macro at the call site, and the expansion that type checks for",
+    "the types of the arguments is the one that stays.",
+    "",
+    "To see which one applies to a call, read the body. A body that calls `keys`",
+    "and `get` reads a hash map. A body that calls `size` and `at` reads an",
+    "array. Each entry below states the collection operators of its body, and",
+    "each heading carries the source line, so two entries with one name stay",
+    "apart.",
+    "",
   ];
   for (const macro of model.macros) {
-    macroBody.push(`## \`${macro.name}\` (${macro.params.length} parameters)`);
+    const repeated = (macroNames.get(macro.name) || 0) > 1;
+    macroBody.push(
+      `## \`${macro.name} (${macro.params.join(" ")})\`` +
+        (repeated ? ` — line ${macro.line}` : ""),
+    );
     macroBody.push("");
     if (macro.comment) {
       macroBody.push(macro.comment, "");
     }
+    if (macro.reads && macro.reads.length > 0) {
+      macroBody.push(
+        `The body reads the argument with ${macro.reads.map((r) => `\`${r}\``).join(", ")}.`,
+        "",
+      );
+    }
     macroBody.push("```lisp");
     macroBody.push(macro.definition);
     macroBody.push("```", "");
+    macroBody.push(
+      `Definition: [${macro.file}, line ${macro.line}]` +
+        `(${REPOSITORY}/blob/master/${macro.file}#L${macro.line}).`,
+      "",
+    );
   }
   writePage(path.join(referenceDir, "macros.mdx"), macroBody.join("\n"));
   written += 1;
