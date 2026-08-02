@@ -205,6 +205,7 @@ class tester {
       'plugins-only' 'ignore built-in language output and use only plugins'
       'plugins' '(node compiler only) run specified npm plugins -plugins="plugin1,plugin2"'
       'strict' 'Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.'
+      'strict-ownership' 'Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)'
       'typescript' 'Writes JavaScript code with TypeScript annotations'
       'esm' 'Writes JavaScript code with ESM module syntax'
       'npm' 'Write the package.json to the output directory' 

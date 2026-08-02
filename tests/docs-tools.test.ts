@@ -81,6 +81,31 @@ describe("target support", () => {
   });
 });
 
+describe("a default template that holds JavaScript", () => {
+  // The `*` template is also the JavaScript template of many operators, so a
+  // target that falls back to it can receive JavaScript in its output file
+  // while the compilation reports success. Verified with the compiler: `ceil`
+  // has no Python template, and a Python file gets `Math.ceil(d)`.
+  it("finds a JavaScript construct in the default template", () => {
+    expect(model.defaultTemplateIsJavaScript({ templates: { "*": '("Math.ceil(" (e 1) ")")' } })).toBe(true);
+    expect(model.defaultTemplateIsJavaScript({ templates: { "*": '("parseFloat(" (e 1) ")")' } })).toBe(true);
+    expect(model.defaultTemplateIsJavaScript({ templates: { "*": '("undefined")' } })).toBe(true);
+    expect(model.defaultTemplateIsJavaScript({ templates: { "*": '("typeof(" (e 1) ") != \\"undefined\\"")' } })).toBe(true);
+  });
+
+  it("passes a portable default template", () => {
+    // The template of `%`: an expression that every target language accepts.
+    expect(model.defaultTemplateIsJavaScript({ templates: { "*": '((e 1) " % " (e 2))' } })).toBe(false);
+  });
+
+  it("reads the default template only", () => {
+    // A JavaScript construct in the es6 template is correct, not a fault.
+    expect(model.defaultTemplateIsJavaScript({ templates: { es6: '("Math.ceil(" (e 1) ")")' } })).toBe(false);
+    expect(model.defaultTemplateIsJavaScript({ templates: {} })).toBe(false);
+    expect(model.defaultTemplateIsJavaScript({})).toBe(false);
+  });
+});
+
 describe("region extraction", () => {
   it("takes the body of a brace language main function", () => {
     const output = [

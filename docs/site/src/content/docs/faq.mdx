@@ -94,30 +94,41 @@ child holds the parent back. The back reference carries `@(weak)`.
 This is what the three targets do with that annotation. The statements come
 from the output above and from the writers of the compiler.
 
-### Rust
-
-The Rust writer reads `weak`. The field type becomes
-`Option<Weak<RefCell<Node>>>` in the place of `Option<Box<Node>>`, and the
-assignment becomes `Rc::downgrade(…)`. Open the Rust tab above and compare the
-two fields. Rust is therefore the target where the annotation does the work
-that its name states.
-
 ### C++
 
-The C++ writer does not read `weak`. Both fields become
-`std::shared_ptr<Node>`, as the C++ tab above shows. A cycle between two
-objects therefore keeps both of them, and the memory stays until the program
-ends.
+The field becomes `r_weak<Node>` and the strong field stays
+`std::shared_ptr<Node>`, as the C++ tab above shows. `r_weak<T>` is a small
+wrapper that the compiler writes above the classes. It holds a
+`std::weak_ptr<T>` and gives the shared pointer back at the read, so a field
+access, a null test and an assignment stay as they were.
 
-Write the program so that it breaks the cycle: clear the back reference before
-the parent goes out of use, or hold the parent by an index or by a name in the
-place of a pointer.
+The measurement is a leak check. A parent and a child that hold each other with
+strong references, built with `g++ -fsanitize=address`, reports
+`168 byte(s) leaked in 3 allocation(s)`. With `@(weak)` on the back reference
+the same program leaks nothing.
 
 ### Swift
 
-The Swift writer does not read `weak` either. The field is `var parent : Node?`
-with no `weak` keyword, so ARC keeps the cycle in the same way as C++. The same
-answer applies: break the cycle in the program.
+The field becomes `weak var parent : Node?`, and the strong field stays
+`var child : Node?`. ARC then frees the pair.
+
+Swift needs two things: the storage must be a `var`, and the type must be
+optional, because Swift sets a weak reference to nil when the object goes away.
+Write `@(weak optional)`, as the example does. A field that states `weak`
+without `optional` keeps the strong form, because `weak var parent : Node`
+is not Swift that compiles.
+
+### Rust
+
+The Rust writer reads `weak`: the field becomes
+`Option<Weak<RefCell<Node>>>` in the place of `Option<Box<Node>>`, and the
+assignment becomes `Rc::downgrade(…)`.
+
+**The Rust output of that assignment does not compile.** `rustc` rejects the
+read of the field, and the `Rc` that `Rc::downgrade` takes is a temporary, so
+the weak reference would be empty even if it compiled. The cause is under the
+annotation: a Rust class is a plain `struct`, so no `Rc` holds the parent. Do
+not use `@(weak)` in a program that must compile for Rust.
 
 ### The other three annotations
 
@@ -130,6 +141,10 @@ answer applies: break the cycle in the program.
 On a target that collects memory — JavaScript, TypeScript, Java, Kotlin, C#,
 Go, Python, PHP and Scala — none of the four changes the output. The collector
 handles a cycle.
+
+[Ownership and lifetime](/Ranger/docs/language/ownership/) states the model
+behind these annotations, and the
+[memory page](/Ranger/docs/targets/memory/) states what each target writes.
 
 ## Why does my call not compile?
 
@@ -149,14 +164,14 @@ and a call that gives a value needs its own parentheses.
 
 The call is to a `defn` macro, and no macro of that name fits the arguments.
 
-A macro declares no types. The compiler selects one by trial: it expands the
-body of each macro with that name into the call site, compiles the result, and
-keeps the first one that makes no error. The message says that every candidate
-made an error.
+A macro declares no types. The compiler selects one by trial. It expands the
+body of each macro with that name into the call site and compiles the result.
+The first candidate that makes no error wins. The message says that every
+candidate made an error.
 
 The errors above the message come from the candidate with the fewest errors.
-That candidate is not always the macro that you had in mind, so read the
-message together with the bodies on the
+That candidate is not always the macro that you had in mind. Read the message
+together with the bodies on the
 [macros page](/Ranger/docs/reference/macros/), and start from the types of your
 arguments. `ForEach` is an example: one macro reads an array, and another one
 reads a hash map, and only the body states the difference.
@@ -178,3 +193,4 @@ Twelve languages from the command line: JavaScript, TypeScript, Go, Rust,
 Python, Java, Kotlin, Swift, C#, C++, PHP and Scala. The
 [target page](/Ranger/docs/targets/overview/) states what each one supports,
 and each operator page states the support per operator.
+

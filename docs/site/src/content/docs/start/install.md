@@ -34,6 +34,8 @@ rgrc program.rgr -l=go -d=./bin -o=program.go
 | `-nodemodule` | Export the classes as CommonJS modules. |
 | `-esm` | Export the classes as ES6 modules. |
 | `-sourcemap` | Write a source map with the JavaScript or the TypeScript output. |
+| `-strict` | Do not read an optional value automatically outside of a `try` block. |
+| `-strict-ownership` | Print the inferred ownership of each function parameter. See [Ownership and lifetime](/Ranger/docs/language/ownership/). |
 | `-operatordoc=<file>` | Write the operator table into a Markdown file. |
 | `-classdoc=<file>` | Write the class documentation into a Markdown file. |
 

@@ -4,13 +4,14 @@ description: How the compiler analyses object lifetime, what the analysis change
 ---
 
 Nine of the twelve target languages collect the memory that a program stops
-using. Three do not: C++ and Swift count references, and Rust owns and borrows.
+using. Three do not: C++ and Swift count references, and Rust owns and moves.
 For those three the compiler must decide where each object lives and who keeps
 it alive.
 
-This page states what the compiler analyses, and what that analysis changes in
-the output. Each statement here comes from the compiler sources and from the
-code that the compiler writes.
+[Ownership and lifetime](/Ranger/docs/language/ownership/) states the model of
+the language. This page states what the compiler writes for it, per target.
+Each statement here comes from the compiler sources and from the code that the
+compiler writes.
 
 ## Two analyses
 
@@ -18,11 +19,11 @@ The compiler has two passes that read the flow of the program.
 
 ### 1. The mutation pass, for C++
 
-The pass finds a local variable that takes its value from a member field and
-that a later statement changes in place. It then writes a reference in the
-place of a copy:
+The pass finds a local variable that takes its value from a member field. When
+a later statement changes that local in place, the pass writes a reference in
+the place of a copy:
 
-```ranger
+```lisp
 fn writeByte:void (b:int) {
     def buf:buffer currentChunk.data
     buffer_set buf 0 b
@@ -41,20 +42,14 @@ count as a change in place are the buffer operators, `push`, `set`, `clear`,
 
 ### 2. The ownership inference
 
-The second pass reads where a parameter goes, and gives each parameter one of
-five states:
-
-| State | Meaning |
-| --- | --- |
-| `borrowed` | The function reads the argument. The argument does not escape. |
-| `moved` | The argument goes into the object graph of another object: `x.field = p`, or `push self.items p`. |
-| `owned` | The function holds the value. |
-| `shared` | More than one owner. |
-| `unknown` | The pass cannot decide. |
+The second pass reads where each parameter goes and gives it one of five states:
+`borrowed`, `moved`, `shared`, `owned` or `unknown`.
+[Ownership and lifetime](/Ranger/docs/language/ownership/) states what each one
+means and how to read the summary.
 
 The pass runs for a C++ compilation always, because the C++ writer reads the
-result. For any other target the flag `-strict-ownership` runs it. The flag
-also prints the result, on every target:
+result. For any other target the flag `-strict-ownership` runs it. The flag also
+prints the result, on every target:
 
 ```sh
 rgrc program.rgr -l=cpp -strict-ownership
@@ -64,16 +59,11 @@ rgrc program.rgr -l=cpp -strict-ownership
 ownership[infer] fn attach:
   param 'parent' -> borrowed
   param 'child' -> moved (parent.left)
-ownership[infer] fn sumValue:
-  param 'a' -> borrowed
-  param 'b' -> borrowed
 ```
 
 The numbers are large. The compilation of
 `gallery/pdf_writer/src/tools/jpeg_scaler.rgr` analyses 110 functions and gives
-`borrowed` to 255 parameters of 256. The one that is not `borrowed` is
-`unknown`: the pass sees the parameter go into a call whose own summary is not
-yet known, so it stops there and says so.
+`borrowed` to 255 parameters of 256.
 
 ## What the C++ writer does with the result
 
@@ -81,8 +71,8 @@ yet known, so it stops there and says so.
 
 An object parameter is a `std::shared_ptr<T>`. Passing it by value costs one
 atomic increment on the call and one atomic decrement on the return. A
-`borrowed` parameter does not escape the function, so the caller holds the
-object for the whole call and the callee needs no count of its own. Such a
+`borrowed` parameter does not escape the function. The caller therefore holds
+the object for the whole call, and the callee needs no count of its own. Such a
 parameter becomes `const std::shared_ptr<T>&`:
 
 ```cpp
@@ -97,9 +87,9 @@ still compiles. A parameter that the program assigns to, or that the inference
 calls `moved`, `owned`, `shared` or `unknown`, stays a copy.
 
 The check skips a method of a class that takes part in inheritance. A base and
-an override must have the same signature, and the inference runs per function,
-so a base could say `borrowed` where the override says `moved`. That would turn
-an override into an overload without a message.
+an override must have the same signature. The inference runs per function, so a
+base could say `borrowed` where the override says `moved`. That would turn an
+override into an overload without a message.
 
 | `jpeg_scaler.rgr`, C++ output | Before | Now |
 | --- | --- | --- |
@@ -130,11 +120,11 @@ so a program with many small objects pays two pointers each.
 
 A field that states `weak` becomes `r_weak<T>` in the place of
 `std::shared_ptr<T>`. `r_weak<T>` is a small wrapper that the compiler writes
-into the file above the classes. It holds a `std::weak_ptr<T>`, and it gives
-the shared pointer back at the read, so a field access, a null test and an
-assignment stay exactly as they were:
+into the file above the classes. It holds a `std::weak_ptr<T>` and gives the
+shared pointer back at the read. A field access, a null test and an assignment
+therefore stay as they were:
 
-```ranger
+```lisp
 class Child {
     def name:string ""
     def parent@(weak optional):Parent
@@ -187,7 +177,7 @@ Both gallery programs above hold no inheritance, so every class of each is
 A field that states `weak` together with `optional` becomes a Swift weak
 reference:
 
-```ranger
+```lisp
 class Node {
     def name:string ""
     def parent@(weak optional):Node
@@ -211,26 +201,46 @@ Ranger has four annotations for memory: `weak`, `strong`, `lives` and `temp`.
 The table states what each target does with them, measured by a compilation of
 the same program with and without each annotation.
 
-| Annotation | Rust | C++ | Swift | The nine other targets |
+| Annotation | C++ | Swift | Rust | The nine other targets |
 | --- | --- | --- | --- | --- |
-| `weak` | The field becomes `Option<Weak<RefCell<T>>>`, and the assignment becomes `Rc::downgrade(…)` | The field becomes `r_weak<T>`, which holds a `std::weak_ptr<T>` | With `optional`, the field becomes `weak var x : T?` | No change, and none is necessary |
-| `strong` | — | No change | No change | No change |
+| `weak` | The field becomes `r_weak<T>`, which holds a `std::weak_ptr<T>` | With `optional`, the field becomes `weak var x : T?` | The field becomes `Option<Weak<RefCell<T>>>` and the assignment becomes `Rc::downgrade(…)`, but the output does not compile. See below. | No change, and none is necessary |
+| `strong` | No change | No change | — | No change |
 | `lives` | No change | No change | No change | No change |
 | `temp` | No change | No change | No change | No change |
 
 `lives` and `temp` are read by the lifetime bookkeeping of the compiler
 (`compiler/ng_RangerAppParamDesc.rgr`), not by a writer of a target language.
 
+### `weak` on Rust does not work yet
+
+The Rust writer has the most handling of `weak` of the three, and its output
+does not compile. The parent and child program above gives this:
+
+```rust
+c.parent = Some(Rc::downgrade(&Rc::new(RefCell::new(p.clone()))));
+…
+let mut p : Parent = self.parent.clone().unwrap().upgrade().unwrap().borrow_mut();
+```
+
+`rustc` rejects the second line: it gives a `RefMut<Parent>` to a `Parent`. The
+first line has a second fault that the compiler does not report: the `Rc` is a
+temporary, so the `Weak` that `Rc::downgrade` makes is dead at the end of the
+statement, and `upgrade()` would give `None`.
+
+The cause is the shape of a Rust class: the writer gives it a plain `struct`,
+so no `Rc` holds the parent to downgrade. `weak` therefore needs the Rust object
+model first. Do not use `@(weak)` in a program that must compile for Rust.
+
 ## What this means for a program
 
-- **`weak` works on the three targets that count or own references.** Use it
-  for a back reference. Two objects that hold each other with strong references
-  stay in memory on C++, on Rust and on Swift. On Swift write
-  `@(weak optional)`, because a Swift weak reference must be optional.
+- **`weak` works on C++ and on Swift.** Use it for a back reference. Two objects
+  that hold each other with strong references stay in memory on both. On Swift
+  write `@(weak optional)`, because a Swift weak reference must be optional. On
+  Rust the annotation does not work yet.
 - **The two C++ passes need no help.** A local that takes a member field and
   changes it in place becomes a reference, and a parameter that the function
   only reads becomes a reference, both by themselves.
 - **`-strict-ownership` is a reading tool.** It states where the compiler
   believes each argument goes. Use it to check that a function you believe to
-  be pure holds only `borrowed` parameters, and to find the parameters that the
-  pass calls `unknown`: those are the ones that still cost a copy in C++.
+  be pure holds only `borrowed` parameters. Use it also to find the parameters
+  that the pass calls `unknown`: those still cost a copy in C++.

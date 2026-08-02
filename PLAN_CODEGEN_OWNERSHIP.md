@@ -18,6 +18,7 @@ writers do not read it.
 | 3 | `final class` (Swift) | Done |
 | 4a | `weak var` (Swift) | Done, for a field that is also `optional` |
 | 4b | `std::weak_ptr` (C++) | Done, through the `r_weak<T>` wrapper |
+| 4c | `weak` (Rust) | Open. The first version of this document said that Rust held it already. That was wrong: the output does not compile. See finding 5. |
 | 5 | `record` as a value type (C++, Swift) | Not done, and see below: the measurement found a different fault in `record`, which is fixed |
 
 The sections below hold the measurement of each finding as it stood before the
@@ -244,7 +245,7 @@ annotation exists.
 
 | Target | `def parent@(weak):Node` becomes | Handling in the writer |
 | --- | --- | --- |
-| Rust | `Option<Weak<RefCell<Node>>>`, assigned with `Rc::downgrade(…)` | `ng_RangerRustClassWriter.rgr`, 33 places |
+| Rust | `Option<Weak<RefCell<Node>>>`, assigned with `Rc::downgrade(…)` — and the output does not compile, see the correction below | `ng_RangerRustClassWriter.rgr`, 33 places |
 | C++ | `std::shared_ptr<Node>`, the same as a strong field | `ng_RangerCppClassWriter.rgr`, no mention of the flag |
 | Swift | `var parent : Node?`, no `weak` keyword | `ng_RangerSwift6ClassWriter.rgr`, no handling |
 
@@ -253,6 +254,27 @@ on Swift, and the program has no way to say otherwise.
 
 **Change:** `std::weak_ptr<T>` for a `weak` field in C++, with a `.lock()` at
 the read; `weak var` in Swift. The Rust writer is the model.
+
+**Correction: `weak` does not work on Rust either.** The first version of this
+document read the Rust writer and counted 33 handling sites. Counting the sites
+was not a test. Compiled the parent-and-child program for Rust and gave the
+output to `rustc`:
+
+```rust
+c.parent = Some(Rc::downgrade(&Rc::new(RefCell::new(p.clone()))));
+…
+let mut p : Parent = self.parent.clone().unwrap().upgrade().unwrap().borrow_mut();
+```
+
+`rustc` rejects the second line: `RefMut<Parent>` where `Parent` is expected.
+The first line holds a second fault that `rustc` does not report: the `Rc` is a
+temporary, so the `Weak` is dead at the end of the statement and `upgrade()`
+would give `None`.
+
+The cause is under the annotation. The Rust writer gives a class a plain
+`struct`, so no `Rc` holds the parent for `Rc::downgrade` to take. `weak` on
+Rust needs the Rust object model first, and that is a larger piece of work than
+the C++ and the Swift changes above.
 
 **Result, Swift: done.** `writeVarDef` in `ng_RangerSwift6ClassWriter.rgr`
 emits `weak var x : T?` for a field that states `weak` and `optional` and whose
@@ -340,6 +362,7 @@ Everything else in this document is a fact that the compiler already holds.
 | 2 | `enable_shared_from_this` only where used (C++) | Medium: two pointers per object | Low | No | Done |
 | 3 | `final class` (Swift) | Medium: devirtualization | Low | No | Done |
 | 4 | `weak` in C++ and Swift | Correctness, not speed: it removes a leak | Medium: a `.lock()` at each read | The annotation exists | Done |
+| 4c | `weak` in Rust | Correctness | High: it needs the Rust object model | The annotation exists | Open |
 | 5 | `record` as a value type (C++, Swift) | High for a program with many small records | High: assignment changes meaning, and differently per target | No | Not done, by decision |
 | 3b | the record constructor (11 targets) | Correctness: the output did not compile | Low: the JavaScript writer held the answer already | No | Done |
 
@@ -376,3 +399,50 @@ cd tmp && g++ -std=c++17 -I. x.cpp -o jpeg
 ./jpeg -width 600 ../gallery/pdf_writer/assets/images/Example.jpg out.jpg
 md5sum out.jpg      # must match the file the previous compiler produced
 ```
+
+---
+
+## Found while the documentation was written
+
+These are not part of the ownership question. The measurement of the docs found
+them, and they are recorded here so they are not lost.
+
+### The Rust object model does not share
+
+A class becomes a plain `struct` in the Rust output, and the writer adds
+`.clone()` where the value would move. So an object is a reference on eleven
+targets and a value on Rust:
+
+```lisp
+def a:Counter (new Counter())
+def b:Counter a
+b.add(1)
+print ("a " + (to_string a.value))
+```
+
+Prints `a 1` on JavaScript, Go, Python, C++ and Swift.
+`rustc` rejects the Rust output: "borrow of moved value: `a`".
+
+This is the same cause as finding 4c: with no `Rc` there is nothing to
+downgrade, and with no `Rc` two names cannot hold one object. Both need the
+same decision about how a Rust class is held.
+
+### A default template can hold JavaScript
+
+The `*` template of an operator is the default for a target that holds no
+template of its own, and it is also the JavaScript template of many operators.
+A target that falls back to such a template receives JavaScript, and the
+compilation reports success:
+
+```sh
+node bin/output.js -l=python ceil.rgr -d=./tmp -o=x.py   # [OK]
+grep ceil tmp/x.py                                       # c = Math.ceil(d)
+```
+
+`docs/tools/lib/model.mjs` now scans for this, and the coverage page lists the
+operators per target. The scan finds Python 13, Swift 9, Kotlin 7, Rust 3 and
+one or two on the rest. `int2double` reaches ten of the twelve targets as
+`parseFloat(…)`.
+
+The scan reads the template text, so it is a lower limit. The fix is a template
+per target for each operator in that list.

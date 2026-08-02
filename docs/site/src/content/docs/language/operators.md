@@ -18,9 +18,9 @@ of the operator.
 | Type method | `operator type:<T> all { fn … }`, with a Ranger body | Every target that compiles the library |
 
 A template operator is a primitive: the compiler has no code for it, only a
-string per target. A type method is ordinary Ranger code that the compiler
-compiles for the target in the same way as the program, so a new target gets it
-with no work.
+string per target. A type method is ordinary Ranger code. The compiler compiles
+it for the target in the same way as the program, so a new target gets it with
+no work.
 
 The call form is different:
 
@@ -89,20 +89,47 @@ this for each operator:
 | State | Mark | Meaning |
 | --- | --- | --- |
 | Own template | ✔ | The operator has a template for that target. The operator works. |
-| Default template | ✱ | The operator has no template of its own, and the `*` template writes the code. The operator works. |
+| Default template | ✱ | The operator has no template of its own, and the `*` template writes the code. |
 | No template | ✕ | The operator has no template and no `*` template. The compiler writes no code, and a program that uses the operator does not compile for that target. |
+
+### Read the default template before you depend on it
+
+Most `*` templates are portable, because they hold an expression that each
+target language accepts: the template of `%` is `(e 1) " % " (e 2)`. Some are
+not. The `*` template is also the JavaScript template of many operators, so it
+can hold JavaScript:
+
+```lisp
+ceil  _:int (value:double) {
+    templates {
+        ...
+        * ( "Math.ceil(" (e 1) ")" )
+    }
+}
+```
+
+Python has no `ceil` template, so it takes the default one. The compilation
+reports success, and the Python file holds JavaScript:
+
+```python
+c = Math.ceil(d)
+```
+
+The mark ✱ therefore states the origin of the code and not the correctness of
+it. The [coverage page](/Ranger/docs/reference/coverage/) counts the operators
+per target whose default template holds a JavaScript construct. Read the
+generated code of the operator page, and compile the output with the toolchain
+of the target.
 
 TypeScript is the JavaScript writer with type annotations, so a TypeScript
 program uses the `es6` template of the operator. The reference gives TypeScript
 the state of JavaScript when the operator holds no TypeScript template of its
 own.
 
-The first two states both mean that the operator works. The reference gives
-them the same colour and a different mark, because the difference is the origin
-of the code and not the availability of the operator.
-
-The [coverage page](/Ranger/docs/reference/coverage/) counts the three states
-per target.
+The reference gives the first two states the same colour and a different mark,
+because the difference between them is the origin of the code. The
+[coverage page](/Ranger/docs/reference/coverage/) counts the three states per
+target.
 
 ## Overloads
 

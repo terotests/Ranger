@@ -67,6 +67,7 @@ export default defineConfig({
             { label: "Types", slug: "language/types" },
             { label: "Strings", slug: "language/strings" },
             { label: "Optional values", slug: "language/optionals" },
+            { label: "Ownership and lifetime", slug: "language/ownership" },
             { label: "Operators", slug: "language/operators" },
           ],
         },
