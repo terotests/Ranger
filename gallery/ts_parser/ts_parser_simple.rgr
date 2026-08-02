@@ -91,6 +91,11 @@ class TSParserSimple {
   ; Whether the enclosing function is a generator. Inside one, `yield` is an
   ; operator and may not name a binding.
   def inGenerator:boolean false
+  ; Depth of enclosing function bodies. `return` outside one is an early error.
+  def functionDepth:int 0
+  ; Whether a rest element has already been seen in the parameter list being
+  ; parsed. A rest element must be last and may not carry a default.
+  def sawRestParam:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -933,6 +938,10 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("return")
+
+    if (this.functionDepth == 0) {
+      this.syntaxError("Parse error: 'return' outside of a function")
+    }
     
     ; Check for return value
     def v (this.peekValue())
@@ -1771,6 +1780,9 @@ class TSParserSimple {
       this.advance()
       
       this.pushScope(true)
+      this.functionDepth = (this.functionDepth + 1)
+      def savedCtorRest:boolean this.sawRestParam
+      this.sawRestParam = false
       def savedCtorSuperCall:boolean this.allowSuperCall
       def savedCtorSuperProp:boolean this.allowSuperProperty
       ; A function is a break/continue boundary: labels do not cross it.
@@ -1811,6 +1823,8 @@ class TSParserSimple {
       this.popScope()
       this.allowSuperCall = savedCtorSuperCall
       this.allowSuperProperty = savedCtorSuperProp
+      this.sawRestParam = savedCtorRest
+      this.functionDepth = (this.functionDepth - 1)
       this.iterationDepth = savedctorIter
       this.switchDepth = savedctorSwitch
       this.activeLabels = savedctorLabels
@@ -1875,6 +1889,8 @@ class TSParserSimple {
       ; A method's parameters and body share one scope, and duplicate
       ; parameters are always an error in a method.
       this.pushScope(true)
+      def savedMethodRest:boolean this.sawRestParam
+      this.sawRestParam = false
       def savedMethodGenerator:boolean this.inGenerator
       this.inGenerator = member.generator
       def savedMethodSuperCall:boolean this.allowSuperCall
@@ -1890,6 +1906,7 @@ class TSParserSimple {
       this.switchDepth = 0
       this.activeLabels = freshmethLabels
       this.iterationLabels = freshmethIterLabels
+      this.functionDepth = (this.functionDepth + 1)
       ; A member literally named "constructor" is the constructor even when it
       ; was written as a string key: class a extends b { "constructor"(){} }.
       def isCtorNamed:boolean false
@@ -1935,6 +1952,8 @@ class TSParserSimple {
       this.allowSuperCall = savedMethodSuperCall
       this.allowSuperProperty = savedMethodSuperProp
       this.inGenerator = savedMethodGenerator
+      this.sawRestParam = savedMethodRest
+      this.functionDepth = (this.functionDepth - 1)
       this.iterationDepth = savedmethIter
       this.switchDepth = savedmethSwitch
       this.activeLabels = savedmethLabels
@@ -2661,6 +2680,11 @@ class TSParserSimple {
         declarator.init = initExpr
       }
 
+      if (node.kind == "const") {
+        if (null? declarator.init) {
+          this.syntaxError("Parse error: a 'const' declaration must have an initializer")
+        }
+      }
       push node.children declarator
 
       ; another declarator follows only after a comma
@@ -2918,6 +2942,9 @@ class TSParserSimple {
     ; `function f(a) { let a; }` is a redeclaration.
     this.pushScope(true)
 
+    this.functionDepth = (this.functionDepth + 1)
+    def savedRest:boolean this.sawRestParam
+    this.sawRestParam = false
     ; A plain function is its own `super` boundary.
     def savedSuperCall:boolean this.allowSuperCall
     def savedSuperProp:boolean this.allowSuperProperty
@@ -2971,6 +2998,8 @@ class TSParserSimple {
     this.allowSuperCall = savedSuperCall
     this.allowSuperProperty = savedSuperProp
     this.inGenerator = savedGenerator
+    this.sawRestParam = savedRest
+    this.functionDepth = (this.functionDepth - 1)
     this.iterationDepth = savedfnIter
     this.switchDepth = savedfnSwitch
     this.activeLabels = savedfnLabels
@@ -2992,6 +3021,12 @@ class TSParserSimple {
     if (this.matchValue("...")) {
       this.advance()
       isRest = true
+    }
+    if (this.sawRestParam) {
+      this.syntaxError("Parse error: a rest element must be the last parameter")
+    }
+    if isRest {
+      this.sawRestParam = true
     }
     
     ; Check for object destructuring { name, value = default }
@@ -5663,6 +5698,9 @@ class TSParserSimple {
           ; A method's parameters and body share one scope, and duplicate
           ; parameters are always an error in a method.
           this.pushScope(true)
+          this.functionDepth = (this.functionDepth + 1)
+          def savedObjRest:boolean this.sawRestParam
+          this.sawRestParam = false
           def savedObjGenerator:boolean this.inGenerator
           this.inGenerator = prop.generator
           def savedObjSuperCall:boolean this.allowSuperCall
@@ -5706,6 +5744,8 @@ class TSParserSimple {
           this.allowSuperCall = savedObjSuperCall
           this.allowSuperProperty = savedObjSuperProp
           this.inGenerator = savedObjGenerator
+          this.sawRestParam = savedObjRest
+          this.functionDepth = (this.functionDepth - 1)
           this.iterationDepth = savedobjIter
           this.switchDepth = savedobjSwitch
           this.activeLabels = savedobjLabels
@@ -5838,6 +5878,9 @@ class TSParserSimple {
     ; An arrow's parameters and its body share one scope.
     this.pushScope(true)
     ; An arrow inherits `super` lexically but is still a break/continue boundary.
+    this.functionDepth = (this.functionDepth + 1)
+    def savedArrowRest:boolean this.sawRestParam
+    this.sawRestParam = false
     def savedArrowGenerator:boolean this.inGenerator
     def savedArrowIter:int this.iterationDepth
     def savedArrowSwitch:int this.switchDepth
@@ -5901,6 +5944,8 @@ class TSParserSimple {
     this.activeLabels = savedArrowLabels
     this.iterationLabels = savedArrowIterLabels
     this.inGenerator = savedArrowGenerator
+    this.sawRestParam = savedArrowRest
+    this.functionDepth = (this.functionDepth - 1)
 
     return node
   }
@@ -5927,6 +5972,9 @@ class TSParserSimple {
         node.value = "target"
         return node
       }
+      ; `new.target` is the only meta property; `new.prop` is a syntax error.
+      def badMeta (this.peek())
+      this.syntaxError("Parse error: 'new." + badMeta.value + "' is not a meta property")
     }
     
     ; Parse callee. In JS grammar `new`'s callee is a MemberExpression chain

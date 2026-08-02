@@ -244,7 +244,7 @@ class TSLexer  {
       }
       value = value + this.advance();
     };
-    return this.makeToken("BlockComment", value, startPos, startLine, startCol);
+    return this.makeToken("Invalid", value, startPos, startLine, startCol);
   };
   readString (quote) {
     const startPos = this.pos;
@@ -1228,6 +1228,17 @@ class TSLexer  {
     }
     return "o";
   };
+  stringContainsChar (haystack, ch) {
+    let i = 0;
+    const n = haystack.length;
+    while (i < n) {
+      if ( (haystack.substring(i, (i + 1) )) == ch ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
   regexAllowed () {
     if ( this.prevType == "" ) {
       return true;
@@ -1344,14 +1355,51 @@ class TSLexer  {
       this.col = startCol;
       return this.makeToken("", "", startPos, startLine, startCol);
     }
+    let flags = "";
+    let badFlag = false;
     while (this.pos < this.__len) {
       const fch = this.peek();
       if ( this.isAlphaNumCh(fch) ) {
+        let known = false;
+        if ( fch == "d" ) {
+          known = true;
+        }
+        if ( fch == "g" ) {
+          known = true;
+        }
+        if ( fch == "i" ) {
+          known = true;
+        }
+        if ( fch == "m" ) {
+          known = true;
+        }
+        if ( fch == "s" ) {
+          known = true;
+        }
+        if ( fch == "u" ) {
+          known = true;
+        }
+        if ( fch == "v" ) {
+          known = true;
+        }
+        if ( fch == "y" ) {
+          known = true;
+        }
+        if ( known == false ) {
+          badFlag = true;
+        }
+        if ( this.stringContainsChar(flags, fch) ) {
+          badFlag = true;
+        }
+        flags = flags + fch;
         value = value + this.advance();
       } else {
         break;
       }
     };
+    if ( badFlag ) {
+      return this.makeToken("Invalid", value, startPos, startLine, startCol);
+    }
     return this.makeToken("Regex", value, startPos, startLine, startCol);
   };
 }
@@ -1401,6 +1449,8 @@ class TSParserSimple  {
     this.iterationLabels = [];
     this.pendingLabel = "";     /** note: unused */
     this.inGenerator = false;
+    this.functionDepth = 0;
+    this.sawRestParam = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -2185,6 +2235,9 @@ class TSParserSimple  {
     node.line = startTok.line;
     node.col = startTok.col;
     this.expectValue("return");
+    if ( this.functionDepth == 0 ) {
+      this.syntaxError("Parse error: 'return' outside of a function");
+    }
     const v = this.peekValue();
     if ( ((v != ";") && (v != "}")) && (this.isAtEnd() == false) ) {
       const arg = this.parseExprSeq();
@@ -2806,6 +2859,9 @@ class TSParserSimple  {
       member.kind = "constructor";
       this.advance();
       this.pushScope(true);
+      this.functionDepth = this.functionDepth + 1;
+      const savedCtorRest = this.sawRestParam;
+      this.sawRestParam = false;
       const savedCtorSuperCall = this.allowSuperCall;
       const savedCtorSuperProp = this.allowSuperProperty;
       const savedctorIter = this.iterationDepth;
@@ -2840,6 +2896,8 @@ class TSParserSimple  {
       this.popScope();
       this.allowSuperCall = savedCtorSuperCall;
       this.allowSuperProperty = savedCtorSuperProp;
+      this.sawRestParam = savedCtorRest;
+      this.functionDepth = this.functionDepth - 1;
       this.iterationDepth = savedctorIter;
       this.switchDepth = savedctorSwitch;
       this.activeLabels = savedctorLabels;
@@ -2884,6 +2942,8 @@ class TSParserSimple  {
         member.async = true;
       }
       this.pushScope(true);
+      const savedMethodRest = this.sawRestParam;
+      this.sawRestParam = false;
       const savedMethodGenerator = this.inGenerator;
       this.inGenerator = member.generator;
       const savedMethodSuperCall = this.allowSuperCall;
@@ -2898,6 +2958,7 @@ class TSParserSimple  {
       this.switchDepth = 0;
       this.activeLabels = freshmethLabels;
       this.iterationLabels = freshmethIterLabels;
+      this.functionDepth = this.functionDepth + 1;
       let isCtorNamed = false;
       if ( member.name == "constructor" ) {
         if ( isStatic == false ) {
@@ -2937,6 +2998,8 @@ class TSParserSimple  {
       this.allowSuperCall = savedMethodSuperCall;
       this.allowSuperProperty = savedMethodSuperProp;
       this.inGenerator = savedMethodGenerator;
+      this.sawRestParam = savedMethodRest;
+      this.functionDepth = this.functionDepth - 1;
       this.iterationDepth = savedmethIter;
       this.switchDepth = savedmethSwitch;
       this.activeLabels = savedmethLabels;
@@ -3500,6 +3563,11 @@ class TSParserSimple  {
         const initExpr = this.parseExpr();
         declarator.init = initExpr;
       }
+      if ( node.kind == "const" ) {
+        if ( typeof(declarator.init) === "undefined" ) {
+          this.syntaxError("Parse error: a 'const' declaration must have an initializer");
+        }
+      }
       node.children.push(declarator);
       if ( this.matchValue(",") ) {
         this.advance();
@@ -3698,6 +3766,9 @@ class TSParserSimple  {
       this.declareBinding("v", node.name);
     }
     this.pushScope(true);
+    this.functionDepth = this.functionDepth + 1;
+    const savedRest = this.sawRestParam;
+    this.sawRestParam = false;
     const savedSuperCall = this.allowSuperCall;
     const savedSuperProp = this.allowSuperProperty;
     const savedfnIter = this.iterationDepth;
@@ -3740,6 +3811,8 @@ class TSParserSimple  {
     this.allowSuperCall = savedSuperCall;
     this.allowSuperProperty = savedSuperProp;
     this.inGenerator = savedGenerator;
+    this.sawRestParam = savedRest;
+    this.functionDepth = this.functionDepth - 1;
     this.iterationDepth = savedfnIter;
     this.switchDepth = savedfnSwitch;
     this.activeLabels = savedfnLabels;
@@ -3756,6 +3829,12 @@ class TSParserSimple  {
     if ( this.matchValue("...") ) {
       this.advance();
       isRest = true;
+    }
+    if ( this.sawRestParam ) {
+      this.syntaxError("Parse error: a rest element must be the last parameter");
+    }
+    if ( isRest ) {
+      this.sawRestParam = true;
     }
     if ( this.matchValue("{") ) {
       const savedParamDeclaring = this.declaringKind;
@@ -5826,6 +5905,9 @@ class TSParserSimple  {
           fnNode.nodeType = "FunctionExpression";
           this.advance();
           this.pushScope(true);
+          this.functionDepth = this.functionDepth + 1;
+          const savedObjRest = this.sawRestParam;
+          this.sawRestParam = false;
           const savedObjGenerator = this.inGenerator;
           this.inGenerator = prop.generator;
           const savedObjSuperCall = this.allowSuperCall;
@@ -5865,6 +5947,8 @@ class TSParserSimple  {
           this.allowSuperCall = savedObjSuperCall;
           this.allowSuperProperty = savedObjSuperProp;
           this.inGenerator = savedObjGenerator;
+          this.sawRestParam = savedObjRest;
+          this.functionDepth = this.functionDepth - 1;
           this.iterationDepth = savedobjIter;
           this.switchDepth = savedobjSwitch;
           this.activeLabels = savedobjLabels;
@@ -5957,6 +6041,9 @@ class TSParserSimple  {
       node.kind = "async";
     }
     this.pushScope(true);
+    this.functionDepth = this.functionDepth + 1;
+    const savedArrowRest = this.sawRestParam;
+    this.sawRestParam = false;
     const savedArrowGenerator = this.inGenerator;
     const savedArrowIter = this.iterationDepth;
     const savedArrowSwitch = this.switchDepth;
@@ -6009,6 +6096,8 @@ class TSParserSimple  {
     this.activeLabels = savedArrowLabels;
     this.iterationLabels = savedArrowIterLabels;
     this.inGenerator = savedArrowGenerator;
+    this.sawRestParam = savedArrowRest;
+    this.functionDepth = this.functionDepth - 1;
     return node;
   };
   parseNewExpression () {
@@ -6028,6 +6117,8 @@ class TSParserSimple  {
         node.value = "target";
         return node;
       }
+      const badMeta = this.peek();
+      this.syntaxError(("Parse error: 'new." + badMeta.value) + "' is not a meta property");
     }
     let callee = this.parsePrimary();
     let keepMember = true;

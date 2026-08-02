@@ -232,7 +232,8 @@ class TSLexer {
             }
             value = value + (this.advance())
         }
-        return (this.makeToken("BlockComment" value startPos startLine startCol))
+        ; Ran off the end without the closing delimiter.
+        return (this.makeToken("Invalid" value startPos startLine startCol))
     }
 
     fn readString:Token (quote:string) {
@@ -1129,6 +1130,18 @@ class TSLexer {
     ; True when a `/` at the current position starts a regex literal rather than
     ; a division operator. Decided from the previous significant token: `/` after
     ; something that can END an expression is division, otherwise it opens a regex.
+    fn stringContainsChar:boolean (haystack:string ch:string) {
+        def i:int 0
+        def n:int (strlen haystack)
+        while (i < n) {
+            if ((substring haystack i (i + 1)) == ch) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn regexAllowed:boolean () {
         if (prevType == "") { return true }
         if (prevType == "Number") { return false }
@@ -1222,14 +1235,31 @@ class TSLexer {
             col = startCol
             return (this.makeToken("" "" startPos startLine startCol))
         }
-        ; Trailing flags (g, i, m, s, u, y, d, v)
+        ; Trailing flags. Only d g i m s u v y are legal, and none may repeat.
+        def flags:string ""
+        def badFlag:boolean false
         while (pos < len) {
             def fch:string (this.peek())
             if (this.isAlphaNumCh(fch)) {
+                def known:boolean false
+                if (fch == "d") { known = true }
+                if (fch == "g") { known = true }
+                if (fch == "i") { known = true }
+                if (fch == "m") { known = true }
+                if (fch == "s") { known = true }
+                if (fch == "u") { known = true }
+                if (fch == "v") { known = true }
+                if (fch == "y") { known = true }
+                if (known == false) { badFlag = true }
+                if (this.stringContainsChar(flags fch)) { badFlag = true }
+                flags = flags + fch
                 value = value + (this.advance())
             } {
                 break
             }
+        }
+        if badFlag {
+            return (this.makeToken("Invalid" value startPos startLine startCol))
         }
         return (this.makeToken("Regex" value startPos startLine startCol))
     }
