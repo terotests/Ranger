@@ -130,19 +130,41 @@ export function definitionKey(def) {
   return `${def.name}(${args})`;
 }
 
-/** Targets that the definition writes code for, and how. */
-export function targetSupport(def, targetIds) {
+/**
+ * Targets that the definition writes code for, and how.
+ *
+ * A target can compile through the writer of another target: TypeScript is the
+ * JavaScript writer with type annotations, so `-l=es6 -typescript` uses the
+ * `es6` template of the operator. A target with a `compileAs` therefore takes
+ * the state of that other target when it holds no template of its own.
+ * Without this, the reference states that TypeScript does not support an
+ * operator that TypeScript compiles.
+ *
+ * @param {object} def
+ * @param {Array<string|{id: string, compileAs?: string}>} targets
+ */
+export function targetSupport(def, targets) {
   const templates = def.templates || {};
   const fallback = Object.prototype.hasOwnProperty.call(templates, "*");
-  const support = {};
-  for (const id of targetIds) {
+  const stateOf = (id) => {
     if (Object.prototype.hasOwnProperty.call(templates, id)) {
-      support[id] = "template";
-    } else if (fallback) {
-      support[id] = "fallback";
-    } else {
-      support[id] = "none";
+      return "template";
     }
+    return fallback ? "fallback" : "none";
+  };
+
+  const support = {};
+  for (const target of targets) {
+    const id = typeof target === "string" ? target : target.id;
+    const parent = typeof target === "string" ? undefined : target.compileAs;
+    let state = stateOf(id);
+    if (state !== "template" && parent) {
+      const inherited = stateOf(parent);
+      if (inherited !== "none") {
+        state = inherited;
+      }
+    }
+    support[id] = state;
   }
   return support;
 }

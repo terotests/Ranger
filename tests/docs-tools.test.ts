@@ -59,6 +59,22 @@ describe("target support", () => {
     expect(support).toEqual({ es6: "template", go: "none" });
   });
 
+  it("gives TypeScript the state of JavaScript", () => {
+    // `-l=es6 -typescript` runs the JavaScript writer, so a TypeScript program
+    // uses the `es6` template. Verified against the compiler: `insert` has an
+    // es6 template and no ts template, and it compiles for TypeScript.
+    const targets = [{ id: "es6" }, { id: "ts", compileAs: "es6" }, { id: "go" }];
+    expect(model.targetSupport({ templates: { es6: "…" } }, targets)).toEqual({
+      es6: "template",
+      ts: "template",
+      go: "none",
+    });
+    // A TypeScript template of its own still wins.
+    expect(model.targetSupport({ templates: { es6: "…", ts: "…" } }, targets).ts).toBe("template");
+    // No JavaScript template either: TypeScript inherits nothing.
+    expect(model.targetSupport({ templates: { go: "…" } }, targets).ts).toBe("none");
+  });
+
   it("handles an operator with no templates at all", () => {
     expect(model.targetSupport({ templates: {} }, ["es6"])).toEqual({ es6: "none" });
     expect(model.targetSupport({}, ["es6"])).toEqual({ es6: "none" });

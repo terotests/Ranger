@@ -17,7 +17,7 @@ import { categoryOf, definitionKey, shortSignature, targetSupport, typeString } 
 import { operatorAnchor, operatorId, slugType } from "./lib/opid.mjs";
 import { DATA, DOCS, ROOT, readJson, writeJson } from "./lib/paths.mjs";
 
-const TARGET_IDS = TARGETS.map((t) => t.id);
+
 
 /**
  * The collection operators that the body of a macro calls.
@@ -163,7 +163,7 @@ async function main() {
         doc: def.doc,
         comment: def.comment,
         templates: def.templates,
-        support: targetSupport(def, TARGET_IDS),
+        support: targetSupport(def, TARGETS),
         registered: registeredNames.has(def.name),
         file: source.file,
         line: def.line,

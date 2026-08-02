@@ -14,22 +14,36 @@ output of the compiler for that program.
 
 ## How do I fill an array?
 
-Use an array literal. A program that calls `push` for each item writes more
-code than it needs, and the compiler cannot know the size in advance.
-
-```lisp
-; more code than necessary
-def numbers:[int]
-push numbers 1
-push numbers 2
-push numbers 3
-```
-
-The literal has two forms. `([] a b c)` takes the element type from the items.
-`([] _:T (a b c))` states the type, and the marker `_:T` must be followed by a
-group in parentheses.
+When the items are known, write an array literal. The literal has two forms.
+`([] a b c)` takes the element type from the items. `([] _:T (a b c))` states
+the type, and the marker `_:T` must be followed by a group in parentheses.
 
 <TargetOutput example={ex("faq/array-literal")} targets={model.generated.targets} />
+
+The compiler knows the number of items, so the target code holds one
+statement: `[1, 2, 3, 4, 5]` in JavaScript, `[]int64 {…}` in Go and `vec![…]`
+in Rust.
+
+## How do I build an array while the program runs?
+
+When the items come from a loop, from a file or from a calculation, the number
+of them is not known in advance. Use the operators that change the array.
+
+| Operator | Function |
+| --- | --- |
+| `push` | Add an item to the end. |
+| `set_at` | Replace the item at an index. |
+| `remove_index` | Remove the item at an index. |
+| `removeLast` | Remove the last item. |
+| `clear` | Remove every item. |
+| `insert` | Add an item at an index. Not Java, not C# and not Scala. |
+
+<TargetOutput example={ex("faq/array-mutation")} targets={model.generated.targets} />
+
+The [array operators](/Ranger/docs/reference/operators/array/) page holds the
+complete set, and each entry states which targets it writes code for. Note the
+two names that do the same work: `remove_index` writes code for every target,
+and `remove` writes code for JavaScript only.
 
 ## How do I write "not"?
 
