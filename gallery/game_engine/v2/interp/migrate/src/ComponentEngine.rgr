@@ -6864,6 +6864,37 @@ class ComponentEngine {
                             return (EvalValue.boolean(true))
                         }
                     }
+                    ; D-INSTANCEOF: the real algorithm for a user constructor --
+                    ; take F.prototype and walk the value's prototype chain
+                    ; looking for it BY IDENTITY. A `constructor` comparison
+                    ; cannot see an object reparented with Object.create, and it
+                    ; misses the spec's TypeError for a non-object prototype.
+                    if node.right {
+                        def rvF:EvalValue (this.evaluateExpr((unwrap node.right)))
+                        if (rvF.valueType == 6) {
+                            def protoF:EvalValue (rvF.getMember("prototype"))
+                            def protoIsObject:boolean false
+                            if (protoF.valueType == 5) { protoIsObject = true }
+                            if (protoF.valueType == 4) { protoIsObject = true }
+                            if (protoF.valueType == 6) { protoIsObject = true }
+                            if (false == protoIsObject) {
+                                return (this.throwSpecError("TypeError" "Function has non-object prototype in instanceof"))
+                            }
+                            def walkV:EvalValue lv
+                            def steps:int 0
+                            while (steps < 32) {
+                                if (null? walkV.protoRef) {
+                                    steps = 32
+                                } {
+                                    walkV = (unwrap walkV.protoRef)
+                                    if (walkV.equals(protoF)) {
+                                        return (EvalValue.boolean(true))
+                                    }
+                                    steps = (steps + 1)
+                                }
+                            }
+                        }
+                    }
                     ; D-ERRORS: an object built by `new F()` — an error object or
                     ; any constructor-function instance — carries `constructor`.
                     ; Compare it against the right-hand value BY IDENTITY, which
@@ -11347,6 +11378,51 @@ class ComponentEngine {
             g.setAttrs("Infinity" false false false)
             g.setMember("undefined" (EvalValue.undefined()))
             g.setAttrs("undefined" false false false)
+            ; The global FUNCTION properties. They are resolved by name at the
+            ; call site, so `typeof this.parseInt` read undefined even though
+            ; `parseInt(...)` worked.
+            def gfns:[string]
+            push gfns "eval"
+            push gfns "parseInt"
+            push gfns "parseFloat"
+            push gfns "isNaN"
+            push gfns "isFinite"
+            push gfns "decodeURI"
+            push gfns "decodeURIComponent"
+            push gfns "encodeURI"
+            push gfns "encodeURIComponent"
+            def gi:int 0
+            while (gi < (array_length gfns)) {
+                def gn:string (itemAt gfns gi)
+                def gf:EvalValue (EvalValue.nativeFunction(gn))
+                gf.setMember("name" (EvalValue.string(gn)))
+                gf.setAttrs("name" false false true)
+                gf.setMember("length" (EvalValue.fromInt(1)))
+                gf.setAttrs("length" false false true)
+                g.setMember(gn gf)
+                g.setAttrs(gn true false true)
+                gi = (gi + 1)
+            }
+            ; The constructor and namespace globals, as the same objects the
+            ; bare names resolve to.
+            def gnames:[string]
+            push gnames "Object"
+            push gnames "Array"
+            push gnames "String"
+            push gnames "Number"
+            push gnames "Boolean"
+            push gnames "Function"
+            push gnames "Date"
+            push gnames "RegExp"
+            push gnames "Math"
+            push gnames "JSON"
+            def gj:int 0
+            while (gj < (array_length gnames)) {
+                def gnm:string (itemAt gnames gj)
+                g.setMember(gnm (this.builtinGlobalObject(gnm)))
+                g.setAttrs(gnm true false true)
+                gj = (gj + 1)
+            }
         }
     }
 
