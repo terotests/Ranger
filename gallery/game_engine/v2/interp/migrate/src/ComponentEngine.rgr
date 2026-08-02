@@ -6505,6 +6505,20 @@ class ComponentEngine {
                 if (fnName == "RegExp") {
                     return (this.buildRegexFromArgs(node.children))
                 }
+                ; D-ERRORS: an error constructor called WITHOUT `new` builds the
+                ; same object -- `Error("x")` is `new Error("x")`. It was a
+                ; TypeError, which broke the test262 harness itself: sta.js
+                ; builds Test262Error that way.
+                if (this.isErrorCtorName(fnName)) {
+                    def emsg:string ""
+                    if ((array_length node.children) > 0) {
+                        def emv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        if (false == (emv.isUndefined())) {
+                            emsg = (this.toStringOf(emv))
+                        }
+                    }
+                    return (this.makeError(fnName emsg))
+                }
                 if (fnName == "Object") {
                     def ov:EvalValue (EvalValue.null())
                     if ((array_length node.children) > 0) {
@@ -6823,6 +6837,9 @@ class ComponentEngine {
                         ; holds a non-function. Anything unresolved here is left
                         ; to the checks below, which know about classes.
                         def irName:string instRight.name
+                        if (this.isErrorCtorName(irName)) {
+                            ; a real constructor, seeded on hostScope
+                        } {
                         if (context.has(irName)) {
                             def irVal:EvalValue (context.lookup(irName))
                             if (irVal.valueType != 6) {
@@ -6835,6 +6852,7 @@ class ComponentEngine {
                                     return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
                                 }
                             }
+                        }
                         }
                     }
                     if (irKind == "ObjectExpression") {
@@ -12124,7 +12142,7 @@ class ComponentEngine {
                     if ((array_length node.children) > 0) {
                         def mv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
                         if (false == (mv.isUndefined())) {
-                            msg = (mv.toString())
+                            msg = (this.toStringOf(mv))
                         }
                     }
                     return (this.makeError(kindV.stringValue msg))
@@ -12179,6 +12197,11 @@ class ComponentEngine {
                 if (ncName == "undefined") {
                     return (this.throwSpecError("TypeError" "undefined is not a constructor"))
                 }
+                ; The error constructors are real constructors even though they
+                ; are seeded on hostScope rather than published as namespace
+                ; objects -- checking only isBuiltinCtorName rejected `new Error`
+                ; outright.
+                if (false == (this.isErrorCtorName(ncName))) {
                 if (false == (this.isBuiltinCtorName(ncName))) {
                     if (this.isEngineGlobalName(ncName)) {
                         def ncG:EvalValue (this.builtinGlobalObject(ncName))
@@ -12202,6 +12225,7 @@ class ComponentEngine {
                             }
                         }
                     }
+                }
                 }
             }
         }
