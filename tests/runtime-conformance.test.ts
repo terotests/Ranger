@@ -234,6 +234,17 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["symbol-iterator-defined", "return Symbol.iterator !== undefined;", "symbols"],
   ["symbol-self-equal", "return Symbol.iterator === Symbol.iterator;", "symbols"],
   ["symbol-distinct", "return Symbol.iterator === Symbol.asyncIterator;", "symbols"],
+  ["acc-literal-getter", "var o = { get a() { return 7; } }; return o.a;", "accessors"],
+  ["acc-literal-setter", "var o = { _v: 0, set a(x) { this._v = x; } }; o.a = 5; return o._v;", "accessors"],
+  ["acc-getter-setter-pair", "var o = { _v: 1, get a() { return this._v; }, set a(x) { this._v = x * 2; } }; o.a = 4; return o.a;", "accessors"],
+  ["acc-define-getter", "var o = {}; Object.defineProperty(o, 'a', { get: function () { return 3; } }); return o.a;", "accessors"],
+  ["acc-define-setter", "var o = { _v: 0 }; Object.defineProperty(o, 'a', { set: function (x) { this._v = x; } }); o.a = 9; return o._v;", "accessors"],
+  ["acc-desc-reports-get", "var o = { get a() { return 1; } }; return typeof Object.getOwnPropertyDescriptor(o, 'a').get;", "accessors"],
+  ["acc-desc-no-value", "var o = { get a() { return 1; } }; return Object.getOwnPropertyDescriptor(o, 'a').value === undefined;", "accessors"],
+  ["acc-proto-getter", "var F = function () { this._v = 6; }; Object.defineProperty(F.prototype, 'a', { get: function () { return this._v; } }); var o = new F(); return o.a;", "accessors"],
+  ["symbol-factory-typeof", "var s = Symbol('x'); return typeof s;", "symbols"],
+  ["symbol-factory-unique", "return Symbol('a') === Symbol('a');", "symbols"],
+  ["symbol-description", "return Symbol('hi').description;", "symbols"],
   ["obj-get-prototype-of", "var F = function () {}; var o = new F(); return Object.getPrototypeOf(o) === F.prototype;", "descriptors"],
   ["obj-create", "var p = { k: 7 }; var o = Object.create(p); return o.k;", "descriptors"],
   ["obj-set-prototype-of", "var p = { k: 3 }; var o = {}; Object.setPrototypeOf(o, p); return o.k;", "descriptors"],
@@ -273,9 +284,6 @@ const KNOWN_GAPS = new Set<string>([
   "regex-exec",
   "regex-flags",
   "regex-replace",
-  // Accessors return the accessor function instead of invoking it.
-  "obj-getter",
-  "obj-setter",
   // Sequence expressions, labelled break and named function-expression
   // recursion evaluate to nothing.
   "seq-expr",
@@ -294,9 +302,8 @@ const KNOWN_GAPS = new Set<string>([
   // NaN, -0 and radix conversion are missing.
   "num-nan-ne-self",
   "num-radix-tostring",
-  // Generators parse but do not run; Symbol is absent.
+  // Generators parse but do not run.
   "iter-generator",
-  "iter-symbol-unique",
   // Array/object details.
   "arr-length-write",
   "obj-computed-key",

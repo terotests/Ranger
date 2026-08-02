@@ -3339,6 +3339,29 @@ class ComponentEngine {
             }
         } {
             def key:string leftNode.name
+            ; D-ACCESSORS: a setter takes the write instead of storing a data
+            ; property. Without this the setter would be shadowed by a plain
+            ; value and never run again.
+            def sFn:EvalValue (obj.findSetter(key 0))
+            if (sFn.valueType == 6) {
+                if sFn.functionNode {
+                    def cur0:EvalValue (EvalValue.undefined())
+                    def gFn0:EvalValue (obj.findGetter(key 0))
+                    if (gFn0.valueType == 6) {
+                        if gFn0.functionNode {
+                            def noArgs0:[EvalValue]
+                            def gb0:EvalValue (gFn0.withThis(obj))
+                            cur0 = (this.callFnValueWithValues(gb0 noArgs0))
+                        }
+                    }
+                    result = (this.applyAssignOp(op cur0 rightValue))
+                    def sArgs:[EvalValue]
+                    push sArgs result
+                    def sBound:EvalValue (sFn.withThis(obj))
+                    def _sr:EvalValue (this.callFnValueWithValues(sBound sArgs))
+                    return result
+                }
+            }
             def cur:EvalValue (obj.getMember(key))
             result = (this.applyAssignOp(op cur rightValue))
             obj.setMember(key result)
@@ -5670,6 +5693,29 @@ class ComponentEngine {
                     if (methodName == "getOwnPropertyDescriptor") {
                         if ((array_length node.children) > 1) {
                             def dk:string ((this.evaluateExpr((itemAt node.children 1))).toString())
+                            ; D-ACCESSORS: an accessor property reports get/set,
+                            ; never a `value` — reporting it as data would make
+                            ; the descriptor lie about the property's nature.
+                            if (src.hasAccessor(dk)) {
+                                def keysA:[string]
+                                def valsA:[EvalValue]
+                                def descA:EvalValue (EvalValue.object(keysA valsA))
+                                def ga:EvalValue (src.findGetter(dk 0))
+                                def sa:EvalValue (src.findSetter(dk 0))
+                                if (ga.valueType == 6) {
+                                    descA.setMember("get" ga)
+                                } {
+                                    descA.setMember("get" (EvalValue.undefined()))
+                                }
+                                if (sa.valueType == 6) {
+                                    descA.setMember("set" sa)
+                                } {
+                                    descA.setMember("set" (EvalValue.undefined()))
+                                }
+                                descA.setMember("enumerable" (EvalValue.boolean(true)))
+                                descA.setMember("configurable" (EvalValue.boolean(true)))
+                                return descA
+                            }
                             if (this.objHasKey(src dk)) {
                                 def keysD:[string]
                                 def valsD:[EvalValue]
@@ -5690,10 +5736,16 @@ class ComponentEngine {
                             def gv:EvalValue (pd.getMember("get"))
                             def sv:EvalValue (pd.getMember("set"))
                             if ((gv.valueType == 6) || (sv.valueType == 6)) {
-                                ; Accepting an accessor descriptor and storing
-                                ; only its value would make the property read
-                                ; wrong forever, silently. Fail loudly instead.
-                                return (this.throwSpecError("TypeError" "accessor property descriptors are not supported by this evaluator"))
+                                ; D-ACCESSORS: a real accessor property. The
+                                ; functions are stored apart from objectMap so
+                                ; the property is never mistaken for a data one.
+                                if (gv.valueType == 6) {
+                                    src.defineGetter(pk gv)
+                                }
+                                if (sv.valueType == 6) {
+                                    src.defineSetter(pk sv)
+                                }
+                                return src
                             }
                             src.setMember(pk (pd.getMember("value")))
                         }
@@ -5875,6 +5927,24 @@ class ComponentEngine {
                         return (this.castSized(fnName cv))
                     }
                     return (EvalValue.number(0.0))
+                }
+                ; D-SYMBOL: `Symbol(desc)` mints a fresh unique value. Each call
+                ; must produce a value equal only to itself, which the object
+                ; identity stamp already gives.
+                if (fnName == "Symbol") {
+                    def sDesc:string ""
+                    if ((array_length node.children) > 0) {
+                        def sdv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        if (false == (sdv.isUndefined())) {
+                            sDesc = (sdv.toString())
+                        }
+                    }
+                    def keysY:[string]
+                    def valsY:[EvalValue]
+                    def minted:EvalValue (EvalValue.object(keysY valsY))
+                    minted.setMember("__symbol__" (EvalValue.string(sDesc)))
+                    minted.setMember("description" (EvalValue.string(sDesc)))
+                    return minted
                 }
                 if (fnName == "parseInt") {
                     if ((array_length node.children) > 0) {
@@ -6451,6 +6521,13 @@ class ComponentEngine {
             return "object"
         }
         if (val.isObject()) {
+            ; D-SYMBOL: symbols are modelled as objects internally, but `typeof`
+            ; must answer "symbol" — that is how guest code tells them apart, and
+            ; answering "object" would make every symbol type-check wrong.
+            def symTag@(optional):EvalValue (get val.objectMap "__symbol__")
+            if symTag {
+                return "symbol"
+            }
             return "object"
         }
         if (val.isMap()) {
@@ -6979,6 +7056,21 @@ class ComponentEngine {
                 }
             }
 
+            ; D-ACCESSORS: a getter wins over any data property of the same name
+            ; and is invoked with `this` = the receiver. Checked here, before the
+            ; data-property paths, because an accessor that fell through to
+            ; getMember would return the FUNCTION rather than calling it.
+            if ((strlen propName) > 0) {
+                def gFn:EvalValue (obj.findGetter(propName 0))
+                if (gFn.valueType == 6) {
+                    if gFn.functionNode {
+                        def noArgs:[EvalValue]
+                        def gBound:EvalValue (gFn.withThis(obj))
+                        return (this.callFnValueWithValues(gBound noArgs))
+                    }
+                }
+            }
+
             ; Map/Set .size property (element count).
             if (propName == "size") {
                 if ((obj.isMap()) || (obj.isSet())) {
@@ -7374,19 +7466,40 @@ class ComponentEngine {
     fn evaluateObjectExpr:EvalValue (node:TSNode) {
         def keys:[string]
         def values:[EvalValue]
-        
+        ; D-ACCESSORS: `get x() {}` / `set x(v) {}` in an object literal are
+        ; collected separately and attached after the object exists, since the
+        ; accessor maps live on the value rather than in the key/value lists.
+        def accKeys:[string]
+        def accFns:[EvalValue]
+        def accKinds:[string]
+
         def i:int 0
         while (i < (array_length node.children)) {
             def prop:TSNode (itemAt node.children i)
             if (prop.nodeType == "Property") {
                 def key:string prop.name
-                push keys key
-
-                if prop.left {
-                    def valueNode:TSNode (unwrap prop.left)
-                    push values (this.evaluateExpr(valueNode))
+                ; The parser tags an object-literal accessor on `kind`
+                ; (get/set/init); `accessor` carries the same idea for a CLASS
+                ; member. Accept either so both forms are handled.
+                def akind:string prop.kind
+                if ((strlen prop.accessor) > 0) {
+                    akind = prop.accessor
+                }
+                if ((akind == "get") || (akind == "set")) {
+                    if prop.left {
+                        def afn:EvalValue (this.captureClosure((unwrap prop.left)))
+                        push accKeys key
+                        push accFns afn
+                        push accKinds akind
+                    }
                 } {
-                    push values (EvalValue.null())
+                    push keys key
+                    if prop.left {
+                        def valueNode:TSNode (unwrap prop.left)
+                        push values (this.evaluateExpr(valueNode))
+                    } {
+                        push values (EvalValue.null())
+                    }
                 }
             }
             ; Object-literal spread: {...o, k: v} copies o's own keys first.
@@ -7409,9 +7522,22 @@ class ComponentEngine {
             i = i + 1
         }
 
-        return (EvalValue.object(keys values))
+        def built:EvalValue (EvalValue.object(keys values))
+        def ai:int 0
+        while (ai < (array_length accKeys)) {
+            def ak:string (itemAt accKeys ai)
+            def af:EvalValue (itemAt accFns ai)
+            def akd:string (itemAt accKinds ai)
+            if (akd == "get") {
+                built.defineGetter(ak af)
+            } {
+                built.defineSetter(ak af)
+            }
+            ai = (ai + 1)
+        }
+        return built
     }
-    
+
     ; ==========================================================================
     ; Utility Functions
     ; ==========================================================================

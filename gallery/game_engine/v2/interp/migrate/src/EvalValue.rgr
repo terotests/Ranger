@@ -53,6 +53,12 @@ class EvalValue {
     ; miss walks this chain, which is how a method defined on a prototype is
     ; found through an instance.
     def protoRef@(optional):EvalValue
+    ; D-ACCESSORS: getter/setter functions keyed by property name, held apart
+    ; from objectMap so an accessor property is never mistaken for a data one.
+    ; They cannot be INVOKED from here (EvalValue has no evaluator reference), so
+    ; the member-access sites in ComponentEngine look them up and call them.
+    def getterMap:[string:EvalValue]
+    def setterMap:[string:EvalValue]
     def functionNode@(optional):TSNode  ; For function AST nodes
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
@@ -378,6 +384,57 @@ class EvalValue {
         return false
     }
     
+    ; D-ACCESSORS: accessor lookup, walking the prototype chain like a data
+    ; property does — a getter defined on a prototype serves every instance.
+    fn findGetter:EvalValue (key:string depth:int) {
+        if (depth > 16) {
+            return (EvalValue.null())
+        }
+        if (has getterMap key) {
+            return (unwrap (get getterMap key))
+        }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            def nd:int (depth + 1)
+            return (pr.findGetter(key nd))
+        }
+        return (EvalValue.null())
+    }
+
+    fn findSetter:EvalValue (key:string depth:int) {
+        if (depth > 16) {
+            return (EvalValue.null())
+        }
+        if (has setterMap key) {
+            return (unwrap (get setterMap key))
+        }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            def nd:int (depth + 1)
+            return (pr.findSetter(key nd))
+        }
+        return (EvalValue.null())
+    }
+
+    fn defineGetter:void (key:string fn:EvalValue) {
+        set getterMap key fn
+    }
+
+    fn defineSetter:void (key:string fn:EvalValue) {
+        set setterMap key fn
+    }
+
+    ; True when the property is an accessor anywhere up the chain. Used to keep
+    ; an accessor from being reported as a data property.
+    fn hasAccessor:boolean (key:string) {
+        def g:EvalValue (this.findGetter(key 0))
+        if (g.valueType == 6) {
+            return true
+        }
+        def s:EvalValue (this.findSetter(key 0))
+        return (s.valueType == 6)
+    }
+
     ; D-PROTO: one step of the prototype-chain walk. Depth-bounded so a cyclic
     ; chain (which guest code can build: `a.__proto__ = b; b.__proto__ = a`)
     ; terminates instead of hanging the host.
