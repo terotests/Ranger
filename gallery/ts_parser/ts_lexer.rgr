@@ -28,6 +28,12 @@ class TSLexer {
     ; Kind of the most recently closed brace, consumed by regexAllowed.
     def lastCloseKind:string "o"
 
+    ; One character per currently-open paren: "h" when it opens an if / while /
+    ; for / with header, "e" otherwise. A `)` that closes a header is followed
+    ; by a statement, so a regex may start there: `if (1) /foo/`.
+    def parenKinds:string ""
+    def lastCloseParen:string "e"
+
     Constructor (src:string) {
         source = src
         ; `len` must match the index space that peek()/advance()/`at` walk. Those
@@ -401,9 +407,44 @@ class TSLexer {
                     }
                 }
             } {
-                ; For now, treat ${...} as literal text
-                ; A full implementation would tokenize interpolations separately
-                value = value + (this.advance())
+                ; ${...} is kept as literal text for the parser to re-read, but
+                ; its nesting must still be tracked: an interpolation may hold
+                ; another template, whose backticks do not end this one.
+                if (ch == "$") {
+                    if ((this.peekAt(1)) == "{") {
+                        value = value + (this.advance())
+                        value = value + (this.advance())
+                        def braceDepth:int 1
+                        while ((pos < len) && (braceDepth > 0)) {
+                            def ic:string (this.peek())
+                            if (ic == "\\") {
+                                value = value + (this.advance())
+                                if (pos < len) { value = value + (this.advance()) }
+                            } {
+                                if (ic == "{") {
+                                    braceDepth = (braceDepth + 1)
+                                    value = value + (this.advance())
+                                } {
+                                    if (ic == "}") {
+                                        braceDepth = (braceDepth - 1)
+                                        value = value + (this.advance())
+                                    } {
+                                        if (ic == "`") {
+                                            def innerTok:Token (this.readTemplateLiteral())
+                                            value = value + "`" + innerTok.value + "`"
+                                        } {
+                                            value = value + (this.advance())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } {
+                        value = value + (this.advance())
+                    }
+                } {
+                    value = value + (this.advance())
+                }
             }
         }
         ; Ran off the end without a closing backtick.
@@ -1133,6 +1174,24 @@ class TSLexer {
             ; Comments are not significant for regex-vs-division context.
             if ((tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment")) {
                 if (tok.tokenType == "Punctuator") {
+                    if (tok.value == "(") {
+                        def headerOpen:string "e"
+                        if (prevType == "Keyword") {
+                            if ((prevValue == "if") || (prevValue == "while") || (prevValue == "for") || (prevValue == "with")) {
+                                headerOpen = "h"
+                            }
+                        }
+                        parenKinds = (parenKinds + headerOpen)
+                    }
+                    if (tok.value == ")") {
+                        def pDepth:int (strlen parenKinds)
+                        if (pDepth > 0) {
+                            lastCloseParen = (substring parenKinds (pDepth - 1) pDepth)
+                            parenKinds = (substring parenKinds 0 (pDepth - 1))
+                        } {
+                            lastCloseParen = "e"
+                        }
+                    }
                     if (tok.value == "{") {
                         braceKinds = (braceKinds + (this.braceKindHere()))
                     }
@@ -1219,7 +1278,10 @@ class TSLexer {
             ; `)` and `]` close an expression; `}` is ambiguous (block end allows a
             ; regex, object-literal end does not) and is resolved as block end,
             ; which is the far more common position for a following `/`.
-            if (prevValue == ")") { return false }
+            if (prevValue == ")") {
+                if (lastCloseParen == "h") { return true }
+                return false
+            }
             if (prevValue == "]") { return false }
             if (prevValue == "++") { return false }
             if (prevValue == "--") { return false }

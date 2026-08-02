@@ -22,6 +22,8 @@ class TSLexer  {
     this.prevLine = 0;
     this.braceKinds = "";
     this.lastCloseKind = "o";
+    this.parenKinds = "";
+    this.lastCloseParen = "e";
     this.source = src;
     this.__len = src.length;
   }
@@ -396,7 +398,43 @@ class TSLexer  {
           }
         }
       } else {
-        value = value + this.advance();
+        if ( ch == "$" ) {
+          if ( this.peekAt(1) == "{" ) {
+            value = value + this.advance();
+            value = value + this.advance();
+            let braceDepth = 1;
+            while ((this.pos < this.__len) && (braceDepth > 0)) {
+              const ic = this.peek();
+              if ( ic == "\\" ) {
+                value = value + this.advance();
+                if ( this.pos < this.__len ) {
+                  value = value + this.advance();
+                }
+              } else {
+                if ( ic == "{" ) {
+                  braceDepth = braceDepth + 1;
+                  value = value + this.advance();
+                } else {
+                  if ( ic == "}" ) {
+                    braceDepth = braceDepth - 1;
+                    value = value + this.advance();
+                  } else {
+                    if ( ic == "`" ) {
+                      const innerTok = this.readTemplateLiteral();
+                      value = ((value + "`") + innerTok.value) + "`";
+                    } else {
+                      value = value + this.advance();
+                    }
+                  }
+                }
+              }
+            };
+          } else {
+            value = value + this.advance();
+          }
+        } else {
+          value = value + this.advance();
+        }
       }
     };
     return this.makeToken("Invalid", value, startPos, startLine, startCol);
@@ -1214,6 +1252,24 @@ class TSLexer  {
       tokens.push(tok);
       if ( (tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment") ) {
         if ( tok.tokenType == "Punctuator" ) {
+          if ( tok.value == "(" ) {
+            let headerOpen = "e";
+            if ( this.prevType == "Keyword" ) {
+              if ( (((this.prevValue == "if") || (this.prevValue == "while")) || (this.prevValue == "for")) || (this.prevValue == "with") ) {
+                headerOpen = "h";
+              }
+            }
+            this.parenKinds = this.parenKinds + headerOpen;
+          }
+          if ( tok.value == ")" ) {
+            const pDepth = this.parenKinds.length;
+            if ( pDepth > 0 ) {
+              this.lastCloseParen = this.parenKinds.substring((pDepth - 1), pDepth );
+              this.parenKinds = this.parenKinds.substring(0, (pDepth - 1) );
+            } else {
+              this.lastCloseParen = "e";
+            }
+          }
           if ( tok.value == "{" ) {
             this.braceKinds = this.braceKinds + this.braceKindHere();
           }
@@ -1332,6 +1388,9 @@ class TSLexer  {
     }
     if ( this.prevType == "Punctuator" ) {
       if ( this.prevValue == ")" ) {
+        if ( this.lastCloseParen == "h" ) {
+          return true;
+        }
         return false;
       }
       if ( this.prevValue == "]" ) {
