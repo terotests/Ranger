@@ -310,6 +310,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // let a test's SETUP succeed where the spec requires it to fail.
   // D-INDEXDESC: array and string indices are real own properties but live
   // outside objectMap, so their descriptors came back undefined.
+  // D-WITH / D-SOURCETYPE: `with` puts an object at the front of the scope
+  // chain. It was rejected at PARSE time because the engine treated every
+  // guest source as a module, and module code is always strict -- so sloppy
+  // syntax failed before the evaluator ever saw it.
+  ["with-read", "var o = { a: 5 }; var r; with (o) { r = a; } return r;", "with"],
+  ["with-shadows-outer", "var a = 1; var o = { a: 9 }; var r; with (o) { r = a; } return r;", "with"],
+  ["with-writes-through", "var o = { a: 1 }; with (o) { a = 7; } return o.a;", "with"],
+  ["with-falls-through", "var b = 3; var o = { a: 1 }; var r; with (o) { r = b; } return r;", "with"],
+  ["with-scope-ends", "var a = 1; var o = { a: 9 }; with (o) {} return a;", "with"],
+  ["with-method-call", "var o = { a: 'xy' }; var r; with (o) { r = a.length; } return r;", "with"],
+  ["with-null-throws", "try { with (null) {} } catch (e) { return e.name; } return 'no-throw';", "with"],
+  ["with-nested", "var o = { a: 1 }; var p = { b: 2 }; var r; with (o) { with (p) { r = a + b; } } return r;", "with"],
+
   ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
   ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
   ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],

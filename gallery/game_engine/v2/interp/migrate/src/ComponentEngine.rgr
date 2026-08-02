@@ -41,6 +41,10 @@ class CachedImportAst {
 ; =============================================================================
 class EvalContext {
     def bindings:[string:EvalValue]
+    ; D-WITH: `with (o) { ... }` puts an OBJECT at the front of the scope chain.
+    ; A name is looked up as a property of that object before the ordinary
+    ; bindings, and assignment to a name the object owns writes through to it.
+    def withObject@(optional):EvalValue
     def parent@(optional):EvalContext
     ; Root module scope for this script (propagated to child scopes).
     def moduleRoot@(optional):EvalContext
@@ -50,6 +54,13 @@ class EvalContext {
     }
     
     fn lookup:EvalValue (name:string) {
+        ; D-WITH: the object scope shadows the bindings beneath it.
+        if withObject {
+            def wo:EvalValue (unwrap withObject)
+            if (has wo.objectMap name) {
+                return (unwrap (get wo.objectMap name))
+            }
+        }
         ; Single map probe (avoids a second hasOwnProperty via `has` + `get`).
         def found@(optional):EvalValue (get bindings name)
         if found {
@@ -66,6 +77,15 @@ class EvalContext {
     ; Update an existing binding in the nearest enclosing scope that owns it.
     ; Returns false when the name is not declared anywhere up the parent chain.
     fn assignExisting:boolean (name:string value:EvalValue) {
+        ; D-WITH: writing a name the object owns updates the OBJECT, which is
+        ; the whole observable point of `with`.
+        if withObject {
+            def wo:EvalValue (unwrap withObject)
+            if (has wo.objectMap name) {
+                wo.setMember(name value)
+                return true
+            }
+        }
         if (has bindings name) {
             set bindings name value
             return true
@@ -115,6 +135,12 @@ class EvalContext {
     }
     
     fn has:boolean (name:string) {
+        if withObject {
+            def wo:EvalValue (unwrap withObject)
+            if (has wo.objectMap name) {
+                return true
+            }
+        }
         if (has bindings name) {
             return true
         }
@@ -979,11 +1005,28 @@ class ComponentEngine {
     ; Parse a script and register its imports, components/functions and
     ; top-level variables WITHOUT requiring or evaluating a render() function.
     ; After this, callFunction()/callRender() can invoke the script's functions.
+    ; D-SOURCETYPE: a guest source is parsed as a MODULE only when it actually
+    ; uses import/export; otherwise it is a script. Module code is always strict,
+    ; and parsing everything as a module therefore rejected sloppy-mode syntax
+    ; that is perfectly legal in a script -- `with`, octal literals, duplicate
+    ; parameters, assignment to an undeclared variable. Those failed at PARSE
+    ; time, so the engine never got to run them and the failure looked like a
+    ; missing feature rather than a mode mismatch.
+    fn sourceIsModule:boolean (src:string) {
+        if ((indexOf src "import ") >= 0) { return true }
+        if ((indexOf src "import(") >= 0) { return true }
+        if ((indexOf src "export ") >= 0) { return true }
+        if ((indexOf src "export{") >= 0) { return true }
+        if ((indexOf src "export default") >= 0) { return true }
+        return false
+    }
+
     fn parseProgramFromSrc:TSNode (src:string) {
         def lexer (new TSLexer(src))
         def tokens:[Token] (lexer.tokenize())
         parser.initParser(tokens)
         parser.tsxMode = jsxParsing
+        parser.setModuleMode((this.sourceIsModule(src)))
         return (parser.parseProgram())
     }
 
@@ -2825,6 +2868,24 @@ class ComponentEngine {
         }
         if (stmt.nodeType == "TryStatement") {
             this.runTryStatementValue(stmt)
+            return
+        }
+        ; D-WITH: evaluate the object, push a scope fronted by it, run the body.
+        if (stmt.nodeType == "WithStatement") {
+            if stmt.left {
+                def wObj:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                if ((wObj.isNull()) || (wObj.isUndefined())) {
+                    def _w:EvalValue (this.throwSpecError("TypeError" "with(...) requires an object"))
+                    return
+                }
+                def savedW:EvalContext context
+                context = (context.createChild())
+                context.withObject = wObj
+                if stmt.body {
+                    this.runBlockOrStatement((unwrap stmt.body))
+                }
+                context = savedW
+            }
             return
         }
     }
