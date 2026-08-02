@@ -6470,6 +6470,16 @@ class ComponentEngine {
     ; being routed before the registry.
     ; --------------------------------------------------------------------------
     fn receiverKind:string (v:EvalValue) {
+        ; D-WRAPPER: a boxed primitive dispatches as its primitive kind, which
+        ; is what makes `new String('a').toUpperCase()` reach String.prototype.
+        if (v.valueType == 5) {
+            if (has v.objectMap "__primitive__") {
+                def inner:EvalValue (unwrap (get v.objectMap "__primitive__"))
+                if (inner.valueType == 2) { return "string" }
+                if (inner.valueType == 1) { return "number" }
+                if (inner.valueType == 3) { return "boolean" }
+            }
+        }
         if (v.valueType == 2) { return "string" }
         if (v.valueType == 4) { return "array" }
         if (v.valueType == 1) { return "number" }
@@ -6578,6 +6588,58 @@ class ComponentEngine {
 
     ; Number.prototype.toFixed formatting, lifted verbatim from the old chain
     ; branch so the migration cannot change its behaviour.
+    ; D-RADIX: integer part in an arbitrary base, plus a bounded fractional
+    ; expansion. Digits above 9 are lowercase letters, as the spec requires.
+    fn numberToRadix:string (value:double radix:int) {
+        if (value != value) {
+            return "NaN"
+        }
+        def inf:double (1.0 / 0.0)
+        if (value == inf) {
+            return "Infinity"
+        }
+        if (value == (0.0 - inf)) {
+            return "-Infinity"
+        }
+        def neg:boolean false
+        def v:double value
+        if (v < 0.0) {
+            neg = true
+            v = (0.0 - v)
+        }
+        def digits:string "0123456789abcdefghijklmnopqrstuvwxyz"
+        def ip:int (to_int v)
+        def out:string ""
+        if (ip == 0) {
+            out = "0"
+        }
+        while (ip > 0) {
+            def d:int (ip % radix)
+            def dEnd:int (d + 1)
+            out = ((substring digits d dEnd) + out)
+            ip = (to_int ((to_double ip) / (to_double radix)))
+        }
+        ; Fractional part, capped — an exact expansion can be unbounded in a
+        ; base that does not divide the value evenly.
+        def frac:double (v - (to_double (to_int v)))
+        if (frac > 0.0) {
+            out = (out + ".")
+            def guard:int 0
+            while ((frac > 0.0) && (guard < 20)) {
+                frac = (frac * (to_double radix))
+                def fd:int (to_int frac)
+                def fEnd:int (fd + 1)
+                out = (out + (substring digits fd fEnd))
+                frac = (frac - (to_double fd))
+                guard = (guard + 1)
+            }
+        }
+        if neg {
+            return ("-" + out)
+        }
+        return out
+    }
+
     fn toFixedString:string (numVal:double decimals:int) {
         def multiplier:double 1.0
         def i:int 0
@@ -6684,6 +6746,32 @@ class ComponentEngine {
     ; paths cannot drift apart.
     fn invokeBuiltin:EvalValue (kind:string name:string recv:EvalValue args:[EvalValue]) {
         ; ---- toString / valueOf, per receiver kind --------------------------
+        ; D-RADIX: Number.prototype.toString(radix). Base 10 is the default;
+        ; any other base needs real digit conversion, which was missing — the
+        ; whole toString area scored 0.
+        if (name == "toString") {
+            if (kind == "number") {
+                if ((array_length args) > 0) {
+                    def rv:EvalValue (itemAt args 0)
+                    if (false == (rv.isUndefined())) {
+                        def radix:int (to_int (rv.toNumber()))
+                        if ((radix < 2) || (radix > 36)) {
+                            return (this.throwSpecError("RangeError" "toString() radix must be between 2 and 36"))
+                        }
+                        if (radix != 10) {
+                            def nprim:EvalValue (this.unwrapPrimitive(recv))
+                            return (EvalValue.string((this.numberToRadix((nprim.toNumber()) radix))))
+                        }
+                    }
+                }
+            }
+            ; D-WRAPPER: a boxed primitive stringifies as the primitive, not as
+            ; the object holding it.
+            def tprim:EvalValue (this.unwrapPrimitive(recv))
+            if (false == (tprim.equals(recv))) {
+                return (EvalValue.string((tprim.toString())))
+            }
+        }
         if (name == "toString") {
             if (kind == "array") {
                 return (EvalValue.string((this.arrayJoinString(recv ","))))
@@ -6699,7 +6787,8 @@ class ComponentEngine {
             return (EvalValue.string((recv.toString())))
         }
         if (name == "valueOf") {
-            return recv
+            ; D-WRAPPER: valueOf on a boxed primitive yields the primitive.
+            return (this.unwrapPrimitive(recv))
         }
         ; ---- String.prototype ----------------------------------------------
         if (kind == "string") {
@@ -6716,9 +6805,10 @@ class ComponentEngine {
             ; — silently, which is why it cost score rather than raising an
             ; error. The old unguarded branch used toString() and got this right
             ; by accident; the typed one has to do it on purpose.
-            def s:string (recv.toString())
-            if (recv.isString()) {
-                s = recv.stringValue
+            def prim:EvalValue (this.unwrapPrimitive(recv))
+            def s:string (prim.toString())
+            if (prim.isString()) {
+                s = prim.stringValue
             }
                     ; (receiver already coerced to `s` above, per ToString)
                     if (name == "indexOf") {
@@ -7564,7 +7654,8 @@ class ComponentEngine {
                 if ((array_length args) > 0) {
                     digits = (to_int ((itemAt args 0).toNumber()))
                 }
-                return (EvalValue.string((this.toFixedString((recv.toNumber()) digits))))
+                def fprim:EvalValue (this.unwrapPrimitive(recv))
+                return (EvalValue.string((this.toFixedString((fprim.toNumber()) digits))))
             }
         }
         if (kind == "function") {
@@ -7636,6 +7727,54 @@ class ComponentEngine {
     ; isSealed/isExtensible accept anything and are deliberately absent.
     ; Statics that genuinely REQUIRE an object argument in the current spec.
     ; Array methods whose first argument must be callable.
+    ; D-WRAPPER: constructors whose instances box a primitive.
+    fn isWrapperCtorName:boolean (name:string) {
+        if (name == "String") { return true }
+        if (name == "Number") { return true }
+        if (name == "Boolean") { return true }
+        return false
+    }
+
+    ; The boxed object. `__primitive__` is the internal slot; the wrapper reports
+    ; the primitive's receiver kind so String.prototype methods dispatch to it.
+    fn makeWrapper:EvalValue (ctorName:string prim:EvalValue) {
+        def keysW:[string]
+        def valsW:[EvalValue]
+        def w:EvalValue (EvalValue.object(keysW valsW))
+        def p:EvalValue prim
+        if (ctorName == "String") {
+            if (prim.isUndefined()) {
+                p = (EvalValue.string(""))
+            } {
+                p = (EvalValue.string((prim.toString())))
+            }
+        }
+        if (ctorName == "Number") {
+            if (prim.isUndefined()) {
+                p = (EvalValue.number(0.0))
+            } {
+                p = (EvalValue.number((prim.toNumber())))
+            }
+        }
+        if (ctorName == "Boolean") {
+            p = (EvalValue.boolean((prim.toBool())))
+        }
+        w.setMember("__primitive__" p)
+        w.setMember("__wrapper__" (EvalValue.string(ctorName)))
+        w.protoRef = (this.builtinPrototype(ctorName))
+        return w
+    }
+
+    ; The primitive inside a wrapper, or the value itself when it is not one.
+    fn unwrapPrimitive:EvalValue (v:EvalValue) {
+        if (v.valueType == 5) {
+            if (has v.objectMap "__primitive__") {
+                return (unwrap (get v.objectMap "__primitive__"))
+            }
+        }
+        return v
+    }
+
     fn arrayNeedsCallback:boolean (name:string) {
         if (name == "forEach") { return true }
         if (name == "map") { return true }
@@ -8513,6 +8652,19 @@ class ComponentEngine {
                     }
                 }
             }
+        }
+
+        ; D-WRAPPER: `new String(x)` / `new Number(x)` / `new Boolean(x)` make a
+        ; wrapper OBJECT holding the primitive. They used to make an empty
+        ; object, so `new String('abc').slice(1)` found no string to work on —
+        ; entire String.prototype areas scored zero because their fixtures are
+        ; built this way.
+        if (this.isWrapperCtorName(className)) {
+            def prim:EvalValue (EvalValue.undefined())
+            if ((array_length node.children) > 0) {
+                prim = (this.evaluateExpr((itemAt node.children 0)))
+            }
+            return (this.makeWrapper(className prim))
         }
 
         ; D-NEWFNEXPR: `new function f1() { ... }` — the callee is a function

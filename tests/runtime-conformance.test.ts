@@ -271,6 +271,27 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // failure bucket -- every property read off one failed.
   // D-CBCHECK / D-DESCVALID: higher-order Array methods need a callable, and a
   // descriptor is either a data or an accessor descriptor, never both.
+  // D-RADIX / D-WRAPPER: Number.prototype.toString(radix), and boxed
+  // primitives. new String(x) used to make an empty object, so whole
+  // String.prototype areas scored zero -- their fixtures are built that way.
+  ["radix-base2", "return (5).toString(2);", "radix"],
+  ["radix-base16", "return (255).toString(16);", "radix"],
+  ["radix-base36", "return (35).toString(36);", "radix"],
+  ["radix-negative", "return (-10).toString(2);", "radix"],
+  ["radix-default", "return (10).toString();", "radix"],
+  ["radix-explicit-10", "return (10).toString(10);", "radix"],
+  ["radix-range-error", "try { (5).toString(1); } catch (e) { return e.name; } return 'no-throw';", "radix"],
+  ["wrap-string-slice", "return new String('abcdef').slice(1, 3);", "wrappers"],
+  ["wrap-string-upper", "return new String('ab').toUpperCase();", "wrappers"],
+  ["wrap-string-split", "return new String('a,b').split(',').length;", "wrappers"],
+  ["wrap-string-indexof", "return new String('hello').indexOf('ll');", "wrappers"],
+  ["wrap-string-substring", "return new String('abcdef').substring(1, 3);", "wrappers"],
+  ["wrap-number-radix", "return new Number(255).toString(16);", "wrappers"],
+  ["wrap-boolean-tostring", "return new Boolean(true).toString();", "wrappers"],
+  ["wrap-typeof-object", "return typeof new String('a');", "wrappers"],
+  ["wrap-valueof", "return new Number(7).valueOf();", "wrappers"],
+  ["wrap-plain-unaffected", "return 'abc'.slice(1);", "wrappers"],
+
   ["cb-foreach-nonfn", "try { [1, 2].forEach(5); } catch (e) { return e.name; } return 'no-throw';", "validation"],
   ["cb-every-nonfn", "try { [1].every(true); } catch (e) { return e.name; } return 'no-throw';", "validation"],
   ["cb-map-null", "try { [1].map(null); } catch (e) { return e.name; } return 'no-throw';", "validation"],
@@ -522,8 +543,6 @@ const KNOWN_GAPS = new Set<string>([
   "coerce-arr-to-string",
   "coerce-obj-to-string",
   "coerce-valueof",
-  // Radix conversion is missing.
-  "num-radix-tostring",
   // Generators parse but do not run.
   "iter-generator",
   // Array/object details.
