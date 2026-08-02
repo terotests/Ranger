@@ -114,6 +114,15 @@ class TSParserSimple {
   ; Whether the source is a module. Scripts may not use import or export.
   ; Defaults to module, which is what the engine feeds it.
   def moduleMode:boolean true
+  ; True while a parameter list is being read. A parameter default may not
+  ; contain a yield expression, even inside a generator.
+  def inParamList:boolean false
+  ; Set by parsePrimary just before it reads a function *expression*. A function
+  ; expression's own name lives in its own context (so `function yield(){}`
+  ; inside a generator is fine), while a declaration's name lives in the
+  ; enclosing one (so `function* yield(){}` at top level is fine but
+  ; `function *g(){ function yield(){} }` is not).
+  def parsingFunctionExpression:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -2760,11 +2769,17 @@ class TSParserSimple {
       catchNode.nodeType = "CatchClause"
       this.advance()
       
+      this.pushScope(false)
       if (this.matchValue("(")) {
         this.advance()
         ; The catch parameter is a full binding target: `catch ([a, ...b])` and
         ; `catch ({message})` are both legal.
+        def savedCatchDeclaring:string this.declaringKind
+        ; Parameter-like, not lexical: `catch (a) { var a = 1; }` is legal,
+        ; `catch (a) { let a; }` is not.
+        this.declaringKind = "q"
         def param (this.parseBindingTarget())
+        this.declaringKind = savedCatchDeclaring
         catchNode.name = param.name
         catchNode.left = param
 
@@ -2777,8 +2792,12 @@ class TSParserSimple {
         this.expectValue(")")
       }
       
+      ; The parameter and the catch block share a scope, so
+      ; `catch (a) { for (var a of 1); }` is a redeclaration.
+      this.suppressBlockScope = true
       def catchBlock (this.parseBlock())
       catchNode.body = catchBlock
+      this.popScope()
       node.left = catchNode
     }
     
@@ -3150,9 +3169,13 @@ class TSParserSimple {
       node.generator = true
     }
 
-    ; The name belongs to this function's context, not the enclosing one.
     def savedGenerator:boolean this.inGenerator
-    this.inGenerator = node.generator
+    def isFnExpression:boolean this.parsingFunctionExpression
+    this.parsingFunctionExpression = false
+    if isFnExpression {
+      ; An expression's name is read in its own context.
+      this.inGenerator = node.generator
+    }
     
     ; Name is optional: `function () {}` is legal both as an expression and as
     ; the body of `export default function () {}`. When present it may be a
@@ -3162,6 +3185,10 @@ class TSParserSimple {
       node.name = nameTok.value
       ; The name is bound below, once we know this is not an overload signature.
     }
+
+    ; Whatever the name's context was, the parameters and body use this
+    ; function's own.
+    this.inGenerator = node.generator
 
     ; The parameters and the body's top level share one scope, so
     ; `function f(a) { let a; }` is a redeclaration.
@@ -3378,7 +3405,10 @@ class TSParserSimple {
         this.syntaxError("Parse error: a rest parameter may not have a default")
       }
       this.advance()
+      def savedInParams:boolean this.inParamList
+      this.inParamList = true
       param.init = (this.parseExpr())
+      this.inParamList = savedInParams
     }
     
     return param
@@ -5087,6 +5117,9 @@ class TSParserSimple {
     ; yield expression: yield value, yield* generator()
     if ((tokVal == "yield") && this.inGenerator) {
       def yieldTok (this.peek())
+      if (this.inParamList) {
+        this.syntaxError("Parse error: a parameter default may not contain a yield expression")
+      }
       this.advance()
       
       def yieldExpr (new TSNode())
@@ -5727,6 +5760,7 @@ class TSParserSimple {
 
     ; Function expression: function () {}, function* () {}, async function () {}
     if (tokVal == "function") {
+      this.parsingFunctionExpression = true
       def fnExpr (this.parseFuncDecl(false))
       fnExpr.nodeType = "FunctionExpression"
       return fnExpr
@@ -5734,7 +5768,8 @@ class TSParserSimple {
     if (tokVal == "async") {
       if ((this.peekNextValue()) == "function") {
         this.advance()  ; consume async
-        def asyncFnExpr (this.parseFuncDecl(true))
+        this.parsingFunctionExpression = true
+      def asyncFnExpr (this.parseFuncDecl(true))
         asyncFnExpr.nodeType = "FunctionExpression"
         return asyncFnExpr
       }

@@ -1492,6 +1492,8 @@ class TSParserSimple  {
     this.patternAllowsMemberTarget = false;
     this.exportedNames = [];
     this.moduleMode = true;
+    this.inParamList = false;
+    this.parsingFunctionExpression = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -3673,9 +3675,13 @@ class TSParserSimple  {
       const catchNode = new TSNode();
       catchNode.nodeType = "CatchClause";
       this.advance();
+      this.pushScope(false);
       if ( this.matchValue("(") ) {
         this.advance();
+        const savedCatchDeclaring = this.declaringKind;
+        this.declaringKind = "q";
         const param = this.parseBindingTarget();
+        this.declaringKind = savedCatchDeclaring;
         catchNode.name = param.name;
         catchNode.left = param;
         if ( this.matchValue(":") ) {
@@ -3684,8 +3690,10 @@ class TSParserSimple  {
         }
         this.expectValue(")");
       }
+      this.suppressBlockScope = true;
       const catchBlock = this.parseBlock();
       catchNode.body = catchBlock;
+      this.popScope();
       node.left = catchNode;
     }
     if ( this.matchValue("finally") ) {
@@ -3980,11 +3988,16 @@ class TSParserSimple  {
       node.generator = true;
     }
     const savedGenerator = this.inGenerator;
-    this.inGenerator = node.generator;
+    const isFnExpression = this.parsingFunctionExpression;
+    this.parsingFunctionExpression = false;
+    if ( isFnExpression ) {
+      this.inGenerator = node.generator;
+    }
     if ( this.matchValue("(") == false ) {
       const nameTok = this.expectBindingName();
       node.name = nameTok.value;
     }
+    this.inGenerator = node.generator;
     this.pushScope(true);
     this.functionDepth = this.functionDepth + 1;
     const savedRest = this.sawRestParam;
@@ -4159,7 +4172,10 @@ class TSParserSimple  {
         this.syntaxError("Parse error: a rest parameter may not have a default");
       }
       this.advance();
+      const savedInParams = this.inParamList;
+      this.inParamList = true;
       param.init = this.parseExpr();
+      this.inParamList = savedInParams;
     }
     return param;
   };
@@ -5455,6 +5471,9 @@ class TSParserSimple  {
     }
     if ( (tokVal == "yield") && this.inGenerator ) {
       const yieldTok = this.peek();
+      if ( this.inParamList ) {
+        this.syntaxError("Parse error: a parameter default may not contain a yield expression");
+      }
       this.advance();
       const yieldExpr = new TSNode();
       yieldExpr.nodeType = "YieldExpression";
@@ -5957,6 +5976,7 @@ class TSParserSimple  {
       return re;
     }
     if ( tokVal == "function" ) {
+      this.parsingFunctionExpression = true;
       const fnExpr = this.parseFuncDecl(false);
       fnExpr.nodeType = "FunctionExpression";
       return fnExpr;
@@ -5964,6 +5984,7 @@ class TSParserSimple  {
     if ( tokVal == "async" ) {
       if ( this.peekNextValue() == "function" ) {
         this.advance();
+        this.parsingFunctionExpression = true;
         const asyncFnExpr = this.parseFuncDecl(true);
         asyncFnExpr.nodeType = "FunctionExpression";
         return asyncFnExpr;
