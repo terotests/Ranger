@@ -201,6 +201,20 @@ describe("operator sources", () => {
     }
   });
 
+  it("gives every source a status, and a reason for a legacy one", () => {
+    // `legacy` keeps the file in the registry, so the two tests above still
+    // catch a new library, but it gets no reference page. The reason states the
+    // measurement that put it there.
+    for (const source of registry.sources) {
+      expect(["stable", "legacy"], `${source.id}: ${source.status}`).toContain(source.status);
+      if (source.status === "legacy") {
+        expect(source.reason, `${source.id} has no reason`).toBeTruthy();
+      }
+    }
+    const stable = registry.sources.filter((s: { status: string }) => s.status === "stable");
+    expect(stable.length).toBeGreaterThan(0);
+  });
+
   it("reads the optional annotation of an argument", () => {
     const parsed = parse.parseOperatorSource("compiler/Lang.rgr");
     const nullify = parsed.definitions.find((d: { name: string }) => d.name === "nullify");
@@ -210,7 +224,7 @@ describe("operator sources", () => {
 });
 
 describe("examples", () => {
-  it("gives every example a header with an operator identifier", () => {
+  it("gives every example a header that names an operator or a topic", () => {
     const dir = path.join(ROOT, "docs/examples");
     const files: string[] = [];
     const stack = [dir];
@@ -228,7 +242,11 @@ describe("examples", () => {
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
       const head = fs.readFileSync(file, "utf8").split("\n").slice(0, 6).join("\n");
-      expect(head, `${file} has no id header`).toMatch(/^;;\s*id:\s*\S+/m);
+      // An operator example names the operators; a topic example belongs to a
+      // guide page, for example the FAQ.
+      expect(head, `${file} has no id and no topic header`).toMatch(
+        /^;;\s*(id|topic):\s*\S+/m,
+      );
       expect(head, `${file} has no title header`).toMatch(/^;;\s*title:\s*\S+/m);
     }
   });

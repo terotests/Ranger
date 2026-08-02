@@ -1,0 +1,20 @@
+;; topic: faq/singleton
+;; title: One instance of a class
+
+class CounterStore @singleton(true) {
+    def total:int 0
+
+    fn add:void (n:int) {
+        total = total + n
+    }
+}
+
+class Main {
+    sfn main:void () {
+        def a (CounterStore.__singleton())
+        def b (CounterStore.__singleton())
+        a.add(3)
+        b.add(7)
+        print ("total " + b.total)
+    }
+}

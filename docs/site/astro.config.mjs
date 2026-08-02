@@ -38,6 +38,7 @@ export default defineConfig({
             { label: "About this documentation", slug: "index" },
             { label: "Install the compiler", slug: "start/install" },
             { label: "The first program", slug: "start/first-program" },
+            { label: "Questions and answers", slug: "faq" },
           ],
         },
         {
@@ -71,6 +72,7 @@ export default defineConfig({
           items: [
             { label: "Macros", slug: "reference/macros" },
             { label: "Coverage", slug: "reference/coverage" },
+            { label: "Not covered", slug: "reference/not-covered" },
           ],
         },
         {

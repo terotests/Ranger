@@ -68,7 +68,8 @@ function main() {
     ...(model.methods || []).map((m) => m.id),
   ]);
   for (const example of exampleData.examples) {
-    for (const id of example.ids) {
+    // A topic example documents a guide page and names no operator.
+    for (const id of example.ids || []) {
       if (!ids.has(id)) {
         failures.push(`${example.file} documents ${id}, which is not an operator`);
       }

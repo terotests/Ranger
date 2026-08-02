@@ -1,5 +1,5 @@
 {
-  "$comment": "Registry of the files that declare Ranger operators. docs/tools reads this file to build the operator reference. A file in the tree with an `operators { }` block or an `operator type:` block that is not listed here fails docs:coverage.",
+  "$comment": "Registry of the files that declare Ranger operators. docs/tools reads this file to build the operator reference. A file in the tree with an `operators { }` block or an `operator type:` block that is not listed here fails docs:coverage. `status` is `stable` (documented) or `legacy` (listed on the not-covered page, with no reference pages). Measure the usage before a change of status: a legacy file is one that no maintained program imports.",
   "sources": [
     {
       "id": "core",
@@ -7,7 +7,8 @@
       "title": "Core operators",
       "always": true,
       "import": null,
-      "summary": "The operators of the language. Every program can use them."
+      "summary": "The operators of the language. Every program can use them.",
+      "status": "stable"
     },
     {
       "id": "stdops",
@@ -15,15 +16,17 @@
       "title": "Standard operators and macros",
       "always": true,
       "import": null,
-      "summary": "Loaded through RANGER_LIB with the core. Holds the `ret` operator and the `defn` macros."
+      "summary": "Loaded through RANGER_LIB with the core. Holds the `ret` operator and the `defn` macros.",
+      "status": "stable"
     },
     {
       "id": "stdlib",
       "file": "lib/stdlib.rgr",
-      "title": "Union types",
+      "title": "Standard library",
       "always": false,
       "import": "stdlib.rgr",
-      "summary": "The `case` and `cast` operators for union type values."
+      "summary": "The collection methods of arrays, maps and vectors \u2014 map, filter, reduce, any, all, slice \u2014 and the case and cast operators for union type values.",
+      "status": "stable"
     },
     {
       "id": "json",
@@ -31,7 +34,8 @@
       "title": "JSON",
       "always": false,
       "import": "JSON.rgr",
-      "summary": "Read and write JSON objects and arrays."
+      "summary": "Read and write JSON objects and arrays.",
+      "status": "stable"
     },
     {
       "id": "timers",
@@ -39,7 +43,9 @@
       "title": "Timers",
       "always": false,
       "import": "Timers.rgr",
-      "summary": "Interval and timeout operators."
+      "summary": "Interval and timeout operators.",
+      "status": "legacy",
+      "reason": "Only lib/JinxProcess.rgr imports this file, and that file is legacy too."
     },
     {
       "id": "storage",
@@ -47,7 +53,9 @@
       "title": "Storage",
       "always": false,
       "import": "Storage.rgr",
-      "summary": "Key and value storage in the browser."
+      "summary": "Key and value storage in the browser.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "crypto",
@@ -55,7 +63,9 @@
       "title": "Crypto",
       "always": false,
       "import": "Crypto.rgr",
-      "summary": "Hash and cipher operators."
+      "summary": "Hash and cipher operators.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "ajax",
@@ -63,7 +73,9 @@
       "title": "Ajax",
       "always": false,
       "import": "Ajax.rgr",
-      "summary": "HTTP requests from the browser."
+      "summary": "HTTP requests from the browser.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "weblib",
@@ -71,7 +83,9 @@
       "title": "Web",
       "always": false,
       "import": "WebLib.rgr",
-      "summary": "Browser window operators."
+      "summary": "Browser window operators.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "domlib",
@@ -79,7 +93,9 @@
       "title": "DOM",
       "always": false,
       "import": "DOMLib.rgr",
-      "summary": "Read and change the document object model."
+      "summary": "Read and change the document object model.",
+      "status": "legacy",
+      "reason": "Only the old demo compiler/test_slides.rgr imports this file."
     },
     {
       "id": "viewlib",
@@ -87,7 +103,9 @@
       "title": "View",
       "always": false,
       "import": "ViewLib.rgr",
-      "summary": "View components and their properties."
+      "summary": "View components and their properties.",
+      "status": "legacy",
+      "reason": "Only lib/DOMLib.rgr imports this file, and that file is legacy too."
     },
     {
       "id": "engine3d",
@@ -95,7 +113,9 @@
       "title": "3D engine",
       "always": false,
       "import": "Engine3D.rgr",
-      "summary": "Vectors, matrices and scene operators for 3D graphics."
+      "summary": "Vectors, matrices and scene operators for 3D graphics.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "webserver",
@@ -103,7 +123,9 @@
       "title": "Web server",
       "always": false,
       "import": "WebServerLib.rgr",
-      "summary": "HTTP server operators."
+      "summary": "HTTP server operators.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file. The HTTP server operators of compiler/Lang.rgr are the maintained path."
     },
     {
       "id": "service",
@@ -111,7 +133,9 @@
       "title": "Service",
       "always": false,
       "import": "ServiceLib.rgr",
-      "summary": "Service registration."
+      "summary": "Service registration.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "jinxprocess",
@@ -119,7 +143,9 @@
       "title": "Jinx process",
       "always": false,
       "import": "JinxProcess.rgr",
-      "summary": "Process operators for the Jinx runtime."
+      "summary": "Process operators for the Jinx runtime.",
+      "status": "legacy",
+      "reason": "Only the old demo compiler/test_slides.rgr imports this file."
     },
     {
       "id": "rangerdir",
@@ -127,7 +153,8 @@
       "title": "Directory",
       "always": false,
       "import": "ranger-dir.rgr",
-      "summary": "Read and write files and directories."
+      "summary": "Read and write files and directories.",
+      "status": "stable"
     },
     {
       "id": "immutable",
@@ -135,7 +162,9 @@
       "title": "Immutable collections",
       "always": false,
       "import": "ImmutableVector.rgr",
-      "summary": "Vector and Map types that no operation changes. An operation gives a new collection."
+      "summary": "Vector and Map types that no operation changes. An operation gives a new collection.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "time",
@@ -143,7 +172,9 @@
       "title": "Time",
       "always": false,
       "import": "Time.rgr",
-      "summary": "A wrapper of the host Date object. For portable calendar work use IsoDateLib.rgr."
+      "summary": "A wrapper of the host Date object. For portable calendar work use IsoDateLib.rgr.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file. For calendar work the maintained file is lib/IsoDateLib.rgr."
     },
     {
       "id": "typedarrays",
@@ -151,7 +182,9 @@
       "title": "Typed arrays",
       "always": false,
       "import": "TypedArrays.rgr",
-      "summary": "Typed array types of the browser: Uint32Array and the types next to it."
+      "summary": "Typed array types of the browser: Uint32Array and the types next to it.",
+      "status": "legacy",
+      "reason": "Only lib/Crypto.rgr imports this file, and that file is legacy too."
     },
     {
       "id": "indexeddb",
@@ -159,7 +192,9 @@
       "title": "IndexedDB",
       "always": false,
       "import": "IndexedDB.rgr",
-      "summary": "The IndexedDB database of the browser."
+      "summary": "The IndexedDB database of the browser.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "sql",
@@ -167,7 +202,9 @@
       "title": "SQL",
       "always": false,
       "import": "SQL.rgr",
-      "summary": "A schema builder and query operators for SQL."
+      "summary": "A schema builder and query operators for SQL.",
+      "status": "legacy",
+      "reason": "No program in the repository imports this file."
     },
     {
       "id": "aceeditor",
@@ -175,7 +212,9 @@
       "title": "ACE editor",
       "always": false,
       "import": "ACEEditor.rgr",
-      "summary": "The ACE code editor component of the browser."
+      "summary": "The ACE code editor component of the browser.",
+      "status": "legacy",
+      "reason": "Only lib/DOMLib.rgr imports this file, and that file is legacy too."
     }
   ]
 }

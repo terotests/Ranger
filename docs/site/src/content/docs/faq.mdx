@@ -1,0 +1,96 @@
+---
+title: Questions and answers
+description: Short answers to the questions that a new Ranger program raises, each with code that the compiler wrote.
+---
+
+import TargetOutput from "../../components/TargetOutput.astro";
+import model from "../../data/operators.json";
+import exampleData from "../../data/examples.json";
+
+export const ex = (topic) => exampleData.examples.find((e) => e.topic === topic);
+
+Each answer holds a program that compiles, and the target code below it is the
+output of the compiler for that program.
+
+## How do I fill an array?
+
+Use an array literal. A program that calls `push` for each item writes more
+code than it needs, and the compiler cannot know the size in advance.
+
+```lisp
+; more code than necessary
+def numbers:[int]
+push numbers 1
+push numbers 2
+push numbers 3
+```
+
+The literal has two forms. `([] a b c)` takes the element type from the items.
+`([] _:T (a b c))` states the type, and the marker `_:T` must be followed by a
+group in parentheses.
+
+<TargetOutput example={ex("faq/array-literal")} targets={model.generated.targets} />
+
+## How do I write "not"?
+
+The operator is `!`, and it is in prefix form like every other operator:
+`(! value)`. The argument is a boolean.
+
+<TargetOutput example={ex("faq/not-operator")} targets={model.generated.targets} />
+
+## How do I make one instance of a class?
+
+Add the annotation `@singleton(true)` to the class. The compiler then writes a
+static function `__singleton()`, and each call gives the same instance.
+
+<TargetOutput example={ex("faq/singleton")} targets={model.generated.targets} />
+
+The instance is per target process. The compiler writes the registry that the
+target language needs, so the program does not hold a global variable.
+
+## How do I write an object to JSON and read it back?
+
+Add the annotation `@serialize(true)` to the class. The compiler then writes
+`toDictionary()` and the static `fromDictionary()`.
+
+<TargetOutput example={ex("faq/serialize")} targets={model.generated.targets} />
+
+Two rules apply:
+
+- Every class that the serialized class refers to must also be
+  `@serialize(true)`, or it must hold `toDictionary` and `fromDictionary` by
+  hand. The compiler stops with the name of the class that is not serializable.
+- The generated code uses the JSON operators. The tabs above show which targets
+  have them.
+
+## Why does my call not compile?
+
+Ranger is an s-expression language. A call is `(function argument argument)`,
+and a call that gives a value needs its own parentheses.
+
+| Write | Do not write | Why |
+| --- | --- | --- |
+| `return (this.helper())` | `return this.helper()` | The bare form fails the analysis on every target, and the message names an unrelated method. |
+| `def v:int (this.helper())` then `return (v + 0)` | `return (this.helper() + 0)` | The call must be the direct operand of the parentheses. |
+| `def recv:T (expr)` then `recv.method()` | `(expr).method()` | A statement must not start with a receiver in parentheses. |
+| One statement per line | `{ def c:int 5 return c }` | Two statements on one line is a parse error. |
+
+<TargetOutput example={ex("faq/lisp-form")} targets={model.generated.targets} />
+
+## Which operators can I use?
+
+- The [operator reference](/Ranger/docs/reference/operators/statements/) holds
+  the operators that every program can use.
+- The [type methods](/Ranger/docs/reference/methods/stdlib/) hold the
+  collection operations: `map`, `filter`, `reduce`, `any`, `all`, `slice`.
+- The [library operators](/Ranger/docs/reference/libraries/json/) need an
+  import.
+- The [not covered page](/Ranger/docs/reference/not-covered/) names the library
+  files that this documentation does not describe, and the reason for each.
+
+## Which target language does the compiler write?
+
+Twelve languages from the command line: JavaScript, TypeScript, Go, Rust,
+Python, Java, Kotlin, Swift, C#, C++, PHP and Scala. The
+[target page](/Ranger/docs/targets/overview/) states what each one supports,
+and each operator page states the support per operator.

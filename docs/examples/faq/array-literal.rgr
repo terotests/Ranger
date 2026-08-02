@@ -1,0 +1,16 @@
+;; topic: faq/array-literal
+;; title: An array literal instead of repeated push
+;; category: array
+
+class Main {
+    sfn main:void () {
+        ; One statement, and the compiler knows the size.
+        def numbers:[int] ([] 1 2 3 4 5)
+
+        ; A literal with an explicit element type needs a parenthesised group.
+        def names:[string] ([] _:string ("Ada" "Alan" "Grace"))
+
+        print ("numbers " + (array_length numbers))
+        print ("first name " + (itemAt names 0))
+    }
+}

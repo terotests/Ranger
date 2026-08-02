@@ -171,8 +171,11 @@ function main() {
     written += 1;
   });
 
-  // One page per library.
-  const libraries = model.sources.filter((s) => s.id !== "core" && s.id !== "stdops");
+  // One page per library that the documentation covers. A legacy source has
+  // no page: it is listed on the not-covered page instead, with the reason.
+  const libraries = model.sources.filter(
+    (s) => s.id !== "core" && s.id !== "stdops" && s.status !== "legacy",
+  );
   libraries.forEach((library, index) => {
     const operators = model.operators
       .filter((o) => o.source === library.id)
@@ -206,8 +209,8 @@ function main() {
 
   // The type methods: the second operator mechanism of the language.
   fs.rmSync(path.join(referenceDir, "methods"), { recursive: true, force: true });
-  const methodSources = model.sources.filter((source) =>
-    model.methods.some((m) => m.source === source.id),
+  const methodSources = model.sources.filter(
+    (source) => source.status !== "legacy" && model.methods.some((m) => m.source === source.id),
   );
   methodSources.forEach((source, index) => {
     const methods = model.methods
@@ -252,6 +255,10 @@ function main() {
 
   // The coverage page.
   writePage(path.join(referenceDir, "coverage.mdx"), coveragePage(model, examples, targets));
+  written += 1;
+
+  // The sources that the documentation does not cover.
+  writePage(path.join(referenceDir, "not-covered.mdx"), notCoveredPage(model));
   written += 1;
 
   process.stderr.write(`docs: ${written} reference pages written\n`);
@@ -327,20 +334,87 @@ function methodPage(source, methods, examples) {
   return body.join("\n");
 }
 
-function coveragePage(model, examples, targets) {
-  const documented = new Set(examples.flatMap((e) => e.ids));
-  const rows = model.sources.map((source) => {
-    const operators = model.operators.filter((o) => o.source === source.id);
-    const methods = (model.methods || []).filter((m) => m.source === source.id);
-    const withExample = [...operators, ...methods].filter((o) => documented.has(o.id)).length;
+/**
+ * The sources that the reference does not document.
+ *
+ * A legacy file stays in the tree and it stays in docs/sources.json, so the
+ * registry check keeps working and a reader can find the file. It gets no
+ * reference page, because a page would state that the operators are part of the
+ * maintained language. The measure of "legacy" is the import: no maintained
+ * program imports the file.
+ */
+function notCoveredPage(model) {
+  const legacy = model.sources.filter((source) => source.status === "legacy");
+  const rows = legacy.map((source) => {
+    const operators = model.operators.filter((o) => o.source === source.id).length;
+    const methods = (model.methods || []).filter((m) => m.source === source.id).length;
     return (
-      `| ${source.title} | \`${source.file}\` | ${operators.length} | ${methods.length} | ${withExample} |`
+      `| [\`${source.file}\`](${REPOSITORY}/blob/master/${source.file}) | ` +
+      `${operators} | ${methods} | ${source.reason || ""} |`
     );
   });
 
+  return [
+    frontMatter({
+      title: "Libraries that this documentation does not cover",
+      description:
+        "The operator sources that stay in the repository but get no reference page, and the reason for each.",
+      sidebarOrder: 3,
+    }),
+    "The repository holds operator sources that no maintained program imports.",
+    "They stay in the tree, and the compiler still reads them when a program",
+    "imports them. This documentation does not give them a reference page: a",
+    "page would state that the operators are a part of the maintained language,",
+    "and the measurement below does not support that.",
+    "",
+    "The measurement is the `Import` statement. An operator of a library is",
+    "available only after a program imports the file, so a file that no program",
+    "imports has no user in this repository.",
+    "",
+    "| File | Template operators | Type methods | Why |",
+    "| --- | --- | --- | --- |",
+    ...rows,
+    "",
+    "## What to do with these",
+    "",
+    "- To read the operators, open the source file. Each file holds the",
+    "  `operators { }` or `operator type:` blocks with the templates.",
+    "- To use one in a program, add the import. The compiler accepts the file;",
+    "  it is not removed and it is not disabled.",
+    "- To make one part of the documentation again, change `status` to `stable`",
+    "  in `docs/sources.json` and add an example. Measure the use first.",
+    "",
+    "The maintained equivalents:",
+    "",
+    "| Instead of | Use |",
+    "| --- | --- |",
+    "| `lib/WebServerLib.rgr` | The HTTP server operators of `compiler/Lang.rgr` |",
+    "| `lib/Time.rgr` | `lib/IsoDateLib.rgr` for calendar work |",
+    "| `lib/ImmutableVector.rgr` | The array and map operators of the core |",
+    "",
+  ].join("\n");
+}
+
+function coveragePage(model, examples, targets) {
+  const documented = new Set(examples.flatMap((e) => e.ids));
+  const rows = model.sources
+    .filter((source) => source.status !== "legacy")
+    .map((source) => {
+      const operators = model.operators.filter((o) => o.source === source.id);
+      const methods = (model.methods || []).filter((m) => m.source === source.id);
+      const withExample = [...operators, ...methods].filter((o) => documented.has(o.id)).length;
+      return (
+        `| ${source.title} | \`${source.file}\` | ${operators.length} | ${methods.length} | ${withExample} |`
+      );
+    });
+  const legacyCount = model.sources.filter((s) => s.status === "legacy").length;
+
+  const documentedSources = new Set(
+    model.sources.filter((s) => s.status !== "legacy").map((s) => s.id),
+  );
   const perTarget = targets.map((target) => {
     const counts = { template: 0, fallback: 0, none: 0 };
-    for (const operator of model.operators) {
+    for (const operator of model.operators.filter((o) => documentedSources.has(o.source))) {
       counts[operator.support[target.id] || "none"] += 1;
     }
     return `| ${target.title} | ${counts.template} | ${counts.fallback} | ${counts.none} |`;
@@ -365,6 +439,11 @@ function coveragePage(model, examples, targets) {
     "| Source | File | Template operators | Type methods | With an example |",
     "| --- | --- | --- | --- | --- |",
     ...rows,
+    "",
+    `${legacyCount} more operator sources are in the repository and are not in the`,
+    "table above. The",
+    "[not covered page](/Ranger/docs/reference/not-covered/) names them and gives",
+    "the reason for each.",
     "",
     "## Templates per target",
     "",

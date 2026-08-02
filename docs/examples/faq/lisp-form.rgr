@@ -1,0 +1,21 @@
+;; topic: faq/lisp-form
+;; title: The call form of the language
+
+class Helper {
+    fn value:int () {
+        return 42
+    }
+}
+
+class Main {
+    sfn main:void () {
+        def helper:Helper (new Helper())
+
+        ; A call that gives a value needs its own parentheses.
+        def n (helper.value())
+
+        ; A returned call also needs them: `return helper.value()` does not compile.
+        def total (n + 1)
+        print ("total " + total)
+    }
+}

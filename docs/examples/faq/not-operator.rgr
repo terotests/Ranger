@@ -1,0 +1,16 @@
+;; topic: faq/not-operator
+;; title: The not operator
+;; category: boolean
+
+class Main {
+    sfn main:void () {
+        def ready false
+        if (! ready) {
+            print "the program is not ready"
+        }
+        def empty:[int]
+        if (! ((array_length empty) > 0)) {
+            print "the array holds no item"
+        }
+    }
+}
