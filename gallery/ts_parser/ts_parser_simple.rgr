@@ -915,10 +915,13 @@ class TSParserSimple {
       ; `import(...)` and `import.meta` are expressions and stay legal in a
       ; script; only an import *declaration* is module-only.
       def afterImport:string (this.peekNextValue())
-      if ((afterImport != "(") && (afterImport != ".")) {
-        if (this.moduleMode == false) {
-          this.syntaxError("Parse error: an import declaration is only allowed in a module")
-        }
+      if ((afterImport == "(") || (afterImport == ".")) {
+        ; `import(...)` and `import.meta` are expressions, not declarations, and
+        ; are legal in a script as well.
+        return (this.parseExprStmt())
+      }
+      if (this.moduleMode == false) {
+        this.syntaxError("Parse error: an import declaration is only allowed in a module")
       }
       return (this.parseImport())
     }

@@ -2317,10 +2317,11 @@ class TSParserSimple  {
     }
     if ( tokVal == "import" ) {
       const afterImport = this.peekNextValue();
-      if ( (afterImport != "(") && (afterImport != ".") ) {
-        if ( this.moduleMode == false ) {
-          this.syntaxError("Parse error: an import declaration is only allowed in a module");
-        }
+      if ( (afterImport == "(") || (afterImport == ".") ) {
+        return this.parseExprStmt();
+      }
+      if ( this.moduleMode == false ) {
+        this.syntaxError("Parse error: an import declaration is only allowed in a module");
       }
       return this.parseImport();
     }
