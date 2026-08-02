@@ -60,6 +60,7 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 
 ## Where To Start
 
+- [Documentation site](https://terotests.github.io/Ranger/docs/) — install, first program, types, optionals, and the **generated operator reference** (838 operators, compiled from the sources of the commit that publishes the site, so it cannot drift)
 - [Online playground](https://terotests.github.io/Ranger/) — try Ranger in the browser (`playground/`, Vite + current compiler)
 - `README.md` - language overview, installation, and syntax notes
 - `ai/QUICKREF.md` - fast reference for syntax and core concepts
@@ -404,24 +405,10 @@ annotations to the generated source.
 
 # Operators
 
-Operators enable creating short, funtional commands like 'get' or 'push' that operate on certain, typed parameters. Whenever there is
-need for some functionality it is woth considering whether it is best implemented using operator or a function or a class method. A
-simple operator definition would be `M_PI` which is defined in the Compilers internal Lang.clj file as
-
-```
-    M_PI mathPi:double () {
-        templates {
-            es6 ("Math.PI")
-            go ( "math.Pi" (imp "math"))
-            swift3 ( "Double.pi" (imp "Foundation"))
-            java7 ( "Math.PI" (imp "java.lang.Math"))
-            php ("pi()")
-            cpp ("M_PI" (imp "<math.h>"))
-        }
-    }
-```
-
-Oops! Looks like C# defintion is missing! It should be `Math.PI` and it requires `System`. We can add that easily to Lang.clj
+Operators are short, typed commands like `get` or `push`. The compiler holds no
+code for them, only one emission template per target language, which is how
+platform-specific code and native polyfills are expressed. `M_PI` in
+`compiler/Lang.rgr` is a small example:
 
 ```
     M_PI mathPi:double () {
@@ -437,11 +424,18 @@ Oops! Looks like C# defintion is missing! It should be `Math.PI` and it requires
     }
 ```
 
-Thus, the platform specific code is implemented using operators, which can also implement native polyfills in the target language.
+A target with no template of its own, and no `*` fallback, emits nothing — so
+adding a target to an operator is a one-line change. Operators can also be
+written as macros in Ranger itself.
 
-Operators also be written can be as macros in Ranger language itself.
-
-For a quick reference of available basic operators see [Operators doc](operators.md)
+**Reference:**
+[the operator concept page](https://terotests.github.io/Ranger/docs/language/operators/)
+explains templates and the second mechanism (type methods, which every target
+gets for free), and
+[the generated reference](https://terotests.github.io/Ranger/docs/reference/operators/statements/)
+lists every operator with its signature, per-target support, and compiled
+example output. [operators.md](operators.md) is an offline snapshot of the core
+operators only.
 
 # Plugins
 
@@ -650,7 +644,9 @@ def parts (strsplit text " ")            ; returns ["Hello", "World"]
 def trimmed (trim "  hello  ")           ; returns "hello"
 ```
 
-For the complete list of string operators, see [Operators doc](operators.md).
+For the complete list of string operators, with per-target support and compiled
+output, see the generated
+[string operator reference](https://terotests.github.io/Ranger/docs/reference/operators/string/).
 
 ## Enums
 
@@ -773,16 +769,13 @@ a != b
 
 # Common set of Operators and the Grammar file
 
-The file `Lang.clj` is used by the compiler for the common set of operators and compilation rules. The
-most common operators for example
-
-- to_double
-- read_file
-- array_length
-
-Are defined in this file. Using the Lang.clj -file it is quite easy to extend the language to support new operators
-or to modify the existing rules for better results, if so required. However, the Lang.clj is not ment for daily
-modifications, rather it describes common set of rules used and thus should be edited sparingly.
+The file `compiler/Lang.rgr` holds the common set of operators and the
+compilation rules. The most common operators — `to_double`, `read_file`,
+`array_length` and the rest — are defined there, and the
+[generated reference](https://terotests.github.io/Ranger/docs/reference/operators/statements/)
+is built from it. Editing the file makes it easy to extend the language with
+new operators or to change existing rules, but it describes the common set of
+rules and should be edited sparingly, not daily.
 
 The file has couple of sections, but the `reserved_words` and `commands`. The Reserved words section declares (surprise!)
 the reserved words and their transformation. This is required because for example in Go the word `map` is a keyword and can

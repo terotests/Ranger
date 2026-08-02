@@ -1,3 +1,16 @@
+> **This is an offline snapshot of the core operators.** It is written by the
+> `-operatordoc=<file>` compiler option, so it holds the operators that one
+> compilation registered: the 11 groups below cover `compiler/Lang.rgr` only,
+> and the description column is empty wherever the definition carries no
+> `@doc('…')` annotation.
+>
+> The complete reference is generated on every publish and lives at
+> <https://terotests.github.io/Ranger/docs/reference/operators/statements/>. It
+> covers **838 operators** from `Lang.rgr` and the 21 library files, with the
+> per-target support of each one and example output compiled by the compiler of
+> that same commit — so it cannot drift from the release. Prefer it whenever you
+> have a network. This file exists for readers of the npm package who do not.
+
 ## Statements
 
 `nullify` , `golang_wait` , `wait` , `timer` , `create_dir` , `write_file` , `=` , `def` , `return` , `gitdoc` , `if` , `if!` , `switch` , `case` , `default` , `break` , `continue` , `while` , `throw` , `try` , `set` , `push` , `print` , `forEach` , `forUntil` , `addUsage` , `EnterVarDef` , `trace` , `color_print` , `plugin_preprocess` , `plugin_postprocess`
