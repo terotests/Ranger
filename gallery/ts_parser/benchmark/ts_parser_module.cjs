@@ -1449,10 +1449,133 @@ class TSParserSimple  {
       }
     };
   };
+  isAlwaysReservedWord (word) {
+    if ( word == "break" ) {
+      return true;
+    }
+    if ( word == "case" ) {
+      return true;
+    }
+    if ( word == "catch" ) {
+      return true;
+    }
+    if ( word == "class" ) {
+      return true;
+    }
+    if ( word == "const" ) {
+      return true;
+    }
+    if ( word == "continue" ) {
+      return true;
+    }
+    if ( word == "debugger" ) {
+      return true;
+    }
+    if ( word == "default" ) {
+      return true;
+    }
+    if ( word == "delete" ) {
+      return true;
+    }
+    if ( word == "do" ) {
+      return true;
+    }
+    if ( word == "else" ) {
+      return true;
+    }
+    if ( word == "enum" ) {
+      return true;
+    }
+    if ( word == "export" ) {
+      return true;
+    }
+    if ( word == "extends" ) {
+      return true;
+    }
+    if ( word == "false" ) {
+      return true;
+    }
+    if ( word == "finally" ) {
+      return true;
+    }
+    if ( word == "for" ) {
+      return true;
+    }
+    if ( word == "function" ) {
+      return true;
+    }
+    if ( word == "if" ) {
+      return true;
+    }
+    if ( word == "import" ) {
+      return true;
+    }
+    if ( word == "in" ) {
+      return true;
+    }
+    if ( word == "instanceof" ) {
+      return true;
+    }
+    if ( word == "new" ) {
+      return true;
+    }
+    if ( word == "null" ) {
+      return true;
+    }
+    if ( word == "return" ) {
+      return true;
+    }
+    if ( word == "super" ) {
+      return true;
+    }
+    if ( word == "switch" ) {
+      return true;
+    }
+    if ( word == "this" ) {
+      return true;
+    }
+    if ( word == "throw" ) {
+      return true;
+    }
+    if ( word == "true" ) {
+      return true;
+    }
+    if ( word == "try" ) {
+      return true;
+    }
+    if ( word == "typeof" ) {
+      return true;
+    }
+    if ( word == "var" ) {
+      return true;
+    }
+    if ( word == "void" ) {
+      return true;
+    }
+    if ( word == "while" ) {
+      return true;
+    }
+    if ( word == "with" ) {
+      return true;
+    }
+    return false;
+  };
+  expectModuleExportName () {
+    const tt = this.peekType();
+    if ( ((((((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword")) || (tt == "Boolean")) || (tt == "Null")) || (tt == "String") ) {
+      const tok = this.peek();
+      this.advance();
+      return tok;
+    }
+    return this.expect("Identifier");
+  };
   expectBindingName () {
     const tt = this.peekType();
     if ( (((((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword")) || (tt == "Boolean")) || (tt == "Null") ) {
       const tok = this.peek();
+      if ( this.isAlwaysReservedWord(tok.value) ) {
+        this.syntaxError(("Parse error: '" + tok.value) + "' is a reserved word and cannot be used as a name");
+      }
       this.advance();
       return tok;
     }
@@ -1808,7 +1931,7 @@ class TSParserSimple  {
           this.advance();
           spec.kind = "type";
         }
-        const importedName = this.expectBindingName();
+        const importedName = this.expectModuleExportName();
         spec.name = importedName.value;
         if ( this.matchValue("as") ) {
           this.advance();
@@ -1847,7 +1970,7 @@ class TSParserSimple  {
           while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
             const spec_1 = new TSNode();
             spec_1.nodeType = "ImportSpecifier";
-            const importedName_1 = this.expectBindingName();
+            const importedName_1 = this.expectModuleExportName();
             spec_1.name = importedName_1.value;
             if ( this.matchValue("as") ) {
               this.advance();
@@ -1916,11 +2039,11 @@ class TSParserSimple  {
       while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
         const spec = new TSNode();
         spec.nodeType = "ExportSpecifier";
-        const localName = this.expectBindingName();
+        const localName = this.expectModuleExportName();
         spec.name = localName.value;
         if ( this.matchValue("as") ) {
           this.advance();
-          const exportedName = this.expectBindingName();
+          const exportedName = this.expectModuleExportName();
           spec.value = exportedName.value;
         } else {
           spec.value = localName.value;
@@ -2962,6 +3085,9 @@ class TSParserSimple  {
     const tok = this.peek();
     const tt = this.peekType();
     if ( (((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword") ) {
+      if ( this.isAlwaysReservedWord(tok.value) ) {
+        this.syntaxError(("Parse error: '" + tok.value) + "' is a reserved word and cannot be bound");
+      }
       this.advance();
       const id = new TSNode();
       id.nodeType = "Identifier";
