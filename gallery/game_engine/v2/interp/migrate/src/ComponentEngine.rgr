@@ -1126,6 +1126,16 @@ class ComponentEngine {
     }
 
     fn writeRefusalError:string (obj:EvalValue key:string) {
+        ; A FUNCTION holds properties with attributes too -- `Function.length`
+        ; is non-writable, and only objects were being checked.
+        if (obj.valueType == 6) {
+            if (has obj.objectMap key) {
+                if (false == (obj.isWritable(key))) {
+                    return ("Cannot assign to read only property " + key)
+                }
+            }
+            return ""
+        }
         if (obj.valueType != 5) {
             return ""
         }
@@ -4024,6 +4034,12 @@ class ComponentEngine {
             } {
                 obj = (this.evaluateExpr(objNode))
             }
+        }
+        ; A throw from resolving the BASE -- an undeclared name is a
+        ; ReferenceError -- escapes as itself rather than being replaced by the
+        ; TypeError below.
+        if scriptThrew {
+            return (EvalValue.undefined())
         }
         ; Writing a property of null or undefined is a TypeError, in either
         ; mode. It was silently dropped, so a test that expected the throw saw
@@ -12683,6 +12699,11 @@ class ComponentEngine {
             }
 
             def obj:EvalValue (this.evaluateExpr(leftExpr))
+            ; Same here: an unresolvable base is a ReferenceError, and it must
+            ; not be overwritten by the property-of-undefined TypeError.
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
 
             ; D-ERRORS: reading a property of null/undefined is a TypeError, with
             ; the message shape engines use. Optional chaining (`a?.b`) is handled
