@@ -17,6 +17,25 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Ranger",
+      // The Ranger mark: the gold R in a shield. The source of the file is
+      // ranger-vscode-extension/icons/ranger-file-icon.svg.
+      favicon: "/favicon.svg",
+      logo: {
+        src: "./public/favicon.svg",
+        alt: "The Ranger mark",
+      },
+      head: [
+        // An SVG favicon needs Safari 16 or a later version. The PNG is the
+        // fallback, and the apple-touch-icon is the mark on an iOS home screen.
+        {
+          tag: "link",
+          attrs: { rel: "icon", type: "image/png", sizes: "32x32", href: "/Ranger/docs/favicon-32.png" },
+        },
+        {
+          tag: "link",
+          attrs: { rel: "apple-touch-icon", sizes: "180x180", href: "/Ranger/docs/apple-touch-icon.png" },
+        },
+      ],
       description:
         "Technical documentation of the Ranger language and of its compiler. " +
         "The operator reference is generated from the compiler sources.",

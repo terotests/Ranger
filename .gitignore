@@ -9,6 +9,7 @@ data_folder/
 *.jpg
 *.png
 *.ppm
+!docs/site/public/*.png
 !gallery/game_engine/scripting/assets/**
 !gallery/game_engine/games/**/assets/**
 !gallery/game_engine/games/**/sprites/**
