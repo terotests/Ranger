@@ -756,6 +756,11 @@ class TSLexer {
         if (value == "if") { return "Keyword" }
         if (value == "else") { return "Keyword" }
         if (value == "while") { return "Keyword" }
+        ; `do`, `with` and `debugger` were missing, so `do /re/;` lexed the
+        ; regex as a division and `with` never reached its statement rule.
+        if (value == "do") { return "Keyword" }
+        if (value == "with") { return "Keyword" }
+        if (value == "debugger") { return "Keyword" }
         if (value == "for") { return "Keyword" }
         if (value == "in") { return "Keyword" }
         if (value == "of") { return "Keyword" }

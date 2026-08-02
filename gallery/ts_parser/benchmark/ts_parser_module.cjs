@@ -769,6 +769,15 @@ class TSLexer  {
     if ( value == "while" ) {
       return "Keyword";
     }
+    if ( value == "do" ) {
+      return "Keyword";
+    }
+    if ( value == "with" ) {
+      return "Keyword";
+    }
+    if ( value == "debugger" ) {
+      return "Keyword";
+    }
     if ( value == "for" ) {
       return "Keyword";
     }
@@ -1859,8 +1868,16 @@ class TSParserSimple  {
     let i = 0;
     while (i < (node.children.length)) {
       const c = node.children[i];
-      if ( (c.name.length) > 0 ) {
-        out.push(c.name);
+      let bindsOwnName = true;
+      if ( c.nodeType == "Property" ) {
+        if ( c.shorthand == false ) {
+          bindsOwnName = false;
+        }
+      }
+      if ( bindsOwnName ) {
+        if ( (c.name.length) > 0 ) {
+          out.push(c.name);
+        }
       }
       const sub = this.collectPatternNames(c);
       let j = 0;
@@ -2424,6 +2441,19 @@ class TSParserSimple  {
     }
     if ( tokVal == "if" ) {
       return this.parseIfStatement();
+    }
+    if ( tokVal == "debugger" ) {
+      const dbg = new TSNode();
+      dbg.nodeType = "DebuggerStatement";
+      const dbgTok = this.peek();
+      dbg.start = dbgTok.start;
+      dbg.line = dbgTok.line;
+      dbg.col = dbgTok.col;
+      this.advance();
+      if ( this.matchValue(";") ) {
+        this.advance();
+      }
+      return dbg;
     }
     if ( tokVal == "with" ) {
       const withNode = new TSNode();
@@ -3324,7 +3354,7 @@ class TSParserSimple  {
         keepParsing = false;
       }
     };
-    if ( this.matchValue("constructor") ) {
+    if ( this.matchValue("constructor") && (isStatic == false) ) {
       member.nodeType = "MethodDefinition";
       member.kind = "constructor";
       this.advance();
@@ -4647,6 +4677,7 @@ class TSParserSimple  {
       this.pushScope(false);
     }
     const savedStrict = this.strictMode;
+    const savedBlockStrictFlag = this.lastBlockEnabledStrict;
     this.lastBlockEnabledStrict = false;
     if ( ownScope == false ) {
       if ( this.hasUseStrictDirective() ) {
@@ -4664,6 +4695,7 @@ class TSParserSimple  {
     };
     if ( ownScope ) {
       this.popScope();
+      this.lastBlockEnabledStrict = savedBlockStrictFlag;
     }
     this.strictMode = savedStrict;
     this.inSingleStatementBody = savedSingleBody;
@@ -6181,7 +6213,7 @@ class TSParserSimple  {
       }
       if ( tokVal == "[" ) {
         this.advance();
-        const indexExpr_1 = this.parseExpr();
+        const indexExpr_1 = this.parseExprSeq();
         this.expectValue("]");
         const computed = new TSNode();
         computed.nodeType = "MemberExpression";

@@ -464,8 +464,15 @@ class TSParserSimple {
     def i:int 0
     while (i < (array_length node.children)) {
       def c:TSNode (itemAt node.children i)
-      if ((strlen c.name) > 0) {
-        push out c.name
+      ; A Property's own name is the KEY; only a shorthand binds it.
+      def bindsOwnName:boolean true
+      if (c.nodeType == "Property") {
+        if (c.shorthand == false) { bindsOwnName = false }
+      }
+      if bindsOwnName {
+        if ((strlen c.name) > 0) {
+          push out c.name
+        }
       }
       def sub:[string] (this.collectPatternNames(c))
       def j:int 0
@@ -1043,6 +1050,20 @@ class TSParserSimple {
       return (this.parseIfStatement())
     }
     
+    if (tokVal == "debugger") {
+      def dbg (new TSNode())
+      dbg.nodeType = "DebuggerStatement"
+      def dbgTok (this.peek())
+      dbg.start = dbgTok.start
+      dbg.line = dbgTok.line
+      dbg.col = dbgTok.col
+      this.advance()
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return dbg
+    }
+
     if (tokVal == "with") {
       def withNode (new TSNode())
       withNode.nodeType = "WithStatement"
@@ -2202,8 +2223,8 @@ class TSParserSimple {
       }
     }
     
-    ; Constructor
-    if (this.matchValue("constructor")) {
+    ; Constructor. `static constructor(){}` is an ordinary static method.
+    if ((this.matchValue("constructor")) && (isStatic == false)) {
       member.nodeType = "MethodDefinition"
       member.kind = "constructor"
       this.advance()
@@ -3858,6 +3879,7 @@ class TSParserSimple {
     ; A "use strict" prologue is only a directive at the head of a function
     ; body, never in a plain nested block.
     def savedStrict:boolean this.strictMode
+    def savedBlockStrictFlag:boolean this.lastBlockEnabledStrict
     this.lastBlockEnabledStrict = false
     if (ownScope == false) {
       if (this.hasUseStrictDirective()) {
@@ -3877,6 +3899,9 @@ class TSParserSimple {
 
     if ownScope {
       this.popScope()
+      ; A nested block's directive result belongs to that block, not to the
+      ; function whose body this is.
+      this.lastBlockEnabledStrict = savedBlockStrictFlag
     }
     this.strictMode = savedStrict
     this.inSingleStatementBody = savedSingleBody
@@ -5868,10 +5893,11 @@ class TSParserSimple {
         }
       }
       
-      ; Computed member access [expr]
+      ; Computed member access [expr] — the index is a full Expression, so the
+      ; comma operator applies: `a[b, c]`.
       if (tokVal == "[") {
         this.advance()
-        def indexExpr (this.parseExpr())
+        def indexExpr (this.parseExprSeq())
         this.expectValue("]")
         def computed (new TSNode())
         computed.nodeType = "MemberExpression"
