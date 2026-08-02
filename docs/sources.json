@@ -43,9 +43,8 @@
       "title": "Timers",
       "always": false,
       "import": "Timers.rgr",
-      "summary": "Interval and timeout operators.",
-      "status": "legacy",
-      "reason": "Only lib/JinxProcess.rgr imports this file, and that file is legacy too."
+      "summary": "Interval and timeout operators. The playground environment ships this file, so a program in the browser can import it.",
+      "status": "stable"
     },
     {
       "id": "storage",

@@ -215,6 +215,42 @@ describe("operator sources", () => {
     expect(stable.length).toBeGreaterThan(0);
   });
 
+  it("documents every library that the playground ships", () => {
+    // The import count is not the only measure of use. The playground bundles a
+    // list of library files into the browser compiler, and a program in the
+    // playground can import any of them even when no file in this repository
+    // does. Such a file must stay documented.
+    const builder = fs.readFileSync(
+      path.join(ROOT, "playground/scripts/build-compiler-env.mjs"),
+      "utf8",
+    );
+    const block = builder.match(/const libFiles\s*=\s*\[([\s\S]*?)\]/);
+    expect(block, "libFiles not found in build-compiler-env.mjs").toBeTruthy();
+    const shipped = [...(block as RegExpMatchArray)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(shipped.length).toBeGreaterThan(0);
+
+    const wrong: string[] = [];
+    for (const name of shipped) {
+      const source = registry.sources.find(
+        (s: { file: string }) => s.file === `lib/${name}` || s.file.endsWith(`/${name}`),
+      );
+      if (!source) {
+        // The file declares no operators, so the registry does not name it.
+        const full = path.join(ROOT, "lib", name);
+        if (fs.existsSync(full) && /(^|\n)\s*(operators\s*\{|operator\s+type:)/.test(
+          fs.readFileSync(full, "utf8"),
+        )) {
+          wrong.push(`${name} declares operators and is not in docs/sources.json`);
+        }
+        continue;
+      }
+      if (source.status !== "stable") {
+        wrong.push(`${name} is shipped by the playground but marked ${source.status}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
   it("reads the optional annotation of an argument", () => {
     const parsed = parse.parseOperatorSource("compiler/Lang.rgr");
     const nullify = parsed.definitions.find((d: { name: string }) => d.name === "nullify");

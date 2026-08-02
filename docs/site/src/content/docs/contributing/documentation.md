@@ -80,16 +80,30 @@ operators and the registry has no entry for it.
 | `stable` | The source gets reference pages and a place in the navigation. |
 | `legacy` | The source gets no page. The [not covered page](/Ranger/docs/reference/not-covered/) names it, with the `reason` field. |
 
-Measure before a change of status. The measurement is the `Import` statement:
-an operator of a library is available only after a program imports the file, so
+Measure before a change of status. The measurement has two parts, and a file is
+`legacy` only when it fails both.
+
+**1. The import.** An operator of a library is available only after a program
+imports the file:
 
 ```sh
 grep -rn "Import.*MyLib.rgr" --include="*.rgr" . | grep -v dist/ | grep -v bin/
 ```
 
-states who uses the library. A file that no maintained program imports is
-`legacy`. A `legacy` entry needs a `reason`, and the reason states the
-measurement.
+Use a loose pattern. A program can import through a relative path
+(`Import "../../lib/MyLib.rgr"`), and a strict pattern misses it.
+
+**2. The playground environment.** The list `libFiles` in
+`playground/scripts/build-compiler-env.mjs` states which library files the
+browser compiler ships. A program in the playground can import any of them,
+also when no file in the repository does. A file on that list stays `stable`,
+and the test `docs-tools.test.ts` fails when it does not.
+
+A `legacy` entry needs a `reason`, and the reason states the measurement.
+
+The `CreateFile` list in `compiler/VirtualCompiler.rgr` is **not** a third
+signal. That function writes `compileEnv.js`, its only caller is a comment, and
+the playground reads `compileEnv.json` from the Node script instead.
 
 ## Add an answer to the questions page
 
