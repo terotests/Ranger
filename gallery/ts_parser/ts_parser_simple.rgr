@@ -111,6 +111,9 @@ class TSParserSimple {
   ; Names already exported by this module. A module may not export the same
   ; name twice, however the two exports are written.
   def exportedNames:[string]
+  ; Whether the source is a module. Scripts may not use import or export.
+  ; Defaults to module, which is what the engine feeds it.
+  def moduleMode:boolean true
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -146,6 +149,10 @@ class TSParserSimple {
   
   fn setTsxMode:void (enabled:boolean) {
     this.tsxMode = enabled
+  }
+
+  fn setModuleMode:void (enabled:boolean) {
+    this.moduleMode = enabled
   }
   
   fn peek:Token () {
@@ -732,10 +739,21 @@ class TSParserSimple {
     
     ; Import/Export statements
     if (tokVal == "import") {
+      ; `import(...)` and `import.meta` are expressions and stay legal in a
+      ; script; only an import *declaration* is module-only.
+      def afterImport:string (this.peekNextValue())
+      if ((afterImport != "(") && (afterImport != ".")) {
+        if (this.moduleMode == false) {
+          this.syntaxError("Parse error: an import declaration is only allowed in a module")
+        }
+      }
       return (this.parseImport())
     }
     
     if (tokVal == "export") {
+      if (this.moduleMode == false) {
+        this.syntaxError("Parse error: an export declaration is only allowed in a module")
+      }
       return (this.parseExport())
     }
     
@@ -2839,6 +2857,16 @@ class TSParserSimple {
         declarator.init = initExpr
       }
 
+      ; A pattern binds nothing without an initialiser: `let [a];` is an error
+      ; regardless of the declaration keyword.
+      if (null? declarator.init) {
+        if (declarator.left) {
+          if (null? declarator.typeAnnotation) {
+            this.syntaxError("Parse error: a destructuring declaration must have an initializer")
+          }
+        }
+      }
+
       ; A `const` needs an initialiser -- except in TypeScript ambient code,
       ; where `declare const a: number;` is a type-only declaration. A type
       ; annotation is a good enough proxy: plain JS `const a;` never has one.
@@ -2887,9 +2915,15 @@ class TSParserSimple {
     if (this.matchValue("[")) {
       return (this.parseArrayPattern())
     }
-    ; In an assignment pattern anything assignable is a legal target.
+    ; In an assignment pattern anything *assignable* is a legal target -- but a
+    ; literal is not: `[0] = 1` and `({a: 0} = 1)` are errors.
     if (this.patternAllowsMemberTarget) {
-      return (this.parsePostfix())
+      def lhs (this.parsePostfix())
+      def lt:string lhs.nodeType
+      if ((lt != "Identifier") && (lt != "MemberExpression") && (lt != "ArrayPattern") && (lt != "ObjectPattern") && (lt != "ArrayExpression") && (lt != "ObjectExpression")) {
+        this.syntaxError("Parse error: '" + lt + "' is not a valid destructuring target")
+      }
+      return lhs
     }
     def tok (this.peek())
     def tt (this.peekType())
@@ -3334,6 +3368,9 @@ class TSParserSimple {
     
     ; Default value
     if (this.matchValue("=")) {
+      if isRest {
+        this.syntaxError("Parse error: a rest parameter may not have a default")
+      }
       this.advance()
       param.init = (this.parseExpr())
     }

@@ -1470,6 +1470,7 @@ class TSParserSimple  {
     this.restParamPending = false;
     this.patternAllowsMemberTarget = false;
     this.exportedNames = [];
+    this.moduleMode = true;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -1496,6 +1497,9 @@ class TSParserSimple  {
   };
   setTsxMode (enabled) {
     this.tsxMode = enabled;
+  };
+  setModuleMode (enabled) {
+    this.moduleMode = enabled;
   };
   peek () {
     return this.currentToken;
@@ -2069,9 +2073,18 @@ class TSParserSimple  {
       return this.parseDeclare();
     }
     if ( tokVal == "import" ) {
+      const afterImport = this.peekNextValue();
+      if ( (afterImport != "(") && (afterImport != ".") ) {
+        if ( this.moduleMode == false ) {
+          this.syntaxError("Parse error: an import declaration is only allowed in a module");
+        }
+      }
       return this.parseImport();
     }
     if ( tokVal == "export" ) {
+      if ( this.moduleMode == false ) {
+        this.syntaxError("Parse error: an export declaration is only allowed in a module");
+      }
       return this.parseExport();
     }
     if ( tokVal == "interface" ) {
@@ -3714,6 +3727,13 @@ class TSParserSimple  {
         const initExpr = this.parseExpr();
         declarator.init = initExpr;
       }
+      if ( typeof(declarator.init) === "undefined" ) {
+        if ( typeof(declarator.left) != "undefined" ) {
+          if ( typeof(declarator.typeAnnotation) === "undefined" ) {
+            this.syntaxError("Parse error: a destructuring declaration must have an initializer");
+          }
+        }
+      }
       if ( node.kind == "const" ) {
         if ( typeof(declarator.init) === "undefined" ) {
           if ( typeof(declarator.typeAnnotation) === "undefined" ) {
@@ -3753,7 +3773,12 @@ class TSParserSimple  {
       return this.parseArrayPattern();
     }
     if ( this.patternAllowsMemberTarget ) {
-      return this.parsePostfix();
+      const lhs = this.parsePostfix();
+      const lt = lhs.nodeType;
+      if ( (((((lt != "Identifier") && (lt != "MemberExpression")) && (lt != "ArrayPattern")) && (lt != "ObjectPattern")) && (lt != "ArrayExpression")) && (lt != "ObjectExpression") ) {
+        this.syntaxError(("Parse error: '" + lt) + "' is not a valid destructuring target");
+      }
+      return lhs;
     }
     const tok = this.peek();
     const tt = this.peekType();
@@ -4104,6 +4129,9 @@ class TSParserSimple  {
       param.typeAnnotation = typeAnnot;
     }
     if ( this.matchValue("=") ) {
+      if ( isRest ) {
+        this.syntaxError("Parse error: a rest parameter may not have a default");
+      }
       this.advance();
       param.init = this.parseExpr();
     }
