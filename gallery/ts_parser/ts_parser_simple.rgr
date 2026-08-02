@@ -127,6 +127,9 @@ class TSParserSimple {
   ; True inside a lexical declaration, where `let` may not be referenced at all:
   ; `for (let [a = let];;) {}` is an error.
   def noLetReference:boolean false
+  ; True while a for-of / for-in binding is being declared, where even a `var`
+  ; may not shadow an enclosing catch parameter.
+  def inForOfHead:boolean false
   ; True while a parameter list is being read. A parameter default may not
   ; contain a yield expression, even inside a generator.
   def inParamList:boolean false
@@ -923,6 +926,23 @@ class TSParserSimple {
     this.popScope()
 
     return prog
+  }
+
+  ; True when the name is bound as a parameter anywhere still in scope. A
+  ; for-of / for-in binding may not shadow one, even as a `var`.
+  fn isParameterInScope:boolean (name:string) {
+    def i:int 0
+    def total:int (array_length this.scopeNames)
+    while (i < total) {
+      def entry:string (itemAt this.scopeNames i)
+      if ((substring entry 0 1) == "p") {
+        if ((substring entry 2 (strlen entry)) == name) {
+          return true
+        }
+      }
+      i = (i + 1)
+    }
+    return false
   }
 
   fn isDeclaredAnywhere:boolean (name:string) {
@@ -3006,6 +3026,8 @@ class TSParserSimple {
       def headDeclKind:string "v"
       if (kind == "let") { headDeclKind = "l" }
       if (kind == "const") { headDeclKind = "l" }
+      ; A for-of / for-in binding may not shadow a catch parameter even when it
+      ; is a `var`, so it is recorded under the lexical kind for that check.
       def savedHeadDeclaring:string this.declaringKind
       this.declaringKind = headDeclKind
       ; Binding target: a destructuring pattern ([a,b] / {x,y}) or an identifier.
@@ -3036,6 +3058,11 @@ class TSParserSimple {
 
       def nextVal (this.peekValue())
       if (nextVal == "of") {
+        if ((strlen varNameStr) > 0) {
+          if (this.isParameterInScope(varNameStr)) {
+            this.syntaxError("Parse error: '" + varNameStr + "' shadows a parameter in a for-of head")
+          }
+        }
         ; for...of loop
         node.nodeType = "ForOfStatement"
         node.await = isAwait
@@ -3067,6 +3094,11 @@ class TSParserSimple {
       }
       
       if (nextVal == "in") {
+        if ((strlen varNameStr) > 0) {
+          if (this.isParameterInScope(varNameStr)) {
+            this.syntaxError("Parse error: '" + varNameStr + "' shadows a parameter in a for-in head")
+          }
+        }
         ; for...in loop
         node.nodeType = "ForInStatement"
         this.advance() ; consume 'in'
@@ -3196,6 +3228,11 @@ class TSParserSimple {
           if (initExpr.value == "in") {
             if (this.matchValue(")")) {
               node.nodeType = "ForInStatement"
+              ; `for ((i in {}));` — the whole head was parenthesised, which is
+              ; not a for-in head at all.
+              if (initExpr.parenthesized) {
+                this.syntaxError("Parse error: the 'in' operator is not allowed in a for-initialiser")
+              }
               def inLeft:TSNode (unwrap initExpr.left)
               this.checkAssignmentTarget(inLeft)
               node.left = inLeft
@@ -5859,6 +5896,13 @@ class TSParserSimple {
       }
       this.advance()
       
+      def afterYield (this.peek())
+      if (afterYield.value == "*") {
+        if (afterYield.line != this.lastTokenLine) {
+          this.syntaxError("Parse error: no line terminator is allowed between 'yield' and '*'")
+        }
+      }
+
       def yieldExpr (new TSNode())
       yieldExpr.nodeType = "YieldExpression"
       yieldExpr.start = yieldTok.start

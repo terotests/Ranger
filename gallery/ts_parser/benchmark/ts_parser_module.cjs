@@ -2022,6 +2022,7 @@ class TSParserSimple  {
     this.moduleMode = true;
     this.typeScriptMode = true;
     this.noLetReference = false;
+    this.inForOfHead = false;     /** note: unused */
     this.inParamList = false;
     this.parsingFunctionExpression = false;
     this.pendingExportRefs = [];
@@ -2777,6 +2778,20 @@ class TSParserSimple  {
     this.checkPendingExportRefs();
     this.popScope();
     return prog;
+  };
+  isParameterInScope (name) {
+    let i = 0;
+    const total = this.scopeNames.length;
+    while (i < total) {
+      const entry = this.scopeNames[i];
+      if ( (entry.substring(0, 1 )) == "p" ) {
+        if ( (entry.substring(2, (entry.length) )) == name ) {
+          return true;
+        }
+      }
+      i = i + 1;
+    };
+    return false;
   };
   isDeclaredAnywhere (name) {
     let i = 0;
@@ -4445,6 +4460,11 @@ class TSParserSimple  {
       this.declaringKind = savedHeadDeclaring;
       const nextVal = this.peekValue();
       if ( nextVal == "of" ) {
+        if ( (varNameStr.length) > 0 ) {
+          if ( this.isParameterInScope(varNameStr) ) {
+            this.syntaxError(("Parse error: '" + varNameStr) + "' shadows a parameter in a for-of head");
+          }
+        }
         node.nodeType = "ForOfStatement";
         node.await = isAwait;
         this.advance();
@@ -4475,6 +4495,11 @@ class TSParserSimple  {
         return node;
       }
       if ( nextVal == "in" ) {
+        if ( (varNameStr.length) > 0 ) {
+          if ( this.isParameterInScope(varNameStr) ) {
+            this.syntaxError(("Parse error: '" + varNameStr) + "' shadows a parameter in a for-in head");
+          }
+        }
         node.nodeType = "ForInStatement";
         this.advance();
         const left_1 = new TSNode();
@@ -4588,6 +4613,9 @@ class TSParserSimple  {
           if ( initExpr.value == "in" ) {
             if ( this.matchValue(")") ) {
               node.nodeType = "ForInStatement";
+              if ( initExpr.parenthesized ) {
+                this.syntaxError("Parse error: the 'in' operator is not allowed in a for-initialiser");
+              }
               const inLeft = initExpr.left;
               this.checkAssignmentTarget(inLeft);
               node.left = inLeft;
@@ -6650,6 +6678,12 @@ class TSParserSimple  {
         this.syntaxError("Parse error: a parameter default may not contain a yield expression");
       }
       this.advance();
+      const afterYield = this.peek();
+      if ( afterYield.value == "*" ) {
+        if ( afterYield.line != this.lastTokenLine ) {
+          this.syntaxError("Parse error: no line terminator is allowed between 'yield' and '*'");
+        }
+      }
       const yieldExpr = new TSNode();
       yieldExpr.nodeType = "YieldExpression";
       yieldExpr.start = yieldTok.start;
