@@ -141,6 +141,9 @@ class TSParserSimple {
   def singleBodyIsIfBranch:boolean false
   ; Line of the most recently consumed token, for automatic semicolon insertion.
   def lastTokenLine:int 0
+  ; True only while parsing the top level of the program. Import and export
+  ; declarations are ModuleItems and may appear nowhere else.
+  def atModuleTopLevel:boolean false
   ; Depth of speculative parsing in progress. Diagnostics are still counted (the
   ; count is rolled back with the position) but not printed, so a speculation
   ; that is abandoned leaves no noise on the console.
@@ -854,12 +857,17 @@ class TSParserSimple {
       this.strictMode = true
     }
 
+    this.atModuleTopLevel = true
+
     while ((this.isAtEnd()) == false) {
       def beforePos:int this.pos
+      this.atModuleTopLevel = true
       def stmt (this.parseStatement())
       push prog.children stmt
       this.guardNoProgress(beforePos)
     }
+
+    this.atModuleTopLevel = false
 
     this.checkPendingExportRefs()
 
@@ -930,12 +938,18 @@ class TSParserSimple {
       if (this.moduleMode == false) {
         this.syntaxError("Parse error: an import declaration is only allowed in a module")
       }
+      if (this.atModuleTopLevel == false) {
+        this.syntaxError("Parse error: an import declaration must be at the top level of a module")
+      }
       return (this.parseImport())
     }
     
     if (tokVal == "export") {
       if (this.moduleMode == false) {
         this.syntaxError("Parse error: an export declaration is only allowed in a module")
+      }
+      if (this.atModuleTopLevel == false) {
+        this.syntaxError("Parse error: an export declaration must be at the top level of a module")
       }
       return (this.parseExport())
     }
@@ -952,7 +966,11 @@ class TSParserSimple {
       if (this.inSingleStatementBody) {
         this.syntaxError("Parse error: a class declaration cannot be a statement body")
       }
-      return (this.parseClass())
+      def classDecl (this.parseClass())
+      if ((strlen classDecl.name) == 0) {
+        this.syntaxError("Parse error: a class declaration needs a name")
+      }
+      return classDecl
     }
     
     if (tokVal == "abstract") {
@@ -1428,6 +1446,7 @@ class TSParserSimple {
           spec.value = importedName.value
         }
         ; An import introduces a lexical binding at module scope.
+        this.checkBindableName(spec.value)
         this.declareBinding("l" spec.value)
 
         push specifiers spec
@@ -3108,10 +3127,17 @@ class TSParserSimple {
     this.expectValue("{")
 
     this.switchDepth = (this.switchDepth + 1)
+    def sawDefaultClause:boolean false
 
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def caseNode (new TSNode())
       
+      if (this.matchValue("default")) {
+        if (sawDefaultClause) {
+          this.syntaxError("Parse error: a switch may have only one default clause")
+        }
+        sawDefaultClause = true
+      }
       if (this.matchValue("case")) {
         caseNode.nodeType = "SwitchCase"
         this.advance()
@@ -3911,6 +3937,7 @@ class TSParserSimple {
 
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def beforePos:int this.pos
+        this.atModuleTopLevel = false
       def stmt (this.parseStatement())
       push block.children stmt
       this.guardNoProgress(beforePos)

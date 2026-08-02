@@ -1824,6 +1824,7 @@ class TSParserSimple  {
     this.inSingleStatementBody = false;
     this.singleBodyIsIfBranch = false;
     this.lastTokenLine = 0;
+    this.atModuleTopLevel = false;
     this.speculating = 0;
     this.tsxMode = false;
   }
@@ -2522,12 +2523,15 @@ class TSParserSimple  {
     if ( this.hasUseStrictDirective() ) {
       this.strictMode = true;
     }
+    this.atModuleTopLevel = true;
     while (this.isAtEnd() == false) {
       const beforePos = this.pos;
+      this.atModuleTopLevel = true;
       const stmt = this.parseStatement();
       prog.children.push(stmt);
       this.guardNoProgress(beforePos);
     };
+    this.atModuleTopLevel = false;
     this.checkPendingExportRefs();
     this.popScope();
     return prog;
@@ -2577,11 +2581,17 @@ class TSParserSimple  {
       if ( this.moduleMode == false ) {
         this.syntaxError("Parse error: an import declaration is only allowed in a module");
       }
+      if ( this.atModuleTopLevel == false ) {
+        this.syntaxError("Parse error: an import declaration must be at the top level of a module");
+      }
       return this.parseImport();
     }
     if ( tokVal == "export" ) {
       if ( this.moduleMode == false ) {
         this.syntaxError("Parse error: an export declaration is only allowed in a module");
+      }
+      if ( this.atModuleTopLevel == false ) {
+        this.syntaxError("Parse error: an export declaration must be at the top level of a module");
       }
       return this.parseExport();
     }
@@ -2595,7 +2605,11 @@ class TSParserSimple  {
       if ( this.inSingleStatementBody ) {
         this.syntaxError("Parse error: a class declaration cannot be a statement body");
       }
-      return this.parseClass();
+      const classDecl = this.parseClass();
+      if ( (classDecl.name.length) == 0 ) {
+        this.syntaxError("Parse error: a class declaration needs a name");
+      }
+      return classDecl;
     }
     if ( tokVal == "abstract" ) {
       const nextVal = this.peekNextValue();
@@ -2982,6 +2996,7 @@ class TSParserSimple  {
         } else {
           spec.value = importedName.value;
         }
+        this.checkBindableName(spec.value);
         this.declareBinding("l", spec.value);
         specifiers.push(spec);
         if ( this.matchValue(",") ) {
@@ -4312,8 +4327,15 @@ class TSParserSimple  {
     this.expectValue(")");
     this.expectValue("{");
     this.switchDepth = this.switchDepth + 1;
+    let sawDefaultClause = false;
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       const caseNode = new TSNode();
+      if ( this.matchValue("default") ) {
+        if ( sawDefaultClause ) {
+          this.syntaxError("Parse error: a switch may have only one default clause");
+        }
+        sawDefaultClause = true;
+      }
       if ( this.matchValue("case") ) {
         caseNode.nodeType = "SwitchCase";
         this.advance();
@@ -4942,6 +4964,7 @@ class TSParserSimple  {
     }
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       const beforePos = this.pos;
+      this.atModuleTopLevel = false;
       const stmt = this.parseStatement();
       block.children.push(stmt);
       this.guardNoProgress(beforePos);
