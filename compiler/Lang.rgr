@@ -245,6 +245,7 @@ language {
             templates {
                 es6 ('Math.random()')
                 swift6 ( "Double.random(in: 0..<1)" )
+                python ( "random.random()" (imp "random") )
                 swift3 ( "(Double(arc4random()) / Double(UInt32.max))" (imp "Foundation") )
                 kotlin ('Math.random()' (imp "java.lang.Math"))
                 cpp ( "rg_random_double()" (imp "<random>")
@@ -285,6 +286,7 @@ double rg_random_double() {
             templates {
                 es6 ('Math.floor(Math.random()*(' (e 2) ' - ' (e 1)' + 1) + ' (e 1)')')
                 swift6 ( "Int.random(in: " (e 1) " ... " (e 2) ")" )
+                python ( "random.randint(" (e 1) ", " (e 2) ")" (imp "random") )
                 swift3 ( "(" (e 1) " + Int(arc4random_uniform(UInt32(" (e 2) " - " (e 1) " + 1))))" (imp "Foundation") )
                 kotlin ('(Math.floor(Math.random() * (' (e 2) ' - ' (e 1) ' + 1)).toInt() + ' (e 1) ')' (imp "java.lang.Math"))
             }
@@ -434,7 +436,8 @@ func _r_sha256(value string) string {
                 es6 ("Math.PI")
                 go ( "math.Pi" (imp "math"))                                
                 swift3 ( "Double.pi" (imp "Foundation"))
-                swift6 ( "Double.pi" (imp "Foundation"))   
+                swift6 ( "Double.pi" (imp "Foundation"))
+                python ( "math.pi" (imp "math") )   
                 java7 ( "Math.PI" (imp "java.lang.Math"))         
                 php ("pi()")        
                 cpp ("M_PI" (imp "<math.h>"))               
@@ -446,7 +449,8 @@ func _r_sha256(value string) string {
                 es6 ("Math.abs(" (e 1) ")")
                 go ( "math.Abs(" (e 1) ")" (imp "math"))                                
                 swift3 ( "abs(" (e 1) ")" (imp "Foundation"))
-                swift6 ( "abs(" (e 1) ")" (imp "Foundation"))   
+                swift6 ( "abs(" (e 1) ")" (imp "Foundation"))
+                python ( "math.fabs(" (e 1) ")" (imp "math") )   
                 java7 ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))       
                 php ( "abs(" (e 1) ")")      
                 cpp ("fabs(" (e 1) ")" (imp "<cmath>"))                       
@@ -458,6 +462,7 @@ func _r_sha256(value string) string {
                 go ( "math.Tan(" (e 1) ")" (imp "math"))
                 swift3 ( "tan(" (e 1) ")" (imp "Foundation"))
                 swift6 ( "tan(" (e 1) ")" (imp "Foundation"))
+                python ( "math.tan(" (e 1) ")" (imp "math") )
                 java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
                 php ( "tan(" (e 1) ")")
                 cpp ("tan(" (e 1) ")" (imp "<math.h>"))
@@ -502,6 +507,7 @@ func _r_sha256(value string) string {
                 php ( "sleep(" (e 1) ");" nl (block 2) nl )
                 swift3 ( "usleep(UInt32(1000000*" (e 1) "));" nl (block 2) nl )
                 swift6 ( "usleep(UInt32(1000000*" (e 1) "));" nl (block 2) nl )
+                python ( nl "time.sleep(" (e 1) ")" nl (block 2) nl (imp "time") )
                 java7 (
 
     "new Thread() {" nl I
@@ -723,6 +729,7 @@ func r_file_exists ( fileName:String ) -> Bool {
     ")                    
                 )
                 es6 ("require(\"fs\").existsSync(" (e 1) " + \"/\" + " (e 2) " )")
+                python ( "os.path.isfile(" (e 1) " + \"/\" + " (e 2) ")" (imp "os") )
                 ranger ("( file_exists " (e 1) " + \"/\" + " (e 2) "  )")
                 java7 ( "new File(" (e 1) " + '/' + " (e 2) ").exists()" (imp "java.io.File") )
                 php ( "file_exists(" (e 1) ".'/'." (e 2) ")" )
@@ -745,6 +752,7 @@ func r_file_exists(pathName string, fileName string) bool {
         dir_exists          cmdIsDir:boolean (path:string) {
             templates {
                 csharp ( "false /* dir_exists not implemented */ ")
+                python ( "os.path.isdir(" (e 1) ")" (imp "os") )
                 scala ( "false /* dir_exists not implemented */ ")
                 swift3 ( "r_dir_exists( dirName: " (e 1) ")" 
 
@@ -858,6 +866,7 @@ void  r_cpp_create_dir(std::string name)
                 swift6 ( nl "try? FileManager.default.createDirectory(atPath: " (e 1) ", withIntermediateDirectories: true)" nl (imp "Foundation") )        
                 php (  nl "mkdir(" (e 1) ");" nl )
                 es6 ("require(\"fs\").mkdirSync( " (e 1) ")")
+                python ( nl "os.makedirs(" (e 1) ", exist_ok=True)" nl (imp "os") )
                 go ( nl "_ = os.Mkdir( " (e 1 ) " , os.ModePerm)" nl (imp "os") )
 
                 ranger ( nl "create_dir " (e 1) nl)
@@ -3287,7 +3296,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 
         to_string   _:string       ( value:int ) { 
             templates {
-                ranger ( "(to_int " (e 1) ")")
+                ranger ( "(to_string " (e 1) ")")
                 cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
                 java7 ( "String.valueOf(" (e 1) " )") 
                 php ( "strval(" (e 1) ")") 
@@ -3302,22 +3311,6 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
             }
         }          
 
-        to_string   cmdIntToString:string       ( value:int ) { 
-            templates {
-                ranger ( "(to_string " (e 1) ")")
-                cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
-                java7 ( "String.valueOf(" (e 1) " )") 
-                php ( "strval(" (e 1) ")") 
-                scala ( "(" (e 1) ".toString)")
-                go ("strconv.Itoa(" (e 1) ")" (imp "strconv"))
-                swift3 ("String(" (e 1) ")")
-                swift6 ("String(" (e 1) ")")
-                python ( "str(" (e 1) ")" )
-                rust ( (e 1) ".to_string()" )
-                * ( "(" (e 1) ").toString()")
-            }
-        }        
-        
         ; std::to_string(myDoubleVar);
         double2str   cmdDoubleToString:string       ( value:double ) { 
             templates {

@@ -96,6 +96,14 @@ describe("operator target coverage", () => {
   // for instance) is correct, not a gap. Only the reverse -- the primary
   // target lagging the legacy one -- is a defect.
 
+
+  // No static "does this macro name itself" check lives here, deliberately.
+  // `if ... else` and `if!` are macros whose templates emit `if` -- they lower
+  // to the three-argument `if`, which is not a macro, so they terminate. Self
+  // naming is therefore legal and such a check would be false-positive by
+  // design. Recursion is caught exactly, at compile time, by the active-macro
+  // map in ng_parser_std_match2.rgr; see tests/macro-recursion.test.ts.
+
   // A template that emits a literal false / an empty string / a "not
   // implemented" comment compiles and then silently does the wrong thing at
   // runtime. create_dir for swift3 was an empty template, so every Swift 3

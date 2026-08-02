@@ -1,6 +1,6 @@
 {
   "name": "ranger-compiler",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "description": "Ranger cross-language compiler - compile once, run anywhere",
   "main": "dist/api.js",
   "types": "dist/api.d.ts",

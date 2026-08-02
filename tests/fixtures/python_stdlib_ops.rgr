@@ -1,0 +1,12 @@
+class PythonStdlibOps {
+    sfn m@(main):void () {
+        print ("pi>3:" + (? ((M_PI) > 3.0) "y" "n"))
+        print ("fabs:" + (to_string (fabs 0.0 - 1.5)))
+        def r (random)
+        print ("rand_range:" + (? ((r >= 0.0) && (r < 1.0)) "y" "n"))
+        print ("randint:" + (to_string (random 3 3)))
+        create_dir "/tmp/rgr_py_check"
+        print ("dir_exists:" + (? (dir_exists "/tmp/rgr_py_check") "y" "n"))
+        print ("file_missing:" + (? (file_exists "/tmp/rgr_py_check" "nope.txt") "y" "n"))
+    }
+}

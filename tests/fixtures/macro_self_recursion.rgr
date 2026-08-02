@@ -1,0 +1,16 @@
+; A macro template that expands to a call to the same operator has no base
+; case. Before the depth guard this hung the compiler indefinitely with no
+; diagnostic at all -- not a stack overflow, just silence.
+operators {
+  selfmac _:int ( a:int ) {
+    templates {
+      * @macro(true) ( "(selfmac " (e 1) ")" )
+    }
+  }
+}
+
+class MacroSelfRecursion {
+    sfn m@(main):void () {
+        print (to_string (selfmac 1))
+    }
+}

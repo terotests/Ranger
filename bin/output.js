@@ -3311,6 +3311,8 @@ class RangerAppWriterContext  {
     this.intRootCounter = 1;     /** note: unused */
     this.targetLangName = "";
     this.defined_imports = [];     /** note: unused */
+    this.active_macros = {};
+    this.macro_expansion_depth = 0;
     this.already_imported = {};
     this.is_function = false;
     this.class_level_context = false;
@@ -15067,6 +15069,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return true;
             }
             if ( is_macro ) {
+              const macroRoot = ctx.getRoot();
+              const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + ((callArgs.sp.toString()));
+              let macroActive = false;
+              if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && macroRoot.active_macros.hasOwnProperty(macroKey) ) ) {
+                macroActive = (( macroRoot.active_macros.hasOwnProperty(macroKey) ? macroRoot.active_macros[macroKey] : undefined ));
+              }
+              if ( macroActive ) {
+                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' is recursive: expanding it reaches the same call site again, so it never terminates.");
+                ctx.removeOpNs(added_ns);
+                return true;
+              }
+              if ( macroRoot.macro_expansion_depth > 512 ) {
+                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' does not terminate: nested more than 512 levels.");
+                ctx.removeOpNs(added_ns);
+                return true;
+              }
+              macroRoot.active_macros[macroKey] = true;
+              macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1;
               const macroNode = await this.buildMacro(langOper, callArgs, ctx);
               let arg_len_1 = callArgs.children.length;
               while (arg_len_1 > 0) {
@@ -15076,6 +15096,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               callArgs.children.push(macroNode);
               macroNode.parent = callArgs;
               await this.WalkNode(macroNode, ctx, wr);
+              macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1;
+              macroRoot.active_macros[macroKey] = false;
               match.setRvBasedOn(nameNode, callArgs);
               ctx.removeOpNs(added_ns);
               return true;
@@ -39291,7 +39313,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.inputFile = "";
       this.outputFile = "";
       this.targetLanguage = "";
-      this.compilerVersion = "3.3.0";
+      this.compilerVersion = "3.3.1";
       this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
       this.startTime = Date.now();
     }

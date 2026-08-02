@@ -19,6 +19,31 @@ describe.skipIf(!pythonAvailable)("Ranger Compiler - Python Target", () => {
     }
   });
 
+  // These operators had no python template at all: M_PI, fabs, tan, random
+  // (both variants), wait, file_exists, dir_exists and create_dir. They are
+  // run rather than only compiled, because the python backend can emit code
+  // that compiles and is not valid Python -- see the lambda note in
+  // PLAN_OPERATORS.md.
+  describe("Math, random and filesystem operators", () => {
+    it("should compile and run the operators that had no python template", () => {
+      const { compile, run } = compileAndRunPython(
+        `${FIXTURES_DIR}/python_stdlib_ops.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("pi>3:y");
+      expect(run?.output).toContain("fabs:1.5");
+      expect(run?.output).toContain("rand_range:y");
+      expect(run?.output).toContain("randint:3");
+      expect(run?.output).toContain("dir_exists:y");
+      expect(run?.output).toContain("file_missing:n");
+    });
+  });
+
   describe("Array Operations", () => {
     it("should compile and run array push", () => {
       const { compile, run } = compileAndRunPython(

@@ -136,6 +136,20 @@ class RangerAppWriterContext {
   def targetLangName:string ""
   def parent:RangerAppWriterContext
   def defined_imports:[string]
+  ; Guards macro expansion against runaway recursion. Macro expansion is the
+  ; one path that re-walks its own output, so an expansion that reaches the
+  ; same call site again never terminates; unguarded the compiler hangs with
+  ; no diagnostic at all. Both live on the root context so nested forks share
+  ; one view.
+  ;
+  ; active_macros keys on operator name + source position, NOT on the name
+  ; alone: `if ... else` is itself a macro that expands to the three-argument
+  ; `if`, so nested if/else is a legitimate re-entry of the same operator and
+  ; a name-only key would reject nearly every real program.
+  def active_macros:[string:boolean]
+  ; Backstop only. active_macros cannot see a cycle whose expansion keeps
+  ; growing new source positions, so a depth ceiling stops the hang even then.
+  def macro_expansion_depth:int 0
   def already_imported:[string:boolean]
   def fileSystem:CodeFileSystem
   def is_function:boolean false
