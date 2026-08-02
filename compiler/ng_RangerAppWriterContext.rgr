@@ -136,6 +136,11 @@ class RangerAppWriterContext {
   def targetLangName:string ""
   def parent:RangerAppWriterContext
   def defined_imports:[string]
+  ; Guards macro expansion against runaway recursion. A macro template that
+  ; expands to a call to the same operator has no base case, so it nests
+  ; forever; without this the compiler hangs with no diagnostic at all.
+  ; Lives on the root context so nested forks share one counter.
+  def macro_expansion_depth:int 0
   def already_imported:[string:boolean]
   def fileSystem:CodeFileSystem
   def is_function:boolean false

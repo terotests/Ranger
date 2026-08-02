@@ -864,6 +864,17 @@ extension RangerFlowParser {
           }
 
           if is_macro {
+            ; A macro template is expanded into Ranger source and walked again.
+            ; If the expansion contains a call to the same operator there is no
+            ; base case, so it nests forever. Unguarded this hangs the compiler
+            ; with no diagnostic -- not a stack overflow, just silence.
+            def macroRoot:RangerAppWriterContext (ctx.getRoot())
+            if( macroRoot.macro_expansion_depth > 64 ) {
+              ctx.addError( callArgs ("Macro expansion of operator '" + fc.vref + "' does not terminate: nested more than 64 levels. A macro template that expands to a call to the same operator recurses forever.") )
+              ctx.removeOpNs( added_ns )
+              return true
+            }
+            macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1
             def macroNode:CodeNode ( this.buildMacro( langOper callArgs ctx ) )
             def arg_len:int (array_length callArgs.children)
             while (arg_len > 0 ) {
@@ -873,6 +884,7 @@ extension RangerFlowParser {
             push callArgs.children macroNode
             macroNode.parent = callArgs
             this.WalkNode( macroNode ctx wr)
+            macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1
             match.setRvBasedOn(nameNode callArgs)       
             ; print "--- macro was walked -- " 
             ctx.removeOpNs( added_ns )      

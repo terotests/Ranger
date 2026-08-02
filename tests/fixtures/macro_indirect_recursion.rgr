@@ -1,0 +1,21 @@
+; An indirect cycle: macA expands to macB, which expands back to macA. A static
+; "does this macro name itself" check cannot see this; the expansion-depth
+; guard can.
+operators {
+  macA _:int ( a:int ) {
+    templates {
+      * @macro(true) ( "(macB " (e 1) ")" )
+    }
+  }
+  macB _:int ( a:int ) {
+    templates {
+      * @macro(true) ( "(macA " (e 1) ")" )
+    }
+  }
+}
+
+class MacroIndirectRecursion {
+    sfn m@(main):void () {
+        print (to_string (macA 1))
+    }
+}

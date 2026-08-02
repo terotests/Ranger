@@ -3311,6 +3311,7 @@ class RangerAppWriterContext  {
     this.intRootCounter = 1;     /** note: unused */
     this.targetLangName = "";
     this.defined_imports = [];     /** note: unused */
+    this.macro_expansion_depth = 0;
     this.already_imported = {};
     this.is_function = false;
     this.class_level_context = false;
@@ -15067,6 +15068,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return true;
             }
             if ( is_macro ) {
+              const macroRoot = ctx.getRoot();
+              if ( macroRoot.macro_expansion_depth > 64 ) {
+                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' does not terminate: nested more than 64 levels. A macro template that expands to a call to the same operator recurses forever.");
+                ctx.removeOpNs(added_ns);
+                return true;
+              }
+              macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1;
               const macroNode = await this.buildMacro(langOper, callArgs, ctx);
               let arg_len_1 = callArgs.children.length;
               while (arg_len_1 > 0) {
@@ -15076,6 +15084,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               callArgs.children.push(macroNode);
               macroNode.parent = callArgs;
               await this.WalkNode(macroNode, ctx, wr);
+              macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1;
               match.setRvBasedOn(nameNode, callArgs);
               ctx.removeOpNs(added_ns);
               return true;
@@ -39291,7 +39300,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.inputFile = "";
       this.outputFile = "";
       this.targetLanguage = "";
-      this.compilerVersion = "3.3.0";
+      this.compilerVersion = "3.3.1";
       this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
       this.startTime = Date.now();
     }
