@@ -39,11 +39,13 @@ the object ends.
 
 :::caution[The Rust output is different]
 The program above prints `a 1` on JavaScript, Go, Python, C++, Swift and the
-other targets that hold an object as a reference. It does not compile for Rust:
-the Rust writer gives a class a plain `struct`, so `let mut b : Counter = a;`
-moves the value and `rustc` rejects the read of `a` after it. Write a program
-that shares an object between two names for the eleven other targets, and test
-the Rust output before you depend on it.
+other targets that hold an object as a reference. By default it does not
+compile for Rust: the Rust writer gives a class a plain `struct`, so
+`let mut b : Counter = a;` moves the value and `rustc` rejects the read of
+`a` after it. The experimental flag `-rust-shared-classes` closes this: a
+class the compiler finds shared becomes `Rc<RefCell<T>>`, `def b:Counter a`
+clones the `Rc`, and the program prints `a 1` on Rust as well. Without the
+flag, test the Rust output before you depend on shared objects.
 :::
 
 ## What the compiler infers
@@ -141,7 +143,14 @@ would swap the object under the reference — the program would read a
 different object than every reference-semantics target reads, and a grown
 collection would leave the reference dangling.
 
-The eleven other writers do not read the summary, so for them the pass is a
+The Rust writer reads the summary as well. A parameter it proves `borrowed`
+— and that the mutation analysis confirms untouched — becomes `&T`, and the
+call site passes `&x` in the place of a whole-struct clone. The summary also
+ends in a per-class verdict — which classes ever share an object — that the
+experimental `-rust-shared-classes` flag turns into `Rc<RefCell<T>>`;
+[the memory page](/Ranger/docs/targets/memory/) holds both.
+
+The ten other writers do not read the summary, so for them the pass is a
 reading tool.
 
 ## What the compiler cannot infer
