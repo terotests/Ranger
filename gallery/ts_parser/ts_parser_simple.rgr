@@ -3293,6 +3293,16 @@ class TSParserSimple {
 
     if (this.matchValue(";")) {
       this.advance()
+    } {
+      ; Same automatic-semicolon rule as an expression statement.
+      if ((this.isAtEnd()) == false) {
+        def afterDecl (this.peek())
+        if (afterDecl.value != "}") {
+          if (afterDecl.line == this.lastTokenLine) {
+            this.syntaxError("Parse error: missing ';' after a declaration")
+          }
+        }
+      }
     }
     
     return node
@@ -6454,6 +6464,18 @@ class TSParserSimple {
           currVal = (this.peekValue())
           nextType = (this.peekNextType())
           nextVal = (this.peekNextValue())
+          ; A `*` introduces a METHOD, so a name and a parameter list must
+          ; follow: `({ * })` and `({ *a })` are errors.
+          def starNameOk:boolean false
+          if (this.isMemberKeyToken()) { starNameOk = true }
+          if (currVal == "[") { starNameOk = true }
+          if (starNameOk == false) {
+            this.syntaxError("Parse error: '*' must be followed by a method name")
+          } {
+            if ((nextVal != "(") && (currVal != "[")) {
+              this.syntaxError("Parse error: a generator property must be a method")
+            }
+          }
         }
 
         ; Check for getter/setter - must look ahead to see if next is identifier or [
@@ -6590,6 +6612,20 @@ class TSParserSimple {
             ; Shorthand: { foo } means { foo: foo }
             ; But not for computed properties
             if (isComputed == false) {
+              ; A shorthand key is an IdentifierReference, so it may be neither
+              ; a literal nor a reserved word: `({0} = 0)`, `({'a'} = 0)` and
+              ; `({function} = 0)` are all errors.
+              if ((keyTok.tokenType == "Number") || (keyTok.tokenType == "String")) {
+                this.syntaxError("Parse error: a shorthand property name cannot be a literal")
+              }
+              if (this.isAlwaysReservedWord(prop.name)) {
+                this.syntaxError("Parse error: '" + prop.name + "' cannot be a shorthand property name")
+              }
+              if (this.strictMode) {
+                if (this.isStrictReservedReference(prop.name)) {
+                  this.syntaxError("Parse error: '" + prop.name + "' is reserved in strict mode")
+                }
+              }
               def shorthandVal (new TSNode())
               shorthandVal.nodeType = "Identifier"
               shorthandVal.name = prop.name
@@ -6828,6 +6864,12 @@ class TSParserSimple {
     ; `new`. Consuming `.prop` here makes `new THREE.PerspectiveCamera(70)` parse
     ; as `new (THREE.PerspectiveCamera)(70)` rather than the wrong
     ; `(new THREE).PerspectiveCamera(70)`.
+    ; `new super.foo()` is legal (a SuperProperty callee); `new super()` is not.
+    if (this.matchValue("super")) {
+      if ((this.peekNextValue()) == "(") {
+        this.syntaxError("Parse error: 'super' cannot be the callee of 'new'")
+      }
+    }
     def callee (this.parsePrimary())
     def keepMember true
     while keepMember {

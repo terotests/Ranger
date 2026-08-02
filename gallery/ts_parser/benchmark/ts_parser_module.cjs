@@ -4202,6 +4202,15 @@ class TSParserSimple  {
     };
     if ( this.matchValue(";") ) {
       this.advance();
+    } else {
+      if ( this.isAtEnd() == false ) {
+        const afterDecl = this.peek();
+        if ( afterDecl.value != "}" ) {
+          if ( afterDecl.line == this.lastTokenLine ) {
+            this.syntaxError("Parse error: missing ';' after a declaration");
+          }
+        }
+      }
     }
     return node;
   };
@@ -6662,6 +6671,20 @@ class TSParserSimple  {
           currVal = this.peekValue();
           nextType = this.peekNextType();
           nextVal = this.peekNextValue();
+          let starNameOk = false;
+          if ( this.isMemberKeyToken() ) {
+            starNameOk = true;
+          }
+          if ( currVal == "[" ) {
+            starNameOk = true;
+          }
+          if ( starNameOk == false ) {
+            this.syntaxError("Parse error: '*' must be followed by a method name");
+          } else {
+            if ( (nextVal != "(") && (currVal != "[") ) {
+              this.syntaxError("Parse error: a generator property must be a method");
+            }
+          }
         }
         if ( currVal == "get" ) {
           if ( (nextType == "Identifier") || (nextVal == "[") ) {
@@ -6776,6 +6799,17 @@ class TSParserSimple  {
             prop.kind = "init";
           } else {
             if ( isComputed == false ) {
+              if ( (keyTok.tokenType == "Number") || (keyTok.tokenType == "String") ) {
+                this.syntaxError("Parse error: a shorthand property name cannot be a literal");
+              }
+              if ( this.isAlwaysReservedWord(prop.name) ) {
+                this.syntaxError(("Parse error: '" + prop.name) + "' cannot be a shorthand property name");
+              }
+              if ( this.strictMode ) {
+                if ( this.isStrictReservedReference(prop.name) ) {
+                  this.syntaxError(("Parse error: '" + prop.name) + "' is reserved in strict mode");
+                }
+              }
               const shorthandVal = new TSNode();
               shorthandVal.nodeType = "Identifier";
               shorthandVal.name = prop.name;
@@ -6950,6 +6984,11 @@ class TSParserSimple  {
       }
       const badMeta = this.peek();
       this.syntaxError(("Parse error: 'new." + badMeta.value) + "' is not a meta property");
+    }
+    if ( this.matchValue("super") ) {
+      if ( this.peekNextValue() == "(" ) {
+        this.syntaxError("Parse error: 'super' cannot be the callee of 'new'");
+      }
     }
     let callee = this.parsePrimary();
     let keepMember = true;
