@@ -54,8 +54,42 @@ hold one object. Fault 1 is independent, and fixable now.
 | # | Change | State |
 | --- | --- | --- |
 | 1 | `&T` for an object parameter the summary proves `borrowed` (no clone at the call site) | Done |
-| 2 | Class-level sharing decision: a class whose objects are ever aliased-and-held becomes `Rc<RefCell<T>>`, reusing the machinery the trait support already has; `weak` then stores a real `Weak<RefCell<T>>` | Open — the design is below |
-| 3 | `moved` parameter takes the value without a clone when the argument is dead after the call | Open, needs liveness, and only pays once step 2 exists |
+| 2a | Class-level sharing decision as a diagnostic: `-strict-ownership` prints which classes need `Rc<RefCell<T>>`, and why | Done |
+| 2b | The emission: a shared class becomes `Rc<RefCell<T>>`, reusing the machinery the trait support already has; `weak` then stores a real `Weak<RefCell<T>>` | Open |
+| 3 | `moved` parameter takes the value without a clone when the argument is dead after the call | Open, needs liveness, and only pays once step 2b exists |
+
+### Step 2a, measured
+
+`analyzeClassSharing` in `ng_StaticAnalysis.rgr` runs after the ownership
+fixpoint and marks a class shared on the first of: a parameter of its type
+`moved`/`shared` (a callee holds the object while the caller's name lives), a
+def or assignment alias that some name then mutates through, a field or
+collection read into a local that is mutated, or being the target of a
+`weak` field. The walk carries its own mutated-name collection (method-call
+receivers, field-assignment roots, mutating-operator targets), so it does
+not depend on the C++/Rust-only mutation pass and prints under any target.
+
+```text
+ownership[rust] class Counter -> Rc<RefCell> (aliased and mutated in main)
+ownership[rust] class Parent -> Rc<RefCell> (weak field Child.parent)
+ownership[rust] class Child -> Rc<RefCell> (stored via adopt.c)
+ownership[rust] class Color -> value
+```
+
+On `jpeg_scaler.rgr`: **21 of 22 classes stay `value`** — the program is
+almost entirely value-shaped, which is why the struct model mostly works
+there — and the one exception the analysis finds is the exact aliasing
+pattern the value model breaks on:
+
+```text
+ownership[rust] class BufferChunk -> Rc<RefCell> (stored object mutated through a local in toBuffer)
+```
+
+`Buffer` walks its chunk list through a local (`def chunk:BufferChunk
+firstChunk` … `chunk.next`) while other methods mutate chunks through other
+names; under clone-on-assignment those names can hold different copies. This
+is the strongest candidate yet for the wrong-image fault, and 2b needs to
+make exactly this class a reference.
 
 ---
 

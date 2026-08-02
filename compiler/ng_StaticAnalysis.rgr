@@ -1940,6 +1940,300 @@ class StaticAnalyzer {
     }
   }
 
+  ; ============================================================================
+  ; CLASS SHARING (PLAN_RUST_OWNERSHIP step 2: which classes need Rc<RefCell>)
+  ; ============================================================================
+  ; A class needs reference semantics on a value-model target when some object
+  ; of it is ever aliased and held: stored into an object graph, aliased by a
+  ; def or an assignment and then mutated through a name, read out of a field
+  ; or a collection into a mutated local, or the target of a weak field (a
+  ; Weak has to have an Rc to downgrade). A class none of that ever happens to
+  ; keeps the plain struct and pays nothing.
+
+  fn markClassShared:void (typeName:string reason:string) {
+    if ((strlen typeName) == 0) {
+      return
+    }
+    if (this.isPrimitiveTypeName(typeName)) {
+      return
+    }
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((root.isDefinedClass(typeName)) == false) {
+      return
+    }
+    def cl:RangerAppClassDesc (root.findClass(typeName))
+    if cl.is_system {
+      return
+    }
+    if cl.is_union {
+      return
+    }
+    if cl.is_system_union {
+      return
+    }
+    if cl.rust_needs_ref_semantics {
+      return
+    }
+    cl.rust_needs_ref_semantics = true
+    cl.rust_ref_reason = reason
+  }
+
+  ; The class name a named value holds, or "" for a primitive, a collection
+  ; or an unknown name.
+  fn sharedClassNameOf:string (name:string fnCtx:RangerAppWriterContext) {
+    if ((strlen name) == 0) {
+      return ""
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(name))
+    if ((strlen p.name) == 0) {
+      return ""
+    }
+    if (null? p.nameNode) {
+      return ""
+    }
+    def tn:CodeNode (unwrap p.nameNode)
+    if ((strlen tn.array_type) > 0) {
+      return ""
+    }
+    if ((strlen tn.key_type) > 0) {
+      return ""
+    }
+    if (this.isPrimitiveTypeName(tn.type_name)) {
+      return ""
+    }
+    return tn.type_name
+  }
+
+  ; The names a function mutates an object through: the receiver of a method
+  ; call, the root of a field assignment, the target of a mutating operator.
+  ; Collected here rather than read from the mutation pass, because that pass
+  ; only runs for the C++ and the Rust target and only marks parameters.
+  fn collectMutatedNames:void (node:CodeNode names:[string]) {
+    if node.hasFnCall {
+      def fc:CodeNode (node.getFirst())
+      if ((array_length fc.ns) >= 2) {
+        def recv:string (itemAt fc.ns 0)
+        if (recv != "this") {
+          push names recv
+        }
+      }
+    }
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+        if ((first.vref == "=") && ((array_length node.children) >= 3)) {
+          def lhs:CodeNode (node.getSecond())
+          if ((array_length lhs.ns) >= 2) {
+            def lroot:string (itemAt lhs.ns 0)
+            if (lroot != "this") {
+              push names lroot
+            }
+          }
+        }
+        if (this.isMutatingNode(node)) {
+          if ((array_length node.children) >= 2) {
+            def target:CodeNode (node.getSecond())
+            def troot:string (this.getRootVarName(target))
+            if ((troot != "this") && ((strlen troot) > 0)) {
+              push names troot
+            }
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.collectMutatedNames(child names)
+    }
+  }
+
+  fn nameIn:boolean (name:string names:[string]) {
+    for names n:string i {
+      if (n == name) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn varIsMutated:boolean (name:string fnCtx:RangerAppWriterContext mutated:[string]) {
+    if (this.nameIn(name mutated)) {
+      return true
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(name))
+    if ((strlen p.name) == 0) {
+      return false
+    }
+    if p.is_mutating {
+      return true
+    }
+    if (p.mutation_count > 0) {
+      return true
+    }
+    return false
+  }
+
+  ; True when the value expression reads stored state: a field (x.y), an
+  ; element (itemAt/get), or unwrap of either. A local defined from it
+  ; aliases the stored object.
+  fn readsStoredObject:boolean (node:CodeNode) {
+    if ((array_length node.ns) >= 2) {
+      return true
+    }
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "unwrap") {
+          return (this.readsStoredObject((node.getSecond())))
+        }
+        if ((first.vref == "itemAt") || (first.vref == "get")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn walkForSharing:void (node:CodeNode fnCtx:RangerAppWriterContext fnName:string mutated:[string]) {
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+
+        ; def x y / def x (this.f) / def x (itemAt coll i): x aliases another
+        ; live name or a stored object. Sharing is observable only through a
+        ; mutation, so an alias nobody mutates does not count.
+        if ((first.vref == "def") && ((array_length node.children) >= 3)) {
+          def defName:CodeNode (node.getSecond())
+          def initVal:CodeNode (itemAt node.children 2)
+          def cn:string (this.sharedClassNameOf(defName.vref fnCtx))
+          if ((strlen cn) > 0) {
+            def srcName:string (this.escapeValueName(initVal))
+            if ((strlen srcName) > 0) {
+              def srcClass:string (this.sharedClassNameOf(srcName fnCtx))
+              if ((strlen srcClass) > 0) {
+                if ((this.varIsMutated(defName.vref fnCtx mutated)) || (this.varIsMutated(srcName fnCtx mutated))) {
+                  this.markClassShared(cn ("aliased and mutated in " + fnName))
+                }
+              }
+            } {
+              if (this.readsStoredObject(initVal)) {
+                if (this.varIsMutated(defName.vref fnCtx mutated)) {
+                  this.markClassShared(cn ("stored object mutated through a local in " + fnName))
+                }
+              }
+            }
+          }
+        }
+
+        ; x = y with a bare local/param on the left: the same alias event.
+        if ((first.vref == "=") && ((array_length node.children) >= 3)) {
+          def lhs:CodeNode (node.getSecond())
+          def rhs:CodeNode (itemAt node.children 2)
+          if (((array_length lhs.ns) < 2) && ((strlen lhs.vref) > 0)) {
+            def lp:RangerAppParamDesc (fnCtx.getVariableDef(lhs.vref))
+            if (((strlen lp.name) > 0) && (lp.is_class_variable == false)) {
+              def cn:string (this.sharedClassNameOf(lhs.vref fnCtx))
+              if ((strlen cn) > 0) {
+                def srcName:string (this.escapeValueName(rhs))
+                if ((strlen srcName) > 0) {
+                  if ((this.varIsMutated(lhs.vref fnCtx mutated)) || (this.varIsMutated(srcName fnCtx mutated))) {
+                    this.markClassShared(cn ("aliased and mutated in " + fnName))
+                  }
+                } {
+                  if (this.readsStoredObject(rhs)) {
+                    this.markClassShared(cn ("stored object mutated through a local in " + fnName))
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.walkForSharing(child fnCtx fnName mutated)
+    }
+  }
+
+  fn analyzeClassSharingFn:void (fn:RangerAppFunctionDesc) {
+    ; a parameter the summary says escapes into a graph is held there while
+    ; the caller's name stays live: the classic shared object
+    for fn.params param:RangerAppParamDesc i {
+      if (param.varType == RangerContextVarType.FunctionParameter) {
+        if ((param.ownership_kind == 3) || (param.ownership_kind == 4)) {
+          if (!null? param.nameNode) {
+            def tn:CodeNode (unwrap param.nameNode)
+            if (((strlen tn.array_type) == 0) && ((strlen tn.key_type) == 0)) {
+              this.markClassShared(tn.type_name ((("stored via " + fn.name) + ".") + param.name))
+            }
+          }
+        }
+      }
+    }
+    if (!null? fn.fnBody) {
+      if (!null? fn.fnCtx) {
+        def mutated:[string]
+        this.collectMutatedNames((unwrap fn.fnBody) mutated)
+        this.walkForSharing((unwrap fn.fnBody) (unwrap fn.fnCtx) fn.name mutated)
+      }
+    }
+  }
+
+  fn analyzeClassSharing:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      ; a weak field can only exist against an Rc: the target class is shared
+      for cl.variables cv:RangerAppParamDesc vi {
+        if (!null? cv.nameNode) {
+          def vn:CodeNode (unwrap cv.nameNode)
+          if (vn.hasFlag("weak")) {
+            this.markClassShared(vn.type_name ((("weak field " + cl.name) + ".") + cv.name))
+          }
+        }
+      }
+      for cl.methods m:RangerAppFunctionDesc i {
+        this.analyzeClassSharingFn(m)
+      }
+      for cl.static_methods sm:RangerAppFunctionDesc i {
+        this.analyzeClassSharingFn(sm)
+      }
+      if (!null? cl.constructor_fn) {
+        this.analyzeClassSharingFn((unwrap cl.constructor_fn))
+      }
+    }
+  }
+
+  fn reportClassSharing:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      if cl.is_system {
+        continue
+      }
+      if cl.is_union {
+        continue
+      }
+      if cl.is_system_union {
+        continue
+      }
+      if cl.is_trait {
+        continue
+      }
+      if cl.rust_needs_ref_semantics {
+        print ((("ownership[rust] class " + cl.name) + " -> Rc<RefCell> (") + (cl.rust_ref_reason + ")"))
+      } {
+        print (("ownership[rust] class " + cl.name) + " -> value")
+      }
+    }
+  }
+
   ; The Rust reading of the summary (PLAN_RUST_OWNERSHIP step 1). An object
   ; parameter the summary proves `borrowed` can be `&T`: no store into any
   ; graph, no return, no storing callee down the chain. The mutation pass
@@ -2086,10 +2380,14 @@ class StaticAnalyzer {
       this.analyzeOwnershipClass(cl)
     }
     this.resolveCallEscapes()
+    ; which classes would need Rc<RefCell> on a value-model target — reads
+    ; the resolved summaries, so it runs after the fixpoint
+    this.analyzeClassSharing()
     if strict {
       for root.definedClasses cl:RangerAppClassDesc i {
         this.reportOwnershipClass(cl)
       }
+      this.reportClassSharing()
     }
   }
 

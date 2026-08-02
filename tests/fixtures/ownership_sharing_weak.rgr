@@ -1,0 +1,18 @@
+class Parent {
+    def name:string ""
+    def kids:[Child]
+    fn adopt:void (c:Child) {
+        c.parent = this
+        push kids c
+    }
+}
+class Child {
+    def name:string ""
+    def parent@(weak optional):Parent
+}
+fn main:void () {
+    def p:Parent (new Parent())
+    def c:Child (new Child())
+    p.adopt(c)
+    print (to_string (array_length p.kids))
+}

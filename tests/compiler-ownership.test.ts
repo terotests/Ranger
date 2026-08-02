@@ -145,6 +145,49 @@ describe("Ranger Compiler - borrowed const& call-site copy (PLAN_OWNERSHIP_SOUND
   });
 });
 
+describe("Ranger Compiler - class sharing analysis (PLAN_RUST_OWNERSHIP 2)", () => {
+  const counter = inferOwnership(`${FIXTURES}/ownership_sharing_counter.rgr`, {
+    outFile: "sharing_counter.js",
+  });
+  const weak = inferOwnership(`${FIXTURES}/ownership_sharing_weak.rgr`, {
+    outFile: "sharing_weak.js",
+  });
+  const jpeg = inferOwnership(JPEG_SCALER, {
+    outDir: GALLERY_OUT,
+    outFile: "jpeg_sharing.js",
+    timeoutMs: 120000,
+  });
+
+  it("marks a class aliased by a def and mutated through the alias", () => {
+    expect(counter).toContain(
+      "ownership[rust] class Counter -> Rc<RefCell> (aliased and mutated in main)"
+    );
+  });
+
+  it("marks the target of a weak field (a Weak needs an Rc to downgrade)", () => {
+    expect(weak).toContain(
+      "ownership[rust] class Parent -> Rc<RefCell> (weak field Child.parent)"
+    );
+  });
+
+  it("marks a class whose objects a callee stores", () => {
+    expect(weak).toContain(
+      "ownership[rust] class Child -> Rc<RefCell> (stored via adopt.c)"
+    );
+  });
+
+  it("keeps never-shared classes as plain values", () => {
+    // 21 of the 22 jpeg_scaler classes never share an object; only the
+    // linked-list chunk is aliased from a field into a mutated local.
+    expect(jpeg).toContain("ownership[rust] class Color -> value");
+    expect(jpeg).toContain(
+      "ownership[rust] class BufferChunk -> Rc<RefCell> (stored object mutated through a local in toBuffer)"
+    );
+    const shared = (jpeg.match(/ownership\[rust\] class .* -> Rc<RefCell>/g) ?? []).length;
+    expect(shared).toBe(1);
+  });
+});
+
 describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERSHIP 1)", () => {
   const result = getGeneratedRustCode(`${FIXTURES}/llvm_ownership_infer.rgr`);
 
