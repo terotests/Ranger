@@ -3689,6 +3689,70 @@ class ComponentEngine {
     }
     
     ; Integer-exponent power (base ** expn); used by ** and **=.
+    ; D-MATH: exp and log, built from a series because the Ranger runtime offers
+    ; no intrinsic for either. Both reduce the argument first so the series
+    ; converges fast; accuracy is around 1e-15 relative, which is close to but
+    ; not identical with the host's, so a test comparing an exact bit pattern
+    ; would still see a difference.
+    fn expNum:double (x:double) {
+        if (x != x) { return x }
+        def inf:double (1.0 / 0.0)
+        if (x == inf) { return inf }
+        if (x == (0.0 - inf)) { return 0.0 }
+        ; e^x = 2^k * e^r, with r small. k = round(x / ln2).
+        def ln2:double 0.6931471805599453
+        def kD:double (this.floorNum(((x / ln2) + 0.5)))
+        def r:double (x - (kD * ln2))
+        def term:double 1.0
+        def sum:double 1.0
+        def n:int 1
+        while (n < 24) {
+            term = ((term * r) / (to_double n))
+            sum = (sum + term)
+            n = (n + 1)
+        }
+        def k:int (to_int kD)
+        def scale:double 1.0
+        if (k >= 0) {
+            scale = (this.powNum(2.0 k))
+        } {
+            scale = (1.0 / (this.powNum(2.0 (0 - k))))
+        }
+        return (sum * scale)
+    }
+
+    fn logNum:double (x:double) {
+        if (x != x) { return x }
+        def inf:double (1.0 / 0.0)
+        if (x < 0.0) { return (0.0 / 0.0) }
+        if (x == 0.0) { return (0.0 - inf) }
+        if (x == inf) { return inf }
+        ; Reduce to m in [1, 2) with x = m * 2^k, then use the atanh series,
+        ; which converges much faster than log(1+u) near the ends of the range.
+        def k:int 0
+        def m:double x
+        while (m >= 2.0) {
+            m = (m / 2.0)
+            k = (k + 1)
+        }
+        while (m < 1.0) {
+            m = (m * 2.0)
+            k = (k - 1)
+        }
+        def z:double ((m - 1.0) / (m + 1.0))
+        def z2:double (z * z)
+        def termL:double z
+        def sumL:double z
+        def n:int 1
+        while (n < 30) {
+            termL = (termL * z2)
+            sumL = (sumL + (termL / (to_double ((2 * n) + 1))))
+            n = (n + 1)
+        }
+        def ln2:double 0.6931471805599453
+        return ((2.0 * sumL) + ((to_double k) * ln2))
+    }
+
     ; Floor toward NEGATIVE infinity. `to_int` truncates toward zero, so it gets
     ; -1.5 wrong -- which is what made Math.floor(-1.5) answer -1, and Math.ceil
     ; and Math.round wrong with it, since all three were built on it.
@@ -6683,6 +6747,7 @@ class ComponentEngine {
                 ; `true()`, `1()`, `null()`, `new Number(1)()` -- is a TypeError
                 ; too. It fell through to null, so the call did nothing.
                 def litCallee:boolean false
+                if (callee.nodeType == "ThisExpression") { litCallee = true }
                 if (callee.nodeType == "NumericLiteral") { litCallee = true }
                 if (callee.nodeType == "StringLiteral") { litCallee = true }
                 if (callee.nodeType == "BooleanLiteral") { litCallee = true }
@@ -7012,8 +7077,13 @@ class ComponentEngine {
         if (op == "/") {
             ; ToNumber, not the raw value: a boxed number or an object with a
             ; valueOf has to convert, and reading numberValue off one gave 0.
-            def rightNum:double (this.toNumberOf(right))
+            ; The LEFT operand converts first, so when both conversions throw it
+            ; is the left one's exception that escapes.
             def leftNum:double (this.toNumberOf(left))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            def rightNum:double (this.toNumberOf(right))
             if (rightNum == 0.0) {
                 ; `left * (1/right)` gets all three cases right at once, and
                 ; crucially respects the SIGN of the zero divisor: 1/-0 is
@@ -7371,6 +7441,8 @@ class ComponentEngine {
                 if (n0 < 0.0) { return (EvalValue.number((0.0 - 1.0))) }
                 return (EvalValue.number(n0))
             }
+            if (name == "exp") { return (EvalValue.number((this.expNum(n0)))) }
+            if (name == "log") { return (EvalValue.number((this.logNum(n0)))) }
             if (name == "sqrt") { return (EvalValue.number((sqrt n0))) }
             if (name == "sin") { return (EvalValue.number((sin n0))) }
             if (name == "cos") { return (EvalValue.number((cos n0))) }
@@ -7622,7 +7694,9 @@ class ComponentEngine {
             push out "atan2"
             push out "ceil"
             push out "cos"
+            push out "exp"
             push out "floor"
+            push out "log"
             push out "hypot"
             push out "max"
             push out "min"
