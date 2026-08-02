@@ -5595,7 +5595,7 @@ class ComponentEngine {
                 ; (11).myUp()` puts the method on Number.prototype, and the
                 ; number itself has no property map to find it in -- the lookup
                 ; has to go to its kind's prototype object.
-                if ((obj.valueType == 1) || (obj.valueType == 2) || (obj.valueType == 3)) {
+                if ((obj.valueType == 1) || (obj.valueType == 2) || (obj.valueType == 3) || (obj.valueType == 6) || (obj.valueType == 4)) {
                     def pcCtor:string (this.ctorNameForKind(rKind))
                     if ((strlen pcCtor) > 0) {
                         def kProto2:EvalValue (this.builtinPrototype(pcCtor))
@@ -12239,6 +12239,45 @@ class ComponentEngine {
                 if (ctorCand.valueType == 6) {
                     if ((strlen ctorCand.builtinName) > 0) {
                         return (this.throwSpecError("TypeError" (className + " is not a constructor")))
+                    }
+                }
+            }
+        }
+        ; A constructor reached through a VARIABLE rather than by name:
+        ; `var C = String.prototype.constructor; new C("x")`. The name-based
+        ; cases below cannot see it, so the value is resolved and its own name
+        ; used instead.
+        if ((strlen className) > 0) {
+            if (false == (this.isBuiltinCtorName(className))) {
+                if (context.has(className)) {
+                    def aliasV:EvalValue (context.lookup(className))
+                    if (aliasV.valueType == 6) {
+                        def aliasName:EvalValue (aliasV.getMember("name"))
+                        if (aliasName.isString()) {
+                            def an:string aliasName.stringValue
+                            if (this.isBuiltinCtorName(an)) {
+                                if (this.isWrapperCtorName(an)) {
+                                    def wPrim:EvalValue (EvalValue.null())
+                                    if ((array_length node.children) > 0) {
+                                        wPrim = (this.evaluateExpr((itemAt node.children 0)))
+                                    }
+                                    return (this.makeWrapper(an wPrim))
+                                }
+                                if (an == "Array") {
+                                    return (this.buildArrayFromArgs(node.children))
+                                }
+                                if (an == "Object") {
+                                    def aObj:EvalValue (EvalValue.null())
+                                    if ((array_length node.children) > 0) {
+                                        aObj = (this.evaluateExpr((itemAt node.children 0)))
+                                    }
+                                    return (this.toObjectValue(aObj))
+                                }
+                                if (an == "RegExp") {
+                                    return (this.buildRegexFromArgs(node.children))
+                                }
+                            }
+                        }
                     }
                 }
             }
