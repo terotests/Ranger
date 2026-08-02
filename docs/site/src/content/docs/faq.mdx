@@ -77,6 +77,22 @@ and a call that gives a value needs its own parentheses.
 
 <TargetOutput example={ex("faq/lisp-form")} targets={model.generated.targets} />
 
+## What does "Could not find suitable match for the operator node" mean?
+
+The call is to a `defn` macro, and no macro of that name fits the arguments.
+
+A macro declares no types. The compiler selects one by trial: it expands the
+body of each macro with that name into the call site, compiles the result, and
+keeps the first one that makes no error. The message says that every candidate
+made an error.
+
+The errors above the message come from the candidate with the fewest errors.
+That candidate is not always the macro that you had in mind, so read the
+message together with the bodies on the
+[macros page](/Ranger/docs/reference/macros/), and start from the types of your
+arguments. `ForEach` is an example: one macro reads an array, and another one
+reads a hash map, and only the body states the difference.
+
 ## Which operators can I use?
 
 - The [operator reference](/Ranger/docs/reference/operators/statements/) holds
