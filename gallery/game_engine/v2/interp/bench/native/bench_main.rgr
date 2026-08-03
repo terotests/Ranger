@@ -1,0 +1,90 @@
+; =============================================================================
+; bench_main — the interpreter benchmark, as a NATIVE entry point.
+; =============================================================================
+; The same seven workloads tests/../bench/bench.cjs runs against Node, but
+; driven from a compiled binary instead of from the CommonJS module, so the
+; engine's own cost can be compared across compilation targets.
+;
+; The language has no clock operator, so this measures nothing itself: it runs
+; a case `reps` times and prints the answer, and the harness that launched it
+; measures wall time. A reps=0 run does the startup work and no iterations,
+; which is what the harness subtracts.
+;
+;   engine_bench <case> <reps>
+;
+; Build with: bash gallery/game_engine/v2/interp/bench/native/build.sh
+; =============================================================================
+
+Import "../../migrate/src/ComponentEngine.rgr"
+
+class BenchMain {
+
+    ; The body of `work()` for each case. Kept identical to bench.cjs, including
+    ; the sizes -- a different size is a different benchmark.
+    sfn caseBody:string (name:string) {
+        if (name == "loop") {
+            return "var s = 0; for (var i = 0; i < 50000; i++) { s += i; } return s;"
+        }
+        if (name == "fib") {
+            return "function fib(k) { return k < 2 ? k : fib(k - 1) + fib(k - 2); } return fib(20);"
+        }
+        if (name == "strcat") {
+            return "var s = \"\"; for (var i = 0; i < 20000; i++) { s += \"ab\"; } return s.length;"
+        }
+        if (name == "array") {
+            return "var a = []; for (var i = 0; i < 20000; i++) { a.push(i * 2); } var t = 0; for (var j = 0; j < a.length; j++) { t += a[j]; } return t + a.length;"
+        }
+        if (name == "object") {
+            return "var o = {}; for (var i = 0; i < 20000; i++) { o[\"k\" + (i % 50)] = i; } var t = 0; for (var k in o) { t += o[k]; } return t;"
+        }
+        if (name == "method") {
+            return "var s = \"The quick brown fox jumps over the lazy dog\"; var t = 0; for (var i = 0; i < 20000; i++) { t += s.slice(i % 10, 20).indexOf(\"o\") + s.charCodeAt(i % 40); } return t;"
+        }
+        if (name == "regex") {
+            return "var re = /([a-z]+)\\s+(\\d+)/; var t = 0; for (var i = 0; i < 5000; i++) { var m = re.exec(\"item \" + i + \" qty 42\"); if (m) { t += m[2].length; } } return t;"
+        }
+        ; Half-size `array`, used to check whether the array path is LINEAR in
+        ; the element count. Linear means ~2x faster than `array`; quadratic
+        ; means ~4x.
+        if (name == "array_half") {
+            return "var a = []; for (var i = 0; i < 10000; i++) { a.push(i * 2); } var t = 0; for (var j = 0; j < a.length; j++) { t += a[j]; } return t + a.length;"
+        }
+        ; Not a workload: a canary. JavaScript enumerates string keys in
+        ; INSERTION order; the C++ target backs a Ranger map with std::map,
+        ; which is sorted. If the two targets disagree here the timings above
+        ; are measuring two different languages.
+        if (name == "keyorder") {
+            return "var o = {}; o.zebra = 1; o.apple = 2; o.mango = 3; o[\"2\"] = 4; o[\"1\"] = 5; return Object.keys(o).join(\",\") + \"|\" + JSON.stringify(o);"
+        }
+        return "return 0;"
+    }
+
+    sfn m@(main):void () {
+        def argCnt:int (shell_arg_cnt)
+        if (argCnt < 2) {
+            print "usage: engine_bench <case> <reps>"
+            return
+        }
+        def caseName:string (shell_arg 0)
+        def repsOpt@(optional):int (to_int (shell_arg 1))
+        def reps:int 0
+        if repsOpt {
+            reps = (unwrap repsOpt)
+        }
+
+        def body:string (BenchMain.caseBody(caseName))
+        def src:string ("var __out__ = '';\nfunction work() {" + (body + "\n}\n__out__ = String(work());\nfunction __t__() { return String(__out__); }\n"))
+
+        def answer:string "<none>"
+        def r:int 0
+        while (r < reps) {
+            def engine (new ComponentEngine())
+            engine.quiet = true
+            engine.loadScript(src)
+            def out:EvalValue (engine.callFunction("__t__" (EvalValue.null())))
+            answer = out.stringValue
+            r = (r + 1)
+        }
+        print (caseName + (" reps=" + ((to_string reps) + (" answer=" + answer))))
+    }
+}

@@ -109,6 +109,26 @@ language {
             extern _extern
             explicit _explicit
             goto _goto
+            short _short
+            long _long
+            int _int
+            char _char
+            float _float
+            double _double
+            void _void
+            const _const
+            inline _inline
+            struct _struct
+            enum _enum
+            switch _switch
+            case _case
+            default _default
+            auto _auto
+            throw _throw
+            try _try
+            catch _catch
+            this _this
+            operator_new _operator_new
         }
         go {
             type _type
@@ -479,6 +499,7 @@ func _r_sha256(value string) string {
                 java7 ( "Math.PI" (imp "java.lang.Math"))         
                 php ("pi()")        
                 cpp ("M_PI" (imp "<math.h>"))               
+                rust ("std::f64::consts::PI")
             }
         }
 
@@ -504,6 +525,7 @@ func _r_sha256(value string) string {
                 java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
                 php ( "tan(" (e 1) ")")
                 cpp ("tan(" (e 1) ")" (imp "<math.h>"))
+                rust ( (e 1) ".tan()" )
             }
         }
 
@@ -884,6 +906,23 @@ int64_t r_file_mtime(const std::string& path, const std::string& filename) {
         return 0;
     }
     return (int64_t)st.st_mtime * 1000;
+}
+")
+                )
+                rust ( "r_file_mtime(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+fn r_file_mtime(path_name: &str, file_name: &str) -> i64 {
+    let full = format!(\"{}/{}\", path_name, file_name);
+    match std::fs::metadata(&full) {
+        Ok(md) => match md.modified() {
+            Ok(t) => match t.duration_since(std::time::UNIX_EPOCH) {
+                Ok(d) => d.as_millis() as i64,
+                Err(_) => 0,
+            },
+            Err(_) => 0,
+        },
+        Err(_) => 0,
+    }
 }
 ")
                 )
@@ -5331,6 +5370,7 @@ fun r_read_key(): String {
                 swift6 ((e 1) ".lowercased()")
                 scala ((e 1) ".toLowerCase()")
                 python ((e 1) ".lower()")
+                rust ( (e 1) ".to_lowercase()" )
                 cpp (
                     "r_cpp_str_to_lowercase(" (e 1) ")"
                         (imp "<algorithm>")
@@ -5359,6 +5399,7 @@ std::string r_cpp_str_to_lowercase(std::string original)
                 php( "strtoupper(" (e 1) ")")
                 csharp ( (e 1) ".ToUpper()" )
                 python ( (e 1) ".upper()" )
+                rust ( (e 1) ".to_uppercase()" )
                 cpp (                     
                     "r_cpp_str_to_uppercase(" (e 1) ")"
                         (imp "<algorithm>")
