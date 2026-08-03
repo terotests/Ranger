@@ -730,10 +730,47 @@ class RangerCppClassWriter {
     }    
   }
 
+  ; one side of a string comparison: a literal compares as a bare char
+  ; pointer — operator==(const std::string&, const char*) — instead of
+  ; constructing a std::string per comparison
+  fn cppWriteCmpOperand:void (o:CodeNode otherIsLiteral:boolean ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode o
+    while (oo.expression && ((array_length oo.children) == 1)) {
+      oo = (oo.getFirst())
+    }
+    if ((oo.value_type == RangerNodeType.String) && (otherIsLiteral == false)) {
+      wr.out(((("\"" + (this.EncodeString(oo ctx wr))) + "\"")) false)
+      return
+    }
+    ctx.setInExpr()
+    this.WalkNode(oo ctx wr)
+    ctx.unsetInExpr()
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    ; string equality with a literal side stays allocation-free
+    if ((cmd == "==") || (cmd == "!=")) {
+      def cmpL:CodeNode (node.getSecond())
+      def cmpR:CodeNode (node.getThird())
+      def lLit:boolean false
+      def lc:CodeNode cmpL
+      while (lc.expression && ((array_length lc.children) == 1)) {
+        lc = (lc.getFirst())
+      }
+      if (lc.value_type == RangerNodeType.String) {
+        lLit = true
+      }
+      wr.out("(" false)
+      this.cppWriteCmpOperand(cmpL false ctx wr)
+      wr.out((((" " + cmd) + " ")) false)
+      this.cppWriteCmpOperand(cmpR lLit ctx wr)
+      wr.out(")" false)
+      return
+    }
 
     if( cmd == "return" ) {
       if(ctx.isInMain()) {

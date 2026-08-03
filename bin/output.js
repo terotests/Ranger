@@ -19587,9 +19587,40 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
     };
+    async cppWriteCmpOperand (o, otherIsLiteral, ctx, wr) {
+      let oo = o;
+      while (oo.expression && ((oo.children.length) == 1)) {
+        oo = oo.getFirst();
+      };
+      if ( (oo.value_type == 4) && (otherIsLiteral == false) ) {
+        wr.out(("\"" + this.EncodeString(oo, ctx, wr)) + "\"", false);
+        return;
+      }
+      ctx.setInExpr();
+      await this.WalkNode(oo, ctx, wr);
+      ctx.unsetInExpr();
+    };
     async CustomOperator (node, ctx, wr) {
       const fc = node.getFirst();
       const cmd = fc.vref;
+      if ( (cmd == "==") || (cmd == "!=") ) {
+        const cmpL = node.getSecond();
+        const cmpR = node.getThird();
+        let lLit = false;
+        let lc = cmpL;
+        while (lc.expression && ((lc.children.length) == 1)) {
+          lc = lc.getFirst();
+        };
+        if ( lc.value_type == 4 ) {
+          lLit = true;
+        }
+        wr.out("(", false);
+        await this.cppWriteCmpOperand(cmpL, false, ctx, wr);
+        wr.out((" " + cmd) + " ", false);
+        await this.cppWriteCmpOperand(cmpR, lLit, ctx, wr);
+        wr.out(")", false);
+        return;
+      }
       if ( cmd == "return" ) {
         if ( ctx.isInMain() ) {
           wr.out("return 0;", true);
@@ -20536,6 +20567,34 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             return "r#yield";
           case "try" : 
             return "r#try";
+          case "fn" : 
+            return "r#fn";
+          case "let" : 
+            return "r#let";
+          case "loop" : 
+            return "r#loop";
+          case "if" : 
+            return "r#if";
+          case "else" : 
+            return "r#else";
+          case "while" : 
+            return "r#while";
+          case "for" : 
+            return "r#for";
+          case "in" : 
+            return "r#in";
+          case "return" : 
+            return "r#return";
+          case "break" : 
+            return "r#break";
+          case "continue" : 
+            return "r#continue";
+          case "struct" : 
+            return "r#struct";
+          case "enum" : 
+            return "r#enum";
+          case "self" : 
+            return "self_";
         };
         return tn;
       };
@@ -21071,9 +21130,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const is_object = nn.value_type == 10;
           const local_needs_rc_wrap = p.rust_needs_rc_wrap;
           if ( needs_mut || is_object ) {
-            wr.out(("let mut " + p.compiledName) + " : ", false);
+            wr.out(("let mut " + this.adjustType(p.compiledName)) + " : ", false);
           } else {
-            wr.out(("let " + p.compiledName) + " : ", false);
+            wr.out(("let " + this.adjustType(p.compiledName)) + " : ", false);
           }
           const nameN = p.nameNode;
           let rhs_is_optional_field = false;
@@ -21085,12 +21144,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const lastParam = value.nsp[lastIdx];
                 if ( lastParam.is_optional ) {
                   rhs_is_optional_field = true;
+                  const lpNN = lastParam.nameNode;
+                  if ( (typeof(lpNN) !== "undefined" && lpNN != null )  ) {
+                    const lpN = lpNN;
+                    if ( ((lpN.array_type.length) > 0) || ((lpN.key_type.length) > 0) ) {
+                      rhs_is_optional_field = false;
+                    }
+                  }
                 }
               } else {
                 if ( value.hasParamDesc ) {
                   const vp = value.paramDesc;
                   if ( vp.is_optional ) {
                     rhs_is_optional_field = true;
+                    const vpNN = vp.nameNode;
+                    if ( (typeof(vpNN) !== "undefined" && vpNN != null )  ) {
+                      const vpN = vpNN;
+                      if ( ((vpN.array_type.length) > 0) || ((vpN.key_type.length) > 0) ) {
+                        rhs_is_optional_field = false;
+                      }
+                    }
                   }
                 }
               }
@@ -22371,6 +22444,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const tgt_expects_owned = arg.rust_borrow_type == 0;
                     if ( (src_is_ref && tgt_expects_owned) && (needsMutRef == false) ) {
                       wr.out(".clone()", false);
+                    } else {
+                      if ( (tgt_expects_owned && (needsMutRef == false)) && (nVal.value_type == 11) ) {
+                        const ownNN = arg.nameNode;
+                        if ( (typeof(ownNN) !== "undefined" && ownNN != null )  ) {
+                          const ownN = ownNN;
+                          const ownT = ownN.type_name;
+                          let ownIsClone = false;
+                          if ( ownT == "string" ) {
+                            ownIsClone = true;
+                          }
+                          if ( (ownN.array_type.length) > 0 ) {
+                            ownIsClone = true;
+                          }
+                          if ( (ownN.key_type.length) > 0 ) {
+                            ownIsClone = true;
+                          }
+                          if ( ownIsClone ) {
+                            wr.out(".clone()", false);
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -22396,7 +22490,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           const is_self_call = part == "this";
           const selfCallArgIdx = this.findSelfCallInArgs(node);
-          if ( is_self_call && (selfCallArgIdx >= 0) ) {
+          if ( (is_self_call && (selfCallArgIdx >= 0)) && (ctx.expressionLevel() == 0) ) {
             let tempVars_1 = [];
             for ( let argIdx_1 = 0; argIdx_1 < givenArgs.children.length; argIdx_1++) {
               var argNode_1 = givenArgs.children[argIdx_1];
@@ -22855,6 +22949,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( valParam.rust_needs_rc_wrap ) {
                             value_already_rc_wrapped = true;
                           }
+                        }
+                      }
+                      if ( value_already_rc_wrapped == false ) {
+                        if ( this.rustInitRcState(nVal_4, ctx) == 2 ) {
+                          value_already_rc_wrapped = true;
                         }
                       }
                     }
@@ -23567,16 +23666,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( opName == "bit_not" ) {
               return true;
             }
-            if ( opName == "array_length" ) {
-              return true;
-            }
             if ( opName == "itemAt" ) {
-              return true;
-            }
-            if ( opName == "to_int" ) {
-              return true;
-            }
-            if ( opName == "to_double" ) {
               return true;
             }
             if ( opName == "+" ) {
@@ -23732,6 +23822,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 ctx.unsetInExpr();
               }
             };
+          };
+          rustTailBorrowsLocal (node) {
+            if ( (node.ns.length) >= 2 ) {
+              if ( (node.ns[0]) != "this" ) {
+                for ( let si = 0; si < node.nsp.length; si++) {
+                  var seg = node.nsp[si];
+                  if ( seg.rust_needs_rc_wrap ) {
+                    if ( seg.is_class_variable == false ) {
+                      return true;
+                    }
+                  }
+                };
+              }
+            }
+            for ( let ci = 0; ci < node.children.length; ci++) {
+              var ch = node.children[ci];
+              if ( this.rustTailBorrowsLocal(ch) ) {
+                return true;
+              }
+            };
+            return false;
           };
           async walkRustFnBody (fnB, sCtx, wr) {
             const bcnt = fnB.children.length;
@@ -23940,11 +24051,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( cmd == "strfromcode" ) {
               const sfcInFmt = wr.in_format_args;
               wr.out("char::from_u32(", false);
-              wr.suppress_expr_parens = true;
-              ctx.setInExpr();
-              await this.WalkNode(node.getSecond(), ctx, wr);
-              ctx.unsetInExpr();
-              wr.suppress_expr_parens = false;
+              await this.rustWriteBitOperand(node.getSecond(), ctx, wr);
               wr.out(" as u32).unwrap_or('\\0')", false);
               if ( sfcInFmt == false ) {
                 wr.out(".to_string()", false);
@@ -24541,6 +24648,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       return;
                     }
                   }
+                }
+                if ( node.rust_is_tail_return && this.rustTailBorrowsLocal(retVal) ) {
+                  node.rust_is_tail_return = false;
                 }
                 if ( node.rust_is_tail_return == false ) {
                   wr.out("return ", false);

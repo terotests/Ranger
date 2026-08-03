@@ -69,6 +69,21 @@ class RangerRustClassWriter {
       case "virtual" { return "r#virtual" }
       case "yield" { return "r#yield" }
       case "try" { return "r#try" }
+      case "fn" { return "r#fn" }
+      case "let" { return "r#let" }
+      case "loop" { return "r#loop" }
+      case "if" { return "r#if" }
+      case "else" { return "r#else" }
+      case "while" { return "r#while" }
+      case "for" { return "r#for" }
+      case "in" { return "r#in" }
+      case "return" { return "r#return" }
+      case "break" { return "r#break" }
+      case "continue" { return "r#continue" }
+      case "struct" { return "r#struct" }
+      case "enum" { return "r#enum" }
+      ; `self` cannot be a raw identifier — suffix it
+      case "self" { return "self_" }
     }
     return tn
   }
@@ -700,13 +715,17 @@ class RangerRustClassWriter {
       def local_needs_rc_wrap:boolean p.rust_needs_rc_wrap
       
       if (needs_mut || is_object) {
-        wr.out((("let mut " + p.compiledName) + " : ") false)
+        wr.out((("let mut " + (this.adjustType(p.compiledName))) + " : ") false)
       } {
-        wr.out((("let " + p.compiledName) + " : ") false)
+        wr.out((("let " + (this.adjustType(p.compiledName))) + " : ") false)
       }
       def nameN:CodeNode (unwrap p.nameNode)
       
-      ; Rust: Check if RHS is an optional field - we need to unwrap it and use non-optional type
+      ; Rust: Check if RHS is an optional field - we need to unwrap it and use non-optional type.
+      ; An uninitialized member COLLECTION carries is_optional on its desc,
+      ; but the Rust field is a plain Vec/HashMap, never Option — treating it
+      ; as optional dropped the declared type (`let x :  = …`) and added a
+      ; spurious .unwrap() to a field that was never Option.
       def rhs_is_optional_field:boolean false
       if ((array_length node.children) > 2) {
         def value:CodeNode (node.getThird())
@@ -716,6 +735,13 @@ class RangerRustClassWriter {
             def lastParam:RangerAppParamDesc (itemAt value.nsp lastIdx)
             if lastParam.is_optional {
               rhs_is_optional_field = true
+              def lpNN@(optional):CodeNode lastParam.nameNode
+              if (!null? lpNN) {
+                def lpN:CodeNode (unwrap lpNN)
+                if (((strlen lpN.array_type) > 0) || ((strlen lpN.key_type) > 0)) {
+                  rhs_is_optional_field = false
+                }
+              }
             }
           } {
             ; Simple variable reference (no dots) - check paramDesc directly
@@ -723,6 +749,13 @@ class RangerRustClassWriter {
               def vp:RangerAppParamDesc value.paramDesc
               if vp.is_optional {
                 rhs_is_optional_field = true
+                def vpNN@(optional):CodeNode vp.nameNode
+                if (!null? vpNN) {
+                  def vpN:CodeNode (unwrap vpNN)
+                  if (((strlen vpN.array_type) > 0) || ((strlen vpN.key_type) > 0)) {
+                    rhs_is_optional_field = false
+                  }
+                }
               }
             }
           }
@@ -2270,6 +2303,24 @@ class RangerRustClassWriter {
                 def tgt_expects_owned:boolean (arg.rust_borrow_type == 0)
                 if (src_is_ref && tgt_expects_owned && (needsMutRef == false)) {
                   wr.out(".clone()" false)
+                } {
+                  ; a named String or collection handed to an owned
+                  ; parameter would MOVE and break any later use — clone,
+                  ; as the standard call path does
+                  if ((tgt_expects_owned && (needsMutRef == false)) && (nVal.value_type == RangerNodeType.VRef)) {
+                    def ownNN@(optional):CodeNode arg.nameNode
+                    if (!null? ownNN) {
+                      def ownN:CodeNode (unwrap ownNN)
+                      def ownT:string ownN.type_name
+                      def ownIsClone:boolean false
+                      if (ownT == "string") { ownIsClone = true }
+                      if ((strlen ownN.array_type) > 0) { ownIsClone = true }
+                      if ((strlen ownN.key_type) > 0) { ownIsClone = true }
+                      if ownIsClone {
+                        wr.out(".clone()" false)
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2299,7 +2350,9 @@ class RangerRustClassWriter {
       def selfCallArgIdx:int (this.findSelfCallInArgs(node))
       
       ; If this is a self method call and has a self call in arguments, extract to temp var
-      if (is_self_call && (selfCallArgIdx >= 0)) {
+      ; — only at statement level: a `let` cannot be emitted inside an
+      ; expression, and two-phase borrows cover the nested-call shape there
+      if ((is_self_call && (selfCallArgIdx >= 0)) && ((ctx.expressionLevel()) == 0)) {
         ; Extract all self call arguments to temp variables first
         def tempVars:[string]
         for givenArgs.children argNode:CodeNode argIdx {
@@ -2808,6 +2861,14 @@ class RangerRustClassWriter {
                     if valParam.rust_needs_rc_wrap {
                       value_already_rc_wrapped = true
                     }
+                  }
+                }
+                ; an expression that already carries the Rc — an unwrap of a
+                ; strong optional field, a call result — must not take a
+                ; second cell around it
+                if (value_already_rc_wrapped == false) {
+                  if ((this.rustInitRcState(nVal ctx)) == 2) {
+                    value_already_rc_wrapped = true
                   }
                 }
               }
@@ -3590,11 +3651,12 @@ class RangerRustClassWriter {
     if (opName == "bit_shr") { return true }
     if (opName == "bit_ushr") { return true }
     if (opName == "bit_not") { return true }
-    if (opName == "array_length") { return true }
     if (opName == "itemAt") { return true }
-    ; cast tails: `as` binds tighter than every binary operator
-    if (opName == "to_int") { return true }
-    if (opName == "to_double") { return true }
+    ; NOTE: cast tails (to_int, to_double, array_length) must NOT be here:
+    ; `args.len() as i64 < 2` parses `i64 <` as generic arguments, so the
+    ; walker's parens around a cast in a comparison are load-bearing. The
+    ; argument-slot and operand suppression already keep them out of the
+    ; positions clippy warns about.
     if (opName == "+") {
       if (node.eval_type == RangerNodeType.String) {
         return true
@@ -3772,6 +3834,31 @@ class RangerRustClassWriter {
         ctx.unsetInExpr()
       }
     }
+  }
+
+  ; does this expression read through an Rc cell rooted at a body local or
+  ; parameter? A tail expression's temporaries drop AFTER the block's
+  ; locals, so a tail `tok.borrow()…` outlives `tok` (E0597) — such a
+  ; return keeps its statement form. A self-rooted read is safe: the
+  ; receiver outlives the block.
+  fn rustTailBorrowsLocal:boolean (node:CodeNode) {
+    if ((array_length node.ns) >= 2) {
+      if ((itemAt node.ns 0) != "this") {
+        for node.nsp seg:RangerAppParamDesc si {
+          if seg.rust_needs_rc_wrap {
+            if (seg.is_class_variable == false) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode ci {
+      if (this.rustTailBorrowsLocal(ch)) {
+        return true
+      }
+    }
+    return false
   }
 
   ; walks a function body with the tail statement marked, so the return
@@ -3992,11 +4079,7 @@ class RangerRustClassWriter {
     if (cmd == "strfromcode") {
       def sfcInFmt:boolean wr.in_format_args
       wr.out("char::from_u32(" false)
-      wr.suppress_expr_parens = true
-      ctx.setInExpr()
-      this.WalkNode((node.getSecond()) ctx wr)
-      ctx.unsetInExpr()
-      wr.suppress_expr_parens = false
+      this.rustWriteBitOperand((node.getSecond()) ctx wr)
       wr.out(" as u32).unwrap_or('\\0')" false)
       if (sfcInFmt == false) {
         wr.out(".to_string()" false)
@@ -4713,7 +4796,11 @@ class RangerRustClassWriter {
         
         ; Default case - no nested self calls or not a self call.
         ; The last statement of the body is the tail expression: `x`, not
-        ; `return x;` — the marker was set when the body walk began.
+        ; `return x;` — the marker was set when the body walk began. A tail
+        ; that borrows a body local keeps the statement form (E0597).
+        if (node.rust_is_tail_return && (this.rustTailBorrowsLocal(retVal))) {
+          node.rust_is_tail_return = false
+        }
         if (node.rust_is_tail_return == false) {
           wr.out("return " false)
         }

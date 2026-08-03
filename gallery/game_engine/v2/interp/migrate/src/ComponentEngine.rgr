@@ -12328,9 +12328,28 @@ class ComponentEngine {
             ; method answered as though an array-like receiver were empty.
             ; The mutating methods below keep using recv.arrayValue: they write
             ; back into the receiver, which only a real array has.
-            def elems:[EvalValue] recv.arrayValue
-            if (false == (recv.isArray())) {
-                elems = (this.arrayLikeElements(recv))
+            ; PERF: the mutators below never read `elems` — they write through
+            ; recv.arrayValue directly. On the es6 target this def is an alias
+            ; and free; on C++ a local from a field is a full vector copy, so
+            ; taking it on every push turned the array path superlinear
+            ; (5.8x cost for 2x elements). The copy is skipped for the
+            ; mutator names; every branch that reads `elems` still gets it.
+            def isArrayMutator:boolean false
+            if (name == "push") { isArrayMutator = true }
+            if (name == "pop") { isArrayMutator = true }
+            if (name == "shift") { isArrayMutator = true }
+            if (name == "unshift") { isArrayMutator = true }
+            if (name == "splice") { isArrayMutator = true }
+            if (name == "reverse") { isArrayMutator = true }
+            if (name == "sort") { isArrayMutator = true }
+            if (name == "fill") { isArrayMutator = true }
+            def elems:[EvalValue]
+            if (false == isArrayMutator) {
+                if (recv.isArray()) {
+                    elems = recv.arrayValue
+                } {
+                    elems = (this.arrayLikeElements(recv))
+                }
             }
             def alen:int (array_length elems)
             ; D-ARRAYLIKE: reading `length` can THROW -- it may be an accessor --

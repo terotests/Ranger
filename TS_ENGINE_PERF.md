@@ -1,5 +1,59 @@
 # TS engine — native compilation and performance
 
+> **Update (branch `claude/ts-engine-native-perf-fixes`, 2026-08-03).** The
+> two headline defects below are found and fixed; the numbers in the body of
+> this document are kept as the historical baseline.
+>
+> **Why C++ was slower than JavaScript — two causes, both measured by
+> callgrind on the `array_half` workload (62% of all instructions in
+> `std::vector` copy-construction/destruction, 14% in `std::string`
+> construction from literals):**
+>
+> 1. **The array path copied the whole backing vector on every builtin
+>    call.** `invokeBuiltin`'s array block opened with
+>    `def elems:[EvalValue] recv.arrayValue` — an alias on the es6 target,
+>    a full `std::vector` copy on C++ — before dispatching, so every
+>    `a.push(x)` copied the entire array first: O(n²) where the same source
+>    is linear on es6. The copy is now skipped for the eight mutator names
+>    (they write through `recv.arrayValue` directly and never read `elems`).
+>    `array` fell from 1296 ms to 116 ms and the scaling canary from 4.9x
+>    to ~1.9x for 2x elements (linear, same as the JS build).
+> 2. **Every string comparison against a literal allocated.** The C++
+>    writer emitted `name == std::string("push")` — 2016 sites, and the
+>    interpreter's dispatch is a chain of such comparisons per call. The
+>    writer now emits the literal bare (`name == "push"`,
+>    `operator==(const std::string&, const char*)` — no construction).
+>
+> With both fixes the C++ build's geometric mean improved from **190x to
+> 84x** vs Node (the JS build is 40x) — from ~4x slower than the JS build
+> to ~2x — with every workload still returning the same answer. The
+> remaining gap is the value model this document already describes (an
+> `EvalValue` allocation per arithmetic result, red-black-tree maps per
+> object), which suits V8's nursery and charges list price under malloc:
+> the flat profile is now string-compare dispatch, `std::map::find` and
+> `shared_ptr` traffic, with no single defect left on top.
+>
+> **Rust:** the backend work that landed on master since this document was
+> written (the shared-class `Rc<RefCell<T>>` default, `&self` receivers,
+> the borrow routing) plus this branch's fixes — the phantom-optional
+> collection type drop (`let x :  = …` with a spurious `.unwrap()`), the
+> statement-temp emitted inside a `let` initializer, `let`/`fn`/`mod` and
+> other keywords as identifiers, cast parens in `<` comparisons
+> (`x as i64 < 2` parses as generics), tail-expression borrows of body
+> locals (E0597), and a move of a named String argument — take the
+> **TS parser from 37 errors to 0: it builds and runs as a native Rust
+> binary for the first time.** The interpreter itself is down from 676
+> errors to 235, all now semantic: `has`/field reads on
+> `&mut Rc<RefCell<T>>` receivers (44), lambda-captured fields referenced
+> as bare locals (16), `__singleton` support (14), and
+> `Rc<RefCell<Option<T>>>` double-wrap shapes — the borrow-routing work
+> the "order of attack" below already names, with the parser now available
+> as the proven smaller harness.
+>
+> **Still open:** the key-order conformance divergence (needs an
+> insertion-ordered map in the C++ runtime), and the engine's remaining
+> 235 Rust errors.
+
 Where the TypeScript/JavaScript interpreter (`gallery/game_engine/v2/interp`)
 stands when compiled to a native target, why the C++ build is currently slower
 than the JavaScript one, and why the Rust build does not compile at all.

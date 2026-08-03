@@ -5451,6 +5451,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
             templates {
                 java7 ( (e 1) ".equals(" (e 2) ")" )
                 rust ( (custom _) )
+                cpp ( (custom _) )
                 * ( (e 1) " == " (e 2) )
             }
         }
@@ -5542,6 +5543,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
             templates {
                 java7 ( "!" (e 1) ".equals(" (e 2) ")")
                 rust ( (custom _) )
+                cpp ( (custom _) )
                 * ( (e 1) " != " (e 2) )
             }
         }
