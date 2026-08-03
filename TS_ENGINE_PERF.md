@@ -57,10 +57,31 @@
 > A conformance probe binary (`bench/native/probe_main.rgr`) evaluates
 > one JS snippet from argv for quick divergence hunting.
 >
+> **Native benchmark (engine work-only ms, same machine/session as the
+> Node table below; both binaries produce the same answers as Node):**
+>
+> | case | engine on Node | Rust `-O` | C++ `-O2` |
+> |---|---|---|---|
+> | loop | 46.8 | 87.7 | 88.4 |
+> | fib | 33.9 | 59.2 | 61.2 |
+> | strcat | 25.5 | 71.2 | 75.5 |
+> | array | 95.8 | 168.8 | 147.6 |
+> | object | 40.6 | 62.1 | 71.7 |
+> | method | 77.9 | 133.5 | 140.4 |
+> | regex | 46.5 | 85.2 | 77.5 |
+>
+> Geometric mean: **Rust 1.86x, C++ 1.88x the engine-on-Node time** — the
+> two native targets are effectively tied, and both still trail V8
+> running the same interpreter source, which is the honest headline for
+> an interpreter workload: V8's JITted property access and GC beat
+> per-node `Rc<RefCell>`/`shared_ptr` traffic. The C++ side started this
+> branch at 4x-and-quadratic; the remaining native gap is now an
+> optimization question (value-model flattening, fewer per-value
+> allocations), not a correctness one.
+>
 > **Still open:** the key-order conformance divergence on BOTH native
 > targets (needs an insertion-ordered map in the compiler's map
-> runtime), and a native-vs-Node benchmark run now that the Rust build
-> is real.
+> runtime).
 
 Where the TypeScript/JavaScript interpreter (`gallery/game_engine/v2/interp`)
 stands when compiled to a native target, why the C++ build is currently slower
