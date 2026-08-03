@@ -6621,6 +6621,20 @@ class TSParserSimple  {
   parseUnary () {
     const tokVal = this.peekValue();
     const tokIsPunct = this.peekType() == "Punctuator";
+    let tokIsLiteral = false;
+    const tokKindU = this.peekType();
+    if ( tokKindU == "String" ) {
+      tokIsLiteral = true;
+    }
+    if ( tokKindU == "Number" ) {
+      tokIsLiteral = true;
+    }
+    if ( tokKindU == "Boolean" ) {
+      tokIsLiteral = true;
+    }
+    if ( tokKindU == "Null" ) {
+      tokIsLiteral = true;
+    }
     if ( tokIsPunct && ((tokVal == "++") || (tokVal == "--")) ) {
       const opTok = this.peek();
       this.advance();
@@ -6650,7 +6664,7 @@ class TSParserSimple  {
       return unary;
     }
     if ( tokIsPunct == false ) {
-      if ( ((tokVal == "typeof") || (tokVal == "void")) || (tokVal == "delete") ) {
+      if ( (false == tokIsLiteral) && (((tokVal == "typeof") || (tokVal == "void")) || (tokVal == "delete")) ) {
         const opAfter = this.peekNextValue();
         if ( opAfter == "(" ) {
           let scanIdx = this.pos + 1;
@@ -6680,7 +6694,7 @@ class TSParserSimple  {
         }
       }
     }
-    if ( (tokVal == "void") || (tokVal == "delete") ) {
+    if ( (false == tokIsLiteral) && ((tokVal == "void") || (tokVal == "delete")) ) {
       const opTok_2 = this.peek();
       this.advance();
       const arg_2 = this.parseUnary();
@@ -6700,7 +6714,7 @@ class TSParserSimple  {
       unary_1.col = opTok_2.col;
       return unary_1;
     }
-    if ( tokVal == "typeof" ) {
+    if ( (tokVal == "typeof") && (false == tokIsLiteral) ) {
       const opTok_3 = this.peek();
       this.advance();
       const arg_3 = this.parseUnary();
@@ -6713,7 +6727,7 @@ class TSParserSimple  {
       unary_2.col = opTok_3.col;
       return unary_2;
     }
-    if ( (tokVal == "yield") && this.inGenerator ) {
+    if ( (tokVal == "yield") && (this.inGenerator && (this.peekType() != "String")) ) {
       const yieldTok = this.peek();
       if ( this.inParamList ) {
         this.syntaxError("Parse error: a parameter default may not contain a yield expression");
@@ -6770,7 +6784,7 @@ class TSParserSimple  {
       }
       return yieldExpr;
     }
-    if ( tokVal == "await" ) {
+    if ( (tokVal == "await") && (this.peekType() != "String") ) {
       const awaitTok = this.peek();
       this.advance();
       const arg_4 = this.parseUnary();

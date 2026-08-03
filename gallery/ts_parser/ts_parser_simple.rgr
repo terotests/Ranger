@@ -5839,6 +5839,16 @@ class TSParserSimple {
     ; never when it is a string/number literal whose text happens to equal an
     ; operator (e.g. the literal "-" in arr.join("-") or "++" as a string).
     def tokIsPunct:boolean ((this.peekType()) == "Punctuator")
+    ; The same trap for the KEYWORD operators: `typeof`, `void` and `delete`
+    ; matched on the token's text, so the string literals "typeof", "void" and
+    ; "delete" were consumed as operators. Every keyword-operator test below is
+    ; guarded on the token not being a literal.
+    def tokIsLiteral:boolean false
+    def tokKindU:string (this.peekType())
+    if (tokKindU == "String") { tokIsLiteral = true }
+    if (tokKindU == "Number") { tokIsLiteral = true }
+    if (tokKindU == "Boolean") { tokIsLiteral = true }
+    if (tokKindU == "Null") { tokIsLiteral = true }
 
     ; Handle prefix ++ and --
     if (tokIsPunct && ((tokVal == "++") || (tokVal == "--"))) {
@@ -5874,7 +5884,7 @@ class TSParserSimple {
     }
 
     if (tokIsPunct == false) {
-      if ((tokVal == "typeof") || (tokVal == "void") || (tokVal == "delete")) {
+      if ((false == tokIsLiteral) && ((tokVal == "typeof") || (tokVal == "void") || (tokVal == "delete"))) {
         ; An arrow function is not a UnaryExpression operand; it needs parens.
         def opAfter:string (this.peekNextValue())
         if (opAfter == "(") {
@@ -5902,7 +5912,7 @@ class TSParserSimple {
       }
     }
 
-    if ((tokVal == "void") || (tokVal == "delete")) {
+    if ((false == tokIsLiteral) && ((tokVal == "void") || (tokVal == "delete"))) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
@@ -5924,7 +5934,7 @@ class TSParserSimple {
       return unary
     }
 
-    if (tokVal == "typeof") {
+    if ((tokVal == "typeof") && (false == tokIsLiteral)) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
@@ -5939,7 +5949,7 @@ class TSParserSimple {
     }
     
     ; yield expression: yield value, yield* generator()
-    if ((tokVal == "yield") && this.inGenerator) {
+    if ((tokVal == "yield") && (this.inGenerator && ((this.peekType()) != "String"))) {
       def yieldTok (this.peek())
       if (this.inParamList) {
         this.syntaxError("Parse error: a parameter default may not contain a yield expression")
@@ -5991,8 +6001,12 @@ class TSParserSimple {
       return yieldExpr
     }
     
-    ; await expression
-    if (tokVal == "await") {
+    ; await expression. The token TYPE has to be checked: a string literal whose
+    ; text happens to be "await" is not the operator, and matching on the value
+    ; alone swallowed it -- `var x = 'await';` did not parse, and neither did the
+    ; reserved-words tests that name every keyword as both a key and a value.
+    ; Same trap the `<` guard below documents.
+    if ((tokVal == "await") && ((this.peekType()) != "String")) {
       def awaitTok (this.peek())
       this.advance()
       def arg (this.parseUnary())

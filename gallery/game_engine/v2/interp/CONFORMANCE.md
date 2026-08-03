@@ -358,6 +358,13 @@ them aside cannot quietly flatter the remaining number.
   was read, so the loop ran its body with `k` never set. A property deleted before
   it is reached is also no longer visited — the key list is snapshotted at entry.
 
+- **A keyword's TEXT inside a string literal is not the keyword.** `await`,
+  `delete`, `typeof`, `void` and `yield` were matched on the token's *value* with
+  no check of its *type*, so the string literals `'await'` and `'delete'` were
+  consumed as operators — `var x = 'delete';` did not parse. The `<` guard beside
+  them had documented exactly this trap for type assertions; the keyword operators
+  had never been given it.
+
 - **`typeof NaN` is `"number"`.** A value property of the global object was
   resolved by asking for a *namespace* of that name, which minted an empty object
   — so `NaN` and `Infinity` both reported `"object"`. The global object holds the
@@ -680,10 +687,10 @@ more, not less.
 | `language/statements` | 96% (541/562) |
 | `language/function-code` | 96% (204/212) |
 | `language/eval-code` | 96% (55/57) |
+| `language/reserved-words` | **100%** (13/13, whole directory) |
 | `language/types` | 94% (88/94) |
 | `language/directive-prologue` | 94% (48/51) |
-| `language/reserved-words` | 69% (9/13) |
-| ES5 overall | **99.8%** (898/900 sampled) |
+| ES5 overall | **99.9%** (899/900 sampled; 1399/1400 on the wider sample) |
 
 `built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
 `built-ins/RegExp`, `built-ins/Array`, `built-ins/Math`, `built-ins/Date`,
@@ -691,8 +698,8 @@ more, not less.
 directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1211 checks, every one of them derived from Node —
-1199 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1220 checks, every one of them derived from Node —
+1208 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

@@ -1382,6 +1382,17 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["callee-strict-write-throws", "return (function () { 'use strict'; var a = (function () { return arguments; })(); try { a.callee = {}; return 'no-throw'; } catch (e) { return e.name; } })();", "callee"],
   ["callee-strict-descriptor", "return (function () { 'use strict'; function f() { return Object.getOwnPropertyDescriptor(arguments, 'callee'); } var d = f(); return String(d.configurable) + '/' + String(d.enumerable) + '/' + String(d.hasOwnProperty('value')) + '/' + String(d.hasOwnProperty('get')) + '/' + String(d.hasOwnProperty('set')); })();", "callee"],
 
+  // --- a keyword's TEXT in a string literal is not the keyword ---------------
+  ["strlit-await", "var x = 'await'; return x;", "kwtext"],
+  ["strlit-delete", "var x = 'delete'; return x;", "kwtext"],
+  ["strlit-typeof", "var x = 'typeof'; return x;", "kwtext"],
+  ["strlit-void", "var x = 'void'; return x;", "kwtext"],
+  ["strlit-yield", "var x = 'yield'; return x;", "kwtext"],
+  ["strlit-as-argument", "function f(a) { return a; } return f('await') + f('delete');", "kwtext"],
+  ["keyword-keys-and-values", "var o = { await: 'await', delete: 'delete', typeof: 'typeof', in: 'in', do: 'do' }; return o.await + o.delete + o.typeof + o.in + o.do;", "kwtext"],
+  ["keyword-accessor-and-member", "var o = { get delete() { return 'g'; } }; o.typeof = 't'; return o.delete + o.typeof;", "kwtext"],
+  ["operators-still-work", "var o = { a: 1 }; return String(delete o.a) + '/' + typeof o + '/' + String(void 0);", "kwtext"],
+
   // --- the value globals, non-configurable delete, sloppy reserved words ----
   ["typeof-nan-is-number", "return typeof NaN;", "globals"],
   ["typeof-infinity-is-number", "return typeof Infinity;", "globals"],
