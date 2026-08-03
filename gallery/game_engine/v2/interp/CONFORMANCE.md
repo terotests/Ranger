@@ -313,6 +313,71 @@ them aside cannot quietly flatter the remaining number.
   new rule from rejecting those; only an Identifier key had been recognised, and the
   silent-acceptance bug was hiding it.
 
+- **`finally` runs on an abrupt completion.** A `return`, `break`, `continue` or
+  pending throw in the try block sets a flag that every statement path bails on, so
+  the finally block was reached and then immediately skipped — the one thing the
+  clause exists for. The pending completion is set aside for its duration and
+  restored afterwards, unless the finally produces an abrupt completion of its own,
+  which per spec replaces it: `try { return 1 } finally { return 2 }` is 2, and
+  `try { throw x } finally { break }` leaves the loop with no exception.
+
+- **Labelled statements execute.** `LabeledStatement` had no case at all, so
+  `outer: for (…)` ran *nothing*. A loop now claims the labels attached to it, and a
+  `break`/`continue` naming an outer label passes straight through the inner loops
+  rather than being consumed by the nearest one. A labelled block consumes a break
+  that names it, which is what makes `blk: { break blk; }` leave the block.
+  The switch-case parser also hand-rolled its `break`, dropping the label, so
+  `case 2: break L;` parsed as a bare break followed by an expression statement `L`.
+
+- **A `for` loop's update and init clauses are expressions, not just assignments.**
+  `for (…; …; i++, j--)` never ran its update — the comma expression fell through
+  the assignment-only path — so the counter stood still and the loop ran to the
+  iteration cap. `for (i = 0; …)` with a non-declaration init did not initialise at
+  all, and the body never executed; several tests were passing *vacuously* because
+  of it, one of which (`localeCompare` with no argument) turned out to be a real
+  defect once the loop started running.
+
+- **`delete <name>` is a real operation.** It answered true and removed nothing.
+  What the name resolves to decides the answer: a property of a `with` object is
+  deleted, a declared `var`/function is non-configurable and answers false, a
+  binding created by assignment to an undeclared name goes, and an unresolvable
+  name is true. Which names are implicit is now tracked, since nothing else in the
+  engine distinguished the two.
+
+- **A `var` initialiser inside `with` writes the object's property.** The
+  declaration hoists out of the block and stays undefined; the initialiser is an
+  ordinary assignment and goes through the with scope. That is the whole of
+  §12.10's interaction with declarations, and about twenty tests turn on it.
+
+- **`eval` returns the last non-empty Statement completion**, not the last
+  top-level *expression statement*. A value produced inside a loop, an `if` or a
+  `try` now reaches it, so `eval("if (true) { 42; }")` is 42 and
+  `eval("for (i in o) s += o[i]")` is the body's last value.
+
+- **`for (k in o)` over an existing binding assigns it.** Only the declaration form
+  was read, so the loop ran its body with `k` never set. A property deleted before
+  it is reached is also no longer visited — the key list is snapshotted at entry.
+
+- **A generic `Array.prototype` method asks the object, not a snapshot.**
+  `length` is read with a full `[[Get]]` so an accessor runs (and a throwing one is
+  the answer, ahead of the callback-callable check, as the spec orders it); each
+  index is re-checked for presence and re-read at the step that needs it, so a
+  callback that shortens the array or deletes an element is observed. An index the
+  object does not have — anywhere up its prototype chain — is *absent*, not
+  undefined, so the iteration methods skip it exactly as they skip an array hole,
+  and an index inherited from `Object.prototype` is visited.
+
+- **An array hole is only absent on the array itself.** An array carries no
+  prototype link of its own, so the value layer's chain walk stopped there and
+  `Array.prototype[1] = 7; [0,,][1]` read undefined. `concat` copies such an
+  inherited index too, and no longer spreads a receiver that is not an array —
+  `Object.prototype.concat = Array.prototype.concat; ({0: 0}).concat()` is one
+  element, whatever `length` it happens to inherit.
+
+- **`Array.prototype.toLocaleString` exists.** It called nothing and answered
+  undefined; it now calls each element's own `toLocaleString` and joins with a
+  comma, with a null or undefined element contributing the empty string.
+
 - **A built-in prototype stringifies like the value it stands for.**
   `String(Error.prototype)` is `"Error"` and `String(RegExp.prototype)` is `"/(?:)/"`,
   where the fall-through used to hand back the engine's own debug rendering of the
@@ -422,7 +487,6 @@ Tagged in the source with these markers.
 | `D-CLASSOF` | The `[[Class]]` brand behind `Object.prototype.toString`. The only way a program can observe an internal type, and 86 ES5 files capture the method under the name `getClass` to assert it. |
 | `D-STRICT` | Strict mode. `writeRefusalError` mirrors `setMember`'s silent-refusal conditions so the two cannot disagree. A function's own strictness is stamped on the value at creation, because poisoning `caller`/`arguments` turns on the ACCESSED function's strictness, not the accessing code's. |
 | `D-STRNUM` | ToNumber on a string follows the StringNumericLiteral grammar rather than the host parser, which is lenient (`"12x"` → 12) and knows nothing of `0x`/`0b`/`0o`. |
-| `D-ARRAYLIKE` | Array.prototype methods are generic over their receiver. The mutating ones still require a real array, since they write back into it. |
 | `D-REGEX` | The pattern grammar as a node tree, matched by backtracking. See §2.5. |
 | `D-ARGUMENTS` | `arguments` as an array-like OBJECT — brands as `[object Arguments]`, and `Array.isArray` says false. |
 | `D-FNSRC` | A function value carries the WHOLE source string it was parsed from, not a pre-cut slice, and `Function.prototype.toString` cuts `[node.start, node.end)` out of it. The whole string, because a nested function's offsets are absolute in the same one; a call swaps the source in effect so a closure returned by an eval'd factory records its own. |
@@ -432,6 +496,11 @@ Tagged in the source with these markers.
 | `D-VALUEOF` | Every prototype's `valueOf` begins with `ToObject(this)`, so a null/undefined receiver throws before anything else — and a BUILT-IN never receives the sloppy-mode global-`this` substitution an ordinary function does, which is why the unbound `Object.prototype.valueOf()` throws. `Object.prototype`'s own `valueOf` boxes; the wrapper prototypes' unwrap. |
 | `D-NEWCALLEE` | `new <expression>` where the expression is a CALL constructs through the value the call returns. There is no name to look up, so the name-keyed constructor path cannot see it. |
 | `D-REGEXACCESSOR` | `source`/`global`/`ignoreCase`/`multiline` are accessors on `RegExp.prototype`, registered under a kind of their own (`regexpget`) so they are dispatchable values without becoming methods anyone can call as `re.source()`. The instance keeps its ES5 own data properties as well, so the two shapes coexist — see §2.4. |
+| `D-FINALLY` | A pending abrupt completion is set aside while the finally block runs and restored after, unless the finally produced one of its own — which replaces it. |
+| `D-LABELS` | A labelled break/continue carries the NAME alongside the flag. A loop takes the labels attached to it on entry; an abrupt completion whose label is not one of them stops the loop and stays set for the statement that owns it. |
+| `D-COMPLETION` | The completion value lives on the statement runner, not at the top level, so a value produced inside a loop or an `if` reaches `eval`. Only an ExpressionStatement produces one; every other kind completes empty and leaves the previous value standing. |
+| `D-ARRAYLIKE` | Array.prototype methods are generic over their receiver — the mutating ones still require a real array, since they write back into it — and read it LIVE: `length` once at the start through a full `[[Get]]`, then presence and value per index at the step that needs them. An absent index answers the same hole sentinel a real array's hole does, so every skip site already handles it. |
+| `D-DELETE` | Names created by assignment to an undeclared identifier are tracked, because that is the only thing separating a configurable implicit global from a non-configurable declared binding — and `delete` answers differently for the two. |
 | `D-DATE` | A Date is arithmetic on one time value (`DateTime.rgr`, ECMA-262 §15.9.1). Local time is UTC and the clock is `hostNowMs`, so every result is reproducible. The default ToPrimitive hint behaves as STRING for a Date and as NUMBER for everything else, which is what makes `date + ''` the date's text while `+date` is its time. |
 
 ### Framework surface is deliberately outside the registry
@@ -456,18 +525,18 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 | `built-ins/Boolean` | **100%** (7/7, whole directory) |
 | `built-ins/Object` | **100%** (2080/2080, whole directory) |
 | `built-ins/Function` | **100%** (361/361, whole directory) |
+| `language/statements` | 93% (522/562) |
 | `built-ins/Math` | 91% (74/81) |
-| `built-ins/RegExp` | 76% (373/490) |
-| `built-ins/Array` | 75% (159/212) |
-| `language/statements` | 74% (414/562) |
-| ES5 overall | **93.7%** (843/900 sampled) |
+| `built-ins/Array` | 87% (184/212) |
+| `built-ins/RegExp` | 77% (375/490) |
+| ES5 overall | **96.3%** (867/900 sampled) |
 
 `built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function` and
 `language/expressions` are each at 100% of their whole directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1028 checks, every one of them derived from Node —
-1016 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1086 checks, every one of them derived from Node —
+1074 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

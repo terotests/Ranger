@@ -3405,18 +3405,13 @@ class TSParserSimple {
       ; Parse consequent statements
       while (((this.matchValue("case")) == false) && ((this.matchValue("default")) == false) && ((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
         def beforePos:int this.pos
-        if (this.matchValue("break")) {
-          def breakNode (new TSNode())
-          breakNode.nodeType = "BreakStatement"
-          this.advance()
-          if (this.matchValue(";")) {
-            this.advance()
-          }
-          push caseNode.children breakNode
-        } {
-          def stmt (this.parseStatement())
-          push caseNode.children stmt
-        }
+        ; A case body's `break` is parsed by the ordinary statement parser, which
+        ; is the one that knows about `break label`. The hand-rolled version here
+        ; consumed only the keyword, so `case 2: break L;` came out as a bare
+        ; break followed by an expression statement `L` -- the label silently
+        ; became a no-op and the break stopped the switch instead of the loop.
+        def stmt (this.parseStatement())
+        push caseNode.children stmt
         this.guardNoProgress(beforePos)
       }
       

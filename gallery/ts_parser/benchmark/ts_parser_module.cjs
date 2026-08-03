@@ -4763,18 +4763,8 @@ class TSParserSimple  {
       }
       while ((((this.matchValue("case") == false) && (this.matchValue("default") == false)) && (this.matchValue("}") == false)) && (this.isAtEnd() == false)) {
         const beforePos = this.pos;
-        if ( this.matchValue("break") ) {
-          const breakNode = new TSNode();
-          breakNode.nodeType = "BreakStatement";
-          this.advance();
-          if ( this.matchValue(";") ) {
-            this.advance();
-          }
-          caseNode.children.push(breakNode);
-        } else {
-          const stmt = this.parseStatement();
-          caseNode.children.push(stmt);
-        }
+        const stmt = this.parseStatement();
+        caseNode.children.push(stmt);
         this.guardNoProgress(beforePos);
       };
       node.children.push(caseNode);

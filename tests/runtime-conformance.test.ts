@@ -1275,15 +1275,15 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["new-callexpression-callee", "var obj = new (Function('function f(){this.p1=1;};return f').apply()); return obj.p1;", "newcallee"],
   ["new-bound-builtin-date", "function construct(f, args) { var bound = Function.prototype.bind.apply(f, [null].concat(args)); return new bound(); } return Object.prototype.toString.call(construct(Date, [1957, 4, 27]));", "newcallee"],
   ["new-bound-this-ignored", "var obj = { p: 1 }; var f = function () { return Object.prototype.toString.call(this); }; var B = Function.prototype.bind.call(f, obj); var seen = ''; var g = function () { seen = String(this === obj); }; var C = Function.prototype.bind.call(g, obj); new C(); return seen;", "newcallee"],
-  ["new-instance-inherits-object-proto", "Object.prototype.vtProbe = 'VT'; function F() {} var out = String(new F().vtProbe); delete Object.prototype.vtProbe; return out;", "newcallee"],
-  ["new-bound-instance-inherits", "Object.prototype.vtProbe2 = 'VT'; var F = function () {}; var B = F.bind({}); var out = String(new B().vtProbe2); delete Object.prototype.vtProbe2; return out;", "newcallee"],
+  ["new-instance-inherits-object-proto", "Object.defineProperty(Object.prototype, 'vtProbe', { value: 'VT', configurable: true }); function F() {} var out = String(new F().vtProbe); delete Object.prototype.vtProbe; return out;", "newcallee"],
+  ["new-bound-instance-inherits", "Object.defineProperty(Object.prototype, 'vtProbe2', { value: 'VT', configurable: true }); var F = function () {}; var B = F.bind({}); var out = String(new B().vtProbe2); delete Object.prototype.vtProbe2; return out;", "newcallee"],
 
   // --- a registry method deleted off its prototype stays deleted -------------
-  ["delete-objproto-tostring-typeof", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out = typeof Object.prototype.toString; Object.prototype.toString = saved; return out;", "protodelete"],
-  ["delete-objproto-tostring-throws", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out; try { Object.prototype.toString(); out = 'no-throw'; } catch (e) { out = e.name; } Object.prototype.toString = saved; return out;", "protodelete"],
-  ["delete-objproto-tostring-hides-from-object", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out = typeof ({}).toString; Object.prototype.toString = saved; return out;", "protodelete"],
-  ["delete-restore-brings-back", "var saved = Object.prototype.toString; delete Object.prototype.toString; Object.prototype.toString = saved; return ({}).toString();", "protodelete"],
-  ["delete-kindproto-falls-back", "var saved = Number.prototype.toString; delete Number.prototype.toString; var out = new Number().toString(); Number.prototype.toString = saved; return out;", "protodelete"],
+  ["delete-objproto-tostring-typeof", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out = typeof Object.prototype.toString; Object.defineProperty(Object.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return out;", "protodelete"],
+  ["delete-objproto-tostring-throws", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out; try { Object.prototype.toString(); out = 'no-throw'; } catch (e) { out = e.name; } Object.defineProperty(Object.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return out;", "protodelete"],
+  ["delete-objproto-tostring-hides-from-object", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out = typeof ({}).toString; Object.defineProperty(Object.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return out;", "protodelete"],
+  ["delete-restore-brings-back", "var saved = Object.prototype.toString; delete Object.prototype.toString; Object.defineProperty(Object.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return ({}).toString();", "protodelete"],
+  ["delete-kindproto-falls-back", "var saved = Number.prototype.toString; delete Number.prototype.toString; var out = new Number().toString(); Object.defineProperty(Number.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return out;", "protodelete"],
 
   // --- RegExp.prototype publishes source/global/ignoreCase/multiline as
   // accessors, which is what getOwnPropertyDescriptor is asked about. ---------
@@ -1304,6 +1304,74 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["accessor-string-name", "var o = { get 'a'() { return 2; } }; return String(o.a);", "litsep"],
   ["accessor-number-name", "var o = { get 10() { return 3; } }; return String(o[10]);", "litsep"],
   ["object-get-as-plain-key", "var o = { get: 1, set: 2 }; return String(o.get) + ',' + String(o.set);", "litsep"],
+
+  // --- labelled statements, and finally on an abrupt completion --------------
+  ["label-break-outer", "var out = ''; outer: for (var i = 0; i < 3; i++) { for (var j = 0; j < 3; j++) { if (j === 1) { break outer; } out += '' + i + j; } } return out;", "labels"],
+  ["label-continue-outer", "var out = ''; outer: for (var i = 0; i < 3; i++) { for (var j = 0; j < 3; j++) { if (j === 1) { continue outer; } out += '' + i + j; } } return out;", "labels"],
+  ["label-break-block", "var out = ''; blk: { out += 'a'; break blk; out += 'b'; } return out;", "labels"],
+  ["label-break-own-loop", "var out = ''; lbl: for (var i = 0; i < 4; i++) { if (i === 2) { break lbl; } out += i; } return out;", "labels"],
+  ["label-continue-own-loop", "var out = ''; lbl: for (var i = 0; i < 4; i++) { if (i === 2) { continue lbl; } out += i; } return out;", "labels"],
+  ["label-chain", "var out = ''; a: b: for (var i = 0; i < 3; i++) { if (i === 1) { break a; } out += i; } return out;", "labels"],
+  ["label-while", "var out = ''; var i = 0; w: while (i < 5) { i++; if (i === 2) { continue w; } if (i === 4) { break w; } out += i; } return out;", "labels"],
+  ["label-do-while", "var out = ''; var i = 0; d: do { i++; if (i === 2) { break d; } out += i; } while (i < 5); return out;", "labels"],
+  ["label-forin", "var o = { a: 1, b: 2, c: 3 }; var out = ''; L: for (var k in o) { if (k === 'b') { continue L; } out += k; } return out;", "labels"],
+  ["label-switch-in-loop", "var out = ''; L: for (var i = 0; i < 4; i++) { switch (i) { case 2: break L; default: out += i; } } return out;", "labels"],
+  ["unlabelled-break-still-inner", "var out = ''; outer: for (var i = 0; i < 2; i++) { for (var j = 0; j < 3; j++) { if (j === 1) { break; } out += '' + i + j; } } return out;", "labels"],
+
+  ["finally-on-return", "var g = ''; function f() { try { return 1; } finally { g = 'F'; } } var v = f(); return g + '/' + v;", "finally"],
+  ["finally-on-break", "var s = ''; for (var i = 0; i < 3; i++) { try { s += 'T'; break; } finally { s += 'F'; } } return s;", "finally"],
+  ["finally-on-continue", "var s = ''; for (var i = 0; i < 2; i++) { try { s += 'T'; continue; } finally { s += 'F'; } } return s;", "finally"],
+  ["finally-on-throw", "var s = ''; try { try { s += 'T'; throw 1; } finally { s += 'F'; } } catch (e) { s += 'C'; } return s;", "finally"],
+  ["finally-return-overrides-return", "function f() { try { return 1; } finally { return 2; } } return f();", "finally"],
+  ["finally-return-overrides-throw", "function f() { try { throw 1; } finally { return 2; } } return f();", "finally"],
+  ["finally-break-swallows-throw", "var s = ''; for (var i = 0; i < 3; i++) { try { throw 1; } finally { break; } } return 'ok' + i;", "finally"],
+  ["finally-catch-and-finally-on-return", "var g = ''; function f() { try { return 1; } catch (e) {} finally { g = 'F'; } } var v = f(); return g + '/' + v;", "finally"],
+  ["finally-normal-still-runs", "var s = ''; try { s += 'T'; } finally { s += 'F'; } return s;", "finally"],
+
+  // --- for-clause forms, and delete of a NAME --------------------------------
+  ["for-update-comma", "var s = ''; for (var i = 0, j = 5; i < 3; i++, j--) { s += '' + i + j; } return s;", "forclause"],
+  ["for-expression-init", "var s = ''; var i; for (i = 0; i < 3; i++) { s += '' + i; } return s;", "forclause"],
+  ["for-init-side-effect", "var log = ''; var i; for (i = (log += 'I', 0); i < 2; i++) { log += 'B'; } return log;", "forclause"],
+  ["forin-delete-skips", "var o = { p1: 1, p2: 2, p3: 3 }; var s = ''; for (var k in o) { delete o.p3; s += k; } return s;", "forclause"],
+  ["delete-with-property", "var o = { p: 1 }; var d; with (o) { d = delete p; } return String(d) + '/' + String(o.p);", "forclause"],
+  ["delete-var-is-false", "var v = 1; return String(delete v) + '/' + String(v);", "forclause"],
+  ["delete-function-is-false", "function fn() {} return String(delete fn) + '/' + typeof fn;", "forclause"],
+  ["delete-implicit-global", "impl = 5; return String(delete impl) + '/' + String(typeof impl);", "forclause"],
+  ["delete-unresolvable-is-true", "return String(delete nosuchnameanywhere);", "forclause"],
+  ["with-var-writes-property", "var o = { value: 'V' }; function f() { with (o) { var value = 'new'; } } f(); return String(o.value) + '/' + String(typeof value);", "forclause"],
+  ["with-var-leaves-binding-undefined", "var o = { value: 'V' }; function f() { with (o) { var value = 'n'; } return typeof value; } var r = f(); return r + '/' + String(o.value);", "forclause"],
+
+  // --- eval's completion value is the last non-empty Statement completion ----
+  ["completion-block", "return String(eval('1; 2; 3;'));", "completion"],
+  ["completion-if", "return String(eval('if (true) { 42; }'));", "completion"],
+  ["completion-for", "return String(eval('for (var q = 0; q < 3; q++) { q * 2; }'));", "completion"],
+  ["completion-while", "return String(eval('var w = 0; while (w < 3) { w++; w * 10; }'));", "completion"],
+  ["completion-do-while", "var n = 0; return String(eval('do { n++; n; } while (n < 3)'));", "completion"],
+  ["completion-for-in", "var s = ''; var h; var r = eval(\"for (i in (h = {2: 'b', 1: 'a'})) s += h[i]\"); return String(r) + '|' + s;", "completion"],
+  ["completion-var-is-empty", "return String(eval('var zz = 1;'));", "completion"],
+  ["completion-var-keeps-previous", "return String(eval('7; var zz2 = 1;'));", "completion"],
+  ["completion-try", "return String(eval('try { 5; } finally { }'));", "completion"],
+  ["completion-switch", "return String(eval('switch (1) { case 1: 9; }'));", "completion"],
+
+  // --- for-in over an existing binding, and localeCompare's absent argument --
+  ["forin-existing-binding", "var o = { x: 1, y: 2 }; var k; var out = ''; for (k in o) { out += k; } return out + '/' + k;", "forclause"],
+  ["forin-nested-two-deep", "var m = { a: { aa: 1, ab: 2 }, b: { ba: 1, bb: 2 } }; var out = ''; for (var k in m) { for (var i in m[k]) { out += '' + i + m[k][i]; } } return out;", "forclause"],
+  ["localecompare-missing-arg", "return String('a'.localeCompare() === 'a'.localeCompare(undefined));", "forclause"],
+  ["localecompare-undefined-is-text", "return String('a'.localeCompare(undefined) === 'a'.localeCompare('undefined'));", "forclause"],
+
+  // --- generic Array.prototype methods over an array-LIKE receiver ----------
+  ["arraylike-filter-skips-absent", "var obj = { 0: 0, 2: 2, length: 3 }; var n = Array.prototype.filter.call(obj, function () { return true; }); return String(n.length) + '|' + n.join(',');", "arraylike"],
+  ["arraylike-filter-sees-inherited", "Object.defineProperty(Object.prototype, '1', { value: 1, configurable: true }); var obj = { 2: 2, length: 3 }; var n = Array.prototype.filter.call(obj, function () { return true; }); delete Object.prototype[1]; return String(n.length) + '|' + n.join(',');", "arraylike"],
+  ["arraylike-foreach-skips-absent", "var obj = { 0: 'a', 2: 'c', length: 3 }; var s = ''; Array.prototype.forEach.call(obj, function (v, i) { s += i + v; }); return s;", "arraylike"],
+  ["arraylike-length-getter-runs", "var acc = false; var obj = { 0: 1 }; Object.defineProperty(obj, 'length', { get: function () { acc = true; return 1; } }); Array.prototype.every.call(obj, function () { return true; }); return String(acc);", "arraylike"],
+  ["arraylike-length-getter-throws-first", "var obj = { 0: 11, 1: 12 }; Object.defineProperty(obj, 'length', { get: function () { throw new TypeError('LEN'); }, configurable: true }); try { Array.prototype.every.call(obj, undefined); return 'no-throw'; } catch (e) { return e.name + ':' + e.message; }", "arraylike"],
+  ["arraylike-index-getter-runs", "var acc = false; var obj = { length: 2 }; Object.defineProperty(obj, '0', { get: function () { acc = true; return 1; }, configurable: true }); Array.prototype.every.call(obj, function () { return true; }); return String(acc);", "arraylike"],
+  ["array-filter-sees-shrink", "var srcArr = [1, 2, 3, 4, 6]; function cb() { srcArr.length = 2; return true; } var r = srcArr.filter(cb); return String(r.length);", "arraylike"],
+  ["array-tolocalestring", "var n = 0; var obj = { toLocaleString: function () { n++; return 'x'; } }; var a = [obj, obj]; var s = a.toLocaleString(); return String(n) + '|' + s;", "arraylike"],
+  ["array-tolocalestring-nulls", "return [1, null, undefined, 2].toLocaleString();", "arraylike"],
+  ["concat-nonarray-receiver-is-one-element", "Object.defineProperty(Object.prototype, 'length', { value: 2, configurable: true }); Object.defineProperty(Object.prototype, 'concat', { value: Array.prototype.concat, configurable: true }); var x = { 0: 0 }; var arr = x.concat(); var out = String(arr.length) + '|' + String(arr[0] === x); delete Object.prototype.length; delete Object.prototype.concat; return out;", "arraylike"],
+  ["concat-copies-inherited-index", "Object.defineProperty(Array.prototype, '1', { value: 1, configurable: true }); var x = [0]; x.length = 2; var arr = x.concat(); var out = String(arr[0]) + ',' + String(arr[1]) + ',' + String(arr.hasOwnProperty('1')); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
+  ["array-hole-reads-prototype", "Object.defineProperty(Array.prototype, '1', { value: 7, configurable: true }); var x = [0]; x.length = 2; var out = String(x[1]); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
 
   // --- a built-in prototype stringifies like the value it stands for, and
   // never leaks the engine's own debug rendering. -----------------------------
@@ -1335,8 +1403,7 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
  * Recorded 2026-08-02 against gallery/game_engine/v2/interp.
  */
 const KNOWN_GAPS = new Set<string>([
-  // Labelled break and named function-expression recursion evaluate to nothing.
-  "labeled-break",
+  // Named function-expression recursion evaluates to nothing.
   "fn-expr-named",
   "for-of-expr-lhs",
   // Destructuring: swap produces the wrong value.

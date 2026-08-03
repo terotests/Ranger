@@ -270,6 +270,18 @@ class ComponentEngine {
     ; syncGlobalVar runs on EVERY identifier assignment, so "is this one of them"
     ; has to be a map probe rather than a scan of a list.
     def globalVarSet:[string:boolean]
+    ; D-DELETE: names brought into being by ASSIGNMENT to an undeclared name.
+    ; Those are configurable properties of the global object, so `delete x` on
+    ; one succeeds; a declared `var`/function binding is non-configurable and
+    ; `delete` answers false. Nothing else in the engine distinguishes the two.
+    def implicitGlobalSet:[string:boolean]
+    ; D-COMPLETION: the value a Statement completes with, which is what `eval`
+    ; returns. Only an ExpressionStatement produces one; every other kind
+    ; completes EMPTY and leaves the previous value standing, which is exactly
+    ; why `eval("if (true) { 42; }")` is 42 and `eval("var x = 1;")` is
+    ; undefined. Tracking it on the statement runner rather than at the top
+    ; level is what makes a value produced INSIDE a loop or an if reach eval.
+    def completionValue:EvalValue (EvalValue.undefined())
     def basePath:string "./"
     def assetPaths:[string]  ; Multiple asset directories for component resolution
     def pageWidth:double 595.0
@@ -336,6 +348,16 @@ class ComponentEngine {
     def scriptReturnValue:EvalValue (EvalValue.null())
     def loopBreak:boolean false
     def loopContinue:boolean false
+    ; D-LABELS: `break label` / `continue label` name a statement further out
+    ; than the nearest loop, so the flag alone cannot say where it stops. The
+    ; NAME travels with the flag; "" means the nearest enclosing loop (or
+    ; switch, for break), which is the unlabelled form.
+    def breakLabel:string ""
+    def continueLabel:string ""
+    ; Labels attached to the statement about to run. A loop TAKES them as its
+    ; own on entry and clears the list, so a statement nested inside it does not
+    ; inherit them. A chain -- `a: b: for (...)` -- collects both.
+    def pendingLabels:[string]
     ; Exception state: `throw` sets scriptThrew + scriptThrowValue; it unwinds
     ; statement lists, loops and calls (like a pending return) until a try/catch
     ; clears it. Kept separate from scriptDidReturn so a catch can resume.
@@ -1427,33 +1449,35 @@ class ComponentEngine {
         ; Declarations first, so an eval'd function can be called by later
         ; statements in the same string.
         this.hoistFunctionDeclarations(ast.children)
-        def out:EvalValue (EvalValue.undefined())
+        ; D-COMPLETION: the eval result is the last non-empty completion of the
+        ; whole program, not of its top-level expression statements. Reading only
+        ; the latter meant `eval("for (i in o) s += o[i]")` was undefined where
+        ; the spec says the body's last value.
+        def savedCompletion:EvalValue completionValue
+        completionValue = (EvalValue.undefined())
         def i:int 0
         while (i < (array_length ast.children)) {
             def stmt:TSNode (itemAt ast.children i)
-            if (stmt.nodeType == "ExpressionStatement") {
-                if stmt.left {
-                    out = (this.evaluateExpr((unwrap stmt.left)))
-                }
+            if (false == (this.isTopLevelDeclaration(stmt))) {
+                this.runStatementValue(stmt)
             } {
-                if (false == (this.isTopLevelDeclaration(stmt))) {
+                if (stmt.nodeType == "VariableDeclaration") {
                     this.runStatementValue(stmt)
-                } {
-                    if (stmt.nodeType == "VariableDeclaration") {
-                        this.runStatementValue(stmt)
-                    }
-                    if (stmt.nodeType == "ClassDeclaration") {
-                        if ((strlen stmt.name) > 0) {
-                            set classes stmt.name stmt
-                        }
+                }
+                if (stmt.nodeType == "ClassDeclaration") {
+                    if ((strlen stmt.name) > 0) {
+                        set classes stmt.name stmt
                     }
                 }
             }
             if scriptThrew {
+                completionValue = savedCompletion
                 return (EvalValue.undefined())
             }
             i = (i + 1)
         }
+        def out:EvalValue completionValue
+        completionValue = savedCompletion
         return out
     }
 
@@ -2396,8 +2420,22 @@ class ComponentEngine {
                     if decl.init {
                         def initNode:TSNode (unwrap decl.init)
                         def value:EvalValue (this.evaluateExpr(initNode))
-                        context.define(varName value)
-                        this.syncGlobalVar(varName value)
+                        ; D-WITH: a `var`'s INITIALISER is an ordinary assignment
+                        ; to the name, so inside a `with` block whose object owns
+                        ; that name it writes the PROPERTY -- the declaration
+                        ; itself is hoisted out of the block and stays undefined.
+                        ; `with (o) { var value = 'x' }` sets o.value, which is
+                        ; the whole of §12.10's interaction with declarations.
+                        def wHost:EvalValue (context.findWithObjectFor(varName))
+                        if (wHost.valueType == 5) {
+                            wHost.setMember(varName value)
+                            if (false == (context.has(varName))) {
+                                context.define(varName (EvalValue.undefined()))
+                            }
+                        } {
+                            context.define(varName value)
+                            this.syncGlobalVar(varName value)
+                        }
                     } {
                         ; `let x;` with no initializer still creates a binding
                         ; (JS: bound to undefined), so a later reference/assignment
@@ -2909,12 +2947,24 @@ class ComponentEngine {
     fn runForStatementValue:void (stmt:TSNode) {
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
+        def myLabels:[string] (this.takeStatementLabels())
         loopBreak = false
         loopContinue = false
         if stmt.init {
             def initNode:TSNode (unwrap stmt.init)
             if (initNode.nodeType == "VariableDeclaration") {
                 this.processVariableDeclaration(initNode)
+            } {
+                ; The init clause is an ExpressionNoIn when it is not a
+                ; declaration -- `for (i = 0; i < 3; i++)`. Only the declaration
+                ; form ran, so the counter was never initialised and the loop
+                ; body did not execute at all.
+                def ignoredInit:EvalValue (this.evaluateExpr(initNode))
+                if scriptThrew {
+                    loopBreak = savedBreak
+                    loopContinue = savedContinue
+                    return
+                }
             }
         }
         def maxIterations:int 100000
@@ -2944,23 +2994,30 @@ class ComponentEngine {
                         if loopBreak {
                             looping = false
                         } {
-                            ; `continue` still runs the update clause.
-                            if stmt.right {
-                                this.evaluateUpdateExpr((unwrap stmt.right))
+                            ; D-LABELS: a `continue` naming an OUTER loop stops
+                            ; this one WITHOUT running its update clause.
+                            if (this.continueEscapes(myLabels)) {
+                                looping = false
+                            } {
+                                ; `continue` still runs the update clause.
+                                if stmt.right {
+                                    this.evaluateUpdateExpr((unwrap stmt.right))
+                                }
+                                iterations = iterations + 1
                             }
-                            iterations = iterations + 1
                         }
                     }
                 }
             }
         }
-        ; Consume break/continue at the loop boundary (do not leak to outer loop).
-        loopBreak = savedBreak
-        loopContinue = savedContinue
+        ; Consume break/continue at the loop boundary (do not leak to outer loop)
+        ; unless it names a label further out -- see settleLoopAbrupt.
+        this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
     fn runForOfStatementValue:void (stmt:TSNode) {
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
+        def myLabels:[string] (this.takeStatementLabels())
         loopBreak = false
         loopContinue = false
         ; Loop target: a scalar name or a destructuring pattern (for [k,v] of map).
@@ -3037,19 +3094,23 @@ class ComponentEngine {
                             if loopBreak {
                                 looping = false
                             } {
-                                i = i + 1
+                                if (this.continueEscapes(myLabels)) {
+                                    looping = false
+                                } {
+                                    i = i + 1
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        loopBreak = savedBreak
-        loopContinue = savedContinue
+        this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
     fn runWhileStatementValue:void (stmt:TSNode) {
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
+        def myLabels:[string] (this.takeStatementLabels())
         loopBreak = false
         loopContinue = false
         def maxIterations:int 100000
@@ -3079,14 +3140,17 @@ class ComponentEngine {
                         if loopBreak {
                             looping = false
                         } {
-                            iterations = iterations + 1
+                            if (this.continueEscapes(myLabels)) {
+                                looping = false
+                            } {
+                                iterations = iterations + 1
+                            }
                         }
                     }
                 }
             }
         }
-        loopBreak = savedBreak
-        loopContinue = savedContinue
+        this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
 
     ; switch(disc){ case v: ... [break] ; default: ... }. JS fall-through: once a
@@ -3095,6 +3159,7 @@ class ComponentEngine {
     ; `continue`/`return` propagate to the enclosing loop/function.
     fn runSwitchStatementValue:void (stmt:TSNode) {
         def savedBreak:boolean loopBreak
+        def myLabels:[string] (this.takeStatementLabels())
         loopBreak = false
         def disc:EvalValue (EvalValue.null())
         if stmt.left {
@@ -3146,8 +3211,12 @@ class ComponentEngine {
             }
         }
         ; Consume a switch-level break only; leave continue/return for the caller.
+        ; D-LABELS: a break naming an outer label is not this switch's to consume.
         if loopBreak {
-            loopBreak = savedBreak
+            if (this.labelIsMine(myLabels breakLabel)) {
+                loopBreak = savedBreak
+                breakLabel = ""
+            }
         }
     }
 
@@ -3155,6 +3224,7 @@ class ComponentEngine {
     fn runDoWhileStatementValue:void (stmt:TSNode) {
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
+        def myLabels:[string] (this.takeStatementLabels())
         loopBreak = false
         loopContinue = false
         def maxIterations:int 100000
@@ -3174,24 +3244,27 @@ class ComponentEngine {
                     if loopBreak {
                         looping = false
                     } {
-                        def proceed:boolean false
-                        if stmt.left {
-                            def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
-                            if (testResult.toBool()) {
-                                proceed = true
-                            }
-                        }
-                        if (proceed == false) {
+                        if (this.continueEscapes(myLabels)) {
                             looping = false
                         } {
-                            iterations = (iterations + 1)
+                            def proceed:boolean false
+                            if stmt.left {
+                                def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                                if (testResult.toBool()) {
+                                    proceed = true
+                                }
+                            }
+                            if (proceed == false) {
+                                looping = false
+                            } {
+                                iterations = (iterations + 1)
+                            }
                         }
                     }
                 }
             }
         }
-        loopBreak = savedBreak
-        loopContinue = savedContinue
+        this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
 
     ; for (k in obj/array) — iterates string keys of an object, or index strings
@@ -3199,15 +3272,33 @@ class ComponentEngine {
     fn runForInStatementValue:void (stmt:TSNode) {
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
+        def myLabels:[string] (this.takeStatementLabels())
         loopBreak = false
         loopContinue = false
         def varName:string ""
+        ; D-FORIN: the target may be an existing binding rather than a fresh
+        ; declaration -- `var k; for (k in o)`. Only the declaration form was
+        ; read, so the loop ran its body with `k` never assigned.
+        def declaresVar:boolean false
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
             if (leftNode.nodeType == "VariableDeclaration") {
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
+                    declaresVar = true
+                }
+            } {
+                if (leftNode.nodeType == "Identifier") {
+                    varName = leftNode.name
+                }
+                if (leftNode.nodeType == "ExpressionStatement") {
+                    if leftNode.left {
+                        def inner:TSNode (unwrap leftNode.left)
+                        if (inner.nodeType == "Identifier") {
+                            varName = inner.name
+                        }
+                    }
                 }
             }
         }
@@ -3262,28 +3353,70 @@ class ComponentEngine {
                         looping = false
                     } {
                         def k:string (itemAt theKeys i)
-                        if ((strlen varName) > 0) {
-                            context.define(varName (EvalValue.string(k)))
+                        ; D-FORIN: a property DELETED before it is reached is
+                        ; not visited. The key list is snapshotted at entry, so
+                        ; a name the body removed was still handed out.
+                        def stillThere:boolean true
+                        if (target.valueType == 5) {
+                            stillThere = (this.objHasKeyUpChain(target k))
                         }
-                        loopContinue = false
-                        if stmt.body {
-                            this.runBlockOrStatement((unwrap stmt.body))
-                        }
-                        if (scriptDidReturn || scriptThrew) {
-                            looping = false
+                        if (false == stillThere) {
+                            i = (i + 1)
                         } {
-                            if loopBreak {
+                            if ((strlen varName) > 0) {
+                                if declaresVar {
+                                    context.define(varName (EvalValue.string(k)))
+                                } {
+                                    ; An existing binding is ASSIGNED, not
+                                    ; shadowed -- the name outlives the loop.
+                                    context.assign(varName (EvalValue.string(k)))
+                                    this.syncGlobalVar(varName (EvalValue.string(k)))
+                                }
+                            }
+                            loopContinue = false
+                            if stmt.body {
+                                this.runBlockOrStatement((unwrap stmt.body))
+                            }
+                            if (scriptDidReturn || scriptThrew) {
                                 looping = false
                             } {
-                                i = (i + 1)
+                                if loopBreak {
+                                    looping = false
+                                } {
+                                    if (this.continueEscapes(myLabels)) {
+                                        looping = false
+                                    } {
+                                        i = (i + 1)
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        loopBreak = savedBreak
-        loopContinue = savedContinue
+        this.settleLoopAbrupt(myLabels savedBreak savedContinue)
+    }
+
+    ; D-FORIN: whether a name is still present on the object or anywhere up its
+    ; prototype chain, which is what decides if a snapshotted for-in key is
+    ; still worth visiting.
+    fn objHasKeyUpChain:boolean (obj:EvalValue key:string) {
+        def walk:EvalValue obj
+        def steps:int 0
+        while (steps < 16) {
+            if (has walk.objectMap key) { return true }
+            if (has walk.getterMap key) { return true }
+            if (has walk.setterMap key) { return true }
+            if (this.objHasKey(walk key)) { return true }
+            def nxt:EvalValue (this.protoOfValue(walk))
+            if (nxt.isNull()) {
+                return false
+            }
+            walk = nxt
+            steps = (steps + 1)
+        }
+        return false
     }
 
     ; --------------------------------------------------------------------------
@@ -3292,6 +3425,70 @@ class ComponentEngine {
     ; scriptReturnValue and halts execution, so script control flow (e.g. a game
     ; reducer's onButton) returns the correct value.
     ; --------------------------------------------------------------------------
+    ; D-LABELS: the labels attached to the statement about to run, claimed by it.
+    fn takeStatementLabels:[string] () {
+        def out:[string] pendingLabels
+        def fresh:[string]
+        pendingLabels = fresh
+        return out
+    }
+
+    fn clearStatementLabels:void () {
+        def fresh2:[string]
+        pendingLabels = fresh2
+    }
+
+    ; True when a pending labelled break/continue names THIS statement. The
+    ; unlabelled form names the nearest enclosing loop, which is always this one.
+    fn labelIsMine:boolean (labels:[string] name:string) {
+        if ((strlen name) == 0) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length labels)) {
+            if ((itemAt labels i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; D-LABELS: the tail every loop runs. A break/continue aimed at an OUTER
+    ; label passes straight through -- the loop has stopped, and the flag stays
+    ; set for the statement that owns the label to consume.
+    fn settleLoopAbrupt:void (labels:[string] savedBreak:boolean savedContinue:boolean) {
+        if loopBreak {
+            if (this.labelIsMine(labels breakLabel)) {
+                loopBreak = savedBreak
+                breakLabel = ""
+            }
+        } {
+            loopBreak = savedBreak
+        }
+        if loopContinue {
+            if (this.labelIsMine(labels continueLabel)) {
+                loopContinue = savedContinue
+                continueLabel = ""
+            }
+        } {
+            loopContinue = savedContinue
+        }
+    }
+
+    ; True when a pending `continue` belongs to some OUTER statement, so this
+    ; loop must stop rather than start its next iteration.
+    fn continueEscapes:boolean (labels:[string]) {
+        if (false == loopContinue) {
+            return false
+        }
+        if (this.labelIsMine(labels continueLabel)) {
+            continueLabel = ""
+            return false
+        }
+        return true
+    }
+
     fn runStatementList:void (stmts:[TSNode]) {
         ; D-FNHOIST: function declarations inside a body are hoisted to the top of
         ; that body and bound in the ENCLOSING scope, so they are callable before
@@ -3395,10 +3592,31 @@ class ComponentEngine {
         }
         if (stmt.nodeType == "BreakStatement") {
             loopBreak = true
+            breakLabel = stmt.name
             return
         }
         if (stmt.nodeType == "ContinueStatement") {
             loopContinue = true
+            continueLabel = stmt.name
+            return
+        }
+        ; D-LABELS: `label: statement`. The label is offered to the statement
+        ; that follows -- a loop claims it -- and a break that names THIS label
+        ; is consumed here, which is what makes `blk: { break blk; }` leave the
+        ; block rather than the whole function. There was no case for the node
+        ; type at all, so a labelled statement ran nothing whatsoever.
+        if (stmt.nodeType == "LabeledStatement") {
+            push pendingLabels stmt.name
+            if stmt.body {
+                this.runBlockOrStatement((unwrap stmt.body))
+            }
+            this.clearStatementLabels()
+            if loopBreak {
+                if (breakLabel == stmt.name) {
+                    loopBreak = false
+                    breakLabel = ""
+                }
+            }
             return
         }
         if (stmt.nodeType == "ForStatement") {
@@ -3502,9 +3720,42 @@ class ComponentEngine {
                 }
             }
         }
-        ; finally clause (node.right) always runs; its own throw/return wins.
+        ; D-FINALLY: the finally block runs whatever the try/catch did -- a
+        ; `return`, `break`, `continue` or pending throw included. That is the
+        ; whole point of the clause, and it did not happen: every statement path
+        ; bails the moment one of those flags is set, so the block was reached
+        ; and then immediately skipped. The pending completion is set ASIDE for
+        ; the duration, and restored afterwards unless the finally produced an
+        ; abrupt completion of its own -- which per spec replaces it, so
+        ; `try { return 1 } finally { return 2 }` is 2 and
+        ; `try { throw x } finally { break }` leaves the loop with no exception.
         if stmt.right {
+            def pendReturn:boolean scriptDidReturn
+            def pendReturnVal:EvalValue scriptReturnValue
+            def pendThrew:boolean scriptThrew
+            def pendThrowVal:EvalValue scriptThrowValue
+            def pendBreak:boolean loopBreak
+            def pendContinue:boolean loopContinue
+            scriptDidReturn = false
+            scriptReturnValue = (EvalValue.null())
+            scriptThrew = false
+            scriptThrowValue = (EvalValue.null())
+            loopBreak = false
+            loopContinue = false
             this.runBlockOrStatement((unwrap stmt.right))
+            def finallyAbrupt:boolean false
+            if scriptDidReturn { finallyAbrupt = true }
+            if scriptThrew { finallyAbrupt = true }
+            if loopBreak { finallyAbrupt = true }
+            if loopContinue { finallyAbrupt = true }
+            if (false == finallyAbrupt) {
+                scriptDidReturn = pendReturn
+                scriptReturnValue = pendReturnVal
+                scriptThrew = pendThrew
+                scriptThrowValue = pendThrowVal
+                loopBreak = pendBreak
+                loopContinue = pendContinue
+            }
         }
     }
 
@@ -3718,40 +3969,42 @@ class ComponentEngine {
     }
     
     ; Evaluates an expression for its side effects (e.g., arr.push(x), i++)
+    ; D-COMPLETION: an expression statement's value IS the statement's
+    ; completion value, so each branch records it. `eval` reads it back; nothing
+    ; else does, which is why this stayed a void call.
     fn evaluateExprForSideEffect:void (node:TSNode) {
         def handledSE:boolean false
         ; Handle CallExpression (method calls like arr.push(x))
         if (node.nodeType == "CallExpression") {
-            this.evaluateCallExprForSideEffect(node)
+            completionValue = (this.evaluateExpr(node))
             handledSE = true
         }
 
-        ; Handle UpdateExpression (i++, ++i)
+        ; Handle UpdateExpression (i++, ++i) and AssignmentExpression (x = 1).
         if (node.nodeType == "UpdateExpression") {
-            this.evaluateUpdateExpr(node)
+            completionValue = (this.evaluateAssignValue(node))
             handledSE = true
         }
 
-        ; Handle AssignmentExpression (x = 1, x += 1)
         if (node.nodeType == "AssignmentExpression") {
-            this.evaluateUpdateExpr(node)
+            completionValue = (this.evaluateAssignValue(node))
             handledSE = true
         }
 
         ; Statement-position unary with a side effect (delete obj.x, void expr).
         if (node.nodeType == "UnaryExpression") {
-            def ignored:EvalValue (this.evaluateUnaryExpr(node))
+            completionValue = (this.evaluateUnaryExpr(node))
             handledSE = true
         }
 
         ; D-ERRORS: a bare reference in statement position still resolves, and an
         ; unresolvable one throws. `nope;` on its own line is a ReferenceError.
         if (node.nodeType == "Identifier") {
-            def ignoredId:EvalValue (this.lookupIdentifier(node.name))
+            completionValue = (this.lookupIdentifier(node.name))
             handledSE = true
         }
         if (node.nodeType == "MemberExpression") {
-            def ignoredMem:EvalValue (this.evaluateMemberExpr(node))
+            completionValue = (this.evaluateMemberExpr(node))
             handledSE = true
         }
         ; Everything else is evaluated too. The list above was exhaustive by
@@ -3759,7 +4012,7 @@ class ComponentEngine {
         ; ran NOTHING -- neither the constructor's effects nor an error raised
         ; inside it, which simply vanished instead of being thrown.
         if (false == handledSE) {
-            def ignoredSE:EvalValue (this.evaluateExpr(node))
+            completionValue = (this.evaluateExpr(node))
         }
     }
     
@@ -3817,6 +4070,8 @@ class ComponentEngine {
             this.trace("For init nodeType: " + initNode.nodeType)
             if (initNode.nodeType == "VariableDeclaration") {
                 this.processVariableDeclaration(initNode)
+            } {
+                def ignoredInitE:EvalValue (this.evaluateExpr(initNode))
             }
         }
         
@@ -4665,6 +4920,7 @@ class ComponentEngine {
                             def gObjA:EvalValue (this.theGlobalObject())
                             gObjA.setMember(varName rightValue)
                             context.assign(varName rightValue)
+                            set implicitGlobalSet varName true
                             return rightValue
                         }
                     }
@@ -4696,8 +4952,13 @@ class ComponentEngine {
     }
 
     ; Statement-position wrapper (side effect only) around evaluateAssignValue.
+    ; A `for` loop's update clause is an ExpressionNoIn, not just an assignment:
+    ; `for (...; ...; i++, j--)` is a comma expression, and evaluateAssignValue
+    ; knows only about assignments and updates. It returned without doing
+    ; anything, so the loop counter never moved and the loop ran until the
+    ; iteration cap -- a hang, not a wrong answer.
     fn evaluateUpdateExpr:void (node:TSNode) {
-        def ignored:EvalValue (this.evaluateAssignValue(node))
+        def ignored:EvalValue (this.evaluateExpr(node))
     }
 
     ; Bind a function's parameters from already-evaluated argument values into the
@@ -10366,9 +10627,17 @@ class ComponentEngine {
                         return (EvalValue.string(s))
                     }
                     if (name == "localeCompare") {
-                        def other:string ""
+                        ; The `that` argument is ToString'd, and a MISSING one is
+                        ; undefined -- which stringifies to "undefined", not to
+                        ; the empty string. All three spellings have to agree:
+                        ; `s.localeCompare()`, `s.localeCompare(undefined)` and
+                        ; `s.localeCompare("undefined")`.
+                        def other:string "undefined"
                         if ((array_length args) > 0) {
                             other = (this.toStringOf((itemAt args 0)))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
                         }
                         return (EvalValue.fromInt((this.compareStrings(s other))))
                     }
@@ -11118,7 +11387,13 @@ class ComponentEngine {
             ; D-CBCHECK: the higher-order methods require a callable. Given a
             ; non-function they used to iterate and quietly produce nothing, so
             ; `arr.forEach(5)` succeeded where the spec demands a TypeError.
+            ; The check comes AFTER `length` is read, because the spec orders it
+            ; that way and a throwing length accessor is the observable proof.
             if (this.arrayNeedsCallback(name)) {
+                def lenProbe:EvalValue (this.getPropertyValue(recv "length"))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
                 def cb0:EvalValue (EvalValue.undefined())
                 if ((array_length args) > 0) {
                     cb0 = (itemAt args 0)
@@ -11139,6 +11414,43 @@ class ComponentEngine {
                 elems = (this.arrayLikeElements(recv))
             }
             def alen:int (array_length elems)
+            ; D-ARRAYLIKE: reading `length` can THROW -- it may be an accessor --
+            ; and the spec reads it before it checks that the callback is
+            ; callable. Falling through raised "requires a function argument"
+            ; instead, so the exception the test was waiting for never arrived.
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            ; D-ARRAYLIKE: Array.prototype.toLocaleString calls each element's
+            ; OWN toLocaleString and joins with a comma; a null or undefined
+            ; element contributes the empty string. It had no case at all and
+            ; answered undefined.
+            if (name == "toLocaleString") {
+                def tlsOut:string ""
+                def tlsI:int 0
+                while (tlsI < alen) {
+                    if (tlsI > 0) {
+                        tlsOut = (tlsOut + ",")
+                    }
+                    def tlsEl:EvalValue (this.arrayElemAt(recv tlsI))
+                    def skipEl:boolean false
+                    if (tlsEl.isNull()) { skipEl = true }
+                    if (tlsEl.isUndefined()) { skipEl = true }
+                    if (false == skipEl) {
+                        def tlsArgs:[EvalValue]
+                        def tlsV:EvalValue (this.callMethodOnValue(tlsEl "toLocaleString" tlsArgs))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                        tlsOut = (tlsOut + (this.toStringOf(tlsV)))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                    }
+                    tlsI = (tlsI + 1)
+                }
+                return (EvalValue.string(tlsOut))
+            }
                     if (name == "indexOf") {
                         def target:EvalValue (EvalValue.null())
                         if ((array_length args) > 0) {
@@ -11150,8 +11462,8 @@ class ComponentEngine {
                             ; `[1,,3].indexOf(undefined)` is -1. includes below
                             ; deliberately does not skip: it treats a hole as
                             ; undefined, which is the one place the two differ.
-                            if (false == ((itemAt elems ii).isHole)) {
-                                if ((target.equals((itemAt elems ii)))) {
+                            if (false == ((this.arrayElemAt(recv ii)).isHole)) {
+                                if ((target.equals((this.arrayElemAt(recv ii))))) {
                                     return (EvalValue.fromInt(ii))
                                 }
                             }
@@ -11166,7 +11478,7 @@ class ComponentEngine {
                         }
                         def ii:int 0
                         while (ii < alen) {
-                            if ((target.equals((itemAt elems ii)))) {
+                            if ((target.equals((this.arrayElemAt(recv ii))))) {
                                 return (EvalValue.boolean(true))
                             }
                             ii = (ii + 1)
@@ -11182,7 +11494,7 @@ class ComponentEngine {
                         def ii:int 0
                         while (ii < alen) {
                             if (ii > 0) { out = (out + sep) }
-                            out = (out + ((itemAt elems ii).toString()))
+                            out = (out + ((this.arrayElemAt(recv ii)).toString()))
                             ii = (ii + 1)
                         }
                         return (EvalValue.string(out))
@@ -11203,7 +11515,7 @@ class ComponentEngine {
                         def items:[EvalValue]
                         def ii:int a
                         while (ii < b) {
-                            push items (itemAt elems ii)
+                            push items (this.arrayElemAt(recv ii))
                             ii = (ii + 1)
                         }
                         return (EvalValue.array(items))
@@ -11214,11 +11526,11 @@ class ComponentEngine {
                             def ii:int 0
                             while (ii < alen) {
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if ((itemAt elems ii).isHole) {
+                                if ((this.arrayElemAt(recv ii)).isHole) {
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
-                                    push cargs (itemAt elems ii)
+                                    push cargs (this.arrayElemAt(recv ii))
                                     push cargs (EvalValue.fromInt(ii))
                                     push cargs recv
                                     def unused:EvalValue (this.callFnValueWithValues(cb cargs))
@@ -11240,12 +11552,12 @@ class ComponentEngine {
                                 ; D-HOLES: map PRESERVES a hole rather than
                                 ; calling the callback on it -- the result has
                                 ; the same length and the same holes.
-                                if ((itemAt elems ii).isHole) {
+                                if ((this.arrayElemAt(recv ii)).isHole) {
                                     push items (EvalValue.hole())
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
-                                    push cargs (itemAt elems ii)
+                                    push cargs (this.arrayElemAt(recv ii))
                                     push cargs (EvalValue.fromInt(ii))
                                     push cargs recv
                                     push items (this.callFnValueWithValues(cb cargs))
@@ -11264,7 +11576,7 @@ class ComponentEngine {
                             def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
-                                def el:EvalValue (itemAt elems ii)
+                                def el:EvalValue (this.arrayElemAt(recv ii))
                                 ; D-HOLES: an ABSENT element is not visited.
                                 if el.isHole {
                                     ii = (ii + 1)
@@ -11291,7 +11603,7 @@ class ComponentEngine {
                             def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
                             while (ii < alen) {
-                                def el:EvalValue (itemAt elems ii)
+                                def el:EvalValue (this.arrayElemAt(recv ii))
                                 def cargs:[EvalValue]
                                 push cargs el
                                 push cargs (EvalValue.fromInt(ii))
@@ -11310,7 +11622,7 @@ class ComponentEngine {
                             def ii:int 0
                             while (ii < alen) {
                                 def cargs:[EvalValue]
-                                push cargs (itemAt elems ii)
+                                push cargs (this.arrayElemAt(recv ii))
                                 push cargs (EvalValue.fromInt(ii))
                                 push cargs recv
                                 if ((this.callFnValueWithValues(cb cargs)).toBool()) {
@@ -11327,11 +11639,11 @@ class ComponentEngine {
                             def ii:int 0
                             while (ii < alen) {
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if ((itemAt elems ii).isHole) {
+                                if ((this.arrayElemAt(recv ii)).isHole) {
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
-                                    push cargs (itemAt elems ii)
+                                    push cargs (this.arrayElemAt(recv ii))
                                     push cargs (EvalValue.fromInt(ii))
                                     push cargs recv
                                     def hit:EvalValue (this.callFnValueWithValues(cb cargs))
@@ -11353,11 +11665,11 @@ class ComponentEngine {
                             def ii:int 0
                             while (ii < alen) {
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if ((itemAt elems ii).isHole) {
+                                if ((this.arrayElemAt(recv ii)).isHole) {
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
-                                    push cargs (itemAt elems ii)
+                                    push cargs (this.arrayElemAt(recv ii))
                                     push cargs (EvalValue.fromInt(ii))
                                     push cargs recv
                                     def okv:EvalValue (this.callFnValueWithValues(cb cargs))
@@ -11393,8 +11705,8 @@ class ComponentEngine {
                                 def seedIdx:int startIdx
                                 def seeded:boolean false
                                 while (((seedIdx < alen) && (seedIdx >= 0)) && (seeded == false)) {
-                                    if (false == ((itemAt elems seedIdx).isHole)) {
-                                        acc = (itemAt elems seedIdx)
+                                    if (false == ((this.arrayElemAt(recv seedIdx)).isHole)) {
+                                        acc = (this.arrayElemAt(recv seedIdx))
                                         seeded = true
                                     }
                                     if goRight {
@@ -11413,10 +11725,10 @@ class ComponentEngine {
                             def ii:int startIdx
                             while ((ii < alen) && (ii >= 0)) {
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if (false == ((itemAt elems ii).isHole)) {
+                                if (false == ((this.arrayElemAt(recv ii)).isHole)) {
                                     def cargs:[EvalValue]
                                     push cargs acc
-                                    push cargs (itemAt elems ii)
+                                    push cargs (this.arrayElemAt(recv ii))
                                     push cargs (EvalValue.fromInt(ii))
                                     push cargs recv
                                     acc = (this.callFnValueWithValues(cb cargs))
@@ -11616,18 +11928,34 @@ class ComponentEngine {
                     ; ---- non-mutating extras ----
                     if (name == "concat") {
                         def items:[EvalValue]
-                        def q:int 0
-                        while (q < (array_length elems)) {
-                            push items (itemAt elems q)
-                            q = (q + 1)
+                        ; D-ARRAYLIKE: concat SPREADS only a real array. A
+                        ; non-array receiver -- `Object.prototype.concat =
+                        ; Array.prototype.concat; ({0: 0}).concat()` -- is one
+                        ; element, whatever `length` it happens to inherit. The
+                        ; receiver was spread unconditionally, so a plain object
+                        ; came out as its indices instead of as itself.
+                        if (recv.isArray()) {
+                            def q:int 0
+                            while (q < alen) {
+                                push items (this.arrayElemAt(recv q))
+                                q = (q + 1)
+                            }
+                        } {
+                            push items recv
                         }
                         def ai:int 0
                         while (ai < (array_length args)) {
                             def av:EvalValue (itemAt args ai)
                             if (av.isArray()) {
+                                ; D-HOLES: an element the argument does not have
+                                ; is not copied, but one INHERITED from its
+                                ; prototype is -- concat asks HasProperty, which
+                                ; walks the chain. Reading arrayValue directly
+                                ; saw a hole where `Array.prototype[1] = 1` had
+                                ; put a real value.
                                 def r:int 0
-                                while (r < (array_length av.arrayValue)) {
-                                    push items (itemAt av.arrayValue r)
+                                while (r < (av.arrayLength())) {
+                                    push items (this.arrayElemAt(av r))
                                     r = (r + 1)
                                 }
                             } {
@@ -11641,7 +11969,7 @@ class ComponentEngine {
                         def items:[EvalValue]
                         def q:int 0
                         while (q < (array_length elems)) {
-                            def el:EvalValue (itemAt elems q)
+                            def el:EvalValue (this.arrayElemAt(recv q))
                             if (el.isArray()) {
                                 def r:int 0
                                 while (r < (array_length el.arrayValue)) {
@@ -11665,7 +11993,7 @@ class ComponentEngine {
                             idx = (n + idx)
                         }
                         if ((idx >= 0) && (idx < n)) {
-                            return (itemAt elems idx)
+                            return (this.arrayElemAt(recv idx))
                         }
                         return (EvalValue.undefined())
                     }
@@ -11677,8 +12005,8 @@ class ComponentEngine {
                         def q:int ((array_length elems) - 1)
                         while (q >= 0) {
                             ; D-HOLES: only PRESENT elements are searched.
-                            if (false == ((itemAt elems q).isHole)) {
-                                if ((target.equals((itemAt elems q)))) {
+                            if (false == ((this.arrayElemAt(recv q)).isHole)) {
+                                if ((target.equals((this.arrayElemAt(recv q))))) {
                                     return (EvalValue.fromInt(q))
                                 }
                             }
@@ -12964,7 +13292,14 @@ class ComponentEngine {
             }
             return out
         }
-        def lenV:EvalValue (v.getMember("length"))
+        ; D-ARRAYLIKE: `length` is read with a full [[Get]] -- it may be an
+        ; ACCESSOR, and the spec calls it -- and ToUint32'd. Reading the raw map
+        ; skipped the getter, so a test that asserts the length was accessed saw
+        ; nothing happen.
+        def lenV:EvalValue (this.getPropertyValue(v "length"))
+        if scriptThrew {
+            return out
+        }
         if (lenV.isUndefined()) {
             return out
         }
@@ -12978,10 +13313,117 @@ class ComponentEngine {
         }
         def i:int 0
         while (i < n) {
-            push out (v.getMember((to_string i)))
+            def key:string (to_string i)
+            ; D-HOLES: an index the object does not have -- anywhere up its
+            ; prototype chain -- is ABSENT, not undefined, so the iteration
+            ; methods skip it exactly as they skip an array hole. Pushing the
+            ; undefined read made `Array.prototype.filter.call({0:0,2:2,
+            ; length:3}, …)` visit three elements instead of two, and an index
+            ; INHERITED from Object.prototype was missed entirely.
+            if (this.objHasKeyUpChain(v key)) {
+                push out (this.getPropertyValue(v key))
+                if scriptThrew {
+                    return out
+                }
+            } {
+                push out (EvalValue.hole())
+            }
             i = (i + 1)
         }
         return out
+    }
+
+    ; D-ARRAYLIKE: one element read AT THE MOMENT it is needed. The iteration
+    ; methods worked from a snapshot taken before the first callback ran, so a
+    ; callback that shortened the array or deleted an element was not observed --
+    ; the spec re-asks HasProperty and [[Get]] on every step. An absent index
+    ; answers the HOLE sentinel, which is exactly what the skip tests already
+    ; look for, so no call site has to learn a new shape.
+    fn arrayElemAt:EvalValue (recv:EvalValue idx:int) {
+        if (recv.isArray()) {
+            if (idx < (array_length recv.arrayValue)) {
+                def slot:EvalValue (itemAt recv.arrayValue idx)
+                if (false == slot.isHole) {
+                    return slot
+                }
+            }
+            ; D-PROTO: an array HOLE is only absent on the array itself. The
+            ; index may still be present up the chain -- `Array.prototype[1] = 1`
+            ; makes `[0,,].concat()[1]` that value -- and reading the dense slot
+            ; alone answered undefined for a property that exists.
+            def akey:string (to_string idx)
+            if (this.objHasKeyUpChain(recv akey)) {
+                return (this.getPropertyValue(recv akey))
+            }
+            return (EvalValue.hole())
+        }
+        if (recv.isString()) {
+            if (idx < (strlen recv.stringValue)) {
+                return (EvalValue.string((substring recv.stringValue idx (idx + 1))))
+            }
+            return (EvalValue.hole())
+        }
+        def k:string (to_string idx)
+        if (this.objHasKeyUpChain(recv k)) {
+            return (this.getPropertyValue(recv k))
+        }
+        return (EvalValue.hole())
+    }
+
+    ; D-ARRAYLIKE: call a method BY NAME on a value, the way guest code would --
+    ; a guest-supplied function wins, otherwise the registry entry for the
+    ; receiver's kind runs. Array.prototype.toLocaleString needs exactly this
+    ; for each element.
+    fn callMethodOnValue:EvalValue (recv:EvalValue name:string args:[EvalValue]) {
+        def m:EvalValue (this.getPropertyValue(recv name))
+        if (m.valueType == 6) {
+            if m.functionNode {
+                return (this.callFnValueWithValues((m.withThis(recv)) args))
+            }
+            if (m.isBuiltinMethod()) {
+                return (this.invokeBuiltin(m.builtinKind m.builtinName recv args))
+            }
+        }
+        def rk:string (this.receiverKind(recv))
+        if (this.hasBuiltin(rk name)) {
+            return (this.invokeBuiltin(rk name recv args))
+        }
+        return (this.throwSpecError("TypeError" (name + " is not a function")))
+    }
+
+    ; D-ARRAYLIKE: a full [[Get]] of one property -- runs an accessor found
+    ; anywhere up the chain, and falls back to the plain data read. The value
+    ; layer's getMember knows nothing about accessors, so every generic
+    ; Array.prototype method read past them.
+    fn getPropertyValue:EvalValue (obj:EvalValue key:string) {
+        def g:EvalValue (this.resolveGetterOn(obj key))
+        if (g.valueType == 6) {
+            def noArgsG:[EvalValue]
+            if g.functionNode {
+                return (this.callFnValueWithValues((g.withThis(obj)) noArgsG))
+            }
+            if (g.isBuiltinMethod()) {
+                return (this.invokeBuiltin(g.builtinKind g.builtinName obj noArgsG))
+            }
+        }
+        if (obj.hasSetterFor(key)) {
+            if (false == (has obj.objectMap key)) {
+                return (EvalValue.undefined())
+            }
+        }
+        def direct:EvalValue (obj.getMember(key))
+        if (false == (direct.isUndefined())) {
+            return direct
+        }
+        ; D-PROTO: an ARRAY carries no prototype link of its own, so the value
+        ; layer's chain walk stops at the array and an index defined on
+        ; Array.prototype read as undefined. The engine knows the kind's
+        ; prototype and can finish the walk.
+        def chained:EvalValue (this.ownPropertyUpChain(obj key))
+        if (chained.valueType != 0) {
+            return chained
+        }
+        return direct
     }
 
     ; ToString: an object runs its own toString/valueOf, everything else answers
@@ -14248,6 +14690,58 @@ class ComponentEngine {
         if (op == "delete") {
             if node.left {
                 def tgt:TSNode (unwrap node.left)
+                ; D-WITH: `delete name` had no case at all -- it answered true
+                ; and removed nothing. The name is a REFERENCE, and what it
+                ; resolves to decides the answer:
+                ;   - a property of a `with` object: delete that property;
+                ;   - a declared `var`/function: non-configurable, so false;
+                ;   - a binding created by plain assignment (an implicit global):
+                ;     configurable, so it goes and the answer is true;
+                ;   - unresolvable: true, per spec.
+                if (tgt.nodeType == "Identifier") {
+                    def delName:string tgt.name
+                    def delWith:EvalValue (context.findWithObjectFor(delName))
+                    if (delWith.valueType == 5) {
+                        if (false == (delWith.isConfigurable(delName))) {
+                            if strictMode {
+                                return (this.throwSpecError("TypeError" ("cannot delete " + delName)))
+                            }
+                            return (EvalValue.boolean(false))
+                        }
+                        delWith.removeMember(delName)
+                        return (EvalValue.boolean(true))
+                    }
+                    ; A `delete` of a NAME is a SyntaxError in strict mode.
+                    if strictMode {
+                        return (this.throwSpecError("SyntaxError" ("cannot delete the unqualified name " + delName)))
+                    }
+                    if (context.has(delName)) {
+                        ; A DECLARED binding -- `var`, a function declaration, a
+                        ; parameter -- is non-configurable, so the delete fails
+                        ; and the binding stays. Only a name created by
+                        ; assignment to an undeclared identifier can go.
+                        if (false == (has implicitGlobalSet delName)) {
+                            return (EvalValue.boolean(false))
+                        }
+                        def removed:boolean (context.removeBinding(delName))
+                        def gObj:EvalValue (this.theGlobalObject())
+                        if (gObj.valueType == 5) {
+                            gObj.removeMember(delName)
+                        }
+                        def freshImplicit:[string:boolean]
+                        def implNames:[string] (keys implicitGlobalSet)
+                        def ii:int 0
+                        while (ii < (array_length implNames)) {
+                            if ((itemAt implNames ii) != delName) {
+                                set freshImplicit (itemAt implNames ii) true
+                            }
+                            ii = (ii + 1)
+                        }
+                        implicitGlobalSet = freshImplicit
+                        return (EvalValue.boolean(removed))
+                    }
+                    return (EvalValue.boolean(true))
+                }
                 if (tgt.nodeType == "MemberExpression") {
                     def obj:EvalValue (EvalValue.null())
                     if tgt.left {
@@ -15486,6 +15980,23 @@ class ComponentEngine {
                         def rIdx:int (this.canonicalArrayIndex(rk))
                         if (rIdx >= 0) {
                             if (rIdx <= 10000000) {
+                                ; D-PROTO: a HOLE is absent on the array itself,
+                                ; so the read continues up the chain --
+                                ; `Array.prototype[1] = 7; [0,,][1]` is 7. The
+                                ; array carries no prototype link of its own, so
+                                ; the value layer stopped there and answered
+                                ; undefined for a property that exists.
+                                def slotPresent:boolean false
+                                if (rIdx < (array_length obj.arrayValue)) {
+                                    slotPresent = (false == ((itemAt obj.arrayValue rIdx).isHole))
+                                }
+                                if slotPresent {
+                                    return (obj.getIndex(rIdx))
+                                }
+                                def upChain:EvalValue (this.ownPropertyUpChain(obj rk))
+                                if (upChain.valueType != 0) {
+                                    return upChain
+                                }
                                 return (obj.getIndex(rIdx))
                             }
                         }
