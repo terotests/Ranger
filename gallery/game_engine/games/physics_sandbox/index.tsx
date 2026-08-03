@@ -118,32 +118,35 @@ function sprites() {
 }
 
 function entities() {
+  // a/b run a clear head-on corridor for the headless collision test.
+  // Keep them above pegs (y≈108) and above c/d so those bodies do not
+  // deflect the pair before they meet.
   const list = [
     {
       id: "a",
       sprite: "heroA",
       frame: 0,
-      position: { x: 80, y: 90 },
+      position: { x: 80, y: 40 },
       physics: { radius: HERO_RADIUS, mass: HERO_MASS, vx: 320, vy: 0, stable: true },
     },
     {
       id: "b",
       sprite: "heroB",
       frame: 2,
-      position: { x: 400, y: 90 },
+      position: { x: 400, y: 40 },
       physics: { radius: HERO_RADIUS, mass: HERO_MASS, vx: -320, vy: 0, stable: false },
     },
     {
       id: "c",
       sprite: "heroC",
       frame: 4,
-      position: { x: 200, y: 72 },
+      position: { x: 200, y: 140 },
       physics: { radius: HERO_RADIUS, mass: HERO_MASS, vx: 40, vy: 60, stable: true },
     },
     {
       id: "d",
       sprite: "ball",
-      position: { x: 300, y: 72 },
+      position: { x: 300, y: 140 },
       physics: { radius: 14, mass: 0.8, vx: -60, vy: 80, roll: 1 },
     },
     {

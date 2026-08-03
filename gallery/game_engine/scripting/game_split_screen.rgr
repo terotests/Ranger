@@ -99,9 +99,12 @@ class SplitScreenHost {
         }
     }
 
-    fn setSdlHost:void () {
-        left.host = (new SdlGameHost)
-        right.host = (new SdlGameHost)
+    ; Install per-pane hosts without naming a concrete host class here.
+    ; Headless demos leave the default GameHost; the SDL launcher passes
+    ; SdlGameHost instances so rumble/audio wiring stays on that path.
+    fn setPaneHosts:void (leftHost:GameHost rightHost:GameHost) {
+        left.host = leftHost
+        right.host = rightHost
         left.wireHostAudio()
         right.wireHostAudio()
     }

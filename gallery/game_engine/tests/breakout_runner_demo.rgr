@@ -9,9 +9,12 @@ class BreakoutRunnerDemo {
         def runner:GameRunner (new GameRunner)
         runner.init(480 270)
 
-        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "breakout.game.tsx")
+        ; Use the playable game copy (has playSound events). The scripting/
+        ; fixture drifted and dropped audio; keep the headless gate on the
+        ; launcher game so score + audio assertions stay honest.
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/breakout" "index.tsx")
         def src:string (buffer_to_string buf)
-        runner.setScriptDir("gallery/game_engine/scripting")
+        runner.setScriptDir("gallery/game_engine/games/breakout")
         runner.loadScript(src)
         runner.setupScene()
 
