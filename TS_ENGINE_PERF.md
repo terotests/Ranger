@@ -51,7 +51,8 @@
 > as the proven smaller harness.
 >
 > **Still open:** the key-order conformance divergence (needs an
-> insertion-ordered map in the C++ runtime), > 145 Rust errors.
+> insertion-ordered map in the C++ runtime), and the engine's remaining
+> 145 Rust errors.
 
 Where the TypeScript/JavaScript interpreter (`gallery/game_engine/v2/interp`)
 stands when compiled to a native target, why the C++ build is currently slower
