@@ -538,7 +538,30 @@ stored as `i64` and every use site needs its own cast rule, applied ad hoc.
 Making string elements pointer-typed means changing the read, the write and the
 push paths together.
 
-### Why it drifted: the gate is switched off
+### Why it drifted: the gate was switched off — now fixed
+
+**Update: the gate is green and back in `npm test`.** All 37 LLVM/WAT tests
+pass, and the exclusion is gone from `tests/vitest.config.ts`.
+
+Three backend bugs were behind the red suite, all of the same kind — codegen
+reporting success while emitting IR the toolchain rejects:
+
+| Bug | Cause |
+|---|---|
+| `@ranger_cli_init` called but never declared | the declaration lived only in `ensureLibcExtern`, which runs for libc targets, while the call is emitted for every `@main` |
+| `%heap_next` defined twice in one function | the bump allocator used a fixed SSA name for its pointer update |
+| `call $realloc` against nothing | three targets, three answers: libc has `realloc`, the free-list heap has `Heap_realloc`, and plain `-freestanding` has a bump allocator with neither |
+
+Eleven of the seventeen failures were simpler: the native tests linked only
+`runtime/ranger_mem.c` and not `runtime/ranger_rt.c`, so they failed on the
+`ranger_cli_init` symbol at link time.
+
+Every `.ll` the suite produces is now checked with `opt -passes=verify` in
+addition to its content assertions. That is the part that matters for the
+future: all three bugs above satisfied every `toContain` check in the suite and
+failed at clang. A string match cannot see invalid IR.
+
+### The original diagnosis, for the record
 
 `tests/vitest.config.ts` line 9 excludes the LLVM suite from `npm test`:
 
@@ -552,11 +575,8 @@ already red when it was excluded. Both committed LLVM demo scripts are broken
 too: `scripts/compile-ts-parser-llvm.sh` fails at the link step, and
 `scripts/compile-jpeg-scaler-llvm.sh` fails in codegen on `buffer_alloc`.
 
-`tests/vitest.llvm.config.ts` is added here so the suite can be run without
-editing the main config:
-
 ```bash
-npx vitest run --config tests/vitest.llvm.config.ts
+npm run test:llvm      # or just `npm test`, which now includes it
 ```
 
 ### Is LLVM still the right route to a small binary?
@@ -572,11 +592,9 @@ statement is about what is *linked*, not about a measurement.
 
 ### Order of work
 
-1. **Re-enable the gate** (one line) once it is green. Without it the next fix
-   rots the same way this one did.
-2. **Get the 17 failing golden tests passing.** They are the safety net every
-   subsequent change needs, and there is currently none.
-3. **The ptr-array element representation** — (3) and (4) together. Reaching a
+1. ~~Re-enable the gate~~ and ~~get the 17 failing tests passing~~ — **done**;
+   37/37, in `npm test`, with IR verification on every compile.
+2. **The ptr-array element representation** — (3) and (4) together. Reaching a
    linked parser binary would give the first real size measurement.
 4. **The ~20 operator families for the engine.** Each needs a lowering in
    `compiler/ng_LowIRBuilder.rgr`, not just template text: the `llvm` entries in
