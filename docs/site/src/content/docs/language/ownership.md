@@ -37,15 +37,14 @@ The program does not free an object. No operator releases memory, and no
 destructor runs at a place that the program selects. The compiler decides where
 the object ends.
 
-:::caution[The Rust output is different]
-The program above prints `a 1` on JavaScript, Go, Python, C++, Swift and the
-other targets that hold an object as a reference. By default it does not
-compile for Rust: the Rust writer gives a class a plain `struct`, so
-`let mut b : Counter = a;` moves the value and `rustc` rejects the read of
-`a` after it. The experimental flag `-rust-shared-classes` closes this: a
-class the compiler finds shared becomes `Rc<RefCell<T>>`, `def b:Counter a`
-clones the `Rc`, and the program prints `a 1` on Rust as well. Without the
-flag, test the Rust output before you depend on shared objects.
+:::note[The Rust output follows the sharing verdict]
+The program above prints `a 1` on every target, Rust included. A class the
+compiler finds shared becomes `Rc<RefCell<T>>` on Rust, `def b:Counter a`
+clones the `Rc`, and both names reach one object — while every class the
+verdict marks `value` stays a plain `struct` and pays nothing. The flag
+`-rust-value-classes` restores the old all-value model, under which this
+program does not compile for Rust (`let mut b : Counter = a;` moves the
+value and `rustc` rejects the read of `a` after it).
 :::
 
 ## What the compiler infers
@@ -147,7 +146,7 @@ The Rust writer reads the summary as well. A parameter it proves `borrowed`
 — and that the mutation analysis confirms untouched — becomes `&T`, and the
 call site passes `&x` in the place of a whole-struct clone. The summary also
 ends in a per-class verdict — which classes ever share an object — that the
-experimental `-rust-shared-classes` flag turns into `Rc<RefCell<T>>`;
+Rust writer turns into `Rc<RefCell<T>>` by default;
 [the memory page](/Ranger/docs/targets/memory/) holds both.
 
 The ten other writers do not read the summary, so for them the pass is a

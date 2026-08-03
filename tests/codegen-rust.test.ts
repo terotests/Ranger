@@ -4,6 +4,41 @@ import { getGeneratedRustCode } from "./helpers/compiler";
 const FIXTURES_DIR = "tests/fixtures";
 
 describe("Rust Code Generation", () => {
+  describe("Method receivers and signature shape", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_receivers.rgr`);
+
+    it("gives a read-only method &self", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("fn reading(&self) -> i64");
+    });
+
+    it("keeps &self for a collection read like itemAt", () => {
+      // itemAt is a has_call on the member vector; a read operator on a
+      // plain collection must not count as a mutation of self
+      expect(result.code).toContain("fn firstLabel(&self) -> String");
+    });
+
+    it("gives a field-assigning method &mut self", () => {
+      expect(result.code).toContain("fn bump(&mut self, amount : i64)");
+    });
+
+    it("detects mutation through push into a member collection", () => {
+      // push never appears as an `=` node; without the operator check this
+      // method would take &self and rustc would reject the push
+      expect(result.code).toContain("fn tag(&mut self, s : String)");
+    });
+
+    it("emits no unit return type and no trailing comma", () => {
+      expect(result.code).not.toContain("-> ()");
+      expect(result.code).not.toContain("&mut self, )");
+      expect(result.code).not.toContain("&self, )");
+    });
+
+    it("omits the Weak import when no weak field exists", () => {
+      expect(result.code).not.toContain("use std::rc::Weak;");
+    });
+  });
+
   describe("Array/Vector Operations", () => {
     it("should generate Vec::new() for array initialization", () => {
       const result = getGeneratedRustCode(`${FIXTURES_DIR}/array_push.rgr`);

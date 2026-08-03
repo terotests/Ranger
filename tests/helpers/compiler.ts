@@ -1260,7 +1260,8 @@ export function isRustAvailable(): boolean {
  */
 export function compileRangerToRust(
   sourceFile: string,
-  outputDir?: string
+  outputDir?: string,
+  extraFlags?: string
 ): CompileResult {
   // Use relative path if not absolute (same pattern as compileRanger)
   const sourcePath = path.isAbsolute(sourceFile)
@@ -1305,7 +1306,8 @@ export function compileRangerToRust(
       .replace(/\\/g, "/");
 
     // Use -l=rust flag for Rust output
-    const cmd = `node "${OUTPUT_JS}" -l=rust "${sourcePath}" -d="${relativeTargetDir}" -o="${outputFile}"`;
+    const flagPart = extraFlags ? ` ${extraFlags}` : "";
+    const cmd = `node "${OUTPUT_JS}" -l=rust${flagPart} "${sourcePath}" -d="${relativeTargetDir}" -o="${outputFile}"`;
 
     const output = execSync(cmd, {
       cwd: ROOT_DIR,
@@ -1484,9 +1486,10 @@ export function expectRustOutput(
  */
 export function getGeneratedRustCode(
   sourceFile: string,
-  outputDir?: string
+  outputDir?: string,
+  extraFlags?: string
 ): { success: boolean; code: string; error?: string } {
-  const result = compileRangerToRust(sourceFile, outputDir);
+  const result = compileRangerToRust(sourceFile, outputDir, extraFlags);
 
   if (!result.success) {
     return {

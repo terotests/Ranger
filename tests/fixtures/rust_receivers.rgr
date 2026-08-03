@@ -1,0 +1,30 @@
+; Receiver inference for the Rust writer: a read-only method takes &self,
+; a mutating one &mut self — including mutation through a collection
+; operator like push, which never appears as an `=` node. Void methods
+; carry no `-> ()`, a parameterless method no trailing comma, and the
+; Weak import only appears when a @(weak) field exists.
+class Meter {
+    def total:int 0
+    def labels:[string]
+    fn reading:int () {
+        return total
+    }
+    fn firstLabel:string () {
+        return (itemAt labels 0)
+    }
+    fn bump:void (amount:int) {
+        total = total + amount
+    }
+    fn tag:void (s:string) {
+        push labels s
+    }
+}
+
+class ReceiverMain {
+    sfn m@(main):void () {
+        def m:Meter (new Meter())
+        m.bump(2)
+        m.tag("a")
+        print ((("" + (m.reading())) + " ") + (m.firstLabel()))
+    }
+}

@@ -294,3 +294,66 @@ The fixture exhibits quoted above are `ownership_shared_counter.rgr`,
 `ownership_shared_weak.rgr`, `ownership_shared_surfaces.rgr` and
 `llvm_ownership_infer.rgr`, compiled with and without the flag; the runnable
 probe variants only substitute `sfn m@(main)` for the free `fn main`.
+
+## Verification, and the first round of fixes
+
+Every measurement above re-verified on this machine (clippy 1.94.1): 1395
+warnings flag-on with the table's exact per-lint counts. Two structural
+changes landed alongside the verification:
+
+**The shared-class model became the Rust default** (see
+PLAN_RUST_OWNERSHIP): a bare `-l=rust` build now applies the sharing
+verdict, `-rust-value-classes` restores the all-value model. The conformance
+gate holds under the default, and turning it on surfaced two borrow gaps on
+the serialize round trip (optional shared field mid-path, expression
+receiver), both fixed.
+
+**Ranked item 1 — `&self` receivers — turned out to be one latent bug, not
+a missing feature.** The writer has carried the full machinery all along:
+per-method direct-mutation detection, a same-class call graph, transitive
+propagation (`methodMutatesThis`). It never fired because of a truthiness
+fault: `def dm:boolean (get directMutations methodName)` binds an optional,
+and `if dm` compiles to a presence check, so `false` counted as `true` and
+every known method was judged mutating — 136:0 on the jpeg output. With the
+bug fixed, three precision holes surfaced (each found by the fixtures):
+
+- `itemAt items 0` is a `has_call` on the member vector, and every member
+  call counted as a write. A read operator on a plain collection, string or
+  buffer no longer does; the mutating operators (`push`, `set`, `insert`,
+  the buffer writes…) still do, and a user-class receiver stays
+  conservative — any of its methods could mutate it.
+- Mutation through a collection operator was invisible in the other
+  direction too: `push labels s` never appears as an `=` node. The detector
+  now reads the same mutating-operator list the template engine uses for
+  LHS marking.
+- An uninitialized member collection carries `is_optional` on its desc, and
+  "touches an optional field" forced `&mut self` — but the Rust field is a
+  plain `Vec`, never `Option`. Collections are exempt; a real
+  `@(optional)` object field still forces `&mut self`, because its access
+  path emits `as_mut()`.
+
+Result on the jpeg output: **41 of 136 methods now take `&self`** (getters,
+`remaining()`-style readers, the pure-math kernels), `rustc -O` clean, the
+image byte-identical at both gate sizes. A method that reads an optional
+object field keeps `&mut self` — relaxing that needs read-context
+`as_ref()` emission, which is the follow-up with the widest remaining reach.
+
+**Also landed from the ranked list:**
+
+- Item 2, the signature half: no `-> ()` on void functions (84 warnings),
+  no `(&mut self, )` trailing comma (42 sites) — clippy falls 1395 → 1310.
+- Item 7, the import half: `use std::rc::Weak;` is emitted only when a
+  user class holds a `@(weak)` field.
+- Thirteen unconditional `print ("DEBUG …")` statements were deleted from
+  the Rust writer — they wrote to stdout on every Rust compile.
+
+Regression coverage: `tests/fixtures/rust_receivers.rgr` +
+`codegen-rust.test.ts` (receiver per method kind, push-detection, no unit
+return, no trailing comma, Weak gating).
+
+**Still open, in the ranked order:** the expression-level clippy sweep
+(casts on literals, `+=`, double parens, tail expressions — all
+template-engine work, ~1000 warnings), clone hygiene, snake_case emission,
+`&[u8]`/`&str`/`format!`, hoisted loop borrows, the free-`fn main` E0601,
+and rustfmt-shaped text. The `mut x : &mut T` double-mut and
+`#[derive(Clone)]`-on-shared-classes items also stand.
