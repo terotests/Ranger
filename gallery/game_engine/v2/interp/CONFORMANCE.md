@@ -179,6 +179,74 @@ them aside cannot quietly flatter the remaining number.
   end. *The earlier note said this needed a hole-aware element representation — it
   did, and that turned out to be one sentinel rather than a new container.*
 
+- **Reading a field of a DESCRIPTOR is a full `[[Get]]`.** It runs an accessor and
+  walks the prototype chain, and the nearest holder wins whichever kind it is — an own
+  data property shadows an inherited accessor. Reading the raw map instead was the
+  single largest failure family in `Object.defineProperty` and `defineProperties`. The
+  same ordering bug was in ordinary property reads, where asking for the getter first
+  walked the whole chain and let an inherited accessor beat an own data property.
+
+- **An attribute the descriptor omits is KEPT on an existing property** and defaults
+  to false only on a new one. Taking the descriptor's absent field as `false` stripped
+  the flags a property already had on every redefinition. Changing a property's kind
+  now drops the other kind's state, so a data property turned accessor stops reporting
+  `value`/`writable`.
+
+- **An accessor property is a property.** It lives in `getterMap`/`setterMap` rather
+  than `objectMap`, and listing only `objectMap` left every accessor out of
+  `Object.keys`, `getOwnPropertyNames` and the descriptor-map step of `Object.create`.
+  `{get: undefined}` is still an accessor descriptor: the property exists and reports
+  `get`/`set` rather than `value`/`writable`.
+
+- **An array has its own `[[DefineOwnProperty]]`.** `length` resizes and rejects a
+  non-uint32 with a `RangeError`; an index defines an element and pushes `length` out.
+  Neither went near the elements before.
+
+- **An error has a real prototype chain.** `TypeError.prototype` inherits from
+  `Error.prototype`, which inherits from `Object.prototype`, and instances link to
+  theirs. A property put on `Error.prototype` used to be invisible to every error.
+
+- **A built-in constructor held as a VALUE is callable.** `var f = Number; f(42)`,
+  `Number.bind(null)(42)` and `Function.call(null, "return 1")` all go through one
+  value-level constructor path now; the direct call sites read the AST, so a captured
+  constructor was not callable at all.
+
+- **A sloppy function called with no receiver gets the global object**, and a
+  primitive receiver is boxed — `Function("this.x = 1").apply()` turns on this rule. A
+  strict function still keeps exactly what it was given.
+
+- **A map lookup survives a key that shadows `hasOwnProperty`.** `o.hasOwnProperty = 1`
+  used to take the host process down, because the compiler emitted `map.hasOwnProperty(k)`
+  for `has`/`get` on a string map. The es6 templates in `compiler/Lang.rgr` now use
+  `Object.prototype.hasOwnProperty.call`, which fixes the whole class rather than the
+  one path that surfaced it.
+
+- **`Object.prototype`'s methods are values, not just call-site handlers.**
+  `hasOwnProperty`, `propertyIsEnumerable`, `isPrototypeOf` and `toLocaleString`
+  worked when called directly but were absent from the registry, so
+  `typeof Object.prototype.propertyIsEnumerable` was `"undefined"` for a method that
+  plainly works — and borrowing one onto another receiver did nothing.
+
+- **A PRIMITIVE is trivially frozen and sealed, and never extensible**, per ES2015.
+  These answered from the integrity flags of a value that has none.
+
+- **A BOUND function poisons `caller` and `arguments`** whatever its target was, and
+  has no `prototype` of its own.
+
+- **A property a PRIMITIVE does not have reads as undefined**, not as the engine's
+  null sentinel — `typeof (1).nope` was `"object"`.
+
+- **Redefining an accessor replaces only the halves the descriptor names.**
+  `{set: undefined}` really does remove the setter, and a half the descriptor omits is
+  kept. The properties argument of `Object.defineProperties` is `ToObject`'d rather
+  than required to be an object, and an array's `length` has a real `writable`
+  attribute — turning it off makes a later resize a `TypeError`.
+
+- **`Function.prototype` is callable and returns undefined**, which is what `typeof`
+  had already been saying about it, and a function's synthesised `length` and `name`
+  can be deleted — `prototype` cannot, because on an ordinary function it is
+  non-configurable.
+
 - **A method the guest puts on a built-in prototype wins over the registry.**
   `Array.prototype.toString = Object.prototype.toString` now makes `[].toString()`
   brand the array. ToPrimitive already looked; the direct call path went straight to
@@ -308,18 +376,20 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 | `built-ins/Number` | **100%** (146/146, whole directory) |
 | `built-ins/Date` | **100%** (4/4, whole directory) |
 | `built-ins/String` | **100%** (709/709, whole directory) |
+| `built-ins/Boolean` | **100%** (7/7, whole directory) |
+| `built-ins/Object` | 96% (1992/2080) |
 | `built-ins/Math` | 91% (74/81) |
-| `built-ins/Object` | 77% (1598/2080) |
-| `language/statements` | 72% (403/562) |
-| `built-ins/Function` | 72% (260/361) |
-| `built-ins/Array` | 73% (155/212) |
-| ES5 overall | **83.1%** (748/900 sampled) |
+| `built-ins/Function` | 93% (337/361) |
+| `built-ins/RegExp` | 74% (365/490) |
+| `built-ins/Array` | 74% (156/212) |
+| `language/statements` | 72% (406/562) |
+| ES5 overall | **90.9%** (818/900 sampled) |
 
 `built-ins/Number`, `built-ins/String` and `language/expressions` are each at 100% of
 their whole directory — no sampling, no exclusions beyond the era filter.
 
-The runtime-conformance suite is at 910 checks, every one of them derived from Node —
-898 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 972 checks, every one of them derived from Node —
+960 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

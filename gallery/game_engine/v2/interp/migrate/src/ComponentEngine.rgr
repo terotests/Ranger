@@ -1295,13 +1295,33 @@ class ComponentEngine {
     ; value by assembling source and parsing it, which is the same door eval
     ; uses. A parse failure is a SyntaxError to the guest, as the spec requires.
     fn buildFunctionFromSource:EvalValue (argNodes:[TSNode]) {
-        def n:int (array_length argNodes)
+        def vals:[EvalValue]
+        def i:int 0
+        while (i < (array_length argNodes)) {
+            push vals (this.evaluateExpr((itemAt argNodes i)))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            i = (i + 1)
+        }
+        return (this.buildFunctionFromValues(vals))
+    }
+
+    fn buildFunctionFromValues:EvalValue (argVals:[EvalValue]) {
+        def n:int (array_length argVals)
         def params:string ""
         def body:string ""
         def i:int 0
         while (i < n) {
-            def av:EvalValue (this.evaluateExpr((itemAt argNodes i)))
-            def txt:string (av.toString())
+            def av:EvalValue (itemAt argVals i)
+            ; ToString, not the value's own debug rendering: an argument with a
+            ; `toString` method must have it CALLED, and a throw from it is the
+            ; answer -- `new Function({toString: function () { throw 7; }})`
+            ; throws 7, not a SyntaxError about an unparsable body.
+            def txt:string (this.toStringOf(av))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
             if (i == (n - 1)) {
                 body = txt
             } {
@@ -4810,6 +4830,151 @@ class ComponentEngine {
 
     ; Call a function VALUE (which may carry a captured closure and/or bound this)
     ; with already-evaluated args. Parents the call scope on the closure when set.
+    ; D-CTORVALUE: the built-in constructor a value stands for, or "" when it is
+    ; not one. bind() renames its result "bound X", as the spec says it should,
+    ; so the prefix is peeled before the name is recognised -- otherwise
+    ; `Number.bind(null)` produced something callable-looking that nothing would
+    ; call.
+    fn builtinCtorNameOf:string (v:EvalValue) {
+        if (v.valueType != 6) {
+            return ""
+        }
+        if v.functionNode {
+            return ""
+        }
+        if ((strlen v.builtinName) > 0) {
+            return ""
+        }
+        def nm:string v.functionName
+        def guard:int 0
+        while (guard < 8) {
+            if ((strlen nm) > 6) {
+                if ((substring nm 0 6) == "bound ") {
+                    nm = (substring nm 6 (strlen nm))
+                    guard = (guard + 1)
+                } {
+                    guard = 8
+                }
+            } {
+                guard = 8
+            }
+        }
+        if (this.isBuiltinCtorName(nm)) {
+            return nm
+        }
+        if (this.isErrorCtorName(nm)) {
+            return nm
+        }
+        return ""
+    }
+
+    ; D-CTORVALUE: a built-in CONSTRUCTOR invoked through a value rather than by
+    ; name -- `Number.bind(null)(42)`, `Function.call(null, "return 1")`,
+    ; `[].map(Number)`. The direct call sites read the AST, so a captured
+    ; constructor was not callable at all and answered a plain object or a
+    ; "not a function" TypeError. `asNew` picks the construct form where the two
+    ; differ.
+    fn callBuiltinCtorValues:EvalValue (name:string args:[EvalValue] asNew:boolean) {
+        if (this.isErrorCtorName(name)) {
+            def emsg:string ""
+            if ((array_length args) > 0) {
+                def ev:EvalValue (itemAt args 0)
+                if (false == (ev.isUndefined())) {
+                    emsg = (this.toStringOf(ev))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                }
+            }
+            return (this.makeError(name emsg))
+        }
+        if (name == "Function") {
+            return (this.buildFunctionFromValues(args))
+        }
+        if (name == "Object") {
+            def ov:EvalValue (EvalValue.null())
+            if ((array_length args) > 0) {
+                ov = (itemAt args 0)
+            }
+            return (this.toObjectValue(ov))
+        }
+        if (name == "Array") {
+            return (this.buildArrayFromValues(args))
+        }
+        if (name == "Date") {
+            if asNew {
+                return (this.makeDateValue(args))
+            }
+            def dtc (new DateTime())
+            return (EvalValue.string((dtc.toFullString((dtc.timeClip(hostNowMs))))))
+        }
+        if (this.isWrapperCtorName(name)) {
+            def prim:EvalValue (EvalValue.null())
+            if ((array_length args) > 0) {
+                prim = (itemAt args 0)
+            }
+            if asNew {
+                return (this.makeWrapper(name prim))
+            }
+            ; Called as a FUNCTION a wrapper coerces rather than boxes.
+            if (name == "String") {
+                if (prim.isNull()) {
+                    return (EvalValue.string(""))
+                }
+                return (EvalValue.string((this.toStringOf(prim))))
+            }
+            if (name == "Number") {
+                if (prim.isNull()) {
+                    return (EvalValue.number(0.0))
+                }
+                return (EvalValue.number((this.toNumberOf(prim))))
+            }
+            if (name == "Boolean") {
+                if (prim.isNull()) {
+                    return (EvalValue.boolean(false))
+                }
+                return (EvalValue.boolean((prim.toBool())))
+            }
+        }
+        return (EvalValue.null())
+    }
+
+    ; The value-level twin of buildArrayFromArgs, for a captured `Array`.
+    fn buildArrayFromValues:EvalValue (args:[EvalValue]) {
+        def items:[EvalValue]
+        def n:int (array_length args)
+        if (n == 1) {
+            def only:EvalValue (itemAt args 0)
+            if (only.isNumber()) {
+                def rawLen:double (only.toNumber())
+                def slots:int (to_int rawLen)
+                if ((rawLen < 0.0) || (rawLen > 4294967295.0)) {
+                    return (this.throwSpecError("RangeError" "Invalid array length"))
+                }
+                if ((to_double slots) != rawLen) {
+                    return (this.throwSpecError("RangeError" "Invalid array length"))
+                }
+                if (slots > 10000000) {
+                    return (this.throwSpecError("RangeError" "Invalid array length"))
+                }
+                def si:int 0
+                while (si < slots) {
+                    push items (EvalValue.hole())
+                    si = (si + 1)
+                }
+                return (EvalValue.array(items))
+            }
+            push items only
+            return (EvalValue.array(items))
+        }
+        def i:int 0
+        while (i < n) {
+            push items (itemAt args i)
+            i = (i + 1)
+        }
+        return (EvalValue.array(items))
+    }
+
     fn callFnValueWithValues:EvalValue (fnValue:EvalValue argVals:[EvalValue]) {
         ; D-REGISTRY: a built-in extracted as a value (`var f = arr.slice`, or
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
@@ -4820,6 +4985,33 @@ class ComponentEngine {
         ; because a static carries a builtinName too.
         if (fnValue.isBuiltinStatic()) {
             return (this.invokeBuiltinStatic(fnValue.builtinNamespace fnValue.builtinName argVals))
+        }
+        ; D-CTORVALUE: a built-in CONSTRUCTOR held as a value is callable.
+        if (fnValue.valueType == 6) {
+            if (has fnValue.objectMap "__fnprotocall__") {
+                return (EvalValue.undefined())
+            }
+        }
+        def ctorNameV:string (this.builtinCtorNameOf(fnValue))
+        if ((strlen ctorNameV) > 0) {
+            def mergedV:[EvalValue]
+            def mvi:int 0
+            while (mvi < (array_length fnValue.boundArgs)) {
+                push mergedV (itemAt fnValue.boundArgs mvi)
+                mvi = (mvi + 1)
+            }
+            def mvj:int 0
+            while (mvj < (array_length argVals)) {
+                push mergedV (itemAt argVals mvj)
+                mvj = (mvj + 1)
+            }
+            def cOut:EvalValue (this.callBuiltinCtorValues(ctorNameV mergedV false))
+            if (false == (cOut.isNull())) {
+                return cOut
+            }
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
         }
         if (fnValue.isBuiltinMethod()) {
             def bRecv:EvalValue (EvalValue.undefined())
@@ -4877,7 +5069,25 @@ class ComponentEngine {
         currentModule = fnValue.homeModule
         context = (parent.createChild())
         if fnValue.boundThis {
-            context.define("this" (unwrap fnValue.boundThis))
+            ; D-THISCOERCE: a SLOPPY function called with no receiver -- or with
+            ; null/undefined through call/apply -- gets the GLOBAL OBJECT, and a
+            ; primitive receiver is boxed. A strict one keeps exactly what it was
+            ; given. `Function("this.field = 1").apply()` turns on this rule.
+            def rawThis:EvalValue (unwrap fnValue.boundThis)
+            def calleeStrict:boolean (this.strictForBody(fnNode))
+            if fnValue.strictFn {
+                calleeStrict = true
+            }
+            if (false == calleeStrict) {
+                if ((rawThis.isNull()) || (rawThis.isUndefined())) {
+                    rawThis = (this.theGlobalObject())
+                } {
+                    if (rawThis.valueType == 2) { rawThis = (this.toObjectValue(rawThis)) }
+                    if (rawThis.valueType == 1) { rawThis = (this.toObjectValue(rawThis)) }
+                    if (rawThis.valueType == 3) { rawThis = (this.toObjectValue(rawThis)) }
+                }
+            }
+            context.define("this" rawThis)
         }
         ; D-FNPROTO: arguments fixed by bind() come first, then the call site's.
         def effArgs:[EvalValue] argVals
@@ -6372,26 +6582,18 @@ class ComponentEngine {
                         ; object missing every property it was asked for.
                         if ((array_length node.children) > 1) {
                             def cDescs:EvalValue (this.evaluateExpr((itemAt node.children 1)))
-                            if (cDescs.valueType == 5) {
-                                def cKeys:[string] (this.objectKeys(cDescs))
-                                def cI:int 0
-                                while (cI < (array_length cKeys)) {
-                                    def cK:string (itemAt cKeys cI)
-                                    def cD:EvalValue (cDescs.getMember(cK))
-                                    def cG:EvalValue (cD.getMember("get"))
-                                    def cS:EvalValue (cD.getMember("set"))
-                                    if ((cG.valueType == 6) || (cS.valueType == 6)) {
-                                        if (cG.valueType == 6) {
-                                            created.defineGetter(cK cG)
-                                        }
-                                        if (cS.valueType == 6) {
-                                            created.defineSetter(cK cS)
-                                        }
-                                    } {
-                                        set created.objectMap cK (cD.getMember("value"))
-                                        created.setAttrs(cK ((cD.getMember("writable")).toBool()) ((cD.getMember("enumerable")).toBool()) ((cD.getMember("configurable")).toBool()))
-                                    }
-                                    cI = (cI + 1)
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
+                            ; An explicit `undefined` second argument means "no
+                            ; properties"; anything else must be an object.
+                            if (false == (cDescs.isUndefined())) {
+                                def cErr:string (this.applyDescriptorMap(created cDescs))
+                                if scriptThrew {
+                                    return (EvalValue.undefined())
+                                }
+                                if ((strlen cErr) > 0) {
+                                    return (this.throwDefineError(cErr))
                                 }
                             }
                         }
@@ -6448,18 +6650,32 @@ class ComponentEngine {
                                     dL.setMember("configurable" (EvalValue.boolean(false)))
                                     return dL
                                 }
-                                def aIdx@(optional):int (to_int dk)
-                                if aIdx {
-                                    def ai:int (unwrap aIdx)
-                                    if ((ai >= 0) && (ai < (array_length src.arrayValue))) {
-                                        def keysI:[string]
-                                        def valsI:[EvalValue]
-                                        def dI:EvalValue (EvalValue.object(keysI valsI))
-                                        dI.setMember("value" (itemAt src.arrayValue ai))
-                                        dI.setMember("writable" (EvalValue.boolean(true)))
-                                        dI.setMember("enumerable" (EvalValue.boolean(true)))
-                                        dI.setMember("configurable" (EvalValue.boolean(true)))
-                                        return dI
+                                def ai:int (this.canonicalArrayIndex(dk))
+                                if (ai >= 0) {
+                                    if (ai < (array_length src.arrayValue)) {
+                                        ; D-HOLES: a hole is an ABSENT property
+                                        ; and has no descriptor at all.
+                                        if (false == ((itemAt src.arrayValue ai).isHole)) {
+                                            def keysI:[string]
+                                            def valsI:[EvalValue]
+                                            def dI:EvalValue (EvalValue.object(keysI valsI))
+                                            dI.setMember("value" (itemAt src.arrayValue ai))
+                                            ; Recorded attributes win: an element
+                                            ; defined through defineProperty is
+                                            ; not writable just because it is an
+                                            ; element.
+                                            if (has src.attrFlags dk) {
+                                                dI.setMember("writable" (EvalValue.boolean((src.isWritable(dk)))))
+                                                dI.setMember("enumerable" (EvalValue.boolean((src.isEnumerable(dk)))))
+                                                dI.setMember("configurable" (EvalValue.boolean((src.isConfigurable(dk)))))
+                                            } {
+                                                dI.setMember("writable" (EvalValue.boolean(true)))
+                                                dI.setMember("enumerable" (EvalValue.boolean(true)))
+                                                dI.setMember("configurable" (EvalValue.boolean(true)))
+                                            }
+                                            return dI
+                                        }
+                                        return (EvalValue.undefined())
                                     }
                                 }
                             }
@@ -6508,15 +6724,23 @@ class ComponentEngine {
                                         return dF
                                     }
                                 }
+                                ; Only SYNTHESISED when the function does not
+                                ; actually hold the property. A built-in
+                                ; constructor stores its own `prototype` with
+                                ; recorded attributes -- non-writable among them
+                                ; -- and hardcoding writable here reported the
+                                ; opposite of what was recorded.
                                 if (dk == "prototype") {
-                                    def keysP:[string]
-                                    def valsP:[EvalValue]
-                                    def dP:EvalValue (EvalValue.object(keysP valsP))
-                                    dP.setMember("value" (src.getMember("prototype")))
-                                    dP.setMember("writable" (EvalValue.boolean(true)))
-                                    dP.setMember("enumerable" (EvalValue.boolean(false)))
-                                    dP.setMember("configurable" (EvalValue.boolean(false)))
-                                    return dP
+                                    if (false == (has src.objectMap dk)) {
+                                        def keysP:[string]
+                                        def valsP:[EvalValue]
+                                        def dP:EvalValue (EvalValue.object(keysP valsP))
+                                        dP.setMember("value" (src.getMember("prototype")))
+                                        dP.setMember("writable" (EvalValue.boolean(true)))
+                                        dP.setMember("enumerable" (EvalValue.boolean(false)))
+                                        dP.setMember("configurable" (EvalValue.boolean(false)))
+                                        return dP
+                                    }
                                 }
                             }
                             if (this.objHasKey(src dk)) {
@@ -6538,7 +6762,7 @@ class ComponentEngine {
                             def pd:EvalValue (this.evaluateExpr((itemAt node.children 2)))
                             def pErr:string (this.definePropertyOn(src pk pd))
                             if ((strlen pErr) > 0) {
-                                return (this.throwSpecError("TypeError" pErr))
+                                return (this.throwDefineError(pErr))
                             }
                         }
                         return src
@@ -6549,33 +6773,15 @@ class ComponentEngine {
                     if (methodName == "defineProperties") {
                         if ((array_length node.children) > 1) {
                             def descs:EvalValue (this.evaluateExpr((itemAt node.children 1)))
-                            def dkeys:[string] (this.objectKeys(descs))
-                            ; Every descriptor is validated before any is
-                            ; applied, per spec, so a bad one later in the map
-                            ; leaves the object untouched rather than half
-                            ; written -- which is exactly what the suite asserts
-                            ; with hasOwnProperty after the throw.
-                            def dvi:int 0
-                            while (dvi < (array_length dkeys)) {
-                                def dvk:string (itemAt dkeys dvi)
-                                def dvd:EvalValue (descs.getMember(dvk))
-                                if (false == (this.isDescriptorObject(dvd))) {
-                                    return (this.throwSpecError("TypeError" "Property description must be an object"))
-                                }
-                                def dvErr:string (this.descriptorError(dvd))
-                                if ((strlen dvErr) > 0) {
-                                    return (this.throwSpecError("TypeError" dvErr))
-                                }
-                                dvi = (dvi + 1)
+                            if scriptThrew {
+                                return (EvalValue.undefined())
                             }
-                            def dpi:int 0
-                            while (dpi < (array_length dkeys)) {
-                                def dpk:string (itemAt dkeys dpi)
-                                def dpErr:string (this.definePropertyOn(src dpk (descs.getMember(dpk))))
-                                if ((strlen dpErr) > 0) {
-                                    return (this.throwSpecError("TypeError" dpErr))
-                                }
-                                dpi = (dpi + 1)
+                            def dErr2:string (this.applyDescriptorMap(src descs))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
+                            if ((strlen dErr2) > 0) {
+                                return (this.throwDefineError(dErr2))
                             }
                         }
                         return src
@@ -6803,6 +7009,21 @@ class ComponentEngine {
                 ; Only raised for receivers that can hold properties — a method
                 ; the engine simply has not implemented on a primitive stays a
                 ; trace, since that is the engine's gap and not the guest's.
+                ; D-REGISTRY: the member may hold a function VALUE the registry
+                ; does not know about -- Function.prototype is the case that
+                ; matters: it is callable and returns undefined for any
+                ; arguments, and reporting "prototype is not a function" was the
+                ; opposite of what `typeof` had just said about it.
+                def memberVal:EvalValue (obj.getMember(methodName))
+                if (memberVal.valueType == 6) {
+                    if (has memberVal.objectMap "__fnprotocall__") {
+                        def _fpArgs2:[EvalValue] (this.collectCallArgs(node))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                        return (EvalValue.undefined())
+                    }
+                }
                 this.trace("Warning: Unhandled method call: " + methodName)
                 if strictReferences {
                     def rcvHolds:boolean false
@@ -7093,6 +7314,28 @@ class ComponentEngine {
                         def callArgVals:[EvalValue] (this.collectCallArgs(node))
                         return (this.callFnValueWithValues(fnValue callArgVals))
                     }
+                    ; D-CTORVALUE: a built-in CONSTRUCTOR bound to a name -- by
+                    ; assignment or by bind() -- has no function node but is
+                    ; callable. Any arguments bind() fixed come first.
+                    def ctorNm0:string (this.builtinCtorNameOf(fnValue))
+                    if ((strlen ctorNm0) > 0) {
+                        def ctorArgs0:[EvalValue] (this.collectCallArgs(node))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
+                        def merged0:[EvalValue]
+                        def mi0:int 0
+                        while (mi0 < (array_length fnValue.boundArgs)) {
+                            push merged0 (itemAt fnValue.boundArgs mi0)
+                            mi0 = (mi0 + 1)
+                        }
+                        def mj0:int 0
+                        while (mj0 < (array_length ctorArgs0)) {
+                            push merged0 (itemAt ctorArgs0 mj0)
+                            mj0 = (mj0 + 1)
+                        }
+                        return (this.callBuiltinCtorValues(ctorNm0 merged0 false))
+                    }
                 }
             }
 
@@ -7111,6 +7354,32 @@ class ComponentEngine {
                 if calleeFn.functionNode {
                     def calleeArgs:[EvalValue] (this.collectCallArgs(node))
                     return (this.callFnValueWithValues(calleeFn calleeArgs))
+                }
+                ; D-CTORVALUE: a built-in CONSTRUCTOR held as a value has no
+                ; function node but is perfectly callable -- `var f = Number;
+                ; f(42)` and `Number.bind(null)(42)` both arrive here.
+                if (has calleeFn.objectMap "__fnprotocall__") {
+                    def _fpArgs:[EvalValue] (this.collectCallArgs(node))
+                    return (EvalValue.undefined())
+                }
+                def ctorNm:string (this.builtinCtorNameOf(calleeFn))
+                if ((strlen ctorNm) > 0) {
+                    def ctorArgs:[EvalValue] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    def merged2:[EvalValue]
+                    def mi:int 0
+                    while (mi < (array_length calleeFn.boundArgs)) {
+                        push merged2 (itemAt calleeFn.boundArgs mi)
+                        mi = (mi + 1)
+                    }
+                    def mj:int 0
+                    while (mj < (array_length ctorArgs)) {
+                        push merged2 (itemAt ctorArgs mj)
+                        mj = (mj + 1)
+                    }
+                    return (this.callBuiltinCtorValues(ctorNm merged2 false))
                 }
             }
 
@@ -8027,13 +8296,30 @@ class ComponentEngine {
             if (name == "getPrototypeOf") {
                 return (this.protoOfValue(a0))
             }
+            ; A NON-OBJECT is trivially frozen and sealed and never extensible,
+            ; per ES2015. These answered from the flags of a value that has none,
+            ; so `Object.isFrozen(1)` was false.
+            ; A PRIMITIVE is trivially frozen and sealed and never extensible,
+            ; per ES2015. Arrays and functions are objects and answer from their
+            ; own flags -- testing `valueType != 5` would have called every array
+            ; frozen.
+            def a0Obj:boolean (this.isDescriptorObject(a0))
             if (name == "isExtensible") {
+                if (false == a0Obj) {
+                    return (EvalValue.boolean(false))
+                }
                 return (EvalValue.boolean(a0.extensibleFlag))
             }
             if (name == "isFrozen") {
+                if (false == a0Obj) {
+                    return (EvalValue.boolean(true))
+                }
                 return (EvalValue.boolean(a0.frozenFlag))
             }
             if (name == "isSealed") {
+                if (false == a0Obj) {
+                    return (EvalValue.boolean(true))
+                }
                 return (EvalValue.boolean(a0.sealedFlag))
             }
             if (name == "defineProperty") {
@@ -8043,7 +8329,7 @@ class ComponentEngine {
                 if ((array_length args) > 2) { dd = (itemAt args 2) }
                 def dErr:string (this.definePropertyOn(a0 dk dd))
                 if ((strlen dErr) > 0) {
-                    return (this.throwSpecError("TypeError" dErr))
+                    return (this.throwDefineError(dErr))
                 }
                 return a0
             }
@@ -8545,6 +8831,14 @@ class ComponentEngine {
         }
         push out "toString"
         push out "valueOf"
+        ; D-OBJPROTO: every object inherits these from Object.prototype, so they
+        ; exist on every kind. They had call-site handlers but no registry
+        ; entries, so `typeof Object.prototype.propertyIsEnumerable` was
+        ; "undefined" for a method that plainly works.
+        push out "hasOwnProperty"
+        push out "isPrototypeOf"
+        push out "propertyIsEnumerable"
+        push out "toLocaleString"
         return out
     }
 
@@ -8564,6 +8858,12 @@ class ComponentEngine {
         ; prototype is an ordinary object.
         if (nsName == "Function") {
             p = (EvalValue.nativeFunction(""))
+            ; Calling it returns undefined whatever it is handed. Marked so the
+            ; call paths can tell it from an uncallable value -- it has no
+            ; function node and no builtin name, which is otherwise exactly what
+            ; "not a function" looks like.
+            p.setMember("__fnprotocall__" (EvalValue.boolean(true)))
+            p.setAttrs("__fnprotocall__" false false false)
         }
         set builtinProtos nsName p
         ; D-PROTOCTOR: every built-in prototype inherits from Object.prototype,
@@ -8750,6 +9050,10 @@ class ComponentEngine {
         ; which are the engine's debug format rather than the language's.
         if (name == "toString") { return 0 }
         if (name == "valueOf") { return 0 }
+        if (name == "hasOwnProperty") { return 1 }
+        if (name == "isPrototypeOf") { return 1 }
+        if (name == "propertyIsEnumerable") { return 1 }
+        if (name == "toLocaleString") { return 0 }
         ; String methods belong to strings ONLY. Registering them per-kind is
         ; what makes `[1,2].charAt(0)` a TypeError instead of returning "[" —
         ; the old unguarded branch stringified the array and indexed its debug
@@ -9538,6 +9842,79 @@ class ComponentEngine {
             def boolRecv:EvalValue (this.unwrapPrimitive(recv))
             if (boolRecv.valueType != 3) {
                 return (this.throwSpecError("TypeError" ("Boolean.prototype." + name + " called on a non-boolean")))
+            }
+        }
+        ; ---- Object.prototype, available on every kind ----------------------
+        ; D-OBJPROTO: these three answer about the RECEIVER, so they work the
+        ; same borrowed onto another value as called directly -- which is how
+        ; the suite reaches most of them.
+        if (name == "hasOwnProperty") {
+            def hk0:string ""
+            if ((array_length args) > 0) {
+                hk0 = (this.toPropertyKey((itemAt args 0)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+            }
+            if (has recv.objectMap hk0) { return (EvalValue.boolean(true)) }
+            if (has recv.getterMap hk0) { return (EvalValue.boolean(true)) }
+            if (has recv.setterMap hk0) { return (EvalValue.boolean(true)) }
+            return (EvalValue.boolean((this.objHasKey(recv hk0))))
+        }
+        if (name == "propertyIsEnumerable") {
+            def pk0:string ""
+            if ((array_length args) > 0) {
+                pk0 = (this.toPropertyKey((itemAt args 0)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+            }
+            def ownPk:boolean false
+            if (has recv.objectMap pk0) { ownPk = true }
+            if (has recv.getterMap pk0) { ownPk = true }
+            if (has recv.setterMap pk0) { ownPk = true }
+            if (this.objHasKey(recv pk0)) { ownPk = true }
+            if (false == ownPk) {
+                return (EvalValue.boolean(false))
+            }
+            return (EvalValue.boolean((recv.isEnumerable(pk0))))
+        }
+        if (name == "isPrototypeOf") {
+            if ((array_length args) == 0) {
+                return (EvalValue.boolean(false))
+            }
+            def cand0:EvalValue (itemAt args 0)
+            def candObj:boolean false
+            if (cand0.valueType == 4) { candObj = true }
+            if (cand0.valueType == 5) { candObj = true }
+            if (cand0.valueType == 6) { candObj = true }
+            if (cand0.valueType == 9) { candObj = true }
+            if (cand0.valueType == 10) { candObj = true }
+            if (false == candObj) {
+                return (EvalValue.boolean(false))
+            }
+            def walk0:EvalValue cand0
+            def steps0:int 0
+            while (steps0 < 16) {
+                def nxt0:EvalValue (this.protoOfValue(walk0))
+                if (nxt0.isNull()) {
+                    return (EvalValue.boolean(false))
+                }
+                if (nxt0.equals(recv)) {
+                    return (EvalValue.boolean(true))
+                }
+                walk0 = nxt0
+                steps0 = (steps0 + 1)
+            }
+            return (EvalValue.boolean(false))
+        }
+        ; toLocaleString defers to the receiver's own toString, which is exactly
+        ; what Object.prototype.toLocaleString does.
+        if (name == "toLocaleString") {
+            if (kind != "number") {
+                if (kind != "array") {
+                    return (EvalValue.string((this.toStringOf(recv))))
+                }
             }
         }
         ; D-DATE: every Date method is arithmetic on the receiver's time value,
@@ -11088,6 +11465,12 @@ class ComponentEngine {
                         def okArgs:boolean false
                         if (arr.valueType == 4) { okArgs = true }
                         if (arr.valueType == 5) { okArgs = true }
+                        ; A FUNCTION is an object with a length, and so are Map
+                        ; and Set -- `fun.apply("", Array)` forwards Array's one
+                        ; declared parameter rather than being a TypeError.
+                        if (arr.valueType == 6) { okArgs = true }
+                        if (arr.valueType == 9) { okArgs = true }
+                        if (arr.valueType == 10) { okArgs = true }
                         if (false == okArgs) {
                             return (this.throwSpecError("TypeError" "CreateListFromArrayLike called on non-object"))
                         }
@@ -11118,10 +11501,29 @@ class ComponentEngine {
                 b3.boundArgs = partial
                 b3.boundExplicit = true
                 b3.functionName = ("bound " + recv.functionName)
+                ; D-STRICT: a BOUND function poisons caller and arguments the way
+                ; a strict one does, whatever the target was, and it has no
+                ; `prototype` of its own.
+                b3.strictFn = true
+                b3.suppressedKeys = (this.suppressPrototype(recv))
                 return b3
             }
         }
         return (EvalValue.undefined())
+    }
+
+    ; A bound function has no `prototype`, so the synthesised one is suppressed
+    ; on the copy without touching the target's.
+    fn suppressPrototype:[string:boolean] (recv:EvalValue) {
+        def out:[string:boolean]
+        def ks:[string] (keys recv.suppressedKeys)
+        def i:int 0
+        while (i < (array_length ks)) {
+            set out (itemAt ks i) true
+            i = (i + 1)
+        }
+        set out "prototype" true
+        return out
     }
 
     ; D-ARGCHECK: Object statics whose first argument must be an object. Note
@@ -11822,16 +12224,16 @@ class ComponentEngine {
     ; get/set must be callable. Accepting a contradictory descriptor silently
     ; produced a property that matched neither shape.
     fn descriptorError:string (d:EvalValue) {
-        def hasValue:boolean (has d.objectMap "value")
-        def hasWritable:boolean (has d.objectMap "writable")
-        def hasGet:boolean (has d.objectMap "get")
-        def hasSet:boolean (has d.objectMap "set")
+        def hasValue:boolean (this.descHas(d "value"))
+        def hasWritable:boolean (this.descHas(d "writable"))
+        def hasGet:boolean (this.descHas(d "get"))
+        def hasSet:boolean (this.descHas(d "set"))
         if (hasGet || hasSet) {
             if (hasValue || hasWritable) {
                 return "descriptor cannot be both a data and an accessor descriptor"
             }
             if hasGet {
-                def g:EvalValue (d.getMember("get"))
+                def g:EvalValue (this.descGet(d "get"))
                 if (g.valueType != 6) {
                     if (false == (g.isUndefined())) {
                         return "getter must be a function"
@@ -11839,7 +12241,7 @@ class ComponentEngine {
                 }
             }
             if hasSet {
-                def st:EvalValue (d.getMember("set"))
+                def st:EvalValue (this.descGet(d "set"))
                 if (st.valueType != 6) {
                     if (false == (st.isUndefined())) {
                         return "setter must be a function"
@@ -12294,6 +12696,65 @@ class ComponentEngine {
     ; includes arrays and functions, so the check cannot simply be "is a plain
     ; object". `Object.defineProperty(o, 'k', function () {})` is legal and
     ; defines an undefined-valued property.
+    ; D-DEFINEOWN: the properties-object step shared by Object.defineProperties
+    ; and Object.create's second argument. Its OWN ENUMERABLE keys are visited,
+    ; each value is read with a full [[Get]] so an accessor on the properties
+    ; object runs, and every descriptor is validated BEFORE any is applied --
+    ; which is what makes a bad one later in the map leave the target untouched.
+    ; Object.create used to have a copy of this that validated nothing and read
+    ; the raw map, so a getter-supplied descriptor produced nothing at all.
+    fn applyDescriptorMap:string (target:EvalValue rawDescs:EvalValue) {
+        ; The properties argument is ToObject'd, not required to be an object:
+        ; `Object.defineProperties(o, false)` boxes the boolean, finds no own
+        ; enumerable property on it, and quietly returns o. Only null and
+        ; undefined are a TypeError, and ToObject raises that itself.
+        if ((rawDescs.isNull()) || (rawDescs.isUndefined())) {
+            return "Properties must be an object"
+        }
+        def descs:EvalValue (this.toObjectValue(rawDescs))
+        if scriptThrew {
+            return ""
+        }
+        if (false == (this.isDescriptorObject(descs))) {
+            return "Properties must be an object"
+        }
+        def dkeys:[string] (this.objectEnumerableKeys(descs))
+        def collected:[EvalValue]
+        def names:[string]
+        def i:int 0
+        while (i < (array_length dkeys)) {
+            def k:string (itemAt dkeys i)
+            if (false == (this.isHiddenInstanceKey(k))) {
+                def d:EvalValue (this.descGet(descs k))
+                if scriptThrew {
+                    return ""
+                }
+                if (false == (this.isDescriptorObject(d))) {
+                    return "Property description must be an object"
+                }
+                def vErr:string (this.descriptorError(d))
+                if ((strlen vErr) > 0) {
+                    return vErr
+                }
+                push collected d
+                push names k
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length names)) {
+            def aErr:string (this.definePropertyOn(target (itemAt names j) (itemAt collected j)))
+            if ((strlen aErr) > 0) {
+                return aErr
+            }
+            if scriptThrew {
+                return ""
+            }
+            j = (j + 1)
+        }
+        return ""
+    }
+
     fn isDescriptorObject:boolean (v:EvalValue) {
         if (v.valueType == 5) { return true }
         if (v.valueType == 4) { return true }
@@ -12310,6 +12771,61 @@ class ComponentEngine {
     ; would happily redefine a non-configurable property.
     ;
     ; Returns "" on success, or the TypeError message to raise.
+    ; D-DEFINEOWN: reading a field OF THE DESCRIPTOR is a full [[Get]] -- it runs
+    ; an accessor and it walks the prototype chain. Reading `objectMap` directly
+    ; missed both, so a descriptor whose `value` was a getter, or inherited from
+    ; a prototype, defined nothing. That is the single largest failure family in
+    ; Object.defineProperty and Object.defineProperties.
+    fn descHas:boolean (desc:EvalValue key:string) {
+        def walk:EvalValue desc
+        def steps:int 0
+        while (steps < 16) {
+            if (has walk.objectMap key) { return true }
+            if (has walk.getterMap key) { return true }
+            if (has walk.setterMap key) { return true }
+            def nxt:EvalValue (this.protoOfValue(walk))
+            if (nxt.isNull()) {
+                return false
+            }
+            walk = nxt
+            steps = (steps + 1)
+        }
+        return false
+    }
+
+    fn descGet:EvalValue (desc:EvalValue key:string) {
+        ; One ordered walk, deciding at EACH level before going up. Asking for
+        ; the getter first walked the whole chain and let an INHERITED accessor
+        ; beat an OWN data property, which is backwards -- the nearest holder
+        ; wins whichever kind it is.
+        def walk:EvalValue desc
+        def steps:int 0
+        while (steps < 16) {
+            if (has walk.getterMap key) {
+                def gFn:EvalValue (unwrap (get walk.getterMap key))
+                if (gFn.valueType == 6) {
+                    def noArgs:[EvalValue]
+                    return (this.callFnValueWithValues((gFn.withThis(desc)) noArgs))
+                }
+            }
+            ; A set-only accessor reads as undefined and does NOT fall through
+            ; to whatever the prototype holds.
+            if (has walk.setterMap key) {
+                return (EvalValue.undefined())
+            }
+            if (has walk.objectMap key) {
+                return (unwrap (get walk.objectMap key))
+            }
+            def nxt:EvalValue (this.protoOfValue(walk))
+            if (nxt.isNull()) {
+                return (EvalValue.undefined())
+            }
+            walk = nxt
+            steps = (steps + 1)
+        }
+        return (EvalValue.undefined())
+    }
+
     fn definePropertyOn:string (obj:EvalValue key:string desc:EvalValue) {
         if (false == (this.isDescriptorObject(desc))) {
             return "Property description must be an object"
@@ -12318,32 +12834,274 @@ class ComponentEngine {
         if ((strlen dErr) > 0) {
             return dErr
         }
+        ; D-ARRAYDEFINE: an ARRAY has its own [[DefineOwnProperty]] (15.4.5.1).
+        ; `length` is a real property whose write resizes, and an index defines
+        ; an element and may push `length` out. Neither went anywhere near the
+        ; elements before -- `Object.defineProperty(a, "length", {value: 0})`
+        ; stored a stray property and left the array as it was.
+        if (obj.valueType == 4) {
+            if (key == "length") {
+                return (this.defineArrayLength(obj desc))
+            }
+            def elemIdx:int (this.canonicalArrayIndex(key))
+            if (elemIdx >= 0) {
+                if (elemIdx <= 10000000) {
+                    return (this.defineArrayIndex(obj elemIdx desc))
+                }
+            }
+        }
         def rErr:string (this.redefineError(obj key desc))
         if ((strlen rErr) > 0) {
             return rErr
         }
-        def gv:EvalValue (desc.getMember("get"))
-        def sv:EvalValue (desc.getMember("set"))
-        if ((gv.valueType == 6) || (sv.valueType == 6)) {
+        ; D-ATTRS: an attribute the descriptor does not mention KEEPS its current
+        ; value on an existing property, and defaults to FALSE on a new one --
+        ; unlike plain assignment, which defaults them all true. Taking the
+        ; descriptor's `undefined` as false made every redefinition silently
+        ; strip the flags the property already had.
+        def existed:boolean false
+        if (has obj.objectMap key) { existed = true }
+        if (has obj.getterMap key) { existed = true }
+        if (has obj.setterMap key) { existed = true }
+        def newW:boolean false
+        def newE:boolean false
+        def newC:boolean false
+        if existed {
+            newW = (obj.isWritable(key))
+            newE = (obj.isEnumerable(key))
+            newC = (obj.isConfigurable(key))
+        }
+        if (this.descHas(desc "writable")) {
+            newW = ((this.descGet(desc "writable")).toBool())
+        }
+        if (this.descHas(desc "enumerable")) {
+            newE = ((this.descGet(desc "enumerable")).toBool())
+        }
+        if (this.descHas(desc "configurable")) {
+            newC = ((this.descGet(desc "configurable")).toBool())
+        }
+        def gv:EvalValue (this.descGet(desc "get"))
+        def sv:EvalValue (this.descGet(desc "set"))
+        if ((this.descHas(desc "get")) || (this.descHas(desc "set"))) {
             ; D-ACCESSORS: a real accessor property. The functions are stored
             ; apart from objectMap so the property is never mistaken for a data
-            ; one.
-            if (gv.valueType == 6) {
-                obj.defineGetter(key gv)
+            ; one -- and turning a DATA property into an accessor has to remove
+            ; the old value, or the descriptor still reports value/writable.
+            if (has obj.objectMap key) {
+                obj.clearDataSlot(key)
             }
-            if (sv.valueType == 6) {
-                obj.defineSetter(key sv)
+            ; A half the descriptor MENTIONS is replaced -- `{set: undefined}`
+            ; really does remove the setter -- and a half it omits is kept.
+            if (this.descHas(desc "get")) {
+                obj.clearGetterOnly(key)
+                if (gv.valueType == 6) {
+                    obj.defineGetter(key gv)
+                }
             }
-            obj.setAttrs(key false ((desc.getMember("enumerable")).toBool()) ((desc.getMember("configurable")).toBool()))
+            if (this.descHas(desc "set")) {
+                obj.clearSetterOnly(key)
+                if (sv.valueType == 6) {
+                    obj.defineSetter(key sv)
+                }
+            }
+            ; `{get: undefined}` is still an ACCESSOR descriptor: the property
+            ; exists, reads as undefined, and reports get/set rather than
+            ; value/writable. Recording nothing at all made it vanish.
+            if (false == (has obj.getterMap key)) {
+                if (false == (has obj.setterMap key)) {
+                    obj.defineGetter(key (EvalValue.undefined()))
+                }
+            }
+            ; An accessor has no writable attribute of its own.
+            obj.setAttrs(key false newE newC)
             return ""
         }
-        ; D-ATTRS: defineProperty defaults every attribute to FALSE, unlike plain
-        ; assignment which defaults them all true. Recording that is what lets a
-        ; descriptor report honestly. Written through the raw map because
-        ; setMember would refuse a second defineProperty on a non-writable
-        ; property, while redefining a CONFIGURABLE one is allowed.
-        set obj.objectMap key (desc.getMember("value"))
-        obj.setAttrs(key ((desc.getMember("writable")).toBool()) ((desc.getMember("enumerable")).toBool()) ((desc.getMember("configurable")).toBool()))
+        ; Turning an ACCESSOR into a data property drops the functions.
+        if (has obj.getterMap key) {
+            obj.clearAccessor(key)
+        }
+        if (has obj.setterMap key) {
+            obj.clearAccessor(key)
+        }
+        ; Written through the raw map because setMember would refuse a second
+        ; defineProperty on a non-writable property, while redefining a
+        ; CONFIGURABLE one is allowed.
+        def newVal:EvalValue (EvalValue.undefined())
+        if existed {
+            if (has obj.objectMap key) {
+                newVal = (unwrap (get obj.objectMap key))
+            }
+        }
+        if (this.descHas(desc "value")) {
+            newVal = (this.descGet(desc "value"))
+        }
+        set obj.objectMap key newVal
+        obj.setAttrs(key newW newE newC)
+        return ""
+    }
+
+    ; definePropertyOn reports a failure as a message. Almost every one is a
+    ; TypeError, but the array-length rules produce a RangeError, so the kind
+    ; travels with the message behind an "@Kind@" prefix rather than as a second
+    ; return value Ranger cannot give.
+    fn throwDefineError:EvalValue (err:string) {
+        def n:int (strlen err)
+        if (n > 1) {
+            if ((substring err 0 1) == "@") {
+                def i:int 1
+                while (i < n) {
+                    if ((substring err i (i + 1)) == "@") {
+                        def kind:string (substring err 1 i)
+                        def msg:string (substring err (i + 1) n)
+                        return (this.throwSpecError(kind msg))
+                    }
+                    i = (i + 1)
+                }
+            }
+        }
+        return (this.throwSpecError("TypeError" err))
+    }
+
+    ; D-ARRAYDEFINE: `Object.defineProperty(arr, "length", desc)`. The value is
+    ; ToUint32 and must equal ToNumber of the same descriptor field, or it is a
+    ; RangeError -- `{value: undefined}` and `{value: 1.5}` both are. length is
+    ; never enumerable or configurable, and asking for either is a TypeError.
+    fn defineArrayLength:string (obj:EvalValue desc:EvalValue) {
+        if (this.descHas(desc "get")) {
+            return "cannot redefine array length as an accessor"
+        }
+        if (this.descHas(desc "set")) {
+            return "cannot redefine array length as an accessor"
+        }
+        if (this.descHas(desc "configurable")) {
+            if ((this.descGet(desc "configurable")).toBool()) {
+                return "cannot make array length configurable"
+            }
+        }
+        if (this.descHas(desc "enumerable")) {
+            if ((this.descGet(desc "enumerable")).toBool()) {
+                return "cannot make array length enumerable"
+            }
+        }
+        ; `length` HAS a writable attribute, and turning it off freezes the
+        ; length: a later `{value: n}` is a TypeError rather than a resize.
+        def lenWritable:boolean true
+        if (has obj.attrFlags "length") {
+            lenWritable = (obj.isWritable("length"))
+        }
+        if (this.descHas(desc "writable")) {
+            def wantW:boolean ((this.descGet(desc "writable")).toBool())
+            if (lenWritable == false) {
+                if wantW {
+                    return "cannot make a non-writable array length writable again"
+                }
+            }
+            obj.setAttrs("length" wantW false false)
+            lenWritable = wantW
+        }
+        if (false == (this.descHas(desc "value"))) {
+            return ""
+        }
+        if (lenWritable == false) {
+            return "cannot change the length of an array whose length is not writable"
+        }
+        def lv:EvalValue (this.descGet(desc "value"))
+        def lenNum:double (this.toNumberOf(lv))
+        if scriptThrew {
+            return ""
+        }
+        def lenTrunc:double (this.floorNum(lenNum))
+        if (lenNum < 0.0) {
+            lenTrunc = (0.0 - (this.floorNum((0.0 - lenNum))))
+        }
+        def lenU:double (this.wrapUint32(lenTrunc))
+        if (lenU != lenNum) {
+            return "@RangeError@Invalid array length"
+        }
+        if (lenU > 10000000.0) {
+            return "@RangeError@Invalid array length"
+        }
+        def newLen:int (to_int lenU)
+        def oldLen:int (array_length obj.arrayValue)
+        ; Truncation stops at the first NON-CONFIGURABLE element, and reports a
+        ; TypeError while keeping everything up to and including it.
+        if (newLen < oldLen) {
+            def stopAt:int newLen
+            def scan:int (oldLen - 1)
+            def blocked:boolean false
+            while ((scan >= newLen) && (blocked == false)) {
+                def ek:string (to_string scan)
+                if (has obj.attrFlags ek) {
+                    if (false == (obj.isConfigurable(ek))) {
+                        stopAt = (scan + 1)
+                        blocked = true
+                    }
+                }
+                scan = (scan - 1)
+            }
+            this.resizeArrayTo(obj stopAt)
+            if blocked {
+                return "cannot delete a non-configurable element while shortening length"
+            }
+            return ""
+        }
+        this.resizeArrayTo(obj newLen)
+        return ""
+    }
+
+    fn resizeArrayTo:void (obj:EvalValue newLen:int) {
+        def resized:[EvalValue]
+        def li:int 0
+        while (li < newLen) {
+            if (li < (array_length obj.arrayValue)) {
+                push resized (itemAt obj.arrayValue li)
+            } {
+                push resized (EvalValue.hole())
+            }
+            li = (li + 1)
+        }
+        obj.arrSetItems(resized)
+    }
+
+    ; D-ARRAYDEFINE: defining an INDEX writes the element and pushes `length`
+    ; out when the index is past the end. The attributes are recorded under the
+    ; index's name so a later truncation can see a non-configurable element.
+    fn defineArrayIndex:string (obj:EvalValue idx:int desc:EvalValue) {
+        def key:string (to_string idx)
+        def rErr:string (this.redefineError(obj key desc))
+        if ((strlen rErr) > 0) {
+            return rErr
+        }
+        if (idx >= (array_length obj.arrayValue)) {
+            this.resizeArrayTo(obj (idx + 1))
+        }
+        ; An element may be an ACCESSOR. The functions live in getterMap /
+        ; setterMap under the index's name -- where the computed-read path
+        ; already looks -- and the dense slot is made PRESENT so `idx in arr`
+        ; is true, with the getter winning on read.
+        def aG:EvalValue (this.descGet(desc "get"))
+        def aS:EvalValue (this.descGet(desc "set"))
+        if ((aG.valueType == 6) || (aS.valueType == 6)) {
+            if (aG.valueType == 6) {
+                obj.defineGetter(key aG)
+            }
+            if (aS.valueType == 6) {
+                obj.defineSetter(key aS)
+            }
+            obj.setIndexAt(idx (EvalValue.undefined()))
+            obj.setAttrs(key false ((this.descGet(desc "enumerable")).toBool()) ((this.descGet(desc "configurable")).toBool()))
+            return ""
+        }
+        if (this.descHas(desc "value")) {
+            obj.setIndexAt(idx (this.descGet(desc "value")))
+        } {
+            ; Attributes only: an element that did not exist becomes a present
+            ; undefined, which is what a descriptor without a value creates.
+            if ((itemAt obj.arrayValue idx).isHole) {
+                obj.setIndexAt(idx (EvalValue.undefined()))
+            }
+        }
+        obj.setAttrs(key ((this.descGet(desc "writable")).toBool()) ((this.descGet(desc "enumerable")).toBool()) ((this.descGet(desc "configurable")).toBool()))
         return ""
     }
 
@@ -12368,13 +13126,13 @@ class ComponentEngine {
         }
         ; Non-configurable from here on. configurable and enumerable are frozen
         ; whichever category the property is.
-        if (has desc.objectMap "configurable") {
-            if ((desc.getMember("configurable")).toBool()) {
+        if (this.descHas(desc "configurable")) {
+            if ((this.descGet(desc "configurable")).toBool()) {
                 return "cannot redefine a non-configurable property as configurable"
             }
         }
-        if (has desc.objectMap "enumerable") {
-            def wantE:boolean ((desc.getMember("enumerable")).toBool())
+        if (this.descHas(desc "enumerable")) {
+            def wantE:boolean ((this.descGet(desc "enumerable")).toBool())
             if (wantE != (obj.isEnumerable(key))) {
                 return "cannot change enumerable of a non-configurable property"
             }
@@ -12382,25 +13140,25 @@ class ComponentEngine {
         ; A non-configurable property cannot change category either. Both
         ; directions matter: data -> accessor and accessor -> data.
         def wantsAccessor:boolean false
-        if (has desc.objectMap "get") { wantsAccessor = true }
-        if (has desc.objectMap "set") { wantsAccessor = true }
+        if (this.descHas(desc "get")) { wantsAccessor = true }
+        if (this.descHas(desc "set")) { wantsAccessor = true }
         def wantsData:boolean false
-        if (has desc.objectMap "value") { wantsData = true }
-        if (has desc.objectMap "writable") { wantsData = true }
+        if (this.descHas(desc "value")) { wantsData = true }
+        if (this.descHas(desc "writable")) { wantsData = true }
         if (isAccessor) {
             if wantsData {
                 return "cannot redefine a non-configurable accessor property as a data property"
             }
             ; Same category: the accessor functions themselves are frozen too.
-            if (has desc.objectMap "get") {
+            if (this.descHas(desc "get")) {
                 def curG:EvalValue (obj.findGetter(key 0))
-                if (false == (curG.equals((desc.getMember("get"))))) {
+                if (false == (curG.equals((this.descGet(desc "get"))))) {
                     return "cannot change the getter of a non-configurable property"
                 }
             }
-            if (has desc.objectMap "set") {
+            if (this.descHas(desc "set")) {
                 def curS:EvalValue (obj.findSetter(key 0))
-                if (false == (curS.equals((desc.getMember("set"))))) {
+                if (false == (curS.equals((this.descGet(desc "set"))))) {
                     return "cannot change the setter of a non-configurable property"
                 }
             }
@@ -12413,14 +13171,14 @@ class ComponentEngine {
             return ""
         }
         ; Non-configurable AND non-writable: value and writability are frozen.
-        if (has desc.objectMap "writable") {
-            if ((desc.getMember("writable")).toBool()) {
+        if (this.descHas(desc "writable")) {
+            if ((this.descGet(desc "writable")).toBool()) {
                 return "cannot make a non-configurable, non-writable property writable"
             }
         }
-        if (has desc.objectMap "value") {
+        if (this.descHas(desc "value")) {
             def cur:EvalValue (obj.getMember(key))
-            def want:EvalValue (desc.getMember("value"))
+            def want:EvalValue (this.descGet(desc "value"))
             if (false == (cur.equals(want))) {
                 return "cannot change the value of a non-configurable, non-writable property"
             }
@@ -12521,9 +13279,40 @@ class ComponentEngine {
             def c:EvalValue (EvalValue.nativeFunction(nm))
             c.setMember("name" (EvalValue.string(nm)))
             c.setMember("__errorctor__" (EvalValue.string(nm)))
+            ; D-ERRORS: an error constructor has a real `prototype`, chained the
+            ; way the spec chains them -- TypeError.prototype inherits from
+            ; Error.prototype, which inherits from Object.prototype. Without it
+            ; a property put on Error.prototype was invisible to every error,
+            ; and `Object.getPrototypeOf(new Error())` answered Object.prototype.
+            def keysE:[string]
+            def valsE:[EvalValue]
+            def proto:EvalValue (EvalValue.object(keysE valsE))
+            proto.setMember("name" (EvalValue.string(nm)))
+            proto.setAttrs("name" true false true)
+            proto.setMember("message" (EvalValue.string("")))
+            proto.setAttrs("message" true false true)
+            proto.setMember("constructor" c)
+            proto.setAttrs("constructor" true false true)
+            if (nm == "Error") {
+                proto.protoRef = (this.builtinPrototype("Object"))
+            } {
+                proto.protoRef = (this.errorPrototypeFor("Error"))
+            }
+            set builtinProtos nm proto
+            c.setMember("prototype" proto)
+            c.setAttrs("prototype" false false false)
             hostScope.define(nm c)
             i = (i + 1)
         }
+    }
+
+    ; The prototype object for an error kind, created by ensureErrorCtors.
+    fn errorPrototypeFor:EvalValue (kind:string) {
+        this.ensureErrorCtors()
+        if (has builtinProtos kind) {
+            return (unwrap (get builtinProtos kind))
+        }
+        return (this.builtinPrototype("Object"))
     }
 
     ; The constructor function value for a kind ("TypeError"), or null when the
@@ -12546,6 +13335,7 @@ class ComponentEngine {
         if (ctor.valueType == 6) {
             e.setMember("constructor" ctor)
         }
+        e.protoRef = (this.errorPrototypeFor(kind))
         return e
     }
 
@@ -13729,13 +14519,38 @@ class ComponentEngine {
                 }
             }
             ; getMember would return the FUNCTION rather than calling it.
+            ; The accessor only wins where it is actually FOUND: an OWN data
+            ; property shadows an INHERITED accessor, and asking findGetter first
+            ; walked the whole chain and let the inherited one win.
             if ((strlen propName) > 0) {
-                def gFn:EvalValue (obj.findGetter(propName 0))
-                if (gFn.valueType == 6) {
-                    if gFn.functionNode {
-                        def noArgs:[EvalValue]
-                        def gBound:EvalValue (gFn.withThis(obj))
-                        return (this.callFnValueWithValues(gBound noArgs))
+                if (false == (has obj.objectMap propName)) {
+                    ; An OWN accessor is decided here, before any prototype is
+                    ; consulted: a set-only own accessor reads as undefined and
+                    ; must not fall through to an inherited getter.
+                    if (has obj.getterMap propName) {
+                        def ownG:EvalValue (unwrap (get obj.getterMap propName))
+                        if (ownG.valueType == 6) {
+                            if ownG.functionNode {
+                                def ownArgs:[EvalValue]
+                                return (this.callFnValueWithValues((ownG.withThis(obj)) ownArgs))
+                            }
+                        }
+                    } {
+                        if (has obj.setterMap propName) {
+                            return (EvalValue.undefined())
+                        }
+                        def gFn:EvalValue (obj.findGetter(propName 0))
+                        if (gFn.valueType == 6) {
+                            if gFn.functionNode {
+                                def noArgs:[EvalValue]
+                                def gBound:EvalValue (gFn.withThis(obj))
+                                return (this.callFnValueWithValues(gBound noArgs))
+                            }
+                        }
+                        ; An inherited set-only accessor reads as undefined too.
+                        if (obj.hasSetterFor(propName)) {
+                            return (EvalValue.undefined())
+                        }
                     }
                 }
             }
@@ -13904,7 +14719,20 @@ class ComponentEngine {
                 }
             }
 
-            return (obj.getMember(propName))
+            def outMember:EvalValue (obj.getMember(propName))
+            ; A property a PRIMITIVE does not have reads as undefined, not null:
+            ; `typeof (1).nope` is "undefined", and answering the engine's null
+            ; sentinel made it "object".
+            if (outMember.valueType == 0) {
+                def primRecv:boolean false
+                if (obj.valueType == 1) { primRecv = true }
+                if (obj.valueType == 2) { primRecv = true }
+                if (obj.valueType == 3) { primRecv = true }
+                if primRecv {
+                    return (EvalValue.undefined())
+                }
+            }
+            return outMember
         }
 
         return (EvalValue.null())
@@ -13996,6 +14824,30 @@ class ComponentEngine {
         def out:[string]
         if (v.isObject()) {
             out = (keys v.objectMap)
+            ; D-ACCESSORS: an accessor property lives in getterMap/setterMap
+            ; rather than objectMap, so listing only objectMap left every
+            ; accessor out of Object.keys, getOwnPropertyNames and the
+            ; descriptor-map step of Object.create / defineProperties.
+            def accKeys:[string] (keys v.getterMap)
+            def ai:int 0
+            while (ai < (array_length accKeys)) {
+                def ak:string (itemAt accKeys ai)
+                if (false == (has v.objectMap ak)) {
+                    push out ak
+                }
+                ai = (ai + 1)
+            }
+            def setKeys:[string] (keys v.setterMap)
+            def si:int 0
+            while (si < (array_length setKeys)) {
+                def sk:string (itemAt setKeys si)
+                if (false == (has v.objectMap sk)) {
+                    if (false == (has v.getterMap sk)) {
+                        push out sk
+                    }
+                }
+                si = (si + 1)
+            }
             return out
         }
         ; A string coerces to an object whose own keys are its character
@@ -14021,6 +14873,28 @@ class ComponentEngine {
                 }
                 i = (i + 1)
             }
+            ; D-ACCESSORS: an accessor put on an ARRAY under a non-index name is
+            ; an own property too, and lives outside objectMap.
+            def arrAcc:[string] (keys v.getterMap)
+            def aai:int 0
+            while (aai < (array_length arrAcc)) {
+                def aak:string (itemAt arrAcc aai)
+                if ((this.canonicalArrayIndex(aak)) < 0) {
+                    push out aak
+                }
+                aai = (aai + 1)
+            }
+            def arrSet:[string] (keys v.setterMap)
+            def asi:int 0
+            while (asi < (array_length arrSet)) {
+                def ask:string (itemAt arrSet asi)
+                if ((this.canonicalArrayIndex(ask)) < 0) {
+                    if (false == (has v.getterMap ask)) {
+                        push out ask
+                    }
+                }
+                asi = (asi + 1)
+            }
             def extra:[string] (keys v.objectMap)
             def j:int 0
             while (j < (array_length extra)) {
@@ -14045,7 +14919,7 @@ class ComponentEngine {
             return (this.objectKeys(v))
         }
         if (v.isObject()) {
-            def all:[string] (keys v.objectMap)
+            def all:[string] (this.objectKeys(v))
             def i:int 0
             while (i < (array_length all)) {
                 def k:string (itemAt all i)
@@ -14075,6 +14949,10 @@ class ComponentEngine {
             ; deleted and must stay deleted. Only a user function synthesises
             ; them on read, and only it gets the fallback.
             if ((strlen v.builtinName) > 0) {
+                return false
+            }
+            ; A synthesised property that was DELETED stays deleted.
+            if (has v.suppressedKeys key) {
                 return false
             }
             if (key == "length") { return true }

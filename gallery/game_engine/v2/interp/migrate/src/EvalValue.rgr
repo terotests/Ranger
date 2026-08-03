@@ -100,6 +100,10 @@ class EvalValue {
     def frozenFlag:boolean false
     ; D-HOLES: set only on the shared hole singleton (see rawHole).
     def isHole:boolean false
+    ; D-FNPROPS: names whose SYNTHESISED value has been deleted. A function's
+    ; length/name/prototype are computed on read rather than stored, so there was
+    ; nothing for `delete f.length` to remove and hasOwnProperty kept saying yes.
+    def suppressedKeys:[string:boolean]
     def functionNode@(optional):TSNode  ; For function AST nodes
     ; D-FNSRC: the WHOLE source text this function's node was parsed from, not a
     ; slice. Function.prototype.toString cuts [node.start, node.end) out of it,
@@ -323,6 +327,7 @@ class EvalValue {
         v.builtinNamespace = builtinNamespace
         v.strictFn = strictFn
         v.srcText = srcText
+        v.suppressedKeys = suppressedKeys
         v.boundThis = recv
         if functionNode {
             v.functionNode = (unwrap functionNode)
@@ -556,6 +561,64 @@ class EvalValue {
 
     ; D-ACCESSORS: accessor lookup, walking the prototype chain like a data
     ; property does — a getter defined on a prototype serves every instance.
+    ; Drop any accessor stored for this key. Used when defineProperty turns an
+    ; accessor property back into a data one -- leaving the functions behind
+    ; would let the getter keep winning over the new value.
+    fn clearAccessor:void (key:string) {
+        def newG:[string:EvalValue]
+        def gk:[string] (keys getterMap)
+        for gk kk:string idx {
+            if (kk != key) {
+                set newG kk (unwrap (get getterMap kk))
+            }
+        }
+        getterMap = newG
+        def newS:[string:EvalValue]
+        def sk:[string] (keys setterMap)
+        for sk kk2:string idx2 {
+            if (kk2 != key) {
+                set newS kk2 (unwrap (get setterMap kk2))
+            }
+        }
+        setterMap = newS
+    }
+
+    ; Remove ONLY the getter, only the setter, or only the data slot. Redefining
+    ; an accessor replaces the halves the descriptor mentions and keeps the rest,
+    ; so clearing both together would drop a setter the descriptor never named.
+    fn clearGetterOnly:void (key:string) {
+        def newG:[string:EvalValue]
+        def gk:[string] (keys getterMap)
+        for gk kk:string idx {
+            if (kk != key) {
+                set newG kk (unwrap (get getterMap kk))
+            }
+        }
+        getterMap = newG
+    }
+
+    fn clearSetterOnly:void (key:string) {
+        def newS:[string:EvalValue]
+        def sk:[string] (keys setterMap)
+        for sk kk:string idx {
+            if (kk != key) {
+                set newS kk (unwrap (get setterMap kk))
+            }
+        }
+        setterMap = newS
+    }
+
+    fn clearDataSlot:void (key:string) {
+        def rebuilt:[string:EvalValue]
+        def ks:[string] (keys objectMap)
+        for ks kk:string idx {
+            if (kk != key) {
+                set rebuilt kk (unwrap (get objectMap kk))
+            }
+        }
+        objectMap = rebuilt
+    }
+
     fn findGetter:EvalValue (key:string depth:int) {
         if (depth > 16) {
             return (EvalValue.null())
@@ -569,6 +632,23 @@ class EvalValue {
             return (pr.findGetter(key nd))
         }
         return (EvalValue.null())
+    }
+
+    ; True when this value or something up its chain defines a SETTER for the
+    ; key. A set-only accessor makes the property read as undefined rather than
+    ; falling through to a data property further up.
+    fn hasSetterFor:boolean (key:string) {
+        if (has setterMap key) {
+            return true
+        }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            if (has pr.objectMap key) {
+                return false
+            }
+            return (pr.hasSetterFor(key))
+        }
+        return false
     }
 
     fn findSetter:EvalValue (key:string depth:int) {
@@ -597,12 +677,26 @@ class EvalValue {
     ; True when the property is an accessor anywhere up the chain. Used to keep
     ; an accessor from being reported as a data property.
     fn hasAccessor:boolean (key:string) {
-        def g:EvalValue (this.findGetter(key 0))
-        if (g.valueType == 6) {
+        ; PRESENCE in the map, not callability: `{get: undefined}` defines a real
+        ; accessor property whose getter is undefined, and testing for a function
+        ; made that property report as absent.
+        if (this.hasAccessorSlot(key 0)) {
             return true
         }
-        def s:EvalValue (this.findSetter(key 0))
-        return (s.valueType == 6)
+        return false
+    }
+
+    fn hasAccessorSlot:boolean (key:string depth:int) {
+        if (depth > 16) {
+            return false
+        }
+        if (has getterMap key) { return true }
+        if (has setterMap key) { return true }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            return (pr.hasAccessorSlot(key (depth + 1)))
+        }
+        return false
     }
 
     ; D-PROTO: one step of the prototype-chain walk. Depth-bounded so a cyclic
@@ -681,6 +775,11 @@ class EvalValue {
         if (valueType == 6) {
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
+            }
+            ; D-FNPROPS: a synthesised property that was DELETED stays deleted,
+            ; rather than being minted again on the next read.
+            if (has suppressedKeys key) {
+                return (EvalValue.undefined())
             }
             ; D-PROTO: `F.prototype` is created on first read and stored, so
             ; `F.prototype.m = fn` persists and `new F()` can link to the SAME
@@ -849,6 +948,16 @@ class EvalValue {
                 }
             }
             objectMap = rebuilt
+        }
+        ; D-FNPROPS: a function's length/name/prototype are computed on read,
+        ; so there is nothing in the map to remove -- the deletion is recorded
+        ; instead, and the synthesis honours it.
+        if (valueType == 6) {
+            ; `prototype` on an ordinary function is NON-CONFIGURABLE, so the
+            ; delete simply fails; length and name are configurable and go.
+            if (key != "prototype") {
+                set suppressedKeys key true
+            }
         }
         ; D-ACCESSORS: an accessor property lives in getterMap/setterMap, so
         ; deleting one has to clear those too. It did not, and the property

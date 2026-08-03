@@ -1120,6 +1120,91 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["ovr-restored-string-charat", "return 'abc'.charAt(1);", "override"],
   ["ovr-restored-array-tostring", "return [1, 2].toString();", "override"],
 
+  // --- descriptors reached through accessors and prototypes -----------------
+  // Reading a field OF a descriptor is a full [[Get]]: it runs an accessor and
+  // it walks the prototype chain, and the nearest holder wins whichever kind it
+  // is -- an OWN data property beats an INHERITED accessor.
+  ["desc-value-via-getter", "var attr = {}; Object.defineProperty(attr, 'value', { get: function () { return 'v'; } }); var o = {}; Object.defineProperty(o, 'p', attr); return o.p;", "descriptors2"],
+  ["desc-writable-via-getter", "var attr = {}; Object.defineProperty(attr, 'writable', { get: function () { return true; } }); var o = {}; Object.defineProperty(o, 'p', attr); o.p = 'w'; return o.p;", "descriptors2"],
+  ["desc-inherited-field", "var proto = { value: 'inh' }; var F = function () {}; F.prototype = proto; var o = {}; Object.defineProperty(o, 'p', new F()); return o.p;", "descriptors2"],
+  ["desc-own-shadows-inherited-accessor", "var proto = {}; Object.defineProperty(proto, 'value', { get: function () { return 'inh'; } }); var F = function () {}; F.prototype = proto; var c = new F(); Object.defineProperty(c, 'value', { value: 'own' }); var o = {}; Object.defineProperty(o, 'p', c); return o.p;", "descriptors2"],
+  ["read-own-data-beats-inherited-accessor", "var p = {}; Object.defineProperty(p, 'v', { get: function () { return 'inh'; } }); var F = function () {}; F.prototype = p; var c = new F(); Object.defineProperty(c, 'v', { value: 'own' }); return c.v;", "descriptors2"],
+  ["read-set-only-accessor-is-undefined", "var p = {}; Object.defineProperty(p, 'v', { get: function () { return 'inh'; } }); var F = function () {}; F.prototype = p; var c = new F(); Object.defineProperty(c, 'v', { set: function () {} }); return typeof c.v;", "descriptors2"],
+
+  // Attributes the descriptor omits are KEPT on an existing property and
+  // default to false on a new one; changing a property's kind drops the other
+  // kind's state.
+  ["desc-keeps-omitted-attributes", "var o = {}; Object.defineProperty(o, 'p', { value: 1, writable: true, enumerable: true, configurable: true }); Object.defineProperty(o, 'p', { value: 2 }); var d = Object.getOwnPropertyDescriptor(o, 'p'); return d.value + ',' + d.writable + ',' + d.enumerable + ',' + d.configurable;", "descriptors2"],
+  ["desc-new-defaults-false", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); var d = Object.getOwnPropertyDescriptor(o, 'p'); return d.writable + ',' + d.enumerable + ',' + d.configurable;", "descriptors2"],
+  ["desc-data-to-accessor", "var o = {}; o.foo = 101; Object.defineProperty(o, 'foo', { get: function () { return 1; } }); var d = Object.getOwnPropertyDescriptor(o, 'foo'); return d.enumerable + ',' + d.configurable + ',' + d.hasOwnProperty('value');", "descriptors2"],
+  ["desc-undefined-getter-still-accessor", "var o = {}; Object.defineProperty(o, 'p', { get: undefined, configurable: true }); var d = Object.getOwnPropertyDescriptor(o, 'p'); return typeof d.get + ',' + d.hasOwnProperty('value');", "descriptors2"],
+  ["desc-empty-descriptor-defines", "var o = {}; Object.defineProperty(o, 'p', {}); return String(o.hasOwnProperty('p'));", "descriptors2"],
+  ["desc-accessor-listed-by-keys", "var o = {}; Object.defineProperty(o, 'p', { get: function () { return 1; }, enumerable: true }); return String(Object.keys(o));", "descriptors2"],
+  ["desc-create-from-accessor-map", "var props = {}; Object.defineProperty(props, 'prop', { get: function () { return {}; }, enumerable: true }); var n = Object.create({}, props); return String(n.hasOwnProperty('prop'));", "descriptors2"],
+  ["desc-builtin-prototype-attrs", "var d = Object.getOwnPropertyDescriptor(Object, 'prototype'); return d.writable + ',' + d.enumerable + ',' + d.configurable;", "descriptors2"],
+
+  // --- array defineProperty --------------------------------------------------
+  ["arrdef-length-truncates", "var a = [0, 1, 2]; Object.defineProperty(a, 'length', { value: 1 }); return a.toString();", "descriptors2"],
+  ["arrdef-length-null-is-zero", "var a = [0, 1]; Object.defineProperty(a, 'length', { value: null }); return a.length;", "descriptors2"],
+  ["arrdef-length-undefined-throws", "var a = []; try { Object.defineProperty(a, 'length', { value: undefined }); return 'no-throw'; } catch (e) { return e.name; }", "descriptors2"],
+  ["arrdef-index-extends-length", "var a = []; Object.defineProperty(a, '2', { value: 'x' }); return a.length + ',' + String(a[2]);", "descriptors2"],
+  ["arrdef-index-accessor", "var a = []; Object.defineProperty(a, '0', { get: function () { return 9; } }); return String(a[0]);", "descriptors2"],
+
+  // --- errors have a real prototype chain ------------------------------------
+  ["errproto-instance-links", "return String(Object.getPrototypeOf(new Error()) === Error.prototype);", "errproto"],
+  ["errproto-inherits-property", "var saved = Error.prototype.value; Error.prototype.value = 'E'; var r = String(new Error().value); Error.prototype.value = saved; return r;", "errproto"],
+  ["errproto-subclass-chain", "return String(Object.getPrototypeOf(TypeError.prototype) === Error.prototype);", "errproto"],
+  ["errproto-isprototypeof", "return String(Error.prototype.isPrototypeOf(new TypeError()));", "errproto"],
+
+  // --- built-in constructors as values ---------------------------------------
+  ["ctorval-number-bind", "var bnc = Number.bind(null); return bnc(42);", "ctorvalue"],
+  ["ctorval-function-call", "var f = Function.call(null, 'return 1;'); return typeof f;", "ctorvalue"],
+  ["ctorval-function-apply", "var f = Function.apply(null, ['return 2;']); return f();", "ctorvalue"],
+  ["ctorval-string-as-callback", "return [1, 2].map(String).join('|');", "ctorvalue"],
+  ["ctorval-array-apply", "return Array.apply(null, [1, 2, 3]).length;", "ctorvalue"],
+
+  // --- sloppy-mode this coercion ---------------------------------------------
+  ["thiscoerce-apply-no-arg", "var f = Function('this.__probeField = 42; return 1;'); f.apply(); return typeof globalThis.__probeField;", "thiscoerce"],
+  ["thiscoerce-primitive-boxed", "function f() { return typeof this; } return f.call('s');", "thiscoerce"],
+  ["thiscoerce-strict-keeps-undefined", "function f() { 'use strict'; return typeof this; } return f.call(undefined);", "thiscoerce"],
+  ["thiscoerce-apply-arraylike-function", "function f() { return this instanceof String; } return String(f.apply('', Array));", "thiscoerce"],
+  ["fnctor-tostring-arg-coerced", "try { new Function({ toString: function () { throw 7; } }); return 'no-throw'; } catch (e) { return String(e); }", "thiscoerce"],
+
+  // --- Object.prototype is reachable as values -------------------------------
+  ["objproto-typeof-hasownproperty", "return typeof Object.prototype.hasOwnProperty;", "objproto"],
+  ["objproto-typeof-propertyisenumerable", "return typeof Object.prototype.propertyIsEnumerable;", "objproto"],
+  ["objproto-typeof-isprototypeof", "return typeof Object.prototype.isPrototypeOf;", "objproto"],
+  ["objproto-typeof-tolocalestring", "return typeof Object.prototype.toLocaleString;", "objproto"],
+  ["objproto-borrowed-hasownproperty", "var o = { a: 1 }; var f = Object.prototype.hasOwnProperty; return String(f.call(o, 'a')) + ',' + String(f.call(o, 'b'));", "objproto"],
+  ["objproto-borrowed-propertyisenumerable", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); var f = Object.prototype.propertyIsEnumerable; return String(f.call(o, 'p'));", "objproto"],
+  ["objproto-tolocalestring-defers", "return ({}).toLocaleString();", "objproto"],
+
+  // --- integrity of primitives ----------------------------------------------
+  ["frozen-undefined", "return String(Object.isFrozen(undefined));", "objproto"],
+  ["frozen-number", "return String(Object.isFrozen(1));", "objproto"],
+  ["sealed-string", "return String(Object.isSealed('a'));", "objproto"],
+  ["extensible-number", "return String(Object.isExtensible(1));", "objproto"],
+  ["frozen-plain-object", "return String(Object.isFrozen({}));", "objproto"],
+  ["frozen-after-freeze", "var o = {}; Object.freeze(o); return String(Object.isFrozen(o));", "objproto"],
+  ["extensible-array", "return String(Object.isExtensible([]));", "objproto"],
+
+  // --- Function.prototype and the synthesised function properties -----------
+  ["fnproto-is-callable", "return String(Function.prototype());", "fnprops2"],
+  ["fnproto-ignores-arguments", "return String(Function.prototype(1, 2));", "fnprops2"],
+  ["fnprops-length-deletable", "var f = new Function('a,b,c', 'return 1;'); return String(f.hasOwnProperty('length')) + ',' + String(delete f.length) + ',' + String(f.hasOwnProperty('length'));", "fnprops2"],
+  ["fnprops-prototype-not-configurable", "function g() {} delete g.prototype; return String(g.hasOwnProperty('prototype'));", "fnprops2"],
+  ["fnprops-length-still-works", "function g(a, b) {} return g.length;", "fnprops2"],
+  ["fnprops-missing-prop-on-number", "return typeof (1).nope;", "fnprops2"],
+  ["fnprops-missing-prop-on-string", "return typeof 'a'.nope;", "fnprops2"],
+  ["fnprops-apply-boxes-primitive", "var obj = 1; var f = Function('this.touched = true; return this;'); var r = f.apply(obj); return typeof obj.touched + ',' + String(r.touched);", "fnprops2"],
+  ["desc-accessor-set-undefined-removes", "var o = {}; Object.defineProperty(o, 'foo', { get: function () { return 10; }, set: function () {}, configurable: true }); Object.defineProperty(o, 'foo', { set: undefined }); var d = Object.getOwnPropertyDescriptor(o, 'foo'); return typeof d.set + ',' + typeof d.get;", "descriptors2"],
+  ["defprops-primitive-properties", "var o = {}; return String(Object.defineProperties(o, false) === o);", "descriptors2"],
+  ["arrdef-length-nonwritable", "var a = []; Object.defineProperty(a, 'length', { writable: false }); try { Object.defineProperty(a, 'length', { value: 12 }); return 'no-throw'; } catch (e) { return e.name; }", "descriptors2"],
+  ["bind-poisons-caller", "function foo() {} var b = foo.bind({}); try { b.caller; return 'no-throw'; } catch (e) { return e.name; }", "fnprops2"],
+  ["bind-poisons-arguments", "function foo() {} var b = foo.bind({}); try { b.arguments; return 'no-throw'; } catch (e) { return e.name; }", "fnprops2"],
+  ["bind-has-no-prototype", "var foo = function () {}; var b = foo.bind({}); return String(b.hasOwnProperty('prototype'));", "fnprops2"],
+  ["bind-target-keeps-prototype", "var foo = function () {}; foo.bind({}); return String(foo.hasOwnProperty('prototype'));", "fnprops2"],
+
   // --- function source text -------------------------------------------------
   // Function.prototype.toString returns the function's own source, which is
   // what makes `f + 1` and `eval("(" + f + ")")` behave. It needs the parser to

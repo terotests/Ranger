@@ -3727,7 +3727,7 @@ std::string join(const T& v, const std::string& delim) {
             templates {                
                 ranger ( "(has " (e 1) " " (e 2) ")") 
                 es5  ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
-                es6  ( "( typeof(" (e 1) "[" (e 2) "] ) != \"undefined\" && " (e 1) ".hasOwnProperty(" (e 2) ") )" )
+                es6  ( "( typeof(" (e 1) "[" (e 2) "] ) != \"undefined\" && Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") )" )
                 ts   ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
                 flow ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
                 cpp ( (e 1) ".count(" (e 2) ") > 0" )
@@ -3841,7 +3841,7 @@ r_optional_primitive<double> cpp_get_map_string_double_value( std::map<std::stri
                 )
                 ranger ( "(get " (e 1) " " (e 2) ")")
                 llvm ( "(get " (e 1) " " (e 2) ")")
-                es6 ( "( " (e 1) ".hasOwnProperty(" (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+                es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
                 * ( (e 1) "[" (e 2) "]" )
             }
         }
@@ -3891,7 +3891,7 @@ typename M::mapped_type r_map_get_val( const M & m , const K & key) {
 i "}" nl ))                   
                     "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
                 )
-                es6 ( "( " (e 1) ".hasOwnProperty(" (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+                es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
                 * ( (e 1) "[" (e 2) "]" )
             }            
         }                 
