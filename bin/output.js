@@ -21170,9 +21170,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
           }
           if ( local_needs_rc_wrap ) {
-            wr.out("Rc<RefCell<", false);
-            await this.writeTypeDef(nameN, ctx, wr);
-            wr.out(">>", false);
+            if ( p.is_optional && (((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0)) ) {
+              wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>>", false);
+            } else {
+              wr.out("Rc<RefCell<", false);
+              if ( (((nameN.type_name.length) > 0) && ((nameN.array_type.length) == 0)) && ((nameN.key_type.length) == 0) ) {
+                wr.out(this.getObjectTypeString(nameN.type_name, ctx), false);
+              } else {
+                await this.writeTypeDef(nameN, ctx, wr);
+              }
+              wr.out(">>", false);
+            }
           } else {
             if ( rhs_is_optional_field ) {
               let v_type = nameN.value_type;
@@ -21194,19 +21202,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( local_needs_rc_wrap ) {
               init_rc_state = this.rustInitRcState(value_1, ctx);
             }
-            if ( local_needs_rc_wrap && (init_rc_state == 0) ) {
+            let optInitPassthrough = false;
+            if ( local_needs_rc_wrap && p.is_optional ) {
+              if ( value_1.hasFlag("optional") ) {
+                optInitPassthrough = true;
+              }
+              if ( optInitPassthrough == false ) {
+                wr.out("Some(", false);
+              }
+            }
+            if ( (local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false) ) {
               wr.out("Rc::new(RefCell::new(", false);
             }
             ctx.setInExpr();
             await this.WalkNode(value_1, ctx, wr);
             ctx.unsetInExpr();
-            if ( local_needs_rc_wrap ) {
+            if ( local_needs_rc_wrap && (optInitPassthrough == false) ) {
               if ( init_rc_state == 0 ) {
                 wr.out("))", false);
               }
               if ( init_rc_state == 1 ) {
                 wr.out(".clone()", false);
               }
+            }
+            if ( (local_needs_rc_wrap && p.is_optional) && (optInitPassthrough == false) ) {
+              wr.out(")", false);
             }
             if ( rhs_is_optional_field ) {
               let v_type_1 = nameN.value_type;
@@ -21371,14 +21391,48 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("__self_rc", false);
           return true;
         }
-        let path = root;
+        let path = "";
+        let segIdx = 0;
         if ( root == "this" ) {
           path = "self";
+          segIdx = 1;
         }
-        let i = 1;
-        while (i < (nsLen - 1)) {
-          path = (path + ".") + (fc.ns[i]);
-          i = i + 1;
+        while (segIdx < (nsLen - 1)) {
+          const segName = this.adjustType((fc.ns[segIdx]));
+          let haveSegD = false;
+          let segOptional = false;
+          let segMember = false;
+          if ( (fc.nsp.length) > segIdx ) {
+            const segD = fc.nsp[segIdx];
+            haveSegD = true;
+            segMember = segD.is_class_variable;
+            if ( segD.is_optional ) {
+              const sdNN = segD.nameNode;
+              let segColl = false;
+              if ( (typeof(sdNN) !== "undefined" && sdNN != null )  ) {
+                const sdN = sdNN;
+                if ( ((sdN.array_type.length) > 0) || ((sdN.key_type.length) > 0) ) {
+                  segColl = true;
+                }
+              }
+              if ( segColl == false ) {
+                segOptional = true;
+              }
+            }
+          }
+          if ( (path.length) == 0 ) {
+            if ( segMember ) {
+              path = "self." + segName;
+            } else {
+              path = segName;
+            }
+          } else {
+            path = (path + ".") + segName;
+          }
+          if ( segOptional ) {
+            path = path + ".as_ref().unwrap()";
+          }
+          segIdx = segIdx + 1;
         };
         wr.out("&" + path, false);
         return true;
@@ -21987,7 +22041,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( obj_is_trait_type || owning_class_is_trait_related ) {
               wr.out(".as_ref().unwrap().borrow_mut().", false);
             } else {
-              wr.out(".as_mut().unwrap().", false);
+              let optRecvShared = false;
+              if ( obj.hasParamDesc ) {
+                const orpD = obj.paramDesc;
+                const orpNN = orpD.nameNode;
+                if ( (typeof(orpNN) !== "undefined" && orpNN != null )  ) {
+                  const orpN = orpNN;
+                  if ( this.rustClassIsShared(orpN.type_name, ctx) ) {
+                    optRecvShared = true;
+                  }
+                }
+              }
+              if ( optRecvShared ) {
+                wr.out(".as_mut().unwrap().borrow_mut().", false);
+              } else {
+                wr.out(".as_mut().unwrap().", false);
+              }
             }
           } else {
             wr.out("(", false);
@@ -22002,9 +22071,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const orp = obj.paramDesc;
                 if ( orp.rust_needs_rc_wrap ) {
                   let orp_weak = false;
-                  const orpNN = orp.nameNode;
-                  if ( (typeof(orpNN) !== "undefined" && orpNN != null )  ) {
-                    if ( ((orpNN)).hasFlag("weak") ) {
+                  const orpNN_1 = orp.nameNode;
+                  if ( (typeof(orpNN_1) !== "undefined" && orpNN_1 != null )  ) {
+                    if ( ((orpNN_1)).hasFlag("weak") ) {
                       orp_weak = true;
                     }
                   }

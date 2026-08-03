@@ -764,10 +764,23 @@ class RangerRustClassWriter {
       
       ; Write type - with Rc<RefCell<>> wrapper if needed for weak ref pattern
       if local_needs_rc_wrap {
-        ; Variable needs Rc<RefCell<T>> type
-        wr.out("Rc<RefCell<" false)
-        this.writeTypeDef(nameN ctx wr)
-        wr.out(">>" false)
+        ; Variable needs Rc<RefCell<T>> type. An OPTIONAL shared local is
+        ; Option<Rc<RefCell<T>>> — the Option outside the cell, the same
+        ; shape a field takes — never Rc<RefCell<Option<T>>>. A
+        ; non-optional local writes the bare class type: writeTypeDef reads
+        ; the node's optional flag, which an initializer that was unwrapped
+        ; from an optional field leaks onto the def.
+        if (p.is_optional && (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))) {
+          wr.out((("Option<Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>>") false)
+        } {
+          wr.out("Rc<RefCell<" false)
+          if ((((strlen nameN.type_name) > 0) && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
+            wr.out((this.getObjectTypeString(nameN.type_name ctx)) false)
+          } {
+            this.writeTypeDef(nameN ctx wr)
+          }
+          wr.out(">>" false)
+        }
       } {
         if rhs_is_optional_field {
           ; Write the underlying type without Option wrapper
@@ -799,8 +812,20 @@ class RangerRustClassWriter {
           init_rc_state = (this.rustInitRcState(value ctx))
         }
 
+        ; an optional shared local holds Option<Rc<RefCell<T>>> — a real
+        ; initializer goes in as Some(…); one that is itself optional (a
+        ; hash get, an optional-returning call) passes through unchanged
+        def optInitPassthrough:boolean false
+        if (local_needs_rc_wrap && p.is_optional) {
+          if (value.hasFlag("optional")) {
+            optInitPassthrough = true
+          }
+          if (optInitPassthrough == false) {
+            wr.out("Some(" false)
+          }
+        }
         ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
-        if (local_needs_rc_wrap && (init_rc_state == 0)) {
+        if ((local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false)) {
           wr.out("Rc::new(RefCell::new(" false)
         }
 
@@ -809,13 +834,16 @@ class RangerRustClassWriter {
         ctx.unsetInExpr()
 
         ; Close Rc::new(RefCell::new(...)) if we opened it
-        if local_needs_rc_wrap {
+        if (local_needs_rc_wrap && (optInitPassthrough == false)) {
           if (init_rc_state == 0) {
             wr.out("))" false)
           }
           if (init_rc_state == 1) {
             wr.out(".clone()" false)
           }
+        }
+        if ((local_needs_rc_wrap && p.is_optional) && (optInitPassthrough == false)) {
+          wr.out(")" false)
         }
         
         ; If RHS was optional field, unwrap it
@@ -1027,14 +1055,51 @@ class RangerRustClassWriter {
       wr.out("__self_rc" false)
       return true
     }
-    def path:string root
+    ; build the receiver path: a bare member roots at self, and a strong
+    ; optional segment holds Option<Rc<…>> — reach the Rc with
+    ; .as_ref().unwrap() so the hidden __self_rc argument is the live Rc
+    def path:string ""
+    def segIdx:int 0
     if (root == "this") {
       path = "self"
+      segIdx = 1
     }
-    def i 1
-    while (i < (nsLen - 1)) {
-      path = ((path + ".") + (itemAt fc.ns i))
-      i = i + 1
+    while (segIdx < (nsLen - 1)) {
+      def segName:string (this.adjustType((itemAt fc.ns segIdx)))
+      def haveSegD:boolean false
+      def segOptional:boolean false
+      def segMember:boolean false
+      if ((array_length fc.nsp) > segIdx) {
+        def segD:RangerAppParamDesc (itemAt fc.nsp segIdx)
+        haveSegD = true
+        segMember = segD.is_class_variable
+        if segD.is_optional {
+          def sdNN@(optional):CodeNode segD.nameNode
+          def segColl:boolean false
+          if (!null? sdNN) {
+            def sdN:CodeNode (unwrap sdNN)
+            if (((strlen sdN.array_type) > 0) || ((strlen sdN.key_type) > 0)) {
+              segColl = true
+            }
+          }
+          if (segColl == false) {
+            segOptional = true
+          }
+        }
+      }
+      if ((strlen path) == 0) {
+        if segMember {
+          path = ("self." + segName)
+        } {
+          path = segName
+        }
+      } {
+        path = ((path + ".") + segName)
+      }
+      if segOptional {
+        path = (path + ".as_ref().unwrap()")
+      }
+      segIdx = segIdx + 1
     }
     wr.out(("&" + path) false)
     return true
@@ -1746,7 +1811,25 @@ class RangerRustClassWriter {
           ; Fields in trait-related classes use Option<RefCell<T>>
           wr.out(".as_ref().unwrap().borrow_mut()." false)
         } {
-          wr.out(".as_mut().unwrap()." false)
+          ; a strong optional field of a shared class holds
+          ; Option<Rc<RefCell<T>>>: the unwrap yields the Rc and the call
+          ; must go through the cell
+          def optRecvShared:boolean false
+          if obj.hasParamDesc {
+            def orpD:RangerAppParamDesc obj.paramDesc
+            def orpNN@(optional):CodeNode orpD.nameNode
+            if (!null? orpNN) {
+              def orpN:CodeNode (unwrap orpNN)
+              if (this.rustClassIsShared(orpN.type_name ctx)) {
+                optRecvShared = true
+              }
+            }
+          }
+          if optRecvShared {
+            wr.out(".as_mut().unwrap().borrow_mut()." false)
+          } {
+            wr.out(".as_mut().unwrap()." false)
+          }
         }
       } {
         ; Standard case - wrap in parentheses
