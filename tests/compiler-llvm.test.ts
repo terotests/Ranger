@@ -1,6 +1,14 @@
 /**
- * LLVM / WAT backend tests — excluded from default `npm test` (see tests/vitest.config.ts).
- * Run explicitly: npm run test:llvm
+ * LLVM / WAT backend tests. Part of the default `npm test`; also runnable on
+ * their own with `npm run test:llvm`.
+ *
+ * These were excluded from the default run while they were red, which is how
+ * the backend drifted: codegen kept reporting success while emitting IR clang
+ * would not accept. Every .ll produced here is now passed through
+ * `opt -passes=verify` as well as its content assertions, because the three
+ * bugs that had accumulated -- an undefined `%floor`, a reused `%heap_next`
+ * SSA name, and a call to an undeclared @ranger_cli_init -- all satisfied the
+ * `toContain` checks and failed at the toolchain.
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { execSync } from "child_process";
@@ -15,6 +23,41 @@ const ROOT = path.resolve(__dirname, "..");
 const FIXTURES = "tests/fixtures";
 const OUTPUT_DIR = path.join(__dirname, ".output-llvm");
 const GOLDEN_DIR = path.join(__dirname, "golden", "llvm");
+
+// Every .ll this suite produces is checked for VALIDITY, not just for the
+// strings it contains. Three of the bugs this gate now covers -- a bare `%floor`
+// reference, a reused `%heap_next` SSA name, and a call to an undeclared
+// @ranger_cli_init -- all produced IR that passed every `toContain` assertion
+// and was rejected by clang. A `toContain` check cannot see them; the verifier
+// can. Skipped if LLVM tools are not installed, so the suite still runs.
+let llvmVerifyAvailable: boolean | null = null;
+function hasOpt(): boolean {
+  if (llvmVerifyAvailable === null) {
+    try {
+      execSync("which opt", { stdio: "ignore" });
+      llvmVerifyAvailable = true;
+    } catch {
+      llvmVerifyAvailable = false;
+    }
+  }
+  return llvmVerifyAvailable;
+}
+
+function expectValidIr(llPath: string): void {
+  if (!hasOpt()) return;
+  try {
+    execSync(`opt -passes=verify -disable-output "${llPath}"`, { stdio: "pipe" });
+  } catch (e: any) {
+    const detail = String(e.stderr || e.stdout || e.message)
+      // Not a validity problem: the fixtures use a placeholder triple.
+      .split("\n")
+      .filter((l: string) => !l.includes("failed to infer data layout"))
+      .join("\n");
+    if (detail.trim().length > 0) {
+      throw new Error(`invalid LLVM IR in ${path.basename(llPath)}:\n${detail}`);
+    }
+  }
+}
 
 function normalizeLl(text: string): string {
   return text
@@ -31,6 +74,11 @@ function compileToLl(fixture: string, extraFlags: string[] = []): string {
   const result = compileRangerWithFlags(fixture, "llvm", OUTPUT_DIR, extraFlags);
   expect(result.success, result.error || result.output).toBe(true);
   expect(fs.existsSync(outPath), `Expected ${outPath}`).toBe(true);
+  // -wat output is WebAssembly text, not LLVM IR; wat2wasm is its verifier and
+  // the WAT tests already run it.
+  if (!extraFlags.includes("-wat")) {
+    expectValidIr(outPath);
+  }
   return fs.readFileSync(outPath, "utf-8");
 }
 
@@ -52,6 +100,13 @@ function nativeTarget(): string {
 }
 
 const RANGER_MEM_C = path.join(ROOT, "runtime", "ranger_mem.c");
+// The backend emits a call to ranger_cli_init from @main, so every native link
+// needs the C runtime as well as the allocator -- the same pair
+// scripts/compile-ts-parser-llvm.sh links. The tests linked only ranger_mem.c
+// and so failed with "undefined reference to ranger_cli_init" once the backend
+// started emitting that call.
+const RANGER_RT_C = path.join(ROOT, "runtime", "ranger_rt.c");
+const RUNTIME_C = `"${RANGER_RT_C}" "${RANGER_MEM_C}"`;
 
 function compileNativeWithMem(
   fixture: string,
@@ -66,7 +121,7 @@ function compileNativeWithMem(
   expect(result.success, result.error || result.output).toBe(true);
   const llPath = path.join(outDir, `${base}.ll`);
   const binPath = path.join(outDir, binName);
-  execSync(`clang "${llPath}" "${RANGER_MEM_C}" -o "${binPath}"`, {
+  execSync(`clang "${llPath}" ${RUNTIME_C} -o "${binPath}" -Wno-override-module`, {
     stdio: "pipe",
   });
   return binPath;
@@ -133,7 +188,13 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     );
     expect(ll).toContain("@LangCollectionsDemo_run");
     expect(ll).toContain("@RtMap_new");
-    expect(ll).toContain("@RtArray_set");
+    // A local `[int]` lowers to the POINTER-array runtime, not RtArray. That is
+    // deliberate (see bindPtrArraySlot in ng_LowIRBuilder.rgr): a locally
+    // created array has to be released at scope end, and routing every local
+    // array through one runtime is what makes that uniform. The element kind is
+    // 0, so the ints are stored unowned. The behavioural check for this fixture
+    // is the WAT test below, which runs the module and asserts 410.
+    expect(ll).toContain("@RtPtrArray_set");
     expect(ll).toContain("@heap_ptr");
   });
 
@@ -158,10 +219,16 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(ll).toContain("@RtPtrArray_push");
     expect(ll).toContain("@RtPtrArray_get");
     expect(ll).toContain("@RtPtrArray_len");
-    expect(ll).toContain("@RtArray_set");
+    expect(ll).toContain("@RtPtrArray_set");
     expect(ll).toContain("@RtMap_put");
     expect(ll).toContain("@RtMap_get");
-    expect(ll).toContain("realloc");
+    // This fixture is -freestanding: no libc and no free-list heap, so there is
+    // no realloc to call. Growth allocates from the bump pointer and copies the
+    // live elements across. Emitting `realloc` here was the bug -- the module
+    // referenced a function nothing defines and wat2wasm rejected it.
+    expect(ll).toContain("@heap_ptr");
+    expect(ll).toContain("ptr_cpy_body");
+    expect(ll).not.toContain("call i32 @realloc");
   });
 
   it("native dynamic collections binary returns 50 after push loop", () => {
@@ -185,7 +252,7 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(result.success, result.error || result.output).toBe(true);
     const llPath = path.join(outDir, "llvm_dyn_collections.ll");
     const binPath = path.join(outDir, "dyn_collections");
-    execSync(`clang "${llPath}" "${RANGER_MEM_C}" -o "${binPath}"`, {
+    execSync(`clang "${llPath}" ${RUNTIME_C} -o "${binPath}" -Wno-override-module`, {
       stdio: "pipe",
     });
     const exitCode = execSync(`"${binPath}"; echo $?`, {
@@ -224,7 +291,7 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(result.success, result.error || result.output).toBe(true);
     const llPath = path.join(outDir, "llvm_bool_field.ll");
     const binPath = path.join(outDir, "bool_field");
-    execSync(`clang "${llPath}" -o "${binPath}" -Wno-override-module`, {
+    execSync(`clang "${llPath}" ${RUNTIME_C} -o "${binPath}" -Wno-override-module`, {
       stdio: "pipe",
     });
     const exitCode = execSync(`"${binPath}"; echo $?`, {
@@ -329,7 +396,7 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(result.success, result.error || result.output).toBe(true);
     const llPath = path.join(outDir, "llvm_libc_ops.ll");
     const binPath = path.join(outDir, "libc_ops");
-    execSync(`clang "${llPath}" -o "${binPath}"`, { stdio: "pipe" });
+    execSync(`clang "${llPath}" ${RUNTIME_C} -o "${binPath}" -Wno-override-module`, { stdio: "pipe" });
     const stdout = execSync(`"${binPath}"; echo $?`, {
       shell: "/bin/bash",
       encoding: "utf-8",
@@ -360,7 +427,7 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(result.success, result.error || result.output).toBe(true);
     const llPath = path.join(outDir, "llvm_hello.ll");
     const binPath = path.join(outDir, "hello");
-    execSync(`clang "${llPath}" -o "${binPath}"`, { stdio: "pipe" });
+    execSync(`clang "${llPath}" ${RUNTIME_C} -o "${binPath}" -Wno-override-module`, { stdio: "pipe" });
     const stdout = execSync(`"${binPath}"`, { encoding: "utf-8" });
     expect(stdout.trim()).toBe("Hello, world!");
   });
@@ -380,7 +447,7 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     );
     expect(result.success, result.error || result.output).toBe(true);
     expect(fs.existsSync(llPath)).toBe(true);
-    execSync(`clang "${llPath}" -o "${binPath}"`, { stdio: "pipe" });
+    execSync(`clang "${llPath}" ${RUNTIME_C} -o "${binPath}" -Wno-override-module`, { stdio: "pipe" });
     const exitCode = execSync(`"${binPath}"; echo $?`, {
       shell: "/bin/bash",
       encoding: "utf-8",
@@ -707,7 +774,7 @@ describe("Ranger Compiler - WAT backend", () => {
     const watPath = path.join(outDir, "llvm_array_map_lang.ll");
     const wat = fs.readFileSync(watPath, "utf-8");
     expect(wat).toContain('(export "LangCollectionsDemo_run")');
-    expect(wat).toContain("$RtArray_set");
+    expect(wat).toContain("$RtPtrArray_set");
     expect(wat).toContain("$RtMap_put");
 
     const wat2wasm = path.join(ROOT, "node_modules", ".bin", "wat2wasm");

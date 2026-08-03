@@ -3156,6 +3156,15 @@ class LowIRBuilderPass {
     builder.startBlock(entryLabel)
 
     if isMain {
+      ; The declaration lives with the CALL, not only in ensureLibcExtern: that
+      ; runs for libc targets, while this call is emitted for every @main. On a
+      ; freestanding target the module called an undeclared @ranger_cli_init,
+      ; which clang rejects when it parses the module -- linking the C runtime
+      ; cannot help, because the IR is invalid before any linking happens.
+      def cliDeclParams:[string]
+      push cliDeclParams "i32"
+      push cliDeclParams "i8**"
+      this.ensureExternDecl("ranger_cli_init" "void" cliDeclParams false)
       def cliArgs:[string]
       def cliArgTypes:[string]
       push cliArgs "%argc"

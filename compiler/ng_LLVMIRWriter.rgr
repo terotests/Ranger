@@ -311,9 +311,15 @@ class LLVMIRWriter {
         wr.out((ins.dest + " = lshr " + ins.irType + " " + ins.arg1 + ", " + ins.arg2) true)
       }
       case "heap_alloc" {
+        ; The bump-pointer update needs a UNIQUE SSA name. It used to be the
+        ; fixed "%heap_next", so a function containing two allocations emitted
+        ; two definitions of the same value -- invalid IR that clang and
+        ; llvm-verify both reject. Derived from the destination, which is
+        ; already unique.
+        def nextName:string (ins.dest + "_next")
         wr.out((ins.dest + " = load " + ins.irType + ", " + ins.irType + "* @heap_ptr") true)
-        wr.out(("  %heap_next = add " + ins.irType + " " + ins.dest + ", " + ins.arg1) true)
-        wr.out(("  store " + ins.irType + " %heap_next, " + ins.irType + "* @heap_ptr") true)
+        wr.out(("  " + nextName + " = add " + ins.irType + " " + ins.dest + ", " + ins.arg1) true)
+        wr.out(("  store " + ins.irType + " " + nextName + ", " + ins.irType + "* @heap_ptr") true)
       }
       case "ptr_load" {
         def addrType:string ins.arg2
