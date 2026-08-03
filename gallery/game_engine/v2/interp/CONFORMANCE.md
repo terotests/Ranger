@@ -766,11 +766,11 @@ emergent from where a branch happened to sit in a chain.
 
 ## 4. Where the score stands
 
-Sampled over the ES5-tagged corpus (6839 files), excluding Temporal and intl402.
-`built-ins/RegExp` used to be excluded from the sample as well, back when there was
-no RegExp at all; now that it is at 100% of its own directory the exclusion is gone
-and the corpus is 490 files larger, so the percentage below is measured against
-more, not less.
+Measured over the WHOLE ES5-tagged corpus (6839 files), excluding Temporal and
+intl402. `built-ins/RegExp` used to be excluded as well, back when there was no
+RegExp at all; now that it is at 100% of its own directory the exclusion is gone
+and the corpus is 490 files larger, so the figure below is measured against more,
+not less. There is no sampling step any more: the numbers are file counts.
 
 | Area | Result |
 |---|---|
