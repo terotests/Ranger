@@ -897,6 +897,46 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }
+        case "mvarg" {
+          ; a by-value slot (map key / stored value): a bare non-Copy name
+          ; would MOVE into the container and break any later use of the
+          ; name — clone it. A fresh expression (literal, call, concat)
+          ; moves its own temporary and needs nothing.
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            ctx.setInExpr()
+            this.WalkNode(arg ctx wr)
+            ctx.unsetInExpr()
+            def barg:CodeNode arg
+            while (barg.expression && ((array_length barg.children) == 1)) {
+              barg = (barg.getFirst())
+            }
+            if (((barg.expression == false) && ((strlen barg.vref) > 0)) && ((array_length barg.children) == 0)) {
+              if (((array_length barg.ns) == 1) && barg.hasParamDesc) {
+                def bpd:RangerAppParamDesc barg.paramDesc
+                if (bpd.is_optional == false) {
+                  def bNN@(optional):CodeNode bpd.nameNode
+                  if (!null? bNN) {
+                    def bN:CodeNode (unwrap bNN)
+                    def btn:string bN.type_name
+                    def bCopy:boolean false
+                    if (btn == "int") { bCopy = true }
+                    if (btn == "double") { bCopy = true }
+                    if (btn == "boolean") { bCopy = true }
+                    if (btn == "char") { bCopy = true }
+                    if (TTypeRegistry.isIntAlias(btn)) { bCopy = true }
+                    if (TTypeRegistry.isFloatAlias(btn)) { bCopy = true }
+                    if (bN.hasFlag("weak")) { bCopy = true }
+                    if (bCopy == false) {
+                      wr.out(".clone()" false)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
         case "goset" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {

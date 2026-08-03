@@ -2386,6 +2386,10 @@ class StaticAnalyzer {
     this.computeSharingMutations()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     for root.definedClasses cl:RangerAppClassDesc ci {
+      ; a singleton's one instance is aliased from every use site
+      if (cl.isSingletonClass()) {
+        this.markClassShared(cl.name ("singleton class " + cl.name))
+      }
       ; a weak field can only exist against an Rc: the target class is shared
       for cl.variables cv:RangerAppParamDesc vi {
         if (!null? cv.nameNode) {
@@ -2478,6 +2482,23 @@ class StaticAnalyzer {
       ; the mutation pass do not apply to it
       p.rust_borrow_type = 0
       p.needs_cpp_reference = false
+      ; a `def x@(optional):T (init)` keeps its optionality on the name
+      ; node's flag alone — the desc's is_optional stays false when an
+      ; initializer is present. The Rust writer types such a local
+      ; Option<Rc<RefCell<T>>>, so every use site must see it as optional.
+      ; This pass runs for the rust target only, so other writers are
+      ; unaffected. Collections stay as-is (phantom-optional shape).
+      if (p.is_optional == false) {
+        def onn@(optional):CodeNode p.nameNode
+        if (!null? onn) {
+          def onNode:CodeNode (unwrap onn)
+          if (onNode.hasFlag("optional")) {
+            if (((strlen onNode.array_type) == 0) && ((strlen onNode.key_type) == 0)) {
+              p.is_optional = true
+            }
+          }
+        }
+      }
     }
   }
 

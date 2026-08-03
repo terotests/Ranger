@@ -3955,7 +3955,7 @@ i "}" nl ))
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
                 llvm ( "set " (e 1) " " (e 2) " " (e 3) )
                 java7 ( (e 1) ".put(" (e 2) ", " (e 3) ");" )
-                rust ( (e 1) ".insert(" (e 2) ", " (e 3) ");" )
+                rust ( (e 1) ".insert(" (mvarg 2) ", " (mvarg 3) ");" )
                 scala ( (e 1) ".put(" (e 2) ", " (e 3) ")" )
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
@@ -4132,7 +4132,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
                 cpp ( (e 1) ".find(" (e 2) ") != std::string::npos" )
                 kotlin ( (e 1) ".contains(" (e 2) ")" )
                 python ( (e 2) " in " (e 1) )
-                rust ( (e 1) ".contains(" (e 2) ")" )
+                rust ( (custom _) )
             }
         }
 

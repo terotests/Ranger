@@ -43,16 +43,18 @@
 > locals (E0597), and a move of a named String argument — take the
 > **TS parser from 37 errors to 0: it builds and runs as a native Rust
 > binary for the first time.** The interpreter itself is down from 676
-> errors to 145 and falling, all now semantic: `has`/field reads on
-> `&mut Rc<RefCell<T>>` receivers (44), lambda-captured fields referenced
-> as bare locals (16), `__singleton` support (14), and
-> `Rc<RefCell<Option<T>>>` double-wrap shapes — the borrow-routing work
-> the "order of attack" below already names, with the parser now available
-> as the proven smaller harness.
+> errors to 23 and falling: `__singleton` classes now emit a
+> `thread_local!` accessor and are marked shared, moved-value shapes are
+> closed (map-insert keys/values and bare named args to owned parameters
+> clone), optional shared locals keep their `Option<Rc<RefCell<T>>>` type
+> through every use site, `this`-as-value returns the receiver's Rc, and
+> optional shared fields pre-evaluate self-borrowing right sides. What
+> remains is borrow choreography: moves out of `Ref<'_, T>` field reads
+> (9), double-borrow shapes (E0499/E0502, 6), and a handful of one-offs.
 >
 > **Still open:** the key-order conformance divergence (needs an
 > insertion-ordered map in the C++ runtime), and the engine's remaining
-> 145 Rust errors.
+> 23 Rust errors.
 
 Where the TypeScript/JavaScript interpreter (`gallery/game_engine/v2/interp`)
 stands when compiled to a native target, why the C++ build is currently slower
