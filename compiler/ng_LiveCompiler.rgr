@@ -897,6 +897,40 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }
+        case "kref" {
+          ; a map KEY position wants a reference: a string literal passes
+          ; BARE (&str via Borrow<str> — no per-lookup String allocation),
+          ; a borrowed &String name passes as itself, anything else takes &
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            while (arg.expression && ((array_length arg.children) == 1)) {
+              arg = (arg.getFirst())
+            }
+            def krefDone:boolean false
+            if (arg.value_type == RangerNodeType.String) {
+              wr.out((("\"" + (langWriter.EncodeString(arg ctx wr))) + "\"") false)
+              krefDone = true
+            }
+            if (krefDone == false) {
+              if (((arg.expression == false) && arg.hasParamDesc) && ((array_length arg.ns) == 1)) {
+                def kpd:RangerAppParamDesc arg.paramDesc
+                if (kpd.rust_borrow_type > 0) {
+                  ctx.setInExpr()
+                  this.WalkNode(arg ctx wr)
+                  ctx.unsetInExpr()
+                  krefDone = true
+                }
+              }
+            }
+            if (krefDone == false) {
+              wr.out("&" false)
+              ctx.setInExpr()
+              this.WalkNode(arg ctx wr)
+              ctx.unsetInExpr()
+            }
+          }
+        }
         case "mvarg" {
           ; a by-value slot (map key / stored value): a bare non-Copy name
           ; would MOVE into the container and break any later use of the

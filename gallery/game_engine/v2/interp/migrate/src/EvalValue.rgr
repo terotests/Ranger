@@ -172,14 +172,33 @@ class EvalValue {
         return v
     }
     
-    sfn number:EvalValue (n:double) {
+    sfn rawNumber:EvalValue (n:double) {
         def v:EvalValue (new EvalValue())
         v.valueType = 1
         v.numberValue = n
         return v
     }
-    
+
+    sfn number:EvalValue (n:double) {
+        ; a small non-negative integer comes from the shared pool
+        if ((n >= 0.0) && (n < 4096.0)) {
+            def ni:int (to_int n)
+            if ((to_double ni) == n) {
+                def pool:EvalConstPool (EvalConstPool.__singleton())
+                return (pool.smallInt(ni))
+            }
+        }
+        def v:EvalValue (new EvalValue())
+        v.valueType = 1
+        v.numberValue = n
+        return v
+    }
+
     sfn fromInt:EvalValue (n:int) {
+        if ((n >= 0) && (n < 4096)) {
+            def pool:EvalConstPool (EvalConstPool.__singleton())
+            return (pool.smallInt(n))
+        }
         def v:EvalValue (new EvalValue())
         v.valueType = 1
         v.numberValue = (to_double n)
@@ -1250,4 +1269,22 @@ class EvalConstPool @singleton(true) {
     def trueValue:EvalValue (EvalValue.rawBoolean(true))
     def falseValue:EvalValue (EvalValue.rawBoolean(false))
     def holeValue:EvalValue (EvalValue.rawHole())
+    ; PERF: shared SMALL INTEGER values, filled lazily on first use. A number
+    ; is immutable -- property writes on a primitive are discarded (see the
+    ; assignMember guard), nothing writes numberValue after construction --
+    ; so one instance per small int serves the whole program. Array indices,
+    ; loop counters, lengths and char codes hit this range constantly; on the
+    ; native targets each miss is a ~full-struct allocation.
+    def smallInts:[EvalValue]
+    fn smallInt:EvalValue (i:int) {
+        if ((array_length smallInts) == 0) {
+            def k:int 0
+            while (k < 4096) {
+                def v:EvalValue (EvalValue.rawNumber((to_double k)))
+                push smallInts v
+                k = (k + 1)
+            }
+        }
+        return (itemAt smallInts i)
+    }
 }

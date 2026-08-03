@@ -2720,6 +2720,13 @@ class StaticAnalyzer {
     if ((strlen typeName) == 0) {
       return false
     }
+    ; a read-only STRING parameter borrows as &String: the callee only
+    ; compares, hashes or re-clones it, and every call site drops a clone —
+    ; the single largest cost in string-heavy programs (the TS interpreter
+    ; spent 23% of its instructions cloning names into owned params)
+    if (typeName == "string") {
+      return true
+    }
     if (this.isPrimitiveTypeName(typeName)) {
       return false
     }

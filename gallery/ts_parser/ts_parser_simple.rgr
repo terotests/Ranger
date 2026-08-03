@@ -46,6 +46,10 @@ class TSNode {
   ; loop bound means once per iteration. Parsed on first use and kept.
   def numScanned:boolean false
   def numValue:double 0.0
+  ; Memo the EVALUATOR fills on first visit: nodeType as a small integer, so
+  ; hot dispatch compares ints instead of strings (a memcmp per visit on the
+  ; native targets, where V8 compares interned pointers). 0 = not scanned.
+  def evalKind:int 0
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions

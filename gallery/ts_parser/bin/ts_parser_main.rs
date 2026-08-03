@@ -11,9 +11,36 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::upper_case_acronyms)]
+// A borrowed read-only string parameter is &String, not &str: call
+// sites pass &name and pass-through clones stay String::clone.
+#![allow(clippy::ptr_arg)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
+
+// FxHash (rustc-hash style): these maps are keyed by short program
+// strings; SipHash's DoS resistance cost ~14% of all instructions in
+// map-heavy code. Swap back to std's default by deleting the alias.
+#[derive(Default, Clone)]
+struct FxHasher { hash: u64 }
+impl std::hash::Hasher for FxHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        const SEED: u64 = 0x517cc1b727220a95;
+        let mut b = bytes;
+        while b.len() >= 8 {
+            let v = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
+            self.hash = (self.hash.rotate_left(5) ^ v).wrapping_mul(SEED);
+            b = &b[8..];
+        }
+        for &x in b {
+            self.hash = (self.hash.rotate_left(5) ^ (x as u64)).wrapping_mul(SEED);
+        }
+    }
+    #[inline]
+    fn finish(&self) -> u64 { self.hash }
+}
+type HashMap<K, V> = std::collections::HashMap<K, V, std::hash::BuildHasherDefault<FxHasher>>;
 
 #[derive(Clone)]
 struct Token { 
@@ -131,7 +158,7 @@ impl TSUnicodeId {
     s = format!("{},2.5rk,f.h9,1wi.f1,15u.3t6,5.6jt,f62u.6n", s);
     s.clone()
   }
-  fn base36Value(ch : String) -> i64 {
+  fn base36Value(ch : &String) -> i64 {
     let code : i64 = ch.chars().nth(0).unwrap_or('\0') as i64;
     if  code >= 48 {
       if  code <= 57 {
@@ -145,7 +172,7 @@ impl TSUnicodeId {
     }
     0
   }
-  fn decodeRangeTable(&self, spec : String) -> Vec<i64> {
+  fn decodeRangeTable(&self, spec : &String) -> Vec<i64> {
     let mut out : Vec<i64> = Vec::new();
     let mut prev : i64 = -1;
     let mut i : i64 = 0;
@@ -167,7 +194,7 @@ impl TSUnicodeId {
           cur = 0;
           delta = 0;
         } else {
-          cur = (cur * 36) + TSUnicodeId::base36Value(ch.clone());
+          cur = (cur * 36) + TSUnicodeId::base36Value(&ch);
         }
       }
       i += 1;
@@ -286,35 +313,35 @@ impl TSLexer {
     }
     ch.clone()
   }
-  fn isDigit(ch : String) -> bool {
-    if  ch == "0" {
+  fn isDigit(ch : &String) -> bool {
+    if  *ch == "0" {
       return true;
     }
-    if  ch == "1" {
+    if  *ch == "1" {
       return true;
     }
-    if  ch == "2" {
+    if  *ch == "2" {
       return true;
     }
-    if  ch == "3" {
+    if  *ch == "3" {
       return true;
     }
-    if  ch == "4" {
+    if  *ch == "4" {
       return true;
     }
-    if  ch == "5" {
+    if  *ch == "5" {
       return true;
     }
-    if  ch == "6" {
+    if  *ch == "6" {
       return true;
     }
-    if  ch == "7" {
+    if  *ch == "7" {
       return true;
     }
-    if  ch == "8" {
+    if  *ch == "8" {
       return true;
     }
-    if  ch == "9" {
+    if  *ch == "9" {
       return true;
     }
     false
@@ -324,9 +351,9 @@ impl TSLexer {
       return;
     }
     let startSpec : String = TSUnicodeId::idStartSpec();
-    self.idStartTable = self.unicodeIds.decodeRangeTable(startSpec.clone());
+    self.idStartTable = self.unicodeIds.decodeRangeTable(&startSpec);
     let contSpec : String = TSUnicodeId::idContinueSpec();
-    self.idContinueTable = self.unicodeIds.decodeRangeTable(contSpec.clone());
+    self.idContinueTable = self.unicodeIds.decodeRangeTable(&contSpec);
     self.idTablesReady = true;
   }
   fn codePointAt(&self, offset : i64) -> i64 {
@@ -365,7 +392,7 @@ impl TSLexer {
     }
     if  cp < 128 {
       let ch : String = self.source.chars().nth((self.pos) as usize).map(|c| c.to_string()).unwrap_or_default();
-      return self.isAlpha(ch.clone());
+      return self.isAlpha(&ch);
     }
     self.ensureIdTables();
     TSUnicodeId::inRangeTable(&self.idStartTable, cp)
@@ -377,12 +404,12 @@ impl TSLexer {
     }
     if  cp < 128 {
       let ch : String = self.source.chars().nth((self.pos) as usize).map(|c| c.to_string()).unwrap_or_default();
-      return self.isAlphaNumCh(ch.clone());
+      return self.isAlphaNumCh(&ch);
     }
     self.ensureIdTables();
     TSUnicodeId::inRangeTable(&self.idContinueTable, cp)
   }
-  fn isAlpha(&mut self, ch : String) -> bool {
+  fn isAlpha(&mut self, ch : &String) -> bool {
     if  (ch.chars().count() as i64) == 0 {
       return false;
     }
@@ -397,10 +424,10 @@ impl TSLexer {
         return true;
       }
     }
-    if  ch == "_" {
+    if  *ch == "_" {
       return true;
     }
-    if  ch == "$" {
+    if  *ch == "$" {
       return true;
     }
     if  code > 127 {
@@ -422,14 +449,14 @@ impl TSLexer {
     }
     false
   }
-  fn isAlphaNumCh(&mut self, ch : String) -> bool {
-    if  TSLexer::isDigit(ch.clone()) {
+  fn isAlphaNumCh(&mut self, ch : &String) -> bool {
+    if  TSLexer::isDigit(ch) {
       return true;
     }
-    if  ch == "_" {
+    if  *ch == "_" {
       return true;
     }
-    if  ch == "$" {
+    if  *ch == "$" {
       return true;
     }
     if  (ch.chars().count() as i64) == 0 {
@@ -452,20 +479,20 @@ impl TSLexer {
     }
     false
   }
-  fn isWhitespace(ch : String) -> bool {
-    if  ch == " " {
+  fn isWhitespace(ch : &String) -> bool {
+    if  *ch == " " {
       return true;
     }
-    if  ch == "\t" {
+    if  *ch == "\t" {
       return true;
     }
-    if  ch == "\n" {
+    if  *ch == "\n" {
       return true;
     }
-    if  ch == "\r" {
+    if  *ch == "\r" {
       return true;
     }
-    if  ch == "\r\n" {
+    if  *ch == "\r\n" {
       return true;
     }
     if  (ch.chars().count() as i64) == 0 {
@@ -512,7 +539,7 @@ impl TSLexer {
   fn skipWhitespace(&mut self) {
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  TSLexer::isWhitespace(ch.clone()) {
+      if  TSLexer::isWhitespace(&ch) {
         self.advance();
       } else {
         return;
@@ -529,14 +556,14 @@ impl TSLexer {
     tok.borrow_mut().col = startCol;
     tok.clone()
   }
-  fn isLineTerminatorChar(ch : String) -> bool {
-    if  ch == "\n" {
+  fn isLineTerminatorChar(ch : &String) -> bool {
+    if  *ch == "\n" {
       return true;
     }
-    if  ch == "\r" {
+    if  *ch == "\r" {
       return true;
     }
-    if  ch == "\r\n" {
+    if  *ch == "\r\n" {
       return true;
     }
     if  (ch.chars().count() as i64) == 0 {
@@ -560,7 +587,7 @@ impl TSLexer {
     let mut value : String = "".to_string();
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  TSLexer::isLineTerminatorChar(ch.clone()) {
+      if  TSLexer::isLineTerminatorChar(&ch) {
         return self.makeToken("LineComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
       }
       value = format!("{}{}", value, self.advance());
@@ -574,7 +601,7 @@ impl TSLexer {
     let mut value : String = "".to_string();
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  TSLexer::isLineTerminatorChar(ch.clone()) {
+      if  TSLexer::isLineTerminatorChar(&ch) {
         break;
       }
       value = format!("{}{}", value, self.advance());
@@ -601,7 +628,7 @@ impl TSLexer {
     };
     self.makeToken("Invalid".to_string(), value.clone(), startPos, startLine, startCol).clone()
   }
-  fn readString(&mut self, quote : String) -> Rc<RefCell<Token>> {
+  fn readString(&mut self, quote : &String) -> Rc<RefCell<Token>> {
     let startPos : i64 = self.pos;
     let startLine : i64 = self.line;
     let startCol : i64 = self.col;
@@ -611,7 +638,7 @@ impl TSLexer {
     let mut sawOctalEscape : bool = false;
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  ch == quote {
+      if  ch == *quote {
         self.advance();
         let mut strTok : Rc<RefCell<Token>> = self.makeToken("String".to_string(), value.clone(), startPos, startLine, startCol);
         strTok.borrow_mut().hasEscape = sawEscape;
@@ -648,7 +675,7 @@ impl TSLexer {
                   } else {
                     if  esc == "0" {
                       let afterZero : String = self.peek();
-                      if  TSLexer::isDigit(afterZero.clone()) {
+                      if  TSLexer::isDigit(&afterZero) {
                         sawOctalEscape = true;
                         value = format!("{}{}", value, esc);
                       } else {
@@ -657,9 +684,9 @@ impl TSLexer {
                     } else {
                       if  esc == "x" {
                         let h1 : String = self.peek();
-                        let hv1 : i64 = TSLexer::hexValue(h1.clone());
+                        let hv1 : i64 = TSLexer::hexValue(&h1);
                         let h2 : String = self.peekAt(1);
-                        let hv2 : i64 = TSLexer::hexValue(h2.clone());
+                        let hv2 : i64 = TSLexer::hexValue(&h2);
                         if  (hv1 < 0) || (hv2 < 0) {
                           return self.makeToken("Invalid".to_string(), value.clone(), startPos, startLine, startCol).clone();
                         }
@@ -687,7 +714,7 @@ impl TSLexer {
                               if  (esc == "8") || (esc == "9") {
                                 return self.makeToken("Invalid".to_string(), value.clone(), startPos, startLine, startCol).clone();
                               }
-                              if  TSLexer::isDigit(esc.clone()) {
+                              if  TSLexer::isDigit(&esc) {
                                 sawOctalEscape = true;
                               }
                               value = format!("{}{}", value, esc);
@@ -735,12 +762,12 @@ impl TSLexer {
               if  esc == "$" {
                 value = format!("{}$", value);
               } else {
-                if  TSLexer::isDigit(esc.clone()) {
+                if  TSLexer::isDigit(&esc) {
                   if  esc != "0" {
                     return self.makeToken("Invalid".to_string(), value.clone(), startPos, startLine, startCol).clone();
                   }
                   let afterZero : String = self.peek();
-                  if  TSLexer::isDigit(afterZero.clone()) {
+                  if  TSLexer::isDigit(&afterZero) {
                     return self.makeToken("Invalid".to_string(), value.clone(), startPos, startLine, startCol).clone();
                   }
                 }
@@ -791,7 +818,7 @@ impl TSLexer {
     };
     self.makeToken("Invalid".to_string(), value.clone(), startPos, startLine, startCol).clone()
   }
-  fn digitVal(ch : String) -> i64 {
+  fn digitVal(ch : &String) -> i64 {
     if  (ch.chars().count() as i64) == 0 {
       return 0 - 1;
     }
@@ -823,7 +850,7 @@ impl TSLexer {
       if  ch == "_" {
         self.advance();
       } else {
-        let d : i64 = TSLexer::digitVal(ch.clone());
+        let d : i64 = TSLexer::digitVal(&ch);
         if  d >= 0 {
           if  d < radix {
             acc = (acc * radix) + d;
@@ -839,13 +866,13 @@ impl TSLexer {
     let digitsRead : bool = self.pos > (startPos + 2);
     let tail : String = self.peek();
     let mut runsOn : bool = false;
-    if  self.isAlphaNumCh(tail.clone()) {
+    if  self.isAlphaNumCh(&tail) {
       runsOn = true;
     }
     if  (!digitsRead) || runsOn {
       while self.pos < self.__len {
         let tch : String = self.peek();
-        if  self.isAlphaNumCh(tch.clone()) {
+        if  self.isAlphaNumCh(&tch) {
           self.advance();
         } else {
           break;
@@ -877,12 +904,12 @@ impl TSLexer {
     let mut nonOctalDecimal : bool = false;
     if  self.peek() == "0" {
       let secondCh : String = self.peekAt(1);
-      if  TSLexer::isDigit(secondCh.clone()) {
+      if  TSLexer::isDigit(&secondCh) {
         legacyOctal = true;
         let mut scan : i64 = self.pos + 1;
         while scan < self.__len {
           let sc : String = self.source.chars().nth((scan) as usize).map(|c| c.to_string()).unwrap_or_default();
-          if  TSLexer::isDigit(sc.clone()) {
+          if  TSLexer::isDigit(&sc) {
             if  (sc == "8") || (sc == "9") {
               nonOctalDecimal = true;
             }
@@ -899,7 +926,7 @@ impl TSLexer {
     let mut scanning : bool = true;
     while (self.pos < self.__len) && scanning {
       let ch : String = self.peek();
-      if  TSLexer::isDigit(ch.clone()) {
+      if  TSLexer::isDigit(&ch) {
         value = format!("{}{}", value, self.advance());
       } else {
         if  ch == "_" {
@@ -921,14 +948,14 @@ impl TSLexer {
                 expDigit = self.peekAt(2);
                 signLen = 1;
               }
-              if  TSLexer::isDigit(expDigit.clone()) {
+              if  TSLexer::isDigit(&expDigit) {
                 value = format!("{}{}", value, self.advance());
                 if  signLen > 0 {
                   value = format!("{}{}", value, self.advance());
                 }
                 while self.pos < self.__len {
                   let ech : String = self.peek();
-                  if  TSLexer::isDigit(ech.clone()) {
+                  if  TSLexer::isDigit(&ech) {
                     value = format!("{}{}", value, self.advance());
                   } else {
                     break;
@@ -942,10 +969,10 @@ impl TSLexer {
       }
     };
     let numTail : String = self.peek();
-    if  self.isAlphaNumCh(numTail.clone()) {
+    if  self.isAlphaNumCh(&numTail) {
       while self.pos < self.__len {
         let tch : String = self.peek();
-        if  self.isAlphaNumCh(tch.clone()) {
+        if  self.isAlphaNumCh(&tch) {
           self.advance();
         } else {
           break;
@@ -960,7 +987,7 @@ impl TSLexer {
     }
     numTok.clone()
   }
-  fn hexValue(ch : String) -> i64 {
+  fn hexValue(ch : &String) -> i64 {
     if  (ch.chars().count() as i64) == 0 {
       return -1;
     }
@@ -1016,7 +1043,7 @@ impl TSLexer {
         if  ch == "}" {
           break;
         }
-        let hv : i64 = TSLexer::hexValue(ch.clone());
+        let hv : i64 = TSLexer::hexValue(&ch);
         if  hv < 0 {
           return "".to_string().clone();
         }
@@ -1038,7 +1065,7 @@ impl TSLexer {
       let mut i : i64 = 0;
       while i < 4 {
         let hch : String = self.peek();
-        let hv_1 : i64 = TSLexer::hexValue(hch.clone());
+        let hv_1 : i64 = TSLexer::hexValue(&hch);
         if  hv_1 < 0 {
           return "".to_string().clone();
         }
@@ -1076,7 +1103,7 @@ impl TSLexer {
           let esc : String = self.readUnicodeEscape();
           if  (esc.chars().count() as i64) == 1 {
             let escCode : i64 = esc.chars().nth(0).unwrap_or('\0') as i64;
-            let mut escOk : bool = self.isAlphaNumCh(esc.clone());
+            let mut escOk : bool = self.isAlphaNumCh(&esc);
             if  escCode >= 55296 {
               if  escCode <= 57343 {
                 escOk = false;
@@ -1091,239 +1118,239 @@ impl TSLexer {
               self.advance();
               return self.makeToken("Punctuator".to_string(), "\\".to_string(), startPos, startLine, startCol).clone();
             }
-            let _tmp_1 = TSLexer::identType(value.clone());
+            let _tmp_1 = TSLexer::identType(&value);
             return self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol).clone();
           }
           sawIdEscape = true;
           value = format!("{}{}", value, esc);
         } else {
-          let _tmp_1 = TSLexer::identType(value.clone());
+          let _tmp_1 = TSLexer::identType(&value);
           let mut idTok : Rc<RefCell<Token>> = self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol);
           idTok.borrow_mut().hasEscape = sawIdEscape;
           return idTok.clone();
         }
       }
     };
-    let _tmp_1 = TSLexer::identType(value.clone());
+    let _tmp_1 = TSLexer::identType(&value);
     let mut idTokEnd : Rc<RefCell<Token>> = self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol);
     idTokEnd.borrow_mut().hasEscape = sawIdEscape;
     idTokEnd.clone()
   }
-  fn identType(value : String) -> String {
-    if  value == "var" {
+  fn identType(value : &String) -> String {
+    if  *value == "var" {
       return "Keyword".to_string().clone();
     }
-    if  value == "let" {
+    if  *value == "let" {
       return "Keyword".to_string().clone();
     }
-    if  value == "const" {
+    if  *value == "const" {
       return "Keyword".to_string().clone();
     }
-    if  value == "function" {
+    if  *value == "function" {
       return "Keyword".to_string().clone();
     }
-    if  value == "return" {
+    if  *value == "return" {
       return "Keyword".to_string().clone();
     }
-    if  value == "if" {
+    if  *value == "if" {
       return "Keyword".to_string().clone();
     }
-    if  value == "else" {
+    if  *value == "else" {
       return "Keyword".to_string().clone();
     }
-    if  value == "while" {
+    if  *value == "while" {
       return "Keyword".to_string().clone();
     }
-    if  value == "do" {
+    if  *value == "do" {
       return "Keyword".to_string().clone();
     }
-    if  value == "with" {
+    if  *value == "with" {
       return "Keyword".to_string().clone();
     }
-    if  value == "debugger" {
+    if  *value == "debugger" {
       return "Keyword".to_string().clone();
     }
-    if  value == "for" {
+    if  *value == "for" {
       return "Keyword".to_string().clone();
     }
-    if  value == "in" {
+    if  *value == "in" {
       return "Keyword".to_string().clone();
     }
-    if  value == "of" {
+    if  *value == "of" {
       return "Keyword".to_string().clone();
     }
-    if  value == "switch" {
+    if  *value == "switch" {
       return "Keyword".to_string().clone();
     }
-    if  value == "case" {
+    if  *value == "case" {
       return "Keyword".to_string().clone();
     }
-    if  value == "default" {
+    if  *value == "default" {
       return "Keyword".to_string().clone();
     }
-    if  value == "break" {
+    if  *value == "break" {
       return "Keyword".to_string().clone();
     }
-    if  value == "continue" {
+    if  *value == "continue" {
       return "Keyword".to_string().clone();
     }
-    if  value == "try" {
+    if  *value == "try" {
       return "Keyword".to_string().clone();
     }
-    if  value == "catch" {
+    if  *value == "catch" {
       return "Keyword".to_string().clone();
     }
-    if  value == "finally" {
+    if  *value == "finally" {
       return "Keyword".to_string().clone();
     }
-    if  value == "throw" {
+    if  *value == "throw" {
       return "Keyword".to_string().clone();
     }
-    if  value == "new" {
+    if  *value == "new" {
       return "Keyword".to_string().clone();
     }
-    if  value == "typeof" {
+    if  *value == "typeof" {
       return "Keyword".to_string().clone();
     }
-    if  value == "instanceof" {
+    if  *value == "instanceof" {
       return "Keyword".to_string().clone();
     }
-    if  value == "this" {
+    if  *value == "this" {
       return "Keyword".to_string().clone();
     }
-    if  value == "class" {
+    if  *value == "class" {
       return "Keyword".to_string().clone();
     }
-    if  value == "extends" {
+    if  *value == "extends" {
       return "Keyword".to_string().clone();
     }
-    if  value == "static" {
+    if  *value == "static" {
       return "Keyword".to_string().clone();
     }
-    if  value == "get" {
+    if  *value == "get" {
       return "Keyword".to_string().clone();
     }
-    if  value == "set" {
+    if  *value == "set" {
       return "Keyword".to_string().clone();
     }
-    if  value == "super" {
+    if  *value == "super" {
       return "Keyword".to_string().clone();
     }
-    if  value == "async" {
+    if  *value == "async" {
       return "Keyword".to_string().clone();
     }
-    if  value == "await" {
+    if  *value == "await" {
       return "Keyword".to_string().clone();
     }
-    if  value == "yield" {
+    if  *value == "yield" {
       return "Keyword".to_string().clone();
     }
-    if  value == "import" {
+    if  *value == "import" {
       return "Keyword".to_string().clone();
     }
-    if  value == "export" {
+    if  *value == "export" {
       return "Keyword".to_string().clone();
     }
-    if  value == "from" {
+    if  *value == "from" {
       return "Keyword".to_string().clone();
     }
-    if  value == "as" {
+    if  *value == "as" {
       return "Keyword".to_string().clone();
     }
-    if  value == "delete" {
+    if  *value == "delete" {
       return "Keyword".to_string().clone();
     }
-    if  value == "void" {
+    if  *value == "void" {
       return "Keyword".to_string().clone();
     }
-    if  value == "type" {
+    if  *value == "type" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "interface" {
+    if  *value == "interface" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "namespace" {
+    if  *value == "namespace" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "module" {
+    if  *value == "module" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "declare" {
+    if  *value == "declare" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "readonly" {
+    if  *value == "readonly" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "abstract" {
+    if  *value == "abstract" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "implements" {
+    if  *value == "implements" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "private" {
+    if  *value == "private" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "protected" {
+    if  *value == "protected" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "public" {
+    if  *value == "public" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "override" {
+    if  *value == "override" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "is" {
+    if  *value == "is" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "keyof" {
+    if  *value == "keyof" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "infer" {
+    if  *value == "infer" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "asserts" {
+    if  *value == "asserts" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "satisfies" {
+    if  *value == "satisfies" {
       return "TSKeyword".to_string().clone();
     }
-    if  value == "string" {
+    if  *value == "string" {
       return "TSType".to_string().clone();
     }
-    if  value == "number" {
+    if  *value == "number" {
       return "TSType".to_string().clone();
     }
-    if  value == "boolean" {
+    if  *value == "boolean" {
       return "TSType".to_string().clone();
     }
-    if  value == "any" {
+    if  *value == "any" {
       return "TSType".to_string().clone();
     }
-    if  value == "unknown" {
+    if  *value == "unknown" {
       return "TSType".to_string().clone();
     }
-    if  value == "never" {
+    if  *value == "never" {
       return "TSType".to_string().clone();
     }
-    if  value == "undefined" {
+    if  *value == "undefined" {
       return "TSType".to_string().clone();
     }
-    if  value == "object" {
+    if  *value == "object" {
       return "TSType".to_string().clone();
     }
-    if  value == "symbol" {
+    if  *value == "symbol" {
       return "TSType".to_string().clone();
     }
-    if  value == "bigint" {
+    if  *value == "bigint" {
       return "TSType".to_string().clone();
     }
-    if  value == "true" {
+    if  *value == "true" {
       return "Boolean".to_string().clone();
     }
-    if  value == "false" {
+    if  *value == "false" {
       return "Boolean".to_string().clone();
     }
-    if  value == "null" {
+    if  *value == "null" {
       return "Null".to_string().clone();
     }
     "Identifier".to_string().clone()
@@ -1356,7 +1383,7 @@ impl TSLexer {
       }
     }
     if  ch == "\"" {
-      return self.readString("\"".to_string()).clone();
+      return self.readString(&"\"".to_string()).clone();
     }
     if  ch == "'" {
       let mut wordApostrophe : bool = false;
@@ -1381,7 +1408,7 @@ impl TSLexer {
         self.advance();
         return self.makeToken("Punctuator".to_string(), "'".to_string(), startPos, startLine, startCol).clone();
       }
-      return self.readString("'".to_string()).clone();
+      return self.readString(&"'".to_string()).clone();
     }
     if  ch == "<" {
       if  self.peekAt(1) == "!" {
@@ -1404,12 +1431,12 @@ impl TSLexer {
     if  ch == "`" {
       return self.readTemplateLiteral().clone();
     }
-    if  TSLexer::isDigit(ch.clone()) {
+    if  TSLexer::isDigit(&ch) {
       return self.readNumber().clone();
     }
     if  ch == "." {
       let afterDot : String = self.peekAt(1);
-      if  TSLexer::isDigit(afterDot.clone()) {
+      if  TSLexer::isDigit(&afterDot) {
         return self.readNumber().clone();
       }
     }
@@ -1732,7 +1759,7 @@ impl TSLexer {
     }
     "o".to_string().clone()
   }
-  fn regexBodyValid(&self, body : String, unicodeMode : bool) -> bool {
+  fn regexBodyValid(&self, body : &String, unicodeMode : bool) -> bool {
     let n : i64 = body.chars().count() as i64;
     let mut groups : i64 = 0;
     let mut maxBackRef : i64 = 0;
@@ -1755,7 +1782,7 @@ impl TSLexer {
               if  hc == "}" {
                 break;
               }
-              let hv : i64 = TSLexer::hexValue(hc.clone());
+              let hv : i64 = TSLexer::hexValue(&hc);
               if  hv < 0 {
                 break;
               }
@@ -1824,7 +1851,7 @@ impl TSLexer {
                   let mut numDigits : i64 = 0;
                   while k < n {
                     let dc : String = body.chars().skip((k) as usize).take((k + 1 - k) as usize).collect::<String>();
-                    if  TSLexer::isDigit(dc.clone()) {
+                    if  TSLexer::isDigit(&dc) {
                       numDigits += 1;
                       k += 1;
                     } else {
@@ -1847,11 +1874,11 @@ impl TSLexer {
     }
     true
   }
-  fn stringContainsChar(haystack : String, ch : String) -> bool {
+  fn stringContainsChar(haystack : &String, ch : &String) -> bool {
     let mut i : i64 = 0;
     let n : i64 = haystack.chars().count() as i64;
     while i < n {
-      if  (haystack.chars().skip((i) as usize).take((i + 1 - i) as usize).collect::<String>()) == ch {
+      if  (haystack.chars().skip((i) as usize).take((i + 1 - i) as usize).collect::<String>()) == *ch {
         return true;
       }
       i += 1;
@@ -1991,7 +2018,7 @@ impl TSLexer {
     let mut badFlag : bool = false;
     while self.pos < self.__len {
       let fch : String = self.peek();
-      if  self.isAlphaNumCh(fch.clone()) {
+      if  self.isAlphaNumCh(&fch) {
         let mut known : bool = false;
         if  fch == "d" {
           known = true;
@@ -2020,7 +2047,7 @@ impl TSLexer {
         if  !known {
           badFlag = true;
         }
-        if  TSLexer::stringContainsChar(flags.clone(), fch.clone()) {
+        if  TSLexer::stringContainsChar(&flags, &fch) {
           badFlag = true;
         }
         flags = format!("{}{}", flags, fch);
@@ -2037,8 +2064,8 @@ impl TSLexer {
     }
     let bodyLen : i64 = (value.chars().count() as i64) - ((flags.chars().count() as i64) + 2);
     let body : String = value.chars().skip(1).take((1 + bodyLen - 1) as usize).collect::<String>();
-    let unicodeMode : bool = TSLexer::stringContainsChar(flags.clone(), "u".to_string());
-    if  !(self.regexBodyValid(body.clone(), unicodeMode)) {
+    let unicodeMode : bool = TSLexer::stringContainsChar(&flags, &"u".to_string());
+    if  !(self.regexBodyValid(&body, unicodeMode)) {
       return self.makeToken("Invalid".to_string(), value.clone(), startPos, startLine, startCol).clone();
     }
     self.makeToken("Regex".to_string(), value.clone(), startPos, startLine, startCol).clone()
@@ -2066,6 +2093,7 @@ struct TSNode {
   usesArguments : bool, 
   numScanned : bool, 
   numValue : f64, 
+  evalKind : i64, 
   method : bool, 
   generator : bool, 
   r#async : bool, 
@@ -2107,6 +2135,7 @@ impl TSNode {
       usesArguments:false, 
       numScanned:false, 
       numValue:0_f64, 
+      evalKind:0, 
       method:false, 
       generator:false, 
       r#async:false, 
@@ -2228,7 +2257,7 @@ impl TSParserSimple {
       self.skipIgnoredTokens();
     }
   }
-  fn syntaxError(&mut self, msg : String) {
+  fn syntaxError(&mut self, msg : &String) {
     self.errorCount += 1;
     if  self.speculating > 0 {
       return;
@@ -2342,7 +2371,7 @@ impl TSParserSimple {
     self.scopeStart = TSParserSimple::intListPrefix(&self.scopeStart, depth - 1);
     self.scopeIsFn = TSParserSimple::intListPrefix(&self.scopeIsFn, depth - 1);
   }
-  fn declareBinding(&mut self, kind : String, name : String) {
+  fn declareBinding(&mut self, kind : &String, name : &String) {
     if  (name.chars().count() as i64) == 0 {
       return;
     }
@@ -2354,10 +2383,10 @@ impl TSParserSimple {
     let scopeIdx : i64 = depth - 1;
     let mut limit : i64 = 0;
     let mut hoists : bool = false;
-    if  kind == "v" {
+    if  *kind == "v" {
       hoists = true;
     }
-    if  kind == "f" {
+    if  *kind == "f" {
       hoists = true;
     }
     if  hoists {
@@ -2385,9 +2414,9 @@ impl TSParserSimple {
       // unused:  let sep : i64 = 1;
       let entryKind : String = entry.chars().take(1).collect::<String>();
       let entryName : String = entry.chars().skip(2).take((entry.chars().count() as i64 - 2) as usize).collect::<String>();
-      if  entryName == name {
+      if  entryName == *name {
         let mut clash : bool = false;
-        if  kind == "l" {
+        if  *kind == "l" {
           if  i >= ownStart {
             clash = true;
           }
@@ -2397,7 +2426,7 @@ impl TSParserSimple {
             clash = true;
           }
         }
-        if  kind == "f" {
+        if  *kind == "f" {
           if  entryKind == "p" {
             if  i >= ownStart {
               if  !self.inSingleStatementBody {
@@ -2410,20 +2439,20 @@ impl TSParserSimple {
           if  self.scopeIsFn[(scopeIdx) as usize] == 1 {
             if  depth == 1 {
               if  i >= ownStart {
-                if  (kind == "f") && (entryKind == "v") {
+                if  (*kind == "f") && (entryKind == "v") {
                   clash = true;
                 }
-                if  (kind == "v") && (entryKind == "f") {
+                if  (*kind == "v") && (entryKind == "f") {
                   clash = true;
                 }
-                if  (kind == "f") && (entryKind == "f") {
+                if  (*kind == "f") && (entryKind == "f") {
                   clash = true;
                 }
               }
             }
           }
         }
-        if  kind == "f" {
+        if  *kind == "f" {
           if  entryKind == "f" {
             if  i >= ownStart {
               if  self.scopeIsFn[(scopeIdx) as usize] == 0 {
@@ -2432,7 +2461,7 @@ impl TSParserSimple {
             }
           }
         }
-        if  kind == "p" {
+        if  *kind == "p" {
           if  i >= ownStart {
             if  entryKind == "p" {
               clash = true;
@@ -2440,7 +2469,7 @@ impl TSParserSimple {
           }
         }
         if  clash {
-          self.syntaxError(format!("Parse error: '{}' has already been declared", name));
+          self.syntaxError(&format!("Parse error: '{}' has already been declared", name));
           self.scopeNames.push(format!("{}|{}", kind, name));
           return;
         }
@@ -2449,17 +2478,17 @@ impl TSParserSimple {
     };
     self.scopeNames.push(format!("{}|{}", kind, name));
   }
-  fn declareBindingKind(&mut self, declKind : String, mut declarator : Rc<RefCell<TSNode>>) {
+  fn declareBindingKind(&mut self, declKind : &String, mut declarator : Rc<RefCell<TSNode>>) {
     let mut k : String = "v".to_string();
-    if  declKind == "let" {
+    if  *declKind == "let" {
       k = "l".to_string();
     }
-    if  declKind == "const" {
+    if  *declKind == "const" {
       k = "l".to_string();
     }
     if  (declarator.borrow().name.chars().count() as i64) > 0 {
       let __arg_0 = declarator.borrow().name.clone();
-      self.declareBinding(k.clone(), __arg_0);
+      self.declareBinding(&k, &__arg_0);
     }
   }
   fn declareParam(&mut self, mut param : Rc<RefCell<TSNode>>) {
@@ -2468,10 +2497,10 @@ impl TSParserSimple {
     }
     if  self.strictMode {
       let __arg_0 = param.borrow().name.clone();
-      self.declareBinding("p".to_string(), __arg_0);
+      self.declareBinding(&"p".to_string(), &__arg_0);
     } else {
       let __arg_0 = param.borrow().name.clone();
-      self.declareBinding("q".to_string(), __arg_0);
+      self.declareBinding(&"q".to_string(), &__arg_0);
     }
   }
   fn checkNonSimpleParamDuplicates(&mut self, params : &Vec<Rc<RefCell<TSNode>>>) {
@@ -2496,7 +2525,7 @@ impl TSParserSimple {
       let mut b : i64 = 0;
       while b < a {
         if  names[(a) as usize].clone() == names[(b) as usize].clone() {
-          self.syntaxError(format!("Parse error: duplicate parameter '{}' in a non-simple parameter list", names[(a) as usize].clone()));
+          self.syntaxError(&format!("Parse error: duplicate parameter '{}' in a non-simple parameter list", names[(a) as usize].clone()));
         }
         b += 1;
       };
@@ -2547,39 +2576,39 @@ impl TSParserSimple {
     };
     out.clone()
   }
-  fn recheckStrictSignature(&mut self, name : String, params : &Vec<Rc<RefCell<TSNode>>>) {
+  fn recheckStrictSignature(&mut self, name : &String, params : &Vec<Rc<RefCell<TSNode>>>) {
     let mut k : i64 = 0;
     while k < (params.len() as i64) {
       let mut sp : Rc<RefCell<TSNode>> = params[(k) as usize].clone();
       let spKind : String = sp.borrow().nodeType.clone();
       if  spKind != "Parameter" {
-        self.syntaxError("Parse error: a function with a 'use strict' directive must have a simple parameter list".to_string());
+        self.syntaxError(&"Parse error: a function with a 'use strict' directive must have a simple parameter list".to_string());
       } else {
         if  !(sp.borrow().init.is_none()) {
-          self.syntaxError("Parse error: a function with a 'use strict' directive must have a simple parameter list".to_string());
+          self.syntaxError(&"Parse error: a function with a 'use strict' directive must have a simple parameter list".to_string());
         }
       }
       k += 1;
     };
     if  (name.chars().count() as i64) > 0 {
-      if  TSParserSimple::isStrictReservedWord(name.clone()) {
-        self.syntaxError(format!("Parse error: '{}' cannot name a function whose body is strict", name));
+      if  TSParserSimple::isStrictReservedWord(name) {
+        self.syntaxError(&format!("Parse error: '{}' cannot name a function whose body is strict", name));
       }
     }
     let mut i : i64 = 0;
     while i < (params.len() as i64) {
       let mut p : Rc<RefCell<TSNode>> = params[(i) as usize].clone();
       if  (p.borrow().name.chars().count() as i64) > 0 {
-        if  TSParserSimple::isStrictReservedWord(p.borrow().name.clone()) {
+        if  TSParserSimple::isStrictReservedWord(&p.borrow().name) {
           let __arg_0 = format!("Parse error: '{}' cannot be a parameter of a strict function", p.borrow().name).clone();
-          self.syntaxError(__arg_0);
+          self.syntaxError(&__arg_0);
         }
         let mut j : i64 = 0;
         while j < i {
           let mut q : Rc<RefCell<TSNode>> = params[(j) as usize].clone();
           if  q.borrow().name == p.borrow().name {
             let __arg_0 = format!("Parse error: duplicate parameter '{}' in a strict function", p.borrow().name).clone();
-            self.syntaxError(__arg_0);
+            self.syntaxError(&__arg_0);
           }
           j += 1;
         };
@@ -2616,190 +2645,190 @@ impl TSParserSimple {
     };
     false
   }
-  fn isStrictReservedReference(&self, word : String) -> bool {
-    if  word == "eval" {
+  fn isStrictReservedReference(&self, word : &String) -> bool {
+    if  *word == "eval" {
       return false;
     }
-    if  word == "arguments" {
+    if  *word == "arguments" {
       return false;
     }
-    TSParserSimple::isStrictReservedWord(word.clone())
+    TSParserSimple::isStrictReservedWord(word)
   }
-  fn isStrictReservedWord(word : String) -> bool {
-    if  word == "implements" {
+  fn isStrictReservedWord(word : &String) -> bool {
+    if  *word == "implements" {
       return true;
     }
-    if  word == "interface" {
+    if  *word == "interface" {
       return true;
     }
-    if  word == "let" {
+    if  *word == "let" {
       return true;
     }
-    if  word == "package" {
+    if  *word == "package" {
       return true;
     }
-    if  word == "private" {
+    if  *word == "private" {
       return true;
     }
-    if  word == "protected" {
+    if  *word == "protected" {
       return true;
     }
-    if  word == "public" {
+    if  *word == "public" {
       return true;
     }
-    if  word == "static" {
+    if  *word == "static" {
       return true;
     }
-    if  word == "yield" {
+    if  *word == "yield" {
       return true;
     }
-    if  word == "eval" {
+    if  *word == "eval" {
       return true;
     }
-    if  word == "arguments" {
+    if  *word == "arguments" {
       return true;
     }
     false
   }
-  fn checkBindableName(&mut self, name : String) {
-    if  TSParserSimple::isAlwaysReservedWord(name.clone()) {
-      self.syntaxError(format!("Parse error: '{}' is a reserved word and cannot be used as a name", name));
+  fn checkBindableName(&mut self, name : &String) {
+    if  TSParserSimple::isAlwaysReservedWord(name) {
+      self.syntaxError(&format!("Parse error: '{}' is a reserved word and cannot be used as a name", name));
       return;
     }
     if  self.moduleMode {
-      if  name == "await" {
-        self.syntaxError("Parse error: 'await' cannot be used as a name in a module".to_string());
+      if  *name == "await" {
+        self.syntaxError(&"Parse error: 'await' cannot be used as a name in a module".to_string());
       }
     }
     if  self.strictMode {
-      if  TSParserSimple::isStrictReservedWord(name.clone()) {
-        self.syntaxError(format!("Parse error: '{}' cannot be used as a name in strict mode", name));
+      if  TSParserSimple::isStrictReservedWord(name) {
+        self.syntaxError(&format!("Parse error: '{}' cannot be used as a name in strict mode", name));
       }
       return;
     }
     if  self.inGenerator {
-      if  name == "yield" {
-        self.syntaxError("Parse error: 'yield' cannot be used as a name inside a generator".to_string());
+      if  *name == "yield" {
+        self.syntaxError(&"Parse error: 'yield' cannot be used as a name inside a generator".to_string());
       }
     }
     if  self.moduleMode {
-      if  name == "await" {
-        self.syntaxError("Parse error: 'await' cannot be used as a name in a module".to_string());
+      if  *name == "await" {
+        self.syntaxError(&"Parse error: 'await' cannot be used as a name in a module".to_string());
       }
     }
     if  self.declaringKind == "l" {
-      if  name == "let" {
-        self.syntaxError("Parse error: 'let' cannot be the name of a lexical binding".to_string());
+      if  *name == "let" {
+        self.syntaxError(&"Parse error: 'let' cannot be the name of a lexical binding".to_string());
       }
     }
   }
-  fn isAlwaysReservedWord(word : String) -> bool {
-    if  word == "break" {
+  fn isAlwaysReservedWord(word : &String) -> bool {
+    if  *word == "break" {
       return true;
     }
-    if  word == "case" {
+    if  *word == "case" {
       return true;
     }
-    if  word == "catch" {
+    if  *word == "catch" {
       return true;
     }
-    if  word == "class" {
+    if  *word == "class" {
       return true;
     }
-    if  word == "const" {
+    if  *word == "const" {
       return true;
     }
-    if  word == "continue" {
+    if  *word == "continue" {
       return true;
     }
-    if  word == "debugger" {
+    if  *word == "debugger" {
       return true;
     }
-    if  word == "default" {
+    if  *word == "default" {
       return true;
     }
-    if  word == "delete" {
+    if  *word == "delete" {
       return true;
     }
-    if  word == "do" {
+    if  *word == "do" {
       return true;
     }
-    if  word == "else" {
+    if  *word == "else" {
       return true;
     }
-    if  word == "enum" {
+    if  *word == "enum" {
       return true;
     }
-    if  word == "export" {
+    if  *word == "export" {
       return true;
     }
-    if  word == "extends" {
+    if  *word == "extends" {
       return true;
     }
-    if  word == "false" {
+    if  *word == "false" {
       return true;
     }
-    if  word == "finally" {
+    if  *word == "finally" {
       return true;
     }
-    if  word == "for" {
+    if  *word == "for" {
       return true;
     }
-    if  word == "function" {
+    if  *word == "function" {
       return true;
     }
-    if  word == "if" {
+    if  *word == "if" {
       return true;
     }
-    if  word == "import" {
+    if  *word == "import" {
       return true;
     }
-    if  word == "in" {
+    if  *word == "in" {
       return true;
     }
-    if  word == "instanceof" {
+    if  *word == "instanceof" {
       return true;
     }
-    if  word == "new" {
+    if  *word == "new" {
       return true;
     }
-    if  word == "null" {
+    if  *word == "null" {
       return true;
     }
-    if  word == "return" {
+    if  *word == "return" {
       return true;
     }
-    if  word == "super" {
+    if  *word == "super" {
       return true;
     }
-    if  word == "switch" {
+    if  *word == "switch" {
       return true;
     }
-    if  word == "this" {
+    if  *word == "this" {
       return true;
     }
-    if  word == "throw" {
+    if  *word == "throw" {
       return true;
     }
-    if  word == "true" {
+    if  *word == "true" {
       return true;
     }
-    if  word == "try" {
+    if  *word == "try" {
       return true;
     }
-    if  word == "typeof" {
+    if  *word == "typeof" {
       return true;
     }
-    if  word == "var" {
+    if  *word == "var" {
       return true;
     }
-    if  word == "void" {
+    if  *word == "void" {
       return true;
     }
-    if  word == "while" {
+    if  *word == "while" {
       return true;
     }
-    if  word == "with" {
+    if  *word == "with" {
       return true;
     }
     false
@@ -2811,33 +2840,33 @@ impl TSParserSimple {
       self.advance();
       return tok.clone();
     }
-    self.expect("Identifier".to_string()).clone()
+    self.expect(&"Identifier".to_string()).clone()
   }
   fn expectBindingName(&mut self) -> Rc<RefCell<Token>> {
     let tt : String = self.peekType();
     if  (((((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword")) || (tt == "Boolean")) || (tt == "Null") {
       let mut tok : Rc<RefCell<Token>> = self.peek();
       let __arg_0 = tok.borrow().value.clone();
-      self.checkBindableName(__arg_0);
+      self.checkBindableName(&__arg_0);
       self.advance();
       return tok.clone();
     }
-    self.expect("Identifier".to_string()).clone()
+    self.expect(&"Identifier".to_string()).clone()
   }
-  fn expect(&mut self, expectedType : String) -> Rc<RefCell<Token>> {
+  fn expect(&mut self, expectedType : &String) -> Rc<RefCell<Token>> {
     let mut tok : Rc<RefCell<Token>> = self.peek();
-    if  tok.borrow().tokenType != expectedType {
+    if  tok.borrow().tokenType != *expectedType {
       let __arg_0 = format!("Parse error: expected {} but got {}", expectedType, tok.borrow().tokenType).clone();
-      self.syntaxError(__arg_0);
+      self.syntaxError(&__arg_0);
     }
     self.advance();
     tok.clone()
   }
-  fn expectValue(&mut self, expectedValue : String) -> Rc<RefCell<Token>> {
+  fn expectValue(&mut self, expectedValue : &String) -> Rc<RefCell<Token>> {
     let mut tok : Rc<RefCell<Token>> = self.peek();
-    if  tok.borrow().value != expectedValue {
+    if  tok.borrow().value != *expectedValue {
       let __arg_0 = format!("Parse error: expected '{}' but got '{}'", expectedValue, tok.borrow().value).clone();
-      self.syntaxError(__arg_0);
+      self.syntaxError(&__arg_0);
     }
     self.advance();
     tok.clone()
@@ -2846,11 +2875,11 @@ impl TSParserSimple {
     let t : String = self.peekType();
     t == "EOF"
   }
-  fn matchType(&mut self, tokenType : String) -> bool {
+  fn matchType(&mut self, tokenType : &String) -> bool {
     let t : String = self.peekType();
-    t == tokenType
+    t == *tokenType
   }
-  fn matchValue(&mut self, value : String) -> bool {
+  fn matchValue(&mut self, value : &String) -> bool {
     let t : String = self.peekType();
     if  t == "String" {
       return false;
@@ -2862,14 +2891,14 @@ impl TSParserSimple {
       return false;
     }
     let v : String = self.peekValue();
-    v == value
+    v == *value
   }
-  fn matchPunct(&mut self, value : String) -> bool {
+  fn matchPunct(&mut self, value : &String) -> bool {
     if  self.peekType() != "Punctuator" {
       return false;
     }
     let v : String = self.peekValue();
-    v == value
+    v == *value
   }
   fn isNameToken(&mut self) -> bool {
     let t : String = self.peekType();
@@ -2958,7 +2987,7 @@ impl TSParserSimple {
     false
   }
   fn parseMemberName(&mut self) -> Rc<RefCell<Token>> {
-    if  self.matchPunct("#".to_string()) {
+    if  self.matchPunct(&"#".to_string()) {
       self.advance();
     }
     if  self.isNameToken() {
@@ -2966,7 +2995,7 @@ impl TSParserSimple {
       self.advance();
       return tok.clone();
     }
-    self.expect("Identifier".to_string()).clone()
+    self.expect(&"Identifier".to_string()).clone()
   }
   fn guardNoProgress(&mut self, prevPos : i64) {
     if  self.pos != prevPos {
@@ -2974,7 +3003,7 @@ impl TSParserSimple {
     }
     let mut recTok : Rc<RefCell<Token>> = self.peek();
     let __arg_0 = format!("Parser recovery: skipping unexpected token '{}' (type {})", recTok.borrow().value, recTok.borrow().tokenType).clone();
-    self.syntaxError(__arg_0);
+    self.syntaxError(&__arg_0);
     if  !(self.isAtEnd()) {
       self.advance();
     }
@@ -3003,7 +3032,7 @@ impl TSParserSimple {
       while ti < (self.tokens.len() as i64) {
         let mut t : Rc<RefCell<Token>> = self.tokens[(ti) as usize].clone();
         if  t.borrow().tokenType == "HtmlComment" {
-          self.syntaxError("Parse error: HTML-like comments are not allowed in module code".to_string());
+          self.syntaxError(&"Parse error: HTML-like comments are not allowed in module code".to_string());
         }
         ti += 1;
       };
@@ -3012,13 +3041,13 @@ impl TSParserSimple {
     self.popScope();
     prog.clone()
   }
-  fn isParameterInScope(&mut self, name : String) -> bool {
+  fn isParameterInScope(&mut self, name : &String) -> bool {
     let mut i : i64 = 0;
     let total : i64 = self.scopeNames.len() as i64;
     while i < total {
       let entry : String = self.scopeNames[(i) as usize].clone();
       if  (entry.chars().take(1).collect::<String>()) == "p" {
-        if  (entry.chars().skip(2).take((entry.chars().count() as i64 - 2) as usize).collect::<String>()) == name {
+        if  (entry.chars().skip(2).take((entry.chars().count() as i64 - 2) as usize).collect::<String>()) == *name {
           return true;
         }
       }
@@ -3026,12 +3055,12 @@ impl TSParserSimple {
     };
     false
   }
-  fn isDeclaredAnywhere(&mut self, name : String) -> bool {
+  fn isDeclaredAnywhere(&mut self, name : &String) -> bool {
     let mut i : i64 = 0;
     let total : i64 = self.scopeNames.len() as i64;
     while i < total {
       let entry : String = self.scopeNames[(i) as usize].clone();
-      if  (entry.chars().skip(2).take((entry.chars().count() as i64 - 2) as usize).collect::<String>()) == name {
+      if  (entry.chars().skip(2).take((entry.chars().count() as i64 - 2) as usize).collect::<String>()) == *name {
         return true;
       }
       i += 1;
@@ -3042,8 +3071,8 @@ impl TSParserSimple {
     let mut i : i64 = 0;
     while i < (self.pendingExportRefs.len() as i64) {
       let name : String = self.pendingExportRefs[(i) as usize].clone();
-      if  !(self.isDeclaredAnywhere(name.clone())) {
-        self.syntaxError(format!("Parse error: export of undeclared name '{}'", name));
+      if  !(self.isDeclaredAnywhere(&name)) {
+        self.syntaxError(&format!("Parse error: export of undeclared name '{}'", name));
       }
       i += 1;
     };
@@ -3052,7 +3081,7 @@ impl TSParserSimple {
     let tokVal : String = self.peekValue();
     if  tokVal == "@" {
       let mut decorators : Vec<Rc<RefCell<TSNode>>> = Vec::new();
-      while self.matchValue("@".to_string()) {
+      while self.matchValue(&"@".to_string()) {
         let mut dec : Rc<RefCell<TSNode>> = self.parseDecorator();
         decorators.push(dec.clone());
       };
@@ -3069,19 +3098,19 @@ impl TSParserSimple {
         return self.parseExprStmt().clone();
       }
       if  !self.moduleMode {
-        self.syntaxError("Parse error: an import declaration is only allowed in a module".to_string());
+        self.syntaxError(&"Parse error: an import declaration is only allowed in a module".to_string());
       }
       if  !self.atModuleTopLevel {
-        self.syntaxError("Parse error: an import declaration must be at the top level of a module".to_string());
+        self.syntaxError(&"Parse error: an import declaration must be at the top level of a module".to_string());
       }
       return self.parseImport().clone();
     }
     if  tokVal == "export" {
       if  !self.moduleMode {
-        self.syntaxError("Parse error: an export declaration is only allowed in a module".to_string());
+        self.syntaxError(&"Parse error: an export declaration is only allowed in a module".to_string());
       }
       if  !self.atModuleTopLevel {
-        self.syntaxError("Parse error: an export declaration must be at the top level of a module".to_string());
+        self.syntaxError(&"Parse error: an export declaration must be at the top level of a module".to_string());
       }
       return self.parseExport().clone();
     }
@@ -3093,12 +3122,12 @@ impl TSParserSimple {
     }
     if  tokVal == "class" {
       if  self.inSingleStatementBody {
-        self.syntaxError("Parse error: a class declaration cannot be a statement body".to_string());
+        self.syntaxError(&"Parse error: a class declaration cannot be a statement body".to_string());
       }
       let mut classDecl : Rc<RefCell<TSNode>> = self.parseClass();
       if  (classDecl.borrow().name.chars().count() as i64) == 0 {
         if  !self.inExportDefault {
-          self.syntaxError("Parse error: a class declaration needs a name".to_string());
+          self.syntaxError(&"Parse error: a class declaration needs a name".to_string());
         }
       }
       return classDecl.clone();
@@ -3145,7 +3174,7 @@ impl TSParserSimple {
       if  startsBinding {
         if  self.inSingleStatementBody {
           if  tokVal != "var" {
-            self.syntaxError("Parse error: a lexical declaration cannot be a statement body".to_string());
+            self.syntaxError(&"Parse error: a lexical declaration cannot be a statement body".to_string());
           }
         }
         return self.parseVarDecl().clone();
@@ -3154,10 +3183,10 @@ impl TSParserSimple {
     if  tokVal == "function" {
       if  self.inSingleStatementBody {
         if  self.strictMode {
-          self.syntaxError("Parse error: a function declaration cannot be a statement body in strict mode".to_string());
+          self.syntaxError(&"Parse error: a function declaration cannot be a statement body in strict mode".to_string());
         } else {
           if  !self.singleBodyIsIfBranch {
-            self.syntaxError("Parse error: a function declaration cannot be a loop or with body".to_string());
+            self.syntaxError(&"Parse error: a function declaration cannot be a loop or with body".to_string());
           }
         }
       }
@@ -3196,7 +3225,7 @@ impl TSParserSimple {
       let _tmp_3 = dbgTok.borrow().col;
       dbg.borrow_mut().col = _tmp_3;
       self.advance();
-      if  self.matchValue(";".to_string()) {
+      if  self.matchValue(&";".to_string()) {
         self.advance();
       }
       return dbg.clone();
@@ -3212,13 +3241,13 @@ impl TSParserSimple {
       let _tmp_3 = withTok.borrow().col;
       withNode.borrow_mut().col = _tmp_3;
       if  self.strictMode {
-        self.syntaxError("Parse error: 'with' is not allowed in strict mode".to_string());
+        self.syntaxError(&"Parse error: 'with' is not allowed in strict mode".to_string());
       }
       self.advance();
-      self.expectValue("(".to_string());
+      self.expectValue(&"(".to_string());
       let mut withObj : Rc<RefCell<TSNode>> = self.parseExprSeq();
       withNode.borrow_mut().left = Some(withObj.clone());
-      self.expectValue(")".to_string());
+      self.expectValue(&")".to_string());
       let savedWithBody : bool = self.inSingleStatementBody;
       self.inSingleStatementBody = true;
       self.atModuleTopLevel = false;
@@ -3270,29 +3299,29 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    let mut labelTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    let mut labelTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let _tmp_4 = labelTok.borrow().value.clone();
     node.borrow_mut().name = _tmp_4;
-    self.expectValue(":".to_string());
+    self.expectValue(&":".to_string());
     let bodyStart : String = self.peekValue();
     if  ((bodyStart == "let") || (bodyStart == "const")) || (bodyStart == "class") {
-      self.syntaxError(format!("Parse error: '{}' declaration cannot be the body of a labelled statement", bodyStart));
+      self.syntaxError(&format!("Parse error: '{}' declaration cannot be the body of a labelled statement", bodyStart));
     }
     if  bodyStart == "function" {
       if  self.inSingleStatementBody {
-        self.syntaxError("Parse error: a labelled function declaration cannot be a statement body".to_string());
+        self.syntaxError(&"Parse error: a labelled function declaration cannot be a statement body".to_string());
       }
       if  self.strictMode {
-        self.syntaxError("Parse error: a function declaration cannot be the body of a labelled statement in strict mode".to_string());
+        self.syntaxError(&"Parse error: a function declaration cannot be the body of a labelled statement in strict mode".to_string());
       } else {
         if  self.peekNextValue() == "*" {
-          self.syntaxError("Parse error: a generator declaration cannot be the body of a labelled statement".to_string());
+          self.syntaxError(&"Parse error: a generator declaration cannot be the body of a labelled statement".to_string());
         }
       }
     }
-    if  TSParserSimple::isInStringList(node.borrow().name.clone(), &self.activeLabels) {
+    if  TSParserSimple::isInStringList(&node.borrow().name, &self.activeLabels) {
       let __arg_0 = format!("Parse error: label '{}' has already been declared", node.borrow().name).clone();
-      self.syntaxError(__arg_0);
+      self.syntaxError(&__arg_0);
     }
     self.activeLabels.push(node.borrow().name.clone());
     let mut scanIdx : i64 = self.pos;
@@ -3341,26 +3370,26 @@ impl TSParserSimple {
     }
     let mut body : Rc<RefCell<TSNode>> = self.parseStatement();
     node.borrow_mut().body = Some(body.clone());
-    self.activeLabels = TSParserSimple::listWithoutString(&self.activeLabels, node.borrow().name.clone());
-    self.iterationLabels = TSParserSimple::listWithoutString(&self.iterationLabels, node.borrow().name.clone());
+    self.activeLabels = TSParserSimple::listWithoutString(&self.activeLabels, &node.borrow().name);
+    self.iterationLabels = TSParserSimple::listWithoutString(&self.iterationLabels, &node.borrow().name);
     node.clone()
   }
-  fn isInStringList(value : String, list : &[String]) -> bool {
+  fn isInStringList(value : &String, list : &[String]) -> bool {
     let mut i : i64 = 0;
     while i < (list.len() as i64) {
-      if  list[(i) as usize].clone() == value {
+      if  list[(i) as usize].clone() == *value {
         return true;
       }
       i += 1;
     };
     false
   }
-  fn listWithoutString(list : &[String], value : String) -> Vec<String> {
+  fn listWithoutString(list : &[String], value : &String) -> Vec<String> {
     let mut out : Vec<String> = Vec::new();
     let mut i : i64 = 0;
     while i < (list.len() as i64) {
       let item : String = list[(i) as usize].clone();
-      if  item != value {
+      if  item != *value {
         out.push(item.clone());
       }
       i += 1;
@@ -3385,9 +3414,9 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("return".to_string());
+    self.expectValue(&"return".to_string());
     if  self.functionDepth == 0 {
-      self.syntaxError("Parse error: 'return' outside of a function".to_string());
+      self.syntaxError(&"Parse error: 'return' outside of a function".to_string());
     }
     let v : String = self.peekValue();
     let mut argOnSameLine : bool = true;
@@ -3399,7 +3428,7 @@ impl TSParserSimple {
       let mut arg : Rc<RefCell<TSNode>> = self.parseExprSeq();
       node.borrow_mut().left = Some(arg.clone());
     }
-    if  self.matchValue(";".to_string()) {
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     }
     node.clone()
@@ -3414,7 +3443,7 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("break".to_string());
+    self.expectValue(&"break".to_string());
     if  self.isNameToken() {
       let mut labelTok : Rc<RefCell<Token>> = self.peek();
       if  labelTok.borrow().line == startTok.borrow().line {
@@ -3426,16 +3455,16 @@ impl TSParserSimple {
     if  (node.borrow().name.chars().count() as i64) == 0 {
       if  self.iterationDepth == 0 {
         if  self.switchDepth == 0 {
-          self.syntaxError("Parse error: 'break' outside of a loop or switch".to_string());
+          self.syntaxError(&"Parse error: 'break' outside of a loop or switch".to_string());
         }
       }
     } else {
-      if  !(TSParserSimple::isInStringList(node.borrow().name.clone(), &self.activeLabels)) {
+      if  !(TSParserSimple::isInStringList(&node.borrow().name, &self.activeLabels)) {
         let __arg_0 = format!("Parse error: 'break {}' does not name an enclosing label", node.borrow().name).clone();
-        self.syntaxError(__arg_0);
+        self.syntaxError(&__arg_0);
       }
     }
-    if  self.matchValue(";".to_string()) {
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     }
     node.clone()
@@ -3450,7 +3479,7 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("continue".to_string());
+    self.expectValue(&"continue".to_string());
     if  self.isNameToken() {
       let mut labelTok : Rc<RefCell<Token>> = self.peek();
       if  labelTok.borrow().line == startTok.borrow().line {
@@ -3461,15 +3490,15 @@ impl TSParserSimple {
     }
     if  (node.borrow().name.chars().count() as i64) == 0 {
       if  self.iterationDepth == 0 {
-        self.syntaxError("Parse error: 'continue' outside of a loop".to_string());
+        self.syntaxError(&"Parse error: 'continue' outside of a loop".to_string());
       }
     } else {
-      if  !(TSParserSimple::isInStringList(node.borrow().name.clone(), &self.iterationLabels)) {
+      if  !(TSParserSimple::isInStringList(&node.borrow().name, &self.iterationLabels)) {
         let __arg_0 = format!("Parse error: 'continue {}' does not name an enclosing loop", node.borrow().name).clone();
-        self.syntaxError(__arg_0);
+        self.syntaxError(&__arg_0);
       }
     }
-    if  self.matchValue(";".to_string()) {
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     }
     node.clone()
@@ -3484,8 +3513,8 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("import".to_string());
-    if  self.matchValue("type".to_string()) {
+    self.expectValue(&"import".to_string());
+    if  self.matchValue(&"type".to_string()) {
       self.advance();
       node.borrow_mut().kind = "type".to_string();
     }
@@ -3498,7 +3527,7 @@ impl TSParserSimple {
       let _tmp_1 = bareStr.borrow().value.clone();
       bareSource.borrow_mut().value = _tmp_1;
       node.borrow_mut().left = Some(bareSource.clone());
-      if  self.matchValue(";".to_string()) {
+      if  self.matchValue(&";".to_string()) {
         self.advance();
       }
       return node.clone();
@@ -3506,17 +3535,17 @@ impl TSParserSimple {
     if  v == "{" {
       self.advance();
       let mut specifiers : Vec<Rc<RefCell<TSNode>>> = Vec::new();
-      while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+      while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
         let mut spec : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         spec.borrow_mut().nodeType = "ImportSpecifier".to_string();
-        if  self.matchValue("type".to_string()) {
+        if  self.matchValue(&"type".to_string()) {
           self.advance();
           spec.borrow_mut().kind = "type".to_string();
         }
         let mut importedName : Rc<RefCell<Token>> = self.expectModuleExportName();
         let _tmp_1 = importedName.borrow().value.clone();
         spec.borrow_mut().name = _tmp_1;
-        if  self.matchValue("as".to_string()) {
+        if  self.matchValue(&"as".to_string()) {
           self.advance();
           let mut localName : Rc<RefCell<Token>> = self.expectBindingName();
           let _tmp_1 = localName.borrow().value.clone();
@@ -3526,61 +3555,61 @@ impl TSParserSimple {
           spec.borrow_mut().value = _tmp_1;
         }
         let __arg_0 = spec.borrow().value.clone();
-        self.checkBindableName(__arg_0);
+        self.checkBindableName(&__arg_0);
         let __arg_0 = spec.borrow().value.clone();
-        self.declareBinding("l".to_string(), __arg_0);
+        self.declareBinding(&"l".to_string(), &__arg_0);
         specifiers.push(spec.clone());
-        if  self.matchValue(",".to_string()) {
+        if  self.matchValue(&",".to_string()) {
           self.advance();
         }
       };
-      self.expectValue("}".to_string());
+      self.expectValue(&"}".to_string());
       node.borrow_mut().children = specifiers.clone();
     }
     if  v == "*" {
       self.advance();
-      self.expectValue("as".to_string());
+      self.expectValue(&"as".to_string());
       let mut namespaceName : Rc<RefCell<Token>> = self.expectBindingName();
       let __arg_0 = namespaceName.borrow().value.clone();
-      self.declareBinding("l".to_string(), __arg_0);
+      self.declareBinding(&"l".to_string(), &__arg_0);
       let mut nsSpec : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       nsSpec.borrow_mut().nodeType = "ImportNamespaceSpecifier".to_string();
       let _tmp_1 = namespaceName.borrow().value.clone();
       nsSpec.borrow_mut().name = _tmp_1;
       node.borrow_mut().children.push(nsSpec.clone());
     }
-    if  self.matchType("Identifier".to_string()) {
+    if  self.matchType(&"Identifier".to_string()) {
       let mut defaultSpec : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       defaultSpec.borrow_mut().nodeType = "ImportDefaultSpecifier".to_string();
       let mut defaultName : Rc<RefCell<Token>> = self.expectBindingName();
       let _tmp_1 = defaultName.borrow().value.clone();
       defaultSpec.borrow_mut().name = _tmp_1;
       let __arg_0 = defaultName.borrow().value.clone();
-      self.declareBinding("l".to_string(), __arg_0);
+      self.declareBinding(&"l".to_string(), &__arg_0);
       node.borrow_mut().children.push(defaultSpec.clone());
-      if  self.matchValue(",".to_string()) {
+      if  self.matchValue(&",".to_string()) {
         self.advance();
-        if  self.matchValue("*".to_string()) {
+        if  self.matchValue(&"*".to_string()) {
           self.advance();
-          self.expectValue("as".to_string());
+          self.expectValue(&"as".to_string());
           let mut nsName : Rc<RefCell<Token>> = self.expectBindingName();
           let __arg_0 = nsName.borrow().value.clone();
-          self.declareBinding("l".to_string(), __arg_0);
+          self.declareBinding(&"l".to_string(), &__arg_0);
           let mut nsSpec2 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
           nsSpec2.borrow_mut().nodeType = "ImportNamespaceSpecifier".to_string();
           let _tmp_1 = nsName.borrow().value.clone();
           nsSpec2.borrow_mut().name = _tmp_1;
           node.borrow_mut().children.push(nsSpec2.clone());
         }
-        if  self.matchValue("{".to_string()) {
+        if  self.matchValue(&"{".to_string()) {
           self.advance();
-          while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+          while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
             let mut spec_1 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
             spec_1.borrow_mut().nodeType = "ImportSpecifier".to_string();
             let mut importedName_1 : Rc<RefCell<Token>> = self.expectModuleExportName();
             let _tmp_1 = importedName_1.borrow().value.clone();
             spec_1.borrow_mut().name = _tmp_1;
-            if  self.matchValue("as".to_string()) {
+            if  self.matchValue(&"as".to_string()) {
               self.advance();
               let mut localName_1 : Rc<RefCell<Token>> = self.expectBindingName();
               let _tmp_1 = localName_1.borrow().value.clone();
@@ -3590,19 +3619,19 @@ impl TSParserSimple {
               spec_1.borrow_mut().value = _tmp_1;
             }
             let __arg_0 = spec_1.borrow().value.clone();
-            self.declareBinding("l".to_string(), __arg_0);
+            self.declareBinding(&"l".to_string(), &__arg_0);
             node.borrow_mut().children.push(spec_1.clone());
-            if  self.matchValue(",".to_string()) {
+            if  self.matchValue(&",".to_string()) {
               self.advance();
             }
           };
-          self.expectValue("}".to_string());
+          self.expectValue(&"}".to_string());
         }
       }
     }
-    if  self.matchValue("from".to_string()) {
+    if  self.matchValue(&"from".to_string()) {
       self.advance();
-      let mut sourceStr : Rc<RefCell<Token>> = self.expect("String".to_string());
+      let mut sourceStr : Rc<RefCell<Token>> = self.expect(&"String".to_string());
       let mut source : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       source.borrow_mut().nodeType = "StringLiteral".to_string();
       let _tmp_1 = sourceStr.borrow().value.clone();
@@ -3610,10 +3639,10 @@ impl TSParserSimple {
       node.borrow_mut().left = Some(source.clone());
     } else {
       if  node.borrow().left.is_none() {
-        self.syntaxError("Parse error: an import declaration needs a module specifier".to_string());
+        self.syntaxError(&"Parse error: an import declaration needs a module specifier".to_string());
       }
     }
-    if  self.matchValue(";".to_string()) {
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     }
     node.clone()
@@ -3624,20 +3653,20 @@ impl TSParserSimple {
       while i < (decl.borrow().children.len() as i64) {
         let mut d : Rc<RefCell<TSNode>> = decl.borrow().children[(i) as usize].clone();
         let __arg_0 = d.borrow().name.clone();
-        self.registerExportName(__arg_0);
+        self.registerExportName(&__arg_0);
         i += 1;
       };
       return;
     }
     let __arg_0 = decl.borrow().name.clone();
-    self.registerExportName(__arg_0);
+    self.registerExportName(&__arg_0);
   }
-  fn registerExportName(&mut self, name : String) {
+  fn registerExportName(&mut self, name : &String) {
     if  (name.chars().count() as i64) == 0 {
       return;
     }
-    if  TSParserSimple::isInStringList(name.clone(), &self.exportedNames) {
-      self.syntaxError(format!("Parse error: duplicate export of '{}'", name));
+    if  TSParserSimple::isInStringList(name, &self.exportedNames) {
+      self.syntaxError(&format!("Parse error: duplicate export of '{}'", name));
     }
     self.exportedNames.push(name.clone());
   }
@@ -3651,8 +3680,8 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("export".to_string());
-    if  self.matchValue("type".to_string()) {
+    self.expectValue(&"export".to_string());
+    if  self.matchValue(&"type".to_string()) {
       let nextV : String = self.peekNextValue();
       if  nextV == "{" {
         self.advance();
@@ -3662,7 +3691,7 @@ impl TSParserSimple {
     let v : String = self.peekValue();
     if  v == "default" {
       node.borrow_mut().nodeType = "ExportDefaultDeclaration".to_string();
-      self.registerExportName("default".to_string());
+      self.registerExportName(&"default".to_string());
       self.advance();
       let nextVal : String = self.peekValue();
       if  ((nextVal == "class") || (nextVal == "function")) || (nextVal == "interface") {
@@ -3675,7 +3704,7 @@ impl TSParserSimple {
         let mut expr : Rc<RefCell<TSNode>> = self.parseExpr();
         node.borrow_mut().left = Some(expr.clone());
       }
-      if  self.matchValue(";".to_string()) {
+      if  self.matchValue(&";".to_string()) {
         self.advance();
       }
       return node.clone();
@@ -3683,13 +3712,13 @@ impl TSParserSimple {
     if  v == "{" {
       self.advance();
       let mut specifiers : Vec<Rc<RefCell<TSNode>>> = Vec::new();
-      while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+      while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
         let mut spec : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         spec.borrow_mut().nodeType = "ExportSpecifier".to_string();
         let mut localName : Rc<RefCell<Token>> = self.expectModuleExportName();
         let _tmp_1 = localName.borrow().value.clone();
         spec.borrow_mut().name = _tmp_1;
-        if  self.matchValue("as".to_string()) {
+        if  self.matchValue(&"as".to_string()) {
           self.advance();
           let mut exportedName : Rc<RefCell<Token>> = self.expectModuleExportName();
           let _tmp_1 = exportedName.borrow().value.clone();
@@ -3699,18 +3728,18 @@ impl TSParserSimple {
           spec.borrow_mut().value = _tmp_1;
         }
         let __arg_0 = spec.borrow().value.clone();
-        self.registerExportName(__arg_0);
+        self.registerExportName(&__arg_0);
         self.pendingExportRefs.push(localName.borrow().value.clone());
         specifiers.push(spec.clone());
-        if  self.matchValue(",".to_string()) {
+        if  self.matchValue(&",".to_string()) {
           self.advance();
         }
       };
-      self.expectValue("}".to_string());
+      self.expectValue(&"}".to_string());
       node.borrow_mut().children = specifiers.clone();
-      if  self.matchValue("from".to_string()) {
+      if  self.matchValue(&"from".to_string()) {
         self.advance();
-        let mut sourceStr : Rc<RefCell<Token>> = self.expect("String".to_string());
+        let mut sourceStr : Rc<RefCell<Token>> = self.expect(&"String".to_string());
         let mut source : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         source.borrow_mut().nodeType = "StringLiteral".to_string();
         let _tmp_1 = sourceStr.borrow().value.clone();
@@ -3719,7 +3748,7 @@ impl TSParserSimple {
         let mut emptyRefs : Vec<String> = Vec::new();
         self.pendingExportRefs = emptyRefs.clone();
       }
-      if  self.matchValue(";".to_string()) {
+      if  self.matchValue(&";".to_string()) {
         self.advance();
       }
       return node.clone();
@@ -3727,20 +3756,20 @@ impl TSParserSimple {
     if  v == "*" {
       node.borrow_mut().nodeType = "ExportAllDeclaration".to_string();
       self.advance();
-      if  self.matchValue("as".to_string()) {
+      if  self.matchValue(&"as".to_string()) {
         self.advance();
-        let mut exportName : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+        let mut exportName : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
         let _tmp_1 = exportName.borrow().value.clone();
         node.borrow_mut().name = _tmp_1;
       }
-      self.expectValue("from".to_string());
-      let mut sourceStr_1 : Rc<RefCell<Token>> = self.expect("String".to_string());
+      self.expectValue(&"from".to_string());
+      let mut sourceStr_1 : Rc<RefCell<Token>> = self.expect(&"String".to_string());
       let mut source_1 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       source_1.borrow_mut().nodeType = "StringLiteral".to_string();
       let _tmp_1 = sourceStr_1.borrow().value.clone();
       source_1.borrow_mut().value = _tmp_1;
       node.borrow_mut().left = Some(source_1.clone());
-      if  self.matchValue(";".to_string()) {
+      if  self.matchValue(&";".to_string()) {
         self.advance();
       }
       return node.clone();
@@ -3749,7 +3778,7 @@ impl TSParserSimple {
       let mut decl_1 : Rc<RefCell<TSNode>> = self.parseStatement();
       if  (v == "function") || (v == "class") {
         if  (decl_1.borrow().name.chars().count() as i64) == 0 {
-          self.syntaxError(format!("Parse error: an exported {} declaration needs a name", v));
+          self.syntaxError(&format!("Parse error: an exported {} declaration needs a name", v));
         }
       }
       node.borrow_mut().left = Some(decl_1.clone());
@@ -3762,7 +3791,7 @@ impl TSParserSimple {
       self.registerExportedDeclaration(decl_2.clone());
       return node.clone();
     }
-    self.syntaxError(format!("Parse error: '{}' cannot follow 'export'", v));
+    self.syntaxError(&format!("Parse error: '{}' cannot follow 'export'", v));
     node.clone()
   }
   fn parseInterface(&mut self) -> Rc<RefCell<TSNode>> {
@@ -3775,20 +3804,20 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("interface".to_string());
-    let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    self.expectValue(&"interface".to_string());
+    let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let _tmp_4 = nameTok.borrow().value.clone();
     node.borrow_mut().name = _tmp_4;
-    if  self.matchValue("<".to_string()) {
+    if  self.matchValue(&"<".to_string()) {
       let mut typeParams : Vec<Rc<RefCell<TSNode>>> = self.parseTypeParams();
       node.borrow_mut().params = typeParams.clone();
     }
-    if  self.matchValue("extends".to_string()) {
+    if  self.matchValue(&"extends".to_string()) {
       self.advance();
       let mut extendsList : Vec<Rc<RefCell<TSNode>>> = Vec::new();
       let mut extendsType : Rc<RefCell<TSNode>> = self.parseType();
       extendsList.push(extendsType.clone());
-      while self.matchValue(",".to_string()) {
+      while self.matchValue(&",".to_string()) {
         self.advance();
         let mut nextType : Rc<RefCell<TSNode>> = self.parseType();
         extendsList.push(nextType.clone());
@@ -3815,27 +3844,27 @@ impl TSParserSimple {
     body.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     body.borrow_mut().col = _tmp_3;
-    self.expectValue("{".to_string());
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"{".to_string());
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
       let mut prop : Rc<RefCell<TSNode>> = self.parsePropertySig();
       body.borrow_mut().children.push(prop.clone());
-      if  self.matchValue(";".to_string()) || self.matchValue(",".to_string()) {
+      if  self.matchValue(&";".to_string()) || self.matchValue(&",".to_string()) {
         self.advance();
       }
     };
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     body.clone()
   }
   fn parseTypeParams(&mut self) -> Vec<Rc<RefCell<TSNode>>> {
     let mut params : Vec<Rc<RefCell<TSNode>>> = Vec::new();
-    self.expectValue("<".to_string());
-    while (!(self.matchValue(">".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"<".to_string());
+    while (!(self.matchValue(&">".to_string()))) && (!(self.isAtEnd())) {
       if  (params.len() as i64) > 0 {
-        self.expectValue(",".to_string());
+        self.expectValue(&",".to_string());
       }
       let mut param : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       param.borrow_mut().nodeType = "TSTypeParameter".to_string();
-      let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+      let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
       let _tmp_1 = nameTok.borrow().value.clone();
       param.borrow_mut().name = _tmp_1;
       let _tmp_2 = nameTok.borrow().start;
@@ -3844,19 +3873,19 @@ impl TSParserSimple {
       param.borrow_mut().line = _tmp_3;
       let _tmp_4 = nameTok.borrow().col;
       param.borrow_mut().col = _tmp_4;
-      if  self.matchValue("extends".to_string()) {
+      if  self.matchValue(&"extends".to_string()) {
         self.advance();
         let mut constraint : Rc<RefCell<TSNode>> = self.parseType();
         param.borrow_mut().typeAnnotation = Some(constraint.clone());
       }
-      if  self.matchValue("=".to_string()) {
+      if  self.matchValue(&"=".to_string()) {
         self.advance();
         let mut defaultType : Rc<RefCell<TSNode>> = self.parseType();
         param.borrow_mut().init = Some(defaultType.clone());
       }
       params.push(param.clone());
     };
-    self.expectValue(">".to_string());
+    self.expectValue(&">".to_string());
     params.clone()
   }
   fn parsePropertySig(&mut self) -> Rc<RefCell<TSNode>> {
@@ -3865,19 +3894,19 @@ impl TSParserSimple {
     let startLine : i64 = startTok.borrow().line;
     let startCol : i64 = startTok.borrow().col;
     let mut isReadonly : bool = false;
-    if  self.matchValue("readonly".to_string()) {
+    if  self.matchValue(&"readonly".to_string()) {
       isReadonly = true;
       self.advance();
     }
-    if  self.matchValue("[".to_string()) {
+    if  self.matchValue(&"[".to_string()) {
       self.advance();
-      let mut paramTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+      let mut paramTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
       return self.parseIndexSignatureRest(isReadonly, paramTok.clone(), startPos, startLine, startCol).clone();
     }
-    if  self.matchValue("(".to_string()) {
+    if  self.matchValue(&"(".to_string()) {
       return self.parseCallSignature(startPos, startLine, startCol).clone();
     }
-    if  self.matchValue("new".to_string()) {
+    if  self.matchValue(&"new".to_string()) {
       return self.parseConstructSignature(startPos, startLine, startCol).clone();
     }
     let mut prop : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -3886,14 +3915,14 @@ impl TSParserSimple {
     prop.borrow_mut().line = startLine;
     prop.borrow_mut().col = startCol;
     prop.borrow_mut().readonly = isReadonly;
-    let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let _tmp_1 = nameTok.borrow().value.clone();
     prop.borrow_mut().name = _tmp_1;
-    if  self.matchValue("?".to_string()) {
+    if  self.matchValue(&"?".to_string()) {
       prop.borrow_mut().optional = true;
       self.advance();
     }
-    if  self.matchValue(":".to_string()) {
+    if  self.matchValue(&":".to_string()) {
       let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       prop.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
     }
@@ -3905,20 +3934,20 @@ impl TSParserSimple {
     sig.borrow_mut().start = startPos;
     sig.borrow_mut().line = startLine;
     sig.borrow_mut().col = startCol;
-    if  self.matchValue("<".to_string()) {
+    if  self.matchValue(&"<".to_string()) {
       let mut typeParams : Vec<Rc<RefCell<TSNode>>> = self.parseTypeParams();
       sig.borrow_mut().params = typeParams.clone();
     }
-    self.expectValue("(".to_string());
-    while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"(".to_string());
+    while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
       if  (sig.borrow().children.len() as i64) > 0 {
-        self.expectValue(",".to_string());
+        self.expectValue(&",".to_string());
       }
       let mut param : Rc<RefCell<TSNode>> = self.parseParam();
       sig.borrow_mut().children.push(param.clone());
     };
-    self.expectValue(")".to_string());
-    if  self.matchValue(":".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&":".to_string()) {
       let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       sig.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
     }
@@ -3930,21 +3959,21 @@ impl TSParserSimple {
     sig.borrow_mut().start = startPos;
     sig.borrow_mut().line = startLine;
     sig.borrow_mut().col = startCol;
-    self.expectValue("new".to_string());
-    if  self.matchValue("<".to_string()) {
+    self.expectValue(&"new".to_string());
+    if  self.matchValue(&"<".to_string()) {
       let mut typeParams : Vec<Rc<RefCell<TSNode>>> = self.parseTypeParams();
       sig.borrow_mut().params = typeParams.clone();
     }
-    self.expectValue("(".to_string());
-    while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"(".to_string());
+    while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
       if  (sig.borrow().children.len() as i64) > 0 {
-        self.expectValue(",".to_string());
+        self.expectValue(&",".to_string());
       }
       let mut param : Rc<RefCell<TSNode>> = self.parseParam();
       sig.borrow_mut().children.push(param.clone());
     };
-    self.expectValue(")".to_string());
-    if  self.matchValue(":".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&":".to_string()) {
       let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       sig.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
     }
@@ -3960,18 +3989,18 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("type".to_string());
-    let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    self.expectValue(&"type".to_string());
+    let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let _tmp_4 = nameTok.borrow().value.clone();
     node.borrow_mut().name = _tmp_4;
-    if  self.matchValue("<".to_string()) {
+    if  self.matchValue(&"<".to_string()) {
       let mut typeParams : Vec<Rc<RefCell<TSNode>>> = self.parseTypeParams();
       node.borrow_mut().params = typeParams.clone();
     }
-    self.expectValue("=".to_string());
+    self.expectValue(&"=".to_string());
     let mut typeExpr : Rc<RefCell<TSNode>> = self.parseType();
     node.borrow_mut().typeAnnotation = Some(typeExpr.clone());
-    if  self.matchValue(";".to_string()) {
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     }
     node.clone()
@@ -3986,7 +4015,7 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("@".to_string());
+    self.expectValue(&"@".to_string());
     let mut expr : Rc<RefCell<TSNode>> = self.parsePostfix();
     node.borrow_mut().left = Some(expr.clone());
     node.clone()
@@ -4001,16 +4030,16 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    if  self.matchValue("abstract".to_string()) {
+    if  self.matchValue(&"abstract".to_string()) {
       node.borrow_mut().kind = "abstract".to_string();
       self.advance();
     }
-    self.expectValue("class".to_string());
+    self.expectValue(&"class".to_string());
     let mut classNameFollows : bool = self.isNameToken();
-    if  self.matchValue("extends".to_string()) {
+    if  self.matchValue(&"extends".to_string()) {
       classNameFollows = false;
     }
-    if  self.matchValue("implements".to_string()) {
+    if  self.matchValue(&"implements".to_string()) {
       classNameFollows = false;
     }
     if  classNameFollows {
@@ -4021,9 +4050,9 @@ impl TSParserSimple {
       let _tmp_1 = nameTok.borrow().value.clone();
       node.borrow_mut().name = _tmp_1;
       let __arg_0 = nameTok.borrow().value.clone();
-      self.declareBinding("l".to_string(), __arg_0);
+      self.declareBinding(&"l".to_string(), &__arg_0);
     }
-    if  self.matchValue("<".to_string()) {
+    if  self.matchValue(&"<".to_string()) {
       let mut typeParams : Vec<Rc<RefCell<TSNode>>> = self.parseTypeParams();
       node.borrow_mut().params = typeParams.clone();
     }
@@ -4031,7 +4060,7 @@ impl TSParserSimple {
     self.inDerivedClass = false;
     let savedClassStrictAll : bool = self.strictMode;
     self.strictMode = true;
-    if  self.matchValue("extends".to_string()) {
+    if  self.matchValue(&"extends".to_string()) {
       self.inDerivedClass = true;
       self.advance();
       let mut superClass : Rc<RefCell<TSNode>> = self.parsePostfix();
@@ -4040,14 +4069,14 @@ impl TSParserSimple {
       extendsNode.borrow_mut().left = Some(superClass.clone());
       node.borrow_mut().left = Some(extendsNode.clone());
     }
-    if  self.matchValue("implements".to_string()) {
+    if  self.matchValue(&"implements".to_string()) {
       self.advance();
       let mut r#impl : Rc<RefCell<TSNode>> = self.parseType();
       let mut implNode : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       implNode.borrow_mut().nodeType = "TSExpressionWithTypeArguments".to_string();
       implNode.borrow_mut().left = Some(r#impl.clone());
       node.borrow_mut().children.push(implNode.clone());
-      while self.matchValue(",".to_string()) {
+      while self.matchValue(&",".to_string()) {
         self.advance();
         let mut nextImpl : Rc<RefCell<TSNode>> = self.parseType();
         let mut nextImplNode : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -4072,12 +4101,12 @@ impl TSParserSimple {
     body.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     body.borrow_mut().col = _tmp_3;
-    self.expectValue("{".to_string());
+    self.expectValue(&"{".to_string());
     let savedClassStrict : bool = self.strictMode;
     self.strictMode = true;
     let mut sawConstructor : bool = false;
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
-      if  self.matchValue(";".to_string()) {
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
+      if  self.matchValue(&";".to_string()) {
         self.advance();
       } else {
         let mut member : Rc<RefCell<TSNode>> = self.parseClassMember();
@@ -4093,7 +4122,7 @@ impl TSParserSimple {
             if  member.borrow().kind != "static" {
               if  member.borrow().nodeType == "MethodDefinition" {
                 if  sawConstructor {
-                  self.syntaxError("Parse error: a class may only have one constructor".to_string());
+                  self.syntaxError(&"Parse error: a class may only have one constructor".to_string());
                 }
                 sawConstructor = true;
               }
@@ -4102,28 +4131,28 @@ impl TSParserSimple {
           if  namesConstructor {
             if  member.borrow().kind != "static" {
               if  (member.borrow().kind == "get") || (member.borrow().kind == "set") {
-                self.syntaxError("Parse error: a class constructor may not be an accessor".to_string());
+                self.syntaxError(&"Parse error: a class constructor may not be an accessor".to_string());
               }
               if  member.borrow().generator {
-                self.syntaxError("Parse error: a class constructor may not be a generator".to_string());
+                self.syntaxError(&"Parse error: a class constructor may not be a generator".to_string());
               }
             }
           }
           if  member.borrow().kind == "static" {
             if  member.borrow().name == "prototype" {
-              self.syntaxError("Parse error: a static class member may not be named 'prototype'".to_string());
+              self.syntaxError(&"Parse error: a static class member may not be named 'prototype'".to_string());
             }
           }
         }
         body.borrow_mut().children.push(member.clone());
-        if  self.matchValue(";".to_string()) {
+        if  self.matchValue(&";".to_string()) {
           self.advance();
         } else {
           if  member.borrow().nodeType == "PropertyDefinition" {
-            if  !(self.matchValue("}".to_string())) {
+            if  !(self.matchValue(&"}".to_string())) {
               let mut nextMember : Rc<RefCell<Token>> = self.peek();
               if  nextMember.borrow().line == self.lastTokenLine {
-                self.syntaxError("Parse error: missing ';' between class members".to_string());
+                self.syntaxError(&"Parse error: missing ';' between class members".to_string());
               }
             }
           }
@@ -4131,7 +4160,7 @@ impl TSParserSimple {
       }
     };
     self.strictMode = savedClassStrict;
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     body.clone()
   }
   fn parseClassMember(&mut self) -> Rc<RefCell<TSNode>> {
@@ -4144,7 +4173,7 @@ impl TSParserSimple {
     let _tmp_3 = startTok.borrow().col;
     member.borrow_mut().col = _tmp_3;
     let mut decorators : Vec<Rc<RefCell<TSNode>>> = Vec::new();
-    while self.matchValue("@".to_string()) {
+    while self.matchValue(&"@".to_string()) {
       let mut dec : Rc<RefCell<TSNode>> = self.parseDecorator();
       decorators.push(dec.clone());
     };
@@ -4177,7 +4206,7 @@ impl TSParserSimple {
         if  (((afterStatic != "(") && (afterStatic != "=")) && (afterStatic != ";")) && (afterStatic != "}") {
           isStatic = true;
           self.advance();
-          if  self.matchValue("{".to_string()) {
+          if  self.matchValue(&"{".to_string()) {
             member.borrow_mut().nodeType = "StaticBlock".to_string();
             member.borrow_mut().body = Some(self.parseBlock().clone());
             let _tmp_1 = startTok.borrow().start;
@@ -4210,7 +4239,7 @@ impl TSParserSimple {
         if  isStatic {
           let afterRepeat : String = self.peekNextValue();
           if  (((afterRepeat != "(") && (afterRepeat != "=")) && (afterRepeat != ";")) && (afterRepeat != "}") {
-            self.syntaxError("Parse error: 'static' may appear only once on a class member".to_string());
+            self.syntaxError(&"Parse error: 'static' may appear only once on a class member".to_string());
             keepParsing = false;
           }
         }
@@ -4219,7 +4248,7 @@ impl TSParserSimple {
         keepParsing = false;
       }
     };
-    if  self.matchValue("constructor".to_string()) && (!isStatic) {
+    if  self.matchValue(&"constructor".to_string()) && (!isStatic) {
       member.borrow_mut().nodeType = "MethodDefinition".to_string();
       member.borrow_mut().kind = "constructor".to_string();
       self.advance();
@@ -4241,20 +4270,20 @@ impl TSParserSimple {
       self.iterationLabels = freshctorIterLabels.clone();
       self.allowSuperCall = self.inDerivedClass;
       self.allowSuperProperty = true;
-      self.expectValue("(".to_string());
-      while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+      self.expectValue(&"(".to_string());
+      while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
         if  (member.borrow().params.len() as i64) > 0 {
-          self.expectValue(",".to_string());
+          self.expectValue(&",".to_string());
         }
         let mut param : Rc<RefCell<TSNode>> = self.parseConstructorParam();
         if  (param.borrow().name.chars().count() as i64) > 0 {
           let __arg_0 = param.borrow().name.clone();
-          self.declareBinding("p".to_string(), __arg_0);
+          self.declareBinding(&"p".to_string(), &__arg_0);
         }
         member.borrow_mut().params.push(param.clone());
       };
-      self.expectValue(")".to_string());
-      if  self.matchValue("{".to_string()) {
+      self.expectValue(&")".to_string());
+      if  self.matchValue(&"{".to_string()) {
         self.suppressBlockScope = true;
         let mut bodyNode : Rc<RefCell<TSNode>> = self.parseBlock();
         member.borrow_mut().body = Some(bodyNode.clone());
@@ -4273,7 +4302,7 @@ impl TSParserSimple {
       return member.clone();
     }
     let mut accessorKind : String = "".to_string();
-    if  self.matchValue("get".to_string()) || self.matchValue("set".to_string()) {
+    if  self.matchValue(&"get".to_string()) || self.matchValue(&"set".to_string()) {
       let accessorWord : String = self.peekValue();
       let afterAccessor : String = self.peekNextValue();
       let afterAccessorType : String = self.peekNextType();
@@ -4292,18 +4321,18 @@ impl TSParserSimple {
         accessorKind = accessorWord.clone();
       }
     }
-    if  self.matchValue("*".to_string()) {
+    if  self.matchValue(&"*".to_string()) {
       self.advance();
       member.borrow_mut().generator = true;
     }
-    if  self.matchValue("#".to_string()) {
+    if  self.matchValue(&"#".to_string()) {
       self.advance();
       member.borrow_mut().value = "#".to_string();
     }
-    if  self.matchPunct("[".to_string()) {
+    if  self.matchPunct(&"[".to_string()) {
       self.advance();
       let mut keyExpr : Rc<RefCell<TSNode>> = self.parseExpr();
-      self.expectValue("]".to_string());
+      self.expectValue(&"]".to_string());
       member.borrow_mut().computed = true;
       member.borrow_mut().init = Some(keyExpr.clone());
     } else {
@@ -4311,7 +4340,7 @@ impl TSParserSimple {
       if  self.isMemberKeyToken() {
         self.advance();
       } else {
-        let _tmp_1 = self.expect("Identifier".to_string());
+        let _tmp_1 = self.expect(&"Identifier".to_string());
         nameTok = _tmp_1;
       }
       let _tmp_1 = nameTok.borrow().value.clone();
@@ -4321,16 +4350,16 @@ impl TSParserSimple {
       member.borrow_mut().kind = accessibility.clone();
     }
     member.borrow_mut().readonly = isReadonly;
-    if  self.matchValue("?".to_string()) {
+    if  self.matchValue(&"?".to_string()) {
       member.borrow_mut().optional = true;
       self.advance();
     }
-    if  self.matchPunct("!".to_string()) {
+    if  self.matchPunct(&"!".to_string()) {
       if  self.typeScriptMode {
         self.advance();
       }
     }
-    if  self.matchValue("(".to_string()) {
+    if  self.matchValue(&"(".to_string()) {
       member.borrow_mut().nodeType = "MethodDefinition".to_string();
       if  isStatic {
         member.borrow_mut().kind = "static".to_string();
@@ -4379,39 +4408,39 @@ impl TSParserSimple {
         self.allowSuperCall = false;
       }
       self.allowSuperProperty = true;
-      self.expectValue("(".to_string());
-      while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+      self.expectValue(&"(".to_string());
+      while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
         if  (member.borrow().params.len() as i64) > 0 {
-          self.expectValue(",".to_string());
+          self.expectValue(&",".to_string());
         }
         let mut param_1 : Rc<RefCell<TSNode>> = self.parseParam();
         if  (param_1.borrow().name.chars().count() as i64) > 0 {
           let __arg_0 = param_1.borrow().name.clone();
-          self.declareBinding("p".to_string(), __arg_0);
+          self.declareBinding(&"p".to_string(), &__arg_0);
         }
         member.borrow_mut().params.push(param_1.clone());
       };
-      self.expectValue(")".to_string());
+      self.expectValue(&")".to_string());
       if  accessorKind == "get" {
         if  (member.borrow().params.len() as i64) != 0 {
-          self.syntaxError("Parse error: a getter takes no parameters".to_string());
+          self.syntaxError(&"Parse error: a getter takes no parameters".to_string());
         }
       }
       if  accessorKind == "set" {
         if  (member.borrow().params.len() as i64) != 1 {
-          self.syntaxError("Parse error: a setter takes exactly one parameter".to_string());
+          self.syntaxError(&"Parse error: a setter takes exactly one parameter".to_string());
         } else {
           let mut setP : Rc<RefCell<TSNode>> = member.borrow().params[0].clone();
           if  setP.borrow().nodeType == "RestElement" {
-            self.syntaxError("Parse error: a setter parameter may not be a rest element".to_string());
+            self.syntaxError(&"Parse error: a setter parameter may not be a rest element".to_string());
           }
         }
       }
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         let mut returnType : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
         member.borrow_mut().typeAnnotation = Some(returnType.clone());
       }
-      if  self.matchValue("{".to_string()) {
+      if  self.matchValue(&"{".to_string()) {
         self.suppressBlockScope = true;
         let mut bodyNode_1 : Rc<RefCell<TSNode>> = self.parseBlock();
         member.borrow_mut().body = Some(bodyNode_1.clone());
@@ -4420,7 +4449,7 @@ impl TSParserSimple {
         if  self.lastBlockEnabledStrict {
           let __arg_0 = member.borrow().name.clone();
           let __arg_1 = member.borrow().params.clone();
-          self.recheckStrictSignature(__arg_0, &__arg_1);
+          self.recheckStrictSignature(&__arg_0, &__arg_1);
         }
       }
       self.popScope();
@@ -4437,20 +4466,20 @@ impl TSParserSimple {
       member.borrow_mut().nodeType = "PropertyDefinition".to_string();
       if  self.ecmaVersion < 2022 {
         if  !self.typeScriptMode {
-          self.syntaxError("Parse error: class fields need ES2022".to_string());
+          self.syntaxError(&"Parse error: class fields need ES2022".to_string());
         }
       }
       if  isStatic {
         member.borrow_mut().kind = "static".to_string();
       }
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         if  !self.typeScriptMode {
-          self.syntaxError("Parse error: a class field cannot carry a type annotation in JavaScript".to_string());
+          self.syntaxError(&"Parse error: a class field cannot carry a type annotation in JavaScript".to_string());
         }
         let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
         member.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
       }
-      if  self.matchValue("=".to_string()) {
+      if  self.matchValue(&"=".to_string()) {
         self.advance();
         let mut initExpr : Rc<RefCell<TSNode>> = self.parseExprSeq();
         member.borrow_mut().init = Some(initExpr.clone());
@@ -4478,23 +4507,23 @@ impl TSParserSimple {
         self.advance();
       }
     }
-    if  self.matchValue("...".to_string()) {
+    if  self.matchValue(&"...".to_string()) {
       self.advance();
       param.borrow_mut().nodeType = "RestElement".to_string();
       param.borrow_mut().kind = "rest".to_string();
       if  self.sawRestParam {
-        self.syntaxError("Parse error: a rest element must be the last parameter".to_string());
+        self.syntaxError(&"Parse error: a rest element must be the last parameter".to_string());
       }
       self.sawRestParam = true;
       self.restParamPending = true;
     }
-    if  self.matchValue("{".to_string()) || self.matchValue("[".to_string()) {
+    if  self.matchValue(&"{".to_string()) || self.matchValue(&"[".to_string()) {
       let mut ctorPattern : Rc<RefCell<TSNode>> = self.parseBindingTarget();
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         let mut ctorPatType : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
         ctorPattern.borrow_mut().typeAnnotation = Some(ctorPatType.clone());
       }
-      if  self.matchValue("=".to_string()) {
+      if  self.matchValue(&"=".to_string()) {
         self.advance();
         let mut ctorDefault : Rc<RefCell<TSNode>> = self.parseExpr();
         let mut ctorAssign : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -4510,19 +4539,19 @@ impl TSParserSimple {
     param.borrow_mut().name = _tmp_4;
     if  self.restParamPending {
       self.restParamPending = false;
-      if  self.matchValue("=".to_string()) {
-        self.syntaxError("Parse error: a rest parameter may not have a default".to_string());
+      if  self.matchValue(&"=".to_string()) {
+        self.syntaxError(&"Parse error: a rest parameter may not have a default".to_string());
       }
     }
-    if  self.matchValue("?".to_string()) {
+    if  self.matchValue(&"?".to_string()) {
       param.borrow_mut().optional = true;
       self.advance();
     }
-    if  self.matchValue(":".to_string()) {
+    if  self.matchValue(&":".to_string()) {
       let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       param.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
     }
-    if  self.matchValue("=".to_string()) {
+    if  self.matchValue(&"=".to_string()) {
       self.advance();
       let mut defaultVal : Rc<RefCell<TSNode>> = self.parseExpr();
       param.borrow_mut().init = Some(defaultVal.clone());
@@ -4539,19 +4568,19 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    if  self.matchValue("const".to_string()) {
+    if  self.matchValue(&"const".to_string()) {
       node.borrow_mut().kind = "const".to_string();
       self.advance();
     }
-    self.expectValue("enum".to_string());
-    let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    self.expectValue(&"enum".to_string());
+    let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let _tmp_4 = nameTok.borrow().value.clone();
     node.borrow_mut().name = _tmp_4;
-    self.expectValue("{".to_string());
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"{".to_string());
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
       let mut member : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       member.borrow_mut().nodeType = "TSEnumMember".to_string();
-      let mut memberTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+      let mut memberTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
       let _tmp_1 = memberTok.borrow().value.clone();
       member.borrow_mut().name = _tmp_1;
       let _tmp_2 = memberTok.borrow().start;
@@ -4560,17 +4589,17 @@ impl TSParserSimple {
       member.borrow_mut().line = _tmp_3;
       let _tmp_4 = memberTok.borrow().col;
       member.borrow_mut().col = _tmp_4;
-      if  self.matchValue("=".to_string()) {
+      if  self.matchValue(&"=".to_string()) {
         self.advance();
         let mut initVal : Rc<RefCell<TSNode>> = self.parseExpr();
         member.borrow_mut().init = Some(initVal.clone());
       }
       node.borrow_mut().children.push(member.clone());
-      if  self.matchValue(",".to_string()) {
+      if  self.matchValue(&",".to_string()) {
         self.advance();
       }
     };
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     node.clone()
   }
   fn parseNamespace(&mut self) -> Rc<RefCell<TSNode>> {
@@ -4583,26 +4612,26 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("namespace".to_string());
-    let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    self.expectValue(&"namespace".to_string());
+    let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let _tmp_4 = nameTok.borrow().value.clone();
     node.borrow_mut().name = _tmp_4;
-    self.expectValue("{".to_string());
+    self.expectValue(&"{".to_string());
     let mut body : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
     body.borrow_mut().nodeType = "TSModuleBlock".to_string();
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
       let beforePos : i64 = self.pos;
       let mut stmt : Rc<RefCell<TSNode>> = self.parseStatement();
       body.borrow_mut().children.push(stmt.clone());
       self.guardNoProgress(beforePos);
     };
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     node.borrow_mut().body = Some(body.clone());
     node.clone()
   }
   fn parseDeclare(&mut self) -> Rc<RefCell<TSNode>> {
     let mut startTok : Rc<RefCell<Token>> = self.peek();
-    self.expectValue("declare".to_string());
+    self.expectValue(&"declare".to_string());
     let nextVal : String = self.peekValue();
     if  nextVal == "module" {
       let mut node : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -4616,7 +4645,7 @@ impl TSParserSimple {
       node.borrow_mut().kind = "declare".to_string();
       self.advance();
       let mut nameTok : Rc<RefCell<Token>> = self.peek();
-      if  self.matchType("String".to_string()) {
+      if  self.matchType(&"String".to_string()) {
         self.advance();
         let _tmp_1 = nameTok.borrow().value.clone();
         node.borrow_mut().name = _tmp_1;
@@ -4625,16 +4654,16 @@ impl TSParserSimple {
         let _tmp_1 = nameTok.borrow().value.clone();
         node.borrow_mut().name = _tmp_1;
       }
-      self.expectValue("{".to_string());
+      self.expectValue(&"{".to_string());
       let mut body : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       body.borrow_mut().nodeType = "TSModuleBlock".to_string();
-      while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+      while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
         let beforePos : i64 = self.pos;
         let mut stmt : Rc<RefCell<TSNode>> = self.parseStatement();
         body.borrow_mut().children.push(stmt.clone());
         self.guardNoProgress(beforePos);
       };
-      self.expectValue("}".to_string());
+      self.expectValue(&"}".to_string());
       node.borrow_mut().body = Some(body.clone());
       return node.clone();
     }
@@ -4652,11 +4681,11 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("if".to_string());
-    self.expectValue("(".to_string());
+    self.expectValue(&"if".to_string());
+    self.expectValue(&"(".to_string());
     let mut test : Rc<RefCell<TSNode>> = self.parseExpr();
     node.borrow_mut().left = Some(test.clone());
-    self.expectValue(")".to_string());
+    self.expectValue(&")".to_string());
     let savedConsBody : bool = self.inSingleStatementBody;
     let savedConsIf : bool = self.singleBodyIsIfBranch;
     self.inSingleStatementBody = true;
@@ -4667,7 +4696,7 @@ impl TSParserSimple {
     self.inSingleStatementBody = savedConsBody;
     self.singleBodyIsIfBranch = savedConsIf;
     node.borrow_mut().body = Some(consequent.clone());
-    if  self.matchValue("else".to_string()) {
+    if  self.matchValue(&"else".to_string()) {
       self.advance();
       let savedAltBody : bool = self.inSingleStatementBody;
       let savedAltIf : bool = self.singleBodyIsIfBranch;
@@ -4691,11 +4720,11 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("while".to_string());
-    self.expectValue("(".to_string());
+    self.expectValue(&"while".to_string());
+    self.expectValue(&"(".to_string());
     let mut test : Rc<RefCell<TSNode>> = self.parseExpr();
     node.borrow_mut().left = Some(test.clone());
-    self.expectValue(")".to_string());
+    self.expectValue(&")".to_string());
     let savedBodyFlag0 : bool = self.inSingleStatementBody;
     self.inSingleStatementBody = true;
     self.atModuleTopLevel = false;
@@ -4716,7 +4745,7 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("do".to_string());
+    self.expectValue(&"do".to_string());
     let savedBodyFlag1 : bool = self.inSingleStatementBody;
     self.inSingleStatementBody = true;
     self.atModuleTopLevel = false;
@@ -4725,12 +4754,12 @@ impl TSParserSimple {
     self.iterationDepth -= 1;
     self.inSingleStatementBody = savedBodyFlag1;
     node.borrow_mut().body = Some(body.clone());
-    self.expectValue("while".to_string());
-    self.expectValue("(".to_string());
+    self.expectValue(&"while".to_string());
+    self.expectValue(&"(".to_string());
     let mut test : Rc<RefCell<TSNode>> = self.parseExpr();
     node.borrow_mut().left = Some(test.clone());
-    self.expectValue(")".to_string());
-    if  self.matchValue(";".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     }
     node.clone()
@@ -4745,17 +4774,17 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("throw".to_string());
+    self.expectValue(&"throw".to_string());
     let mut throwArgTok : Rc<RefCell<Token>> = self.peek();
     if  throwArgTok.borrow().line != self.lastTokenLine {
-      self.syntaxError("Parse error: no line terminator is allowed after 'throw'".to_string());
+      self.syntaxError(&"Parse error: no line terminator is allowed after 'throw'".to_string());
     }
     if  (self.isAtEnd() || (throwArgTok.borrow().value == ";")) || (throwArgTok.borrow().value == "}") {
-      self.syntaxError("Parse error: 'throw' requires an argument".to_string());
+      self.syntaxError(&"Parse error: 'throw' requires an argument".to_string());
     }
     let mut arg : Rc<RefCell<TSNode>> = self.parseExpr();
     node.borrow_mut().left = Some(arg.clone());
-    if  self.matchValue(";".to_string()) {
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     }
     node.clone()
@@ -4785,13 +4814,13 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("for".to_string());
+    self.expectValue(&"for".to_string());
     let mut isAwait : bool = false;
-    if  self.matchValue("await".to_string()) {
+    if  self.matchValue(&"await".to_string()) {
       self.advance();
       isAwait = true;
     }
-    self.expectValue("(".to_string());
+    self.expectValue(&"(".to_string());
     self.pushScope(false);
     let tokVal : String = self.peekValue();
     let mut headIsDecl : bool = true;
@@ -4831,19 +4860,19 @@ impl TSParserSimple {
           varNameStr = vt.borrow().value.clone();
           if  headDeclKind == "l" {
             if  vt.borrow().value == "let" {
-              self.syntaxError("Parse error: 'let' cannot be the name of a lexical binding".to_string());
+              self.syntaxError(&"Parse error: 'let' cannot be the name of a lexical binding".to_string());
             }
           }
           let __arg_0 = vt.borrow().value.clone();
-          self.declareBinding(headDeclKind.clone(), __arg_0);
+          self.declareBinding(&headDeclKind, &__arg_0);
         }
       }
       self.declaringKind = savedHeadDeclaring.clone();
       let nextVal : String = self.peekValue();
       if  nextVal == "of" {
         if  (varNameStr.chars().count() as i64) > 0 {
-          if  self.isParameterInScope(varNameStr.clone()) {
-            self.syntaxError(format!("Parse error: '{}' shadows a parameter in a for-of head", varNameStr));
+          if  self.isParameterInScope(&varNameStr) {
+            self.syntaxError(&format!("Parse error: '{}' shadows a parameter in a for-of head", varNameStr));
           }
         }
         node.borrow_mut().nodeType = "ForOfStatement".to_string();
@@ -4863,7 +4892,7 @@ impl TSParserSimple {
         node.borrow_mut().left = Some(left.clone());
         let mut right : Rc<RefCell<TSNode>> = self.parseExpr();
         node.borrow_mut().right = Some(right.clone());
-        self.expectValue(")".to_string());
+        self.expectValue(&")".to_string());
         let savedBodyFlag2 : bool = self.inSingleStatementBody;
         self.inSingleStatementBody = true;
         self.atModuleTopLevel = false;
@@ -4877,8 +4906,8 @@ impl TSParserSimple {
       }
       if  nextVal == "in" {
         if  (varNameStr.chars().count() as i64) > 0 {
-          if  self.isParameterInScope(varNameStr.clone()) {
-            self.syntaxError(format!("Parse error: '{}' shadows a parameter in a for-in head", varNameStr));
+          if  self.isParameterInScope(&varNameStr) {
+            self.syntaxError(&format!("Parse error: '{}' shadows a parameter in a for-in head", varNameStr));
           }
         }
         node.borrow_mut().nodeType = "ForInStatement".to_string();
@@ -4897,7 +4926,7 @@ impl TSParserSimple {
         node.borrow_mut().left = Some(left_1.clone());
         let mut right_1 : Rc<RefCell<TSNode>> = self.parseExpr();
         node.borrow_mut().right = Some(right_1.clone());
-        self.expectValue(")".to_string());
+        self.expectValue(&")".to_string());
         let savedBodyFlag3 : bool = self.inSingleStatementBody;
         self.inSingleStatementBody = true;
         self.atModuleTopLevel = false;
@@ -4920,21 +4949,21 @@ impl TSParserSimple {
       } else {
         declarator_2.borrow_mut().name = varNameStr.clone();
       }
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
         declarator_2.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
       }
-      if  self.matchValue("=".to_string()) {
+      if  self.matchValue(&"=".to_string()) {
         self.advance();
         let mut initVal : Rc<RefCell<TSNode>> = self.parseExpr();
         declarator_2.borrow_mut().init = Some(initVal.clone());
       } else {
         if  kind == "const" {
-          self.syntaxError("Parse error: a 'const' declaration must have an initializer".to_string());
+          self.syntaxError(&"Parse error: a 'const' declaration must have an initializer".to_string());
         }
       }
       initDecl.borrow_mut().children.push(declarator_2.clone());
-      while self.matchValue(",".to_string()) {
+      while self.matchValue(&",".to_string()) {
         self.advance();
         let mut more : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         more.borrow_mut().nodeType = "VariableDeclarator".to_string();
@@ -4948,17 +4977,17 @@ impl TSParserSimple {
         } else {
           more.borrow_mut().left = Some(moreTarget.clone());
         }
-        if  self.matchValue(":".to_string()) {
+        if  self.matchValue(&":".to_string()) {
           let mut moreType : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
           more.borrow_mut().typeAnnotation = Some(moreType.clone());
         }
-        if  self.matchValue("=".to_string()) {
+        if  self.matchValue(&"=".to_string()) {
           self.advance();
           let mut moreInit : Rc<RefCell<TSNode>> = self.parseExpr();
           more.borrow_mut().init = Some(moreInit.clone());
         } else {
           if  kind == "const" {
-            self.syntaxError("Parse error: a 'const' declaration must have an initializer".to_string());
+            self.syntaxError(&"Parse error: a 'const' declaration must have an initializer".to_string());
           }
         }
         initDecl.borrow_mut().children.push(more.clone());
@@ -4966,20 +4995,20 @@ impl TSParserSimple {
       node.borrow_mut().init = Some(initDecl.clone());
     } else {
       node.borrow_mut().nodeType = "ForStatement".to_string();
-      if  !(self.matchValue(";".to_string())) {
+      if  !(self.matchValue(&";".to_string())) {
         let mut initExpr : Rc<RefCell<TSNode>> = self.parseExpr();
-        if  self.matchValue("of".to_string()) {
+        if  self.matchValue(&"of".to_string()) {
           node.borrow_mut().nodeType = "ForOfStatement".to_string();
           node.borrow_mut().r#await = isAwait;
           if  tokVal == "let" {
-            self.syntaxError("Parse error: a for-of head may not start with 'let'".to_string());
+            self.syntaxError(&"Parse error: a for-of head may not start with 'let'".to_string());
           }
           self.checkAssignmentTarget(initExpr.clone());
           self.advance();
           node.borrow_mut().left = Some(initExpr.clone());
           let mut ofRight : Rc<RefCell<TSNode>> = self.parseExpr();
           node.borrow_mut().right = Some(ofRight.clone());
-          self.expectValue(")".to_string());
+          self.expectValue(&")".to_string());
           let savedBodyFlag4 : bool = self.inSingleStatementBody;
           self.inSingleStatementBody = true;
           self.atModuleTopLevel = false;
@@ -4993,16 +5022,16 @@ impl TSParserSimple {
         }
         if  initExpr.borrow().nodeType == "BinaryExpression" {
           if  initExpr.borrow().value == "in" {
-            if  self.matchValue(")".to_string()) {
+            if  self.matchValue(&")".to_string()) {
               node.borrow_mut().nodeType = "ForInStatement".to_string();
               if  initExpr.borrow().parenthesized {
-                self.syntaxError("Parse error: the 'in' operator is not allowed in a for-initialiser".to_string());
+                self.syntaxError(&"Parse error: the 'in' operator is not allowed in a for-initialiser".to_string());
               }
               let mut inLeft : Rc<RefCell<TSNode>> = initExpr.borrow().left.clone().unwrap();
               self.checkAssignmentTarget(inLeft.clone());
               node.borrow_mut().left = Some(inLeft.clone());
               node.borrow_mut().right = Some(initExpr.borrow().right.clone().unwrap().clone());
-              self.expectValue(")".to_string());
+              self.expectValue(&")".to_string());
               let savedBodyFlag5 : bool = self.inSingleStatementBody;
               self.inSingleStatementBody = true;
               self.atModuleTopLevel = false;
@@ -5017,9 +5046,9 @@ impl TSParserSimple {
           }
         }
         if  self.containsInOperator(initExpr.clone()) {
-          self.syntaxError("Parse error: the 'in' operator is not allowed in a for-initialiser".to_string());
+          self.syntaxError(&"Parse error: the 'in' operator is not allowed in a for-initialiser".to_string());
         }
-        if  self.matchValue(",".to_string()) {
+        if  self.matchValue(&",".to_string()) {
           let mut seq : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
           seq.borrow_mut().nodeType = "SequenceExpression".to_string();
           let _tmp_1 = initExpr.borrow().start;
@@ -5029,7 +5058,7 @@ impl TSParserSimple {
           let _tmp_3 = initExpr.borrow().col;
           seq.borrow_mut().col = _tmp_3;
           seq.borrow_mut().children.push(initExpr.clone());
-          while self.matchValue(",".to_string()) {
+          while self.matchValue(&",".to_string()) {
             self.advance();
             let mut more_1 : Rc<RefCell<TSNode>> = self.parseExpr();
             seq.borrow_mut().children.push(more_1.clone());
@@ -5040,17 +5069,17 @@ impl TSParserSimple {
         }
       }
     }
-    self.expectValue(";".to_string());
-    if  !(self.matchValue(";".to_string())) {
+    self.expectValue(&";".to_string());
+    if  !(self.matchValue(&";".to_string())) {
       let mut test : Rc<RefCell<TSNode>> = self.parseExprSeq();
       node.borrow_mut().left = Some(test.clone());
     }
-    self.expectValue(";".to_string());
-    if  !(self.matchValue(")".to_string())) {
+    self.expectValue(&";".to_string());
+    if  !(self.matchValue(&")".to_string())) {
       let mut update : Rc<RefCell<TSNode>> = self.parseExprSeq();
       node.borrow_mut().right = Some(update.clone());
     }
-    self.expectValue(")".to_string());
+    self.expectValue(&")".to_string());
     let savedBodyFlag6 : bool = self.inSingleStatementBody;
     self.inSingleStatementBody = true;
     self.atModuleTopLevel = false;
@@ -5072,36 +5101,36 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("switch".to_string());
-    self.expectValue("(".to_string());
+    self.expectValue(&"switch".to_string());
+    self.expectValue(&"(".to_string());
     let mut discriminant : Rc<RefCell<TSNode>> = self.parseExpr();
     node.borrow_mut().left = Some(discriminant.clone());
-    self.expectValue(")".to_string());
-    self.expectValue("{".to_string());
+    self.expectValue(&")".to_string());
+    self.expectValue(&"{".to_string());
     self.switchDepth += 1;
     let mut sawDefaultClause : bool = false;
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
       let mut caseNode : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
-      if  self.matchValue("default".to_string()) {
+      if  self.matchValue(&"default".to_string()) {
         if  sawDefaultClause {
-          self.syntaxError("Parse error: a switch may have only one default clause".to_string());
+          self.syntaxError(&"Parse error: a switch may have only one default clause".to_string());
         }
         sawDefaultClause = true;
       }
-      if  self.matchValue("case".to_string()) {
+      if  self.matchValue(&"case".to_string()) {
         caseNode.borrow_mut().nodeType = "SwitchCase".to_string();
         self.advance();
         let mut test : Rc<RefCell<TSNode>> = self.parseExpr();
         caseNode.borrow_mut().left = Some(test.clone());
-        self.expectValue(":".to_string());
+        self.expectValue(&":".to_string());
       }
-      if  self.matchValue("default".to_string()) {
+      if  self.matchValue(&"default".to_string()) {
         caseNode.borrow_mut().nodeType = "SwitchCase".to_string();
         caseNode.borrow_mut().kind = "default".to_string();
         self.advance();
-        self.expectValue(":".to_string());
+        self.expectValue(&":".to_string());
       }
-      while (((!(self.matchValue("case".to_string()))) && (!(self.matchValue("default".to_string())))) && (!(self.matchValue("}".to_string())))) && (!(self.isAtEnd())) {
+      while (((!(self.matchValue(&"case".to_string()))) && (!(self.matchValue(&"default".to_string())))) && (!(self.matchValue(&"}".to_string())))) && (!(self.isAtEnd())) {
         let beforePos : i64 = self.pos;
         let mut stmt : Rc<RefCell<TSNode>> = self.parseStatement();
         caseNode.borrow_mut().children.push(stmt.clone());
@@ -5110,7 +5139,7 @@ impl TSParserSimple {
       node.borrow_mut().children.push(caseNode.clone());
     };
     self.switchDepth -= 1;
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     node.clone()
   }
   fn parseTryStatement(&mut self) -> Rc<RefCell<TSNode>> {
@@ -5123,15 +5152,15 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("try".to_string());
+    self.expectValue(&"try".to_string());
     let mut tryBlock : Rc<RefCell<TSNode>> = self.parseBlock();
     node.borrow_mut().body = Some(tryBlock.clone());
-    if  self.matchValue("catch".to_string()) {
+    if  self.matchValue(&"catch".to_string()) {
       let mut catchNode : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       catchNode.borrow_mut().nodeType = "CatchClause".to_string();
       self.advance();
       self.pushScope(false);
-      if  self.matchValue("(".to_string()) {
+      if  self.matchValue(&"(".to_string()) {
         self.advance();
         let savedCatchDeclaring : String = self.declaringKind.clone();
         self.declaringKind = "p".to_string();
@@ -5140,11 +5169,11 @@ impl TSParserSimple {
         let _tmp_1 = param.borrow().name.clone();
         catchNode.borrow_mut().name = _tmp_1;
         catchNode.borrow_mut().left = Some(param.clone());
-        if  self.matchValue(":".to_string()) {
+        if  self.matchValue(&":".to_string()) {
           let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
           catchNode.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
         }
-        self.expectValue(")".to_string());
+        self.expectValue(&")".to_string());
       }
       self.suppressBlockScope = true;
       let mut catchBlock : Rc<RefCell<TSNode>> = self.parseBlock();
@@ -5156,14 +5185,14 @@ impl TSParserSimple {
     if  !(node.borrow().left.is_none()) {
       sawHandler = true;
     }
-    if  self.matchValue("finally".to_string()) {
+    if  self.matchValue(&"finally".to_string()) {
       self.advance();
       let mut finallyBlock : Rc<RefCell<TSNode>> = self.parseBlock();
       node.borrow_mut().right = Some(finallyBlock.clone());
       sawHandler = true;
     }
     if  !sawHandler {
-      self.syntaxError("Parse error: 'try' requires a catch or a finally clause".to_string());
+      self.syntaxError(&"Parse error: 'try' requires a catch or a finally clause".to_string());
     }
     node.clone()
   }
@@ -5226,16 +5255,16 @@ impl TSParserSimple {
           let _tmp_4 = nameTok.borrow().col;
           declarator.borrow_mut().col = _tmp_4;
           let __arg_0 = nameTok.borrow().value.clone();
-          self.declareBinding(declKind.clone(), __arg_0);
+          self.declareBinding(&declKind, &__arg_0);
         }
       }
       self.declaringKind = savedVarDeclaring.clone();
       self.patternAllowsMemberTarget = savedVarMemberTarget;
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
         declarator.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
       }
-      if  self.matchValue("=".to_string()) {
+      if  self.matchValue(&"=".to_string()) {
         self.advance();
         let mut initExpr : Rc<RefCell<TSNode>> = self.parseExpr();
         declarator.borrow_mut().init = Some(initExpr.clone());
@@ -5243,32 +5272,32 @@ impl TSParserSimple {
       if  declarator.borrow().init.is_none() {
         if declarator.borrow().left.is_some() {
           if  declarator.borrow().typeAnnotation.is_none() {
-            self.syntaxError("Parse error: a destructuring declaration must have an initializer".to_string());
+            self.syntaxError(&"Parse error: a destructuring declaration must have an initializer".to_string());
           }
         }
       }
       if  node.borrow().kind == "const" {
         if  declarator.borrow().init.is_none() {
           if  declarator.borrow().typeAnnotation.is_none() {
-            self.syntaxError("Parse error: a 'const' declaration must have an initializer".to_string());
+            self.syntaxError(&"Parse error: a 'const' declaration must have an initializer".to_string());
           }
         }
       }
       node.borrow_mut().children.push(declarator.clone());
-      if  self.matchValue(",".to_string()) {
+      if  self.matchValue(&",".to_string()) {
         self.advance();
       } else {
         moreDecls = false;
       }
     };
-    if  self.matchValue(";".to_string()) {
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     } else {
       if  !(self.isAtEnd()) {
         let mut afterDecl : Rc<RefCell<Token>> = self.peek();
         if  afterDecl.borrow().value != "}" {
           if  afterDecl.borrow().line == self.lastTokenLine {
-            self.syntaxError("Parse error: missing ';' after a declaration".to_string());
+            self.syntaxError(&"Parse error: missing ';' after a declaration".to_string());
           }
         }
       }
@@ -5276,22 +5305,22 @@ impl TSParserSimple {
     node.clone()
   }
   fn isAssignmentPatternFollow(&mut self) -> bool {
-    if  self.matchValue("=".to_string()) {
+    if  self.matchValue(&"=".to_string()) {
       return true;
     }
-    if  self.matchValue("in".to_string()) {
+    if  self.matchValue(&"in".to_string()) {
       return true;
     }
-    if  self.matchValue("of".to_string()) {
+    if  self.matchValue(&"of".to_string()) {
       return true;
     }
     false
   }
   fn parseBindingTarget(&mut self) -> Rc<RefCell<TSNode>> {
-    if  self.matchValue("{".to_string()) {
+    if  self.matchValue(&"{".to_string()) {
       return self.parseObjectPattern().clone();
     }
-    if  self.matchValue("[".to_string()) {
+    if  self.matchValue(&"[".to_string()) {
       return self.parseArrayPattern().clone();
     }
     if  self.patternAllowsMemberTarget {
@@ -5300,13 +5329,13 @@ impl TSParserSimple {
         if  lhs.borrow().nodeType == "Identifier" {
           if  (lhs.borrow().name == "eval") || (lhs.borrow().name == "arguments") {
             let __arg_0 = format!("Parse error: cannot assign to '{}' in strict mode", lhs.borrow().name).clone();
-            self.syntaxError(__arg_0);
+            self.syntaxError(&__arg_0);
           }
         }
       }
       let lt : String = lhs.borrow().nodeType.clone();
       if  (((((lt != "Identifier") && (lt != "MemberExpression")) && (lt != "ArrayPattern")) && (lt != "ObjectPattern")) && (lt != "ArrayExpression")) && (lt != "ObjectExpression") {
-        self.syntaxError(format!("Parse error: '{}' is not a valid destructuring target", lt));
+        self.syntaxError(&format!("Parse error: '{}' is not a valid destructuring target", lt));
       }
       return lhs.clone();
     }
@@ -5314,7 +5343,7 @@ impl TSParserSimple {
     let tt : String = self.peekType();
     if  (((tt == "Identifier") || (tt == "TSType")) || (tt == "Keyword")) || (tt == "TSKeyword") {
       let __arg_0 = tok.borrow().value.clone();
-      self.checkBindableName(__arg_0);
+      self.checkBindableName(&__arg_0);
       self.advance();
       let mut id : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       id.borrow_mut().nodeType = "Identifier".to_string();
@@ -5323,7 +5352,7 @@ impl TSParserSimple {
       if  (self.declaringKind.chars().count() as i64) > 0 {
         let __arg_0 = self.declaringKind.clone();
         let __arg_1 = tok.borrow().value.clone();
-        self.declareBinding(__arg_0, __arg_1);
+        self.declareBinding(&__arg_0, &__arg_1);
       }
       let _tmp_2 = tok.borrow().start;
       id.borrow_mut().start = _tmp_2;
@@ -5335,7 +5364,7 @@ impl TSParserSimple {
       id.borrow_mut().col = _tmp_5;
       return id.clone();
     }
-    let mut bad : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    let mut bad : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let mut errId : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
     errId.borrow_mut().nodeType = "Identifier".to_string();
     let _tmp_1 = bad.borrow().value.clone();
@@ -5344,7 +5373,7 @@ impl TSParserSimple {
   }
   fn parseBindingElement(&mut self) -> Rc<RefCell<TSNode>> {
     let mut target : Rc<RefCell<TSNode>> = self.parseBindingTarget();
-    if  self.matchValue("=".to_string()) {
+    if  self.matchValue(&"=".to_string()) {
       self.advance();
       let savedDeclaring : String = self.declaringKind.clone();
       let wasLexical : bool = savedDeclaring == "l";
@@ -5380,19 +5409,19 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("{".to_string());
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"{".to_string());
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
       if  (node.borrow().children.len() as i64) > 0 {
-        self.expectValue(",".to_string());
-        if  self.matchValue("}".to_string()) {
+        self.expectValue(&",".to_string());
+        if  self.matchValue(&"}".to_string()) {
           break;
         }
       }
-      if  self.matchPunct(",".to_string()) {
-        self.syntaxError("Parse error: an object pattern may not contain an elision".to_string());
+      if  self.matchPunct(&",".to_string()) {
+        self.syntaxError(&"Parse error: an object pattern may not contain an elision".to_string());
         self.advance();
       }
-      if  self.matchValue("...".to_string()) {
+      if  self.matchValue(&"...".to_string()) {
         self.advance();
         let mut restProp : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         restProp.borrow_mut().nodeType = "RestElement".to_string();
@@ -5404,16 +5433,16 @@ impl TSParserSimple {
       } else {
         let mut prop : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         prop.borrow_mut().nodeType = "Property".to_string();
-        if  self.matchPunct("[".to_string()) {
+        if  self.matchPunct(&"[".to_string()) {
           self.advance();
           let savedKeyDeclaring : String = self.declaringKind.clone();
           self.declaringKind = "".to_string();
           let mut keyExpr : Rc<RefCell<TSNode>> = self.parseExpr();
           self.declaringKind = savedKeyDeclaring.clone();
-          self.expectValue("]".to_string());
+          self.expectValue(&"]".to_string());
           prop.borrow_mut().computed = true;
           prop.borrow_mut().body = Some(keyExpr.clone());
-          self.expectValue(":".to_string());
+          self.expectValue(&":".to_string());
           prop.borrow_mut().right = Some(self.parseBindingElement().clone());
         } else {
           let mut keyTok : Rc<RefCell<Token>> = self.peek();
@@ -5427,33 +5456,33 @@ impl TSParserSimple {
             let _tmp_1 = idTok.borrow().value.clone();
             prop.borrow_mut().name = _tmp_1;
           }
-          if  self.matchValue(":".to_string()) {
+          if  self.matchValue(&":".to_string()) {
             self.advance();
             prop.borrow_mut().right = Some(self.parseBindingElement().clone());
           } else {
             prop.borrow_mut().shorthand = true;
             if  (keyType == "String") || (keyType == "Number") {
-              self.syntaxError("Parse error: a shorthand property name cannot be a literal".to_string());
+              self.syntaxError(&"Parse error: a shorthand property name cannot be a literal".to_string());
             }
-            if  TSParserSimple::isAlwaysReservedWord(prop.borrow().name.clone()) {
+            if  TSParserSimple::isAlwaysReservedWord(&prop.borrow().name) {
               let __arg_0 = format!("Parse error: '{}' cannot be a shorthand property name", prop.borrow().name).clone();
-              self.syntaxError(__arg_0);
+              self.syntaxError(&__arg_0);
             }
             if  (self.declaringKind.chars().count() as i64) > 0 {
               let __arg_0 = prop.borrow().name.clone();
-              self.checkBindableName(__arg_0);
+              self.checkBindableName(&__arg_0);
               let __arg_0 = self.declaringKind.clone();
               let __arg_1 = prop.borrow().name.clone();
-              self.declareBinding(__arg_0, __arg_1);
+              self.declareBinding(&__arg_0, &__arg_1);
             } else {
               if  self.strictMode {
                 if  (prop.borrow().name == "eval") || (prop.borrow().name == "arguments") {
                   let __arg_0 = format!("Parse error: cannot assign to '{}' in strict mode", prop.borrow().name).clone();
-                  self.syntaxError(__arg_0);
+                  self.syntaxError(&__arg_0);
                 }
               }
             }
-            if  self.matchValue("=".to_string()) {
+            if  self.matchValue(&"=".to_string()) {
               self.advance();
               let mut defaultExpr : Rc<RefCell<TSNode>> = self.parseExpr();
               prop.borrow_mut().init = Some(defaultExpr.clone());
@@ -5464,7 +5493,7 @@ impl TSParserSimple {
         node.borrow_mut().children.push(prop.clone());
       }
     };
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     node.clone()
   }
   fn parseArrayPattern(&mut self) -> Rc<RefCell<TSNode>> {
@@ -5477,20 +5506,20 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("[".to_string());
-    while (!(self.matchValue("]".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"[".to_string());
+    while (!(self.matchValue(&"]".to_string()))) && (!(self.isAtEnd())) {
       if  (node.borrow().children.len() as i64) > 0 {
-        self.expectValue(",".to_string());
-        if  self.matchValue("]".to_string()) {
+        self.expectValue(&",".to_string());
+        if  self.matchValue(&"]".to_string()) {
           break;
         }
       }
-      if  self.matchValue(",".to_string()) {
+      if  self.matchValue(&",".to_string()) {
         let mut hole : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         hole.borrow_mut().nodeType = "Elision".to_string();
         node.borrow_mut().children.push(hole.clone());
       } else {
-        if  self.matchValue("...".to_string()) {
+        if  self.matchValue(&"...".to_string()) {
           self.advance();
           let mut restElem : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
           restElem.borrow_mut().nodeType = "RestElement".to_string();
@@ -5498,11 +5527,11 @@ impl TSParserSimple {
           restElem.borrow_mut().left = Some(restTarget.clone());
           let _tmp_1 = restTarget.borrow().name.clone();
           restElem.borrow_mut().name = _tmp_1;
-          if  self.matchValue("=".to_string()) {
-            self.syntaxError("Parse error: a rest element may not have a default".to_string());
+          if  self.matchValue(&"=".to_string()) {
+            self.syntaxError(&"Parse error: a rest element may not have a default".to_string());
           }
-          if  self.matchValue(",".to_string()) {
-            self.syntaxError("Parse error: a rest element must be last in an array pattern".to_string());
+          if  self.matchValue(&",".to_string()) {
+            self.syntaxError(&"Parse error: a rest element must be last in an array pattern".to_string());
           }
           node.borrow_mut().children.push(restElem.clone());
         } else {
@@ -5510,7 +5539,7 @@ impl TSParserSimple {
         }
       }
     };
-    self.expectValue("]".to_string());
+    self.expectValue(&"]".to_string());
     node.clone()
   }
   fn parseFuncDecl(&mut self, isAsync : bool) -> Rc<RefCell<TSNode>> {
@@ -5526,8 +5555,8 @@ impl TSParserSimple {
     if  isAsync {
       node.borrow_mut().r#async = true;
     }
-    self.expectValue("function".to_string());
-    if  self.matchValue("*".to_string()) {
+    self.expectValue(&"function".to_string());
+    if  self.matchValue(&"*".to_string()) {
       self.advance();
       node.borrow_mut().generator = true;
     }
@@ -5537,7 +5566,7 @@ impl TSParserSimple {
     if  isFnExpression {
       self.inGenerator = node.borrow().generator;
     }
-    if  !(self.matchValue("(".to_string())) {
+    if  !(self.matchValue(&"(".to_string())) {
       let mut nameTok : Rc<RefCell<Token>> = self.expectBindingName();
       let _tmp_1 = nameTok.borrow().value.clone();
       node.borrow_mut().name = _tmp_1;
@@ -5561,30 +5590,30 @@ impl TSParserSimple {
     self.iterationLabels = freshfnIterLabels.clone();
     self.allowSuperCall = false;
     self.allowSuperProperty = false;
-    if  self.matchValue("<".to_string()) {
+    if  self.matchValue(&"<".to_string()) {
       let mut typeParams : Vec<Rc<RefCell<TSNode>>> = self.parseTypeParams();
       for i in 0..typeParams.len() {
         let mut tp = typeParams[i].clone();
         node.borrow_mut().children.push(tp.clone());
       };
     }
-    self.expectValue("(".to_string());
-    while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"(".to_string());
+    while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
       if  (node.borrow().params.len() as i64) > 0 {
-        self.expectValue(",".to_string());
+        self.expectValue(&",".to_string());
       }
       let mut param : Rc<RefCell<TSNode>> = self.parseParam();
       self.declareParam(param.clone());
       node.borrow_mut().params.push(param.clone());
     };
-    self.expectValue(")".to_string());
-    if  self.matchValue(":".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&":".to_string()) {
       let mut returnType : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       node.borrow_mut().typeAnnotation = Some(returnType.clone());
     }
     let __arg_0 = node.borrow().params.clone();
     self.checkNonSimpleParamDuplicates(&__arg_0);
-    if  self.matchValue("{".to_string()) {
+    if  self.matchValue(&"{".to_string()) {
       self.suppressBlockScope = true;
       let mut body : Rc<RefCell<TSNode>> = self.parseBlock();
       node.borrow_mut().body = Some(body.clone());
@@ -5593,17 +5622,17 @@ impl TSParserSimple {
       if  self.lastBlockEnabledStrict {
         let __arg_0 = node.borrow().name.clone();
         let __arg_1 = node.borrow().params.clone();
-        self.recheckStrictSignature(__arg_0, &__arg_1);
+        self.recheckStrictSignature(&__arg_0, &__arg_1);
       }
     } else {
       node.borrow_mut().kind = "overload".to_string();
-      if  self.matchValue(";".to_string()) {
+      if  self.matchValue(&";".to_string()) {
         self.advance();
       } else {
         let mut afterSig : Rc<RefCell<Token>> = self.peek();
         if  !(self.isAtEnd()) {
           if  afterSig.borrow().line == self.lastTokenLine {
-            self.syntaxError("Parse error: a function declaration needs a body".to_string());
+            self.syntaxError(&"Parse error: a function declaration needs a body".to_string());
           }
         }
       }
@@ -5611,7 +5640,7 @@ impl TSParserSimple {
     self.popScope();
     if  node.borrow().kind != "overload" {
       let __arg_0 = node.borrow().name.clone();
-      self.declareBinding("f".to_string(), __arg_0);
+      self.declareBinding(&"f".to_string(), &__arg_0);
     }
     self.allowSuperCall = savedSuperCall;
     self.allowSuperProperty = savedSuperProp;
@@ -5633,23 +5662,23 @@ impl TSParserSimple {
   }
   fn parseParamInner(&mut self) -> Rc<RefCell<TSNode>> {
     let mut decorators : Vec<Rc<RefCell<TSNode>>> = Vec::new();
-    while self.matchValue("@".to_string()) {
+    while self.matchValue(&"@".to_string()) {
       let mut dec : Rc<RefCell<TSNode>> = self.parseDecorator();
       decorators.push(dec.clone());
     };
     let mut isRest : bool = false;
-    if  self.matchValue("...".to_string()) {
+    if  self.matchValue(&"...".to_string()) {
       self.advance();
       isRest = true;
     }
     if  self.sawRestParam {
-      self.syntaxError("Parse error: a rest element must be the last parameter".to_string());
+      self.syntaxError(&"Parse error: a rest element must be the last parameter".to_string());
     }
     if  isRest {
       self.sawRestParam = true;
       self.restParamPending = true;
     }
-    if  self.matchValue("{".to_string()) {
+    if  self.matchValue(&"{".to_string()) {
       let savedParamDeclaring : String = self.declaringKind.clone();
       self.declaringKind = "p".to_string();
       let mut pattern : Rc<RefCell<TSNode>> = self.parseObjectPattern();
@@ -5664,11 +5693,11 @@ impl TSParserSimple {
         restElem.borrow_mut().left = Some(pattern.clone());
         return restElem.clone();
       }
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         let mut patType : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
         pattern.borrow_mut().typeAnnotation = Some(patType.clone());
       }
-      if  self.matchValue("=".to_string()) {
+      if  self.matchValue(&"=".to_string()) {
         self.advance();
         let mut patDefault : Rc<RefCell<TSNode>> = self.parseExpr();
         let mut patAssign : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -5679,7 +5708,7 @@ impl TSParserSimple {
       }
       return pattern.clone();
     }
-    if  self.matchValue("[".to_string()) {
+    if  self.matchValue(&"[".to_string()) {
       let savedParamDeclaring_1 : String = self.declaringKind.clone();
       self.declaringKind = "p".to_string();
       let mut pattern_1 : Rc<RefCell<TSNode>> = self.parseArrayPattern();
@@ -5694,11 +5723,11 @@ impl TSParserSimple {
         restElem_1.borrow_mut().left = Some(pattern_1.clone());
         return restElem_1.clone();
       }
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         let mut patType_1 : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
         pattern_1.borrow_mut().typeAnnotation = Some(patType_1.clone());
       }
-      if  self.matchValue("=".to_string()) {
+      if  self.matchValue(&"=".to_string()) {
         self.advance();
         let mut patDefault_1 : Rc<RefCell<TSNode>> = self.parseExpr();
         let mut patAssign_1 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -5729,17 +5758,17 @@ impl TSParserSimple {
     param.borrow_mut().line = _tmp_3;
     let _tmp_4 = nameTok.borrow().col;
     param.borrow_mut().col = _tmp_4;
-    if  self.matchValue("?".to_string()) {
+    if  self.matchValue(&"?".to_string()) {
       param.borrow_mut().optional = true;
       self.advance();
     }
-    if  self.matchValue(":".to_string()) {
+    if  self.matchValue(&":".to_string()) {
       let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       param.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
     }
-    if  self.matchValue("=".to_string()) {
+    if  self.matchValue(&"=".to_string()) {
       if  isRest {
-        self.syntaxError("Parse error: a rest parameter may not have a default".to_string());
+        self.syntaxError(&"Parse error: a rest parameter may not have a default".to_string());
       }
       self.advance();
       let savedInParams : bool = self.inParamList;
@@ -5759,7 +5788,7 @@ impl TSParserSimple {
     block.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     block.borrow_mut().col = _tmp_3;
-    self.expectValue("{".to_string());
+    self.expectValue(&"{".to_string());
     let savedSingleBody : bool = self.inSingleStatementBody;
     self.inSingleStatementBody = false;
     let mut ownScope : bool = true;
@@ -5781,7 +5810,7 @@ impl TSParserSimple {
         self.strictMode = true;
       }
     }
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
       let beforePos : i64 = self.pos;
       self.atModuleTopLevel = false;
       let mut stmt : Rc<RefCell<TSNode>> = self.parseStatement();
@@ -5797,7 +5826,7 @@ impl TSParserSimple {
     let mut closeTok : Rc<RefCell<Token>> = self.peek();
     let _tmp_4 = closeTok.borrow().end;
     block.borrow_mut().end = _tmp_4;
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     block.clone()
   }
   fn parseExprStmt(&mut self) -> Rc<RefCell<TSNode>> {
@@ -5812,14 +5841,14 @@ impl TSParserSimple {
     stmt.borrow_mut().col = _tmp_3;
     let mut expr : Rc<RefCell<TSNode>> = self.parseExprSeq();
     stmt.borrow_mut().left = Some(expr.clone());
-    if  self.matchValue(";".to_string()) {
+    if  self.matchValue(&";".to_string()) {
       self.advance();
     } else {
       if  !(self.isAtEnd()) {
         let mut nextTok : Rc<RefCell<Token>> = self.peek();
         if  nextTok.borrow().value != "}" {
           if  nextTok.borrow().line == self.lastTokenLine {
-            self.syntaxError("Parse error: missing ';' between statements".to_string());
+            self.syntaxError(&"Parse error: missing ';' between statements".to_string());
           }
         }
       }
@@ -5836,7 +5865,7 @@ impl TSParserSimple {
     annot.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     annot.borrow_mut().col = _tmp_3;
-    self.expectValue(":".to_string());
+    self.expectValue(&":".to_string());
     let nextVal : String = self.peekValue();
     if  nextVal == "asserts" {
       let mut assertsTok : Rc<RefCell<Token>> = self.peek();
@@ -5850,10 +5879,10 @@ impl TSParserSimple {
       let _tmp_3 = assertsTok.borrow().col;
       predicate.borrow_mut().col = _tmp_3;
       predicate.borrow_mut().value = "asserts".to_string();
-      let mut paramTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+      let mut paramTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
       let _tmp_4 = paramTok.borrow().value.clone();
       predicate.borrow_mut().name = _tmp_4;
-      if  self.matchValue("is".to_string()) {
+      if  self.matchValue(&"is".to_string()) {
         self.advance();
         let mut assertType : Rc<RefCell<TSNode>> = self.parseType();
         predicate.borrow_mut().typeAnnotation = Some(assertType.clone());
@@ -5861,12 +5890,12 @@ impl TSParserSimple {
       annot.borrow_mut().typeAnnotation = Some(predicate.clone());
       return annot.clone();
     }
-    if  self.matchType("Identifier".to_string()) {
+    if  self.matchType(&"Identifier".to_string()) {
       let savedPos : i64 = self.pos;
       let mut savedTok : Rc<RefCell<Token>> = self.currentToken.clone().unwrap();
       let mut paramTok_1 : Rc<RefCell<Token>> = self.peek();
       self.advance();
-      if  self.matchValue("is".to_string()) {
+      if  self.matchValue(&"is".to_string()) {
         self.advance();
         let mut predicate_1 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         predicate_1.borrow_mut().nodeType = "TSTypePredicate".to_string();
@@ -5895,10 +5924,10 @@ impl TSParserSimple {
   }
   fn parseConditionalType(&mut self) -> Rc<RefCell<TSNode>> {
     let mut checkType : Rc<RefCell<TSNode>> = self.parseUnionType();
-    if  self.matchValue("extends".to_string()) {
+    if  self.matchValue(&"extends".to_string()) {
       self.advance();
       let mut extendsType : Rc<RefCell<TSNode>> = self.parseUnionType();
-      if  self.matchValue("?".to_string()) {
+      if  self.matchValue(&"?".to_string()) {
         self.advance();
         let mut conditional : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         conditional.borrow_mut().nodeType = "TSConditionalType".to_string();
@@ -5911,7 +5940,7 @@ impl TSParserSimple {
         conditional.borrow_mut().left = Some(checkType.clone());
         conditional.borrow_mut().params.push(extendsType.clone());
         conditional.borrow_mut().body = Some(self.parseUnionType().clone());
-        self.expectValue(":".to_string());
+        self.expectValue(&":".to_string());
         conditional.borrow_mut().right = Some(self.parseUnionType().clone());
         return conditional.clone();
       }
@@ -5921,7 +5950,7 @@ impl TSParserSimple {
   }
   fn parseUnionType(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseIntersectionType();
-    if  self.matchValue("|".to_string()) {
+    if  self.matchValue(&"|".to_string()) {
       let mut r#union : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       r#union.borrow_mut().nodeType = "TSUnionType".to_string();
       let _tmp_1 = left.borrow().start;
@@ -5931,7 +5960,7 @@ impl TSParserSimple {
       let _tmp_3 = left.borrow().col;
       r#union.borrow_mut().col = _tmp_3;
       r#union.borrow_mut().children.push(left.clone());
-      while self.matchValue("|".to_string()) {
+      while self.matchValue(&"|".to_string()) {
         self.advance();
         let mut right : Rc<RefCell<TSNode>> = self.parseIntersectionType();
         r#union.borrow_mut().children.push(right.clone());
@@ -5942,7 +5971,7 @@ impl TSParserSimple {
   }
   fn parseIntersectionType(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseArrayType();
-    if  self.matchValue("&".to_string()) {
+    if  self.matchValue(&"&".to_string()) {
       let mut intersection : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       intersection.borrow_mut().nodeType = "TSIntersectionType".to_string();
       let _tmp_1 = left.borrow().start;
@@ -5952,7 +5981,7 @@ impl TSParserSimple {
       let _tmp_3 = left.borrow().col;
       intersection.borrow_mut().col = _tmp_3;
       intersection.borrow_mut().children.push(left.clone());
-      while self.matchValue("&".to_string()) {
+      while self.matchValue(&"&".to_string()) {
         self.advance();
         let mut right : Rc<RefCell<TSNode>> = self.parseArrayType();
         intersection.borrow_mut().children.push(right.clone());
@@ -5963,8 +5992,8 @@ impl TSParserSimple {
   }
   fn parseArrayType(&mut self) -> Rc<RefCell<TSNode>> {
     let mut elemType : Rc<RefCell<TSNode>> = self.parsePrimaryType();
-    while self.matchValue("[".to_string()) {
-      if  self.checkNext("]".to_string()) {
+    while self.matchValue(&"[".to_string()) {
+      if  self.checkNext(&"]".to_string()) {
         self.advance();
         self.advance();
         let mut arrayType : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -5980,7 +6009,7 @@ impl TSParserSimple {
       } else {
         self.advance();
         let mut indexType : Rc<RefCell<TSNode>> = self.parseType();
-        self.expectValue("]".to_string());
+        self.expectValue(&"]".to_string());
         let mut indexedAccess : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         indexedAccess.borrow_mut().nodeType = "TSIndexedAccessType".to_string();
         let _tmp_1 = elemType.borrow().start;
@@ -5996,12 +6025,12 @@ impl TSParserSimple {
     };
     elemType.clone()
   }
-  fn checkNext(&mut self, value : String) -> bool {
+  fn checkNext(&mut self, value : &String) -> bool {
     let nextPos : i64 = self.pos + 1;
     if  nextPos < (self.tokens.len() as i64) {
       let mut nextTok : Rc<RefCell<Token>> = self.tokens[(nextPos) as usize].clone();
       let v : String = nextTok.borrow().value.clone();
-      return v == value;
+      return v == *value;
     }
     false
   }
@@ -6040,7 +6069,7 @@ impl TSParserSimple {
     }
     if  tokVal == "infer" {
       self.advance();
-      let mut paramTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+      let mut paramTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
       let mut node_2 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       node_2.borrow_mut().nodeType = "TSInferType".to_string();
       let _tmp_1 = tok.borrow().start;
@@ -6281,7 +6310,7 @@ impl TSParserSimple {
     if  tokVal == "{" {
       return self.parseTypeLiteral().clone();
     }
-    self.syntaxError(format!("Unknown type: {}", tokVal));
+    self.syntaxError(&format!("Unknown type: {}", tokVal));
     self.advance();
     let mut errNode : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
     errNode.borrow_mut().nodeType = "TSAnyKeyword".to_string();
@@ -6297,19 +6326,19 @@ impl TSParserSimple {
     r#ref.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     r#ref.borrow_mut().col = _tmp_3;
-    let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let _tmp_4 = nameTok.borrow().value.clone();
     r#ref.borrow_mut().name = _tmp_4;
-    if  self.matchValue("<".to_string()) {
+    if  self.matchValue(&"<".to_string()) {
       self.advance();
-      while (!(self.matchValue(">".to_string()))) && (!(self.isAtEnd())) {
+      while (!(self.matchValue(&">".to_string()))) && (!(self.isAtEnd())) {
         if  (r#ref.borrow().params.len() as i64) > 0 {
-          self.expectValue(",".to_string());
+          self.expectValue(&",".to_string());
         }
         let mut typeArg : Rc<RefCell<TSNode>> = self.parseType();
         r#ref.borrow_mut().params.push(typeArg.clone());
       };
-      self.expectValue(">".to_string());
+      self.expectValue(&">".to_string());
     }
     r#ref.clone()
   }
@@ -6323,21 +6352,21 @@ impl TSParserSimple {
     tuple.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     tuple.borrow_mut().col = _tmp_3;
-    self.expectValue("[".to_string());
-    while (!(self.matchValue("]".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"[".to_string());
+    while (!(self.matchValue(&"]".to_string()))) && (!(self.isAtEnd())) {
       if  (tuple.borrow().children.len() as i64) > 0 {
-        self.expectValue(",".to_string());
+        self.expectValue(&",".to_string());
       }
-      if  self.matchValue("...".to_string()) {
+      if  self.matchValue(&"...".to_string()) {
         let mut restTok : Rc<RefCell<Token>> = self.peek();
         self.advance();
         let mut restName : String = "".to_string();
-        if  self.matchType("Identifier".to_string()) {
+        if  self.matchType(&"Identifier".to_string()) {
           let savedPos : i64 = self.pos;
           let mut savedTok : Rc<RefCell<Token>> = self.currentToken.clone().unwrap();
           let mut nameTok : Rc<RefCell<Token>> = self.peek();
           self.advance();
-          if  self.matchValue(":".to_string()) {
+          if  self.matchValue(&":".to_string()) {
             restName = nameTok.borrow().value.clone();
             self.advance();
           } else {
@@ -6364,16 +6393,16 @@ impl TSParserSimple {
         let mut elemName : String = "".to_string();
         let mut elemOptional : bool = false;
         let mut elemStart : Rc<RefCell<Token>> = self.peek();
-        if  self.matchType("Identifier".to_string()) {
+        if  self.matchType(&"Identifier".to_string()) {
           let savedPos_1 : i64 = self.pos;
           let mut savedTok_1 : Rc<RefCell<Token>> = self.currentToken.clone().unwrap();
           let mut nameTok_1 : Rc<RefCell<Token>> = self.peek();
           self.advance();
-          if  self.matchValue("?".to_string()) {
+          if  self.matchValue(&"?".to_string()) {
             self.advance();
             elemOptional = true;
           }
-          if  self.matchValue(":".to_string()) {
+          if  self.matchValue(&":".to_string()) {
             isNamed = true;
             elemName = nameTok_1.borrow().value.clone();
             self.advance();
@@ -6398,7 +6427,7 @@ impl TSParserSimple {
           namedElem.borrow_mut().typeAnnotation = Some(elemType.clone());
           tuple.borrow_mut().children.push(namedElem.clone());
         } else {
-          if  self.matchValue("?".to_string()) {
+          if  self.matchValue(&"?".to_string()) {
             self.advance();
             let mut optType : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
             optType.borrow_mut().nodeType = "TSOptionalType".to_string();
@@ -6416,7 +6445,7 @@ impl TSParserSimple {
         }
       }
     };
-    self.expectValue("]".to_string());
+    self.expectValue(&"]".to_string());
     tuple.clone()
   }
   fn parseParenOrFunctionType(&mut self) -> Rc<RefCell<TSNode>> {
@@ -6424,10 +6453,10 @@ impl TSParserSimple {
     let startPos : i64 = startTok.borrow().start;
     let startLine : i64 = startTok.borrow().line;
     let startCol : i64 = startTok.borrow().col;
-    self.expectValue("(".to_string());
-    if  self.matchValue(")".to_string()) {
+    self.expectValue(&"(".to_string());
+    if  self.matchValue(&")".to_string()) {
       self.advance();
-      if  self.matchValue("=>".to_string()) {
+      if  self.matchValue(&"=>".to_string()) {
         self.advance();
         let mut returnType : Rc<RefCell<TSNode>> = self.parseType();
         let mut funcType : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -6442,34 +6471,34 @@ impl TSParserSimple {
       voidNode.borrow_mut().nodeType = "TSVoidKeyword".to_string();
       return voidNode.clone();
     }
-    let isIdentifier : bool = self.matchType("Identifier".to_string());
+    let isIdentifier : bool = self.matchType(&"Identifier".to_string());
     if  isIdentifier {
       let savedPos : i64 = self.pos;
       let mut savedToken : Rc<RefCell<Token>> = self.currentToken.clone().unwrap();
       self.advance();
-      if  self.matchValue(":".to_string()) || self.matchValue("?".to_string()) {
+      if  self.matchValue(&":".to_string()) || self.matchValue(&"?".to_string()) {
         self.pos = savedPos;
         self.currentToken = Some(savedToken.clone());
         return self.parseFunctionType(startPos, startLine, startCol).clone();
       }
-      if  self.matchValue(",".to_string()) {
+      if  self.matchValue(&",".to_string()) {
         // unused:  let savedPos2 : i64 = self.pos;
         // unused:  let mut savedToken2 : Rc<RefCell<Token>> = self.currentToken.clone().unwrap();
         let mut depth : i64 = 1;
         while (depth > 0) && (!(self.isAtEnd())) {
-          if  self.matchValue("(".to_string()) {
+          if  self.matchValue(&"(".to_string()) {
             depth += 1;
           }
-          if  self.matchValue(")".to_string()) {
+          if  self.matchValue(&")".to_string()) {
             depth -= 1;
           }
           if  depth > 0 {
             self.advance();
           }
         };
-        if  self.matchValue(")".to_string()) {
+        if  self.matchValue(&")".to_string()) {
           self.advance();
-          if  self.matchValue("=>".to_string()) {
+          if  self.matchValue(&"=>".to_string()) {
             self.pos = savedPos;
             self.currentToken = Some(savedToken.clone());
             return self.parseFunctionType(startPos, startLine, startCol).clone();
@@ -6482,8 +6511,8 @@ impl TSParserSimple {
       self.currentToken = Some(savedToken.clone());
     }
     let mut innerType : Rc<RefCell<TSNode>> = self.parseType();
-    self.expectValue(")".to_string());
-    if  self.matchValue("=>".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&"=>".to_string()) {
       self.advance();
       let mut returnType_1 : Rc<RefCell<TSNode>> = self.parseType();
       let mut funcType_1 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -6502,13 +6531,13 @@ impl TSParserSimple {
     funcType.borrow_mut().start = startPos;
     funcType.borrow_mut().line = startLine;
     funcType.borrow_mut().col = startCol;
-    while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+    while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
       if  (funcType.borrow().params.len() as i64) > 0 {
-        self.expectValue(",".to_string());
+        self.expectValue(&",".to_string());
       }
       let mut param : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       param.borrow_mut().nodeType = "Parameter".to_string();
-      let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+      let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
       let _tmp_1 = nameTok.borrow().value.clone();
       param.borrow_mut().name = _tmp_1;
       let _tmp_2 = nameTok.borrow().start;
@@ -6517,18 +6546,18 @@ impl TSParserSimple {
       param.borrow_mut().line = _tmp_3;
       let _tmp_4 = nameTok.borrow().col;
       param.borrow_mut().col = _tmp_4;
-      if  self.matchValue("?".to_string()) {
+      if  self.matchValue(&"?".to_string()) {
         param.borrow_mut().optional = true;
         self.advance();
       }
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
         param.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
       }
       funcType.borrow_mut().params.push(param.clone());
     };
-    self.expectValue(")".to_string());
-    if  self.matchValue("=>".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&"=>".to_string()) {
       self.advance();
       let mut returnType : Rc<RefCell<TSNode>> = self.parseType();
       funcType.borrow_mut().typeAnnotation = Some(returnType.clone());
@@ -6545,21 +6574,21 @@ impl TSParserSimple {
     ctorType.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     ctorType.borrow_mut().col = _tmp_3;
-    self.expectValue("new".to_string());
-    if  self.matchValue("<".to_string()) {
+    self.expectValue(&"new".to_string());
+    if  self.matchValue(&"<".to_string()) {
       let mut typeParams : Vec<Rc<RefCell<TSNode>>> = self.parseTypeParams();
       ctorType.borrow_mut().children = typeParams.clone();
     }
-    self.expectValue("(".to_string());
-    while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"(".to_string());
+    while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
       if  (ctorType.borrow().params.len() as i64) > 0 {
-        self.expectValue(",".to_string());
+        self.expectValue(&",".to_string());
       }
       let mut param : Rc<RefCell<TSNode>> = self.parseParam();
       ctorType.borrow_mut().params.push(param.clone());
     };
-    self.expectValue(")".to_string());
-    if  self.matchValue("=>".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&"=>".to_string()) {
       self.advance();
       let mut returnType : Rc<RefCell<TSNode>> = self.parseType();
       ctorType.borrow_mut().typeAnnotation = Some(returnType.clone());
@@ -6576,27 +6605,27 @@ impl TSParserSimple {
     importType.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     importType.borrow_mut().col = _tmp_3;
-    self.expectValue("import".to_string());
-    self.expectValue("(".to_string());
-    let mut sourceTok : Rc<RefCell<Token>> = self.expect("String".to_string());
+    self.expectValue(&"import".to_string());
+    self.expectValue(&"(".to_string());
+    let mut sourceTok : Rc<RefCell<Token>> = self.expect(&"String".to_string());
     let _tmp_4 = sourceTok.borrow().value.clone();
     importType.borrow_mut().value = _tmp_4;
-    self.expectValue(")".to_string());
-    if  self.matchValue(".".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&".".to_string()) {
       self.advance();
-      let mut memberTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+      let mut memberTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
       let _tmp_1 = memberTok.borrow().value.clone();
       importType.borrow_mut().name = _tmp_1;
-      if  self.matchValue("<".to_string()) {
+      if  self.matchValue(&"<".to_string()) {
         self.advance();
-        while (!(self.matchValue(">".to_string()))) && (!(self.isAtEnd())) {
+        while (!(self.matchValue(&">".to_string()))) && (!(self.isAtEnd())) {
           if  (importType.borrow().params.len() as i64) > 0 {
-            self.expectValue(",".to_string());
+            self.expectValue(&",".to_string());
           }
           let mut typeArg : Rc<RefCell<TSNode>> = self.parseType();
           importType.borrow_mut().params.push(typeArg.clone());
         };
-        self.expectValue(">".to_string());
+        self.expectValue(&">".to_string());
       }
     }
     importType.clone()
@@ -6611,15 +6640,15 @@ impl TSParserSimple {
     literal.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     literal.borrow_mut().col = _tmp_3;
-    self.expectValue("{".to_string());
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"{".to_string());
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
       let mut member : Rc<RefCell<TSNode>> = self.parseTypeLiteralMember();
       literal.borrow_mut().children.push(member.clone());
-      if  self.matchValue(";".to_string()) || self.matchValue(",".to_string()) {
+      if  self.matchValue(&";".to_string()) || self.matchValue(&",".to_string()) {
         self.advance();
       }
     };
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     literal.clone()
   }
   fn parseTypeLiteralMember(&mut self) -> Rc<RefCell<TSNode>> {
@@ -6628,35 +6657,35 @@ impl TSParserSimple {
     let startLine : i64 = startTok.borrow().line;
     let startCol : i64 = startTok.borrow().col;
     let mut isReadonly : bool = false;
-    if  self.matchValue("readonly".to_string()) {
+    if  self.matchValue(&"readonly".to_string()) {
       isReadonly = true;
       self.advance();
     }
     let mut readonlyModifier : String = "".to_string();
-    if  self.matchValue("+".to_string()) || self.matchValue("-".to_string()) {
+    if  self.matchValue(&"+".to_string()) || self.matchValue(&"-".to_string()) {
       readonlyModifier = self.peekValue();
       self.advance();
-      if  self.matchValue("readonly".to_string()) {
+      if  self.matchValue(&"readonly".to_string()) {
         isReadonly = true;
         self.advance();
       }
     }
-    if  self.matchValue("[".to_string()) {
+    if  self.matchValue(&"[".to_string()) {
       self.advance();
-      let mut paramName : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
-      if  self.matchValue("in".to_string()) {
+      let mut paramName : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
+      if  self.matchValue(&"in".to_string()) {
         return self.parseMappedType(isReadonly, readonlyModifier.clone(), paramName.borrow().value.clone(), startPos, startLine, startCol).clone();
       }
       return self.parseIndexSignatureRest(isReadonly, paramName.clone(), startPos, startLine, startCol).clone();
     }
-    let mut nameTok : Rc<RefCell<Token>> = self.expect("Identifier".to_string());
+    let mut nameTok : Rc<RefCell<Token>> = self.expect(&"Identifier".to_string());
     let memberName : String = nameTok.borrow().value.clone();
     let mut isOptional : bool = false;
-    if  self.matchValue("?".to_string()) {
+    if  self.matchValue(&"?".to_string()) {
       isOptional = true;
       self.advance();
     }
-    if  self.matchValue("(".to_string()) {
+    if  self.matchValue(&"(".to_string()) {
       return self.parseMethodSignature(memberName.clone(), isOptional, startPos, startLine, startCol).clone();
     }
     let mut prop : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -6667,7 +6696,7 @@ impl TSParserSimple {
     prop.borrow_mut().name = memberName.clone();
     prop.borrow_mut().readonly = isReadonly;
     prop.borrow_mut().optional = isOptional;
-    if  self.matchValue(":".to_string()) {
+    if  self.matchValue(&":".to_string()) {
       let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       prop.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
     }
@@ -6683,32 +6712,32 @@ impl TSParserSimple {
     if  !readonlyMod.is_empty() {
       mapped.borrow_mut().kind = readonlyMod.clone();
     }
-    self.expectValue("in".to_string());
+    self.expectValue(&"in".to_string());
     let mut typeParam : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
     typeParam.borrow_mut().nodeType = "TSTypeParameter".to_string();
     typeParam.borrow_mut().name = paramName.clone();
     let mut constraint : Rc<RefCell<TSNode>> = self.parseType();
     typeParam.borrow_mut().typeAnnotation = Some(constraint.clone());
     mapped.borrow_mut().params.push(typeParam.clone());
-    if  self.matchValue("as".to_string()) {
+    if  self.matchValue(&"as".to_string()) {
       self.advance();
       let mut nameType : Rc<RefCell<TSNode>> = self.parseType();
       mapped.borrow_mut().right = Some(nameType.clone());
     }
-    self.expectValue("]".to_string());
+    self.expectValue(&"]".to_string());
     let mut optionalMod : String = "".to_string();
-    if  self.matchValue("+".to_string()) || self.matchValue("-".to_string()) {
+    if  self.matchValue(&"+".to_string()) || self.matchValue(&"-".to_string()) {
       optionalMod = self.peekValue();
       self.advance();
     }
-    if  self.matchValue("?".to_string()) {
+    if  self.matchValue(&"?".to_string()) {
       mapped.borrow_mut().optional = true;
       if  !optionalMod.is_empty() {
         mapped.borrow_mut().value = optionalMod.clone();
       }
       self.advance();
     }
-    if  self.matchValue(":".to_string()) {
+    if  self.matchValue(&":".to_string()) {
       self.advance();
       let mut valueType : Rc<RefCell<TSNode>> = self.parseType();
       mapped.borrow_mut().typeAnnotation = Some(valueType.clone());
@@ -6732,13 +6761,13 @@ impl TSParserSimple {
     param.borrow_mut().line = _tmp_3;
     let _tmp_4 = paramTok.borrow().col;
     param.borrow_mut().col = _tmp_4;
-    if  self.matchValue(":".to_string()) {
+    if  self.matchValue(&":".to_string()) {
       let mut typeAnnot : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       param.borrow_mut().typeAnnotation = Some(typeAnnot.clone());
     }
     indexSig.borrow_mut().params.push(param.clone());
-    self.expectValue("]".to_string());
-    if  self.matchValue(":".to_string()) {
+    self.expectValue(&"]".to_string());
+    if  self.matchValue(&":".to_string()) {
       let mut typeAnnot_1 : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       indexSig.borrow_mut().typeAnnotation = Some(typeAnnot_1.clone());
     }
@@ -6752,16 +6781,16 @@ impl TSParserSimple {
     method.borrow_mut().col = startCol;
     method.borrow_mut().name = methodName.clone();
     method.borrow_mut().optional = isOptional;
-    self.expectValue("(".to_string());
-    while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+    self.expectValue(&"(".to_string());
+    while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
       if  (method.borrow().params.len() as i64) > 0 {
-        self.expectValue(",".to_string());
+        self.expectValue(&",".to_string());
       }
       let mut param : Rc<RefCell<TSNode>> = self.parseParam();
       method.borrow_mut().params.push(param.clone());
     };
-    self.expectValue(")".to_string());
-    if  self.matchValue(":".to_string()) {
+    self.expectValue(&")".to_string());
+    if  self.matchValue(&":".to_string()) {
       let mut returnType : Rc<RefCell<TSNode>> = self.parseTypeAnnotation();
       method.borrow_mut().typeAnnotation = Some(returnType.clone());
     }
@@ -6772,7 +6801,7 @@ impl TSParserSimple {
   }
   fn parseExprSeq(&mut self) -> Rc<RefCell<TSNode>> {
     let mut first : Rc<RefCell<TSNode>> = self.parseExpr();
-    if  !(self.matchValue(",".to_string())) {
+    if  !(self.matchValue(&",".to_string())) {
       return first.clone();
     }
     let mut seq : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -6784,7 +6813,7 @@ impl TSParserSimple {
     let _tmp_3 = first.borrow().col;
     seq.borrow_mut().col = _tmp_3;
     seq.borrow_mut().children.push(first.clone());
-    while self.matchValue(",".to_string()) {
+    while self.matchValue(&",".to_string()) {
       self.advance();
       let mut next : Rc<RefCell<TSNode>> = self.parseExpr();
       seq.borrow_mut().children.push(next.clone());
@@ -6797,7 +6826,7 @@ impl TSParserSimple {
       if  self.strictMode {
         if  ((target.borrow().name == "eval") || (target.borrow().name == "arguments")) || (target.borrow().name == "yield") {
           let __arg_0 = format!("Parse error: cannot assign to '{}' in strict mode", target.borrow().name).clone();
-          self.syntaxError(__arg_0);
+          self.syntaxError(&__arg_0);
         }
       }
       return;
@@ -6816,18 +6845,18 @@ impl TSParserSimple {
     }
     if  t == "ObjectExpression" {
       if  target.borrow().parenthesized {
-        self.syntaxError("Parse error: a parenthesised object literal is not a valid assignment target".to_string());
+        self.syntaxError(&"Parse error: a parenthesised object literal is not a valid assignment target".to_string());
         return;
       }
       let mut i : i64 = 0;
       while i < (target.borrow().children.len() as i64) {
         let mut prop : Rc<RefCell<TSNode>> = target.borrow().children[(i) as usize].clone();
         if  prop.borrow().method {
-          self.syntaxError("Parse error: a method cannot be a destructuring assignment target".to_string());
+          self.syntaxError(&"Parse error: a method cannot be a destructuring assignment target".to_string());
           return;
         }
         if  (prop.borrow().kind == "get") || (prop.borrow().kind == "set") {
-          self.syntaxError("Parse error: an accessor cannot be a destructuring assignment target".to_string());
+          self.syntaxError(&"Parse error: an accessor cannot be a destructuring assignment target".to_string());
           return;
         }
         i += 1;
@@ -6836,11 +6865,11 @@ impl TSParserSimple {
     }
     if  t == "ArrayExpression" {
       if  target.borrow().parenthesized {
-        self.syntaxError("Parse error: a parenthesised array literal is not a valid assignment target".to_string());
+        self.syntaxError(&"Parse error: a parenthesised array literal is not a valid assignment target".to_string());
       }
       return;
     }
-    self.syntaxError(format!("Parse error: invalid assignment target ({})", t));
+    self.syntaxError(&format!("Parse error: invalid assignment target ({})", t));
   }
   fn checkUpdateTarget(&mut self, mut target : Rc<RefCell<TSNode>>) {
     let t : String = target.borrow().nodeType.clone();
@@ -6848,7 +6877,7 @@ impl TSParserSimple {
       if  self.strictMode {
         if  (target.borrow().name == "eval") || (target.borrow().name == "arguments") {
           let __arg_0 = format!("Parse error: cannot update '{}' in strict mode", target.borrow().name).clone();
-          self.syntaxError(__arg_0);
+          self.syntaxError(&__arg_0);
         }
       }
       return;
@@ -6856,7 +6885,7 @@ impl TSParserSimple {
     if  t == "MemberExpression" {
       return;
     }
-    self.syntaxError(format!("Parse error: '{}' is not a valid update target", t));
+    self.syntaxError(&format!("Parse error: '{}' is not a valid update target", t));
   }
   fn parseAssign(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseNullishCoalescing();
@@ -6882,7 +6911,7 @@ impl TSParserSimple {
       self.checkAssignmentTarget(left.clone());
       let leftKind : String = left.borrow().nodeType.clone();
       if  (((leftKind == "ArrayExpression") || (leftKind == "ObjectExpression")) || (leftKind == "ArrayPattern")) || (leftKind == "ObjectPattern") {
-        self.syntaxError("Parse error: a compound assignment cannot have a destructuring target".to_string());
+        self.syntaxError(&"Parse error: a compound assignment cannot have a destructuring target".to_string());
       }
       self.advance();
       let mut right_1 : Rc<RefCell<TSNode>> = self.parseAssign();
@@ -6919,7 +6948,7 @@ impl TSParserSimple {
   }
   fn parseNullishCoalescing(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseTernary();
-    while self.matchValue("??".to_string()) {
+    while self.matchValue(&"??".to_string()) {
       self.advance();
       let mut right : Rc<RefCell<TSNode>> = self.parseTernary();
       let mut nullish : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -6939,10 +6968,10 @@ impl TSParserSimple {
   }
   fn parseTernary(&mut self) -> Rc<RefCell<TSNode>> {
     let mut testExpr : Rc<RefCell<TSNode>> = self.parseLogicalOr();
-    if  self.matchValue("?".to_string()) {
+    if  self.matchValue(&"?".to_string()) {
       self.advance();
       let mut consequentExpr : Rc<RefCell<TSNode>> = self.parseAssign();
-      if  self.matchValue(":".to_string()) {
+      if  self.matchValue(&":".to_string()) {
         self.advance();
         let mut alternateExpr : Rc<RefCell<TSNode>> = self.parseAssign();
         let mut cond : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -6964,7 +6993,7 @@ impl TSParserSimple {
   }
   fn parseLogicalOr(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseLogicalAnd();
-    while self.matchValue("||".to_string()) {
+    while self.matchValue(&"||".to_string()) {
       self.advance();
       let mut right : Rc<RefCell<TSNode>> = self.parseLogicalAnd();
       let mut expr : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -6984,7 +7013,7 @@ impl TSParserSimple {
   }
   fn parseLogicalAnd(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseBitwiseOr();
-    while self.matchValue("&&".to_string()) {
+    while self.matchValue(&"&&".to_string()) {
       self.advance();
       let mut right : Rc<RefCell<TSNode>> = self.parseBitwiseOr();
       let mut expr : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -7004,7 +7033,7 @@ impl TSParserSimple {
   }
   fn parseBitwiseOr(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseBitwiseXor();
-    while self.matchValue("|".to_string()) {
+    while self.matchValue(&"|".to_string()) {
       self.advance();
       let mut right : Rc<RefCell<TSNode>> = self.parseBitwiseXor();
       let mut expr : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -7024,7 +7053,7 @@ impl TSParserSimple {
   }
   fn parseBitwiseXor(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseBitwiseAnd();
-    while self.matchValue("^".to_string()) {
+    while self.matchValue(&"^".to_string()) {
       self.advance();
       let mut right : Rc<RefCell<TSNode>> = self.parseBitwiseAnd();
       let mut expr : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -7044,7 +7073,7 @@ impl TSParserSimple {
   }
   fn parseBitwiseAnd(&mut self) -> Rc<RefCell<TSNode>> {
     let mut left : Rc<RefCell<TSNode>> = self.parseEquality();
-    while self.matchValue("&".to_string()) {
+    while self.matchValue(&"&".to_string()) {
       self.advance();
       let mut right : Rc<RefCell<TSNode>> = self.parseEquality();
       let mut expr : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -7094,7 +7123,7 @@ impl TSParserSimple {
       if  tokVal == "<" {
         if  self.tsxMode {
           if  left.borrow().nodeType == "Identifier" {
-            if  TSParserSimple::startsWithLowerCase(left.borrow().name.clone()) {
+            if  TSParserSimple::startsWithLowerCase(&left.borrow().name) {
               if  self.looksLikeGenericCall() {
                 return left.clone();
               }
@@ -7287,7 +7316,7 @@ impl TSParserSimple {
           if  (scanIdx + 1) < total {
             let mut afterParen : Rc<RefCell<Token>> = self.tokens[(scanIdx + 1) as usize].clone();
             if  afterParen.borrow().value == "=>" {
-              self.syntaxError("Parse error: an arrow function must be parenthesised to be a unary operand".to_string());
+              self.syntaxError(&"Parse error: an arrow function must be parenthesised to be a unary operand".to_string());
             }
           }
         }
@@ -7300,7 +7329,7 @@ impl TSParserSimple {
       if  tokVal == "delete" {
         if  self.strictMode {
           if  arg_2.borrow().nodeType == "Identifier" {
-            self.syntaxError("Parse error: cannot delete an unqualified name in strict mode".to_string());
+            self.syntaxError(&"Parse error: cannot delete an unqualified name in strict mode".to_string());
           }
         }
       }
@@ -7336,13 +7365,13 @@ impl TSParserSimple {
     if  (tokVal == "yield") && (self.inGenerator && (self.peekType() != "String")) {
       let mut yieldTok : Rc<RefCell<Token>> = self.peek();
       if  self.inParamList {
-        self.syntaxError("Parse error: a parameter default may not contain a yield expression".to_string());
+        self.syntaxError(&"Parse error: a parameter default may not contain a yield expression".to_string());
       }
       self.advance();
       let mut afterYield : Rc<RefCell<Token>> = self.peek();
       if  afterYield.borrow().value == "*" {
         if  afterYield.borrow().line != self.lastTokenLine {
-          self.syntaxError("Parse error: no line terminator is allowed between 'yield' and '*'".to_string());
+          self.syntaxError(&"Parse error: no line terminator is allowed between 'yield' and '*'".to_string());
         }
       }
       let mut yieldExpr : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -7353,7 +7382,7 @@ impl TSParserSimple {
       yieldExpr.borrow_mut().line = _tmp_2;
       let _tmp_3 = yieldTok.borrow().col;
       yieldExpr.borrow_mut().col = _tmp_3;
-      if  self.matchValue("*".to_string()) {
+      if  self.matchValue(&"*".to_string()) {
         self.advance();
         yieldExpr.borrow_mut().delegate = true;
       }
@@ -7386,7 +7415,7 @@ impl TSParserSimple {
       }
       if  endsYield {
         if  yieldExpr.borrow().delegate {
-          self.syntaxError("Parse error: 'yield*' requires an operand".to_string());
+          self.syntaxError(&"Parse error: 'yield*' requires an operand".to_string());
         }
       } else {
         yieldExpr.borrow_mut().left = Some(self.parseAssign().clone());
@@ -7427,7 +7456,7 @@ impl TSParserSimple {
       let nextType : String = self.peekType();
       if  ((nextType == "Identifier") || (nextType == "Keyword")) || (nextType == "TSType") {
         let mut typeNode : Rc<RefCell<TSNode>> = self.parseType();
-        if  self.matchValue(">".to_string()) {
+        if  self.matchValue(&">".to_string()) {
           self.advance();
           let mut arg_5 : Rc<RefCell<TSNode>> = self.parseUnary();
           let mut assertion : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -7461,7 +7490,7 @@ impl TSParserSimple {
           }
         } else {
           if  expr.borrow().nodeType == "Identifier" {
-            if  TSParserSimple::startsWithLowerCase(expr.borrow().name.clone()) {
+            if  TSParserSimple::startsWithLowerCase(&expr.borrow().name) {
               if  self.looksLikeGenericCall() {
                 shouldParseAsGenericCall = true;
               }
@@ -7484,21 +7513,21 @@ impl TSParserSimple {
           call.borrow_mut().line = _tmp_2;
           let _tmp_3 = expr.borrow().col;
           call.borrow_mut().col = _tmp_3;
-          while (!(self.matchValue(">".to_string()))) && (!(self.isAtEnd())) {
+          while (!(self.matchValue(&">".to_string()))) && (!(self.isAtEnd())) {
             if  (call.borrow().params.len() as i64) > 0 {
-              self.expectValue(",".to_string());
+              self.expectValue(&",".to_string());
             }
             let mut typeArg : Rc<RefCell<TSNode>> = self.parseType();
             call.borrow_mut().params.push(typeArg.clone());
           };
-          self.expectValue(">".to_string());
-          if  self.matchValue("(".to_string()) {
+          self.expectValue(&">".to_string());
+          if  self.matchValue(&"(".to_string()) {
             self.advance();
-            while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+            while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
               if  (call.borrow().children.len() as i64) > 0 {
-                self.expectValue(",".to_string());
+                self.expectValue(&",".to_string());
               }
-              if  self.matchValue("...".to_string()) {
+              if  self.matchValue(&"...".to_string()) {
                 self.advance();
                 let mut spreadArg : Rc<RefCell<TSNode>> = self.parseExpr();
                 let mut spread : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -7510,7 +7539,7 @@ impl TSParserSimple {
                 call.borrow_mut().children.push(arg.clone());
               }
             };
-            self.expectValue(")".to_string());
+            self.expectValue(&")".to_string());
             expr = call.clone();
           }
         }
@@ -7519,7 +7548,7 @@ impl TSParserSimple {
       if  tokVal == "(" {
         if  expr.borrow().nodeType == "ArrowFunctionExpression" {
           if  !expr.borrow().parenthesized {
-            self.syntaxError("Parse error: an arrow function must be parenthesised to be called".to_string());
+            self.syntaxError(&"Parse error: an arrow function must be parenthesised to be called".to_string());
           }
         }
         self.advance();
@@ -7532,11 +7561,11 @@ impl TSParserSimple {
         call_1.borrow_mut().line = _tmp_2;
         let _tmp_3 = expr.borrow().col;
         call_1.borrow_mut().col = _tmp_3;
-        while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+        while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
           if  (call_1.borrow().children.len() as i64) > 0 {
-            self.expectValue(",".to_string());
+            self.expectValue(&",".to_string());
           }
-          if  self.matchValue("...".to_string()) {
+          if  self.matchValue(&"...".to_string()) {
             self.advance();
             let mut spreadArg_1 : Rc<RefCell<TSNode>> = self.parseExpr();
             let mut spread_1 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -7548,7 +7577,7 @@ impl TSParserSimple {
             call_1.borrow_mut().children.push(arg_1.clone());
           }
         };
-        self.expectValue(")".to_string());
+        self.expectValue(&")".to_string());
         expr = call_1.clone();
       }
       if  tokVal == "." {
@@ -7582,20 +7611,20 @@ impl TSParserSimple {
           optCall.borrow_mut().line = _tmp_2;
           let _tmp_3 = expr.borrow().col;
           optCall.borrow_mut().col = _tmp_3;
-          while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+          while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
             if  (optCall.borrow().children.len() as i64) > 0 {
-              self.expectValue(",".to_string());
+              self.expectValue(&",".to_string());
             }
             let mut arg_2 : Rc<RefCell<TSNode>> = self.parseExpr();
             optCall.borrow_mut().children.push(arg_2.clone());
           };
-          self.expectValue(")".to_string());
+          self.expectValue(&")".to_string());
           expr = optCall.clone();
         }
         if  nextTokVal == "[" {
           self.advance();
           let mut indexExpr : Rc<RefCell<TSNode>> = self.parseExpr();
-          self.expectValue("]".to_string());
+          self.expectValue(&"]".to_string());
           let mut optIndex : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
           optIndex.borrow_mut().nodeType = "OptionalMemberExpression".to_string();
           optIndex.borrow_mut().optional = true;
@@ -7629,7 +7658,7 @@ impl TSParserSimple {
       if  tokVal == "[" {
         self.advance();
         let mut indexExpr_1 : Rc<RefCell<TSNode>> = self.parseExprSeq();
-        self.expectValue("]".to_string());
+        self.expectValue(&"]".to_string());
         let mut computed : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         computed.borrow_mut().nodeType = "MemberExpression".to_string();
         computed.borrow_mut().computed = true;
@@ -7689,7 +7718,7 @@ impl TSParserSimple {
       }
       if  self.peekType() == "Template" {
         if  expr.borrow().nodeType == "UpdateExpression" {
-          self.syntaxError("Parse error: an update expression cannot tag a template".to_string());
+          self.syntaxError(&"Parse error: an update expression cannot tag a template".to_string());
         }
       }
       let tokType : String = self.peekType();
@@ -7748,9 +7777,9 @@ impl TSParserSimple {
     }
     if  (tokType == "Identifier") || (tokType == "TSType") {
       if  self.strictMode {
-        if  self.isStrictReservedReference(tok.borrow().value.clone()) {
+        if  self.isStrictReservedReference(&tok.borrow().value.clone()) {
           let __arg_0 = format!("Parse error: '{}' is reserved in strict mode", tok.borrow().value).clone();
-          self.syntaxError(__arg_0);
+          self.syntaxError(&__arg_0);
         }
       }
       self.advance();
@@ -7771,7 +7800,7 @@ impl TSParserSimple {
     if  tokType == "Number" {
       if  self.strictMode {
         if  tok.borrow().legacyOctal {
-          self.syntaxError("Parse error: a leading-zero numeric literal is not allowed in strict mode".to_string());
+          self.syntaxError(&"Parse error: a leading-zero numeric literal is not allowed in strict mode".to_string());
         }
       }
       self.advance();
@@ -7808,7 +7837,7 @@ impl TSParserSimple {
     if  tokType == "String" {
       if  self.strictMode {
         if  tok.borrow().legacyOctal {
-          self.syntaxError("Parse error: octal escape sequences are not allowed in strict mode".to_string());
+          self.syntaxError(&"Parse error: octal escape sequences are not allowed in strict mode".to_string());
         }
       }
       self.advance();
@@ -7958,9 +7987,9 @@ impl TSParserSimple {
     if  tokVal == "import" {
       let mut importTok : Rc<RefCell<Token>> = self.peek();
       self.advance();
-      if  self.matchValue(".".to_string()) {
+      if  self.matchValue(&".".to_string()) {
         self.advance();
-        if  self.matchValue("meta".to_string()) {
+        if  self.matchValue(&"meta".to_string()) {
           self.advance();
           let mut metaProp : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
           metaProp.borrow_mut().nodeType = "MetaProperty".to_string();
@@ -7975,10 +8004,10 @@ impl TSParserSimple {
           return metaProp.clone();
         }
       }
-      if  self.matchValue("(".to_string()) {
+      if  self.matchValue(&"(".to_string()) {
         self.advance();
         let mut source : Rc<RefCell<TSNode>> = self.parseExpr();
-        self.expectValue(")".to_string());
+        self.expectValue(&")".to_string());
         let mut importExpr : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         importExpr.borrow_mut().nodeType = "ImportExpression".to_string();
         importExpr.borrow_mut().left = Some(source.clone());
@@ -8031,15 +8060,15 @@ impl TSParserSimple {
       let afterSuper : String = self.peekNextValue();
       if  afterSuper == "(" {
         if  !self.allowSuperCall {
-          self.syntaxError("Parse error: 'super()' is only valid in a derived class constructor".to_string());
+          self.syntaxError(&"Parse error: 'super()' is only valid in a derived class constructor".to_string());
         }
       } else {
         if  (afterSuper == ".") || (afterSuper == "[") {
           if  !self.allowSuperProperty {
-            self.syntaxError("Parse error: 'super' property access is only valid in a method".to_string());
+            self.syntaxError(&"Parse error: 'super' property access is only valid in a method".to_string());
           }
         } else {
-          self.syntaxError("Parse error: 'super' must be called or have a property accessed".to_string());
+          self.syntaxError(&"Parse error: 'super' must be called or have a property accessed".to_string());
         }
       }
       self.advance();
@@ -8071,7 +8100,7 @@ impl TSParserSimple {
     }
     if  tokType == "Punctuator" {
       if  tokVal == "*" {
-        self.syntaxError("Parse error: '*' cannot start an expression".to_string());
+        self.syntaxError(&"Parse error: '*' cannot start an expression".to_string());
         self.advance();
         let mut starErr : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
         starErr.borrow_mut().nodeType = "Identifier".to_string();
@@ -8081,8 +8110,8 @@ impl TSParserSimple {
     }
     if  tokType == "TSKeyword" {
       if  self.strictMode {
-        if  self.isStrictReservedReference(tokVal.clone()) {
-          self.syntaxError(format!("Parse error: '{}' is reserved in strict mode", tokVal));
+        if  self.isStrictReservedReference(&tokVal) {
+          self.syntaxError(&format!("Parse error: '{}' is reserved in strict mode", tokVal));
         }
       }
       self.advance();
@@ -8144,17 +8173,17 @@ impl TSParserSimple {
       if  contextual {
         if  self.noLetReference {
           if  tokVal == "let" {
-            self.syntaxError("Parse error: 'let' cannot be referenced inside a lexical declaration".to_string());
+            self.syntaxError(&"Parse error: 'let' cannot be referenced inside a lexical declaration".to_string());
           }
         }
         if  self.strictMode {
-          if  self.isStrictReservedReference(tokVal.clone()) {
-            self.syntaxError(format!("Parse error: '{}' is reserved in strict mode", tokVal));
+          if  self.isStrictReservedReference(&tokVal) {
+            self.syntaxError(&format!("Parse error: '{}' is reserved in strict mode", tokVal));
           }
         }
         if  self.inGenerator {
           if  tokVal == "yield" {
-            self.syntaxError("Parse error: 'yield' is reserved inside a generator".to_string());
+            self.syntaxError(&"Parse error: 'yield' is reserved inside a generator".to_string());
           }
         }
         self.advance();
@@ -8173,7 +8202,7 @@ impl TSParserSimple {
         return ctxId.clone();
       }
     }
-    self.syntaxError(format!("Unexpected token: {}", tokVal));
+    self.syntaxError(&format!("Unexpected token: {}", tokVal));
     self.advance();
     let mut errId : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
     errId.borrow_mut().nodeType = "Identifier".to_string();
@@ -8208,9 +8237,9 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("[".to_string());
-    while (!(self.matchValue("]".to_string()))) && (!(self.isAtEnd())) {
-      if  self.matchValue("...".to_string()) {
+    self.expectValue(&"[".to_string());
+    while (!(self.matchValue(&"]".to_string()))) && (!(self.isAtEnd())) {
+      if  self.matchValue(&"...".to_string()) {
         self.advance();
         let mut spreadArg : Rc<RefCell<TSNode>> = self.parseExpr();
         let mut spread : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -8218,7 +8247,7 @@ impl TSParserSimple {
         spread.borrow_mut().left = Some(spreadArg.clone());
         node.borrow_mut().children.push(spread.clone());
       } else {
-        if  self.matchValue(",".to_string()) {
+        if  self.matchValue(&",".to_string()) {
           let mut holeTok : Rc<RefCell<Token>> = self.peek();
           let mut hole : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
           hole.borrow_mut().nodeType = "ArrayHole".to_string();
@@ -8234,20 +8263,20 @@ impl TSParserSimple {
           node.borrow_mut().children.push(elem.clone());
         }
       }
-      if  self.matchValue(",".to_string()) {
+      if  self.matchValue(&",".to_string()) {
         self.advance();
       } else {
-        if  !(self.matchValue("]".to_string())) {
+        if  !(self.matchValue(&"]".to_string())) {
           if  !(self.isAtEnd()) {
             let mut badArrTok : Rc<RefCell<Token>> = self.peek();
             let __arg_0 = format!("Parse error: expected ',' or ']' in array literal but got '{}'", badArrTok.borrow().value).clone();
-            self.syntaxError(__arg_0);
+            self.syntaxError(&__arg_0);
             return node.clone();
           }
         }
       }
     };
-    self.expectValue("]".to_string());
+    self.expectValue(&"]".to_string());
     node.clone()
   }
   fn parseObjectLiteral(&mut self) -> Rc<RefCell<TSNode>> {
@@ -8260,11 +8289,11 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("{".to_string());
+    self.expectValue(&"{".to_string());
     let mut sawProto : bool = false;
-    while (!(self.matchValue("}".to_string()))) && (!(self.isAtEnd())) {
+    while (!(self.matchValue(&"}".to_string()))) && (!(self.isAtEnd())) {
       let loopStartPos : i64 = self.pos;
-      if  self.matchValue("...".to_string()) {
+      if  self.matchValue(&"...".to_string()) {
         self.advance();
         let mut spreadArg : Rc<RefCell<TSNode>> = self.parseExpr();
         let mut spread : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -8307,7 +8336,7 @@ impl TSParserSimple {
             starNameOk = true;
           }
           if  !starNameOk {
-            self.syntaxError("Parse error: '*' must be followed by a method name".to_string());
+            self.syntaxError(&"Parse error: '*' must be followed by a method name".to_string());
           } else {
             if  currVal == "[" {
               let mut scanIdx : i64 = self.pos + 1;
@@ -8331,12 +8360,12 @@ impl TSParserSimple {
               if  (scanIdx + 1) < total {
                 let mut afterKey : Rc<RefCell<Token>> = self.tokens[(scanIdx + 1) as usize].clone();
                 if  afterKey.borrow().value != "(" {
-                  self.syntaxError("Parse error: a generator property must be a method".to_string());
+                  self.syntaxError(&"Parse error: a generator property must be a method".to_string());
                 }
               }
             } else {
               if  nextVal != "(" {
-                self.syntaxError("Parse error: a generator property must be a method".to_string());
+                self.syntaxError(&"Parse error: a generator property must be a method".to_string());
               }
             }
           }
@@ -8356,10 +8385,10 @@ impl TSParserSimple {
           }
         }
         let mut keyTok : Rc<RefCell<Token>> = self.peek();
-        if  self.matchPunct("[".to_string()) {
+        if  self.matchPunct(&"[".to_string()) {
           self.advance();
           let mut keyExpr : Rc<RefCell<TSNode>> = self.parseExpr();
-          self.expectValue("]".to_string());
+          self.expectValue(&"]".to_string());
           prop.borrow_mut().right = Some(keyExpr.clone());
           isComputed = true;
           prop.borrow_mut().computed = true;
@@ -8367,7 +8396,7 @@ impl TSParserSimple {
         if  self.isObjectPropertyKeyToken() {
           if  self.strictMode {
             if  keyTok.borrow().legacyOctal {
-              self.syntaxError("Parse error: a leading-zero numeric key is not allowed in strict mode".to_string());
+              self.syntaxError(&"Parse error: a leading-zero numeric key is not allowed in strict mode".to_string());
             }
           }
           let _tmp_1 = keyTok.borrow().value.clone();
@@ -8377,15 +8406,15 @@ impl TSParserSimple {
           if  isComputed {
             let afterComputed : String = self.peekValue();
             if  (afterComputed != ":") && (afterComputed != "(") {
-              self.syntaxError("Parse error: a computed property needs a value".to_string());
+              self.syntaxError(&"Parse error: a computed property needs a value".to_string());
             }
           } else {
-            if  self.matchValue("(".to_string()) {
-              self.syntaxError("Parse error: a property key cannot be parenthesised".to_string());
+            if  self.matchValue(&"(".to_string()) {
+              self.syntaxError(&"Parse error: a property key cannot be parenthesised".to_string());
             }
           }
         }
-        if  self.matchValue("(".to_string()) {
+        if  self.matchValue(&"(".to_string()) {
           isMethod = true;
           prop.borrow_mut().method = true;
           let mut fnNode : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -8413,38 +8442,38 @@ impl TSParserSimple {
           self.iterationLabels = freshobjIterLabels.clone();
           self.allowSuperCall = false;
           self.allowSuperProperty = true;
-          while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+          while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
             if  (fnNode.borrow().params.len() as i64) > 0 {
-              self.expectValue(",".to_string());
+              self.expectValue(&",".to_string());
             }
             let mut mParam : Rc<RefCell<TSNode>> = self.parseParam();
             if  (mParam.borrow().name.chars().count() as i64) > 0 {
               let __arg_0 = mParam.borrow().name.clone();
-              self.declareBinding("p".to_string(), __arg_0);
+              self.declareBinding(&"p".to_string(), &__arg_0);
             }
             fnNode.borrow_mut().params.push(mParam.clone());
           };
-          self.expectValue(")".to_string());
+          self.expectValue(&")".to_string());
           if  isGetter {
             if  (fnNode.borrow().params.len() as i64) != 0 {
-              self.syntaxError("Parse error: a getter takes no parameters".to_string());
+              self.syntaxError(&"Parse error: a getter takes no parameters".to_string());
             }
           }
           if  isSetter {
             if  (fnNode.borrow().params.len() as i64) != 1 {
-              self.syntaxError("Parse error: a setter takes exactly one parameter".to_string());
+              self.syntaxError(&"Parse error: a setter takes exactly one parameter".to_string());
             } else {
               let mut setParam : Rc<RefCell<TSNode>> = fnNode.borrow().params[0].clone();
               if  setParam.borrow().nodeType == "RestElement" {
-                self.syntaxError("Parse error: a setter parameter may not be a rest element".to_string());
+                self.syntaxError(&"Parse error: a setter parameter may not be a rest element".to_string());
               }
             }
           }
-          if  self.matchValue(":".to_string()) {
+          if  self.matchValue(&":".to_string()) {
             self.advance();
             fnNode.borrow_mut().typeAnnotation = Some(self.parseType().clone());
           }
-          if  self.matchValue("{".to_string()) {
+          if  self.matchValue(&"{".to_string()) {
             self.suppressBlockScope = true;
             let mut objMethodBody : Rc<RefCell<TSNode>> = self.parseBlock();
             fnNode.borrow_mut().body = Some(objMethodBody.clone());
@@ -8453,7 +8482,7 @@ impl TSParserSimple {
             if  self.lastBlockEnabledStrict {
               let __arg_0 = prop.borrow().name.clone();
               let __arg_1 = fnNode.borrow().params.clone();
-              self.recheckStrictSignature(__arg_0, &__arg_1);
+              self.recheckStrictSignature(&__arg_0, &__arg_1);
             }
           }
           self.popScope();
@@ -8472,7 +8501,7 @@ impl TSParserSimple {
           }
         }
         if  !isMethod {
-          if  self.matchValue(":".to_string()) {
+          if  self.matchValue(&":".to_string()) {
             self.advance();
             let mut valueExpr : Rc<RefCell<TSNode>> = self.parseExpr();
             prop.borrow_mut().left = Some(valueExpr.clone());
@@ -8480,16 +8509,16 @@ impl TSParserSimple {
           } else {
             if  !isComputed {
               if  (keyTok.borrow().tokenType == "Number") || (keyTok.borrow().tokenType == "String") {
-                self.syntaxError("Parse error: a shorthand property name cannot be a literal".to_string());
+                self.syntaxError(&"Parse error: a shorthand property name cannot be a literal".to_string());
               }
-              if  TSParserSimple::isAlwaysReservedWord(prop.borrow().name.clone()) {
+              if  TSParserSimple::isAlwaysReservedWord(&prop.borrow().name) {
                 let __arg_0 = format!("Parse error: '{}' cannot be a shorthand property name", prop.borrow().name).clone();
-                self.syntaxError(__arg_0);
+                self.syntaxError(&__arg_0);
               }
               if  self.strictMode {
-                if  self.isStrictReservedReference(prop.borrow().name.clone()) {
+                if  self.isStrictReservedReference(&prop.borrow().name.clone()) {
                   let __arg_0 = format!("Parse error: '{}' is reserved in strict mode", prop.borrow().name).clone();
-                  self.syntaxError(__arg_0);
+                  self.syntaxError(&__arg_0);
                 }
               }
               let mut shorthandVal : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -8508,7 +8537,7 @@ impl TSParserSimple {
               if  !prop.borrow().method {
                 if  (prop.borrow().kind != "get") && (prop.borrow().kind != "set") {
                   if  sawProto {
-                    self.syntaxError("Parse error: duplicate __proto__ in an object literal".to_string());
+                    self.syntaxError(&"Parse error: duplicate __proto__ in an object literal".to_string());
                   }
                   sawProto = true;
                 }
@@ -8518,14 +8547,14 @@ impl TSParserSimple {
         }
         node.borrow_mut().children.push(prop.clone());
       }
-      if  self.matchValue(",".to_string()) {
+      if  self.matchValue(&",".to_string()) {
         self.advance();
       } else {
-        if  !(self.matchValue("}".to_string())) {
+        if  !(self.matchValue(&"}".to_string())) {
           if  !(self.isAtEnd()) {
             let mut badObjTok : Rc<RefCell<Token>> = self.peek();
             let __arg_0 = format!("{}{}'", "Parse error: expected ',' or '}' in object literal but got '".to_string(), badObjTok.borrow().value).clone();
-            self.syntaxError(__arg_0);
+            self.syntaxError(&__arg_0);
             return node.clone();
           }
         }
@@ -8534,7 +8563,7 @@ impl TSParserSimple {
         break;
       }
     };
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     node.clone()
   }
   fn parseParenOrArrow(&mut self) -> Rc<RefCell<TSNode>> {
@@ -8544,30 +8573,30 @@ impl TSParserSimple {
     self.advance();
     let mut parenDepth : i64 = 1;
     while (parenDepth > 0) && (!(self.isAtEnd())) {
-      if  self.matchPunct("(".to_string()) {
+      if  self.matchPunct(&"(".to_string()) {
         parenDepth += 1;
       }
-      if  self.matchPunct(")".to_string()) {
+      if  self.matchPunct(&")".to_string()) {
         parenDepth -= 1;
       }
       if  parenDepth > 0 {
         self.advance();
       }
     };
-    if  !(self.matchValue(")".to_string())) {
+    if  !(self.matchValue(&")".to_string())) {
       self.pos = savedPos;
       self.currentToken = Some(savedTok.clone());
       self.advance();
       let mut expr : Rc<RefCell<TSNode>> = self.parseExprSeq();
-      self.expectValue(")".to_string());
+      self.expectValue(&")".to_string());
       return expr.clone();
     }
     self.advance();
-    if  self.matchValue(":".to_string()) {
+    if  self.matchValue(&":".to_string()) {
       self.advance();
       self.parseType();
     }
-    if  self.matchValue("=>".to_string()) {
+    if  self.matchValue(&"=>".to_string()) {
       self.pos = savedPos;
       self.currentToken = Some(savedTok.clone());
       return self.parseArrowFunction().clone();
@@ -8576,7 +8605,7 @@ impl TSParserSimple {
     self.currentToken = Some(savedTok.clone());
     self.advance();
     let mut expr_1 : Rc<RefCell<TSNode>> = self.parseExprSeq();
-    self.expectValue(")".to_string());
+    self.expectValue(&")".to_string());
     expr_1.borrow_mut().parenthesized = true;
     expr_1.clone()
   }
@@ -8590,7 +8619,7 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = startTok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    if  self.matchValue("async".to_string()) {
+    if  self.matchValue(&"async".to_string()) {
       self.advance();
       node.borrow_mut().kind = "async".to_string();
     }
@@ -8609,20 +8638,20 @@ impl TSParserSimple {
     self.switchDepth = 0;
     self.activeLabels = freshArrowLabels.clone();
     self.iterationLabels = freshArrowIterLabels.clone();
-    if  self.matchValue("(".to_string()) {
+    if  self.matchValue(&"(".to_string()) {
       self.advance();
-      while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+      while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
         if  (node.borrow().params.len() as i64) > 0 {
-          self.expectValue(",".to_string());
+          self.expectValue(&",".to_string());
         }
         let mut param : Rc<RefCell<TSNode>> = self.parseParam();
         if  (param.borrow().name.chars().count() as i64) > 0 {
           let __arg_0 = param.borrow().name.clone();
-          self.declareBinding("p".to_string(), __arg_0);
+          self.declareBinding(&"p".to_string(), &__arg_0);
         }
         node.borrow_mut().params.push(param.clone());
       };
-      self.expectValue(")".to_string());
+      self.expectValue(&")".to_string());
     } else {
       let mut paramTok : Rc<RefCell<Token>> = self.expectBindingName();
       let mut param_1 : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -8630,10 +8659,10 @@ impl TSParserSimple {
       let _tmp_1 = paramTok.borrow().value.clone();
       param_1.borrow_mut().name = _tmp_1;
       let __arg_0 = param_1.borrow().name.clone();
-      self.declareBinding("p".to_string(), __arg_0);
+      self.declareBinding(&"p".to_string(), &__arg_0);
       node.borrow_mut().params.push(param_1.clone());
     }
-    if  self.matchValue(":".to_string()) {
+    if  self.matchValue(&":".to_string()) {
       self.advance();
       let mut retType : Rc<RefCell<TSNode>> = self.parseType();
       node.borrow_mut().typeAnnotation = Some(retType.clone());
@@ -8641,11 +8670,11 @@ impl TSParserSimple {
     let mut arrowTok : Rc<RefCell<Token>> = self.peek();
     if  arrowTok.borrow().value == "=>" {
       if  arrowTok.borrow().line != self.lastTokenLine {
-        self.syntaxError("Parse error: no line terminator is allowed before '=>'".to_string());
+        self.syntaxError(&"Parse error: no line terminator is allowed before '=>'".to_string());
       }
     }
-    self.expectValue("=>".to_string());
-    if  self.matchValue("{".to_string()) {
+    self.expectValue(&"=>".to_string());
+    if  self.matchValue(&"{".to_string()) {
       self.suppressBlockScope = true;
       let mut body : Rc<RefCell<TSNode>> = self.parseBlock();
       node.borrow_mut().body = Some(body.clone());
@@ -8653,7 +8682,7 @@ impl TSParserSimple {
       node.borrow_mut().end = _tmp_1;
       if  self.lastBlockEnabledStrict {
         let __arg_0 = node.borrow().params.clone();
-        self.recheckStrictSignature("".to_string(), &__arg_0);
+        self.recheckStrictSignature(&"".to_string(), &__arg_0);
       }
     } else {
       let mut body_1 : Rc<RefCell<TSNode>> = self.parseExpr();
@@ -8680,36 +8709,36 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("new".to_string());
-    if  self.matchValue(".".to_string()) {
+    self.expectValue(&"new".to_string());
+    if  self.matchValue(&".".to_string()) {
       self.advance();
-      if  self.matchValue("target".to_string()) {
+      if  self.matchValue(&"target".to_string()) {
         let mut targetTok : Rc<RefCell<Token>> = self.peek();
         if  targetTok.borrow().hasEscape {
-          self.syntaxError("Parse error: 'new.target' may not use an escape sequence".to_string());
+          self.syntaxError(&"Parse error: 'new.target' may not use an escape sequence".to_string());
         }
         self.advance();
         node.borrow_mut().nodeType = "MetaProperty".to_string();
         node.borrow_mut().name = "new".to_string();
         node.borrow_mut().value = "target".to_string();
         if  self.functionDepth == 0 {
-          self.syntaxError("Parse error: 'new.target' is only allowed inside a function".to_string());
+          self.syntaxError(&"Parse error: 'new.target' is only allowed inside a function".to_string());
         }
         return node.clone();
       }
       let mut badMeta : Rc<RefCell<Token>> = self.peek();
       let __arg_0 = format!("Parse error: 'new.{}' is not a meta property", badMeta.borrow().value).clone();
-      self.syntaxError(__arg_0);
+      self.syntaxError(&__arg_0);
     }
-    if  self.matchValue("super".to_string()) {
+    if  self.matchValue(&"super".to_string()) {
       if  self.peekNextValue() == "(" {
-        self.syntaxError("Parse error: 'super' cannot be the callee of 'new'".to_string());
+        self.syntaxError(&"Parse error: 'super' cannot be the callee of 'new'".to_string());
       }
     }
     let mut callee : Rc<RefCell<TSNode>> = self.parsePrimary();
     let mut keepMember : bool = true;
     while keepMember {
-      if  self.matchValue(".".to_string()) {
+      if  self.matchValue(&".".to_string()) {
         self.advance();
         let mut propTok : Rc<RefCell<Token>> = self.parseMemberName();
         let mut member : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -8729,7 +8758,7 @@ impl TSParserSimple {
       }
     };
     node.borrow_mut().left = Some(callee.clone());
-    if  self.matchValue("<".to_string()) {
+    if  self.matchValue(&"<".to_string()) {
       let mut depth : i64 = 1;
       self.advance();
       while (depth > 0) && (!(self.isAtEnd())) {
@@ -8743,16 +8772,16 @@ impl TSParserSimple {
         self.advance();
       };
     }
-    if  self.matchValue("(".to_string()) {
+    if  self.matchValue(&"(".to_string()) {
       self.advance();
-      while (!(self.matchValue(")".to_string()))) && (!(self.isAtEnd())) {
+      while (!(self.matchValue(&")".to_string()))) && (!(self.isAtEnd())) {
         if  (node.borrow().children.len() as i64) > 0 {
-          self.expectValue(",".to_string());
-          if  self.matchValue(")".to_string()) {
+          self.expectValue(&",".to_string());
+          if  self.matchValue(&")".to_string()) {
             break;
           }
         }
-        if  self.matchValue("...".to_string()) {
+        if  self.matchValue(&"...".to_string()) {
           self.advance();
           let mut spreadArg : Rc<RefCell<TSNode>> = self.parseExpr();
           let mut spread : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
@@ -8764,7 +8793,7 @@ impl TSParserSimple {
           node.borrow_mut().children.push(arg.clone());
         }
       };
-      self.expectValue(")".to_string());
+      self.expectValue(&")".to_string());
     }
     node.clone()
   }
@@ -8784,7 +8813,7 @@ impl TSParserSimple {
     }
     "".to_string().clone()
   }
-  fn startsWithLowerCase(s : String) -> bool {
+  fn startsWithLowerCase(s : &String) -> bool {
     if  (s.chars().count() as i64) == 0 {
       return false;
     }
@@ -8877,7 +8906,7 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("<".to_string());
+    self.expectValue(&"<".to_string());
     let mut tagName : Rc<RefCell<TSNode>> = self.parseJSXElementName();
     let _tmp_4 = tagName.borrow().name.clone();
     node.borrow_mut().name = _tmp_4;
@@ -8890,11 +8919,11 @@ impl TSParserSimple {
       let mut attr : Rc<RefCell<TSNode>> = self.parseJSXAttribute();
       node.borrow_mut().children.push(attr.clone());
     };
-    if  self.matchValue("/".to_string()) {
+    if  self.matchValue(&"/".to_string()) {
       self.advance();
       node.borrow_mut().kind = "self-closing".to_string();
     }
-    self.expectValue(">".to_string());
+    self.expectValue(&">".to_string());
     node.clone()
   }
   fn parseJSXClosingElement(&mut self) -> Rc<RefCell<TSNode>> {
@@ -8907,13 +8936,13 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("<".to_string());
-    self.expectValue("/".to_string());
+    self.expectValue(&"<".to_string());
+    self.expectValue(&"/".to_string());
     let mut tagName : Rc<RefCell<TSNode>> = self.parseJSXElementName();
     let _tmp_4 = tagName.borrow().name.clone();
     node.borrow_mut().name = _tmp_4;
     node.borrow_mut().left = Some(tagName.clone());
-    self.expectValue(">".to_string());
+    self.expectValue(&">".to_string());
     node.clone()
   }
   fn parseJSXElementName(&mut self) -> Rc<RefCell<TSNode>> {
@@ -8928,7 +8957,7 @@ impl TSParserSimple {
     node.borrow_mut().col = _tmp_3;
     let mut namePart : String = tok.borrow().value.clone();
     self.advance();
-    while self.matchValue(".".to_string()) {
+    while self.matchValue(&".".to_string()) {
       self.advance();
       let mut nextTok : Rc<RefCell<Token>> = self.peek();
       namePart = format!("{}.{}", namePart, nextTok.borrow().value);
@@ -8948,21 +8977,21 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    if  self.matchValue("{".to_string()) {
+    if  self.matchValue(&"{".to_string()) {
       self.advance();
-      if  self.matchValue("...".to_string()) {
+      if  self.matchValue(&"...".to_string()) {
         self.advance();
         node.borrow_mut().nodeType = "JSXSpreadAttribute".to_string();
         let mut arg : Rc<RefCell<TSNode>> = self.parseExpr();
         node.borrow_mut().left = Some(arg.clone());
-        self.expectValue("}".to_string());
+        self.expectValue(&"}".to_string());
         return node.clone();
       }
     }
     let attrName : String = tok.borrow().value.clone();
     node.borrow_mut().name = attrName.clone();
     self.advance();
-    if  self.matchValue("=".to_string()) {
+    if  self.matchValue(&"=".to_string()) {
       self.advance();
       let valTok : String = self.peekValue();
       if  valTok == "{" {
@@ -8998,8 +9027,8 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("{".to_string());
-    if  self.matchValue("}".to_string()) {
+    self.expectValue(&"{".to_string());
+    if  self.matchValue(&"}".to_string()) {
       let mut empty : Rc<RefCell<TSNode>> = Rc::new(RefCell::new(TSNode::new()));
       empty.borrow_mut().nodeType = "JSXEmptyExpression".to_string();
       node.borrow_mut().left = Some(empty.clone());
@@ -9007,7 +9036,7 @@ impl TSParserSimple {
       let mut expr : Rc<RefCell<TSNode>> = self.parseExpr();
       node.borrow_mut().left = Some(expr.clone());
     }
-    self.expectValue("}".to_string());
+    self.expectValue(&"}".to_string());
     node.clone()
   }
   fn parseJSXText(&mut self) -> Rc<RefCell<TSNode>> {
@@ -9035,8 +9064,8 @@ impl TSParserSimple {
     node.borrow_mut().line = _tmp_2;
     let _tmp_3 = tok.borrow().col;
     node.borrow_mut().col = _tmp_3;
-    self.expectValue("<".to_string());
-    self.expectValue(">".to_string());
+    self.expectValue(&"<".to_string());
+    self.expectValue(&">".to_string());
     while !(self.isAtEnd()) {
       let v : String = self.peekValue();
       if  v == "<" {
@@ -9061,9 +9090,9 @@ impl TSParserSimple {
         }
       }
     };
-    self.expectValue("<".to_string());
-    self.expectValue("/".to_string());
-    self.expectValue(">".to_string());
+    self.expectValue(&"<".to_string());
+    self.expectValue(&"/".to_string());
+    self.expectValue(&">".to_string());
     node.clone()
   }
 }
@@ -9096,7 +9125,7 @@ impl TSParserMain {
     println!("  node ts_parser_main.js -i script.ts --tokens           Also show tokens");
     println!("  node ts_parser_main.js -i script.ts --show-interfaces  List interfaces");
   }
-  pub fn listDeclarations(filename : String, showInterfaces : bool, showTypes : bool, showFunctions : bool) {
+  pub fn listDeclarations(filename : &String, showInterfaces : bool, showTypes : bool, showFunctions : bool) {
     let codeOpt : Option<String> = r_read_file(&".".to_string(), &filename);
     if  codeOpt.is_none() {
       println!("Error: Could not read file: {}", filename);
@@ -9289,7 +9318,7 @@ impl TSParserMain {
     }
     nodeType.clone()
   }
-  pub fn parseFile(filename : String, showTokens : bool) {
+  pub fn parseFile(filename : &String, showTokens : bool) {
     let codeOpt : Option<String> = r_read_file(&".".to_string(), &filename);
     if  codeOpt.is_none() {
       println!("Error: Could not read file: {}", filename);
@@ -9584,10 +9613,10 @@ fn main() {
   }
   if  (inputFile.chars().count() as i64) > 0 {
     if  (showInterfaces || showTypes) || showFunctions {
-      TSParserMain::listDeclarations(inputFile.clone(), showInterfaces, showTypes, showFunctions);
+      TSParserMain::listDeclarations(&inputFile, showInterfaces, showTypes, showFunctions);
       return;
     }
-    TSParserMain::parseFile(inputFile.clone(), showTokens);
+    TSParserMain::parseFile(&inputFile, showTokens);
     return;
   }
   TSParserMain::showHelp();

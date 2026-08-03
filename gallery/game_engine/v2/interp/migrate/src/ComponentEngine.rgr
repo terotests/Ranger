@@ -247,6 +247,29 @@ class EvalContext {
         }
         return false
     }
+
+    ; PERF: single-probe read. The has-then-lookup pair walked the scope
+    ; chain twice, hashing the name at every level both times; the missing
+    ; case here is an ABSENT optional, so callers pay one walk.
+    fn tryLookup@(optional):EvalValue (name:string) {
+        if withObject {
+            def wo:EvalValue (unwrap withObject)
+            if (has wo.objectMap name) {
+                def whit@(optional):EvalValue (get wo.objectMap name)
+                return whit
+            }
+        }
+        def found@(optional):EvalValue (get bindings name)
+        if found {
+            return found
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.tryLookup(name))
+        }
+        def missing@(optional):EvalValue
+        return missing
+    }
     
     ; Create child context (for function calls). Inherits moduleRoot so nested
     ; functions always resolve module-level const/let/array/object bindings.
@@ -3812,15 +3835,154 @@ class ComponentEngine {
         }
     }
 
+    ; PERF: nodeType dispatch was a string-compare chain on EVERY node visit.
+    ; A string compare is a memcmp on the native targets, where V8 compares
+    ; interned pointers for free -- so the natives paid for dispatch in a way
+    ; JS never did. The kind is computed ONCE per node, memoised on it, and
+    ; every hot dispatcher compares small integers instead. 0 = unscanned,
+    ; 99 = a type outside the table (JSX, TS casts, rare statements).
+    fn nodeKindOf:int (node:TSNode) {
+        if (node.evalKind > 0) {
+            return node.evalKind
+        }
+        def nt:string node.nodeType
+        if (nt == "Identifier") { node.evalKind = 1
+            return 1
+        }
+        if (nt == "NumericLiteral") { node.evalKind = 2
+            return 2
+        }
+        if (nt == "MemberExpression") { node.evalKind = 3
+            return 3
+        }
+        if (nt == "CallExpression") { node.evalKind = 4
+            return 4
+        }
+        if (nt == "BinaryExpression") { node.evalKind = 5
+            return 5
+        }
+        if (nt == "AssignmentExpression") { node.evalKind = 6
+            return 6
+        }
+        if (nt == "UpdateExpression") { node.evalKind = 7
+            return 7
+        }
+        if (nt == "StringLiteral") { node.evalKind = 8
+            return 8
+        }
+        if (nt == "BooleanLiteral") { node.evalKind = 9
+            return 9
+        }
+        if (nt == "NullLiteral") { node.evalKind = 10
+            return 10
+        }
+        if (nt == "TemplateLiteral") { node.evalKind = 11
+            return 11
+        }
+        if (nt == "UnaryExpression") { node.evalKind = 12
+            return 12
+        }
+        if (nt == "ConditionalExpression") { node.evalKind = 13
+            return 13
+        }
+        if (nt == "ArrayExpression") { node.evalKind = 14
+            return 14
+        }
+        if (nt == "ObjectExpression") { node.evalKind = 15
+            return 15
+        }
+        if (nt == "NewExpression") { node.evalKind = 16
+            return 16
+        }
+        if (nt == "ArrowFunctionExpression") { node.evalKind = 17
+            return 17
+        }
+        if (nt == "FunctionExpression") { node.evalKind = 18
+            return 18
+        }
+        if (nt == "SequenceExpression") { node.evalKind = 19
+            return 19
+        }
+        if (nt == "ThisExpression") { node.evalKind = 20
+            return 20
+        }
+        if (nt == "RegExpLiteral") { node.evalKind = 21
+            return 21
+        }
+        if (nt == "ArrayHole") { node.evalKind = 22
+            return 22
+        }
+        if (nt == "ParenthesizedExpression") { node.evalKind = 23
+            return 23
+        }
+        if (nt == "ClassExpression") { node.evalKind = 24
+            return 24
+        }
+        if (nt == "ExpressionStatement") { node.evalKind = 30
+            return 30
+        }
+        if (nt == "VariableDeclaration") { node.evalKind = 31
+            return 31
+        }
+        if (nt == "IfStatement") { node.evalKind = 32
+            return 32
+        }
+        if (nt == "ForStatement") { node.evalKind = 33
+            return 33
+        }
+        if (nt == "BlockStatement") { node.evalKind = 34
+            return 34
+        }
+        if (nt == "ReturnStatement") { node.evalKind = 35
+            return 35
+        }
+        if (nt == "WhileStatement") { node.evalKind = 36
+            return 36
+        }
+        if (nt == "ForOfStatement") { node.evalKind = 37
+            return 37
+        }
+        if (nt == "BreakStatement") { node.evalKind = 38
+            return 38
+        }
+        if (nt == "ContinueStatement") { node.evalKind = 39
+            return 39
+        }
+        if (nt == "FunctionDeclaration") { node.evalKind = 40
+            return 40
+        }
+        if (nt == "LabeledStatement") { node.evalKind = 41
+            return 41
+        }
+        if (nt == "SwitchStatement") { node.evalKind = 42
+            return 42
+        }
+        if (nt == "DoWhileStatement") { node.evalKind = 43
+            return 43
+        }
+        if (nt == "ForInStatement") { node.evalKind = 44
+            return 44
+        }
+        if (nt == "ThrowStatement") { node.evalKind = 45
+            return 45
+        }
+        if (nt == "TryStatement") { node.evalKind = 46
+            return 46
+        }
+        node.evalKind = 99
+        return 99
+    }
+
     fn runStatementValue:void (stmt:TSNode) {
         if (scriptDidReturn || scriptThrew) {
             return
         }
+        def stmtK:int (this.nodeKindOf(stmt))
         ; Already bound by hoisting; the declaration itself does nothing here.
-        if (stmt.nodeType == "FunctionDeclaration") {
+        if (stmtK == 40) {
             return
         }
-        if (stmt.nodeType == "ReturnStatement") {
+        if (stmtK == 35) {
             if stmt.left {
                 scriptReturnValue = (this.evaluateExpr((unwrap stmt.left)))
             } {
@@ -3838,31 +4000,31 @@ class ComponentEngine {
             scriptDidReturn = true
             return
         }
-        if (stmt.nodeType == "VariableDeclaration") {
+        if (stmtK == 31) {
             this.processVariableDeclaration(stmt)
             return
         }
-        if (stmt.nodeType == "ExpressionStatement") {
+        if (stmtK == 30) {
             if stmt.left {
                 this.evaluateExprForSideEffect((unwrap stmt.left))
             }
             return
         }
-        if (stmt.nodeType == "IfStatement") {
+        if (stmtK == 32) {
             this.runIfValue(stmt)
             return
         }
-        if (stmt.nodeType == "BlockStatement") {
+        if (stmtK == 34) {
             this.clearStatementLabels()
             this.runStatementList(stmt.children)
             return
         }
-        if (stmt.nodeType == "BreakStatement") {
+        if (stmtK == 38) {
             loopBreak = true
             breakLabel = stmt.name
             return
         }
-        if (stmt.nodeType == "ContinueStatement") {
+        if (stmtK == 39) {
             loopContinue = true
             continueLabel = stmt.name
             return
@@ -3872,7 +4034,7 @@ class ComponentEngine {
         ; is consumed here, which is what makes `blk: { break blk; }` leave the
         ; block rather than the whole function. There was no case for the node
         ; type at all, so a labelled statement ran nothing whatsoever.
-        if (stmt.nodeType == "LabeledStatement") {
+        if (stmtK == 41) {
             push pendingLabels stmt.name
             if stmt.body {
                 this.runBlockOrStatement((unwrap stmt.body))
@@ -3886,31 +4048,31 @@ class ComponentEngine {
             }
             return
         }
-        if (stmt.nodeType == "ForStatement") {
+        if (stmtK == 33) {
             this.runForStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "ForOfStatement") {
+        if (stmtK == 37) {
             this.runForOfStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "WhileStatement") {
+        if (stmtK == 36) {
             this.runWhileStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "SwitchStatement") {
+        if (stmtK == 42) {
             this.runSwitchStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "DoWhileStatement") {
+        if (stmtK == 43) {
             this.runDoWhileStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "ForInStatement") {
+        if (stmtK == 44) {
             this.runForInStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "ThrowStatement") {
+        if (stmtK == 45) {
             if stmt.left {
                 def thrownV:EvalValue (this.evaluateExpr((unwrap stmt.left)))
                 ; A throw raised while EVALUATING the operand is the one that
@@ -3929,7 +4091,7 @@ class ComponentEngine {
             scriptThrew = true
             return
         }
-        if (stmt.nodeType == "TryStatement") {
+        if (stmtK == 46) {
             this.runTryStatementValue(stmt)
             return
         }
@@ -4080,7 +4242,7 @@ class ComponentEngine {
     }
 
     fn runBlockOrStatement:void (blk:TSNode) {
-        if (blk.nodeType == "BlockStatement") {
+        if ((this.nodeKindOf(blk)) == 34) {
             ; D-LABELS: a label on a BLOCK belongs to the block, not to the first
             ; statement inside it. `blk: { do { break blk } while (true); ... }`
             ; used to hand "blk" to the do-while, which then swallowed the break
@@ -4283,37 +4445,38 @@ class ComponentEngine {
     ; completion value, so each branch records it. `eval` reads it back; nothing
     ; else does, which is why this stayed a void call.
     fn evaluateExprForSideEffect:void (node:TSNode) {
+        def seK:int (this.nodeKindOf(node))
         def handledSE:boolean false
         ; Handle CallExpression (method calls like arr.push(x))
-        if (node.nodeType == "CallExpression") {
+        if (seK == 4) {
             completionValue = (this.evaluateExpr(node))
             handledSE = true
         }
 
         ; Handle UpdateExpression (i++, ++i) and AssignmentExpression (x = 1).
-        if (node.nodeType == "UpdateExpression") {
+        if (seK == 7) {
             completionValue = (this.evaluateAssignValue(node))
             handledSE = true
         }
 
-        if (node.nodeType == "AssignmentExpression") {
+        if (seK == 6) {
             completionValue = (this.evaluateAssignValue(node))
             handledSE = true
         }
 
         ; Statement-position unary with a side effect (delete obj.x, void expr).
-        if (node.nodeType == "UnaryExpression") {
+        if (seK == 12) {
             completionValue = (this.evaluateUnaryExpr(node))
             handledSE = true
         }
 
         ; D-ERRORS: a bare reference in statement position still resolves, and an
         ; unresolvable one throws. `nope;` on its own line is a ReferenceError.
-        if (node.nodeType == "Identifier") {
+        if (seK == 1) {
             completionValue = (this.lookupIdentifier(node.name))
             handledSE = true
         }
-        if (node.nodeType == "MemberExpression") {
+        if (seK == 3) {
             completionValue = (this.evaluateMemberExpr(node))
             handledSE = true
         }
@@ -6889,19 +7052,18 @@ class ComponentEngine {
     ; ==========================================================================
     
     fn evaluateExpr:EvalValue (node:TSNode) {
+        def exprK:int (this.nodeKindOf(node))
         ; Fast dispatch: the node types that dominate evaluation of real scripts
         ; (variable reads, member/array access, calls, arithmetic) are checked
         ; first so the common case does not fall through the whole if-chain.
-        def nt:string node.nodeType
-
-        if (nt == "Identifier") {
+        if (exprK == 1) {
             return (this.lookupIdentifier(node.name))
         }
         ; PERF: a numeric literal is held as source TEXT, so evaluating it means
         ; parsing that text -- and a loop bound is evaluated once per iteration.
         ; The parse is memoised on the node, and the case sits at the front
         ; rather than fifteen string comparisons down the chain.
-        if (nt == "NumericLiteral") {
+        if (exprK == 2) {
             if (false == node.numScanned) {
                 node.numScanned = true
                 def parsedNum@(optional):double (to_double node.value)
@@ -6911,28 +7073,28 @@ class ComponentEngine {
             }
             return (EvalValue.number(node.numValue))
         }
-        if (nt == "MemberExpression") {
+        if (exprK == 3) {
             return (this.evaluateMemberExpr(node))
         }
-        if (nt == "CallExpression") {
+        if (exprK == 4) {
             return (this.evaluateCallExpr(node))
         }
-        if (nt == "NewExpression") {
+        if (exprK == 16) {
             return (this.evaluateNewExpr(node))
         }
         ; D-HOLES: an array elision is an ABSENT element. It reads as undefined
         ; wherever a value is wanted, and `0 in [,1]` is false.
-        if (nt == "ArrayHole") {
+        if (exprK == 22) {
             return (EvalValue.hole())
         }
         ; D-REGEX: `/pattern/flags` as a value.
-        if (nt == "RegExpLiteral") {
+        if (exprK == 21) {
             return (this.regexFromLiteral(node.value))
         }
         ; The comma operator evaluates every operand and yields the LAST. It had
         ; no case at all, so `(1, 2)` evaluated to undefined and any side effect
         ; in an earlier operand never ran.
-        if (nt == "SequenceExpression") {
+        if (exprK == 19) {
             def seqOut:EvalValue (EvalValue.undefined())
             def si:int 0
             while (si < (array_length node.children)) {
@@ -6944,7 +7106,7 @@ class ComponentEngine {
             }
             return seqOut
         }
-        if (nt == "ThisExpression") {
+        if (exprK == 20) {
             ; D-GLOBALTHIS: outside any function, `this` is the global object.
             if (false == (context.has("this"))) {
                 ; D-STRICT: a strict function called without a receiver has
@@ -6960,14 +7122,14 @@ class ComponentEngine {
             }
             return (context.lookup("this"))
         }
-        if (nt == "BinaryExpression") {
+        if (exprK == 5) {
             return (this.evaluateBinaryExpr(node))
         }
         ; Assignment / update in value position: x = (y = 5), let d = c++, arr[i]++
-        if (nt == "AssignmentExpression") {
+        if (exprK == 6) {
             return (this.evaluateAssignValue(node))
         }
-        if (nt == "UpdateExpression") {
+        if (exprK == 7) {
             return (this.evaluateUpdateValue(node))
         }
         ; Arrow / function expression as a value: capture the defining scope so the
@@ -6976,17 +7138,17 @@ class ComponentEngine {
         ; so an anonymous class expression is registered under a generated one
         ; and the value carries that key. `new C()` then resolves through the
         ; value rather than through the source-level name, which it does not have.
-        if (nt == "ClassExpression") {
+        if (exprK == 24) {
             return (this.registerClassExpression(node))
         }
-        if (nt == "ArrowFunctionExpression") {
+        if (exprK == 17) {
             return (this.captureClosure(node))
         }
-        if (nt == "FunctionExpression") {
+        if (exprK == 18) {
             return (this.captureClosure(node))
         }
         ; Literals
-        if (node.nodeType == "NumericLiteral") {
+        if (exprK == 2) {
             def numVal@(optional):double (to_double node.value)
             if numVal {
                 return (EvalValue.number((unwrap numVal)))
@@ -6994,7 +7156,7 @@ class ComponentEngine {
             return (EvalValue.number(0.0))
         }
         
-        if (node.nodeType == "StringLiteral") {
+        if (exprK == 8) {
             ; The lexer already removed the delimiters, so unquoting again ate
             ; real characters whenever the CONTENT began and ended with the same
             ; quote: `'\'hi\''` became `hi`, and `eval('"BJ"')` was handed the
@@ -7003,7 +7165,7 @@ class ComponentEngine {
             return (EvalValue.string(node.value))
         }
         
-        if (node.nodeType == "TemplateLiteral") {
+        if (exprK == 11) {
             ; Template literals have TemplateElement children with the text
             ; The text may contain ${...} expressions that need to be evaluated
             def templateText:string ""
@@ -7021,51 +7183,51 @@ class ComponentEngine {
             return (EvalValue.string(templateText))
         }
         
-        if (node.nodeType == "BooleanLiteral") {
+        if (exprK == 9) {
             return (EvalValue.boolean((node.value == "true")))
         }
         
-        if (node.nodeType == "NullLiteral") {
+        if (exprK == 10) {
             return (EvalValue.null())
         }
         
         ; Identifier (variable lookup)
-        if (node.nodeType == "Identifier") {
+        if (exprK == 1) {
             return (this.lookupIdentifier(node.name))
         }
         
         ; Binary expression
-        if (node.nodeType == "BinaryExpression") {
+        if (exprK == 5) {
             return (this.evaluateBinaryExpr(node))
         }
         
         ; Unary expression
-        if (node.nodeType == "UnaryExpression") {
+        if (exprK == 12) {
             return (this.evaluateUnaryExpr(node))
         }
         
         ; Conditional expression (ternary)
-        if (node.nodeType == "ConditionalExpression") {
+        if (exprK == 13) {
             return (this.evaluateConditionalExpr(node))
         }
         
         ; Member expression
-        if (node.nodeType == "MemberExpression") {
+        if (exprK == 3) {
             return (this.evaluateMemberExpr(node))
         }
         
         ; Array expression
-        if (node.nodeType == "ArrayExpression") {
+        if (exprK == 14) {
             return (this.evaluateArrayExpr(node))
         }
         
         ; Object expression
-        if (node.nodeType == "ObjectExpression") {
+        if (exprK == 15) {
             return (this.evaluateObjectExpr(node))
         }
         
         ; Parenthesized expression
-        if (node.nodeType == "ParenthesizedExpression") {
+        if (exprK == 23) {
             if node.left {
                 def inner:TSNode (unwrap node.left)
                 return (this.evaluateExpr(inner))
@@ -7113,7 +7275,7 @@ class ComponentEngine {
         }
         
         ; Call Expression (function calls)
-        if (node.nodeType == "CallExpression") {
+        if (exprK == 4) {
             return (this.evaluateCallExpr(node))
         }
         
@@ -9198,14 +9360,16 @@ class ComponentEngine {
     }
 
     fn isErrorCtorName:boolean (name:string) {
-        def names:[string] (this.errorKindNames())
-        def i:int 0
-        while (i < (array_length names)) {
-            if ((itemAt names i) == name) {
-                return true
-            }
-            i = (i + 1)
-        }
+        ; PERF: direct compares — building the name LIST here allocated a
+        ; vector and seven strings on every call-expression evaluation
+        ; (a third of all instructions in call-heavy native profiles)
+        if (name == "Error") { return true }
+        if (name == "TypeError") { return true }
+        if (name == "ReferenceError") { return true }
+        if (name == "RangeError") { return true }
+        if (name == "SyntaxError") { return true }
+        if (name == "EvalError") { return true }
+        if (name == "URIError") { return true }
         return false
     }
 
@@ -15769,12 +15933,14 @@ class ComponentEngine {
         if (name == "NaN") {
             return (EvalValue.number((0.0 / 0.0)))
         }
-        if (context.has(name)) {
-            return (context.lookup(name))
+        def ctxHit@(optional):EvalValue (context.tryLookup(name))
+        if ctxHit {
+            return (unwrap ctxHit)
         }
         this.ensureErrorCtors()
-        if (hostScope.has(name)) {
-            return (hostScope.lookup(name))
+        def hostHit@(optional):EvalValue (hostScope.tryLookup(name))
+        if hostHit {
+            return (unwrap hostHit)
         }
         ; D-GLOBALOBJ: the built-in namespaces are real OBJECTS, not merely names
         ; the engine recognises structurally. They resolved to undefined, so
