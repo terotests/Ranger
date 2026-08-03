@@ -1097,13 +1097,15 @@ impl TSLexer {
           sawIdEscape = true;
           value = format!("{}{}", value, esc);
         } else {
-          let mut idTok : Rc<RefCell<Token>> = self.makeToken(TSLexer::identType(value.clone()), value.clone(), startPos, startLine, startCol);
+          let _tmp_1 = TSLexer::identType(value.clone());
+          let mut idTok : Rc<RefCell<Token>> = self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol);
           idTok.borrow_mut().hasEscape = sawIdEscape;
           return idTok.clone();
         }
       }
     };
-    let mut idTokEnd : Rc<RefCell<Token>> = self.makeToken(TSLexer::identType(value.clone()), value.clone(), startPos, startLine, startCol);
+    let _tmp_1 = TSLexer::identType(value.clone());
+    let mut idTokEnd : Rc<RefCell<Token>> = self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol);
     idTokEnd.borrow_mut().hasEscape = sawIdEscape;
     idTokEnd.clone()
   }
@@ -7126,7 +7128,7 @@ impl TSParserSimple {
     let mut cur : String = self.peekValue();
     let mut nxt : String = self.peekAheadValue(1);
     while (self.peekType() == "Punctuator") && (((cur == "<") && (nxt == "<")) || ((cur == ">") && (nxt == ">"))) {
-      // unused:  let mut startTok : Rc<RefCell<Token>> = self.peek();
+      let mut _startTok : Rc<RefCell<Token>> = self.peek();
       let mut op : String = "".to_string();
       if  cur == "<" {
         self.advance();
@@ -7452,7 +7454,7 @@ impl TSParserSimple {
       if  (tokVal == "<") && (self.peekType() == "Punctuator") {
         let mut shouldParseAsGenericCall : bool = false;
         if  !self.tsxMode {
-          // unused:  let next1 : String = self.peekAheadValue(1);
+          let _next1 : String = self.peekAheadValue(1);
           let next2 : String = self.peekAheadValue(2);
           if  ((next2 == ">") || (next2 == ",")) || (next2 == "extends") {
             shouldParseAsGenericCall = true;
@@ -8536,7 +8538,7 @@ impl TSParserSimple {
     node.clone()
   }
   fn parseParenOrArrow(&mut self) -> Rc<RefCell<TSNode>> {
-    // unused:  let mut startTok : Rc<RefCell<Token>> = self.peek();
+    let mut _startTok : Rc<RefCell<Token>> = self.peek();
     let savedPos : i64 = self.pos;
     let mut savedTok : Rc<RefCell<Token>> = self.currentToken.clone().unwrap();
     self.advance();
@@ -9100,7 +9102,7 @@ impl TSParserMain {
       println!("Error: Could not read file: {}", filename);
       return;
     }
-    let code : String = codeOpt.unwrap();
+    let code : String = codeOpt.clone().unwrap();
     let mut lexer : TSLexer = TSLexer::new(code.clone());
     let mut tokens : Vec<Rc<RefCell<Token>>> = lexer.tokenize();
     let mut parser : TSParserSimple = TSParserSimple::new();
@@ -9293,7 +9295,7 @@ impl TSParserMain {
       println!("Error: Could not read file: {}", filename);
       return;
     }
-    let code : String = codeOpt.unwrap();
+    let code : String = codeOpt.clone().unwrap();
     println!("=== Parsing: {} ===", filename);
     println!();
     let mut lexer : TSLexer = TSLexer::new(code.clone());

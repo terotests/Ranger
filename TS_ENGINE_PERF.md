@@ -41,20 +41,26 @@
 > other keywords as identifiers, cast parens in `<` comparisons
 > (`x as i64 < 2` parses as generics), tail-expression borrows of body
 > locals (E0597), and a move of a named String argument — take the
-> **TS parser from 37 errors to 0: it builds and runs as a native Rust
-> binary for the first time.** The interpreter itself is down from 676
-> errors to 23 and falling: `__singleton` classes now emit a
-> `thread_local!` accessor and are marked shared, moved-value shapes are
-> closed (map-insert keys/values and bare named args to owned parameters
-> clone), optional shared locals keep their `Option<Rc<RefCell<T>>>` type
-> through every use site, `this`-as-value returns the receiver's Rc, and
-> optional shared fields pre-evaluate self-borrowing right sides. What
-> remains is borrow choreography: moves out of `Ref<'_, T>` field reads
-> (9), double-borrow shapes (E0499/E0502, 6), and a handful of one-offs.
+> **Both native targets now build AND answer correctly. The TS parser
+> went from 37 errors to 0, and the interpreter from 676 to 0 — it
+> compiles, runs, and produces the exact JavaScript answers on 7 of the
+> 8 benchmark cases** (loop, fib, strcat, array, object, method, regex;
+> `keyorder` still shows the documented insertion-order divergence —
+> Rust's HashMap is unordered the same way C++'s std::map is sorted).
+> Getting from "compiles" to "correct" took two runtime-semantics fixes
+> on top of the borrow work: an unused `def` whose initializer CALLS
+> something now emits as a live `let _x = …` instead of a comment (the
+> for-loop update clause was silently dropped this way), and call sites
+> borrow a receiver's RefCell in the mode the method actually needs —
+> `borrow()` for `&self` methods — so an argument aliasing the receiver
+> (`v.equals(objectProto)` where v IS the prototype) no longer panics.
+> A conformance probe binary (`bench/native/probe_main.rgr`) evaluates
+> one JS snippet from argv for quick divergence hunting.
 >
-> **Still open:** the key-order conformance divergence (needs an
-> insertion-ordered map in the C++ runtime), and the engine's remaining
-> 23 Rust errors.
+> **Still open:** the key-order conformance divergence on BOTH native
+> targets (needs an insertion-ordered map in the compiler's map
+> runtime), and a native-vs-Node benchmark run now that the Rust build
+> is real.
 
 Where the TypeScript/JavaScript interpreter (`gallery/game_engine/v2/interp`)
 stands when compiled to a native target, why the C++ build is currently slower

@@ -913,8 +913,18 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               barg = (barg.getFirst())
             }
             if (((barg.expression == false) && ((strlen barg.vref) > 0)) && ((array_length barg.children) == 0)) {
+              ; the deciding desc: the name itself, or — for a dotted
+              ; field read, which comes out of a Ref and cannot move
+              ; (E0507) — the FINAL segment
+              def bpd2@(optional):RangerAppParamDesc
               if (((array_length barg.ns) == 1) && barg.hasParamDesc) {
-                def bpd:RangerAppParamDesc barg.paramDesc
+                bpd2 = barg.paramDesc
+              }
+              if (((array_length barg.ns) > 1) && ((array_length barg.nsp) > 0)) {
+                bpd2 = (itemAt barg.nsp ((array_length barg.nsp) - 1))
+              }
+              if (!null? bpd2) {
+                def bpd:RangerAppParamDesc (unwrap bpd2)
                 if (bpd.is_optional == false) {
                   def bNN@(optional):CodeNode bpd.nameNode
                   if (!null? bNN) {

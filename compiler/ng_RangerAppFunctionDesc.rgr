@@ -52,6 +52,11 @@ class RangerAppFunctionDesc {
   ; method of a shared class uses `this` as a value, directly or through a
   ; self-call chain, so its Rust form takes __self_rc : &Rc<RefCell<T>>.
   def rust_needs_self_rc:boolean false
+  ; the Rust receiver form: true = &mut self (default, conservative). Set
+  ; from the class mutation graph before emission so CALL SITES can borrow
+  ; the receiver's RefCell in the matching mode — a borrow_mut() around a
+  ; &self method panics at runtime when an argument aliases the receiver.
+  def rust_mut_self:boolean true
   def rust_uses_self:boolean false      ; Method accesses this.field or calls this.method()
   def rust_passes_self_to_weak:boolean false  ; Method passes 'this' to a function that assigns to weak field
   
