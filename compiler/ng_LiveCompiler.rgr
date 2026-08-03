@@ -615,6 +615,31 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.newline()
     }
   }
+  ; The first operand of these operators is written through in place. The
+  ; Rust writer reads the LHS flag to borrow such a target mutably
+  ; (as_mut / borrow_mut) where a plain read borrows shared.
+  fn isMutatingOpName:boolean (n:string) {
+    if (n == "buffer_set") { return true }
+    if (n == "int_buffer_set") { return true }
+    if (n == "double_buffer_set") { return true }
+    if (n == "buffer_fill") { return true }
+    if (n == "int_buffer_fill") { return true }
+    if (n == "double_buffer_fill") { return true }
+    if (n == "buffer_copy") { return true }
+    if (n == "int_buffer_copy") { return true }
+    if (n == "double_buffer_copy") { return true }
+    if (n == "push") { return true }
+    if (n == "set") { return true }
+    if (n == "put") { return true }
+    if (n == "insert") { return true }
+    if (n == "clear") { return true }
+    if (n == "remove") { return true }
+    if (n == "removeIndex") { return true }
+    if (n == "removeLast") { return true }
+    if (n == "removeFirst") { return true }
+    return false
+  }
+
   fn walkCommand:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if ( cmd.expression ) {
 
@@ -742,8 +767,23 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
+            def mutTarget:boolean false
+            if (idx == 1) {
+              if ((array_length node.children) > 0) {
+                def opN:CodeNode (node.getFirst())
+                if (this.isMutatingOpName(opN.vref)) {
+                  mutTarget = true
+                }
+              }
+            }
             ctx.setInExpr()
+            if mutTarget {
+              ctx.setInLhs()
+            }
             this.WalkNode(arg ctx wr)
+            if mutTarget {
+              ctx.unsetInLhs()
+            }
             ctx.unsetInExpr()
           }
         }       

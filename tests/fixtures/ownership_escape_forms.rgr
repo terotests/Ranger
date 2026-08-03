@@ -1,0 +1,74 @@
+; Ownership escape forms the analyzer must see (PLAN_OWNERSHIP_SOUNDNESS 2-6):
+;   - the short form of a member store:   last = p
+;   - a store through a local alias:      def q p ... this.last = q
+;   - a store behind unwrap:              this.last = (unwrap maybe)
+;   - the value of a set, not the key:    set slots "x" p
+;   - a call whose callee stores the arg: this.keep(p), Keeper.staticKeep(...)
+;   - a read-only parameter stays borrowed, and a primitive argument can
+;     never carry ownership through a call
+
+class Node {
+    def name:string ""
+}
+
+class Keeper {
+    def last@(optional):Node
+    def items:[Node]
+    def slots:[string:Node]
+
+    fn shortStore:void (p:Node) {
+        last = p
+    }
+
+    fn aliasStore:void (p:Node) {
+        def q:Node p
+        this.last = q
+    }
+
+    fn unwrapStore:void (p:Node) {
+        def maybe@(optional):Node p
+        this.last = (unwrap maybe)
+    }
+
+    fn mapStore:void (p:Node) {
+        set slots "x" p
+    }
+
+    fn keep:void (p:Node) {
+        this.last = p
+    }
+
+    fn viaMethod:void (p:Node) {
+        this.keep(p)
+    }
+
+    fn viaStatic:void (p:Node) {
+        Keeper.staticKeep(this p)
+    }
+
+    static fn staticKeep:void (k:Keeper p:Node) {
+        k.last = p
+    }
+
+    fn touch:void (idx:int) {
+        print (to_string idx)
+    }
+
+    fn readAndCall:string (p:Node idx:int) {
+        this.touch(idx)
+        return p.name
+    }
+}
+
+fn main:void () {
+    def k:Keeper (new Keeper())
+    def n:Node (new Node())
+    n.name = "a"
+    k.shortStore(n)
+    k.aliasStore(n)
+    k.unwrapStore(n)
+    k.mapStore(n)
+    k.viaMethod(n)
+    k.viaStatic(n)
+    print (k.readAndCall(n 1))
+}

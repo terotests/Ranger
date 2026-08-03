@@ -39,30 +39,43 @@ the object ends.
 
 :::caution[The Rust output is different]
 The program above prints `a 1` on JavaScript, Go, Python, C++, Swift and the
-other targets that hold an object as a reference. It does not compile for Rust:
-the Rust writer gives a class a plain `struct`, so `let mut b : Counter = a;`
-moves the value and `rustc` rejects the read of `a` after it. Write a program
-that shares an object between two names for the eleven other targets, and test
-the Rust output before you depend on it.
+other targets that hold an object as a reference. By default it does not
+compile for Rust: the Rust writer gives a class a plain `struct`, so
+`let mut b : Counter = a;` moves the value and `rustc` rejects the read of
+`a` after it. The experimental flag `-rust-shared-classes` closes this: a
+class the compiler finds shared becomes `Rc<RefCell<T>>`, `def b:Counter a`
+clones the `Rc`, and the program prints `a 1` on Rust as well. Without the
+flag, test the Rust output before you depend on shared objects.
 :::
 
 ## What the compiler infers
 
 The compiler has a pass that reads the flow of each function and decides what
-happens to each parameter. It gives each parameter one of five states:
+happens to each parameter. It gives each parameter one of four states:
 
 | State | The pass saw | Example in a method |
 | --- | --- | --- |
 | `borrowed` | The function reads the argument, and the argument does not leave the function. | `return n.name` |
 | `moved` | The argument goes into the object graph of one other object. | `push items p` |
 | `shared` | The argument goes into more than one object graph. | `this.last = p` and `push items p` |
-| `owned` | The function holds the value. | |
-| `unknown` | The pass cannot decide, because the argument goes into a call whose own summary the pass does not hold. | `grid.setVal(idx 0 v)` |
+| `unknown` | The pass cannot decide, because the argument goes into a call the compiler holds no summary for. | a call into a plugin |
+
+A store counts in each of its forms: the long form `this.last = p`, the short
+form `last = p`, a store through a local alias (`def q p` and then
+`this.last = q`), a store behind `unwrap`, and the value of a `set`, a `put`
+or an `insert` into a member collection. An argument that goes into an
+ordinary call is
+followed into the callee: the pass reads the callee's own summary, so a
+parameter handed down a chain of read-only functions stays `borrowed`, and
+`k.adopt(p)` where `adopt` stores its parameter reads
+`moved (call adopt.p)`. (The name `owned` is reserved for a fifth state that
+no current path assigns.)
 
 The pass covers the methods, the static methods and the constructor of each
 class. It needs no annotation, and it decides most parameters: a compilation of
-`gallery/pdf_writer/src/tools/jpeg_scaler.rgr` reads 110 functions and gives
-`borrowed` to 255 parameters of 256.
+`gallery/pdf_writer/src/tools/jpeg_scaler.rgr` reads 110 functions and decides
+all 256 parameters — 254 `borrowed`, and 2 buffers that the decoder stores
+into a member.
 
 ### Read the result
 
@@ -75,23 +88,25 @@ rgrc program.rgr -l=cpp -strict-ownership
 ```text
 ownership[infer] fn keepTwice:
   param 'p' -> shared (this.last, items)
+ownership[infer] fn keep:
+  param 'p' -> moved (this.last)
+ownership[infer] fn store:
+  param 'p' -> moved (call keep.p)
 ownership[infer] fn distance:
   param 'a' -> borrowed
   param 'b' -> borrowed
-ownership[infer] fn paint:
-  param 'g' -> borrowed
-  param 'idx' -> unknown
-    WARNING: ownership of 'idx' could not be determined (escapes via call; needs interprocedural summary)
 ```
 
-Read the summary when you want to know what the compiler believes. A function
-that you believe to be read-only must show `borrowed` for each parameter.
+`keep` writes the short form `last = p`; `store` only forwards its parameter,
+and the summary of `keep` decides it. A parameter the pass cannot decide
+prints a `WARNING:` line under its `unknown` state.
 
-The pass counts a field store that names the receiver: `this.last = p`. It does
-not count the short form `last = p`, so a parameter that the short form stores
-can read `borrowed`. This makes the summary careful in the wrong direction, and
-it changes no output: the assignment of the field copies the reference and the
-object stays alive.
+Read the summary when you want to know what the compiler believes. A function
+that you believe to be read-only must show `borrowed` for each parameter. One
+form the pass does not follow yet: an argument passed to a **lambda** the
+function received (`cb(v)`) reads `borrowed` even when the lambda stores it.
+The C++ output stays correct — a lambda takes its arguments by value — but
+the summary is optimistic there.
 
 ### `@(pure)`
 
@@ -116,9 +131,27 @@ double  Reg::distance( const std::shared_ptr<Point>& a , const std::shared_ptr<P
 void    Reg::keepTwice( std::shared_ptr<Point> p ) {
 ```
 
-A parameter in one of the four other states keeps the copy, because the function
-can hold the object after the call. The eleven other writers do not read the
-summary, so for them the pass is a reading tool.
+A parameter in one of the three other states keeps the copy, because the
+function can hold the object after the call.
+
+A reference binds the caller's storage, so the call site pays attention to
+what the argument names. A local, a parameter, `this` or a fresh value binds
+directly. An argument that names a member field or a collection element is
+passed as a copy, `std::shared_ptr<T>( … )`: the callee can reach that field
+through the object graph, and without the copy a reassignment inside the call
+would swap the object under the reference — the program would read a
+different object than every reference-semantics target reads, and a grown
+collection would leave the reference dangling.
+
+The Rust writer reads the summary as well. A parameter it proves `borrowed`
+— and that the mutation analysis confirms untouched — becomes `&T`, and the
+call site passes `&x` in the place of a whole-struct clone. The summary also
+ends in a per-class verdict — which classes ever share an object — that the
+experimental `-rust-shared-classes` flag turns into `Rc<RefCell<T>>`;
+[the memory page](/Ranger/docs/targets/memory/) holds both.
+
+The ten other writers do not read the summary, so for them the pass is a
+reading tool.
 
 ## What the compiler cannot infer
 
@@ -181,8 +214,9 @@ strength and the lifetime of each reference through the assignments.
    that does not own: the child points at the parent, the observer points at the
    subject.
 4. Compile for C++ with `-strict-ownership` and read the summary. A parameter
-   that you believe to be read-only and that the pass calls `unknown` costs a
-   copy of a pointer at each call.
+   that you believe to be read-only must show `borrowed`; one that the pass
+   calls `moved`, `shared` or `unknown` costs a copy of a pointer at each
+   call.
 
 The nine targets that collect memory need none of this. The program is the same
 for them, and the annotations change nothing in their output.

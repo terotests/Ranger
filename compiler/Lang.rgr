@@ -3082,7 +3082,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 swift6 ( "Int(" (e 1 ) ")" )
                 kotlin ( (e 1 ) ".toInt()" )
                 scala ( (e 1 ) ".toInt" )
-                rust ( (e 1 ) " as i64 " )
+                rust ( "(" (e 1 ) ").floor() as i64 " )
                 go ( "int64(" (e 1) ")")
                 php ( "floor(" (e 1) ")")
                 java7 ( "Double.valueOf(" (e 1) ").intValue()")
@@ -4333,7 +4333,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  kotlin ( (e 1) ".clear()" )
                  scala ( (e 1) ".clear()" )
                  go ( (e 1) " = " (e 1) "[:0]" )
-                 rust ( custom )
+                 rust ( (custom _) )
                  * ( (e 1) ".length = 0;" nl )                                              
             }
         }

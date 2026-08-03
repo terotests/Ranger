@@ -17,6 +17,15 @@ class StaticAnalyzer {
   
   ; Registry of operators that mutate their first argument
   def mutatingOps:[string:boolean]
+
+  ; Pending interprocedural ownership edges (ownership inference, Phase B).
+  ; walkForEscapes records one entry per argument that is a heap-owned
+  ; parameter passed to a call whose fnDesc the flow parser resolved;
+  ; resolveCallEscapes reads the callee summaries through them to a fixpoint.
+  ; Three parallel arrays: the argument's own desc, the callee, the arg index.
+  def own_call_params:[RangerAppParamDesc]
+  def own_call_callees:[RangerAppFunctionDesc]
+  def own_call_indexes:[int]
   
   Constructor () {
     ; Initialize empty - will be set up when analyzeAll is called
@@ -1398,17 +1407,21 @@ class StaticAnalyzer {
   }
   
   ; ============================================================================
-  ; OWNERSHIP INFERENCE (target-independent escape summary, Phase A: diagnostics)
+  ; OWNERSHIP INFERENCE (target-independent escape summary)
   ; ============================================================================
   ; Infers per-parameter OwnershipKind by observing where values escape:
-  ;   x.field = p          -> p moved into x's object graph
-  ;   push self.coll p     -> p moved into a member/parameter collection
-  ;   return p             -> p escapes to caller
-  ;   pure function        -> args never transfer ownership (borrowed)
-  ; The pass itself only records + reports. The C++ writer reads the result:
-  ; a `borrowed` object parameter becomes `const std::shared_ptr<T>&` instead
-  ; of a copy of the pointer (cppBorrowedObjectParam). Every other writer still
-  ; ignores it, so for them the pass stays a diagnostic.
+  ;   x.field = p / field = p  -> p moved into an object graph
+  ;   push coll p, set/put m k p -> p moved into a member/parameter collection
+  ;   return p                 -> p escapes to caller
+  ;   def q p ... store q      -> the alias escapes p
+  ;   callee(p)                -> p escapes if the callee's summary says its
+  ;                               parameter does (resolveCallEscapes fixpoint)
+  ;   pure function            -> args never transfer ownership (borrowed)
+  ; The C++ writer reads the result: a `borrowed` object parameter becomes
+  ; `const std::shared_ptr<T>&` instead of a copy of the pointer
+  ; (cppBorrowedObjectParam), with a call-site copy where the argument is not
+  ; a stable name (cppNeedsCallTempCopy). Every other writer still ignores it,
+  ; so for them the pass stays a diagnostic.
 
   fn ownershipKindName:string (kind:int) {
     if (kind == 1) { return "owned" }
@@ -1526,30 +1539,199 @@ class StaticAnalyzer {
     }
   }
 
+  ; The name a value expression escapes under. Sees through `unwrap`, so
+  ; `this.last = (unwrap maybe)` counts `maybe`. A field read (`x.y`) is a
+  ; different object than `x`, so it names nothing here.
+  fn escapeValueName:string (node:CodeNode) {
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "unwrap") {
+          return (this.escapeValueName((node.getSecond())))
+        }
+      }
+      return ""
+    }
+    if ((array_length node.ns) >= 2) {
+      return ""
+    }
+    return node.vref
+  }
+
+  ; The parameter that `name` is an alias of, or "" when it is none.
+  ; aliasNames/aliasRoots is the per-function alias table walkForEscapes
+  ; builds from `def x y`; roots are stored resolved, so one lookup is enough.
+  fn aliasRootOf:string (name:string aliasNames:[string] aliasRoots:[string]) {
+    if ((strlen name) == 0) {
+      return ""
+    }
+    for aliasNames n:string i {
+      if (n == name) {
+        return (itemAt aliasRoots i)
+      }
+    }
+    return ""
+  }
+
+  ; Record an escape for the named value, and for the parameter it aliases:
+  ; `def q p` followed by `this.last = q` moves p as surely as `this.last = p`.
+  fn recordEscapeAliased:void (valueName:string ownerPath:string via:string fnCtx:RangerAppWriterContext aliasNames:[string] aliasRoots:[string]) {
+    this.recordEscape(valueName ownerPath via fnCtx)
+    def root:string (this.aliasRootOf(valueName aliasNames aliasRoots))
+    if ((strlen root) > 0) {
+      if (root != valueName) {
+        this.recordEscape(root ownerPath via fnCtx)
+      }
+    }
+  }
+
+  ; The desc of a call argument that could transfer ownership: a heap-owned
+  ; parameter of the current function (through aliases and unwrap), or an
+  ; empty desc when the argument is anything else.
+  fn callArgParam:RangerAppParamDesc (arg:CodeNode fnCtx:RangerAppWriterContext aliasNames:[string] aliasRoots:[string]) {
+    def name:string (this.escapeValueName(arg))
+    if ((strlen name) == 0) {
+      return (new RangerAppParamDesc())
+    }
+    def root:string (this.aliasRootOf(name aliasNames aliasRoots))
+    if ((strlen root) > 0) {
+      name = root
+    }
+    def ap:RangerAppParamDesc (fnCtx.getVariableDef(name))
+    if ((strlen ap.name) == 0) {
+      return ap
+    }
+    if (ap.varType != RangerContextVarType.FunctionParameter) {
+      return (new RangerAppParamDesc())
+    }
+    if ((this.isHeapOwnedParam(ap)) == false) {
+      return (new RangerAppParamDesc())
+    }
+    return ap
+  }
+
+  fn markCallArgsResolved:void (argsNode:CodeNode callee:RangerAppFunctionDesc fnCtx:RangerAppWriterContext aliasNames:[string] aliasRoots:[string]) {
+    for argsNode.children arg:CodeNode i {
+      def ap:RangerAppParamDesc (this.callArgParam(arg fnCtx aliasNames aliasRoots))
+      if ((strlen ap.name) > 0) {
+        push own_call_params ap
+        push own_call_callees callee
+        push own_call_indexes i
+      }
+    }
+  }
+
+  fn markCallArgsUnresolved:void (argsNode:CodeNode fnCtx:RangerAppWriterContext aliasNames:[string] aliasRoots:[string]) {
+    for argsNode.children arg:CodeNode i {
+      def ap:RangerAppParamDesc (this.callArgParam(arg fnCtx aliasNames aliasRoots))
+      if ((strlen ap.name) > 0) {
+        ap.escape_via_call = true
+      }
+    }
+  }
+
+  ; An argument that goes into a call may transfer ownership to the callee.
+  ; The tree holds three call shapes when this pass runs, the same shapes
+  ; walkForTransitiveWeak reads:
+  ;   hasFnCall  : obj.method(args)         -> args under child 1
+  ;   has_call   : (call obj method (args)) -> args at child 3
+  ;   hasNewOper : new Cl(args)             -> args at child 2, callee is the
+  ;                constructor
+  ; A resolved callee records a pending edge for resolveCallEscapes; a call
+  ; without a summary (a lambda, a plugin) leaves the argument undecidable.
+  fn collectCallArgEscapes:void (node:CodeNode fnCtx:RangerAppWriterContext aliasNames:[string] aliasRoots:[string]) {
+    def argsAt:int 1
+    if (node.hasFnCall == false) {
+      if node.has_call {
+        argsAt = 3
+      } {
+        argsAt = 2
+      }
+    }
+    if ((array_length node.children) <= argsAt) {
+      return
+    }
+    def argsNode:CodeNode (itemAt node.children argsAt)
+    if node.hasNewOper {
+      if (null? node.clDesc) {
+        return
+      }
+      def cl:RangerAppClassDesc node.clDesc
+      if (!null? cl.constructor_fn) {
+        this.markCallArgsResolved(argsNode (unwrap cl.constructor_fn) fnCtx aliasNames aliasRoots)
+      }
+      return
+    }
+    if (!null? node.fnDesc) {
+      this.markCallArgsResolved(argsNode (unwrap node.fnDesc) fnCtx aliasNames aliasRoots)
+    } {
+      this.markCallArgsUnresolved(argsNode fnCtx aliasNames aliasRoots)
+    }
+  }
+
   ; Walk a function body collecting ownership escape facts.
-  fn walkForEscapes:void (node:CodeNode fnCtx:RangerAppWriterContext) {
+  fn walkForEscapes:void (node:CodeNode fnCtx:RangerAppWriterContext aliasNames:[string] aliasRoots:[string]) {
     if node.expression {
       if ((array_length node.children) > 0) {
         def first:CodeNode (node.getFirst())
 
-        ; obj.field = value  ->  value escapes into obj's object graph
-        if ((first.vref == "=") && ((array_length node.children) >= 3)) {
-          def lhs:CodeNode (node.getSecond())
-          def rhs:CodeNode (itemAt node.children 2)
-          if ((array_length lhs.ns) >= 2) {
-            def ownerPath:string (join lhs.ns ".")
-            this.recordEscape(rhs.vref ownerPath "field" fnCtx)
+        ; def x:T y  ->  x is an alias of y: an escape of x is an escape of y
+        if ((first.vref == "def") && ((array_length node.children) >= 3)) {
+          def defName:CodeNode (node.getSecond())
+          def initVal:CodeNode (itemAt node.children 2)
+          def src:string (this.escapeValueName(initVal))
+          if ((strlen src) > 0) {
+            def root:string (this.aliasRootOf(src aliasNames aliasRoots))
+            if ((strlen root) == 0) {
+              root = src
+            }
+            def sp:RangerAppParamDesc (fnCtx.getVariableDef(root))
+            if ((strlen sp.name) > 0) {
+              if (sp.varType == RangerContextVarType.FunctionParameter) {
+                push aliasNames defName.vref
+                push aliasRoots root
+              }
+            }
           }
         }
 
-        ; push/set/put into a member or parameter collection  ->  value escapes
-        if (((first.vref == "push") || (first.vref == "set")) || (first.vref == "put")) {
-          if ((array_length node.children) >= 3) {
+        ; obj.field = value  ->  value escapes into obj's object graph.
+        ; The short form `field = value` is the same store when `field` is a
+        ; class variable; only the long form names the receiver in the tree.
+        if ((first.vref == "=") && ((array_length node.children) >= 3)) {
+          def lhs:CodeNode (node.getSecond())
+          def rhs:CodeNode (itemAt node.children 2)
+          def valueName:string (this.escapeValueName(rhs))
+          if ((array_length lhs.ns) >= 2) {
+            def ownerPath:string (join lhs.ns ".")
+            this.recordEscapeAliased(valueName ownerPath "field" fnCtx aliasNames aliasRoots)
+          } {
+            if ((strlen lhs.vref) > 0) {
+              def lp:RangerAppParamDesc (fnCtx.getVariableDef(lhs.vref))
+              if ((strlen lp.name) > 0) {
+                if lp.is_class_variable {
+                  this.recordEscapeAliased(valueName ("this." + lhs.vref) "field" fnCtx aliasNames aliasRoots)
+                }
+              }
+            }
+          }
+        }
+
+        ; push/set/put/insert into a member or parameter collection -> value
+        ; escapes. `push coll v` holds the value at child 2; `set coll k v`,
+        ; `put coll k v` and `insert coll i v` hold the key/index there and
+        ; the value at child 3.
+        if ((((first.vref == "push") || (first.vref == "set")) || (first.vref == "put")) || (first.vref == "insert")) {
+          def valueAt:int 2
+          if (first.vref != "push") {
+            valueAt = 3
+          }
+          if ((array_length node.children) > valueAt) {
             def target:CodeNode (node.getSecond())
-            def value:CodeNode (itemAt node.children 2)
+            def value:CodeNode (itemAt node.children valueAt)
             if (this.targetOutlivesScope(target fnCtx)) {
               def ownerPath:string (this.ownerPathOf(target))
-              this.recordEscape(value.vref ownerPath "member-coll" fnCtx)
+              this.recordEscapeAliased((this.escapeValueName(value)) ownerPath "member-coll" fnCtx aliasNames aliasRoots)
             }
           }
         }
@@ -1558,31 +1740,19 @@ class StaticAnalyzer {
         if (first.vref == "return") {
           if ((array_length node.children) >= 2) {
             def rv:CodeNode (node.getSecond())
-            this.recordEscape(rv.vref "<return>" "return" fnCtx)
-          }
-        }
-
-        ; method call (call receiver method (args)) -> args may transfer ownership
-        ; to a callee we have not summarized yet (interprocedural, Phase B).
-        if (first.vref == "call") {
-          if ((array_length node.children) >= 4) {
-            def argsExpr:CodeNode (itemAt node.children 3)
-            for argsExpr.children arg:CodeNode ai {
-              if ((strlen arg.vref) > 0) {
-                def ap:RangerAppParamDesc (fnCtx.getVariableDef(arg.vref))
-                if ((strlen ap.name) > 0) {
-                  if (ap.varType == RangerContextVarType.FunctionParameter) {
-                    ap.escape_via_call = true
-                  }
-                }
-              }
-            }
+            this.recordEscapeAliased((this.escapeValueName(rv)) "<return>" "return" fnCtx aliasNames aliasRoots)
           }
         }
       }
     }
+
+    ; an argument passed to a call may transfer ownership to the callee
+    if ((node.has_call || node.hasFnCall) || node.hasNewOper) {
+      this.collectCallArgEscapes(node fnCtx aliasNames aliasRoots)
+    }
+
     for node.children child:CodeNode i {
-      this.walkForEscapes(child fnCtx)
+      this.walkForEscapes(child fnCtx aliasNames aliasRoots)
     }
   }
 
@@ -1602,15 +1772,20 @@ class StaticAnalyzer {
     return s
   }
 
-  ; Classify each parameter after the escape walk and (when strict) report.
-  fn finalizeOwnership:void (fn:RangerAppFunctionDesc strict:boolean) {
-    def isPure:boolean false
+  fn fnIsPure:boolean (fn:RangerAppFunctionDesc) {
     if (!null? fn.nameNode) {
       if ((unwrap fn.nameNode).hasFlag("pure")) {
-        isPure = true
+        return true
       }
     }
-    def header_done:boolean false
+    return false
+  }
+
+  ; Classify each parameter after the escape walk. This is the optimistic
+  ; intraprocedural answer; resolveCallEscapes may escalate it before the
+  ; report pass reads it.
+  fn classifyOwnership:void (fn:RangerAppFunctionDesc) {
+    def isPure:boolean (this.fnIsPure(fn))
     for fn.params param:RangerAppParamDesc i {
       if (param.varType == RangerContextVarType.FunctionParameter) {
         def ownerCount:int (array_length param.escape_owners)
@@ -1628,8 +1803,8 @@ class StaticAnalyzer {
               param.ownership_resolved = true
             } {
               if param.escape_via_call {
-                ; Passed into another call whose ownership summary is not yet
-                ; propagated -> cannot decide intraprocedurally.
+                ; Passed into a call the flow parser holds no summary for
+                ; (a lambda, a plugin) -> cannot decide.
                 param.ownership_kind = 0
                 param.ownership_resolved = false
               } {
@@ -1639,41 +1814,948 @@ class StaticAnalyzer {
             }
           }
         }
-        if strict {
-          if (header_done == false) {
-            print ("ownership[infer] fn " + fn.name + ":")
-            header_done = true
+      }
+    }
+  }
+
+  ; Phase B: resolve the pending call edges against the callee summaries, to
+  ; a fixpoint. An argument passed where the callee says moved/shared escapes
+  ; into that callee; passed where the callee says borrowed it stays free;
+  ; passed where the callee itself is undecided it is undecided too.
+  ; Escalation is monotone, so the loop terminates; the round cap is a guard.
+  fn resolveCallEscapes:void () {
+    def changed:boolean true
+    def rounds:int 0
+    while changed {
+      changed = false
+      rounds = rounds + 1
+      if (rounds > 50) {
+        return
+      }
+      for own_call_params ap:RangerAppParamDesc ri {
+        def callee:RangerAppFunctionDesc (itemAt own_call_callees ri)
+        def argIndex:int (itemAt own_call_indexes ri)
+        if (argIndex >= (array_length callee.params)) {
+          continue
+        }
+        def cp:RangerAppParamDesc (itemAt callee.params argIndex)
+        if (!null? cp.nameNode) {
+          ; a keyword marker of a record constructor carries no value
+          if ((unwrap cp.nameNode).hasFlag("keyword")) {
+            continue
           }
-          print ("  param '" + param.name + "' -> " + (this.ownershipKindName(param.ownership_kind)) + (this.ownerSuffix(param)))
-          if (param.ownership_resolved == false) {
-            print ("    WARNING: ownership of '" + param.name + "' could not be determined (escapes via call; needs interprocedural summary)")
+        }
+        if (cp.ownership_resolved == false) {
+          ; the callee's own answer is undecided -> so is the argument
+          if ((array_length ap.escape_owners) == 0) {
+            if ap.ownership_resolved {
+              ap.ownership_kind = 0
+              ap.ownership_resolved = false
+              ap.escape_via_call = true
+              changed = true
+            }
+          }
+          continue
+        }
+        if ((cp.ownership_kind == 3) || (cp.ownership_kind == 4)) {
+          def ownerPath:string ((("call " + callee.name) + ".") + cp.name)
+          def already:boolean false
+          for ap.escape_owners o:string oi {
+            if (o == ownerPath) {
+              already = true
+            }
+          }
+          if (already == false) {
+            push ap.escape_owners ownerPath
+            def cnt:int (array_length ap.escape_owners)
+            def newKind:int 3
+            if (cnt >= 2) {
+              newKind = 4
+            }
+            if ((ap.ownership_kind != newKind) || (ap.ownership_resolved == false)) {
+              ap.ownership_kind = newKind
+              ap.ownership_resolved = true
+              changed = true
+            }
           }
         }
       }
     }
   }
 
-  fn analyzeOwnership:void (fn:RangerAppFunctionDesc strict:boolean) {
-    if (!null? fn.fnBody) {
-      if (!null? fn.fnCtx) {
-        this.walkForEscapes((unwrap fn.fnBody) (unwrap fn.fnCtx))
+  fn reportOwnership:void (fn:RangerAppFunctionDesc) {
+    def header_done:boolean false
+    for fn.params param:RangerAppParamDesc i {
+      if (param.varType == RangerContextVarType.FunctionParameter) {
+        if (header_done == false) {
+          print ("ownership[infer] fn " + fn.name + ":")
+          header_done = true
+        }
+        print ("  param '" + param.name + "' -> " + (this.ownershipKindName(param.ownership_kind)) + (this.ownerSuffix(param)))
+        if (param.ownership_resolved == false) {
+          print ("    WARNING: ownership of '" + param.name + "' could not be determined (escapes via a call the compiler could not resolve)")
+        }
       }
     }
-    this.finalizeOwnership(fn strict)
   }
 
-  fn analyzeOwnershipClass:void (cl:RangerAppClassDesc strict:boolean) {
+  fn reportOwnershipClass:void (cl:RangerAppClassDesc) {
+    for cl.methods m:RangerAppFunctionDesc i {
+      this.reportOwnership(m)
+    }
+    for cl.static_methods sm:RangerAppFunctionDesc i {
+      this.reportOwnership(sm)
+    }
+    if (!null? cl.constructor_fn) {
+      this.reportOwnership((unwrap cl.constructor_fn))
+    }
+  }
+
+  fn analyzeOwnership:void (fn:RangerAppFunctionDesc) {
+    ; A pure function states its answer; the pass does not read the body.
+    if ((this.fnIsPure(fn)) == false) {
+      if (!null? fn.fnBody) {
+        if (!null? fn.fnCtx) {
+          def aliasNames:[string]
+          def aliasRoots:[string]
+          this.walkForEscapes((unwrap fn.fnBody) (unwrap fn.fnCtx) aliasNames aliasRoots)
+        }
+      }
+    }
+    this.classifyOwnership(fn)
+  }
+
+  fn analyzeOwnershipClass:void (cl:RangerAppClassDesc) {
     currentClass = cl
     for cl.methods m:RangerAppFunctionDesc i {
-      this.analyzeOwnership(m strict)
+      this.analyzeOwnership(m)
     }
     ; A static method takes parameters like any other method, and a writer that
     ; reads the summary (the C++ writer) needs the answer for it as well.
     for cl.static_methods sm:RangerAppFunctionDesc i {
-      this.analyzeOwnership(sm strict)
+      this.analyzeOwnership(sm)
     }
     if (!null? cl.constructor_fn) {
-      this.analyzeOwnership((unwrap cl.constructor_fn) strict)
+      this.analyzeOwnership((unwrap cl.constructor_fn))
+    }
+  }
+
+  ; ============================================================================
+  ; CLASS SHARING (PLAN_RUST_OWNERSHIP step 2: which classes need Rc<RefCell>)
+  ; ============================================================================
+  ; A class needs reference semantics on a value-model target when some object
+  ; of it is ever aliased and held: stored into an object graph, aliased by a
+  ; def or an assignment and then mutated through a name, read out of a field
+  ; or a collection into a mutated local, or the target of a weak field (a
+  ; Weak has to have an Rc to downgrade). A class none of that ever happens to
+  ; keeps the plain struct and pays nothing.
+
+  fn markClassShared:void (typeName:string reason:string) {
+    if ((strlen typeName) == 0) {
+      return
+    }
+    if (this.isPrimitiveTypeName(typeName)) {
+      return
+    }
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((root.isDefinedClass(typeName)) == false) {
+      return
+    }
+    def cl:RangerAppClassDesc (root.findClass(typeName))
+    if cl.is_system {
+      return
+    }
+    if cl.is_union {
+      return
+    }
+    if cl.is_system_union {
+      return
+    }
+    if cl.rust_needs_ref_semantics {
+      return
+    }
+    cl.rust_needs_ref_semantics = true
+    cl.rust_ref_reason = reason
+  }
+
+  fn classNameOfDesc:string (p:RangerAppParamDesc) {
+    if ((strlen p.name) == 0) {
+      return ""
+    }
+    if (null? p.nameNode) {
+      return ""
+    }
+    def tn:CodeNode (unwrap p.nameNode)
+    if ((strlen tn.array_type) > 0) {
+      return ""
+    }
+    if ((strlen tn.key_type) > 0) {
+      return ""
+    }
+    if (this.isPrimitiveTypeName(tn.type_name)) {
+      return ""
+    }
+    return tn.type_name
+  }
+
+  ; The class name a named value holds, or "" for a primitive, a collection
+  ; or an unknown name.
+  fn sharedClassNameOf:string (name:string fnCtx:RangerAppWriterContext) {
+    if ((strlen name) == 0) {
+      return ""
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(name))
+    return (this.classNameOfDesc(p))
+  }
+
+  ; The class name a value NODE holds. The function context only resolves
+  ; function-level names — a local defined inside a while or an if body lives
+  ; in a sub-context — so the node's own desc is the primary source.
+  fn nodeClassNameOf:string (node:CodeNode fnCtx:RangerAppWriterContext) {
+    if (node.expression == false) {
+      if node.hasParamDesc {
+        if (!null? node.paramDesc) {
+          return (this.classNameOfDesc((unwrap node.paramDesc)))
+        }
+      }
+    }
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "unwrap") {
+          return (this.nodeClassNameOf((node.getSecond()) fnCtx))
+        }
+      }
+    }
+    return (this.sharedClassNameOf((this.escapeValueName(node)) fnCtx))
+  }
+
+  ; The names a function mutates an object through: the receiver of a method
+  ; call, the root of a field assignment, the target of a mutating operator.
+  ; Collected here rather than read from the mutation pass, because that pass
+  ; only runs for the C++ and the Rust target and only marks parameters.
+  fn collectMutatedNames:void (node:CodeNode names:[string]) {
+    if node.hasFnCall {
+      def fc:CodeNode (node.getFirst())
+      if ((array_length fc.ns) >= 2) {
+        def recv:string (itemAt fc.ns 0)
+        if (recv != "this") {
+          push names recv
+        }
+      }
+    }
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+        if ((first.vref == "=") && ((array_length node.children) >= 3)) {
+          def lhs:CodeNode (node.getSecond())
+          if ((array_length lhs.ns) >= 2) {
+            def lroot:string (itemAt lhs.ns 0)
+            if (lroot != "this") {
+              push names lroot
+            }
+          }
+        }
+        if (this.isMutatingNode(node)) {
+          if ((array_length node.children) >= 2) {
+            def target:CodeNode (node.getSecond())
+            def troot:string (this.getRootVarName(target))
+            if ((troot != "this") && ((strlen troot) > 0)) {
+              push names troot
+            }
+          }
+        }
+      }
+    }
+    ; an argument handed to a parameter the callee mutates is mutated too
+    if ((node.has_call || node.hasFnCall) || node.hasNewOper) {
+      def cmArgsAt:int 1
+      if (node.hasFnCall == false) {
+        if node.has_call {
+          cmArgsAt = 3
+        } {
+          cmArgsAt = 2
+        }
+      }
+      if ((array_length node.children) > cmArgsAt) {
+        def cmArgs:CodeNode (itemAt node.children cmArgsAt)
+        if (!null? node.fnDesc) {
+          def cmCallee:RangerAppFunctionDesc (unwrap node.fnDesc)
+          for cmArgs.children cmArg:CodeNode cmi {
+            if (cmi < (array_length cmCallee.params)) {
+              def cmParam:RangerAppParamDesc (itemAt cmCallee.params cmi)
+              if cmParam.sharing_mutates {
+                def cmName:string (this.escapeValueName(cmArg))
+                if ((strlen cmName) > 0) {
+                  push names cmName
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    for node.children child:CodeNode i {
+      this.collectMutatedNames(child names)
+    }
+  }
+
+  ; Which parameters does each function mutate, directly (a method call on
+  ; the name, a field store, a mutating operator) or by passing the name on
+  ; to a parameter that does? A fixpoint, because the chains nest.
+  fn computeSharingMutations:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    def changed:boolean true
+    def rounds:int 0
+    while changed {
+      changed = false
+      rounds = rounds + 1
+      if (rounds > 30) {
+        return
+      }
+      for root.definedClasses cl:RangerAppClassDesc ci {
+        for cl.methods m:RangerAppFunctionDesc i {
+          if (this.markSharingMutations(m)) {
+            changed = true
+          }
+        }
+        for cl.static_methods sm:RangerAppFunctionDesc i {
+          if (this.markSharingMutations(sm)) {
+            changed = true
+          }
+        }
+        if (!null? cl.constructor_fn) {
+          if (this.markSharingMutations((unwrap cl.constructor_fn))) {
+            changed = true
+          }
+        }
+      }
+    }
+  }
+
+  fn markSharingMutations:boolean (fn:RangerAppFunctionDesc) {
+    if (null? fn.fnBody) {
+      return false
+    }
+    def mutated:[string]
+    this.collectMutatedNames((unwrap fn.fnBody) mutated)
+    def changed:boolean false
+    for fn.params param:RangerAppParamDesc i {
+      if (param.sharing_mutates == false) {
+        if (this.nameIn(param.name mutated)) {
+          param.sharing_mutates = true
+          changed = true
+        }
+      }
+    }
+    return changed
+  }
+
+  fn nameIn:boolean (name:string names:[string]) {
+    for names n:string i {
+      if (n == name) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn varIsMutated:boolean (name:string fnCtx:RangerAppWriterContext mutated:[string]) {
+    if (this.nameIn(name mutated)) {
+      return true
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(name))
+    if ((strlen p.name) == 0) {
+      return false
+    }
+    if p.is_mutating {
+      return true
+    }
+    if (p.mutation_count > 0) {
+      return true
+    }
+    return false
+  }
+
+  ; True when the value expression reads stored state: a field (x.y), an
+  ; element (itemAt/get), or unwrap of either. A local defined from it
+  ; aliases the stored object.
+  fn readsStoredObject:boolean (node:CodeNode) {
+    if ((array_length node.ns) >= 2) {
+      return true
+    }
+    if node.expression {
+      ; a macro expansion can wrap its result in an extra pair of parens
+      if ((array_length node.children) == 1) {
+        def only:CodeNode (node.getFirst())
+        if only.expression {
+          return (this.readsStoredObject(only))
+        }
+      }
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "unwrap") {
+          return (this.readsStoredObject((node.getSecond())))
+        }
+        if (((first.vref == "itemAt") || (first.vref == "at")) || (first.vref == "get")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn walkForSharing:void (node:CodeNode fnCtx:RangerAppWriterContext fnName:string mutated:[string]) {
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+
+        ; a named value stored into any object graph is held there while the
+        ; name (or another alias of the object) stays reachable: shared
+        if (((((first.vref == "push") || (first.vref == "set")) || (first.vref == "put")) || (first.vref == "insert")) && ((array_length node.children) >= 3)) {
+          def storeAt:int 2
+          if (first.vref != "push") {
+            storeAt = 3
+          }
+          if ((array_length node.children) > storeAt) {
+            def stored:CodeNode (itemAt node.children storeAt)
+            def storedName:string (this.escapeValueName(stored))
+            if ((strlen storedName) > 0) {
+              def storedClass:string (this.nodeClassNameOf(stored fnCtx))
+              if ((strlen storedClass) > 0) {
+                this.markClassShared(storedClass ("stored in " + fnName))
+              }
+            }
+          }
+        }
+
+        ; a return of stored state hands the caller an alias of the object
+        ; graph; any caller can then mutate the stored object through it.
+        ; The short form counts too: `return dcTable0` returns the field as
+        ; surely as `return this.dcTable0`.
+        if ((first.vref == "return") && ((array_length node.children) >= 2)) {
+          def rv:CodeNode (node.getSecond())
+          def returnsStored:boolean (this.readsStoredObject(rv))
+          if (returnsStored == false) {
+            def rname:string (this.escapeValueName(rv))
+            if ((strlen rname) > 0) {
+              def rp:RangerAppParamDesc (fnCtx.getVariableDef(rname))
+              if ((strlen rp.name) > 0) {
+                if rp.is_class_variable {
+                  returnsStored = true
+                }
+              }
+            }
+          }
+          if returnsStored {
+            def cf@(optional):RangerAppFunctionDesc currentFunction
+            if (!null? cf) {
+              def cfn:RangerAppFunctionDesc (unwrap cf)
+              if (!null? cfn.nameNode) {
+                def rt:CodeNode (unwrap cfn.nameNode)
+                if ((((strlen rt.array_type) == 0) && ((strlen rt.key_type) == 0)) && ((this.isPrimitiveTypeName(rt.type_name)) == false)) {
+                  this.markClassShared(rt.type_name (("returns a stored object from " + fnName)))
+                }
+              }
+            }
+          }
+        }
+
+        ; def x y / def x (this.f) / def x (itemAt coll i): x aliases another
+        ; live name or a stored object. Sharing is observable only through a
+        ; mutation, so an alias nobody mutates does not count.
+        if ((first.vref == "def") && ((array_length node.children) >= 3)) {
+          def defName:CodeNode (node.getSecond())
+          def initVal:CodeNode (itemAt node.children 2)
+          ; the def's own desc, because a block-scoped local is invisible to
+          ; the function-level context
+          def cn:string ""
+          if (!null? defName.paramDesc) {
+            cn = (this.classNameOfDesc((unwrap defName.paramDesc)))
+          }
+          if ((strlen cn) == 0) {
+            cn = (this.sharedClassNameOf(defName.vref fnCtx))
+          }
+          if ((strlen cn) > 0) {
+            def srcName:string (this.escapeValueName(initVal))
+            if ((strlen srcName) > 0) {
+              def srcClass:string (this.nodeClassNameOf(initVal fnCtx))
+              if ((strlen srcClass) > 0) {
+                if ((this.varIsMutated(defName.vref fnCtx mutated)) || (this.varIsMutated(srcName fnCtx mutated))) {
+                  this.markClassShared(cn ("aliased and mutated in " + fnName))
+                }
+              }
+            } {
+              if (this.readsStoredObject(initVal)) {
+                if (this.varIsMutated(defName.vref fnCtx mutated)) {
+                  this.markClassShared(cn ("stored object mutated through a local in " + fnName))
+                }
+              }
+            }
+          }
+        }
+
+        ; x = y with a bare local/param on the left: the same alias event.
+        ; A field on the left stores the named value into an object graph.
+        if ((first.vref == "=") && ((array_length node.children) >= 3)) {
+          def lhs:CodeNode (node.getSecond())
+          def rhs:CodeNode (itemAt node.children 2)
+          if ((array_length lhs.ns) >= 2) {
+            def fsName:string (this.escapeValueName(rhs))
+            if ((strlen fsName) > 0) {
+              def fsClass:string (this.nodeClassNameOf(rhs fnCtx))
+              if ((strlen fsClass) > 0) {
+                this.markClassShared(fsClass ("stored in " + fnName))
+              }
+            }
+          }
+          if (((array_length lhs.ns) < 2) && ((strlen lhs.vref) > 0)) {
+            def lp:RangerAppParamDesc (fnCtx.getVariableDef(lhs.vref))
+            if (((strlen lp.name) > 0) && lp.is_class_variable) {
+              ; short-form field store: `current = n`
+              def sfName:string (this.escapeValueName(rhs))
+              if ((strlen sfName) > 0) {
+                def sfClass:string (this.nodeClassNameOf(rhs fnCtx))
+                if ((strlen sfClass) > 0) {
+                  this.markClassShared(sfClass ("stored in " + fnName))
+                }
+              }
+            }
+            if (((strlen lp.name) > 0) && (lp.is_class_variable == false)) {
+              def cn:string (this.classNameOfDesc(lp))
+              if ((strlen cn) > 0) {
+                def srcName:string (this.escapeValueName(rhs))
+                if ((strlen srcName) > 0) {
+                  if ((this.varIsMutated(lhs.vref fnCtx mutated)) || (this.varIsMutated(srcName fnCtx mutated))) {
+                    this.markClassShared(cn ("aliased and mutated in " + fnName))
+                  }
+                } {
+                  if (this.readsStoredObject(rhs)) {
+                    this.markClassShared(cn ("stored object mutated through a local in " + fnName))
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.walkForSharing(child fnCtx fnName mutated)
+    }
+  }
+
+  fn analyzeClassSharingFn:void (fn:RangerAppFunctionDesc) {
+    ; a parameter the summary says escapes into a graph is held there while
+    ; the caller's name stays live: the classic shared object
+    for fn.params param:RangerAppParamDesc i {
+      if (param.varType == RangerContextVarType.FunctionParameter) {
+        if ((param.ownership_kind == 3) || (param.ownership_kind == 4)) {
+          if (!null? param.nameNode) {
+            def tn:CodeNode (unwrap param.nameNode)
+            if (((strlen tn.array_type) == 0) && ((strlen tn.key_type) == 0)) {
+              this.markClassShared(tn.type_name ((("stored via " + fn.name) + ".") + param.name))
+            }
+          }
+        }
+      }
+    }
+    if (!null? fn.fnBody) {
+      if (!null? fn.fnCtx) {
+        currentFunction = fn
+        def mutated:[string]
+        this.collectMutatedNames((unwrap fn.fnBody) mutated)
+        this.walkForSharing((unwrap fn.fnBody) (unwrap fn.fnCtx) fn.name mutated)
+      }
+    }
+  }
+
+  fn analyzeClassSharing:void () {
+    if (null? ctx) {
+      return
+    }
+    ; which parameters each function mutates, chains included — the alias
+    ; rules below read it through the per-function mutated-name sets
+    this.computeSharingMutations()
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      ; a weak field can only exist against an Rc: the target class is shared
+      for cl.variables cv:RangerAppParamDesc vi {
+        if (!null? cv.nameNode) {
+          def vn:CodeNode (unwrap cv.nameNode)
+          if (vn.hasFlag("weak")) {
+            this.markClassShared(vn.type_name ((("weak field " + cl.name) + ".") + cv.name))
+          }
+        }
+      }
+      for cl.methods m:RangerAppFunctionDesc i {
+        this.analyzeClassSharingFn(m)
+      }
+      for cl.static_methods sm:RangerAppFunctionDesc i {
+        this.analyzeClassSharingFn(sm)
+      }
+      if (!null? cl.constructor_fn) {
+        this.analyzeClassSharingFn((unwrap cl.constructor_fn))
+      }
+    }
+  }
+
+  fn reportClassSharing:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      if cl.is_system {
+        continue
+      }
+      if cl.is_union {
+        continue
+      }
+      if cl.is_system_union {
+        continue
+      }
+      if cl.is_trait {
+        continue
+      }
+      if cl.rust_needs_ref_semantics {
+        print ((("ownership[rust] class " + cl.name) + " -> Rc<RefCell> (") + (cl.rust_ref_reason + ")"))
+      } {
+        print (("ownership[rust] class " + cl.name) + " -> value")
+      }
+    }
+  }
+
+  ; PLAN_RUST_OWNERSHIP step 2b, behind -rust-shared-classes: give every
+  ; name that holds an object of a shared class the Rc<RefCell<T>> mode the
+  ; writer already implements for weak-wrapped values (rust_needs_rc_wrap).
+  ; Fields, parameters and locals of a shared class all take the flag; a
+  ; parameter that step 1 made &T goes back to the wrapped mode, because the
+  ; two cannot combine.
+  fn sharedClassOfDesc:string (p:RangerAppParamDesc) {
+    if (null? p.nameNode) {
+      return ""
+    }
+    def tn:CodeNode (unwrap p.nameNode)
+    if ((strlen tn.array_type) > 0) {
+      return ""
+    }
+    if ((strlen tn.key_type) > 0) {
+      return ""
+    }
+    def typeName:string tn.type_name
+    if ((strlen typeName) == 0) {
+      return ""
+    }
+    if (this.isPrimitiveTypeName(typeName)) {
+      return ""
+    }
+    if (null? ctx) {
+      return ""
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((root.isDefinedClass(typeName)) == false) {
+      return ""
+    }
+    def cl:RangerAppClassDesc (root.findClass(typeName))
+    if (cl.rust_needs_ref_semantics == false) {
+      return ""
+    }
+    return typeName
+  }
+
+  fn markDescRcWrap:void (p:RangerAppParamDesc) {
+    if ((strlen (this.sharedClassOfDesc(p))) > 0) {
+      p.rust_needs_rc_wrap = true
+      ; an Rc-wrapped value passes as a clone of the Rc; the borrow modes of
+      ; the mutation pass do not apply to it
+      p.rust_borrow_type = 0
+      p.needs_cpp_reference = false
+    }
+  }
+
+  fn walkForSharedLocals:void (node:CodeNode) {
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "def") {
+          def nameNode:CodeNode (node.getSecond())
+          if (!null? nameNode.paramDesc) {
+            this.markDescRcWrap((unwrap nameNode.paramDesc))
+          }
+        }
+        ; the iteration variable of a for loop binds an element: over a
+        ; shared-element collection it holds the element's Rc
+        if ((first.vref == "for") && ((array_length node.children) >= 3)) {
+          def itemNode:CodeNode (itemAt node.children 2)
+          if (!null? itemNode.paramDesc) {
+            this.markDescRcWrap((unwrap itemNode.paramDesc))
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.walkForSharedLocals(child)
+    }
+  }
+
+  ; Does this body use `this` as a value (a bare `this` node, not the
+  ; receiver of a field or a call)?
+  fn fnUsesThisValue:boolean (fn:RangerAppFunctionDesc) {
+    if (null? fn.fnBody) {
+      return false
+    }
+    def found false
+    def fb:CodeNode (unwrap fn.fnBody)
+    fb.forTree({
+      if (item.vref == "this") {
+        found = true
+      }
+    })
+    return found
+  }
+
+  ; Does this body self-call a method that already needs the self Rc?
+  fn fnSelfCallsNeedy:boolean (fn:RangerAppFunctionDesc) {
+    if (null? fn.fnBody) {
+      return false
+    }
+    def found false
+    def fb:CodeNode (unwrap fn.fnBody)
+    fb.forTree({
+      if item.hasFnCall {
+        if ((array_length item.children) > 0) {
+          def fc:CodeNode (item.getFirst())
+          if ((array_length fc.ns) == 2) {
+            if ((itemAt fc.ns 0) == "this") {
+              if (!null? item.fnDesc) {
+                def cf:RangerAppFunctionDesc (unwrap item.fnDesc)
+                if cf.rust_needs_self_rc {
+                  found = true
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+    return found
+  }
+
+  ; Which methods of the shared classes need __self_rc: the direct users of
+  ; `this` as a value, plus — to a fixpoint — every method that self-calls
+  ; one, because the callee's hidden argument has to come from somewhere.
+  fn computeSelfRcNeeds:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      if (cl.rust_needs_ref_semantics == false) {
+        continue
+      }
+      for cl.methods m:RangerAppFunctionDesc i {
+        if (m.is_lambda == false) {
+          if (this.fnUsesThisValue(m)) {
+            m.rust_needs_self_rc = true
+          }
+        }
+      }
+    }
+    def changed:boolean true
+    def rounds:int 0
+    while changed {
+      changed = false
+      rounds = rounds + 1
+      if (rounds > 30) {
+        return
+      }
+      for root.definedClasses cl:RangerAppClassDesc ci {
+        if (cl.rust_needs_ref_semantics == false) {
+          continue
+        }
+        for cl.methods m:RangerAppFunctionDesc i {
+          if (m.rust_needs_self_rc == false) {
+            if (this.fnSelfCallsNeedy(m)) {
+              m.rust_needs_self_rc = true
+              changed = true
+            }
+          }
+        }
+      }
+    }
+  }
+
+  fn applySharedClassRcWrap:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      for cl.variables cv:RangerAppParamDesc vi {
+        this.markDescRcWrap(cv)
+      }
+      for cl.methods m:RangerAppFunctionDesc i {
+        for m.params param:RangerAppParamDesc pi {
+          this.markDescRcWrap(param)
+        }
+        if (!null? m.fnBody) {
+          this.walkForSharedLocals((unwrap m.fnBody))
+        }
+      }
+      for cl.static_methods sm:RangerAppFunctionDesc i {
+        for sm.params param:RangerAppParamDesc pi {
+          this.markDescRcWrap(param)
+        }
+        if (!null? sm.fnBody) {
+          this.walkForSharedLocals((unwrap sm.fnBody))
+        }
+      }
+      if (!null? cl.constructor_fn) {
+        def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        for constr.params param:RangerAppParamDesc pi {
+          this.markDescRcWrap(param)
+        }
+        if (!null? constr.fnBody) {
+          this.walkForSharedLocals((unwrap constr.fnBody))
+        }
+      }
+    }
+  }
+
+  ; The Rust reading of the summary (PLAN_RUST_OWNERSHIP step 1). An object
+  ; parameter the summary proves `borrowed` can be `&T`: no store into any
+  ; graph, no return, no storing callee down the chain. The mutation pass
+  ; guards the rest — a mutated, called-on or reassigned parameter keeps its
+  ; mode. The writer already emits `name : &T`, takes `&x` at the call site
+  ; and restores `.clone()` when a reference goes to an owned parameter, so
+  ; the upgrade is the flag alone. Run after analyzeOwnershipAll, and after
+  ; analyzeAll, for the rust target.
+  fn rustBorrowedObjectParam:boolean (cl:RangerAppClassDesc param:RangerAppParamDesc) {
+    if (param.varType != RangerContextVarType.FunctionParameter) {
+      return false
+    }
+    if (param.ownership_resolved == false) {
+      return false
+    }
+    if (param.ownership_kind != 2) {
+      return false
+    }
+    if (param.rust_borrow_type != 0) {
+      return false
+    }
+    if param.rust_needs_rc_wrap {
+      return false
+    }
+    if param.needs_cpp_reference {
+      return false
+    }
+    if param.rust_assigned_to_field {
+      return false
+    }
+    if param.is_mutating {
+      return false
+    }
+    if (param.mutation_count > 0) {
+      return false
+    }
+    if (param.set_cnt > 0) {
+      return false
+    }
+    ; a signature in an inheritance chain must stay stable across overrides
+    if cl.is_inherited {
+      return false
+    }
+    if cl.is_trait {
+      return false
+    }
+    if ((array_length cl.extends_classes) > 0) {
+      return false
+    }
+    if (null? param.nameNode) {
+      return false
+    }
+    def tn:CodeNode (unwrap param.nameNode)
+    if (tn.hasFlag("optional")) {
+      return false
+    }
+    if (tn.hasFlag("keyword")) {
+      return false
+    }
+    if ((strlen tn.array_type) > 0) {
+      return false
+    }
+    if ((strlen tn.key_type) > 0) {
+      return false
+    }
+    def typeName:string tn.type_name
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if (this.isPrimitiveTypeName(typeName)) {
+      return false
+    }
+    if (null? ctx) {
+      return false
+    }
+    def rootCtx:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((rootCtx.isDefinedClass(typeName)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (rootCtx.findClass(typeName))
+    if tc.is_system {
+      return false
+    }
+    if tc.is_union {
+      return false
+    }
+    if tc.is_system_union {
+      return false
+    }
+    if tc.is_trait {
+      return false
+    }
+    if tc.is_inherited {
+      return false
+    }
+    if ((array_length tc.extends_classes) > 0) {
+      return false
+    }
+    return true
+  }
+
+  fn applyOwnershipToRustBorrowsFn:void (cl:RangerAppClassDesc fn:RangerAppFunctionDesc) {
+    if fn.is_lambda {
+      return
+    }
+    for fn.params param:RangerAppParamDesc i {
+      if (this.rustBorrowedObjectParam(cl param)) {
+        param.rust_borrow_type = 1
+      }
+    }
+  }
+
+  fn applyOwnershipToRustBorrows:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      for cl.methods m:RangerAppFunctionDesc i {
+        this.applyOwnershipToRustBorrowsFn(cl m)
+      }
+      for cl.static_methods sm:RangerAppFunctionDesc i {
+        this.applyOwnershipToRustBorrowsFn(cl sm)
+      }
+      ; constructors stay owned: a constructor argument almost always ends in
+      ; a field, and the construction call path has its own emission rules
     }
   }
 
@@ -1681,6 +2763,9 @@ class StaticAnalyzer {
   ; on each parameter and (when strict) reports it. VirtualCompiler runs it for
   ; every C++ compilation, because the C++ writer reads the summary, and for any
   ; target under -strict-ownership. Does not run the Rust-specific passes.
+  ; Order: every function is classified intraprocedurally first, then the
+  ; pending call edges are resolved to a fixpoint, then the report prints —
+  ; so the printed summary is the interprocedural one.
   fn analyzeOwnershipAll:void (strict:boolean) {
     if (null? ctx) {
       return
@@ -1688,7 +2773,17 @@ class StaticAnalyzer {
     this.initMutatingOps()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     for root.definedClasses cl:RangerAppClassDesc i {
-      this.analyzeOwnershipClass(cl strict)
+      this.analyzeOwnershipClass(cl)
+    }
+    this.resolveCallEscapes()
+    ; which classes would need Rc<RefCell> on a value-model target — reads
+    ; the resolved summaries, so it runs after the fixpoint
+    this.analyzeClassSharing()
+    if strict {
+      for root.definedClasses cl:RangerAppClassDesc i {
+        this.reportOwnershipClass(cl)
+      }
+      this.reportClassSharing()
     }
   }
 

@@ -18,7 +18,7 @@ writers do not read it.
 | 3 | `final class` (Swift) | Done |
 | 4a | `weak var` (Swift) | Done, for a field that is also `optional` |
 | 4b | `std::weak_ptr` (C++) | Done, through the `r_weak<T>` wrapper |
-| 4c | `weak` (Rust) | Open. The first version of this document said that Rust held it already. That was wrong: the output does not compile. See finding 5. |
+| 4c | `weak` (Rust) | Works behind `-rust-shared-classes`: the sharing analysis makes the classes of the cycle `Rc<RefCell<T>>`, the back reference downgrades the live Rc, and the parent–child program compiles, runs and reads back through the weak field. See PLAN_RUST_OWNERSHIP. |
 | 5 | `record` as a value type (C++, Swift) | Not done, and see below: the measurement found a different fault in `record`, which is fixed |
 
 The sections below hold the measurement of each finding as it stood before the

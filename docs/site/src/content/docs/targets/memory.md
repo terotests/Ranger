@@ -42,14 +42,15 @@ count as a change in place are the buffer operators, `push`, `set`, `clear`,
 
 ### 2. The ownership inference
 
-The second pass reads where each parameter goes and gives it one of five states:
-`borrowed`, `moved`, `shared`, `owned` or `unknown`.
+The second pass reads where each parameter goes — through every store form,
+and through the calls it passes into, against the summaries of the callees —
+and gives it one of four states: `borrowed`, `moved`, `shared` or `unknown`.
 [Ownership and lifetime](/Ranger/docs/language/ownership/) states what each one
 means and how to read the summary.
 
-The pass runs for a C++ compilation always, because the C++ writer reads the
-result. For any other target the flag `-strict-ownership` runs it. The flag also
-prints the result, on every target:
+The pass runs always for a C++ and for a Rust compilation, because both
+writers read the result. For any other target the flag `-strict-ownership`
+runs it. The flag also prints the result, on every target:
 
 ```sh
 rgrc program.rgr -l=cpp -strict-ownership
@@ -62,8 +63,21 @@ ownership[infer] fn attach:
 ```
 
 The numbers are large. The compilation of
-`gallery/pdf_writer/src/tools/jpeg_scaler.rgr` analyses 110 functions and gives
-`borrowed` to 255 parameters of 256.
+`gallery/pdf_writer/src/tools/jpeg_scaler.rgr` analyses 110 functions and
+decides all 256 parameters: 254 `borrowed`, and 2 buffers that the decoder
+stores into a member.
+
+The pass ends with a class-level verdict: a class some object of which is
+ever aliased and held — stored into an object graph, aliased and then
+mutated through a name, or the target of a `weak` field — needs reference
+semantics on a target whose objects are values. The flag prints this too:
+
+```text
+ownership[rust] class Counter -> Rc<RefCell> (aliased and mutated in main)
+ownership[rust] class Color -> value
+```
+
+On `jpeg_scaler.rgr`, 21 classes of 22 stay `value`.
 
 ## What the C++ writer does with the result
 
@@ -84,7 +98,15 @@ std::vector<int64_t> JPEGDecoder::decodeBlock(
 
 `const` applies to the pointer and not to the object, so `reader->readBit()`
 still compiles. A parameter that the program assigns to, or that the inference
-calls `moved`, `owned`, `shared` or `unknown`, stays a copy.
+calls `moved`, `shared` or `unknown`, stays a copy.
+
+A reference binds the caller's storage, so the call site pays attention to
+what the argument names. A local, a parameter, `this` or a fresh temporary
+binds directly. An argument that names a member field or a collection element
+is passed as a call-time copy, `std::shared_ptr<T>( … )`: the callee can
+reach that storage through the object graph, and without the copy a
+reassignment inside the call would swap the object under the reference, and a
+grown collection would leave it dangling.
 
 The check skips a method of a class that takes part in inheritance. A base and
 an override must have the same signature. The inference runs per function, so a
@@ -157,6 +179,53 @@ memory; `g++ -fsanitize=address` on the program above reports
 `168 byte(s) leaked in 3 allocation(s)`. With `weak` on the back reference the
 same program leaks nothing.
 
+## What the Rust writer does with the result
+
+### A proven-borrowed object parameter is `&T`
+
+A Rust class is a plain `struct`, so a read-only object argument used to pay
+a whole-struct `#[derive(Clone)]` copy at every call. A parameter the
+inference proves `borrowed` — and the mutation pass confirms untouched —
+now takes a reference, and the call site drops the clone:
+
+```rust
+// before                                    // now
+fn sumValue(mut a : Node, mut b : Node)      fn sumValue(a : &Node, b : &Node)
+bag.sumValue(root.clone(), child.clone());   bag.sumValue(&root, &child);
+```
+
+On `jpeg_scaler.rgr` the removed clones are the ones inside the pixel loops
+— `setPixel(x, y, c.clone())` becomes `setPixel(x, y, &c)` — and the binary
+writes the same file, byte for byte. A `moved` or `shared` parameter keeps
+the owned mode.
+
+### `-rust-shared-classes`: a shared class becomes `Rc<RefCell<T>>`
+
+By default an object is a value on Rust and a reference on the eleven other
+targets, so a program that shares an object between two names does not
+compile for Rust (the caution on the
+[ownership page](/Ranger/docs/language/ownership/)). The experimental flag
+`-rust-shared-classes` closes exactly that gap: every class the sharing
+verdict marks becomes `Rc<RefCell<T>>` — its fields, its parameters, its
+locals and its collection elements — while the classes marked `value` keep
+the plain struct and pay nothing.
+
+```rust
+let mut a : Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));
+let mut b : Rc<RefCell<Counter>> = a.clone();   // def b:Counter a — one object
+b.borrow_mut().add(1);                          // prints: a 1, on Rust too
+```
+
+A method that uses `this` as a value takes a hidden first parameter
+`__self_rc : &Rc<RefCell<T>>`, because `&mut self` cannot reach the `Rc`
+that holds the receiver; every call site passes the receiver's `Rc`
+alongside. That is what makes a live back reference possible — see `weak`
+below.
+
+The flag is experimental: a shared class in a return type, a strong optional
+field of one, and elements read out of shared collections do not follow the
+class yet. Without the flag the Rust output is unchanged, byte for byte.
+
 ## What the Swift writer does
 
 ### `final class`
@@ -203,7 +272,7 @@ the same program with and without each annotation.
 
 | Annotation | C++ | Swift | Rust | The nine other targets |
 | --- | --- | --- | --- | --- |
-| `weak` | The field becomes `r_weak<T>`, which holds a `std::weak_ptr<T>` | With `optional`, the field becomes `weak var x : T?` | The field becomes `Option<Weak<RefCell<T>>>` and the assignment becomes `Rc::downgrade(…)`, but the output does not compile. See below. | No change, and none is necessary |
+| `weak` | The field becomes `r_weak<T>`, which holds a `std::weak_ptr<T>` | With `optional`, the field becomes `weak var x : T?` | The field becomes `Option<Weak<RefCell<T>>>`. It works under `-rust-shared-classes` and not without the flag. See below. | No change, and none is necessary |
 | `strong` | No change | No change | — | No change |
 | `lives` | No change | No change | No change | No change |
 | `temp` | No change | No change | No change | No change |
@@ -211,36 +280,41 @@ the same program with and without each annotation.
 `lives` and `temp` are read by the lifetime bookkeeping of the compiler
 (`compiler/ng_RangerAppParamDesc.rgr`), not by a writer of a target language.
 
-### `weak` on Rust does not work yet
+### `weak` on Rust needs the flag
 
-The Rust writer has the most handling of `weak` of the three, and its output
-does not compile. The parent and child program above gives this:
+Without `-rust-shared-classes` a Rust class is a plain `struct`, no `Rc`
+holds the parent to downgrade, and the `weak` output does not compile. Do
+not use `@(weak)` in a program that must compile for Rust without the flag.
+
+With the flag, the sharing verdict makes both classes of the cycle
+`Rc<RefCell<T>>`, the back reference downgrades the `Rc` that really holds
+the receiver, and a read upgrades to that same `Rc`:
 
 ```rust
-c.parent = Some(Rc::downgrade(&Rc::new(RefCell::new(p.clone()))));
+fn adopt(&mut self, __self_rc : &Rc<RefCell<Parent>>, mut c : Rc<RefCell<Child>>) {
+  c.borrow_mut().parent = Some(Rc::downgrade(__self_rc));
+  self.kids.push(c.clone());
+}
 …
-let mut p : Parent = self.parent.clone().unwrap().upgrade().unwrap().borrow_mut();
+let mut back : Rc<RefCell<Parent>> = c.borrow_mut().parent.clone().unwrap().upgrade().unwrap();
 ```
 
-`rustc` rejects the second line: it gives a `RefMut<Parent>` to a `Parent`. The
-first line has a second fault that the compiler does not report: the `Rc` is a
-temporary, so the `Weak` that `Rc::downgrade` makes is dead at the end of the
-statement, and `upgrade()` would give `None`.
-
-The cause is the shape of a Rust class: the writer gives it a plain `struct`,
-so no `Rc` holds the parent to downgrade. `weak` therefore needs the Rust object
-model first. Do not use `@(weak)` in a program that must compile for Rust.
+The parent and child program compiles with `rustc`, runs, and reads the
+parent's name back through the child's weak field — the same output as the
+JavaScript build.
 
 ## What this means for a program
 
-- **`weak` works on C++ and on Swift.** Use it for a back reference. Two objects
-  that hold each other with strong references stay in memory on both. On Swift
-  write `@(weak optional)`, because a Swift weak reference must be optional. On
-  Rust the annotation does not work yet.
-- **The two C++ passes need no help.** A local that takes a member field and
-  changes it in place becomes a reference, and a parameter that the function
-  only reads becomes a reference, both by themselves.
+- **`weak` works on C++ and on Swift, and on Rust under
+  `-rust-shared-classes`.** Use it for a back reference. Two objects that
+  hold each other with strong references stay in memory on all three. On
+  Swift write `@(weak optional)`, because a Swift weak reference must be
+  optional.
+- **The passes need no help.** A local that takes a member field and changes
+  it in place becomes a C++ reference, and a parameter that a function only
+  reads becomes a reference on C++ and on Rust, all by themselves.
 - **`-strict-ownership` is a reading tool.** It states where the compiler
-  believes each argument goes. Use it to check that a function you believe to
-  be pure holds only `borrowed` parameters. Use it also to find the parameters
-  that the pass calls `unknown`: those still cost a copy in C++.
+  believes each argument goes, and which classes share objects. Use it to
+  check that a function you believe to be pure holds only `borrowed`
+  parameters, and to see which classes the Rust flag would make
+  `Rc<RefCell<T>>`.
