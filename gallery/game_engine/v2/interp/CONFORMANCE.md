@@ -358,6 +358,29 @@ them aside cannot quietly flatter the remaining number.
   was read, so the loop ran its body with `k` never set. A property deleted before
   it is reached is also no longer visited — the key list is snapshotted at entry.
 
+- **Whose strictness decides `this` is the CALLEE's.** It is stamped on the
+  function value when the function is created; asking the body again at call time
+  folds in the ambient flag — the *caller's* — so a sloppy function called from
+  strict code kept an undefined `this`, and a strict function nested in a sloppy
+  one saw the sloppy one's global object. A bare `f()` supplies no receiver at
+  all, which is the undefined case: a sloppy callee gets the global object and a
+  strict one gets undefined, rather than the name resolving up the scope chain to
+  whatever the defining scope had. Arrows are excluded — they genuinely have no
+  `this` of their own.
+
+- **A function built by the `Function` constructor never inherits the caller's
+  strictness.** It is strict only if its own body says so, which is why
+  `"use strict"; Function("return typeof this")()` is `"object"`.
+
+- **Indirect `eval` binds `this` to the global object**, whatever the caller's
+  `this` was. Running it at module scope alone let the name resolve to the
+  enclosing function's.
+
+- **STRICT eval code gets its own variable environment.** A `var` or function
+  declaration inside it no longer leaks into the caller — the scope is pushed
+  before the declarations are hoisted, or they land outside it — while sloppy eval
+  still shares the caller's, which is the whole difference between the two.
+
 - **The sloppy `arguments` object is MAPPED onto the named parameters.**
   `function f(a) { a = 1; return arguments[0]; }` answers 1, and
   `arguments[0] = 9` is visible as `a` — they are one binding, not a snapshot
@@ -638,7 +661,11 @@ more, not less.
 | `language/arguments-object` | **100%** (38/38, whole directory) |
 | `built-ins/JSON` | 98% (46/47) |
 | `language/statements` | 96% (541/562) |
-| ES5 overall | **98.7%** (888/900 sampled) |
+| `language/function-code` | 96% (204/212) |
+| `language/eval-code` | 96% (55/57) |
+| `language/types` | 91% (86/94) |
+| `language/directive-prologue` | 73% (37/51) |
+| ES5 overall | **99.4%** (895/900 sampled) |
 
 `built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
 `built-ins/RegExp`, `built-ins/Array`, `built-ins/Math`, `built-ins/Date`,
@@ -646,8 +673,8 @@ more, not less.
 directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1185 checks, every one of them derived from Node —
-1173 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1197 checks, every one of them derived from Node —
+1185 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

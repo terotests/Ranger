@@ -1382,6 +1382,20 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["callee-strict-write-throws", "return (function () { 'use strict'; var a = (function () { return arguments; })(); try { a.callee = {}; return 'no-throw'; } catch (e) { return e.name; } })();", "callee"],
   ["callee-strict-descriptor", "return (function () { 'use strict'; function f() { return Object.getOwnPropertyDescriptor(arguments, 'callee'); } var d = f(); return String(d.configurable) + '/' + String(d.enumerable) + '/' + String(d.hasOwnProperty('value')) + '/' + String(d.hasOwnProperty('get')) + '/' + String(d.hasOwnProperty('set')); })();", "callee"],
 
+  // --- whose strictness decides `this`, and strict eval's own scope ---------
+  ["fnctor-is-sloppy", "return (function () { 'use strict'; var f = Function('return typeof this;'); return f(); })();", "thisstrict"],
+  ["fnctor-own-directive-strict", "var f = Function('\"use strict\"; return typeof this;'); return f();", "thisstrict"],
+  ["sloppy-bare-call-gets-global", "function g() { return typeof this; } return g();", "thisstrict"],
+  ["strict-nested-in-sloppy-keeps-undefined", "var glob = this; function f1() { function f() { 'use strict'; return typeof this; } return f() === 'undefined' && this === glob; } return String(f1());", "thisstrict"],
+  ["arrow-this-still-lexical-bare", "var o = { v: 1, m: function () { var a = () => this.v; return a(); } }; return o.m();", "thisstrict"],
+  ["indirect-eval-this-is-global", "var glob = this; function t() { var me = eval; return me('this') === glob; } return String(t());", "thisstrict"],
+  ["strict-eval-var-does-not-leak", "return (function () { 'use strict'; eval('var xz = 1;'); return typeof xz; })();", "thisstrict"],
+  ["strict-eval-function-does-not-leak", "return (function () { 'use strict'; eval('function fz() {}'); return typeof fz; })();", "thisstrict"],
+  ["sloppy-eval-var-does-leak", "return (function () { eval('var xz2 = 1;'); return typeof xz2; })();", "thisstrict"],
+  ["strict-source-eval-var-does-not-leak", "return (function () { eval('\"use strict\"; var xz3 = 1;'); return typeof xz3; })();", "thisstrict"],
+  ["strict-eval-still-reads-and-writes-outer", "return (function () { 'use strict'; var q = 5; eval('q = 7'); return q; })();", "thisstrict"],
+  ["strict-eval-function-usable-inside", "return (function () { 'use strict'; return eval('function fz() { return 3; } fz();'); })();", "thisstrict"],
+
   // --- the sloppy arguments object is MAPPED onto the named parameters ------
   ["argmap-param-to-arguments", "function foo(a, b, c) { a = 1; b = 'str'; c = 2.1; return arguments[0] === 1 && arguments[1] === 'str' && arguments[2] === 2.1; } return String(foo(10, 'sss', 1));", "argmap"],
   ["argmap-arguments-to-param", "function foo(a) { arguments[0] = 9; return a; } return foo(1);", "argmap"],

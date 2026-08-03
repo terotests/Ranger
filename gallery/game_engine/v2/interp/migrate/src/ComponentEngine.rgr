@@ -1255,6 +1255,20 @@ class ComponentEngine {
 
     ; The strictness a function body runs under: its own directive, or the
     ; strictness already in force.
+    ; D-STRICT: strictness from the function's OWN body directive alone, with no
+    ; ambient flag folded in. The stamped `strictFn` answers the lexical
+    ; question; this answers it for a node with no value to hand.
+    fn bodyOnlyStrict:boolean (fnNode:TSNode) {
+        if (null? fnNode.body) {
+            return false
+        }
+        def bb:TSNode (unwrap fnNode.body)
+        if (bb.nodeType != "BlockStatement") {
+            return false
+        }
+        return (this.bodyIsStrict(bb))
+    }
+
     fn strictForBody:boolean (fnNode:TSNode) {
         if strictMode {
             return true
@@ -1393,9 +1407,18 @@ class ComponentEngine {
             if (decl.nodeType == "FunctionDeclaration") {
                 ; D-FNSRC: the closure records the source it was parsed from, not
                 ; the caller's.
+                ; D-STRICT: a function built by the Function CONSTRUCTOR never
+                ; inherits the caller's strictness -- it is strict only if its
+                ; own body says so. `"use strict"; Function("return typeof this")`
+                ; returns "object", because the built function is sloppy and
+                ; gets the global object. The ambient flag is set aside for the
+                ; capture so `strictForBody` reads the body alone.
                 def savedFnSrc:string currentSource
+                def savedFnStrict:boolean strictMode
                 currentSource = src
+                strictMode = false
                 def built:EvalValue (this.captureClosure(decl))
+                strictMode = savedFnStrict
                 currentSource = savedFnSrc
                 return built
             }
@@ -1443,7 +1466,13 @@ class ComponentEngine {
             return evSrc
         }
         def savedEvalCtx:EvalContext context
-        context = moduleScope
+        ; D-EVAL: indirect eval runs in the GLOBAL scope with `this` bound to the
+        ; global object, whatever the caller's `this` was. Running it at module
+        ; scope alone let `this` resolve to the enclosing function's, so
+        ; `var e = eval; e("this")` inside a method answered the receiver.
+        def evalCtx:EvalContext (moduleScope.createChild())
+        evalCtx.define("this" (this.theGlobalObject()))
+        context = evalCtx
         def evOut:EvalValue (this.runEvalSource(evSrc.stringValue))
         context = savedEvalCtx
         return evOut
@@ -1479,13 +1508,25 @@ class ComponentEngine {
         }
         ; Declarations first, so an eval'd function can be called by later
         ; statements in the same string.
-        this.hoistFunctionDeclarations(ast.children)
         ; D-COMPLETION: the eval result is the last non-empty completion of the
         ; whole program, not of its top-level expression statements. Reading only
         ; the latter meant `eval("for (i in o) s += o[i]")` was undefined where
         ; the spec says the body's last value.
         def savedCompletion:EvalValue completionValue
         completionValue = (EvalValue.undefined())
+        ; D-EVAL: STRICT eval code gets its own variable environment, so a `var`
+        ; or function it declares does not leak into the caller.
+        ; `"use strict"; eval("var x = 1"); typeof x` is "undefined". Sloppy
+        ; eval still shares the caller's, which is the whole difference. The
+        ; scope has to exist before the function declarations are hoisted, or
+        ; they land in the caller's.
+        def savedEvalScope:EvalContext context
+        def scopedEval:boolean false
+        if evParser.strictMode {
+            context = (context.createChild())
+            scopedEval = true
+        }
+        this.hoistFunctionDeclarations(ast.children)
         def i:int 0
         while (i < (array_length ast.children)) {
             def stmt:TSNode (itemAt ast.children i)
@@ -1503,12 +1544,18 @@ class ComponentEngine {
             }
             if scriptThrew {
                 completionValue = savedCompletion
+                if scopedEval {
+                    context = savedEvalScope
+                }
                 return (EvalValue.undefined())
             }
             i = (i + 1)
         }
         def out:EvalValue completionValue
         completionValue = savedCompletion
+        if scopedEval {
+            context = savedEvalScope
+        }
         return out
     }
 
@@ -5623,8 +5670,14 @@ class ComponentEngine {
             ; primitive receiver is boxed. A strict one keeps exactly what it was
             ; given. `Function("this.field = 1").apply()` turns on this rule.
             def rawThis:EvalValue (unwrap fnValue.boundThis)
-            def calleeStrict:boolean (this.strictForBody(fnNode))
-            if fnValue.strictFn {
+            ; D-STRICT: whose strictness decides is the CALLEE's, and it was
+            ; stamped on the value when the function was created. Asking
+            ; strictForBody here folds in the ambient flag -- the CALLER's -- so
+            ; a sloppy function called from strict code kept an undefined
+            ; `this`, which is exactly what `"use strict";
+            ; Function("return typeof this")()` reports.
+            def calleeStrict:boolean fnValue.strictFn
+            if (this.bodyOnlyStrict(fnNode)) {
                 calleeStrict = true
             }
             if (false == calleeStrict) {
@@ -5637,6 +5690,32 @@ class ComponentEngine {
                 }
             }
             context.define("this" rawThis)
+        } {
+            ; D-THISCOERCE: a bare `f()` supplies no receiver at all, which is
+            ; the undefined case -- so a SLOPPY callee still gets the global
+            ; object. Leaving `this` unbound let it resolve up the scope chain
+            ; to whatever the DEFINING scope had, which is not the same thing.
+            ; An ARROW takes `this` lexically and must not be given one here --
+            ; binding the global object would shadow the enclosing `this`.
+            def bareStrict:boolean fnValue.strictFn
+            if (this.bodyOnlyStrict(fnNode)) {
+                bareStrict = true
+            }
+            if (fnNode.nodeType == "ArrowFunctionExpression") {
+                bareStrict = true
+            }
+            if (false == bareStrict) {
+                context.define("this" (this.theGlobalObject()))
+            } {
+                ; A STRICT callee called bare has `this` UNDEFINED. Leaving it
+                ; unbound let the name resolve up the scope chain to whatever
+                ; the enclosing function had, so a strict function nested in a
+                ; sloppy one saw the sloppy one's global object. An arrow is the
+                ; exception: it genuinely has no `this` of its own.
+                if (fnNode.nodeType != "ArrowFunctionExpression") {
+                    context.define("this" (EvalValue.undefined()))
+                }
+            }
         }
         ; D-FNPROTO: arguments fixed by bind() come first, then the call site's.
         def effArgs:[EvalValue] argVals
