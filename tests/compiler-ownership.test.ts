@@ -198,14 +198,21 @@ describe("Ranger Compiler - class sharing analysis (PLAN_RUST_OWNERSHIP 2)", () 
 });
 
 describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERSHIP 1)", () => {
-  const result = getGeneratedRustCode(`${FIXTURES}/llvm_ownership_infer.rgr`);
+  // The fixture's Node is stored and weak-referenced, so the sharing default
+  // would make it Rc<RefCell<Node>>; the &T layer belongs to the value model,
+  // which stays testable behind -rust-value-classes.
+  const result = getGeneratedRustCode(
+    `${FIXTURES}/llvm_ownership_infer.rgr`,
+    undefined,
+    "-rust-value-classes"
+  );
 
   it("compiles the fixture to Rust", () => {
     expect(result.success, `Compile failed: ${result.error}`).toBe(true);
   });
 
   it("passes a borrowed object parameter as &T", () => {
-    expect(result.code).toContain("fn sumValue(&mut self, a : &Node, b : &Node)");
+    expect(result.code).toContain("fn sumValue(&self, a : &Node, b : &Node)");
   });
 
   it("takes &x at the call site instead of a whole-struct clone", () => {
@@ -218,7 +225,7 @@ describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERS
   });
 });
 
-describe("Ranger Compiler - Rc<RefCell> for shared classes behind -rust-shared-classes (PLAN_RUST_OWNERSHIP 2b)", () => {
+describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PLAN_RUST_OWNERSHIP 2b)", () => {
   const outDir = "tests/.output-ownership-rust";
   const env = {
     ...process.env,
@@ -233,11 +240,19 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes behind -rust-shared-c
     "utf-8"
   );
   execSync(
-    `node "${OUTPUT_JS}" -l=rust "./${FIXTURES}/ownership_shared_counter.rgr" -d="${outDir}" -o="plain_counter.rs"`,
+    `node "${OUTPUT_JS}" -l=rust -rust-value-classes "./${FIXTURES}/ownership_shared_counter.rgr" -d="${outDir}" -o="plain_counter.rs"`,
     { cwd: ROOT_DIR, env, timeout: 30000, stdio: ["pipe", "pipe", "pipe"] }
   );
   const plain = fs.readFileSync(
     path.join(ROOT_DIR, outDir, "plain_counter.rs"),
+    "utf-8"
+  );
+  execSync(
+    `node "${OUTPUT_JS}" -l=rust "./${FIXTURES}/ownership_shared_counter.rgr" -d="${outDir}" -o="default_counter.rs"`,
+    { cwd: ROOT_DIR, env, timeout: 30000, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  const bareDefault = fs.readFileSync(
+    path.join(ROOT_DIR, outDir, "default_counter.rs"),
     "utf-8"
   );
 
@@ -252,7 +267,11 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes behind -rust-shared-c
     expect(flagged).toContain("b.borrow_mut().add(1);");
   });
 
-  it("changes nothing without the flag", () => {
+  it("is the default: a bare -l=rust build equals the flag-on build", () => {
+    expect(bareDefault).toBe(flagged);
+  });
+
+  it("keeps the plain-struct model behind -rust-value-classes", () => {
     expect(plain).toContain("let mut b : Counter = a;");
     expect(plain).not.toContain("Rc<RefCell<Counter>>");
   });
@@ -307,7 +326,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes behind -rust-shared-c
     // `def m:Node (b.firstItem())` aliases the stored element; the program
     // compiles with rustc, runs, and prints `yy` like the ES6 output —
     // mutating through one alias is visible through the other.
-    expect(surfacesRs).toContain("fn firstItem(&mut self, ) -> Rc<RefCell<Node>>");
+    expect(surfacesRs).toContain("fn firstItem(&self) -> Rc<RefCell<Node>>");
   });
 
   it("gives a strong optional field of a shared class the Rc form", () => {

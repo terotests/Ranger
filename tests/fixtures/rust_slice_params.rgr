@@ -1,0 +1,22 @@
+class SliceProbe {
+    fn sum:int (data:[int]) {
+        def total:int 0
+        for data v:int i {
+            total = total + v
+        }
+        return total
+    }
+    fn sumTwice:int (data:[int]) {
+        return ((this.sum(data)) + (this.sum(data)))
+    }
+    fn firstByte:int (buf:buffer) {
+        return (buffer_get buf 0)
+    }
+}
+class SliceMain {
+    sfn m@(main):void () {
+        def s:SliceProbe (new SliceProbe())
+        def xs:[int] ([] 1 2 3)
+        print ("" + (s.sumTwice(xs)))
+    }
+}

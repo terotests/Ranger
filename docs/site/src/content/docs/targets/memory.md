@@ -199,16 +199,17 @@ On `jpeg_scaler.rgr` the removed clones are the ones inside the pixel loops
 writes the same file, byte for byte. A `moved` or `shared` parameter keeps
 the owned mode.
 
-### `-rust-shared-classes`: a shared class becomes `Rc<RefCell<T>>`
+### A shared class becomes `Rc<RefCell<T>>` — the default
 
-By default an object is a value on Rust and a reference on the eleven other
-targets, so a program that shares an object between two names does not
+An object used to be a value on Rust and a reference on the eleven other
+targets, so a program that shared an object between two names did not
 compile for Rust (the caution on the
-[ownership page](/Ranger/docs/language/ownership/)). The experimental flag
-`-rust-shared-classes` closes exactly that gap: every class the sharing
+[ownership page](/Ranger/docs/language/ownership/)). The shared-class model
+closes exactly that gap, and it is the default: every class the sharing
 verdict marks becomes `Rc<RefCell<T>>` — its fields, its parameters, its
 locals and its collection elements — while the classes marked `value` keep
-the plain struct and pay nothing.
+the plain struct and pay nothing. The flag `-rust-value-classes` restores
+the old plain-struct model for every class.
 
 ```rust
 let mut a : Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));
@@ -222,9 +223,13 @@ that holds the receiver; every call site passes the receiver's `Rc`
 alongside. That is what makes a live back reference possible — see `weak`
 below.
 
-The flag is experimental: a shared class in a return type, a strong optional
-field of one, and elements read out of shared collections do not follow the
-class yet. Without the flag the Rust output is unchanged, byte for byte.
+Every produced-or-consumed surface follows the class: a shared class in a
+return type hands out the `Rc`, a strong optional field is
+`Option<Rc<RefCell<T>>>`, and an element read out of a shared collection is
+the `Rc` itself. The model passed its conformance gate — the largest program
+in the repository compiles, runs, and writes output byte-identical to the
+ES6 and C++ targets — which is why it graduated from an experimental flag to
+the default.
 
 ## What the Swift writer does
 
@@ -272,7 +277,7 @@ the same program with and without each annotation.
 
 | Annotation | C++ | Swift | Rust | The nine other targets |
 | --- | --- | --- | --- | --- |
-| `weak` | The field becomes `r_weak<T>`, which holds a `std::weak_ptr<T>` | With `optional`, the field becomes `weak var x : T?` | The field becomes `Option<Weak<RefCell<T>>>`. It works under `-rust-shared-classes` and not without the flag. See below. | No change, and none is necessary |
+| `weak` | The field becomes `r_weak<T>`, which holds a `std::weak_ptr<T>` | With `optional`, the field becomes `weak var x : T?` | The field becomes `Option<Weak<RefCell<T>>>`. It works with the shared-class default and not under `-rust-value-classes`. See below. | No change, and none is necessary |
 | `strong` | No change | No change | — | No change |
 | `lives` | No change | No change | No change | No change |
 | `temp` | No change | No change | No change | No change |
@@ -280,13 +285,14 @@ the same program with and without each annotation.
 `lives` and `temp` are read by the lifetime bookkeeping of the compiler
 (`compiler/ng_RangerAppParamDesc.rgr`), not by a writer of a target language.
 
-### `weak` on Rust needs the flag
+### `weak` on Rust needs the shared-class model
 
-Without `-rust-shared-classes` a Rust class is a plain `struct`, no `Rc`
+Under `-rust-value-classes` a Rust class is a plain `struct`, no `Rc`
 holds the parent to downgrade, and the `weak` output does not compile. Do
-not use `@(weak)` in a program that must compile for Rust without the flag.
+not use `@(weak)` in a program that must compile for Rust with that flag.
 
-With the flag, the sharing verdict makes both classes of the cycle
+With the default shared-class model, the sharing verdict makes both classes
+of the cycle
 `Rc<RefCell<T>>`, the back reference downgrades the `Rc` that really holds
 the receiver, and a read upgrades to that same `Rc`:
 
@@ -296,7 +302,7 @@ fn adopt(&mut self, __self_rc : &Rc<RefCell<Parent>>, mut c : Rc<RefCell<Child>>
   self.kids.push(c.clone());
 }
 …
-let mut back : Rc<RefCell<Parent>> = c.borrow_mut().parent.clone().unwrap().upgrade().unwrap();
+let mut back : Rc<RefCell<Parent>> = c.borrow().parent.clone().unwrap().upgrade().unwrap();
 ```
 
 The parent and child program compiles with `rustc`, runs, and reads the
@@ -305,8 +311,8 @@ JavaScript build.
 
 ## What this means for a program
 
-- **`weak` works on C++ and on Swift, and on Rust under
-  `-rust-shared-classes`.** Use it for a back reference. Two objects that
+- **`weak` works on C++, on Swift, and on Rust.** Use it for a back
+  reference. Two objects that
   hold each other with strong references stay in memory on all three. On
   Swift write `@(weak optional)`, because a Swift weak reference must be
   optional.

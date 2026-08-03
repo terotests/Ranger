@@ -158,19 +158,14 @@ Probe: `gaps/stdlib_contains.rgr`.
 These compile and run correctly on ES6 and fail elsewhere, so their entry in
 `gaps.json` names the target to measure on.
 
-### Go: `for` over an array of objects does not declare the item
+### ~~Go: `for` over an array of objects does not declare the item~~ (fixed)
 
-```go
-var i int64 = 0;
-for ; i < int64(len(this.rows)) ; i++ {
-    fmt.Println( row.label )     // undefined: row
-}
-```
-
-A loop over `[int]` is written correctly, so the defect is in the object case.
-This one *is* worked around in the app: the shared `render()` walks its rows by
-index, because leaving it in the harness made every Go run fail for one reason.
-Probe: `gaps/go_for_object_array.rgr`.
+The Go writer asked `treeReferencesVRef` whether the loop body mentions the
+item, and the walk never matched a namespaced path's root — a body reading
+only `row.label` was judged not to reference `row`, so the binding line was
+omitted and the build stopped at `undefined: row`. Fixed in the compiler; the
+shared `render()` of `sx_base.rgr` uses the natural `for rows row:CheckRow i`
+form again and the probe is deleted.
 
 ### Go: `if!` with one block does not negate
 

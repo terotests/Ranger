@@ -17,6 +17,10 @@ class RangerRustClassWriter {
   ; call must borrow mutably (every method takes &mut self), where a plain
   ; field read borrows shared so that two reads of one cell can overlap.
   def rust_writing_call_receiver:boolean false
+  ; set when a signature has just written `&self`/`&mut self` so that
+  ; writeArgsDef knows to lead with a comma — and only then, so an empty
+  ; parameter list closes as `(&mut self)` and not `(&mut self, )`
+  def rust_receiver_written:boolean false
 
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -524,6 +528,22 @@ class RangerRustClassWriter {
                     wr.out(".as_mut().unwrap()" false)
                   }
                 }
+                ; a strong optional field of a shared class is
+                ; Option<Rc<RefCell<T>>>: the unwrap hands out the Rc, and
+                ; the next segment must go through the cell
+                def optSharedT:string ""
+                def pOptNN@(optional):CodeNode p.nameNode
+                if (!null? pOptNN) {
+                  def pOptN:CodeNode (unwrap pOptNN)
+                  optSharedT = pOptN.type_name
+                }
+                if (this.rustClassIsShared(optSharedT ctx)) {
+                  if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
+                    wr.out(".borrow_mut()" false)
+                  } {
+                    wr.out(".borrow()" false)
+                  }
+                }
               }
             }
           }
@@ -582,6 +602,20 @@ class RangerRustClassWriter {
   }
   ; A shared class in a return position hands out the Rc
   ; (PLAN_RUST_OWNERSHIP 2b); every other return type is unchanged.
+  ; closes a signature: ")" then " -> T", with the arrow dropped for a void
+  ; function — `-> ()` is never needed
+  fn writeRustFnClose:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out(")" false)
+    def fcnn:CodeNode (unwrap variant.nameNode)
+    if (((strlen fcnn.array_type) == 0) && ((strlen fcnn.key_type) == 0)) {
+      if (fcnn.type_name == "void") {
+        return
+      }
+    }
+    wr.out(" -> " false)
+    this.writeRustReturnType(variant ctx wr)
+  }
+
   fn writeRustReturnType:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     def vnn:CodeNode (unwrap variant.nameNode)
     if (((strlen vnn.array_type) == 0) && ((strlen vnn.key_type) == 0)) {
@@ -828,13 +862,13 @@ class RangerRustClassWriter {
   ; type, and Rust has no keyword argument, so the marker must not reach the
   ; signature: without this filter `record Point { def xpos:int 0 }` comes out
   ; as `pub fn new(xpos : , xpos : i64) -> Point`, which does not parse.
-  ; PLAN_RUST_OWNERSHIP 2b (-rust-shared-classes) support: is the named class
-  ; one the sharing analysis marked, with the flag on?
+  ; PLAN_RUST_OWNERSHIP 2b support: is the named class one the sharing
+  ; analysis marked? On by default; -rust-value-classes opts out.
   fn rustClassIsShared:boolean (typeName:string ctx:RangerAppWriterContext) {
     if ((strlen typeName) == 0) {
       return false
     }
-    if ((ctx.hasCompilerFlag("rust-shared-classes")) == false) {
+    if (ctx.hasCompilerFlag("rust-value-classes")) {
       return false
     }
     def typeClass@(optional):RangerAppClassDesc (ctx.findClass(typeName))
@@ -973,6 +1007,17 @@ class RangerRustClassWriter {
     return true
   }
 
+  ; the receiver of a method signature; the trailing comma is written by
+  ; writeArgsDef, and only when something follows
+  fn writeRustReceiver:void (mutSelf:boolean wr:CodeWriter) {
+    rust_receiver_written = true
+    if mutSelf {
+      wr.out("&mut self" false)
+    } {
+      wr.out("&self" false)
+    }
+  }
+
   fn writeArgsDef (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     def pms (filter (fnDesc.params) {
       if (item.nameNode.hasFlag("keyword")) {
@@ -980,14 +1025,19 @@ class RangerRustClassWriter {
       }
       return true
     })
+    def lead_comma:boolean rust_receiver_written
+    rust_receiver_written = false
     def wrote_selfrc:boolean false
     if (this.rustNeedsSelfRc(fnDesc ctx)) {
+      if lead_comma {
+        wr.out(", " false)
+      }
       def scc:RangerAppClassDesc (unwrap fnDesc.container_class)
       wr.out((("__self_rc : &Rc<RefCell<" + scc.name) + ">>") false)
       wrote_selfrc = true
     }
     for pms arg:RangerAppParamDesc i {
-      if ((i > 0) || wrote_selfrc) {
+      if (((i > 0) || wrote_selfrc) || lead_comma) {
         wr.out(", " false)
       }
       def nameN:CodeNode (unwrap arg.nameNode)
@@ -1032,9 +1082,33 @@ class RangerRustClassWriter {
         this.writeTypeDef(nameN ctx wr)
       } {
         if needsImmutableBorrow {
-          ; Parameter is borrowed but not mutated - immutable reference
-          wr.out((paramName + " : &") false)
-          this.writeTypeDef(nameN ctx wr)
+          ; Parameter is borrowed but not mutated - immutable reference.
+          ; A borrowed collection or buffer of scalars is a slice: clippy's
+          ; ptr_arg — `&Vec<u8>` involves a new object where `&[u8]` will
+          ; do, and `&Vec` coerces to `&[T]` at every call site.
+          def slice_elem:string ""
+          if ((strlen nameN.array_type) > 0) {
+            def ael:string nameN.array_type
+            if (((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char")) {
+              slice_elem = (this.getObjectTypeString(ael ctx))
+            }
+          } {
+            if (nameN.type_name == "buffer") {
+              slice_elem = "u8"
+            }
+            if (nameN.type_name == "int_buffer") {
+              slice_elem = "i64"
+            }
+            if (nameN.type_name == "double_buffer") {
+              slice_elem = "f64"
+            }
+          }
+          if ((strlen slice_elem) > 0) {
+            wr.out((((paramName + " : &[") + slice_elem) + "]") false)
+          } {
+            wr.out((paramName + " : &") false)
+            this.writeTypeDef(nameN ctx wr)
+          }
         } {
           if is_object {
             wr.out(("mut " + paramName + " : ") false)
@@ -1231,7 +1305,6 @@ class RangerRustClassWriter {
   ; Does NOT consider transitive mutations via method calls
   fn fnBodyDirectlyMutatesThis:boolean (node:CodeNode ctx:RangerAppWriterContext) {
     ; Debug: show every node being checked
-    print ("DEBUG fnBodyDirectlyMutatesThis: vref=" + node.vref + " has_call=" + (to_string node.has_call) + " children=" + (to_string (array_length node.children)))
     
     ; Check ns array for optional field access (requires as_mut())
     if (has node.ns) {
@@ -1249,11 +1322,26 @@ class RangerRustClassWriter {
             }
           }
         }
-        ; Also check if first part is a class member that's optional
+        ; Also check if first part is a class member that's optional — only a
+        ; member: an operator name like `itemAt` also resolves here, and its
+        ; weak-typed desc read as "optional access" made every collection
+        ; read count as a mutation
         if (ctx.isVarDefined(firstPart)) {
           def vDef:RangerAppParamDesc (ctx.getVariableDef(firstPart))
-          if vDef.is_optional {
-            return true
+          if (vDef.is_optional && vDef.is_class_variable) {
+            ; an uninitialized member collection carries is_optional on the
+            ; desc, but the Rust field is a plain Vec/HashMap, never Option
+            def vDefIsColl:boolean false
+            def vdNN@(optional):CodeNode vDef.nameNode
+            if (!null? vdNN) {
+              def vdN:CodeNode (unwrap vdNN)
+              if (((strlen vdN.array_type) > 0) || ((strlen vdN.key_type) > 0)) {
+                vDefIsColl = true
+              }
+            }
+            if (vDefIsColl == false) {
+              return true
+            }
           }
         }
       }
@@ -1294,26 +1382,24 @@ class RangerRustClassWriter {
     }
     
     ; Check for method calls on member variables (e.g., this.fontManager.loadFont())
-    ; This mutates the member variable (requires &mut self)
+    ; This mutates the member variable (requires &mut self) — except a read
+    ; operator on a member collection, string or buffer: `itemAt items 0` is
+    ; a has_call on `items`, and counting it as a write made every getter
+    ; take &mut self
     if node.has_call {
       if ((array_length node.children) >= 3) {
         def callObj:CodeNode (node.getSecond())
         def methodNode:CodeNode (node.getThird())
-        ; Debug: show what we're checking
-        print ("DEBUG fnBodyDirectlyMutatesThis: has_call=true callObj.vref=" + callObj.vref + " method=" + methodNode.vref + " ns_len=" + (to_string (array_length callObj.ns)))
+        def member_call_target:boolean false
         ; Check if callObj is a member variable or starts with 'this.'
         if (has callObj.ns) {
           if ((array_length callObj.ns) > 0) {
             def firstPart:string (itemAt callObj.ns 0)
-            print ("DEBUG fnBodyDirectlyMutatesThis: ns[0]=" + firstPart)
             if (firstPart == "this") {
-              ; this.something.method() - assume it could mutate
-              return true
+              member_call_target = true
             }
             if (ctx.isMemberVariable(firstPart)) {
-              ; memberVar.method() - assume it could mutate
-              print ("DEBUG fnBodyDirectlyMutatesThis: " + firstPart + " is member, returning true")
-              return true
+              member_call_target = true
             }
           }
         }
@@ -1321,19 +1407,56 @@ class RangerRustClassWriter {
         if ((strlen callObj.vref) > 5) {
           def prefix:string (substring callObj.vref 0 5)
           if (prefix == "this.") {
-            return true
+            member_call_target = true
           }
         }
         ; Check if callObj is a member variable directly (e.g., fontManager.loadFont())
         if ((strlen callObj.vref) > 0) {
           if (ctx.isMemberVariable(callObj.vref)) {
-            print ("DEBUG fnBodyDirectlyMutatesThis: " + callObj.vref + " is member variable, returning true")
+            member_call_target = true
+          }
+        }
+        if member_call_target {
+          if (this.rustCallTargetIsCollection(callObj)) {
+            ; only the mutating collection operators write through self
+            if (this.rustIsMutatingOpName(methodNode.vref)) {
+              return true
+            }
+          } {
+            ; a user-class member: any method could mutate it
             return true
           }
         }
       }
     }
     
+    ; a mutating collection or buffer operation on a member target writes
+    ; through self — `push tokens t` never shows up as an `=` node
+    if ((array_length node.children) >= 2) {
+      def opFc:CodeNode (node.getFirst())
+      if (this.rustIsMutatingOpName(opFc.vref)) {
+        def opTarget:CodeNode (node.getSecond())
+        if opTarget.hasParamDesc {
+          def opTP:RangerAppParamDesc opTarget.paramDesc
+          if opTP.is_class_variable {
+            return true
+          }
+        }
+        def opRoot:string opTarget.vref
+        if (has opTarget.ns) {
+          if ((array_length opTarget.ns) > 0) {
+            opRoot = (itemAt opTarget.ns 0)
+          }
+        }
+        if (opRoot == "this") {
+          return true
+        }
+        if (ctx.isMemberVariable(opRoot)) {
+          return true
+        }
+      }
+    }
+
     ; Recurse to children
     for node.children child:CodeNode i {
       if (this.fnBodyDirectlyMutatesThis(child ctx)) {
@@ -1342,15 +1465,67 @@ class RangerRustClassWriter {
     }
     return false
   }
-  
+
+  ; is this call receiver a plain collection, string or buffer — a value
+  ; whose operators only write through self when the operator itself is a
+  ; mutating one? A user-class receiver never qualifies: any of its methods
+  ; could mutate it, and a user method may shadow an operator name.
+  fn rustCallTargetIsCollection:boolean (callObj:CodeNode) {
+    if (callObj.hasParamDesc == false) {
+      return false
+    }
+    def cp:RangerAppParamDesc callObj.paramDesc
+    def cpNN@(optional):CodeNode cp.nameNode
+    if (null? cpNN) {
+      return false
+    }
+    def cpN:CodeNode (unwrap cpNN)
+    if ((strlen cpN.array_type) > 0) {
+      return true
+    }
+    if ((strlen cpN.key_type) > 0) {
+      return true
+    }
+    def tn:string cpN.type_name
+    if (tn == "string") { return true }
+    if (tn == "buffer") { return true }
+    if (tn == "charbuffer") { return true }
+    if (tn == "intbuffer") { return true }
+    if (tn == "doublebuffer") { return true }
+    return false
+  }
+
+  ; the operator names whose first operand is written through — the same
+  ; list the template engine flags as LHS targets
+  fn rustIsMutatingOpName:boolean (n:string) {
+    if (n == "buffer_set") { return true }
+    if (n == "int_buffer_set") { return true }
+    if (n == "double_buffer_set") { return true }
+    if (n == "buffer_fill") { return true }
+    if (n == "int_buffer_fill") { return true }
+    if (n == "double_buffer_fill") { return true }
+    if (n == "buffer_copy") { return true }
+    if (n == "int_buffer_copy") { return true }
+    if (n == "double_buffer_copy") { return true }
+    if (n == "push") { return true }
+    if (n == "set") { return true }
+    if (n == "put") { return true }
+    if (n == "insert") { return true }
+    if (n == "clear") { return true }
+    if (n == "remove") { return true }
+    if (n == "removeIndex") { return true }
+    if (n == "removeLast") { return true }
+    if (n == "removeFirst") { return true }
+    if (n == "nullify") { return true }
+    return false
+  }
+
   ; Build call graph and mutation info for a class
   ; Returns two maps: methodName -> directlyMutates (boolean), methodName -> MethodCallList
   fn buildClassMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
-    print ("DEBUG buildClassMutationGraph: class=" + cl.name + " variants=" + (to_string (array_length cl.defined_variants)))
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        print ("DEBUG buildClassMutationGraph: checking method " + variant.name)
         def fnB@(optional):CodeNode variant.fnBody
         if (!null? fnB) {
           def fnCtx@(optional):RangerAppWriterContext variant.fnCtx
@@ -1362,7 +1537,6 @@ class RangerRustClassWriter {
           
           ; Check direct mutation
           def directlyMutates:boolean (this.fnBodyDirectlyMutatesThis(fnBody useCtx))
-          print ("DEBUG buildClassMutationGraph: " + variant.name + " directlyMutates=" + (to_string directlyMutates))
           set directMutations variant.name directlyMutates
           
           ; Collect method calls into a MethodCallList
@@ -1385,10 +1559,14 @@ class RangerRustClassWriter {
     }
     push visited methodName
     
-    ; Check direct mutation
+    ; Check direct mutation. NOTE: the value must land in a plain boolean
+    ; before the test — `def dm:boolean (get …)` makes an optional binding,
+    ; and `if dm` then tests presence, not the value, so every method in the
+    ; map counted as mutating and no method ever took `&self`.
     if (has directMutations methodName) {
-      def dm:boolean (get directMutations methodName)
-      if dm {
+      def dmMutates:boolean false
+      dmMutates = (unwrap (get directMutations methodName))
+      if dmMutates {
         return true
       }
     }
@@ -1495,7 +1673,6 @@ class RangerRustClassWriter {
       
       ; DEBUG: Log detection for self member calls
       if obj_is_self_member {
-        print ("DEBUG: self member " + obj.vref + "." + method.vref + " - obj_is_optional=" + (to_string obj_is_optional) + " obj_is_trait_type=" + (to_string obj_is_trait_type) + " containsSelf=" + (to_string (this.containsSelfReference(args))) + " needs_preeval=" + (to_string needs_arg_preevaluation) + " args_cnt=" + (to_string (array_length args.children)))
       }
 
       ; Pre-evaluate all arguments if needed
@@ -1561,6 +1738,27 @@ class RangerRustClassWriter {
                 }
               }
               if (orp_weak == false) {
+                obj_is_rc = true
+              }
+            }
+          }
+          if (obj_is_rc == false) {
+            ; an expression receiver — an unwrap, an element read, a call
+            ; result — of a shared class hands out the Rc itself; a `new`
+            ; is the one shared-class expression that is still a plain value
+            if (obj.hasNewOper == false) {
+              def objEvalT:string obj.eval_type_name
+              if ((strlen objEvalT) == 0) {
+                if (!null? node.fnDesc) {
+                  def hcFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+                  def hcCC@(optional):RangerAppClassDesc hcFnD.container_class
+                  if (!null? hcCC) {
+                    def hcC:RangerAppClassDesc (unwrap hcCC)
+                    objEvalT = hcC.name
+                  }
+                }
+              }
+              if (this.rustClassIsShared(objEvalT ctx)) {
                 obj_is_rc = true
               }
             }
@@ -1685,7 +1883,6 @@ class RangerRustClassWriter {
     def args:CodeNode (node.getSecond())
     
     ; DEBUG: Always print to confirm this function is being called
-    print ("DEBUG CreateMethodCall ALWAYS: obj.vref=" + obj.vref)
     
     ; Check if the object is an optional class variable (self member)
     def obj_is_optional:boolean false
@@ -1724,7 +1921,6 @@ class RangerRustClassWriter {
     
     ; DEBUG
     if obj_is_self_member {
-      print ("DEBUG CreateMethodCall: obj_is_optional=" + (to_string obj_is_optional) + " obj_is_self_member=" + (to_string obj_is_self_member) + " containsSelf=" + (to_string (this.containsSelfReference(args))) + " needs_preeval=" + (to_string needs_arg_preevaluation))
     }
     
     ; Pre-evaluate arguments if needed (only at statement level, not inside expressions)
@@ -1818,7 +2014,6 @@ class RangerRustClassWriter {
 
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ; DEBUG: Unconditional entry debug
-    print "DEBUG writeFnCall ENTRY"
     
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
@@ -1831,7 +2026,6 @@ class RangerRustClassWriter {
           methodName = (itemAt fc.ns 1)
         }
         if ((methodName == "parseDHT") || (part == "huffman")) {
-          print ("DEBUG writeFnCall: FOUND! part=" + part + " method=" + methodName + " isMemberVar=" + (to_string (ctx.isMemberVariable(part))))
         }
       }
       
@@ -1891,7 +2085,6 @@ class RangerRustClassWriter {
       
       ; DEBUG
       if target_is_self_member {
-        print ("DEBUG writeFnCall: part=" + part + " target_is_optional=" + (to_string target_is_optional) + " containsSelf=" + (to_string (this.containsSelfReference(givenArgs))) + " needs_preeval=" + (to_string needs_arg_preevaluation))
       }
       
       ; Pre-evaluate arguments if needed to avoid borrow conflicts
@@ -2718,7 +2911,27 @@ class RangerRustClassWriter {
       header.out("#![allow(dead_code)]" true)
       header.out("" true)
       header.out("use std::rc::Rc;" true)
-      header.out("use std::rc::Weak;" true)
+      ; Weak only reaches the output through a @(weak) field; without one
+      ; the use line is rustc's unused_imports warning on every file
+      def anyWeakField:boolean false
+      def hdrRoot:RangerAppWriterContext (ctx.getRoot())
+      for hdrRoot.definedClasses hcl:RangerAppClassDesc hci {
+        def hclSpecial:boolean (((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union)
+        if (hclSpecial == false) {
+          for hcl.variables hv:RangerAppParamDesc hvi {
+            def hvNN@(optional):CodeNode hv.nameNode
+            if (!null? hvNN) {
+              def hvN:CodeNode (unwrap hvNN)
+              if (hvN.hasFlag("weak")) {
+                anyWeakField = true
+              }
+            }
+          }
+        }
+      }
+      if anyWeakField {
+        header.out("use std::rc::Weak;" true)
+      }
       header.out("use std::cell::RefCell;" true)
       header.out("" true)
       fileHeaderWritten = true
@@ -2855,7 +3068,7 @@ class RangerRustClassWriter {
         }
       }
     }
-    wr.out("return me;" true)
+    wr.out("me" true)
     wr.indent(-1)
     wr.out("}" true)
     thisName = "self"
@@ -2872,8 +3085,7 @@ class RangerRustClassWriter {
       }
       wr.out((("pub fn " + variant.name) + "(") false)
       this.writeArgsDef(variant ctx wr)
-      wr.out(") -> " false)
-      this.writeRustReturnType(variant ctx wr)
+      this.writeRustFnClose(variant ctx wr)
       wr.out(" {" true)
       wr.indent(1)
       wr.newline()
@@ -2882,7 +3094,7 @@ class RangerRustClassWriter {
         def sCtx:RangerAppWriterContext (unwrap subCtx)
         sCtx.is_function = true
         def fnB:CodeNode (unwrap variant.fnBody)
-        this.WalkNode(fnB sCtx wr)
+        this.walkRustFnBody(fnB sCtx wr)
       }
       wr.newline()
       wr.indent(-1)
@@ -2908,7 +3120,6 @@ class RangerRustClassWriter {
           if method_uses_this {
             ; Use call graph for transitive mutation detection
             method_mutates_this = (this.methodMutatesThis(variant.name directMutations callGraph))
-            print ("DEBUG method " + cl.name + "." + variant.name + " uses_this=" + (to_string method_uses_this) + " mutates_this=" + (to_string method_mutates_this))
           }
         }
         ; Mark on the function descriptor so writeFnCall knows to use static call
@@ -2941,18 +3152,17 @@ class RangerRustClassWriter {
           if method_is_in_trait {
             ; Use &mut self for trait methods to allow mutation
             ; This is necessary because Ranger methods can always mutate state
-            wr.out("&mut self, " false)
+            this.writeRustReceiver(true wr)
           } {
             if method_mutates_this {
-              wr.out("&mut self, " false)
+              this.writeRustReceiver(true wr)
             } {
-              wr.out("&self, " false)
+              this.writeRustReceiver(false wr)
             }
           }
         }
         this.writeArgsDef(variant ctx wr)
-        wr.out(") -> " false)
-        this.writeRustReturnType(variant ctx wr)
+        this.writeRustFnClose(variant ctx wr)
         wr.out(" {" true)
         wr.indent(1)
         wr.newline()
@@ -2961,7 +3171,7 @@ class RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnBNode:CodeNode (unwrap variant.fnBody)
-          this.WalkNode(fnBNode sCtx wr)
+          this.walkRustFnBody(fnBNode sCtx wr)
         }
         wr.newline()
         wr.indent(-1)
@@ -3018,18 +3228,17 @@ class RangerRustClassWriter {
                 ; For trait parent classes (is_extended_by_children), use &mut self
                 ; to allow mutation in the method body
                 if pc.is_extended_by_children {
-                  wr.out("&mut self, " false)
+                  this.writeRustReceiver(true wr)
                 } {
                   if method_mutates_this {
-                    wr.out("&mut self, " false)
+                    this.writeRustReceiver(true wr)
                   } {
-                    wr.out("&self, " false)
+                    this.writeRustReceiver(false wr)
                   }
                 }
               }
               this.writeArgsDef(variant ctx wr)
-              wr.out(") -> " false)
-              this.writeRustReturnType(variant ctx wr)
+              this.writeRustFnClose(variant ctx wr)
               wr.out(" {" true)
               wr.indent(1)
               wr.newline()
@@ -3038,7 +3247,7 @@ class RangerRustClassWriter {
                 def sCtx:RangerAppWriterContext (unwrap subCtx)
                 sCtx.is_function = true
                 def fnBNode:CodeNode (unwrap variant.fnBody)
-                this.WalkNode(fnBNode sCtx wr)
+                this.walkRustFnBody(fnBNode sCtx wr)
               }
               wr.newline()
               wr.indent(-1)
@@ -3070,8 +3279,7 @@ class RangerRustClassWriter {
             wr.out((arg.compiledName + " : ") false)
             this.writeTypeDef(nameN ctx wr)
           }
-          wr.out(") -> " false)
-          this.writeRustReturnType(variant ctx wr)
+          this.writeRustFnClose(variant ctx wr)
           wr.out(";" true)
         }
       }
@@ -3092,8 +3300,7 @@ class RangerRustClassWriter {
             wr.out((arg.compiledName + " : ") false)
             this.writeTypeDef(nameN ctx wr)
           }
-          wr.out(") -> " false)
-          this.writeRustReturnType(variant ctx wr)
+          this.writeRustFnClose(variant ctx wr)
           wr.out(" {" true)
           wr.indent(1)
           ; Check if method is static - if so, don't pass self
@@ -3144,8 +3351,7 @@ class RangerRustClassWriter {
                   wr.out((arg.compiledName + " : ") false)
                   this.writeTypeDef(nameN ctx wr)
                 }
-                wr.out(") -> " false)
-                this.writeRustReturnType(variant ctx wr)
+                this.writeRustFnClose(variant ctx wr)
                 wr.out(" {" true)
                 wr.indent(1)
                 ; Determine if we should use the child's version or inherited version
@@ -3217,7 +3423,7 @@ class RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnB:CodeNode (unwrap variant.fnBody)
-          this.WalkNode(fnB sCtx wr)
+          this.walkRustFnBody(fnB sCtx wr)
         }
         if mainReturns {
           wr.newline()
@@ -3230,37 +3436,240 @@ class RangerRustClassWriter {
         wr.out("}" true)
       }
     }
+    ; A free `fn main` is attached to a class as an ordinary method and no
+    ; crate main was emitted, so the file failed with E0601: `main` function
+    ; not found. When the program declares no `sfn m@(main)`, the free main
+    ; becomes the crate entry.
+    if ((this.rustProgramHasMainFlag(ctx)) == false) {
+      if (has cl.defined_methods "main") {
+        def freeMVs:RangerAppMethodVariants (get cl.method_variants "main")
+        for freeMVs.variants variant:RangerAppFunctionDesc fmvi {
+          if ((array_length variant.params) == 0) {
+            def fmNN@(optional):CodeNode variant.nameNode
+            if (!null? fmNN) {
+              def fmN:CodeNode (unwrap fmNN)
+              if ((fmN.code.filename) == (ctx.getRootFile())) {
+                wr.out("fn main() {" true)
+                wr.indent(1)
+                if variant.rust_can_be_static {
+                  wr.out((cl.name + "::main();") true)
+                } {
+                  wr.out((("let mut __rg_main = " + cl.name) + "::new();") true)
+                  wr.out("__rg_main.main();" true)
+                }
+                wr.indent(-1)
+                wr.out("}" true)
+              }
+            }
+          }
+        }
+      }
+    }
     ; Restore previous class context
     if (!null? prevClass) {
       ctx.setCurrentClass((unwrap prevClass))
     }
   }
 
+  ; does any class of the program declare a `sfn m@(main)` entry?
+  fn rustProgramHasMainFlag:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses rcl:RangerAppClassDesc rci {
+      for rcl.static_methods sm:RangerAppFunctionDesc smi {
+        def smNN@(optional):CodeNode sm.nameNode
+        if (!null? smNN) {
+          def smN:CodeNode (unwrap smNN)
+          if (smN.hasFlag("main")) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   ; Custom operator handler for Rust - handles push with string conversion and optional assignments
+  ; --- string concatenation as format! (PLAN_RUST_IDIOMATICITY item 5) ---
+
+  ; unwraps `( x )` nesting to the single meaningful child
+  fn rustUnwrapParens:CodeNode (node:CodeNode) {
+    def cur:CodeNode node
+    while (cur.expression && ((array_length cur.children) == 1)) {
+      cur = (cur.getFirst())
+    }
+    return cur
+  }
+
+  ; flattens a string `+` chain into its operand list, left to right, so a
+  ; whole chain becomes one format! instead of nested joins and concats
+  fn rustCollectConcatOperands:void (node:CodeNode out:[CodeNode]) {
+    def cur:CodeNode (this.rustUnwrapParens(node))
+    if ((array_length cur.children) == 3) {
+      def opN:CodeNode (cur.getFirst())
+      if ((opN.vref == "+") && (cur.eval_type == RangerNodeType.String)) {
+        this.rustCollectConcatOperands((cur.getSecond()) out)
+        this.rustCollectConcatOperands((cur.getThird()) out)
+        return
+      }
+    }
+    push out cur
+  }
+
+  ; a plain string literal goes into the format string itself; a literal
+  ; that holds a brace stays a runtime argument so no escaping is needed
+  fn rustFmtInline:boolean (o:CodeNode) {
+    if (o.value_type != RangerNodeType.String) {
+      return false
+    }
+    if ((indexOf o.string_value "{") >= 0) {
+      return false
+    }
+    if ((indexOf o.string_value "}") >= 0) {
+      return false
+    }
+    return true
+  }
+
+  ; `format!("{}", x.to_string())` prints what `format!("{}", x)` prints —
+  ; both are Display — so an explicit to_string of a scalar drops out
+  fn rustStripToString:CodeNode (o:CodeNode) {
+    if ((array_length o.children) == 2) {
+      def sfc:CodeNode (o.getFirst())
+      if (sfc.vref == "to_string") {
+        def sarg:CodeNode (this.rustUnwrapParens((o.getSecond())))
+        if ((((sarg.eval_type == RangerNodeType.Integer) || (sarg.eval_type == RangerNodeType.Double)) || (sarg.eval_type == RangerNodeType.Boolean)) || (sarg.eval_type == RangerNodeType.String)) {
+          return sarg
+        }
+      }
+    }
+    return o
+  }
+
+  ; writes `"fmt…", arg, arg` — the shared body of println! and format!
+  fn writeRustFormatOps:void (ops:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("\"" false)
+    for ops o:CodeNode i {
+      if (this.rustFmtInline(o)) {
+        wr.out((this.EncodeString(o ctx wr)) false)
+      } {
+        wr.out("{}" false)
+      }
+    }
+    wr.out("\"" false)
+    for ops o:CodeNode i {
+      if ((this.rustFmtInline(o)) == false) {
+        wr.out(", " false)
+        def oo:CodeNode (this.rustStripToString(o))
+        ctx.setInExpr()
+        this.WalkNode(oo ctx wr)
+        ctx.unsetInExpr()
+      }
+    }
+  }
+
+  ; walks a function body with the tail statement marked, so the return
+  ; custom writes the last `return x;` as the tail expression `x`
+  fn walkRustFnBody:void (fnB:CodeNode sCtx:RangerAppWriterContext wr:CodeWriter) {
+    def bcnt:int (array_length fnB.children)
+    if (bcnt > 0) {
+      def lastStmt:CodeNode (itemAt fnB.children (bcnt - 1))
+      lastStmt.rust_is_tail_return = true
+      def lmark:CodeNode (this.rustUnwrapParens(lastStmt))
+      lmark.rust_is_tail_return = true
+    }
+    this.WalkNode(fnB sCtx wr)
+  }
+
+  ; a plain scalar path: a name or a field chain with no call, no cell, no
+  ; optional and no weak segment — one that reads and writes as plain text
+  fn rustPlainScalarPath:boolean (n:CodeNode) {
+    if (n.hasFnCall || n.has_call) {
+      return false
+    }
+    if ((array_length n.ns) == 0) {
+      return false
+    }
+    for n.nsp seg:RangerAppParamDesc si {
+      if seg.rust_needs_rc_wrap {
+        return false
+      }
+      if seg.is_optional {
+        return false
+      }
+      def segNN@(optional):CodeNode seg.nameNode
+      if (!null? segNN) {
+        def segN:CodeNode (unwrap segNN)
+        if (segN.hasFlag("weak")) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  ; `x = x + e` becomes `x += e` (and -, *, /) for integer and double
+  ; targets. Returns true when it wrote the whole statement.
+  fn rustTryCompoundAssign:boolean (left:CodeNode right:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((this.rustPlainScalarPath(left)) == false) {
+      return false
+    }
+    def rr:CodeNode (this.rustUnwrapParens(right))
+    if ((array_length rr.children) != 3) {
+      return false
+    }
+    if ((rr.eval_type != RangerNodeType.Integer) && (rr.eval_type != RangerNodeType.Double)) {
+      return false
+    }
+    def opN:CodeNode (rr.getFirst())
+    def op:string opN.vref
+    if ((((op != "+") && (op != "-")) && (op != "*")) && (op != "/")) {
+      return false
+    }
+    def firstOperand:CodeNode (this.rustUnwrapParens((rr.getSecond())))
+    if ((this.rustPlainScalarPath(firstOperand)) == false) {
+      return false
+    }
+    if ((array_length firstOperand.ns) != (array_length left.ns)) {
+      return false
+    }
+    for left.ns part:string pi {
+      if ((itemAt firstOperand.ns pi) != part) {
+        return false
+      }
+    }
+    this.WriteVRef(left ctx wr)
+    wr.out(((" " + op) + "= ") false)
+    ctx.setInExpr()
+    this.WalkNode((rr.getThird()) ctx wr)
+    ctx.unsetInExpr()
+    wr.out(";" true)
+    return true
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
 
-    ; Handle print operator - use references to avoid moving/cloning values
+    ; print flattens a string chain into the format string:
+    ; `println!("first name {}", names[0])` — not a join of to_strings
     if (cmd == "print") {
       def arg:CodeNode (node.getSecond())
-      wr.out("println!(\"{}\", " false)
-      
-      ; Check if argument is a simple variable reference that would be moved
-      ; If so, use a reference instead
-      if (arg.value_type == RangerNodeType.VRef) {
-        ; For variables, use & reference to avoid moving
-        wr.out("&" false)
-        ctx.setInExpr()
-        this.WalkNode(arg ctx wr)
-        ctx.unsetInExpr()
-      } {
-        ; For expressions (like string concatenation), just evaluate normally
-        ctx.setInExpr()
-        this.WalkNode(arg ctx wr)
-        ctx.unsetInExpr()
-      }
+      def pops:[CodeNode]
+      this.rustCollectConcatOperands(arg pops)
+      wr.out("println!(" false)
+      this.writeRustFormatOps(pops ctx wr)
       wr.out(");" true)
+      return
+    }
+
+    ; string + as format! — the whole chain in one call
+    if (cmd == "+") {
+      def cops:[CodeNode]
+      this.rustCollectConcatOperands((node.getSecond()) cops)
+      this.rustCollectConcatOperands((node.getThird()) cops)
+      wr.out("format!(" false)
+      this.writeRustFormatOps(cops ctx wr)
+      wr.out(")" false)
       return
     }
 
@@ -3268,7 +3677,15 @@ class RangerRustClassWriter {
     if (cmd == "=") {
       def left:CodeNode (node.getSecond())
       def right:CodeNode (node.getThird())
-      
+
+      ; `pos = pos + 1` is `pos += 1` when the target is a plain scalar
+      ; path — no cell, no optional, no weak segment — and the right side
+      ; starts from the same path. Anything less plain falls through to the
+      ; full assignment machinery below.
+      if (this.rustTryCompoundAssign(left right ctx wr)) {
+        return
+      }
+
       ; Check if left side is an optional field with self-referential type
       def is_optional:boolean false
       def is_self_ref:boolean false
@@ -3854,8 +4271,12 @@ class RangerRustClassWriter {
           }
         }
         
-        ; Default case - no nested self calls or not a self call
-        wr.out("return " false)
+        ; Default case - no nested self calls or not a self call.
+        ; The last statement of the body is the tail expression: `x`, not
+        ; `return x;` — the marker was set when the body walk began.
+        if (node.rust_is_tail_return == false) {
+          wr.out("return " false)
+        }
         ctx.setInExpr()
         this.WalkNode(retVal ctx wr)
         ctx.unsetInExpr()
@@ -3893,9 +4314,16 @@ class RangerRustClassWriter {
         if needs_ret_clone {
           wr.out(".clone()" false)
         }
-        wr.out(";" true)
+        if node.rust_is_tail_return {
+          wr.out("" true)
+        } {
+          wr.out(";" true)
+        }
       } {
-        wr.out("return;" true)
+        ; a bare `return;` as the last statement says nothing — drop it
+        if (node.rust_is_tail_return == false) {
+          wr.out("return;" true)
+        }
       }
       return
     }

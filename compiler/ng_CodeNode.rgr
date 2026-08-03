@@ -206,6 +206,7 @@ class CodeNode {
   def rust_needs_preevaluate:boolean false
   def rust_preevaluated_args:[CodeNode]
   def rust_use_tmpvar:string ""   ; If non-empty, use this temp variable instead of evaluating
+  def rust_is_tail_return:boolean false  ; last statement of a fn body: emit a tail expression, not `return x;`
   
 ;  def method_type:RangerMethodCallType RangerMethodCallType.NoType
   def operator_pred:int 0

@@ -24,6 +24,12 @@ class LiveCompiler {
         return true
       }
     }
+    ; a field path references its root: `tag.tagName` references `tag`
+    if ((array_length node.ns) >= 2) {
+      if ((itemAt node.ns 0) == name) {
+        return true
+      }
+    }
     for node.children ch:CodeNode i {
       if (this.treeReferencesVRef(ch name)) {
         return true
@@ -787,6 +793,61 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             ctx.unsetInExpr()
           }
         }       
+        case "idx" {
+          ; a usize index position: an integer literal is already a usize
+          ; literal and needs no cast; anything else wraps `( … ) as usize`
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            if (arg.value_type == RangerNodeType.Integer) {
+              wr.out(("" + arg.int_value) false)
+            } {
+              wr.out("(" false)
+              ctx.setInExpr()
+              this.WalkNode(arg ctx wr)
+              ctx.unsetInExpr()
+              wr.out(") as usize" false)
+            }
+          }
+        }
+        case "cloneif" {
+          ; `.clone()` only when the value is not a Copy scalar — cloning an
+          ; i64 is clippy's clone_on_copy, but a String or a struct must
+          ; keep its clone
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            ; an array child stands for its element: itemAt clones the
+            ; element, so the array_type is the type that decides
+            def tn:string ""
+            if arg.hasParamDesc {
+              def cip:RangerAppParamDesc arg.paramDesc
+              def cipNN@(optional):CodeNode cip.nameNode
+              if (!null? cipNN) {
+                def cipN:CodeNode (unwrap cipNN)
+                tn = cipN.type_name
+                if ((strlen cipN.array_type) > 0) {
+                  tn = cipN.array_type
+                }
+              }
+            } {
+              tn = arg.type_name
+              if ((strlen arg.array_type) > 0) {
+                tn = arg.array_type
+              }
+            }
+            def isCopyScalar:boolean false
+            if (tn == "int") { isCopyScalar = true }
+            if (tn == "double") { isCopyScalar = true }
+            if (tn == "boolean") { isCopyScalar = true }
+            if (tn == "char") { isCopyScalar = true }
+            if (TTypeRegistry.isIntAlias(tn)) { isCopyScalar = true }
+            if (TTypeRegistry.isFloatAlias(tn)) { isCopyScalar = true }
+            if (isCopyScalar == false) {
+              wr.out(".clone()" false)
+            }
+          }
+        }
         case "goset" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {

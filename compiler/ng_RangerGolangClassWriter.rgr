@@ -10,7 +10,16 @@ class RangerGolangClassWriter {
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
-        wr.out((node.getParsedString()) false)
+        ; the value, never a source slice: getParsedString reads the file by
+        ; the node's recorded position, and a macro-shifted position slices
+        ; unrelated bytes into the output
+        def dd_str ("" + node.double_value)
+        def ii_str ("" + (to_int node.double_value))
+        if (dd_str == ii_str) {
+          wr.out(("" + node.double_value+".0") false)
+        } {
+          wr.out(("" + node.double_value) false)
+        }
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))

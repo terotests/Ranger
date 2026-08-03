@@ -1,0 +1,20 @@
+; Surface shape of the Rust output: print flattens a string chain into one
+; println! with literals inlined in the format string; string + is format!;
+; a literal index takes no usize cast; an element read of a Copy scalar
+; takes no clone; a free `fn main` becomes the crate entry.
+class FormatDemo {
+    def counts:[int]
+    fn firstCount:int () {
+        return (itemAt counts 0)
+    }
+}
+
+fn main:void () {
+    def d:FormatDemo (new FormatDemo())
+    push d.counts 5
+    def names:[string] ([] "Ada" "Alan" "Grace")
+    print ("numbers " + (array_length d.counts))
+    print ("first name " + (itemAt names 0))
+    def label:string ("rows: " + (d.firstCount()) + " first: " + (itemAt names 0))
+    print label
+}

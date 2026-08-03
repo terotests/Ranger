@@ -95,20 +95,10 @@ class SyntaxSection {
 
     ; Renders the collected rows. Inherited by every section, so a target that
     ; loses inherited methods fails here first.
-    ;
-    ; The walk is an index loop and not `for rows row:CheckRow i`, because the
-    ; Go writer does not declare the item variable of a for loop whose element
-    ; type is an object -- the generated Go says "undefined: row". Keeping that
-    ; construct out of the shared harness leaves it to the `arrays` and `oop`
-    ; sections, where the report can attribute it. See known_gaps.md.
     fn render:void () {
         print ("## " + (this.title()))
-        def n:int (array_length rows)
-        def i@(mutable):int 0
-        while (i < n) {
-            def row:CheckRow (itemAt rows i)
+        for rows row:CheckRow i {
             print ((("  " + row.label) + " = ") + row.value)
-            i = (i + 1)
         }
     }
 }

@@ -4,6 +4,112 @@ import { getGeneratedRustCode } from "./helpers/compiler";
 const FIXTURES_DIR = "tests/fixtures";
 
 describe("Rust Code Generation", () => {
+  describe("Method receivers and signature shape", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_receivers.rgr`);
+
+    it("gives a read-only method &self", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("fn reading(&self) -> i64");
+    });
+
+    it("keeps &self for a collection read like itemAt", () => {
+      // itemAt is a has_call on the member vector; a read operator on a
+      // plain collection must not count as a mutation of self
+      expect(result.code).toContain("fn firstLabel(&self) -> String");
+    });
+
+    it("gives a field-assigning method &mut self", () => {
+      expect(result.code).toContain("fn bump(&mut self, amount : i64)");
+    });
+
+    it("detects mutation through push into a member collection", () => {
+      // push never appears as an `=` node; without the operator check this
+      // method would take &self and rustc would reject the push
+      expect(result.code).toContain("fn tag(&mut self, s : String)");
+    });
+
+    it("emits no unit return type and no trailing comma", () => {
+      expect(result.code).not.toContain("-> ()");
+      expect(result.code).not.toContain("&mut self, )");
+      expect(result.code).not.toContain("&self, )");
+    });
+
+    it("omits the Weak import when no weak field exists", () => {
+      expect(result.code).not.toContain("use std::rc::Weak;");
+    });
+  });
+
+  describe("String formatting and index shape", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_format.rgr`);
+
+    it("inlines literals into the println! format string", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain('println!("numbers {}"');
+      expect(result.code).toContain('println!("first name {}"');
+    });
+
+    it("flattens a string chain into one format!", () => {
+      expect(result.code).toContain('format!("rows: {} first: {}"');
+    });
+
+    it("emits no join or concat chains", () => {
+      expect(result.code).not.toContain('.join("")');
+      expect(result.code).not.toContain(".concat()");
+    });
+
+    it("indexes with a bare integer literal, no usize cast", () => {
+      expect(result.code).toContain("[0]");
+      expect(result.code).not.toContain("[0 as usize]");
+      expect(result.code).not.toContain("[(0) as usize]");
+    });
+
+    it("does not clone a Copy element read", () => {
+      // firstCount reads an i64 out of a Vec<i64>; a clone there is
+      // clippy's clone_on_copy
+      expect(result.code).toContain("self.counts[0]");
+      expect(result.code).not.toContain("self.counts[0].clone()");
+    });
+
+    it("makes a free fn main the crate entry", () => {
+      // a file-level `fn main` lands on a class; without a crate main the
+      // file failed with E0601
+      expect(result.code).toMatch(/\nfn main\(\) \{/);
+    });
+  });
+
+  describe("Compound assignment and tail expressions", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_receivers.rgr`);
+
+    it("writes x = x + e as a compound assignment", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("self.total += amount;");
+      expect(result.code).not.toContain("self.total = self.total + amount");
+    });
+
+    it("writes the last return as a tail expression", () => {
+      // `return total` at the end of reading() is the tail `self.total`
+      expect(result.code).toMatch(/fn reading\(&self\) -> i64 \{\s*\n\s*self\.total\s*\n\s*\}/);
+    });
+
+    it("ends the constructor with the struct value, not return me;", () => {
+      expect(result.code).not.toContain("return me;");
+    });
+  });
+
+  describe("Borrowed collection parameters as slices", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_slice_params.rgr`);
+
+    it("passes a borrowed int array as &[i64]", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("data : &[i64]");
+      expect(result.code).not.toContain("data : &Vec<i64>");
+    });
+
+    it("passes a borrowed buffer as &[u8]", () => {
+      expect(result.code).toContain("buf : &[u8]");
+    });
+  });
+
   describe("Array/Vector Operations", () => {
     it("should generate Vec::new() for array initialization", () => {
       const result = getGeneratedRustCode(`${FIXTURES_DIR}/array_push.rgr`);

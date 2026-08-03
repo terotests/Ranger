@@ -60,13 +60,21 @@ each target.
 
 - **Integer division.** `/` on two integers gives a double. Use `to_int` when
   the program needs a whole number.
+- **`to_int` of a negative double.** The reference semantics is floor:
+  `(to_int -1.5)` is `-2`. JavaScript, C++, Python, PHP, Rust and Go follow
+  it; C#, Swift, Kotlin and Scala still truncate toward zero (`-1`), so the
+  two families differ on every negative value until those targets are
+  aligned.
 - **The remainder of a negative number.** The sign of the result of `%` follows
   the target language.
 - **String indexes.** The index of a character is a code point index. The
   compiler writes the correct operation for each target.
-- **Object identity.** An object is a reference on eleven targets: two names
-  give one object. The Rust output gives a class a plain `struct`, so a second
-  name moves the value and `rustc` rejects the read of the first name.
+- **Object identity.** An object is a reference on every target, Rust
+  included: two names give one object. On Rust a class the compiler proves
+  shared becomes `Rc<RefCell<T>>`, and every other class stays a plain
+  `struct`; the flag `-rust-value-classes` restores the old all-value model,
+  under which a second name moves the value. See
+  [Memory management](/Ranger/docs/targets/memory/).
 - **Reference counting.** The C++ output counts references with
   `std::shared_ptr`, and the Swift output counts them with ARC. Two objects
   that hold each other therefore stay in memory. The annotation `weak` breaks
