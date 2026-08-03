@@ -1603,19 +1603,16 @@ const SCRIPT_PROBES: Array<[name: string, src: string]> = [
   ["script-implicit-global-is-property", "zz = 7;\n__out__ = String(this.zz);"],
   ["script-global-tostring-override", "var toString = function () { return '__THIS__'; };\n__out__ = String(this);"],
   ["script-function-local-var-is-not-global", "var s = 1;\nfunction g() { var s = 2; return s; }\ng();\n__out__ = String(this.s);"],
+  ["script-var-initialiser-runs-in-order", "var a = 1;\nvar b = a + 1;\n__out__ = String(a) + String(b);"],
+  ["script-call-before-var-fn-is-typeerror", "try { __f(); __out__ = 'no-throw'; } catch (e) { __out__ = e.name; }\nvar __f = function () { return 1; };"],
+  ["script-for-head-var-is-hoisted", "try { idx = idx; __out__ = 'ok'; } catch (e) { __out__ = e.name; }\nfor (var idx = 0; idx < 2; idx++) { ; }"],
 ];
 
 /**
  * Script-level probes that do NOT hold, asserted in both directions like
  * KNOWN_GAPS so a fix forces the list to be updated.
  */
-const SCRIPT_KNOWN_GAPS = new Set<string>([
-  // Top-level `var` INITIALISERS run ahead of the script's other statements
-  // rather than in source order, so a read before the declaration sees the
-  // initialised value instead of undefined. The binding hoists correctly; it is
-  // the order the initialiser runs in that is wrong.
-  "script-hoisted-var-is-undefined-property",
-]);
+const SCRIPT_KNOWN_GAPS = new Set<string>([]);
 
 /** A module and an entry that imports from it, to check export visibility. */
 const MODULE_SOURCE = [

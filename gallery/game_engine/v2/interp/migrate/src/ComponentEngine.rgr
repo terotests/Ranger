@@ -1596,7 +1596,7 @@ class ComponentEngine {
         ; global object BEFORE any initialiser runs -- a hoisted var is
         ; undefined, not absent -- so `var x = typeof this.f` sees f.
         this.publishGlobalVarNames(ast)
-        this.processVariables(ast)
+        this.hoistTopLevelVarNames(ast)
         this.runTopLevelStatements(ast)
     }
 
@@ -1623,6 +1623,13 @@ class ComponentEngine {
                 ; registerComponents/processVariables already bound them.
                 if (false == (this.isTopLevelDeclaration(stmt))) {
                     this.runStatementValue(stmt)
+                } {
+                    ; D-TOPLEVEL: a VariableDeclaration's INITIALISER runs here,
+                    ; in source order, rather than in a pass of its own before
+                    ; the program starts. Only the binding is hoisted.
+                    if (stmt.nodeType == "VariableDeclaration") {
+                        this.runStatementValue(stmt)
+                    }
                 }
             }
             if scriptThrew {
@@ -2298,6 +2305,35 @@ class ComponentEngine {
         this.publishGlobalVarNames(ast)
     }
 
+    ; D-TOPLEVEL: HOIST a top-level declaration's names without running its
+    ; initialiser. The initialiser is a statement and belongs in source order --
+    ; running the whole declaration up front meant a read before the line saw
+    ; the finished value, so `__func(); var __func = function () {};` succeeded
+    ; where the spec says "undefined is not a function".
+    fn hoistTopLevelVarNames:void (ast:TSNode) {
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "VariableDeclaration") {
+                def ci:int 0
+                while (ci < (array_length node.children)) {
+                    def d:TSNode (itemAt node.children ci)
+                    if ((strlen d.name) > 0) {
+                        if (false == (moduleScope.has(d.name))) {
+                            moduleScope.define(d.name (EvalValue.undefined()))
+                        }
+                    }
+                    ci = (ci + 1)
+                }
+            } {
+                ; Everything else -- exports, imports -- keeps its old handling.
+                this.processTopLevelVarNode(node)
+            }
+            i = i + 1
+        }
+        this.publishGlobalVarNames(ast)
+    }
+
     ; D-GLOBALTHIS: a script's `var` and function declarations are properties of
     ; the global object, wherever in the script they were written. Only the
     ; TOP-LEVEL statements were mirrored, so a `var` inside a block or a `try`
@@ -2384,6 +2420,21 @@ class ComponentEngine {
                             def altKids:[TSNode]
                             push altKids (unwrap node.alternate)
                             this.collectScriptVarNames(altKids out (depth + 1))
+                        }
+                        ; A `for` head's declaration lives in `init`, and a
+                        ; for-in/of target can be in `right`. Neither was walked,
+                        ; so `for (var index = 0; …)` left `index` unhoisted --
+                        ; a read before the loop was a ReferenceError where the
+                        ; spec says undefined.
+                        if node.init {
+                            def initKids:[TSNode]
+                            push initKids (unwrap node.init)
+                            this.collectScriptVarNames(initKids out (depth + 1))
+                        }
+                        if node.right {
+                            def rightKids:[TSNode]
+                            push rightKids (unwrap node.right)
+                            this.collectScriptVarNames(rightKids out (depth + 1))
                         }
                     }
                 }
@@ -3847,17 +3898,30 @@ class ComponentEngine {
         }
     }
 
+    ; D-COMPLETION: an `if` completes with UpdateEmpty(branch, UNDEFINED) --
+    ; §13.6.7. When the branch it took produced no value of its own (a `break`,
+    ; a declaration, a missing else) the `if` answers undefined rather than
+    ; letting the previous statement's value stand. That single rule is what
+    ; makes `eval("for (var i = 0;;) { if (i === 5) break; else i++; }")`
+    ; undefined while `eval("for (var i = 0; i < 3; i++) { 1; break; }")` is 1.
     fn runIfValue:void (node:TSNode) {
         if node.left {
             def cond:EvalValue (this.evaluateExpr((unwrap node.left)))
+            def beforeIf:EvalValue completionValue
+            def ranBranch:boolean false
             if (cond.toBool()) {
                 if node.body {
                     this.runBlockOrStatement((unwrap node.body))
+                    ranBranch = true
                 }
             } {
                 if node.right {
                     this.runBlockOrStatement((unwrap node.right))
+                    ranBranch = true
                 }
+            }
+            if (completionValue.equals(beforeIf)) {
+                completionValue = (EvalValue.undefined())
             }
         }
     }

@@ -358,6 +358,22 @@ them aside cannot quietly flatter the remaining number.
   was read, so the loop ran its body with `k` never set. A property deleted before
   it is reached is also no longer visited — the key list is snapshotted at entry.
 
+- **A top-level `var`'s initialiser runs in SOURCE ORDER.** It used to run in a
+  pass of its own before the program started, so a read before the declaration saw
+  the finished value — `__f(); var __f = function () {};` succeeded where the spec
+  says "undefined is not a function". Only the binding is hoisted now. *This was
+  pinned as `script-hoisted-var-is-undefined-property`; the assertion is what said
+  it had closed.* A `var` in a `for` head hoists too, which the name collector was
+  not walking into.
+
+- **An `if` completes with `UpdateEmpty(branch, undefined)`.** When the branch it
+  took produced no value of its own — a `break`, a declaration, a missing `else` —
+  the `if` answers undefined rather than letting the previous statement's value
+  stand. That single rule is what makes
+  `eval("for (var i = 0;;) { if (i === 5) break; else i++; }")` undefined while
+  `eval("for (var i = 0; i < 3; i++) { 1; break; }")` is 1 — a distinction that
+  looks like "break resets the value" until you see the two side by side.
+
 - **A keyword's TEXT inside a string literal is not the keyword.** `await`,
   `delete`, `typeof`, `void` and `yield` were matched on the token's *value* with
   no check of its *type*, so the string literals `'await'` and `'delete'` were
@@ -536,12 +552,6 @@ them aside cannot quietly flatter the remaining number.
 
 ### 2.4 Known-wrong, pinned rather than hidden
 
-- **A top-level `var`'s INITIALISER runs ahead of the script's other statements**
-  rather than in source order, so a read before the declaration sees the initialised
-  value where the spec says `undefined`. The binding hoists correctly; it is only the
-  order the initialiser runs in that is wrong. Pinned in the script-level probe block
-  as `script-hoisted-var-is-undefined-property`, asserted in both directions.
-
 - **A map key literally named `__proto__` cannot be stored.** The es6 target
   compiles a Ranger string map to a plain JavaScript object, and assigning that
   name sets the object's prototype instead of creating a property — so
@@ -684,7 +694,7 @@ more, not less.
 | `built-ins/Math` | **100%** (81/81, whole directory) |
 | `language/arguments-object` | **100%** (38/38, whole directory) |
 | `built-ins/JSON` | 98% (46/47) |
-| `language/statements` | 96% (541/562) |
+| `language/statements` | 97% (547/562) |
 | `language/function-code` | 96% (204/212) |
 | `language/eval-code` | 96% (55/57) |
 | `language/reserved-words` | **100%** (13/13, whole directory) |
@@ -698,8 +708,8 @@ more, not less.
 directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1220 checks, every one of them derived from Node —
-1208 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1224 checks, every one of them derived from Node —
+1209 expression probes plus 15 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
