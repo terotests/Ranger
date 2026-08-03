@@ -1,0 +1,4 @@
+name=Physics Race
+splitScreen=auto
+autoscale=true
+soloScript=index.tsx
