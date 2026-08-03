@@ -3412,37 +3412,161 @@ class RangerRustClassWriter {
         wr.out("}" true)
       }
     }
+    ; A free `fn main` is attached to a class as an ordinary method and no
+    ; crate main was emitted, so the file failed with E0601: `main` function
+    ; not found. When the program declares no `sfn m@(main)`, the free main
+    ; becomes the crate entry.
+    if ((this.rustProgramHasMainFlag(ctx)) == false) {
+      if (has cl.defined_methods "main") {
+        def freeMVs:RangerAppMethodVariants (get cl.method_variants "main")
+        for freeMVs.variants variant:RangerAppFunctionDesc fmvi {
+          if ((array_length variant.params) == 0) {
+            def fmNN@(optional):CodeNode variant.nameNode
+            if (!null? fmNN) {
+              def fmN:CodeNode (unwrap fmNN)
+              if ((fmN.code.filename) == (ctx.getRootFile())) {
+                wr.out("fn main() {" true)
+                wr.indent(1)
+                if variant.rust_can_be_static {
+                  wr.out((cl.name + "::main();") true)
+                } {
+                  wr.out((("let mut __rg_main = " + cl.name) + "::new();") true)
+                  wr.out("__rg_main.main();" true)
+                }
+                wr.indent(-1)
+                wr.out("}" true)
+              }
+            }
+          }
+        }
+      }
+    }
     ; Restore previous class context
     if (!null? prevClass) {
       ctx.setCurrentClass((unwrap prevClass))
     }
   }
 
+  ; does any class of the program declare a `sfn m@(main)` entry?
+  fn rustProgramHasMainFlag:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses rcl:RangerAppClassDesc rci {
+      for rcl.static_methods sm:RangerAppFunctionDesc smi {
+        def smNN@(optional):CodeNode sm.nameNode
+        if (!null? smNN) {
+          def smN:CodeNode (unwrap smNN)
+          if (smN.hasFlag("main")) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   ; Custom operator handler for Rust - handles push with string conversion and optional assignments
+  ; --- string concatenation as format! (PLAN_RUST_IDIOMATICITY item 5) ---
+
+  ; unwraps `( x )` nesting to the single meaningful child
+  fn rustUnwrapParens:CodeNode (node:CodeNode) {
+    def cur:CodeNode node
+    while (cur.expression && ((array_length cur.children) == 1)) {
+      cur = (cur.getFirst())
+    }
+    return cur
+  }
+
+  ; flattens a string `+` chain into its operand list, left to right, so a
+  ; whole chain becomes one format! instead of nested joins and concats
+  fn rustCollectConcatOperands:void (node:CodeNode out:[CodeNode]) {
+    def cur:CodeNode (this.rustUnwrapParens(node))
+    if ((array_length cur.children) == 3) {
+      def opN:CodeNode (cur.getFirst())
+      if ((opN.vref == "+") && (cur.eval_type == RangerNodeType.String)) {
+        this.rustCollectConcatOperands((cur.getSecond()) out)
+        this.rustCollectConcatOperands((cur.getThird()) out)
+        return
+      }
+    }
+    push out cur
+  }
+
+  ; a plain string literal goes into the format string itself; a literal
+  ; that holds a brace stays a runtime argument so no escaping is needed
+  fn rustFmtInline:boolean (o:CodeNode) {
+    if (o.value_type != RangerNodeType.String) {
+      return false
+    }
+    if ((indexOf o.string_value "{") >= 0) {
+      return false
+    }
+    if ((indexOf o.string_value "}") >= 0) {
+      return false
+    }
+    return true
+  }
+
+  ; `format!("{}", x.to_string())` prints what `format!("{}", x)` prints —
+  ; both are Display — so an explicit to_string of a scalar drops out
+  fn rustStripToString:CodeNode (o:CodeNode) {
+    if ((array_length o.children) == 2) {
+      def sfc:CodeNode (o.getFirst())
+      if (sfc.vref == "to_string") {
+        def sarg:CodeNode (this.rustUnwrapParens((o.getSecond())))
+        if ((((sarg.eval_type == RangerNodeType.Integer) || (sarg.eval_type == RangerNodeType.Double)) || (sarg.eval_type == RangerNodeType.Boolean)) || (sarg.eval_type == RangerNodeType.String)) {
+          return sarg
+        }
+      }
+    }
+    return o
+  }
+
+  ; writes `"fmt…", arg, arg` — the shared body of println! and format!
+  fn writeRustFormatOps:void (ops:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("\"" false)
+    for ops o:CodeNode i {
+      if (this.rustFmtInline(o)) {
+        wr.out((this.EncodeString(o ctx wr)) false)
+      } {
+        wr.out("{}" false)
+      }
+    }
+    wr.out("\"" false)
+    for ops o:CodeNode i {
+      if ((this.rustFmtInline(o)) == false) {
+        wr.out(", " false)
+        def oo:CodeNode (this.rustStripToString(o))
+        ctx.setInExpr()
+        this.WalkNode(oo ctx wr)
+        ctx.unsetInExpr()
+      }
+    }
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
 
-    ; Handle print operator - use references to avoid moving/cloning values
+    ; print flattens a string chain into the format string:
+    ; `println!("first name {}", names[0])` — not a join of to_strings
     if (cmd == "print") {
       def arg:CodeNode (node.getSecond())
-      wr.out("println!(\"{}\", " false)
-      
-      ; Check if argument is a simple variable reference that would be moved
-      ; If so, use a reference instead
-      if (arg.value_type == RangerNodeType.VRef) {
-        ; For variables, use & reference to avoid moving
-        wr.out("&" false)
-        ctx.setInExpr()
-        this.WalkNode(arg ctx wr)
-        ctx.unsetInExpr()
-      } {
-        ; For expressions (like string concatenation), just evaluate normally
-        ctx.setInExpr()
-        this.WalkNode(arg ctx wr)
-        ctx.unsetInExpr()
-      }
+      def pops:[CodeNode]
+      this.rustCollectConcatOperands(arg pops)
+      wr.out("println!(" false)
+      this.writeRustFormatOps(pops ctx wr)
       wr.out(");" true)
+      return
+    }
+
+    ; string + as format! — the whole chain in one call
+    if (cmd == "+") {
+      def cops:[CodeNode]
+      this.rustCollectConcatOperands((node.getSecond()) cops)
+      this.rustCollectConcatOperands((node.getThird()) cops)
+      wr.out("format!(" false)
+      this.writeRustFormatOps(cops ctx wr)
+      wr.out(")" false)
       return
     }
 

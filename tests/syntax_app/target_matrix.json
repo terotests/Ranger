@@ -18,7 +18,7 @@
   "section:numeric": {
     "es6": "ok",
     "typescript": "run-error",
-    "go": "run-error",
+    "go": "ok",
     "python": "compile-error",
     "rust": "compile-error",
     "cpp": "output-differs",

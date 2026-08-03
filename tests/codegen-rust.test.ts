@@ -39,6 +39,44 @@ describe("Rust Code Generation", () => {
     });
   });
 
+  describe("String formatting and index shape", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_format.rgr`);
+
+    it("inlines literals into the println! format string", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain('println!("numbers {}"');
+      expect(result.code).toContain('println!("first name {}"');
+    });
+
+    it("flattens a string chain into one format!", () => {
+      expect(result.code).toContain('format!("rows: {} first: {}"');
+    });
+
+    it("emits no join or concat chains", () => {
+      expect(result.code).not.toContain('.join("")');
+      expect(result.code).not.toContain(".concat()");
+    });
+
+    it("indexes with a bare integer literal, no usize cast", () => {
+      expect(result.code).toContain("[0]");
+      expect(result.code).not.toContain("[0 as usize]");
+      expect(result.code).not.toContain("[(0) as usize]");
+    });
+
+    it("does not clone a Copy element read", () => {
+      // firstCount reads an i64 out of a Vec<i64>; a clone there is
+      // clippy's clone_on_copy
+      expect(result.code).toContain("self.counts[0]");
+      expect(result.code).not.toContain("self.counts[0].clone()");
+    });
+
+    it("makes a free fn main the crate entry", () => {
+      // a file-level `fn main` lands on a class; without a crate main the
+      // file failed with E0601
+      expect(result.code).toMatch(/\nfn main\(\) \{/);
+    });
+  });
+
   describe("Array/Vector Operations", () => {
     it("should generate Vec::new() for array initialization", () => {
       const result = getGeneratedRustCode(`${FIXTURES_DIR}/array_push.rgr`);

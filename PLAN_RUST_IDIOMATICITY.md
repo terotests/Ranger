@@ -351,9 +351,30 @@ Regression coverage: `tests/fixtures/rust_receivers.rgr` +
 `codegen-rust.test.ts` (receiver per method kind, push-detection, no unit
 return, no trailing comma, Weak gating).
 
-**Still open, in the ranked order:** the expression-level clippy sweep
-(casts on literals, `+=`, double parens, tail expressions — all
-template-engine work, ~1000 warnings), clone hygiene, snake_case emission,
-`&[u8]`/`&str`/`format!`, hoisted loop borrows, the free-`fn main` E0601,
-and rustfmt-shaped text. The `mut x : &mut T` double-mut and
-`#[derive(Clone)]`-on-shared-classes items also stand.
+**Second round — the template-level sweep (clippy 1310 → 899):**
+
+- **`format!` replaces the concat chains** (ranked item 5). `print`
+  flattens a whole string `+` chain into one `println!` with the literals
+  inlined in the format string — `println!("numbers {}", numbers.len() as
+  i64)`, `println!("first name {}", names[0].clone())` — and a chain in any
+  other position becomes a single `format!`. An explicit `to_string` of a
+  scalar drops out ({} is already Display), which also erased the 60
+  `to_string_in_format_args` warnings.
+- **A literal index takes no cast.** The `(idx N)` template op emits
+  `arr[0]` where the templates used to hardcode `arr[(0) as usize]` —
+  341 → 34 `unnecessary_cast` warnings, the rest in range forms.
+- **A Copy element read takes no clone** (`(cloneif N)`): `itemAt` and the
+  `for` loop keep `.clone()` for String and struct elements and drop it
+  for scalars — the 80 `clone_on_copy` warnings are gone.
+- **A free `fn main` is a crate entry** (ranked item 7): when a program
+  declares no `sfn m@(main)`, the writer emits `fn main()` calling the
+  class-attached free main — the E0601 row is closed, and the runnable
+  probes of this doc now build from the fixtures as written.
+
+**Still open, in the ranked order:** `+=` compound assignment, double
+parens, tail expressions instead of `return` (needs block-position
+awareness in the walker), clone hygiene beyond Copy scalars (the
+`.clone().clone()` stacks, `return local.clone()`), snake_case emission,
+`&[u8]`/`&str` parameters, hoisted loop borrows, and rustfmt-shaped text.
+The `mut x : &mut T` double-mut and `#[derive(Clone)]`-on-shared-classes
+items also stand.
