@@ -358,6 +358,23 @@ them aside cannot quietly flatter the remaining number.
   was read, so the loop ran its body with `k` never set. A property deleted before
   it is reached is also no longer visited — the key list is snapshotted at entry.
 
+- **`typeof NaN` is `"number"`.** A value property of the global object was
+  resolved by asking for a *namespace* of that name, which minted an empty object
+  — so `NaN` and `Infinity` both reported `"object"`. The global object holds the
+  real value, and that is what `typeof` reads now.
+
+- **A non-configurable property cannot be deleted.** `delete` removed whatever it
+  was pointed at, attributes and all: `delete Number.NaN` answered true and the
+  property went. It is false now, and a TypeError in strict mode. The same rule
+  reaches the value globals — `delete NaN` is false — which are not scope bindings
+  and so were invisible to the name-delete path.
+
+- **A strict-only reserved word is an ordinary identifier in sloppy code.**
+  `var public = 1` is legal JavaScript outside strict mode; the parser refused it
+  everywhere, because a `TSKeyword` token produced no identifier node at all. That
+  is what made the directive-prologue tests fail — the ones that check a
+  *misspelled* `"use  strict"` leaves the function sloppy.
+
 - **Whose strictness decides `this` is the CALLEE's.** It is stamped on the
   function value when the function is created; asking the body again at call time
   folds in the ambient flag — the *caller's* — so a sloppy function called from
@@ -663,9 +680,10 @@ more, not less.
 | `language/statements` | 96% (541/562) |
 | `language/function-code` | 96% (204/212) |
 | `language/eval-code` | 96% (55/57) |
-| `language/types` | 91% (86/94) |
-| `language/directive-prologue` | 73% (37/51) |
-| ES5 overall | **99.4%** (895/900 sampled) |
+| `language/types` | 94% (88/94) |
+| `language/directive-prologue` | 94% (48/51) |
+| `language/reserved-words` | 69% (9/13) |
+| ES5 overall | **99.8%** (898/900 sampled) |
 
 `built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
 `built-ins/RegExp`, `built-ins/Array`, `built-ins/Math`, `built-ins/Date`,
@@ -673,8 +691,8 @@ more, not less.
 directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1197 checks, every one of them derived from Node —
-1185 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1211 checks, every one of them derived from Node —
+1199 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

@@ -7363,6 +7363,15 @@ class TSParserSimple  {
           this.syntaxError(("Parse error: '" + tokVal) + "' is reserved in strict mode");
         }
       }
+      this.advance();
+      const tsId = new TSNode();
+      tsId.nodeType = "Identifier";
+      tsId.name = tok.value;
+      tsId.start = tok.start;
+      tsId.end = tok.end;
+      tsId.line = tok.line;
+      tsId.col = tok.col;
+      return tsId;
     }
     if ( tokType == "Keyword" ) {
       let contextual = false;
@@ -7385,6 +7394,24 @@ class TSParserSimple  {
         contextual = true;
       }
       if ( tokVal == "from" ) {
+        contextual = true;
+      }
+      if ( tokVal == "implements" ) {
+        contextual = true;
+      }
+      if ( tokVal == "interface" ) {
+        contextual = true;
+      }
+      if ( tokVal == "package" ) {
+        contextual = true;
+      }
+      if ( tokVal == "private" ) {
+        contextual = true;
+      }
+      if ( tokVal == "protected" ) {
+        contextual = true;
+      }
+      if ( tokVal == "public" ) {
         contextual = true;
       }
       if ( contextual ) {

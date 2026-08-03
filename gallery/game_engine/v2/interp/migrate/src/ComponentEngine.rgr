@@ -10656,6 +10656,23 @@ class ComponentEngine {
     ; deletion is RECORDED on the prototype object and every path that consults
     ; the registry checks here first. Only a registered built-in prototype can
     ; carry such a record; an ordinary object's delete is the map's business.
+    ; D-ATTRS: a NON-CONFIGURABLE own property cannot be deleted -- `delete
+    ; Number.NaN` is false, and a TypeError in strict mode. The delete operator
+    ; removed whatever it was pointed at, attributes and all.
+    fn deleteRefused:boolean (obj:EvalValue key:string) {
+        if (false == (this.isDescriptorObject(obj))) {
+            return false
+        }
+        def present:boolean false
+        if (has obj.objectMap key) { present = true }
+        if (has obj.getterMap key) { present = true }
+        if (has obj.setterMap key) { present = true }
+        if (false == present) {
+            return false
+        }
+        return (false == (obj.isConfigurable(key)))
+    }
+
     fn isBuiltinPrototypeObject:boolean (v:EvalValue) {
         ; Array.prototype is an array and Function.prototype is a function, so
         ; the check cannot be "is it a plain object".
@@ -15393,6 +15410,16 @@ class ComponentEngine {
                         if (this.isBuiltinCtorName(name)) {
                             return (EvalValue.string("function"))
                         }
+                        ; A VALUE property of the global -- NaN, Infinity -- is a
+                        ; number, and asking builtinGlobalObject for it minted an
+                        ; empty namespace object instead, so `typeof NaN` was
+                        ; "object". The global object holds the real value.
+                        def gObjT:EvalValue (this.theGlobalObject())
+                        if (gObjT.valueType == 5) {
+                            if (has gObjT.objectMap name) {
+                                return (EvalValue.string((this.typeofTag((unwrap (get gObjT.objectMap name))))))
+                            }
+                        }
                         def gv:EvalValue (this.builtinGlobalObject(name))
                         if (gv.valueType == 5) {
                             return (EvalValue.string("object"))
@@ -15443,6 +15470,17 @@ class ComponentEngine {
                     ; A `delete` of a NAME is a SyntaxError in strict mode.
                     if strictMode {
                         return (this.throwSpecError("SyntaxError" ("cannot delete the unqualified name " + delName)))
+                    }
+                    ; A non-configurable property of the GLOBAL object -- NaN,
+                    ; Infinity, undefined -- cannot be deleted either, and it is
+                    ; not a scope binding so the check below never saw it.
+                    def gDel:EvalValue (this.theGlobalObject())
+                    if (gDel.valueType == 5) {
+                        if (has gDel.objectMap delName) {
+                            if (false == (gDel.isConfigurable(delName))) {
+                                return (EvalValue.boolean(false))
+                            }
+                        }
                     }
                     if (context.has(delName)) {
                         ; A DECLARED binding -- `var`, a function declaration, a
@@ -15503,12 +15541,24 @@ class ComponentEngine {
                                     }
                                 }
                             }
+                            if (this.deleteRefused(obj dkey)) {
+                                if strictMode {
+                                    return (this.throwSpecError("TypeError" ("cannot delete " + dkey)))
+                                }
+                                return (EvalValue.boolean(false))
+                            }
                             obj.removeMember(dkey)
                             if (this.isBuiltinPrototypeObject(obj)) {
                                 set obj.suppressedKeys dkey true
                             }
                         }
                     } {
+                        if (this.deleteRefused(obj tgt.name)) {
+                            if strictMode {
+                                return (this.throwSpecError("TypeError" ("cannot delete " + tgt.name)))
+                            }
+                            return (EvalValue.boolean(false))
+                        }
                         obj.removeMember(tgt.name)
                         if (this.isBuiltinPrototypeObject(obj)) {
                             set obj.suppressedKeys tgt.name true

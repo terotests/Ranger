@@ -1382,6 +1382,22 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["callee-strict-write-throws", "return (function () { 'use strict'; var a = (function () { return arguments; })(); try { a.callee = {}; return 'no-throw'; } catch (e) { return e.name; } })();", "callee"],
   ["callee-strict-descriptor", "return (function () { 'use strict'; function f() { return Object.getOwnPropertyDescriptor(arguments, 'callee'); } var d = f(); return String(d.configurable) + '/' + String(d.enumerable) + '/' + String(d.hasOwnProperty('value')) + '/' + String(d.hasOwnProperty('get')) + '/' + String(d.hasOwnProperty('set')); })();", "callee"],
 
+  // --- the value globals, non-configurable delete, sloppy reserved words ----
+  ["typeof-nan-is-number", "return typeof NaN;", "globals"],
+  ["typeof-infinity-is-number", "return typeof Infinity;", "globals"],
+  ["typeof-math-is-object", "return typeof Math;", "globals"],
+  ["typeof-object-is-function", "return typeof Object;", "globals"],
+  ["typeof-unresolvable", "return typeof nosuchnameanywhere2;", "globals"],
+  ["delete-nan-is-false", "return String(delete NaN);", "globals"],
+  ["delete-infinity-is-false", "return String(delete Infinity);", "globals"],
+  ["delete-number-nan-is-false", "return String(delete Number.NaN);", "globals"],
+  ["delete-nonconfigurable-is-false", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return String(delete o.a) + '/' + String(o.a);", "globals"],
+  ["delete-configurable-is-true", "var o = {}; Object.defineProperty(o, 'a', { value: 1, configurable: true }); return String(delete o.a) + '/' + String(o.a);", "globals"],
+  ["delete-plain-property", "var o = { a: 1 }; return String(delete o.a) + '/' + String(o.a);", "globals"],
+  ["sloppy-strict-reserved-as-name", "function f() { var public = 1; var interface = 2; return public + interface; } return f();", "globals"],
+  ["misspelled-directive-leaves-sloppy", "function f() { 'use  strict'; var public = 1; return public; } return f();", "globals"],
+  ["strict-reserved-still-rejected", "return (function () { 'use strict'; try { eval('var public = 1;'); return 'no-throw'; } catch (e) { return e.name; } })();", "globals"],
+
   // --- whose strictness decides `this`, and strict eval's own scope ---------
   ["fnctor-is-sloppy", "return (function () { 'use strict'; var f = Function('return typeof this;'); return f(); })();", "thisstrict"],
   ["fnctor-own-directive-strict", "var f = Function('\"use strict\"; return typeof this;'); return f();", "thisstrict"],

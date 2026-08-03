@@ -6732,12 +6732,27 @@ class TSParserSimple {
     ; Contextual keywords used as plain identifiers. These are only reserved in
     ; contexts this parser does not track (module/strict code, generator or async
     ; bodies), so in expression position they name a binding.
+    ; A TSKeyword -- `public`, `private`, `interface`, `any` … -- is a
+    ; TypeScript modifier where TypeScript expects one and an ORDINARY
+    ; IDENTIFIER everywhere else. It produced no node here at all, so `var
+    ; public = 1` fell through to the unexpected-token fallback even in sloppy
+    ; code, where JavaScript says the name is perfectly legal. The strict check
+    ; is what still rejects it where it is genuinely reserved.
     if (tokType == "TSKeyword") {
       if (this.strictMode) {
         if (this.isStrictReservedReference(tokVal)) {
           this.syntaxError("Parse error: '" + tokVal + "' is reserved in strict mode")
         }
       }
+      this.advance()
+      def tsId (new TSNode())
+      tsId.nodeType = "Identifier"
+      tsId.name = tok.value
+      tsId.start = tok.start
+      tsId.end = tok.end
+      tsId.line = tok.line
+      tsId.col = tok.col
+      return tsId
     }
 
     if (tokType == "Keyword") {
@@ -6749,6 +6764,19 @@ class TSParserSimple {
       if (tokVal == "static") { contextual = true }
       if (tokVal == "as") { contextual = true }
       if (tokVal == "from") { contextual = true }
+      ; The STRICT-only reserved words are ordinary identifiers in sloppy code:
+      ; `var public = 1` is legal JavaScript outside strict mode. They were
+      ; refused everywhere, which made a whole family of directive-prologue
+      ; tests -- the ones that check a MISSPELLED "use  strict" leaves the
+      ; function sloppy -- fail with an unexpected-token error instead. The
+      ; strictMode guard just below is what still rejects them where they are
+      ; genuinely reserved.
+      if (tokVal == "implements") { contextual = true }
+      if (tokVal == "interface") { contextual = true }
+      if (tokVal == "package") { contextual = true }
+      if (tokVal == "private") { contextual = true }
+      if (tokVal == "protected") { contextual = true }
+      if (tokVal == "public") { contextual = true }
       if contextual {
         if (this.noLetReference) {
           if (tokVal == "let") {
