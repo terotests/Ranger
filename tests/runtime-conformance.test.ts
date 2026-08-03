@@ -1373,6 +1373,28 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["concat-copies-inherited-index", "Object.defineProperty(Array.prototype, '1', { value: 1, configurable: true }); var x = [0]; x.length = 2; var arr = x.concat(); var out = String(arr[0]) + ',' + String(arr[1]) + ',' + String(arr.hasOwnProperty('1')); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
   ["array-hole-reads-prototype", "Object.defineProperty(Array.prototype, '1', { value: 7, configurable: true }); var x = [0]; x.length = 2; var out = String(x[1]); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
 
+  // --- JSON.parse follows the JSON grammar, not a lenient subset of JS ------
+  ["json-reject-unquoted-key", "try { JSON.parse('{a:1}'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-trailing-comma-array", "try { JSON.parse('[1,]'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-trailing-comma-object", "try { JSON.parse('{\"a\":1,}'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-leading-zero", "try { JSON.parse('01'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-trailing-dot", "try { JSON.parse('1.'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-leading-dot", "try { JSON.parse('.5'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-leading-plus", "try { JSON.parse('+1'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-hex", "try { JSON.parse('0x10'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-single-quotes", "try { JSON.parse(\"'x'\"); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-partial-keyword", "try { JSON.parse('tru'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-trailing-junk", "try { JSON.parse('1 2'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-empty", "try { JSON.parse(''); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-missing-comma", "try { JSON.parse('[1 2]'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-bad-escape", "try { JSON.parse('\"\\\\x\"'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-accepts-nested", "var v = JSON.parse('{\"a\":{\"b\":[1,2]}}'); return String(v.a.b[1]);", "jsonparse"],
+  ["json-accepts-exponent", "return String(JSON.parse('-1.5e-3'));", "jsonparse"],
+  ["json-accepts-escapes", "return JSON.parse('\"\\\\u0041\\\\n\"').length + '|' + JSON.parse('\"\\\\u0041\"');", "jsonparse"],
+  ["json-accepts-whitespace", "return String(JSON.parse(' \\t\\r\\n{ \"a\" : 1 } ').a);", "jsonparse"],
+  ["json-negative-zero", "return String(1 / JSON.parse('-0'));", "jsonparse"],
+  ["json-proto-is-ordinary-key", "var x = JSON.parse('{\"__proto__\":[]}'); return String(Array.isArray(x.__proto__));", "jsonparse"],
+
   // --- direct eval inherits strictness; F.prototype is fully formed ---------
   ["strict-eval-early-error", "return (function () { 'use strict'; try { eval('var arguments;'); return 'no-throw'; } catch (e) { return e.name; } })();", "fnexpr"],
   ["sloppy-eval-no-early-error", "try { eval('var argumentsx;'); return 'no-throw'; } catch (e) { return e.name; }", "fnexpr"],
@@ -1477,6 +1499,13 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
  * Recorded 2026-08-02 against gallery/game_engine/v2/interp.
  */
 const KNOWN_GAPS = new Set<string>([
+  // A map key literally named `__proto__` cannot be stored: the es6 target
+  // compiles a Ranger string map to a plain JS object, and assigning that name
+  // sets the prototype instead of creating a property. Fixing it means changing
+  // how EVERY map write is emitted (Object.defineProperty on a hot path, or a
+  // template that evaluates its key and value twice), which costs more than the
+  // one behaviour it buys. Asserted in both directions so it cannot rot.
+  "json-proto-is-ordinary-key",
   "for-of-expr-lhs",
   // Destructuring: swap produces the wrong value.
   "destr-swap",

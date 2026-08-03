@@ -418,6 +418,9 @@ class ComponentEngine {
     ; jsonPos over jsonSrc). Only valid during a JSON.parse call.
     def jsonSrc:string ""
     def jsonPos:int 0
+    ; D-JSON: whether the current JSON.parse hit a grammar error, and what to say.
+    def jsonFailed:boolean false
+    def jsonError:string ""
 
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
@@ -16960,12 +16963,25 @@ class ComponentEngine {
     }
 
     ; ---- JSON.parse: recursive descent over jsonSrc using the jsonPos cursor ----
+    ; D-JSON: the JSON grammar is its OWN grammar, not a lenient subset of
+    ; JavaScript. The parser here used to accept anything it was handed --
+    ; `{a:1}`, `[1,]`, `01`, `'x'`, a bare `tru`, trailing junk -- and quietly
+    ; produced a value, so half of built-ins/JSON was asserting a SyntaxError
+    ; that never came. Every production now reports rather than guesses.
+    fn jsonFail:void (msg:string) {
+        if (false == jsonFailed) {
+            jsonFailed = true
+            jsonError = msg
+        }
+    }
     fn jsonPeek:string () {
         if (jsonPos < (strlen jsonSrc)) {
             return (substring jsonSrc jsonPos (jsonPos + 1))
         }
         return ""
     }
+    ; JSON whitespace is exactly these four characters -- not the wider set the
+    ; language allows, which is what the <TAB>/<CR>/<LF>/<SP> tests check.
     fn jsonSkipWs:void () {
         def looping:boolean true
         while (looping) {
@@ -16977,9 +16993,28 @@ class ComponentEngine {
             }
         }
     }
+    ; A keyword must be spelled in full: `tru` and `nulll` are both errors.
+    fn jsonWord:boolean (word:string) {
+        def n:int (strlen word)
+        if ((jsonPos + n) > (strlen jsonSrc)) {
+            return false
+        }
+        if ((substring jsonSrc jsonPos (jsonPos + n)) != word) {
+            return false
+        }
+        jsonPos = (jsonPos + n)
+        return true
+    }
     fn jsonParseValue:EvalValue () {
+        if jsonFailed {
+            return (EvalValue.undefined())
+        }
         this.jsonSkipWs()
         def c:string (this.jsonPeek())
+        if ((strlen c) == 0) {
+            this.jsonFail("Unexpected end of JSON input")
+            return (EvalValue.undefined())
+        }
         if (c == "{") {
             return (this.jsonParseObject())
         }
@@ -16990,38 +17025,104 @@ class ComponentEngine {
             return (EvalValue.string((this.jsonParseString())))
         }
         if (c == "t") {
-            jsonPos = (jsonPos + 4)
-            return (EvalValue.boolean(true))
+            if (this.jsonWord("true")) {
+                return (EvalValue.boolean(true))
+            }
+            this.jsonFail("Unexpected token in JSON")
+            return (EvalValue.undefined())
         }
         if (c == "f") {
-            jsonPos = (jsonPos + 5)
-            return (EvalValue.boolean(false))
+            if (this.jsonWord("false")) {
+                return (EvalValue.boolean(false))
+            }
+            this.jsonFail("Unexpected token in JSON")
+            return (EvalValue.undefined())
         }
         if (c == "n") {
-            jsonPos = (jsonPos + 4)
-            return (EvalValue.null())
+            if (this.jsonWord("null")) {
+                return (EvalValue.null())
+            }
+            this.jsonFail("Unexpected token in JSON")
+            return (EvalValue.undefined())
         }
-        return (this.jsonParseNumber())
+        if (c == "-") {
+            return (this.jsonParseNumber())
+        }
+        if (this.isDigitStr(c)) {
+            return (this.jsonParseNumber())
+        }
+        this.jsonFail(("Unexpected token " + (c + " in JSON")))
+        return (EvalValue.undefined())
     }
+    ; JSONString: double quotes, no raw control character below U+0020, and only
+    ; the eight escapes the grammar names (plus \uXXXX with four hex digits).
     fn jsonParseString:string () {
         def out:string ""
+        if ((this.jsonPeek()) != "\"") {
+            this.jsonFail("Expected string in JSON")
+            return ""
+        }
         jsonPos = (jsonPos + 1)
-        def looping:boolean true
         def L:int (strlen jsonSrc)
+        def looping:boolean true
+        def closed:boolean false
         while (looping && (jsonPos < L)) {
             def ch:string (substring jsonSrc jsonPos (jsonPos + 1))
+            def code:int (charAt jsonSrc jsonPos)
             if (ch == "\"") {
                 jsonPos = (jsonPos + 1)
+                closed = true
                 looping = false
             } {
+                if (code < 32) {
+                    this.jsonFail("Bad control character in JSON string")
+                    return out
+                }
                 if (ch == "\\") {
+                    if ((jsonPos + 1) >= L) {
+                        this.jsonFail("Unexpected end of JSON input")
+                        return out
+                    }
                     def esc:string (substring jsonSrc (jsonPos + 1) (jsonPos + 2))
-                    if (esc == "n") { out = (out + "\n") }
-                    if (esc == "t") { out = (out + "\t") }
-                    if (esc == "r") { out = (out + "\r") }
-                    if (esc == "\"") { out = (out + "\"") }
-                    if (esc == "\\") { out = (out + "\\") }
-                    if (esc == "/") { out = (out + "/") }
+                    def known:boolean true
+                    if (esc == "n") { out = (out + "\n") } {
+                    if (esc == "t") { out = (out + "\t") } {
+                    if (esc == "r") { out = (out + "\r") } {
+                    if (esc == "b") { out = (out + (strfromcode 8)) } {
+                    if (esc == "f") { out = (out + (strfromcode 12)) } {
+                    if (esc == "\"") { out = (out + "\"") } {
+                    if (esc == "\\") { out = (out + "\\") } {
+                    if (esc == "/") { out = (out + "/") } {
+                    if (esc == "u") {
+                        if ((jsonPos + 6) > L) {
+                            this.jsonFail("Bad Unicode escape in JSON")
+                            return out
+                        }
+                        def hex:string (substring jsonSrc (jsonPos + 2) (jsonPos + 6))
+                        def hv:int 0
+                        def hi:int 0
+                        while (hi < 4) {
+                            def hc:int (charAt hex hi)
+                            def dv:int (0 - 1)
+                            if ((hc >= 48) && (hc <= 57)) { dv = (hc - 48) }
+                            if ((hc >= 97) && (hc <= 102)) { dv = ((hc - 97) + 10) }
+                            if ((hc >= 65) && (hc <= 70)) { dv = ((hc - 65) + 10) }
+                            if (dv < 0) {
+                                this.jsonFail("Bad Unicode escape in JSON")
+                                return out
+                            }
+                            hv = ((hv * 16) + dv)
+                            hi = (hi + 1)
+                        }
+                        out = (out + (strfromcode hv))
+                        jsonPos = (jsonPos + 4)
+                    } {
+                        known = false
+                    }}}}}}}}}
+                    if (false == known) {
+                        this.jsonFail("Bad escaped character in JSON")
+                        return out
+                    }
                     jsonPos = (jsonPos + 2)
                 } {
                     out = (out + ch)
@@ -17029,18 +17130,68 @@ class ComponentEngine {
                 }
             }
         }
+        if (false == closed) {
+            this.jsonFail("Unterminated string in JSON")
+        }
         return out
     }
+    ; JSONNumber: an optional minus, then 0 or a non-zero-led integer, then an
+    ; optional fraction with at least one digit, then an optional exponent with
+    ; at least one digit. No leading plus, no leading zeros, no hex, no bare
+    ; trailing dot -- all of which the previous character sweep accepted.
     fn jsonParseNumber:EvalValue () {
         def start:int jsonPos
         def L:int (strlen jsonSrc)
-        def looping:boolean true
-        while (looping && (jsonPos < L)) {
-            def ch:string (substring jsonSrc jsonPos (jsonPos + 1))
-            if ((ch == "-") || (ch == "+") || (ch == ".") || (ch == "e") || (ch == "E") || (this.isDigitStr(ch))) {
+        if ((this.jsonPeek()) == "-") {
+            jsonPos = (jsonPos + 1)
+        }
+        def intDigits:int 0
+        def firstDigit:string (this.jsonPeek())
+        if (firstDigit == "0") {
+            jsonPos = (jsonPos + 1)
+            intDigits = 1
+            ; A digit straight after a leading zero is an error: `01` is not JSON.
+            if (this.isDigitStr((this.jsonPeek()))) {
+                this.jsonFail("Unexpected number in JSON")
+                return (EvalValue.undefined())
+            }
+        } {
+            while (this.isDigitStr((this.jsonPeek()))) {
                 jsonPos = (jsonPos + 1)
-            } {
-                looping = false
+                intDigits = (intDigits + 1)
+            }
+        }
+        if (intDigits == 0) {
+            this.jsonFail("Unexpected token in JSON")
+            return (EvalValue.undefined())
+        }
+        if ((this.jsonPeek()) == ".") {
+            jsonPos = (jsonPos + 1)
+            def fracDigits:int 0
+            while (this.isDigitStr((this.jsonPeek()))) {
+                jsonPos = (jsonPos + 1)
+                fracDigits = (fracDigits + 1)
+            }
+            if (fracDigits == 0) {
+                this.jsonFail("Unexpected token in JSON")
+                return (EvalValue.undefined())
+            }
+        }
+        def ec:string (this.jsonPeek())
+        if ((ec == "e") || (ec == "E")) {
+            jsonPos = (jsonPos + 1)
+            def sc:string (this.jsonPeek())
+            if ((sc == "+") || (sc == "-")) {
+                jsonPos = (jsonPos + 1)
+            }
+            def expDigits:int 0
+            while (this.isDigitStr((this.jsonPeek()))) {
+                jsonPos = (jsonPos + 1)
+                expDigits = (expDigits + 1)
+            }
+            if (expDigits == 0) {
+                this.jsonFail("Unexpected token in JSON")
+                return (EvalValue.undefined())
             }
         }
         def numStr:string (substring jsonSrc start jsonPos)
@@ -17048,7 +17199,8 @@ class ComponentEngine {
         if d {
             return (EvalValue.number((unwrap d)))
         }
-        return (EvalValue.number(0.0))
+        this.jsonFail("Unexpected number in JSON")
+        return (EvalValue.undefined())
     }
     fn isDigitStr:boolean (ch:string) {
         if ((strlen ch) == 0) {
@@ -17073,13 +17225,27 @@ class ComponentEngine {
         def looping:boolean true
         while (looping) {
             push items (this.jsonParseValue())
+            if jsonFailed {
+                return (EvalValue.array(items))
+            }
             this.jsonSkipWs()
             def c:string (this.jsonPeek())
             if (c == ",") {
                 jsonPos = (jsonPos + 1)
+                ; `[1,]` is not JSON: a comma must be followed by a value.
+                this.jsonSkipWs()
+                if ((this.jsonPeek()) == "]") {
+                    this.jsonFail("Unexpected token ] in JSON")
+                    return (EvalValue.array(items))
+                }
             } {
-                jsonPos = (jsonPos + 1)
-                looping = false
+                if (c == "]") {
+                    jsonPos = (jsonPos + 1)
+                    looping = false
+                } {
+                    this.jsonFail("Expected ',' or ']' in JSON array")
+                    return (EvalValue.array(items))
+                }
             }
         }
         return (EvalValue.array(items))
@@ -17096,27 +17262,69 @@ class ComponentEngine {
         def looping:boolean true
         while (looping) {
             this.jsonSkipWs()
+            ; A member name is a STRING. `{a: 1}` is JavaScript, not JSON.
+            if ((this.jsonPeek()) != "\"") {
+                this.jsonFail("Expected property name in JSON")
+                return (EvalValue.object(ks vs))
+            }
             def key:string (this.jsonParseString())
+            if jsonFailed {
+                return (EvalValue.object(ks vs))
+            }
             this.jsonSkipWs()
+            if ((this.jsonPeek()) != ":") {
+                this.jsonFail("Expected ':' in JSON object")
+                return (EvalValue.object(ks vs))
+            }
             jsonPos = (jsonPos + 1)
             def val:EvalValue (this.jsonParseValue())
+            if jsonFailed {
+                return (EvalValue.object(ks vs))
+            }
             push ks key
             push vs val
             this.jsonSkipWs()
             def c:string (this.jsonPeek())
             if (c == ",") {
                 jsonPos = (jsonPos + 1)
+                this.jsonSkipWs()
+                if ((this.jsonPeek()) == "}") {
+                    this.jsonFail("Unexpected token } in JSON")
+                    return (EvalValue.object(ks vs))
+                }
             } {
-                jsonPos = (jsonPos + 1)
-                looping = false
+                if (c == "}") {
+                    jsonPos = (jsonPos + 1)
+                    looping = false
+                } {
+                    this.jsonFail("Expected ',' or '}' in JSON object")
+                    return (EvalValue.object(ks vs))
+                }
             }
         }
-        return (EvalValue.object(ks vs))
+        def obj:EvalValue (EvalValue.object(ks vs))
+        obj.protoRef = (this.builtinPrototype("Object"))
+        return obj
     }
     fn jsonParse:EvalValue (src:string) {
         jsonSrc = src
         jsonPos = 0
-        return (this.jsonParseValue())
+        jsonFailed = false
+        jsonError = ""
+        def v:EvalValue (this.jsonParseValue())
+        if (false == jsonFailed) {
+            ; Nothing but whitespace may follow the top-level value: `1 2` and
+            ; `{} garbage` are both errors, and running off the end of the text
+            ; was the parser's only previous notion of "done".
+            this.jsonSkipWs()
+            if (jsonPos < (strlen jsonSrc)) {
+                this.jsonFail("Unexpected non-whitespace character after JSON")
+            }
+        }
+        if jsonFailed {
+            return (this.throwSpecError("SyntaxError" jsonError))
+        }
+        return v
     }
 
     fn evaluateObjectExpr:EvalValue (node:TSNode) {
