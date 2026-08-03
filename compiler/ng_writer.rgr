@@ -165,6 +165,16 @@ class CodeSlice {
 
 class CodeWriter {
     def tagName:string ""
+    ; one-shot: the next operator emission is already delimited by the
+    ; caller (its own parens, or a call-argument slot), so the expression
+    ; walker must not add a pair of its own
+    def suppress_expr_parens:boolean false
+    ; scoped to the operator currently being emitted: true when its caller
+    ; already delimits it, so a custom handler skips its own outer pair
+    def current_op_no_parens:boolean false
+    ; inside a format!/println! argument slot: a Display value needs no
+    ; .to_string() there
+    def in_format_args:boolean false
     def codeStr:string ""
     def currentLine:string ""
     def tabStr:string "  "

@@ -26,6 +26,13 @@ class RangerGenericClassWriter {
     return ""
   }
 
+  ; does this operator's template for the target already write a full
+  ; `( … )` around its output? The expression walker skips its own pair
+  ; then. The default claims nothing; a target writer overrides.
+  fn opWritesOwnParens:boolean (opName:string node:CodeNode ctx:RangerAppWriterContext) {
+    return false
+  }
+
   fn addSystemImport:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if cl.is_system {
       def langName (ctx.getTargetLang())
