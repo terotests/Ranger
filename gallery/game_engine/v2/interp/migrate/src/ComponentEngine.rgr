@@ -1371,6 +1371,40 @@ class ComponentEngine {
         return evOut
     }
 
+    ; D-EVAL: INDIRECT eval -- `var e = eval; e(src)`, `eval.call(null, src)`.
+    ; The spec runs it in the GLOBAL scope rather than the caller's, which is the
+    ; whole difference from the direct form intercepted by name. It used to be
+    ; uncallable at all: the value has no function node, so every call path
+    ; skipped it and reported "not a function".
+    fn isEvalFunctionValue:boolean (v:EvalValue) {
+        if (v.valueType != 6) {
+            return false
+        }
+        if v.functionNode {
+            return false
+        }
+        if ((strlen v.builtinName) > 0) {
+            return false
+        }
+        return (v.functionName == "eval")
+    }
+
+    fn runIndirectEval:EvalValue (args:[EvalValue]) {
+        if ((array_length args) == 0) {
+            return (EvalValue.undefined())
+        }
+        def evSrc:EvalValue (itemAt args 0)
+        ; eval of a non-string returns the argument untouched.
+        if (false == (evSrc.isString())) {
+            return evSrc
+        }
+        def savedEvalCtx:EvalContext context
+        context = moduleScope
+        def evOut:EvalValue (this.runEvalSource(evSrc.stringValue))
+        context = savedEvalCtx
+        return evOut
+    }
+
     fn runEvalSourceIn:EvalValue (src:string) {
         ; A FRESH parser: `parser` is a shared member and its errorCount carries
         ; across parses, so re-entering it here made eval report a SyntaxError
@@ -3181,34 +3215,41 @@ class ComponentEngine {
             def rightNode:TSNode (unwrap stmt.right)
             def target:EvalValue (this.evaluateExpr(rightNode))
             def theKeys:[string]
-            if (target.isArray()) {
-                ; D-HOLES: an ABSENT element has no key, so for-in skips it.
-                ; A non-index property set on the array is still visited.
-                def rawArrKeys:[string] (this.objectEnumerableKeys(target))
-                def aki:int 0
-                while (aki < (array_length rawArrKeys)) {
-                    def ark:string (itemAt rawArrKeys aki)
-                    if (false == (this.isHiddenInstanceKey(ark))) {
-                        push theKeys ark
-                    }
-                    aki = (aki + 1)
-                }
-            } {
-                if (target.isObject()) {
-                    ; D-ATTRS: for-in visits ENUMERABLE properties only, and
-                    ; never the engine's internal bookkeeping keys. Reading the
-                    ; raw map made `for (var k in String.prototype)` walk all 27
-                    ; built-in methods, and a defineProperty'd property show up
-                    ; despite defaulting to non-enumerable.
-                    def rawKeys:[string] (this.objectEnumerableKeys(target))
-                    def ki:int 0
-                    while (ki < (array_length rawKeys)) {
-                        def rk:string (itemAt rawKeys ki)
-                        if (false == (this.isHiddenInstanceKey(rk))) {
+            ; D-ATTRS: for-in visits ENUMERABLE properties only, never the
+            ; engine's internal bookkeeping keys, and it walks the PROTOTYPE
+            ; CHAIN -- a property put on Boolean.prototype shows up in a for-in
+            ; over a Boolean object. A name already seen nearer the object
+            ; shadows the inherited one, whether or not the nearer one was
+            ; enumerable.
+            def seenKeys:[string:boolean]
+            def walkIn:EvalValue target
+            def inSteps:int 0
+            while (inSteps < 16) {
+                def rawKeys:[string] (this.objectEnumerableKeys(walkIn))
+                def ki:int 0
+                while (ki < (array_length rawKeys)) {
+                    def rk:string (itemAt rawKeys ki)
+                    if (false == (this.isHiddenInstanceKey(rk))) {
+                        if (false == (has seenKeys rk)) {
+                            set seenKeys rk true
                             push theKeys rk
                         }
-                        ki = (ki + 1)
                     }
+                    ki = (ki + 1)
+                }
+                ; A non-enumerable own property still shadows an inherited one.
+                def shadow:[string] (this.objectKeys(walkIn))
+                def si2:int 0
+                while (si2 < (array_length shadow)) {
+                    set seenKeys (itemAt shadow si2) true
+                    si2 = (si2 + 1)
+                }
+                def nextIn:EvalValue (this.protoOfValue(walkIn))
+                if (nextIn.isNull()) {
+                    inSteps = 16
+                } {
+                    walkIn = nextIn
+                    inSteps = (inSteps + 1)
                 }
             }
             def i:int 0
@@ -4299,6 +4340,16 @@ class ComponentEngine {
                 numIdx = ai0
             }
         }
+        ; An ELEMENT defined as an accessor takes the write through its setter,
+        ; exactly as a named accessor does.
+        if numericIndexes {
+            if (has obj.setterMap key) {
+                numericIndexes = false
+            }
+            if (has obj.getterMap key) {
+                numericIndexes = false
+            }
+        }
         if numericIndexes {
             ; D-ARRAYSPARSE: the backing store is DENSE, so an index far past the
             ; end cannot be materialised -- `x[2147483648] = 1` asked the host for
@@ -4311,6 +4362,11 @@ class ComponentEngine {
                 def farCur:EvalValue (obj.getMember(farKey))
                 result = (this.applyAssignOp(op farCur rightValue))
                 obj.setMember(farKey result)
+                ; The element is past the dense store, but it still moves the
+                ; length -- `a[2147483648] = 1` makes a.length 2147483649.
+                if ((numIdx + 1) > (obj.arrayLength())) {
+                    obj.declaredLength = (numIdx + 1)
+                }
             } {
                 def curIdx:EvalValue (obj.getIndex(numIdx))
                 result = (this.applyAssignOp(op curIdx rightValue))
@@ -4324,7 +4380,7 @@ class ComponentEngine {
             ; untouched and every assertion about it read the old contents.
             if (obj.valueType == 4) {
                 if (key == "length") {
-                    def lenCur:EvalValue (EvalValue.fromInt((array_length obj.arrayValue)))
+                    def lenCur:EvalValue (EvalValue.fromInt((obj.arrayLength())))
                     def lenWant:EvalValue (this.applyAssignOp(op lenCur rightValue))
                     if scriptThrew {
                         return (EvalValue.undefined())
@@ -4344,36 +4400,22 @@ class ComponentEngine {
                     if (lenU != lenNum) {
                         return (this.throwSpecError("RangeError" "Invalid array length"))
                     }
-                    ; The backing store is dense, so a length the spec allows but
-                    ; no host could hold is refused rather than attempted. Same
-                    ; bound `Array(n)` uses, so the two forms agree.
-                    if (lenU > 10000000.0) {
-                        return (this.throwSpecError("RangeError" "Invalid array length"))
-                    }
+                    ; D-ARRAYSPARSE: beyond the dense cap only the DECLARED
+                    ; length moves -- the spec allows a length of 2^32-1 with no
+                    ; elements, which no dense container can materialise.
                     def newLen:int (to_int lenU)
-                    def resized:[EvalValue]
-                    def li:int 0
-                    while (li < newLen) {
-                        if (li < (array_length obj.arrayValue)) {
-                            push resized (itemAt obj.arrayValue li)
-                        } {
-                            ; A slot past the old end is a HOLE.
-                            push resized (EvalValue.hole())
-                        }
-                        li = (li + 1)
-                    }
-                    obj.arrSetItems(resized)
+                    this.setArrayLength(obj newLen)
                     return lenWant
                 }
             }
             ; D-ACCESSORS: a setter takes the write instead of storing a data
             ; property. Without this the setter would be shadowed by a plain
             ; value and never run again.
-            def sFn:EvalValue (obj.findSetter(key 0))
+            def sFn:EvalValue (this.resolveSetterOn(obj key))
             if (sFn.valueType == 6) {
                 if sFn.functionNode {
                     def cur0:EvalValue (EvalValue.undefined())
-                    def gFn0:EvalValue (obj.findGetter(key 0))
+                    def gFn0:EvalValue (this.resolveGetterOn(obj key))
                     if (gFn0.valueType == 6) {
                         if gFn0.functionNode {
                             def noArgs0:[EvalValue]
@@ -5034,6 +5076,9 @@ class ComponentEngine {
                 bArgs = bMerged
             }
             return (this.invokeBuiltin(fnValue.builtinKind fnValue.builtinName bRecv bArgs))
+        }
+        if (this.isEvalFunctionValue(fnValue)) {
+            return (this.runIndirectEval(argVals))
         }
         if (null? fnValue.functionNode) {
             return (EvalValue.null())
@@ -6199,6 +6244,16 @@ class ComponentEngine {
                 ; branch having to be deleted in the same step. Methods move
                 ; across one group at a time, each move independently verified.
                 def rKind:string (this.receiverKind(obj))
+                ; D-REGISTRY: `delete Object.prototype.toString;
+                ; Object.prototype.toString()` is a TypeError, not the method
+                ; the registry would happily supply again.
+                if (this.registryMethodDeleted(obj methodName)) {
+                    if (this.objectProtoFallbackFor(rKind methodName)) {
+                        def dArgs:[EvalValue] (this.collectCallArgs(node))
+                        return (this.invokeBuiltin("object" methodName obj dArgs))
+                    }
+                    return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+                }
                 if (this.hasBuiltin(rKind methodName)) {
                     def rArgs:[EvalValue] (this.collectCallArgs(node))
                     return (this.invokeBuiltin(rKind methodName obj rArgs))
@@ -6516,7 +6571,9 @@ class ComponentEngine {
                     ; freeze silently did nothing and isFrozen answered nothing
                     ; — the whole family scored 0%.
                     if (methodName == "freeze") {
-                        if (src.valueType == 5) {
+                        ; An ARRAY and a FUNCTION are objects and freeze too --
+                        ; only a primitive is left alone.
+                        if (this.isDescriptorObject(src)) {
                             src.markAllNonConfigurable(true)
                             src.frozenFlag = true
                             src.sealedFlag = true
@@ -6525,7 +6582,7 @@ class ComponentEngine {
                         return src
                     }
                     if (methodName == "seal") {
-                        if (src.valueType == 5) {
+                        if (this.isDescriptorObject(src)) {
                             src.markAllNonConfigurable(false)
                             src.sealedFlag = true
                             src.extensibleFlag = false
@@ -6533,26 +6590,33 @@ class ComponentEngine {
                         return src
                     }
                     if (methodName == "preventExtensions") {
-                        if (src.valueType == 5) {
+                        if (this.isDescriptorObject(src)) {
                             src.extensibleFlag = false
                         }
                         return src
                     }
                     if (methodName == "isFrozen") {
-                        ; A non-object is trivially frozen, per ES2015.
-                        if (src.valueType != 5) {
+                        ; A PRIMITIVE is trivially frozen, per ES2015; an array
+                        ; and a function answer from their own state.
+                        if (false == (this.isDescriptorObject(src))) {
                             return (EvalValue.boolean(true))
+                        }
+                        if (false == src.frozenFlag) {
+                            return (EvalValue.boolean((this.computeSealed(src true))))
                         }
                         return (EvalValue.boolean(src.frozenFlag))
                     }
                     if (methodName == "isSealed") {
-                        if (src.valueType != 5) {
+                        if (false == (this.isDescriptorObject(src))) {
                             return (EvalValue.boolean(true))
+                        }
+                        if (false == src.sealedFlag) {
+                            return (EvalValue.boolean((this.computeSealed(src false))))
                         }
                         return (EvalValue.boolean(src.sealedFlag))
                     }
                     if (methodName == "isExtensible") {
-                        if (src.valueType != 5) {
+                        if (false == (this.isDescriptorObject(src))) {
                             return (EvalValue.boolean(false))
                         }
                         return (EvalValue.boolean(src.extensibleFlag))
@@ -6609,12 +6673,24 @@ class ComponentEngine {
                             ; D-ACCESSORS: an accessor property reports get/set,
                             ; never a `value` — reporting it as data would make
                             ; the descriptor lie about the property's nature.
-                            if (src.hasAccessor(dk)) {
+                            ; OWN only: an INHERITED accessor has no descriptor
+                            ; on this object, and walking the chain reported one
+                            ; for a property the object does not have.
+                            def ownAcc:boolean false
+                            if (has src.getterMap dk) { ownAcc = true }
+                            if (has src.setterMap dk) { ownAcc = true }
+                            if ownAcc {
                                 def keysA:[string]
                                 def valsA:[EvalValue]
                                 def descA:EvalValue (EvalValue.object(keysA valsA))
-                                def ga:EvalValue (src.findGetter(dk 0))
-                                def sa:EvalValue (src.findSetter(dk 0))
+                                def ga:EvalValue (EvalValue.null())
+                                if (has src.getterMap dk) {
+                                    ga = (unwrap (get src.getterMap dk))
+                                }
+                                def sa:EvalValue (EvalValue.null())
+                                if (has src.setterMap dk) {
+                                    sa = (unwrap (get src.setterMap dk))
+                                }
                                 if (ga.valueType == 6) {
                                     descA.setMember("get" ga)
                                 } {
@@ -7306,6 +7382,13 @@ class ComponentEngine {
                     def bArgs0:[EvalValue] (this.collectCallArgs(node))
                     return (this.callFnValueWithValues(fnValue bArgs0))
                 }
+                if (this.isEvalFunctionValue(fnValue)) {
+                    def ieArgs0:[EvalValue] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    return (this.runIndirectEval(ieArgs0))
+                }
                 if (fnValue.isFunction()) {
                     if fnValue.functionNode {
                         ; Args (with ...spread) bound centrally; the call scope is
@@ -7349,6 +7432,13 @@ class ComponentEngine {
             if (calleeFn.isBuiltinMethod()) {
                 def bArgs1:[EvalValue] (this.collectCallArgs(node))
                 return (this.callFnValueWithValues(calleeFn bArgs1))
+            }
+            if (this.isEvalFunctionValue(calleeFn)) {
+                def ieArgs1:[EvalValue] (this.collectCallArgs(node))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                return (this.runIndirectEval(ieArgs1))
             }
             if (calleeFn.isFunction()) {
                 if calleeFn.functionNode {
@@ -7904,8 +7994,11 @@ class ComponentEngine {
         if (ln || rn) {
             return (ln && rn)
         }
-        def lIsObj:boolean ((left.valueType == 5) || (left.isArray()))
-        def rIsObj:boolean ((right.valueType == 5) || (right.isArray()))
+        ; A FUNCTION, a Map and a Set are object-like too. Leaving them out made
+        ; both branches below miss, so `f == f` fell through to the numeric
+        ; comparison and answered false for a value that is identical to itself.
+        def lIsObj:boolean (this.isDescriptorObject(left))
+        def rIsObj:boolean (this.isDescriptorObject(right))
         ; Two objects compare by reference, never by content.
         if (lIsObj && rIsObj) {
             return (left.equals(right))
@@ -8093,9 +8186,20 @@ class ComponentEngine {
     ; its methods is a pure function of its arguments, and the old chain had
     ; floor and round wrong for negative numbers -- both truncated toward zero.
     fn invokeBuiltinStatic:EvalValue (nsName:string name:string args:[EvalValue]) {
+        ; The first argument as a number, for the numeric namespaces only.
+        ; Coercing it for EVERY static ran ToPrimitive on things like
+        ; `Object.isExtensible(Date.prototype)`, and a ToPrimitive that can
+        ; throw turns a coercion nobody asked for into the answer.
         def n0:double 0.0
-        if ((array_length args) > 0) {
-            n0 = (this.toNumberOf((itemAt args 0)))
+        ; Math is the only namespace whose statics read it.
+        def wantsNum:boolean (nsName == "Math")
+        if wantsNum {
+            if ((array_length args) > 0) {
+                n0 = (this.toNumberOf((itemAt args 0)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+            }
         }
         if (nsName == "Math") {
             if (name == "random") {
@@ -8314,13 +8418,19 @@ class ComponentEngine {
                 if (false == a0Obj) {
                     return (EvalValue.boolean(true))
                 }
-                return (EvalValue.boolean(a0.frozenFlag))
+                if a0.frozenFlag {
+                    return (EvalValue.boolean(true))
+                }
+                return (EvalValue.boolean((this.computeSealed(a0 true))))
             }
             if (name == "isSealed") {
                 if (false == a0Obj) {
                     return (EvalValue.boolean(true))
                 }
-                return (EvalValue.boolean(a0.sealedFlag))
+                if a0.sealedFlag {
+                    return (EvalValue.boolean(true))
+                }
+                return (EvalValue.boolean((this.computeSealed(a0 false))))
             }
             if (name == "defineProperty") {
                 def dk:string ""
@@ -8846,6 +8956,27 @@ class ComponentEngine {
     ; a property assigned to it persists and compares equal across reads. It is
     ; POPULATED from the registry, which is what makes `Array.prototype.slice` a
     ; real value reachable without an instance — the whole point of the refactor.
+    ; Names that belong to Object.prototype and are only INHERITED elsewhere.
+    fn isObjectProtoOnly:boolean (name:string) {
+        if (name == "hasOwnProperty") { return true }
+        if (name == "isPrototypeOf") { return true }
+        if (name == "propertyIsEnumerable") { return true }
+        return false
+    }
+
+    ; Which prototypes own `valueOf`. Object, the three wrappers and Date do;
+    ; Array, Function and RegExp only inherit it, so publishing it on them made
+    ; `Function.prototype.hasOwnProperty("valueOf")` true for a property
+    ; Function.prototype does not have.
+    fn ownsValueOf:boolean (nsName:string) {
+        if (nsName == "Object") { return true }
+        if (nsName == "Number") { return true }
+        if (nsName == "String") { return true }
+        if (nsName == "Boolean") { return true }
+        if (nsName == "Date") { return true }
+        return false
+    }
+
     fn builtinPrototype:EvalValue (nsName:string) {
         if (has builtinProtos nsName) {
             return (unwrap (get builtinProtos nsName))
@@ -8901,6 +9032,24 @@ class ComponentEngine {
             p.setMember("__primitive__" (EvalValue.boolean(false)))
             p.setMember("__wrapper__" (EvalValue.string("Boolean")))
         }
+        ; D-REGEXACCESSOR: source/global/ignoreCase/multiline are ACCESSORS on
+        ; RegExp.prototype -- get-only, non-enumerable, configurable -- which is
+        ; the shape getOwnPropertyDescriptor is asked about. The instance keeps
+        ; its ES5 own data properties as well; see CONFORMANCE.md.
+        if (nsName == "RegExp") {
+            def rgNames:[string]
+            push rgNames "source"
+            push rgNames "global"
+            push rgNames "ignoreCase"
+            push rgNames "multiline"
+            def rgi:int 0
+            while (rgi < (array_length rgNames)) {
+                def rgn:string (itemAt rgNames rgi)
+                p.defineGetter(rgn (this.sharedNativeMethod("regexpget" rgn)))
+                p.setAttrs(rgn false false true)
+                rgi = (rgi + 1)
+            }
+        }
         def kind:string (this.kindForCtorName(nsName))
         if ((strlen kind) > 0) {
             ; D-PROTOKIND: the prototype remembers which receiver kind it serves,
@@ -8916,7 +9065,23 @@ class ComponentEngine {
                 ; Registry is the authority: a name listed here that is not
                 ; registered would hand out a value that does nothing when
                 ; called, so it is skipped rather than published.
-                if (this.hasBuiltin(kind nm)) {
+                ; D-OBJPROTO: the Object.prototype methods are REGISTERED for
+                ; every kind so dispatch finds them, but they are OWN properties
+                ; of Object.prototype alone -- publishing them everywhere made
+                ; `Function.prototype.hasOwnProperty("valueOf")` true for a
+                ; property Function.prototype only inherits.
+                def publishHere:boolean (this.hasBuiltin(kind nm))
+                if (this.isObjectProtoOnly(nm)) {
+                    if (nsName != "Object") {
+                        publishHere = false
+                    }
+                }
+                if (nm == "valueOf") {
+                    if (false == (this.ownsValueOf(nsName))) {
+                        publishHere = false
+                    }
+                }
+                if publishHere {
                     p.setMember(nm (this.sharedNativeMethod(kind nm)))
                     ; D-ATTRS: every built-in method is writable and
                     ; configurable but NOT enumerable, so `for (var k in
@@ -9043,6 +9208,18 @@ class ComponentEngine {
             if (name == "call") { return 1 }
             if (name == "apply") { return 2 }
             if (name == "bind") { return 1 }
+        }
+        ; D-REGEXACCESSOR: the GETTER halves of RegExp.prototype's source, global,
+        ; ignoreCase and multiline. A kind of their own, so they are dispatchable
+        ; values without becoming methods anyone can call as `re.source()`.
+        ; Registered before the shared names below because `source` is not one of
+        ; them and the flags are not methods at all.
+        if (kind == "regexpget") {
+            if (name == "source") { return 0 }
+            if (name == "global") { return 0 }
+            if (name == "ignoreCase") { return 0 }
+            if (name == "multiline") { return 0 }
+            return (0 - 1)
         }
         ; toString exists on every kind, but with a DIFFERENT implementation per
         ; kind. That is the whole point of keying on the receiver: the old single
@@ -9792,6 +9969,83 @@ class ComponentEngine {
     ; straight to the registry and never looked. Null when the prototype still
     ; holds the registry's own entry -- compared by identity, which is exactly
     ; what sharedNativeMethod exists to make possible.
+    ; D-REGISTRY: `delete Object.prototype.toString` really removes the method.
+    ; The registry would otherwise mint it again on the next read, so the
+    ; deletion is RECORDED on the prototype object and every path that consults
+    ; the registry checks here first. Only a registered built-in prototype can
+    ; carry such a record; an ordinary object's delete is the map's business.
+    fn isBuiltinPrototypeObject:boolean (v:EvalValue) {
+        if (v.valueType != 5) {
+            return false
+        }
+        def names:[string] (keys builtinProtos)
+        def i:int 0
+        while (i < (array_length names)) {
+            def p:EvalValue (unwrap (get builtinProtos (itemAt names i)))
+            if (p.equals(v)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn registryMethodDeleted:boolean (v:EvalValue name:string) {
+        if (v.valueType == 5) {
+            if (has v.suppressedKeys name) {
+                if (false == (has v.objectMap name)) {
+                    return true
+                }
+            }
+        }
+        return (this.kindRegistryDeleted((this.receiverKind(v)) name))
+    }
+
+    ; A method deleted off a KIND prototype leaves Object.prototype's own copy
+    ; standing: `delete Number.prototype.toString` makes `(new Number()).toString()`
+    ; the brand, not a TypeError. True when that fallback is available.
+    fn objectProtoFallbackFor:boolean (kind:string name:string) {
+        if (kind == "object") {
+            return false
+        }
+        if (false == (this.hasBuiltin("object" name))) {
+            return false
+        }
+        return (false == (this.kindRegistryDeleted("object" name)))
+    }
+
+    ; The same question asked of the receiver's KIND prototype, so an ordinary
+    ; object stops finding `toString` once Object.prototype's is deleted. Only
+    ; the kind's OWN prototype is consulted -- a deletion on Object.prototype
+    ; does not reach a kind that publishes its own copy of the name, which is
+    ; the shape the per-kind registry can express.
+    fn kindRegistryDeleted:boolean (kind:string name:string) {
+        def cn:string (this.ctorNameForKind(kind))
+        ; The plain-object kind has no entry there -- ctorNameForKind answers ""
+        ; so the override machinery leaves Object.prototype alone -- but a
+        ; deletion recorded on it is exactly what an ordinary object must see.
+        if (kind == "object") {
+            cn = "Object"
+        }
+        if ((strlen cn) == 0) {
+            return false
+        }
+        if (false == (has builtinProtos cn)) {
+            return false
+        }
+        def p:EvalValue (unwrap (get builtinProtos cn))
+        if (false == (has p.suppressedKeys name)) {
+            return false
+        }
+        ; Putting the name BACK -- `Number.prototype.toString = saved` -- undoes
+        ; the deletion. The record would otherwise outlive the property it
+        ; describes and keep answering "gone" for something plainly there.
+        if (has p.objectMap name) {
+            return false
+        }
+        return true
+    }
+
     fn overriddenPrototypeMethod:EvalValue (kind:string name:string) {
         def cn:string (this.ctorNameForKind(kind))
         if ((strlen cn) == 0) {
@@ -9844,10 +10098,61 @@ class ComponentEngine {
                 return (this.throwSpecError("TypeError" ("Boolean.prototype." + name + " called on a non-boolean")))
             }
         }
+        ; D-REGEXACCESSOR: the accessor halves published on RegExp.prototype.
+        ; ES2015 moved source/global/ignoreCase/multiline off the instance and
+        ; onto the prototype as getters, and getOwnPropertyDescriptor is written
+        ; to find them there.
+        if (kind == "regexpget") {
+            def isRe:boolean false
+            if (recv.valueType == 5) {
+                if (has recv.objectMap "__regex__") { isRe = true }
+            }
+            if (false == isRe) {
+                ; RegExp.prototype is NOT itself a RegExp, and the spec makes it
+                ; the one non-RegExp receiver these getters answer for.
+                if (recv.equals((this.builtinPrototype("RegExp")))) {
+                    if (name == "source") {
+                        return (EvalValue.string("(?:)"))
+                    }
+                    return (EvalValue.boolean(false))
+                }
+                return (this.throwSpecError("TypeError" ("RegExp.prototype." + name + " getter called on a non-RegExp")))
+            }
+            if (name == "source") {
+                return (EvalValue.string((this.regexSourceOf(recv))))
+            }
+            def rgFlags:string (this.regexFlagsOf(recv))
+            if (name == "global") {
+                return (EvalValue.boolean(((indexOf rgFlags "g") >= 0)))
+            }
+            if (name == "ignoreCase") {
+                return (EvalValue.boolean(((indexOf rgFlags "i") >= 0)))
+            }
+            if (name == "multiline") {
+                return (EvalValue.boolean(((indexOf rgFlags "m") >= 0)))
+            }
+            return (EvalValue.undefined())
+        }
         ; ---- Object.prototype, available on every kind ----------------------
         ; D-OBJPROTO: these three answer about the RECEIVER, so they work the
         ; same borrowed onto another value as called directly -- which is how
         ; the suite reaches most of them.
+        def coercesReceiver:boolean (this.isObjectProtoOnly(name))
+        if (name == "toLocaleString") { coercesReceiver = true }
+        ; D-VALUEOF: every prototype's valueOf begins with ToObject(this), so a
+        ; null or undefined receiver is a TypeError before anything else. A
+        ; BUILT-IN never gets the sloppy-mode global-this substitution an
+        ; ordinary function does, which is why the bare
+        ; `var vo = Object.prototype.valueOf; vo()` throws rather than answering
+        ; the global object.
+        if (name == "valueOf") { coercesReceiver = true }
+        if coercesReceiver {
+            ; ToObject on the receiver: null and undefined are a TypeError, which
+            ; is what `Object.prototype.hasOwnProperty.call(null, "x")` asserts.
+            if ((recv.isNull()) || (recv.isUndefined())) {
+                return (this.throwSpecError("TypeError" ("Object.prototype." + name + " called on null or undefined")))
+            }
+        }
         if (name == "hasOwnProperty") {
             def hk0:string ""
             if ((array_length args) > 0) {
@@ -9966,24 +10271,56 @@ class ComponentEngine {
                 return (EvalValue.string(("[object " + (this.objectClassOf(recv)) + "]")))
             }
             if (kind == "function") {
+                if (recv.valueType != 6) {
+                    return (this.throwSpecError("TypeError" "Function.prototype.toString called on a non-function"))
+                }
                 return (EvalValue.string((this.functionSourceText(recv))))
             }
             if (kind == "regexp") {
                 ; A RegExp stringifies as its literal form -- `String(/abc/i)`
                 ; is "/abc/i", not a brand.
+                ; D-REGEXACCESSOR: RegExp.prototype is not itself a RegExp, and
+                ; its source reads as the empty pattern, so it renders "/(?:)/"
+                ; rather than the "//" a missing source produced.
+                if (false == (this.isRegexValue(recv))) {
+                    if (recv.equals((this.builtinPrototype("RegExp")))) {
+                        return (EvalValue.string("/(?:)/"))
+                    }
+                }
                 return (EvalValue.string(("/" + ((this.regexSourceOf(recv)) + ("/" + (this.regexFlagsOf(recv)))))))
             }
             ; An ERROR stringifies as "Name: message", which is what a borrowed
-            ; String method sees when it coerces one.
+            ; String method sees when it coerces one. Error.prototype answers the
+            ; same way -- its `name` is "Error" and its `message` is empty, so it
+            ; renders as "Error" -- which is why the KIND decides here and not
+            ; the `__error__` marker the instances carry.
+            if (kind == "error") {
+                return (EvalValue.string((this.errorToString(recv))))
+            }
             if (recv.valueType == 5) {
                 if (has recv.objectMap "__error__") {
                     return (EvalValue.string((this.errorToString(recv))))
                 }
             }
+            ; An OBJECT that matched no kind above brands rather than letting the
+            ; engine's own debug rendering escape into guest-visible text --
+            ; `String(Error.prototype)` used to print the property map. A
+            ; PRIMITIVE receiver still renders itself, which is what makes
+            ; `(5).toString()` "5".
+            if (recv.valueType == 5) {
+                return (EvalValue.string(("[object " + (this.objectClassOf(recv)) + "]")))
+            }
             return (EvalValue.string((recv.toString())))
         }
         if (name == "valueOf") {
-            ; D-WRAPPER: valueOf on a boxed primitive yields the primitive.
+            ; D-VALUEOF: Object.prototype.valueOf is ToObject(this) and nothing
+            ; more -- borrowed onto a primitive it BOXES it, so
+            ; `typeof Object.prototype.valueOf.call(true)` is "object".
+            ; D-WRAPPER: the wrapper prototypes' own valueOf is the one that
+            ; unwraps to the primitive.
+            if (kind == "object") {
+                return (this.toObjectValue(recv))
+            }
             return (this.unwrapPrimitive(recv))
         }
         ; ---- String.prototype ----------------------------------------------
@@ -11747,6 +12084,32 @@ class ComponentEngine {
     fn callPrimitiveMethod:EvalValue (obj:EvalValue name:string) {
         primitiveMethodUsable = false
         def m:EvalValue (this.resolvePrimitiveMethod(obj name))
+        ; D-TOPRIMITIVE: the guest may hang ANOTHER prototype's built-in on the
+        ; object -- `var o = {toString: Function.prototype.toString}`. That is
+        ; not the default for this receiver, so ToPrimitive has to RUN it; the
+        ; default-method shortcut below would otherwise brand the object and
+        ; never notice, which hides the TypeError that method owes a
+        ; non-callable receiver.
+        if (m.isBuiltinMethod()) {
+            def borrowedPrim:boolean false
+            if (m.builtinName != name) { borrowedPrim = true }
+            if (m.builtinKind != (this.receiverKind(obj))) { borrowedPrim = true }
+            if borrowedPrim {
+                def bpArgs:[EvalValue]
+                def bpOut:EvalValue (this.invokeBuiltin(m.builtinKind m.builtinName obj bpArgs))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                if (bpOut.valueType == 5) { return (EvalValue.null()) }
+                if (bpOut.valueType == 4) { return (EvalValue.null()) }
+                if (bpOut.valueType == 6) { return (EvalValue.null()) }
+                primitiveMethodUsable = true
+                if (bpOut.valueType == 0) {
+                    return (EvalValue.undefined())
+                }
+                return bpOut
+            }
+        }
         if (m.valueType == 6) {
             if m.functionNode {
                 def noArgs:[EvalValue]
@@ -12313,8 +12676,11 @@ class ComponentEngine {
         r.setAttrs("ignoreCase" false false false)
         r.setMember("multiline" (EvalValue.boolean(((indexOf flags "m") >= 0))))
         r.setAttrs("multiline" false false false)
-        ; lastIndex is the one writable property -- exec advances it.
+        ; lastIndex is the one WRITABLE property -- exec advances it -- but it is
+        ; not enumerable, so it never shows up in Object.keys or as a descriptor
+        ; when a RegExp is handed to Object.defineProperties.
         r.setMember("lastIndex" (EvalValue.fromInt(0)))
+        r.setAttrs("lastIndex" true false false)
         r.protoRef = (this.builtinPrototype("RegExp"))
         return r
     }
@@ -12640,6 +13006,134 @@ class ComponentEngine {
     ; an array used as a key runs its own toString: `gOPD(obj, [1])` asks for
     ; "1". The raw EvalValue.toString() is the engine's DEBUG rendering, which
     ; for an array is not the same string at all.
+    ; D-ATTRS: frozen and sealed are COMPUTED, not remembered. An object is
+    ; sealed when it is not extensible and every own property is
+    ; non-configurable; frozen additionally needs every data property to be
+    ; non-writable. Object.freeze sets a flag, but an object can reach the same
+    ; state one defineProperty at a time -- and then `Object.isFrozen` has to
+    ; agree.
+    fn computeSealed:boolean (v:EvalValue wantFrozen:boolean) {
+        if v.extensibleFlag {
+            return false
+        }
+        def ks:[string] (this.objectKeys(v))
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            if (false == (this.isHiddenInstanceKey(k))) {
+                if (v.isConfigurable(k)) {
+                    return false
+                }
+                if wantFrozen {
+                    def isAcc:boolean false
+                    if (has v.getterMap k) { isAcc = true }
+                    if (has v.setterMap k) { isAcc = true }
+                    if (false == isAcc) {
+                        if (v.isWritable(k)) {
+                            return false
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; An ARRAY's elements are properties too, and a length that can still
+        ; move means the array is neither sealed nor frozen.
+        if (v.valueType == 4) {
+            if (has v.attrFlags "length") {
+                if wantFrozen {
+                    if (v.isWritable("length")) {
+                        return false
+                    }
+                }
+            } {
+                if wantFrozen {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    ; The value of an OWN property found somewhere up the prototype chain, or
+    ; the null sentinel when no link holds it. The receiver itself is skipped:
+    ; its own properties are answered before this point.
+    fn ownPropertyUpChain:EvalValue (obj:EvalValue key:string) {
+        def walk:EvalValue (this.protoOfValue(obj))
+        def steps:int 0
+        while (steps < 16) {
+            if (walk.isNull()) {
+                return (EvalValue.null())
+            }
+            if (has walk.objectMap key) {
+                return (unwrap (get walk.objectMap key))
+            }
+            walk = (this.protoOfValue(walk))
+            steps = (steps + 1)
+        }
+        return (EvalValue.null())
+    }
+
+    ; D-ACCESSORS: the accessor a receiver would actually run, including one put
+    ; on its KIND's prototype. An array and a function carry no protoRef, so
+    ; findGetter/findSetter alone never saw `Array.prototype.prop` defined as an
+    ; accessor -- the write created an own property instead of calling the setter.
+    fn resolveGetterOn:EvalValue (obj:EvalValue key:string) {
+        def own:EvalValue (obj.findGetter(key 0))
+        if (own.valueType == 6) {
+            return own
+        }
+        ; An OWN array element shadows an accessor inherited from
+        ; Array.prototype under the same index.
+        if (obj.valueType == 4) {
+            def oi:int (this.canonicalArrayIndex(key))
+            if (oi >= 0) {
+                if (oi < (array_length obj.arrayValue)) {
+                    if (false == ((itemAt obj.arrayValue oi).isHole)) {
+                        return own
+                    }
+                }
+            }
+        }
+        if (obj.valueType != 5) {
+            def cn:string (this.ctorNameForKind((this.receiverKind(obj))))
+            if ((strlen cn) > 0) {
+                if (has builtinProtos cn) {
+                    def kp:EvalValue (unwrap (get builtinProtos cn))
+                    return (kp.findGetter(key 0))
+                }
+            }
+        }
+        return own
+    }
+
+    fn resolveSetterOn:EvalValue (obj:EvalValue key:string) {
+        def own:EvalValue (obj.findSetter(key 0))
+        if (own.valueType == 6) {
+            return own
+        }
+        if (obj.valueType == 4) {
+            def oj:int (this.canonicalArrayIndex(key))
+            if (oj >= 0) {
+                if (oj < (array_length obj.arrayValue)) {
+                    if (false == ((itemAt obj.arrayValue oj).isHole)) {
+                        return own
+                    }
+                }
+            }
+        }
+        if (obj.valueType != 5) {
+            def cn:string (this.ctorNameForKind((this.receiverKind(obj))))
+            if ((strlen cn) > 0) {
+                if (has builtinProtos cn) {
+                    def kp:EvalValue (unwrap (get builtinProtos cn))
+                    return (kp.findSetter(key 0))
+                }
+            }
+        }
+        return own
+    }
+
     ; D-ARRAYSPARSE: a canonical ARRAY INDEX, or -1 when the key is an ordinary
     ; property name. The distinction is exact and observable: `x["0"]` reaches the
     ; element, while `x["00"]`, `x[-1]`, `x["1.0"]` and `x[true]` are properties
@@ -12848,12 +13342,28 @@ class ComponentEngine {
                 if (elemIdx <= 10000000) {
                     return (this.defineArrayIndex(obj elemIdx desc))
                 }
+                ; Past the dense store the element is an ordinary property, but
+                ; it still moves the length.
+                def farErr:string (this.definePlainProperty(obj key desc))
+                if ((strlen farErr) > 0) {
+                    return farErr
+                }
+                if ((elemIdx + 1) > (obj.arrayLength())) {
+                    obj.declaredLength = (elemIdx + 1)
+                }
+                return ""
             }
         }
         def rErr:string (this.redefineError(obj key desc))
         if ((strlen rErr) > 0) {
             return rErr
         }
+        return (this.definePlainProperty(obj key desc))
+    }
+
+    ; The ordinary [[DefineOwnProperty]], after the array-specific rules and the
+    ; redefinition check have had their say.
+    fn definePlainProperty:string (obj:EvalValue key:string desc:EvalValue) {
         ; D-ATTRS: an attribute the descriptor does not mention KEEPS its current
         ; value on an existing property, and defaults to FALSE on a new one --
         ; unlike plain assignment, which defaults them all true. Taking the
@@ -12983,27 +13493,27 @@ class ComponentEngine {
                 return "cannot make array length enumerable"
             }
         }
-        ; `length` HAS a writable attribute, and turning it off freezes the
-        ; length: a later `{value: n}` is a TypeError rather than a resize.
-        def lenWritable:boolean true
+        def oldLen:int (obj.arrayLength())
+        def oldWritable:boolean true
         if (has obj.attrFlags "length") {
-            lenWritable = (obj.isWritable("length"))
+            oldWritable = (obj.isWritable("length"))
         }
-        if (this.descHas(desc "writable")) {
-            def wantW:boolean ((this.descGet(desc "writable")).toBool())
-            if (lenWritable == false) {
-                if wantW {
+        def wantWritable:boolean oldWritable
+        def hasWritable:boolean (this.descHas(desc "writable"))
+        if hasWritable {
+            wantWritable = ((this.descGet(desc "writable")).toBool())
+            ; Once length is non-writable it can never be made writable again.
+            if (oldWritable == false) {
+                if wantWritable {
                     return "cannot make a non-writable array length writable again"
                 }
             }
-            obj.setAttrs("length" wantW false false)
-            lenWritable = wantW
         }
         if (false == (this.descHas(desc "value"))) {
+            if hasWritable {
+                obj.setAttrs("length" wantWritable false false)
+            }
             return ""
-        }
-        if (lenWritable == false) {
-            return "cannot change the length of an array whose length is not writable"
         }
         def lv:EvalValue (this.descGet(desc "value"))
         def lenNum:double (this.toNumberOf(lv))
@@ -13018,35 +13528,63 @@ class ComponentEngine {
         if (lenU != lenNum) {
             return "@RangeError@Invalid array length"
         }
-        if (lenU > 10000000.0) {
-            return "@RangeError@Invalid array length"
-        }
         def newLen:int (to_int lenU)
-        def oldLen:int (array_length obj.arrayValue)
-        ; Truncation stops at the first NON-CONFIGURABLE element, and reports a
-        ; TypeError while keeping everything up to and including it.
-        if (newLen < oldLen) {
-            def stopAt:int newLen
-            def scan:int (oldLen - 1)
-            def blocked:boolean false
-            while ((scan >= newLen) && (blocked == false)) {
-                def ek:string (to_string scan)
-                if (has obj.attrFlags ek) {
-                    if (false == (obj.isConfigurable(ek))) {
-                        stopAt = (scan + 1)
-                        blocked = true
-                    }
+        ; GROWING (or unchanged) is an ordinary define: it is refused only when
+        ; length is non-writable AND the value really differs. `{value: 0}` on an
+        ; already-empty array with a frozen length is legal, because it changes
+        ; nothing.
+        if (newLen >= oldLen) {
+            if (oldWritable == false) {
+                if (newLen != oldLen) {
+                    return "cannot change the length of an array whose length is not writable"
                 }
-                scan = (scan - 1)
             }
-            this.resizeArrayTo(obj stopAt)
-            if blocked {
-                return "cannot delete a non-configurable element while shortening length"
-            }
+            this.setArrayLength(obj newLen)
+            obj.setAttrs("length" wantWritable false false)
             return ""
         }
-        this.resizeArrayTo(obj newLen)
+        ; SHRINKING needs a writable length, and stops at the first element that
+        ; cannot be deleted -- the length lands just past it and a TypeError is
+        ; reported, with the writable change still applied.
+        if (oldWritable == false) {
+            return "cannot change the length of an array whose length is not writable"
+        }
+        def stopAt:int newLen
+        def blocked:boolean false
+        def scan:int (oldLen - 1)
+        while ((scan >= newLen) && (blocked == false)) {
+            def ek:string (to_string scan)
+            if (has obj.attrFlags ek) {
+                if (false == (obj.isConfigurable(ek))) {
+                    stopAt = (scan + 1)
+                    blocked = true
+                }
+            }
+            scan = (scan - 1)
+        }
+        this.setArrayLength(obj stopAt)
+        obj.setAttrs("length" wantWritable false false)
+        if blocked {
+            return "cannot delete a non-configurable element while shortening length"
+        }
         return ""
+    }
+
+    ; D-ARRAYSPARSE: set an array's length. Up to the dense cap the elements
+    ; themselves are resized; beyond it only the DECLARED length moves, because
+    ; no dense container can hold 2^32-1 slots and the spec allows a length that
+    ; large with no elements at all.
+    fn setArrayLength:void (obj:EvalValue newLen:int) {
+        if (newLen > 10000000) {
+            def dense:int (array_length obj.arrayValue)
+            if (newLen < dense) {
+                this.resizeArrayTo(obj newLen)
+            }
+            obj.declaredLength = newLen
+            return
+        }
+        this.resizeArrayTo(obj newLen)
+        obj.declaredLength = (0 - 1)
     }
 
     fn resizeArrayTo:void (obj:EvalValue newLen:int) {
@@ -13068,10 +13606,28 @@ class ComponentEngine {
     ; index's name so a later truncation can see a non-configurable element.
     fn defineArrayIndex:string (obj:EvalValue idx:int desc:EvalValue) {
         def key:string (to_string idx)
+        ; An index AT or BEYOND length needs the length to move, so a frozen
+        ; length refuses it.
+        if (idx >= (obj.arrayLength())) {
+            if (has obj.attrFlags "length") {
+                if (false == (obj.isWritable("length"))) {
+                    return "cannot add an element past a non-writable array length"
+                }
+            }
+        }
         def rErr:string (this.redefineError(obj key desc))
         if ((strlen rErr) > 0) {
             return rErr
         }
+        ; Whether the ELEMENT was already there decides which attributes survive.
+        def existedElem:boolean false
+        if (idx < (array_length obj.arrayValue)) {
+            if (false == ((itemAt obj.arrayValue idx).isHole)) {
+                existedElem = true
+            }
+        }
+        if (has obj.getterMap key) { existedElem = true }
+        if (has obj.setterMap key) { existedElem = true }
         if (idx >= (array_length obj.arrayValue)) {
             this.resizeArrayTo(obj (idx + 1))
         }
@@ -13089,7 +13645,8 @@ class ComponentEngine {
                 obj.defineSetter(key aS)
             }
             obj.setIndexAt(idx (EvalValue.undefined()))
-            obj.setAttrs(key false ((this.descGet(desc "enumerable")).toBool()) ((this.descGet(desc "configurable")).toBool()))
+            this.applyDescriptorAttrs(obj key desc existedElem)
+            obj.setAttrs(key false (obj.isEnumerable(key)) (obj.isConfigurable(key)))
             return ""
         }
         if (this.descHas(desc "value")) {
@@ -13101,8 +13658,47 @@ class ComponentEngine {
                 obj.setIndexAt(idx (EvalValue.undefined()))
             }
         }
-        obj.setAttrs(key ((this.descGet(desc "writable")).toBool()) ((this.descGet(desc "enumerable")).toBool()) ((this.descGet(desc "configurable")).toBool()))
+        this.applyDescriptorAttrs(obj key desc existedElem)
         return ""
+    }
+
+    ; D-ATTRS: the attribute triple a descriptor produces for a key. An
+    ; attribute it does not mention keeps its current value on an EXISTING
+    ; property and defaults to false on a new one -- the same rule the ordinary
+    ; define uses, applied to an array element so the two cannot diverge.
+    fn applyDescriptorAttrs:void (obj:EvalValue key:string desc:EvalValue existed:boolean) {
+        def newW:boolean false
+        def newE:boolean false
+        def newC:boolean false
+        if existed {
+            newW = (obj.isWritable(key))
+            newE = (obj.isEnumerable(key))
+            newC = (obj.isConfigurable(key))
+        }
+        if (this.descHas(desc "writable")) {
+            newW = ((this.descGet(desc "writable")).toBool())
+        }
+        if (this.descHas(desc "enumerable")) {
+            newE = ((this.descGet(desc "enumerable")).toBool())
+        }
+        if (this.descHas(desc "configurable")) {
+            newC = ((this.descGet(desc "configurable")).toBool())
+        }
+        obj.setAttrs(key newW newE newC)
+    }
+
+    ; One half of an accessor property as the LANGUAGE sees it: the function, or
+    ; undefined when that half is absent. findGetter/findSetter answer with the
+    ; engine's null sentinel, which compares equal to nothing.
+    fn accessorHalf:EvalValue (obj:EvalValue key:string wantGetter:boolean) {
+        def h:EvalValue (obj.findSetter(key 0))
+        if wantGetter {
+            h = (obj.findGetter(key 0))
+        }
+        if (h.valueType == 6) {
+            return h
+        }
+        return (EvalValue.undefined())
     }
 
     fn redefineError:string (obj:EvalValue key:string desc:EvalValue) {
@@ -13115,6 +13711,19 @@ class ComponentEngine {
         if (has obj.setterMap key) { isAccessor = true }
         def exists:boolean isAccessor
         if (has obj.objectMap key) { exists = true }
+        ; D-ARRAYDEFINE: an array ELEMENT exists too, even though it lives in
+        ; arrayValue rather than objectMap -- without this none of the
+        ; non-configurable rules below ever applied to one.
+        if (obj.valueType == 4) {
+            def reIdx:int (this.canonicalArrayIndex(key))
+            if (reIdx >= 0) {
+                if (reIdx < (array_length obj.arrayValue)) {
+                    if (false == ((itemAt obj.arrayValue reIdx).isHole)) {
+                        exists = true
+                    }
+                }
+            }
+        }
         if (false == exists) {
             if (false == obj.extensibleFlag) {
                 return "cannot add property to a non-extensible object"
@@ -13150,14 +13759,17 @@ class ComponentEngine {
                 return "cannot redefine a non-configurable accessor property as a data property"
             }
             ; Same category: the accessor functions themselves are frozen too.
+            ; An ABSENT half is undefined, not the engine's null sentinel, so
+            ; `{set: undefined}` on an accessor that has no setter is SameValue
+            ; and therefore permitted even when the property is non-configurable.
             if (this.descHas(desc "get")) {
-                def curG:EvalValue (obj.findGetter(key 0))
+                def curG:EvalValue (this.accessorHalf(obj key true))
                 if (false == (curG.equals((this.descGet(desc "get"))))) {
                     return "cannot change the getter of a non-configurable property"
                 }
             }
             if (this.descHas(desc "set")) {
-                def curS:EvalValue (obj.findSetter(key 0))
+                def curS:EvalValue (this.accessorHalf(obj key false))
                 if (false == (curS.equals((this.descGet(desc "set"))))) {
                     return "cannot change the setter of a non-configurable property"
                 }
@@ -13295,9 +13907,18 @@ class ComponentEngine {
             proto.setAttrs("constructor" true false true)
             if (nm == "Error") {
                 proto.protoRef = (this.builtinPrototype("Object"))
+                ; Error itself is an ordinary function object.
+                c.protoRef = (this.builtinPrototype("Function"))
             } {
                 proto.protoRef = (this.errorPrototypeFor("Error"))
+                ; A native error SUBCLASS constructor inherits from Error, which
+                ; is what `Object.getPrototypeOf(TypeError) === Error` asserts.
+                c.protoRef = (hostScope.lookup("Error"))
             }
+            ; Error.prototype.toString is an own property of the prototype, so it
+            ; has a descriptor -- writable and configurable, never enumerable.
+            proto.setMember("toString" (this.sharedNativeMethod("error" "toString")))
+            proto.setAttrs("toString" true false true)
             set builtinProtos nm proto
             c.setMember("prototype" proto)
             c.setAttrs("prototype" false false false)
@@ -13425,6 +14046,14 @@ class ComponentEngine {
             push gnames "RegExp"
             push gnames "Math"
             push gnames "JSON"
+            ; The error constructors are globals too -- getOwnPropertyNames on
+            ; the global object is expected to list every one of them.
+            def enames:[string] (this.errorKindNames())
+            def ei:int 0
+            while (ei < (array_length enames)) {
+                push gnames (itemAt enames ei)
+                ei = (ei + 1)
+            }
             def gj:int 0
             while (gj < (array_length gnames)) {
                 def gnm:string (itemAt gnames gj)
@@ -13646,9 +14275,15 @@ class ComponentEngine {
                                 }
                             }
                             obj.removeMember(dkey)
+                            if (this.isBuiltinPrototypeObject(obj)) {
+                                set obj.suppressedKeys dkey true
+                            }
                         }
                     } {
                         obj.removeMember(tgt.name)
+                        if (this.isBuiltinPrototypeObject(obj)) {
+                            set obj.suppressedKeys tgt.name true
+                        }
                     }
                 }
             }
@@ -13976,19 +14611,116 @@ class ComponentEngine {
     ; body with `this` bound to it, and returns the object — unless the body
     ; explicitly returned an object, which per spec wins.
     fn constructFromFunction:EvalValue (fnV:EvalValue className:string argNodes:[TSNode]) {
+        ; D-CTORVALUE: bind curries [[Construct]] as well as [[Call]], so
+        ; `new (Function.prototype.bind.apply(Date, [null, 1957, 4, 27]))()`
+        ; must build a DATE. A bound built-in has no function node, so the
+        ; ordinary path below could not run it at all and answered a bare
+        ; object -- Object.prototype.toString then branded it "[object
+        ; Undefined]".
+        def hasCtorNode:boolean false
+        if fnV.functionNode {
+            hasCtorNode = true
+        }
+        if (false == hasCtorNode) {
+            def bctor:string (this.builtinCtorNameOf(fnV))
+            if ((strlen bctor) > 0) {
+                def bvals:[EvalValue]
+                def bbi:int 0
+                while (bbi < (array_length fnV.boundArgs)) {
+                    push bvals (itemAt fnV.boundArgs bbi)
+                    bbi = (bbi + 1)
+                }
+                def bai:int 0
+                while (bai < (array_length argNodes)) {
+                    push bvals (this.evaluateExpr((itemAt argNodes bai)))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                    bai = (bai + 1)
+                }
+                return (this.callBuiltinCtorValues(bctor bvals true))
+            }
+        }
         def keys0:[string]
         def vals0:[EvalValue]
         def inst:EvalValue (EvalValue.object(keys0 vals0))
-        inst.setMember("constructor" fnV)
         ; D-PROTO: link the instance to the constructor's prototype object, so
         ; methods put on `F.prototype` are reachable through the instance.
-        inst.protoRef = (fnV.getMember("prototype"))
+        ; `constructor` is INHERITED from that prototype rather than stamped on
+        ; the instance -- stamping it made every instance own a property it
+        ; should not, which getOwnPropertyNames and isFrozen both notice.
+        def instProto:EvalValue (fnV.getMember("prototype"))
+        ; D-FNPROTO: a BOUND function has no `prototype` of its own, so reading
+        ; one off it answers undefined -- but `new bound()` links the instance
+        ; to the TARGET's prototype, which the bound copy still shares through
+        ; its property map. Without this the instance had no prototype at all
+        ; and inherited nothing, not even from Object.prototype.
+        if fnV.boundExplicit {
+            if (has fnV.objectMap "prototype") {
+                instProto = (unwrap (get fnV.objectMap "prototype"))
+            } {
+                def keysBP:[string]
+                def valsBP:[EvalValue]
+                instProto = (EvalValue.object(keysBP valsBP))
+                set fnV.objectMap "prototype" instProto
+            }
+        }
+        inst.protoRef = instProto
+        if (instProto.valueType == 5) {
+            ; D-PROTO: `F.prototype` is minted by the value layer, which cannot
+            ; reach the realm's Object.prototype, so the chain ended one link
+            ; short -- `Object.prototype.p = 1; (new F()).p` read undefined.
+            ; Closing it here is the first moment the realm is in scope.
+            if (null? instProto.protoRef) {
+                instProto.protoRef = (this.builtinPrototype("Object"))
+            }
+            if (false == (has instProto.objectMap "constructor")) {
+                instProto.setMember("constructor" fnV)
+                instProto.setAttrs("constructor" true false true)
+            }
+        }
         def fnNode:TSNode (unwrap fnV.functionNode)
+        ; D-FNPROTO: constructing through a BOUND function runs the target with
+        ; the fixed arguments in front -- `new (f.bind(null, "a"))("b")` calls
+        ; f("a", "b"). The bound `this` is ignored, as the spec says, because
+        ; construction supplies its own.
+        if ((array_length fnV.boundArgs) > 0) {
+            def ctorVals:[EvalValue]
+            def bi:int 0
+            while (bi < (array_length fnV.boundArgs)) {
+                push ctorVals (itemAt fnV.boundArgs bi)
+                bi = (bi + 1)
+            }
+            def ci:int 0
+            while (ci < (array_length argNodes)) {
+                push ctorVals (this.evaluateExpr((itemAt argNodes ci)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                ci = (ci + 1)
+            }
+            def boundRet:EvalValue (this.callUserFunctionValues(fnNode ctorVals inst))
+            if (boundRet.valueType == 5) {
+                return boundRet
+            }
+            return inst
+        }
         def ret:EvalValue (this.callUserFunctionNode(fnNode argNodes inst true))
         if (ret.valueType == 5) {
             return ret
         }
         return inst
+    }
+
+    ; Construct-time call with already-evaluated arguments. A plain function
+    ; value with the node and `this` supplied, which is what the bound path
+    ; needs -- callUserFunctionNode evaluates AST arguments it does not have.
+    fn callUserFunctionValues:EvalValue (fnNode:TSNode argVals:[EvalValue] thisVal:EvalValue) {
+        def fv:EvalValue (EvalValue.function(fnNode))
+        fv.srcText = currentSource
+        fv.strictFn = (this.strictForBody(fnNode))
+        fv.boundThis = thisVal
+        return (this.callFnValueWithValues(fv argVals))
     }
 
     fn callUserFunctionNode:EvalValue (fnNode:TSNode argNodes:[TSNode] thisVal:EvalValue hasThis:boolean) {
@@ -14178,6 +14910,13 @@ class ComponentEngine {
                         if fnV.functionNode {
                             return (this.constructFromFunction(fnV className node.children))
                         }
+                        ; D-CTORVALUE: a bound BUILT-IN constructor held in a
+                        ; variable -- `var bound = Date.bind(null, 1957);
+                        ; new bound()`. No function node, so the branch above
+                        ; misses it and the name-keyed lookup never sees "Date".
+                        if ((strlen (this.builtinCtorNameOf(fnV))) > 0) {
+                            return (this.constructFromFunction(fnV className node.children))
+                        }
                     }
                 }
             }
@@ -14203,6 +14942,40 @@ class ComponentEngine {
             if (ncKind == "ThisExpression") { calleeIsExpr = true }
             if calleeIsExpr {
                 return (this.throwSpecError("TypeError" "expression is not a constructor"))
+            }
+            ; `new X.prototype` is a TypeError for every built-in X: a
+            ; prototype object is not a constructor, and Function.prototype is
+            ; callable without being one.
+            if (ncKind == "MemberExpression") {
+                def protoTarget:EvalValue (this.evaluateExpr(newCallee))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                def notCtor:boolean false
+                if (protoTarget.valueType == 5) { notCtor = true }
+                if (protoTarget.valueType == 6) {
+                    if (null? protoTarget.functionNode) {
+                        if ((strlen (this.builtinCtorNameOf(protoTarget))) == 0) {
+                            notCtor = true
+                        }
+                    }
+                }
+                if (protoTarget.valueType == 5) {
+                    ; A plain object reached through a member expression may
+                    ; still be a class value; only a PROTOTYPE object is
+                    ; rejected here, which is what __protokind__ marks.
+                    notCtor = false
+                    if (has protoTarget.objectMap "__protokind__") { notCtor = true }
+                    if (has protoTarget.objectMap "constructor") {
+                        if (newCallee.name == "prototype") { notCtor = true }
+                    }
+                }
+                if (protoTarget.valueType == 6) {
+                    if (has protoTarget.objectMap "__fnprotocall__") { notCtor = true }
+                }
+                if notCtor {
+                    return (this.throwSpecError("TypeError" "expression is not a constructor"))
+                }
             }
             if (ncKind == "Identifier") {
                 def ncName:string newCallee.name
@@ -14350,6 +15123,20 @@ class ComponentEngine {
             if ((cnt == "FunctionExpression") || (cnt == "ArrowFunctionExpression")) {
                 def fnVal:EvalValue (this.captureClosure(calleeN))
                 return (this.constructFromFunction(fnVal calleeN.name node.children))
+            }
+            ; D-NEWCALLEE: the callee is a CALL whose result is the constructor
+            ; -- `new (Function("...; return f").apply())`. There is no name to
+            ; look up, so `new` used to answer null and the instance was
+            ; unreadable. Evaluate the call, then construct through its value.
+            if (cnt == "CallExpression") {
+                def calledV:EvalValue (this.evaluateExpr(calleeN))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                if (calledV.valueType == 6) {
+                    return (this.constructFromFunction(calledV calledV.functionName node.children))
+                }
+                return (this.throwSpecError("TypeError" "expression is not a constructor"))
             }
         }
 
@@ -14539,12 +15326,19 @@ class ComponentEngine {
                         if (has obj.setterMap propName) {
                             return (EvalValue.undefined())
                         }
-                        def gFn:EvalValue (obj.findGetter(propName 0))
+                        def gFn:EvalValue (this.resolveGetterOn(obj propName))
                         if (gFn.valueType == 6) {
                             if gFn.functionNode {
                                 def noArgs:[EvalValue]
                                 def gBound:EvalValue (gFn.withThis(obj))
                                 return (this.callFnValueWithValues(gBound noArgs))
+                            }
+                            ; D-REGEXACCESSOR: a getter can be a BUILT-IN with no
+                            ; function node. Only node-backed ones were run, so
+                            ; the accessors on RegExp.prototype read as undefined.
+                            if (gFn.isBuiltinMethod()) {
+                                def bgArgs:[EvalValue]
+                                return (this.invokeBuiltin(gFn.builtinKind gFn.builtinName obj bgArgs))
                             }
                         }
                         ; An inherited set-only accessor reads as undefined too.
@@ -14562,8 +15356,27 @@ class ComponentEngine {
             ; paths above, never before them.
             if ((strlen propName) > 0) {
                 def mKind:string (this.receiverKind(obj))
+                ; D-REGISTRY: a registry method DELETED off its prototype stays
+                ; deleted -- minting it again here made `delete
+                ; Object.prototype.toString` a no-op.
+                if (this.registryMethodDeleted(obj propName)) {
+                    if (this.objectProtoFallbackFor(mKind propName)) {
+                        return (this.sharedNativeMethod("object" propName))
+                    }
+                    return (EvalValue.undefined())
+                }
                 if (this.hasBuiltin(mKind propName)) {
                     def owned:boolean (has obj.objectMap propName)
+                    ; A property found on the PROTOTYPE CHAIN wins over the
+                    ; per-kind registry entry: `Function.prototype.valueOf` is
+                    ; the one Object.prototype owns, and answering with a
+                    ; function-kind copy made the two compare unequal.
+                    if (false == owned) {
+                        def chainHit:EvalValue (this.ownPropertyUpChain(obj propName))
+                        if (chainHit.valueType != 0) {
+                            return chainHit
+                        }
+                    }
                     if (false == owned) {
                         ; D-REGISTRY: the extracted method is UNBOUND, as the spec
                         ; requires — `f.call` is Function.prototype.call itself,
@@ -14604,6 +15417,13 @@ class ComponentEngine {
                             if (obj.valueType == 2) { ownFirst = true }
                             if (obj.valueType == 4) { ownFirst = true }
                         }
+                        ; Any OWN property wins over the kind's prototype. An
+                        ; array holds its non-index properties in objectMap, and
+                        ; consulting Array.prototype first meant `a.prop = 1002`
+                        ; read back as whatever the prototype held.
+                        if (has obj.objectMap propName) {
+                            ownFirst = true
+                        }
                         if (false == ownFirst) {
                             def kProto:EvalValue (this.builtinPrototype(pcName))
                             if (has kProto.objectMap propName) {
@@ -14640,11 +15460,17 @@ class ComponentEngine {
                     if (indexVal.isString()) { ckey = indexVal.stringValue }
                     if (indexVal.isNumber()) { ckey = (this.toPropertyKey(indexVal)) }
                     if ((strlen ckey) > 0) {
-                        def cgFn:EvalValue (obj.findGetter(ckey 0))
+                        def cgFn:EvalValue (this.resolveGetterOn(obj ckey))
                         if (cgFn.valueType == 6) {
                             if cgFn.functionNode {
                                 def cgArgs:[EvalValue]
                                 return (this.callFnValueWithValues((cgFn.withThis(obj)) cgArgs))
+                            }
+                            ; D-REGEXACCESSOR: the computed form runs a built-in
+                            ; getter too -- `re["source"]` is `re.source`.
+                            if (cgFn.isBuiltinMethod()) {
+                                def cbgArgs:[EvalValue]
+                                return (this.invokeBuiltin(cgFn.builtinKind cgFn.builtinName obj cbgArgs))
                             }
                         }
                     }
@@ -14822,6 +15648,33 @@ class ComponentEngine {
     ; shadowed by a local variable can still reach the builtin).
     fn objectKeys:[string] (v:EvalValue) {
         def out:[string]
+        ; A FUNCTION holds ordinary properties too, and a descriptor map may be
+        ; one -- `Object.defineProperties(o, function () {})` reads its own
+        ; enumerable properties like any other object.
+        if (v.valueType == 6) {
+            out = (keys v.objectMap)
+            def fnAcc:[string] (keys v.getterMap)
+            def fi:int 0
+            while (fi < (array_length fnAcc)) {
+                def fk:string (itemAt fnAcc fi)
+                if (false == (has v.objectMap fk)) {
+                    push out fk
+                }
+                fi = (fi + 1)
+            }
+            def fnSet:[string] (keys v.setterMap)
+            def fj:int 0
+            while (fj < (array_length fnSet)) {
+                def sk2:string (itemAt fnSet fj)
+                if (false == (has v.objectMap sk2)) {
+                    if (false == (has v.getterMap sk2)) {
+                        push out sk2
+                    }
+                }
+                fj = (fj + 1)
+            }
+            return out
+        }
         if (v.isObject()) {
             out = (keys v.objectMap)
             ; D-ACCESSORS: an accessor property lives in getterMap/setterMap
@@ -14912,13 +15765,26 @@ class ComponentEngine {
     fn objectEnumerableKeys:[string] (v:EvalValue) {
         def out:[string]
         if (v.isArray()) {
-            ; Array indices are always enumerable.
-            return (this.objectKeys(v))
+            ; An index is enumerable UNLESS defineProperty recorded otherwise --
+            ; `Object.defineProperties(a, {"0": {value: 1}})` creates a
+            ; non-enumerable element, and for-in must skip it.
+            def arrAll:[string] (this.objectKeys(v))
+            def ai2:int 0
+            while (ai2 < (array_length arrAll)) {
+                def ak2:string (itemAt arrAll ai2)
+                if (v.isEnumerable(ak2)) {
+                    push out ak2
+                }
+                ai2 = (ai2 + 1)
+            }
+            return out
         }
         if (v.isString()) {
             return (this.objectKeys(v))
         }
-        if (v.isObject()) {
+        def holdsProps:boolean (v.isObject())
+        if (v.valueType == 6) { holdsProps = true }
+        if holdsProps {
             def all:[string] (this.objectKeys(v))
             def i:int 0
             while (i < (array_length all)) {

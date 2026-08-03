@@ -100,6 +100,12 @@ class EvalValue {
     def frozenFlag:boolean false
     ; D-HOLES: set only on the shared hole singleton (see rawHole).
     def isHole:boolean false
+    ; D-ARRAYSPARSE: an array `length` LARGER than the dense store can hold.
+    ; -1 means "the dense store is the length". The spec allows a length up to
+    ; 2^32-1 with no elements at all, which no dense container can materialise,
+    ; so the declared length is carried beside the elements instead. Every value
+    ; that IS stored still lives in arrayValue or, past the cap, as a property.
+    def declaredLength:int (0 - 1)
     ; D-FNPROPS: names whose SYNTHESISED value has been deleted. A function's
     ; length/name/prototype are computed on read rather than stored, so there was
     ; nothing for `delete f.length` to remove and hasOwnProperty kept saying yes.
@@ -819,7 +825,7 @@ class EvalValue {
         ; Array length property
         if (valueType == 4) {
             if (key == "length") {
-                return (EvalValue.fromInt((array_length arrayValue)))
+                return (EvalValue.fromInt((this.arrayLength())))
             }
             ; A non-index property set on an array (`a.foo = 1`) lives in the
             ; same map.
@@ -986,6 +992,16 @@ class EvalValue {
     }
     
     ; Set an array element by index (extends with null when needed).
+    ; D-ARRAYSPARSE: the array's length -- the declared one when it exceeds what
+    ; the dense store holds, otherwise the number of elements.
+    fn arrayLength:int () {
+        def dense:int (array_length arrayValue)
+        if (declaredLength > dense) {
+            return declaredLength
+        }
+        return dense
+    }
+
     fn setIndexAt:void (index:int value:EvalValue) {
         if (valueType != 4) {
             return

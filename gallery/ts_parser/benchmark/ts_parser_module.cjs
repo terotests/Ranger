@@ -2715,6 +2715,38 @@ class TSParserSimple  {
     }
     return false;
   };
+  isAccessorNameAhead () {
+    const nt = this.peekNextType();
+    let keyish = false;
+    if ( nt == "Identifier" ) {
+      keyish = true;
+    }
+    if ( nt == "Keyword" ) {
+      keyish = true;
+    }
+    if ( nt == "TSKeyword" ) {
+      keyish = true;
+    }
+    if ( nt == "TSType" ) {
+      keyish = true;
+    }
+    if ( nt == "String" ) {
+      keyish = true;
+    }
+    if ( nt == "Number" ) {
+      keyish = true;
+    }
+    if ( nt == "Boolean" ) {
+      keyish = true;
+    }
+    if ( nt == "Null" ) {
+      keyish = true;
+    }
+    if ( keyish == false ) {
+      return false;
+    }
+    return this.peekAheadValue(2) == "(";
+  };
   isObjectPropertyKeyToken () {
     if ( this.isNameToken() ) {
       return true;
@@ -7445,6 +7477,14 @@ class TSParserSimple  {
       }
       if ( this.matchValue(",") ) {
         this.advance();
+      } else {
+        if ( this.matchValue("]") == false ) {
+          if ( this.isAtEnd() == false ) {
+            const badArrTok = this.peek();
+            this.syntaxError("Parse error: expected ',' or ']' in array literal but got '" + (badArrTok.value + "'"));
+            return node;
+          }
+        }
       }
     };
     this.expectValue("]");
@@ -7538,14 +7578,14 @@ class TSParserSimple  {
           }
         }
         if ( currVal == "get" ) {
-          if ( (nextType == "Identifier") || (nextVal == "[") ) {
+          if ( ((nextType == "Identifier") || (nextVal == "[")) || this.isAccessorNameAhead() ) {
             this.advance();
             isGetter = true;
             prop.kind = "get";
           }
         }
         if ( currVal == "set" ) {
-          if ( (nextType == "Identifier") || (nextVal == "[") ) {
+          if ( ((nextType == "Identifier") || (nextVal == "[")) || this.isAccessorNameAhead() ) {
             this.advance();
             isSetter = true;
             prop.kind = "set";
@@ -7707,6 +7747,14 @@ class TSParserSimple  {
       }
       if ( this.matchValue(",") ) {
         this.advance();
+      } else {
+        if ( this.matchValue("}") == false ) {
+          if ( this.isAtEnd() == false ) {
+            const badObjTok = this.peek();
+            this.syntaxError("Parse error: expected ',' or '}' in object literal but got '" + (badObjTok.value + "'"));
+            return node;
+          }
+        }
       }
       if ( this.pos == loopStartPos ) {
         break;

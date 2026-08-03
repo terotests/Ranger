@@ -70,8 +70,8 @@ The runner now uses the **top-level** shape, which is what Test262 itself specif
 each file is a script. The high-bias trap that shape used to carry is gone — every
 statement kind executes — and the change was verified not to be a leniency shift
 three ways: the negative controls still read **0 vacuous of 12** under it, all four
-positive controls still reach their end, and the ES5-wide score is **identical**
-(743/900) under both shapes. Only the handful of files that genuinely depend on
+positive controls still reach their end, and the ES5-wide score was **identical**
+(743/900 at the time of the change) under both shapes. Only the handful of files that genuinely depend on
 script-level semantics move, which is the point.
 
 ### Scoring is segmented by spec era
@@ -116,11 +116,6 @@ them aside cannot quietly flatter the remaining number.
   format is `NaN`, which the spec permits — an implementation may accept whatever
   else it likes, and this one likes nothing else. The strings this engine itself
   produces (`toISOString`) round-trip; `toUTCString` and `toString` do not parse back.
-
-- **An invalid `Function` body is not reported as `SyntaxError`.** `Function(...)`
-  assembles source and parses it, but the parser recovers differently inside a
-  function body than at top level, so `errorCount` stays zero. `eval` *does* report
-  SyntaxError correctly; only the `Function` constructor path is affected.
 
 - **`Number.MAX_VALUE` / `MIN_VALUE` were initially omitted** rather than approximated,
   because the tests that read them check exact bit patterns. They are now present,
@@ -269,6 +264,71 @@ them aside cannot quietly flatter the remaining number.
   deliberately absent: they live in the declarative environment and really are not
   properties of the global object.
 
+- **`Object.prototype.valueOf` is `ToObject`, and a built-in never gets the sloppy
+  `this`.** Borrowed onto a primitive it BOXES it, so
+  `typeof Object.prototype.valueOf.call(true)` is `"object"`; on `undefined` or `null`
+  it throws. And because the global-object substitution the spec performs for a sloppy
+  ECMAScript function does not apply to a built-in, the bare
+  `var vo = Object.prototype.valueOf; vo()` is a `TypeError` rather than an answer
+  about the global object. Only the wrapper prototypes' own `valueOf` unwraps.
+
+- **`==` between two object-like values is identity, and a function is object-like.**
+  Functions, Maps and Sets were left out of the object test, so `f == f` fell through
+  to the numeric comparison and answered **false** for a value identical to itself.
+
+- **`new` through an expression that yields a constructor.**
+  `new (Function("...; return f").apply())` had no name to look up, so `new` produced
+  null and the instance could not be read at all.
+
+- **`bind` curries `[[Construct]]` as well as `[[Call]]`.** Constructing through a
+  bound BUILT-IN runs the built-in — `new (Function.prototype.bind.apply(Date, [null,
+  1957, 4, 27]))()` is a Date, where it used to be a bare object branded
+  `[object Undefined]`. A bound function has no `prototype` of its own, so the
+  instance links to the TARGET's, and an ordinary `F.prototype` now terminates at
+  `Object.prototype` instead of one link short — `Object.prototype.p = 1;
+  (new F()).p` used to read undefined.
+
+- **A built-in borrowed onto an object is the method ToPrimitive runs.**
+  `String({toString: Function.prototype.toString})` is a `TypeError`, not
+  `"[object Object]"`: the default-method shortcut treated any node-less function as
+  "the default for this receiver" and never called it.
+
+- **A registry method deleted off its prototype stays deleted.**
+  `delete Object.prototype.toString` used to be a no-op, because the per-kind registry
+  minted the method again on the next read. The deletion is recorded on the prototype
+  object and every path that consults the registry checks it first; putting the name
+  back undoes it, and a deletion on a KIND prototype still falls back to
+  `Object.prototype`'s own copy.
+
+- **`RegExp.prototype` publishes `source`/`global`/`ignoreCase`/`multiline` as
+  accessors** — get-only, non-enumerable, configurable — which is the ES2015 shape
+  `getOwnPropertyDescriptor` is written against. A getter may now be a built-in with
+  no function node; only node-backed ones used to run.
+
+- **A missing separator in an array or object literal is a `SyntaxError`.** The parser
+  looped straight into the next element, so `[a b]` was a two-element array and
+  `new Function({})` — whose body is `"[object Object]"` — built a function instead of
+  throwing. Recognising the accessor forms whose key is a keyword, string or number
+  (`({ get null() {} })`, `({ set "a"(v) {} })`, `({ get 10() {} })`) is what keeps the
+  new rule from rejecting those; only an Identifier key had been recognised, and the
+  silent-acceptance bug was hiding it.
+
+- **A built-in prototype stringifies like the value it stands for.**
+  `String(Error.prototype)` is `"Error"` and `String(RegExp.prototype)` is `"/(?:)/"`,
+  where the fall-through used to hand back the engine's own debug rendering of the
+  property map — guest-visible text that no JavaScript engine produces. An object that
+  matches no kind now brands; a primitive receiver still renders itself.
+
+- **Indirect `eval` is callable.** `var e = eval; e(src)`, `(0, eval)(src)` and
+  `eval.call(null, src)` all run now, in the GLOBAL scope rather than the caller's —
+  which is the whole difference from the direct form. The value had no function node,
+  so every call path skipped it and reported "not a function".
+
+- **A built-in static no longer coerces its first argument.** `invokeBuiltinStatic`
+  computed `ToNumber(args[0])` for every static before dispatching, so
+  `Object.isExtensible(Date.prototype)` ran a `ToPrimitive` nobody asked for — and once
+  that conversion could throw, the throw became the answer.
+
 - **A function's source text is real, and a `Function()`-built one is its assembled
   source.** `Function.prototype.toString` returns the slice the function's node spans
   in the source it was parsed from — the parser records `end` on function nodes, and
@@ -288,6 +348,20 @@ them aside cannot quietly flatter the remaining number.
   is reachable through the namespace, exported or not. The cross-module block in the
   runtime suite asserts the positive path passes *and* that this negative case still
   fails, so it is measured rather than forgotten.
+
+- **A RegExp instance owns `source`/`global`/`ignoreCase`/`multiline` AND inherits
+  them as accessors.** ES5 put them on the instance as non-writable, non-enumerable,
+  non-configurable data properties; ES2015 moved them to `RegExp.prototype` as
+  getters. Both shapes are present: the instance's own data property answers an
+  ordinary read, and the prototype's accessor is what `getOwnPropertyDescriptor` and a
+  borrowed `d.get.call(re)` see. A test that asserts the instance does NOT own them
+  would fail — the mixed shape is a decision to keep the ES5 reads working while the
+  descriptor tests get the modern answer, not an oversight.
+
+- **A method deleted from `Object.prototype` is only hidden from kinds that do not
+  publish their own copy of the name.** The deletion record lives on the prototype
+  object and is consulted for the receiver's own kind; the registry has no chain to
+  walk, so `delete Object.prototype.hasOwnProperty` does not reach an array receiver.
 
 - **Nested class declarations are visible wider than the spec allows.** A class
   declared inside a function body registers in the engine-wide class table, because
@@ -355,6 +429,9 @@ Tagged in the source with these markers.
 | `D-HOLES` | An absent array element is one shared sentinel whose `valueType` is 8, so a value-consuming path sees `undefined` without knowing about holes; only presence questions (`in`, `hasOwnProperty`, the iteration methods, key enumeration) inspect the slot. |
 | `D-ARRAYSPARSE` | Which key names an ELEMENT is decided by the key TEXT — only `ToString(ToUint32(k)) === k` — not by whether the operand was a number. An index too far past the end for the dense store is kept as an ordinary property, which cannot move `length` but also cannot crash the host. |
 | `D-GLOBALTHIS` | A script's `var` and function names are properties of the global object as well as bindings, kept in step on write; `globalThis` resolves to that same object. `let`/`const` are not properties — the declarative environment is separate. |
+| `D-VALUEOF` | Every prototype's `valueOf` begins with `ToObject(this)`, so a null/undefined receiver throws before anything else — and a BUILT-IN never receives the sloppy-mode global-`this` substitution an ordinary function does, which is why the unbound `Object.prototype.valueOf()` throws. `Object.prototype`'s own `valueOf` boxes; the wrapper prototypes' unwrap. |
+| `D-NEWCALLEE` | `new <expression>` where the expression is a CALL constructs through the value the call returns. There is no name to look up, so the name-keyed constructor path cannot see it. |
+| `D-REGEXACCESSOR` | `source`/`global`/`ignoreCase`/`multiline` are accessors on `RegExp.prototype`, registered under a kind of their own (`regexpget`) so they are dispatchable values without becoming methods anyone can call as `re.source()`. The instance keeps its ES5 own data properties as well, so the two shapes coexist — see §2.4. |
 | `D-DATE` | A Date is arithmetic on one time value (`DateTime.rgr`, ECMA-262 §15.9.1). Local time is UTC and the clock is `hostNowMs`, so every result is reproducible. The default ToPrimitive hint behaves as STRING for a Date and as NUMBER for everything else, which is what makes `date + ''` the date's text while `+date` is its time. |
 
 ### Framework surface is deliberately outside the registry
@@ -377,19 +454,20 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 | `built-ins/Date` | **100%** (4/4, whole directory) |
 | `built-ins/String` | **100%** (709/709, whole directory) |
 | `built-ins/Boolean` | **100%** (7/7, whole directory) |
-| `built-ins/Object` | 96% (1992/2080) |
+| `built-ins/Object` | **100%** (2080/2080, whole directory) |
+| `built-ins/Function` | **100%** (361/361, whole directory) |
 | `built-ins/Math` | 91% (74/81) |
-| `built-ins/Function` | 93% (337/361) |
-| `built-ins/RegExp` | 74% (365/490) |
-| `built-ins/Array` | 74% (156/212) |
-| `language/statements` | 72% (406/562) |
-| ES5 overall | **90.9%** (818/900 sampled) |
+| `built-ins/RegExp` | 76% (373/490) |
+| `built-ins/Array` | 75% (159/212) |
+| `language/statements` | 74% (414/562) |
+| ES5 overall | **93.7%** (843/900 sampled) |
 
-`built-ins/Number`, `built-ins/String` and `language/expressions` are each at 100% of
-their whole directory — no sampling, no exclusions beyond the era filter.
+`built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function` and
+`language/expressions` are each at 100% of their whole directory — no sampling, no
+exclusions beyond the era filter.
 
-The runtime-conformance suite is at 972 checks, every one of them derived from Node —
-960 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1028 checks, every one of them derived from Node —
+1016 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

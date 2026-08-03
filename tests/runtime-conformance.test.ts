@@ -1248,6 +1248,83 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["toprim-object-brand", "return String({});", "toprimitive"],
   ["toprim-object-valueof-skipped-for-string", "return String({ valueOf: function () { return 7; } });", "toprimitive"],
   ["toprim-both-objects-throws", "var o = { valueOf: function () { return {}; }, toString: function () { return {}; } }; try { return String(o); } catch (e) { return e.name; }", "toprimitive"],
+  // A built-in borrowed onto an object is the one ToPrimitive must RUN, not the
+  // default the receiver's own kind would use.
+  ["toprim-borrowed-fnproto-tostring", "var o = { toString: Function.prototype.toString }; try { return String(o); } catch (e) { return e.name; }", "toprimitive"],
+  ["toprim-borrowed-numproto-tostring", "var o = { toString: Number.prototype.toString }; try { return String(o); } catch (e) { return e.name; }", "toprimitive"],
+  ["toprim-own-objproto-tostring-still-default", "var o = { toString: Object.prototype.toString }; return String(o);", "toprimitive"],
+
+  // --- Object.prototype.valueOf is ToObject, and a built-in never gets the
+  // sloppy-mode global `this` an ordinary function does. -----------------------
+  ["valueof-boxes-boolean", "return typeof Object.prototype.valueOf.call(true);", "objvalueof"],
+  ["valueof-boxes-number", "return typeof Object.prototype.valueOf.call(1);", "objvalueof"],
+  ["valueof-identity-on-object", "var o = {}; return String(Object.prototype.valueOf.call(o) === o);", "objvalueof"],
+  ["valueof-undefined-throws", "try { Object.prototype.valueOf.call(undefined); return 'no-throw'; } catch (e) { return e.name; }", "objvalueof"],
+  ["valueof-null-throws", "try { Object.prototype.valueOf.call(null); return 'no-throw'; } catch (e) { return e.name; }", "objvalueof"],
+  ["valueof-unbound-throws", "var vo = Object.prototype.valueOf; try { vo(); return 'no-throw'; } catch (e) { return e.name; }", "objvalueof"],
+  ["valueof-comma-unbound-throws", "try { (1, Object.prototype.valueOf)(); return 'no-throw'; } catch (e) { return e.name; }", "objvalueof"],
+  ["valueof-wrapper-still-unwraps", "return String(new Number(7).valueOf());", "objvalueof"],
+
+  // --- `==` between two object-like values is identity, functions included ---
+  ["loose-eq-function-self", "var f = function () {}; return String(f == f);", "objvalueof"],
+  ["loose-eq-function-alias", "var f = function () {}; var g = f; return String(f == g);", "objvalueof"],
+  ["loose-eq-function-distinct", "return String((function () {}) == (function () {}));", "objvalueof"],
+  ["loose-eq-getter-roundtrip", "var o = { get foo() { return 1; } }; var d1 = Object.getOwnPropertyDescriptor(o, 'foo'); var d2 = Object.getOwnPropertyDescriptor(o, 'foo'); return String(d1.get == d2.get);", "objvalueof"],
+
+  // --- `new` through an expression, and bind currying [[Construct]] ----------
+  ["new-callexpression-callee", "var obj = new (Function('function f(){this.p1=1;};return f').apply()); return obj.p1;", "newcallee"],
+  ["new-bound-builtin-date", "function construct(f, args) { var bound = Function.prototype.bind.apply(f, [null].concat(args)); return new bound(); } return Object.prototype.toString.call(construct(Date, [1957, 4, 27]));", "newcallee"],
+  ["new-bound-this-ignored", "var obj = { p: 1 }; var f = function () { return Object.prototype.toString.call(this); }; var B = Function.prototype.bind.call(f, obj); var seen = ''; var g = function () { seen = String(this === obj); }; var C = Function.prototype.bind.call(g, obj); new C(); return seen;", "newcallee"],
+  ["new-instance-inherits-object-proto", "Object.prototype.vtProbe = 'VT'; function F() {} var out = String(new F().vtProbe); delete Object.prototype.vtProbe; return out;", "newcallee"],
+  ["new-bound-instance-inherits", "Object.prototype.vtProbe2 = 'VT'; var F = function () {}; var B = F.bind({}); var out = String(new B().vtProbe2); delete Object.prototype.vtProbe2; return out;", "newcallee"],
+
+  // --- a registry method deleted off its prototype stays deleted -------------
+  ["delete-objproto-tostring-typeof", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out = typeof Object.prototype.toString; Object.prototype.toString = saved; return out;", "protodelete"],
+  ["delete-objproto-tostring-throws", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out; try { Object.prototype.toString(); out = 'no-throw'; } catch (e) { out = e.name; } Object.prototype.toString = saved; return out;", "protodelete"],
+  ["delete-objproto-tostring-hides-from-object", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out = typeof ({}).toString; Object.prototype.toString = saved; return out;", "protodelete"],
+  ["delete-restore-brings-back", "var saved = Object.prototype.toString; delete Object.prototype.toString; Object.prototype.toString = saved; return ({}).toString();", "protodelete"],
+  ["delete-kindproto-falls-back", "var saved = Number.prototype.toString; delete Number.prototype.toString; var out = new Number().toString(); Number.prototype.toString = saved; return out;", "protodelete"],
+
+  // --- RegExp.prototype publishes source/global/ignoreCase/multiline as
+  // accessors, which is what getOwnPropertyDescriptor is asked about. ---------
+  ["regexdesc-source-is-accessor", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'source'); return String(d.hasOwnProperty('writable')) + ',' + typeof d.get + ',' + String(d.set) + ',' + String(d.enumerable) + ',' + String(d.configurable);", "regexdesc"],
+  ["regexdesc-global-is-accessor", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'global'); return typeof d.get + ',' + String(d.enumerable) + ',' + String(d.configurable);", "regexdesc"],
+  ["regexdesc-ignorecase-is-accessor", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'ignoreCase'); return typeof d.get + ',' + String(d.set);", "regexdesc"],
+  ["regexdesc-multiline-is-accessor", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'multiline'); return typeof d.get + ',' + String(d.set);", "regexdesc"],
+  ["regexdesc-getter-reads-instance", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'source'); return d.get.call(/ab+c/i);", "regexdesc"],
+  ["regexdesc-flag-getter-reads-instance", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'ignoreCase'); return String(d.get.call(/ab/i)) + ',' + String(d.get.call(/ab/));", "regexdesc"],
+  ["regex-source-still-reads", "return /ab+c/i.source;", "regexdesc"],
+
+  // --- a missing separator in a literal is a SyntaxError ---------------------
+  ["fnctor-object-body-syntaxerror", "try { new Function({}); return 'no-throw'; } catch (e) { return e.name; }", "litsep"],
+  ["fnctor-array-missing-comma", "try { new Function('[object Object]'); return 'no-throw'; } catch (e) { return e.name; }", "litsep"],
+  ["fnctor-object-missing-comma", "try { new Function('({a: 1 b: 2})'); return 'no-throw'; } catch (e) { return e.name; }", "litsep"],
+  ["fnctor-good-body-still-works", "var f = new Function('return [1, 2];'); return f().join('|');", "litsep"],
+  ["accessor-keyword-name", "var o = { get null() { return 1; }, set true(v) {} }; return String(o['null']);", "litsep"],
+  ["accessor-string-name", "var o = { get 'a'() { return 2; } }; return String(o.a);", "litsep"],
+  ["accessor-number-name", "var o = { get 10() { return 3; } }; return String(o[10]);", "litsep"],
+  ["object-get-as-plain-key", "var o = { get: 1, set: 2 }; return String(o.get) + ',' + String(o.set);", "litsep"],
+
+  // --- a built-in prototype stringifies like the value it stands for, and
+  // never leaks the engine's own debug rendering. -----------------------------
+  ["protostr-error-prototype", "return String(Error.prototype);", "protostr"],
+  ["protostr-typeerror-prototype", "return String(TypeError.prototype);", "protostr"],
+  ["protostr-regexp-prototype", "return String(RegExp.prototype);", "protostr"],
+  ["protostr-number-prototype", "return String(Number.prototype);", "protostr"],
+  ["protostr-boolean-prototype", "return String(Boolean.prototype);", "protostr"],
+  ["protostr-array-prototype", "return String(Array.prototype);", "protostr"],
+  ["protostr-string-prototype", "return String(String.prototype);", "protostr"],
+  ["protostr-math", "return String(Math);", "protostr"],
+  ["protostr-date-prototype-throws", "try { return String(Date.prototype); } catch (e) { return e.name; }", "protostr"],
+  ["protostr-error-instance", "return String(new TypeError('boom'));", "protostr"],
+
+  // --- indirect eval --------------------------------------------------------
+  ["eval-as-value", "var me = eval; return String(me('1 + 1'));", "indirecteval"],
+  ["eval-comma-form", "return String((0, eval)('2 + 2'));", "indirecteval"],
+  ["eval-call-form", "return String(eval.call(null, '3 + 3'));", "indirecteval"],
+  ["eval-indirect-not-caller-scope", "function g() { var loc = 7; var me = eval; return String(me('typeof loc')); } return g();", "indirecteval"],
+  ["eval-direct-sees-caller-scope", "function g() { var loc = 7; return String(eval('loc')); } return g();", "indirecteval"],
+  ["eval-non-string-passthrough", "var me = eval; return String(me(42));", "indirecteval"],
 ];
 
 /**

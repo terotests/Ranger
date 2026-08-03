@@ -847,6 +847,29 @@ class TSParserSimple {
     return false
   }
 
+  ; `get`/`set` followed by a property key and a parameter list is an ACCESSOR,
+  ; and the key may be a keyword, a string or a number: `({ get null() {} })`,
+  ; `({ set "a"(v) {} })`, `({ get 10() {} })`. Only an Identifier key was
+  ; recognised, so the rest were read as a `get` property followed by a second
+  ; one -- which the literal parser used to swallow silently and now rejects.
+  ; The `(` two tokens on is what tells an accessor from `{ get: 1 }`.
+  fn isAccessorNameAhead:boolean () {
+    def nt:string (this.peekNextType())
+    def keyish:boolean false
+    if (nt == "Identifier") { keyish = true }
+    if (nt == "Keyword") { keyish = true }
+    if (nt == "TSKeyword") { keyish = true }
+    if (nt == "TSType") { keyish = true }
+    if (nt == "String") { keyish = true }
+    if (nt == "Number") { keyish = true }
+    if (nt == "Boolean") { keyish = true }
+    if (nt == "Null") { keyish = true }
+    if (keyish == false) {
+      return false
+    }
+    return ((this.peekAheadValue(2)) == "(")
+  }
+
   ; Object literal keys may use reserved/type words: { any: 1, string: "x" }.
   fn isObjectPropertyKeyToken:boolean () {
     if (this.isNameToken()) {
@@ -6831,9 +6854,21 @@ class TSParserSimple {
       
       if (this.matchValue(",")) {
         this.advance()
+      } {
+        ; Two elements with no separator -- `[a b]` -- is a SyntaxError, not a
+        ; two-element array. Looping straight back into the next element made
+        ; the parser accept it silently, which is how `new Function("[object
+        ; Object]")` built a function instead of throwing.
+        if ((this.matchValue("]")) == false) {
+          if ((this.isAtEnd()) == false) {
+            def badArrTok:Token (this.peek())
+            this.syntaxError(("Parse error: expected ',' or ']' in array literal but got '" + (badArrTok.value + "'")))
+            return node
+          }
+        }
       }
     }
-    
+
     this.expectValue("]")
     return node
   }
@@ -6937,14 +6972,14 @@ class TSParserSimple {
 
         ; Check for getter/setter - must look ahead to see if next is identifier or [
         if (currVal == "get") {
-          if ((nextType == "Identifier") || (nextVal == "[")) {
+          if ((nextType == "Identifier") || (nextVal == "[") || (this.isAccessorNameAhead())) {
             this.advance()
             isGetter = true
             prop.kind = "get"
           }
         }
         if (currVal == "set") {
-          if ((nextType == "Identifier") || (nextVal == "[")) {
+          if ((nextType == "Identifier") || (nextVal == "[") || (this.isAccessorNameAhead())) {
             this.advance()
             isSetter = true
             prop.kind = "set"
@@ -7137,8 +7172,19 @@ class TSParserSimple {
       
       if (this.matchValue(",")) {
         this.advance()
+      } {
+        ; Two properties with no separator -- `({a: 1 b: 2})` -- is a
+        ; SyntaxError. Without this the parser read the second one as if the
+        ; comma were there.
+        if ((this.matchValue("}")) == false) {
+          if ((this.isAtEnd()) == false) {
+            def badObjTok:Token (this.peek())
+            this.syntaxError(("Parse error: expected ',' or '}' in object literal but got '" + (badObjTok.value + "'")))
+            return node
+          }
+        }
       }
-      
+
       ; Safety: if an iteration consumed no tokens (e.g. an unexpected token that
       ; is not a valid property key, comma, or "}"), bail out instead of looping
       ; forever and exhausting memory. expectValue("}") then reports the error.
