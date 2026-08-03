@@ -1382,6 +1382,17 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["callee-strict-write-throws", "return (function () { 'use strict'; var a = (function () { return arguments; })(); try { a.callee = {}; return 'no-throw'; } catch (e) { return e.name; } })();", "callee"],
   ["callee-strict-descriptor", "return (function () { 'use strict'; function f() { return Object.getOwnPropertyDescriptor(arguments, 'callee'); } var d = f(); return String(d.configurable) + '/' + String(d.enumerable) + '/' + String(d.hasOwnProperty('value')) + '/' + String(d.hasOwnProperty('get')) + '/' + String(d.hasOwnProperty('set')); })();", "callee"],
 
+  // --- ++/-- coerce, bind's poisoning is not its strictness ------------------
+  ["update-string-property-is-nan", "var m = { foo: 'bar' }; m.foo++; return String(m.foo);", "update"],
+  ["update-numeric-string-property", "var m = { s: '5' }; m.s++; return m.s;", "update"],
+  ["update-postfix-returns-old", "var m = { n: 1 }; var r = m.n++; return String(r) + '/' + String(m.n);", "update"],
+  ["update-prefix-returns-new", "var m = { n: 1 }; var r = ++m.n; return String(r) + '/' + String(m.n);", "update"],
+  ["update-array-element", "var a = [1, 2]; a[0]++; return a[0];", "update"],
+  ["bind-does-not-make-target-strict", "var glob = this; function f() { return this === glob; } return String((function () { 'use strict'; return f.bind()(); })());", "update"],
+  ["bind-still-poisons-caller", "function foo() {} var b = foo.bind({}); try { b.caller; return 'no-throw'; } catch (e) { return e.name; }", "update"],
+  ["var-without-init-keeps-function", "function f2() { var x; return typeof x; function x() { return 7; } } return f2();", "update"],
+  ["var-without-init-is-undefined", "function g() { var y; return typeof y; } return g();", "update"],
+
   // --- a keyword's TEXT in a string literal is not the keyword ---------------
   ["strlit-await", "var x = 'await'; return x;", "kwtext"],
   ["strlit-delete", "var x = 'delete'; return x;", "kwtext"],

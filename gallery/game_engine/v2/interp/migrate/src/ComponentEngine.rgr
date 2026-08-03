@@ -1181,7 +1181,15 @@ class ComponentEngine {
     ;
     ; The flag is stamped onto the value where the function is created, so a
     ; function that is strict only by lexical inheritance counts too.
+    ; D-STRICT: whether `caller` and `arguments` are POISONED on this value. A
+    ; bound function poisons them whatever its target was, which is a separate
+    ; question from whether the target runs as strict code -- stamping
+    ; `strictFn` on the bound copy conflated the two and made
+    ; `f.bind()()` keep an undefined `this` for a SLOPPY f.
     fn functionIsStrict:boolean (fv:EvalValue) {
+        if fv.boundExplicit {
+            return true
+        }
         return fv.strictFn
     }
 
@@ -2568,8 +2576,19 @@ class ComponentEngine {
                     } {
                         ; `let x;` with no initializer still creates a binding
                         ; (JS: bound to undefined), so a later reference/assignment
-                        ; resolves in this scope rather than falling through.
-                        context.define(varName (EvalValue.undefined()))
+                        ; resolves in this scope rather than falling through --
+                        ; but a `var` with no initialiser does NOT overwrite one
+                        ; that already exists, which is what lets a hoisted
+                        ; function declaration survive `var x;` of the same name.
+                        def keepExisting:boolean false
+                        if ((node.kind == "var") || ((strlen node.kind) == 0)) {
+                            if (context.has(varName)) {
+                                keepExisting = true
+                            }
+                        }
+                        if (false == keepExisting) {
+                            context.define(varName (EvalValue.undefined()))
+                        }
                     }
                 }
             }
@@ -4958,33 +4977,65 @@ class ComponentEngine {
                 }
                 ; ++ and -- READ the target, so an undeclared name is a
                 ; ReferenceError rather than a silent NaN.
+                ; D-GLOBALTHIS: a name created as a PROPERTY of the global object
+                ; -- `this.count = 0` at top level -- is a global binding, and
+                ; reading the scope alone said it did not exist.
+                def gObjU:EvalValue (this.theGlobalObject())
+                def onGlobalU:boolean false
+                if (gObjU.valueType == 5) {
+                    onGlobalU = (has gObjU.objectMap varName)
+                }
                 if (false == (context.has(varName))) {
-                    if (false == (this.isEngineGlobalName(varName))) {
-                        return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
+                    if (false == onGlobalU) {
+                        if (false == (this.isEngineGlobalName(varName))) {
+                            return (this.throwSpecError("ReferenceError" (varName + " is not defined")))
+                        }
                     }
                 }
-                ; ToNumber, so an object operand runs its own valueOf.
-                def oldNum:double (this.toNumberOf((context.lookup(varName))))
+                ; ToNumber, so an object operand runs its own valueOf. The value
+                ; comes through the same resolver a plain read uses, so a
+                ; global-object property is found the same way.
+                def oldNum:double (this.toNumberOf((this.lookupIdentifier(varName))))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
                 def newVal:EvalValue (EvalValue.number((oldNum + delta)))
-                context.assign(varName newVal)
+                if (context.has(varName)) {
+                    context.assign(varName newVal)
+                    this.syncGlobalVar(varName newVal)
+                } {
+                    if onGlobalU {
+                        gObjU.setMember(varName newVal)
+                    } {
+                        context.assign(varName newVal)
+                    }
+                }
                 if node.prefix {
                     return newVal
                 }
                 return (EvalValue.number(oldNum))
             }
             if (leftNode.nodeType == "MemberExpression") {
-                def one:EvalValue (EvalValue.number(1.0))
-                def cOp:string "+="
-                if (op == "--") {
-                    cOp = "-="
-                }
-                ; Capture the old value before the compound write for postfix.
+                ; `o.p++` is ToNumber(o.p) + 1, never a compound `+=` -- for a
+                ; STRING property the compound form concatenated, so
+                ; `({foo:"bar"}).foo++` produced "bar1" where the spec says NaN.
                 def oldV:EvalValue (this.readMemberValue(leftNode))
-                def newV:EvalValue (this.assignMember(leftNode cOp one))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                def oldNumM:double (this.toNumberOf(oldV))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                def newNumM:EvalValue (EvalValue.number((oldNumM + delta)))
+                def newV:EvalValue (this.assignMember(leftNode "=" newNumM))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
                 if node.prefix {
                     return newV
                 }
-                return (EvalValue.number((oldV.toNumber())))
+                return (EvalValue.number(oldNumM))
             }
         }
         return (EvalValue.null())
@@ -12716,9 +12767,11 @@ class ComponentEngine {
                 b3.boundExplicit = true
                 b3.functionName = ("bound " + recv.functionName)
                 ; D-STRICT: a BOUND function poisons caller and arguments the way
-                ; a strict one does, whatever the target was, and it has no
-                ; `prototype` of its own.
-                b3.strictFn = true
+                ; a strict one does, whatever the target was -- that is what
+                ; `boundExplicit` answers for -- and it has no `prototype` of its
+                ; own. Its STRICTNESS stays the target's, because that is what
+                ; decides the `this` a call supplies.
+                b3.strictFn = recv.strictFn
                 b3.suppressedKeys = (this.suppressPrototype(recv))
                 return b3
             }

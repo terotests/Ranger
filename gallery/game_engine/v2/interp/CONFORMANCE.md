@@ -358,6 +358,23 @@ them aside cannot quietly flatter the remaining number.
   was read, so the loop ran its body with `k` never set. A property deleted before
   it is reached is also no longer visited — the key list is snapshotted at entry.
 
+- **`o.p++` is `ToNumber(o.p) + 1`, never a compound `+=`.** The compound form
+  concatenated for a string property, so `({foo: "bar"}).foo++` produced `"bar1"`
+  where the spec says `NaN`.
+
+- **A bound function's POISONING is not its strictness.** `bind` stamped
+  `strictFn` on the copy to get `caller`/`arguments` poisoned, which also made the
+  target look strict — so `f.bind()()` kept an undefined `this` for a sloppy `f`.
+  The two questions are separate now: `boundExplicit` answers the first, and the
+  target's own strictness still answers the second.
+
+- **A `var` with no initialiser does not overwrite an existing binding**, which is
+  what lets a hoisted function declaration survive `var x;` of the same name.
+
+- **A name created as a PROPERTY of the global object is a binding for `++` too.**
+  `this.count = 0; count++` was a ReferenceError: the update path read the scope
+  directly rather than through the resolver every other read uses.
+
 - **A top-level `var`'s initialiser runs in SOURCE ORDER.** It used to run in a
   pass of its own before the program started, so a read before the declaration saw
   the finished value — `__f(); var __f = function () {};` succeeded where the spec
@@ -693,14 +710,15 @@ more, not less.
 | `built-ins/Array` | **100%** (212/212, whole directory) |
 | `built-ins/Math` | **100%** (81/81, whole directory) |
 | `language/arguments-object` | **100%** (38/38, whole directory) |
-| `built-ins/JSON` | 98% (46/47) |
-| `language/statements` | 97% (547/562) |
-| `language/function-code` | 96% (204/212) |
-| `language/eval-code` | 96% (55/57) |
 | `language/reserved-words` | **100%** (13/13, whole directory) |
-| `language/types` | 94% (88/94) |
+| `language/function-code` | **100%** (212/212, whole directory) |
+| `language/types` | 99% (93/94) |
+| `built-ins/JSON` | 98% (46/47) |
+| `language/statements` | 98% (548/562) |
+| `language/eval-code` | 96% (55/57) |
 | `language/directive-prologue` | 94% (48/51) |
-| ES5 overall | **99.9%** (899/900 sampled; 1399/1400 on the wider sample) |
+| `built-ins/global` | 93% (25/27) |
+| ES5 overall | **99.8%** (2494/2500 on the wider sample) |
 
 `built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
 `built-ins/RegExp`, `built-ins/Array`, `built-ins/Math`, `built-ins/Date`,
@@ -708,8 +726,8 @@ more, not less.
 directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1224 checks, every one of them derived from Node —
-1209 expression probes plus 15 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1233 checks, every one of them derived from Node —
+1218 expression probes plus 15 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
