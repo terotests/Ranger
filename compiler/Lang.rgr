@@ -2310,6 +2310,7 @@ def r_div_f64(a, b):
                 dart ( "(" (e 1) ").floor()" )
                 swift6 ( "Int(floor(" (e 1) "))" (imp "Foundation"))
                 python ( "math.floor(" (e 1) ")" (imp "math"))
+                llvm ( "(floor " (e 1) ")" )
                 * ( "Math.floor(" (e 1) ")")
             }
         }

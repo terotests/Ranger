@@ -491,3 +491,94 @@ npm run interp:bench                                       # JS build vs Node on
 See `gallery/game_engine/v2/interp/bench/native/README.md` and `RUST.md` for the
 harness details, and `gallery/game_engine/v2/interp/CONFORMANCE.md` for what the
 JavaScript build is measured against.
+
+---
+
+## 5. LLVM: an earlier-stage target than Rust
+
+Attempted 2026-08-03, clang/llc 18.1.3. **No binary was produced**, for either the
+engine or the parser.
+
+### The engine: 247 errors, all missing operator templates
+
+`-l=llvm` on the interpreter fails in Ranger codegen, before any IR is written.
+The LLVM backend has **40 operator templates in `compiler/Lang.rgr`, against 172
+for C++ and 148 for Rust** — roughly a quarter of the surface. Missing families,
+by error count: `indexOf` (35), `keys` (27), `itemAt` (17), `array_length` (17),
+plus `push`, `contains`, `unwrap`, `get`/`set` on several signatures, `M_PI`,
+`tan`, `to_lowercase`, `to_uppercase`.
+
+The apparent failures on core operators — `if` (20), `while` (16), `<` (16),
+`>=` (20) — are **cascades, not separate bugs**. An operator with no template
+for the active target resolves to *no type*, and every comparison and branch
+reading its result inherits that. It is the same failure shape the missing Rust
+operator templates produced, and the same shape that made those look like 15
+unrelated type-inference errors.
+
+### The parser: codegen passes, and the IR does not link
+
+The TypeScript parser is the useful calibration point, because it compiles to
+LLVM IR with **zero** Ranger-side errors and emits 3.4 MB of IR. clang then
+rejects that IR. Fixing each error exposes the next:
+
+| # | clang error | Cause | Status |
+|---|---|---|---|
+| 1 | ``use of undefined value `%floor` `` | `floor` had no `llvm` template, so it fell through to the `*` catch-all — which is JavaScript's `Math.floor(...)` — and became a bare SSA reference nothing defined | **fixed** |
+| 2 | ``'%.c13' defined with type 'i64' but expected 'i32'`` | pushing one ptr-array's element into another emitted `zext i32 <i64 value> to i64`; `exprIsObjectPtr` only recognises VRefs, so an `itemAt` result was treated as a scalar | **fixed** |
+| 3 | ``'%.c75' defined with type 'i64' but expected 'ptr'`` | a string element read from a ptr array is `i64`, and every consumer (`ranger_strdup`, concat, compare) takes `i8*` | open |
+| 4 | ``use of undefined value `%.cast14` `` | reached while attempting (3): a cast is *named* in an instruction but its defining instruction is never emitted | open |
+
+Fixes 1 and 2 are in this branch and were verified not to move any gate. Fix 3
+was attempted and reverted: casting at the read site alone leaves the write side
+inconsistent and surfaced (4), which is a builder-internals problem rather than a
+missing cast.
+
+The root issue behind (3) and (4) is representational: pointer-array elements are
+stored as `i64` and every use site needs its own cast rule, applied ad hoc.
+Making string elements pointer-typed means changing the read, the write and the
+push paths together.
+
+### Why it drifted: the gate is switched off
+
+`tests/vitest.config.ts` line 9 excludes the LLVM suite from `npm test`:
+
+```js
+exclude: ["**/node_modules/**", "**/ranger-vscode-extension/**", "**/compiler-llvm.test.ts"],
+```
+
+Run explicitly, `tests/compiler-llvm.test.ts` is **20 passed / 17 failed** — and
+it fails identically with and without the fixes in this branch, so it was
+already red when it was excluded. Both committed LLVM demo scripts are broken
+too: `scripts/compile-ts-parser-llvm.sh` fails at the link step, and
+`scripts/compile-jpeg-scaler-llvm.sh` fails in codegen on `buffer_alloc`.
+
+`tests/vitest.llvm.config.ts` is added here so the suite can be run without
+editing the main config:
+
+```bash
+npx vitest run --config tests/vitest.llvm.config.ts
+```
+
+### Is LLVM still the right route to a small binary?
+
+Probably yes, and that is why the gap is worth closing. The LLVM path links
+against `runtime/ranger_rt.c` and `runtime/ranger_mem.c` — a small hand-written
+C runtime with **no libstdc++ dependency**. The 1.7 MB of the C++ binary is
+mostly STL: `std::map` and `std::vector` template instantiations, plus iostreams.
+An LLVM build would not pay for those.
+
+No size figure is claimed here, because no binary exists to measure. The
+statement is about what is *linked*, not about a measurement.
+
+### Order of work
+
+1. **Re-enable the gate** (one line) once it is green. Without it the next fix
+   rots the same way this one did.
+2. **Get the 17 failing golden tests passing.** They are the safety net every
+   subsequent change needs, and there is currently none.
+3. **The ptr-array element representation** — (3) and (4) together. Reaching a
+   linked parser binary would give the first real size measurement.
+4. **The ~20 operator families for the engine.** Each needs a lowering in
+   `compiler/ng_LowIRBuilder.rgr`, not just template text: the `llvm` entries in
+   `Lang.rgr` are s-expressions consumed by the LowIR builder's intrinsic
+   dispatch. This is a project, and it should follow (1)–(3), not precede them.

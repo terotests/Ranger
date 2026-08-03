@@ -1238,6 +1238,29 @@ class LowIRBuilderPass {
     return val
   }
 
+  ; `floor` is double -> int. Without a case here the operator fell through to
+  ; the `*` template in Lang.rgr -- which is JavaScript's `Math.floor(...)` --
+  ; and the backend turned that into a bare `%floor` SSA reference that nothing
+  ; ever defined, so codegen "succeeded" and clang rejected the module.
+  ; libm's floor() rounds toward negative infinity; fptosi alone truncates
+  ; toward zero, which differs for every negative non-integer.
+  fn lowerFloor:string (node:CodeNode lctx:LowIRLowerContext) {
+    def inNode (node.getSecond())
+    def val (this.lowerExpr(inNode lctx))
+    if (this.exprIsF64(inNode)) {
+      def fParams:[string]
+      push fParams "double"
+      this.ensureExternDecl("floor" "double" fParams false)
+      def fArgs:[string]
+      def fArgTypes:[string]
+      push fArgs val
+      push fArgTypes "f64"
+      def floored (lctx.builder.emitCall("floor" "f64" fArgs fArgTypes))
+      return (lctx.builder.emitCast("fptosi" "i32" "f64" floored))
+    }
+    return val
+  }
+
   fn lowerStr2Double:string (node:CodeNode lctx:LowIRLowerContext) {
     def inNode (node.getSecond())
     def val (this.lowerExpr(inNode lctx))
@@ -1374,8 +1397,41 @@ class LowIRBuilderPass {
 
   ; True when a value pushed into a ptr-array is a 32-bit int that must be widened
   ; to the pointer-sized element slot (i.e. not an object pointer, string, or double).
+  ; An element READ OUT of a pointer array is already pointer-sized: the runtime
+  ; getter returns i64. exprIsObjectPtr only recognises VRefs, so pushing one
+  ; array's element into another produced `zext i32 <i64 value> to i64` -- an
+  ; operand type clang rejects outright.
+  fn exprIsPtrSizedRead:boolean (itemNode:CodeNode lctx:LowIRLowerContext) {
+    if ((itemNode.has_operator) == false) {
+      return false
+    }
+    def op (itemNode.getOperator())
+    if ((op != "itemAt") && (op != "get")) {
+      return false
+    }
+    def collNode (itemNode.getSecond())
+    def elemType (this.arrayElemTypeName(collNode lctx))
+    if ((strlen elemType) == 0) {
+      return false
+    }
+    ; Only the types the runtime stores as a pointer. Anything scalar still
+    ; needs the widen, so an unknown element type keeps the old behaviour.
+    if (LowIRUtil.isStringType(elemType)) {
+      return true
+    }
+    if (elemType == "int") { return false }
+    if (elemType == "boolean") { return false }
+    if (elemType == "double") { return false }
+    if (elemType == "float") { return false }
+    if (elemType == "char") { return false }
+    return true
+  }
+
   fn pushItemNeedsWiden:boolean (itemNode:CodeNode lctx:LowIRLowerContext) {
     if (this.exprIsObjectPtr(itemNode lctx)) {
+      return false
+    }
+    if (this.exprIsPtrSizedRead(itemNode lctx)) {
       return false
     }
     if (this.exprIsStringish(itemNode lctx)) {
@@ -4940,6 +4996,9 @@ class LowIRBuilderPass {
       }
       if (opName == "to_int") {
         return (this.lowerToInt(node lctx))
+      }
+      if (opName == "floor") {
+        return (this.lowerFloor(node lctx))
       }
       if (opName == "str2double") {
         return (this.lowerStr2Double(node lctx))
