@@ -284,6 +284,21 @@ class TSLexer {
         return tok
     }
 
+    ; §7.3: LF, CR, LINE SEPARATOR and PARAGRAPH SEPARATOR are all
+    ; LineTerminators. A single-line comment ends at ANY of them, and only LF
+    ; and CRLF were recognised -- so `//x\u2028y = 1` swallowed the statement
+    ; after the separator instead of ending the comment.
+    fn isLineTerminatorChar:boolean (ch:string) {
+        if (ch == "\n") { return true }
+        if (ch == "\r") { return true }
+        if (ch == "\r\n") { return true }
+        if ((strlen ch) == 0) { return false }
+        def code:int (charAt ch 0)
+        if (code == 8232) { return true }
+        if (code == 8233) { return true }
+        return false
+    }
+
     fn readLineComment:Token () {
         def startPos:int pos
         def startLine:int line
@@ -293,10 +308,7 @@ class TSLexer {
         def value:string ""
         while (pos < len) {
             def ch:string (this.peek())
-            if (ch == "\n") {
-                return (this.makeToken("LineComment" value startPos startLine startCol))
-            }
-            if (ch == "\r\n") {
+            if (this.isLineTerminatorChar(ch)) {
                 return (this.makeToken("LineComment" value startPos startLine startCol))
             }
             value = value + (this.advance())
@@ -314,8 +326,7 @@ class TSLexer {
         def value:string ""
         while (pos < len) {
             def ch:string (this.peek())
-            if (ch == "\n") { break }
-            if (ch == "\r\n") { break }
+            if (this.isLineTerminatorChar(ch)) { break }
             value = value + (this.advance())
         }
         return (this.makeToken("HtmlComment" value startPos startLine startCol))

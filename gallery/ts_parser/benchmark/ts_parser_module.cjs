@@ -469,6 +469,28 @@ class TSLexer  {
     tok.col = startCol;
     return tok;
   };
+  isLineTerminatorChar (ch) {
+    if ( ch == "\n" ) {
+      return true;
+    }
+    if ( ch == "\r" ) {
+      return true;
+    }
+    if ( ch == "\r\n" ) {
+      return true;
+    }
+    if ( (ch.length) == 0 ) {
+      return false;
+    }
+    const code = ch.charCodeAt(0 );
+    if ( code == 8232 ) {
+      return true;
+    }
+    if ( code == 8233 ) {
+      return true;
+    }
+    return false;
+  };
   readLineComment () {
     const startPos = this.pos;
     const startLine = this.line;
@@ -478,10 +500,7 @@ class TSLexer  {
     let value = "";
     while (this.pos < this.__len) {
       const ch = this.peek();
-      if ( ch == "\n" ) {
-        return this.makeToken("LineComment", value, startPos, startLine, startCol);
-      }
-      if ( ch == "\r\n" ) {
+      if ( this.isLineTerminatorChar(ch) ) {
         return this.makeToken("LineComment", value, startPos, startLine, startCol);
       }
       value = value + this.advance();
@@ -495,10 +514,7 @@ class TSLexer  {
     let value = "";
     while (this.pos < this.__len) {
       const ch = this.peek();
-      if ( ch == "\n" ) {
-        break;
-      }
-      if ( ch == "\r\n" ) {
+      if ( this.isLineTerminatorChar(ch) ) {
         break;
       }
       value = value + this.advance();
@@ -1982,6 +1998,7 @@ class TSNode  {
     this.computed = false;
     this.accessor = "";
     this.parenthesized = false;
+    this.hasEscape = false;
     this.method = false;
     this.generator = false;
     this.async = false;
@@ -7150,6 +7167,7 @@ class TSParserSimple  {
       const str = new TSNode();
       str.nodeType = "StringLiteral";
       str.value = tok.value;
+      str.hasEscape = tok.hasEscape;
       str.start = tok.start;
       str.end = tok.end;
       str.line = tok.line;

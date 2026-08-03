@@ -30,6 +30,11 @@ class TSNode {
   ; literal is not a valid assignment target -- `({a} = b)` destructures but
   ; `({a}) = b` does not -- so the two have to be told apart.
   def parenthesized:boolean false
+  ; True for a StringLiteral whose source contained an escape sequence or a
+  ; line continuation. §14.1: a directive prologue is matched against the RAW
+  ; text, so `'use\\u0020strict'` is an ordinary expression statement even
+  ; though its value is "use strict".
+  def hasEscape:boolean false
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions
@@ -6469,6 +6474,7 @@ class TSParserSimple {
       def str (new TSNode())
       str.nodeType = "StringLiteral"
       str.value = tok.value
+      str.hasEscape = tok.hasEscape
       str.start = tok.start
       str.end = tok.end
       str.line = tok.line

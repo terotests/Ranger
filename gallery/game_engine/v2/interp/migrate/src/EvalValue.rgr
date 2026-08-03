@@ -895,6 +895,27 @@ class EvalValue {
             return
         }
         if (valueType == 6) {
+            ; D-ATTRS: a FUNCTION object obeys the same rules -- a built-in
+            ; constructor's `Number.NaN` is non-writable, and the write was
+            ; taken unconditionally because this branch skipped the check
+            ; entirely.
+            if frozenFlag {
+                return
+            }
+            if (has objectMap key) {
+                if (false == (this.isWritable(key))) {
+                    return
+                }
+            } {
+                if (false == extensibleFlag) {
+                    return
+                }
+                ; No protoRefuses here, unlike a plain object: a built-in
+                ; constructor inherits from another one that owns a
+                ; non-writable `prototype`, and the engine SEEDS its own with
+                ; an ordinary write. That seeding is a [[DefineOwnProperty]]
+                ; in the spec, which does not consult the chain.
+            }
             set objectMap key value
             return
         }

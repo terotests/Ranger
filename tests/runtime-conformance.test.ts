@@ -1591,6 +1591,39 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["argmap-delete-then-set-param-untouched", "function f(a) { delete arguments[0]; arguments[0] = 'A'; return String(a); } return f(1);", "argmap"],
   ["argmap-delete-reads-undefined", "function f(a) { delete arguments[0]; return String(arguments[0]); } return f(1);", "argmap"],
   ["argmap-no-delete-still-mapped", "function f(a) { arguments[0] = 'A'; return String(a); } return f(1);", "argmap"],
+
+  // --- §14.1: a directive is matched against the RAW text -------------------
+  ["directive-escape-not-strict", "function f() { '\\u0075se strict'; return this === undefined; } return String(f.call(undefined));", "directive"],
+  ["directive-space-escape-not-strict", "function f() { 'use\\u0020strict'; return this === undefined; } return String(f.call(undefined));", "directive"],
+  ["directive-continuation-not-strict", "function f() { 'use str\\\nict'; return this === undefined; } return String(f.call(undefined));", "directive"],
+  ["directive-plain-is-strict", "function f() { 'use strict'; return this === undefined; } return String(f.call(undefined));", "directive"],
+  // A function built by the Function constructor never inherits the caller's
+  // strictness.
+  ["fnctor-body-is-sloppy-in-strict-caller", "function outer() { 'use strict'; return Function('return typeof this;')(); } return String(outer());", "directive"],
+  ["fnctor-own-directive-is-strict", "var f = Function('\"use strict\"; return this;'); return String(f() === undefined);", "directive"],
+
+  // --- §7.3: every LineTerminator ends a single-line comment ----------------
+  ["comment-ends-at-cr", "var y = 0; eval('//c\\ry = 1'); return String(y);", "comments"],
+  ["comment-ends-at-ls", "var y = 0; eval('//c\\u2028y = 1'); return String(y);", "comments"],
+  ["comment-ends-at-ps", "var y = 0; eval('//c\\u2029y = 1'); return String(y);", "comments"],
+  ["comment-swallows-non-terminator", "var y = 0; eval('//c\\u0009y = 1'); return String(y);", "comments"],
+
+  // --- read-only built-in properties refuse writes --------------------------
+  ["number-nan-is-readonly", "Number.NaN = 1; return String(Number.NaN !== Number.NaN);", "readonly"],
+  ["number-max-value-is-readonly", "Number.MAX_VALUE = 1; return String(Number.MAX_VALUE);", "readonly"],
+  ["error-ctor-length", "return String(Error.length) + String(TypeError.length);", "readonly"],
+  ["error-proto-desc-writable", "return String(Object.getOwnPropertyDescriptor(EvalError, 'prototype').writable);", "readonly"],
+  ["global-nan-write-sloppy-ignored", "NaN = 12; return String(NaN !== NaN);", "readonly"],
+  ["global-undefined-write-sloppy-ignored", "undefined = 12; return String(typeof undefined);", "readonly"],
+
+  // --- §10.4.2: sloppy eval declares into the CALLER's variable environment -
+  // `var x;` in sloppy eval creates a LOCAL binding even when an outer scope
+  // already has that name — it does not silently resolve outwards.
+  ["eval-bare-var-shadows-outer", "var x = 1; function g() { eval('var x;'); return String(x); } return g();", "evalvar"],
+  ["eval-bare-var-then-assign-is-local", "var x = 1; function g() { eval('var x;'); x = 2; return String(x); } return g() + '/' + String(x);", "evalvar"],
+  ["eval-var-visible-to-caller", "function g() { eval('var ev = 5;'); return String(ev); } return g();", "evalvar"],
+  ["eval-fn-visible-to-caller", "function g() { eval('function ef() { return 3; }'); return String(ef()); } return g();", "evalvar"],
+  ["eval-strict-var-not-visible", "function g() { 'use strict'; eval('var sv = 5;'); return String(typeof sv); } return g();", "evalvar"],
 ];
 
 /**

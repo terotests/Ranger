@@ -605,6 +605,41 @@ them aside cannot quietly flatter the remaining number.
   with the parameter's value. The delete now clears the mapped parameter NAME, which is
   what makes the link one-way permanent.
 
+- **Indirect eval declares into the GLOBAL variable environment.** The scope it ran
+  in existed only to carry `this`, so a `var` or function declaration in the eval'd
+  text died with the call — `(0,eval)("function fun(){}")` left nothing behind.
+
+- **A directive is matched against the raw text.** §14.1: `'use\u0020strict'` and a
+  literal broken by a line continuation both *evaluate* to `use strict` but neither is
+  a directive. The engine compared the cooked value, so both turned strict mode on.
+  The lexer already tracked whether a string literal contained an escape; that flag now
+  reaches the AST.
+
+- **A function built by the Function constructor is sloppy in a strict caller.** The
+  capture already set the ambient flag aside, but the CALL folded it back in, so
+  `"use strict"; Function("eval('public = 1')")()` reported a SyntaxError for a
+  strict-only reserved word in code that is not strict. The lexical strictness stamped
+  on the function value is now the whole answer.
+
+- **Every LineTerminator ends a single-line comment.** Only LF and CRLF did, so a lone
+  CR, U+2028 or U+2029 was swallowed along with the rest of the line — `//x\u2028y = 1`
+  never ran the assignment.
+
+- **A function object obeys its property attributes.** `setMember` skipped the
+  writability check entirely for a value of function type, so `Number.NaN = 1` took.
+  Most of the sibling constants survived only because a structural read path answered
+  ahead of the stored property.
+
+- **`NaN`, `Infinity` and `undefined` refuse assignment.** They are non-writable
+  properties of the global object; assigning to the bare name created an ordinary
+  binding that shadowed the constant. It is now ignored in sloppy mode and a TypeError
+  in strict.
+
+- **A bare `var x;` in sloppy eval creates a LOCAL binding.** The "do not clobber an
+  existing binding" rule consulted the whole scope chain, so eval'd code whose caller
+  could already see an outer `x` bound nothing at all. It now consults the own binding
+  of the scope the `var` belongs to, which is the only thing the rule was ever about.
+
 ### 2.4 Known-wrong, pinned rather than hidden
 
 - **A map key literally named `__proto__` cannot be stored.** The es6 target
@@ -697,7 +732,7 @@ Tagged in the source with these markers.
 | `D-IEEE` | Division by zero, negative zero, `Infinity`/`NaN` as values. The zero case is `left * (1/right)` because that respects the **divisor's** sign. |
 | `D-STATICS` | Built-in **statics** are values too, keyed `(namespace, name)`. Two lists on purpose: what EXISTS as a describable value, and the subset invocable from a captured value. Keeping them apart is what stops a direct `Object.create(...)` being intercepted and answered with `undefined`. |
 | `D-CLASSOF` | The `[[Class]]` brand behind `Object.prototype.toString`. The only way a program can observe an internal type, and 86 ES5 files capture the method under the name `getClass` to assert it. |
-| `D-STRICT` | Strict mode. `writeRefusalError` mirrors `setMember`'s silent-refusal conditions so the two cannot disagree. A function's own strictness is stamped on the value at creation, because poisoning `caller`/`arguments` turns on the ACCESSED function's strictness, not the accessing code's. |
+| `D-STRICT` | Strict mode. `writeRefusalError` mirrors `setMember`'s silent-refusal conditions so the two cannot disagree. A function's own strictness is stamped on the value at creation, because poisoning `caller`/`arguments` turns on the ACCESSED function's strictness, not the accessing code's — and because that stamp is complete, the CALL must not fold the ambient flag back in, which is what keeps a `Function`-built body sloppy inside a strict caller. A directive is recognised by its RAW text: a literal carrying an escape or a line continuation is an ordinary expression statement. |
 | `D-STRNUM` | ToNumber on a string follows the StringNumericLiteral grammar rather than the host parser, which is lenient (`"12x"` → 12) and knows nothing of `0x`/`0b`/`0o`. |
 | `D-REGEX` | The pattern grammar as a node tree, matched by backtracking. See §2.5. |
 | `D-ARGUMENTS` | `arguments` as an array-like OBJECT — brands as `[object Arguments]`, and `Array.isArray` says false. |
@@ -715,6 +750,7 @@ Tagged in the source with these markers.
 | `D-ARGMAP` | A sloppy `arguments` object carries an index into the engine's list of call scopes plus the parameter names it maps, because there is nowhere on an EvalValue to put a scope. Reads and writes of a mapped index route to the binding; an accessor define or strict mode removes the mapping, and a `delete` clears the mapped NAME so re-creating the key cannot revive it. |
 | `D-JSON` | JSON.parse is a validating recursive descent over the JSON grammar, with a failure flag rather than a guess. The grammar is deliberately NOT the language's: its whitespace set, number syntax and string escapes are all narrower. |
 | `D-FNEXPRNAME` | A named function expression's own name is bound in a scope interposed between its closure and its body, so the name is reachable from inside and nowhere else. |
+| `D-EVAL` | DIRECT eval shares the caller's scope and strictness; INDIRECT eval runs in a scope of its own that exists only to carry the global `this`, and is marked as a block scope so a `var` or function it declares lands in the GLOBAL variable environment and survives the call. Strict eval gets a real scope of its own, which is what keeps its declarations from leaking. |
 | `D-DELETE` | Names created by assignment to an undeclared identifier are tracked, because that is the only thing separating a configurable implicit global from a non-configurable declared binding — and `delete` answers differently for the two. |
 | `D-CATCHVAR` | A catch clause gets a scope of its own, but it is marked as a BLOCK scope: it holds the parameter and nothing else. A `var` declared inside it binds in the nearest non-block scope, so it outlives the clause — and if the catch parameter shares the name, the initialiser writes the parameter while the function-scoped binding the hoist created stays undefined. |
 | `D-DATE` | A Date is arithmetic on one time value (`DateTime.rgr`, ECMA-262 §15.9.1). Local time is UTC and the clock is `hostNowMs`, so every result is reproducible. The default ToPrimitive hint behaves as STRING for a Date and as NUMBER for everything else, which is what makes `date + ''` the date's text while `+date` is its time. |
@@ -752,21 +788,28 @@ more, not less.
 | `language/reserved-words` | **100%** (13/13, whole directory) |
 | `language/function-code` | **100%** (212/212, whole directory) |
 | `language/statements` | **100%** (562/562, whole directory) |
-| `language/types` | 99% (93/94) |
-| `built-ins/JSON` | 98% (46/47) |
-| `language/eval-code` | 96% (55/57) |
-| `language/directive-prologue` | 94% (48/51) |
-| `built-ins/global` | 93% (25/27) |
-| ES5 overall | **99.8%** (2494/2500 on the wider sample) |
+| `language/types` | **100%** (94/94, whole directory) |
+| `language/eval-code` | **100%** (57/57, whole directory) |
+| `language/directive-prologue` | **100%** (51/51, whole directory) |
+| `built-ins/global` | **100%** (27/27, whole directory) |
+| `language` (whole tree) | **100%** (2649/2649) |
+| `built-ins` (whole tree) | **100%** (4189/4190) |
+| ES5 overall | **99.99%** (6838/6839, the WHOLE ES5 corpus) |
 
-`built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
-`built-ins/RegExp`, `built-ins/Array`, `built-ins/Math`, `built-ins/Date`,
-`built-ins/Boolean`, `language/expressions` and `language/statements` are each at
-100% of their whole directory — no sampling, no
-exclusions beyond the era filter.
+The score is no longer a sample: every ES5-era test in the corpus runs, and one
+file fails — `built-ins/JSON/parse/S15.12.2_A1.js`, the `__proto__` map-key gap
+pinned in §2.4. Everything else in `language/` and `built-ins/` passes.
 
-The runtime-conformance suite is at 1260 checks, every one of them derived from Node —
-1239 expression probes plus 21 script-level probes run through Node's `vm` so the
+One place the engine follows the SPEC where V8 does not:
+`language/expressions/assignment/S11.13.1_A6_T1.js` checks that `x = (eval("var
+x;"), 1)` writes through the reference resolved BEFORE the right-hand side ran.
+Node 22 writes to the binding the eval just created; this engine writes to the
+outer one, which is what §11.13.1 says. It is the one probe that could not be
+derived from Node, so it lives in the test262 measurement rather than in the
+runtime-conformance suite.
+
+The runtime-conformance suite is at 1281 checks, every one of them derived from Node —
+1260 expression probes plus 21 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

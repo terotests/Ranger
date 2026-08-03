@@ -1288,8 +1288,13 @@ class ComponentEngine {
             if (ex.nodeType != "StringLiteral") {
                 return false
             }
+            ; §14.1: the directive is matched against the RAW text, so a
+            ; literal containing an escape or a line continuation is an
+            ; ordinary expression statement whatever it evaluates to.
             if (ex.value == "use strict") {
-                return true
+                if (false == ex.hasEscape) {
+                    return true
+                }
             }
             i = (i + 1)
         }
@@ -1514,6 +1519,11 @@ class ComponentEngine {
         ; scope alone let `this` resolve to the enclosing function's, so
         ; `var e = eval; e("this")` inside a method answered the receiver.
         def evalCtx:EvalContext (moduleScope.createChild())
+        ; D-EVAL: the scope exists only to carry `this`. Indirect eval's variable
+        ; environment IS the global one, so a `var` or function declaration in
+        ; the eval'd text has to survive the call -- marking the scope as a block
+        ; sends both to moduleScope, where the rest of the script can see them.
+        evalCtx.isBlockScope = true
         evalCtx.define("this" (this.theGlobalObject()))
         context = evalCtx
         def evOut:EvalValue (this.runEvalSource(evSrc.stringValue))
@@ -2675,7 +2685,12 @@ class ComponentEngine {
                         ; function declaration survive `var x;` of the same name.
                         def keepExisting:boolean false
                         if isVarKind {
-                            if (context.has(varName)) {
+                            ; The OWN binding of the scope the var belongs to,
+                            ; not the whole chain: `var x;` in sloppy eval code
+                            ; whose caller sees an outer `x` still creates a
+                            ; LOCAL one, and the outer reference the assignment
+                            ; already resolved keeps writing outwards.
+                            if (target.hasOwnBinding(varName)) {
                                 keepExisting = true
                             }
                         }
@@ -3769,7 +3784,12 @@ class ComponentEngine {
             def s:TSNode (itemAt stmts i)
             if (s.nodeType == "FunctionDeclaration") {
                 if ((strlen s.name) > 0) {
-                    context.define(s.name (this.captureClosure(s)))
+                    ; D-CATCHVAR: the CLOSURE is over the current scope -- the
+                    ; body must see a catch parameter or a with object -- but the
+                    ; BINDING is function-scoped, so it goes to the same place a
+                    ; `var` would and outlives the block.
+                    def fnScope:EvalContext (context.varScope())
+                    fnScope.define(s.name (this.captureClosure(s)))
                 }
             }
             ; D-CLASSHOIST: a class declared inside a body was skipped the same
@@ -5289,6 +5309,22 @@ class ComponentEngine {
                         wobj.setMember(varName wres)
                         return wres
                     }
+                    ; D-GLOBALTHIS: `NaN`, `Infinity` and `undefined` are
+                    ; NON-WRITABLE properties of the global object, so an
+                    ; assignment to the bare name is refused -- silently in
+                    ; sloppy mode, as a TypeError in strict. It used to create
+                    ; an ordinary binding that shadowed the constant.
+                    if (false == (context.has(varName))) {
+                        def gRO:EvalValue (this.theGlobalObject())
+                        if (has gRO.objectMap varName) {
+                            if (false == (gRO.isWritable(varName))) {
+                                if strictMode {
+                                    return (this.throwSpecError("TypeError" ("Cannot assign to read only property '" + varName + "'")))
+                                }
+                                return rightValue
+                            }
+                        }
+                    }
                     def declared:boolean (context.has(varName))
                     if (false == declared) {
                         if (this.isEngineGlobalName(varName)) {
@@ -6037,7 +6073,11 @@ class ComponentEngine {
         ; callback handed to a sloppy helper -- which is exactly what
         ; assert.throws does -- ran sloppy.
         def savedStrict:boolean strictMode
-        strictMode = (this.strictForBody(fnNode))
+        ; The function's LEXICAL strictness was stamped on the value when the
+        ; closure was captured, so the ambient flag must not be folded in again:
+        ; a function built by the Function constructor inside strict code is
+        ; sloppy, and calling it from that strict code has to run it sloppy.
+        strictMode = (this.bodyOnlyStrict(fnNode))
         if fnValue.strictFn {
             strictMode = true
         }
@@ -15384,6 +15424,9 @@ class ComponentEngine {
             def nm:string (itemAt names i)
             def c:EvalValue (EvalValue.nativeFunction(nm))
             c.setMember("name" (EvalValue.string(nm)))
+            ; §15.11.3: every native error constructor takes one argument.
+            c.setMember("length" (EvalValue.fromInt(1)))
+            c.setAttrs("length" false false true)
             c.setMember("__errorctor__" (EvalValue.string(nm)))
             ; D-ERRORS: an error constructor has a real `prototype`, chained the
             ; way the spec chains them -- TypeError.prototype inherits from
