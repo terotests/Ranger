@@ -35,6 +35,17 @@ class TSNode {
   ; text, so `'use\\u0020strict'` is an ordinary expression statement even
   ; though its value is "use strict".
   def hasEscape:boolean false
+  ; Memo slots the EVALUATOR fills in on first call, not the parser: does this
+  ; function body mention `arguments` (or `eval`, which could reach it)? The
+  ; answer decides whether a call has to materialise an arguments object at
+  ; all, and it never changes for a given node.
+  def argScanned:boolean false
+  def usesArguments:boolean false
+  ; Memo for a NumericLiteral's value. The literal is held as source TEXT, so
+  ; evaluating it means parsing that text -- once per evaluation, which for a
+  ; loop bound means once per iteration. Parsed on first use and kept.
+  def numScanned:boolean false
+  def numValue:double 0.0
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions

@@ -1999,6 +1999,10 @@ class TSNode  {
     this.accessor = "";
     this.parenthesized = false;
     this.hasEscape = false;
+    this.argScanned = false;     /** note: unused */
+    this.usesArguments = false;     /** note: unused */
+    this.numScanned = false;     /** note: unused */
+    this.numValue = 0.0;     /** note: unused */
     this.method = false;
     this.generator = false;
     this.async = false;

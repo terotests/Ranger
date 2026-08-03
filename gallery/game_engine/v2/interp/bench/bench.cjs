@@ -15,6 +15,25 @@
 //     the script and builds a context, the engine lexes, parses and hoists. The
 //     `empty` row is that floor, and the work-only columns subtract it.
 //
+// Recorded readings, engine work-ms at scale 1x (same machine, same session):
+//
+//   case      first pass   after the four fixes below
+//   loop           69.1        57
+//   fib           186.0        35
+//   strcat         37.7        28
+//   array         116.1       105
+//   object         51.8        46
+//   method        106.3        84
+//   regex          49.0        47
+//   geo mean        72x         53x   (ratio vs Node)
+//
+// The four: build the arguments object only for functions that mention
+// `arguments`; skip the `with` scope-chain walk when no `with` exists; memoise
+// a numeric literal's parsed value on its node; and ask a prototype slot
+// whether it IS the registered built-in instead of materialising the built-in
+// and comparing identities. Per-case numbers wobble +/- 20% run to run because
+// Node's side is near the timer floor -- the geometric mean is the stable part.
+//
 //   node bench.cjs            # default sizes
 //   node bench.cjs 4          # scale every workload by 4
 //   node bench.cjs 1 loop,fib # only these cases

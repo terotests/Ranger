@@ -467,6 +467,11 @@ class ComponentEngine {
     ; parameter, in both directions, and there is nowhere on an EvalValue to put
     ; a scope -- so the object carries an index into this list instead.
     def argMapScopes:[ClosureCell]
+    ; PERF: has a `with` scope ever existed in this realm? `with` puts an object
+    ; at the front of the scope chain, so EVERY identifier read has to ask
+    ; whether one owns the name -- a full chain walk, on the hottest path there
+    ; is. Almost no program uses `with`; this makes the question free for those.
+    def anyWithScope:boolean false
 
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
@@ -2660,7 +2665,7 @@ class ComponentEngine {
                         ; itself is hoisted out of the block and stays undefined.
                         ; `with (o) { var value = 'x' }` sets o.value, which is
                         ; the whole of §12.10's interaction with declarations.
-                        def wHost:EvalValue (context.findWithObjectFor(varName))
+                        def wHost:EvalValue (this.withHostFor(varName))
                         if (wHost.valueType == 5) {
                             wHost.setMember(varName value)
                             if (false == (context.has(varName))) {
@@ -3944,6 +3949,7 @@ class ComponentEngine {
                 if (wRaw.valueType == 3) { wObj = (this.makeWrapper("Boolean" wRaw)) }
                 def savedW:EvalContext context
                 context = (context.createChild())
+                anyWithScope = true
                 context.withObject = wObj
                 if stmt.body {
                     this.runBlockOrStatement((unwrap stmt.body))
@@ -5117,7 +5123,7 @@ class ComponentEngine {
                 ; included, and the base is fixed before the getter runs -- a
                 ; getter that deletes itself still has the new value written
                 ; onto the object it came from.
-                def uw:EvalValue (context.findWithObjectFor(varName))
+                def uw:EvalValue (this.withHostFor(varName))
                 if (uw.valueType == 5) {
                     def ucur:EvalValue (EvalValue.undefined())
                     if (has uw.getterMap varName) {
@@ -5254,7 +5260,7 @@ class ComponentEngine {
                 def preScope:EvalContext context
                 def preScopeValid:boolean false
                 if (leftNode.nodeType == "Identifier") {
-                    preWith = (context.findWithObjectFor(leftNode.name))
+                    preWith = (this.withHostFor(leftNode.name))
                     if (context.has(leftNode.name)) {
                         preScope = (context.contextOwning(leftNode.name))
                         preScopeValid = true
@@ -5408,7 +5414,21 @@ class ComponentEngine {
         ; written against them, including the replacer functions the String
         ; suite uses. It is an array-like OBJECT, not an array: its brand is
         ; "[object Arguments]" and Array.isArray says false.
+        ; PERF: building the arguments object is the single most expensive part
+        ; of a call -- an object, one property per argument, `length`, `callee`,
+        ; then the parameter mapping -- and most functions never look at it. The
+        ; body is scanned ONCE per function node for a mention of `arguments`
+        ; (or of `eval`, which could reach it from text the scan cannot see) and
+        ; the answer memoised on the node.
+        def needsArgs:boolean false
         if (fnNode.nodeType != "ArrowFunctionExpression") {
+            if (false == fnNode.argScanned) {
+                fnNode.argScanned = true
+                fnNode.usesArguments = (this.fnMentionsArguments(fnNode 0))
+            }
+            needsArgs = fnNode.usesArguments
+        }
+        if needsArgs {
             def keysA:[string]
             def valsA:[EvalValue]
             def argObj:EvalValue (EvalValue.object(keysA valsA))
@@ -5457,8 +5477,81 @@ class ComponentEngine {
     ; function maps, only the indices a parameter actually declares, and only
     ; when the parameter is a plain name -- a rest or destructured parameter has
     ; no single binding to map onto.
+    ; PERF: the `with` host owning this name, or null -- skipping the chain walk
+    ; outright when no `with` scope has ever been created.
+    fn withHostFor:EvalValue (name:string) {
+        if (false == anyWithScope) {
+            return (EvalValue.null())
+        }
+        return (context.findWithObjectFor(name))
+    }
+
+    ; PERF: true when this function's own code could reach `arguments`. The walk
+    ; stops at a nested non-arrow function -- that one has an `arguments` of its
+    ; own -- but goes THROUGH an arrow, which sees the enclosing function's. A
+    ; mention of `eval` counts, because the text it runs is invisible here and
+    ; may name `arguments`. Deliberately conservative: any node carrying either
+    ; name answers true, so a false positive costs an object nobody reads while
+    ; a false negative would be a missing binding.
+    fn fnMentionsArguments:boolean (node:TSNode depth:int) {
+        if (depth > 40) {
+            return true
+        }
+        if (depth > 0) {
+            def nt0:string node.nodeType
+            if (nt0 == "FunctionDeclaration") { return false }
+            if (nt0 == "FunctionExpression") { return false }
+        }
+        if ((node.name == "arguments") || (node.name == "eval")) {
+            return true
+        }
+        def nd:int (depth + 1)
+        def k:int 0
+        while (k < (array_length node.children)) {
+            if (this.fnMentionsArguments((itemAt node.children k) nd)) {
+                return true
+            }
+            k = (k + 1)
+        }
+        def pi0:int 0
+        while (pi0 < (array_length node.params)) {
+            if (this.fnMentionsArguments((itemAt node.params pi0) nd)) {
+                return true
+            }
+            pi0 = (pi0 + 1)
+        }
+        if node.body {
+            if (this.fnMentionsArguments((unwrap node.body) nd)) { return true }
+        }
+        if node.left {
+            if (this.fnMentionsArguments((unwrap node.left) nd)) { return true }
+        }
+        if node.right {
+            if (this.fnMentionsArguments((unwrap node.right) nd)) { return true }
+        }
+        if node.init {
+            if (this.fnMentionsArguments((unwrap node.init) nd)) { return true }
+        }
+        if node.test {
+            if (this.fnMentionsArguments((unwrap node.test) nd)) { return true }
+        }
+        if node.consequent {
+            if (this.fnMentionsArguments((unwrap node.consequent) nd)) { return true }
+        }
+        if node.alternate {
+            if (this.fnMentionsArguments((unwrap node.alternate) nd)) { return true }
+        }
+        return false
+    }
+
     fn mapArgumentsObject:void (fnNode:TSNode argVals:[EvalValue]) {
         if (fnNode.nodeType == "ArrowFunctionExpression") {
+            return
+        }
+        ; PERF: no arguments object was built for this call, so there is nothing
+        ; to map -- and `context.has` would otherwise find an ENCLOSING
+        ; function's object and map this function's parameters onto it.
+        if (false == fnNode.usesArguments) {
             return
         }
         if (this.strictForBody(fnNode)) {
@@ -6804,6 +6897,20 @@ class ComponentEngine {
         if (nt == "Identifier") {
             return (this.lookupIdentifier(node.name))
         }
+        ; PERF: a numeric literal is held as source TEXT, so evaluating it means
+        ; parsing that text -- and a loop bound is evaluated once per iteration.
+        ; The parse is memoised on the node, and the case sits at the front
+        ; rather than fifteen string comparisons down the chain.
+        if (nt == "NumericLiteral") {
+            if (false == node.numScanned) {
+                node.numScanned = true
+                def parsedNum@(optional):double (to_double node.value)
+                if parsedNum {
+                    node.numValue = (unwrap parsedNum)
+                }
+            }
+            return (EvalValue.number(node.numValue))
+        }
         if (nt == "MemberExpression") {
             return (this.evaluateMemberExpr(node))
         }
@@ -6878,14 +6985,6 @@ class ComponentEngine {
         if (nt == "FunctionExpression") {
             return (this.captureClosure(node))
         }
-        if (nt == "NumericLiteral") {
-            def fastNum@(optional):double (to_double node.value)
-            if fastNum {
-                return (EvalValue.number((unwrap fastNum)))
-            }
-            return (EvalValue.number(0.0))
-        }
-
         ; Literals
         if (node.nodeType == "NumericLiteral") {
             def numVal@(optional):double (to_double node.value)
@@ -11111,9 +11210,15 @@ class ComponentEngine {
         if (m.valueType != 6) {
             return (EvalValue.null())
         }
-        def registered:EvalValue (this.sharedNativeMethod(kind name))
-        if (m.equals(registered)) {
-            return (EvalValue.null())
+        ; PERF: ask the VALUE whether it is still the registered built-in rather
+        ; than materialising the registered one and comparing identities. The
+        ; prototypes are pre-populated, so the old form ran a string concat, a
+        ; cache lookup and an identity compare on EVERY built-in method call --
+        ; only to conclude "not overridden" almost every time.
+        if (m.isBuiltinMethod()) {
+            if ((m.builtinKind == kind) && (m.builtinName == name)) {
+                return (EvalValue.null())
+            }
         }
         return m
     }
@@ -15621,7 +15726,7 @@ class ComponentEngine {
         }
         ; D-WITH: a name the with object serves through a GETTER. EvalContext
         ; cannot call it -- it has no evaluator -- so the read happens here.
-        def wg:EvalValue (context.findWithObjectFor(name))
+        def wg:EvalValue (this.withHostFor(name))
         if (wg.valueType == 5) {
             if (has wg.getterMap name) {
                 def wgFn:EvalValue (wg.findGetter(name 0))
@@ -15805,7 +15910,7 @@ class ComponentEngine {
                 ;   - unresolvable: true, per spec.
                 if (tgt.nodeType == "Identifier") {
                     def delName:string tgt.name
-                    def delWith:EvalValue (context.findWithObjectFor(delName))
+                    def delWith:EvalValue (this.withHostFor(delName))
                     if (delWith.valueType == 5) {
                         if (false == (delWith.isConfigurable(delName))) {
                             if strictMode {
