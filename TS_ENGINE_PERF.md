@@ -43,7 +43,7 @@
 > locals (E0597), and a move of a named String argument — take the
 > **TS parser from 37 errors to 0: it builds and runs as a native Rust
 > binary for the first time.** The interpreter itself is down from 676
-> errors to 235, all now semantic: `has`/field reads on
+> errors to 145 and falling, all now semantic: `has`/field reads on
 > `&mut Rc<RefCell<T>>` receivers (44), lambda-captured fields referenced
 > as bare locals (16), `__singleton` support (14), and
 > `Rc<RefCell<Option<T>>>` double-wrap shapes — the borrow-routing work

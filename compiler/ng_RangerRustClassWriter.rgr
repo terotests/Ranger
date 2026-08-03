@@ -367,6 +367,25 @@ class RangerRustClassWriter {
       return
     }
 
+    ; a field tail after a parenthesised expression keeps its dot in the
+    ; vref — `.isHole` after `(itemAt xs i)`. When the field's class is
+    ; shared, the expression yields an Rc: borrow before the field.
+    if ((strlen node.vref) > 1) {
+      if ((charAt node.vref 0) == 46) {
+        if node.hasParamDesc {
+          def dotP:RangerAppParamDesc node.paramDesc
+          def dotCls@(optional):RangerAppClassDesc dotP.propertyClass
+          if (!null? dotCls) {
+            def dotC:RangerAppClassDesc (unwrap dotCls)
+            if (this.rustClassIsShared(dotC.name ctx)) {
+              wr.out((".borrow()" + node.vref) false)
+              return
+            }
+          }
+        }
+      }
+    }
+
     if (node.eval_type == RangerNodeType.Enum) {
       if( (array_length node.ns) > 1) {
         def rootObjName:string (itemAt node.ns 0)
@@ -374,6 +393,32 @@ class RangerRustClassWriter {
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
           wr.out(("" + (unwrap (get e.values enumName))) false)
+          return
+        }
+      }
+    }
+
+    ; a bare field tail after a parenthesised expression: no desc, a lone
+    ; name that is no variable, class or enum — `(itemAt xs i)` then
+    ; `isHole`, the dot already written upstream. When every class that
+    ; declares the field is shared, the expression before it yields an Rc:
+    ; borrow before the field.
+    if (((node.hasParamDesc == false) && ((array_length node.ns) == 1)) && ((strlen node.vref) > 0)) {
+      if (((ctx.isVarDefined(node.vref)) == false) && ((ctx.hasClass(node.vref)) == false)) {
+        def dotDecl:int 0
+        def dotShared:int 0
+        def dotRoot:RangerAppWriterContext (ctx.getRoot())
+        for dotRoot.definedClasses dcl:RangerAppClassDesc dci {
+          def dfv@(optional):RangerAppParamDesc (dcl.findVariable(node.vref))
+          if (!null? dfv) {
+            dotDecl = dotDecl + 1
+            if (this.rustClassIsShared(dcl.name ctx)) {
+              dotShared = dotShared + 1
+            }
+          }
+        }
+        if ((dotDecl > 0) && (dotDecl == dotShared)) {
+          wr.out(("borrow()." + node.vref) false)
           return
         }
       }
@@ -388,8 +433,8 @@ class RangerRustClassWriter {
           if(part == "this") {
             wr.out(thisName false)
             continue
-          } 
-        }        
+          }
+        }
 
         if (i > 0) {
           if had_static {
@@ -531,8 +576,19 @@ class RangerRustClassWriter {
                   }
                 }
                 
-                if root_is_immutable_borrow {
-                  ; Root parameter is immutable borrow - must use as_ref()
+                ; a strong optional field of a shared class is
+                ; Option<Rc<RefCell<T>>>: the unwrap hands out the Rc —
+                ; through as_ref, since mutation goes through the CELL, and
+                ; an as_mut here holds the whole field mutably through the
+                ; call, conflicting with a __self_rc re-borrow (E0502)
+                def optSharedT:string ""
+                def pOptNN@(optional):CodeNode p.nameNode
+                if (!null? pOptNN) {
+                  def pOptN:CodeNode (unwrap pOptNN)
+                  optSharedT = pOptN.type_name
+                }
+                def optSegShared:boolean (this.rustClassIsShared(optSharedT ctx))
+                if (root_is_immutable_borrow || optSegShared) {
                   wr.out(".as_ref().unwrap()" false)
                 } {
                   ; Check if we're on LHS of assignment - need as_mut
@@ -543,16 +599,7 @@ class RangerRustClassWriter {
                     wr.out(".as_mut().unwrap()" false)
                   }
                 }
-                ; a strong optional field of a shared class is
-                ; Option<Rc<RefCell<T>>>: the unwrap hands out the Rc, and
-                ; the next segment must go through the cell
-                def optSharedT:string ""
-                def pOptNN@(optional):CodeNode p.nameNode
-                if (!null? pOptNN) {
-                  def pOptN:CodeNode (unwrap pOptNN)
-                  optSharedT = pOptN.type_name
-                }
-                if (this.rustClassIsShared(optSharedT ctx)) {
+                if optSegShared {
                   if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
                     wr.out(".borrow_mut()" false)
                   } {
@@ -1826,7 +1873,10 @@ class RangerRustClassWriter {
             }
           }
           if optRecvShared {
-            wr.out(".as_mut().unwrap().borrow_mut()." false)
+            ; as_ref: mutation goes through the cell; an as_mut would hold
+            ; the field mutably through the call and conflict with a
+            ; __self_rc re-borrow of the same field
+            wr.out(".as_ref().unwrap().borrow_mut()." false)
           } {
             wr.out(".as_mut().unwrap()." false)
           }
