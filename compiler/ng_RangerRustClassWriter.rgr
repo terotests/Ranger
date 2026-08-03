@@ -1082,9 +1082,33 @@ class RangerRustClassWriter {
         this.writeTypeDef(nameN ctx wr)
       } {
         if needsImmutableBorrow {
-          ; Parameter is borrowed but not mutated - immutable reference
-          wr.out((paramName + " : &") false)
-          this.writeTypeDef(nameN ctx wr)
+          ; Parameter is borrowed but not mutated - immutable reference.
+          ; A borrowed collection or buffer of scalars is a slice: clippy's
+          ; ptr_arg — `&Vec<u8>` involves a new object where `&[u8]` will
+          ; do, and `&Vec` coerces to `&[T]` at every call site.
+          def slice_elem:string ""
+          if ((strlen nameN.array_type) > 0) {
+            def ael:string nameN.array_type
+            if (((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char")) {
+              slice_elem = (this.getObjectTypeString(ael ctx))
+            }
+          } {
+            if (nameN.type_name == "buffer") {
+              slice_elem = "u8"
+            }
+            if (nameN.type_name == "int_buffer") {
+              slice_elem = "i64"
+            }
+            if (nameN.type_name == "double_buffer") {
+              slice_elem = "f64"
+            }
+          }
+          if ((strlen slice_elem) > 0) {
+            wr.out((((paramName + " : &[") + slice_elem) + "]") false)
+          } {
+            wr.out((paramName + " : &") false)
+            this.writeTypeDef(nameN ctx wr)
+          }
         } {
           if is_object {
             wr.out(("mut " + paramName + " : ") false)
@@ -3044,7 +3068,7 @@ class RangerRustClassWriter {
         }
       }
     }
-    wr.out("return me;" true)
+    wr.out("me" true)
     wr.indent(-1)
     wr.out("}" true)
     thisName = "self"
@@ -3070,7 +3094,7 @@ class RangerRustClassWriter {
         def sCtx:RangerAppWriterContext (unwrap subCtx)
         sCtx.is_function = true
         def fnB:CodeNode (unwrap variant.fnBody)
-        this.WalkNode(fnB sCtx wr)
+        this.walkRustFnBody(fnB sCtx wr)
       }
       wr.newline()
       wr.indent(-1)
@@ -3147,7 +3171,7 @@ class RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnBNode:CodeNode (unwrap variant.fnBody)
-          this.WalkNode(fnBNode sCtx wr)
+          this.walkRustFnBody(fnBNode sCtx wr)
         }
         wr.newline()
         wr.indent(-1)
@@ -3223,7 +3247,7 @@ class RangerRustClassWriter {
                 def sCtx:RangerAppWriterContext (unwrap subCtx)
                 sCtx.is_function = true
                 def fnBNode:CodeNode (unwrap variant.fnBody)
-                this.WalkNode(fnBNode sCtx wr)
+                this.walkRustFnBody(fnBNode sCtx wr)
               }
               wr.newline()
               wr.indent(-1)
@@ -3399,7 +3423,7 @@ class RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnB:CodeNode (unwrap variant.fnBody)
-          this.WalkNode(fnB sCtx wr)
+          this.walkRustFnBody(fnB sCtx wr)
         }
         if mainReturns {
           wr.newline()
@@ -3543,6 +3567,85 @@ class RangerRustClassWriter {
     }
   }
 
+  ; walks a function body with the tail statement marked, so the return
+  ; custom writes the last `return x;` as the tail expression `x`
+  fn walkRustFnBody:void (fnB:CodeNode sCtx:RangerAppWriterContext wr:CodeWriter) {
+    def bcnt:int (array_length fnB.children)
+    if (bcnt > 0) {
+      def lastStmt:CodeNode (itemAt fnB.children (bcnt - 1))
+      lastStmt.rust_is_tail_return = true
+      def lmark:CodeNode (this.rustUnwrapParens(lastStmt))
+      lmark.rust_is_tail_return = true
+    }
+    this.WalkNode(fnB sCtx wr)
+  }
+
+  ; a plain scalar path: a name or a field chain with no call, no cell, no
+  ; optional and no weak segment — one that reads and writes as plain text
+  fn rustPlainScalarPath:boolean (n:CodeNode) {
+    if (n.hasFnCall || n.has_call) {
+      return false
+    }
+    if ((array_length n.ns) == 0) {
+      return false
+    }
+    for n.nsp seg:RangerAppParamDesc si {
+      if seg.rust_needs_rc_wrap {
+        return false
+      }
+      if seg.is_optional {
+        return false
+      }
+      def segNN@(optional):CodeNode seg.nameNode
+      if (!null? segNN) {
+        def segN:CodeNode (unwrap segNN)
+        if (segN.hasFlag("weak")) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  ; `x = x + e` becomes `x += e` (and -, *, /) for integer and double
+  ; targets. Returns true when it wrote the whole statement.
+  fn rustTryCompoundAssign:boolean (left:CodeNode right:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((this.rustPlainScalarPath(left)) == false) {
+      return false
+    }
+    def rr:CodeNode (this.rustUnwrapParens(right))
+    if ((array_length rr.children) != 3) {
+      return false
+    }
+    if ((rr.eval_type != RangerNodeType.Integer) && (rr.eval_type != RangerNodeType.Double)) {
+      return false
+    }
+    def opN:CodeNode (rr.getFirst())
+    def op:string opN.vref
+    if ((((op != "+") && (op != "-")) && (op != "*")) && (op != "/")) {
+      return false
+    }
+    def firstOperand:CodeNode (this.rustUnwrapParens((rr.getSecond())))
+    if ((this.rustPlainScalarPath(firstOperand)) == false) {
+      return false
+    }
+    if ((array_length firstOperand.ns) != (array_length left.ns)) {
+      return false
+    }
+    for left.ns part:string pi {
+      if ((itemAt firstOperand.ns pi) != part) {
+        return false
+      }
+    }
+    this.WriteVRef(left ctx wr)
+    wr.out(((" " + op) + "= ") false)
+    ctx.setInExpr()
+    this.WalkNode((rr.getThird()) ctx wr)
+    ctx.unsetInExpr()
+    wr.out(";" true)
+    return true
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
@@ -3574,7 +3677,15 @@ class RangerRustClassWriter {
     if (cmd == "=") {
       def left:CodeNode (node.getSecond())
       def right:CodeNode (node.getThird())
-      
+
+      ; `pos = pos + 1` is `pos += 1` when the target is a plain scalar
+      ; path — no cell, no optional, no weak segment — and the right side
+      ; starts from the same path. Anything less plain falls through to the
+      ; full assignment machinery below.
+      if (this.rustTryCompoundAssign(left right ctx wr)) {
+        return
+      }
+
       ; Check if left side is an optional field with self-referential type
       def is_optional:boolean false
       def is_self_ref:boolean false
@@ -4160,8 +4271,12 @@ class RangerRustClassWriter {
           }
         }
         
-        ; Default case - no nested self calls or not a self call
-        wr.out("return " false)
+        ; Default case - no nested self calls or not a self call.
+        ; The last statement of the body is the tail expression: `x`, not
+        ; `return x;` — the marker was set when the body walk began.
+        if (node.rust_is_tail_return == false) {
+          wr.out("return " false)
+        }
         ctx.setInExpr()
         this.WalkNode(retVal ctx wr)
         ctx.unsetInExpr()
@@ -4199,9 +4314,16 @@ class RangerRustClassWriter {
         if needs_ret_clone {
           wr.out(".clone()" false)
         }
-        wr.out(";" true)
+        if node.rust_is_tail_return {
+          wr.out("" true)
+        } {
+          wr.out(";" true)
+        }
       } {
-        wr.out("return;" true)
+        ; a bare `return;` as the last statement says nothing — drop it
+        if (node.rust_is_tail_return == false) {
+          wr.out("return;" true)
+        }
       }
       return
     }

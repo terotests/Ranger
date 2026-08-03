@@ -1751,6 +1751,7 @@ class CodeNode  {
     this.rust_needs_preevaluate = false;
     this.rust_preevaluated_args = [];
     this.rust_use_tmpvar = "";
+    this.rust_is_tail_return = false;
     this.operator_pred = 0;
     this.to_the_right = false;
     this.type_type = "";
@@ -21360,8 +21361,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             await this.writeTypeDef(nameN, ctx, wr);
           } else {
             if ( needsImmutableBorrow ) {
-              wr.out(paramName + " : &", false);
-              await this.writeTypeDef(nameN, ctx, wr);
+              let slice_elem = "";
+              if ( (nameN.array_type.length) > 0 ) {
+                const ael = nameN.array_type;
+                if ( ((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char") ) {
+                  slice_elem = this.getObjectTypeString(ael, ctx);
+                }
+              } else {
+                if ( nameN.type_name == "buffer" ) {
+                  slice_elem = "u8";
+                }
+                if ( nameN.type_name == "int_buffer" ) {
+                  slice_elem = "i64";
+                }
+                if ( nameN.type_name == "double_buffer" ) {
+                  slice_elem = "f64";
+                }
+              }
+              if ( (slice_elem.length) > 0 ) {
+                wr.out(((paramName + " : &[") + slice_elem) + "]", false);
+              } else {
+                wr.out(paramName + " : &", false);
+                await this.writeTypeDef(nameN, ctx, wr);
+              }
             } else {
               if ( is_object ) {
                 wr.out(("mut " + paramName) + " : ", false);
@@ -23053,7 +23075,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
           }
-          wr.out("return me;", true);
+          wr.out("me", true);
           wr.indent(-1);
           wr.out("}", true);
           this.thisName = "self";
@@ -23077,7 +23099,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const sCtx_1 = subCtx_1;
               sCtx_1.is_function = true;
               const fnB_1 = variant.fnBody;
-              await this.WalkNode(fnB_1, sCtx_1, wr);
+              await this.walkRustFnBody(fnB_1, sCtx_1, wr);
             }
             wr.newline();
             wr.indent(-1);
@@ -23142,7 +23164,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const sCtx_2 = subCtx_2;
                 sCtx_2.is_function = true;
                 const fnBNode = variant_1.fnBody;
-                await this.WalkNode(fnBNode, sCtx_2, wr);
+                await this.walkRustFnBody(fnBNode, sCtx_2, wr);
               }
               wr.newline();
               wr.indent(-1);
@@ -23208,7 +23230,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       const sCtx_3 = subCtx_3;
                       sCtx_3.is_function = true;
                       const fnBNode_1 = variant_2.fnBody;
-                      await this.WalkNode(fnBNode_1, sCtx_3, wr);
+                      await this.walkRustFnBody(fnBNode_1, sCtx_3, wr);
                     }
                     wr.newline();
                     wr.indent(-1);
@@ -23371,7 +23393,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const sCtx_4 = subCtx_4;
                 sCtx_4.is_function = true;
                 const fnB_4 = variant_6.fnBody;
-                await this.WalkNode(fnB_4, sCtx_4, wr);
+                await this.walkRustFnBody(fnB_4, sCtx_4, wr);
               }
               if ( mainReturns ) {
                 wr.newline();
@@ -23497,6 +23519,78 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             };
           };
+          async walkRustFnBody (fnB, sCtx, wr) {
+            const bcnt = fnB.children.length;
+            if ( bcnt > 0 ) {
+              const lastStmt = fnB.children[(bcnt - 1)];
+              lastStmt.rust_is_tail_return = true;
+              const lmark = this.rustUnwrapParens(lastStmt);
+              lmark.rust_is_tail_return = true;
+            }
+            await this.WalkNode(fnB, sCtx, wr);
+          };
+          rustPlainScalarPath (n) {
+            if ( n.hasFnCall || n.has_call ) {
+              return false;
+            }
+            if ( (n.ns.length) == 0 ) {
+              return false;
+            }
+            for ( let si = 0; si < n.nsp.length; si++) {
+              var seg = n.nsp[si];
+              if ( seg.rust_needs_rc_wrap ) {
+                return false;
+              }
+              if ( seg.is_optional ) {
+                return false;
+              }
+              const segNN = seg.nameNode;
+              if ( (typeof(segNN) !== "undefined" && segNN != null )  ) {
+                const segN = segNN;
+                if ( segN.hasFlag("weak") ) {
+                  return false;
+                }
+              }
+            };
+            return true;
+          };
+          async rustTryCompoundAssign (left, right, ctx, wr) {
+            if ( this.rustPlainScalarPath(left) == false ) {
+              return false;
+            }
+            const rr = this.rustUnwrapParens(right);
+            if ( (rr.children.length) != 3 ) {
+              return false;
+            }
+            if ( (rr.eval_type != 3) && (rr.eval_type != 2) ) {
+              return false;
+            }
+            const opN = rr.getFirst();
+            const op = opN.vref;
+            if ( (((op != "+") && (op != "-")) && (op != "*")) && (op != "/") ) {
+              return false;
+            }
+            const firstOperand = this.rustUnwrapParens(rr.getSecond());
+            if ( this.rustPlainScalarPath(firstOperand) == false ) {
+              return false;
+            }
+            if ( (firstOperand.ns.length) != (left.ns.length) ) {
+              return false;
+            }
+            for ( let pi = 0; pi < left.ns.length; pi++) {
+              var part = left.ns[pi];
+              if ( (firstOperand.ns[pi]) != part ) {
+                return false;
+              }
+            };
+            await this.WriteVRef(left, ctx, wr);
+            wr.out((" " + op) + "= ", false);
+            ctx.setInExpr();
+            await this.WalkNode(rr.getThird(), ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(";", true);
+            return true;
+          };
           async CustomOperator (node, ctx, wr) {
             const fc = node.getFirst();
             const cmd = fc.vref;
@@ -23521,6 +23615,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( cmd == "=" ) {
               const left = node.getSecond();
               const right = node.getThird();
+              if ( await this.rustTryCompoundAssign(left, right, ctx, wr) ) {
+                return;
+              }
               let is_optional = false;
               let is_self_ref = false;
               let is_weak = false;
@@ -24010,7 +24107,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   }
                 }
-                wr.out("return ", false);
+                if ( node.rust_is_tail_return == false ) {
+                  wr.out("return ", false);
+                }
                 ctx.setInExpr();
                 await this.WalkNode(retVal, ctx, wr);
                 ctx.unsetInExpr();
@@ -24043,9 +24142,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( needs_ret_clone ) {
                   wr.out(".clone()", false);
                 }
-                wr.out(";", true);
+                if ( node.rust_is_tail_return ) {
+                  wr.out("", true);
+                } else {
+                  wr.out(";", true);
+                }
               } else {
-                wr.out("return;", true);
+                if ( node.rust_is_tail_return == false ) {
+                  wr.out("return;", true);
+                }
               }
               return;
             }

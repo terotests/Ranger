@@ -77,6 +77,39 @@ describe("Rust Code Generation", () => {
     });
   });
 
+  describe("Compound assignment and tail expressions", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_receivers.rgr`);
+
+    it("writes x = x + e as a compound assignment", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("self.total += amount;");
+      expect(result.code).not.toContain("self.total = self.total + amount");
+    });
+
+    it("writes the last return as a tail expression", () => {
+      // `return total` at the end of reading() is the tail `self.total`
+      expect(result.code).toMatch(/fn reading\(&self\) -> i64 \{\s*\n\s*self\.total\s*\n\s*\}/);
+    });
+
+    it("ends the constructor with the struct value, not return me;", () => {
+      expect(result.code).not.toContain("return me;");
+    });
+  });
+
+  describe("Borrowed collection parameters as slices", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_slice_params.rgr`);
+
+    it("passes a borrowed int array as &[i64]", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("data : &[i64]");
+      expect(result.code).not.toContain("data : &Vec<i64>");
+    });
+
+    it("passes a borrowed buffer as &[u8]", () => {
+      expect(result.code).toContain("buf : &[u8]");
+    });
+  });
+
   describe("Array/Vector Operations", () => {
     it("should generate Vec::new() for array initialization", () => {
       const result = getGeneratedRustCode(`${FIXTURES_DIR}/array_push.rgr`);

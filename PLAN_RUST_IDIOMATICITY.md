@@ -371,10 +371,47 @@ return, no trailing comma, Weak gating).
   class-attached free main — the E0601 row is closed, and the runnable
   probes of this doc now build from the fixtures as written.
 
-**Still open, in the ranked order:** `+=` compound assignment, double
-parens, tail expressions instead of `return` (needs block-position
-awareness in the walker), clone hygiene beyond Copy scalars (the
-`.clone().clone()` stacks, `return local.clone()`), snake_case emission,
-`&[u8]`/`&str` parameters, hoisted loop borrows, and rustfmt-shaped text.
-The `mut x : &mut T` double-mut and `#[derive(Clone)]`-on-shared-classes
-items also stand.
+**Third round (clippy 899 → 512, 1395 at the start):**
+
+- **`x = x + e` is `x += e`** (and `-`, `*`, `/`) when the target is a
+  plain scalar path — no cell, no optional, no weak segment — and the
+  right side starts from the same path; anything less plain falls through
+  to the full assignment machinery. 297 `assign_op_pattern` warnings and
+  273 compound sites on the jpeg output.
+- **The last `return x;` of a body is the tail expression `x`.** The body
+  walk marks its last statement, the return custom drops the keyword and
+  the semicolon on exactly that node; a bare tail `return;` disappears,
+  and the constructor ends in `me` instead of `return me;`. All 85
+  `needless_return` warnings.
+- **A borrowed collection or buffer of scalars is a slice** — `&[i64]`,
+  `&[u8]`, `&[f64]` instead of `&Vec<T>` (clippy's `ptr_arg`), safe
+  because `&Vec` coerces to `&[T]` at every call site and a
+  borrowed-to-borrowed chain passes the slice straight through. String
+  parameters stay `String` for now — `&str` changes every call-site
+  conversion and is left with the open items.
+
+**Still open, with the reason each is parked:**
+
+- **Double parens (306, now the largest row).** `walkCommandList`
+  parenthesizes every operator at expression depth > 1 and the templates
+  add their own — but the walker parens are load-bearing: binary templates
+  like `(e 1) " + " (e 2)` carry no outer parens, so dropping the walker
+  pair flattens `a * (b + c)`. The fix is precedence-aware emission —
+  operators declaring precedence and the walker parenthesizing only when
+  the child binds looser — a design change across the template engine,
+  not a template edit.
+- **snake_case emission.** All 708 naming warnings sit behind
+  `#![allow(non_snake_case)]`, so the payoff only lands if the allow can
+  be dropped — which needs fields, methods and locals renamed together,
+  and `@serialize(true)` derives its JSON keys from field names, so field
+  renames must keep the serialized names stable across every target.
+  A rename pass with a serialization-name indirection is its own change.
+- **Hoisted loop borrows.** `chunk.borrow().data[i]` per iteration wants
+  `let c = chunk.borrow();` outside the loop — but only when `chunk` is
+  loop-invariant, and in the very loop the doc quotes it is reassigned
+  (`chunk = chunk.next`). Needs a loop-invariance analysis, not a
+  template.
+- Remaining small rows: `manual_clamp` (24), literal `f64` casts (14),
+  `cmp_owned` (14), residual range-form usize casts (34), `let_and_return`
+  (13), the `.clone().clone()` stacks, and rustfmt-shaped text with the
+  allow-header shrink as the emissions tighten.
