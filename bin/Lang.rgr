@@ -3769,7 +3769,7 @@ std::string join(const T& v, const std::string& delim) {
                 es6  ( "( typeof(" (e 1) "[" (e 2) "] ) != \"undefined\" && Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") )" )
                 ts   ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
                 flow ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
-                cpp ( (e 1) ".count(" (e 2) ") > 0" )
+                cpp ( (e 1) ".count(" (ckey 2) ") > 0" )
                 php ( "array_key_exists(" (e 2) " , " (e 1) " )" )
                 java7 ( (e 1) ".containsKey(" (e 2) ")" )
                 kotlin ( (e 1) ".containsKey(" (e 2) ")" )
@@ -3895,7 +3895,7 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
                 ; HashMap::get hands back Option<&T>, and the operator is typed
                 ; to give an optional T, so the borrow is cloned away.
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
-                cpp ( "r_map_get_val(" (e 1) ", " (e 2) ")"
+                cpp ( "r_map_get_val(" (e 1) ", " (ckey 2) ")"
 (create_polyfill
 "
 // Map read that never inserts on miss (unlike std::map::operator[]) and does a
@@ -3961,7 +3961,7 @@ i "}" nl ))
                 scala ( (e 1) ".put(" (e 2) ", " (e 3) ")" )
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
-                cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                cpp ( (e 1) "[" (ckey 2) "] = " (e 3) ";" )
                 * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }            
         }                 

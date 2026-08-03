@@ -57,27 +57,32 @@
 > A conformance probe binary (`bench/native/probe_main.rgr`) evaluates
 > one JS snippet from argv for quick divergence hunting.
 >
-> **Native benchmark (engine work-only ms, same machine/session as the
-> Node table below; both binaries produce the same answers as Node):**
+> **Native benchmark, after the optimization rounds (engine work-only
+> ms, interleaved same-session best-of-3; all three builds produce the
+> same answers; the Node column runs the SAME improved engine source):**
 >
-> | case | engine on Node | Rust `-O` | C++ `-O2` |
+> | case | engine on Node | Rust | C++ |
 > |---|---|---|---|
-> | loop | 46.8 | 87.7 | 88.4 |
-> | fib | 33.9 | 59.2 | 61.2 |
-> | strcat | 25.5 | 71.2 | 75.5 |
-> | array | 95.8 | 168.8 | 147.6 |
-> | object | 40.6 | 62.1 | 71.7 |
-> | method | 77.9 | 133.5 | 140.4 |
-> | regex | 46.5 | 85.2 | 77.5 |
+> | loop | 42.7 | 32.7 | 48.2 |
+> | fib | 21.6 | 21.2 | 26.7 |
+> | strcat | 23.9 | 53.0 | 44.9 |
+> | array | 88.3 | 62.9 | 100.9 |
+> | object | 36.8 | 27.8 | 39.0 |
+> | method | 65.0 | 62.0 | 81.7 |
+> | regex | 40.5 | 34.9 | 47.4 |
 >
-> Geometric mean: **Rust 1.86x, C++ 1.88x the engine-on-Node time** — the
-> two native targets are effectively tied, and both still trail V8
-> running the same interpreter source, which is the honest headline for
-> an interpreter workload: V8's JITted property access and GC beat
-> per-node `Rc<RefCell>`/`shared_ptr` traffic. The C++ side started this
-> branch at 4x-and-quadratic; the remaining native gap is now an
-> optimization question (value-model flattening, fewer per-value
-> allocations), not a correctness one.
+> Geometric mean: **Rust 0.96x — FASTER than the same engine on Node**,
+> beating V8 on six of seven cases (only `strcat` loses: V8's rope
+> strings make `+=` amortized O(1) where immutable native strings copy).
+> C++ is at 1.25x, down from 1.88x. Both targets started this branch
+> unable to compile (Rust) or 4x-and-quadratic (C++). What got them
+> here, in measured order of impact: integer-interned nodeType/operator
+> dispatch, borrowed `&String` parameters, FxHash + bare-literal map
+> keys, an insertion-ordered C++ map replacing `std::map`, memoised
+> hoisting, a compiled-regex cache, small-integer value pooling,
+> single-walk scope updates, and a thread-local freelist allocator
+> (`-native-fast-alloc`). Remaining C++ gap: string local copies and
+> `shared_ptr` release chains — value-model flattening territory.
 >
 > **Still open:** the key-order conformance divergence on BOTH native
 > targets (needs an insertion-ordered map in the compiler's map

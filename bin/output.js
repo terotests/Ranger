@@ -20323,6 +20323,68 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.createTag("c++unions");
           wr.createTag("utilities");
           wr.out("", true);
+          if ( ctx.hasCompilerFlag("native-fast-alloc") ) {
+            wr.out("// -native-fast-alloc: thread-local size-class freelist over the system", true);
+            wr.out("// allocator (32-byte classes up to 1024 bytes; memory is never returned", true);
+            wr.out("// to the OS - benchmark/tool builds only).", true);
+            wr.out("#include <cstdlib>", true);
+            wr.out("#include <new>", true);
+            wr.out("#include <malloc.h>", true);
+            wr.out("namespace rgpool {", true);
+            wr.out("    const size_t NCLASS = 32;", true);
+            wr.out("    thread_local void* heads[NCLASS + 1] = {};", true);
+            wr.out("    inline void* take(size_t size) {", true);
+            wr.out("        if (size == 0 || size > 1024) { return NULL; }", true);
+            wr.out("        size_t cls = (size + 31) >> 5;", true);
+            wr.out("        void* h = heads[cls];", true);
+            wr.out("        if (h) { heads[cls] = *(void**)h; return h; }", true);
+            wr.out("        // parked blocks are classified by USABLE size (>= cls<<5 here)", true);
+            wr.out("        return std::malloc(cls << 5);", true);
+            wr.out("    }", true);
+            wr.out("    inline bool park(void* p, size_t size) {", true);
+            wr.out("        if (size == 0 || size > 1024) { return false; }", true);
+            wr.out("        size_t cls = (size + 31) >> 5;", true);
+            wr.out("        *(void**)p = heads[cls];", true);
+            wr.out("        heads[cls] = p;", true);
+            wr.out("        return true;", true);
+            wr.out("    }", true);
+            wr.out("}", true);
+            wr.out("void* operator new(std::size_t n) {", true);
+            wr.out("    void* p = rgpool::take(n);", true);
+            wr.out("    if (!p) { p = std::malloc(n); }", true);
+            wr.out("    if (!p) { throw std::bad_alloc(); }", true);
+            wr.out("    return p;", true);
+            wr.out("}", true);
+            wr.out("void operator delete(void* p) noexcept {", true);
+            wr.out("    // unsized form: classify by the block's usable size (glibc) so these", true);
+            wr.out("    // deletions feed the pool too - take() only needs usable >= request", true);
+            wr.out("    if (p) {", true);
+            wr.out("        size_t u = malloc_usable_size(p);", true);
+            wr.out("        size_t cls = u >> 5;", true);
+            wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {", true);
+            wr.out("            *(void**)p = rgpool::heads[cls];", true);
+            wr.out("            rgpool::heads[cls] = p;", true);
+            wr.out("        } else {", true);
+            wr.out("            std::free(p);", true);
+            wr.out("        }", true);
+            wr.out("    }", true);
+            wr.out("}", true);
+            wr.out("void operator delete(void* p, std::size_t n) noexcept {", true);
+            wr.out("    (void)n;", true);
+            wr.out("    if (p) {", true);
+            wr.out("        size_t u = malloc_usable_size(p);", true);
+            wr.out("        size_t cls = u >> 5;", true);
+            wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {", true);
+            wr.out("            *(void**)p = rgpool::heads[cls];", true);
+            wr.out("            rgpool::heads[cls] = p;", true);
+            wr.out("        } else {", true);
+            wr.out("            std::free(p);", true);
+            wr.out("        }", true);
+            wr.out("    }", true);
+            wr.out("}", true);
+            wr.out("", true);
+          }
+          wr.out("#include <string_view>", true);
           wr.out("// Insertion-ordered map: vector storage + open-addressed hash index.", true);
           wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):", true);
           wr.out("// lookups hash once, and iteration follows INSERTION order, which is", true);
@@ -20368,6 +20430,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("    const_iterator find(const K& k) const { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
           wr.out("    V& at(const K& k) { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
           wr.out("    const V& at(const K& k) const { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+          wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a", true);
+          wr.out("    // std::string temporary. C++17 guarantees hash<string> and", true);
+          wr.out("    // hash<string_view> agree on equal character sequences. Instantiated", true);
+          wr.out("    // lazily, so non-string-keyed maps never touch them.", true);
+          wr.out("    int32_t slot_sv_(std::string_view k) const {", true);
+          wr.out("        if (index_.empty()) { return -1; }", true);
+          wr.out("        size_t mask = index_.size() - 1;", true);
+          wr.out("        size_t h = std::hash<std::string_view>{}(k) & mask;", true);
+          wr.out("        while (true) {", true);
+          wr.out("            int32_t s = index_[h];", true);
+          wr.out("            if (s == -1) { return -1; }", true);
+          wr.out("            if (entries[(size_t)s].first.compare(k) == 0) { return s; }", true);
+          wr.out("            h = (h + 1) & mask;", true);
+          wr.out("        }", true);
+          wr.out("    }", true);
+          wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }", true);
+          wr.out("    iterator find(const char* k) { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
+          wr.out("    const_iterator find(const char* k) const { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
+          wr.out("    V& at(const char* k) { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+          wr.out("    const V& at(const char* k) const { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+          wr.out("    V& operator[](const char* k) {", true);
+          wr.out("        int32_t s = slot_sv_(k);", true);
+          wr.out("        if (s != -1) { return entries[(size_t)s].second; }", true);
+          wr.out("        return (*this)[K(k)];", true);
+          wr.out("    }", true);
           wr.out("    V& operator[](const K& k) {", true);
           wr.out("        int32_t s = slot_(k);", true);
           wr.out("        if (s != -1) { return entries[(size_t)s].second; }", true);
@@ -23689,6 +23776,66 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               header.out("use std::cell::RefCell;", true);
               header.out("", true);
+              if ( ctx.hasCompilerFlag("native-fast-alloc") ) {
+                header.out("// -native-fast-alloc: thread-local size-class freelist over the system", true);
+                header.out("// allocator. Interpreter-style workloads spend a third of their time in", true);
+                header.out("// malloc/free; freed blocks park in per-size lists (32-byte classes up", true);
+                header.out("// to 1024 bytes) and are handed straight back. Memory is never returned", true);
+                header.out("// to the OS - fine for a benchmark or tool process, wrong for a daemon.", true);
+                header.out("struct RgPoolAlloc;", true);
+                header.out("const RG_POOL_CLASSES: usize = 32;", true);
+                header.out("std::thread_local! {", true);
+                header.out("    static RG_POOL_HEADS: std::cell::UnsafeCell<[usize; RG_POOL_CLASSES + 1]> =", true);
+                header.out("        const { std::cell::UnsafeCell::new([0usize; RG_POOL_CLASSES + 1]) };", true);
+                header.out("}", true);
+                header.out("#[allow(unused_unsafe)]", true);
+                header.out("unsafe impl std::alloc::GlobalAlloc for RgPoolAlloc {", true);
+                header.out("    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {", true);
+                header.out("        let size = layout.size();", true);
+                header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {", true);
+                header.out("            let class = (size + 31) >> 5;", true);
+                header.out("            let took = RG_POOL_HEADS.try_with(|h| {", true);
+                header.out("                let heads = unsafe { &mut *h.get() };", true);
+                header.out("                let head = heads[class];", true);
+                header.out("                if head != 0 {", true);
+                header.out("                    heads[class] = unsafe { *(head as *mut usize) };", true);
+                header.out("                    return head as *mut u8;", true);
+                header.out("                }", true);
+                header.out("                std::ptr::null_mut()", true);
+                header.out("            });", true);
+                header.out("            if let Ok(p) = took {", true);
+                header.out("                if !p.is_null() {", true);
+                header.out("                    return p;", true);
+                header.out("                }", true);
+                header.out("            }", true);
+                header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };", true);
+                header.out("            return unsafe { std::alloc::System.alloc(l) };", true);
+                header.out("        }", true);
+                header.out("        unsafe { std::alloc::System.alloc(layout) }", true);
+                header.out("    }", true);
+                header.out("    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {", true);
+                header.out("        let size = layout.size();", true);
+                header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {", true);
+                header.out("            let class = (size + 31) >> 5;", true);
+                header.out("            let parked = RG_POOL_HEADS.try_with(|h| {", true);
+                header.out("                let heads = unsafe { &mut *h.get() };", true);
+                header.out("                unsafe { *(ptr as *mut usize) = heads[class] };", true);
+                header.out("                heads[class] = ptr as usize;", true);
+                header.out("            });", true);
+                header.out("            if parked.is_ok() {", true);
+                header.out("                return;", true);
+                header.out("            }", true);
+                header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };", true);
+                header.out("            unsafe { std::alloc::System.dealloc(ptr, l) };", true);
+                header.out("            return;", true);
+                header.out("        }", true);
+                header.out("        unsafe { std::alloc::System.dealloc(ptr, layout) }", true);
+                header.out("    }", true);
+                header.out("}", true);
+                header.out("#[global_allocator]", true);
+                header.out("static RG_POOL_ALLOC: RgPoolAlloc = RgPoolAlloc;", true);
+                header.out("", true);
+              }
               header.out("// FxHash (rustc-hash style): these maps are keyed by short program", true);
               header.out("// strings; SipHash's DoS resistance cost ~14% of all instructions in", true);
               header.out("// map-heavy code. Swap back to std's default by deleting the alias.", true);
@@ -41571,24 +41718,40 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                       }
                       break;
-                    case "kref" : 
+                    case "ckey" : 
                       const idx_12 = cmdArg.int_value;
                       if ( (node.children.length) > idx_12 ) {
                         let arg_12 = node.children[idx_12];
                         while (arg_12.expression && ((arg_12.children.length) == 1)) {
                           arg_12 = arg_12.getFirst();
                         };
-                        let krefDone = false;
                         if ( arg_12.value_type == 4 ) {
                           wr.out(("\"" + this.langWriter.EncodeString(arg_12, ctx, wr)) + "\"", false);
+                        } else {
+                          ctx.setInExpr();
+                          await this.WalkNode(arg_12, ctx, wr);
+                          ctx.unsetInExpr();
+                        }
+                      }
+                      break;
+                    case "kref" : 
+                      const idx_13 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_13 ) {
+                        let arg_13 = node.children[idx_13];
+                        while (arg_13.expression && ((arg_13.children.length) == 1)) {
+                          arg_13 = arg_13.getFirst();
+                        };
+                        let krefDone = false;
+                        if ( arg_13.value_type == 4 ) {
+                          wr.out(("\"" + this.langWriter.EncodeString(arg_13, ctx, wr)) + "\"", false);
                           krefDone = true;
                         }
                         if ( krefDone == false ) {
-                          if ( ((arg_12.expression == false) && arg_12.hasParamDesc) && ((arg_12.ns.length) == 1) ) {
-                            const kpd = arg_12.paramDesc;
+                          if ( ((arg_13.expression == false) && arg_13.hasParamDesc) && ((arg_13.ns.length) == 1) ) {
+                            const kpd = arg_13.paramDesc;
                             if ( kpd.rust_borrow_type > 0 ) {
                               ctx.setInExpr();
-                              await this.WalkNode(arg_12, ctx, wr);
+                              await this.WalkNode(arg_13, ctx, wr);
                               ctx.unsetInExpr();
                               krefDone = true;
                             }
@@ -41597,19 +41760,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( krefDone == false ) {
                           wr.out("&", false);
                           ctx.setInExpr();
-                          await this.WalkNode(arg_12, ctx, wr);
+                          await this.WalkNode(arg_13, ctx, wr);
                           ctx.unsetInExpr();
                         }
                       }
                       break;
                     case "mvarg" : 
-                      const idx_13 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_13 ) {
-                        const arg_13 = node.children[idx_13];
+                      const idx_14 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_14 ) {
+                        const arg_14 = node.children[idx_14];
                         ctx.setInExpr();
-                        await this.WalkNode(arg_13, ctx, wr);
+                        await this.WalkNode(arg_14, ctx, wr);
                         ctx.unsetInExpr();
-                        let barg = arg_13;
+                        let barg = arg_14;
                         while (barg.expression && ((barg.children.length) == 1)) {
                           barg = barg.getFirst();
                         };
@@ -41660,58 +41823,58 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       break;
                     case "goset" : 
-                      const idx_14 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_14 ) {
-                        const arg_14 = node.children[idx_14];
+                      const idx_15 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_15 ) {
+                        const arg_15 = node.children[idx_15];
                         ctx.setInExpr();
-                        await this.langWriter.WriteSetterVRef(arg_14, ctx, wr);
+                        await this.langWriter.WriteSetterVRef(arg_15, ctx, wr);
                         ctx.unsetInExpr();
                       }
                       break;
                     case "pe" : 
-                      const idx_15 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_15 ) {
-                        const arg_15 = node.children[idx_15];
-                        await this.WalkNode(arg_15, ctx, wr);
-                      }
-                      break;
-                    case "ptr" : 
                       const idx_16 = cmdArg.int_value;
                       if ( (node.children.length) > idx_16 ) {
                         const arg_16 = node.children[idx_16];
-                        if ( arg_16.hasParamDesc ) {
-                          if ( arg_16.paramDesc.nameNode.isAPrimitiveType() == false ) {
+                        await this.WalkNode(arg_16, ctx, wr);
+                      }
+                      break;
+                    case "ptr" : 
+                      const idx_17 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_17 ) {
+                        const arg_17 = node.children[idx_17];
+                        if ( arg_17.hasParamDesc ) {
+                          if ( arg_17.paramDesc.nameNode.isAPrimitiveType() == false ) {
                             wr.out("*", false);
                           }
                         } else {
-                          if ( arg_16.isAPrimitiveType() == false ) {
+                          if ( arg_17.isAPrimitiveType() == false ) {
                             wr.out("*", false);
                           }
                         }
                       }
                       break;
                     case "ptrsrc" : 
-                      const idx_17 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_17 ) {
-                        const arg_17 = node.children[idx_17];
-                        if ( (arg_17.isPrimitiveType() == false) && (arg_17.isPrimitive() == false) ) {
+                      const idx_18 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_18 ) {
+                        const arg_18 = node.children[idx_18];
+                        if ( (arg_18.isPrimitiveType() == false) && (arg_18.isPrimitive() == false) ) {
                           wr.out("&", false);
                         }
                       }
                       break;
                     case "nameof" : 
-                      const idx_18 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_18 ) {
-                        const arg_18 = node.children[idx_18];
-                        wr.out(arg_18.vref, false);
-                      }
-                      break;
-                    case "list" : 
                       const idx_19 = cmdArg.int_value;
                       if ( (node.children.length) > idx_19 ) {
                         const arg_19 = node.children[idx_19];
-                        for ( let i = 0; i < arg_19.children.length; i++) {
-                          var ch = arg_19.children[i];
+                        wr.out(arg_19.vref, false);
+                      }
+                      break;
+                    case "list" : 
+                      const idx_20 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_20 ) {
+                        const arg_20 = node.children[idx_20];
+                        for ( let i = 0; i < arg_20.children.length; i++) {
+                          var ch = arg_20.children[i];
                           if ( i > 0 ) {
                             wr.out(" ", false);
                           }
@@ -41722,13 +41885,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       break;
                     case "repeat" : 
-                      const idx_20 = cmdArg.int_value;
-                      this.repeat_index = idx_20;
-                      if ( (node.children.length) >= idx_20 ) {
+                      const idx_21 = cmdArg.int_value;
+                      this.repeat_index = idx_21;
+                      if ( (node.children.length) >= idx_21 ) {
                         const cmdToRepeat = cmd.getThird();
-                        let i_1 = idx_20;
+                        let i_1 = idx_21;
                         while (i_1 < (node.children.length)) {
-                          if ( i_1 >= idx_20 ) {
+                          if ( i_1 >= idx_21 ) {
                             for ( let ii = 0; ii < cmdToRepeat.children.length; ii++) {
                               var cc_1 = cmdToRepeat.children[ii];
                               if ( (cc_1.children.length) > 0 ) {
@@ -41750,13 +41913,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       break;
                     case "repeat_from" : 
-                      const idx_21 = cmdArg.int_value;
-                      this.repeat_index = idx_21;
-                      if ( (node.children.length) >= idx_21 ) {
+                      const idx_22 = cmdArg.int_value;
+                      this.repeat_index = idx_22;
+                      if ( (node.children.length) >= idx_22 ) {
                         const cmdToRepeat_1 = cmd.getThird();
-                        let i_2 = idx_21;
+                        let i_2 = idx_22;
                         while (i_2 < (node.children.length)) {
-                          if ( i_2 >= idx_21 ) {
+                          if ( i_2 >= idx_22 ) {
                             for ( let ii_1 = 0; ii_1 < cmdToRepeat_1.children.length; ii_1++) {
                               var cc_2 = cmdToRepeat_1.children[ii_1];
                               if ( (cc_2.children.length) > 0 ) {
@@ -41781,11 +41944,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       break;
                     case "comma" : 
-                      const idx_22 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_22 ) {
-                        const arg_20 = node.children[idx_22];
-                        for ( let i_3 = 0; i_3 < arg_20.children.length; i_3++) {
-                          var ch_1 = arg_20.children[i_3];
+                      const idx_23 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_23 ) {
+                        const arg_21 = node.children[idx_23];
+                        for ( let i_3 = 0; i_3 < arg_21.children.length; i_3++) {
+                          var ch_1 = arg_21.children[i_3];
                           if ( i_3 > 0 ) {
                             wr.out(",", false);
                           }
@@ -41796,18 +41959,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       break;
                     case "swift_rc" : 
-                      const idx_23 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_23 ) {
-                        const arg_21 = node.children[idx_23];
-                        if ( arg_21.hasParamDesc ) {
-                          if ( arg_21.paramDesc.ref_cnt == 0 ) {
+                      const idx_24 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_24 ) {
+                        const arg_22 = node.children[idx_24];
+                        if ( arg_22.hasParamDesc ) {
+                          if ( arg_22.paramDesc.ref_cnt == 0 ) {
                             wr.out("_", false);
                           } else {
-                            const p_2 = ctx.getVariableDef(arg_21.vref);
+                            const p_2 = ctx.getVariableDef(arg_22.vref);
                             wr.out(p_2.compiledName, false);
                           }
                         } else {
-                          wr.out(arg_21.vref, false);
+                          wr.out(arg_22.vref, false);
                         }
                       }
                       break;
@@ -41846,43 +42009,43 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       break;
                     case "r_ktype" : 
-                      const idx_24 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_24 ) {
-                        const arg_22 = node.children[idx_24];
-                        if ( arg_22.hasParamDesc ) {
-                          const ss = this.langWriter.getObjectTypeString(arg_22.paramDesc.nameNode.key_type, ctx);
+                      const idx_25 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_25 ) {
+                        const arg_23 = node.children[idx_25];
+                        if ( arg_23.hasParamDesc ) {
+                          const ss = this.langWriter.getObjectTypeString(arg_23.paramDesc.nameNode.key_type, ctx);
                           wr.out(ss, false);
                         } else {
-                          const ss_1 = this.langWriter.getObjectTypeString(arg_22.key_type, ctx);
+                          const ss_1 = this.langWriter.getObjectTypeString(arg_23.key_type, ctx);
                           wr.out(ss_1, false);
                         }
                       }
                       break;
                     case "r_atype" : 
-                      const idx_25 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_25 ) {
-                        const arg_23 = node.children[idx_25];
-                        if ( arg_23.hasParamDesc ) {
-                          const ss_2 = this.langWriter.getObjectTypeString(arg_23.paramDesc.nameNode.array_type, ctx);
+                      const idx_26 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_26 ) {
+                        const arg_24 = node.children[idx_26];
+                        if ( arg_24.hasParamDesc ) {
+                          const ss_2 = this.langWriter.getObjectTypeString(arg_24.paramDesc.nameNode.array_type, ctx);
                           wr.out(ss_2, false);
                         } else {
-                          const ss_3 = this.langWriter.getObjectTypeString(arg_23.array_type, ctx);
+                          const ss_3 = this.langWriter.getObjectTypeString(arg_24.array_type, ctx);
                           wr.out(ss_3, false);
                         }
                       }
                       break;
                     case "r_atype_fname" : 
-                      const idx_26 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_26 ) {
-                        const arg_24 = node.children[idx_26];
-                        if ( arg_24.hasParamDesc ) {
-                          let ss_4 = this.langWriter.getObjectTypeString(arg_24.paramDesc.nameNode.array_type, ctx);
+                      const idx_27 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_27 ) {
+                        const arg_25 = node.children[idx_27];
+                        if ( arg_25.hasParamDesc ) {
+                          let ss_4 = this.langWriter.getObjectTypeString(arg_25.paramDesc.nameNode.array_type, ctx);
                           if ( ss_4 == "interface{}" ) {
                             ss_4 = "interface";
                           }
                           wr.out(ss_4, false);
                         } else {
-                          let ss_5 = this.langWriter.getObjectTypeString(arg_24.array_type, ctx);
+                          let ss_5 = this.langWriter.getObjectTypeString(arg_25.array_type, ctx);
                           if ( ss_5 == "interface{}" ) {
                             ss_5 = "interface";
                           }
@@ -41894,13 +42057,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       await this.langWriter.CustomOperator(node, ctx, wr);
                       break;
                     case "arraytype" : 
-                      const idx_27 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_27 ) {
-                        const arg_25 = node.children[idx_27];
-                        if ( arg_25.hasParamDesc ) {
-                          this.langWriter.writeArrayTypeDef(arg_25.paramDesc.nameNode, ctx, wr);
+                      const idx_28 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_28 ) {
+                        const arg_26 = node.children[idx_28];
+                        if ( arg_26.hasParamDesc ) {
+                          this.langWriter.writeArrayTypeDef(arg_26.paramDesc.nameNode, ctx, wr);
                         } else {
-                          this.langWriter.writeArrayTypeDef(arg_25, ctx, wr);
+                          this.langWriter.writeArrayTypeDef(arg_26, ctx, wr);
                         }
                       }
                       break;
@@ -41923,13 +42086,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       break;
                     case "rawtype" : 
-                      const idx_28 = cmdArg.int_value;
-                      if ( (node.children.length) > idx_28 ) {
-                        const arg_26 = node.children[idx_28];
-                        if ( arg_26.hasParamDesc ) {
-                          await this.langWriter.writeRawTypeDef(arg_26.paramDesc.nameNode, ctx, wr);
+                      const idx_29 = cmdArg.int_value;
+                      if ( (node.children.length) > idx_29 ) {
+                        const arg_27 = node.children[idx_29];
+                        if ( arg_27.hasParamDesc ) {
+                          await this.langWriter.writeRawTypeDef(arg_27.paramDesc.nameNode, ctx, wr);
                         } else {
-                          await this.langWriter.writeRawTypeDef(arg_26, ctx, wr);
+                          await this.langWriter.writeRawTypeDef(arg_27, ctx, wr);
                         }
                       }
                       break;
@@ -41957,14 +42120,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       this.createPolyfillLegacy(cmdArg.string_value, ctx, wr);
                       break;
                     case "typeof" : 
-                      const idx_29 = cmdArg.int_value;
-                      if ( (node.children.length) >= idx_29 ) {
-                        const arg_27 = node.children[idx_29];
+                      const idx_30 = cmdArg.int_value;
+                      if ( (node.children.length) >= idx_30 ) {
+                        const arg_28 = node.children[idx_30];
                         ctx.setInExpr();
-                        if ( arg_27.hasParamDesc ) {
-                          await this.writeTypeDef(arg_27.paramDesc.nameNode, ctx, wr);
+                        if ( arg_28.hasParamDesc ) {
+                          await this.writeTypeDef(arg_28.paramDesc.nameNode, ctx, wr);
                         } else {
-                          await this.writeTypeDef(arg_27, ctx, wr);
+                          await this.writeTypeDef(arg_28, ctx, wr);
                         }
                         ctx.unsetInExpr();
                       }
@@ -41981,10 +42144,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       break;
                     case "atype" : 
-                      const idx_30 = cmdArg.int_value;
-                      if ( (node.children.length) >= idx_30 ) {
-                        const arg_28 = node.children[idx_30];
-                        const p_4 = this.findParamDesc(arg_28, ctx, wr);
+                      const idx_31 = cmdArg.int_value;
+                      if ( (node.children.length) >= idx_31 ) {
+                        const arg_29 = node.children[idx_31];
+                        const p_4 = this.findParamDesc(arg_29, ctx, wr);
                         const nameNode = p_4.nameNode;
                         const tn_1 = nameNode.array_type;
                         wr.out(this.getTypeString(tn_1, ctx), false);
@@ -45368,7 +45531,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                             let the_file = "";
                                             let plugins_only = false;
                                             const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
-                                            const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+                                            const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
                                             const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
                                             if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
                                               cli.printHeader();

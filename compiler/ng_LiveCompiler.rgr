@@ -897,6 +897,25 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }
+        case "ckey" {
+          ; C++ map KEY position: a string literal passes BARE (const char*
+          ; overloads probe via string_view — no std::string temporary),
+          ; anything else walks unchanged
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            while (arg.expression && ((array_length arg.children) == 1)) {
+              arg = (arg.getFirst())
+            }
+            if (arg.value_type == RangerNodeType.String) {
+              wr.out((("\"" + (langWriter.EncodeString(arg ctx wr))) + "\"") false)
+            } {
+              ctx.setInExpr()
+              this.WalkNode(arg ctx wr)
+              ctx.unsetInExpr()
+            }
+          }
+        }
         case "kref" {
           ; a map KEY position wants a reference: a string literal passes
           ; BARE (&str via Borrow<str> — no per-lookup String allocation),

@@ -50,6 +50,13 @@ class TSNode {
   ; hot dispatch compares ints instead of strings (a memcmp per visit on the
   ; native targets, where V8 compares interned pointers). 0 = not scanned.
   def evalKind:int 0
+  ; Same memo for the OPERATOR string (BinaryExpression "+", "<", ...).
+  def evalOpKind:int 0
+  ; Memo: the `var` names to hoist for this function BODY. The walk that
+  ; finds them ran on every invocation (a fifth of call-heavy profiles);
+  ; the names never change for a given node.
+  def hoistScanned:boolean false
+  def hoistedVarNames:[string]
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions
