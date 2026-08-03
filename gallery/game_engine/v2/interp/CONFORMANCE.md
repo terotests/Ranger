@@ -358,6 +358,21 @@ them aside cannot quietly flatter the remaining number.
   was read, so the loop ran its body with `k` never set. A property deleted before
   it is reached is also no longer visited — the key list is snapshotted at entry.
 
+- **The sloppy `arguments` object is MAPPED onto the named parameters.**
+  `function f(a) { a = 1; return arguments[0]; }` answers 1, and
+  `arguments[0] = 9` is visible as `a` — they are one binding, not a snapshot
+  taken before the body ran. Only a sloppy function maps, only the indices a
+  parameter actually declares and an argument was actually passed for, and only
+  plain named parameters. Redefining a mapped index as an accessor removes the
+  mapping, deleting it removes the mapping, and defining it with a value writes
+  the parameter too.
+
+- **`arguments.callee` exists**, writable and configurable but not enumerable,
+  and compares equal to the running function by identity. On a STRICT arguments
+  object it is a poisoned accessor pair instead: reading or writing it is a
+  TypeError, and the descriptor reports `get`/`set` rather than
+  `value`/`writable`.
+
 - **`JSON.parse` follows the JSON grammar**, which is its own grammar and not a
   lenient subset of JavaScript. It used to accept whatever it was handed —
   `{a: 1}`, `[1,]`, `01`, `1.`, `+1`, `0x10`, `'x'`, a bare `tru`, a trailing `1 2`
@@ -585,6 +600,7 @@ Tagged in the source with these markers.
 | `D-LABELS` | A labelled break/continue carries the NAME alongside the flag. A loop takes the labels attached to it on entry; an abrupt completion whose label is not one of them stops the loop and stays set for the statement that owns it. |
 | `D-COMPLETION` | The completion value lives on the statement runner, not at the top level, so a value produced inside a loop or an `if` reaches `eval`. Only an ExpressionStatement produces one; every other kind completes empty and leaves the previous value standing. |
 | `D-ARRAYLIKE` | Array.prototype methods are generic over their receiver — the mutating ones still require a real array, since they write back into it — and read it LIVE: `length` once at the start through a full `[[Get]]`, then presence and value per index at the step that needs them. An absent index answers the same hole sentinel a real array's hole does, so every skip site already handles it. |
+| `D-ARGMAP` | A sloppy `arguments` object carries an index into the engine's list of call scopes plus the parameter names it maps, because there is nowhere on an EvalValue to put a scope. Reads and writes of a mapped index route to the binding; an accessor define, a delete, or strict mode removes the mapping. |
 | `D-JSON` | JSON.parse is a validating recursive descent over the JSON grammar, with a failure flag rather than a guess. The grammar is deliberately NOT the language's: its whitespace set, number syntax and string escapes are all narrower. |
 | `D-FNEXPRNAME` | A named function expression's own name is bound in a scope interposed between its closure and its body, so the name is reachable from inside and nowhere else. |
 | `D-DELETE` | Names created by assignment to an undeclared identifier are tracked, because that is the only thing separating a configurable implicit global from a non-configurable declared binding — and `delete` answers differently for the two. |
@@ -619,9 +635,10 @@ more, not less.
 | `built-ins/RegExp` | **100%** (490/490, whole directory) |
 | `built-ins/Array` | **100%** (212/212, whole directory) |
 | `built-ins/Math` | **100%** (81/81, whole directory) |
+| `language/arguments-object` | **100%** (38/38, whole directory) |
 | `built-ins/JSON` | 98% (46/47) |
-| `language/statements` | 96% (540/562) |
-| ES5 overall | **98.6%** (887/900 sampled) |
+| `language/statements` | 96% (541/562) |
+| ES5 overall | **98.7%** (888/900 sampled) |
 
 `built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
 `built-ins/RegExp`, `built-ins/Array`, `built-ins/Math`, `built-ins/Date`,
@@ -629,8 +646,8 @@ more, not less.
 directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1168 checks, every one of them derived from Node —
-1156 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1185 checks, every one of them derived from Node —
+1173 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

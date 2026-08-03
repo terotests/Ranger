@@ -1373,6 +1373,27 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["concat-copies-inherited-index", "Object.defineProperty(Array.prototype, '1', { value: 1, configurable: true }); var x = [0]; x.length = 2; var arr = x.concat(); var out = String(arr[0]) + ',' + String(arr[1]) + ',' + String(arr.hasOwnProperty('1')); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
   ["array-hole-reads-prototype", "Object.defineProperty(Array.prototype, '1', { value: 7, configurable: true }); var x = [0]; x.length = 2; var out = String(x[1]); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
 
+  // --- arguments.callee, and its poisoned strict-mode form -------------------
+  ["callee-identity", "function foo() { return arguments.callee === foo; } return String(foo());", "callee"],
+  ["callee-recursion", "var f = function (n) { if (n <= 1) { return 1; } return n * arguments.callee(n - 1); }; return f(4);", "callee"],
+  ["callee-attributes", "function foo() { return Object.getOwnPropertyDescriptor(arguments, 'callee'); } var d = foo(); return String(d.configurable) + '/' + String(d.enumerable) + '/' + String(d.writable) + '/' + String(d.hasOwnProperty('get'));", "callee"],
+  ["callee-not-enumerable", "function foo() { var ks = []; for (var k in arguments) { ks.push(k); } return ks.join(','); } return foo(1, 2);", "callee"],
+  ["callee-strict-read-throws", "return (function () { 'use strict'; function f() { return arguments.callee; } try { f(); return 'no-throw'; } catch (e) { return e.name; } })();", "callee"],
+  ["callee-strict-write-throws", "return (function () { 'use strict'; var a = (function () { return arguments; })(); try { a.callee = {}; return 'no-throw'; } catch (e) { return e.name; } })();", "callee"],
+  ["callee-strict-descriptor", "return (function () { 'use strict'; function f() { return Object.getOwnPropertyDescriptor(arguments, 'callee'); } var d = f(); return String(d.configurable) + '/' + String(d.enumerable) + '/' + String(d.hasOwnProperty('value')) + '/' + String(d.hasOwnProperty('get')) + '/' + String(d.hasOwnProperty('set')); })();", "callee"],
+
+  // --- the sloppy arguments object is MAPPED onto the named parameters ------
+  ["argmap-param-to-arguments", "function foo(a, b, c) { a = 1; b = 'str'; c = 2.1; return arguments[0] === 1 && arguments[1] === 'str' && arguments[2] === 2.1; } return String(foo(10, 'sss', 1));", "argmap"],
+  ["argmap-arguments-to-param", "function foo(a) { arguments[0] = 9; return a; } return foo(1);", "argmap"],
+  ["argmap-extra-arg-unmapped", "function foo(a) { return String(arguments[1]); } return foo(1, 2);", "argmap"],
+  ["argmap-missing-arg-unmapped", "function foo(a, b) { b = 5; return String(arguments.length) + '/' + String(arguments[1]); } return foo(1);", "argmap"],
+  ["argmap-length-unaffected", "function foo(a) { a = 2; return arguments.length; } return foo(1, 2, 3);", "argmap"],
+  ["argmap-through-generic-join", "function foo(a, b) { a = 7; return Array.prototype.join.call(arguments, ','); } return foo(1, 2);", "argmap"],
+  ["argmap-strict-not-mapped", "return (function () { 'use strict'; function foo(a) { a = 1; return String(arguments[0]); } return foo(10); })();", "argmap"],
+  ["argmap-delete-unmaps", "function foo(a) { delete arguments[0]; return String(arguments[0]) + '/' + String(a); } return foo(1);", "argmap"],
+  ["argmap-accessor-define-unmaps", "var argObj = (function (a, b, c) { return arguments; })(1, 2, 3); var accessed = false; Object.defineProperty(argObj, 0, { get: function () { accessed = true; return 12; } }); return String(argObj[0]) + '/' + String(accessed);", "argmap"],
+  ["argmap-value-define-updates", "var out = ''; (function (x) { Object.defineProperty(arguments, '0', { value: 2010, writable: true, enumerable: true, configurable: false }); out = String(arguments[0]) + '/' + String(x); })(1001); return out;", "argmap"],
+
   // --- JSON.parse follows the JSON grammar, not a lenient subset of JS ------
   ["json-reject-unquoted-key", "try { JSON.parse('{a:1}'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
   ["json-reject-trailing-comma-array", "try { JSON.parse('[1,]'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],

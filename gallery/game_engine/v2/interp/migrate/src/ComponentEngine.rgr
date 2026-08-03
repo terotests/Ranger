@@ -421,6 +421,17 @@ class ComponentEngine {
     ; D-JSON: whether the current JSON.parse hit a grammar error, and what to say.
     def jsonFailed:boolean false
     def jsonError:string ""
+    ; D-ARGUMENTS: the function VALUE whose call is being set up, so `arguments`
+    ; can carry a `callee` that compares equal to the function by identity. A
+    ; freshly minted value would have a new identity and fail that comparison,
+    ; which is the whole point of the property.
+    def pendingCallee@(optional):EvalValue
+    def pendingCalleeValid:boolean false
+    ; D-ARGMAP: the call scopes a sloppy `arguments` object is MAPPED onto. An
+    ; index below the declared parameter count is the same binding as the named
+    ; parameter, in both directions, and there is nowhere on an EvalValue to put
+    ; a scope -- so the object carries an index into this list instead.
+    def argMapScopes:[ClosureCell]
 
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
@@ -4628,6 +4639,23 @@ class ComponentEngine {
                 }
             }
         }
+        ; D-ARGMAP: a write to a mapped index writes the PARAMETER, so the body
+        ; sees it under the parameter's name from then on. The object kept it as
+        ; an ordinary property and the two drifted apart.
+        def wMapped:string (this.argMapName(obj key))
+        if ((strlen wMapped) > 0) {
+            def wMapCtx:EvalContext (this.argMapScopeOf(obj))
+            if (wMapCtx.has(wMapped)) {
+                def curMapped:EvalValue (wMapCtx.lookup(wMapped))
+                def mappedRes:EvalValue (this.applyAssignOp(op curMapped rightValue))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                wMapCtx.assign(wMapped mappedRes)
+                obj.setMember(key mappedRes)
+                return mappedRes
+            }
+        }
         ; D-ARRAYSPARSE: whether this key names an ELEMENT is decided by the key
         ; text, not by whether the expression happened to be a number. `x["0"]`
         ; is the element and `x[-1]` is a property, and routing on the operand's
@@ -4712,6 +4740,14 @@ class ComponentEngine {
             ; value and never run again.
             def sFn:EvalValue (this.resolveSetterOn(obj key))
             if (sFn.valueType == 6) {
+                ; D-ARGUMENTS: a setter may be a BUILT-IN with no function node.
+                ; Only node-backed ones ran, so a poisoned accessor took the
+                ; write silently instead of throwing.
+                if (sFn.isBuiltinMethod()) {
+                    def poisonArgs:[EvalValue]
+                    push poisonArgs rightValue
+                    return (this.invokeBuiltin(sFn.builtinKind sFn.builtinName obj poisonArgs))
+                }
                 if sFn.functionNode {
                     def cur0:EvalValue (EvalValue.undefined())
                     def gFn0:EvalValue (this.resolveGetterOn(obj key))
@@ -5029,11 +5065,147 @@ class ComponentEngine {
             }
             argObj.setMember("length" (EvalValue.fromInt(na)))
             argObj.setAttrs("length" true false true)
+            ; D-ARGUMENTS: `arguments.callee` is the running function -- writable
+            ; and configurable but not enumerable. It was absent, so a recursive
+            ; sloppy function written the classic way had nothing to call.
+            def argsStrict:boolean (this.strictForBody(fnNode))
+            if pendingCalleeValid {
+                if pendingCallee {
+                    def calleeV:EvalValue (unwrap pendingCallee)
+                    if calleeV.strictFn {
+                        argsStrict = true
+                    }
+                }
+            }
+            if argsStrict {
+                def poison:EvalValue (this.sharedNativeMethod("argpoison" "callee"))
+                argObj.defineGetter("callee" poison)
+                argObj.defineSetter("callee" poison)
+                argObj.setAttrs("callee" false false false)
+            } {
+                if pendingCalleeValid {
+                    if pendingCallee {
+                        argObj.setMember("callee" (unwrap pendingCallee))
+                        argObj.setAttrs("callee" true false true)
+                    }
+                }
+            }
             argObj.setMember("__arguments__" (EvalValue.boolean(true)))
             argObj.setAttrs("__arguments__" false false false)
             argObj.protoRef = (this.builtinPrototype("Object"))
             context.define("arguments" argObj)
         }
+        this.bindParamList(fnNode argVals)
+        this.mapArgumentsObject(fnNode argVals)
+    }
+
+    ; D-ARGMAP: link the arguments object to the named parameters. Only a SLOPPY
+    ; function maps, only the indices a parameter actually declares, and only
+    ; when the parameter is a plain name -- a rest or destructured parameter has
+    ; no single binding to map onto.
+    fn mapArgumentsObject:void (fnNode:TSNode argVals:[EvalValue]) {
+        if (fnNode.nodeType == "ArrowFunctionExpression") {
+            return
+        }
+        if (this.strictForBody(fnNode)) {
+            return
+        }
+        if (false == (context.has("arguments"))) {
+            return
+        }
+        def argObj2:EvalValue (context.lookup("arguments"))
+        if (argObj2.valueType != 5) {
+            return
+        }
+        if (false == (has argObj2.objectMap "__arguments__")) {
+            return
+        }
+        def names:[EvalValue]
+        def mp:int 0
+        def mappable:int 0
+        while (mp < (array_length fnNode.params)) {
+            def prm:TSNode (itemAt fnNode.params mp)
+            def nm:string ""
+            ; A plain parameter is a `Parameter` node with a name; a rest or a
+            ; destructured one has no single binding to map onto and is skipped.
+            if (prm.nodeType == "Parameter") {
+                if (null? prm.left) {
+                    nm = prm.name
+                }
+            }
+            if (prm.nodeType == "Identifier") {
+                nm = prm.name
+            }
+            if (mp < (array_length argVals)) {
+                if ((strlen nm) > 0) {
+                    mappable = (mappable + 1)
+                }
+            } {
+                nm = ""
+            }
+            push names (EvalValue.string(nm))
+            mp = (mp + 1)
+        }
+        if (mappable == 0) {
+            return
+        }
+        def slot:int (array_length argMapScopes)
+        def argCell (new ClosureCell)
+        argCell.ctx = context
+        push argMapScopes argCell
+        argObj2.setMember("__argscope__" (EvalValue.fromInt(slot)))
+        argObj2.setAttrs("__argscope__" false false false)
+        argObj2.setMember("__argnames__" (EvalValue.array(names)))
+        argObj2.setAttrs("__argnames__" false false false)
+    }
+
+    ; The parameter name index `key` of `obj` is mapped onto, or "" when the
+    ; value is not a mapped arguments object or the index is not mapped.
+    fn argMapName:string (obj:EvalValue key:string) {
+        if (obj.valueType != 5) {
+            return ""
+        }
+        if (false == (has obj.objectMap "__argscope__")) {
+            return ""
+        }
+        def idx:int (this.canonicalArrayIndex(key))
+        if (idx < 0) {
+            return ""
+        }
+        ; D-ARGMAP: redefining a mapped index as an ACCESSOR removes the mapping
+        ; -- the getter is the property now, and routing the read to the
+        ; parameter would shadow it. DELETING it removes the mapping too, which
+        ; is why an index absent from the object's own map is unmapped whatever
+        ; the parameter still holds.
+        if (has obj.getterMap key) {
+            return ""
+        }
+        if (has obj.setterMap key) {
+            return ""
+        }
+        if (false == (has obj.objectMap key)) {
+            return ""
+        }
+        def namesV:EvalValue (unwrap (get obj.objectMap "__argnames__"))
+        if (idx >= (array_length namesV.arrayValue)) {
+            return ""
+        }
+        def nmV:EvalValue (itemAt namesV.arrayValue idx)
+        if (false == (nmV.isString())) {
+            return ""
+        }
+        return nmV.stringValue
+    }
+
+    fn argMapScopeOf:EvalContext (obj:EvalValue) {
+        def slotV:EvalValue (unwrap (get obj.objectMap "__argscope__"))
+        def cell:ClosureCell (itemAt argMapScopes (to_int (slotV.toNumber())))
+        return (unwrap cell.ctx)
+    }
+
+    fn bindParamList:void (fnNode:TSNode argVals:[EvalValue]) {
+        def np:int (array_length fnNode.params)
+        def na:int (array_length argVals)
         def pi:int 0
         while (pi < np) {
             def param:TSNode (itemAt fnNode.params pi)
@@ -5482,7 +5654,10 @@ class ComponentEngine {
             }
             effArgs = merged
         }
+        pendingCallee = fnValue
+        pendingCalleeValid = true
         this.bindParams(fnNode effArgs)
+        pendingCalleeValid = false
         ; D-STRICT: the function's OWN strictness governs the code it runs. It
         ; was taken from the body directive plus the ambient flag, so a strict
         ; callback handed to a sloppy helper -- which is exactly what
@@ -6585,17 +6760,17 @@ class ComponentEngine {
                 ; branch having to be deleted in the same step. Methods move
                 ; across one group at a time, each move independently verified.
                 def rKind:string (this.receiverKind(obj))
-                ; D-REGISTRY: `delete Object.prototype.toString;
-                ; Object.prototype.toString()` is a TypeError, not the method
-                ; the registry would happily supply again.
-                if (this.registryMethodDeleted(obj methodName)) {
-                    if (this.objectProtoFallbackFor(rKind methodName)) {
-                        def dArgs:[EvalValue] (this.collectCallArgs(node))
-                        return (this.invokeBuiltin("object" methodName obj dArgs))
-                    }
-                    return (this.throwSpecError("TypeError" (methodName + " is not a function")))
-                }
                 if (this.hasBuiltin(rKind methodName)) {
+                    ; D-REGISTRY: `delete Object.prototype.toString;
+                    ; Object.prototype.toString()` is a TypeError, not the method
+                    ; the registry would happily supply again.
+                    if (this.registryMethodDeleted(obj methodName)) {
+                        if (this.objectProtoFallbackFor(rKind methodName)) {
+                            def dArgs:[EvalValue] (this.collectCallArgs(node))
+                            return (this.invokeBuiltin("object" methodName obj dArgs))
+                        }
+                        return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+                    }
                     def rArgs:[EvalValue] (this.collectCallArgs(node))
                     return (this.invokeBuiltin(rKind methodName obj rArgs))
                 }
@@ -9636,6 +9811,12 @@ class ComponentEngine {
         ; values without becoming methods anyone can call as `re.source()`.
         ; Registered before the shared names below because `source` is not one of
         ; them and the flags are not methods at all.
+        ; D-ARGUMENTS: the poisoned `callee` accessor a STRICT arguments object
+        ; carries. Both halves are the same entry -- reading or writing throws.
+        if (kind == "argpoison") {
+            if (name == "callee") { return 0 }
+            return (0 - 1)
+        }
         if (kind == "regexpget") {
             if (name == "source") { return 0 }
             if (name == "global") { return 0 }
@@ -10532,6 +10713,13 @@ class ComponentEngine {
                     return (this.throwSpecError("TypeError" ("RegExp.prototype." + name + " called on a non-RegExp")))
                 }
             }
+        }
+        ; D-ARGUMENTS: reading or writing `callee` on a STRICT arguments object is
+        ; a TypeError -- the spec removes the stack-walking sloppy mode allowed,
+        ; and it does so with a poisoned ACCESSOR pair rather than by omitting
+        ; the property, which is what getOwnPropertyDescriptor is asked about.
+        if (kind == "argpoison") {
+            return (this.throwSpecError("TypeError" "'callee' may not be accessed on a strict arguments object"))
         }
         ; D-REGEXACCESSOR: the accessor halves published on RegExp.prototype.
         ; ES2015 moved source/global/ignoreCase/multiline off the instance and
@@ -13783,6 +13971,15 @@ class ComponentEngine {
     ; layer's getMember knows nothing about accessors, so every generic
     ; Array.prototype method read past them.
     fn getPropertyValue:EvalValue (obj:EvalValue key:string) {
+        ; D-ARGMAP: a mapped index reads the PARAMETER, which the body may have
+        ; reassigned since the object was built.
+        def mappedName:string (this.argMapName(obj key))
+        if ((strlen mappedName) > 0) {
+            def mapCtx:EvalContext (this.argMapScopeOf(obj))
+            if (mapCtx.has(mappedName)) {
+                return (mapCtx.lookup(mappedName))
+            }
+        }
         def g:EvalValue (this.resolveGetterOn(obj key))
         if (g.valueType == 6) {
             def noArgsG:[EvalValue]
@@ -14206,6 +14403,18 @@ class ComponentEngine {
     ; The ordinary [[DefineOwnProperty]], after the array-specific rules and the
     ; redefinition check have had their say.
     fn definePlainProperty:string (obj:EvalValue key:string desc:EvalValue) {
+        ; D-ARGMAP: defining a mapped index with a VALUE writes the parameter
+        ; too -- the two are one binding, and leaving the parameter behind made
+        ; a later read through the mapping answer the stale one.
+        def dmName:string (this.argMapName(obj key))
+        if ((strlen dmName) > 0) {
+            if (this.descHas(desc "value")) {
+                def dmCtx:EvalContext (this.argMapScopeOf(obj))
+                if (dmCtx.has(dmName)) {
+                    dmCtx.assign(dmName (this.descGet(desc "value")))
+                }
+            }
+        }
         ; D-ATTRS: an attribute the descriptor does not mention KEEPS its current
         ; value on an existing property, and defaults to FALSE on a new one --
         ; unlike plain assignment, which defaults them all true. Taking the
@@ -16315,6 +16524,14 @@ class ComponentEngine {
                                 def ownArgs:[EvalValue]
                                 return (this.callFnValueWithValues((ownG.withThis(obj)) ownArgs))
                             }
+                            ; D-ARGUMENTS: an OWN getter can be a BUILT-IN too --
+                            ; the poisoned `callee` on a strict arguments object
+                            ; is one. Only node-backed own getters ran, so the
+                            ; read fell through and answered undefined.
+                            if (ownG.isBuiltinMethod()) {
+                                def ownBArgs:[EvalValue]
+                                return (this.invokeBuiltin(ownG.builtinKind ownG.builtinName obj ownBArgs))
+                            }
                         }
                     } {
                         if (has obj.setterMap propName) {
@@ -16350,16 +16567,21 @@ class ComponentEngine {
             ; paths above, never before them.
             if ((strlen propName) > 0) {
                 def mKind:string (this.receiverKind(obj))
-                ; D-REGISTRY: a registry method DELETED off its prototype stays
-                ; deleted -- minting it again here made `delete
-                ; Object.prototype.toString` a no-op.
-                if (this.registryMethodDeleted(obj propName)) {
-                    if (this.objectProtoFallbackFor(mKind propName)) {
-                        return (this.sharedNativeMethod("object" propName))
-                    }
-                    return (EvalValue.undefined())
-                }
                 if (this.hasBuiltin(mKind propName)) {
+                    ; D-REGISTRY: a registry method DELETED off its prototype
+                    ; stays deleted -- minting it again here made `delete
+                    ; Object.prototype.toString` a no-op. Only a name the
+                    ; registry actually supplies can be deleted FROM it, so the
+                    ; record is consulted inside this guard: a plain data
+                    ; property that happens to share a name -- `length` on an
+                    ; arguments object, say -- is nobody's registry entry and
+                    ; must not be hidden by an unrelated deletion.
+                    if (this.registryMethodDeleted(obj propName)) {
+                        if (this.objectProtoFallbackFor(mKind propName)) {
+                            return (this.sharedNativeMethod("object" propName))
+                        }
+                        return (EvalValue.undefined())
+                    }
                     def owned:boolean (has obj.objectMap propName)
                     ; A property found on the PROTOTYPE CHAIN wins over the
                     ; per-kind registry entry: `Function.prototype.valueOf` is
@@ -16453,6 +16675,19 @@ class ComponentEngine {
                     def ckey:string ""
                     if (indexVal.isString()) { ckey = indexVal.stringValue }
                     if (indexVal.isNumber()) { ckey = (this.toPropertyKey(indexVal)) }
+                    ; D-ARGMAP: `arguments[0]` and the first named parameter are
+                    ; ONE binding in sloppy mode, so a reassignment of either is
+                    ; visible through the other. The object held a snapshot taken
+                    ; before the body ran.
+                    if ((strlen ckey) > 0) {
+                        def cMapped:string (this.argMapName(obj ckey))
+                        if ((strlen cMapped) > 0) {
+                            def cMapCtx:EvalContext (this.argMapScopeOf(obj))
+                            if (cMapCtx.has(cMapped)) {
+                                return (cMapCtx.lookup(cMapped))
+                            }
+                        }
+                    }
                     if ((strlen ckey) > 0) {
                         def cgFn:EvalValue (this.resolveGetterOn(obj ckey))
                         if (cgFn.valueType == 6) {
