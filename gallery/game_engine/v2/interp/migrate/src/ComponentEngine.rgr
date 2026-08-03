@@ -55,7 +55,42 @@ class EvalContext {
     ; name bound anywhere else is not, so the two have to be told apart before a
     ; write is mirrored.
     def isGlobalScope:boolean false
-    
+    ; D-CATCHVAR: true for a scope that exists only for a BLOCK construct --
+    ; a catch clause's parameter or a `with` object. `var` is function-scoped,
+    ; so a declaration inside one of these belongs to the enclosing function
+    ; scope and stays visible after the block ends; only the catch parameter
+    ; itself lives here.
+    def isBlockScope:boolean false
+
+    ; The scope a `var` declared here actually binds in: the nearest enclosing
+    ; scope that is not a catch/with block.
+    fn varScope:EvalContext () {
+        if isBlockScope {
+            if parent {
+                def p:EvalContext (unwrap parent)
+                return (p.varScope())
+            }
+        }
+        return this
+    }
+
+    ; D-CATCHVAR: does a block scope between here and the var scope already own
+    ; this name? `catch (e) { var e = 1 }` writes the CATCH PARAMETER -- the
+    ; function-scoped `e` the hoist created stays undefined.
+    fn blockShadowsName:boolean (name:string) {
+        if (false == isBlockScope) {
+            return false
+        }
+        if (has bindings name) {
+            return true
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.blockShadowsName(name))
+        }
+        return false
+    }
+
     fn define:void (name:string value:EvalValue) {
         set bindings name value
     }
@@ -2334,12 +2369,56 @@ class ComponentEngine {
                     ci = (ci + 1)
                 }
             } {
+                ; D-TOPLEVEL: `var` does not stop at a block, so a declaration
+                ; buried in a `try`/`if`/loop is script-scoped and exists from
+                ; the first statement. Only the top-level list was hoisted, so
+                ; `try { __func() } catch (e) {}; var __func = function () {}`
+                ; raised a ReferenceError where the spec says TypeError.
+                this.hoistScriptVarNamesIn(node 0)
                 ; Everything else -- exports, imports -- keeps its old handling.
                 this.processTopLevelVarNode(node)
             }
             i = i + 1
         }
         this.publishGlobalVarNames(ast)
+    }
+
+    ; Bind every `var` name nested inside a top-level statement into the script
+    ; scope, holding undefined. Nested functions carry their own vars, so the
+    ; walk stops at any function boundary.
+    fn hoistScriptVarNamesIn:void (node:TSNode depth:int) {
+        if (depth > 24) {
+            return
+        }
+        def nt:string node.nodeType
+        if (nt == "FunctionDeclaration") { return }
+        if (nt == "FunctionExpression") { return }
+        if (nt == "ArrowFunctionExpression") { return }
+        if (nt == "ClassDeclaration") { return }
+        if (nt == "VariableDeclaration") {
+            if ((node.kind == "var") || ((strlen node.kind) == 0)) {
+                def ci:int 0
+                while (ci < (array_length node.children)) {
+                    def d:TSNode (itemAt node.children ci)
+                    if ((strlen d.name) > 0) {
+                        if (false == (moduleScope.has(d.name))) {
+                            moduleScope.define(d.name (EvalValue.undefined()))
+                        }
+                    }
+                    ci = (ci + 1)
+                }
+            }
+            return
+        }
+        def nd:int (depth + 1)
+        def k:int 0
+        while (k < (array_length node.children)) {
+            this.hoistScriptVarNamesIn((itemAt node.children k) nd)
+            k = (k + 1)
+        }
+        if node.body { this.hoistScriptVarNamesIn((unwrap node.body) nd) }
+        if node.left { this.hoistScriptVarNamesIn((unwrap node.left) nd) }
+        if node.right { this.hoistScriptVarNamesIn((unwrap node.right) nd) }
     }
 
     ; D-GLOBALTHIS: a script's `var` and function declarations are properties of
@@ -2554,6 +2633,14 @@ class ComponentEngine {
                     this.bindPattern(pat rhs)
                 } {
                     def varName:string decl.name
+                    ; D-CATCHVAR: `var` is function-scoped. Inside a catch or
+                    ; `with` block the binding belongs to the enclosing function
+                    ; scope; let/const stay in the block.
+                    def isVarKind:boolean ((node.kind == "var") || ((strlen node.kind) == 0))
+                    def target:EvalContext context
+                    if isVarKind {
+                        target = (context.varScope())
+                    }
                     if decl.init {
                         def initNode:TSNode (unwrap decl.init)
                         def value:EvalValue (this.evaluateExpr(initNode))
@@ -2567,11 +2654,17 @@ class ComponentEngine {
                         if (wHost.valueType == 5) {
                             wHost.setMember(varName value)
                             if (false == (context.has(varName))) {
-                                context.define(varName (EvalValue.undefined()))
+                                target.define(varName (EvalValue.undefined()))
                             }
                         } {
-                            context.define(varName value)
-                            this.syncGlobalVar(varName value)
+                            if (isVarKind && (context.blockShadowsName(varName))) {
+                                ; The catch parameter shadows the function-scoped
+                                ; binding, so the initialiser writes IT.
+                                context.assign(varName value)
+                            } {
+                                target.define(varName value)
+                                this.syncGlobalVar(varName value)
+                            }
                         }
                     } {
                         ; `let x;` with no initializer still creates a binding
@@ -2581,13 +2674,13 @@ class ComponentEngine {
                         ; that already exists, which is what lets a hoisted
                         ; function declaration survive `var x;` of the same name.
                         def keepExisting:boolean false
-                        if ((node.kind == "var") || ((strlen node.kind) == 0)) {
+                        if isVarKind {
                             if (context.has(varName)) {
                                 keepExisting = true
                             }
                         }
                         if (false == keepExisting) {
-                            context.define(varName (EvalValue.undefined()))
+                            target.define(varName (EvalValue.undefined()))
                         }
                     }
                 }
@@ -3735,6 +3828,7 @@ class ComponentEngine {
             return
         }
         if (stmt.nodeType == "BlockStatement") {
+            this.clearStatementLabels()
             this.runStatementList(stmt.children)
             return
         }
@@ -3842,7 +3936,17 @@ class ComponentEngine {
                 def li:int 0
                 while (li < (array_length liftKeys)) {
                     def lk:string (itemAt liftKeys li)
-                    savedW.assign(lk (unwrap (get context.bindings lk)))
+                    def lv:EvalValue (unwrap (get context.bindings lk))
+                    savedW.assign(lk lv)
+                    ; D-GLOBALTHIS: a `var` lifted out of a with block at the
+                    ; top level is a script var like any other, so it has to
+                    ; become a property of the global object too. The lift ran
+                    ; after the with scope was already the current one, so
+                    ; syncGlobalVar saw a non-global owner and skipped it.
+                    def savedLiftCtx:EvalContext context
+                    context = savedW
+                    this.syncGlobalVar(lk lv)
+                    context = savedLiftCtx
                     li = (li + 1)
                 }
                 context = savedW
@@ -3868,6 +3972,10 @@ class ComponentEngine {
                     scriptThrowValue = (EvalValue.null())
                     def savedContext:EvalContext context
                     context = (context.createChild())
+                    ; D-CATCHVAR: §12.14 -- the catch scope holds the PARAMETER
+                    ; and nothing else. A `var` declared in the handler belongs
+                    ; to the enclosing function scope and outlives the clause.
+                    context.isBlockScope = true
                     if ((strlen catchNode.name) > 0) {
                         context.define(catchNode.name thrown)
                     }
@@ -3947,6 +4055,11 @@ class ComponentEngine {
 
     fn runBlockOrStatement:void (blk:TSNode) {
         if (blk.nodeType == "BlockStatement") {
+            ; D-LABELS: a label on a BLOCK belongs to the block, not to the first
+            ; statement inside it. `blk: { do { break blk } while (true); ... }`
+            ; used to hand "blk" to the do-while, which then swallowed the break
+            ; and carried on with the rest of the block.
+            this.clearStatementLabels()
             this.runStatementList(blk.children)
         } {
             this.runStatementValue(blk)
@@ -4918,11 +5031,54 @@ class ComponentEngine {
                 }
             }
             obj.setMember(key result)
+            this.syncGlobalObjectWrite(obj key result)
         }
         if ((strlen objName) > 0) {
             context.assign(objName obj)
         }
         return result
+    }
+
+    ; D-GLOBALTHIS: a script's `var` and the global object property of the same
+    ; name are ONE storage location, so `this.x = 1` has to be what a bare `x`
+    ; reads. syncGlobalVar carries the binding->property direction; this is the
+    ; other one, which was missing entirely -- a write through `this` updated
+    ; the property and left the binding on its old value.
+    fn syncGlobalObjectWrite:void (obj:EvalValue key:string value:EvalValue) {
+        if (false == (this.isGlobalVarName(key))) {
+            return
+        }
+        def g:EvalValue (this.theGlobalObject())
+        if (false == (g.equals(obj))) {
+            return
+        }
+        if (false == (context.has(key))) {
+            return
+        }
+        def owner:EvalContext (context.contextOwning(key))
+        if (false == owner.isGlobalScope) {
+            return
+        }
+        owner.define(key value)
+    }
+
+    ; D-GLOBALTHIS: deleting a CONFIGURABLE global object property -- one an
+    ; implicit assignment created -- removes the binding with it, since they are
+    ; the same location. The property went and the name stayed resolvable, so
+    ; `delete this.x` reported true and `typeof x` still answered its type.
+    fn syncGlobalObjectDelete:void (obj:EvalValue key:string) {
+        def g:EvalValue (this.theGlobalObject())
+        if (false == (g.equals(obj))) {
+            return
+        }
+        if (false == (context.has(key))) {
+            return
+        }
+        def owner:EvalContext (context.contextOwning(key))
+        if (false == owner.isGlobalScope) {
+            return
+        }
+        def _removed:boolean (owner.removeBinding(key))
     }
 
     ; Evaluate an UpdateExpression (i++, --i, a[i]++, o.x--) and RETURN its value
@@ -5357,6 +5513,30 @@ class ComponentEngine {
             return ""
         }
         return nmV.stringValue
+    }
+
+    ; D-ARGMAP: deleting a mapped index breaks the link for good. Re-creating
+    ; the key with `arguments[0] = v` used to REVIVE the mapping, so the write
+    ; landed on the parameter and the read came back with the parameter's value
+    ; instead of the one just stored.
+    fn unmapArgIndex:void (obj:EvalValue key:string) {
+        if (obj.valueType != 5) {
+            return
+        }
+        if (false == (has obj.objectMap "__argnames__")) {
+            return
+        }
+        def idx:int (this.canonicalArrayIndex(key))
+        if (idx < 0) {
+            return
+        }
+        def namesV:EvalValue (unwrap (get obj.objectMap "__argnames__"))
+        if (idx >= (array_length namesV.arrayValue)) {
+            return
+        }
+        ; Mutated in place: the names array is stored NON-WRITABLE (it is engine
+        ; bookkeeping, not a visible property), so setMember would refuse it.
+        namesV.setIndexAt(idx (EvalValue.string("")))
     }
 
     fn argMapScopeOf:EvalContext (obj:EvalValue) {
@@ -10775,6 +10955,15 @@ class ComponentEngine {
     ; Number.NaN` is false, and a TypeError in strict mode. The delete operator
     ; removed whatever it was pointed at, attributes and all.
     fn deleteRefused:boolean (obj:EvalValue key:string) {
+        ; D-GLOBALTHIS: a script's `var` and function declarations are properties
+        ; of the global object with { DontDelete }, so `delete this["x"]` answers
+        ; false and the property survives -- the same answer `delete x` gives.
+        if (this.isGlobalVarName(key)) {
+            def gv:EvalValue (this.theGlobalObject())
+            if (gv.equals(obj)) {
+                return true
+            }
+        }
         if (false == (this.isDescriptorObject(obj))) {
             return false
         }
@@ -15664,7 +15853,9 @@ class ComponentEngine {
                                 }
                                 return (EvalValue.boolean(false))
                             }
+                            this.unmapArgIndex(obj dkey)
                             obj.removeMember(dkey)
+                            this.syncGlobalObjectDelete(obj dkey)
                             if (this.isBuiltinPrototypeObject(obj)) {
                                 set obj.suppressedKeys dkey true
                             }
@@ -15676,7 +15867,9 @@ class ComponentEngine {
                             }
                             return (EvalValue.boolean(false))
                         }
+                        this.unmapArgIndex(obj tgt.name)
                         obj.removeMember(tgt.name)
+                        this.syncGlobalObjectDelete(obj tgt.name)
                         if (this.isBuiltinPrototypeObject(obj)) {
                             set obj.suppressedKeys tgt.name true
                         }

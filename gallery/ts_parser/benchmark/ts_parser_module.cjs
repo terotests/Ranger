@@ -3184,7 +3184,12 @@ class TSParserSimple  {
       this.syntaxError("Parse error: 'return' outside of a function");
     }
     const v = this.peekValue();
-    if ( ((v != ";") && (v != "}")) && (this.isAtEnd() == false) ) {
+    let argOnSameLine = true;
+    const argTok = this.peek();
+    if ( argTok.line != startTok.line ) {
+      argOnSameLine = false;
+    }
+    if ( argOnSameLine && ((v != ";") && ((v != "}") && (this.isAtEnd() == false))) ) {
       const arg = this.parseExprSeq();
       node.left = arg;
     }

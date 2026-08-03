@@ -1409,8 +1409,17 @@ class TSParserSimple {
     
     ; Check for return value
     def v (this.peekValue())
+    ; §7.9.1: a LineTerminator after `return` triggers automatic semicolon
+    ; insertion, so `return \n 1;` returns undefined and `1;` is a statement of
+    ; its own. The argument was parsed across the newline, so every such
+    ; function returned the value the spec says it discards.
+    def argOnSameLine:boolean true
+    def argTok (this.peek())
+    if (argTok.line != startTok.line) {
+      argOnSameLine = false
+    }
     ; No argument when the statement ends here: `;`, a closing brace, or EOF.
-    if ((v != ";") && (v != "}") && ((this.isAtEnd()) == false)) {
+    if (argOnSameLine && ((v != ";") && ((v != "}") && ((this.isAtEnd()) == false)))) {
       def arg (this.parseExprSeq())
       node.left = arg
     }

@@ -567,6 +567,44 @@ them aside cannot quietly flatter the remaining number.
   still index into it. A built-in has no source and keeps the `[native code]` form the
   spec allows.
 
+- **A catch clause scopes its parameter, and nothing else.** `var` is function-scoped,
+  but the handler's scope was an ordinary child, so `try { … } catch (e) { var foo = 1 }`
+  bound `foo` inside the clause and it vanished the moment the clause ended — a
+  declaration that reads as function-level in every JS engine silently did nothing.
+  The catch scope is now marked as a block scope: a `var` declared in it binds in the
+  nearest enclosing non-block scope. The catch parameter still shadows a `var` of the
+  same name for the *initialiser*, so `catch (e) { var e = 5 }` writes the parameter
+  and leaves the function-scoped `e` undefined.
+
+- **A label on a block belongs to the block.** The pending label was handed to whatever
+  statement ran first inside it, so in `wo: { do { … break wo } while (true); … }` the
+  do-while claimed `wo`, swallowed the break as its own, and carried on with the rest of
+  the block. Entering a block now drops the pending labels; the break travels out to the
+  labelled statement that actually owns the name.
+
+- **A `var` buried in a `try`/`if`/loop is a script var.** Only the *directly* top-level
+  declarations were hoisted into the script scope, so `try { __f() } catch (e) {}` before
+  `var __f = function () {}` raised a ReferenceError where the spec says the name exists
+  holding undefined and the call is a TypeError. The hoist now walks into every nested
+  statement, stopping at function boundaries.
+
+- **The binding and the global object property are one location, in both directions.**
+  A write through the binding already updated the property; a write through `this.x` did
+  not update the binding, so `this['v'] = 1; v` still read the old value. Deleting is
+  symmetric: a declared `var` is `{ DontDelete }` and `delete this['v']` answers false,
+  while a name an assignment created is configurable and deleting the property removes
+  the binding with it. A `var` lifted out of a `with` body is published the same way.
+
+- **A LineTerminator after `return` inserts a semicolon.** §7.9.1 — the argument was
+  parsed across the newline, so `return\n1;` returned 1 where every engine returns
+  undefined and treats `1;` as a statement of its own.
+
+- **Deleting a mapped `arguments` index unlinks it for good.** The mapping was inferred
+  from the index being present on the object, so `delete arguments[0]` followed by
+  `arguments[0] = 'A'` revived it: the write went to the parameter and the read came back
+  with the parameter's value. The delete now clears the mapped parameter NAME, which is
+  what makes the link one-way permanent.
+
 ### 2.4 Known-wrong, pinned rather than hidden
 
 - **A map key literally named `__proto__` cannot be stored.** The es6 target
@@ -666,18 +704,19 @@ Tagged in the source with these markers.
 | `D-FNSRC` | A function value carries the WHOLE source string it was parsed from, not a pre-cut slice, and `Function.prototype.toString` cuts `[node.start, node.end)` out of it. The whole string, because a nested function's offsets are absolute in the same one; a call swaps the source in effect so a closure returned by an eval'd factory records its own. |
 | `D-HOLES` | An absent array element is one shared sentinel whose `valueType` is 8, so a value-consuming path sees `undefined` without knowing about holes; only presence questions (`in`, `hasOwnProperty`, the iteration methods, key enumeration) inspect the slot. |
 | `D-ARRAYSPARSE` | Which key names an ELEMENT is decided by the key TEXT — only `ToString(ToUint32(k)) === k` — not by whether the operand was a number. An index too far past the end for the dense store is kept as an ordinary property, which cannot move `length` but also cannot crash the host. |
-| `D-GLOBALTHIS` | A script's `var` and function names are properties of the global object as well as bindings, kept in step on write; `globalThis` resolves to that same object. `let`/`const` are not properties — the declarative environment is separate. |
+| `D-GLOBALTHIS` | A script's `var` and function names are properties of the global object as well as bindings, kept in step in BOTH directions: a write through the binding updates the property, a write through `this.x` updates the binding, and deleting a configurable one removes both. A declared `var` is `{ DontDelete }`, so `delete this.x` answers false for it and true for a name an assignment created. `globalThis` resolves to that same object. `let`/`const` are not properties — the declarative environment is separate. |
 | `D-VALUEOF` | Every prototype's `valueOf` begins with `ToObject(this)`, so a null/undefined receiver throws before anything else — and a BUILT-IN never receives the sloppy-mode global-`this` substitution an ordinary function does, which is why the unbound `Object.prototype.valueOf()` throws. `Object.prototype`'s own `valueOf` boxes; the wrapper prototypes' unwrap. |
 | `D-NEWCALLEE` | `new <expression>` where the expression is a CALL constructs through the value the call returns. There is no name to look up, so the name-keyed constructor path cannot see it. |
 | `D-REGEXACCESSOR` | `source`/`global`/`ignoreCase`/`multiline` are accessors on `RegExp.prototype`, registered under a kind of their own (`regexpget`) so they are dispatchable values without becoming methods anyone can call as `re.source()`. The instance keeps its ES5 own data properties as well, so the two shapes coexist — see §2.4. |
 | `D-FINALLY` | A pending abrupt completion is set aside while the finally block runs and restored after, unless the finally produced one of its own — which replaces it. |
-| `D-LABELS` | A labelled break/continue carries the NAME alongside the flag. A loop takes the labels attached to it on entry; an abrupt completion whose label is not one of them stops the loop and stays set for the statement that owns it. |
+| `D-LABELS` | A labelled break/continue carries the NAME alongside the flag. A loop takes the labels attached to it on entry; an abrupt completion whose label is not one of them stops the loop and stays set for the statement that owns it. A label on a BLOCK is the block's own — the pending labels are dropped on entry so the first statement inside cannot claim them. |
 | `D-COMPLETION` | The completion value lives on the statement runner, not at the top level, so a value produced inside a loop or an `if` reaches `eval`. Only an ExpressionStatement produces one; every other kind completes empty and leaves the previous value standing. |
 | `D-ARRAYLIKE` | Array.prototype methods are generic over their receiver — the mutating ones still require a real array, since they write back into it — and read it LIVE: `length` once at the start through a full `[[Get]]`, then presence and value per index at the step that needs them. An absent index answers the same hole sentinel a real array's hole does, so every skip site already handles it. |
-| `D-ARGMAP` | A sloppy `arguments` object carries an index into the engine's list of call scopes plus the parameter names it maps, because there is nowhere on an EvalValue to put a scope. Reads and writes of a mapped index route to the binding; an accessor define, a delete, or strict mode removes the mapping. |
+| `D-ARGMAP` | A sloppy `arguments` object carries an index into the engine's list of call scopes plus the parameter names it maps, because there is nowhere on an EvalValue to put a scope. Reads and writes of a mapped index route to the binding; an accessor define or strict mode removes the mapping, and a `delete` clears the mapped NAME so re-creating the key cannot revive it. |
 | `D-JSON` | JSON.parse is a validating recursive descent over the JSON grammar, with a failure flag rather than a guess. The grammar is deliberately NOT the language's: its whitespace set, number syntax and string escapes are all narrower. |
 | `D-FNEXPRNAME` | A named function expression's own name is bound in a scope interposed between its closure and its body, so the name is reachable from inside and nowhere else. |
 | `D-DELETE` | Names created by assignment to an undeclared identifier are tracked, because that is the only thing separating a configurable implicit global from a non-configurable declared binding — and `delete` answers differently for the two. |
+| `D-CATCHVAR` | A catch clause gets a scope of its own, but it is marked as a BLOCK scope: it holds the parameter and nothing else. A `var` declared inside it binds in the nearest non-block scope, so it outlives the clause — and if the catch parameter shares the name, the initialiser writes the parameter while the function-scoped binding the hoist created stays undefined. |
 | `D-DATE` | A Date is arithmetic on one time value (`DateTime.rgr`, ECMA-262 §15.9.1). Local time is UTC and the clock is `hostNowMs`, so every result is reproducible. The default ToPrimitive hint behaves as STRING for a Date and as NUMBER for everything else, which is what makes `date + ''` the date's text while `+date` is its time. |
 
 ### Framework surface is deliberately outside the registry
@@ -712,9 +751,9 @@ more, not less.
 | `language/arguments-object` | **100%** (38/38, whole directory) |
 | `language/reserved-words` | **100%** (13/13, whole directory) |
 | `language/function-code` | **100%** (212/212, whole directory) |
+| `language/statements` | **100%** (562/562, whole directory) |
 | `language/types` | 99% (93/94) |
 | `built-ins/JSON` | 98% (46/47) |
-| `language/statements` | 98% (548/562) |
 | `language/eval-code` | 96% (55/57) |
 | `language/directive-prologue` | 94% (48/51) |
 | `built-ins/global` | 93% (25/27) |
@@ -722,12 +761,12 @@ more, not less.
 
 `built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
 `built-ins/RegExp`, `built-ins/Array`, `built-ins/Math`, `built-ins/Date`,
-`built-ins/Boolean` and `language/expressions` are each at 100% of their whole
-directory — no sampling, no
+`built-ins/Boolean`, `language/expressions` and `language/statements` are each at
+100% of their whole directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1233 checks, every one of them derived from Node —
-1218 expression probes plus 15 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1260 checks, every one of them derived from Node —
+1239 expression probes plus 21 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

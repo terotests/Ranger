@@ -1562,6 +1562,35 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["eval-indirect-not-caller-scope", "function g() { var loc = 7; var me = eval; return String(me('typeof loc')); } return g();", "indirecteval"],
   ["eval-direct-sees-caller-scope", "function g() { var loc = 7; return String(eval('loc')); } return g();", "indirecteval"],
   ["eval-non-string-passthrough", "var me = eval; return String(me(42));", "indirecteval"],
+
+  // --- §12.14: a catch clause scopes its PARAMETER, nothing else ------------
+  ["catchvar-outlives-clause", "try { throw 1; } catch (e) { var v = 'kept'; } return String(v);", "catchvar"],
+  ["catchvar-typeof-after", "try { throw 1; } catch (e) { var v2 = 1; } return typeof v2;", "catchvar"],
+  ["catchvar-param-shadows", "try { throw 1; } catch (e) { var e = 5; } return String(typeof e);", "catchvar"],
+  ["catchvar-param-not-leaked", "try { throw 9; } catch (e) { ; } return String(typeof e);", "catchvar"],
+  ["catchvar-hoisted-before-clause", "var r = typeof v3; try { throw 1; } catch (e) { var v3 = 2; } return String(r);", "catchvar"],
+  ["catchvar-let-stays-in-clause", "try { throw 1; } catch (e) { let q = 3; } return String(typeof q);", "catchvar"],
+  ["catchvar-nested", "try { throw 1; } catch (a) { try { throw 2; } catch (b) { var z = 8; } } return String(z);", "catchvar"],
+  ["catchvar-assign-param", "var got = ''; try { throw 1; } catch (e) { e = 7; got = String(e); } return got;", "catchvar"],
+
+  // --- §12.12: a label on a BLOCK is the block's, not the first statement's --
+  ["label-block-break-from-loop", "var i = 0; wo: { do { i++; if (i === 10) { break wo; } } while (true); i = 99; } return String(i);", "labelblock"],
+  ["label-block-break-from-while", "var n = 0; lb: { while (true) { n++; if (n === 3) { break lb; } } n = 99; } return String(n);", "labelblock"],
+  ["label-block-break-from-for", "var s = 0; lc: { for (var k = 0; k < 9; k++) { s += k; if (k === 2) { break lc; } } s = 99; } return String(s);", "labelblock"],
+  ["label-loop-keeps-own-label", "var t = 0; ld: for (var m = 0; m < 3; m++) { for (var p = 0; p < 3; p++) { if (p === 1) { continue ld; } t++; } } return String(t);", "labelblock"],
+  ["label-block-inner-loop-unlabelled-break", "var u = 0; le: { for (var w = 0; w < 3; w++) { break; } u = 5; } return String(u);", "labelblock"],
+
+  // --- §7.9.1: a LineTerminator after `return` inserts a semicolon ----------
+  ["asi-return-newline", "function f() { return\n1; } return String(f());", "asireturn"],
+  ["asi-return-same-line", "function f() { return 1; } return String(f());", "asireturn"],
+  ["asi-return-newline-object", "function f() { return\n{ a: 1 }; } return String(f());", "asireturn"],
+  ["asi-return-paren-same-line", "function f() { return (\n1); } return String(f());", "asireturn"],
+
+  // --- §10.6: deleting a mapped index unlinks it for good -------------------
+  ["argmap-delete-then-set", "function f(a) { delete arguments[0]; arguments[0] = 'A'; return String(arguments[0]); } return f(1);", "argmap"],
+  ["argmap-delete-then-set-param-untouched", "function f(a) { delete arguments[0]; arguments[0] = 'A'; return String(a); } return f(1);", "argmap"],
+  ["argmap-delete-reads-undefined", "function f(a) { delete arguments[0]; return String(arguments[0]); } return f(1);", "argmap"],
+  ["argmap-no-delete-still-mapped", "function f(a) { arguments[0] = 'A'; return String(a); } return f(1);", "argmap"],
 ];
 
 /**
@@ -1617,6 +1646,18 @@ const SCRIPT_PROBES: Array<[name: string, src: string]> = [
   ["script-var-initialiser-runs-in-order", "var a = 1;\nvar b = a + 1;\n__out__ = String(a) + String(b);"],
   ["script-call-before-var-fn-is-typeerror", "try { __f(); __out__ = 'no-throw'; } catch (e) { __out__ = e.name; }\nvar __f = function () { return 1; };"],
   ["script-for-head-var-is-hoisted", "try { idx = idx; __out__ = 'ok'; } catch (e) { __out__ = e.name; }\nfor (var idx = 0; idx < 2; idx++) { ; }"],
+  // §10.5: a `var` buried in a try/if/loop is still a script var, so it exists
+  // (holding undefined) from the first statement — a call through it is a
+  // TypeError, not a ReferenceError.
+  ["script-call-before-nested-var-fn-is-typeerror", "try { __g(); __out__ = 'no-throw'; } catch (e) { __out__ = e.name; }\ntry { var __g = function () { return 1; }; } catch (e2) {}"],
+  ["script-nested-var-hoisted-to-undefined", "__out__ = String(typeof __h);\nif (true) { var __h = 1; }"],
+  // The binding and the global object property are ONE location, in both
+  // directions.
+  ["script-global-property-write-visible-as-name", "this['dv'] = 'baloon';\n__out__ = String(dv);\nvar dv;"],
+  ["script-global-var-is-dontdelete", "var dd = 1;\n__out__ = String(delete this['dd']) + String(delete dd) + String(dd);"],
+  ["script-implicit-global-is-deletable", "ig = 1;\n__out__ = String(delete this['ig']) + String(typeof ig);"],
+  // §12.10: a `var` in a with body belongs to the script, property and all.
+  ["script-with-var-is-global-property", "var wo = { a: 2 };\nwith (wo) { var wf = function () { return 1; }; }\n__out__ = String(wo.hasOwnProperty('wf')) + String(typeof this.wf);"],
 ];
 
 /**
