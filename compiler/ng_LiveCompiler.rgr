@@ -594,8 +594,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     this.finishWalkNode(wr)
   }
   fn walkCommandList:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def paren_suppressed:boolean wr.suppress_expr_parens
+    wr.suppress_expr_parens = false
     if ((ctx.expressionLevel()) == 0) {
-      wr.newline()      
+      wr.newline()
       if( (ctx.getTargetLang()) == 'swift3') {
         def opn (unwrap node.operator_node)
         def nn (opn.getSecond())
@@ -607,13 +609,29 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         ; 
       }
     }
-    if ((ctx.expressionLevel()) > 1) {
+    def cmdl_wraps:boolean ((ctx.expressionLevel()) > 1)
+    if (cmdl_wraps && paren_suppressed) {
+      cmdl_wraps = false
+    }
+    if cmdl_wraps {
+      ; an operator whose template is itself `( … )` never needs the pair
+      if ((array_length node.children) > 0) {
+        def cmdlFc:CodeNode (node.getFirst())
+        if (langWriter.opWritesOwnParens(cmdlFc.vref node ctx)) {
+          cmdl_wraps = false
+        }
+      }
+    }
+    if cmdl_wraps {
       wr.out('(' false)
     }
-    for cmd.children c:CodeNode i {      
+    def prev_op_np:boolean wr.current_op_no_parens
+    wr.current_op_no_parens = (paren_suppressed || cmdl_wraps)
+    for cmd.children c:CodeNode i {
       this.walkCommand(c node ctx wr)
     }
-    if ((ctx.expressionLevel()) > 1) {
+    wr.current_op_no_parens = prev_op_np
+    if cmdl_wraps {
       wr.out(')' false)
     }
     if ((ctx.expressionLevel()) == 0) {
@@ -796,17 +814,48 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         case "idx" {
           ; a usize index position: an integer literal is already a usize
           ; literal and needs no cast; anything else wraps `( … ) as usize`
+          ; — with the child's own wrap suppressed, since the parens here
+          ; already delimit it
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
+            ; a macro expansion wraps its literal in parens — unwrap before
+            ; the literal test, or `(0)` casts where `0` would not
+            while (arg.expression && ((array_length arg.children) == 1)) {
+              arg = (arg.getFirst())
+            }
             if (arg.value_type == RangerNodeType.Integer) {
               wr.out(("" + arg.int_value) false)
             } {
               wr.out("(" false)
               ctx.setInExpr()
+              wr.suppress_expr_parens = true
               this.WalkNode(arg ctx wr)
+              wr.suppress_expr_parens = false
               ctx.unsetInExpr()
               wr.out(") as usize" false)
+            }
+          }
+        }
+        case "u8v" {
+          ; a u8 value slot: an integer literal infers u8 by itself, an
+          ; expression casts — with its own wrap suppressed
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            while (arg.expression && ((array_length arg.children) == 1)) {
+              arg = (arg.getFirst())
+            }
+            if (arg.value_type == RangerNodeType.Integer) {
+              wr.out(("" + arg.int_value) false)
+            } {
+              wr.out("(" false)
+              ctx.setInExpr()
+              wr.suppress_expr_parens = true
+              this.WalkNode(arg ctx wr)
+              wr.suppress_expr_parens = false
+              ctx.unsetInExpr()
+              wr.out(") as u8" false)
             }
           }
         }

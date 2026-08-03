@@ -2108,6 +2108,7 @@ class RangerRustClassWriter {
             push tempVars tmpName
             ; Check if parameter needs &mut - if so, declare temp as mut
             def needsMutDecl:boolean false
+            def preevalScalar:boolean false
             if (!null? fnD3) {
               def fnD:RangerAppFunctionDesc (unwrap fnD3)
               if (argIdx < (array_length fnD.params)) {
@@ -2117,6 +2118,14 @@ class RangerRustClassWriter {
                 }
                 if (argP.rust_borrow_type == 2) {
                   needsMutDecl = true
+                }
+                def argPNN@(optional):CodeNode argP.nameNode
+                if (!null? argPNN) {
+                  def argPN:CodeNode (unwrap argPNN)
+                  def argPT:string argPN.type_name
+                  if (((((argPT == "int") || (argPT == "double")) || (argPT == "boolean")) || (argPT == "char")) || (TTypeRegistry.isIntAlias(argPT))) {
+                    preevalScalar = true
+                  }
                 }
               }
             }
@@ -2128,7 +2137,13 @@ class RangerRustClassWriter {
             ctx.setInExpr()
             this.WalkNode(argNode ctx wr)
             ctx.unsetInExpr()
-            wr.out(".clone();" true)
+            ; a Copy scalar copies by itself — `.clone()` on it is clippy's
+            ; clone_on_copy
+            if preevalScalar {
+              wr.out(";" true)
+            } {
+              wr.out(".clone();" true)
+            }
             ; a mutable temp is a copy of the argument; the callee's writes
             ; land in the copy, so a writable source takes the copy back
             if (needsMutDecl && (argNode.expression == false)) {
@@ -2231,11 +2246,15 @@ class RangerRustClassWriter {
                   wr.out("&mut " false)
                 } {
                   if needsImmutableRef {
-                    wr.out("&" false)
+                    if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                      wr.out("&" false)
+                    }
                   }
                 }
                 ctx.setInExpr()
+                wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
+                wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
                 
                 ; Check if source is reference and target expects owned - add clone
@@ -2357,20 +2376,28 @@ class RangerRustClassWriter {
             
             if needsMutRef2 {
               ; Parameter needs &mut - output &mut prefix
-              wr.out("&mut " false)
+              if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
+                wr.out("&mut " false)
+              }
               ctx.setInExpr()
+              wr.suppress_expr_parens = true
               this.WalkNode(nVal ctx wr)
+              wr.suppress_expr_parens = false
               ctx.unsetInExpr()
             } {
               if needsImmutableRef2 {
                 ; Parameter needs & - output & prefix without clone
                 wr.out("&" false)
                 ctx.setInExpr()
+                wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
+                wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
               } {
                 ctx.setInExpr()
+                wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
+                wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
                 ; In Rust, values are moved when passed, so clone when passing a variable
                 def argNameN:CodeNode (unwrap arg.nameNode)
@@ -2469,22 +2496,32 @@ class RangerRustClassWriter {
             }
             
             if needsMutRef {
-              wr.out("&mut " false)
+              if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
+                wr.out("&mut " false)
+              }
               ctx.setInExpr()
+              wr.suppress_expr_parens = true
               this.WalkNode(nVal ctx wr)
+              wr.suppress_expr_parens = false
               ctx.unsetInExpr()
             } {
               ; Check for immutable borrow parameter
               def needsImmutableBorrow2:boolean (arg.rust_borrow_type == 1)
               if needsImmutableBorrow2 {
                 ; Immutable reference - pass & without clone
-                wr.out("&" false)
+                if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                  wr.out("&" false)
+                }
                 ctx.setInExpr()
+                wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
+                wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
               } {
                 ctx.setInExpr()
+                wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
+                wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
                 ; Clone non-primitives when passing by value
                 def argNameN:CodeNode (unwrap arg.nameNode)
@@ -2573,20 +2610,30 @@ class RangerRustClassWriter {
             def needsImmutableBorrow3:boolean (arg.rust_borrow_type == 1)
             
             if needsMutRef3 {
-              wr.out("&mut " false)
+              if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
+                wr.out("&mut " false)
+              }
               ctx.setInExpr()
+              wr.suppress_expr_parens = true
               this.WalkNode(nVal ctx wr)
+              wr.suppress_expr_parens = false
               ctx.unsetInExpr()
             } {
               if needsImmutableBorrow3 {
                 ; Immutable reference - pass & without clone
-                wr.out("&" false)
+                if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                  wr.out("&" false)
+                }
                 ctx.setInExpr()
+                wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
+                wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
               } {
                 ctx.setInExpr()
+                wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
+                wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
                 ; Clone non-primitives
                 def argNameN:CodeNode (unwrap arg.nameNode)
@@ -2691,17 +2738,25 @@ class RangerRustClassWriter {
         
         if needsMutRef {
           ; Parameter needs &mut - output &mut prefix
-          wr.out("&mut " false)
+          if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
+            wr.out("&mut " false)
+          }
           ctx.setInExpr()
+          wr.suppress_expr_parens = true
           this.WalkNode(nVal ctx wr)
+          wr.suppress_expr_parens = false
           ctx.unsetInExpr()
         } {
           ; Check for immutable borrow
           if needsImmutableBorrow {
             ; Parameter takes immutable reference - output & prefix
-            wr.out("&" false)
+            if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+              wr.out("&" false)
+            }
             ctx.setInExpr()
+            wr.suppress_expr_parens = true
             this.WalkNode(nVal ctx wr)
+            wr.suppress_expr_parens = false
             ctx.unsetInExpr()
           } {
           ; Standard case - target expects owned value
@@ -2722,7 +2777,9 @@ class RangerRustClassWriter {
           if value_is_already_boxed_trait {
             ; Already Rc<RefCell<dyn Trait>>, clone the Rc for shared ownership
             ctx.setInExpr()
+            wr.suppress_expr_parens = true
             this.WalkNode(nVal ctx wr)
+            wr.suppress_expr_parens = false
             ctx.unsetInExpr()
             wr.out(".clone()" false)
           } {
@@ -2765,7 +2822,9 @@ class RangerRustClassWriter {
                 }
               }
               ctx.setInExpr()
+              wr.suppress_expr_parens = true
               this.WalkNode(nVal ctx wr)
+              wr.suppress_expr_parens = false
               ctx.unsetInExpr()
               ; In Rust, values are moved when passed, so clone when passing a variable
               ; This applies to strings and objects (non-primitives)
@@ -2907,8 +2966,16 @@ class RangerRustClassWriter {
       header.out("#![allow(unused_parens)]" true)
       header.out("#![allow(unused_mut)]" true)
       header.out("#![allow(unused_variables)]" true)
+      header.out("#![allow(unused_assignments)]" true)
       header.out("#![allow(non_snake_case)]" true)
       header.out("#![allow(dead_code)]" true)
+      header.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
+      header.out("// itself - statement-level clamp chains, nested ifs, function arity and" true)
+      header.out("// type names - which the transpiler must not rewrite or rename." true)
+      header.out("#![allow(clippy::manual_clamp)]" true)
+      header.out("#![allow(clippy::collapsible_if)]" true)
+      header.out("#![allow(clippy::too_many_arguments)]" true)
+      header.out("#![allow(clippy::upper_case_acronyms)]" true)
       header.out("" true)
       header.out("use std::rc::Rc;" true)
       ; Weak only reaches the output through a @(weak) field; without one
@@ -3000,7 +3067,27 @@ class RangerRustClassWriter {
     wr.out(((") ->  " + cl.name) + " {") true)
     wr.indent(1)
     wr.newline()
-    wr.out((("let mut me = " + cl.name) + " { ") true)
+    ; without a constructor body the struct literal IS the tail expression;
+    ; `let mut me = …; me` right after it is clippy's let_and_return
+    def ctor_needs_me:boolean false
+    if cl.has_constructor {
+      def cnm@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? cnm) {
+        def cnmF:RangerAppFunctionDesc (unwrap cnm)
+        def cnmB@(optional):CodeNode cnmF.fnBody
+        if (!null? cnmB) {
+          def cnmBB:CodeNode (unwrap cnmB)
+          if ((array_length cnmBB.children) > 0) {
+            ctor_needs_me = true
+          }
+        }
+      }
+    }
+    if ctor_needs_me {
+      wr.out((("let mut me = " + cl.name) + " { ") true)
+    } {
+      wr.out((cl.name + " { ") true)
+    }
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
       def nn@(optional):CodeNode pvar.node
@@ -3053,9 +3140,9 @@ class RangerRustClassWriter {
       }
     }
     wr.indent(-1)
-    wr.out("};" true)
-    wr.newline()
-    if cl.has_constructor {
+    if ctor_needs_me {
+      wr.out("};" true)
+      wr.newline()
       def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
         def c:RangerAppFunctionDesc (unwrap constr)
@@ -3067,8 +3154,10 @@ class RangerRustClassWriter {
           this.WalkNode(fnB sCtx wr)
         }
       }
+      wr.out("me" true)
+    } {
+      wr.out("}" true)
     }
-    wr.out("me" true)
     wr.indent(-1)
     wr.out("}" true)
     thisName = "self"
@@ -3489,6 +3578,120 @@ class RangerRustClassWriter {
   }
 
   ; Custom operator handler for Rust - handles push with string conversion and optional assignments
+  ; the rust templates of these operators already write a full `( … )`
+  ; (bit ops, array_length) or an atomic postfix form (itemAt, format!) —
+  ; the expression walker's extra pair around them is clippy's
+  ; double_parens
+  fn opWritesOwnParens:boolean (opName:string node:CodeNode ctx:RangerAppWriterContext) {
+    if (opName == "bit_and") { return true }
+    if (opName == "bit_or") { return true }
+    if (opName == "bit_xor") { return true }
+    if (opName == "bit_shl") { return true }
+    if (opName == "bit_shr") { return true }
+    if (opName == "bit_ushr") { return true }
+    if (opName == "bit_not") { return true }
+    if (opName == "array_length") { return true }
+    if (opName == "itemAt") { return true }
+    ; cast tails: `as` binds tighter than every binary operator
+    if (opName == "to_int") { return true }
+    if (opName == "to_double") { return true }
+    if (opName == "+") {
+      if (node.eval_type == RangerNodeType.String) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; one operand of an operator custom: bare when atomic (a literal, a
+  ; name, a path), `( … )` otherwise — and the child is told its caller
+  ; delimits it, so it adds no pair of its own
+  fn rustWriteBitOperand:void (o:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode (this.rustUnwrapParens(o))
+    def bare:boolean false
+    if (oo.value_type == RangerNodeType.Integer) { bare = true }
+    if (oo.value_type == RangerNodeType.Double) { bare = true }
+    if (oo.value_type == RangerNodeType.VRef) { bare = true }
+    ctx.setInExpr()
+    if (bare == false) {
+      wr.out("(" false)
+    }
+    wr.suppress_expr_parens = true
+    this.WalkNode(oo ctx wr)
+    wr.suppress_expr_parens = false
+    if (bare == false) {
+      wr.out(")" false)
+    }
+    ctx.unsetInExpr()
+  }
+
+  ; is this argument already a `&` reference — a borrowed parameter passed
+  ; straight through? `f(&x)` where x is `&[u8]` is clippy's
+  ; needless_borrow; the name alone re-borrows correctly.
+  fn rustArgIsAlreadyRef:boolean (nVal:CodeNode) {
+    if (nVal.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((array_length nVal.ns) > 1) {
+      return false
+    }
+    if nVal.hasParamDesc {
+      def rp:RangerAppParamDesc nVal.paramDesc
+      if (rp.rust_borrow_type == 1) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; the &mut twin: a mut-reference parameter passed straight through needs
+  ; no second `&mut` — the name reborrows
+  fn rustArgIsAlreadyMutRef:boolean (nVal:CodeNode) {
+    if (nVal.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((array_length nVal.ns) > 1) {
+      return false
+    }
+    if nVal.hasParamDesc {
+      def rp:RangerAppParamDesc nVal.paramDesc
+      if (rp.is_class_variable == false) {
+        if (rp.rust_borrow_type == 2) {
+          return true
+        }
+        ; a mut-reference PARAMETER — locals with the flag stay plain
+        if (rp.needs_cpp_reference && (rp.init_cnt == 0)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; one side of a string comparison: a literal stays `"lit"` — String
+  ; compares with &str directly
+  fn rustWriteCmpOperand:void (o:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode (this.rustUnwrapParens(o))
+    if (oo.value_type == RangerNodeType.String) {
+      wr.out(((("\"" + (this.EncodeString(oo ctx wr))) + "\"")) false)
+      return
+    }
+    ctx.setInExpr()
+    this.WalkNode(oo ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  ; an operand cast to f64: an integer literal is the f64 literal itself
+  fn rustWriteCastOperandF64:void (o:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode (this.rustUnwrapParens(o))
+    if (oo.value_type == RangerNodeType.Integer) {
+      wr.out((("" + oo.int_value) + ".0") false)
+      return
+    }
+    this.rustWriteBitOperand(oo ctx wr)
+    wr.out(" as f64" false)
+  }
+
   ; --- string concatenation as format! (PLAN_RUST_IDIOMATICITY item 5) ---
 
   ; unwraps `( x )` nesting to the single meaningful child
@@ -3561,7 +3764,11 @@ class RangerRustClassWriter {
         wr.out(", " false)
         def oo:CodeNode (this.rustStripToString(o))
         ctx.setInExpr()
+        wr.suppress_expr_parens = true
+        wr.in_format_args = true
         this.WalkNode(oo ctx wr)
+        wr.in_format_args = false
+        wr.suppress_expr_parens = false
         ctx.unsetInExpr()
       }
     }
@@ -3622,7 +3829,12 @@ class RangerRustClassWriter {
     }
     def opN:CodeNode (rr.getFirst())
     def op:string opN.vref
-    if ((((op != "+") && (op != "-")) && (op != "*")) && (op != "/")) {
+    if (op == "bit_shl") { op = "<<" }
+    if (op == "bit_shr") { op = ">>" }
+    if (op == "bit_and") { op = "&" }
+    if (op == "bit_or") { op = "|" }
+    if (op == "bit_xor") { op = "^" }
+    if ((((((((op != "+") && (op != "-")) && (op != "*")) && (op != "/")) && (op != "<<")) && (op != ">>")) && (op != "&")) && ((op != "|") && (op != "^"))) {
       return false
     }
     def firstOperand:CodeNode (this.rustUnwrapParens((rr.getSecond())))
@@ -3656,9 +3868,235 @@ class RangerRustClassWriter {
       def arg:CodeNode (node.getSecond())
       def pops:[CodeNode]
       this.rustCollectConcatOperands(arg pops)
+      ; a print of nothing but an empty literal is `println!()`
+      def all_empty:boolean true
+      for pops po:CodeNode poi {
+        if ((po.value_type != RangerNodeType.String) || ((strlen po.string_value) > 0)) {
+          all_empty = false
+        }
+      }
+      if all_empty {
+        wr.out("println!();" true)
+        return
+      }
       wr.out("println!(" false)
       this.writeRustFormatOps(pops ctx wr)
       wr.out(");" true)
+      return
+    }
+
+    ; the bit operators: one pair around the whole, each operand bare when
+    ; it is atomic or writes its own parens, `( … )` otherwise — never the
+    ; stacked `((oldVal) | (((1) << (bit))))` shape of the old templates
+    if ((((((cmd == "bit_and") || (cmd == "bit_or")) || (cmd == "bit_xor")) || (cmd == "bit_shl")) || (cmd == "bit_shr")) || (cmd == "bit_not")) {
+      if (cmd == "bit_not") {
+        wr.out("(!" false)
+        this.rustWriteBitOperand((node.getSecond()) ctx wr)
+        wr.out(")" false)
+        return
+      }
+      def bopStr:string "&"
+      if (cmd == "bit_or") { bopStr = "|" }
+      if (cmd == "bit_xor") { bopStr = "^" }
+      if (cmd == "bit_shl") { bopStr = "<<" }
+      if (cmd == "bit_shr") { bopStr = ">>" }
+      ; the caller may already delimit this emission — an argument slot, a
+      ; wrapped operand of another custom — and then the pair is clippy's
+      ; double_parens
+      def bit_outer:boolean (wr.current_op_no_parens == false)
+      if bit_outer {
+        wr.out("(" false)
+      }
+      this.rustWriteBitOperand((node.getSecond()) ctx wr)
+      wr.out(((" " + bopStr) + " ") false)
+      this.rustWriteBitOperand((node.getThird()) ctx wr)
+      if bit_outer {
+        wr.out(")" false)
+      }
+      return
+    }
+
+    ; to_int floors: `(x).floor() as i64`, with the operand bare when
+    ; atomic — never the doubled `((…))` of the template form
+    if (cmd == "to_int") {
+      this.rustWriteBitOperand((node.getSecond()) ctx wr)
+      wr.out(".floor() as i64" false)
+      return
+    }
+
+    ; int / int gives a double: each operand is `x as f64`, an integer
+    ; literal is the f64 literal itself
+    if (cmd == "/") {
+      this.rustWriteCastOperandF64((node.getSecond()) ctx wr)
+      wr.out(" / " false)
+      this.rustWriteCastOperandF64((node.getThird()) ctx wr)
+      return
+    }
+
+    ; substring: skip/take — the take count drops a literal-zero start
+    ; instead of emitting `x - 0`
+    if (cmd == "substring") {
+      ctx.setInExpr()
+      this.WalkNode((node.getSecond()) ctx wr)
+      def subStart:CodeNode (this.rustUnwrapParens((node.getThird())))
+      def subEnd:CodeNode (this.rustUnwrapParens((itemAt node.children 3)))
+      def startIsZero:boolean false
+      if (subStart.value_type == RangerNodeType.Integer) {
+        if (subStart.int_value == 0) {
+          startIsZero = true
+        }
+      }
+      wr.out(".chars()" false)
+      if (startIsZero == false) {
+        wr.out(".skip(" false)
+        if (subStart.value_type == RangerNodeType.Integer) {
+          wr.out(("" + subStart.int_value) false)
+        } {
+          wr.out("(" false)
+          wr.suppress_expr_parens = true
+          this.WalkNode(subStart ctx wr)
+          wr.suppress_expr_parens = false
+          wr.out(") as usize" false)
+        }
+        wr.out(")" false)
+      }
+      wr.out(".take(" false)
+      if startIsZero {
+        if (subEnd.value_type == RangerNodeType.Integer) {
+          wr.out(("" + subEnd.int_value) false)
+        } {
+          wr.out("(" false)
+          wr.suppress_expr_parens = true
+          this.WalkNode(subEnd ctx wr)
+          wr.suppress_expr_parens = false
+          wr.out(") as usize" false)
+        }
+      } {
+        wr.out("(" false)
+        wr.suppress_expr_parens = true
+        this.WalkNode(subEnd ctx wr)
+        wr.suppress_expr_parens = false
+        wr.out(" - " false)
+        wr.suppress_expr_parens = true
+        this.WalkNode(subStart ctx wr)
+        wr.suppress_expr_parens = false
+        wr.out(") as usize" false)
+      }
+      wr.out(").collect::<String>()" false)
+      ctx.unsetInExpr()
+      return
+    }
+
+    ; strfromcode: a char is Display — inside a format! argument the
+    ; .to_string() is dropped
+    if (cmd == "strfromcode") {
+      def sfcInFmt:boolean wr.in_format_args
+      wr.out("char::from_u32(" false)
+      wr.suppress_expr_parens = true
+      ctx.setInExpr()
+      this.WalkNode((node.getSecond()) ctx wr)
+      ctx.unsetInExpr()
+      wr.suppress_expr_parens = false
+      wr.out(" as u32).unwrap_or('\\0')" false)
+      if (sfcInFmt == false) {
+        wr.out(".to_string()" false)
+      }
+      return
+    }
+
+    ; a >= lo && a <= hi is a range containment
+    if (cmd == "&&") {
+      def rcL:CodeNode (this.rustUnwrapParens((node.getSecond())))
+      def rcR:CodeNode (this.rustUnwrapParens((node.getThird())))
+      def rc_ok:boolean false
+      if (((array_length rcL.children) == 3) && ((array_length rcR.children) == 3)) {
+        def rcLop:CodeNode (rcL.getFirst())
+        def rcRop:CodeNode (rcR.getFirst())
+        if ((rcLop.vref == ">=") && (rcRop.vref == "<=")) {
+          def rcLv:CodeNode (this.rustUnwrapParens((rcL.getSecond())))
+          def rcRv:CodeNode (this.rustUnwrapParens((rcR.getSecond())))
+          if ((this.rustPlainScalarPath(rcLv)) && (this.rustPlainScalarPath(rcRv))) {
+            if ((array_length rcLv.ns) == (array_length rcRv.ns)) {
+              rc_ok = true
+              for rcLv.ns rcPart:string rcPi {
+                if ((itemAt rcRv.ns rcPi) != rcPart) {
+                  rc_ok = false
+                }
+              }
+            }
+          }
+        }
+      }
+      if rc_ok {
+        wr.out("(" false)
+        ctx.setInExpr()
+        wr.suppress_expr_parens = true
+        this.WalkNode((rcL.getThird()) ctx wr)
+        wr.suppress_expr_parens = false
+        wr.out("..=" false)
+        wr.suppress_expr_parens = true
+        this.WalkNode((rcR.getThird()) ctx wr)
+        wr.suppress_expr_parens = false
+        wr.out(").contains(&" false)
+        this.WalkNode((rcL.getSecond()) ctx wr)
+        wr.out(")" false)
+        ctx.unsetInExpr()
+        return
+      }
+      ctx.setInExpr()
+      this.WalkNode((node.getSecond()) ctx wr)
+      wr.out(" && " false)
+      this.WalkNode((node.getThird()) ctx wr)
+      ctx.unsetInExpr()
+      return
+    }
+
+    ; to_double of an integer literal is the f64 literal itself; anything
+    ; else is `x as f64` with parens only when the operand needs them
+    if (cmd == "to_double") {
+      def tdArg:CodeNode (this.rustUnwrapParens((node.getSecond())))
+      if (tdArg.value_type == RangerNodeType.Integer) {
+        wr.out((("" + tdArg.int_value) + ".0") false)
+        return
+      }
+      this.rustWriteBitOperand(tdArg ctx wr)
+      wr.out(" as f64" false)
+      return
+    }
+
+    ; string equality: a literal operand compares as `&str` — building a
+    ; String just to compare it is clippy's cmp_owned. A comparison with an
+    ; empty literal is `.is_empty()`, and a boolean compared to a literal
+    ; is the value itself or its negation.
+    if ((cmd == "==") || (cmd == "!=")) {
+      def cmpL:CodeNode (this.rustUnwrapParens((node.getSecond())))
+      def cmpR:CodeNode (this.rustUnwrapParens((node.getThird())))
+      ; boolean == literal
+      if (cmpR.value_type == RangerNodeType.Boolean) {
+        def cmpNeg:boolean (cmpR.boolean_value == false)
+        if (cmd == "!=") {
+          cmpNeg = (cmpNeg == false)
+        }
+        if cmpNeg {
+          wr.out("!" false)
+        }
+        this.rustWriteBitOperand(cmpL ctx wr)
+        return
+      }
+      ; string ==/!= "" is (!)x.is_empty()
+      if (cmpR.value_type == RangerNodeType.String) {
+        if ((strlen cmpR.string_value) == 0) {
+          if (cmd == "!=") {
+            wr.out("!" false)
+          }
+          this.rustWriteBitOperand(cmpL ctx wr)
+          wr.out(".is_empty()" false)
+          return
+        }
+      }
+      this.rustWriteCmpOperand(cmpL ctx wr)
+      wr.out((((" " + cmd) + " ")) false)
+      this.rustWriteCmpOperand(cmpR ctx wr)
       return
     }
 
@@ -4249,7 +4687,9 @@ class RangerRustClassWriter {
                   if (!null? n) {
                     def nVal:CodeNode (unwrap n)
                     ctx.setInExpr()
+                    wr.suppress_expr_parens = true
                     this.WalkNode(nVal ctx wr)
+                    wr.suppress_expr_parens = false
                     ctx.unsetInExpr()
                     ; Clone if needed for strings/objects
                     def argNameN:CodeNode (unwrap arg.nameNode)
@@ -4462,7 +4902,10 @@ class RangerRustClassWriter {
           wr.out(".to_string()" false)
         }
       }
-      ; Clone when needed to avoid move errors
+      ; Clone when needed to avoid move errors — never for a Copy scalar
+      if (((arr_type == "int") || (arr_type == "double")) || (arr_type == "boolean")) {
+        needs_clone = false
+      }
       if needs_clone {
         wr.out(".clone()" false)
       } {
