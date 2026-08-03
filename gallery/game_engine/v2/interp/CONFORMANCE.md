@@ -358,6 +358,31 @@ them aside cannot quietly flatter the remaining number.
   was read, so the loop ran its body with `k` never set. A property deleted before
   it is reached is also no longer visited — the key list is snapshotted at entry.
 
+- **Negative zero survives `Math`.** `Math.abs(-0)` is `+0`; `Math.floor(-0)`,
+  `Math.round(-0.5)` and `Math.ceil(x)` for `-1 < x < 0` are all `-0`. Every one of
+  them went through `0 - x`, which yields `+0` for both signs. `Math.round` also
+  stopped using `floor(x + 0.5)` blindly: that addition ROUNDS, so an x just under
+  0.5 came back 1 instead of `+0` and a large negative integer walked one step
+  toward zero.
+
+- **A named function expression binds its own name inside its own body.**
+  `var f = function fact(n) { return n * fact(n - 1); }` could not recurse — the
+  name was never bound anywhere — while `fact` still stays invisible outside.
+
+- **A constructor that returns a FUNCTION yields that function.** Only `valueType 5`
+  counted as "returned an object", so a returned function, array, Map or Set was
+  thrown away and the fresh instance returned instead.
+
+- **Direct `eval` inherits the strictness of the code that called it**, so
+  `"use strict"; eval("var arguments;")` is an early SyntaxError even though the
+  eval'd text says nothing about strictness. Only the text's own directive was
+  consulted, so every strict-mode early error reached through eval went unreported.
+
+- **`F.prototype` is fully formed when it is first read** — it carries
+  `constructor` back to F (non-enumerable) and inherits from `Object.prototype`.
+  Only `new F()` filled those in, so a program that merely looked at
+  `F.prototype.constructor` saw undefined.
+
 - **An invalid RegExp pattern is a `SyntaxError`.** The compiler accepted every
   pattern it was given: `a**`, `*a`, `0{2,1}`, `x{1,2}{1}`, `[b-a]`, `[a-dc-b]` and a
   trailing backslash all built a working RegExp that simply never matched. A
@@ -541,6 +566,7 @@ Tagged in the source with these markers.
 | `D-LABELS` | A labelled break/continue carries the NAME alongside the flag. A loop takes the labels attached to it on entry; an abrupt completion whose label is not one of them stops the loop and stays set for the statement that owns it. |
 | `D-COMPLETION` | The completion value lives on the statement runner, not at the top level, so a value produced inside a loop or an `if` reaches `eval`. Only an ExpressionStatement produces one; every other kind completes empty and leaves the previous value standing. |
 | `D-ARRAYLIKE` | Array.prototype methods are generic over their receiver — the mutating ones still require a real array, since they write back into it — and read it LIVE: `length` once at the start through a full `[[Get]]`, then presence and value per index at the step that needs them. An absent index answers the same hole sentinel a real array's hole does, so every skip site already handles it. |
+| `D-FNEXPRNAME` | A named function expression's own name is bound in a scope interposed between its closure and its body, so the name is reachable from inside and nowhere else. |
 | `D-DELETE` | Names created by assignment to an undeclared identifier are tracked, because that is the only thing separating a configurable implicit global from a non-configurable declared binding — and `delete` answers differently for the two. |
 | `D-DATE` | A Date is arithmetic on one time value (`DateTime.rgr`, ECMA-262 §15.9.1). Local time is UTC and the clock is `hostNowMs`, so every result is reproducible. The default ToPrimitive hint behaves as STRING for a Date and as NUMBER for everything else, which is what makes `date + ''` the date's text while `+date` is its time. |
 
@@ -572,17 +598,18 @@ more, not less.
 | `built-ins/Function` | **100%** (361/361, whole directory) |
 | `built-ins/RegExp` | **100%** (490/490, whole directory) |
 | `built-ins/Array` | **100%** (212/212, whole directory) |
-| `language/statements` | 93% (522/562) |
-| `built-ins/Math` | 91% (74/81) |
-| ES5 overall | **97.7%** (879/900 sampled) |
+| `built-ins/Math` | **100%** (81/81, whole directory) |
+| `language/statements` | 96% (540/562) |
+| ES5 overall | **98.0%** (882/900 sampled) |
 
 `built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
-`built-ins/RegExp`, `built-ins/Array`, `built-ins/Date`, `built-ins/Boolean` and
-`language/expressions` are each at 100% of their whole directory — no sampling, no
+`built-ins/RegExp`, `built-ins/Array`, `built-ins/Math`, `built-ins/Date`,
+`built-ins/Boolean` and `language/expressions` are each at 100% of their whole
+directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1126 checks, every one of them derived from Node —
-1114 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1149 checks, every one of them derived from Node —
+1137 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

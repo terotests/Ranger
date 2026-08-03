@@ -1373,6 +1373,34 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["concat-copies-inherited-index", "Object.defineProperty(Array.prototype, '1', { value: 1, configurable: true }); var x = [0]; x.length = 2; var arr = x.concat(); var out = String(arr[0]) + ',' + String(arr[1]) + ',' + String(arr.hasOwnProperty('1')); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
   ["array-hole-reads-prototype", "Object.defineProperty(Array.prototype, '1', { value: 7, configurable: true }); var x = [0]; x.length = 2; var out = String(x[1]); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
 
+  // --- direct eval inherits strictness; F.prototype is fully formed ---------
+  ["strict-eval-early-error", "return (function () { 'use strict'; try { eval('var arguments;'); return 'no-throw'; } catch (e) { return e.name; } })();", "fnexpr"],
+  ["sloppy-eval-no-early-error", "try { eval('var argumentsx;'); return 'no-throw'; } catch (e) { return e.name; }", "fnexpr"],
+  ["strict-eval-param-name", "return (function () { 'use strict'; try { eval('var f = function (eval) {};'); return 'no-throw'; } catch (e) { return e.name; } })();", "fnexpr"],
+  ["fnproto-constructor-identity", "function F() {} return String(F.prototype.constructor === F);", "fnexpr"],
+  ["fnproto-constructor-not-enumerable", "function F() {} var ks = []; for (var k in F.prototype) { ks.push(k); } return String(ks.length);", "fnexpr"],
+  ["fnproto-inherits-object-prototype", "Object.defineProperty(Object.prototype, 'zzProbe', { value: 1, configurable: true }); function F() {} var out = String(F.prototype.zzProbe); delete Object.prototype.zzProbe; return out;", "fnexpr"],
+
+  // --- named function expressions, and a constructor returning a function ---
+  ["fnexpr-name-visible-inside", "var f = function fact(n) { if (n === 1) { return 1; } return fact(n - 1) * n; }; return f(4);", "fnexpr"],
+  ["fnexpr-name-not-leaked", "var f = function fact(n) { return n; }; return typeof fact;", "fnexpr"],
+  ["fnexpr-name-shadows-outer", "function fact() { return 'outer'; } var f = function fact() { return typeof fact; }; return f();", "fnexpr"],
+  ["ctor-returning-function-wins", "var g = function () { this.first = 1; function h(x) { return x + 1; } return h; }; var i = new g(); return typeof i + '/' + String(i.first) + '/' + String(i(1));", "fnexpr"],
+  ["ctor-returning-array-wins", "var g = function () { this.first = 1; return [7]; }; var i = new g(); return String(i.length) + '/' + String(i[0]);", "fnexpr"],
+  ["ctor-returning-primitive-ignored", "var g = function () { this.first = 1; return 5; }; var i = new g(); return String(i.first);", "fnexpr"],
+
+  // --- negative zero survives Math ------------------------------------------
+  ["mathzero-abs", "return String(1 / Math.abs(-0));", "mathzero"],
+  ["mathzero-floor", "return String(1 / Math.floor(-0));", "mathzero"],
+  ["mathzero-ceil-neg-frac", "return String(1 / Math.ceil(-0.5));", "mathzero"],
+  ["mathzero-ceil-pos-zero", "return String(1 / Math.ceil(0));", "mathzero"],
+  ["mathzero-round-neg-half", "return String(1 / Math.round(-0.5));", "mathzero"],
+  ["mathzero-round-pos-zero", "return String(1 / Math.round(0));", "mathzero"],
+  ["mathzero-round-just-under-half", "var x = 0.5 - Number.EPSILON / 4; return String(1 / Math.round(x));", "mathzero"],
+  ["mathzero-round-big-integer", "var x = -(2 / Number.EPSILON - 1); return String(Math.round(x) === x);", "mathzero"],
+  ["mathzero-round-ties-up", "return String(Math.round(-1.5)) + ',' + String(Math.round(2.5)) + ',' + String(Math.round(-0.6));", "mathzero"],
+  ["mathzero-ceil-floor-agree", "var out = ''; for (var i = -9; i < 0; i++) { var x = i / 10.0; if (Math.ceil(x) !== -Math.floor(-x)) { out += i + ','; } } return out || 'same';", "mathzero"],
+
   // --- array length, join/toString agreement, and index accessors -----------
   ["array-huge-declared-length", "return String(new Array(4294967295).length);", "arraylen2"],
   ["array-length-too-big-throws", "try { new Array(4294967296); return 'no-throw'; } catch (e) { return e.name; }", "arraylen2"],
@@ -1449,8 +1477,6 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
  * Recorded 2026-08-02 against gallery/game_engine/v2/interp.
  */
 const KNOWN_GAPS = new Set<string>([
-  // Named function-expression recursion evaluates to nothing.
-  "fn-expr-named",
   "for-of-expr-lhs",
   // Destructuring: swap produces the wrong value.
   "destr-swap",

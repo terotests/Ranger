@@ -1450,6 +1450,15 @@ class ComponentEngine {
         ; eval was reported as a SyntaxError -- eval is exactly where guests
         ; hand over sloppy code.
         evParser.setModuleMode((this.sourceIsModule(src)))
+        ; D-STRICT: DIRECT eval inherits the strictness of the code that called
+        ; it, so `"use strict"; eval("var arguments;")` is an early SyntaxError
+        ; even though the eval'd text says nothing about strictness. Only the
+        ; text's own directive was consulted, so every strict-mode early error
+        ; reached through eval went unreported. parseProgram only ever turns
+        ; strictness ON, so pre-setting it here survives.
+        if strictMode {
+            evParser.strictMode = true
+        }
         def ast:TSNode (evParser.parseProgram())
         if (evParser.errorCount > 0) {
             return (this.throwSpecError("SyntaxError" "invalid source passed to eval"))
@@ -4307,6 +4316,20 @@ class ComponentEngine {
     ; Floor toward NEGATIVE infinity. `to_int` truncates toward zero, so it gets
     ; -1.5 wrong -- which is what made Math.floor(-1.5) answer -1, and Math.ceil
     ; and Math.round wrong with it, since all three were built on it.
+    ; D-IEEE: -0 is a distinct value and the only way to tell it from +0 is the
+    ; sign of 1/x. Ranger has no negative-zero literal, so it is built by
+    ; MULTIPLYING zero by -1 -- subtracting from zero gives +0.
+    fn isNegZero:boolean (v:double) {
+        if (v != 0.0) {
+            return false
+        }
+        return ((1.0 / v) < 0.0)
+    }
+
+    fn negativeZero:double () {
+        return (0.0 * (0.0 - 1.0))
+    }
+
     fn floorNum:double (v:double) {
         if (v != v) {
             return v
@@ -5128,7 +5151,19 @@ class ComponentEngine {
         fv.srcText = currentSource
         def id:int (array_length closureScopes)
         def cell (new ClosureCell)
-        cell.ctx = context
+        ; D-FNEXPRNAME: a NAMED function expression binds its own name inside its
+        ; own body and nowhere else, so
+        ; `var f = function fact(n) { return n * fact(n - 1); }` can recurse
+        ; while `fact` stays invisible outside. The name was never bound at all,
+        ; so every such recursion was a ReferenceError.
+        def capturedCtx:EvalContext context
+        if (fnNode.nodeType == "FunctionExpression") {
+            if ((strlen fnNode.name) > 0) {
+                capturedCtx = (context.createChild())
+                capturedCtx.define(fnNode.name fv)
+            }
+        }
+        cell.ctx = capturedCtx
         push closureScopes cell
         fv.closureId = id
         ; provenance: the module this function was DEFINED in ("" = entry), so a
@@ -8522,15 +8557,35 @@ class ComponentEngine {
             if (name == "random") {
                 return (EvalValue.number((random)))
             }
+            ; D-IEEE: negative zero is a value these four have to preserve or
+            ; produce. `Math.abs(-0)` is +0; `Math.floor(-0)` and
+            ; `Math.round(-0.5)` are -0; and `Math.ceil(x)` for -1 < x < 0 is -0,
+            ; not 0. Subtracting from zero -- `0.0 - n0` -- yields +0 for both
+            ; signs, so every one of them collapsed the distinction.
             if (name == "abs") {
-                if (n0 < 0.0) { return (EvalValue.number((0.0 - n0))) }
+                if (this.isNegZero(n0)) { return (EvalValue.number(0.0)) }
+                if (n0 < 0.0) { return (EvalValue.number((n0 * (0.0 - 1.0)))) }
                 return (EvalValue.number(n0))
             }
             if (name == "floor") {
+                if (this.isNegZero(n0)) { return (EvalValue.number(n0)) }
                 return (EvalValue.number((this.floorNum(n0))))
             }
             if (name == "ceil") {
-                return (EvalValue.number((0.0 - (this.floorNum((0.0 - n0))))))
+                if (n0 != n0) { return (EvalValue.number(n0)) }
+                def ceiled:double ((this.floorNum((n0 * (0.0 - 1.0)))) * (0.0 - 1.0))
+                ; A value strictly between -1 and 0 ceils to NEGATIVE zero, and
+                ; so does -0 itself.
+                if (ceiled == 0.0) {
+                    ; Only a STRICTLY negative argument (or -0 itself) ceils to
+                    ; negative zero; `Math.ceil(0)` is +0.
+                    def negIn:boolean (n0 < 0.0)
+                    if (this.isNegZero(n0)) { negIn = true }
+                    if negIn {
+                        return (EvalValue.number((this.negativeZero())))
+                    }
+                }
+                return (EvalValue.number(ceiled))
             }
             if (name == "trunc") {
                 if (n0 < 0.0) {
@@ -8541,7 +8596,44 @@ class ComponentEngine {
             if (name == "round") {
                 ; Math.round breaks ties UPWARD, so -1.5 rounds to -1 and not
                 ; to -2. floor(x + 0.5) gets that right for both signs.
-                return (EvalValue.number((this.floorNum((n0 + 0.5)))))
+                if (n0 != n0) { return (EvalValue.number(n0)) }
+                ; `floor(x + 0.5)` is the spec's phrasing, but the ADDITION
+                ; rounds: for an x just under 0.5, `x + 0.5` is exactly 1.0 and
+                ; the answer comes back 1 where it must be +0; for a large
+                ; negative integer the same rounding walks it one step toward
+                ; zero. An x that is ALREADY an integer is its own answer, and
+                ; the two zero neighbourhoods are decided before the arithmetic.
+                if (this.isFiniteNum(n0)) {
+                    if ((this.floorNum(n0)) == n0) {
+                        if (false == (n0 == 0.0)) {
+                            return (EvalValue.number(n0))
+                        }
+                    }
+                } {
+                    return (EvalValue.number(n0))
+                }
+                if (n0 >= 0.0) {
+                    if (n0 < 0.5) {
+                        if (this.isNegZero(n0)) {
+                            return (EvalValue.number((this.negativeZero())))
+                        }
+                        return (EvalValue.number(0.0))
+                    }
+                } {
+                    if (n0 >= (0.0 - 0.5)) {
+                        return (EvalValue.number((this.negativeZero())))
+                    }
+                }
+                def rounded:double (this.floorNum((n0 + 0.5)))
+                ; -0.5 rounds to NEGATIVE zero, as does anything in [-0.5, -0].
+                if (rounded == 0.0) {
+                    def negIn2:boolean (n0 < 0.0)
+                    if (this.isNegZero(n0)) { negIn2 = true }
+                    if negIn2 {
+                        return (EvalValue.number((this.negativeZero())))
+                    }
+                }
+                return (EvalValue.number(rounded))
             }
             if (name == "sign") {
                 if (n0 > 0.0) { return (EvalValue.number(1.0)) }
@@ -15546,13 +15638,18 @@ class ComponentEngine {
                 ci = (ci + 1)
             }
             def boundRet:EvalValue (this.callUserFunctionValues(fnNode ctorVals inst))
-            if (boundRet.valueType == 5) {
+            if (this.isDescriptorObject(boundRet)) {
                 return boundRet
             }
             return inst
         }
         def ret:EvalValue (this.callUserFunctionNode(fnNode argNodes inst true))
-        if (ret.valueType == 5) {
+        ; A constructor that RETURNS an object yields that object, and a
+        ; function, array, Map or Set is an object too -- only a primitive (or
+        ; nothing) leaves the fresh instance standing. Testing for valueType 5
+        ; alone threw away a returned function, which is precisely what
+        ; `function F() { return function g() {}; }` is written to check.
+        if (this.isDescriptorObject(ret)) {
             return ret
         }
         return inst
@@ -16141,6 +16238,27 @@ class ComponentEngine {
             ; not be overwritten by the property-of-undefined TypeError.
             if scriptThrew {
                 return (EvalValue.undefined())
+            }
+            ; D-PROTO: reading `F.prototype` MINTS it, and the object the spec
+            ; mints already carries `constructor` back to F and inherits from
+            ; Object.prototype. Only `new F()` filled those in, so a program that
+            ; merely looked at `F.prototype.constructor` saw undefined.
+            if (propName == "prototype") {
+                if (obj.valueType == 6) {
+                    if obj.functionNode {
+                        def mintedP:EvalValue (obj.getMember("prototype"))
+                        if (mintedP.valueType == 5) {
+                            if (null? mintedP.protoRef) {
+                                mintedP.protoRef = (this.builtinPrototype("Object"))
+                            }
+                            if (false == (has mintedP.objectMap "constructor")) {
+                                mintedP.setMember("constructor" obj)
+                                mintedP.setAttrs("constructor" true false true)
+                            }
+                            return mintedP
+                        }
+                    }
+                }
             }
 
             ; D-ERRORS: reading a property of null/undefined is a TypeError, with
