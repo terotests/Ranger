@@ -47,7 +47,76 @@ class EvalValue {
     ; bound-method), consumed at call time so the body evaluates rooted in its
     ; OWN module scope — the D-MODULES scope-isolation contract.
     def homeModule:string ""
+    ; D-PROTO: the prototype link. On a function value this is its `.prototype`
+    ; object (created on first read, so `F.prototype.m = ...` persists); on an
+    ; object it is the prototype it inherits from, set by `new F()`. A property
+    ; miss walks this chain, which is how a method defined on a prototype is
+    ; found through an instance.
+    def protoRef@(optional):EvalValue
+    ; D-ACCESSORS: getter/setter functions keyed by property name, held apart
+    ; from objectMap so an accessor property is never mistaken for a data one.
+    ; They cannot be INVOKED from here (EvalValue has no evaluator reference), so
+    ; the member-access sites in ComponentEngine look them up and call them.
+    def getterMap:[string:EvalValue]
+    def setterMap:[string:EvalValue]
+    ; D-FNPROTO: arguments fixed by Function.prototype.bind, prepended ahead of
+    ; the call-site arguments every time the bound function is invoked.
+    def boundArgs:[EvalValue]
+    ; D-REGISTRY: a built-in method held as a VALUE. Ranger has no function
+    ; pointers, so a built-in is identified by the pair (receiver kind, name)
+    ; and invoked through the engine's single type-keyed dispatcher. This is what
+    ; makes `Array.prototype.slice` an actual value: it can be read, passed
+    ; around, compared, and reached by .call/.apply/.bind like any function,
+    ; while the implementation still lives in one place.
+    def builtinKind:string ""
+    def builtinName:string ""
+    ; D-STATICS: the namespace a built-in STATIC belongs to ("Object", "Math").
+    ; Empty for everything else, which is what distinguishes a static from a
+    ; prototype method held as a value.
+    def builtinNamespace:string ""
+    ; D-CLASSOF: true only for a value produced by Function.prototype.bind. A
+    ; built-in read off an object carries that object as `boundThis` too, but a
+    ; METHOD CALL must rebind `this` to the call-site receiver -- which is what
+    ; makes `arr.getClass = Object.prototype.toString; arr.getClass()` brand the
+    ; array. Only an explicit bind() survives that rebinding, per spec.
+    def boundExplicit:boolean false
+    ; D-STRICT: whether this function is strict -- its own "use strict" prologue
+    ; OR the strictness of the scope that created it. Poisoning caller/arguments
+    ; turns on the accessed function's strictness, not the accessing code's, so
+    ; it has to travel with the value.
+    def strictFn:boolean false
+    ; D-ATTRS: per-property attributes, as a bitmask keyed by property name.
+    ;   bit 0 = writable, bit 1 = enumerable, bit 2 = configurable
+    ; An ABSENT key means all three true, which is what plain assignment
+    ; (`o.k = 1`) creates. Object.defineProperty defaults them to FALSE instead,
+    ; and the engine could not previously tell the two apart — every descriptor
+    ; reported writable/enumerable/configurable true regardless of how the
+    ; property was made.
+    def attrFlags:[string:int]
+    ; Object-level integrity: preventExtensions / seal / freeze. Stored as flags
+    ; rather than derived, because "frozen" must stay true for an empty object.
+    def extensibleFlag:boolean true
+    def sealedFlag:boolean false
+    def frozenFlag:boolean false
+    ; D-HOLES: set only on the shared hole singleton (see rawHole).
+    def isHole:boolean false
+    ; D-ARRAYSPARSE: an array `length` LARGER than the dense store can hold.
+    ; -1 means "the dense store is the length". The spec allows a length up to
+    ; 2^32-1 with no elements at all, which no dense container can materialise,
+    ; so the declared length is carried beside the elements instead. Every value
+    ; that IS stored still lives in arrayValue or, past the cap, as a property.
+    def declaredLength:int (0 - 1)
+    ; D-FNPROPS: names whose SYNTHESISED value has been deleted. A function's
+    ; length/name/prototype are computed on read rather than stored, so there was
+    ; nothing for `delete f.length` to remove and hasOwnProperty kept saying yes.
+    def suppressedKeys:[string:boolean]
     def functionNode@(optional):TSNode  ; For function AST nodes
+    ; D-FNSRC: the WHOLE source text this function's node was parsed from, not a
+    ; slice. Function.prototype.toString cuts [node.start, node.end) out of it,
+    ; and a nested function captured while this one runs inherits it -- its own
+    ; offsets are absolute in the same string, so a pre-cut slice would be
+    ; useless to it. Empty for a builtin, which stringifies as [native code].
+    def srcText:string ""
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
     ; Constructors
@@ -71,6 +140,29 @@ class EvalValue {
         def v:EvalValue (new EvalValue())
         v.valueType = 8
         return v
+    }
+
+    ; D-HOLES: an ABSENT array element, as distinct from one holding undefined.
+    ; It reads as undefined everywhere a value is wanted, so nothing that merely
+    ; consumes elements has to know about it -- but `1 in [0,,2]` is false and
+    ; forEach/filter/every/map skip it, which no undefined can express. Its own
+    ; valueType is 8, so any code that missed the distinction still sees
+    ; undefined rather than something it cannot classify.
+    sfn rawHole:EvalValue () {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 8
+        v.isHole = true
+        return v
+    }
+
+    sfn hole:EvalValue () {
+        def pool:EvalConstPool (EvalConstPool.__singleton())
+        return pool.holeValue
+    }
+
+    ; True when this element is absent rather than undefined.
+    fn holeSlot:boolean () {
+        return isHole
     }
 
     sfn rawBoolean:EvalValue (b:boolean) {
@@ -156,6 +248,60 @@ class EvalValue {
         return v
     }
 
+    ; D-ERRORS: a function value with no body — an engine-provided constructor
+    ; such as TypeError. It is a real function value (typeof === "function", own
+    ; identity) so guest code can compare it by reference and read `.name`, but
+    ; it has no functionNode, so the call paths that require one skip it and the
+    ; engine handles the construction itself.
+    sfn nativeFunction:EvalValue (name:string) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        v.functionName = name
+        return v
+    }
+
+    ; D-REGISTRY: a built-in method as a first-class function value. `boundThis`
+    ; carries the receiver when the value came from `arr.slice`; it is absent for
+    ; the unbound form read off a prototype (`Array.prototype.slice`), which is
+    ; exactly the case .call/.apply exist to supply.
+    sfn nativeMethod:EvalValue (kind:string name:string) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        v.functionName = name
+        v.builtinKind = kind
+        v.builtinName = name
+        return v
+    }
+
+    ; D-STATICS: a built-in STATIC (Object.keys, Math.floor) as a first-class
+    ; value. Like nativeMethod it is identified by a pair, but the first half is
+    ; the namespace rather than a receiver kind -- a static has no receiver.
+    sfn nativeStatic:EvalValue (ns:string name:string) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        v.functionName = name
+        v.builtinNamespace = ns
+        v.builtinName = name
+        return v
+    }
+
+    fn isBuiltinStatic:boolean () {
+        if (valueType != 6) {
+            return false
+        }
+        return ((strlen builtinNamespace) > 0)
+    }
+
+    fn isBuiltinMethod:boolean () {
+        if (valueType != 6) {
+            return false
+        }
+        return ((strlen builtinName) > 0)
+    }
+
     ; A method captured as a value (obj.method): the function node plus the
     ; receiver `this` it is bound to. Invoked like any function value.
     sfn boundMethod:EvalValue (fnNode:TSNode thisVal:EvalValue) {
@@ -165,6 +311,36 @@ class EvalValue {
         v.functionNode = fnNode
         v.functionName = fnNode.name
         v.boundThis = thisVal
+        return v
+    }
+
+    ; D-PROTO: the same function value with a receiver bound. Used when a method
+    ; is reached through an object (own property or prototype) so `this` inside
+    ; it is the receiver. Copies the closure/provenance fields, which a fresh
+    ; boundMethod() would lose — dropping them would re-root the body in the
+    ; wrong module scope.
+    fn withThis:EvalValue (recv:EvalValue) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.identityId = identityId
+        v.functionName = functionName
+        v.closureId = closureId
+        v.homeModule = homeModule
+        v.objectMap = objectMap
+        v.boundArgs = boundArgs
+        v.builtinKind = builtinKind
+        v.builtinName = builtinName
+        v.builtinNamespace = builtinNamespace
+        v.strictFn = strictFn
+        v.srcText = srcText
+        v.suppressedKeys = suppressedKeys
+        v.boundThis = recv
+        if functionNode {
+            v.functionNode = (unwrap functionNode)
+        }
+        if protoRef {
+            v.protoRef = (unwrap protoRef)
+        }
         return v
     }
 
@@ -313,6 +489,11 @@ class EvalValue {
             return false
         }
         if (valueType == 1) {
+            ; NaN is FALSY. `n != 0.0` is true for NaN, so `!NaN` answered false
+            ; and every `if (nan)` took the wrong branch.
+            if (numberValue != numberValue) {
+                return false
+            }
             return (numberValue != 0.0)
         }
         if (valueType == 2) {
@@ -336,21 +517,340 @@ class EvalValue {
         return false
     }
     
+    ; ---- D-ATTRS: property attribute accessors ---------------------------
+    ; Absent means the property was made by plain assignment: all three true.
+    fn attrOf:int (key:string) {
+        if (has attrFlags key) {
+            return (unwrap (get attrFlags key))
+        }
+        return 7
+    }
+
+    fn isWritable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 1) != 0)
+    }
+
+    fn isEnumerable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 2) != 0)
+    }
+
+    fn isConfigurable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 4) != 0)
+    }
+
+    fn setAttrs:void (key:string w:boolean e:boolean c:boolean) {
+        def f:int 0
+        if w { f = (bit_or f 1) }
+        if e { f = (bit_or f 2) }
+        if c { f = (bit_or f 4) }
+        set attrFlags key f
+    }
+
+    ; freeze/seal act on every EXISTING property; later additions are blocked by
+    ; extensibleFlag instead, which is why both are tracked.
+    fn markAllNonConfigurable:void (alsoNonWritable:boolean) {
+        def ks:[string] (keys objectMap)
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            def w:boolean (this.isWritable(k))
+            if alsoNonWritable {
+                w = false
+            }
+            this.setAttrs(k w (this.isEnumerable(k)) false)
+            i = (i + 1)
+        }
+    }
+
+    ; D-ACCESSORS: accessor lookup, walking the prototype chain like a data
+    ; property does — a getter defined on a prototype serves every instance.
+    ; Drop any accessor stored for this key. Used when defineProperty turns an
+    ; accessor property back into a data one -- leaving the functions behind
+    ; would let the getter keep winning over the new value.
+    fn clearAccessor:void (key:string) {
+        def newG:[string:EvalValue]
+        def gk:[string] (keys getterMap)
+        for gk kk:string idx {
+            if (kk != key) {
+                set newG kk (unwrap (get getterMap kk))
+            }
+        }
+        getterMap = newG
+        def newS:[string:EvalValue]
+        def sk:[string] (keys setterMap)
+        for sk kk2:string idx2 {
+            if (kk2 != key) {
+                set newS kk2 (unwrap (get setterMap kk2))
+            }
+        }
+        setterMap = newS
+    }
+
+    ; Remove ONLY the getter, only the setter, or only the data slot. Redefining
+    ; an accessor replaces the halves the descriptor mentions and keeps the rest,
+    ; so clearing both together would drop a setter the descriptor never named.
+    fn clearGetterOnly:void (key:string) {
+        def newG:[string:EvalValue]
+        def gk:[string] (keys getterMap)
+        for gk kk:string idx {
+            if (kk != key) {
+                set newG kk (unwrap (get getterMap kk))
+            }
+        }
+        getterMap = newG
+    }
+
+    fn clearSetterOnly:void (key:string) {
+        def newS:[string:EvalValue]
+        def sk:[string] (keys setterMap)
+        for sk kk:string idx {
+            if (kk != key) {
+                set newS kk (unwrap (get setterMap kk))
+            }
+        }
+        setterMap = newS
+    }
+
+    fn clearDataSlot:void (key:string) {
+        def rebuilt:[string:EvalValue]
+        def ks:[string] (keys objectMap)
+        for ks kk:string idx {
+            if (kk != key) {
+                set rebuilt kk (unwrap (get objectMap kk))
+            }
+        }
+        objectMap = rebuilt
+    }
+
+    fn findGetter:EvalValue (key:string depth:int) {
+        if (depth > 16) {
+            return (EvalValue.null())
+        }
+        if (has getterMap key) {
+            return (unwrap (get getterMap key))
+        }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            def nd:int (depth + 1)
+            return (pr.findGetter(key nd))
+        }
+        return (EvalValue.null())
+    }
+
+    ; True when this value or something up its chain defines a SETTER for the
+    ; key. A set-only accessor makes the property read as undefined rather than
+    ; falling through to a data property further up.
+    fn hasSetterFor:boolean (key:string) {
+        if (has setterMap key) {
+            return true
+        }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            if (has pr.objectMap key) {
+                return false
+            }
+            return (pr.hasSetterFor(key))
+        }
+        return false
+    }
+
+    fn findSetter:EvalValue (key:string depth:int) {
+        if (depth > 16) {
+            return (EvalValue.null())
+        }
+        if (has setterMap key) {
+            return (unwrap (get setterMap key))
+        }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            def nd:int (depth + 1)
+            return (pr.findSetter(key nd))
+        }
+        return (EvalValue.null())
+    }
+
+    fn defineGetter:void (key:string fn:EvalValue) {
+        set getterMap key fn
+    }
+
+    fn defineSetter:void (key:string fn:EvalValue) {
+        set setterMap key fn
+    }
+
+    ; True when the property is an accessor anywhere up the chain. Used to keep
+    ; an accessor from being reported as a data property.
+    fn hasAccessor:boolean (key:string) {
+        ; PRESENCE in the map, not callability: `{get: undefined}` defines a real
+        ; accessor property whose getter is undefined, and testing for a function
+        ; made that property report as absent.
+        if (this.hasAccessorSlot(key 0)) {
+            return true
+        }
+        return false
+    }
+
+    fn hasAccessorSlot:boolean (key:string depth:int) {
+        if (depth > 16) {
+            return false
+        }
+        if (has getterMap key) { return true }
+        if (has setterMap key) { return true }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            return (pr.hasAccessorSlot(key (depth + 1)))
+        }
+        return false
+    }
+
+    ; D-PROTO: one step of the prototype-chain walk. Depth-bounded so a cyclic
+    ; chain (which guest code can build: `a.__proto__ = b; b.__proto__ = a`)
+    ; terminates instead of hanging the host.
+    fn getMemberDepth:EvalValue (key:string depth:int) {
+        if (depth > 16) {
+            return (EvalValue.undefined())
+        }
+        ; D-PROTO: a prototype need not be a plain object. `F.prototype = [1,2,3]`
+        ; is legal, and an instance made from it reads `length` off that array.
+        ; Only objectMap was consulted, so such a prototype answered undefined
+        ; for every property its own kind provides.
+        if (valueType != 5) {
+            return (this.getMember(key))
+        }
+        if (has objectMap key) {
+            return (unwrap (get objectMap key))
+        }
+        if protoRef {
+            def pr:EvalValue (unwrap protoRef)
+            def nd:int (depth + 1)
+            return (pr.getMemberDepth(key nd))
+        }
+        return (EvalValue.undefined())
+    }
+
+    ; D-FNPROPS: `f.length` is the function's declared arity -- the parameters
+    ; ahead of the first one with a default value and ahead of any rest
+    ; parameter, per spec. It read as undefined before, which is the kind of
+    ; thing a callback dispatcher branches on.
+    fn functionArity:int () {
+        if (null? functionNode) {
+            return 0
+        }
+        def fnNode:TSNode (unwrap functionNode)
+        def n:int 0
+        while (n < (array_length fnNode.params)) {
+            def p:TSNode (itemAt fnNode.params n)
+            def pt:string p.nodeType
+            if (pt == "RestElement") {
+                return n
+            }
+            if (pt == "AssignmentPattern") {
+                return n
+            }
+            n = (n + 1)
+        }
+        return n
+    }
+
     ; Object member access
     fn getMember:EvalValue (key:string) {
         if (valueType == 5) {
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
             }
+            ; D-PROTO: an own-property miss walks the prototype chain, so a
+            ; method defined as `F.prototype.m = ...` is reachable through an
+            ; instance made by `new F()`.
+            if protoRef {
+                def pr:EvalValue (unwrap protoRef)
+                return (pr.getMemberDepth(key 1))
+            }
             ; D-IDENTITY: a missing object property reads as `undefined`, never
             ; `null`. Callers that use a missing member as "nullish" already test
             ; isUndefined alongside isNull (destructuring defaults, ??, ??=).
             return (EvalValue.undefined())
         }
+        ; D-FNPROPS: functions are objects. `f.x = 1` stores into the same
+        ; objectMap an object uses, so `f.x` reads it back and a property that
+        ; holds a function (`assert.sameValue = function ...`) is callable. A
+        ; missing own property reads as undefined, exactly as for an object;
+        ; built-in fallbacks (`name`, `length`, `call`) are resolved by the
+        ; engine before it reaches here.
+        if (valueType == 6) {
+            if (has objectMap key) {
+                return (unwrap (get objectMap key))
+            }
+            ; D-FNPROPS: a synthesised property that was DELETED stays deleted,
+            ; rather than being minted again on the next read.
+            if (has suppressedKeys key) {
+                return (EvalValue.undefined())
+            }
+            ; D-PROTO: `F.prototype` is created on first read and stored, so
+            ; `F.prototype.m = fn` persists and `new F()` can link to the SAME
+            ; object. Creating a fresh one per read would silently discard every
+            ; method assigned to it.
+            if (key == "prototype") {
+                ; A BUILT-IN function has no `prototype` property -- it is not a
+                ; constructor. Minting one on demand made
+                ; `String.prototype.slice.prototype` an object where the spec
+                ; says undefined.
+                if ((strlen builtinName) > 0) {
+                    return (EvalValue.undefined())
+                }
+                def keys0:[string]
+                def vals0:[EvalValue]
+                def p:EvalValue (EvalValue.object(keys0 vals0))
+                set objectMap "prototype" p
+                return p
+            }
+            if (key == "name") {
+                return (EvalValue.string(functionName))
+            }
+            if (key == "length") {
+                ; Function.prototype.bind fixes arguments, so the bound
+                ; function's arity is the target's minus however many were
+                ; fixed, never below zero.
+                def ar:int ((this.functionArity()) - (array_length boundArgs))
+                if (ar < 0) { ar = 0 }
+                return (EvalValue.fromInt(ar))
+            }
+            if protoRef {
+                def fpr:EvalValue (unwrap protoRef)
+                return (fpr.getMemberDepth(key 1))
+            }
+            return (EvalValue.undefined())
+        }
         ; Array length property
         if (valueType == 4) {
             if (key == "length") {
-                return (EvalValue.fromInt((array_length arrayValue)))
+                return (EvalValue.fromInt((this.arrayLength())))
+            }
+            ; A non-index property set on an array (`a.foo = 1`) lives in the
+            ; same map.
+            if (has objectMap key) {
+                return (unwrap (get objectMap key))
+            }
+            ; An index reached BY NAME. `a[0]` goes through getIndex, but
+            ; `a["0"]` and a prototype-chain read of "0" arrive here, and they
+            ; name the same property.
+            def ai@(optional):int (to_int key)
+            if ai {
+                def aidx:int (unwrap ai)
+                if ((aidx >= 0) && (aidx < (array_length arrayValue))) {
+                    def nslot:EvalValue (itemAt arrayValue aidx)
+                    if nslot.isHole {
+                        return (EvalValue.undefined())
+                    }
+                    return nslot
+                }
+            }
+        }
+        ; Map/Set carry ordinary properties too (`size` is handled by the engine).
+        if ((valueType == 9) || (valueType == 10)) {
+            if (has objectMap key) {
+                return (unwrap (get objectMap key))
             }
         }
         ; String length property
@@ -363,18 +863,109 @@ class EvalValue {
     }
     
     ; Set or replace an object property (mutates in place).
+    ; D-FNPROPS: every object type accepts property writes — plain objects (5),
+    ; functions (6), arrays (4) and Map/Set (9/10). Primitives silently ignore
+    ; the write, which is sloppy-mode behaviour.
     fn setMember:void (key:string value:EvalValue) {
-        if (valueType != 5) {
+        if (valueType == 5) {
+            ; D-ATTRS: a write is refused when the property is non-writable, or
+            ; when the object is frozen, or when it is a NEW property on a
+            ; non-extensible object. Sloppy mode ignores the failure silently,
+            ; which is what this models; strict mode would throw.
+            if frozenFlag {
+                return
+            }
+            if (has objectMap key) {
+                if (false == (this.isWritable(key))) {
+                    return
+                }
+            } {
+                if (false == extensibleFlag) {
+                    return
+                }
+                ; A non-writable data property on the PROTOTYPE also refuses the
+                ; write -- no own property is created to shadow it. Only the own
+                ; map was consulted, so `o.bar = x` shadowed an unwritable
+                ; inherited `bar` instead of being ignored.
+                if (this.protoRefuses(key 0)) {
+                    return
+                }
+            }
+            set objectMap key value
             return
         }
-        set objectMap key value
+        if (valueType == 6) {
+            ; D-ATTRS: a FUNCTION object obeys the same rules -- a built-in
+            ; constructor's `Number.NaN` is non-writable, and the write was
+            ; taken unconditionally because this branch skipped the check
+            ; entirely.
+            if frozenFlag {
+                return
+            }
+            if (has objectMap key) {
+                if (false == (this.isWritable(key))) {
+                    return
+                }
+            } {
+                if (false == extensibleFlag) {
+                    return
+                }
+                ; No protoRefuses here, unlike a plain object: a built-in
+                ; constructor inherits from another one that owns a
+                ; non-writable `prototype`, and the engine SEEDS its own with
+                ; an ordinary write. That seeding is a [[DefineOwnProperty]]
+                ; in the spec, which does not consult the chain.
+            }
+            set objectMap key value
+            return
+        }
+        if (valueType == 4) {
+            set objectMap key value
+            return
+        }
+        if ((valueType == 9) || (valueType == 10)) {
+            set objectMap key value
+            return
+        }
     }
 
     ; Remove an object property (mutates in place), rebuilding the map without it.
-    fn removeMember:void (key:string) {
-        if (valueType != 5) {
-            return
+    ; Does an inherited data property refuse a write to this name?
+    fn protoRefuses:boolean (key:string depth:int) {
+        if (depth > 16) {
+            return false
         }
+        if (null? protoRef) {
+            return false
+        }
+        def p:EvalValue (unwrap protoRef)
+        ; An accessor is handled by the setter path, not here.
+        if (has p.getterMap key) {
+            return false
+        }
+        if (has p.setterMap key) {
+            return false
+        }
+        if (has p.objectMap key) {
+            return (false == (p.isWritable(key)))
+        }
+        return (p.protoRefuses(key (depth + 1)))
+    }
+
+    fn removeMember:void (key:string) {
+        ; D-ATTRS: a non-configurable property cannot be deleted, which is what
+        ; seal and freeze rely on.
+        if (has objectMap key) {
+            if (false == (this.isConfigurable(key))) {
+                return
+            }
+        }
+        ; D-FNPROPS: `delete` reaches every type that can hold properties.
+        if (valueType == 1) { return }
+        if (valueType == 2) { return }
+        if (valueType == 3) { return }
+        if (valueType == 0) { return }
+        if (valueType == 8) { return }
         if (has objectMap key) {
             def rebuilt:[string:EvalValue]
             def ks:[string] (keys objectMap)
@@ -385,15 +976,61 @@ class EvalValue {
             }
             objectMap = rebuilt
         }
+        ; D-FNPROPS: a function's length/name/prototype are computed on read,
+        ; so there is nothing in the map to remove -- the deletion is recorded
+        ; instead, and the synthesis honours it.
+        if (valueType == 6) {
+            ; `prototype` on an ordinary function is NON-CONFIGURABLE, so the
+            ; delete simply fails; length and name are configurable and go.
+            if (key != "prototype") {
+                set suppressedKeys key true
+            }
+        }
+        ; D-ACCESSORS: an accessor property lives in getterMap/setterMap, so
+        ; deleting one has to clear those too. It did not, and the property
+        ; survived every `delete` -- which is observable the moment a write
+        ; lands on the name afterwards and finds a getter still there.
+        if (has getterMap key) {
+            def rg:[string:EvalValue]
+            def gk:[string] (keys getterMap)
+            for gk kk2:string idx2 {
+                if (kk2 != key) {
+                    set rg kk2 (unwrap (get getterMap kk2))
+                }
+            }
+            getterMap = rg
+        }
+        if (has setterMap key) {
+            def rs:[string:EvalValue]
+            def sk:[string] (keys setterMap)
+            for sk kk3:string idx3 {
+                if (kk3 != key) {
+                    set rs kk3 (unwrap (get setterMap kk3))
+                }
+            }
+            setterMap = rs
+        }
     }
     
     ; Set an array element by index (extends with null when needed).
+    ; D-ARRAYSPARSE: the array's length -- the declared one when it exceeds what
+    ; the dense store holds, otherwise the number of elements.
+    fn arrayLength:int () {
+        def dense:int (array_length arrayValue)
+        if (declaredLength > dense) {
+            return declaredLength
+        }
+        return dense
+    }
+
     fn setIndexAt:void (index:int value:EvalValue) {
         if (valueType != 4) {
             return
         }
+        ; D-HOLES: the slots skipped over are ABSENT, not undefined -- `a[3]=1`
+        ; on an empty array leaves three holes, and `0 in a` is false.
         while (index >= (array_length arrayValue)) {
-            push arrayValue (EvalValue.null())
+            push arrayValue (EvalValue.hole())
         }
         set arrayValue index value
     }
@@ -525,7 +1162,14 @@ class EvalValue {
     fn getIndex:EvalValue (index:int) {
         if (valueType == 4) {
             if ((index >= 0) && (index < (array_length arrayValue))) {
-                return (itemAt arrayValue index)
+                ; D-HOLES: a hole READS as undefined. Only the code that asks
+                ; whether the element is present -- `in`, hasOwnProperty, the
+                ; iteration methods -- looks at the slot itself.
+                def slot:EvalValue (itemAt arrayValue index)
+                if slot.isHole {
+                    return (EvalValue.undefined())
+                }
+                return slot
             }
         }
         ; String character access
@@ -534,6 +1178,21 @@ class EvalValue {
                 def charStr:string (substring stringValue index (index + 1))
                 return (EvalValue.string(charStr))
             }
+            ; An index past the end is a MISSING property, which reads as
+            ; undefined. Answering null made `s[11] === undefined` false.
+            return (EvalValue.undefined())
+        }
+        if (valueType == 4) {
+            return (EvalValue.undefined())
+        }
+        ; An OBJECT indexed by number -- a boxed string, say -- reads the
+        ; property of that name; a missing one is undefined, not null.
+        if (valueType == 5) {
+            def ik:string (to_string index)
+            if (has objectMap ik) {
+                return (unwrap (get objectMap ik))
+            }
+            return (EvalValue.undefined())
         }
         return (EvalValue.null())
     }
@@ -590,4 +1249,5 @@ class EvalConstPool @singleton(true) {
     def undefinedValue:EvalValue (EvalValue.rawUndefined())
     def trueValue:EvalValue (EvalValue.rawBoolean(true))
     def falseValue:EvalValue (EvalValue.rawBoolean(false))
+    def holeValue:EvalValue (EvalValue.rawHole())
 }

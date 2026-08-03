@@ -25,6 +25,27 @@ class TSNode {
   ; ESTree Property flags (ES2015)
   def shorthand:boolean false ; { x } shorthand property
   def computed:boolean false  ; { [expr]: value } computed property
+  def accessor:string ""      ; "get" / "set" for a class accessor member
+  ; True for a node written inside parentheses. A parenthesised object or array
+  ; literal is not a valid assignment target -- `({a} = b)` destructures but
+  ; `({a}) = b` does not -- so the two have to be told apart.
+  def parenthesized:boolean false
+  ; True for a StringLiteral whose source contained an escape sequence or a
+  ; line continuation. §14.1: a directive prologue is matched against the RAW
+  ; text, so `'use\\u0020strict'` is an ordinary expression statement even
+  ; though its value is "use strict".
+  def hasEscape:boolean false
+  ; Memo slots the EVALUATOR fills in on first call, not the parser: does this
+  ; function body mention `arguments` (or `eval`, which could reach it)? The
+  ; answer decides whether a call has to materialise an arguments object at
+  ; all, and it never changes for a given node.
+  def argScanned:boolean false
+  def usesArguments:boolean false
+  ; Memo for a NumericLiteral's value. The literal is held as source TEXT, so
+  ; evaluating it means parsing that text -- once per evaluation, which for a
+  ; loop bound means once per iteration. Parsed on first use and kept.
+  def numScanned:boolean false
+  def numValue:double 0.0
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions
@@ -52,6 +73,120 @@ class TSParserSimple {
   def pos:int 0
   def currentToken@(optional):Token
   def quiet:boolean false   ; suppress error messages
+  ; Number of syntax diagnostics reported so far. Callers use it to ask "did
+  ; this parse cleanly?" — previously the only signal was text on stdout, so
+  ; nothing downstream could tell a good parse from a recovered one.
+  def errorCount:int 0
+  def scopeNames:[string]
+  def scopeStart:[int]
+  def scopeIsFn:[int]
+  ; Set just before parsing a function body so the body block reuses the scope
+  ; that already holds the parameters.
+  def suppressBlockScope:boolean false
+  ; Whether the code being parsed is strict. Set by a "use strict" directive
+  ; prologue, and unconditionally inside a class body. Strict code reserves more
+  ; words, forbids `with`, and makes duplicate parameters an error.
+  def strictMode:boolean false
+  ; When non-empty, every identifier parseBindingTarget produces is declared
+  ; with this kind. Set while reading a binding position so nested patterns
+  ; register all the names they bind; cleared while reading the initialiser or
+  ; a computed key, which are ordinary expressions.
+  def declaringKind:string ""
+  ; Where `super` is legal. A SuperCall needs a derived-class constructor; a
+  ; SuperProperty needs any method. Both are lexical, so an arrow inherits them
+  ; from its enclosing function while a plain function clears them.
+  def allowSuperCall:boolean false
+  def allowSuperProperty:boolean false
+  ; Whether the class whose body is being parsed has an extends clause.
+  def inDerivedClass:boolean false
+  ; Break / continue context. A bare `break` needs an enclosing iteration or
+  ; switch, a bare `continue` needs an iteration, and a labelled form needs the
+  ; label to be in scope -- `continue` additionally needs it on an iteration.
+  ; All of it is reset at a function boundary, since labels do not cross one.
+  def iterationDepth:int 0
+  def switchDepth:int 0
+  def activeLabels:[string]
+  def iterationLabels:[string]
+  ; Label being attached to the statement about to be parsed, if any.
+  def pendingLabel:string ""
+  ; Whether the enclosing function is a generator. Inside one, `yield` is an
+  ; operator and may not name a binding.
+  def inGenerator:boolean false
+  ; Depth of enclosing function bodies. `return` outside one is an early error.
+  def functionDepth:int 0
+  ; Whether a rest element has already been seen in the parameter list being
+  ; parsed. A rest element must be last and may not carry a default.
+  def sawRestParam:boolean false
+  ; Set when the block just parsed was a function body whose directive prologue
+  ; turned strict mode on. The function's name and parameters were already read
+  ; by then, so they have to be re-checked against the strict rules afterwards.
+  def lastBlockEnabledStrict:boolean false
+  ; Set while the parameter currently being read is a rest element, so its
+  ; default (which the grammar forbids) can be reported.
+  def restParamPending:boolean false
+  ; True while a *destructuring assignment* pattern is being read. There a
+  ; target may be any LeftHandSideExpression -- `[a.b] = c`, `[(a)] = 1`,
+  ; `({x: obj[k]} = v)` -- whereas a declaration or parameter may only bind a
+  ; name or a nested pattern.
+  def patternAllowsMemberTarget:boolean false
+  ; Names already exported by this module. A module may not export the same
+  ; name twice, however the two exports are written.
+  def exportedNames:[string]
+  ; Whether the source is a module. Scripts may not use import or export.
+  ; Defaults to module, which is what the engine feeds it.
+  def moduleMode:boolean true
+  ; Whether TypeScript-only syntax is accepted. A class field may carry a type
+  ; annotation in TS (`class A { a: number }`) but not in JavaScript, so a
+  ; caller parsing plain JS turns this off, the way every parser gates its TS
+  ; support.
+  def typeScriptMode:boolean true
+  ; Which edition of ECMAScript to accept. Class fields (`class A { a = 1 }`)
+  ; arrived in ES2022, so a caller targeting an earlier edition rejects them --
+  ; the same knob acorn and Babel expose. Defaults to the current edition, so
+  ; the engine sees modern JavaScript.
+  def ecmaVersion:int 2024
+  ; True inside a lexical declaration, where `let` may not be referenced at all:
+  ; `for (let [a = let];;) {}` is an error.
+  def noLetReference:boolean false
+  ; True while a for-of / for-in binding is being declared, where even a `var`
+  ; may not shadow an enclosing catch parameter.
+  def inForOfHead:boolean false
+  ; True while a parameter list is being read. A parameter default may not
+  ; contain a yield expression, even inside a generator.
+  def inParamList:boolean false
+  ; Set by parsePrimary just before it reads a function *expression*. A function
+  ; expression's own name lives in its own context (so `function yield(){}`
+  ; inside a generator is fine), while a declaration's name lives in the
+  ; enclosing one (so `function* yield(){}` at top level is fine but
+  ; `function *g(){ function yield(){} }` is not).
+  def parsingFunctionExpression:boolean false
+  ; Local names an `export { ... }` clause referred to without a `from`. They
+  ; must resolve to a declaration somewhere in the module, which can only be
+  ; checked once the whole module has been read.
+  def pendingExportRefs:[string]
+  ; True while parsing a statement that sits in a single-statement position (an
+  ; if/loop/with body that is not a block). A labelled function declaration is
+  ; never allowed there, even under Annex B.
+  def inSingleStatementBody:boolean false
+  ; True when that single-statement position is an if/else branch, the only
+  ; place Annex B lets a function declaration appear outside a block.
+  def singleBodyIsIfBranch:boolean false
+  ; Line of the most recently consumed token, for automatic semicolon insertion.
+  def lastTokenLine:int 0
+  ; Source offset just past the most recently consumed token. A construct whose
+  ; end is not a fixed closing token -- a concise arrow body -- reads its `end`
+  ; from here once the body has been consumed.
+  def lastTokenEndPos:int 0
+  ; True only while parsing the top level of the program. Import and export
+  ; declarations are ModuleItems and may appear nowhere else.
+  def atModuleTopLevel:boolean false
+  ; Set while parsing `export default <decl>`, where an anonymous class or
+  ; function declaration is allowed.
+  def inExportDefault:boolean false
+  ; Depth of speculative parsing in progress. Diagnostics are still counted (the
+  ; count is rolled back with the position) but not printed, so a speculation
+  ; that is abandoned leaves no noise on the console.
+  def speculating:int 0
   def tsxMode:boolean false ; enable JSX/TSX parsing
   
   fn initParser:void (toks:[Token]) {
@@ -65,12 +200,36 @@ class TSParserSimple {
     }
   }
   
+  ; Single funnel for every syntax diagnostic: counts it, and prints unless the
+  ; parser was asked to stay quiet.
+  fn syntaxError:void (msg:string) {
+    this.errorCount = (this.errorCount + 1)
+    if (this.speculating > 0) {
+      return
+    }
+    if (this.quiet == false) {
+      print msg
+    }
+  }
+
   fn setQuiet:void (q:boolean) {
     this.quiet = q
   }
   
   fn setTsxMode:void (enabled:boolean) {
     this.tsxMode = enabled
+  }
+
+  fn setModuleMode:void (enabled:boolean) {
+    this.moduleMode = enabled
+  }
+
+  fn setTypeScriptMode:void (enabled:boolean) {
+    this.typeScriptMode = enabled
+  }
+
+  fn setEcmaVersion:void (year:int) {
+    this.ecmaVersion = year
   }
   
   fn peek:Token () {
@@ -94,6 +253,13 @@ class TSParserSimple {
   }
   
   fn advance:void () {
+    ; Remember the line the consumed token was on, so automatic semicolon
+    ; insertion can tell whether a line terminator separates two statements.
+    if (this.pos < (array_length this.tokens)) {
+      def consumed:Token (itemAt this.tokens this.pos)
+      this.lastTokenLine = consumed.line
+      this.lastTokenEndPos = consumed.end
+    }
     this.pos = this.pos + 1
     if (this.pos < (array_length this.tokens)) {
       this.currentToken = (itemAt this.tokens this.pos)
@@ -111,7 +277,7 @@ class TSParserSimple {
     while (this.pos < (array_length this.tokens)) {
       def tok (this.peek())
       def tokType:string tok.tokenType
-      if ((tokType == "LineComment") || (tokType == "BlockComment")) {
+      if ((tokType == "LineComment") || (tokType == "BlockComment") || (tokType == "HtmlComment")) {
         this.pos = this.pos + 1
         if (this.pos < (array_length this.tokens)) {
           this.currentToken = (itemAt this.tokens this.pos)
@@ -128,12 +294,483 @@ class TSParserSimple {
     }
   }
   
+  ; ---------------------------------------------------------------------------
+  ; Binding scopes — enough to catch duplicate-declaration early errors.
+  ;
+  ; scopeNames holds one "k|name" entry per declaration, where k is `l` for a
+  ; lexical binding (let / const / class), `v` for a var-like one (var /
+  ; function) and `p` for a parameter. scopeStart records where each open scope
+  ; begins in that list, and scopeIsFn marks which of those scopes are function
+  ; boundaries, since `var` hoists to the nearest one.
+  ; ---------------------------------------------------------------------------
+
+  fn listPrefix:[string] (list:[string] n:int) {
+    def out:[string]
+    def i:int 0
+    while (i < n) {
+      push out (itemAt list i)
+      i = (i + 1)
+    }
+    return out
+  }
+
+  fn intListPrefix:[int] (list:[int] n:int) {
+    def out:[int]
+    def i:int 0
+    while (i < n) {
+      push out (itemAt list i)
+      i = (i + 1)
+    }
+    return out
+  }
+
+  fn pushScope:void (isFunctionBoundary:boolean) {
+    push this.scopeStart (array_length this.scopeNames)
+    if isFunctionBoundary {
+      push this.scopeIsFn 1
+    } {
+      push this.scopeIsFn 0
+    }
+  }
+
+  fn popScope:void () {
+    def depth:int (array_length this.scopeStart)
+    if (depth == 0) {
+      return
+    }
+    def start:int (itemAt this.scopeStart (depth - 1))
+    this.scopeNames = (this.listPrefix(this.scopeNames start))
+    this.scopeStart = (this.intListPrefix(this.scopeStart (depth - 1)))
+    this.scopeIsFn = (this.intListPrefix(this.scopeIsFn (depth - 1)))
+  }
+
+  ; Records a binding and reports a clash. A lexical name may not repeat in its
+  ; own scope at all; a var-like name may repeat, but not over a lexical one in
+  ; any scope out to the enclosing function boundary.
+  fn declareBinding:void (kind:string name:string) {
+    if ((strlen name) == 0) {
+      return
+    }
+    def depth:int (array_length this.scopeStart)
+    if (depth == 0) {
+      return
+    }
+    def total:int (array_length this.scopeNames)
+    def scopeIdx:int (depth - 1)
+    def limit:int 0
+    ; A function declaration hoists like a var, but two of them in one *block*
+    ; clash -- at a function or program top level they do not.
+    def hoists:boolean false
+    if (kind == "v") { hoists = true }
+    if (kind == "f") { hoists = true }
+    if hoists {
+      ; Walk out to (and including) the nearest function boundary.
+      def walk:int scopeIdx
+      def keepWalking:boolean true
+      while ((walk >= 0) && keepWalking) {
+        if ((itemAt this.scopeIsFn walk) == 1) {
+          keepWalking = false
+        } {
+          walk = (walk - 1)
+        }
+      }
+      if (walk < 0) {
+        limit = 0
+      } {
+        limit = (itemAt this.scopeStart walk)
+      }
+    } {
+      limit = (itemAt this.scopeStart scopeIdx)
+    }
+
+    def ownStart:int (itemAt this.scopeStart scopeIdx)
+    def i:int limit
+    while (i < total) {
+      def entry:string (itemAt this.scopeNames i)
+      def sep:int 1
+      def entryKind:string (substring entry 0 1)
+      def entryName:string (substring entry 2 (strlen entry))
+      if (entryName == name) {
+        def clash:boolean false
+        ; Two lexical declarations of the same name in one scope.
+        if (kind == "l") {
+          if (i >= ownStart) { clash = true }
+        }
+        ; A var or function over a lexical binding anywhere up to the function
+        ; boundary.
+        if (hoists) {
+          if (entryKind == "l") { clash = true }
+        }
+        ; A function declaration also clashes with a parameter binding, which
+        ; is what makes `catch (a) { function a(){} }` an error. An Annex B
+        ; function in an if/loop body is block scoped and does not.
+        if (kind == "f") {
+          if (entryKind == "p") {
+            if (i >= ownStart) {
+              if (this.inSingleStatementBody == false) { clash = true }
+            }
+          }
+        }
+        ; At module top level the var-scoped names must be unique, so a var and
+        ; a function declaration of the same name collide.
+        if (this.moduleMode) {
+          if ((itemAt this.scopeIsFn scopeIdx) == 1) {
+            if (depth == 1) {
+              if (i >= ownStart) {
+                if ((kind == "f") && (entryKind == "v")) { clash = true }
+                if ((kind == "v") && (entryKind == "f")) { clash = true }
+                if ((kind == "f") && (entryKind == "f")) { clash = true }
+              }
+            }
+          }
+        }
+        ; Two function declarations in the same plain block.
+        if (kind == "f") {
+          if (entryKind == "f") {
+            if (i >= ownStart) {
+              if ((itemAt this.scopeIsFn scopeIdx) == 0) { clash = true }
+            }
+          }
+        }
+        ; A parameter repeated in the same list.
+        if (kind == "p") {
+          if (i >= ownStart) {
+            if (entryKind == "p") { clash = true }
+          }
+        }
+        if clash {
+          this.syntaxError("Parse error: '" + name + "' has already been declared")
+          push this.scopeNames (kind + "|" + name)
+          return
+        }
+      }
+      i = (i + 1)
+    }
+    push this.scopeNames (kind + "|" + name)
+  }
+
+  ; Declares every name a declarator introduces. `var` hoists to the enclosing
+  ; function, `let` / `const` bind in the current block.
+  fn declareBindingKind:void (declKind:string declarator:TSNode) {
+    def k:string "v"
+    if (declKind == "let") { k = "l" }
+    if (declKind == "const") { k = "l" }
+    if ((strlen declarator.name) > 0) {
+      this.declareBinding(k declarator.name)
+    }
+  }
+
+  ; Records a parameter. Duplicate *simple* parameters are legal in a sloppy
+  ; plain function, so they are recorded under a kind that does not report a
+  ; clash against another parameter — but still collides with a `let` or
+  ; `const` of the same name in the body.
+  fn declareParam:void (param:TSNode) {
+    if ((strlen param.name) == 0) {
+      return
+    }
+    if (this.strictMode) {
+      this.declareBinding("p" param.name)
+    } {
+      this.declareBinding("q" param.name)
+    }
+  }
+
+  ; Re-checks a function's name and parameters after its body turned out to be
+  ; strict. `function eval() { "use strict"; }` and
+  ; `({ a(eval) { "use strict"; } })` are early errors even though the offending
+  ; names were read before the directive was seen.
+  ; Duplicate parameters are legal only in a sloppy function with a SIMPLE
+  ; parameter list; a pattern, default or rest element makes them an error.
+  fn checkNonSimpleParamDuplicates:void (params:[TSNode]) {
+    def simple:boolean true
+    def i:int 0
+    while (i < (array_length params)) {
+      def p:TSNode (itemAt params i)
+      if (p.nodeType != "Parameter") { simple = false }
+      if ((null? p.init) == false) { simple = false }
+      i = (i + 1)
+    }
+    if simple {
+      return
+    }
+    def names:[string] (this.collectParamNames(params))
+    def a:int 0
+    while (a < (array_length names)) {
+      def b:int 0
+      while (b < a) {
+        if ((itemAt names a) == (itemAt names b)) {
+          this.syntaxError("Parse error: duplicate parameter '" + (itemAt names a) + "' in a non-simple parameter list")
+        }
+        b = (b + 1)
+      }
+      a = (a + 1)
+    }
+  }
+
+  fn collectParamNames:[string] (params:[TSNode]) {
+    def out:[string]
+    def i:int 0
+    while (i < (array_length params)) {
+      def p:TSNode (itemAt params i)
+      if ((strlen p.name) > 0) {
+        push out p.name
+      }
+      def sub:[string] (this.collectPatternNames(p))
+      def j:int 0
+      while (j < (array_length sub)) {
+        push out (itemAt sub j)
+        j = (j + 1)
+      }
+      i = (i + 1)
+    }
+    return out
+  }
+
+  fn collectPatternNames:[string] (node:TSNode) {
+    def out:[string]
+    def i:int 0
+    while (i < (array_length node.children)) {
+      def c:TSNode (itemAt node.children i)
+      ; A Property's own name is the KEY; only a shorthand binds it.
+      def bindsOwnName:boolean true
+      if (c.nodeType == "Property") {
+        if (c.shorthand == false) { bindsOwnName = false }
+      }
+      if bindsOwnName {
+        if ((strlen c.name) > 0) {
+          push out c.name
+        }
+      }
+      def sub:[string] (this.collectPatternNames(c))
+      def j:int 0
+      while (j < (array_length sub)) {
+        push out (itemAt sub j)
+        j = (j + 1)
+      }
+      i = (i + 1)
+    }
+    return out
+  }
+
+  fn recheckStrictSignature:void (name:string params:[TSNode]) {
+    ; A function whose body opens with "use strict" must have a SIMPLE
+    ; parameter list -- no patterns, defaults or rest elements.
+    def k:int 0
+    while (k < (array_length params)) {
+      def sp:TSNode (itemAt params k)
+      def spKind:string sp.nodeType
+      if (spKind != "Parameter") {
+        this.syntaxError("Parse error: a function with a 'use strict' directive must have a simple parameter list")
+      } {
+        if ((null? sp.init) == false) {
+          this.syntaxError("Parse error: a function with a 'use strict' directive must have a simple parameter list")
+        }
+      }
+      k = (k + 1)
+    }
+    if ((strlen name) > 0) {
+      if (this.isStrictReservedWord(name)) {
+        this.syntaxError("Parse error: '" + name + "' cannot name a function whose body is strict")
+      }
+    }
+    def i:int 0
+    while (i < (array_length params)) {
+      def p:TSNode (itemAt params i)
+      if ((strlen p.name) > 0) {
+        if (this.isStrictReservedWord(p.name)) {
+          this.syntaxError("Parse error: '" + p.name + "' cannot be a parameter of a strict function")
+        }
+        def j:int 0
+        while (j < i) {
+          def q:TSNode (itemAt params j)
+          if (q.name == p.name) {
+            this.syntaxError("Parse error: duplicate parameter '" + p.name + "' in a strict function")
+          }
+          j = (j + 1)
+        }
+      }
+      i = (i + 1)
+    }
+  }
+
+  ; Looks ahead for a "use strict" directive at the head of the statement list
+  ; about to be parsed. Does not consume anything -- the directives are ordinary
+  ; expression statements and still get parsed normally.
+  fn hasUseStrictDirective:boolean () {
+    def i:int this.pos
+    def n:int (array_length this.tokens)
+    def scanning:boolean true
+    while ((i < n) && scanning) {
+      def t:Token (itemAt this.tokens i)
+      if ((t.tokenType == "LineComment") || (t.tokenType == "BlockComment")) {
+        i = (i + 1)
+      } {
+        if (t.tokenType == "String") {
+          if (t.value == "use strict") {
+            ; Only an escape-free literal is a directive.
+            if (t.hasEscape == false) {
+              return true
+            }
+          }
+          i = (i + 1)
+          if (i < n) {
+            def semi:Token (itemAt this.tokens i)
+            if (semi.value == ";") {
+              i = (i + 1)
+            }
+          }
+        } {
+          scanning = false
+        }
+      }
+    }
+    return false
+  }
+
+  ; Words that are reserved only in strict code, plus the two names strict code
+  ; refuses to let you bind at all.
+  ; The words strict code reserves outright. Unlike isStrictReservedWord this
+  ; leaves out eval and arguments, which may be *read* in strict code -- only
+  ; binding or assigning to them is an error.
+  fn isStrictReservedReference:boolean (word:string) {
+    if (word == "eval") { return false }
+    if (word == "arguments") { return false }
+    return (this.isStrictReservedWord(word))
+  }
+
+  fn isStrictReservedWord:boolean (word:string) {
+    if (word == "implements") { return true }
+    if (word == "interface") { return true }
+    if (word == "let") { return true }
+    if (word == "package") { return true }
+    if (word == "private") { return true }
+    if (word == "protected") { return true }
+    if (word == "public") { return true }
+    if (word == "static") { return true }
+    if (word == "yield") { return true }
+    if (word == "eval") { return true }
+    if (word == "arguments") { return true }
+    return false
+  }
+
+  ; Reports a name that may not be bound here. Split from the reserved-word
+  ; tables so every binding position shares one rule.
+  fn checkBindableName:void (name:string) {
+    if (this.isAlwaysReservedWord(name)) {
+      this.syntaxError("Parse error: '" + name + "' is a reserved word and cannot be used as a name")
+      return
+    }
+    ; Module code reserves `await` throughout. Checked before the strict block,
+    ; which returns early and would otherwise hide it -- module code is strict.
+    if (this.moduleMode) {
+      if (name == "await") {
+        this.syntaxError("Parse error: 'await' cannot be used as a name in a module")
+      }
+    }
+    if (this.strictMode) {
+      if (this.isStrictReservedWord(name)) {
+        this.syntaxError("Parse error: '" + name + "' cannot be used as a name in strict mode")
+      }
+      return
+    }
+    if (this.inGenerator) {
+      if (name == "yield") {
+        this.syntaxError("Parse error: 'yield' cannot be used as a name inside a generator")
+      }
+    }
+    ; `await` is reserved throughout module code.
+    if (this.moduleMode) {
+      if (name == "await") {
+        this.syntaxError("Parse error: 'await' cannot be used as a name in a module")
+      }
+    }
+    ; `let` is never a legal lexical binding name, even in sloppy code:
+    ; `let let = 1` and `for (let let of a)` are both errors.
+    if (this.declaringKind == "l") {
+      if (name == "let") {
+        this.syntaxError("Parse error: 'let' cannot be the name of a lexical binding")
+      }
+    }
+  }
+
+  ; True for words that are reserved in every context, so they can never name a
+  ; binding: `function null() {}`, `var new = 1`, `import * as enum from "x"`.
+  ; Words reserved only in some contexts (let, yield, await, static, of, as,
+  ; from, implements, interface, package, private, protected, public) are NOT
+  ; listed — this parser does not track strict/module/generator context, and
+  ; rejecting them there would lose valid sloppy-mode programs.
+  fn isAlwaysReservedWord:boolean (word:string) {
+    if (word == "break") { return true }
+    if (word == "case") { return true }
+    if (word == "catch") { return true }
+    if (word == "class") { return true }
+    if (word == "const") { return true }
+    if (word == "continue") { return true }
+    if (word == "debugger") { return true }
+    if (word == "default") { return true }
+    if (word == "delete") { return true }
+    if (word == "do") { return true }
+    if (word == "else") { return true }
+    if (word == "enum") { return true }
+    if (word == "export") { return true }
+    if (word == "extends") { return true }
+    if (word == "false") { return true }
+    if (word == "finally") { return true }
+    if (word == "for") { return true }
+    if (word == "function") { return true }
+    if (word == "if") { return true }
+    if (word == "import") { return true }
+    if (word == "in") { return true }
+    if (word == "instanceof") { return true }
+    if (word == "new") { return true }
+    if (word == "null") { return true }
+    if (word == "return") { return true }
+    if (word == "super") { return true }
+    if (word == "switch") { return true }
+    if (word == "this") { return true }
+    if (word == "throw") { return true }
+    if (word == "true") { return true }
+    if (word == "try") { return true }
+    if (word == "typeof") { return true }
+    if (word == "var") { return true }
+    if (word == "void") { return true }
+    if (word == "while") { return true }
+    if (word == "with") { return true }
+    return false
+  }
+
+  ; A ModuleExportName. Unlike a binding name this may be any reserved word --
+  ; `export { a as default }`, `import { null as a }` -- because it names an
+  ; export slot rather than declaring a variable.
+  fn expectModuleExportName:Token () {
+    def tt (this.peekType())
+    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword") || (tt == "Boolean") || (tt == "Null") || (tt == "String")) {
+      def tok (this.peek())
+      this.advance()
+      return tok
+    }
+    return (this.expect("Identifier"))
+  }
+
+  ; Like expect("Identifier"), but also accepts keyword tokens. Most JS keywords
+  ; are only *contextually* reserved (`yield` outside a generator, `await`
+  ; outside async, `let`/`static`/`of` in sloppy mode), and this parser does not
+  ; track those contexts, so refusing them here loses valid programs.
+  fn expectBindingName:Token () {
+    def tt (this.peekType())
+    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword") || (tt == "Boolean") || (tt == "Null")) {
+      def tok (this.peek())
+      this.checkBindableName(tok.value)
+      this.advance()
+      return tok
+    }
+    return (this.expect("Identifier"))
+  }
+
   fn expect:Token (expectedType:string) {
     def tok (this.peek())
     if (tok.tokenType != expectedType) {
-      if (this.quiet == false) {
-        print "Parse error: expected " + expectedType + " but got " + tok.tokenType
-      }
+      this.syntaxError("Parse error: expected " + expectedType + " but got " + tok.tokenType)
     }
     this.advance()
     return tok
@@ -142,9 +779,7 @@ class TSParserSimple {
   fn expectValue:Token (expectedValue:string) {
     def tok (this.peek())
     if (tok.value != expectedValue) {
-      if (this.quiet == false) {
-        print "Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'"
-      }
+      this.syntaxError("Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'")
     }
     this.advance()
     return tok
@@ -161,6 +796,25 @@ class TSParserSimple {
   }
   
   fn matchValue:boolean (value:string) {
+    ; Never match against the *contents* of a literal. Every caller uses this to
+    ; test for a punctuator or a keyword, so a string whose text happens to be
+    ; ")" or "}" must not close a delimiter loop: `a(")")` terminated its own
+    ; argument list, and `({"[": 1})` was read as a computed key.
+    def t (this.peekType())
+    if (t == "String") { return false }
+    if (t == "Template") { return false }
+    if (t == "Regex") { return false }
+    def v (this.peekValue())
+    return (v == value)
+  }
+
+  ; Like matchValue, but only for real punctuator tokens. matchValue compares
+  ; the token *value*, so the string literal "(" matched a test for an opening
+  ; paren — `a(')')` and `({"[": 1})` both misparsed as a result.
+  fn matchPunct:boolean (value:string) {
+    if ((this.peekType()) != "Punctuator") {
+      return false
+    }
     def v (this.peekValue())
     return (v == value)
   }
@@ -185,7 +839,51 @@ class TSParserSimple {
     if (t == "TSKeyword") {
       return true
     }
+    ; `a.true`, `a.null`, `a.default` — after a dot every reserved word, and the
+    ; boolean/null literals the lexer classifies separately, are valid names.
+    if (t == "Boolean") {
+      return true
+    }
+    if (t == "Null") {
+      return true
+    }
     return false
+  }
+
+  ; A class or object member may additionally be named by a literal --
+  ; `{ 3() {} }`, `class a { "b"() {} }` -- which a member *access* may not:
+  ; `new X()."s"` is a syntax error.
+  fn isMemberKeyToken:boolean () {
+    if (this.isNameToken()) {
+      return true
+    }
+    def t (this.peekType())
+    if (t == "Number") { return true }
+    if (t == "String") { return true }
+    return false
+  }
+
+  ; `get`/`set` followed by a property key and a parameter list is an ACCESSOR,
+  ; and the key may be a keyword, a string or a number: `({ get null() {} })`,
+  ; `({ set "a"(v) {} })`, `({ get 10() {} })`. Only an Identifier key was
+  ; recognised, so the rest were read as a `get` property followed by a second
+  ; one -- which the literal parser used to swallow silently and now rejects.
+  ; The `(` two tokens on is what tells an accessor from `{ get: 1 }`.
+  fn isAccessorNameAhead:boolean () {
+    def nt:string (this.peekNextType())
+    def keyish:boolean false
+    if (nt == "Identifier") { keyish = true }
+    if (nt == "Keyword") { keyish = true }
+    if (nt == "TSKeyword") { keyish = true }
+    if (nt == "TSType") { keyish = true }
+    if (nt == "String") { keyish = true }
+    if (nt == "Number") { keyish = true }
+    if (nt == "Boolean") { keyish = true }
+    if (nt == "Null") { keyish = true }
+    if (keyish == false) {
+      return false
+    }
+    return ((this.peekAheadValue(2)) == "(")
   }
 
   ; Object literal keys may use reserved/type words: { any: 1, string: "x" }.
@@ -214,6 +912,11 @@ class TSParserSimple {
   ; token without an error; fall back to expect() for genuinely invalid syntax
   ; (which still advances, so callers keep making progress).
   fn parseMemberName:Token () {
+    ; Private name access: `this.#p`. The `#` is a separate token, so consume
+    ; it and let the name that follows carry the member.
+    if (this.matchPunct("#")) {
+      this.advance()
+    }
     if (this.isNameToken()) {
       def tok (this.peek())
       this.advance()
@@ -230,10 +933,8 @@ class TSParserSimple {
     if (this.pos != prevPos) {
       return
     }
-    if (this.quiet == false) {
-      def tok (this.peek())
-      print ("Parser recovery: skipping unexpected token '" + tok.value + "' (type " + tok.tokenType + ")")
-    }
+    def recTok (this.peek())
+    this.syntaxError("Parser recovery: skipping unexpected token '" + recTok.value + "' (type " + recTok.tokenType + ")")
     if ((this.isAtEnd()) == false) {
       this.advance()
     }
@@ -244,15 +945,88 @@ class TSParserSimple {
   fn parseProgram:TSNode () {
     def prog (new TSNode())
     prog.nodeType = "Program"
-    
+
+    this.pushScope(true)
+
+    ; Module code is strict whether or not it says so.
+    if (this.moduleMode) {
+      this.strictMode = true
+    }
+    if (this.hasUseStrictDirective()) {
+      this.strictMode = true
+    }
+
+    this.atModuleTopLevel = true
+
     while ((this.isAtEnd()) == false) {
       def beforePos:int this.pos
+      this.atModuleTopLevel = true
       def stmt (this.parseStatement())
       push prog.children stmt
       this.guardNoProgress(beforePos)
     }
-    
+
+    this.atModuleTopLevel = false
+
+    if (this.moduleMode) {
+      def ti:int 0
+      while (ti < (array_length this.tokens)) {
+        def t:Token (itemAt this.tokens ti)
+        if (t.tokenType == "HtmlComment") {
+          this.syntaxError("Parse error: HTML-like comments are not allowed in module code")
+        }
+        ti = (ti + 1)
+      }
+    }
+
+    this.checkPendingExportRefs()
+
+    this.popScope()
+
     return prog
+  }
+
+  ; True when the name is bound as a parameter anywhere still in scope. A
+  ; for-of / for-in binding may not shadow one, even as a `var`.
+  fn isParameterInScope:boolean (name:string) {
+    def i:int 0
+    def total:int (array_length this.scopeNames)
+    while (i < total) {
+      def entry:string (itemAt this.scopeNames i)
+      if ((substring entry 0 1) == "p") {
+        if ((substring entry 2 (strlen entry)) == name) {
+          return true
+        }
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  fn isDeclaredAnywhere:boolean (name:string) {
+    def i:int 0
+    def total:int (array_length this.scopeNames)
+    while (i < total) {
+      def entry:string (itemAt this.scopeNames i)
+      if ((substring entry 2 (strlen entry)) == name) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  ; Every name an `export { ... }` clause exports must be declared somewhere in
+  ; the module. Deferred to the end because an export may precede its binding.
+  fn checkPendingExportRefs:void () {
+    def i:int 0
+    while (i < (array_length this.pendingExportRefs)) {
+      def name:string (itemAt this.pendingExportRefs i)
+      if ((this.isDeclaredAnywhere(name)) == false) {
+        this.syntaxError("Parse error: export of undeclared name '" + name + "'")
+      }
+      i = (i + 1)
+    }
   }
   
   ; === Parse Statement ===
@@ -280,10 +1054,30 @@ class TSParserSimple {
     
     ; Import/Export statements
     if (tokVal == "import") {
+      ; `import(...)` and `import.meta` are expressions and stay legal in a
+      ; script; only an import *declaration* is module-only.
+      def afterImport:string (this.peekNextValue())
+      if ((afterImport == "(") || (afterImport == ".")) {
+        ; `import(...)` and `import.meta` are expressions, not declarations, and
+        ; are legal in a script as well.
+        return (this.parseExprStmt())
+      }
+      if (this.moduleMode == false) {
+        this.syntaxError("Parse error: an import declaration is only allowed in a module")
+      }
+      if (this.atModuleTopLevel == false) {
+        this.syntaxError("Parse error: an import declaration must be at the top level of a module")
+      }
       return (this.parseImport())
     }
     
     if (tokVal == "export") {
+      if (this.moduleMode == false) {
+        this.syntaxError("Parse error: an export declaration is only allowed in a module")
+      }
+      if (this.atModuleTopLevel == false) {
+        this.syntaxError("Parse error: an export declaration must be at the top level of a module")
+      }
       return (this.parseExport())
     }
     
@@ -296,7 +1090,16 @@ class TSParserSimple {
     }
     
     if (tokVal == "class") {
-      return (this.parseClass())
+      if (this.inSingleStatementBody) {
+        this.syntaxError("Parse error: a class declaration cannot be a statement body")
+      }
+      def classDecl (this.parseClass())
+      if ((strlen classDecl.name) == 0) {
+        if (this.inExportDefault == false) {
+          this.syntaxError("Parse error: a class declaration needs a name")
+        }
+      }
+      return classDecl
     }
     
     if (tokVal == "abstract") {
@@ -321,11 +1124,47 @@ class TSParserSimple {
       }
     }
     
-    if ((tokVal == "let") || (tokVal == "const")) {
-      return (this.parseVarDecl())
+    if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
+      ; `let` is only a declaration keyword when a binding follows. In sloppy
+      ; mode it is a perfectly good identifier, so `let = 1` and `let.a` are
+      ; expression statements.
+      def afterKind:string (this.peekNextValue())
+      def afterKindType:string (this.peekNextType())
+      def startsBinding:boolean false
+      if ((afterKindType == "Identifier") || (afterKindType == "TSType") || (afterKindType == "TSKeyword")) { startsBinding = true }
+      ; A contextual keyword after `let` is still a binding position, which is
+      ; how `let let;` gets reported instead of parsing as an expression.
+      if (afterKindType == "Keyword") {
+        if ((afterKind != "in") && (afterKind != "instanceof")) { startsBinding = true }
+      }
+      if (afterKind == "{") { startsBinding = true }
+      if (afterKind == "[") { startsBinding = true }
+      if (tokVal != "let") { startsBinding = true }
+      if startsBinding {
+        ; A lexical declaration is not a Statement, so it cannot be the body of
+        ; an if/loop/with: `with (true) let a` is an error.
+        if (this.inSingleStatementBody) {
+          if (tokVal != "var") {
+            this.syntaxError("Parse error: a lexical declaration cannot be a statement body")
+          }
+        }
+        return (this.parseVarDecl())
+      }
     }
-    
+
     if (tokVal == "function") {
+      ; Annex B allows a function declaration as an if/else body in sloppy code
+      ; only; strict code and every other single-statement position forbid it.
+      if (this.inSingleStatementBody) {
+        if (this.strictMode) {
+          this.syntaxError("Parse error: a function declaration cannot be a statement body in strict mode")
+        } {
+          ; Annex B permits this only as an if/else branch.
+          if (this.singleBodyIsIfBranch == false) {
+            this.syntaxError("Parse error: a function declaration cannot be a loop or with body")
+          }
+        }
+      }
       return (this.parseFuncDecl(false))
     }
     
@@ -358,6 +1197,44 @@ class TSParserSimple {
       return (this.parseIfStatement())
     }
     
+    if (tokVal == "debugger") {
+      def dbg (new TSNode())
+      dbg.nodeType = "DebuggerStatement"
+      def dbgTok (this.peek())
+      dbg.start = dbgTok.start
+      dbg.line = dbgTok.line
+      dbg.col = dbgTok.col
+      this.advance()
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return dbg
+    }
+
+    if (tokVal == "with") {
+      def withNode (new TSNode())
+      withNode.nodeType = "WithStatement"
+      def withTok (this.peek())
+      withNode.start = withTok.start
+      withNode.line = withTok.line
+      withNode.col = withTok.col
+      if (this.strictMode) {
+        this.syntaxError("Parse error: 'with' is not allowed in strict mode")
+      }
+      this.advance()
+      this.expectValue("(")
+      def withObj (this.parseExprSeq())
+      withNode.left = withObj
+      this.expectValue(")")
+      def savedWithBody:boolean this.inSingleStatementBody
+      this.inSingleStatementBody = true
+      this.atModuleTopLevel = false
+      def withBody (this.parseStatement())
+      this.inSingleStatementBody = savedWithBody
+      withNode.body = withBody
+      return withNode
+    }
+
     if (tokVal == "while") {
       return (this.parseWhileStatement())
     }
@@ -415,11 +1292,108 @@ class TSParserSimple {
     node.name = labelTok.value
     
     this.expectValue(":")
-    
+
+    ; A labelled statement's body is a Statement, never a Declaration.
+    def bodyStart:string (this.peekValue())
+    if ((bodyStart == "let") || (bodyStart == "const") || (bodyStart == "class")) {
+      this.syntaxError("Parse error: '" + bodyStart + "' declaration cannot be the body of a labelled statement")
+    }
+    if (bodyStart == "function") {
+      ; Annex B allows a plain function declaration here in sloppy code, but a
+      ; generator never, nothing at all in strict code, and nothing at all when
+      ; the labelled statement is itself an if/loop/with body.
+      if (this.inSingleStatementBody) {
+        this.syntaxError("Parse error: a labelled function declaration cannot be a statement body")
+      }
+      if (this.strictMode) {
+        this.syntaxError("Parse error: a function declaration cannot be the body of a labelled statement in strict mode")
+      } {
+        if ((this.peekNextValue()) == "*") {
+          this.syntaxError("Parse error: a generator declaration cannot be the body of a labelled statement")
+        }
+      }
+    }
+
+    if (this.isInStringList(node.name this.activeLabels)) {
+      this.syntaxError("Parse error: label '" + node.name + "' has already been declared")
+    }
+    push this.activeLabels node.name
+
+    ; `continue label` is only valid when the label names an iteration. A chain
+    ; of labels all attach to the same statement, so skip over any further
+    ; `name :` pairs before deciding: `a: b: while (1) { continue a; }`.
+    def scanIdx:int this.pos
+    def tokenTotal:int (array_length this.tokens)
+    def scanning:boolean true
+    while (scanning) {
+      def cur:Token (itemAt this.tokens scanIdx)
+      if ((cur.tokenType == "LineComment") || (cur.tokenType == "BlockComment")) {
+        scanIdx = (scanIdx + 1)
+      } {
+        def isName:boolean false
+        if ((cur.tokenType == "Identifier") || (cur.tokenType == "TSType")) { isName = true }
+        if (isName == false) {
+          scanning = false
+        } {
+          def nextIdx:int (scanIdx + 1)
+          def sawColon:boolean false
+          while (nextIdx < tokenTotal) {
+            def nxt:Token (itemAt this.tokens nextIdx)
+            if ((nxt.tokenType == "LineComment") || (nxt.tokenType == "BlockComment")) {
+              nextIdx = (nextIdx + 1)
+            } {
+              if (nxt.value == ":") { sawColon = true }
+              break
+            }
+          }
+          if sawColon {
+            scanIdx = (nextIdx + 1)
+          } {
+            scanning = false
+          }
+        }
+      }
+      if (scanIdx >= tokenTotal) {
+        scanning = false
+      }
+    }
+    def labelledTok:Token (itemAt this.tokens scanIdx)
+    def labelled:string labelledTok.value
+    if ((labelled == "for") || (labelled == "while") || (labelled == "do")) {
+      push this.iterationLabels node.name
+    }
+
     def body (this.parseStatement())
     node.body = body
-    
+
+    this.activeLabels = (this.listWithoutString(this.activeLabels node.name))
+    this.iterationLabels = (this.listWithoutString(this.iterationLabels node.name))
+
     return node
+  }
+
+  fn isInStringList:boolean (value:string list:[string]) {
+    def i:int 0
+    while (i < (array_length list)) {
+      if ((itemAt list i) == value) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  fn listWithoutString:[string] (list:[string] value:string) {
+    def out:[string]
+    def i:int 0
+    while (i < (array_length list)) {
+      def item:string (itemAt list i)
+      if (item != value) {
+        push out item
+      }
+      i = (i + 1)
+    }
+    return out
   }
   
   ; === Helper: peek next token value ===
@@ -444,11 +1418,25 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("return")
+
+    if (this.functionDepth == 0) {
+      this.syntaxError("Parse error: 'return' outside of a function")
+    }
     
     ; Check for return value
     def v (this.peekValue())
-    if ((v != ";") && ((this.isAtEnd()) == false)) {
-      def arg (this.parseExpr())
+    ; §7.9.1: a LineTerminator after `return` triggers automatic semicolon
+    ; insertion, so `return \n 1;` returns undefined and `1;` is a statement of
+    ; its own. The argument was parsed across the newline, so every such
+    ; function returned the value the spec says it discards.
+    def argOnSameLine:boolean true
+    def argTok (this.peek())
+    if (argTok.line != startTok.line) {
+      argOnSameLine = false
+    }
+    ; No argument when the statement ends here: `;`, a closing brace, or EOF.
+    if (argOnSameLine && ((v != ";") && ((v != "}") && ((this.isAtEnd()) == false)))) {
+      def arg (this.parseExprSeq())
       node.left = arg
     }
     
@@ -468,7 +1456,29 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("break")
-    
+
+    ; Optional label. It must be on the same line — a line terminator triggers
+    ; automatic semicolon insertion before it.
+    if (this.isNameToken()) {
+      def labelTok (this.peek())
+      if (labelTok.line == startTok.line) {
+        this.advance()
+        node.name = labelTok.value
+      }
+    }
+
+    if ((strlen node.name) == 0) {
+      if (this.iterationDepth == 0) {
+        if (this.switchDepth == 0) {
+          this.syntaxError("Parse error: 'break' outside of a loop or switch")
+        }
+      }
+    } {
+      if ((this.isInStringList(node.name this.activeLabels)) == false) {
+        this.syntaxError("Parse error: 'break " + node.name + "' does not name an enclosing label")
+      }
+    }
+
     if (this.matchValue(";")) {
       this.advance()
     }
@@ -485,7 +1495,27 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("continue")
-    
+
+    ; Optional label. It must be on the same line — a line terminator triggers
+    ; automatic semicolon insertion before it.
+    if (this.isNameToken()) {
+      def labelTok (this.peek())
+      if (labelTok.line == startTok.line) {
+        this.advance()
+        node.name = labelTok.value
+      }
+    }
+
+    if ((strlen node.name) == 0) {
+      if (this.iterationDepth == 0) {
+        this.syntaxError("Parse error: 'continue' outside of a loop")
+      }
+    } {
+      if ((this.isInStringList(node.name this.iterationLabels)) == false) {
+        this.syntaxError("Parse error: 'continue " + node.name + "' does not name an enclosing loop")
+      }
+    }
+
     if (this.matchValue(";")) {
       this.advance()
     }
@@ -513,7 +1543,21 @@ class TSParserSimple {
     
     ; Check what kind of import
     def v (this.peekValue())
-    
+
+    ; import "module" — a side-effect import with no clause.
+    if ((this.peekType()) == "String") {
+      def bareStr (this.peek())
+      this.advance()
+      def bareSource (new TSNode())
+      bareSource.nodeType = "StringLiteral"
+      bareSource.value = bareStr.value
+      node.left = bareSource
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return node
+    }
+
     ; import { foo, bar } from "module"
     if (v == "{") {
       this.advance()
@@ -529,18 +1573,21 @@ class TSParserSimple {
           spec.kind = "type"
         }
         
-        def importedName (this.expect("Identifier"))
+        def importedName (this.expectModuleExportName())
         spec.name = importedName.value
         
-        ; Check for 'as' alias
+        ; Check for 'as' alias. The local side declares a binding.
         if (this.matchValue("as")) {
           this.advance()
-          def localName (this.expect("Identifier"))
+          def localName (this.expectBindingName())
           spec.value = localName.value  ; local name in value
         } {
           spec.value = importedName.value
         }
-        
+        ; An import introduces a lexical binding at module scope.
+        this.checkBindableName(spec.value)
+        this.declareBinding("l" spec.value)
+
         push specifiers spec
         
         if (this.matchValue(",")) {
@@ -555,8 +1602,9 @@ class TSParserSimple {
     if (v == "*") {
       this.advance()
       this.expectValue("as")
-      def namespaceName (this.expect("Identifier"))
-      
+      def namespaceName (this.expectBindingName())
+      this.declareBinding("l" namespaceName.value)
+
       def nsSpec (new TSNode())
       nsSpec.nodeType = "ImportNamespaceSpecifier"
       nsSpec.name = namespaceName.value
@@ -567,27 +1615,39 @@ class TSParserSimple {
     if (this.matchType("Identifier")) {
       def defaultSpec (new TSNode())
       defaultSpec.nodeType = "ImportDefaultSpecifier"
-      def defaultName (this.expect("Identifier"))
+      def defaultName (this.expectBindingName())
       defaultSpec.name = defaultName.value
+      this.declareBinding("l" defaultName.value)
       push node.children defaultSpec
       
       ; Could be followed by , { named } or , * as ns
       if (this.matchValue(",")) {
         this.advance()
+        if (this.matchValue("*")) {
+          this.advance()
+          this.expectValue("as")
+          def nsName (this.expectBindingName())
+          this.declareBinding("l" nsName.value)
+          def nsSpec2 (new TSNode())
+          nsSpec2.nodeType = "ImportNamespaceSpecifier"
+          nsSpec2.name = nsName.value
+          push node.children nsSpec2
+        }
         if (this.matchValue("{")) {
           this.advance()
           while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
             def spec (new TSNode())
             spec.nodeType = "ImportSpecifier"
-            def importedName (this.expect("Identifier"))
+            def importedName (this.expectModuleExportName())
             spec.name = importedName.value
             if (this.matchValue("as")) {
               this.advance()
-              def localName (this.expect("Identifier"))
+              def localName (this.expectBindingName())
               spec.value = localName.value
             } {
               spec.value = importedName.value
             }
+            this.declareBinding("l" spec.value)
             push node.children spec
             if (this.matchValue(",")) {
               this.advance()
@@ -606,6 +1666,11 @@ class TSParserSimple {
       source.nodeType = "StringLiteral"
       source.value = sourceStr.value
       node.left = source
+    } {
+      ; No `from`, so the whole declaration must have been `import "mod";`.
+      if (null? node.left) {
+        this.syntaxError("Parse error: an import declaration needs a module specifier")
+      }
     }
     
     if (this.matchValue(";")) {
@@ -617,6 +1682,31 @@ class TSParserSimple {
   
   ; === Export Declaration ===
   
+  ; Records the names an `export <declaration>` introduces, so a module cannot
+  ; export the same name both through a declaration and through a specifier.
+  fn registerExportedDeclaration:void (decl:TSNode) {
+    if (decl.nodeType == "VariableDeclaration") {
+      def i:int 0
+      while (i < (array_length decl.children)) {
+        def d:TSNode (itemAt decl.children i)
+        this.registerExportName(d.name)
+        i = (i + 1)
+      }
+      return
+    }
+    this.registerExportName(decl.name)
+  }
+
+  fn registerExportName:void (name:string) {
+    if ((strlen name) == 0) {
+      return
+    }
+    if (this.isInStringList(name this.exportedNames)) {
+      this.syntaxError("Parse error: duplicate export of '" + name + "'")
+    }
+    push this.exportedNames name
+  }
+
   fn parseExport:TSNode () {
     def node (new TSNode())
     node.nodeType = "ExportNamedDeclaration"
@@ -642,11 +1732,15 @@ class TSParserSimple {
     ; export default
     if (v == "default") {
       node.nodeType = "ExportDefaultDeclaration"
+      this.registerExportName("default")
       this.advance()
       
       def nextVal (this.peekValue())
       if ((nextVal == "class") || (nextVal == "function") || (nextVal == "interface")) {
+        def savedExportDefault:boolean this.inExportDefault
+        this.inExportDefault = true
         def decl (this.parseStatement())
+        this.inExportDefault = savedExportDefault
         node.left = decl
       } {
         def expr (this.parseExpr())
@@ -668,17 +1762,20 @@ class TSParserSimple {
         def spec (new TSNode())
         spec.nodeType = "ExportSpecifier"
         
-        def localName (this.expect("Identifier"))
+        def localName (this.expectModuleExportName())
         spec.name = localName.value
         
-        ; Check for 'as' alias
+        ; Check for 'as' alias. The exported name is a ModuleExportName, so
+        ; `export { a as default }` and reserved words are both legal there.
         if (this.matchValue("as")) {
           this.advance()
-          def exportedName (this.expect("Identifier"))
+          def exportedName (this.expectModuleExportName())
           spec.value = exportedName.value
         } {
           spec.value = localName.value
         }
+        this.registerExportName(spec.value)
+        push this.pendingExportRefs localName.value
         
         push specifiers spec
         
@@ -697,6 +1794,9 @@ class TSParserSimple {
         source.nodeType = "StringLiteral"
         source.value = sourceStr.value
         node.left = source
+        ; A re-export names the OTHER module's bindings, not this one's.
+        def emptyRefs:[string]
+        this.pendingExportRefs = emptyRefs
       }
       
       if (this.matchValue(";")) {
@@ -730,10 +1830,17 @@ class TSParserSimple {
       return node
     }
     
-    ; export declaration (function, class, interface, type, const, let, enum)
-    if ((v == "function") || (v == "class") || (v == "interface") || (v == "type") || (v == "const") || (v == "let") || (v == "enum") || (v == "abstract")) {
+    ; export declaration (function, class, interface, type, var/const/let, enum)
+    if ((v == "function") || (v == "class") || (v == "interface") || (v == "type") || (v == "var") || (v == "const") || (v == "let") || (v == "enum") || (v == "abstract")) {
       def decl (this.parseStatement())
+      ; Only `export default` may export an anonymous function or class.
+      if ((v == "function") || (v == "class")) {
+        if ((strlen decl.name) == 0) {
+          this.syntaxError("Parse error: an exported " + v + " declaration needs a name")
+        }
+      }
       node.left = decl
+      this.registerExportedDeclaration(decl)
       return node
     }
     
@@ -741,9 +1848,12 @@ class TSParserSimple {
     if (v == "async") {
       def decl (this.parseStatement())
       node.left = decl
+      this.registerExportedDeclaration(decl)
       return node
     }
-    
+
+    ; Nothing else may follow `export`.
+    this.syntaxError("Parse error: '" + v + "' cannot follow 'export'")
     return node
   }
   
@@ -1056,20 +2166,40 @@ class TSParserSimple {
     }
     
     this.expectValue("class")
-    
-    def nameTok (this.expect("Identifier"))
-    node.name = nameTok.value
-    
+
+    ; Name is optional: `class {}` is legal as an expression and after
+    ; `export default`. A class is always strict code, so its name obeys the
+    ; strict rules, and a class declaration binds lexically.
+    def classNameFollows:boolean (this.isNameToken())
+    ; `class extends B {}` and `class implements I {}` are anonymous; those
+    ; words open a heritage clause rather than naming the class.
+    if (this.matchValue("extends")) { classNameFollows = false }
+    if (this.matchValue("implements")) { classNameFollows = false }
+    if (classNameFollows) {
+      def savedNameStrict:boolean this.strictMode
+      this.strictMode = true
+      def nameTok (this.expectBindingName())
+      this.strictMode = savedNameStrict
+      node.name = nameTok.value
+      this.declareBinding("l" nameTok.value)
+    }
+
     ; Parse generic type parameters <T, U>
     if (this.matchValue("<")) {
       def typeParams (this.parseTypeParams())
       node.params = typeParams
     }
     
-    ; Parse extends clause
+    ; Parse extends clause. The superclass is an expression, not a type.
+    def savedDerived:boolean this.inDerivedClass
+    this.inDerivedClass = false
+    ; A class is strict code throughout, heritage expression included.
+    def savedClassStrictAll:boolean this.strictMode
+    this.strictMode = true
     if (this.matchValue("extends")) {
+      this.inDerivedClass = true
       this.advance()
-      def superClass (this.parseType())
+      def superClass (this.parsePostfix())
       def extendsNode (new TSNode())
       extendsNode.nodeType = "TSExpressionWithTypeArguments"
       extendsNode.left = superClass
@@ -1097,7 +2227,10 @@ class TSParserSimple {
     ; Parse class body
     def body (this.parseClassBody())
     node.body = body
-    
+
+    this.inDerivedClass = savedDerived
+    this.strictMode = savedClassStrictAll
+
     return node
   }
   
@@ -1110,17 +2243,75 @@ class TSParserSimple {
     body.col = startTok.col
     
     this.expectValue("{")
-    
+
+    ; Everything inside a class body is strict code.
+    def savedClassStrict:boolean this.strictMode
+    this.strictMode = true
+    def sawConstructor:boolean false
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
-      def member (this.parseClassMember())
-      push body.children member
-      
-      ; Optional semicolon
+      ; A bare `;` is an empty class element and carries no member.
       if (this.matchValue(";")) {
         this.advance()
+      } {
+        def member (this.parseClassMember())
+
+        ; A class has at most one constructor, however its name was written.
+        if (member.computed == false) {
+          def namesConstructor:boolean false
+          if (member.name == "constructor") { namesConstructor = true }
+          ; The dedicated constructor branch records only the kind.
+          if (member.kind == "constructor") { namesConstructor = true }
+          if namesConstructor {
+            if (member.kind != "static") {
+              if (member.nodeType == "MethodDefinition") {
+                if sawConstructor {
+                  this.syntaxError("Parse error: a class may only have one constructor")
+                }
+                sawConstructor = true
+              }
+            }
+          }
+          ; A constructor may not be an accessor or a generator.
+          if namesConstructor {
+            if (member.kind != "static") {
+              if ((member.kind == "get") || (member.kind == "set")) {
+                this.syntaxError("Parse error: a class constructor may not be an accessor")
+              }
+              if (member.generator) {
+                this.syntaxError("Parse error: a class constructor may not be a generator")
+              }
+            }
+          }
+          ; A static member may not be named `prototype`.
+          if (member.kind == "static") {
+            if (member.name == "prototype") {
+              this.syntaxError("Parse error: a static class member may not be named 'prototype'")
+            }
+          }
+        }
+
+        push body.children member
+
+        ; Optional trailing semicolon. Without one the next member has to start
+        ; on a new line: `class A { a static(){} }` runs two together.
+        if (this.matchValue(";")) {
+          this.advance()
+        } {
+          if (member.nodeType == "PropertyDefinition") {
+            if ((this.matchValue("}")) == false) {
+              def nextMember (this.peek())
+              if (nextMember.line == this.lastTokenLine) {
+                this.syntaxError("Parse error: missing ';' between class members")
+              }
+            }
+          }
+        }
       }
     }
-    
+
+    this.strictMode = savedClassStrict
+
     this.expectValue("}")
     return body
   }
@@ -1151,6 +2342,7 @@ class TSParserSimple {
     
     def keepParsing true
     while (keepParsing) {
+      def modifierStartPos:int this.pos
       def tokVal (this.peekValue())
       
       if (tokVal == "public") {
@@ -1166,6 +2358,10 @@ class TSParserSimple {
         this.advance()
       }
       if (tokVal == "static") {
+        ; `static` is a modifier only when a member follows. In
+        ; `class a { static(){} }` it is the method's own name.
+        def afterStatic:string (this.peekNextValue())
+        if ((afterStatic != "(") && (afterStatic != "=") && (afterStatic != ";") && (afterStatic != "}")) {
         isStatic = true
         this.advance()
         
@@ -1177,6 +2373,7 @@ class TSParserSimple {
           member.line = startTok.line
           member.col = startTok.col
           return member
+        }
         }
       }
       if (tokVal == "abstract") {
@@ -1196,38 +2393,136 @@ class TSParserSimple {
       if ((newTokVal != "public") && (newTokVal != "private") && (newTokVal != "protected") && (newTokVal != "static") && (newTokVal != "abstract") && (newTokVal != "readonly") && (newTokVal != "async")) {
         keepParsing = false
       }
+      ; A modifier may appear once. `static static(){}` is a static method
+      ; named `static`, so only a repeat that would itself be read as a
+      ; modifier counts -- that is, one with another word after it.
+      if (newTokVal == "static") {
+        if (isStatic) {
+          def afterRepeat:string (this.peekNextValue())
+          if ((afterRepeat != "(") && (afterRepeat != "=") && (afterRepeat != ";") && (afterRepeat != "}")) {
+            this.syntaxError("Parse error: 'static' may appear only once on a class member")
+            keepParsing = false
+          }
+        }
+      }
+      ; A modifier word that turned out to be the member's own name (e.g.
+      ; `static(){}`) is not consumed above; stop rather than spin.
+      if (this.pos == modifierStartPos) {
+        keepParsing = false
+      }
     }
     
-    ; Constructor
-    if (this.matchValue("constructor")) {
+    ; Constructor. `static constructor(){}` is an ordinary static method.
+    if ((this.matchValue("constructor")) && (isStatic == false)) {
       member.nodeType = "MethodDefinition"
       member.kind = "constructor"
       this.advance()
       
+      this.pushScope(true)
+      this.functionDepth = (this.functionDepth + 1)
+      def savedCtorRest:boolean this.sawRestParam
+      this.sawRestParam = false
+      def savedCtorSuperCall:boolean this.allowSuperCall
+      def savedCtorSuperProp:boolean this.allowSuperProperty
+      ; A function is a break/continue boundary: labels do not cross it.
+      def savedctorIter:int this.iterationDepth
+      def savedctorSwitch:int this.switchDepth
+      def savedctorLabels:[string] this.activeLabels
+      def savedctorIterLabels:[string] this.iterationLabels
+      def freshctorLabels:[string]
+      def freshctorIterLabels:[string]
+      this.iterationDepth = 0
+      this.switchDepth = 0
+      this.activeLabels = freshctorLabels
+      this.iterationLabels = freshctorIterLabels
+      ; `super()` is legal here only when the class has an extends clause.
+      this.allowSuperCall = this.inDerivedClass
+      this.allowSuperProperty = true
+
       this.expectValue("(")
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length member.params) > 0) {
           this.expectValue(",")
         }
         def param (this.parseConstructorParam())
+        if ((strlen param.name) > 0) {
+          this.declareBinding("p" param.name)
+        }
         push member.params param
       }
       this.expectValue(")")
       
       ; Constructor body
       if (this.matchValue("{")) {
+        this.suppressBlockScope = true
         def bodyNode (this.parseBlock())
         member.body = bodyNode
+        member.end = bodyNode.end
       }
-      
+
+      this.popScope()
+      this.allowSuperCall = savedCtorSuperCall
+      this.allowSuperProperty = savedCtorSuperProp
+      this.sawRestParam = savedCtorRest
+      this.functionDepth = (this.functionDepth - 1)
+      this.iterationDepth = savedctorIter
+      this.switchDepth = savedctorSwitch
+      this.activeLabels = savedctorLabels
+      this.iterationLabels = savedctorIterLabels
+
       return member
     }
     
-    ; Member name — reserved words are legal here (methods named `set`, `get`,
-    ; `delete`, fields named `default`, etc.), so accept any name token.
-    def nameTok (this.parseMemberName())
-    member.name = nameTok.value
-    
+    ; Accessor: get x() {} / set x(v) {}. Recognised so the member's own name
+    ; is `x` rather than `get`, which the constructor and static-prototype
+    ; checks depend on.
+    def accessorKind:string ""
+    if ((this.matchValue("get")) || (this.matchValue("set"))) {
+      def accessorWord:string (this.peekValue())
+      def afterAccessor:string (this.peekNextValue())
+      def afterAccessorType:string (this.peekNextType())
+      def looksLikeAccessor:boolean false
+      if ((afterAccessorType == "Identifier") || (afterAccessorType == "TSType") || (afterAccessorType == "Keyword") || (afterAccessorType == "String") || (afterAccessorType == "Number")) { looksLikeAccessor = true }
+      if (afterAccessor == "[") { looksLikeAccessor = true }
+      if (afterAccessor == "#") { looksLikeAccessor = true }
+      if looksLikeAccessor {
+        this.advance()
+        accessorKind = accessorWord
+      }
+    }
+
+    ; Generator method: *m() {} / static *m() {} / async *m() {}
+    if (this.matchValue("*")) {
+      this.advance()
+      member.generator = true
+    }
+
+    ; Private name: #x. Recorded on `value` so it does not clobber `kind`,
+    ; which carries the accessibility / static / abstract modifier.
+    if (this.matchValue("#")) {
+      this.advance()
+      member.value = "#"
+    }
+
+    ; Computed member name: ["prototype"]() {} / [Symbol.iterator]() {}
+    if (this.matchPunct("[")) {
+      this.advance()
+      def keyExpr (this.parseExpr())
+      this.expectValue("]")
+      member.computed = true
+      member.init = keyExpr
+    } {
+      ; Member name — reserved words are legal here (methods named `set`, `get`,
+      ; `delete`, fields named `default`, etc.), and so are literals.
+      def nameTok (this.peek())
+      if (this.isMemberKeyToken()) {
+        this.advance()
+      } {
+        nameTok = (this.expect("Identifier"))
+      }
+      member.name = nameTok.value
+    }
+
     ; Apply modifiers
     if (accessibility != "") {
       member.kind = accessibility
@@ -1239,6 +2534,13 @@ class TSParserSimple {
       member.optional = true
       this.advance()
     }
+
+    ; TypeScript definite-assignment assertion: `name!: T`.
+    if (this.matchPunct("!")) {
+      if (this.typeScriptMode) {
+        this.advance()
+      }
+    }
     
     ; Method or property?
     if (this.matchValue("(")) {
@@ -1247,6 +2549,12 @@ class TSParserSimple {
       if (isStatic) {
         member.kind = "static"
       }
+      if ((strlen accessorKind) > 0) {
+        if (isStatic == false) {
+          member.kind = accessorKind
+        }
+        member.accessor = accessorKind
+      }
       if (isAbstract) {
         member.kind = "abstract"
       }
@@ -1254,16 +2562,71 @@ class TSParserSimple {
         member.async = true
       }
       
+      ; A method's parameters and body share one scope, and duplicate
+      ; parameters are always an error in a method.
+      this.pushScope(true)
+      def savedMethodRest:boolean this.sawRestParam
+      this.sawRestParam = false
+      def savedMethodGenerator:boolean this.inGenerator
+      this.inGenerator = member.generator
+      def savedMethodSuperCall:boolean this.allowSuperCall
+      def savedMethodSuperProp:boolean this.allowSuperProperty
+      ; A function is a break/continue boundary: labels do not cross it.
+      def savedmethIter:int this.iterationDepth
+      def savedmethSwitch:int this.switchDepth
+      def savedmethLabels:[string] this.activeLabels
+      def savedmethIterLabels:[string] this.iterationLabels
+      def freshmethLabels:[string]
+      def freshmethIterLabels:[string]
+      this.iterationDepth = 0
+      this.switchDepth = 0
+      this.activeLabels = freshmethLabels
+      this.iterationLabels = freshmethIterLabels
+      this.functionDepth = (this.functionDepth + 1)
+      ; A member literally named "constructor" is the constructor even when it
+      ; was written as a string key: class a extends b { "constructor"(){} }.
+      def isCtorNamed:boolean false
+      if (member.name == "constructor") {
+        if (isStatic == false) {
+          if (member.computed == false) { isCtorNamed = true }
+        }
+      }
+      if isCtorNamed {
+        this.allowSuperCall = this.inDerivedClass
+      } {
+        this.allowSuperCall = false
+      }
+      this.allowSuperProperty = true
+
       this.expectValue("(")
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length member.params) > 0) {
           this.expectValue(",")
         }
         def param (this.parseParam())
+        if ((strlen param.name) > 0) {
+          this.declareBinding("p" param.name)
+        }
         push member.params param
       }
       this.expectValue(")")
-      
+
+      if (accessorKind == "get") {
+        if ((array_length member.params) != 0) {
+          this.syntaxError("Parse error: a getter takes no parameters")
+        }
+      }
+      if (accessorKind == "set") {
+        if ((array_length member.params) != 1) {
+          this.syntaxError("Parse error: a setter takes exactly one parameter")
+        } {
+          def setP:TSNode (itemAt member.params 0)
+          if (setP.nodeType == "RestElement") {
+            this.syntaxError("Parse error: a setter parameter may not be a rest element")
+          }
+        }
+      }
+
       ; Return type
       if (this.matchValue(":")) {
         def returnType (this.parseTypeAnnotation())
@@ -1272,18 +2635,42 @@ class TSParserSimple {
       
       ; Method body
       if (this.matchValue("{")) {
+        this.suppressBlockScope = true
         def bodyNode (this.parseBlock())
         member.body = bodyNode
+        member.end = bodyNode.end
+        if (this.lastBlockEnabledStrict) {
+          this.recheckStrictSignature(member.name member.params)
+        }
       }
+
+      this.popScope()
+      this.allowSuperCall = savedMethodSuperCall
+      this.allowSuperProperty = savedMethodSuperProp
+      this.inGenerator = savedMethodGenerator
+      this.sawRestParam = savedMethodRest
+      this.functionDepth = (this.functionDepth - 1)
+      this.iterationDepth = savedmethIter
+      this.switchDepth = savedmethSwitch
+      this.activeLabels = savedmethLabels
+      this.iterationLabels = savedmethIterLabels
     } {
-      ; Property
+      ; Property — a class field, which is ES2022.
       member.nodeType = "PropertyDefinition"
+      if (this.ecmaVersion < 2022) {
+        if (this.typeScriptMode == false) {
+          this.syntaxError("Parse error: class fields need ES2022")
+        }
+      }
       if (isStatic) {
         member.kind = "static"
       }
       
       ; Type annotation
       if (this.matchValue(":")) {
+        if (this.typeScriptMode == false) {
+          this.syntaxError("Parse error: a class field cannot carry a type annotation in JavaScript")
+        }
         def typeAnnot (this.parseTypeAnnotation())
         member.typeAnnotation = typeAnnot
       }
@@ -1291,7 +2678,7 @@ class TSParserSimple {
       ; Initializer
       if (this.matchValue("=")) {
         this.advance()
-        def initExpr (this.parseExpr())
+        def initExpr (this.parseExprSeq())
         member.init = initExpr
       }
     }
@@ -1320,9 +2707,46 @@ class TSParserSimple {
       }
     }
     
-    def nameTok (this.expect("Identifier"))
+    ; A constructor takes patterns and rest elements like any other parameter
+    ; list: `constructor(...d)` and `constructor({a})`.
+    if (this.matchValue("...")) {
+      this.advance()
+      param.nodeType = "RestElement"
+      param.kind = "rest"
+      if (this.sawRestParam) {
+        this.syntaxError("Parse error: a rest element must be the last parameter")
+      }
+      this.sawRestParam = true
+      this.restParamPending = true
+    }
+    if ((this.matchValue("{")) || (this.matchValue("["))) {
+      def ctorPattern (this.parseBindingTarget())
+      if (this.matchValue(":")) {
+        def ctorPatType (this.parseTypeAnnotation())
+        ctorPattern.typeAnnotation = ctorPatType
+      }
+      if (this.matchValue("=")) {
+        this.advance()
+        def ctorDefault (this.parseExpr())
+        def ctorAssign (new TSNode())
+        ctorAssign.nodeType = "AssignmentPattern"
+        ctorAssign.left = ctorPattern
+        ctorAssign.right = ctorDefault
+        return ctorAssign
+      }
+      return ctorPattern
+    }
+
+    def nameTok (this.expectBindingName())
     param.name = nameTok.value
     
+    if (this.restParamPending) {
+      this.restParamPending = false
+      if (this.matchValue("=")) {
+        this.syntaxError("Parse error: a rest parameter may not have a default")
+      }
+    }
+
     ; Optional marker
     if (this.matchValue("?")) {
       param.optional = true
@@ -1496,13 +2920,28 @@ class TSParserSimple {
     node.left = test
     this.expectValue(")")
     
+    def savedConsBody:boolean this.inSingleStatementBody
+    def savedConsIf:boolean this.singleBodyIsIfBranch
+    this.inSingleStatementBody = true
+    this.atModuleTopLevel = false
+    this.singleBodyIsIfBranch = true
+    this.atModuleTopLevel = false
     def consequent (this.parseStatement())
+    this.inSingleStatementBody = savedConsBody
+    this.singleBodyIsIfBranch = savedConsIf
     node.body = consequent
     
     ; else clause
     if (this.matchValue("else")) {
       this.advance()
+      def savedAltBody:boolean this.inSingleStatementBody
+      def savedAltIf:boolean this.singleBodyIsIfBranch
+      this.inSingleStatementBody = true
+      this.atModuleTopLevel = false
+      this.singleBodyIsIfBranch = true
       def alternate (this.parseStatement())
+      this.inSingleStatementBody = savedAltBody
+      this.singleBodyIsIfBranch = savedAltIf
       node.right = alternate
     }
     
@@ -1523,7 +2962,13 @@ class TSParserSimple {
     node.left = test
     this.expectValue(")")
     
+    def savedBodyFlag0:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = true
+    this.atModuleTopLevel = false
+    this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
+    this.iterationDepth = (this.iterationDepth - 1)
+    this.inSingleStatementBody = savedBodyFlag0
     node.body = body
     
     return node
@@ -1541,7 +2986,13 @@ class TSParserSimple {
     
     this.expectValue("do")
     
+    def savedBodyFlag1:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = true
+    this.atModuleTopLevel = false
+    this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
+    this.iterationDepth = (this.iterationDepth - 1)
+    this.inSingleStatementBody = savedBodyFlag1
     node.body = body
     
     this.expectValue("while")
@@ -1568,6 +3019,16 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("throw")
+
+    ; Restricted production: the argument must start on the same line, and it
+    ; is not optional.
+    def throwArgTok (this.peek())
+    if (throwArgTok.line != this.lastTokenLine) {
+      this.syntaxError("Parse error: no line terminator is allowed after 'throw'")
+    }
+    if ((this.isAtEnd()) || (throwArgTok.value == ";") || (throwArgTok.value == "}")) {
+      this.syntaxError("Parse error: 'throw' requires an argument")
+    }
     
     def arg (this.parseExpr())
     node.left = arg
@@ -1579,6 +3040,26 @@ class TSParserSimple {
     return node
   }
   
+  ; True when the expression contains a top-level-ish `in` operator. Only the
+  ; parenthesised case reaches here: an unparenthesised one was already split
+  ; into a for-in head.
+  fn containsInOperator:boolean (node:TSNode) {
+    if (node.nodeType == "BinaryExpression") {
+      if (node.value == "in") {
+        return true
+      }
+    }
+    def i:int 0
+    while (i < (array_length node.children)) {
+      def c:TSNode (itemAt node.children i)
+      if (this.containsInOperator(c)) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
   fn parseForStatement:TSNode () {
     def node (new TSNode())
     def startTok (this.peek())
@@ -1596,14 +3077,33 @@ class TSParserSimple {
     }
     
     this.expectValue("(")
-    
+
+    ; The head's declarations live in a scope of their own, between the body and
+    ; the enclosing function: `for (const a = 1;;) { var a; }` is a clash. Every
+    ; exit from this function pops it again.
+    this.pushScope(false)
+
     ; Check for for...of or for...in
     ; First parse potential variable declaration
     def tokVal (this.peekValue())
     
-    if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
+    def headIsDecl:boolean true
+    if (tokVal == "let") {
+      def afterLet:string (this.peekNextValue())
+      if ((afterLet == "in") || (afterLet == "of") || (afterLet == "=") || (afterLet == ";") || (afterLet == ".") || (afterLet == "(")) {
+        headIsDecl = false
+      }
+    }
+    if (((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) && headIsDecl) {
       def kind tokVal
       this.advance()
+      def headDeclKind:string "v"
+      if (kind == "let") { headDeclKind = "l" }
+      if (kind == "const") { headDeclKind = "l" }
+      ; A for-of / for-in binding may not shadow a catch parameter even when it
+      ; is a `var`, so it is recorded under the lexical kind for that check.
+      def savedHeadDeclaring:string this.declaringKind
+      this.declaringKind = headDeclKind
       ; Binding target: a destructuring pattern ([a,b] / {x,y}) or an identifier.
       ; Enables for ([k,v] of map) / for ({id} of items).
       def hasPattern:boolean false
@@ -1618,13 +3118,25 @@ class TSParserSimple {
           hasPattern = true
           patternNode = (this.parseObjectPattern())
         } {
-          def vt (this.expect("Identifier"))
+          def vt (this.expectBindingName())
           varNameStr = vt.value
+          if (headDeclKind == "l") {
+            if (vt.value == "let") {
+              this.syntaxError("Parse error: 'let' cannot be the name of a lexical binding")
+            }
+          }
+          this.declareBinding(headDeclKind vt.value)
         }
       }
+      this.declaringKind = savedHeadDeclaring
 
       def nextVal (this.peekValue())
       if (nextVal == "of") {
+        if ((strlen varNameStr) > 0) {
+          if (this.isParameterInScope(varNameStr)) {
+            this.syntaxError("Parse error: '" + varNameStr + "' shadows a parameter in a for-of head")
+          }
+        }
         ; for...of loop
         node.nodeType = "ForOfStatement"
         node.await = isAwait
@@ -1643,12 +3155,24 @@ class TSParserSimple {
         node.right = right
         this.expectValue(")")
         
+        def savedBodyFlag2:boolean this.inSingleStatementBody
+        this.inSingleStatementBody = true
+        this.atModuleTopLevel = false
+        this.iterationDepth = (this.iterationDepth + 1)
         def body (this.parseStatement())
+        this.iterationDepth = (this.iterationDepth - 1)
+        this.inSingleStatementBody = savedBodyFlag2
         node.body = body
+        this.popScope()
         return node
       }
       
       if (nextVal == "in") {
+        if ((strlen varNameStr) > 0) {
+          if (this.isParameterInScope(varNameStr)) {
+            this.syntaxError("Parse error: '" + varNameStr + "' shadows a parameter in a for-in head")
+          }
+        }
         ; for...in loop
         node.nodeType = "ForInStatement"
         this.advance() ; consume 'in'
@@ -1666,8 +3190,15 @@ class TSParserSimple {
         node.right = right
         this.expectValue(")")
         
+        def savedBodyFlag3:boolean this.inSingleStatementBody
+        this.inSingleStatementBody = true
+        this.atModuleTopLevel = false
+        this.iterationDepth = (this.iterationDepth + 1)
         def body (this.parseStatement())
+        this.iterationDepth = (this.iterationDepth - 1)
+        this.inSingleStatementBody = savedBodyFlag3
         node.body = body
+        this.popScope()
         return node
       }
       
@@ -1691,16 +3222,134 @@ class TSParserSimple {
         this.advance()
         def initVal (this.parseExpr())
         declarator.init = initVal
+      } {
+        if (kind == "const") {
+          this.syntaxError("Parse error: a 'const' declaration must have an initializer")
+        }
       }
       
       push initDecl.children declarator
+
+      ; Further declarators: `for (var a = 1, b = 2; ...)`
+      while (this.matchValue(",")) {
+        this.advance()
+        def more (new TSNode())
+        more.nodeType = "VariableDeclarator"
+        def savedMoreDeclaring:string this.declaringKind
+        this.declaringKind = headDeclKind
+        def moreTarget (this.parseBindingTarget())
+        this.declaringKind = savedMoreDeclaring
+        if (moreTarget.nodeType == "Identifier") {
+          more.name = moreTarget.name
+        } {
+          more.left = moreTarget
+        }
+        if (this.matchValue(":")) {
+          def moreType (this.parseTypeAnnotation())
+          more.typeAnnotation = moreType
+        }
+        if (this.matchValue("=")) {
+          this.advance()
+          def moreInit (this.parseExpr())
+          more.init = moreInit
+        } {
+          if (kind == "const") {
+            this.syntaxError("Parse error: a 'const' declaration must have an initializer")
+          }
+        }
+        push initDecl.children more
+      }
+
       node.init = initDecl
     } {
-      ; Init could be expression or empty
+      ; No declaration keyword. The head is either an expression init, or the
+      ; left-hand side of for-in / for-of over an existing binding.
       node.nodeType = "ForStatement"
       if ((this.matchValue(";")) == false) {
         def initExpr (this.parseExpr())
-        node.init = initExpr
+
+        ; for (lhs of rhs) — `of` is not an operator, so parseExpr stopped here.
+        if (this.matchValue("of")) {
+          node.nodeType = "ForOfStatement"
+          node.await = isAwait
+          ; `for (let of ...)` is ambiguous with a let declaration and is
+          ; disallowed outright, however the head continues.
+          if (tokVal == "let") {
+            this.syntaxError("Parse error: a for-of head may not start with 'let'")
+          }
+          this.checkAssignmentTarget(initExpr)
+          this.advance()
+          node.left = initExpr
+          def ofRight (this.parseExpr())
+          node.right = ofRight
+          this.expectValue(")")
+          def savedBodyFlag4:boolean this.inSingleStatementBody
+          this.inSingleStatementBody = true
+          this.atModuleTopLevel = false
+          this.iterationDepth = (this.iterationDepth + 1)
+        def ofBody (this.parseStatement())
+        this.iterationDepth = (this.iterationDepth - 1)
+        this.inSingleStatementBody = savedBodyFlag4
+          node.body = ofBody
+          this.popScope()
+          return node
+        }
+
+        ; for (lhs in rhs) — `in` IS a binary operator, so parseExpr has already
+        ; folded the head into `lhs in rhs`. Split that node back apart rather
+        ; than threading a [no-In] flag through the whole expression grammar.
+        if (initExpr.nodeType == "BinaryExpression") {
+          if (initExpr.value == "in") {
+            if (this.matchValue(")")) {
+              node.nodeType = "ForInStatement"
+              ; `for ((i in {}));` — the whole head was parenthesised, which is
+              ; not a for-in head at all.
+              if (initExpr.parenthesized) {
+                this.syntaxError("Parse error: the 'in' operator is not allowed in a for-initialiser")
+              }
+              def inLeft:TSNode (unwrap initExpr.left)
+              this.checkAssignmentTarget(inLeft)
+              node.left = inLeft
+              node.right = (unwrap initExpr.right)
+              this.expectValue(")")
+              def savedBodyFlag5:boolean this.inSingleStatementBody
+              this.inSingleStatementBody = true
+              this.atModuleTopLevel = false
+              this.iterationDepth = (this.iterationDepth + 1)
+              def inBody (this.parseStatement())
+              this.iterationDepth = (this.iterationDepth - 1)
+              this.inSingleStatementBody = savedBodyFlag5
+              node.body = inBody
+              this.popScope()
+              return node
+            }
+          }
+        }
+
+        ; The `in` operator is banned in a for-init, parentheses and all:
+        ; `for ((i in {}));` is an error even though the parens make it look
+        ; like an ordinary expression.
+        if (this.containsInOperator(initExpr)) {
+          this.syntaxError("Parse error: the 'in' operator is not allowed in a for-initialiser")
+        }
+
+        ; Plain init; a comma operator may follow: for (a, b, c;;)
+        if (this.matchValue(",")) {
+          def seq (new TSNode())
+          seq.nodeType = "SequenceExpression"
+          seq.start = initExpr.start
+          seq.line = initExpr.line
+          seq.col = initExpr.col
+          push seq.children initExpr
+          while (this.matchValue(",")) {
+            this.advance()
+            def more (this.parseExpr())
+            push seq.children more
+          }
+          node.init = seq
+        } {
+          node.init = initExpr
+        }
       }
     }
     
@@ -1708,7 +3357,7 @@ class TSParserSimple {
     
     ; Test condition
     if ((this.matchValue(";")) == false) {
-      def test (this.parseExpr())
+      def test (this.parseExprSeq())
       node.left = test
     }
     
@@ -1716,15 +3365,22 @@ class TSParserSimple {
     
     ; Update expression
     if ((this.matchValue(")")) == false) {
-      def update (this.parseExpr())
+      def update (this.parseExprSeq())
       node.right = update
     }
     
     this.expectValue(")")
     
+    def savedBodyFlag6:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = true
+    this.atModuleTopLevel = false
+    this.iterationDepth = (this.iterationDepth + 1)
     def body (this.parseStatement())
+    this.iterationDepth = (this.iterationDepth - 1)
+    this.inSingleStatementBody = savedBodyFlag6
     node.body = body
     
+    this.popScope()
     return node
   }
   
@@ -1743,10 +3399,19 @@ class TSParserSimple {
     this.expectValue(")")
     
     this.expectValue("{")
-    
+
+    this.switchDepth = (this.switchDepth + 1)
+    def sawDefaultClause:boolean false
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def caseNode (new TSNode())
       
+      if (this.matchValue("default")) {
+        if (sawDefaultClause) {
+          this.syntaxError("Parse error: a switch may have only one default clause")
+        }
+        sawDefaultClause = true
+      }
       if (this.matchValue("case")) {
         caseNode.nodeType = "SwitchCase"
         this.advance()
@@ -1765,24 +3430,21 @@ class TSParserSimple {
       ; Parse consequent statements
       while (((this.matchValue("case")) == false) && ((this.matchValue("default")) == false) && ((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
         def beforePos:int this.pos
-        if (this.matchValue("break")) {
-          def breakNode (new TSNode())
-          breakNode.nodeType = "BreakStatement"
-          this.advance()
-          if (this.matchValue(";")) {
-            this.advance()
-          }
-          push caseNode.children breakNode
-        } {
-          def stmt (this.parseStatement())
-          push caseNode.children stmt
-        }
+        ; A case body's `break` is parsed by the ordinary statement parser, which
+        ; is the one that knows about `break label`. The hand-rolled version here
+        ; consumed only the keyword, so `case 2: break L;` came out as a bare
+        ; break followed by an expression statement `L` -- the label silently
+        ; became a no-op and the break stopped the switch instead of the loop.
+        def stmt (this.parseStatement())
+        push caseNode.children stmt
         this.guardNoProgress(beforePos)
       }
       
       push node.children caseNode
     }
-    
+
+    this.switchDepth = (this.switchDepth - 1)
+
     this.expectValue("}")
     return node
   }
@@ -1806,11 +3468,21 @@ class TSParserSimple {
       catchNode.nodeType = "CatchClause"
       this.advance()
       
+      this.pushScope(false)
       if (this.matchValue("(")) {
         this.advance()
-        def param (this.expect("Identifier"))
-        catchNode.name = param.value
-        
+        ; The catch parameter is a full binding target: `catch ([a, ...b])` and
+        ; `catch ({message})` are both legal.
+        def savedCatchDeclaring:string this.declaringKind
+        ; Parameter-like, not lexical: `catch (a) { var a = 1; }` is legal,
+        ; `catch (a) { let a; }` is not. The reporting kind is used so a name
+        ; repeated inside the pattern -- `catch ({a, a})` -- is caught.
+        this.declaringKind = "p"
+        def param (this.parseBindingTarget())
+        this.declaringKind = savedCatchDeclaring
+        catchNode.name = param.name
+        catchNode.left = param
+
         ; Optional type annotation
         if (this.matchValue(":")) {
           def typeAnnot (this.parseTypeAnnotation())
@@ -1820,18 +3492,31 @@ class TSParserSimple {
         this.expectValue(")")
       }
       
+      ; The parameter and the catch block share a scope, so
+      ; `catch (a) { for (var a of 1); }` is a redeclaration.
+      this.suppressBlockScope = true
       def catchBlock (this.parseBlock())
       catchNode.body = catchBlock
+      this.popScope()
       node.left = catchNode
     }
     
+    def sawHandler:boolean false
+    if ((null? node.left) == false) { sawHandler = true }
+
     ; finally clause
     if (this.matchValue("finally")) {
       this.advance()
       def finallyBlock (this.parseBlock())
       node.right = finallyBlock
+      sawHandler = true
     }
-    
+
+    ; `try {}` on its own is not a statement.
+    if (sawHandler == false) {
+      this.syntaxError("Parse error: 'try' requires a catch or a finally clause")
+    }
+
     return node
   }
 
@@ -1856,6 +3541,14 @@ class TSParserSimple {
 
       def nextVal (this.peekValue())
 
+      def declKind:string "v"
+      if (node.kind == "let") { declKind = "l" }
+      if (node.kind == "const") { declKind = "l" }
+      def savedVarDeclaring:string this.declaringKind
+      this.declaringKind = declKind
+      def savedVarMemberTarget:boolean this.patternAllowsMemberTarget
+      this.patternAllowsMemberTarget = false
+
       ; Destructuring object pattern { a, b } = obj
       if (nextVal == "{") {
         def pattern (this.parseObjectPattern())
@@ -1873,13 +3566,17 @@ class TSParserSimple {
           declarator.col = pattern.col
         } {
           ; Simple identifier
-          def nameTok (this.expect("Identifier"))
+          def nameTok (this.expectBindingName())
           declarator.name = nameTok.value
           declarator.start = nameTok.start
           declarator.line = nameTok.line
           declarator.col = nameTok.col
+          this.declareBinding(declKind nameTok.value)
         }
       }
+
+      this.declaringKind = savedVarDeclaring
+      this.patternAllowsMemberTarget = savedVarMemberTarget
 
       ; Type annotation
       if (this.matchValue(":")) {
@@ -1894,6 +3591,26 @@ class TSParserSimple {
         declarator.init = initExpr
       }
 
+      ; A pattern binds nothing without an initialiser: `let [a];` is an error
+      ; regardless of the declaration keyword.
+      if (null? declarator.init) {
+        if (declarator.left) {
+          if (null? declarator.typeAnnotation) {
+            this.syntaxError("Parse error: a destructuring declaration must have an initializer")
+          }
+        }
+      }
+
+      ; A `const` needs an initialiser -- except in TypeScript ambient code,
+      ; where `declare const a: number;` is a type-only declaration. A type
+      ; annotation is a good enough proxy: plain JS `const a;` never has one.
+      if (node.kind == "const") {
+        if (null? declarator.init) {
+          if (null? declarator.typeAnnotation) {
+            this.syntaxError("Parse error: a 'const' declaration must have an initializer")
+          }
+        }
+      }
       push node.children declarator
 
       ; another declarator follows only after a comma
@@ -1906,6 +3623,16 @@ class TSParserSimple {
 
     if (this.matchValue(";")) {
       this.advance()
+    } {
+      ; Same automatic-semicolon rule as an expression statement.
+      if ((this.isAtEnd()) == false) {
+        def afterDecl (this.peek())
+        if (afterDecl.value != "}") {
+          if (afterDecl.line == this.lastTokenLine) {
+            this.syntaxError("Parse error: missing ';' after a declaration")
+          }
+        }
+      }
     }
     
     return node
@@ -1913,6 +3640,95 @@ class TSParserSimple {
   
   ; === Object Pattern { a, b, c: d } ===
   
+  ; A binding target: a plain identifier, or a nested object / array pattern.
+  ; Patterns nest arbitrarily (`let {a:{b:[c]}} = x`), so this is mutually
+  ; recursive with parseObjectPattern / parseArrayPattern.
+  ; True when the token after a speculatively-parsed pattern confirms it really
+  ; was one: `[a] = b`, `for ([a] in b)`, `for ({a} of b)`.
+  fn isAssignmentPatternFollow:boolean () {
+    if (this.matchValue("=")) { return true }
+    if (this.matchValue("in")) { return true }
+    if (this.matchValue("of")) { return true }
+    return false
+  }
+
+  fn parseBindingTarget:TSNode () {
+    if (this.matchValue("{")) {
+      return (this.parseObjectPattern())
+    }
+    if (this.matchValue("[")) {
+      return (this.parseArrayPattern())
+    }
+    ; In an assignment pattern anything *assignable* is a legal target -- but a
+    ; literal is not: `[0] = 1` and `({a: 0} = 1)` are errors.
+    if (this.patternAllowsMemberTarget) {
+      def lhs (this.parsePostfix())
+      if (this.strictMode) {
+        if (lhs.nodeType == "Identifier") {
+          if ((lhs.name == "eval") || (lhs.name == "arguments")) {
+            this.syntaxError("Parse error: cannot assign to '" + lhs.name + "' in strict mode")
+          }
+        }
+      }
+      def lt:string lhs.nodeType
+      if ((lt != "Identifier") && (lt != "MemberExpression") && (lt != "ArrayPattern") && (lt != "ObjectPattern") && (lt != "ArrayExpression") && (lt != "ObjectExpression")) {
+        this.syntaxError("Parse error: '" + lt + "' is not a valid destructuring target")
+      }
+      return lhs
+    }
+    def tok (this.peek())
+    def tt (this.peekType())
+    ; Keywords are accepted as binding names because most of them are only
+    ; reserved in contexts this parser does not track yet (`yield` outside a
+    ; generator, `let` in sloppy mode); rejecting them here loses valid programs.
+    if ((tt == "Identifier") || (tt == "TSType") || (tt == "Keyword") || (tt == "TSKeyword")) {
+      this.checkBindableName(tok.value)
+      this.advance()
+      def id (new TSNode())
+      id.nodeType = "Identifier"
+      id.name = tok.value
+      if ((strlen this.declaringKind) > 0) {
+        this.declareBinding(this.declaringKind tok.value)
+      }
+      id.start = tok.start
+      id.end = tok.end
+      id.line = tok.line
+      id.col = tok.col
+      return id
+    }
+    def bad (this.expect("Identifier"))
+    def errId (new TSNode())
+    errId.nodeType = "Identifier"
+    errId.name = bad.value
+    return errId
+  }
+
+  ; A binding element: a target plus an optional `= default`. Does not consume a
+  ; `:` — inside an object pattern that introduces an alias, not a type.
+  fn parseBindingElement:TSNode () {
+    def target (this.parseBindingTarget())
+    if (this.matchValue("=")) {
+      this.advance()
+      def savedDeclaring:string this.declaringKind
+      def wasLexical:boolean (savedDeclaring == "l")
+      this.declaringKind = ""
+      def savedNoLet:boolean this.noLetReference
+      if wasLexical { this.noLetReference = true }
+      def defaultExpr (this.parseExpr())
+      this.noLetReference = savedNoLet
+      this.declaringKind = savedDeclaring
+      def assignPat (new TSNode())
+      assignPat.nodeType = "AssignmentPattern"
+      assignPat.left = target
+      assignPat.right = defaultExpr
+      assignPat.start = target.start
+      assignPat.line = target.line
+      assignPat.col = target.col
+      return assignPat
+    }
+    return target
+  }
+
   fn parseObjectPattern:TSNode () {
     def node (new TSNode())
     node.nodeType = "ObjectPattern"
@@ -1920,9 +3736,9 @@ class TSParserSimple {
     node.start = startTok.start
     node.line = startTok.line
     node.col = startTok.col
-    
+
     this.expectValue("{")
-    
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length node.children) > 0) {
         this.expectValue(",")
@@ -1931,52 +3747,100 @@ class TSParserSimple {
           break
         }
       }
-      
+
+      ; Unlike an array pattern, an object pattern has no elisions.
+      if (this.matchPunct(",")) {
+        this.syntaxError("Parse error: an object pattern may not contain an elision")
+        this.advance()
+      }
+
       ; Rest pattern ...rest
       if (this.matchValue("...")) {
         this.advance()
         def restProp (new TSNode())
         restProp.nodeType = "RestElement"
-        def restName (this.expect("Identifier"))
-        restProp.name = restName.value
+        def restTarget (this.parseBindingTarget())
+        restProp.left = restTarget
+        restProp.name = restTarget.name
         push node.children restProp
       } {
-        ; Property pattern: name or name: alias
         def prop (new TSNode())
         prop.nodeType = "Property"
-        def keyTok (this.expect("Identifier"))
-        prop.name = keyTok.value
-        
-        ; Check for : alias
-        if (this.matchValue(":")) {
+
+        ; Computed key: { [expr]: target }
+        if (this.matchPunct("[")) {
           this.advance()
-          def valueTok (this.expect("Identifier"))
-          def valueId (new TSNode())
-          valueId.nodeType = "Identifier"
-          valueId.name = valueTok.value
-          prop.right = valueId
+          def savedKeyDeclaring:string this.declaringKind
+          this.declaringKind = ""
+          def keyExpr (this.parseExpr())
+          this.declaringKind = savedKeyDeclaring
+          this.expectValue("]")
+          prop.computed = true
+          prop.body = keyExpr
+          this.expectValue(":")
+          prop.right = (this.parseBindingElement())
         } {
-          prop.shorthand = true
+          ; Literal or identifier key. String and numeric keys are legal:
+          ; `{ "a": b }`, `{ 0: c }`.
+          def keyTok (this.peek())
+          def keyType (this.peekType())
+          if ((keyType == "String") || (keyType == "Number")) {
+            this.advance()
+            prop.name = keyTok.value
+          } {
+            ; The key is a property name, not a binding: `{ yield: a }` is legal
+            ; even in strict code, where `yield` may not be bound.
+            def idTok (this.parseMemberName())
+            prop.name = idTok.value
+          }
+
+          if (this.matchValue(":")) {
+            this.advance()
+            prop.right = (this.parseBindingElement())
+          } {
+            prop.shorthand = true
+            ; A shorthand key is an IdentifierReference: neither a literal nor
+            ; a reserved word. `({0} = 0)` and `({function} = 0)` are errors.
+            if ((keyType == "String") || (keyType == "Number")) {
+              this.syntaxError("Parse error: a shorthand property name cannot be a literal")
+            }
+            if (this.isAlwaysReservedWord(prop.name)) {
+              this.syntaxError("Parse error: '" + prop.name + "' cannot be a shorthand property name")
+            }
+            ; A shorthand property binds its own key name; the aliased form
+            ; binds through parseBindingElement instead.
+            if ((strlen this.declaringKind) > 0) {
+              this.checkBindableName(prop.name)
+              this.declareBinding(this.declaringKind prop.name)
+            } {
+              ; An assignment pattern still may not target eval/arguments in
+              ; strict code: `({eval = 1} = 2)`.
+              if (this.strictMode) {
+                if ((prop.name == "eval") || (prop.name == "arguments")) {
+                  this.syntaxError("Parse error: cannot assign to '" + prop.name + "' in strict mode")
+                }
+              }
+            }
+            ; Shorthand with default: { a = 1 }
+            if (this.matchValue("=")) {
+              this.advance()
+              def defaultExpr (this.parseExpr())
+              prop.init = defaultExpr
+              prop.left = defaultExpr
+            }
+          }
         }
-        
-        ; Check for default value = expr
-        if (this.matchValue("=")) {
-          this.advance()
-          def defaultExpr (this.parseExpr())
-          prop.init = defaultExpr
-          prop.left = defaultExpr  ; Also set left for compatibility
-        }
-        
+
         push node.children prop
       }
     }
-    
+
     this.expectValue("}")
     return node
   }
-  
+
   ; === Array Pattern [a, b, c] ===
-  
+
   fn parseArrayPattern:TSNode () {
     def node (new TSNode())
     node.nodeType = "ArrayPattern"
@@ -1984,9 +3848,9 @@ class TSParserSimple {
     node.start = startTok.start
     node.line = startTok.line
     node.col = startTok.col
-    
+
     this.expectValue("[")
-    
+
     while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length node.children) > 0) {
         this.expectValue(",")
@@ -1995,7 +3859,7 @@ class TSParserSimple {
           break
         }
       }
-      
+
       ; Check for holes (elision): [a, , b]
       if (this.matchValue(",")) {
         def hole (new TSNode())
@@ -2007,36 +3871,27 @@ class TSParserSimple {
           this.advance()
           def restElem (new TSNode())
           restElem.nodeType = "RestElement"
-          def restName (this.expect("Identifier"))
-          restElem.name = restName.value
+          def restTarget (this.parseBindingTarget())
+          restElem.left = restTarget
+          restElem.name = restTarget.name
+          ; Nothing may follow a rest element, and it takes no default.
+          if (this.matchValue("=")) {
+            this.syntaxError("Parse error: a rest element may not have a default")
+          }
+          if (this.matchValue(",")) {
+            this.syntaxError("Parse error: a rest element must be last in an array pattern")
+          }
           push node.children restElem
         } {
-          ; Element pattern
-          def elem (new TSNode())
-          def elemTok (this.expect("Identifier"))
-          elem.nodeType = "Identifier"
-          elem.name = elemTok.value
-          
-          ; Check for default value = expr
-          if (this.matchValue("=")) {
-            this.advance()
-            def defaultExpr (this.parseExpr())
-            def assignPat (new TSNode())
-            assignPat.nodeType = "AssignmentPattern"
-            assignPat.left = elem
-            assignPat.right = defaultExpr
-            push node.children assignPat
-          } {
-            push node.children elem
-          }
+          push node.children (this.parseBindingElement())
         }
       }
     }
-    
+
     this.expectValue("]")
     return node
   }
-  
+
   ; === Function Declaration ===
   
   fn parseFuncDecl:TSNode (isAsync:boolean) {
@@ -2059,10 +3914,52 @@ class TSParserSimple {
       this.advance()
       node.generator = true
     }
+
+    def savedGenerator:boolean this.inGenerator
+    def isFnExpression:boolean this.parsingFunctionExpression
+    this.parsingFunctionExpression = false
+    if isFnExpression {
+      ; An expression's name is read in its own context.
+      this.inGenerator = node.generator
+    }
     
-    def nameTok (this.expect("Identifier"))
-    node.name = nameTok.value
-    
+    ; Name is optional: `function () {}` is legal both as an expression and as
+    ; the body of `export default function () {}`. When present it may be a
+    ; contextual keyword, as in `function* yield() {}`.
+    if ((this.matchValue("(")) == false) {
+      def nameTok (this.expectBindingName())
+      node.name = nameTok.value
+      ; The name is bound below, once we know this is not an overload signature.
+    }
+
+    ; Whatever the name's context was, the parameters and body use this
+    ; function's own.
+    this.inGenerator = node.generator
+
+    ; The parameters and the body's top level share one scope, so
+    ; `function f(a) { let a; }` is a redeclaration.
+    this.pushScope(true)
+
+    this.functionDepth = (this.functionDepth + 1)
+    def savedRest:boolean this.sawRestParam
+    this.sawRestParam = false
+    ; A plain function is its own `super` boundary.
+    def savedSuperCall:boolean this.allowSuperCall
+    def savedSuperProp:boolean this.allowSuperProperty
+    ; A function is a break/continue boundary: labels do not cross it.
+    def savedfnIter:int this.iterationDepth
+    def savedfnSwitch:int this.switchDepth
+    def savedfnLabels:[string] this.activeLabels
+    def savedfnIterLabels:[string] this.iterationLabels
+    def freshfnLabels:[string]
+    def freshfnIterLabels:[string]
+    this.iterationDepth = 0
+    this.switchDepth = 0
+    this.activeLabels = freshfnLabels
+    this.iterationLabels = freshfnIterLabels
+    this.allowSuperCall = false
+    this.allowSuperProperty = false
+
     ; Type parameters <T, U>
     if (this.matchValue("<")) {
       def typeParams (this.parseTypeParams())
@@ -2079,6 +3976,7 @@ class TSParserSimple {
         this.expectValue(",")
       }
       def param (this.parseParam())
+      this.declareParam(param)
       push node.params param
     }
     this.expectValue(")")
@@ -2089,14 +3987,62 @@ class TSParserSimple {
       node.typeAnnotation = returnType
     }
     
-    ; Body
-    def body (this.parseBlock())
-    node.body = body
-    
+    this.checkNonSimpleParamDuplicates(node.params)
+
+    ; Body. A TypeScript overload signature has none -- `function f(a: string):
+    ; void;` -- and must not consume a block or bind the name, so that the
+    ; implementation below it is not a redeclaration.
+    if (this.matchValue("{")) {
+      this.suppressBlockScope = true
+      def body (this.parseBlock())
+      node.body = body
+      node.end = body.end
+      if (this.lastBlockEnabledStrict) {
+        this.recheckStrictSignature(node.name node.params)
+      }
+    } {
+      node.kind = "overload"
+      if (this.matchValue(";")) {
+        this.advance()
+      } {
+        ; `function a() 1` is not a declaration at all.
+        def afterSig (this.peek())
+        if ((this.isAtEnd()) == false) {
+          if (afterSig.line == this.lastTokenLine) {
+            this.syntaxError("Parse error: a function declaration needs a body")
+          }
+        }
+      }
+    }
+
+    this.popScope()
+    if (node.kind != "overload") {
+      ; A function declaration binds its name in the enclosing scope, and hoists
+      ; like a var.
+      this.declareBinding("f" node.name)
+    }
+    this.allowSuperCall = savedSuperCall
+    this.allowSuperProperty = savedSuperProp
+    this.inGenerator = savedGenerator
+    this.sawRestParam = savedRest
+    this.functionDepth = (this.functionDepth - 1)
+    this.iterationDepth = savedfnIter
+    this.switchDepth = savedfnSwitch
+    this.activeLabels = savedfnLabels
+    this.iterationLabels = savedfnIterLabels
+
     return node
   }
   
   fn parseParam:TSNode () {
+    def savedParamCtx:boolean this.inParamList
+    this.inParamList = true
+    def result:TSNode (this.parseParamInner())
+    this.inParamList = savedParamCtx
+    return result
+  }
+
+  fn parseParamInner:TSNode () {
     ; Check for parameter decorators (@inject, @Required, etc.)
     def decorators:[TSNode]
     while (this.matchValue("@")) {
@@ -2110,10 +4056,20 @@ class TSParserSimple {
       this.advance()
       isRest = true
     }
+    if (this.sawRestParam) {
+      this.syntaxError("Parse error: a rest element must be the last parameter")
+    }
+    if isRest {
+      this.sawRestParam = true
+      this.restParamPending = true
+    }
     
     ; Check for object destructuring { name, value = default }
     if (this.matchValue("{")) {
+      def savedParamDeclaring:string this.declaringKind
+      this.declaringKind = "p"
       def pattern (this.parseObjectPattern())
+      this.declaringKind = savedParamDeclaring
       ; Copy decorators if any
       for decorators d:TSNode i {
         push pattern.decorators d
@@ -2123,13 +4079,31 @@ class TSParserSimple {
         restElem.nodeType = "RestElement"
         restElem.left = pattern
         return restElem
+      }
+      ; Optional type annotation on the pattern: ({a}: T) => ...
+      if (this.matchValue(":")) {
+        def patType (this.parseTypeAnnotation())
+        pattern.typeAnnotation = patType
+      }
+      ; Default value: function a({b} = {b: 1}) {}
+      if (this.matchValue("=")) {
+        this.advance()
+        def patDefault (this.parseExpr())
+        def patAssign (new TSNode())
+        patAssign.nodeType = "AssignmentPattern"
+        patAssign.left = pattern
+        patAssign.right = patDefault
+        return patAssign
       }
       return pattern
     }
     
     ; Check for array destructuring [ a, b, c ]
     if (this.matchValue("[")) {
+      def savedParamDeclaring:string this.declaringKind
+      this.declaringKind = "p"
       def pattern (this.parseArrayPattern())
+      this.declaringKind = savedParamDeclaring
       ; Copy decorators if any
       for decorators d:TSNode i {
         push pattern.decorators d
@@ -2139,6 +4113,21 @@ class TSParserSimple {
         restElem.nodeType = "RestElement"
         restElem.left = pattern
         return restElem
+      }
+      ; Optional type annotation on the pattern: ({a}: T) => ...
+      if (this.matchValue(":")) {
+        def patType (this.parseTypeAnnotation())
+        pattern.typeAnnotation = patType
+      }
+      ; Default value: function a({b} = {b: 1}) {}
+      if (this.matchValue("=")) {
+        this.advance()
+        def patDefault (this.parseExpr())
+        def patAssign (new TSNode())
+        patAssign.nodeType = "AssignmentPattern"
+        patAssign.left = pattern
+        patAssign.right = patDefault
+        return patAssign
       }
       return pattern
     }
@@ -2157,7 +4146,7 @@ class TSParserSimple {
       push param.decorators d
     }
     
-    def nameTok (this.expect("Identifier"))
+    def nameTok (this.expectBindingName())
     param.name = nameTok.value
     param.start = nameTok.start
     param.line = nameTok.line
@@ -2177,8 +4166,14 @@ class TSParserSimple {
     
     ; Default value
     if (this.matchValue("=")) {
+      if isRest {
+        this.syntaxError("Parse error: a rest parameter may not have a default")
+      }
       this.advance()
+      def savedInParams:boolean this.inParamList
+      this.inParamList = true
       param.init = (this.parseExpr())
+      this.inParamList = savedInParams
     }
     
     return param
@@ -2195,14 +4190,54 @@ class TSParserSimple {
     block.col = startTok.col
     
     this.expectValue("{")
-    
+
+    def savedSingleBody:boolean this.inSingleStatementBody
+    this.inSingleStatementBody = false
+
+    def ownScope:boolean true
+    if (this.suppressBlockScope) {
+      ownScope = false
+      this.suppressBlockScope = false
+    }
+    if ownScope {
+      this.pushScope(false)
+    }
+
+    ; A "use strict" prologue is only a directive at the head of a function
+    ; body, never in a plain nested block.
+    def savedStrict:boolean this.strictMode
+    def myStrictDirective:boolean false
+    this.lastBlockEnabledStrict = false
+    if (ownScope == false) {
+      if (this.hasUseStrictDirective()) {
+        if (savedStrict == false) {
+          myStrictDirective = true
+        }
+        this.strictMode = true
+      }
+    }
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def beforePos:int this.pos
+        this.atModuleTopLevel = false
       def stmt (this.parseStatement())
       push block.children stmt
       this.guardNoProgress(beforePos)
     }
-    
+
+    if ownScope {
+      this.popScope()
+    }
+    ; Report THIS block's directive result; a nested body's belongs to it.
+    this.lastBlockEnabledStrict = myStrictDirective
+    this.strictMode = savedStrict
+    this.inSingleStatementBody = savedSingleBody
+
+    ; The closing brace ends the block. A function's source text is the slice
+    ; from its own start to its body's end, so this is what makes
+    ; `Function.prototype.toString` able to return real source.
+    def closeTok (this.peek())
+    block.end = closeTok.end
     this.expectValue("}")
     return block
   }
@@ -2217,11 +4252,23 @@ class TSParserSimple {
     stmt.line = startTok.line
     stmt.col = startTok.col
     
-    def expr (this.parseExpr())
+    def expr (this.parseExprSeq())
     stmt.left = expr
     
     if (this.matchValue(";")) {
       this.advance()
+    } {
+      ; Without a semicolon the statement may only end at a closing brace, at
+      ; end of input, or across a line terminator. `yield v` and `x isnt y`
+      ; are two expressions with nothing between them.
+      if ((this.isAtEnd()) == false) {
+        def nextTok (this.peek())
+        if (nextTok.value != "}") {
+          if (nextTok.line == this.lastTokenLine) {
+            this.syntaxError("Parse error: missing ';' between statements")
+          }
+        }
+      }
     }
     
     return stmt
@@ -2696,9 +4743,7 @@ class TSParserSimple {
     }
     
     ; Fallback
-    if (this.quiet == false) {
-      print "Unknown type: " + tokVal
-    }
+    this.syntaxError("Unknown type: " + tokVal)
     this.advance()
     def errNode (new TSNode())
     errNode.nodeType = "TSAnyKeyword"
@@ -3320,7 +5365,95 @@ class TSParserSimple {
   fn parseExpr:TSNode () {
     return (this.parseAssign())
   }
-  
+
+  ; Full `Expression` — an AssignmentExpression, or a comma-separated sequence of
+  ; them. Only valid where the grammar allows a comma operator: expression
+  ; statements, parenthesised expressions, `return`, and the `for` header. Every
+  ; other site (call arguments, array elements, declarators) must keep using
+  ; parseExpr, where a comma is a separator rather than an operator.
+  fn parseExprSeq:TSNode () {
+    def first (this.parseExpr())
+    if ((this.matchValue(",")) == false) {
+      return first
+    }
+    def seq (new TSNode())
+    seq.nodeType = "SequenceExpression"
+    seq.start = first.start
+    seq.line = first.line
+    seq.col = first.col
+    push seq.children first
+    while (this.matchValue(",")) {
+      this.advance()
+      def next (this.parseExpr())
+      push seq.children next
+    }
+    return seq
+  }
+
+
+  ; Only a reference or a destructuring pattern may be assigned to. `1 = 2`,
+  ; `({get a(){}}) = 0` and `for (([0]) in 0);` are all early errors.
+  fn checkAssignmentTarget:void (target:TSNode) {
+    def t:string target.nodeType
+    if (t == "Identifier") {
+      if (this.strictMode) {
+        if ((target.name == "eval") || (target.name == "arguments") || (target.name == "yield")) {
+          this.syntaxError("Parse error: cannot assign to '" + target.name + "' in strict mode")
+        }
+      }
+      return
+    }
+    if (t == "MemberExpression") { return }
+    if (t == "ObjectPattern") { return }
+    if (t == "ArrayPattern") { return }
+    if (t == "AssignmentPattern") { return }
+    ; A pattern that was parsed as a literal is re-read as a pattern elsewhere;
+    ; anything else is not a valid target.
+    if (t == "ObjectExpression") {
+      if (target.parenthesized) {
+        this.syntaxError("Parse error: a parenthesised object literal is not a valid assignment target")
+        return
+      }
+      def i:int 0
+      while (i < (array_length target.children)) {
+        def prop:TSNode (itemAt target.children i)
+        if (prop.method) {
+          this.syntaxError("Parse error: a method cannot be a destructuring assignment target")
+          return
+        }
+        if ((prop.kind == "get") || (prop.kind == "set")) {
+          this.syntaxError("Parse error: an accessor cannot be a destructuring assignment target")
+          return
+        }
+        i = (i + 1)
+      }
+      return
+    }
+    if (t == "ArrayExpression") {
+      if (target.parenthesized) {
+        this.syntaxError("Parse error: a parenthesised array literal is not a valid assignment target")
+      }
+      return
+    }
+    this.syntaxError("Parse error: invalid assignment target (" + t + ")")
+  }
+
+  ; ++ and -- need a *reference*: `1--` and `0++` are errors, and a pattern is
+  ; not a valid target either.
+  fn checkUpdateTarget:void (target:TSNode) {
+    def t:string target.nodeType
+    if (t == "Identifier") {
+      if (this.strictMode) {
+        if ((target.name == "eval") || (target.name == "arguments")) {
+          this.syntaxError("Parse error: cannot update '" + target.name + "' in strict mode")
+        }
+      }
+      return
+    }
+    if (t == "MemberExpression") { return }
+    this.syntaxError("Parse error: '" + t + "' is not a valid update target")
+  }
+
   fn parseAssign:TSNode () {
     def left (this.parseNullishCoalescing())
     
@@ -3328,6 +5461,7 @@ class TSParserSimple {
     
     ; Regular assignment
     if (tokVal == "=") {
+      this.checkAssignmentTarget(left)
       this.advance()
       def right (this.parseAssign())
       
@@ -3345,6 +5479,12 @@ class TSParserSimple {
     ; Compound assignment operators: +=, -=, *=, /=, %=, **=, and the bitwise/
     ; shift forms &=, |=, ^=, <<=, >>=, >>>=
     if ((tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=") || (tokVal == "%=") || (tokVal == "**=") || (tokVal == "&=") || (tokVal == "|=") || (tokVal == "^=") || (tokVal == "<<=") || (tokVal == ">>=") || (tokVal == ">>>=")) {
+      this.checkAssignmentTarget(left)
+      ; Only `=` has a destructuring form; `[a] += b` is an error.
+      def leftKind:string left.nodeType
+      if ((leftKind == "ArrayExpression") || (leftKind == "ObjectExpression") || (leftKind == "ArrayPattern") || (leftKind == "ObjectPattern")) {
+        this.syntaxError("Parse error: a compound assignment cannot have a destructuring target")
+      }
       this.advance()
       def right (this.parseAssign())
       
@@ -3724,13 +5864,24 @@ class TSParserSimple {
     ; never when it is a string/number literal whose text happens to equal an
     ; operator (e.g. the literal "-" in arr.join("-") or "++" as a string).
     def tokIsPunct:boolean ((this.peekType()) == "Punctuator")
+    ; The same trap for the KEYWORD operators: `typeof`, `void` and `delete`
+    ; matched on the token's text, so the string literals "typeof", "void" and
+    ; "delete" were consumed as operators. Every keyword-operator test below is
+    ; guarded on the token not being a literal.
+    def tokIsLiteral:boolean false
+    def tokKindU:string (this.peekType())
+    if (tokKindU == "String") { tokIsLiteral = true }
+    if (tokKindU == "Number") { tokIsLiteral = true }
+    if (tokKindU == "Boolean") { tokIsLiteral = true }
+    if (tokKindU == "Null") { tokIsLiteral = true }
 
     ; Handle prefix ++ and --
     if (tokIsPunct && ((tokVal == "++") || (tokVal == "--"))) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
-      
+      this.checkUpdateTarget(arg)
+
       def update (new TSNode())
       update.nodeType = "UpdateExpression"
       update.value = opTok.value
@@ -3757,10 +5908,47 @@ class TSParserSimple {
       return unary
     }
 
-    if ((tokVal == "void") || (tokVal == "delete")) {
+    if (tokIsPunct == false) {
+      if ((false == tokIsLiteral) && ((tokVal == "typeof") || (tokVal == "void") || (tokVal == "delete"))) {
+        ; An arrow function is not a UnaryExpression operand; it needs parens.
+        def opAfter:string (this.peekNextValue())
+        if (opAfter == "(") {
+          def scanIdx:int (this.pos + 1)
+          def depth:int 0
+          def total:int (array_length this.tokens)
+          while (scanIdx < total) {
+            def st:Token (itemAt this.tokens scanIdx)
+            if (st.tokenType == "Punctuator") {
+              if (st.value == "(") { depth = (depth + 1) }
+              if (st.value == ")") {
+                depth = (depth - 1)
+                if (depth == 0) { break }
+              }
+            }
+            scanIdx = (scanIdx + 1)
+          }
+          if ((scanIdx + 1) < total) {
+            def afterParen:Token (itemAt this.tokens (scanIdx + 1))
+            if (afterParen.value == "=>") {
+              this.syntaxError("Parse error: an arrow function must be parenthesised to be a unary operand")
+            }
+          }
+        }
+      }
+    }
+
+    if ((false == tokIsLiteral) && ((tokVal == "void") || (tokVal == "delete"))) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
+      ; Strict code forbids deleting an unqualified reference.
+      if (tokVal == "delete") {
+        if (this.strictMode) {
+          if (arg.nodeType == "Identifier") {
+            this.syntaxError("Parse error: cannot delete an unqualified name in strict mode")
+          }
+        }
+      }
       def unary (new TSNode())
       unary.nodeType = "UnaryExpression"
       unary.value = opTok.value
@@ -3771,7 +5959,7 @@ class TSParserSimple {
       return unary
     }
 
-    if (tokVal == "typeof") {
+    if ((tokVal == "typeof") && (false == tokIsLiteral)) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
@@ -3786,10 +5974,20 @@ class TSParserSimple {
     }
     
     ; yield expression: yield value, yield* generator()
-    if (tokVal == "yield") {
+    if ((tokVal == "yield") && (this.inGenerator && ((this.peekType()) != "String"))) {
       def yieldTok (this.peek())
+      if (this.inParamList) {
+        this.syntaxError("Parse error: a parameter default may not contain a yield expression")
+      }
       this.advance()
       
+      def afterYield (this.peek())
+      if (afterYield.value == "*") {
+        if (afterYield.line != this.lastTokenLine) {
+          this.syntaxError("Parse error: no line terminator is allowed between 'yield' and '*'")
+        }
+      }
+
       def yieldExpr (new TSNode())
       yieldExpr.nodeType = "YieldExpression"
       yieldExpr.start = yieldTok.start
@@ -3802,17 +6000,38 @@ class TSParserSimple {
         yieldExpr.delegate = true
       }
       
-      ; Parse argument if not at statement end
+      ; Parse argument if not at statement end. `]` and `:` end it too --
+      ; `[yield]` and `{[yield]: a}` are a bare yield in a computed key.
       def nextVal (this.peekValue())
-      if ((nextVal != ";") && (nextVal != "}") && (nextVal != ",") && (nextVal != ")")) {
+      def endsYield:boolean false
+      if (nextVal == ";") { endsYield = true }
+      if (nextVal == "}") { endsYield = true }
+      if (nextVal == ",") { endsYield = true }
+      if (nextVal == ")") { endsYield = true }
+      if (nextVal == "]") { endsYield = true }
+      if (nextVal == ":") { endsYield = true }
+      if (this.isAtEnd()) { endsYield = true }
+      ; A line terminator after `yield` ends it as well.
+      def yieldNextTok (this.peek())
+      if (yieldNextTok.line != this.lastTokenLine) { endsYield = true }
+      if (endsYield) {
+        ; `yield*` always needs an operand.
+        if (yieldExpr.delegate) {
+          this.syntaxError("Parse error: 'yield*' requires an operand")
+        }
+      } {
         yieldExpr.left = (this.parseAssign())
       }
       
       return yieldExpr
     }
     
-    ; await expression
-    if (tokVal == "await") {
+    ; await expression. The token TYPE has to be checked: a string literal whose
+    ; text happens to be "await" is not the operator, and matching on the value
+    ; alone swallowed it -- `var x = 'await';` did not parse, and neither did the
+    ; reserved-words tests that name every keyword as both a key and a value.
+    ; Same trap the `<` guard below documents.
+    if ((tokVal == "await") && ((this.peekType()) != "String")) {
       def awaitTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
@@ -3970,8 +6189,14 @@ class TSParserSimple {
       ; Re-check tokVal in case we consumed tokens above
       tokVal = (this.peekValue())
       
-      ; Function call ()
+      ; Function call (). An arrow function body is not a callee, so
+      ; `() => {}()` needs parentheses around the arrow.
       if (tokVal == "(") {
+        if (expr.nodeType == "ArrowFunctionExpression") {
+          if (expr.parenthesized == false) {
+            this.syntaxError("Parse error: an arrow function must be parenthesised to be called")
+          }
+        }
         this.advance()
         def call (new TSNode())
         call.nodeType = "CallExpression"
@@ -4073,10 +6298,11 @@ class TSParserSimple {
         }
       }
       
-      ; Computed member access [expr]
+      ; Computed member access [expr] — the index is a full Expression, so the
+      ; comma operator applies: `a[b, c]`.
       if (tokVal == "[") {
         this.advance()
-        def indexExpr (this.parseExpr())
+        def indexExpr (this.parseExprSeq())
         this.expectValue("]")
         def computed (new TSNode())
         computed.nodeType = "MemberExpression"
@@ -4131,6 +6357,14 @@ class TSParserSimple {
         expr = satisfiesExpr
       }
       
+      ; Tagged template literal — the tag is a MemberExpression, so an update
+      ; expression cannot carry one: `a++\u0060\u0060`.
+      if ((this.peekType()) == "Template") {
+        if (expr.nodeType == "UpdateExpression") {
+          this.syntaxError("Parse error: an update expression cannot tag a template")
+        }
+      }
+
       ; Tagged template literal: tag`template`
       def tokType (this.peekType())
       if (tokType == "Template") {
@@ -4148,6 +6382,13 @@ class TSParserSimple {
       ; Postfix ++ and --
       if ((tokVal == "++") || (tokVal == "--")) {
         def opTok (this.peek())
+        ; Restricted production: a line terminator before ++/-- ends the
+        ; statement instead, so `a \n --b` is `a; --b`.
+        if (opTok.line != this.lastTokenLine) {
+          keepParsing = false
+          break
+        }
+        this.checkUpdateTarget(expr)
         this.advance()
         def update (new TSNode())
         update.nodeType = "UpdateExpression"
@@ -4176,8 +6417,21 @@ class TSParserSimple {
     def tokVal (this.peekValue())
     def tok (this.peek())
     
+    ; Single unparenthesised arrow parameter: `x => body`. Must be checked before
+    ; the plain-identifier branch, which would otherwise consume the parameter.
+    if ((tokType == "Identifier") || (tokType == "TSType") || (tokType == "Keyword") || (tokType == "TSKeyword")) {
+      if ((this.peekNextValue()) == "=>") {
+        return (this.parseArrowFunction())
+      }
+    }
+
     ; Identifier (including TSType keywords like 'symbol', 'string', 'number' used as variable names)
     if ((tokType == "Identifier") || (tokType == "TSType")) {
+      if (this.strictMode) {
+        if (this.isStrictReservedReference(tok.value)) {
+          this.syntaxError("Parse error: '" + tok.value + "' is reserved in strict mode")
+        }
+      }
       this.advance()
       def id (new TSNode())
       id.nodeType = "Identifier"
@@ -4191,6 +6445,11 @@ class TSParserSimple {
     
     ; Number literal
     if (tokType == "Number") {
+      if (this.strictMode) {
+        if (tok.legacyOctal) {
+          this.syntaxError("Parse error: a leading-zero numeric literal is not allowed in strict mode")
+        }
+      }
       this.advance()
       def num (new TSNode())
       num.nodeType = "NumericLiteral"
@@ -4217,10 +6476,16 @@ class TSParserSimple {
     
     ; String literal
     if (tokType == "String") {
+      if (this.strictMode) {
+        if (tok.legacyOctal) {
+          this.syntaxError("Parse error: octal escape sequences are not allowed in strict mode")
+        }
+      }
       this.advance()
       def str (new TSNode())
       str.nodeType = "StringLiteral"
       str.value = tok.value
+      str.hasEscape = tok.hasEscape
       str.start = tok.start
       str.end = tok.end
       str.line = tok.line
@@ -4271,14 +6536,73 @@ class TSParserSimple {
       return undefId
     }
     
-    ; Array literal [...]
+    ; Array literal [...] — or the target of a destructuring assignment. The two
+    ; are indistinguishable until the `=` / `in` / `of` after the closing
+    ; bracket, and `[{a = 1}] = b` is not a valid literal, so a pattern parse is
+    ; attempted first and rolled back when nothing consumes it.
     if (tokVal == "[") {
-      return (this.parseArrayLiteral())
+      def arrSavedPos:int this.pos
+      def arrSavedTok:Token (unwrap this.currentToken)
+      def arrSavedErrors:int this.errorCount
+      this.speculating = (this.speculating + 1)
+      def savedArrMemberTarget:boolean this.patternAllowsMemberTarget
+      this.patternAllowsMemberTarget = true
+      def arrPat (this.parseArrayPattern())
+      this.patternAllowsMemberTarget = savedArrMemberTarget
+      this.speculating = (this.speculating - 1)
+      ; A clean pattern followed by `=` / `in` / `of` really was one.
+      def arrPatErrors:int this.errorCount
+      if (this.errorCount == arrSavedErrors) {
+        if (this.isAssignmentPatternFollow()) {
+          return arrPat
+        }
+      }
+      ; Otherwise re-read it as a literal. If an `=` still follows the literal
+      ; then it WAS a pattern, just an invalid one, so restore its errors --
+      ; that is what keeps `[...x, y] = 0` from passing as a good literal.
+      this.pos = arrSavedPos
+      this.currentToken = arrSavedTok
+      this.errorCount = arrSavedErrors
+      def arrLit (this.parseArrayLiteral())
+      if (this.isAssignmentPatternFollow()) {
+        if (arrPatErrors > arrSavedErrors) {
+          this.errorCount = arrPatErrors
+        }
+      }
+      return arrLit
     }
     
     ; Object literal {...}
     if (tokVal == "{") {
-      return (this.parseObjectLiteral())
+      def objSavedPos:int this.pos
+      def objSavedTok:Token (unwrap this.currentToken)
+      def objSavedErrors:int this.errorCount
+      this.speculating = (this.speculating + 1)
+      def savedObjMemberTarget:boolean this.patternAllowsMemberTarget
+      this.patternAllowsMemberTarget = true
+      def objPat (this.parseObjectPattern())
+      this.patternAllowsMemberTarget = savedObjMemberTarget
+      this.speculating = (this.speculating - 1)
+      ; A clean pattern followed by `=` / `in` / `of` really was one.
+      def objPatErrors:int this.errorCount
+      if (this.errorCount == objSavedErrors) {
+        if (this.isAssignmentPatternFollow()) {
+          return objPat
+        }
+      }
+      ; Otherwise re-read it as a literal. If an `=` still follows the literal
+      ; then it WAS a pattern, just an invalid one, so restore its errors --
+      ; that is what keeps `[...x, y] = 0` from passing as a good literal.
+      this.pos = objSavedPos
+      this.currentToken = objSavedTok
+      this.errorCount = objSavedErrors
+      def objLit (this.parseObjectLiteral())
+      if (this.isAssignmentPatternFollow()) {
+        if (objPatErrors > objSavedErrors) {
+          this.errorCount = objPatErrors
+        }
+      }
+      return objLit
     }
     
     ; JSX element in TSX mode
@@ -4356,6 +6680,70 @@ class TSParserSimple {
       }
     }
     
+    ; Regex literal
+    if (tokType == "Regex") {
+      this.advance()
+      def re (new TSNode())
+      re.nodeType = "RegExpLiteral"
+      re.value = tok.value
+      re.start = tok.start
+      re.end = tok.end
+      re.line = tok.line
+      re.col = tok.col
+      return re
+    }
+
+    ; Function expression: function () {}, function* () {}, async function () {}
+    if (tokVal == "function") {
+      this.parsingFunctionExpression = true
+      def fnExpr (this.parseFuncDecl(false))
+      fnExpr.nodeType = "FunctionExpression"
+      return fnExpr
+    }
+    if (tokVal == "async") {
+      if ((this.peekNextValue()) == "function") {
+        this.advance()  ; consume async
+        this.parsingFunctionExpression = true
+      def asyncFnExpr (this.parseFuncDecl(true))
+        asyncFnExpr.nodeType = "FunctionExpression"
+        return asyncFnExpr
+      }
+    }
+
+    ; Class expression: class {} / class Name extends B {}
+    if (tokVal == "class") {
+      def clsExpr (this.parseClass())
+      clsExpr.nodeType = "ClassExpression"
+      return clsExpr
+    }
+
+    ; super — valid as `super(...)` and `super.x` / `super[x]`; the call and
+    ; member suffixes are attached by parsePostfix.
+    if (tokVal == "super") {
+      def afterSuper:string (this.peekNextValue())
+      if (afterSuper == "(") {
+        if (this.allowSuperCall == false) {
+          this.syntaxError("Parse error: 'super()' is only valid in a derived class constructor")
+        }
+      } {
+        if ((afterSuper == ".") || (afterSuper == "[")) {
+          if (this.allowSuperProperty == false) {
+            this.syntaxError("Parse error: 'super' property access is only valid in a method")
+          }
+        } {
+          this.syntaxError("Parse error: 'super' must be called or have a property accessed")
+        }
+      }
+      this.advance()
+      def superExpr (new TSNode())
+      superExpr.nodeType = "Super"
+      superExpr.start = tok.start
+      superExpr.end = tok.end
+      superExpr.line = tok.line
+      superExpr.col = tok.col
+      return superExpr
+    }
+
     ; this keyword
     if (tokVal == "this") {
       this.advance()
@@ -4368,10 +6756,99 @@ class TSParserSimple {
       return thisExpr
     }
     
-    ; Fallback
-    if (this.quiet == false) {
-      print "Unexpected token: " + tokVal
+    ; A `*` is never the start of an expression; after ASI ends a yield,
+    ; `function* a(){ yield \n *a }` leaves one at statement position.
+    if (tokType == "Punctuator") {
+      if (tokVal == "*") {
+        this.syntaxError("Parse error: '*' cannot start an expression")
+        this.advance()
+        def starErr (new TSNode())
+        starErr.nodeType = "Identifier"
+        starErr.name = "error"
+        return starErr
+      }
     }
+
+    ; Contextual keywords used as plain identifiers. These are only reserved in
+    ; contexts this parser does not track (module/strict code, generator or async
+    ; bodies), so in expression position they name a binding.
+    ; A TSKeyword -- `public`, `private`, `interface`, `any` … -- is a
+    ; TypeScript modifier where TypeScript expects one and an ORDINARY
+    ; IDENTIFIER everywhere else. It produced no node here at all, so `var
+    ; public = 1` fell through to the unexpected-token fallback even in sloppy
+    ; code, where JavaScript says the name is perfectly legal. The strict check
+    ; is what still rejects it where it is genuinely reserved.
+    if (tokType == "TSKeyword") {
+      if (this.strictMode) {
+        if (this.isStrictReservedReference(tokVal)) {
+          this.syntaxError("Parse error: '" + tokVal + "' is reserved in strict mode")
+        }
+      }
+      this.advance()
+      def tsId (new TSNode())
+      tsId.nodeType = "Identifier"
+      tsId.name = tok.value
+      tsId.start = tok.start
+      tsId.end = tok.end
+      tsId.line = tok.line
+      tsId.col = tok.col
+      return tsId
+    }
+
+    if (tokType == "Keyword") {
+      def contextual:boolean false
+      if (tokVal == "let") { contextual = true }
+      if (tokVal == "yield") { contextual = true }
+      if (tokVal == "await") { contextual = true }
+      if (tokVal == "of") { contextual = true }
+      if (tokVal == "static") { contextual = true }
+      if (tokVal == "as") { contextual = true }
+      if (tokVal == "from") { contextual = true }
+      ; The STRICT-only reserved words are ordinary identifiers in sloppy code:
+      ; `var public = 1` is legal JavaScript outside strict mode. They were
+      ; refused everywhere, which made a whole family of directive-prologue
+      ; tests -- the ones that check a MISSPELLED "use  strict" leaves the
+      ; function sloppy -- fail with an unexpected-token error instead. The
+      ; strictMode guard just below is what still rejects them where they are
+      ; genuinely reserved.
+      if (tokVal == "implements") { contextual = true }
+      if (tokVal == "interface") { contextual = true }
+      if (tokVal == "package") { contextual = true }
+      if (tokVal == "private") { contextual = true }
+      if (tokVal == "protected") { contextual = true }
+      if (tokVal == "public") { contextual = true }
+      if contextual {
+        if (this.noLetReference) {
+          if (tokVal == "let") {
+            this.syntaxError("Parse error: 'let' cannot be referenced inside a lexical declaration")
+          }
+        }
+        ; In strict code these are reserved outright, not merely unbindable:
+        ; `'use strict'; +let;` and `let = 1` are both errors.
+        if (this.strictMode) {
+          if (this.isStrictReservedReference(tokVal)) {
+            this.syntaxError("Parse error: '" + tokVal + "' is reserved in strict mode")
+          }
+        }
+        if (this.inGenerator) {
+          if (tokVal == "yield") {
+            this.syntaxError("Parse error: 'yield' is reserved inside a generator")
+          }
+        }
+        this.advance()
+        def ctxId (new TSNode())
+        ctxId.nodeType = "Identifier"
+        ctxId.name = tok.value
+        ctxId.start = tok.start
+        ctxId.end = tok.end
+        ctxId.line = tok.line
+        ctxId.col = tok.col
+        return ctxId
+      }
+    }
+
+    ; Fallback
+    this.syntaxError("Unexpected token: " + tokVal)
     this.advance()
     def errId (new TSNode())
     errId.nodeType = "Identifier"
@@ -4421,9 +6898,17 @@ class TSParserSimple {
         spread.left = spreadArg
         push node.children spread
       } {
-        ; Check for empty slot (elision)
+        ; An ELISION -- `[,,x]` -- is a real element position, so it gets a
+        ; placeholder node. Skipping it silently made `[4,5,,,,].length` 2
+        ; instead of 5: the holes simply vanished from the AST.
         if (this.matchValue(",")) {
-          ; Don't add anything, just skip
+          def holeTok (this.peek())
+          def hole (new TSNode())
+          hole.nodeType = "ArrayHole"
+          hole.start = holeTok.start
+          hole.line = holeTok.line
+          hole.col = holeTok.col
+          push node.children hole
         } {
           def elem (this.parseExpr())
           push node.children elem
@@ -4432,9 +6917,21 @@ class TSParserSimple {
       
       if (this.matchValue(",")) {
         this.advance()
+      } {
+        ; Two elements with no separator -- `[a b]` -- is a SyntaxError, not a
+        ; two-element array. Looping straight back into the next element made
+        ; the parser accept it silently, which is how `new Function("[object
+        ; Object]")` built a function instead of throwing.
+        if ((this.matchValue("]")) == false) {
+          if ((this.isAtEnd()) == false) {
+            def badArrTok:Token (this.peek())
+            this.syntaxError(("Parse error: expected ',' or ']' in array literal but got '" + (badArrTok.value + "'")))
+            return node
+          }
+        }
       }
     }
-    
+
     this.expectValue("]")
     return node
   }
@@ -4451,6 +6948,8 @@ class TSParserSimple {
     
     this.expectValue("{")
     
+    def sawProto:boolean false
+
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       def loopStartPos:int this.pos
       ; Check for spread property
@@ -4464,7 +6963,9 @@ class TSParserSimple {
       } {
         def prop (new TSNode())
         prop.nodeType = "Property"
-        
+        def propStartTok (this.peek())
+        prop.start = propStartTok.start
+
         ; Flags for property type
         def isComputed:boolean false
         def isMethod:boolean false
@@ -4487,16 +6988,61 @@ class TSParserSimple {
           }
         }
         
+        ; Generator method shorthand: { *a() {} } and { async *a() {} }
+        if (currVal == "*") {
+          this.advance()
+          prop.generator = true
+          currVal = (this.peekValue())
+          nextType = (this.peekNextType())
+          nextVal = (this.peekNextValue())
+          ; A `*` introduces a METHOD, so a name and a parameter list must
+          ; follow: `({ * })` and `({ *a })` are errors.
+          def starNameOk:boolean false
+          if (this.isMemberKeyToken()) { starNameOk = true }
+          if (currVal == "[") { starNameOk = true }
+          if (starNameOk == false) {
+            this.syntaxError("Parse error: '*' must be followed by a method name")
+          } {
+            if (currVal == "[") {
+              ; Scan past the computed key; a `(` must follow it.
+              def scanIdx:int (this.pos + 1)
+              def depth:int 1
+              def total:int (array_length this.tokens)
+              while (scanIdx < total) {
+                def st:Token (itemAt this.tokens scanIdx)
+                if (st.tokenType == "Punctuator") {
+                  if (st.value == "[") { depth = (depth + 1) }
+                  if (st.value == "]") {
+                    depth = (depth - 1)
+                    if (depth == 0) { break }
+                  }
+                }
+                scanIdx = (scanIdx + 1)
+              }
+              if ((scanIdx + 1) < total) {
+                def afterKey:Token (itemAt this.tokens (scanIdx + 1))
+                if (afterKey.value != "(") {
+                  this.syntaxError("Parse error: a generator property must be a method")
+                }
+              }
+            } {
+              if (nextVal != "(") {
+                this.syntaxError("Parse error: a generator property must be a method")
+              }
+            }
+          }
+        }
+
         ; Check for getter/setter - must look ahead to see if next is identifier or [
         if (currVal == "get") {
-          if ((nextType == "Identifier") || (nextVal == "[")) {
+          if ((nextType == "Identifier") || (nextVal == "[") || (this.isAccessorNameAhead())) {
             this.advance()
             isGetter = true
             prop.kind = "get"
           }
         }
         if (currVal == "set") {
-          if ((nextType == "Identifier") || (nextVal == "[")) {
+          if ((nextType == "Identifier") || (nextVal == "[") || (this.isAccessorNameAhead())) {
             this.advance()
             isSetter = true
             prop.kind = "set"
@@ -4507,7 +7053,7 @@ class TSParserSimple {
         def keyTok (this.peek())
         
         ; Computed property key [expression]
-        if (this.matchValue("[")) {
+        if (this.matchPunct("[")) {
           this.advance()
           def keyExpr (this.parseExpr())
           this.expectValue("]")
@@ -4516,10 +7062,30 @@ class TSParserSimple {
           prop.computed = true
         }
         if (this.isObjectPropertyKeyToken()) {
+          if (this.strictMode) {
+            if (keyTok.legacyOctal) {
+              this.syntaxError("Parse error: a leading-zero numeric key is not allowed in strict mode")
+            }
+          }
           prop.name = keyTok.value
           this.advance()
+        } {
+          if (isComputed) {
+            ; `({[x]})` has a key but no value.
+            def afterComputed:string (this.peekValue())
+            if ((afterComputed != ":") && (afterComputed != "(")) {
+              this.syntaxError("Parse error: a computed property needs a value")
+            }
+          } {
+            ; Anything that cannot start a property key at all.
+            if (this.matchValue("(")) {
+              this.syntaxError("Parse error: a property key cannot be parenthesised")
+            }
+          }
         }
         
+        ; A getter takes no parameters and a setter takes exactly one, which
+        ; may not be a rest element.
         ; Check for method shorthand or getter/setter: { foo() {} } or { get x() {} }
         if (this.matchValue("(")) {
           isMethod = true
@@ -4527,15 +7093,59 @@ class TSParserSimple {
           ; Parse method as function expression
           def fnNode (new TSNode())
           fnNode.nodeType = "FunctionExpression"
+          ; A method's source text starts at its KEY -- `foo() {}`, not `() {}`.
+          fnNode.start = prop.start
           this.advance()
+          ; A method's parameters and body share one scope, and duplicate
+          ; parameters are always an error in a method.
+          this.pushScope(true)
+          this.functionDepth = (this.functionDepth + 1)
+          def savedObjRest:boolean this.sawRestParam
+          this.sawRestParam = false
+          def savedObjGenerator:boolean this.inGenerator
+          this.inGenerator = prop.generator
+          def savedObjSuperCall:boolean this.allowSuperCall
+          def savedObjSuperProp:boolean this.allowSuperProperty
+          ; A function is a break/continue boundary: labels do not cross it.
+          def savedobjIter:int this.iterationDepth
+          def savedobjSwitch:int this.switchDepth
+          def savedobjLabels:[string] this.activeLabels
+          def savedobjIterLabels:[string] this.iterationLabels
+          def freshobjLabels:[string]
+          def freshobjIterLabels:[string]
+          this.iterationDepth = 0
+          this.switchDepth = 0
+          this.activeLabels = freshobjLabels
+          this.iterationLabels = freshobjIterLabels
+          this.allowSuperCall = false
+          this.allowSuperProperty = true
           ; Parse parameters
           while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
             if ((array_length fnNode.params) > 0) {
               this.expectValue(",")
             }
-            push fnNode.params (this.parseParam())
+            def mParam (this.parseParam())
+            if ((strlen mParam.name) > 0) {
+              this.declareBinding("p" mParam.name)
+            }
+            push fnNode.params mParam
           }
           this.expectValue(")")
+          if isGetter {
+            if ((array_length fnNode.params) != 0) {
+              this.syntaxError("Parse error: a getter takes no parameters")
+            }
+          }
+          if isSetter {
+            if ((array_length fnNode.params) != 1) {
+              this.syntaxError("Parse error: a setter takes exactly one parameter")
+            } {
+              def setParam:TSNode (itemAt fnNode.params 0)
+              if (setParam.nodeType == "RestElement") {
+                this.syntaxError("Parse error: a setter parameter may not be a rest element")
+              }
+            }
+          }
           ; Parse optional return type
           if (this.matchValue(":")) {
             this.advance()
@@ -4543,8 +7153,24 @@ class TSParserSimple {
           }
           ; Parse body
           if (this.matchValue("{")) {
-            fnNode.body = (this.parseBlock())
+            this.suppressBlockScope = true
+            def objMethodBody:TSNode (this.parseBlock())
+            fnNode.body = objMethodBody
+            fnNode.end = objMethodBody.end
+            if (this.lastBlockEnabledStrict) {
+              this.recheckStrictSignature(prop.name fnNode.params)
+            }
           }
+          this.popScope()
+          this.allowSuperCall = savedObjSuperCall
+          this.allowSuperProperty = savedObjSuperProp
+          this.inGenerator = savedObjGenerator
+          this.sawRestParam = savedObjRest
+          this.functionDepth = (this.functionDepth - 1)
+          this.iterationDepth = savedobjIter
+          this.switchDepth = savedobjSwitch
+          this.activeLabels = savedobjLabels
+          this.iterationLabels = savedobjIterLabels
           prop.left = fnNode
           ; ESTree: kind is "get", "set", or "init" for methods
           if ((isGetter == false) && (isSetter == false)) {
@@ -4563,6 +7189,20 @@ class TSParserSimple {
             ; Shorthand: { foo } means { foo: foo }
             ; But not for computed properties
             if (isComputed == false) {
+              ; A shorthand key is an IdentifierReference, so it may be neither
+              ; a literal nor a reserved word: `({0} = 0)`, `({'a'} = 0)` and
+              ; `({function} = 0)` are all errors.
+              if ((keyTok.tokenType == "Number") || (keyTok.tokenType == "String")) {
+                this.syntaxError("Parse error: a shorthand property name cannot be a literal")
+              }
+              if (this.isAlwaysReservedWord(prop.name)) {
+                this.syntaxError("Parse error: '" + prop.name + "' cannot be a shorthand property name")
+              }
+              if (this.strictMode) {
+                if (this.isStrictReservedReference(prop.name)) {
+                  this.syntaxError("Parse error: '" + prop.name + "' is reserved in strict mode")
+                }
+              }
               def shorthandVal (new TSNode())
               shorthandVal.nodeType = "Identifier"
               shorthandVal.name = prop.name
@@ -4573,13 +7213,41 @@ class TSParserSimple {
           }
         }
         
+        ; `__proto__: value` may appear only once. A shorthand, a method, an
+        ; accessor or a computed key does not count.
+        if (prop.name == "__proto__") {
+          if (prop.shorthand == false) {
+            if (prop.computed == false) {
+              if (prop.method == false) {
+                if ((prop.kind != "get") && (prop.kind != "set")) {
+                  if sawProto {
+                    this.syntaxError("Parse error: duplicate __proto__ in an object literal")
+                  }
+                  sawProto = true
+                }
+              }
+            }
+          }
+        }
+
         push node.children prop
       }
       
       if (this.matchValue(",")) {
         this.advance()
+      } {
+        ; Two properties with no separator -- `({a: 1 b: 2})` -- is a
+        ; SyntaxError. Without this the parser read the second one as if the
+        ; comma were there.
+        if ((this.matchValue("}")) == false) {
+          if ((this.isAtEnd()) == false) {
+            def badObjTok:Token (this.peek())
+            this.syntaxError(("Parse error: expected ',' or '}' in object literal but got '" + (badObjTok.value + "'")))
+            return node
+          }
+        }
       }
-      
+
       ; Safety: if an iteration consumed no tokens (e.g. an unexpected token that
       ; is not a valid property key, comma, or "}"), bail out instead of looping
       ; forever and exhausting memory. expectValue("}") then reports the error.
@@ -4607,11 +7275,10 @@ class TSParserSimple {
     ; Find matching )
     def parenDepth 1
     while ((parenDepth > 0) && ((this.isAtEnd()) == false)) {
-      def v (this.peekValue())
-      if (v == "(") {
+      if (this.matchPunct("(")) {
         parenDepth = parenDepth + 1
       }
-      if (v == ")") {
+      if (this.matchPunct(")")) {
         parenDepth = parenDepth - 1
       }
       if (parenDepth > 0) {
@@ -4624,7 +7291,7 @@ class TSParserSimple {
       this.pos = savedPos
       this.currentToken = savedTok
       this.advance()
-      def expr (this.parseExpr())
+      def expr (this.parseExprSeq())
       this.expectValue(")")
       return expr
     }
@@ -4650,8 +7317,9 @@ class TSParserSimple {
     this.pos = savedPos
     this.currentToken = savedTok
     this.advance()  ; consume (
-    def expr (this.parseExpr())
+    def expr (this.parseExprSeq())
     this.expectValue(")")
+    expr.parenthesized = true
     return expr
   }
   
@@ -4671,6 +7339,24 @@ class TSParserSimple {
       node.kind = "async"
     }
     
+    ; An arrow's parameters and its body share one scope.
+    this.pushScope(true)
+    ; An arrow inherits `super` lexically but is still a break/continue boundary.
+    this.functionDepth = (this.functionDepth + 1)
+    def savedArrowRest:boolean this.sawRestParam
+    this.sawRestParam = false
+    def savedArrowGenerator:boolean this.inGenerator
+    def savedArrowIter:int this.iterationDepth
+    def savedArrowSwitch:int this.switchDepth
+    def savedArrowLabels:[string] this.activeLabels
+    def savedArrowIterLabels:[string] this.iterationLabels
+    def freshArrowLabels:[string]
+    def freshArrowIterLabels:[string]
+    this.iterationDepth = 0
+    this.switchDepth = 0
+    this.activeLabels = freshArrowLabels
+    this.iterationLabels = freshArrowIterLabels
+
     ; Parse parameters
     if (this.matchValue("(")) {
       this.advance()
@@ -4679,15 +7365,21 @@ class TSParserSimple {
           this.expectValue(",")
         }
         def param (this.parseParam())
+        ; Duplicate arrow parameters are always an error, unlike a sloppy
+        ; function's, so they are recorded under the reporting kind.
+        if ((strlen param.name) > 0) {
+          this.declareBinding("p" param.name)
+        }
         push node.params param
       }
       this.expectValue(")")
     } {
       ; Single identifier parameter: x =>
-      def paramTok (this.expect("Identifier"))
+      def paramTok (this.expectBindingName())
       def param (new TSNode())
       param.nodeType = "Parameter"
       param.name = paramTok.value
+      this.declareBinding("p" param.name)
       push node.params param
     }
     
@@ -4698,17 +7390,38 @@ class TSParserSimple {
       node.typeAnnotation = retType
     }
     
+    def arrowTok (this.peek())
+    if (arrowTok.value == "=>") {
+      if (arrowTok.line != this.lastTokenLine) {
+        this.syntaxError("Parse error: no line terminator is allowed before '=>'")
+      }
+    }
     this.expectValue("=>")
     
     ; Parse body: expression or block
     if (this.matchValue("{")) {
+      this.suppressBlockScope = true
       def body (this.parseBlock())
       node.body = body
+      node.end = body.end
+      if (this.lastBlockEnabledStrict) {
+        this.recheckStrictSignature("" node.params)
+      }
     } {
       def body (this.parseExpr())
       node.body = body
+      node.end = this.lastTokenEndPos
     }
-    
+
+    this.popScope()
+    this.iterationDepth = savedArrowIter
+    this.switchDepth = savedArrowSwitch
+    this.activeLabels = savedArrowLabels
+    this.iterationLabels = savedArrowIterLabels
+    this.inGenerator = savedArrowGenerator
+    this.sawRestParam = savedArrowRest
+    this.functionDepth = (this.functionDepth - 1)
+
     return node
   }
   
@@ -4728,12 +7441,22 @@ class TSParserSimple {
     if (this.matchValue(".")) {
       this.advance()
       if (this.matchValue("target")) {
+        def targetTok (this.peek())
+        if (targetTok.hasEscape) {
+          this.syntaxError("Parse error: 'new.target' may not use an escape sequence")
+        }
         this.advance()
         node.nodeType = "MetaProperty"
         node.name = "new"
         node.value = "target"
+        if (this.functionDepth == 0) {
+          this.syntaxError("Parse error: 'new.target' is only allowed inside a function")
+        }
         return node
       }
+      ; `new.target` is the only meta property; `new.prop` is a syntax error.
+      def badMeta (this.peek())
+      this.syntaxError("Parse error: 'new." + badMeta.value + "' is not a meta property")
     }
     
     ; Parse callee. In JS grammar `new`'s callee is a MemberExpression chain
@@ -4741,6 +7464,12 @@ class TSParserSimple {
     ; `new`. Consuming `.prop` here makes `new THREE.PerspectiveCamera(70)` parse
     ; as `new (THREE.PerspectiveCamera)(70)` rather than the wrong
     ; `(new THREE).PerspectiveCamera(70)`.
+    ; `new super.foo()` is legal (a SuperProperty callee); `new super()` is not.
+    if (this.matchValue("super")) {
+      if ((this.peekNextValue()) == "(") {
+        this.syntaxError("Parse error: 'super' cannot be the callee of 'new'")
+      }
+    }
     def callee (this.parsePrimary())
     def keepMember true
     while keepMember {
@@ -4784,9 +7513,22 @@ class TSParserSimple {
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length node.children) > 0) {
           this.expectValue(",")
+          ; Allow a trailing comma in the argument list
+          if (this.matchValue(")")) {
+            break
+          }
         }
-        def arg (this.parseExpr())
-        push node.children arg
+        if (this.matchValue("...")) {
+          this.advance()
+          def spreadArg (this.parseExpr())
+          def spread (new TSNode())
+          spread.nodeType = "SpreadElement"
+          spread.left = spreadArg
+          push node.children spread
+        } {
+          def arg (this.parseExpr())
+          push node.children arg
+        }
       }
       this.expectValue(")")
     }

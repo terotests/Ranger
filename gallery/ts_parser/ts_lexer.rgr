@@ -2,6 +2,7 @@
 ; Extends the JavaScript lexer with TypeScript-specific keywords and tokens
 
 Import "ts_token.rgr"
+Import "ts_unicode_id.rgr"
 
 class TSLexer {
     def source:string ""
@@ -9,6 +10,36 @@ class TSLexer {
     def line:int 1
     def col:int 1
     def len:int 0
+
+    ; Last significant (non-comment) token, used to disambiguate `/` between a
+    ; division operator and the start of a regular-expression literal. JS cannot
+    ; decide this lexically without it: `a / b` divides, `return /a/` does not.
+    def prevType:string ""
+    def prevValue:string ""
+    ; Line of the last significant token, used to tell whether `-->` opens an
+    ; Annex B HTML close-comment (only legal at the start of a line).
+    def prevLine:int 0
+
+    ; One character per currently-open brace: "b" for a block, "o" for an object
+    ; literal or a JSX expression container. A `}` is ambiguous for the regex/
+    ; division decision — `function f(){} /re/` is a regex, `({a:1}) / 2` and JSX
+    ; text `{a} / {b}` are division — and only the matching `{` can tell them
+    ; apart. Kept as a string so push/pop are plain concatenation and substring.
+    ; Unicode identifier tables, decoded on first use.
+    def unicodeIds:TSUnicodeId (new TSUnicodeId())
+    def idStartTable:[int]
+    def idContinueTable:[int]
+    def idTablesReady:boolean false
+
+    def braceKinds:string ""
+    ; Kind of the most recently closed brace, consumed by regexAllowed.
+    def lastCloseKind:string "o"
+
+    ; One character per currently-open paren: "h" when it opens an if / while /
+    ; for / with header, "e" otherwise. A `)` that closes a header is followed
+    ; by a statement, so a regex may start there: `if (1) /foo/`.
+    def parenKinds:string ""
+    def lastCloseParen:string "e"
 
     Constructor (src:string) {
         source = src
@@ -45,7 +76,15 @@ class TSLexer {
         }
         def ch:string (at source pos)
         pos = pos + 1
-        if ((ch == "\n") || (ch == "\r\n")) {
+        ; A lone CR is a line terminator in JS just as LF is; counting only LF
+        ; made `continue \r label` look like it was on one line, which changes
+        ; whether automatic semicolon insertion applies.
+        def chCode:int (charAt ch 0)
+        def isTerminator:boolean false
+        if ((ch == "\n") || (ch == "\r") || (ch == "\r\n")) { isTerminator = true }
+        if (chCode == 8232) { isTerminator = true }
+        if (chCode == 8233) { isTerminator = true }
+        if isTerminator {
             line = line + 1
             col = 1
         } {
@@ -68,6 +107,70 @@ class TSLexer {
         return false
     }
 
+    fn ensureIdTables:void () {
+        if idTablesReady {
+            return
+        }
+        def startSpec:string (unicodeIds.idStartSpec())
+        idStartTable = (unicodeIds.decodeRangeTable(startSpec))
+        def contSpec:string (unicodeIds.idContinueSpec())
+        idContinueTable = (unicodeIds.decodeRangeTable(contSpec))
+        idTablesReady = true
+    }
+
+    ; The code point at pos + offset, combining a surrogate pair into the single
+    ; code point it encodes. Identifier classification has to work on code
+    ; POINTS: the halves of a pair are not identifier characters on their own.
+    fn codePointAt:int (offset:int) {
+        def idx:int (pos + offset)
+        if (idx >= len) { return -1 }
+        def first:string (at source idx)
+        def hi:int (charAt first 0)
+        if (hi >= 55296) {
+            if (hi <= 56319) {
+                if ((idx + 1) < len) {
+                    def second:string (at source (idx + 1))
+                    def lo:int (charAt second 0)
+                    if (lo >= 56320) {
+                        if (lo <= 57343) {
+                            return ((((hi - 55296) * 1024) + (lo - 56320)) + 65536)
+                        }
+                    }
+                }
+            }
+        }
+        return hi
+    }
+
+    ; Number of code units the code point at the current position occupies.
+    fn codePointWidth:int () {
+        def cp:int (this.codePointAt(0))
+        if (cp > 65535) { return 2 }
+        return 1
+    }
+
+    fn isIdStartHere:boolean () {
+        def cp:int (this.codePointAt(0))
+        if (cp < 0) { return false }
+        if (cp < 128) {
+            def ch:string (at source pos)
+            return (this.isAlpha(ch))
+        }
+        this.ensureIdTables()
+        return (unicodeIds.inRangeTable(idStartTable cp))
+    }
+
+    fn isIdContinueHere:boolean () {
+        def cp:int (this.codePointAt(0))
+        if (cp < 0) { return false }
+        if (cp < 128) {
+            def ch:string (at source pos)
+            return (this.isAlphaNumCh(ch))
+        }
+        this.ensureIdTables()
+        return (unicodeIds.inRangeTable(idContinueTable cp))
+    }
+
     fn isAlpha:boolean (ch:string) {
         if ((strlen ch) == 0) { return false }
         def code:int (charAt ch 0)
@@ -84,8 +187,11 @@ class TSLexer {
         }
         if (ch == "_") { return true }
         if (ch == "$") { return true }
-        ; Unicode letters (Latin Extended, etc.) - codes > 127
-        if (code > 127) { return true }
+        ; Above ASCII, only what Unicode calls ID_Start may begin an identifier.
+        if (code > 127) {
+            this.ensureIdTables()
+            return (unicodeIds.inRangeTable(idStartTable code))
+        }
         return false
     }
 
@@ -121,17 +227,38 @@ class TSLexer {
                 return true
             }
         }
-        ; Unicode letters (Latin Extended, etc.) - codes > 127
-        if (code > 127) { return true }
+        ; Above ASCII, only what Unicode calls ID_Continue may continue one.
+        if (code > 127) {
+            this.ensureIdTables()
+            return (unicodeIds.inRangeTable(idContinueTable code))
+        }
         return false
     }
 
+    ; JS WhiteSpace is much wider than the ASCII four: it includes the vertical
+    ; tab and form feed, NBSP, the BOM, and every Unicode space separator.
+    ; Treating those as ordinary characters made `a\u00a0b` two statements.
     fn isWhitespace:boolean (ch:string) {
         if (ch == " ") { return true }
         if (ch == "\t") { return true }
         if (ch == "\n") { return true }
         if (ch == "\r") { return true }
         if (ch == "\r\n") { return true }
+        if ((strlen ch) == 0) { return false }
+        def code:int (charAt ch 0)
+        if (code == 11) { return true }      ; vertical tab
+        if (code == 12) { return true }      ; form feed
+        if (code == 160) { return true }     ; no-break space
+        if (code == 5760) { return true }    ; ogham space mark
+        if (code >= 8192) {
+            if (code <= 8202) { return true } ; en quad .. hair space
+        }
+        if (code == 8232) { return true }    ; line separator
+        if (code == 8233) { return true }    ; paragraph separator
+        if (code == 8239) { return true }    ; narrow no-break space
+        if (code == 8287) { return true }    ; medium mathematical space
+        if (code == 12288) { return true }   ; ideographic space
+        if (code == 65279) { return true }   ; zero width no-break space (BOM)
         return false
     }
 
@@ -157,6 +284,21 @@ class TSLexer {
         return tok
     }
 
+    ; §7.3: LF, CR, LINE SEPARATOR and PARAGRAPH SEPARATOR are all
+    ; LineTerminators. A single-line comment ends at ANY of them, and only LF
+    ; and CRLF were recognised -- so `//x\u2028y = 1` swallowed the statement
+    ; after the separator instead of ending the comment.
+    fn isLineTerminatorChar:boolean (ch:string) {
+        if (ch == "\n") { return true }
+        if (ch == "\r") { return true }
+        if (ch == "\r\n") { return true }
+        if ((strlen ch) == 0) { return false }
+        def code:int (charAt ch 0)
+        if (code == 8232) { return true }
+        if (code == 8233) { return true }
+        return false
+    }
+
     fn readLineComment:Token () {
         def startPos:int pos
         def startLine:int line
@@ -166,15 +308,28 @@ class TSLexer {
         def value:string ""
         while (pos < len) {
             def ch:string (this.peek())
-            if (ch == "\n") {
-                return (this.makeToken("LineComment" value startPos startLine startCol))
-            }
-            if (ch == "\r\n") {
+            if (this.isLineTerminatorChar(ch)) {
                 return (this.makeToken("LineComment" value startPos startLine startCol))
             }
             value = value + (this.advance())
         }
         return (this.makeToken("LineComment" value startPos startLine startCol))
+    }
+
+    ; Annex B HTML-like comment: everything to the end of the line. Typed
+    ; separately from a line comment so the parser can reject it in module
+    ; code, where Annex B does not apply.
+    fn readHtmlComment:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peek())
+            if (this.isLineTerminatorChar(ch)) { break }
+            value = value + (this.advance())
+        }
+        return (this.makeToken("HtmlComment" value startPos startLine startCol))
     }
 
     fn readBlockComment:Token () {
@@ -196,7 +351,8 @@ class TSLexer {
             }
             value = value + (this.advance())
         }
-        return (this.makeToken("BlockComment" value startPos startLine startCol))
+        ; Ran off the end without the closing delimiter.
+        return (this.makeToken("Invalid" value startPos startLine startCol))
     }
 
     fn readString:Token (quote:string) {
@@ -205,31 +361,108 @@ class TSLexer {
         def startCol:int col
         this.advance() ; consume opening quote
         def value:string ""
+        def sawEscape:boolean false
+        def sawOctalEscape:boolean false
         while (pos < len) {
             def ch:string (this.peek())
             if (ch == quote) {
                 this.advance()
-                return (this.makeToken("String" value startPos startLine startCol))
+                def strTok:Token (this.makeToken("String" value startPos startLine startCol))
+                strTok.hasEscape = sawEscape
+                strTok.legacyOctal = sawOctalEscape
+                return strTok
+            }
+            ; An unescaped line terminator may not appear in a string literal.
+            if (ch == "\n") {
+                return (this.makeToken("Invalid" value startPos startLine startCol))
+            }
+            if (ch == "\r") {
+                return (this.makeToken("Invalid" value startPos startLine startCol))
             }
             if (ch == "\\") {
+                sawEscape = true
                 this.advance()
                 def esc:string (this.advance())
-                if (esc == "n") { 
-                    value = value + "\n" 
+                if (esc == "n") {
+                    value = value + "\n"
                 } {
-                    if (esc == "t") { 
-                        value = value + "\t" 
+                    if (esc == "t") {
+                        value = value + "\t"
                     } {
-                        if (esc == "r") { 
-                            value = value + "\r" 
+                        if (esc == "r") {
+                            value = value + "\r"
                         } {
-                            if (esc == "\\") { 
-                                value = value + "\\" 
+                            if (esc == "b") {
+                                value = value + (strfromcode 8)
                             } {
-                                if (esc == quote) { 
-                                    value = value + quote 
+                                if (esc == "f") {
+                                    value = value + (strfromcode 12)
                                 } {
-                                    value = value + esc
+                                    if (esc == "v") {
+                                        value = value + (strfromcode 11)
+                                    } {
+                                        if (esc == "0") {
+                                            ; \0 is NUL only when no digit follows;
+                                            ; \01 is a legacy octal escape.
+                                            def afterZero:string (this.peek())
+                                            if (this.isDigit(afterZero)) {
+                                                sawOctalEscape = true
+                                                value = value + esc
+                                            } {
+                                                value = value + (strfromcode 0)
+                                            }
+                                        } {
+                                            if (esc == "x") {
+                                                ; \xHH — exactly two hex digits.
+                                                def h1:string (this.peek())
+                                                def hv1:int (this.hexValue(h1))
+                                                def h2:string (this.peekAt(1))
+                                                def hv2:int (this.hexValue(h2))
+                                                if ((hv1 < 0) || (hv2 < 0)) {
+                                                    return (this.makeToken("Invalid" value startPos startLine startCol))
+                                                }
+                                                this.advance()
+                                                this.advance()
+                                                value = value + (strfromcode ((hv1 * 16) + hv2))
+                                            } {
+                                                if (esc == "u") {
+                                                    def uEsc:string (this.readUnicodeEscapeBody())
+                                                    if ((strlen uEsc) == 0) {
+                                                        return (this.makeToken("Invalid" value startPos startLine startCol))
+                                                    }
+                                                    value = value + uEsc
+                                                } {
+                                                    if (esc == "\\") {
+                                                        value = value + "\\"
+                                                    } {
+                                                        ; Line continuation: a
+                                                        ; backslash before a newline
+                                                        ; contributes nothing. CRLF
+                                                        ; counts as one terminator.
+                                                        if (esc == "\r") {
+                                                            if ((this.peek()) == "\n") {
+                                                                this.advance()
+                                                            }
+                                                        }
+                                                        if ((esc == "\n") || (esc == "\r")) {
+                                                        } {
+                                                            ; \8 and \9 are not
+                                                            ; escape sequences.
+                                                            if ((esc == "8") || (esc == "9")) {
+                                                                return (this.makeToken("Invalid" value startPos startLine startCol))
+                                                            }
+                                                            ; \1..\7 is a legacy
+                                                            ; octal escape.
+                                                            if (this.isDigit(esc)) {
+                                                                sawOctalEscape = true
+                                                            }
+                                                            value = value + esc
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -239,7 +472,8 @@ class TSLexer {
                 value = value + (this.advance())
             }
         }
-        return (this.makeToken("String" value startPos startLine startCol))
+        ; Ran off the end without a closing quote.
+        return (this.makeToken("Invalid" value startPos startLine startCol))
     }
 
     fn readTemplateLiteral:Token () {
@@ -269,18 +503,65 @@ class TSLexer {
                             if (esc == "$") { 
                                 value = value + "$" 
                             } {
+                                ; A template literal has no legacy octal
+                                ; escapes at all, in any mode.
+                                if (this.isDigit(esc)) {
+                                    if (esc != "0") {
+                                        return (this.makeToken("Invalid" value startPos startLine startCol))
+                                    }
+                                    def afterZero:string (this.peek())
+                                    if (this.isDigit(afterZero)) {
+                                        return (this.makeToken("Invalid" value startPos startLine startCol))
+                                    }
+                                }
                                 value = value + esc
                             }
                         }
                     }
                 }
             } {
-                ; For now, treat ${...} as literal text
-                ; A full implementation would tokenize interpolations separately
-                value = value + (this.advance())
+                ; ${...} is kept as literal text for the parser to re-read, but
+                ; its nesting must still be tracked: an interpolation may hold
+                ; another template, whose backticks do not end this one.
+                if (ch == "$") {
+                    if ((this.peekAt(1)) == "{") {
+                        value = value + (this.advance())
+                        value = value + (this.advance())
+                        def braceDepth:int 1
+                        while ((pos < len) && (braceDepth > 0)) {
+                            def ic:string (this.peek())
+                            if (ic == "\\") {
+                                value = value + (this.advance())
+                                if (pos < len) { value = value + (this.advance()) }
+                            } {
+                                if (ic == "{") {
+                                    braceDepth = (braceDepth + 1)
+                                    value = value + (this.advance())
+                                } {
+                                    if (ic == "}") {
+                                        braceDepth = (braceDepth - 1)
+                                        value = value + (this.advance())
+                                    } {
+                                        if (ic == "`") {
+                                            def innerTok:Token (this.readTemplateLiteral())
+                                            value = value + "`" + innerTok.value + "`"
+                                        } {
+                                            value = value + (this.advance())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } {
+                        value = value + (this.advance())
+                    }
+                } {
+                    value = value + (this.advance())
+                }
             }
         }
-        return (this.makeToken("Template" value startPos startLine startCol))
+        ; Ran off the end without a closing backtick.
+        return (this.makeToken("Invalid" value startPos startLine startCol))
     }
 
     ; Value of a single digit char in any radix up to 16 (0-9, a-f, A-F); -1 if
@@ -326,6 +607,20 @@ class TSLexer {
                 }
             }
         }
+        ; `0x` with no digits, or digits immediately followed by an identifier
+        ; character (`0b1a`, `0o8`), is a malformed literal rather than a number
+        ; followed by a name. Emitted as Invalid so the parser reports it.
+        def digitsRead:boolean (pos > (startPos + 2))
+        def tail:string (this.peek())
+        def runsOn:boolean false
+        if (this.isAlphaNumCh(tail)) { runsOn = true }
+        if ((digitsRead == false) || runsOn) {
+            while (pos < len) {
+                def tch:string (this.peek())
+                if (this.isAlphaNumCh(tch)) { this.advance() } { break }
+            }
+            return (this.makeToken("Invalid" (substring source startPos pos) startPos startLine startCol))
+        }
         return (this.makeToken("Number" (to_string acc) startPos startLine startCol))
     }
 
@@ -347,7 +642,34 @@ class TSLexer {
                 return (this.readRadix(8 startPos startLine startCol))
             }
         }
-        while (pos < len) {
+        ; A mantissa has at most one `.`; `0..a` is the number `0.` then `.a`.
+        def sawDot:boolean false
+        ; Legacy octal (`01`) has no fractional part, so `01.a` is `01` then `.a`.
+        def legacyOctal:boolean false
+        def nonOctalDecimal:boolean false
+        if ((this.peek()) == "0") {
+            def secondCh:string (this.peekAt(1))
+            if (this.isDigit(secondCh)) {
+                ; Only octal digits make it a legacy octal literal; `09.5` is a
+                ; NonOctalDecimalIntegerLiteral and does take a fraction.
+                legacyOctal = true
+                ; A digit 8 or 9 makes it a NonOctalDecimalIntegerLiteral, which
+                ; still may not appear in strict code but DOES take a fraction.
+                def scan:int (pos + 1)
+                while (scan < len) {
+                    def sc:string (at source scan)
+                    if (this.isDigit(sc)) {
+                        if ((sc == "8") || (sc == "9")) { nonOctalDecimal = true }
+                        scan = (scan + 1)
+                    } {
+                        break
+                    }
+                }
+                if nonOctalDecimal { legacyOctal = false }
+            }
+        }
+        def scanning:boolean true
+        while ((pos < len) && scanning) {
             def ch:string (this.peek())
             if (this.isDigit(ch)) {
                 value = value + (this.advance())
@@ -357,7 +679,8 @@ class TSLexer {
                 if (ch == "_") {
                     this.advance()
                 } {
-                    if (ch == ".") {
+                    if ((ch == ".") && (sawDot == false) && (legacyOctal == false)) {
+                        sawDot = true
                         value = value + (this.advance())
                     } {
                         ; Check for BigInt suffix: 123n
@@ -365,12 +688,130 @@ class TSLexer {
                             value = value + (this.advance())
                             return (this.makeToken("BigInt" value startPos startLine startCol))
                         }
-                        return (this.makeToken("Number" value startPos startLine startCol))
+                        ; Exponent: 1e5, 1.5e-3, 2E+10. Without this the `e` began
+                        ; a new identifier token and `1e5` lexed as `1` then `e5`.
+                        if ((ch == "e") || (ch == "E")) {
+                            def afterE:string (this.peekAt(1))
+                            def expDigit:string afterE
+                            def signLen:int 0
+                            if ((afterE == "+") || (afterE == "-")) {
+                                expDigit = (this.peekAt(2))
+                                signLen = 1
+                            }
+                            if (this.isDigit(expDigit)) {
+                                value = value + (this.advance())
+                                if (signLen > 0) {
+                                    value = value + (this.advance())
+                                }
+                                while (pos < len) {
+                                    def ech:string (this.peek())
+                                    if (this.isDigit(ech)) {
+                                        value = value + (this.advance())
+                                    } {
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                        scanning = false
                     }
                 }
             }
         }
-        return (this.makeToken("Number" value startPos startLine startCol))
+        ; A literal may not run straight into an identifier: `3in`, `0a`, `1e5x`.
+        def numTail:string (this.peek())
+        if (this.isAlphaNumCh(numTail)) {
+            while (pos < len) {
+                def tch:string (this.peek())
+                if (this.isAlphaNumCh(tch)) { this.advance() } { break }
+            }
+            return (this.makeToken("Invalid" (substring source startPos pos) startPos startLine startCol))
+        }
+        def numTok:Token (this.makeToken("Number" value startPos startLine startCol))
+        numTok.legacyOctal = legacyOctal
+        if nonOctalDecimal { numTok.legacyOctal = true }
+        return numTok
+    }
+
+    ; Hex digit value, or -1 when the character is not a hex digit.
+    fn hexValue:int (ch:string) {
+        if ((strlen ch) == 0) { return -1 }
+        def code:int (charAt ch 0)
+        if (code >= 48) { if (code <= 57) { return (code - 48) } }
+        if (code >= 97) { if (code <= 102) { return ((code - 97) + 10) } }
+        if (code >= 65) { if (code <= 70) { return ((code - 65) + 10) } }
+        return -1
+    }
+
+    ; Reads a \uXXXX or \u{XXXXX} escape at the current position (which must be
+    ; the backslash) and returns the character it denotes. Returns "" when the
+    ; escape is malformed, leaving the position untouched.
+    fn readUnicodeEscape:string () {
+        def savedPos:int pos
+        def savedLine:int line
+        def savedCol:int col
+        if ((this.peek()) != "\\") { return "" }
+        this.advance()
+        if ((this.peek()) != "u") {
+            pos = savedPos
+            line = savedLine
+            col = savedCol
+            return ""
+        }
+        this.advance()
+        def decoded:string (this.readUnicodeEscapeBody())
+        if ((strlen decoded) == 0) {
+            pos = savedPos
+            line = savedLine
+            col = savedCol
+            return ""
+        }
+        return decoded
+    }
+
+    ; Decodes the body of a \u escape; the position must be just past the "u".
+    ; Returns "" when the escape is malformed.
+    fn readUnicodeEscapeBody:string () {
+        def code:int 0
+        if ((this.peek()) == "{") {
+            this.advance()
+            def any:boolean false
+            while (pos < len) {
+                def ch:string (this.peek())
+                if (ch == "}") { break }
+                def hv:int (this.hexValue(ch))
+                if (hv < 0) { return "" }
+                code = ((code * 16) + hv)
+                any = true
+                this.advance()
+            }
+            if (any == false) { return "" }
+            if ((this.peek()) != "}") { return "" }
+            if (code > 1114111) { return "" }
+            this.advance()
+        } {
+            def i:int 0
+            while (i < 4) {
+                def hch:string (this.peek())
+                def hv:int (this.hexValue(hch))
+                if (hv < 0) { return "" }
+                code = ((code * 16) + hv)
+                this.advance()
+                i = (i + 1)
+            }
+        }
+        ; strfromcode is a code-UNIT constructor, so a supplementary-plane code
+        ; point has to be written as its surrogate pair — otherwise \u{E01D5}
+        ; truncated to U+01D5 and collided with an unrelated identifier.
+        if (code > 65535) {
+            def rest:int (code - 65536)
+            def restD:double (to_double rest)
+            def high:int (floor (restD / 1024.0))
+            def hi:int (55296 + high)
+            def lo:int (56320 + (rest - (high * 1024)))
+            return ((strfromcode hi) + (strfromcode lo))
+        }
+        return (strfromcode code)
     }
 
     fn readIdentifier:Token () {
@@ -378,15 +819,52 @@ class TSLexer {
         def startLine:int line
         def startCol:int col
         def value:string ""
+        def sawIdEscape:boolean false
         while (pos < len) {
             def ch:string (this.peek())
-            if (this.isAlphaNumCh(ch)) {
+            if (this.isIdContinueHere()) {
+                def width:int (this.codePointWidth())
                 value = value + (this.advance())
+                if (width == 2) {
+                    value = value + (this.advance())
+                }
             } {
-                return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+                ; An identifier character may be written as a \uXXXX escape.
+                if (ch == "\\") {
+                    def esc:string (this.readUnicodeEscape())
+                    if ((strlen esc) == 1) {
+                        def escCode:int (charAt esc 0)
+                        def escOk:boolean (this.isAlphaNumCh(esc))
+                        ; A lone surrogate is not a character at all.
+                        if (escCode >= 55296) {
+                            if (escCode <= 57343) { escOk = false }
+                        }
+                        if (escOk == false) {
+                            return (this.makeToken("Invalid" value startPos startLine startCol))
+                        }
+                    }
+                    if ((strlen esc) == 0) {
+                        ; Malformed escape. If it is the first thing we saw there
+                        ; is no identifier here at all; consume the backslash so
+                        ; the tokenizer always makes progress and cannot spin.
+                        if ((strlen value) == 0) {
+                            this.advance()
+                            return (this.makeToken("Punctuator" "\\" startPos startLine startCol))
+                        }
+                        return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+                    }
+                    sawIdEscape = true
+                    value = value + esc
+                } {
+                    def idTok:Token (this.makeToken((this.identType(value)) value startPos startLine startCol))
+                    idTok.hasEscape = sawIdEscape
+                    return idTok
+                }
             }
         }
-        return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+        def idTokEnd:Token (this.makeToken((this.identType(value)) value startPos startLine startCol))
+        idTokEnd.hasEscape = sawIdEscape
+        return idTokEnd
     }
 
     ; Determine token type for an identifier
@@ -401,6 +879,11 @@ class TSLexer {
         if (value == "if") { return "Keyword" }
         if (value == "else") { return "Keyword" }
         if (value == "while") { return "Keyword" }
+        ; `do`, `with` and `debugger` were missing, so `do /re/;` lexed the
+        ; regex as a division and `with` never reached its statement rule.
+        if (value == "do") { return "Keyword" }
+        if (value == "with") { return "Keyword" }
+        if (value == "debugger") { return "Keyword" }
         if (value == "for") { return "Keyword" }
         if (value == "in") { return "Keyword" }
         if (value == "of") { return "Keyword" }
@@ -493,6 +976,20 @@ class TSLexer {
             if (next == "*") {
                 return (this.readBlockComment())
             }
+            ; Regex literal — only where an operand, not an operator, may appear.
+            if (this.regexAllowed()) {
+                def re:Token (this.readRegex())
+                if (re.tokenType == "Regex") {
+                    return re
+                }
+                ; A malformed-but-terminated literal has already been consumed,
+                ; so report it rather than re-lexing the `/` at a stale
+                ; position. An unterminated one rewound and has an empty type.
+                if (re.tokenType == "Invalid") {
+                    return re
+                }
+                ; Unterminated: fall through and lex `/` as a punctuator.
+            }
         }
 
         ; Strings
@@ -513,7 +1010,12 @@ class TSLexer {
                             def prevCode:int (charAt prevCh 0)
                             def nextCode:int (charAt nextCh 0)
                             if ((this.isLetterCode(prevCode)) && (this.isLetterCode(nextCode))) {
-                                wordApostrophe = true
+                                ; Only inside a word, never after a keyword:
+                                ; `return'x'`, `typeof'x'` and `case'a':` are all
+                                ; valid JS whose string literal must survive.
+                                if (prevType != "Keyword") {
+                                    wordApostrophe = true
+                                }
                             }
                         }
                     }
@@ -526,14 +1028,44 @@ class TSLexer {
             return (this.readString("'"))
         }
         
+        ; Annex B HTML-like comments. `<!--` opens a single-line comment anywhere;
+        ; `-->` does so only when it is the first token on its line.
+        if (ch == "<") {
+            if ((this.peekAt(1)) == "!") {
+                if ((this.peekAt(2)) == "-") {
+                    if ((this.peekAt(3)) == "-") {
+                        return (this.readHtmlComment())
+                    }
+                }
+            }
+        }
+        if (ch == "-") {
+            if ((this.peekAt(1)) == "-") {
+                if ((this.peekAt(2)) == ">") {
+                    if ((prevType == "") || (line > prevLine)) {
+                        return (this.readHtmlComment())
+                    }
+                }
+            }
+        }
+
         ; Template literals
         if (ch == "`") { return (this.readTemplateLiteral()) }
 
-        ; Numbers
+        ; Numbers, including a leading-dot literal: `.5`. Checked before the
+        ; punctuator table so `a(....5)` splits as `...` then `.5`.
         if (this.isDigit(ch)) { return (this.readNumber()) }
+        if (ch == ".") {
+            def afterDot:string (this.peekAt(1))
+            if (this.isDigit(afterDot)) { return (this.readNumber()) }
+        }
 
-        ; Identifiers and keywords
-        if (this.isAlpha(ch)) { return (this.readIdentifier()) }
+        ; Identifiers and keywords. An identifier may also *start* with a
+        ; \uXXXX escape, as in `var \u0061bc;`.
+        if (this.isIdStartHere()) { return (this.readIdentifier()) }
+        if (ch == "\\") {
+            if ((this.peekAt(1)) == "u") { return (this.readIdentifier()) }
+        }
 
         ; Multi-char punctuators
         def next:string (this.peekAt(1))
@@ -769,7 +1301,15 @@ class TSLexer {
         if ((strlen ch) == 0) {
             return (this.makeToken("EOF" "" pos line col))
         }
+        ; A non-ASCII character that is not an identifier character and not a
+        ; punctuator gets its own type. Calling it a Punctuator made the `/` in
+        ; JSX text like `←/→` open a regex, and it must not be an expression
+        ; either.
+        def fallbackCode:int (charAt ch 0)
         this.advance()
+        if (fallbackCode > 127) {
+            return (this.makeToken("Unknown" ch startPos startLine startCol))
+        }
         return (this.makeToken("Punctuator" ch startPos startLine startCol))
     }
 
@@ -778,10 +1318,345 @@ class TSLexer {
         while (true) {
             def tok:Token (this.nextToken())
             push tokens tok
+            ; Comments are not significant for regex-vs-division context.
+            if ((tok.tokenType != "LineComment") && (tok.tokenType != "BlockComment") && (tok.tokenType != "HtmlComment")) {
+                if (tok.tokenType == "Punctuator") {
+                    if (tok.value == "(") {
+                        def headerOpen:string "e"
+                        if (prevType == "Keyword") {
+                            if ((prevValue == "if") || (prevValue == "while") || (prevValue == "for") || (prevValue == "with")) {
+                                headerOpen = "h"
+                            }
+                        }
+                        parenKinds = (parenKinds + headerOpen)
+                    }
+                    if (tok.value == ")") {
+                        def pDepth:int (strlen parenKinds)
+                        if (pDepth > 0) {
+                            lastCloseParen = (substring parenKinds (pDepth - 1) pDepth)
+                            parenKinds = (substring parenKinds 0 (pDepth - 1))
+                        } {
+                            lastCloseParen = "e"
+                        }
+                    }
+                    if (tok.value == "{") {
+                        braceKinds = (braceKinds + (this.braceKindHere()))
+                    }
+                    if (tok.value == "}") {
+                        def depth:int (strlen braceKinds)
+                        if (depth > 0) {
+                            lastCloseKind = (substring braceKinds (depth - 1) depth)
+                            braceKinds = (substring braceKinds 0 (depth - 1))
+                        } {
+                            lastCloseKind = "o"
+                        }
+                    }
+                }
+                prevType = tok.tokenType
+                prevValue = tok.value
+                prevLine = tok.line
+            }
             if (tok.tokenType == "EOF") {
                 return tokens
             }
         }
         return tokens
+    }
+
+    ; Classify the `{` just tokenized, from the token that preceded it: "b" when
+    ; it opens a statement block, "o" when it opens an object literal or a JSX
+    ; expression container.
+    fn braceKindHere:string () {
+        if (prevType == "") { return "b" }
+        ; A `{` on a line of its own follows a statement that automatic
+        ; semicolon insertion has already ended, so it opens a block:
+        ; `return \n {} \n /re/`.
+        if (line > prevLine) { return "b" }
+        if (prevType == "Punctuator") {
+            if (prevValue == ")") { return "b" }
+            if (prevValue == ";") { return "b" }
+            if (prevValue == "{") { return "b" }
+            if (prevValue == "}") { return "b" }
+            if (prevValue == "=>") { return "b" }
+            if (prevValue == ":") { return "b" }
+            if (prevValue == "++") { return "b" }
+            if (prevValue == "--") { return "b" }
+            return "o"
+        }
+        if (prevType == "Keyword") {
+            if (prevValue == "else") { return "b" }
+            if (prevValue == "do") { return "b" }
+            if (prevValue == "try") { return "b" }
+            if (prevValue == "finally") { return "b" }
+            return "o"
+        }
+        return "o"
+    }
+
+    ; True when a `/` at the current position starts a regex literal rather than
+    ; a division operator. Decided from the previous significant token: `/` after
+    ; something that can END an expression is division, otherwise it opens a regex.
+    ; Checks the parts of the pattern grammar that a plain scan can settle:
+    ; unescaped `{` / `}` / `]` in Unicode mode, a \u{...} beyond the code point
+    ; range, a back-reference with no matching group, and a quantifier applied
+    ; to a lookahead assertion.
+    fn regexBodyValid:boolean (body:string unicodeMode:boolean) {
+        def n:int (strlen body)
+        def groups:int 0
+        def maxBackRef:int 0
+        def i:int 0
+        def inClass:boolean false
+        def prevWasAssertion:boolean false
+        def skipTo:int -1
+        while (i < n) {
+            skipTo = -1
+            def ch:string (substring body i (i + 1))
+            if (ch == "\\") {
+                def esc:string (substring body (i + 1) (i + 2))
+                if (esc == "u") {
+                    if ((substring body (i + 2) (i + 3)) == "{") {
+                        def cp:int 0
+                        def j:int (i + 3)
+                        def digits:int 0
+                        while (j < n) {
+                            def hc:string (substring body j (j + 1))
+                            if (hc == "}") { break }
+                            def hv:int (this.hexValue(hc))
+                            if (hv < 0) { break }
+                            cp = ((cp * 16) + hv)
+                            digits = (digits + 1)
+                            j = (j + 1)
+                        }
+                        if (digits > 0) {
+                            if (cp > 1114111) { return false }
+                        }
+                        ; Skip the whole escape, closing brace included, so the `}`
+                        ; is not read as a stray one.
+                        if ((substring body j (j + 1)) == "}") {
+                            skipTo = (j + 1)
+                        }
+                    }
+                } {
+                    def escCode:int (charAt esc 0)
+                    if (escCode >= 49) {
+                        if (escCode <= 57) {
+                            def refNum:int (escCode - 48)
+                            if (refNum > maxBackRef) { maxBackRef = refNum }
+                        }
+                    }
+                }
+                if (skipTo >= 0) {
+                    i = skipTo
+                } {
+                    i = (i + 2)
+                }
+                prevWasAssertion = false
+            } {
+                if (inClass) {
+                    if (ch == "]") { inClass = false }
+                    i = (i + 1)
+                } {
+                    if (ch == "[") {
+                        inClass = true
+                        prevWasAssertion = false
+                        i = (i + 1)
+                    } {
+                        if (ch == "(") {
+                            def after:string (substring body (i + 1) (i + 3))
+                            if ((after == "?=") || (after == "?!")) {
+                                ; Remember where this assertion group ends.
+                                prevWasAssertion = false
+                            } {
+                                if ((substring body (i + 1) (i + 2)) != "?") {
+                                    groups = (groups + 1)
+                                }
+                            }
+                            i = (i + 1)
+                        } {
+                            if (unicodeMode) {
+                                ; In Unicode mode these are only legal escaped
+                                ; or as part of a well-formed quantifier.
+                                if (ch == "}") { return false }
+                                if (ch == "]") { return false }
+                                if (ch == "{") {
+                                    ; `{` must open a {n}, {n,} or {n,m} bound.
+                                    def k:int (i + 1)
+                                    def numDigits:int 0
+                                    while (k < n) {
+                                        def dc:string (substring body k (k + 1))
+                                        if (this.isDigit(dc)) {
+                                            numDigits = (numDigits + 1)
+                                            k = (k + 1)
+                                        } {
+                                            break
+                                        }
+                                    }
+                                    if (numDigits == 0) { return false }
+                                }
+                            }
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+        }
+        if (maxBackRef > groups) { return false }
+        return true
+    }
+
+    fn stringContainsChar:boolean (haystack:string ch:string) {
+        def i:int 0
+        def n:int (strlen haystack)
+        while (i < n) {
+            if ((substring haystack i (i + 1)) == ch) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn regexAllowed:boolean () {
+        if (prevType == "") { return true }
+        if (prevType == "Number") { return false }
+        if (prevType == "BigInt") { return false }
+        if (prevType == "String") { return false }
+        if (prevType == "Template") { return false }
+        if (prevType == "Regex") { return false }
+        ; An unclassified character is text, not an operator position.
+        if (prevType == "Unknown") { return false }
+        if (prevType == "Identifier") { return false }
+        if (prevType == "TSType") { return false }
+        if (prevType == "Keyword") {
+            ; Only these keywords end an expression; after every other keyword
+            ; (return, typeof, case, in, of, new, delete, void, do, else, yield,
+            ; await, instanceof, ...) an operand — and so a regex — may follow.
+            if (prevValue == "this") { return false }
+            if (prevValue == "super") { return false }
+            if (prevValue == "true") { return false }
+            if (prevValue == "false") { return false }
+            if (prevValue == "null") { return false }
+            return true
+        }
+        if (prevType == "Punctuator") {
+            ; `)` and `]` close an expression; `}` is ambiguous (block end allows a
+            ; regex, object-literal end does not) and is resolved as block end,
+            ; which is the far more common position for a following `/`.
+            if (prevValue == ")") {
+                if (lastCloseParen == "h") { return true }
+                return false
+            }
+            if (prevValue == "]") { return false }
+            if (prevValue == "++") { return false }
+            if (prevValue == "--") { return false }
+            ; `<` is excluded so a JSX closing tag `</Text>` is not swallowed as a
+            ; regex literal. The cost is `a < /re/.test(b)`, which is vanishingly
+            ; rare; JSX closing tags are on the engine's main path.
+            if (prevValue == "<") { return false }
+            ; `}` ends a block (an operand, so a regex, may follow) or an object
+            ; literal / JSX expression container (an operator follows).
+            if (prevValue == "}") {
+                if (lastCloseKind == "b") { return true }
+                return false
+            }
+            return true
+        }
+        return true
+    }
+
+    ; Reads /pattern/flags starting at the current `/`. Returns a Regex token, or
+    ; an empty value when the literal is unterminated so the caller can fall back
+    ; to treating the `/` as a punctuator.
+    fn readRegex:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        def value:string (this.advance())  ; consume opening /
+        def inClass:boolean false
+        def closed:boolean false
+        while (pos < len) {
+            def ch:string (this.peek())
+            ; An unescaped line terminator terminates the literal: it is not a
+            ; regex. A backslash before one does not rescue it either.
+            if (ch == "\n") { break }
+            if (ch == "\r") { break }
+            if (ch == "\\") {
+                value = value + (this.advance())
+                if (pos < len) {
+                    def escCh:string (this.peek())
+                    ; A backslash does not escape a line terminator here.
+                    if ((escCh == "\n") || (escCh == "\r")) { break }
+                    value = value + (this.advance())
+                }
+            } {
+                if (ch == "[") {
+                    inClass = true
+                    value = value + (this.advance())
+                } {
+                    if (ch == "]") {
+                        inClass = false
+                        value = value + (this.advance())
+                    } {
+                        if (ch == "/") {
+                            if (inClass) {
+                                value = value + (this.advance())
+                            } {
+                                value = value + (this.advance())
+                                closed = true
+                                break
+                            }
+                        } {
+                            value = value + (this.advance())
+                        }
+                    }
+                }
+            }
+        }
+        if (closed == false) {
+            ; Rewind; the caller re-lexes this `/` as a punctuator.
+            pos = startPos
+            line = startLine
+            col = startCol
+            return (this.makeToken("" "" startPos startLine startCol))
+        }
+        ; Trailing flags. Only d g i m s u v y are legal, and none may repeat.
+        def flags:string ""
+        def badFlag:boolean false
+        while (pos < len) {
+            def fch:string (this.peek())
+            if (this.isAlphaNumCh(fch)) {
+                def known:boolean false
+                if (fch == "d") { known = true }
+                if (fch == "g") { known = true }
+                if (fch == "i") { known = true }
+                if (fch == "m") { known = true }
+                if (fch == "s") { known = true }
+                if (fch == "u") { known = true }
+                if (fch == "v") { known = true }
+                if (fch == "y") { known = true }
+                if (known == false) { badFlag = true }
+                if (this.stringContainsChar(flags fch)) { badFlag = true }
+                flags = flags + fch
+                value = value + (this.advance())
+            } {
+                break
+            }
+        }
+        if badFlag {
+            return (this.makeToken("Invalid" value startPos startLine startCol))
+        }
+        ; A `\` immediately after the flags means an escaped flag, which is not
+        ; allowed: `/./\u0069`.
+        if ((this.peek()) == "\\") {
+            return (this.makeToken("Invalid" value startPos startLine startCol))
+        }
+        ; The body between the slashes, without them or the flags.
+        def bodyLen:int ((strlen value) - ((strlen flags) + 2))
+        def body:string (substring value 1 (1 + bodyLen))
+        def unicodeMode:boolean (this.stringContainsChar(flags "u"))
+        if ((this.regexBodyValid(body unicodeMode)) == false) {
+            return (this.makeToken("Invalid" value startPos startLine startCol))
+        }
+        return (this.makeToken("Regex" value startPos startLine startCol))
     }
 }

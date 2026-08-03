@@ -9,6 +9,18 @@ Interpreter realm: EvalValue, evaluation engine, semantics, native adapter.
 - D-IDENTITY
 - D-ADAPTER
 - D-PROP
+- D-REGISTRY — built-ins keyed by (receiverKind, name); that pair is also the
+  first-class value, so `Array.prototype.slice.call(...)` resolves
+- D-PROTO — prototype chain, cycle-bounded
+- D-ACCESSORS — getters/setters held apart from data properties
+- D-ATTRS — writable/enumerable/configurable; absent means all-true
+- D-ERRORS — error constructors are seeded singletons, compared by identity
+- D-GLOBALOBJ — built-in namespaces are real objects, not structural names
+- D-IEEE — division by zero, negative zero, Infinity/NaN as values
+
+See [`CONFORMANCE.md`](./CONFORMANCE.md) for how runtime conformance is measured
+and which gaps are **deliberate** — including the ones that are known-wrong and
+pinned rather than hidden.
 
 ## To implement
 

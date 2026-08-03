@@ -1,0 +1,578 @@
+; =============================================================================
+; DateTime — the ES5 time-value algorithms
+; =============================================================================
+; D-DATE: ECMA-262 5.1 §15.9.1, written out. A Date's whole observable
+; behaviour is arithmetic on one number -- milliseconds since 1970-01-01T00:00Z
+; -- and every accessor, Date.parse, Date.UTC and the string forms are defined
+; against that arithmetic. Without it a Date could only be a brand, which is
+; what it used to be: `new Date(6).getTime()` was a TypeError and `Date.parse`
+; did not exist.
+;
+; The one deliberate simplification is the LOCAL TIME ZONE: this engine has no
+; time-zone database and no host clock beyond a caller-supplied "now", so local
+; time is UTC. getTimezoneOffset() is therefore 0 and getHours() agrees with
+; getUTCHours(). That is a legal-but-boring choice of host time zone rather
+; than a wrong answer, and it is recorded in CONFORMANCE.md as such.
+;
+; Everything here is pure arithmetic on doubles. Integer division is not used:
+; the spec's floor() and modulo() are both defined over the reals and differ
+; from C truncation for negative values -- which is precisely the range that
+; covers every date before 1970.
+; =============================================================================
+
+class DateTime {
+
+    ; --- primitives ----------------------------------------------------------
+
+    fn isFiniteD:boolean (v:double) {
+        if (v != v) {
+            return false
+        }
+        def inf:double (1.0 / 0.0)
+        if (v == inf) {
+            return false
+        }
+        if (v == (0.0 - inf)) {
+            return false
+        }
+        return true
+    }
+
+    fn nanD:double () {
+        return (0.0 / 0.0)
+    }
+
+    fn floorD:double (v:double) {
+        if (v != v) {
+            return v
+        }
+        if (false == (this.isFiniteD(v))) {
+            return v
+        }
+        def t:double (to_double (to_int v))
+        if (t > v) {
+            return (t - 1.0)
+        }
+        return t
+    }
+
+    ; The spec's modulo: the result has the SIGN OF THE DIVISOR, so it is never
+    ; negative for a positive one. C's remainder would make TimeWithinDay
+    ; negative for every instant before 1970.
+    fn modD:double (a:double b:double) {
+        if (a != a) {
+            return a
+        }
+        if (false == (this.isFiniteD(a))) {
+            return (this.nanD())
+        }
+        return (a - (b * (this.floorD((a / b)))))
+    }
+
+    ; ToInteger, which is truncation TOWARD ZERO -- not floor. The difference
+    ; shows up on the negative side: ToInteger(-6.5) is -6, and taking the floor
+    ; there made `new Date(-6.5).valueOf()` -7.
+    fn truncD:double (v:double) {
+        if (v != v) {
+            return 0.0
+        }
+        if (false == (this.isFiniteD(v))) {
+            return v
+        }
+        if (v < 0.0) {
+            return (0.0 - (to_double (to_int (0.0 - v))))
+        }
+        return (to_double (to_int v))
+    }
+
+    fn msPerDay:double () {
+        return 86400000.0
+    }
+
+    ; --- day and time within day ---------------------------------------------
+
+    fn dayOf:double (t:double) {
+        return (this.floorD((t / 86400000.0)))
+    }
+
+    fn timeWithinDay:double (t:double) {
+        return (this.modD(t 86400000.0))
+    }
+
+    fn isLeapYear:boolean (y:int) {
+        def m4:int (y - (4 * (to_int (this.floorD((( to_double y) / 4.0))))))
+        if (m4 != 0) {
+            return false
+        }
+        def m100:int (y - (100 * (to_int (this.floorD(((to_double y) / 100.0))))))
+        if (m100 != 0) {
+            return true
+        }
+        def m400:int (y - (400 * (to_int (this.floorD(((to_double y) / 400.0))))))
+        if (m400 == 0) {
+            return true
+        }
+        return false
+    }
+
+    fn daysInYear:int (y:int) {
+        if (this.isLeapYear(y)) {
+            return 366
+        }
+        return 365
+    }
+
+    ; Day number of 1 January of year y, counting from 1970-01-01 = 0.
+    fn dayFromYear:double (y:int) {
+        def yd:double (to_double y)
+        def a:double (365.0 * (yd - 1970.0))
+        def b:double (this.floorD(((yd - 1969.0) / 4.0)))
+        def c:double (this.floorD(((yd - 1901.0) / 100.0)))
+        def d:double (this.floorD(((yd - 1601.0) / 400.0)))
+        return ((a + b) - (c - d))
+    }
+
+    fn timeFromYear:double (y:int) {
+        return (86400000.0 * (this.dayFromYear(y)))
+    }
+
+    fn yearFromTime:int (t:double) {
+        ; 365.2425 days is the mean Gregorian year, so this estimate is never
+        ; more than a year out and the two loops below settle it exactly.
+        def guess:double (this.floorD(((t / 31556952000.0) + 1970.0)))
+        def y:int (to_int guess)
+        while ((this.timeFromYear(y)) > t) {
+            y = (y - 1)
+        }
+        while ((this.timeFromYear((y + 1))) <= t) {
+            y = (y + 1)
+        }
+        return y
+    }
+
+    fn dayWithinYear:int (t:double) {
+        def y:int (this.yearFromTime(t))
+        return (to_int ((this.dayOf(t)) - (this.dayFromYear(y))))
+    }
+
+    ; Days before the first of each month, for a common year.
+    fn monthStartDay:int (m:int leap:boolean) {
+        def starts:[int]
+        push starts 0
+        push starts 31
+        push starts 59
+        push starts 90
+        push starts 120
+        push starts 151
+        push starts 181
+        push starts 212
+        push starts 243
+        push starts 273
+        push starts 304
+        push starts 334
+        push starts 365
+        def base:int (itemAt starts m)
+        if leap {
+            if (m >= 2) {
+                return (base + 1)
+            }
+        }
+        return base
+    }
+
+    fn monthFromTime:int (t:double) {
+        def d:int (this.dayWithinYear(t))
+        def leap:boolean (this.isLeapYear((this.yearFromTime(t))))
+        def m:int 11
+        while (m > 0) {
+            if (d >= (this.monthStartDay(m leap))) {
+                return m
+            }
+            m = (m - 1)
+        }
+        return 0
+    }
+
+    fn dateFromTime:int (t:double) {
+        def d:int (this.dayWithinYear(t))
+        def leap:boolean (this.isLeapYear((this.yearFromTime(t))))
+        def m:int (this.monthFromTime(t))
+        return ((d - (this.monthStartDay(m leap))) + 1)
+    }
+
+    ; 0 = Sunday. 1970-01-01 was a Thursday, hence the +4.
+    fn weekDay:int (t:double) {
+        return (to_int (this.modD(((this.dayOf(t)) + 4.0) 7.0)))
+    }
+
+    fn hourFromTime:int (t:double) {
+        return (to_int (this.modD((this.floorD((t / 3600000.0))) 24.0)))
+    }
+
+    fn minFromTime:int (t:double) {
+        return (to_int (this.modD((this.floorD((t / 60000.0))) 60.0)))
+    }
+
+    fn secFromTime:int (t:double) {
+        return (to_int (this.modD((this.floorD((t / 1000.0))) 60.0)))
+    }
+
+    fn msFromTime:int (t:double) {
+        return (to_int (this.modD(t 1000.0)))
+    }
+
+    ; --- construction --------------------------------------------------------
+
+    fn makeTime:double (h:double m:double s:double ms:double) {
+        if (false == (this.isFiniteD(h))) { return (this.nanD()) }
+        if (false == (this.isFiniteD(m))) { return (this.nanD()) }
+        if (false == (this.isFiniteD(s))) { return (this.nanD()) }
+        if (false == (this.isFiniteD(ms))) { return (this.nanD()) }
+        def hh:double (this.truncD(h))
+        def mm:double (this.truncD(m))
+        def ss:double (this.truncD(s))
+        def mss:double (this.truncD(ms))
+        return ((((hh * 3600000.0) + (mm * 60000.0)) + (ss * 1000.0)) + mss)
+    }
+
+    fn makeDay:double (y:double m:double dt:double) {
+        if (false == (this.isFiniteD(y))) { return (this.nanD()) }
+        if (false == (this.isFiniteD(m))) { return (this.nanD()) }
+        if (false == (this.isFiniteD(dt))) { return (this.nanD()) }
+        def yy:double (this.truncD(y))
+        def mm:double (this.truncD(m))
+        def dd:double (this.truncD(dt))
+        ; A month outside 0..11 rolls the year, which is what makes
+        ; `new Date(2000, 12, 1)` January 2001 rather than an error.
+        def ym:int (to_int (yy + (this.floorD((mm / 12.0)))))
+        def mn:int (to_int (this.modD(mm 12.0)))
+        def leap:boolean (this.isLeapYear(ym))
+        def first:double ((this.dayFromYear(ym)) + (to_double (this.monthStartDay(mn leap))))
+        return ((first + dd) - 1.0)
+    }
+
+    fn makeDate:double (day:double time:double) {
+        if (false == (this.isFiniteD(day))) { return (this.nanD()) }
+        if (false == (this.isFiniteD(time))) { return (this.nanD()) }
+        return ((day * 86400000.0) + time)
+    }
+
+    ; TimeClip: outside ±8.64e15 there is no representable instant.
+    fn timeClip:double (t:double) {
+        if (false == (this.isFiniteD(t))) {
+            return (this.nanD())
+        }
+        def a:double t
+        if (a < 0.0) {
+            a = (0.0 - a)
+        }
+        if (a > 8640000000000000.0) {
+            return (this.nanD())
+        }
+        def r:double (this.truncD(t))
+        ; TimeClip adds +0, which turns a negative zero into a positive one:
+        ; `new Date(-0).valueOf()` is 0, not -0.
+        if (r == 0.0) {
+            return 0.0
+        }
+        return r
+    }
+
+    ; --- string forms --------------------------------------------------------
+
+    fn pad2:string (v:int) {
+        if (v < 10) {
+            return ("0" + (to_string v))
+        }
+        return (to_string v)
+    }
+
+    fn pad3:string (v:int) {
+        if (v < 10) {
+            return ("00" + (to_string v))
+        }
+        if (v < 100) {
+            return ("0" + (to_string v))
+        }
+        return (to_string v)
+    }
+
+    fn pad4:string (v:int) {
+        if (v < 0) {
+            return (to_string v)
+        }
+        if (v < 10) { return ("000" + (to_string v)) }
+        if (v < 100) { return ("00" + (to_string v)) }
+        if (v < 1000) { return ("0" + (to_string v)) }
+        return (to_string v)
+    }
+
+    fn weekDayName:string (t:double) {
+        def names:[string]
+        push names "Sun"
+        push names "Mon"
+        push names "Tue"
+        push names "Wed"
+        push names "Thu"
+        push names "Fri"
+        push names "Sat"
+        return (itemAt names (this.weekDay(t)))
+    }
+
+    fn monthName:string (t:double) {
+        def names:[string]
+        push names "Jan"
+        push names "Feb"
+        push names "Mar"
+        push names "Apr"
+        push names "May"
+        push names "Jun"
+        push names "Jul"
+        push names "Aug"
+        push names "Sep"
+        push names "Oct"
+        push names "Nov"
+        push names "Dec"
+        return (itemAt names (this.monthFromTime(t)))
+    }
+
+    fn dateString:string (t:double) {
+        if (t != t) {
+            return "Invalid Date"
+        }
+        def y:int (this.yearFromTime(t))
+        return ((this.weekDayName(t)) + (" " + ((this.monthName(t)) + (" " + ((this.pad2((this.dateFromTime(t)))) + (" " + (this.pad4(y))))))))
+    }
+
+    fn timeString:string (t:double) {
+        return ((this.pad2((this.hourFromTime(t)))) + (":" + ((this.pad2((this.minFromTime(t)))) + (":" + (this.pad2((this.secFromTime(t))))))))
+    }
+
+    fn toDateString:string (t:double) {
+        return (this.dateString(t))
+    }
+
+    fn toTimeString:string (t:double) {
+        if (t != t) {
+            return "Invalid Date"
+        }
+        return ((this.timeString(t)) + " GMT+0000 (Coordinated Universal Time)")
+    }
+
+    fn toFullString:string (t:double) {
+        if (t != t) {
+            return "Invalid Date"
+        }
+        return ((this.dateString(t)) + (" " + (this.toTimeString(t))))
+    }
+
+    ; The HTTP-style form Date.prototype.toUTCString produces.
+    fn toUTCString:string (t:double) {
+        if (t != t) {
+            return "Invalid Date"
+        }
+        return ((this.weekDayName(t)) + (", " + ((this.pad2((this.dateFromTime(t)))) + (" " + ((this.monthName(t)) + (" " + ((this.pad4((this.yearFromTime(t)))) + (" " + ((this.timeString(t)) + " GMT")))))))))
+    }
+
+    ; The Date Time String Format, which is also what Date.parse must accept.
+    fn toISOString:string (t:double) {
+        def y:int (this.yearFromTime(t))
+        def head:string (this.pad4(y))
+        ; A year outside 0..9999 is written with an explicit sign and six
+        ; digits, so the format stays unambiguous.
+        if ((y < 0) || (y > 9999)) {
+            def sign:string "+"
+            def ay:int y
+            if (y < 0) {
+                sign = "-"
+                ay = (0 - y)
+            }
+            def six:string (to_string ay)
+            while ((strlen six) < 6) {
+                six = ("0" + six)
+            }
+            head = (sign + six)
+        }
+        return (head + ("-" + ((this.pad2(((this.monthFromTime(t)) + 1))) + ("-" + ((this.pad2((this.dateFromTime(t)))) + ("T" + ((this.timeString(t)) + ("." + ((this.pad3((this.msFromTime(t)))) + "Z")))))))))
+    }
+
+    ; --- parsing -------------------------------------------------------------
+
+    fn isDigitAt:boolean (s:string i:int) {
+        if (i >= (strlen s)) {
+            return false
+        }
+        def c:int (charAt s i)
+        if (c < 48) {
+            return false
+        }
+        if (c > 57) {
+            return false
+        }
+        return true
+    }
+
+    fn digitsAt:int (s:string start:int count:int) {
+        def v:int 0
+        def i:int 0
+        while (i < count) {
+            v = ((v * 10) + ((charAt s (start + i)) - 48))
+            i = (i + 1)
+        }
+        return v
+    }
+
+    fn charIs:boolean (s:string i:int ch:string) {
+        if (i >= (strlen s)) {
+            return false
+        }
+        return ((substring s i (i + 1)) == ch)
+    }
+
+    ; Date.parse over the Date Time String Format. A string it does not
+    ; recognise is NaN, which is what the spec says for any format the
+    ; implementation does not choose to accept.
+    fn parseISO:double (raw:string) {
+        def s:string (trim raw)
+        def n:int (strlen s)
+        if (n == 0) {
+            return (this.nanD())
+        }
+        def pos:int 0
+        def year:int 0
+        def negYear:boolean false
+        ; Extended year: ±YYYYYY
+        if ((this.charIs(s 0 "+")) || (this.charIs(s 0 "-"))) {
+            if (this.charIs(s 0 "-")) {
+                negYear = true
+            }
+            def k:int 1
+            while (k < 7) {
+                if (false == (this.isDigitAt(s k))) {
+                    return (this.nanD())
+                }
+                k = (k + 1)
+            }
+            year = (this.digitsAt(s 1 6))
+            if negYear {
+                ; -000000 is not a valid year: the spec rejects a negative zero
+                ; year outright rather than reading it as 0.
+                if (year == 0) {
+                    return (this.nanD())
+                }
+                year = (0 - year)
+            }
+            pos = 7
+        } {
+            def k2:int 0
+            while (k2 < 4) {
+                if (false == (this.isDigitAt(s k2))) {
+                    return (this.nanD())
+                }
+                k2 = (k2 + 1)
+            }
+            year = (this.digitsAt(s 0 4))
+            pos = 4
+        }
+        def month:int 1
+        def day:int 1
+        if (this.charIs(s pos "-")) {
+            if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+            if (false == (this.isDigitAt(s (pos + 2)))) { return (this.nanD()) }
+            month = (this.digitsAt(s (pos + 1) 2))
+            pos = (pos + 3)
+            if (this.charIs(s pos "-")) {
+                if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+                if (false == (this.isDigitAt(s (pos + 2)))) { return (this.nanD()) }
+                day = (this.digitsAt(s (pos + 1) 2))
+                pos = (pos + 3)
+            }
+        }
+        if (month < 1) { return (this.nanD()) }
+        if (month > 12) { return (this.nanD()) }
+        if (day < 1) { return (this.nanD()) }
+        if (day > 31) { return (this.nanD()) }
+        def hours:int 0
+        def minutes:int 0
+        def seconds:int 0
+        def millis:int 0
+        ; A date-only form is UTC; a date-time form without an offset is LOCAL,
+        ; and local is UTC here, so the two agree.
+        def haveTime:boolean false
+        if (this.charIs(s pos "T")) {
+            haveTime = true
+            pos = (pos + 1)
+            if (false == (this.isDigitAt(s pos))) { return (this.nanD()) }
+            if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+            hours = (this.digitsAt(s pos 2))
+            pos = (pos + 2)
+            if (false == (this.charIs(s pos ":"))) { return (this.nanD()) }
+            if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+            if (false == (this.isDigitAt(s (pos + 2)))) { return (this.nanD()) }
+            minutes = (this.digitsAt(s (pos + 1) 2))
+            pos = (pos + 3)
+            if (this.charIs(s pos ":")) {
+                if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+                if (false == (this.isDigitAt(s (pos + 2)))) { return (this.nanD()) }
+                seconds = (this.digitsAt(s (pos + 1) 2))
+                pos = (pos + 3)
+                if (this.charIs(s pos ".")) {
+                    if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+                    if (false == (this.isDigitAt(s (pos + 2)))) { return (this.nanD()) }
+                    if (false == (this.isDigitAt(s (pos + 3)))) { return (this.nanD()) }
+                    millis = (this.digitsAt(s (pos + 1) 3))
+                    pos = (pos + 4)
+                }
+            }
+        }
+        def offsetMin:int 0
+        if (this.charIs(s pos "Z")) {
+            pos = (pos + 1)
+        } {
+            if ((this.charIs(s pos "+")) || (this.charIs(s pos "-"))) {
+                def negOff:boolean (this.charIs(s pos "-"))
+                if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+                if (false == (this.isDigitAt(s (pos + 2)))) { return (this.nanD()) }
+                def oh:int (this.digitsAt(s (pos + 1) 2))
+                pos = (pos + 3)
+                def om:int 0
+                if (this.charIs(s pos ":")) {
+                    if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+                    if (false == (this.isDigitAt(s (pos + 2)))) { return (this.nanD()) }
+                    om = (this.digitsAt(s (pos + 1) 2))
+                    pos = (pos + 3)
+                } {
+                    if (this.isDigitAt(s pos)) {
+                        if (false == (this.isDigitAt(s (pos + 1)))) { return (this.nanD()) }
+                        om = (this.digitsAt(s pos 2))
+                        pos = (pos + 2)
+                    }
+                }
+                if (oh > 23) { return (this.nanD()) }
+                if (om > 59) { return (this.nanD()) }
+                offsetMin = ((oh * 60) + om)
+                if (negOff == false) {
+                    offsetMin = (0 - offsetMin)
+                }
+            }
+        }
+        if (pos != n) {
+            return (this.nanD())
+        }
+        ; 24:00:00.000 is the one hour value above 23, and only when the rest of
+        ; the time is zero.
+        if (hours > 24) { return (this.nanD()) }
+        if (hours == 24) {
+            if (((minutes != 0) || (seconds != 0)) || (millis != 0)) {
+                return (this.nanD())
+            }
+        }
+        if (minutes > 59) { return (this.nanD()) }
+        if (seconds > 59) { return (this.nanD()) }
+        def dayNum:double (this.makeDay((to_double year) (to_double (month - 1)) (to_double day)))
+        def tim:double (this.makeTime((to_double hours) (to_double minutes) (to_double seconds) (to_double millis)))
+        def t:double (this.makeDate(dayNum tim))
+        t = (t + ((to_double offsetMin) * 60000.0))
+        return (this.timeClip(t))
+    }
+}

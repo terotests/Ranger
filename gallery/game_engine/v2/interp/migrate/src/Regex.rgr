@@ -1,0 +1,1220 @@
+; =============================================================================
+; Regex — an ECMAScript regular-expression engine
+; =============================================================================
+; D-REGEX: the ES5 pattern grammar, compiled to a node tree and matched by
+; backtracking. It exists because String.prototype.match, replace, search and
+; split are all specified against RegExp, and without one those four methods
+; could not be implemented at all -- match scored 0/36 and split 44/100, and
+; every failure in them was the same missing piece.
+;
+; Why a tree and not a scan-as-you-match interpreter: alternation and
+; quantifiers both need to try a branch, fail, and resume at the same place with
+; different state. That is natural over a compiled tree and painful over raw
+; pattern text, where every retry has to re-find the branch boundaries.
+;
+; Backtracking is expressed as recursion over a node LIST: matchList(nodes, i,
+; pos) matches node i and then asks itself to match the rest from wherever that
+; landed. A quantifier tries its counts in order and, for each one, hands the
+; remainder to the same function -- so a failure deep in the tail unwinds back
+; into the quantifier and it tries the next count. Captures are engine state,
+; saved and restored around every attempt that can fail.
+;
+; What is deliberately absent: the `u` and `y` flags, named groups, lookbehind,
+; and Unicode property escapes. All are ES2015 or later; this is the ES5
+; surface the suite in front of us is written against.
+; =============================================================================
+
+; Node kinds. Held as an int rather than a subclass hierarchy because Ranger has
+; no virtual dispatch to switch on, and the matcher is one function either way.
+;   0 CHAR      a literal code unit
+;   1 ANY       `.`
+;   2 CLASS     [...] including the \d \w \s shorthands
+;   3 GROUP     (...) / (?:...) — children hold the alternatives
+;   4 ALT       one alternative's node list
+;   5 ANCHOR    ^ $ \b \B
+;   6 BACKREF   \1 .. \9
+;   7 LOOK      (?=...) / (?!...)
+class RegexNode {
+    def kind:int 0
+    def ch:int 0
+    ; For GROUP/LOOK: the alternatives, each an ALT node. For ALT: the sequence.
+    def children:[RegexNode]
+    ; Quantifier, applied to THIS node. min 0 / max -1 means unbounded.
+    def min:int 1
+    def max:int 1
+    def greedy:boolean true
+    ; CLASS: flattened [lo, hi] pairs, plus shorthand markers.
+    def ranges:[int]
+    def shorthands:[int]
+    def negate:boolean false
+    ; GROUP: 1-based capture index, or 0 for a non-capturing group.
+    def groupIndex:int 0
+    ; ANCHOR: 0 = ^, 1 = $, 2 = \b, 3 = \B
+    def anchorKind:int 0
+    ; LOOK: negative lookahead when true.
+    def lookNegate:boolean false
+}
+
+; A compiled pattern: the alternatives at the top level, plus how many capture
+; groups it has.
+class RegexProgram {
+    def alternatives:[RegexNode]
+    def groupCount:int 0
+    def ignoreCase:boolean false
+    def multiline:boolean false
+    def global:boolean false
+    def valid:boolean true
+    def errorMessage:string ""
+    def source:string ""
+}
+
+; One match: where it started and ended, plus the capture bounds. A capture that
+; did not participate has start -1, which is what makes it read as undefined
+; rather than as the empty string.
+class RegexMatch {
+    def matched:boolean false
+    def start:int 0
+    def end:int 0
+    def capStart:[int]
+    def capEnd:[int]
+}
+
+; =============================================================================
+; Compiler
+; =============================================================================
+class RegexCompiler {
+    def src:string ""
+    def pos:int 0
+    def groupCount:int 0
+    def failed:boolean false
+    def failMessage:string ""
+
+    fn compile:RegexProgram (pattern:string flags:string) {
+        def prog (new RegexProgram)
+        prog.source = pattern
+        src = pattern
+        pos = 0
+        groupCount = 0
+        failed = false
+        failMessage = ""
+        def fi:int 0
+        while (fi < (strlen flags)) {
+            def f:string (substring flags fi (fi + 1))
+            if (f == "i") { prog.ignoreCase = true }
+            if (f == "m") { prog.multiline = true }
+            if (f == "g") { prog.global = true }
+            fi = (fi + 1)
+        }
+        prog.alternatives = (this.parseAlternatives())
+        if (pos < (strlen src)) {
+            ; A ")" with no opening group, or anything else the parser refused
+            ; to consume, means the pattern is malformed.
+            failed = true
+            if ((strlen failMessage) == 0) {
+                failMessage = "Unmatched ')'"
+            }
+        }
+        prog.groupCount = groupCount
+        prog.valid = (false == failed)
+        prog.errorMessage = failMessage
+        return prog
+    }
+
+    ; alternatives := sequence ("|" sequence)*
+    fn parseAlternatives:[RegexNode] () {
+        def out:[RegexNode]
+        push out (this.parseSequence())
+        while (this.peekIs("|")) {
+            pos = (pos + 1)
+            push out (this.parseSequence())
+        }
+        return out
+    }
+
+    fn parseSequence:RegexNode () {
+        def seq (new RegexNode)
+        seq.kind = 4
+        def looping:boolean true
+        while looping {
+            if (pos >= (strlen src)) {
+                looping = false
+            } {
+                if ((this.peekIs("|")) || (this.peekIs(")"))) {
+                    looping = false
+                } {
+                    ; A quantifier needs an ATOM in front of it. `*a`, `+a`,
+                    ; `?a` and a well-formed `{n,m}` in term position are all
+                    ; SyntaxErrors -- the parser used to read the `*` as a
+                    ; literal and accept the pattern.
+                    if (this.quantifierAhead()) {
+                        failed = true
+                        failMessage = "Nothing to repeat"
+                        looping = false
+                    } {
+                    def atom:RegexNode (this.parseAtom())
+                    if failed {
+                        looping = false
+                    } {
+                        this.applyQuantifier(atom)
+                        if failed {
+                            looping = false
+                        } {
+                            push seq.children atom
+                        }
+                    }
+                    }
+                }
+            }
+        }
+        return seq
+    }
+
+    ; True when a QUANTIFIER starts here. `{` counts only when it is a
+    ; well-formed bound: a lone `{` is a literal brace, which is what Annex B
+    ; and web reality settled on.
+    fn quantifierAhead:boolean () {
+        if (pos >= (strlen src)) {
+            return false
+        }
+        def c:string (substring src pos (pos + 1))
+        if (c == "*") { return true }
+        if (c == "+") { return true }
+        if (c == "?") { return true }
+        if (c == "{") {
+            return (this.boundAhead())
+        }
+        return false
+    }
+
+    ; Whether `{` at `pos` opens a well-formed `{n}` / `{n,}` / `{n,m}`.
+    fn boundAhead:boolean () {
+        def p:int (pos + 1)
+        def digits:int 0
+        def scanning:boolean true
+        while (scanning && (p < (strlen src))) {
+            def d:int (charAt src p)
+            if ((d >= 48) && (d <= 57)) {
+                digits = (digits + 1)
+                p = (p + 1)
+            } {
+                scanning = false
+            }
+        }
+        if (digits == 0) {
+            return false
+        }
+        if (p >= (strlen src)) {
+            return false
+        }
+        def nx:string (substring src p (p + 1))
+        if (nx == "}") {
+            return true
+        }
+        if (nx != ",") {
+            return false
+        }
+        p = (p + 1)
+        def scanning2:boolean true
+        while (scanning2 && (p < (strlen src))) {
+            def d2:int (charAt src p)
+            if ((d2 >= 48) && (d2 <= 57)) {
+                p = (p + 1)
+            } {
+                scanning2 = false
+            }
+        }
+        if (p >= (strlen src)) {
+            return false
+        }
+        return ((substring src p (p + 1)) == "}")
+    }
+
+    fn peekIs:boolean (c:string) {
+        if (pos >= (strlen src)) {
+            return false
+        }
+        return ((substring src pos (pos + 1)) == c)
+    }
+
+    fn peekAt:int (offset:int) {
+        def p:int (pos + offset)
+        if (p >= (strlen src)) {
+            return (0 - 1)
+        }
+        return (charAt src p)
+    }
+
+    ; A quantifier binds to the atom just parsed. `{` that is not a well-formed
+    ; bound is a literal brace, which is what web reality (and Annex B) settled
+    ; on, so it is not an error.
+    fn applyQuantifier:void (n:RegexNode) {
+        if (pos >= (strlen src)) {
+            return
+        }
+        def c:string (substring src pos (pos + 1))
+        def applied:boolean false
+        if (c == "*") {
+            n.min = 0
+            n.max = (0 - 1)
+            pos = (pos + 1)
+            applied = true
+        }
+        if (c == "+") {
+            n.min = 1
+            n.max = (0 - 1)
+            pos = (pos + 1)
+            applied = true
+        }
+        if (c == "?") {
+            n.min = 0
+            n.max = 1
+            pos = (pos + 1)
+            applied = true
+        }
+        if (c == "{") {
+            def save:int pos
+            def p:int (pos + 1)
+            def lo:int 0
+            def loDigits:int 0
+            while (p < (strlen src)) {
+                def d:int (charAt src p)
+                if ((d >= 48) && (d <= 57)) {
+                    lo = ((lo * 10) + (d - 48))
+                    loDigits = (loDigits + 1)
+                    p = (p + 1)
+                } {
+                    p = (strlen src)
+                }
+            }
+            ; The loop above ran to the end; redo it properly with a flag.
+            p = (pos + 1)
+            lo = 0
+            loDigits = 0
+            def scanning:boolean true
+            while (scanning && (p < (strlen src))) {
+                def d2:int (charAt src p)
+                if ((d2 >= 48) && (d2 <= 57)) {
+                    lo = ((lo * 10) + (d2 - 48))
+                    loDigits = (loDigits + 1)
+                    p = (p + 1)
+                } {
+                    scanning = false
+                }
+            }
+            if (loDigits > 0) {
+                def hi:int lo
+                def ok:boolean false
+                if (p < (strlen src)) {
+                    def nx:string (substring src p (p + 1))
+                    if (nx == "}") {
+                        ok = true
+                        p = (p + 1)
+                    }
+                    if (nx == ",") {
+                        p = (p + 1)
+                        def hiDigits:int 0
+                        hi = 0
+                        def scanning2:boolean true
+                        while (scanning2 && (p < (strlen src))) {
+                            def d3:int (charAt src p)
+                            if ((d3 >= 48) && (d3 <= 57)) {
+                                hi = ((hi * 10) + (d3 - 48))
+                                hiDigits = (hiDigits + 1)
+                                p = (p + 1)
+                            } {
+                                scanning2 = false
+                            }
+                        }
+                        if (hiDigits == 0) {
+                            hi = (0 - 1)
+                        }
+                        if (p < (strlen src)) {
+                            if ((substring src p (p + 1)) == "}") {
+                                ok = true
+                                p = (p + 1)
+                            }
+                        }
+                    }
+                }
+                if ok {
+                    n.min = lo
+                    n.max = hi
+                    pos = p
+                    applied = true
+                } {
+                    pos = save
+                }
+            }
+        }
+        if applied {
+            if (this.peekIs("?")) {
+                n.greedy = false
+                pos = (pos + 1)
+            }
+            ; A quantifier cannot quantify a quantifier: `a**`, `a???` and
+            ; `x{1,2}{1}` are SyntaxErrors. The lazy `?` was consumed just
+            ; above, so anything still here is a second quantifier.
+            if (this.quantifierAhead()) {
+                failed = true
+                failMessage = "Nothing to repeat"
+                return
+            }
+            ; `{n,m}` with n greater than m is out of order.
+            if (n.max >= 0) {
+                if (n.min > n.max) {
+                    failed = true
+                    failMessage = "numbers out of order in {} quantifier"
+                    return
+                }
+            }
+        }
+    }
+
+    fn parseAtom:RegexNode () {
+        def c:string (substring src pos (pos + 1))
+        if (c == "(") {
+            return (this.parseGroup())
+        }
+        if (c == "[") {
+            return (this.parseClass())
+        }
+        if (c == ".") {
+            pos = (pos + 1)
+            def any (new RegexNode)
+            any.kind = 1
+            return any
+        }
+        if (c == "^") {
+            pos = (pos + 1)
+            def a (new RegexNode)
+            a.kind = 5
+            a.anchorKind = 0
+            return a
+        }
+        if (c == "$") {
+            pos = (pos + 1)
+            def a2 (new RegexNode)
+            a2.kind = 5
+            a2.anchorKind = 1
+            return a2
+        }
+        if (c == "\\") {
+            return (this.parseEscape())
+        }
+        pos = (pos + 1)
+        def lit (new RegexNode)
+        lit.kind = 0
+        lit.ch = (charAt src (pos - 1))
+        return lit
+    }
+
+    fn parseGroup:RegexNode () {
+        pos = (pos + 1)
+        def g (new RegexNode)
+        g.kind = 3
+        def capturing:boolean true
+        if (this.peekIs("?")) {
+            def nx:int (this.peekAt(1))
+            if (nx == 58) {
+                ; (?:
+                capturing = false
+                pos = (pos + 2)
+            }
+            if (nx == 61) {
+                ; (?=
+                g.kind = 7
+                g.lookNegate = false
+                capturing = false
+                pos = (pos + 2)
+            }
+            if (nx == 33) {
+                ; (?!
+                g.kind = 7
+                g.lookNegate = true
+                capturing = false
+                pos = (pos + 2)
+            }
+            if (nx == 60) {
+                ; (?<  — lookbehind and named groups are out of scope; treat the
+                ; whole thing as non-capturing so the pattern still compiles.
+                capturing = false
+                pos = (pos + 2)
+                while (pos < (strlen src)) {
+                    if ((substring src pos (pos + 1)) == ">") {
+                        pos = (pos + 1)
+                        pos = (strlen src)
+                    } {
+                        pos = (pos + 1)
+                    }
+                }
+                failed = true
+                failMessage = "lookbehind and named groups are not supported"
+                return g
+            }
+        }
+        if capturing {
+            groupCount = (groupCount + 1)
+            g.groupIndex = groupCount
+        }
+        g.children = (this.parseAlternatives())
+        if (this.peekIs(")")) {
+            pos = (pos + 1)
+        } {
+            failed = true
+            failMessage = "Unterminated group"
+        }
+        return g
+    }
+
+    fn parseClass:RegexNode () {
+        pos = (pos + 1)
+        def cls (new RegexNode)
+        cls.kind = 2
+        if (this.peekIs("^")) {
+            cls.negate = true
+            pos = (pos + 1)
+        }
+        def closed:boolean false
+        while ((pos < (strlen src)) && (false == closed)) {
+            if (this.peekIs("]")) {
+                pos = (pos + 1)
+                closed = true
+            } {
+                def lo:int (this.readClassAtom(cls))
+                if (lo >= 0) {
+                    ; A "-" between two atoms makes a range, unless it is the
+                    ; last character before "]", where it is a literal.
+                    def isRange:boolean false
+                    if (this.peekIs("-")) {
+                        if ((this.peekAt(1)) != 93) {
+                            if ((this.peekAt(1)) >= 0) {
+                                isRange = true
+                            }
+                        }
+                    }
+                    if isRange {
+                        pos = (pos + 1)
+                        def hi:int (this.readClassAtom(cls))
+                        if (hi >= 0) {
+                            ; A range whose start is above its end is a
+                            ; SyntaxError -- `[b-a]`, `[z-a]`, `[{-z]`. It used
+                            ; to be accepted and simply never match. A range
+                            ; involving a SHORTHAND (`[\d-G]`) is not a range at
+                            ; all: the `-` there is literal, which is the branch
+                            ; below.
+                            if (lo > hi) {
+                                failed = true
+                                failMessage = "Range out of order in character class"
+                                closed = true
+                            }
+                            push cls.ranges lo
+                            push cls.ranges hi
+                        } {
+                            push cls.ranges lo
+                            push cls.ranges lo
+                            push cls.ranges 45
+                            push cls.ranges 45
+                        }
+                    } {
+                        push cls.ranges lo
+                        push cls.ranges lo
+                    }
+                }
+            }
+        }
+        if (false == closed) {
+            failed = true
+            failMessage = "Unterminated character class"
+        }
+        return cls
+    }
+
+    ; One member of a character class. Returns its code unit, or -1 when it was
+    ; a shorthand (\d, \w, \s …) which is recorded on the class instead.
+    fn readClassAtom:int (cls:RegexNode) {
+        def c:string (substring src pos (pos + 1))
+        if (c == "\\") {
+            def e:int (this.peekAt(1))
+            ; The shorthands cannot take part in a range, so they are recorded
+            ; separately and the caller is told there is no code unit.
+            if (e == 100) {
+                pos = (pos + 2)
+                push cls.shorthands 1
+                return (0 - 1)
+            }
+            if (e == 68) {
+                pos = (pos + 2)
+                push cls.shorthands 2
+                return (0 - 1)
+            }
+            if (e == 119) {
+                pos = (pos + 2)
+                push cls.shorthands 3
+                return (0 - 1)
+            }
+            if (e == 87) {
+                pos = (pos + 2)
+                push cls.shorthands 4
+                return (0 - 1)
+            }
+            if (e == 115) {
+                pos = (pos + 2)
+                push cls.shorthands 5
+                return (0 - 1)
+            }
+            if (e == 83) {
+                pos = (pos + 2)
+                push cls.shorthands 6
+                return (0 - 1)
+            }
+            ; \b inside a class is a backspace, not a word boundary.
+            if (e == 98) {
+                pos = (pos + 2)
+                return 8
+            }
+            return (this.readEscapedChar())
+        }
+        pos = (pos + 1)
+        return (charAt src (pos - 1))
+    }
+
+    ; The code unit an escape sequence denotes, with `pos` on the backslash.
+    fn readEscapedChar:int () {
+        pos = (pos + 1)
+        if (pos >= (strlen src)) {
+            ; A backslash with nothing after it is not a literal backslash: the
+            ; pattern simply ends mid-escape, which is a SyntaxError. Answering
+            ; 92 accepted `new RegExp("\\")` as a one-character pattern.
+            failed = true
+            failMessage = "\\ at end of pattern"
+            return 92
+        }
+        def e:int (charAt src pos)
+        pos = (pos + 1)
+        if (e == 110) { return 10 }
+        if (e == 116) { return 9 }
+        if (e == 114) { return 13 }
+        if (e == 102) { return 12 }
+        if (e == 118) { return 11 }
+        if (e == 48) { return 0 }
+        if (e == 120) {
+            def v:int (this.readHex(2))
+            if (v >= 0) { return v }
+            return 120
+        }
+        if (e == 117) {
+            def v2:int (this.readHex(4))
+            if (v2 >= 0) { return v2 }
+            return 117
+        }
+        if (e == 99) {
+            ; \cX is the control character for letter X.
+            if (pos < (strlen src)) {
+                def letter:int (charAt src pos)
+                def upper:int letter
+                if ((letter >= 97) && (letter <= 122)) { upper = (letter - 32) }
+                if ((upper >= 65) && (upper <= 90)) {
+                    pos = (pos + 1)
+                    return (upper - 64)
+                }
+            }
+            return 99
+        }
+        return e
+    }
+
+    fn readHex:int (count:int) {
+        if ((pos + count) > (strlen src)) {
+            return (0 - 1)
+        }
+        def v:int 0
+        def i:int 0
+        while (i < count) {
+            def c:int (charAt src (pos + i))
+            def d:int (0 - 1)
+            if ((c >= 48) && (c <= 57)) { d = (c - 48) }
+            if ((c >= 97) && (c <= 102)) { d = ((c - 97) + 10) }
+            if ((c >= 65) && (c <= 70)) { d = ((c - 65) + 10) }
+            if (d < 0) {
+                return (0 - 1)
+            }
+            v = ((v * 16) + d)
+            i = (i + 1)
+        }
+        pos = (pos + count)
+        return v
+    }
+
+    fn parseEscape:RegexNode () {
+        def e:int (this.peekAt(1))
+        ; Word-boundary assertions.
+        if (e == 98) {
+            pos = (pos + 2)
+            def b (new RegexNode)
+            b.kind = 5
+            b.anchorKind = 2
+            return b
+        }
+        if (e == 66) {
+            pos = (pos + 2)
+            def nb (new RegexNode)
+            nb.kind = 5
+            nb.anchorKind = 3
+            return nb
+        }
+        ; The shorthands, as one-member classes.
+        def short:int 0
+        if (e == 100) { short = 1 }
+        if (e == 68) { short = 2 }
+        if (e == 119) { short = 3 }
+        if (e == 87) { short = 4 }
+        if (e == 115) { short = 5 }
+        if (e == 83) { short = 6 }
+        if (short > 0) {
+            pos = (pos + 2)
+            def sc (new RegexNode)
+            sc.kind = 2
+            push sc.shorthands short
+            return sc
+        }
+        ; \1 .. \9 — a backreference, but only up to the number of groups the
+        ; pattern actually has; beyond that it is an octal escape.
+        if ((e >= 49) && (e <= 57)) {
+            def p:int (pos + 1)
+            def num:int 0
+            while (p < (strlen src)) {
+                def d:int (charAt src p)
+                if ((d >= 48) && (d <= 57)) {
+                    num = ((num * 10) + (d - 48))
+                    p = (p + 1)
+                } {
+                    p = (strlen src)
+                }
+            }
+            p = (pos + 1)
+            num = 0
+            def scanning:boolean true
+            while (scanning && (p < (strlen src))) {
+                def d2:int (charAt src p)
+                if ((d2 >= 48) && (d2 <= 57)) {
+                    num = ((num * 10) + (d2 - 48))
+                    p = (p + 1)
+                } {
+                    scanning = false
+                }
+            }
+            pos = p
+            def br (new RegexNode)
+            br.kind = 6
+            br.ch = num
+            return br
+        }
+        def lit (new RegexNode)
+        lit.kind = 0
+        lit.ch = (this.readEscapedChar())
+        return lit
+    }
+}
+
+; =============================================================================
+; Matcher
+; =============================================================================
+; The matcher walks a node list and recurses on the REMAINDER, which is what
+; makes backtracking fall out of ordinary control flow: a quantifier tries a
+; count, asks the rest of the pattern to match from there, and moves to the next
+; count if that fails. Where the remainder is not lexically at hand -- inside a
+; group, whose body must be able to give characters back to satisfy what follows
+; the group -- it is carried explicitly as a RegexCont chain.
+; A node list behind a reference, so a continuation frame holds a POINTER to it
+; rather than a copy. Ranger copies an array field on assignment; the frames are
+; allocated per attempt and a pattern's node lists never change once compiled.
+class RegexNodeList {
+    def nodes:[RegexNode]
+}
+
+; D-REGEX: the rest of the pattern, as data. A quantified GROUP cannot be matched
+; in isolation -- the outer pattern has to be able to reject what the group found
+; and ask it for a different inner match -- so the group descends into its body
+; carrying the continuation that resumes the quantifier once the body completes.
+; That is the continuation-passing matcher, encoded as an immutable linked list
+; instead of function values, which Ranger does not have. Before this, a group
+; took the first inner match that worked and `/^(a+)\1*,\1+$/` could not find a
+; match that needed `(a+)` to give characters back.
+class RegexCont {
+    ; The end of the chain: reaching it means the whole pattern matched.
+    def isEnd:boolean true
+    def next@(optional):RegexCont
+    def list@(optional):RegexNodeList
+    ; Where to resume in `list`: the index of the quantified group itself, since
+    ; the quantifier decides whether to go round again.
+    def idx:int 0
+    def quant@(optional):RegexNode
+    ; Repetitions completed once the body now running finishes.
+    def done:int 0
+    ; The capture to close, and where this repetition began.
+    def groupIndex:int 0
+    def groupStart:int 0
+}
+
+class RegexMatcher {
+    def prog@(optional):RegexProgram
+    def input:string ""
+    def capStart:[int]
+    def capEnd:[int]
+    ; Guards against a pathological pattern taking the process down with it.
+    def steps:int 0
+    def stepLimit:int 400000
+
+    fn setup:void (p:RegexProgram s:string) {
+        prog = p
+        input = s
+        def n:int (p.groupCount + 1)
+        def cs:[int]
+        def ce:[int]
+        def i:int 0
+        while (i < n) {
+            push cs (0 - 1)
+            push ce (0 - 1)
+            i = (i + 1)
+        }
+        capStart = cs
+        capEnd = ce
+        steps = 0
+    }
+
+    ; The first match at or after `from`, or a RegexMatch with matched false.
+    fn exec:RegexMatch (from:int) {
+        def out (new RegexMatch)
+        def p:RegexProgram (unwrap prog)
+        def start:int from
+        if (start < 0) { start = 0 }
+        while (start <= (strlen input)) {
+            this.resetCaptures()
+            def alts:[RegexNode] p.alternatives
+            def ai:int 0
+            while (ai < (array_length alts)) {
+                def alt:RegexNode (itemAt alts ai)
+                def end:int (this.matchList(alt.children 0 start (this.endCont())))
+                if (end >= 0) {
+                    out.matched = true
+                    out.start = start
+                    out.end = end
+                    out.capStart = (this.copyInts(capStart))
+                    out.capEnd = (this.copyInts(capEnd))
+                    return out
+                }
+                ai = (ai + 1)
+            }
+            start = (start + 1)
+        }
+        return out
+    }
+
+    fn copyInts:[int] (src:[int]) {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length src)) {
+            push out (itemAt src i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn resetCaptures:void () {
+        def i:int 0
+        while (i < (array_length capStart)) {
+            set capStart i (0 - 1)
+            set capEnd i (0 - 1)
+            i = (i + 1)
+        }
+    }
+
+    ; Every capture index inside a node, its own included. Each repetition of a
+    ; quantified group CLEARS these before matching its body, per the spec's
+    ; RepeatMatcher: a group that participated on an earlier pass and not on this
+    ; one reports undefined, it does not keep the earlier text. `/(z)((a+)?(b+)?(c))*/`
+    ; against "zaacbbbcac" is the standard demonstration -- the `(b+)` is undefined
+    ; because the last repetition had no b, even though an earlier one did.
+    fn collectGroupIndexes:void (n:RegexNode out:[int]) {
+        if (n.groupIndex > 0) {
+            push out n.groupIndex
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            this.collectGroupIndexes((itemAt n.children i) out)
+            i = (i + 1)
+        }
+    }
+
+    fn clearGroupsIn:void (n:RegexNode) {
+        def idxs:[int]
+        this.collectGroupIndexes(n idxs)
+        def i:int 0
+        while (i < (array_length idxs)) {
+            def gi:int (itemAt idxs i)
+            if (gi < (array_length capStart)) {
+                set capStart gi (0 - 1)
+                set capEnd gi (0 - 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The empty continuation: nothing left to match, so reaching it is a match.
+    fn endCont:RegexCont () {
+        def c (new RegexCont)
+        c.isEnd = true
+        return c
+    }
+
+    ; Match nodes[i..] starting at `pos`, then whatever `cont` says comes after.
+    ; Returns the end position, or -1.
+    fn matchList:int (nodes:[RegexNode] i:int pos:int cont:RegexCont) {
+        steps = (steps + 1)
+        if (steps > stepLimit) {
+            return (0 - 1)
+        }
+        if (i >= (array_length nodes)) {
+            if cont.isEnd {
+                return pos
+            }
+            return (this.resumeCont(cont pos))
+        }
+        def n:RegexNode (itemAt nodes i)
+        return (this.matchQuantified(nodes i n pos 0 cont false))
+    }
+
+    ; A group's body finished at `pos`; carry on where the group left off. The
+    ; capture is closed HERE rather than when the body matched, so a backreference
+    ; later in the same pattern sees the repetition that actually stuck.
+    fn resumeCont:int (cont:RegexCont pos:int) {
+        steps = (steps + 1)
+        if (steps > stepLimit) {
+            return (0 - 1)
+        }
+        def nxt:RegexCont (this.endCont())
+        if cont.next {
+            nxt = (unwrap cont.next)
+        }
+        def lst:RegexNodeList (unwrap cont.list)
+        if (null? cont.quant) {
+            return (this.matchList(lst.nodes cont.idx pos nxt))
+        }
+        def qn:RegexNode (unwrap cont.quant)
+        def savedS:[int] (this.copyInts(capStart))
+        def savedE:[int] (this.copyInts(capEnd))
+        if (cont.groupIndex > 0) {
+            set capStart cont.groupIndex cont.groupStart
+            set capEnd cont.groupIndex pos
+        }
+        ; A repetition that consumed nothing would repeat forever, so once the
+        ; minimum is met a zero-width body ends the expansion.
+        def blockMore:boolean false
+        if (pos == cont.groupStart) {
+            if (cont.done >= qn.min) {
+                blockMore = true
+            }
+        }
+        def r:int (this.matchQuantified(lst.nodes cont.idx qn pos cont.done nxt blockMore))
+        if (r >= 0) {
+            return r
+        }
+        this.restoreCaptures(savedS savedE)
+        return (0 - 1)
+    }
+
+    ; One node with its quantifier. `done` counts repetitions already matched.
+    ; Greedy tries one more first and falls back to stopping; lazy the reverse.
+    ; `blockMore` refuses another repetition, which is how a zero-width group body
+    ; is stopped from looping.
+    fn matchQuantified:int (nodes:[RegexNode] i:int n:RegexNode pos:int done:int cont:RegexCont blockMore:boolean) {
+        steps = (steps + 1)
+        if (steps > stepLimit) {
+            return (0 - 1)
+        }
+        def canStop:boolean (done >= n.min)
+        def canGo:boolean true
+        if (n.max >= 0) {
+            if (done >= n.max) { canGo = false }
+        }
+        if blockMore {
+            canGo = false
+        }
+        if (false == n.greedy) {
+            if canStop {
+                def lazyOut:int (this.matchList(nodes (i + 1) pos cont))
+                if (lazyOut >= 0) {
+                    return lazyOut
+                }
+            }
+        }
+        if canGo {
+            ; Try one more repetition. Captures are saved so a failed attempt
+            ; leaves none of its groups behind.
+            def savedS:[int] (this.copyInts(capStart))
+            def savedE:[int] (this.copyInts(capEnd))
+            if (n.kind == 3) {
+                ; A GROUP descends into its body carrying the continuation that
+                ; brings control back here. Its inner quantifiers then backtrack
+                ; against everything that follows the group, which is the whole
+                ; difference from matching the body in isolation.
+                def wrapper (new RegexNodeList)
+                wrapper.nodes = nodes
+                def frame (new RegexCont)
+                frame.isEnd = false
+                frame.next = cont
+                frame.list = wrapper
+                frame.idx = i
+                frame.quant = n
+                frame.done = (done + 1)
+                frame.groupIndex = n.groupIndex
+                frame.groupStart = pos
+                def ai:int 0
+                while (ai < (array_length n.children)) {
+                    def alt:RegexNode (itemAt n.children ai)
+                    this.clearGroupsIn(n)
+                    def r:int (this.matchList(alt.children 0 pos frame))
+                    if (r >= 0) {
+                        return r
+                    }
+                    this.restoreCaptures(savedS savedE)
+                    ai = (ai + 1)
+                }
+            } {
+                def once:int (this.matchOnce(n pos))
+                if (once >= 0) {
+                    ; A zero-width repetition would loop forever; stop expanding.
+                    def progressed:boolean (once > pos)
+                    if (progressed || (done < n.min)) {
+                        def deeper:int (this.matchQuantified(nodes i n once (done + 1) cont false))
+                        if (deeper >= 0) {
+                            return deeper
+                        }
+                    }
+                }
+            }
+            this.restoreCaptures(savedS savedE)
+        }
+        if n.greedy {
+            if canStop {
+                return (this.matchList(nodes (i + 1) pos cont))
+            }
+        }
+        return (0 - 1)
+    }
+
+    fn restoreCaptures:void (s:[int] e:[int]) {
+        def i:int 0
+        while (i < (array_length s)) {
+            set capStart i (itemAt s i)
+            set capEnd i (itemAt e i)
+            i = (i + 1)
+        }
+    }
+
+    ; Match exactly one occurrence of a node. Returns the end position or -1.
+    ; A GROUP has to know the rest of the pattern to backtrack correctly, so it
+    ; is handled here only for the simple case and by matchGroupThen otherwise.
+    fn matchOnce:int (n:RegexNode pos:int) {
+        def p:RegexProgram (unwrap prog)
+        if (n.kind == 0) {
+            if (pos >= (strlen input)) { return (0 - 1) }
+            if (this.sameChar((charAt input pos) n.ch)) {
+                return (pos + 1)
+            }
+            return (0 - 1)
+        }
+        if (n.kind == 1) {
+            if (pos >= (strlen input)) { return (0 - 1) }
+            ; `.` matches anything except a line terminator.
+            def c:int (charAt input pos)
+            if ((c == 10) || (c == 13)) { return (0 - 1) }
+            if ((c == 8232) || (c == 8233)) { return (0 - 1) }
+            return (pos + 1)
+        }
+        if (n.kind == 2) {
+            if (pos >= (strlen input)) { return (0 - 1) }
+            if (this.classMatches(n (charAt input pos))) {
+                return (pos + 1)
+            }
+            return (0 - 1)
+        }
+        if (n.kind == 5) {
+            if (this.anchorHolds(n pos)) {
+                return pos
+            }
+            return (0 - 1)
+        }
+        if (n.kind == 6) {
+            return (this.matchBackref(n pos))
+        }
+        if (n.kind == 7) {
+            def look:boolean (this.lookaheadHolds(n pos))
+            if (look != n.lookNegate) {
+                return pos
+            }
+            return (0 - 1)
+        }
+        ; A GROUP never reaches here: it needs the rest of the pattern in order
+        ; to backtrack, so matchQuantified handles it with a continuation.
+        return (0 - 1)
+    }
+
+    fn matchBackref:int (n:RegexNode pos:int) {
+        def gi:int n.ch
+        if (gi >= (array_length capStart)) {
+            ; A reference to a group the pattern does not have matches empty.
+            return pos
+        }
+        def cs:int (itemAt capStart gi)
+        def ce:int (itemAt capEnd gi)
+        if (cs < 0) {
+            ; An unparticipating group backreferences the empty string.
+            return pos
+        }
+        def len:int (ce - cs)
+        if ((pos + len) > (strlen input)) {
+            return (0 - 1)
+        }
+        def k:int 0
+        while (k < len) {
+            if (false == (this.sameChar((charAt input (pos + k)) (charAt input (cs + k))))) {
+                return (0 - 1)
+            }
+            k = (k + 1)
+        }
+        return (pos + len)
+    }
+
+    fn lookaheadHolds:boolean (n:RegexNode pos:int) {
+        def savedS:[int] (this.copyInts(capStart))
+        def savedE:[int] (this.copyInts(capEnd))
+        def ai:int 0
+        while (ai < (array_length n.children)) {
+            def alt:RegexNode (itemAt n.children ai)
+            ; A lookahead is an INDEPENDENT sub-match: nothing after it can make
+            ; it give characters back, so it runs on an empty continuation.
+            def end:int (this.matchList(alt.children 0 pos (this.endCont())))
+            if (end >= 0) {
+                ; A NEGATIVE lookahead leaves no captures behind.
+                if n.lookNegate {
+                    this.restoreCaptures(savedS savedE)
+                }
+                return true
+            }
+            ai = (ai + 1)
+        }
+        this.restoreCaptures(savedS savedE)
+        return false
+    }
+
+    fn anchorHolds:boolean (n:RegexNode pos:int) {
+        def p:RegexProgram (unwrap prog)
+        if (n.anchorKind == 0) {
+            if (pos == 0) { return true }
+            if p.multiline {
+                def prev:int (charAt input (pos - 1))
+                if ((prev == 10) || (prev == 13)) { return true }
+            }
+            return false
+        }
+        if (n.anchorKind == 1) {
+            if (pos == (strlen input)) { return true }
+            if p.multiline {
+                def here:int (charAt input pos)
+                if ((here == 10) || (here == 13)) { return true }
+            }
+            return false
+        }
+        def before:boolean false
+        def after:boolean false
+        if (pos > 0) { before = (this.isWordChar((charAt input (pos - 1)))) }
+        if (pos < (strlen input)) { after = (this.isWordChar((charAt input pos))) }
+        def boundary:boolean (before != after)
+        if (n.anchorKind == 2) {
+            return boundary
+        }
+        return (false == boundary)
+    }
+
+    fn isWordChar:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) { return true }
+        if ((c >= 65) && (c <= 90)) { return true }
+        if ((c >= 97) && (c <= 122)) { return true }
+        if (c == 95) { return true }
+        return false
+    }
+
+    fn isSpaceChar:boolean (c:int) {
+        if (c == 32) { return true }
+        if ((c >= 9) && (c <= 13)) { return true }
+        if (c == 160) { return true }
+        if (c == 65279) { return true }
+        if ((c >= 8192) && (c <= 8202)) { return true }
+        if (c == 8232) { return true }
+        if (c == 8233) { return true }
+        if (c == 8239) { return true }
+        if (c == 8287) { return true }
+        if (c == 12288) { return true }
+        return false
+    }
+
+    fn classMatches:boolean (n:RegexNode c:int) {
+        def hit:boolean false
+        def i:int 0
+        while (i < (array_length n.ranges)) {
+            def lo:int (itemAt n.ranges i)
+            def hi:int (itemAt n.ranges (i + 1))
+            if ((c >= lo) && (c <= hi)) {
+                hit = true
+            } {
+                ; Case-insensitive matching folds the INPUT character, so a
+                ; range written in one case still covers the other.
+                def p:RegexProgram (unwrap prog)
+                if p.ignoreCase {
+                    def alt:int (this.swapCase(c))
+                    if (alt != c) {
+                        if ((alt >= lo) && (alt <= hi)) { hit = true }
+                    }
+                }
+            }
+            i = (i + 2)
+        }
+        def si:int 0
+        while (si < (array_length n.shorthands)) {
+            def sh:int (itemAt n.shorthands si)
+            if (sh == 1) { if (this.isDigit(c)) { hit = true } }
+            if (sh == 2) { if (false == (this.isDigit(c))) { hit = true } }
+            if (sh == 3) { if (this.isWordChar(c)) { hit = true } }
+            if (sh == 4) { if (false == (this.isWordChar(c))) { hit = true } }
+            if (sh == 5) { if (this.isSpaceChar(c)) { hit = true } }
+            if (sh == 6) { if (false == (this.isSpaceChar(c))) { hit = true } }
+            si = (si + 1)
+        }
+        if n.negate {
+            return (false == hit)
+        }
+        return hit
+    }
+
+    fn isDigit:boolean (c:int) {
+        return ((c >= 48) && (c <= 57))
+    }
+
+    fn swapCase:int (c:int) {
+        if ((c >= 65) && (c <= 90)) { return (c + 32) }
+        if ((c >= 97) && (c <= 122)) { return (c - 32) }
+        return c
+    }
+
+    fn sameChar:boolean (a:int b:int) {
+        if (a == b) {
+            return true
+        }
+        def p:RegexProgram (unwrap prog)
+        if p.ignoreCase {
+            return ((this.swapCase(a)) == b)
+        }
+        return false
+    }
+}

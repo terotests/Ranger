@@ -1,0 +1,1937 @@
+// Runtime conformance for the interpreter realm (gallery/game_engine/v2/interp).
+//
+// The parser suites measure only what is ACCEPTED. They say nothing about
+// whether the evaluator produces the right value, and the two diverge badly:
+// classes and regular expressions parse perfectly and evaluate to nothing. This
+// suite drives the real ComponentEngine and compares the value it produces
+// against the value Node produces for the same source, so a feature that parses
+// but does not run is visible.
+//
+// Every expectation is DERIVED: each probe is executed by Node first, and the
+// engine is compared against that. A probe that does not behave as expected in
+// Node is a broken probe and fails the suite rather than silently passing.
+//
+// Known gaps are listed in KNOWN_GAPS below. The suite asserts both directions:
+// a probe outside the list must pass (guarding against regression) and a probe
+// inside it must still fail (so fixing one forces the list to be updated, and
+// the list cannot quietly rot).
+import { describe, it, expect, beforeAll } from "vitest";
+import * as path from "path";
+import * as fs from "fs";
+import { execFileSync } from "child_process";
+import * as vm from "vm";
+import { fileURLToPath } from "url";
+import { createRequire } from "module";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ROOT_DIR = path.resolve(__dirname, "..");
+const ENGINE_MODULE = path.join(
+  ROOT_DIR,
+  "gallery",
+  "game_engine",
+  "v2",
+  "interp",
+  "bin",
+  "engine_module.cjs"
+);
+const ENGINE_SOURCE = path.join(
+  ROOT_DIR,
+  "gallery",
+  "game_engine",
+  "v2",
+  "interp",
+  "migrate",
+  "src",
+  "ComponentEngine.rgr"
+);
+const BUILD_SCRIPT = path.join(ROOT_DIR, "scripts", "build-engine-module.sh");
+
+// EvalValue.valueType constants, as emitted by the compiled module.
+const T_NULL = 0;
+const T_NUM = 1;
+const T_STR = 2;
+const T_BOOL = 3;
+const T_UNDEF = 8;
+
+let ComponentEngine: any;
+let EvalValue: any;
+
+/** Probes, each the body of a zero-argument function returning a value. */
+const PROBES: Array<[name: string, body: string, group: string]> = [
+  // --- numeric literals -----------------------------------------------------
+  ["num-exponent", "return 1e5;", "numbers"],
+  ["num-exponent-neg", "return 1.5e-3;", "numbers"],
+  ["num-exponent-plus", "return 2E+3;", "numbers"],
+  ["num-hex", "return 0x1f;", "numbers"],
+  ["num-binary", "return 0b1011;", "numbers"],
+  ["num-octal", "return 0o17;", "numbers"],
+  ["num-separator", "return 1_000_000;", "numbers"],
+  ["num-leading-dot", "return .5;", "numbers"],
+  ["num-member-on-int", "return (0).toString();", "numbers"],
+
+  // --- string escapes -------------------------------------------------------
+  ["str-unicode", "return '\\u0041';", "strings"],
+  ["str-hex", "return '\\x41';", "strings"],
+  ["str-brace-unicode", "return '\\u{42}';", "strings"],
+  ["str-nul-length", "return '\\0'.length;", "strings"],
+  ["str-newline", "return 'a\\nb'.length;", "strings"],
+  ["str-tab", "return 'a\\tb'.length;", "strings"],
+  ["str-escaped-quote", "return 'it\\'s';", "strings"],
+  ["str-backslash", "return 'a\\\\b'.length;", "strings"],
+  ["str-concat-escape", "return '\\u0041' + '\\u0042';", "strings"],
+
+  // --- delimiters inside literals -------------------------------------------
+  ["lit-paren-arg", "var f = function (s) { return s.length; }; return f(')');", "literals"],
+  ["lit-brace-value", "var o = {a: '}'}; return o.a;", "literals"],
+  ["lit-bracket-key", "var o = {'[': 5}; return o['['];", "literals"],
+  ["lit-template-brace", "var x = `a}b`; return x.length;", "literals"],
+
+  // --- statements -----------------------------------------------------------
+  ["var-basic", "var a = 7; return a;", "statements"],
+  ["var-multi", "var a = 1, b = 2; return a + b;", "statements"],
+  ["var-in-block", "var t = 0; { var t2 = 5; t = t2; } return t;", "statements"],
+  ["for-var-multi", "var s = 0; for (var i = 0, j = 10; i < 3; i = i + 1) { s = s + j; } return s;", "statements"],
+  ["seq-expr", "var a = 0; a = (1, 2, 3); return a;", "statements"],
+  ["for-in-expr-lhs", "var o = {x: 1, y: 2}; var n = 0; var k; for (k in o) { n = n + 1; } return n;", "statements"],
+  ["for-of-expr-lhs", "var s = 0; var v; for (v of [1, 2, 3]) { s = s + v; } return s;", "statements"],
+  ["labeled-break", "var n = 0; outer: for (var i = 0; i < 3; i = i + 1) { for (var j = 0; j < 3; j = j + 1) { if (j === 1) { break outer; } n = n + 1; } } return n;", "statements"],
+  ["labeled-continue", "var n = 0; outer: for (var i = 0; i < 3; i = i + 1) { for (var j = 0; j < 2; j = j + 1) { continue outer; } n = n + 100; } return n;", "statements"],
+  ["do-while", "var n = 0; do { n = n + 1; } while (n < 3); return n;", "statements"],
+  ["switch-fallthrough", "var n = 0; switch (1) { case 1: n = n + 1; case 2: n = n + 1; break; default: n = 100; } return n;", "statements"],
+  ["try-catch-finally", "var n = 0; try { throw 1; } catch (e) { n = 1; } finally { n = n + 1; } return n;", "statements"],
+
+  // --- functions ------------------------------------------------------------
+  ["fn-expr", "var f = function (x) { return x * 2; }; return f(4);", "functions"],
+  ["fn-expr-named", "var f = function fact(n) { return n < 2 ? 1 : n * fact(n - 1); }; return f(5);", "functions"],
+  ["iife", "return (function () { return 11; })();", "functions"],
+  ["bare-arrow-param", "var f = x => x + 1; return f(1);", "functions"],
+  ["arrow-in-call", "return [1, 2, 3].map(x => x * 2).length;", "functions"],
+  ["closure-capture", "var mk = function (n) { return function () { return n; }; }; return mk(5)();", "functions"],
+  ["default-param", "var f = function (a) { if (a === undefined) { return 3; } return a; }; return f();", "functions"],
+  ["rest-param", "var f = function (...a) { return a.length; }; return f(1, 2, 3);", "functions"],
+  ["spread-call", "var f = function (a, b) { return a + b; }; var xs = [1, 2]; return f(...xs);", "functions"],
+  ["method-this", "var o = { v: 2, m() { return this.v; } }; return o.m();", "functions"],
+  ["arrow-this-lexical", "var o = { v: 1, m() { var g = () => this.v; return g(); } }; return o.m();", "functions"],
+
+  // --- destructuring --------------------------------------------------------
+  ["destr-array", "var [a, b] = [1, 2]; return a + b;", "destructuring"],
+  ["destr-nested", "var [[a], [b]] = [[1], [2]]; return a + b;", "destructuring"],
+  ["destr-obj", "var {a, b} = {a: 1, b: 2}; return a + b;", "destructuring"],
+  ["destr-obj-alias", "var {a: x, b: y} = {a: 3, b: 4}; return x + y;", "destructuring"],
+  ["destr-obj-nested", "var {a: {b}} = {a: {b: 9}}; return b;", "destructuring"],
+  ["destr-default", "var [a = 5] = []; return a;", "destructuring"],
+  ["destr-obj-default", "var {a = 6} = {}; return a;", "destructuring"],
+  ["destr-swap", "var a = 1; var b = 2; [a, b] = [b, a]; return a * 10 + b;", "destructuring"],
+  ["destr-param", "var f = function ({a, b}) { return a + b; }; return f({a: 1, b: 2});", "destructuring"],
+
+  // --- objects and arrays ---------------------------------------------------
+  ["obj-missing-prop", "var o = {}; return o.nope === undefined;", "objects"],
+  ["obj-in-operator", "var o = { a: 1 }; return ('a' in o) === true && ('b' in o) === false;", "objects"],
+  ["obj-keys-order", "var o = { b: 1, a: 2 }; return Object.keys(o).join(',');", "objects"],
+  ["obj-computed-key", "var k = 'a'; var o = { [k]: 1 }; return o.a;", "objects"],
+  ["obj-spread", "var a = { x: 1 }; var b = { ...a, y: 2 }; return b.x + b.y;", "objects"],
+  ["obj-getter", "var o = { get a() { return 7; } }; return o.a;", "objects"],
+  ["obj-setter", "var o = { _v: 0, set a(x) { this._v = x; } }; o.a = 5; return o._v;", "objects"],
+  ["arr-reduce", "var a = [1, 2, 3]; return a.reduce(function (s, x) { return s + x; }, 0);", "objects"],
+  ["arr-sort-cmp", "var a = [3, 1, 2]; a.sort(function (x, y) { return x - y; }); return a.join(',');", "objects"],
+  ["arr-splice", "var a = [1, 2, 3]; var r = a.splice(1, 1); return r[0] + ':' + a.join(',');", "objects"],
+  ["arr-length-write", "var a = [1, 2, 3]; a.length = 1; return a.length;", "objects"],
+
+  // --- coercion and numbers -------------------------------------------------
+  ["coerce-add-num-str", "return 1 + '2';", "coercion"],
+  ["coerce-sub-str-num", "return '3' - 1;", "coercion"],
+  ["coerce-loose-eq", "return ('1' == 1) === true;", "coercion"],
+  ["coerce-strict-eq", "return ('1' === 1) === false;", "coercion"],
+  ["coerce-arr-to-string", "return String([1, 2]);", "coercion"],
+  ["coerce-obj-to-string", "return String({});", "coercion"],
+  ["coerce-valueof", "var o = { valueOf: function () { return 42; } }; return o + 1;", "coercion"],
+  ["num-nan-ne-self", "var n = NaN; return n !== n;", "coercion"],
+  ["num-negative-zero", "var z = -0; return 1 / z === -Infinity;", "coercion"],
+  ["num-radix-tostring", "return (255).toString(16);", "coercion"],
+
+  // --- iteration ------------------------------------------------------------
+  ["iter-for-of-array", "var n = 0; for (var x of [1, 2, 3]) { n = n + x; } return n;", "iteration"],
+  ["iter-for-of-string", "var n = 0; for (var c of 'abc') { n = n + 1; } return n;", "iteration"],
+  ["iter-map", "var m = new Map(); m.set('a', 1); var n = 0; for (var kv of m) { n = n + kv[1]; } return n;", "iteration"],
+  ["iter-set-dedup", "var s = new Set([1, 1, 2]); return s.size;", "iteration"],
+  ["iter-generator", "function* g() { yield 1; yield 2; } var n = 0; for (var v of g()) { n = n + v; } return n;", "iteration"],
+  ["iter-symbol-unique", "var a = Symbol('x'); var b = Symbol('x'); return a !== b;", "iteration"],
+
+  // --- classes --------------------------------------------------------------
+  ["class-basic", "class A { constructor() { this.x = 1; } } return new A().x;", "classes"],
+  ["class-method", "class A { m() { return 3; } } return new A().m();", "classes"],
+  ["class-expr", "var C = class { m() { return 3; } }; return new C().m();", "classes"],
+  ["class-static", "class A { static s() { return 4; } } return A.s();", "classes"],
+  ["class-getter", "class A { get v() { return 5; } } return new A().v;", "classes"],
+  ["class-extends", "class A { m() { return 1; } } class B extends A {} return new B().m();", "classes"],
+  ["class-super", "class A { constructor() { this.x = 1; } } class B extends A { constructor() { super(); this.y = 2; } } var b = new B(); return b.x + b.y;", "classes"],
+  ["class-instanceof", "class A {} return (new A()) instanceof A;", "classes"],
+
+  // --- regular expressions --------------------------------------------------
+  ["regex-test", "return /a+/.test('caaat');", "regex"],
+  ["regex-exec", "var m = /(\\d+)/.exec('a123'); return m[1];", "regex"],
+  ["regex-flags", "return /A/i.test('a');", "regex"],
+  ["regex-replace", "return 'aaa'.replace(/a/g, 'b');", "regex"],
+  // D-REGEX: the pattern grammar, the flags, and the four String methods
+  // specified against RegExp.
+  ["regex-source", "return /ab+c/gi.source;", "regex"],
+  ["regex-flags-prop", "return /ab+c/gi.flags;", "regex"],
+  ["regex-global-prop", "return /a/g.global;", "regex"],
+  ["regex-exec-index", "return /b/.exec('abc').index;", "regex"],
+  ["regex-exec-null", "return String(/z/.exec('abc'));", "regex"],
+  ["regex-exec-capture", "return /b(c)/.exec('abc')[1];", "regex"],
+  ["regex-exec-optional-capture", "var m = /a(x)?b/.exec('ab'); return String(m[1]);", "regex"],
+  ["regex-lastindex", "var r = /a/g; r.exec('aa'); return r.lastIndex;", "regex"],
+  ["regex-exec-twice", "var r = /a/g; r.exec('aa'); return r.exec('aa').index;", "regex"],
+  ["regex-class", "return /[a-c]+/.exec('xxabcyy')[0];", "regex"],
+  ["regex-class-negated", "return /[^a-c]+/.exec('abcxyz')[0];", "regex"],
+  ["regex-quantifier-bounds", "return /a{2,3}/.exec('aaaa')[0];", "regex"],
+  ["regex-quantifier-exact", "return /a{2}/.exec('aaaa')[0];", "regex"],
+  ["regex-lazy", "return /a+?/.exec('aaa')[0];", "regex"],
+  ["regex-alternation", "return /cat|dog/.exec('a dog')[0];", "regex"],
+  ["regex-anchor-start", "return /^ab/.test('abc');", "regex"],
+  ["regex-anchor-end", "return /bc$/.test('abc');", "regex"],
+  ["regex-word-boundary", "return /\\bcat\\b/.test('a cat here');", "regex"],
+  ["regex-not-word-boundary", "return /\\Bcat/.test('scat');", "regex"],
+  ["regex-multiline", "return /^b/m.test('a\\nb');", "regex"],
+  ["regex-backreference", "return /(a)\\1/.test('aa');", "regex"],
+  ["regex-lookahead", "return /a(?=b)/.exec('ab')[0];", "regex"],
+  ["regex-negative-lookahead", "return /a(?!b)/.test('ac');", "regex"],
+  ["regex-non-capturing", "return /(?:ab)+/.exec('ababx')[0];", "regex"],
+  ["regex-dot", "return /a.c/.test('abc');", "regex"],
+  ["regex-dot-no-newline", "return /a.c/.test('a\\nc');", "regex"],
+  ["regex-escape-digit", "return /\\d+/.exec('ab123')[0];", "regex"],
+  ["regex-escape-word", "return /\\w+/.exec(' abc ')[0];", "regex"],
+  ["regex-escape-space", "return /\\s/.test('a b');", "regex"],
+  ["regex-ctor", "return new RegExp('a+', 'g').source;", "regex"],
+  ["regex-ctor-test", "return new RegExp('a+').test('baa');", "regex"],
+  ["regex-ctor-copy", "return new RegExp(/x/g).flags;", "regex"],
+  ["regex-ctor-bad", "try { new RegExp('('); return 'no-throw'; } catch (e) { return e.name; }", "regex"],
+  ["regex-brand", "return Object.prototype.toString.call(/a/);", "regex"],
+  ["regex-match", "return 'abc'.match(/b/)[0];", "regex"],
+  ["regex-match-global", "return 'aXbXc'.match(/X/g).join(',');", "regex"],
+  ["regex-match-none", "return String('abc'.match(/z/));", "regex"],
+  ["regex-search", "return 'hello'.search(/ll/);", "regex"],
+  ["regex-search-none", "return 'hello'.search(/zz/);", "regex"],
+  ["regex-replace-first", "return 'a1b2'.replace(/\\d/, '#');", "regex"],
+  ["regex-replace-groups", "return 'John Smith'.replace(/(\\w+)\\s(\\w+)/, '$2 $1');", "regex"],
+  ["regex-replace-dollar-amp", "return 'abc'.replace(/b/, '[$&]');", "regex"],
+  ["regex-replace-fn", "return 'a1b'.replace(/\\d/, function (m) { return '[' + m + ']'; });", "regex"],
+  ["regex-replace-fn-groups", "return 'a1b'.replace(/(\\d)/, function (m, g) { return g + g; });", "regex"],
+  ["regex-split", "return 'a1b2c'.split(/\\d/).join('|');", "regex"],
+  ["regex-split-captures", "return 'a1b'.split(/(\\d)/).join('|');", "regex"],
+  ["regex-split-limit", "return 'a1b2c'.split(/\\d/, 2).join('|');", "regex"],
+
+  // --- errors ---------------------------------------------------------------
+  ["err-throw-message", "var m = ''; try { throw new Error('x'); } catch (e) { m = e.message; } return m;", "errors"],
+  ["err-instanceof", "var t = false; try { throw new TypeError('a'); } catch (e) { t = e instanceof TypeError; } return t;", "errors"],
+  ["err-null-property", "var t = false; try { var n = null; n.x; } catch (e) { t = true; } return t;", "errors"],
+  ["err-optional-chain", "var o = null; return o?.x === undefined;", "errors"],
+  ["err-nullish", "var x = 0; return (x ?? 5);", "errors"],
+
+  // --- errors thrown where the spec throws ----------------------------------
+  // The failure mode these replace was SILENCE: an unresolvable name evaluated
+  // to null and execution carried on, so a following assertion never ran and a
+  // test that should have failed reported success.
+  ["throw-ref-undeclared-read", "try { nopeXyz; } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-ref-undeclared-call", "try { nopeXyz(); } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-ref-message", "try { nopeXyz; } catch (e) { return e.message; } return 'no-throw';", "throwing"],
+  ["throw-type-null-prop", "try { var o = null; o.x; } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-type-undef-prop", "try { var u; u.x; } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-not-a-function", "try { var n = 5; n(); } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+  ["throw-typeof-no-throw", "return typeof nopeXyz;", "throwing"],
+  ["throw-ctor-identity", "try { nopeXyz; } catch (e) { return e.constructor === ReferenceError; } return 'no-throw';", "throwing"],
+  ["throw-ctor-name", "try { nopeXyz; } catch (e) { return e.constructor.name; } return 'no-throw';", "throwing"],
+  ["throw-ctor-distinct", "try { nopeXyz; } catch (e) { return e.constructor === TypeError; } return 'no-throw';", "throwing"],
+  ["throw-new-typeerror", "var e = new TypeError('boom'); return e.name + ':' + e.message;", "throwing"],
+  ["throw-new-error", "var e = new Error('x'); return e.message;", "throwing"],
+  ["throw-ctor-global-name", "return TypeError.name;", "throwing"],
+  ["throw-user-rethrow", "var f = function () { throw new RangeError('r'); }; try { f(); } catch (e) { return e.name; } return 'no-throw';", "throwing"],
+
+  // Function declarations nested in a body: hoisted and bound in the enclosing
+  // scope, so they are callable before their own line and can recurse.
+  ["nested-fn-decl-call", "function g() { return 5; } return g();", "fnprops"],
+  ["nested-fn-decl-hoisted", "return g(); function g() { return 5; }", "fnprops"],
+  ["nested-fn-decl-recursive", "function fact(n) { if (n < 2) { return 1; } return n * fact(n - 1); } return fact(5);", "fnprops"],
+  ["nested-fn-decl-sees-outer", "var k = 4; function g() { return k + 1; } return g();", "fnprops"],
+  ["nested-fn-decl-prop", "function g() {} g.x = 7; return g.x;", "fnprops"],
+
+  // --- functions are objects ------------------------------------------------
+  // Test262's whole harness is built this way (`assert.sameValue = function`),
+  // so without it every assertion in the suite is a silent no-op.
+  ["fnprop-assign-read", "var g = function () {}; g.x = 7; return g.x;", "fnprops"],
+  ["fnprop-call", "var g = function () {}; g.sub = function () { return 7; }; return g.sub();", "fnprops"],
+  ["fnprop-missing", "var g = function () {}; return g.nope === undefined;", "fnprops"],
+  ["fnprop-name", "var g = function () {}; g.name2 = 'x'; return g.name2;", "fnprops"],
+  ["fnprop-nested-call", "var g = function () {}; g.a = {}; g.a.b = function () { return 3; }; return g.a.b();", "fnprops"],
+  ["fnprop-delete", "var g = function () {}; g.x = 1; delete g.x; return g.x === undefined;", "fnprops"],
+  ["fnprop-arrow-holder", "var f = function () {}; f.k = 2; return f.k;", "fnprops"],
+  ["proto-object", "var F = function () {}; return typeof F.prototype;", "prototypes"],
+  ["proto-persists", "var F = function () {}; F.prototype.m = function () { return 3; }; return typeof F.prototype.m;", "prototypes"],
+  ["proto-method-via-instance", "var F = function () {}; F.prototype.m = function () { return 3; }; var o = new F(); return o.m();", "prototypes"],
+  ["proto-prop-read", "var F = function () {}; F.prototype.k = 9; var o = new F(); return o.k;", "prototypes"],
+  ["proto-own-shadows", "var F = function () { this.k = 1; }; F.prototype.k = 9; var o = new F(); return o.k;", "prototypes"],
+  ["proto-this-binding", "var F = function () { this.v = 5; }; F.prototype.get = function () { return this.v; }; var o = new F(); return o.get();", "prototypes"],
+  ["proto-miss-undefined", "var F = function () {}; var o = new F(); return o.nope === undefined;", "prototypes"],
+  ["fnprop-ctor-instanceof", "var F = function () { this.v = 1; }; var o = new F(); return o instanceof F;", "fnprops"],
+  ["fnprop-ctor-guard", "var F = function (m) { if (!(this instanceof F)) { return new F(m); } this.m = m; }; return F('x').m;", "fnprops"],
+
+  // --- Symbol and property descriptors --------------------------------------
+  // Test262 reaches for these constantly to SET UP its assertions, so each one
+  // missing fails tests for reasons unrelated to what they actually check.
+  ["symbol-typeof", "return typeof Symbol;", "symbols"],
+  ["symbol-iterator-defined", "return Symbol.iterator !== undefined;", "symbols"],
+  ["symbol-self-equal", "return Symbol.iterator === Symbol.iterator;", "symbols"],
+  ["symbol-distinct", "return Symbol.iterator === Symbol.asyncIterator;", "symbols"],
+  ["acc-literal-getter", "var o = { get a() { return 7; } }; return o.a;", "accessors"],
+  ["acc-literal-setter", "var o = { _v: 0, set a(x) { this._v = x; } }; o.a = 5; return o._v;", "accessors"],
+  ["acc-getter-setter-pair", "var o = { _v: 1, get a() { return this._v; }, set a(x) { this._v = x * 2; } }; o.a = 4; return o.a;", "accessors"],
+  ["acc-define-getter", "var o = {}; Object.defineProperty(o, 'a', { get: function () { return 3; } }); return o.a;", "accessors"],
+  ["acc-define-setter", "var o = { _v: 0 }; Object.defineProperty(o, 'a', { set: function (x) { this._v = x; } }); o.a = 9; return o._v;", "accessors"],
+  ["acc-desc-reports-get", "var o = { get a() { return 1; } }; return typeof Object.getOwnPropertyDescriptor(o, 'a').get;", "accessors"],
+  ["acc-desc-no-value", "var o = { get a() { return 1; } }; return Object.getOwnPropertyDescriptor(o, 'a').value === undefined;", "accessors"],
+  ["acc-proto-getter", "var F = function () { this._v = 6; }; Object.defineProperty(F.prototype, 'a', { get: function () { return this._v; } }); var o = new F(); return o.a;", "accessors"],
+  ["symbol-factory-typeof", "var s = Symbol('x'); return typeof s;", "symbols"],
+  ["symbol-factory-unique", "return Symbol('a') === Symbol('a');", "symbols"],
+  ["symbol-description", "return Symbol('hi').description;", "symbols"],
+  ["es5-number-max-value", "return Number.MAX_VALUE;", "es5"],
+  ["es5-number-min-value", "return Number.MIN_VALUE;", "es5"],
+  ["es5-number-max-finite", "return Number.MAX_VALUE !== Infinity;", "es5"],
+  ["es5-number-min-positive", "return Number.MIN_VALUE > 0;", "es5"],
+  ["es5-define-properties", "var o = {}; Object.defineProperties(o, { a: { value: 1 }, b: { value: 2 } }); return o.a + o.b;", "es5"],
+  ["es5-define-properties-accessor", "var o = {}; Object.defineProperties(o, { x: { get: function () { return 8; } } }); return o.x;", "es5"],
+
+  // D-REGISTRY: built-in dispatch keyed by receiver kind. Before the registry
+  // these nine methods fired on ANY receiver, so [1,2].charAt(0) stringified
+  // the array and indexed its debug format to return "[".
+  // The canonical ES5 idioms, structurally impossible before the registry:
+  // a built-in reached from its constructor's prototype rather than an instance.
+  // String.prototype methods coerce `this` via ToString. Reading stringValue
+  // directly gave "" for a non-string receiver -- silently, which is why it
+  // cost Test262 score rather than raising an error.
+  // D-ATTRS: property attributes. defineProperty defaults all three to FALSE,
+  // plain assignment defaults them TRUE -- the engine could not tell the two
+  // apart, so every descriptor reported true and freeze/seal did nothing.
+  // D-ARGCHECK: Object statics reject non-objects. Accepting them silently was
+  // the largest failure bucket in built-ins/Object -- the call did nothing and
+  // the assertion after it measured whatever the no-op left behind.
+  // D-GLOBALOBJ: built-in namespaces are real objects, not names the engine
+  // merely recognises. They resolved to undefined, which was the largest ES5
+  // failure bucket -- every property read off one failed.
+  // D-CBCHECK / D-DESCVALID: higher-order Array methods need a callable, and a
+  // descriptor is either a data or an accessor descriptor, never both.
+  // D-RADIX / D-WRAPPER: Number.prototype.toString(radix), and boxed
+  // primitives. new String(x) used to make an empty object, so whole
+  // String.prototype areas scored zero -- their fixtures are built that way.
+  // D-PROTOCTOR: every prototype carries `constructor` back to its global, and
+  // a non-object value falls back to its kind's prototype to reach it.
+  ["protoctor-array", "return [1, 2].constructor === Array;", "protoreg"],
+  ["protoctor-string", "return 'a'.constructor === String;", "protoreg"],
+  ["protoctor-number", "return (5).constructor === Number;", "protoreg"],
+  ["protoctor-split-result", "return 'a,b'.split(',').constructor === Array;", "protoreg"],
+  ["protoctor-on-prototype", "return Array.prototype.constructor === Array;", "protoreg"],
+
+  ["radix-base2", "return (5).toString(2);", "radix"],
+  ["radix-base16", "return (255).toString(16);", "radix"],
+  ["radix-base36", "return (35).toString(36);", "radix"],
+  ["radix-negative", "return (-10).toString(2);", "radix"],
+  ["radix-default", "return (10).toString();", "radix"],
+  ["radix-explicit-10", "return (10).toString(10);", "radix"],
+  ["radix-range-error", "try { (5).toString(1); } catch (e) { return e.name; } return 'no-throw';", "radix"],
+  ["wrap-string-slice", "return new String('abcdef').slice(1, 3);", "wrappers"],
+  ["wrap-string-upper", "return new String('ab').toUpperCase();", "wrappers"],
+  ["wrap-string-split", "return new String('a,b').split(',').length;", "wrappers"],
+  ["wrap-string-indexof", "return new String('hello').indexOf('ll');", "wrappers"],
+  ["wrap-string-substring", "return new String('abcdef').substring(1, 3);", "wrappers"],
+  ["wrap-number-radix", "return new Number(255).toString(16);", "wrappers"],
+  ["wrap-boolean-tostring", "return new Boolean(true).toString();", "wrappers"],
+  ["wrap-typeof-object", "return typeof new String('a');", "wrappers"],
+  ["wrap-valueof", "return new Number(7).valueOf();", "wrappers"],
+  ["wrap-plain-unaffected", "return 'abc'.slice(1);", "wrappers"],
+
+  ["cb-foreach-nonfn", "try { [1, 2].forEach(5); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["cb-every-nonfn", "try { [1].every(true); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["cb-map-null", "try { [1].map(null); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["cb-reduce-nonfn", "try { [1].reduce('x'); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["cb-foreach-ok", "var n = 0; [1, 2].forEach(function (x) { n = n + x; }); return n;", "validation"],
+  // D-REDEFINE: defineProperty validated against the property already there.
+  // A non-configurable property is close to frozen; accepting a redefinition
+  // let a test's SETUP succeed where the spec requires it to fail.
+  // D-INDEXDESC: array and string indices are real own properties but live
+  // outside objectMap, so their descriptors came back undefined.
+  // D-WITH / D-SOURCETYPE: `with` puts an object at the front of the scope
+  // chain. It was rejected at PARSE time because the engine treated every
+  // guest source as a module, and module code is always strict -- so sloppy
+  // syntax failed before the evaluator ever saw it.
+  // D-GLOBALTHIS: top-level `this` is the global object, and a property set
+  // through it becomes a global binding. A large family of sloppy-script tests
+  // declares its fixtures that way on their FIRST line, so without it they
+  // failed before reaching what they actually test.
+  ["with-coerces-primitive", "var r; with ('ab') { r = length; } return r;", "with"],
+  ["with-var-lifts-out", "var o = { a: 1 }; with (o) { var lifted = 5; } return lifted;", "with"],
+  ["eval-sloppy-source", "return eval('var q = 1; q + 1');", "with"],
+
+  ["globalthis-typeof", "return typeof this;", "with"],
+
+  // D-TOPRIMITIVE: objects convert via valueOf/toString before every operator
+  // that is not ===. Reading raw values sent an object straight to its debug
+  // form, so arithmetic on it concatenated text instead of adding numbers.
+  // D-LOOSEEQ: abstract equality. `==` used to be `===` plus a null/undefined
+  // case, so the comparisons it exists to make were all false.
+  ["looseeq-num-str", "return 1 == '1';", "coercion"],
+  ["looseeq-bool-num", "return true == 1;", "coercion"],
+  ["looseeq-false-zero", "return false == 0;", "coercion"],
+  ["looseeq-empty-zero", "return '' == 0;", "coercion"],
+  ["looseeq-null-undefined", "return null == undefined;", "coercion"],
+  ["looseeq-null-not-zero", "return null == 0;", "coercion"],
+  ["looseeq-nan", "return (0 / 0) == (0 / 0);", "coercion"],
+  ["looseeq-array-num", "return [1] == 1;", "coercion"],
+  ["looseeq-valueof", "var o = { valueOf: function () { return 3; } }; return o == 3;", "coercion"],
+  ["looseeq-obj-reference", "var a = {}; var b = {}; return a == b;", "coercion"],
+  ["looseeq-obj-self", "var a = {}; return a == a;", "coercion"],
+  ["looseeq-strict-unaffected", "return 1 === '1';", "coercion"],
+  ["looseeq-not-equal", "return 1 != '2';", "coercion"],
+  ["looseeq-undefined-zero", "return undefined == 0;", "coercion"],
+  ["looseeq-bitwise-coerce", "var o = { valueOf: function () { return 5; } }; return o | 0;", "coercion"],
+
+  ["toprim-valueof-add", "var o = { valueOf: function () { return 5; } }; return o + 1;", "coercion"],
+  ["toprim-tostring-add", "var o = { toString: function () { return 'x'; } }; return o + 'y';", "coercion"],
+  ["toprim-valueof-wins", "var o = { valueOf: function () { return 2; }, toString: function () { return 'z'; } }; return o + 1;", "coercion"],
+  ["toprim-array-concat", "return [1, 2] + '';", "coercion"],
+  ["toprim-object-concat", "return ({}) + '';", "coercion"],
+  ["toprim-string-lexical-lt", "return '10' < '9';", "coercion"],
+  ["toprim-string-lexical-gt", "return 'b' > 'a';", "coercion"],
+  ["toprim-numeric-compare", "return 10 < 9;", "coercion"],
+  ["toprim-mixed-compare", "return '10' < 9;", "coercion"],
+  ["toprim-nan-compare", "return (0 / 0) < 1;", "coercion"],
+  ["toprim-valueof-compare", "var o = { valueOf: function () { return 5; } }; return o > 3;", "coercion"],
+  ["toprim-wrapper-add", "return new Boolean(true) + true;", "coercion"],
+  ["toprim-subtract-object", "var o = { valueOf: function () { return 9; } }; return o - 4;", "coercion"],
+
+  ["with-read", "var o = { a: 5 }; var r; with (o) { r = a; } return r;", "with"],
+  ["with-shadows-outer", "var a = 1; var o = { a: 9 }; var r; with (o) { r = a; } return r;", "with"],
+  ["with-writes-through", "var o = { a: 1 }; with (o) { a = 7; } return o.a;", "with"],
+  ["with-falls-through", "var b = 3; var o = { a: 1 }; var r; with (o) { r = b; } return r;", "with"],
+  ["with-scope-ends", "var a = 1; var o = { a: 9 }; with (o) {} return a;", "with"],
+  ["with-method-call", "var o = { a: 'xy' }; var r; with (o) { r = a.length; } return r;", "with"],
+  ["with-null-throws", "try { with (null) {} } catch (e) { return e.name; } return 'no-throw';", "with"],
+  ["with-nested", "var o = { a: 1 }; var p = { b: 2 }; var r; with (o) { with (p) { r = a + b; } } return r;", "with"],
+
+  // D-CLASSOF: Object.prototype.toString is the only way a program can observe
+  // a value's internal type. The `getClass` idiom below -- storing the built-in
+  // under another name and calling it as a method -- is how the suite writes it.
+  ["classof-array", "return Object.prototype.toString.call([1, 2]);", "classof"],
+  ["classof-object", "return Object.prototype.toString.call({});", "classof"],
+  ["classof-number", "return Object.prototype.toString.call(5);", "classof"],
+  ["classof-string", "return Object.prototype.toString.call('a');", "classof"],
+  ["classof-boolean", "return Object.prototype.toString.call(true);", "classof"],
+  ["classof-null", "return Object.prototype.toString.call(null);", "classof"],
+  ["classof-undefined", "return Object.prototype.toString.call(undefined);", "classof"],
+  ["classof-function", "return Object.prototype.toString.call(function () {});", "classof"],
+  ["classof-boxed-number", "return Object.prototype.toString.call(new Number(1));", "classof"],
+  ["classof-boxed-string", "return Object.prototype.toString.call(new String('a'));", "classof"],
+  ["classof-boxed-boolean", "return Object.prototype.toString.call(new Boolean(true));", "classof"],
+  ["classof-error", "try { null.x; } catch (e) { return Object.prototype.toString.call(e); }", "classof"],
+  ["classof-getclass-array", "var a = [1]; a.getClass = Object.prototype.toString; return a.getClass();", "classof"],
+  ["classof-getclass-object", "var o = {}; o.getClass = Object.prototype.toString; return o.getClass();", "classof"],
+  ["classof-plain-tostring", "return ({}).toString();", "classof"],
+  ["classof-array-tostring", "return [1, 2].toString();", "classof"],
+  ["classof-number-proto", "return Object.prototype.toString.call(Number.prototype);", "classof"],
+  ["classof-object-proto", "return Object.prototype.toString.call(Object.prototype);", "classof"],
+  ["classof-bind-keeps-this", "var f = Object.prototype.toString.bind([1]); var o = {}; o.g = f; return o.g();", "classof"],
+  // Boxed prototypes: Number.prototype et al hold a primitive of their own.
+  ["boxproto-number-tostring", "return Number.prototype.toString();", "classof"],
+  ["boxproto-boolean-tostring", "return Boolean.prototype.toString();", "classof"],
+  ["boxproto-number-valueof", "return Number.prototype.valueOf();", "classof"],
+  ["boxproto-string-length-intact", "return 'abcd'.length;", "classof"],
+  ["boxproto-no-leaked-slots", "return Object.keys(new String('ab')).join(',');", "classof"],
+  // Native errors all inherit from Error.
+  ["errproto-type-is-error", "try { null.x; } catch (e) { return e instanceof Error; }", "classof"],
+  ["errproto-type-is-type", "try { null.x; } catch (e) { return e instanceof TypeError; }", "classof"],
+  ["errproto-range-is-error", "try { (5).toString(1); } catch (e) { return e instanceof Error; }", "classof"],
+  ["errproto-user-not-error", "function F() {} var f = new F(); return f instanceof Error;", "classof"],
+
+  // D-DEFINEOWN: defineProperty and defineProperties run the SAME
+  // [[DefineOwnProperty]]. The plural form used to validate nothing at all.
+  ["defown-data-to-accessor", "try { var o = {}; Object.defineProperty(o, 'a', { value: 1, configurable: false }); Object.defineProperty(o, 'a', { get: function () { return 2; } }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-accessor-to-data", "try { var o = {}; Object.defineProperty(o, 'a', { get: function () { return 1; }, configurable: false }); Object.defineProperty(o, 'a', { value: 2 }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-accessor-swap-getter", "try { var o = {}; Object.defineProperty(o, 'a', { get: function () { return 1; }, configurable: false }); Object.defineProperty(o, 'a', { get: function () { return 2; } }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-accessor-same-getter", "try { var g = function () { return 1; }; var o = {}; Object.defineProperty(o, 'a', { get: g, configurable: false }); Object.defineProperty(o, 'a', { get: g }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-accessor-enumerable", "try { var g = function () { return 1; }; var o = {}; Object.defineProperty(o, 'a', { get: g, enumerable: true, configurable: false }); Object.defineProperty(o, 'a', { get: g, enumerable: false }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-plural-bad-desc", "try { Object.defineProperties({}, { p: true }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-plural-atomic", "var o = {}; try { Object.defineProperties(o, { p: true }); } catch (e) {} return o.hasOwnProperty('p');", "defineown"],
+  ["defown-plural-redefine", "try { var o = {}; Object.defineProperty(o, 'p', { value: 1, configurable: false }); Object.defineProperties(o, { p: { value: 2, configurable: true } }); return 'no-throw'; } catch (e) { return e.name; }", "defineown"],
+  ["defown-plural-applies", "var o = {}; Object.defineProperties(o, { a: { value: 1, enumerable: true }, b: { value: 2 } }); return o.a + ':' + o.b + ':' + Object.keys(o).join(',');", "defineown"],
+  ["defown-plural-attrs", "var o = {}; Object.defineProperties(o, { a: { value: 1 } }); return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "defineown"],
+  ["defown-function-desc", "var o = {}; Object.defineProperty(o, 'k', function () {}); return o.hasOwnProperty('k') + ':' + String(o.k);", "defineown"],
+  ["defown-array-desc", "var o = {}; Object.defineProperty(o, 'k', []); return o.hasOwnProperty('k');", "defineown"],
+  ["defown-accessor-desc-attrs", "var o = {}; Object.defineProperty(o, 'a', { get: function () { return 1; }, enumerable: true }); var d = Object.getOwnPropertyDescriptor(o, 'a'); return d.enumerable + ':' + d.configurable;", "defineown"],
+  // D-THISCHECK: a borrowed Number/Boolean prototype method rejects a foreign
+  // receiver rather than answering for it.
+  ["thischeck-boolean-borrowed", "try { var o = {}; o.f = Boolean.prototype.toString; return o.f(); } catch (e) { return e.name; }", "defineown"],
+  ["thischeck-number-borrowed", "try { var o = {}; o.f = Number.prototype.toString; return o.f(); } catch (e) { return e.name; }", "defineown"],
+  ["thischeck-number-tofixed", "try { var o = {}; o.f = Number.prototype.toFixed; return o.f(2); } catch (e) { return e.name; }", "defineown"],
+  ["thischeck-number-own-ok", "var n = 255; n.toString = Number.prototype.toString; return (255).toString(16);", "defineown"],
+  ["thischeck-boxed-ok", "var o = new Boolean(true); o.f = Boolean.prototype.toString; return o.f();", "defineown"],
+  ["thischeck-string-coerces", "var o = { toString: function () { return 'xy'; } }; return String.prototype.charAt.call(o, 1);", "defineown"],
+
+  // D-FNPROPS: a function's own length/name/prototype, and their descriptors.
+  ["fnprops-length", "var f = function (a, b) {}; return f.length;", "fnprops"],
+  ["fnprops-length-zero", "var f = function () {}; return f.length;", "fnprops"],
+  ["fnprops-length-default", "var f = function (a, b) { return a + b; }; return f.length;", "fnprops"],
+  ["fnprops-length-decl", "function g(a, b, c) {} return g.length;", "fnprops"],
+  ["fnprops-desc-length", "var f = function (a, b) {}; var d = Object.getOwnPropertyDescriptor(f, 'length'); return d.value + ':' + d.writable + ':' + d.enumerable + ':' + d.configurable;", "fnprops"],
+  ["fnprops-desc-name", "var f = function foo() {}; var d = Object.getOwnPropertyDescriptor(f, 'name'); return d.value + ':' + d.enumerable + ':' + d.configurable;", "fnprops"],
+  ["fnprops-desc-prototype", "var f = function () {}; var d = Object.getOwnPropertyDescriptor(f, 'prototype'); return (typeof d.value) + ':' + d.writable + ':' + d.enumerable + ':' + d.configurable;", "fnprops"],
+  ["fnprops-desc-has-no-get", "var f = function () {}; var d = Object.getOwnPropertyDescriptor(f, 'length'); return d.hasOwnProperty('get');", "fnprops"],
+  // Property keys go through ToString, so an object key runs its own toString.
+  ["propkey-array", "var o = { '1': 1 }; return Object.getOwnPropertyDescriptor(o, [1]).value;", "fnprops"],
+  ["propkey-number", "var o = { '1': 1 }; return Object.getOwnPropertyDescriptor(o, 1).value;", "fnprops"],
+  ["propkey-object", "var o = { xy: 1 }; var k = { toString: function () { return 'xy'; } }; return Object.getOwnPropertyDescriptor(o, k).value;", "fnprops"],
+  ["propkey-define", "var o = {}; Object.defineProperty(o, [1], { value: 5 }); return o['1'];", "fnprops"],
+  // Built-in prototype methods are non-enumerable.
+  ["protoenum-string", "return Object.keys(String.prototype).length;", "fnprops"],
+  ["protoenum-array", "return Object.keys(Array.prototype).length;", "fnprops"],
+  ["protoenum-forin", "var n = 0; for (var k in String.prototype) { n++; } return n;", "fnprops"],
+  ["protoenum-still-there", "return typeof String.prototype.charAt;", "fnprops"],
+
+  // D-ARRAYLIKE: Array.prototype methods are generic over their receiver, take a
+  // thisArg, and hand the object itself to the callback as a third argument.
+  ["arraylike-filter", "var o = { length: 3, 0: 1, 1: 2, 2: 3 }; return Array.prototype.filter.call(o, function (v) { return v > 1; }).join(',');", "arraylike"],
+  ["arraylike-map", "var o = { length: 2, 0: 1, 1: 2 }; return Array.prototype.map.call(o, function (v) { return v * 2; }).join(',');", "arraylike"],
+  ["arraylike-foreach", "var o = { length: 2, 0: 1, 1: 2 }; var s = 0; Array.prototype.forEach.call(o, function (v) { s += v; }); return s;", "arraylike"],
+  ["arraylike-join", "var o = { length: 2, 0: 'a', 1: 'b' }; return Array.prototype.join.call(o, '-');", "arraylike"],
+  ["arraylike-slice", "var o = { length: 3, 0: 1, 1: 2, 2: 3 }; return Array.prototype.slice.call(o, 1).join(',');", "arraylike"],
+  ["arraylike-indexof", "var o = { length: 2, 0: 'a', 1: 'b' }; return Array.prototype.indexOf.call(o, 'b');", "arraylike"],
+  ["arraylike-no-length", "return Array.prototype.join.call({}, '-');", "arraylike"],
+  ["cb-third-arg", "return [1, 2].filter(function (v, i, o) { return o.length === 2; }).length;", "arraylike"],
+  ["cb-third-arg-map", "return [1].map(function (v, i, o) { return o === undefined ? 'no' : 'yes'; })[0];", "arraylike"],
+  ["cb-thisarg-filter", "return [1, 2].filter(function (v) { return v === this.n; }, { n: 2 }).join(',');", "arraylike"],
+  ["cb-thisarg-map", "return [1].map(function (v) { return this.k; }, { k: 9 })[0];", "arraylike"],
+  ["cb-thisarg-foreach", "var s = 0; [1, 2].forEach(function (v) { s += v * this.m; }, { m: 10 }); return s;", "arraylike"],
+  ["cb-thisarg-every", "return [1].every(function () { return this.ok; }, { ok: true });", "arraylike"],
+  ["reduce-right", "return [1, 2, 3].reduceRight(function (a, b) { return a + b; });", "arraylike"],
+  ["reduce-right-order", "return ['a', 'b', 'c'].reduceRight(function (a, b) { return a + b; });", "arraylike"],
+  ["reduce-right-seed", "return [1, 2].reduceRight(function (a, b) { return a + b; }, 10);", "arraylike"],
+  ["reduce-no-thisarg", "return [1, 2].reduce(function (a, b) { return a + b; }, 10);", "arraylike"],
+  ["reduce-empty-throws", "try { [].reduce(function (a, b) { return a + b; }); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  // Array(len) validates its length instead of crashing the host.
+  ["arraylen-negative", "try { new Array(-1); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  ["arraylen-too-big", "try { new Array(4294967296); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  ["arraylen-fractional", "try { new Array(1.5); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  ["arraylen-ok", "return new Array(3).length;", "arraylike"],
+  ["arraylen-call-form", "try { Array(-1); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  // D-PROTOKIND: a built-in method reached through the prototype chain.
+  ["protokind-filter", "function F() {} F.prototype = new Array(1, 2, 3); var f = new F(); return f.filter(function (v) { return v > 1; }).join(',');", "arraylike"],
+  ["protokind-join", "function F() {} F.prototype = [1, 2]; var f = new F(); return f.join('-');", "arraylike"],
+  ["protokind-length", "function F() {} F.prototype = new Array(1, 2, 3); return new F().length;", "arraylike"],
+  ["protokind-typeof", "function F() {} F.prototype = [1, 2]; return typeof new F().join;", "arraylike"],
+  ["protokind-own-wins", "function F() {} F.prototype = [1, 2]; var f = new F(); f.join = function () { return 'mine'; }; return f.join();", "arraylike"],
+  // A constructor call in statement position runs, and its errors escape.
+  ["stmt-new-runs", "var n = 0; function F() { n = 5; } new F(); return n;", "arraylike"],
+  ["stmt-new-throws", "try { new Array(-1); return 'no-throw'; } catch (e) { return e.name; }", "arraylike"],
+  ["stmt-index-read", "var a = [1, 2]; return a['0'] + ':' + a['1'];", "arraylike"],
+
+  // D-INSTANCEOF: the built-in constructors, which a literal cannot answer for
+  // through a `constructor` property or a `__class__` tag.
+  ["instof-array", "return [] instanceof Array;", "instanceof"],
+  ["instof-array-object", "return [] instanceof Object;", "instanceof"],
+  ["instof-object", "return ({}) instanceof Object;", "instanceof"],
+  ["instof-function", "return (function () {}) instanceof Function;", "instanceof"],
+  ["instof-function-object", "return (function () {}) instanceof Object;", "instanceof"],
+  ["instof-object-not-array", "return ({}) instanceof Array;", "instanceof"],
+  ["instof-primitive-string", "return 'a' instanceof String;", "instanceof"],
+  ["instof-primitive-number", "return 1 instanceof Number;", "instanceof"],
+  ["instof-boxed-string", "return new String('a') instanceof String;", "instanceof"],
+  ["instof-boxed-cross", "return new String('a') instanceof Number;", "instanceof"],
+  ["instof-null", "return null instanceof Object;", "instanceof"],
+  ["instof-undefined", "return undefined instanceof Object;", "instanceof"],
+  ["instof-fn-ctor", "var f = Function('return 1;'); return f instanceof Function;", "instanceof"],
+  ["instof-user-ctor", "function F() {} return new F() instanceof F;", "instanceof"],
+  ["instof-proto-array", "function F() {} F.prototype = []; return new F() instanceof Array;", "instanceof"],
+  // Own properties the engine synthesises rather than stores.
+  ["hasown-fn-length", "return (function () {}).hasOwnProperty('length');", "instanceof"],
+  ["hasown-fn-name", "return (function () {}).hasOwnProperty('name');", "instanceof"],
+  ["hasown-fn-prototype", "return (function () {}).hasOwnProperty('prototype');", "instanceof"],
+  ["hasown-fn-missing", "return (function () {}).hasOwnProperty('nope');", "instanceof"],
+  ["hasown-array-index", "return [1, 2].hasOwnProperty('1');", "instanceof"],
+  ["hasown-array-oob", "return [1, 2].hasOwnProperty('5');", "instanceof"],
+  ["hasown-array-length", "return [1].hasOwnProperty('length');", "instanceof"],
+  ["propenum-nonenumerable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return o.propertyIsEnumerable('a');", "instanceof"],
+  ["propenum-plain", "var o = { a: 1 }; return o.propertyIsEnumerable('a');", "instanceof"],
+  ["propenum-missing", "return ({}).propertyIsEnumerable('a');", "instanceof"],
+  // Function.prototype.apply takes any array-like; bind adjusts the arity.
+  ["apply-arraylike", "var f = function (a, b) { return a + b; }; return f.apply(null, { length: 2, 0: 1, 1: 2 });", "instanceof"],
+  ["apply-non-object", "try { (function () {}).apply(null, 1); return 'no-throw'; } catch (e) { return e.name; }", "instanceof"],
+  ["apply-null-args", "return (function () { return 5; }).apply(null, null);", "instanceof"],
+  ["bind-length", "var f = function (a, b) {}; return f.bind(null, 1).length;", "instanceof"],
+  ["bind-length-floor", "var f = function (a) {}; return f.bind(null, 1, 2).length;", "instanceof"],
+  ["fnproto-typeof", "return typeof Function.prototype;", "instanceof"],
+  ["fnproto-callable", "return Function.prototype();", "instanceof"],
+
+  // D-STRICT: sloppy mode drops a refused write on the floor; strict mode
+  // reports it. Both halves are asserted, since the sloppy behaviour is just as
+  // much a requirement as the strict one.
+  ["strict-nonwritable", "'use strict'; try { var o = {}; Object.defineProperty(o, 'p', { value: 10, writable: false }); o.p = 20; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-compound-assign", "'use strict'; try { var o = {}; Object.defineProperty(o, 'p', { value: 10, writable: false, configurable: true }); o.p *= 20; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-frozen", "'use strict'; try { var o = Object.freeze({ a: 1 }); o.a = 2; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-non-extensible", "'use strict'; try { var o = {}; Object.preventExtensions(o); o.n = 1; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-getter-only", "'use strict'; try { var o = {}; Object.defineProperty(o, 'g', { get: function () { return 1; } }); o.g = 2; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-undeclared", "'use strict'; try { undeclaredXyz = 5; return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-nested-fn", "'use strict'; try { function inner() { var o = Object.freeze({ a: 1 }); o.a = 2; } inner(); return 'no-throw'; } catch (e) { return e.name; }", "strict"],
+  ["strict-this-undefined", "'use strict'; function f() { return this; } return String(f());", "strict"],
+  ["strict-this-receiver", "'use strict'; var o = { f: function () { return this.k; }, k: 3 }; return o.f();", "strict"],
+  ["strict-write-ok", "'use strict'; var o = { a: 1 }; o.a = 2; return o.a;", "strict"],
+  ["strict-declared-ok", "'use strict'; var q = 1; q = 2; return q;", "strict"],
+  ["strict-setter-ok", "'use strict'; var o = {}; var seen = 0; Object.defineProperty(o, 's', { set: function (v) { seen = v; }, get: function () { return seen; } }); o.s = 2; return seen;", "strict"],
+  ["sloppy-nonwritable", "var o = {}; Object.defineProperty(o, 'p', { value: 10, writable: false }); o.p = 20; return o.p;", "strict"],
+  ["sloppy-frozen", "var o = Object.freeze({ a: 1 }); o.a = 2; return o.a;", "strict"],
+  ["sloppy-undeclared", "undeclaredAbc = 5; return undeclaredAbc;", "strict"],
+  ["sloppy-this-global", "function f() { return typeof this; } return f();", "strict"],
+
+  // String.prototype methods the registry did not carry, plus ToString proper.
+  ["str-locale-compare-lt", "return 'a'.localeCompare('b');", "stringmethods"],
+  ["str-locale-compare-eq", "return 'a'.localeCompare('a');", "stringmethods"],
+  ["str-locale-lower", "return 'AB'.toLocaleLowerCase();", "stringmethods"],
+  ["str-locale-upper", "return 'ab'.toLocaleUpperCase();", "stringmethods"],
+  ["str-locale-string", "return 'ab'.toLocaleString();", "stringmethods"],
+  ["str-normalize", "return 'abc'.normalize();", "stringmethods"],
+  ["str-search-found", "return 'hello'.search('ll');", "stringmethods"],
+  ["str-search-missing", "return 'hello'.search('zz');", "stringmethods"],
+  ["str-codepointat", "return 'A'.codePointAt(0);", "stringmethods"],
+  ["str-codepointat-oob", "return String('abc'.codePointAt(9));", "stringmethods"],
+  ["str-substr", "return 'abcdef'.substr(1, 3);", "stringmethods"],
+  ["str-substr-negative", "return 'abcdef'.substr(-2);", "stringmethods"],
+  ["str-substr-no-len", "return 'abcdef'.substr(2);", "stringmethods"],
+  ["str-substr-past-end", "return 'abc'.substr(5, 2);", "stringmethods"],
+  ["str-split-limit", "return 'a,b,c'.split(',', 2).join('|');", "stringmethods"],
+  ["str-split-limit-zero", "return 'a,b,c'.split(',', 0).length;", "stringmethods"],
+  ["str-split-no-limit", "return 'a,b,c'.split(',').length;", "stringmethods"],
+  ["str-replace-fn", "return 'abc'.replace('b', function (m) { return m.toUpperCase(); });", "stringmethods"],
+  ["str-replace-fn-offset", "return 'abc'.replace('b', function (m, i) { return String(i); });", "stringmethods"],
+  ["str-replace-string", "return 'a-b-c'.replace('-', '+');", "stringmethods"],
+  ["tostring-object-method", "var o = { toString: function () { return 'X'; } }; return String(o);", "stringmethods"],
+  ["tostring-valueof-only", "var o = { valueOf: function () { return 7; } }; return String(o);", "stringmethods"],
+  ["tostring-array", "return String([1, 2]);", "stringmethods"],
+  ["tostring-plain", "return String({});", "stringmethods"],
+
+  // D-STATICS: a built-in static is a value, not just a call-site shape.
+  ["static-typeof-math", "return typeof Math.floor;", "statics"],
+  ["static-typeof-object", "return typeof Object.keys;", "statics"],
+  ["static-hasown-math", "return Math.hasOwnProperty('floor');", "statics"],
+  ["static-hasown-object", "return Object.hasOwnProperty('keys');", "statics"],
+  ["static-identity", "return Object.keys === Object.keys;", "statics"],
+  ["static-desc-math", "var d = Object.getOwnPropertyDescriptor(Math, 'floor'); return (typeof d.value) + ':' + d.writable + ':' + d.enumerable + ':' + d.configurable;", "statics"],
+  ["static-desc-object", "var d = Object.getOwnPropertyDescriptor(Object, 'keys'); return (typeof d.value) + ':' + d.enumerable + ':' + d.configurable;", "statics"],
+  ["static-desc-value-identity", "return Object.getOwnPropertyDescriptor(Object, 'keys').value === Object.keys;", "statics"],
+  ["static-not-enumerable", "var n = 0; for (var k in Math) { n++; } return n;", "statics"],
+  ["static-capture-math", "var f = Math.floor; return f(2.7);", "statics"],
+  ["static-capture-keys", "var f = Object.keys; return f({ a: 1, b: 2 }).join(',');", "statics"],
+  ["static-capture-isarray", "var f = Array.isArray; return f([]) + ':' + f({});", "statics"],
+  ["static-capture-getproto", "var f = Object.getPrototypeOf; function F() {} return f(new F()) === F.prototype;", "statics"],
+  ["static-capture-argcheck", "try { var f = Object.keys; f(null); return 'no-throw'; } catch (e) { return e.name; }", "statics"],
+  ["static-as-callback", "return [1.7, 2.2].map(Math.floor).join(',');", "statics"],
+  // Math rounding is toward negative infinity, not toward zero.
+  ["math-floor-negative", "return Math.floor(-1.5);", "statics"],
+  ["math-ceil-negative", "return Math.ceil(-1.5);", "statics"],
+  ["math-round-negative", "return Math.round(-1.5);", "statics"],
+  ["math-round-half", "return Math.round(0.5);", "statics"],
+  ["math-trunc-negative", "return Math.trunc(-1.9);", "statics"],
+  ["math-max-nan", "return String(Math.max(1, NaN));", "statics"],
+  ["math-min-empty", "return String(Math.min());", "statics"],
+  ["math-max-empty", "return String(Math.max());", "statics"],
+  ["math-abs-coerces", "return Math.abs('-3');", "statics"],
+  ["math-floor-large", "return Math.floor(1e20);", "statics"],
+
+  // D-STRNUM: ToNumber on a string follows the StringNumericLiteral grammar.
+  ["strnum-hex", "return Number('0x1A');", "numbers"],
+  ["strnum-hex-unary", "return +('0xff');", "numbers"],
+  ["strnum-binary", "return Number('0b101');", "numbers"],
+  ["strnum-octal", "return Number('0o17');", "numbers"],
+  ["strnum-trailing-junk", "return String(Number('12x'));", "numbers"],
+  ["strnum-leading-junk", "return String(Number('x12'));", "numbers"],
+  ["strnum-empty", "return Number('');", "numbers"],
+  ["strnum-whitespace", "return Number('  12  ');", "numbers"],
+  ["strnum-infinity", "return String(Number('Infinity'));", "numbers"],
+  ["strnum-neg-infinity", "return String(Number('-Infinity'));", "numbers"],
+  ["strnum-exponent", "return Number('1e3');", "numbers"],
+  ["strnum-bad-exponent", "return String(Number('1e'));", "numbers"],
+  ["strnum-two-dots", "return String(Number('1.2.3'));", "numbers"],
+  ["strnum-signed-hex", "return String(Number('-0x10'));", "numbers"],
+  ["strnum-object", "var o = { valueOf: function () { return '1'; }, toString: function () { return 0; } }; return Number(o);", "numbers"],
+  ["isfinite-infinity", "return isFinite(Number.POSITIVE_INFINITY);", "numbers"],
+  ["isfinite-nan", "return isFinite(NaN);", "numbers"],
+  ["isfinite-ok", "return isFinite(1);", "numbers"],
+  // D-NUMFMT
+  ["numfmt-tofixed", "return (1.25).toFixed(1);", "numbers"],
+  ["numfmt-tofixed-negative", "return (-1.25).toFixed(1);", "numbers"],
+  ["numfmt-tofixed-zero", "return (5).toFixed(0);", "numbers"],
+  ["numfmt-tofixed-nan-arg", "return (1).toFixed(NaN);", "numbers"],
+  ["numfmt-tofixed-nan-recv", "return (NaN).toFixed(2);", "numbers"],
+  ["numfmt-tofixed-frac-arg", "return (1).toFixed(-0.1);", "numbers"],
+  ["numfmt-tofixed-range", "try { (1).toFixed(101); return 'no-throw'; } catch (e) { return e.name; }", "numbers"],
+  ["numfmt-tofixed-pad", "return (1).toFixed(3);", "numbers"],
+  ["numfmt-toexponential", "return (77.1234).toExponential(2);", "numbers"],
+  ["numfmt-toexponential-neg", "return (-77.1234).toExponential(2);", "numbers"],
+  ["numfmt-toexponential-small", "return (0.0001).toExponential(2);", "numbers"],
+  ["numfmt-toprecision", "return (123.456).toPrecision(4);", "numbers"],
+  ["numfmt-toprecision-exp", "return (123.456).toPrecision(2);", "numbers"],
+  ["numfmt-toprecision-range", "try { (1).toPrecision(0); return 'no-throw'; } catch (e) { return e.name; }", "numbers"],
+  // Built-in constructors are functions; their methods have a stable identity.
+  ["ctor-instanceof-function", "return Number instanceof Function;", "numbers"],
+  ["ctor-fnproto-isproto", "return Function.prototype.isPrototypeOf(Number);", "numbers"],
+  ["ctor-length", "return Number.length;", "numbers"],
+  ["ctor-hasown-length", "return Number.hasOwnProperty('length');", "numbers"],
+  ["method-identity-number", "return (new Number()).toString === Number.prototype.toString;", "numbers"],
+  ["method-identity-array", "return [].slice === Array.prototype.slice;", "numbers"],
+  ["method-identity-string", "return 'a'.charAt === String.prototype.charAt;", "numbers"],
+  ["method-arity", "return Number.prototype.toFixed.length;", "numbers"],
+  ["proto-chain-to-object", "return Object.prototype.isPrototypeOf(Number.prototype);", "numbers"],
+  // Deleting a built-in prototype method falls through to Object.prototype.
+  // The probes share one engine, so this one puts the method back.
+  ["proto-delete-falls-back", "var saved = Number.prototype.toString; delete Number.prototype.toString; var r = (new Number()).toString(); Number.prototype.toString = saved; return r;", "numbers"],
+  // D-TOOBJECT: Object(x) boxes a primitive; new Object() makes a usable object.
+  ["toobject-new-usable", "var o = new Object(); o.a = 1; return o.a;", "numbers"],
+  ["toobject-boxes-number", "return typeof Object(5);", "numbers"],
+  ["toobject-boxes-brand", "return Object.prototype.toString.call(Object(5));", "numbers"],
+  ["toobject-passthrough", "var a = { k: 1 }; return Object(a) === a;", "numbers"],
+  ["toobject-null", "return typeof Object(null);", "numbers"],
+  ["toobject-boxed-valueof", "return Object(5).valueOf();", "numbers"],
+  ["toprim-both-objects", "try { var o = { valueOf: function () { return {}; }, toString: function () { return {}; } }; Number(o); return 'no-throw'; } catch (e) { return e.name; }", "numbers"],
+  ["toprim-string-hint-default", "var o = { valueOf: function () { return 7; } }; return String(o);", "numbers"],
+
+  // D-ARGUMENTS
+  ["args-length", "function f() { return arguments.length; } return f(1, 2, 3);", "latest"],
+  ["args-index", "function f() { return arguments[1]; } return f(1, 2, 3);", "latest"],
+  ["args-empty", "function f() { return arguments.length; } return f();", "latest"],
+  ["args-brand", "function f() { return Object.prototype.toString.call(arguments); } return f();", "latest"],
+  ["args-not-array", "function f() { return Array.isArray(arguments); } return f();", "latest"],
+  ["args-generic-slice", "function f() { return Array.prototype.slice.call(arguments, 1).join(','); } return f(1, 2, 3);", "latest"],
+  // Errors stringify as "Name: message".
+  ["err-tostring", "return String(new TypeError('test'));", "latest"],
+  ["err-tostring-empty", "return String(new Error());", "latest"],
+  ["err-borrowed-trim", "return String.prototype.trim.call(new Error('test'));", "latest"],
+  ["err-call-without-new", "var e = Error('x'); return e.name + ':' + e.message;", "latest"],
+  // The global object carries its value and function properties.
+  ["global-nan", "return typeof this.NaN;", "latest"],
+  ["global-parseint", "return typeof this.parseInt;", "latest"],
+  ["global-object-ctor", "return this.Object === Object;", "latest"],
+  // instanceof walks the prototype chain by identity.
+  ["instof-proto-chain", "function F() {} var o = Object.create(F.prototype); return o instanceof F;", "latest"],
+  ["instof-bad-prototype", "try { function F() {} F.prototype = undefined; ({}) instanceof F; return 'no-throw'; } catch (e) { return e.name; }", "latest"],
+  ["instof-non-callable", "try { 1 instanceof Math; return 'no-throw'; } catch (e) { return e.name; }", "latest"],
+  ["instof-error-ctor", "return new TypeError() instanceof Error;", "latest"],
+  // Aliased constructors and borrowed methods on any receiver.
+  ["alias-ctor", "var C = String.prototype.constructor; return String(new C('choosing one'));", "latest"],
+  ["borrow-onto-function", "function f() {} Function.prototype.slice = String.prototype.slice; return typeof f.slice(0, 4);", "latest"],
+  // NaN is falsy; the remainder keeps the dividend's sign.
+  ["nan-falsy", "return !NaN;", "latest"],
+  ["nan-and", "return String(NaN && 1);", "latest"],
+  ["neg-zero-remainder", "return 1 / (-1 % -1);", "latest"],
+  ["float-remainder", "return 5.5 % 2;", "latest"],
+  ["div-by-zero-compound", "var x = 1; x /= 0; return String(x);", "latest"],
+  ["plus-equals-boxed", "var x = new String('1'); x += 1; return x;", "latest"],
+  // Math functions built from series.
+  ["math-exp-zero", "return Math.exp(0);", "latest"],
+  ["math-log-one", "return Math.log(1);", "latest"],
+  ["math-log-zero", "return String(Math.log(0));", "latest"],
+  ["math-atan-typeof", "return typeof Math.atan;", "latest"],
+  // Array elisions keep their positions.
+  ["elision-length", "return [4, 5, , , ,].length;", "latest"],
+  ["elision-value", "return String([, 1][0]);", "latest"],
+
+  ["idxdesc-array-value", "return Object.getOwnPropertyDescriptor([7, 8], '1').value;", "validation"],
+  ["idxdesc-array-enumerable", "return Object.getOwnPropertyDescriptor([7, 8], '0').enumerable;", "validation"],
+  ["idxdesc-array-length", "return Object.getOwnPropertyDescriptor([7, 8], 'length').value;", "validation"],
+  ["idxdesc-array-length-not-enum", "return Object.getOwnPropertyDescriptor([7, 8], 'length').enumerable;", "validation"],
+  ["idxdesc-array-oob", "return Object.getOwnPropertyDescriptor([7], '5') === undefined;", "validation"],
+  ["idxdesc-string-value", "return Object.getOwnPropertyDescriptor('abc', '1').value;", "validation"],
+  ["idxdesc-string-not-writable", "return Object.getOwnPropertyDescriptor('abc', '0').writable;", "validation"],
+  ["idxdesc-string-length", "return Object.getOwnPropertyDescriptor('abc', 'length').value;", "validation"],
+
+  ["redef-nonconf-to-conf", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { configurable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-nonconf-enum-flip", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { enumerable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-nonwritable-to-writable", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { writable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-nonwritable-value", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { value: 2 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-nonextensible-add", "var o = {}; Object.preventExtensions(o); try { Object.defineProperty(o, 'q', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-same-value-ok", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { Object.defineProperty(o, 'p', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-configurable-ok", "var o = {}; Object.defineProperty(o, 'p', { value: 1, configurable: true }); try { Object.defineProperty(o, 'p', { value: 2 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["redef-fresh-define-ok", "var o = {}; try { Object.defineProperty(o, 'p', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+
+  ["desc-value-and-get", "try { Object.defineProperty({}, 'p', { value: 1, get: function () {} }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["desc-writable-and-set", "try { Object.defineProperty({}, 'p', { writable: true, set: function () {} }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["desc-get-not-function", "try { Object.defineProperty({}, 'p', { get: 5 }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["desc-valid-data-ok", "try { Object.defineProperty({}, 'p', { value: 1, writable: true }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+  ["desc-valid-accessor-ok", "try { Object.defineProperty({}, 'p', { get: function () { return 1; } }); } catch (e) { return e.name; } return 'no-throw';", "validation"],
+
+  ["ctor-array-call-length", "return Array(2).length;", "globals"],
+  ["ctor-array-call-items", "return Array(1, 2).length;", "globals"],
+  ["ctor-object-call-empty", "return typeof Object();", "globals"],
+  ["ctor-function-body", "var f = new Function('return 1;'); return f();", "globals"],
+  ["ctor-function-params", "var f = new Function('a', 'b', 'return a+b;'); return f(2, 3);", "globals"],
+  ["ctor-function-no-new", "var f = Function('return 7;'); return f();", "globals"],
+  ["ctor-function-typeof", "return typeof new Function('return 1;');", "globals"],
+  ["ctor-new-fn-expression", "var x = new function f1() { this.v = 1; }; return x.v;", "globals"],
+
+  ["glob-typeof-math", "return typeof Math;", "globals"],
+  ["glob-typeof-array", "return typeof Array;", "globals"],
+  ["glob-typeof-function", "return typeof Function;", "globals"],
+  ["glob-math-writable", "Math.value = 'Math'; return Math.value;", "globals"],
+  ["glob-math-as-descriptor", "var o = {}; Math.value = 'Math'; Object.defineProperty(o, 'p', Math); return o.p;", "globals"],
+  ["glob-math-identity", "return Math === Math;", "globals"],
+  ["glob-array-prototype", "return typeof Array.prototype;", "globals"],
+  ["glob-math-floor-works", "return Math.floor(2.7);", "globals"],
+  ["glob-json-works", "return JSON.stringify({ a: 1 });", "globals"],
+  ["stat-fromcharcode", "return String.fromCharCode(65);", "globals"],
+  ["stat-fromcharcode-multi", "return String.fromCharCode(72, 105);", "globals"],
+  ["stat-number-parsefloat", "return Number.parseFloat('1.5');", "globals"],
+  ["stat-array-of", "return Array.of(1, 2).length;", "globals"],
+  ["stat-array-from-array", "return Array.from([1, 2]).length;", "globals"],
+  ["stat-array-from-string", "return Array.from('abc').length;", "globals"],
+  ["stat-object-keys-string", "return Object.keys('abc').length;", "globals"],
+  ["stat-object-keys-number", "return Object.keys(5).length;", "globals"],
+  ["stat-getproto-string", "return typeof Object.getPrototypeOf('a');", "globals"],
+
+  ["argchk-defineprop-primitive", "try { Object.defineProperty(5, 'a', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-defineprop-undefined", "try { Object.defineProperty(undefined, 'a', { value: 1 }); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-defineprop-bad-desc", "try { Object.defineProperty({}, 'a', 42); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-keys-null", "try { Object.keys(null); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-keys-undefined", "try { Object.keys(undefined); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-getproto-null", "try { Object.getPrototypeOf(null); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-getownpropdesc-null", "try { Object.getOwnPropertyDescriptor(null, 'a'); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-create-primitive", "try { Object.create(5); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-freeze-primitive-ok", "try { Object.freeze(5); } catch (e) { return e.name; } return 'no-throw';", "attrs"],
+  ["argchk-create-null-legal", "var o = Object.create(null); o.a = 1; return o.a;", "attrs"],
+  ["argchk-keys-array-ok", "return Object.keys([1, 2]).length;", "attrs"],
+  ["attr-create-descriptors", "var o = Object.create(null, { p: { value: 7, enumerable: true } }); return o.p;", "attrs"],
+
+  ["attr-defineprop-not-enumerable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "attrs"],
+  ["attr-defineprop-not-writable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').writable;", "attrs"],
+  ["attr-defineprop-not-configurable", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyDescriptor(o, 'a').configurable;", "attrs"],
+  ["attr-assignment-enumerable", "var o = {}; o.a = 1; return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "attrs"],
+  ["attr-explicit-true-honoured", "var o = {}; Object.defineProperty(o, 'a', { value: 1, enumerable: true }); return Object.getOwnPropertyDescriptor(o, 'a').enumerable;", "attrs"],
+  ["attr-keys-skips-non-enumerable", "var o = { b: 2 }; Object.defineProperty(o, 'a', { value: 1 }); return Object.keys(o).join(',');", "attrs"],
+  ["attr-getownpropertynames-all", "var o = { b: 2 }; Object.defineProperty(o, 'a', { value: 1 }); return Object.getOwnPropertyNames(o).length;", "attrs"],
+  ["attr-non-writable-rejects", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); o.a = 99; return o.a;", "attrs"],
+  ["attr-freeze-blocks-write", "var o = { a: 1 }; Object.freeze(o); o.a = 2; return o.a;", "attrs"],
+  ["attr-freeze-blocks-add", "var o = { a: 1 }; Object.freeze(o); o.b = 2; return o.b === undefined;", "attrs"],
+  ["attr-freeze-blocks-delete", "var o = { a: 1 }; Object.freeze(o); delete o.a; return o.a;", "attrs"],
+  ["attr-is-frozen-true", "var o = { a: 1 }; Object.freeze(o); return Object.isFrozen(o);", "attrs"],
+  ["attr-is-frozen-false", "var o = { a: 1 }; return Object.isFrozen(o);", "attrs"],
+  ["attr-seal-blocks-add", "var o = { a: 1 }; Object.seal(o); o.b = 2; return o.b === undefined;", "attrs"],
+  ["attr-seal-allows-write", "var o = { a: 1 }; Object.seal(o); o.a = 5; return o.a;", "attrs"],
+  ["attr-is-sealed", "var o = {}; Object.seal(o); return Object.isSealed(o);", "attrs"],
+  ["attr-prevent-extensions", "var o = {}; Object.preventExtensions(o); o.a = 1; return o.a === undefined;", "attrs"],
+  ["attr-is-extensible-true", "var o = {}; return Object.isExtensible(o);", "attrs"],
+  ["attr-is-extensible-false", "var o = {}; Object.preventExtensions(o); return Object.isExtensible(o);", "attrs"],
+
+  ["coerce-charat-number-recv", "return String.prototype.charAt.call(512, 1);", "protoreg"],
+  ["coerce-indexof-number-recv", "return String.prototype.indexOf.call(512, '1');", "protoreg"],
+  ["coerce-slice-bool-recv", "return String.prototype.slice.call(true, 1);", "protoreg"],
+  ["coerce-toupper-number-recv", "return String.prototype.toUpperCase.call(12);", "protoreg"],
+
+  ["proto-array-slice-call", "return Array.prototype.slice.call([1, 2, 3], 1).join(',');", "protoreg"],
+  ["proto-array-join-call", "return Array.prototype.join.call([1, 2, 3], '-');", "protoreg"],
+  ["proto-array-map-call", "return Array.prototype.map.call([1, 2], function (x) { return x * 2; }).join(',');", "protoreg"],
+  ["proto-string-slice-call", "return String.prototype.slice.call('hello', 1, 3);", "protoreg"],
+  ["proto-string-trim-call", "return String.prototype.trim.call('  x  ');", "protoreg"],
+  ["proto-array-slice-typeof", "return typeof Array.prototype.slice;", "protoreg"],
+  ["proto-function-call-typeof", "return typeof Function.prototype.call;", "protoreg"],
+  ["proto-method-identity", "return Array.prototype.slice === Array.prototype.slice;", "protoreg"],
+  ["proto-indexof-call", "return Array.prototype.indexOf.call([7, 8, 9], 8);", "protoreg"],
+  ["reg-map-get", "var m = new Map(); m.set('a', 1); return m.get('a');", "registry"],
+  ["reg-map-delete", "var m = new Map(); m.set('a', 1); m.delete('a'); return m.has('a');", "registry"],
+  ["reg-set-dedup", "var s = new Set(); s.add(1); s.add(1); return s.size;", "registry"],
+  ["reg-set-foreach", "var n = 0; var s = new Set([1, 2, 3]); s.forEach(function (v) { n = n + v; }); return n;", "registry"],
+  ["reg-map-foreach", "var n = 0; var m = new Map([['a', 1], ['b', 2]]); m.forEach(function (v) { n = n + v; }); return n;", "registry"],
+
+  ["reg-arr-first-class-typeof", "return typeof [1, 2].slice;", "registry"],
+  ["reg-arr-slice-call", "return [1, 2, 3].slice.call([9, 8, 7], 1).join(',');", "registry"],
+  ["reg-arr-join-call", "return [].join.call([1, 2, 3], '-');", "registry"],
+  ["reg-arr-map-call", "return [].map.call([1, 2], function (x) { return x * 3; }).join(',');", "registry"],
+  ["reg-arr-indexof-apply", "return [].indexOf.apply([5, 6, 7], [6]);", "registry"],
+  ["reg-arr-bind-method", "var f = [1, 2, 3].join.bind([4, 5]); return f('-');", "registry"],
+  ["reg-arr-unbound-throws", "var f = [1, 2].slice; try { f(0); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-arr-map", "return [1, 2, 3].map(function (x) { return x * 2; }).join(',');", "registry"],
+  ["reg-arr-reduce", "return [1, 2, 3].reduce(function (a, b) { return a + b; }, 0);", "registry"],
+  ["reg-arr-sort-cmp", "return [3, 1, 2].sort(function (a, b) { return a - b; }).join(',');", "registry"],
+  ["reg-array-ctor-length", "return new Array(3).fill(7).join(',');", "registry"],
+  ["reg-array-ctor-items", "return new Array(1, 2).join(',');", "registry"],
+
+  ["reg-str-first-class-typeof", "return typeof 'abc'.slice;", "registry"],
+  ["reg-str-call-receiver", "return 'abc'.slice.call('xyz', 1);", "registry"],
+  ["reg-str-apply-args", "return 'abc'.indexOf.apply('hello', ['ll']);", "registry"],
+  ["reg-str-bind-builtin", "var f = 'abc'.toUpperCase.bind('hey'); return f();", "registry"],
+  ["reg-str-unbound-throws", "var f = 'abc'.slice; try { f(1); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-str-indexof", "return 'hello'.indexOf('ll');", "registry"],
+  ["reg-str-split-len", "return 'a,b,c'.split(',').length;", "registry"],
+  ["reg-str-replaceall", "return 'aXbXc'.replaceAll('X', '-');", "registry"],
+  ["reg-str-concat", "return 'a'.concat('b', 'c');", "registry"],
+  ["reg-str-charcodeat", "return 'hello'.charCodeAt(0);", "registry"],
+
+  ["reg-array-tostring", "return [1, 2].toString();", "registry"],
+  ["reg-object-tostring", "return ({}).toString();", "registry"],
+  ["reg-nested-array-tostring", "return [[1, 2], [3]].toString();", "registry"],
+  ["reg-number-tostring", "return (5).toString();", "registry"],
+  ["reg-string-charat", "return 'abc'.charAt(1);", "registry"],
+  ["reg-array-charat-throws", "try { [1, 2].charAt(0); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-object-trim-throws", "try { ({}).trim(); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-array-tofixed-throws", "try { [1].toFixed(1); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-string-substring-swap", "return 'abcdef'.substring(4, 1);", "registry"],
+  ["reg-string-padstart", "return 'x'.padStart(4, '-');", "registry"],
+  ["reg-string-padend", "return 'x'.padEnd(4, '-');", "registry"],
+  ["reg-builtin-as-value", "var f = function () { return this.v; }; var c = f.call; return typeof c;", "registry"],
+  ["reg-builtin-unbound-throws", "var f = function () { return this.v; }; var c = f.call; try { c({ v: 4 }); } catch (e) { return e.name; } return 'no-throw';", "registry"],
+  ["reg-builtin-explicit-receiver", "var f = function () { return this.v; }; return f.call.call(f, { v: 4 });", "registry"],
+  ["reg-builtin-composed", "var f = function (a) { return a * 2; }; var g = f.bind(null, 5); return g();", "registry"],
+  // A throw inside a returned expression must reach the enclosing catch.
+  ["throw-in-return-catchable", "try { return (function () { throw new TypeError('x'); })(); } catch (e) { return e.name; }", "registry"],
+
+  ["fnproto-call-this", "var f = function () { return this.v; }; return f.call({ v: 5 });", "fnproto"],
+  ["fnproto-call-args", "var f = function (a, b) { return a + b; }; return f.call(null, 2, 3);", "fnproto"],
+  ["fnproto-apply-array", "var f = function (a, b) { return a + b; }; return f.apply(null, [4, 6]);", "fnproto"],
+  ["fnproto-apply-this", "var f = function () { return this.v; }; return f.apply({ v: 9 });", "fnproto"],
+  ["fnproto-bind-this", "var f = function () { return this.v; }; var g = f.bind({ v: 3 }); return g();", "fnproto"],
+  ["fnproto-bind-partial", "var f = function (a, b) { return a + b; }; var g = f.bind(null, 10); return g(5);", "fnproto"],
+  ["fnproto-bind-all-args", "var f = function (a, b) { return a * b; }; var g = f.bind(null, 3, 4); return g();", "fnproto"],
+  ["fnproto-bind-this-and-arg", "var o = { v: 7 }; var f = function (a) { return this.v + a; }; var g = f.bind(o, 1); return g();", "fnproto"],
+  ["fnproto-call-on-method", "var o = { v: 2, m: function () { return this.v; } }; return o.m.call({ v: 99 });", "fnproto"],
+  ["fnproto-bind-typeof", "var f = function () {}; return typeof f.bind(null);", "fnproto"],
+
+  ["eval-expr", "return eval('1 + 2');", "eval"],
+  ["eval-sees-scope", "var a = 7; return eval('a + 1');", "eval"],
+  ["eval-declares-var", "eval('var q = 5;'); return q;", "eval"],
+  ["eval-declares-fn", "eval('function g(){ return 4; }'); return g();", "eval"],
+  ["eval-non-string", "return eval(42);", "eval"],
+  ["eval-syntax-error", "try { eval('var ='); } catch (e) { return e.name; } return 'no-throw';", "eval"],
+  ["eval-throw-propagates", "try { eval('throw new TypeError(1);'); } catch (e) { return e.name; } return 'no-throw';", "eval"],
+  ["eval-completion-value", "return eval('1; 2; 3');", "eval"],
+  ["eval-typeof", "return typeof eval;", "eval"],
+
+  // Lexer: an escaped quote directly inside the opening/closing quote of a
+  // string literal was DROPPED. The cause was not the lexer at all: the
+  // evaluator unquoted the token value a second time, so real characters went
+  // with the delimiters that were no longer there.
+  ["lex-escaped-quote-edges", "var s = '\\'a\\' + \\'b\\''; return s;", "literals"],
+  ["lex-escaped-quote-single", "var s = '\\'hi\\''; return s;", "literals"],
+
+  ["ieee-div-zero-pos", "return 1 / 0;", "ieee"],
+  ["ieee-div-zero-neg", "return -1 / 0;", "ieee"],
+  ["ieee-div-neg-zero", "var z = -0; return 1 / z;", "ieee"],
+  ["ieee-zero-over-zero", "var r = 0 / 0; return r !== r;", "ieee"],
+  ["ieee-mod-zero", "var r = 5 % 0; return r !== r;", "ieee"],
+  ["ieee-object-is-zeros", "return Object.is(0, -0);", "ieee"],
+  ["ieee-object-is-nan", "return Object.is(0 / 0, 0 / 0);", "ieee"],
+  ["ieee-infinity-global", "return Infinity;", "ieee"],
+  ["ieee-nan-global", "return NaN !== NaN;", "ieee"],
+  ["ieee-strict-eq-zeros", "return 0 === -0;", "ieee"],
+  ["ieee-json-infinity", "return JSON.stringify(Infinity);", "ieee"],
+  ["ieee-normal-div", "return 10 / 4;", "ieee"],
+  ["ieee-normal-mod", "return 10 % 4;", "ieee"],
+  ["dstr-param-rest-pattern", "var f = function ([...[x, y]]) { return x + y; }; return f([3, 4]);", "destructuring"],
+  ["dstr-arrow-rest-pattern", "var f = ([...[x, y]]) => x + y; return f([3, 4]);", "destructuring"],
+  ["dstr-param-obj-default", "var f = function ({ a = 5 } = {}) { return a; }; return f();", "destructuring"],
+  ["dstr-param-obj-nested", "var f = function ({ a: { b } }) { return b; }; return f({ a: { b: 8 } });", "destructuring"],
+  ["dstr-param-array-nested", "var f = function ([[a]]) { return a; }; return f([[5]]);", "destructuring"],
+  ["dstr-param-pattern-dflt", "var f = function ([_, x] = []) { return x; }; return f();", "destructuring"],
+  ["class-nested-decl", "class N { m() { return 3; } } return new N().m();", "classes"],
+  ["class-expr-nested", "var C = class { m() { return 3; } }; return new C().m();", "classes"],
+  ["class-static-call", "class S { static s() { return 8; } } return S.s();", "classes"],
+  ["class-accessor-get", "class G { get v() { return 4; } } return new G().v;", "classes"],
+  ["class-accessor-set", "class T { set v(x) { this._v = x; } } var t = new T(); t.v = 6; return t._v;", "classes"],
+  ["class-extends-super", "class P { constructor() { this.x = 1; } } class Q extends P { constructor() { super(); this.y = 2; } } var q = new Q(); return q.x + q.y;", "classes"],
+  ["class-extends-field", "class P2 { constructor() { this.x = 10; } } class Q2 extends P2 { constructor() { super(); } } return new Q2().x;", "classes"],
+  ["class-extends-method", "class P3 { m() { return 7; } } class Q3 extends P3 {} return new Q3().m();", "classes"],
+  ["objproto-hasown-true", "var o = { a: 1 }; return o.hasOwnProperty('a');", "objproto"],
+  ["objproto-hasown-false", "var o = { a: 1 }; return o.hasOwnProperty('b');", "objproto"],
+  ["objproto-hasown-not-inherited", "var F = function () {}; F.prototype.k = 1; var o = new F(); return o.hasOwnProperty('k');", "objproto"],
+  ["objproto-hasown-own-wins", "var F = function () { this.k = 2; }; F.prototype.k = 1; var o = new F(); return o.hasOwnProperty('k');", "objproto"],
+  ["objproto-hasown-accessor", "var o = { get a() { return 1; } }; return o.hasOwnProperty('a');", "objproto"],
+  ["objproto-hasown-array-index", "var a = [1, 2]; return a.hasOwnProperty('1');", "objproto"],
+  ["objproto-hasown-array-oob", "var a = [1, 2]; return a.hasOwnProperty('9');", "objproto"],
+  ["objproto-is-prototype-of", "var F = function () {}; var o = new F(); return F.prototype.isPrototypeOf(o);", "objproto"],
+  ["objproto-is-prototype-of-no", "var F = function () {}; var G = function () {}; var o = new F(); return G.prototype.isPrototypeOf(o);", "objproto"],
+  ["builtin-array-prototype", "return typeof Array.prototype;", "objproto"],
+  ["builtin-proto-stable", "return Array.prototype === Array.prototype;", "objproto"],
+  ["builtin-proto-distinct", "return Array.prototype === Object.prototype;", "objproto"],
+  ["builtin-number-max-safe", "return Number.MAX_SAFE_INTEGER;", "objproto"],
+  ["builtin-number-neg-inf", "return Number.NEGATIVE_INFINITY;", "objproto"],
+  ["throw-missing-method", "try { var o = {}; o.nope(); } catch (e) { return e.name; } return 'no-throw';", "objproto"],
+  ["obj-get-prototype-of", "var F = function () {}; var o = new F(); return Object.getPrototypeOf(o) === F.prototype;", "descriptors"],
+  ["obj-create", "var p = { k: 7 }; var o = Object.create(p); return o.k;", "descriptors"],
+  ["obj-set-prototype-of", "var p = { k: 3 }; var o = {}; Object.setPrototypeOf(o, p); return o.k;", "descriptors"],
+  ["obj-desc-value", "var o = { a: 1 }; return Object.getOwnPropertyDescriptor(o, 'a').value;", "descriptors"],
+  ["obj-desc-writable", "var o = { a: 1 }; return Object.getOwnPropertyDescriptor(o, 'a').writable;", "descriptors"],
+  ["obj-desc-missing", "var o = {}; return Object.getOwnPropertyDescriptor(o, 'z') === undefined;", "descriptors"],
+  ["obj-define-property", "var o = {}; Object.defineProperty(o, 'a', { value: 5 }); return o.a;", "descriptors"],
+  ["obj-own-property-names", "var o = { a: 1, b: 2 }; return Object.getOwnPropertyNames(o).length;", "descriptors"],
+
+  // --- builtins -------------------------------------------------------------
+  ["json-roundtrip", "var o = { a: [1, 2] }; return JSON.parse(JSON.stringify(o)).a[1];", "builtins"],
+  ["json-nan-null", "return JSON.stringify(NaN);", "builtins"],
+  ["math-floor-neg", "return Math.floor(-1.5);", "builtins"],
+  ["math-max-empty", "return Math.max() === -Infinity;", "builtins"],
+  ["date-epoch", "var d = new Date(0); return d.getTime();", "builtins"],
+
+  // --- Date -----------------------------------------------------------------
+  // A Date is arithmetic on one time value. Local time is UTC in this realm, so
+  // each accessor and its UTC twin agree -- these probes use the UTC forms,
+  // which are time-zone independent and so mean the same in Node.
+  ["date-value", "return new Date(6).valueOf();", "date"],
+  ["date-utc-year", "return new Date(951782400000).getUTCFullYear();", "date"],
+  ["date-utc-month", "return new Date(951782400000).getUTCMonth();", "date"],
+  ["date-utc-date", "return new Date(951782400000).getUTCDate();", "date"],
+  ["date-utc-day", "return new Date(951782400000).getUTCDay();", "date"],
+  ["date-utc-time-parts", "var d = new Date(1234567890123); return d.getUTCHours() + ':' + d.getUTCMinutes() + ':' + d.getUTCSeconds() + '.' + d.getUTCMilliseconds();", "date"],
+  ["date-before-epoch", "return new Date(-86400000).toISOString();", "date"],
+  ["date-far-past", "return new Date(-1e12).getUTCFullYear();", "date"],
+  ["date-leap-day", "return new Date(Date.UTC(2016, 1, 29)).getUTCDate();", "date"],
+  ["date-century-not-leap", "return new Date(Date.UTC(1900, 1, 28)).getUTCMonth();", "date"],
+  ["date-month-rolls-year", "return new Date(Date.UTC(2000, 12, 1)).getUTCFullYear();", "date"],
+  ["date-two-digit-year", "return new Date(Date.UTC(99, 0, 1)).getUTCFullYear();", "date"],
+  ["date-iso-roundtrip", "return Date.parse(new Date(1234567890123).toISOString());", "date"],
+  ["date-parse-date-only", "return Date.parse('2000-01-01');", "date"],
+  ["date-parse-offset", "return Date.parse('2000-01-01T12:34:56.789+02:00');", "date"],
+  ["date-parse-garbage", "return String(Date.parse('not a date'));", "date"],
+  ["date-parse-bad-month", "return String(Date.parse('2000-13-01'));", "date"],
+  ["date-utc-static", "return Date.UTC(2000, 0, 1);", "date"],
+  ["date-range-limit", "return String(new Date(8640000000000001).getTime());", "date"],
+  ["date-invalid-string", "return String(new Date('nope'));", "date"],
+  ["date-tostring-invalid-iso", "try { new Date(NaN).toISOString(); return 'no-throw'; } catch (e) { return e.name; }", "date"],
+  ["date-tojson-invalid", "return String(new Date(NaN).toJSON());", "date"],
+  ["date-settime", "var d = new Date(0); d.setTime(5000); return d.getTime();", "date"],
+  ["date-brand", "return Object.prototype.toString.call(new Date(0));", "date"],
+  ["date-typeof-parse", "return typeof Date.parse;", "date"],
+  ["date-typeof-now", "return typeof Date.now;", "date"],
+  ["date-call-no-new", "return typeof Date();", "date"],
+  ["date-plus-is-string", "return typeof (new Date(0) + '');", "date"],
+  ["date-unary-plus-is-number", "return +new Date(6);", "date"],
+  ["date-borrowed-is-typeerror", "try { Date.prototype.getTime.call({}); return 'no-throw'; } catch (e) { return e.name; }", "date"],
+  ["date-set-ms", "var d = new Date(0); d.setUTCMilliseconds(500); return d.getTime();", "date"],
+  ["date-set-seconds-rolls", "var d = new Date(0); d.setUTCSeconds(70); return d.getTime();", "date"],
+  ["date-set-hours-tail", "var d = new Date(0); d.setUTCHours(25, 1, 2, 3); return d.getTime();", "date"],
+  ["date-set-date-rolls-month", "var d = new Date(0); d.setUTCDate(32); return d.toISOString();", "date"],
+  ["date-set-fullyear-leap", "var d = new Date(0); d.setUTCFullYear(2020, 1, 29); return d.toISOString();", "date"],
+  ["date-set-fullyear-revives", "var d = new Date(NaN); d.setUTCFullYear(2020); return d.toISOString();", "date"],
+  ["date-set-month-stays-invalid", "var d = new Date(NaN); d.setUTCMonth(3); return String(d.getTime());", "date"],
+  ["date-set-nan-poisons", "var d = new Date(0); return String(d.setUTCSeconds(NaN));", "date"],
+  ["date-truncates-toward-zero", "return new Date(-6.5).valueOf();", "date"],
+  ["date-negative-zero-clipped", "return 1 / new Date(-0).valueOf();", "date"],
+  ["date-setter-arity", "return Date.prototype.setHours.length + ',' + Date.prototype.setUTCFullYear.length;", "date"],
+  ["date-gmtstring-alias", "return typeof Date.prototype.toGMTString;", "date"],
+
+  // --- regex backtracking ---------------------------------------------------
+  // A quantified group's body must be able to give characters back so that what
+  // follows the group can match. That needs the rest of the pattern to be
+  // reachable from inside the group, which is what RegexCont carries.
+  ["re-backtrack-into-group", "return 'aaaaaaaaaa,aaaaaaaaaaaaaaa'.replace(/^(a+)\\1*,\\1+$/, '$1');", "regexback"],
+  ["re-backtrack-exec", "return String(/^(a+)\\1*,\\1+$/.exec('aaaaaaaaaa,aaaaaaaaaaaaaaa'));", "regexback"],
+  ["re-backtrack-short", "return String('aaa,aaaaaa'.match(/^(a+),\\1+$/));", "regexback"],
+  ["re-alt-inside-group", "return String(/(a|ab)(c|bcd)(d*)$/.exec('abcd'));", "regexback"],
+  ["re-alt-first-wins-when-it-can", "return String(/(a|ab)(c|bcd)(d*)/.exec('abcd'));", "regexback"],
+  ["re-nested-alt-groups", "return String(/((a)|(ab))((c)|(bc))/.exec('abc'));", "regexback"],
+  ["re-capture-reset-per-repetition", "return String(/(z)((a+)?(b+)?(c))*/.exec('zaacbbbcac'));", "regexback"],
+  ["re-backref-to-star-group", "return String(/(a*)b\\1+/.exec('baaaac'));", "regexback"],
+  ["re-star-group-no-runaway", "return String(/^(a+)*$/.test('aaaa'));", "regexback"],
+  ["re-nested-quant-fails-cleanly", "return String(/^(a+)+$/.test('aaaaaaaaab'));", "regexback"],
+  ["re-lookahead-capture", "return String(/(?=(a+))a*b\\1/.exec('baaabac'));", "regexback"],
+  ["re-optional-group-undefined", "return String(/(x)?y/.exec('y'));", "regexback"],
+  ["re-backref-to-unmatched-group", "return String(/(x)?\\1y/.exec('y'));", "regexback"],
+  ["re-alternation-group", "return String(/^(a|b)*c$/.exec('ababc'));", "regexback"],
+  ["re-split-capturing", "return String('2011-10-10'.split(/(-)/));", "regexback"],
+
+  // --- array length and holes -----------------------------------------------
+  // Writing `length` resizes the array; a value that is not a uint32 is a
+  // RangeError; deleting an element leaves a hole without shortening it.
+  ["arrlen-truncate", "var x = [1, 2, 3]; x.length = 1; return x.toString();", "arraylen"],
+  ["arrlen-truncate-empty", "var x = [1, 2, 3]; x.length = 0; return x.length;", "arraylen"],
+  ["arrlen-grow", "var x = [1]; x.length = 3; return x.toString();", "arraylen"],
+  ["arrlen-grow-reads-undefined", "var x = [1]; x.length = 3; return String(x[2]);", "arraylen"],
+  ["arrlen-string-coerced", "var x = [1, 2, 3]; x.length = '2'; return x.toString();", "arraylen"],
+  ["arrlen-negative-throws", "var x = []; try { x.length = -1; return 'no-throw'; } catch (e) { return e.name; }", "arraylen"],
+  ["arrlen-fractional-throws", "var x = []; try { x.length = 1.5; return 'no-throw'; } catch (e) { return e.name; }", "arraylen"],
+  ["arrlen-compound", "var x = [1, 2, 3]; x.length -= 1; return x.toString();", "arraylen"],
+  ["arrlen-sparse-assign", "var x = []; x[3] = 1; return x.length + '|' + x.toString();", "arraylen"],
+  ["arrlen-delete-leaves-hole", "var x = [1, 2, 3]; delete x[1]; return x.length + '|' + x.toString();", "arraylen"],
+  ["arrlen-delete-out-of-range", "var x = [1]; return String(delete x[9]) + '|' + x.length;", "arraylen"],
+  ["arrlen-join-after-truncate", "var x = [1, 2, 3]; x.length = 2; return x.join('-');", "arraylen"],
+  // Which keys are ELEMENTS is decided by the key text, not by the operand's
+  // type: only ToString(ToUint32(k)) === k reaches an element.
+  ["arridx-string-key-is-element", "var x = []; x['0'] = 7; return String(x[0]) + '|' + x.length;", "arraylen"],
+  ["arridx-leading-zero-is-property", "var x = []; x['00'] = 7; return String(x[0]) + '|' + x.length + '|' + x['00'];", "arraylen"],
+  ["arridx-negative-is-property", "var x = []; x[-1] = 1; return x.length + '|' + String(x[-1]);", "arraylen"],
+  ["arridx-boolean-key-is-property", "var x = []; x[true] = 1; return x.length + '|' + String(x[true]);", "arraylen"],
+  ["arridx-fractional-is-property", "var x = []; x[1.5] = 1; return x.length + '|' + String(x[1.5]);", "arraylen"],
+  ["arridx-max-uint32-is-property", "var x = []; x[4294967295] = 1; return x.length + '|' + String(x[4294967295]);", "arraylen"],
+  ["arridx-far-index-readable", "var x = []; x[2147483648] = 1; return String(x[2147483648]);", "arraylen"],
+
+  // --- array holes ----------------------------------------------------------
+  // An ABSENT element reads as undefined but is not present: `in` says false and
+  // the iteration methods skip it. This is what an undefined element cannot say.
+  ["hole-in-elision", "return String(0 in [, 1]);", "holes"],
+  ["hole-in-present", "return String(1 in [, 1]);", "holes"],
+  ["hole-in-middle", "return String(1 in [0, , 2]);", "holes"],
+  ["hole-delete-makes-absent", "var a = [1, 2, 3]; delete a[1]; return String(1 in a);", "holes"],
+  ["hole-sparse-assign-absent", "var a = []; a[3] = 1; return String(0 in a) + ',' + a.length;", "holes"],
+  ["hole-length-growth-absent", "var a = [1, 2, 3]; a.length = 5; return String(4 in a) + ',' + a.length;", "holes"],
+  ["hole-hasownproperty-absent", "return String([, 1].hasOwnProperty(0));", "holes"],
+  ["hole-hasownproperty-present", "return String([, 1].hasOwnProperty(1));", "holes"],
+  ["hole-foreach-skips", "var n = 0; new Array(10).forEach(function () { n++; }); return n;", "holes"],
+  ["hole-foreach-visits-explicit-undefined", "var n = 0; var a = new Array(10); a[1] = undefined; a.forEach(function () { n++; }); return n;", "holes"],
+  ["hole-filter-skips", "var a = new Array(10); a[1] = undefined; return a.filter(function () { return false; }).length;", "holes"],
+  ["hole-filter-counts-present", "return [, 1, , 2].filter(function () { return true; }).length;", "holes"],
+  ["hole-map-preserves", "return String([1, , 3].map(function (x) { return x * 2; }));", "holes"],
+  ["hole-map-hole-stays-absent", "return String(1 in [1, , 3].map(function (x) { return x * 2; }));", "holes"],
+  ["hole-every-vacuous", "return String([, , ].every(function () { return false; }));", "holes"],
+  ["hole-some-vacuous", "return String([, , ].some(function () { return true; }));", "holes"],
+  ["hole-indexof-skips", "return String([1, , 3].indexOf(undefined));", "holes"],
+  ["hole-reduce-skips", "return [1, , 3].reduce(function (a, b) { return a + b; }, 0);", "holes"],
+  ["hole-reduce-seeds-first-present", "return [, 1, 2].reduce(function (a, b) { return a + b; });", "holes"],
+  ["hole-object-keys-skips", "return String(Object.keys([1, , 3]));", "holes"],
+  ["hole-forin-skips", "var s = ''; for (var k in [1, , 3]) s += k; return s;", "holes"],
+  ["hole-length-counts", "return [, 1, , 2].length;", "holes"],
+  ["hole-join-renders-empty", "return String([, 1, , 2]);", "holes"],
+  ["hole-json-is-null", "return JSON.stringify([1, , 3]);", "holes"],
+
+  // --- prototype of an exotic value -----------------------------------------
+  // An array, a string, a function and a RegExp dispatch by KIND and carry no
+  // prototype link of their own, but the language still says what they inherit.
+  ["protoof-array", "return String(Object.getPrototypeOf([]) === Array.prototype);", "protoof"],
+  ["protoof-array-isprototypeof", "return String(Array.prototype.isPrototypeOf([]));", "protoof"],
+  ["protoof-array-via-object", "return String(Object.prototype.isPrototypeOf([]));", "protoof"],
+  ["protoof-array-not-unrelated", "return String(Array.prototype.isPrototypeOf({}));", "protoof"],
+  ["protoof-function", "return String(Object.getPrototypeOf(function () {}) === Function.prototype);", "protoof"],
+  ["protoof-object-terminates", "return String(Object.getPrototypeOf(Object.prototype));", "protoof"],
+  ["protoof-array-proto-chains-to-object", "return String(Object.getPrototypeOf(Array.prototype) === Object.prototype);", "protoof"],
+  ["protoof-primitive-is-false", "return String(String.prototype.isPrototypeOf('a'));", "protoof"],
+  ["protoof-user-instance", "function F() {} var o = new F(); return String(F.prototype.isPrototypeOf(o)) + ',' + String(Object.prototype.isPrototypeOf(o));", "protoof"],
+
+  // --- guest overrides of built-in prototype methods -------------------------
+  // A method the guest puts on a built-in prototype wins over the registry, on
+  // the direct call path as well as through ToPrimitive. These probes RESTORE
+  // what they replace: the suite shares one engine, so a destructive probe would
+  // poison every probe after it.
+  ["ovr-array-tostring-brands", "var saved = Array.prototype.toString; Array.prototype.toString = Object.prototype.toString; var r = [0, 1, 2].toString(); Array.prototype.toString = saved; return r;", "override"],
+  ["ovr-array-join", "var saved = Array.prototype.join; Array.prototype.join = function () { return 'J'; }; var r = [1, 2].join(); Array.prototype.join = saved; return r;", "override"],
+  ["ovr-string-charat", "var saved = String.prototype.charAt; String.prototype.charAt = function () { return 'X'; }; var r = 'abc'.charAt(0); String.prototype.charAt = saved; return r;", "override"],
+  ["ovr-number-tofixed", "var saved = Number.prototype.toFixed; Number.prototype.toFixed = function () { return 'N'; }; var r = (1.5).toFixed(1); Number.prototype.toFixed = saved; return r;", "override"],
+  ["ovr-restored-array-join", "return [1, 2].join('-');", "override"],
+  ["ovr-restored-string-charat", "return 'abc'.charAt(1);", "override"],
+  ["ovr-restored-array-tostring", "return [1, 2].toString();", "override"],
+
+  // --- descriptors reached through accessors and prototypes -----------------
+  // Reading a field OF a descriptor is a full [[Get]]: it runs an accessor and
+  // it walks the prototype chain, and the nearest holder wins whichever kind it
+  // is -- an OWN data property beats an INHERITED accessor.
+  ["desc-value-via-getter", "var attr = {}; Object.defineProperty(attr, 'value', { get: function () { return 'v'; } }); var o = {}; Object.defineProperty(o, 'p', attr); return o.p;", "descriptors2"],
+  ["desc-writable-via-getter", "var attr = {}; Object.defineProperty(attr, 'writable', { get: function () { return true; } }); var o = {}; Object.defineProperty(o, 'p', attr); o.p = 'w'; return o.p;", "descriptors2"],
+  ["desc-inherited-field", "var proto = { value: 'inh' }; var F = function () {}; F.prototype = proto; var o = {}; Object.defineProperty(o, 'p', new F()); return o.p;", "descriptors2"],
+  ["desc-own-shadows-inherited-accessor", "var proto = {}; Object.defineProperty(proto, 'value', { get: function () { return 'inh'; } }); var F = function () {}; F.prototype = proto; var c = new F(); Object.defineProperty(c, 'value', { value: 'own' }); var o = {}; Object.defineProperty(o, 'p', c); return o.p;", "descriptors2"],
+  ["read-own-data-beats-inherited-accessor", "var p = {}; Object.defineProperty(p, 'v', { get: function () { return 'inh'; } }); var F = function () {}; F.prototype = p; var c = new F(); Object.defineProperty(c, 'v', { value: 'own' }); return c.v;", "descriptors2"],
+  ["read-set-only-accessor-is-undefined", "var p = {}; Object.defineProperty(p, 'v', { get: function () { return 'inh'; } }); var F = function () {}; F.prototype = p; var c = new F(); Object.defineProperty(c, 'v', { set: function () {} }); return typeof c.v;", "descriptors2"],
+
+  // Attributes the descriptor omits are KEPT on an existing property and
+  // default to false on a new one; changing a property's kind drops the other
+  // kind's state.
+  ["desc-keeps-omitted-attributes", "var o = {}; Object.defineProperty(o, 'p', { value: 1, writable: true, enumerable: true, configurable: true }); Object.defineProperty(o, 'p', { value: 2 }); var d = Object.getOwnPropertyDescriptor(o, 'p'); return d.value + ',' + d.writable + ',' + d.enumerable + ',' + d.configurable;", "descriptors2"],
+  ["desc-new-defaults-false", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); var d = Object.getOwnPropertyDescriptor(o, 'p'); return d.writable + ',' + d.enumerable + ',' + d.configurable;", "descriptors2"],
+  ["desc-data-to-accessor", "var o = {}; o.foo = 101; Object.defineProperty(o, 'foo', { get: function () { return 1; } }); var d = Object.getOwnPropertyDescriptor(o, 'foo'); return d.enumerable + ',' + d.configurable + ',' + d.hasOwnProperty('value');", "descriptors2"],
+  ["desc-undefined-getter-still-accessor", "var o = {}; Object.defineProperty(o, 'p', { get: undefined, configurable: true }); var d = Object.getOwnPropertyDescriptor(o, 'p'); return typeof d.get + ',' + d.hasOwnProperty('value');", "descriptors2"],
+  ["desc-empty-descriptor-defines", "var o = {}; Object.defineProperty(o, 'p', {}); return String(o.hasOwnProperty('p'));", "descriptors2"],
+  ["desc-accessor-listed-by-keys", "var o = {}; Object.defineProperty(o, 'p', { get: function () { return 1; }, enumerable: true }); return String(Object.keys(o));", "descriptors2"],
+  ["desc-create-from-accessor-map", "var props = {}; Object.defineProperty(props, 'prop', { get: function () { return {}; }, enumerable: true }); var n = Object.create({}, props); return String(n.hasOwnProperty('prop'));", "descriptors2"],
+  ["desc-builtin-prototype-attrs", "var d = Object.getOwnPropertyDescriptor(Object, 'prototype'); return d.writable + ',' + d.enumerable + ',' + d.configurable;", "descriptors2"],
+
+  // --- array defineProperty --------------------------------------------------
+  ["arrdef-length-truncates", "var a = [0, 1, 2]; Object.defineProperty(a, 'length', { value: 1 }); return a.toString();", "descriptors2"],
+  ["arrdef-length-null-is-zero", "var a = [0, 1]; Object.defineProperty(a, 'length', { value: null }); return a.length;", "descriptors2"],
+  ["arrdef-length-undefined-throws", "var a = []; try { Object.defineProperty(a, 'length', { value: undefined }); return 'no-throw'; } catch (e) { return e.name; }", "descriptors2"],
+  ["arrdef-index-extends-length", "var a = []; Object.defineProperty(a, '2', { value: 'x' }); return a.length + ',' + String(a[2]);", "descriptors2"],
+  ["arrdef-index-accessor", "var a = []; Object.defineProperty(a, '0', { get: function () { return 9; } }); return String(a[0]);", "descriptors2"],
+
+  // --- errors have a real prototype chain ------------------------------------
+  ["errproto-instance-links", "return String(Object.getPrototypeOf(new Error()) === Error.prototype);", "errproto"],
+  ["errproto-inherits-property", "var saved = Error.prototype.value; Error.prototype.value = 'E'; var r = String(new Error().value); Error.prototype.value = saved; return r;", "errproto"],
+  ["errproto-subclass-chain", "return String(Object.getPrototypeOf(TypeError.prototype) === Error.prototype);", "errproto"],
+  ["errproto-isprototypeof", "return String(Error.prototype.isPrototypeOf(new TypeError()));", "errproto"],
+
+  // --- built-in constructors as values ---------------------------------------
+  ["ctorval-number-bind", "var bnc = Number.bind(null); return bnc(42);", "ctorvalue"],
+  ["ctorval-function-call", "var f = Function.call(null, 'return 1;'); return typeof f;", "ctorvalue"],
+  ["ctorval-function-apply", "var f = Function.apply(null, ['return 2;']); return f();", "ctorvalue"],
+  ["ctorval-string-as-callback", "return [1, 2].map(String).join('|');", "ctorvalue"],
+  ["ctorval-array-apply", "return Array.apply(null, [1, 2, 3]).length;", "ctorvalue"],
+
+  // --- sloppy-mode this coercion ---------------------------------------------
+  ["thiscoerce-apply-no-arg", "var f = Function('this.__probeField = 42; return 1;'); f.apply(); return typeof globalThis.__probeField;", "thiscoerce"],
+  ["thiscoerce-primitive-boxed", "function f() { return typeof this; } return f.call('s');", "thiscoerce"],
+  ["thiscoerce-strict-keeps-undefined", "function f() { 'use strict'; return typeof this; } return f.call(undefined);", "thiscoerce"],
+  ["thiscoerce-apply-arraylike-function", "function f() { return this instanceof String; } return String(f.apply('', Array));", "thiscoerce"],
+  ["fnctor-tostring-arg-coerced", "try { new Function({ toString: function () { throw 7; } }); return 'no-throw'; } catch (e) { return String(e); }", "thiscoerce"],
+
+  // --- Object.prototype is reachable as values -------------------------------
+  ["objproto-typeof-hasownproperty", "return typeof Object.prototype.hasOwnProperty;", "objproto"],
+  ["objproto-typeof-propertyisenumerable", "return typeof Object.prototype.propertyIsEnumerable;", "objproto"],
+  ["objproto-typeof-isprototypeof", "return typeof Object.prototype.isPrototypeOf;", "objproto"],
+  ["objproto-typeof-tolocalestring", "return typeof Object.prototype.toLocaleString;", "objproto"],
+  ["objproto-borrowed-hasownproperty", "var o = { a: 1 }; var f = Object.prototype.hasOwnProperty; return String(f.call(o, 'a')) + ',' + String(f.call(o, 'b'));", "objproto"],
+  ["objproto-borrowed-propertyisenumerable", "var o = {}; Object.defineProperty(o, 'p', { value: 1 }); var f = Object.prototype.propertyIsEnumerable; return String(f.call(o, 'p'));", "objproto"],
+  ["objproto-tolocalestring-defers", "return ({}).toLocaleString();", "objproto"],
+
+  // --- integrity of primitives ----------------------------------------------
+  ["frozen-undefined", "return String(Object.isFrozen(undefined));", "objproto"],
+  ["frozen-number", "return String(Object.isFrozen(1));", "objproto"],
+  ["sealed-string", "return String(Object.isSealed('a'));", "objproto"],
+  ["extensible-number", "return String(Object.isExtensible(1));", "objproto"],
+  ["frozen-plain-object", "return String(Object.isFrozen({}));", "objproto"],
+  ["frozen-after-freeze", "var o = {}; Object.freeze(o); return String(Object.isFrozen(o));", "objproto"],
+  ["extensible-array", "return String(Object.isExtensible([]));", "objproto"],
+
+  // --- Function.prototype and the synthesised function properties -----------
+  ["fnproto-is-callable", "return String(Function.prototype());", "fnprops2"],
+  ["fnproto-ignores-arguments", "return String(Function.prototype(1, 2));", "fnprops2"],
+  ["fnprops-length-deletable", "var f = new Function('a,b,c', 'return 1;'); return String(f.hasOwnProperty('length')) + ',' + String(delete f.length) + ',' + String(f.hasOwnProperty('length'));", "fnprops2"],
+  ["fnprops-prototype-not-configurable", "function g() {} delete g.prototype; return String(g.hasOwnProperty('prototype'));", "fnprops2"],
+  ["fnprops-length-still-works", "function g(a, b) {} return g.length;", "fnprops2"],
+  ["fnprops-missing-prop-on-number", "return typeof (1).nope;", "fnprops2"],
+  ["fnprops-missing-prop-on-string", "return typeof 'a'.nope;", "fnprops2"],
+  ["fnprops-apply-boxes-primitive", "var obj = 1; var f = Function('this.touched = true; return this;'); var r = f.apply(obj); return typeof obj.touched + ',' + String(r.touched);", "fnprops2"],
+  ["desc-accessor-set-undefined-removes", "var o = {}; Object.defineProperty(o, 'foo', { get: function () { return 10; }, set: function () {}, configurable: true }); Object.defineProperty(o, 'foo', { set: undefined }); var d = Object.getOwnPropertyDescriptor(o, 'foo'); return typeof d.set + ',' + typeof d.get;", "descriptors2"],
+  ["defprops-primitive-properties", "var o = {}; return String(Object.defineProperties(o, false) === o);", "descriptors2"],
+  ["arrdef-length-nonwritable", "var a = []; Object.defineProperty(a, 'length', { writable: false }); try { Object.defineProperty(a, 'length', { value: 12 }); return 'no-throw'; } catch (e) { return e.name; }", "descriptors2"],
+  ["bind-poisons-caller", "function foo() {} var b = foo.bind({}); try { b.caller; return 'no-throw'; } catch (e) { return e.name; }", "fnprops2"],
+  ["bind-poisons-arguments", "function foo() {} var b = foo.bind({}); try { b.arguments; return 'no-throw'; } catch (e) { return e.name; }", "fnprops2"],
+  ["bind-has-no-prototype", "var foo = function () {}; var b = foo.bind({}); return String(b.hasOwnProperty('prototype'));", "fnprops2"],
+  ["bind-target-keeps-prototype", "var foo = function () {}; foo.bind({}); return String(foo.hasOwnProperty('prototype'));", "fnprops2"],
+
+  // --- function source text -------------------------------------------------
+  // Function.prototype.toString returns the function's own source, which is
+  // what makes `f + 1` and `eval("(" + f + ")")` behave. It needs the parser to
+  // record where each function node ends.
+  ["fnsrc-decl", "function f1() { return 1; }\nreturn f1.toString();", "fnsrc"],
+  ["fnsrc-expr", "var g = function (a, b) { return a + b; };\nreturn g.toString();", "fnsrc"],
+  ["fnsrc-arrow-block", "var h = (x) => { return x * 2; };\nreturn h.toString();", "fnsrc"],
+  ["fnsrc-arrow-concise", "var h = (x) => x * 2;\nreturn h.toString();", "fnsrc"],
+  ["fnsrc-method", "var o = { m: function () { return 2; } };\nreturn o.m.toString();", "fnsrc"],
+  ["fnsrc-concat", "function f1() {}\nreturn (f1 + 1) === (f1.toString() + 1);", "fnsrc"],
+  ["fnsrc-string-of", "function f1(a) { return a; }\nreturn String(f1);", "fnsrc"],
+  ["fnsrc-roundtrip", "function f1() { return 41; }\nvar back = eval('(' + f1.toString() + ')');\nreturn back() + 1;", "fnsrc"],
+  ["fnsrc-from-eval", "var q = eval('(function q() { return 7; })');\nreturn q.toString();", "fnsrc"],
+  ["fnsrc-nested-from-eval", "var mk = eval('(function () { return function inner() { return 3; }; })');\nreturn mk().toString();", "fnsrc"],
+  ["fnsrc-builtin-native", "return Object.keys.toString().indexOf('native code') > 0;", "fnsrc"],
+  ["fnsrc-fn-ctor-name", "return Function('a', 'return a').toString().indexOf('anonymous') > 0;", "fnsrc"],
+
+  // --- computed property access ---------------------------------------------
+  // A computed key is the same reference a written one is: same accessor, same
+  // strict-mode refusal. Only a numeric index into a real array differs.
+  ["computed-getter", "var o = {}; Object.defineProperty(o, 'bar', { get: function () { return 42; } }); return o['bar'];", "accessors"],
+  ["computed-getter-this", "var o = { n: 5 }; Object.defineProperty(o, 'bar', { get: function () { return this.n; } }); return o['bar'];", "accessors"],
+  ["computed-getter-numeric-key", "var o = {}; Object.defineProperty(o, '0', { get: function () { return 7; } }); return o[0];", "accessors"],
+  ["computed-setter", "var o = {}; Object.defineProperty(o, 'bar', { set: function (x) { this.seen = x; } }); o['bar'] = 9; return o.seen;", "accessors"],
+  ["computed-setter-not-shadowed", "var o = {}; Object.defineProperty(o, 'bar', { get: function () { return 1; }, set: function () {} }); o['bar'] = 9; return o.bar;", "accessors"],
+  ["computed-arg-order", "var o = {}; Object.defineProperty(o, 'bar', { get: function () { this.ran = true; return 42; } }); try { o.nope(o['bar']); } catch (e) {} return o.ran;", "accessors"],
+  ["computed-array-index-still-element", "var a = [1, 2, 3]; a[1] = 9; return a[1];", "accessors"],
+  ["computed-strict-refusal", "'use strict'; var o = {}; Object.defineProperty(o, 'p', { value: 1 }); try { o['p'] = 2; return 'no-throw'; } catch (e) { return e.name; }", "accessors"],
+
+  // --- ToPrimitive ordering -------------------------------------------------
+  // valueOf then toString for a number hint, the other way for a string hint --
+  // for arrays and functions and boxed primitives alike, not objects only.
+  ["toprim-fn-valueof", "function f() {} f.valueOf = function () { return 5; }; return f * 2;", "toprimitive"],
+  ["toprim-fn-tostring-object", "function f() {} f.valueOf = function () { return true; }; f.toString = function () { return {}; }; return String(f);", "toprimitive"],
+  ["toprim-array-valueof", "var a = [1, 2]; a.valueOf = function () { return 5; }; return a * 2;", "toprimitive"],
+  ["toprim-array-default-join", "return String([1, 2, 3]);", "toprimitive"],
+  ["toprim-boxed-string-override", "var s = new String('ABCDEF'); s.valueOf = function () { return 'ed'; }; s.toString = function () { return 'ed'; }; return s == 'ed';", "toprimitive"],
+  ["toprim-boxed-length-unchanged", "var s = new String('ABCDEF'); s.valueOf = function () { return 'ed'; }; return s.length;", "toprimitive"],
+  ["toprim-boxed-default", "return String(new String('abc')) + (1 + new Number(4));", "toprimitive"],
+  ["toprim-string-proto-empty", "return String.prototype == '';", "toprimitive"],
+  ["toprim-object-brand", "return String({});", "toprimitive"],
+  ["toprim-object-valueof-skipped-for-string", "return String({ valueOf: function () { return 7; } });", "toprimitive"],
+  ["toprim-both-objects-throws", "var o = { valueOf: function () { return {}; }, toString: function () { return {}; } }; try { return String(o); } catch (e) { return e.name; }", "toprimitive"],
+  // A built-in borrowed onto an object is the one ToPrimitive must RUN, not the
+  // default the receiver's own kind would use.
+  ["toprim-borrowed-fnproto-tostring", "var o = { toString: Function.prototype.toString }; try { return String(o); } catch (e) { return e.name; }", "toprimitive"],
+  ["toprim-borrowed-numproto-tostring", "var o = { toString: Number.prototype.toString }; try { return String(o); } catch (e) { return e.name; }", "toprimitive"],
+  ["toprim-own-objproto-tostring-still-default", "var o = { toString: Object.prototype.toString }; return String(o);", "toprimitive"],
+
+  // --- Object.prototype.valueOf is ToObject, and a built-in never gets the
+  // sloppy-mode global `this` an ordinary function does. -----------------------
+  ["valueof-boxes-boolean", "return typeof Object.prototype.valueOf.call(true);", "objvalueof"],
+  ["valueof-boxes-number", "return typeof Object.prototype.valueOf.call(1);", "objvalueof"],
+  ["valueof-identity-on-object", "var o = {}; return String(Object.prototype.valueOf.call(o) === o);", "objvalueof"],
+  ["valueof-undefined-throws", "try { Object.prototype.valueOf.call(undefined); return 'no-throw'; } catch (e) { return e.name; }", "objvalueof"],
+  ["valueof-null-throws", "try { Object.prototype.valueOf.call(null); return 'no-throw'; } catch (e) { return e.name; }", "objvalueof"],
+  ["valueof-unbound-throws", "var vo = Object.prototype.valueOf; try { vo(); return 'no-throw'; } catch (e) { return e.name; }", "objvalueof"],
+  ["valueof-comma-unbound-throws", "try { (1, Object.prototype.valueOf)(); return 'no-throw'; } catch (e) { return e.name; }", "objvalueof"],
+  ["valueof-wrapper-still-unwraps", "return String(new Number(7).valueOf());", "objvalueof"],
+
+  // --- `==` between two object-like values is identity, functions included ---
+  ["loose-eq-function-self", "var f = function () {}; return String(f == f);", "objvalueof"],
+  ["loose-eq-function-alias", "var f = function () {}; var g = f; return String(f == g);", "objvalueof"],
+  ["loose-eq-function-distinct", "return String((function () {}) == (function () {}));", "objvalueof"],
+  ["loose-eq-getter-roundtrip", "var o = { get foo() { return 1; } }; var d1 = Object.getOwnPropertyDescriptor(o, 'foo'); var d2 = Object.getOwnPropertyDescriptor(o, 'foo'); return String(d1.get == d2.get);", "objvalueof"],
+
+  // --- `new` through an expression, and bind currying [[Construct]] ----------
+  ["new-callexpression-callee", "var obj = new (Function('function f(){this.p1=1;};return f').apply()); return obj.p1;", "newcallee"],
+  ["new-bound-builtin-date", "function construct(f, args) { var bound = Function.prototype.bind.apply(f, [null].concat(args)); return new bound(); } return Object.prototype.toString.call(construct(Date, [1957, 4, 27]));", "newcallee"],
+  ["new-bound-this-ignored", "var obj = { p: 1 }; var f = function () { return Object.prototype.toString.call(this); }; var B = Function.prototype.bind.call(f, obj); var seen = ''; var g = function () { seen = String(this === obj); }; var C = Function.prototype.bind.call(g, obj); new C(); return seen;", "newcallee"],
+  ["new-instance-inherits-object-proto", "Object.defineProperty(Object.prototype, 'vtProbe', { value: 'VT', configurable: true }); function F() {} var out = String(new F().vtProbe); delete Object.prototype.vtProbe; return out;", "newcallee"],
+  ["new-bound-instance-inherits", "Object.defineProperty(Object.prototype, 'vtProbe2', { value: 'VT', configurable: true }); var F = function () {}; var B = F.bind({}); var out = String(new B().vtProbe2); delete Object.prototype.vtProbe2; return out;", "newcallee"],
+
+  // --- a registry method deleted off its prototype stays deleted -------------
+  ["delete-objproto-tostring-typeof", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out = typeof Object.prototype.toString; Object.defineProperty(Object.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return out;", "protodelete"],
+  ["delete-objproto-tostring-throws", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out; try { Object.prototype.toString(); out = 'no-throw'; } catch (e) { out = e.name; } Object.defineProperty(Object.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return out;", "protodelete"],
+  ["delete-objproto-tostring-hides-from-object", "var saved = Object.prototype.toString; delete Object.prototype.toString; var out = typeof ({}).toString; Object.defineProperty(Object.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return out;", "protodelete"],
+  ["delete-restore-brings-back", "var saved = Object.prototype.toString; delete Object.prototype.toString; Object.defineProperty(Object.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return ({}).toString();", "protodelete"],
+  ["delete-kindproto-falls-back", "var saved = Number.prototype.toString; delete Number.prototype.toString; var out = new Number().toString(); Object.defineProperty(Number.prototype, 'toString', { value: saved, writable: true, enumerable: false, configurable: true }); return out;", "protodelete"],
+
+  // --- RegExp.prototype publishes source/global/ignoreCase/multiline as
+  // accessors, which is what getOwnPropertyDescriptor is asked about. ---------
+  ["regexdesc-source-is-accessor", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'source'); return String(d.hasOwnProperty('writable')) + ',' + typeof d.get + ',' + String(d.set) + ',' + String(d.enumerable) + ',' + String(d.configurable);", "regexdesc"],
+  ["regexdesc-global-is-accessor", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'global'); return typeof d.get + ',' + String(d.enumerable) + ',' + String(d.configurable);", "regexdesc"],
+  ["regexdesc-ignorecase-is-accessor", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'ignoreCase'); return typeof d.get + ',' + String(d.set);", "regexdesc"],
+  ["regexdesc-multiline-is-accessor", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'multiline'); return typeof d.get + ',' + String(d.set);", "regexdesc"],
+  ["regexdesc-getter-reads-instance", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'source'); return d.get.call(/ab+c/i);", "regexdesc"],
+  ["regexdesc-flag-getter-reads-instance", "var d = Object.getOwnPropertyDescriptor(RegExp.prototype, 'ignoreCase'); return String(d.get.call(/ab/i)) + ',' + String(d.get.call(/ab/));", "regexdesc"],
+  ["regex-source-still-reads", "return /ab+c/i.source;", "regexdesc"],
+
+  // --- a missing separator in a literal is a SyntaxError ---------------------
+  ["fnctor-object-body-syntaxerror", "try { new Function({}); return 'no-throw'; } catch (e) { return e.name; }", "litsep"],
+  ["fnctor-array-missing-comma", "try { new Function('[object Object]'); return 'no-throw'; } catch (e) { return e.name; }", "litsep"],
+  ["fnctor-object-missing-comma", "try { new Function('({a: 1 b: 2})'); return 'no-throw'; } catch (e) { return e.name; }", "litsep"],
+  ["fnctor-good-body-still-works", "var f = new Function('return [1, 2];'); return f().join('|');", "litsep"],
+  ["accessor-keyword-name", "var o = { get null() { return 1; }, set true(v) {} }; return String(o['null']);", "litsep"],
+  ["accessor-string-name", "var o = { get 'a'() { return 2; } }; return String(o.a);", "litsep"],
+  ["accessor-number-name", "var o = { get 10() { return 3; } }; return String(o[10]);", "litsep"],
+  ["object-get-as-plain-key", "var o = { get: 1, set: 2 }; return String(o.get) + ',' + String(o.set);", "litsep"],
+
+  // --- labelled statements, and finally on an abrupt completion --------------
+  ["label-break-outer", "var out = ''; outer: for (var i = 0; i < 3; i++) { for (var j = 0; j < 3; j++) { if (j === 1) { break outer; } out += '' + i + j; } } return out;", "labels"],
+  ["label-continue-outer", "var out = ''; outer: for (var i = 0; i < 3; i++) { for (var j = 0; j < 3; j++) { if (j === 1) { continue outer; } out += '' + i + j; } } return out;", "labels"],
+  ["label-break-block", "var out = ''; blk: { out += 'a'; break blk; out += 'b'; } return out;", "labels"],
+  ["label-break-own-loop", "var out = ''; lbl: for (var i = 0; i < 4; i++) { if (i === 2) { break lbl; } out += i; } return out;", "labels"],
+  ["label-continue-own-loop", "var out = ''; lbl: for (var i = 0; i < 4; i++) { if (i === 2) { continue lbl; } out += i; } return out;", "labels"],
+  ["label-chain", "var out = ''; a: b: for (var i = 0; i < 3; i++) { if (i === 1) { break a; } out += i; } return out;", "labels"],
+  ["label-while", "var out = ''; var i = 0; w: while (i < 5) { i++; if (i === 2) { continue w; } if (i === 4) { break w; } out += i; } return out;", "labels"],
+  ["label-do-while", "var out = ''; var i = 0; d: do { i++; if (i === 2) { break d; } out += i; } while (i < 5); return out;", "labels"],
+  ["label-forin", "var o = { a: 1, b: 2, c: 3 }; var out = ''; L: for (var k in o) { if (k === 'b') { continue L; } out += k; } return out;", "labels"],
+  ["label-switch-in-loop", "var out = ''; L: for (var i = 0; i < 4; i++) { switch (i) { case 2: break L; default: out += i; } } return out;", "labels"],
+  ["unlabelled-break-still-inner", "var out = ''; outer: for (var i = 0; i < 2; i++) { for (var j = 0; j < 3; j++) { if (j === 1) { break; } out += '' + i + j; } } return out;", "labels"],
+
+  ["finally-on-return", "var g = ''; function f() { try { return 1; } finally { g = 'F'; } } var v = f(); return g + '/' + v;", "finally"],
+  ["finally-on-break", "var s = ''; for (var i = 0; i < 3; i++) { try { s += 'T'; break; } finally { s += 'F'; } } return s;", "finally"],
+  ["finally-on-continue", "var s = ''; for (var i = 0; i < 2; i++) { try { s += 'T'; continue; } finally { s += 'F'; } } return s;", "finally"],
+  ["finally-on-throw", "var s = ''; try { try { s += 'T'; throw 1; } finally { s += 'F'; } } catch (e) { s += 'C'; } return s;", "finally"],
+  ["finally-return-overrides-return", "function f() { try { return 1; } finally { return 2; } } return f();", "finally"],
+  ["finally-return-overrides-throw", "function f() { try { throw 1; } finally { return 2; } } return f();", "finally"],
+  ["finally-break-swallows-throw", "var s = ''; for (var i = 0; i < 3; i++) { try { throw 1; } finally { break; } } return 'ok' + i;", "finally"],
+  ["finally-catch-and-finally-on-return", "var g = ''; function f() { try { return 1; } catch (e) {} finally { g = 'F'; } } var v = f(); return g + '/' + v;", "finally"],
+  ["finally-normal-still-runs", "var s = ''; try { s += 'T'; } finally { s += 'F'; } return s;", "finally"],
+
+  // --- for-clause forms, and delete of a NAME --------------------------------
+  ["for-update-comma", "var s = ''; for (var i = 0, j = 5; i < 3; i++, j--) { s += '' + i + j; } return s;", "forclause"],
+  ["for-expression-init", "var s = ''; var i; for (i = 0; i < 3; i++) { s += '' + i; } return s;", "forclause"],
+  ["for-init-side-effect", "var log = ''; var i; for (i = (log += 'I', 0); i < 2; i++) { log += 'B'; } return log;", "forclause"],
+  ["forin-delete-skips", "var o = { p1: 1, p2: 2, p3: 3 }; var s = ''; for (var k in o) { delete o.p3; s += k; } return s;", "forclause"],
+  ["delete-with-property", "var o = { p: 1 }; var d; with (o) { d = delete p; } return String(d) + '/' + String(o.p);", "forclause"],
+  ["delete-var-is-false", "var v = 1; return String(delete v) + '/' + String(v);", "forclause"],
+  ["delete-function-is-false", "function fn() {} return String(delete fn) + '/' + typeof fn;", "forclause"],
+  ["delete-implicit-global", "impl = 5; return String(delete impl) + '/' + String(typeof impl);", "forclause"],
+  ["delete-unresolvable-is-true", "return String(delete nosuchnameanywhere);", "forclause"],
+  ["with-var-writes-property", "var o = { value: 'V' }; function f() { with (o) { var value = 'new'; } } f(); return String(o.value) + '/' + String(typeof value);", "forclause"],
+  ["with-var-leaves-binding-undefined", "var o = { value: 'V' }; function f() { with (o) { var value = 'n'; } return typeof value; } var r = f(); return r + '/' + String(o.value);", "forclause"],
+
+  // --- eval's completion value is the last non-empty Statement completion ----
+  ["completion-block", "return String(eval('1; 2; 3;'));", "completion"],
+  ["completion-if", "return String(eval('if (true) { 42; }'));", "completion"],
+  ["completion-for", "return String(eval('for (var q = 0; q < 3; q++) { q * 2; }'));", "completion"],
+  ["completion-while", "return String(eval('var w = 0; while (w < 3) { w++; w * 10; }'));", "completion"],
+  ["completion-do-while", "var n = 0; return String(eval('do { n++; n; } while (n < 3)'));", "completion"],
+  ["completion-for-in", "var s = ''; var h; var r = eval(\"for (i in (h = {2: 'b', 1: 'a'})) s += h[i]\"); return String(r) + '|' + s;", "completion"],
+  ["completion-var-is-empty", "return String(eval('var zz = 1;'));", "completion"],
+  ["completion-var-keeps-previous", "return String(eval('7; var zz2 = 1;'));", "completion"],
+  ["completion-try", "return String(eval('try { 5; } finally { }'));", "completion"],
+  ["completion-switch", "return String(eval('switch (1) { case 1: 9; }'));", "completion"],
+
+  // --- for-in over an existing binding, and localeCompare's absent argument --
+  ["forin-existing-binding", "var o = { x: 1, y: 2 }; var k; var out = ''; for (k in o) { out += k; } return out + '/' + k;", "forclause"],
+  ["forin-nested-two-deep", "var m = { a: { aa: 1, ab: 2 }, b: { ba: 1, bb: 2 } }; var out = ''; for (var k in m) { for (var i in m[k]) { out += '' + i + m[k][i]; } } return out;", "forclause"],
+  ["localecompare-missing-arg", "return String('a'.localeCompare() === 'a'.localeCompare(undefined));", "forclause"],
+  ["localecompare-undefined-is-text", "return String('a'.localeCompare(undefined) === 'a'.localeCompare('undefined'));", "forclause"],
+
+  // --- generic Array.prototype methods over an array-LIKE receiver ----------
+  ["arraylike-filter-skips-absent", "var obj = { 0: 0, 2: 2, length: 3 }; var n = Array.prototype.filter.call(obj, function () { return true; }); return String(n.length) + '|' + n.join(',');", "arraylike"],
+  ["arraylike-filter-sees-inherited", "Object.defineProperty(Object.prototype, '1', { value: 1, configurable: true }); var obj = { 2: 2, length: 3 }; var n = Array.prototype.filter.call(obj, function () { return true; }); delete Object.prototype[1]; return String(n.length) + '|' + n.join(',');", "arraylike"],
+  ["arraylike-foreach-skips-absent", "var obj = { 0: 'a', 2: 'c', length: 3 }; var s = ''; Array.prototype.forEach.call(obj, function (v, i) { s += i + v; }); return s;", "arraylike"],
+  ["arraylike-length-getter-runs", "var acc = false; var obj = { 0: 1 }; Object.defineProperty(obj, 'length', { get: function () { acc = true; return 1; } }); Array.prototype.every.call(obj, function () { return true; }); return String(acc);", "arraylike"],
+  ["arraylike-length-getter-throws-first", "var obj = { 0: 11, 1: 12 }; Object.defineProperty(obj, 'length', { get: function () { throw new TypeError('LEN'); }, configurable: true }); try { Array.prototype.every.call(obj, undefined); return 'no-throw'; } catch (e) { return e.name + ':' + e.message; }", "arraylike"],
+  ["arraylike-index-getter-runs", "var acc = false; var obj = { length: 2 }; Object.defineProperty(obj, '0', { get: function () { acc = true; return 1; }, configurable: true }); Array.prototype.every.call(obj, function () { return true; }); return String(acc);", "arraylike"],
+  ["array-filter-sees-shrink", "var srcArr = [1, 2, 3, 4, 6]; function cb() { srcArr.length = 2; return true; } var r = srcArr.filter(cb); return String(r.length);", "arraylike"],
+  ["array-tolocalestring", "var n = 0; var obj = { toLocaleString: function () { n++; return 'x'; } }; var a = [obj, obj]; var s = a.toLocaleString(); return String(n) + '|' + s;", "arraylike"],
+  ["array-tolocalestring-nulls", "return [1, null, undefined, 2].toLocaleString();", "arraylike"],
+  ["concat-nonarray-receiver-is-one-element", "Object.defineProperty(Object.prototype, 'length', { value: 2, configurable: true }); Object.defineProperty(Object.prototype, 'concat', { value: Array.prototype.concat, configurable: true }); var x = { 0: 0 }; var arr = x.concat(); var out = String(arr.length) + '|' + String(arr[0] === x); delete Object.prototype.length; delete Object.prototype.concat; return out;", "arraylike"],
+  ["concat-copies-inherited-index", "Object.defineProperty(Array.prototype, '1', { value: 1, configurable: true }); var x = [0]; x.length = 2; var arr = x.concat(); var out = String(arr[0]) + ',' + String(arr[1]) + ',' + String(arr.hasOwnProperty('1')); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
+  ["array-hole-reads-prototype", "Object.defineProperty(Array.prototype, '1', { value: 7, configurable: true }); var x = [0]; x.length = 2; var out = String(x[1]); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
+
+  // --- arguments.callee, and its poisoned strict-mode form -------------------
+  ["callee-identity", "function foo() { return arguments.callee === foo; } return String(foo());", "callee"],
+  ["callee-recursion", "var f = function (n) { if (n <= 1) { return 1; } return n * arguments.callee(n - 1); }; return f(4);", "callee"],
+  ["callee-attributes", "function foo() { return Object.getOwnPropertyDescriptor(arguments, 'callee'); } var d = foo(); return String(d.configurable) + '/' + String(d.enumerable) + '/' + String(d.writable) + '/' + String(d.hasOwnProperty('get'));", "callee"],
+  ["callee-not-enumerable", "function foo() { var ks = []; for (var k in arguments) { ks.push(k); } return ks.join(','); } return foo(1, 2);", "callee"],
+  ["callee-strict-read-throws", "return (function () { 'use strict'; function f() { return arguments.callee; } try { f(); return 'no-throw'; } catch (e) { return e.name; } })();", "callee"],
+  ["callee-strict-write-throws", "return (function () { 'use strict'; var a = (function () { return arguments; })(); try { a.callee = {}; return 'no-throw'; } catch (e) { return e.name; } })();", "callee"],
+  ["callee-strict-descriptor", "return (function () { 'use strict'; function f() { return Object.getOwnPropertyDescriptor(arguments, 'callee'); } var d = f(); return String(d.configurable) + '/' + String(d.enumerable) + '/' + String(d.hasOwnProperty('value')) + '/' + String(d.hasOwnProperty('get')) + '/' + String(d.hasOwnProperty('set')); })();", "callee"],
+
+  // --- ++/-- coerce, bind's poisoning is not its strictness ------------------
+  ["update-string-property-is-nan", "var m = { foo: 'bar' }; m.foo++; return String(m.foo);", "update"],
+  ["update-numeric-string-property", "var m = { s: '5' }; m.s++; return m.s;", "update"],
+  ["update-postfix-returns-old", "var m = { n: 1 }; var r = m.n++; return String(r) + '/' + String(m.n);", "update"],
+  ["update-prefix-returns-new", "var m = { n: 1 }; var r = ++m.n; return String(r) + '/' + String(m.n);", "update"],
+  ["update-array-element", "var a = [1, 2]; a[0]++; return a[0];", "update"],
+  ["bind-does-not-make-target-strict", "var glob = this; function f() { return this === glob; } return String((function () { 'use strict'; return f.bind()(); })());", "update"],
+  ["bind-still-poisons-caller", "function foo() {} var b = foo.bind({}); try { b.caller; return 'no-throw'; } catch (e) { return e.name; }", "update"],
+  ["var-without-init-keeps-function", "function f2() { var x; return typeof x; function x() { return 7; } } return f2();", "update"],
+  ["var-without-init-is-undefined", "function g() { var y; return typeof y; } return g();", "update"],
+
+  // --- a keyword's TEXT in a string literal is not the keyword ---------------
+  ["strlit-await", "var x = 'await'; return x;", "kwtext"],
+  ["strlit-delete", "var x = 'delete'; return x;", "kwtext"],
+  ["strlit-typeof", "var x = 'typeof'; return x;", "kwtext"],
+  ["strlit-void", "var x = 'void'; return x;", "kwtext"],
+  ["strlit-yield", "var x = 'yield'; return x;", "kwtext"],
+  ["strlit-as-argument", "function f(a) { return a; } return f('await') + f('delete');", "kwtext"],
+  ["keyword-keys-and-values", "var o = { await: 'await', delete: 'delete', typeof: 'typeof', in: 'in', do: 'do' }; return o.await + o.delete + o.typeof + o.in + o.do;", "kwtext"],
+  ["keyword-accessor-and-member", "var o = { get delete() { return 'g'; } }; o.typeof = 't'; return o.delete + o.typeof;", "kwtext"],
+  ["operators-still-work", "var o = { a: 1 }; return String(delete o.a) + '/' + typeof o + '/' + String(void 0);", "kwtext"],
+
+  // --- the value globals, non-configurable delete, sloppy reserved words ----
+  ["typeof-nan-is-number", "return typeof NaN;", "globals"],
+  ["typeof-infinity-is-number", "return typeof Infinity;", "globals"],
+  ["typeof-math-is-object", "return typeof Math;", "globals"],
+  ["typeof-object-is-function", "return typeof Object;", "globals"],
+  ["typeof-unresolvable", "return typeof nosuchnameanywhere2;", "globals"],
+  ["delete-nan-is-false", "return String(delete NaN);", "globals"],
+  ["delete-infinity-is-false", "return String(delete Infinity);", "globals"],
+  ["delete-number-nan-is-false", "return String(delete Number.NaN);", "globals"],
+  ["delete-nonconfigurable-is-false", "var o = {}; Object.defineProperty(o, 'a', { value: 1 }); return String(delete o.a) + '/' + String(o.a);", "globals"],
+  ["delete-configurable-is-true", "var o = {}; Object.defineProperty(o, 'a', { value: 1, configurable: true }); return String(delete o.a) + '/' + String(o.a);", "globals"],
+  ["delete-plain-property", "var o = { a: 1 }; return String(delete o.a) + '/' + String(o.a);", "globals"],
+  ["sloppy-strict-reserved-as-name", "function f() { var public = 1; var interface = 2; return public + interface; } return f();", "globals"],
+  ["misspelled-directive-leaves-sloppy", "function f() { 'use  strict'; var public = 1; return public; } return f();", "globals"],
+  ["strict-reserved-still-rejected", "return (function () { 'use strict'; try { eval('var public = 1;'); return 'no-throw'; } catch (e) { return e.name; } })();", "globals"],
+
+  // --- whose strictness decides `this`, and strict eval's own scope ---------
+  ["fnctor-is-sloppy", "return (function () { 'use strict'; var f = Function('return typeof this;'); return f(); })();", "thisstrict"],
+  ["fnctor-own-directive-strict", "var f = Function('\"use strict\"; return typeof this;'); return f();", "thisstrict"],
+  ["sloppy-bare-call-gets-global", "function g() { return typeof this; } return g();", "thisstrict"],
+  ["strict-nested-in-sloppy-keeps-undefined", "var glob = this; function f1() { function f() { 'use strict'; return typeof this; } return f() === 'undefined' && this === glob; } return String(f1());", "thisstrict"],
+  ["arrow-this-still-lexical-bare", "var o = { v: 1, m: function () { var a = () => this.v; return a(); } }; return o.m();", "thisstrict"],
+  ["indirect-eval-this-is-global", "var glob = this; function t() { var me = eval; return me('this') === glob; } return String(t());", "thisstrict"],
+  ["strict-eval-var-does-not-leak", "return (function () { 'use strict'; eval('var xz = 1;'); return typeof xz; })();", "thisstrict"],
+  ["strict-eval-function-does-not-leak", "return (function () { 'use strict'; eval('function fz() {}'); return typeof fz; })();", "thisstrict"],
+  ["sloppy-eval-var-does-leak", "return (function () { eval('var xz2 = 1;'); return typeof xz2; })();", "thisstrict"],
+  ["strict-source-eval-var-does-not-leak", "return (function () { eval('\"use strict\"; var xz3 = 1;'); return typeof xz3; })();", "thisstrict"],
+  ["strict-eval-still-reads-and-writes-outer", "return (function () { 'use strict'; var q = 5; eval('q = 7'); return q; })();", "thisstrict"],
+  ["strict-eval-function-usable-inside", "return (function () { 'use strict'; return eval('function fz() { return 3; } fz();'); })();", "thisstrict"],
+
+  // --- the sloppy arguments object is MAPPED onto the named parameters ------
+  ["argmap-param-to-arguments", "function foo(a, b, c) { a = 1; b = 'str'; c = 2.1; return arguments[0] === 1 && arguments[1] === 'str' && arguments[2] === 2.1; } return String(foo(10, 'sss', 1));", "argmap"],
+  ["argmap-arguments-to-param", "function foo(a) { arguments[0] = 9; return a; } return foo(1);", "argmap"],
+  ["argmap-extra-arg-unmapped", "function foo(a) { return String(arguments[1]); } return foo(1, 2);", "argmap"],
+  ["argmap-missing-arg-unmapped", "function foo(a, b) { b = 5; return String(arguments.length) + '/' + String(arguments[1]); } return foo(1);", "argmap"],
+  ["argmap-length-unaffected", "function foo(a) { a = 2; return arguments.length; } return foo(1, 2, 3);", "argmap"],
+  ["argmap-through-generic-join", "function foo(a, b) { a = 7; return Array.prototype.join.call(arguments, ','); } return foo(1, 2);", "argmap"],
+  ["argmap-strict-not-mapped", "return (function () { 'use strict'; function foo(a) { a = 1; return String(arguments[0]); } return foo(10); })();", "argmap"],
+  ["argmap-delete-unmaps", "function foo(a) { delete arguments[0]; return String(arguments[0]) + '/' + String(a); } return foo(1);", "argmap"],
+  ["argmap-accessor-define-unmaps", "var argObj = (function (a, b, c) { return arguments; })(1, 2, 3); var accessed = false; Object.defineProperty(argObj, 0, { get: function () { accessed = true; return 12; } }); return String(argObj[0]) + '/' + String(accessed);", "argmap"],
+  ["argmap-value-define-updates", "var out = ''; (function (x) { Object.defineProperty(arguments, '0', { value: 2010, writable: true, enumerable: true, configurable: false }); out = String(arguments[0]) + '/' + String(x); })(1001); return out;", "argmap"],
+
+  // --- JSON.parse follows the JSON grammar, not a lenient subset of JS ------
+  ["json-reject-unquoted-key", "try { JSON.parse('{a:1}'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-trailing-comma-array", "try { JSON.parse('[1,]'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-trailing-comma-object", "try { JSON.parse('{\"a\":1,}'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-leading-zero", "try { JSON.parse('01'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-trailing-dot", "try { JSON.parse('1.'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-leading-dot", "try { JSON.parse('.5'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-leading-plus", "try { JSON.parse('+1'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-hex", "try { JSON.parse('0x10'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-single-quotes", "try { JSON.parse(\"'x'\"); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-partial-keyword", "try { JSON.parse('tru'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-trailing-junk", "try { JSON.parse('1 2'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-empty", "try { JSON.parse(''); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-missing-comma", "try { JSON.parse('[1 2]'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-reject-bad-escape", "try { JSON.parse('\"\\\\x\"'); return 'no-throw'; } catch (e) { return e.name; }", "jsonparse"],
+  ["json-accepts-nested", "var v = JSON.parse('{\"a\":{\"b\":[1,2]}}'); return String(v.a.b[1]);", "jsonparse"],
+  ["json-accepts-exponent", "return String(JSON.parse('-1.5e-3'));", "jsonparse"],
+  ["json-accepts-escapes", "return JSON.parse('\"\\\\u0041\\\\n\"').length + '|' + JSON.parse('\"\\\\u0041\"');", "jsonparse"],
+  ["json-accepts-whitespace", "return String(JSON.parse(' \\t\\r\\n{ \"a\" : 1 } ').a);", "jsonparse"],
+  ["json-negative-zero", "return String(1 / JSON.parse('-0'));", "jsonparse"],
+  ["json-proto-is-ordinary-key", "var x = JSON.parse('{\"__proto__\":[]}'); return String(Array.isArray(x.__proto__));", "jsonparse"],
+
+  // --- direct eval inherits strictness; F.prototype is fully formed ---------
+  ["strict-eval-early-error", "return (function () { 'use strict'; try { eval('var arguments;'); return 'no-throw'; } catch (e) { return e.name; } })();", "fnexpr"],
+  ["sloppy-eval-no-early-error", "try { eval('var argumentsx;'); return 'no-throw'; } catch (e) { return e.name; }", "fnexpr"],
+  ["strict-eval-param-name", "return (function () { 'use strict'; try { eval('var f = function (eval) {};'); return 'no-throw'; } catch (e) { return e.name; } })();", "fnexpr"],
+  ["fnproto-constructor-identity", "function F() {} return String(F.prototype.constructor === F);", "fnexpr"],
+  ["fnproto-constructor-not-enumerable", "function F() {} var ks = []; for (var k in F.prototype) { ks.push(k); } return String(ks.length);", "fnexpr"],
+  ["fnproto-inherits-object-prototype", "Object.defineProperty(Object.prototype, 'zzProbe', { value: 1, configurable: true }); function F() {} var out = String(F.prototype.zzProbe); delete Object.prototype.zzProbe; return out;", "fnexpr"],
+
+  // --- named function expressions, and a constructor returning a function ---
+  ["fnexpr-name-visible-inside", "var f = function fact(n) { if (n === 1) { return 1; } return fact(n - 1) * n; }; return f(4);", "fnexpr"],
+  ["fnexpr-name-not-leaked", "var f = function fact(n) { return n; }; return typeof fact;", "fnexpr"],
+  ["fnexpr-name-shadows-outer", "function fact() { return 'outer'; } var f = function fact() { return typeof fact; }; return f();", "fnexpr"],
+  ["ctor-returning-function-wins", "var g = function () { this.first = 1; function h(x) { return x + 1; } return h; }; var i = new g(); return typeof i + '/' + String(i.first) + '/' + String(i(1));", "fnexpr"],
+  ["ctor-returning-array-wins", "var g = function () { this.first = 1; return [7]; }; var i = new g(); return String(i.length) + '/' + String(i[0]);", "fnexpr"],
+  ["ctor-returning-primitive-ignored", "var g = function () { this.first = 1; return 5; }; var i = new g(); return String(i.first);", "fnexpr"],
+
+  // --- negative zero survives Math ------------------------------------------
+  ["mathzero-abs", "return String(1 / Math.abs(-0));", "mathzero"],
+  ["mathzero-floor", "return String(1 / Math.floor(-0));", "mathzero"],
+  ["mathzero-ceil-neg-frac", "return String(1 / Math.ceil(-0.5));", "mathzero"],
+  ["mathzero-ceil-pos-zero", "return String(1 / Math.ceil(0));", "mathzero"],
+  ["mathzero-round-neg-half", "return String(1 / Math.round(-0.5));", "mathzero"],
+  ["mathzero-round-pos-zero", "return String(1 / Math.round(0));", "mathzero"],
+  ["mathzero-round-just-under-half", "var x = 0.5 - Number.EPSILON / 4; return String(1 / Math.round(x));", "mathzero"],
+  ["mathzero-round-big-integer", "var x = -(2 / Number.EPSILON - 1); return String(Math.round(x) === x);", "mathzero"],
+  ["mathzero-round-ties-up", "return String(Math.round(-1.5)) + ',' + String(Math.round(2.5)) + ',' + String(Math.round(-0.6));", "mathzero"],
+  ["mathzero-ceil-floor-agree", "var out = ''; for (var i = -9; i < 0; i++) { var x = i / 10.0; if (Math.ceil(x) !== -Math.floor(-x)) { out += i + ','; } } return out || 'same';", "mathzero"],
+
+  // --- array length, join/toString agreement, and index accessors -----------
+  ["array-huge-declared-length", "return String(new Array(4294967295).length);", "arraylen2"],
+  ["array-length-too-big-throws", "try { new Array(4294967296); return 'no-throw'; } catch (e) { return e.name; }", "arraylen2"],
+  ["array-length-fractional-throws", "try { new Array(1.5); return 'no-throw'; } catch (e) { return e.name; }", "arraylen2"],
+  ["array-shrink-drops-far-index", "var x = [0, 1, 2]; x[4294967294] = 4294967294; x.length = 2; return String(x[2]) + '/' + String(x[4294967294]) + '/' + String(x.length);", "arraylen2"],
+  ["array-tostring-is-join", "var x = []; x[0] = 0; x[3] = 3; return x.toString() + '|' + x.join();", "arraylen2"],
+  ["array-tostring-object-element", "var x = [{ valueOf: function () { return 7; } }]; return x.toString() + '|' + x.join();", "arraylen2"],
+  ["array-tostring-nulls", "var x = new Array(null, null, null); return x.toString() + '|' + x.join();", "arraylen2"],
+  ["array-tostring-reads-prototype", "Object.defineProperty(Array.prototype, '1', { value: 1, configurable: true }); var x = [0]; x.length = 2; var out = x.toString(); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylen2"],
+  ["array-index-accessor-runs", "var arr = [1, 2]; Object.defineProperty(arr, '0', { get: function () { return 9; }, configurable: true }); return String(arr[0]) + '/' + arr.join(',');", "arraylen2"],
+  ["array-delete-clears-accessor", "var arr = [1, 2]; Object.defineProperty(arr, '1', { get: function () { return 6; }, configurable: true }); delete arr[1]; return String(arr[1]) + '/' + String(1 in arr);", "arraylen2"],
+  ["array-hex-string-length", "var obj = { 1: 11, 2: 9, length: '0x0002' }; var seen = ''; Array.prototype.forEach.call(obj, function (v) { seen += v; }); return seen;", "arraylen2"],
+  ["array-isarray-prototype", "return String(Array.isArray(Array.prototype));", "arraylen2"],
+  ["array-prototype-length", "return String(Array.prototype.length);", "arraylen2"],
+
+  // --- an invalid RegExp pattern is a SyntaxError at construction ------------
+  ["rx-double-star", "try { new RegExp('a**'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-double-plus", "try { new RegExp('a++'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-triple-question", "try { new RegExp('a???'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-leading-star", "try { new RegExp('*a'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-leading-question", "try { new RegExp('?a'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-bound-out-of-order", "try { new RegExp('0{2,1}'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-bound-then-bound", "try { new RegExp('x{1,2}{1}'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-class-range-out-of-order", "try { new RegExp('[b-a]'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-class-second-range-out-of-order", "try { new RegExp('[a-dc-b]'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-trailing-backslash", "try { new RegExp('\\\\'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-unknown-flag", "try { new RegExp('a', 'z'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-duplicate-flag", "try { new RegExp('a', 'ii'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-lazy-is-legal", "return new RegExp('a*?').source;", "rxvalid"],
+  ["rx-class-escape-dash-is-legal", "return new RegExp('[\\\\d-G]').source;", "rxvalid"],
+  ["rx-lone-brace-is-literal", "return String(new RegExp('x{').test('x{'));", "rxvalid"],
+  ["rx-good-flags", "var r = new RegExp('a', 'gim'); return String(r.global) + String(r.ignoreCase) + String(r.multiline);", "rxvalid"],
+  ["rx-call-form-is-identity", "var re = /x/i; var i2 = RegExp(re); re.indicator = 1; return String(i2.indicator);", "rxvalid"],
+  ["rx-new-form-copies", "var re = /x/i; var i2 = new RegExp(re); re.indicator = 1; return String(i2.indicator);", "rxvalid"],
+  ["rx-not-callable", "try { var q = /a/(); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-not-constructible", "try { var q = new /a/(); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-exec-needs-regexp", "var o = {}; o.exec = RegExp.prototype.exec; try { o.exec('x'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-test-needs-regexp", "var o = {}; o.test = RegExp.prototype.test; try { o.test('x'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-constructor-length", "return String(RegExp.length);", "rxvalid"],
+  ["rx-constructor-alias-constructs", "var F = RegExp.prototype.constructor; var i = new F(); return String(i instanceof RegExp);", "rxvalid"],
+
+  // --- a pending exception is never replaced by a later one ------------------
+  ["throw-arg-throws-first", "try { throw new Error('x' + (new RegExp('a**'))); } catch (e) { return e.name; }", "rxvalid"],
+  ["receiver-throw-beats-typeerror", "try { return String(new RegExp('[b-a]').exec('a')); } catch (e) { return e.name; }", "rxvalid"],
+  ["call-arg-throw-propagates", "function f(x) { return 'called'; } try { return f(new RegExp('a**')); } catch (e) { return e.name; }", "rxvalid"],
+
+  // --- a built-in prototype stringifies like the value it stands for, and
+  // never leaks the engine's own debug rendering. -----------------------------
+  ["protostr-error-prototype", "return String(Error.prototype);", "protostr"],
+  ["protostr-typeerror-prototype", "return String(TypeError.prototype);", "protostr"],
+  ["protostr-regexp-prototype", "return String(RegExp.prototype);", "protostr"],
+  ["protostr-number-prototype", "return String(Number.prototype);", "protostr"],
+  ["protostr-boolean-prototype", "return String(Boolean.prototype);", "protostr"],
+  ["protostr-array-prototype", "return String(Array.prototype);", "protostr"],
+  ["protostr-string-prototype", "return String(String.prototype);", "protostr"],
+  ["protostr-math", "return String(Math);", "protostr"],
+  ["protostr-date-prototype-throws", "try { return String(Date.prototype); } catch (e) { return e.name; }", "protostr"],
+  ["protostr-error-instance", "return String(new TypeError('boom'));", "protostr"],
+
+  // --- indirect eval --------------------------------------------------------
+  ["eval-as-value", "var me = eval; return String(me('1 + 1'));", "indirecteval"],
+  ["eval-comma-form", "return String((0, eval)('2 + 2'));", "indirecteval"],
+  ["eval-call-form", "return String(eval.call(null, '3 + 3'));", "indirecteval"],
+  ["eval-indirect-not-caller-scope", "function g() { var loc = 7; var me = eval; return String(me('typeof loc')); } return g();", "indirecteval"],
+  ["eval-direct-sees-caller-scope", "function g() { var loc = 7; return String(eval('loc')); } return g();", "indirecteval"],
+  ["eval-non-string-passthrough", "var me = eval; return String(me(42));", "indirecteval"],
+
+  // --- §12.14: a catch clause scopes its PARAMETER, nothing else ------------
+  ["catchvar-outlives-clause", "try { throw 1; } catch (e) { var v = 'kept'; } return String(v);", "catchvar"],
+  ["catchvar-typeof-after", "try { throw 1; } catch (e) { var v2 = 1; } return typeof v2;", "catchvar"],
+  ["catchvar-param-shadows", "try { throw 1; } catch (e) { var e = 5; } return String(typeof e);", "catchvar"],
+  ["catchvar-param-not-leaked", "try { throw 9; } catch (e) { ; } return String(typeof e);", "catchvar"],
+  ["catchvar-hoisted-before-clause", "var r = typeof v3; try { throw 1; } catch (e) { var v3 = 2; } return String(r);", "catchvar"],
+  ["catchvar-let-stays-in-clause", "try { throw 1; } catch (e) { let q = 3; } return String(typeof q);", "catchvar"],
+  ["catchvar-nested", "try { throw 1; } catch (a) { try { throw 2; } catch (b) { var z = 8; } } return String(z);", "catchvar"],
+  ["catchvar-assign-param", "var got = ''; try { throw 1; } catch (e) { e = 7; got = String(e); } return got;", "catchvar"],
+
+  // --- §12.12: a label on a BLOCK is the block's, not the first statement's --
+  ["label-block-break-from-loop", "var i = 0; wo: { do { i++; if (i === 10) { break wo; } } while (true); i = 99; } return String(i);", "labelblock"],
+  ["label-block-break-from-while", "var n = 0; lb: { while (true) { n++; if (n === 3) { break lb; } } n = 99; } return String(n);", "labelblock"],
+  ["label-block-break-from-for", "var s = 0; lc: { for (var k = 0; k < 9; k++) { s += k; if (k === 2) { break lc; } } s = 99; } return String(s);", "labelblock"],
+  ["label-loop-keeps-own-label", "var t = 0; ld: for (var m = 0; m < 3; m++) { for (var p = 0; p < 3; p++) { if (p === 1) { continue ld; } t++; } } return String(t);", "labelblock"],
+  ["label-block-inner-loop-unlabelled-break", "var u = 0; le: { for (var w = 0; w < 3; w++) { break; } u = 5; } return String(u);", "labelblock"],
+
+  // --- §7.9.1: a LineTerminator after `return` inserts a semicolon ----------
+  ["asi-return-newline", "function f() { return\n1; } return String(f());", "asireturn"],
+  ["asi-return-same-line", "function f() { return 1; } return String(f());", "asireturn"],
+  ["asi-return-newline-object", "function f() { return\n{ a: 1 }; } return String(f());", "asireturn"],
+  ["asi-return-paren-same-line", "function f() { return (\n1); } return String(f());", "asireturn"],
+
+  // --- §10.6: deleting a mapped index unlinks it for good -------------------
+  ["argmap-delete-then-set", "function f(a) { delete arguments[0]; arguments[0] = 'A'; return String(arguments[0]); } return f(1);", "argmap"],
+  ["argmap-delete-then-set-param-untouched", "function f(a) { delete arguments[0]; arguments[0] = 'A'; return String(a); } return f(1);", "argmap"],
+  ["argmap-delete-reads-undefined", "function f(a) { delete arguments[0]; return String(arguments[0]); } return f(1);", "argmap"],
+  ["argmap-no-delete-still-mapped", "function f(a) { arguments[0] = 'A'; return String(a); } return f(1);", "argmap"],
+
+  // --- §14.1: a directive is matched against the RAW text -------------------
+  ["directive-escape-not-strict", "function f() { '\\u0075se strict'; return this === undefined; } return String(f.call(undefined));", "directive"],
+  ["directive-space-escape-not-strict", "function f() { 'use\\u0020strict'; return this === undefined; } return String(f.call(undefined));", "directive"],
+  ["directive-continuation-not-strict", "function f() { 'use str\\\nict'; return this === undefined; } return String(f.call(undefined));", "directive"],
+  ["directive-plain-is-strict", "function f() { 'use strict'; return this === undefined; } return String(f.call(undefined));", "directive"],
+  // A function built by the Function constructor never inherits the caller's
+  // strictness.
+  ["fnctor-body-is-sloppy-in-strict-caller", "function outer() { 'use strict'; return Function('return typeof this;')(); } return String(outer());", "directive"],
+  ["fnctor-own-directive-is-strict", "var f = Function('\"use strict\"; return this;'); return String(f() === undefined);", "directive"],
+
+  // --- §7.3: every LineTerminator ends a single-line comment ----------------
+  ["comment-ends-at-cr", "var y = 0; eval('//c\\ry = 1'); return String(y);", "comments"],
+  ["comment-ends-at-ls", "var y = 0; eval('//c\\u2028y = 1'); return String(y);", "comments"],
+  ["comment-ends-at-ps", "var y = 0; eval('//c\\u2029y = 1'); return String(y);", "comments"],
+  ["comment-swallows-non-terminator", "var y = 0; eval('//c\\u0009y = 1'); return String(y);", "comments"],
+
+  // --- read-only built-in properties refuse writes --------------------------
+  ["number-nan-is-readonly", "Number.NaN = 1; return String(Number.NaN !== Number.NaN);", "readonly"],
+  ["number-max-value-is-readonly", "Number.MAX_VALUE = 1; return String(Number.MAX_VALUE);", "readonly"],
+  ["error-ctor-length", "return String(Error.length) + String(TypeError.length);", "readonly"],
+  ["error-proto-desc-writable", "return String(Object.getOwnPropertyDescriptor(EvalError, 'prototype').writable);", "readonly"],
+  ["global-nan-write-sloppy-ignored", "NaN = 12; return String(NaN !== NaN);", "readonly"],
+  ["global-undefined-write-sloppy-ignored", "undefined = 12; return String(typeof undefined);", "readonly"],
+
+  // --- §10.4.2: sloppy eval declares into the CALLER's variable environment -
+  // `var x;` in sloppy eval creates a LOCAL binding even when an outer scope
+  // already has that name — it does not silently resolve outwards.
+  ["eval-bare-var-shadows-outer", "var x = 1; function g() { eval('var x;'); return String(x); } return g();", "evalvar"],
+  ["eval-bare-var-then-assign-is-local", "var x = 1; function g() { eval('var x;'); x = 2; return String(x); } return g() + '/' + String(x);", "evalvar"],
+  ["eval-var-visible-to-caller", "function g() { eval('var ev = 5;'); return String(ev); } return g();", "evalvar"],
+  ["eval-fn-visible-to-caller", "function g() { eval('function ef() { return 3; }'); return String(ef()); } return g();", "evalvar"],
+  ["eval-strict-var-not-visible", "function g() { 'use strict'; eval('var sv = 5;'); return String(typeof sv); } return g();", "evalvar"],
+];
+
+/**
+ * Probes the evaluator does not yet handle. Each entry is a live assertion:
+ * the suite fails if one of these starts working and is not removed, so the
+ * list cannot drift away from reality.
+ *
+ * Recorded 2026-08-02 against gallery/game_engine/v2/interp.
+ */
+const KNOWN_GAPS = new Set<string>([
+  // A map key literally named `__proto__` cannot be stored: the es6 target
+  // compiles a Ranger string map to a plain JS object, and assigning that name
+  // sets the prototype instead of creating a property. Fixing it means changing
+  // how EVERY map write is emitted (Object.defineProperty on a hot path, or a
+  // template that evaluates its key and value twice), which costs more than the
+  // one behaviour it buys. Asserted in both directions so it cannot rot.
+  "json-proto-is-ordinary-key",
+  "for-of-expr-lhs",
+  // Destructuring: swap produces the wrong value.
+  "destr-swap",
+  // Generators parse but do not run.
+  "iter-generator",
+  // Array/object details.
+  "obj-computed-key",
+  // Builtins.
+  "err-optional-chain",
+  "err-nullish",
+]);
+
+/**
+ * Probes that must run as a SCRIPT rather than inside a function, because what
+ * they check IS the script's global scope: a top-level `var` and a function
+ * declaration are properties of the global object, and top-level `this` is that
+ * object. A function wrapper makes those names locals and the rules invisible.
+ *
+ * Each entry is a whole program that assigns its answer to `__out__`. Node runs
+ * the same text in a `vm` context, which gives a real script global — `new
+ * Function` would reintroduce exactly the wrapper being avoided.
+ */
+const SCRIPT_PROBES: Array<[name: string, src: string]> = [
+  ["script-this-is-globalthis", "__out__ = String(this === globalThis);"],
+  ["script-var-is-global-property", "var q = 3;\n__out__ = String(this.q);"],
+  ["script-fndecl-is-global-property", "function f() { return 1; }\n__out__ = typeof this.f;"],
+  ["script-var-in-block-is-global-property", "if (true) { var w = 4; }\n__out__ = String(this.w);"],
+  ["script-var-in-try-is-global-property", "try { var t = 5; } catch (e) {}\n__out__ = String(this.t);"],
+  ["script-var-property-tracks-reassignment", "var r = 1;\nr = 2;\n__out__ = String(this.r);"],
+  ["script-let-is-not-global-property", "let m = 1;\n__out__ = String(this.m);"],
+  ["script-const-is-not-global-property", "const k = 1;\n__out__ = String(this.k);"],
+  ["script-hoisted-var-is-undefined-property", "__out__ = String(this.later);\nvar later = 9;"],
+  ["script-implicit-global-is-property", "zz = 7;\n__out__ = String(this.zz);"],
+  ["script-global-tostring-override", "var toString = function () { return '__THIS__'; };\n__out__ = String(this);"],
+  ["script-function-local-var-is-not-global", "var s = 1;\nfunction g() { var s = 2; return s; }\ng();\n__out__ = String(this.s);"],
+  ["script-var-initialiser-runs-in-order", "var a = 1;\nvar b = a + 1;\n__out__ = String(a) + String(b);"],
+  ["script-call-before-var-fn-is-typeerror", "try { __f(); __out__ = 'no-throw'; } catch (e) { __out__ = e.name; }\nvar __f = function () { return 1; };"],
+  ["script-for-head-var-is-hoisted", "try { idx = idx; __out__ = 'ok'; } catch (e) { __out__ = e.name; }\nfor (var idx = 0; idx < 2; idx++) { ; }"],
+  // §10.5: a `var` buried in a try/if/loop is still a script var, so it exists
+  // (holding undefined) from the first statement — a call through it is a
+  // TypeError, not a ReferenceError.
+  ["script-call-before-nested-var-fn-is-typeerror", "try { __g(); __out__ = 'no-throw'; } catch (e) { __out__ = e.name; }\ntry { var __g = function () { return 1; }; } catch (e2) {}"],
+  ["script-nested-var-hoisted-to-undefined", "__out__ = String(typeof __h);\nif (true) { var __h = 1; }"],
+  // The binding and the global object property are ONE location, in both
+  // directions.
+  ["script-global-property-write-visible-as-name", "this['dv'] = 'baloon';\n__out__ = String(dv);\nvar dv;"],
+  ["script-global-var-is-dontdelete", "var dd = 1;\n__out__ = String(delete this['dd']) + String(delete dd) + String(dd);"],
+  ["script-implicit-global-is-deletable", "ig = 1;\n__out__ = String(delete this['ig']) + String(typeof ig);"],
+  // §12.10: a `var` in a with body belongs to the script, property and all.
+  ["script-with-var-is-global-property", "var wo = { a: 2 };\nwith (wo) { var wf = function () { return 1; }; }\n__out__ = String(wo.hasOwnProperty('wf')) + String(typeof this.wf);"],
+];
+
+/**
+ * Script-level probes that do NOT hold, asserted in both directions like
+ * KNOWN_GAPS so a fix forces the list to be updated.
+ */
+const SCRIPT_KNOWN_GAPS = new Set<string>([]);
+
+/** A module and an entry that imports from it, to check export visibility. */
+const MODULE_SOURCE = [
+  "const shown = 10;",
+  "const notShown = 99;",
+  "export const exported = 20;",
+  "export function twice(n) { return n * 2; }",
+  "function notExportedFn(n) { return n + 1000; }",
+  "export class Widget { label() { return 'widget'; } }",
+].join("\n");
+
+const MODULE_ENTRY = [
+  "import { exported, twice } from 'ranger:probe';",
+  "import * as NS from 'ranger:probe';",
+  "function readExportedConst() { return exported; }",
+  "function callExportedFn() { return twice(21); }",
+  "function readViaNamespace() { return NS.exported; }",
+  "function callViaNamespace() { return NS.twice(20); }",
+  "function entryOnlyBinding() { return typeof somethingLocalToTheModule; }",
+  // Negative: these were never exported and must not be reachable.
+  "function reachUnexportedConst() { const v = NS.notShown; if (v === undefined) { return 'blocked'; } return 'REACHABLE'; }",
+  "function reachUnexportedFn() { if (NS.notExportedFn === undefined) { return 'blocked'; } return 'REACHABLE'; }",
+].join("\n");
+
+/** Cross-module checks that already hold. */
+const MODULE_EXPECTATIONS: Array<[fn: string, expected: unknown, what: string]> = [
+  ["readExportedConst", 20, "a named import of an exported const"],
+  ["callExportedFn", 42, "a named import of an exported function"],
+  ["readViaNamespace", 20, "namespace access to an exported const"],
+  ["callViaNamespace", 40, "a namespace call to an exported function"],
+  ["entryOnlyBinding", "undefined", "a binding the module never declared"],
+];
+
+/**
+ * Cross-module checks that do NOT hold: `export` is not enforced, so every
+ * top-level binding of a module is reachable through its namespace. Listed the
+ * same way as KNOWN_GAPS so a fix forces an update.
+ */
+const MODULE_KNOWN_GAPS: Array<[fn: string, what: string]> = [
+  ["reachUnexportedConst", "an unexported const is reachable through the namespace"],
+  ["reachUnexportedFn", "an unexported function is reachable through the namespace"],
+];
+
+function buildEngineModuleIfNeeded(): void {
+  const upToDate =
+    fs.existsSync(ENGINE_MODULE) &&
+    fs.statSync(ENGINE_MODULE).mtimeMs >= fs.statSync(ENGINE_SOURCE).mtimeMs;
+  if (upToDate) return;
+  execFileSync("bash", [BUILD_SCRIPT], { cwd: ROOT_DIR, stdio: "pipe" });
+}
+
+/** The value Node produces for a probe body. Throws if the probe is broken. */
+function nodeValue(body: string): unknown {
+  return new Function(body)();
+}
+
+/** The value the engine produces, or a marker for a non-value result. */
+function engineValue(engine: any, fnName: string): unknown {
+  const original = console.log;
+  console.log = () => {};
+  try {
+    const r = engine.callFunction(fnName, EvalValue.null());
+    if (!r) return "<missing>";
+    switch (r.valueType) {
+      case T_NUM:
+        return r.numberValue;
+      case T_STR:
+        return r.stringValue;
+      case T_BOOL:
+        return r.boolValue;
+      case T_UNDEF:
+        return undefined;
+      case T_NULL:
+        return "<null>";
+      default:
+        return "<valueType " + r.valueType + ">";
+    }
+  } catch (e: any) {
+    return "<threw " + (e && e.message) + ">";
+  } finally {
+    console.log = original;
+  }
+}
+
+function probeFunctionName(name: string): string {
+  return name.replace(/-/g, "_");
+}
+
+describe("runtime conformance (interp realm)", () => {
+  let engine: any;
+  const engineResults = new Map<string, unknown>();
+  const nodeResults = new Map<string, unknown>();
+
+  beforeAll(() => {
+    buildEngineModuleIfNeeded();
+    const require = createRequire(import.meta.url);
+    const mod = require(ENGINE_MODULE);
+    ComponentEngine = mod.ComponentEngine;
+    EvalValue = mod.EvalValue;
+
+    // Derive every expectation from Node before touching the engine.
+    for (const [name, body] of PROBES) {
+      nodeResults.set(name, nodeValue(body));
+    }
+
+    engine = new ComponentEngine();
+    engine.quiet = true;
+    let src = "";
+    for (const [name, body] of PROBES) {
+      src += "function " + probeFunctionName(name) + "() { " + body + " }\n";
+    }
+    const original = console.log;
+    console.log = () => {};
+    try {
+      engine.loadScript(src);
+    } finally {
+      console.log = original;
+    }
+    for (const [name] of PROBES) {
+      engineResults.set(name, engineValue(engine, probeFunctionName(name)));
+    }
+  }, 120000);
+
+  it("every probe behaves as written when Node runs it", () => {
+    // A probe whose Node result is not a plain value is a broken probe: the
+    // comparison below would be meaningless.
+    const broken: string[] = [];
+    for (const [name] of PROBES) {
+      const v = nodeResults.get(name);
+      if (typeof v === "object" && v !== null) broken.push(name);
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it("known gaps are named by a real probe", () => {
+    const probeNames = new Set(PROBES.map(([n]) => n));
+    const stale = [...KNOWN_GAPS].filter((n) => !probeNames.has(n));
+    expect(stale).toEqual([]);
+  });
+
+  const supported = PROBES.filter(([name]) => !KNOWN_GAPS.has(name));
+  describe("supported features produce the same value as Node", () => {
+    for (const [name, , group] of supported) {
+      it(`${group}: ${name}`, () => {
+        expect(engineResults.get(name)).toEqual(nodeResults.get(name));
+      });
+    }
+  });
+
+  const scriptOutcome = (src: string) => {
+    const wrapped = "var __out__ = '<unset>';\n" + src + "\n";
+    const context: any = vm.createContext({});
+    vm.runInContext(wrapped, context);
+    const expected = String(context.__out__);
+
+    const e = new ComponentEngine();
+    e.quiet = true;
+    const original = console.log;
+    console.log = () => {};
+    let actual: string;
+    try {
+      e.loadScript(wrapped + "function __read__() { return __out__; }\n");
+      actual = String(engineValue(e, "__read__"));
+    } finally {
+      console.log = original;
+    }
+    return { expected, actual };
+  };
+
+  describe("script-level rules match Node running the same script", () => {
+    for (const [name, src] of SCRIPT_PROBES) {
+      if (SCRIPT_KNOWN_GAPS.has(name)) continue;
+      it(name, () => {
+        const { expected, actual } = scriptOutcome(src);
+        expect(actual).toEqual(expected);
+      });
+    }
+  });
+
+  it("script-level known gaps still fail (remove one when it is fixed)", () => {
+    const nowWorking: string[] = [];
+    for (const [name, src] of SCRIPT_PROBES) {
+      if (!SCRIPT_KNOWN_GAPS.has(name)) continue;
+      const { expected, actual } = scriptOutcome(src);
+      if (actual === expected) nowWorking.push(name);
+    }
+    expect(nowWorking).toEqual([]);
+  });
+
+  it("known gaps still fail (remove one from KNOWN_GAPS when it is fixed)", () => {
+    const nowWorking: string[] = [];
+    for (const [name] of PROBES) {
+      if (!KNOWN_GAPS.has(name)) continue;
+      if (Object.is(engineResults.get(name), nodeResults.get(name))) {
+        nowWorking.push(name);
+      }
+    }
+    expect(nowWorking).toEqual([]);
+  });
+
+  describe("cross-module imports and exports", () => {
+    let moduleEngine: any;
+    const moduleResults = new Map<string, unknown>();
+
+    beforeAll(() => {
+      moduleEngine = new ComponentEngine();
+      moduleEngine.quiet = true;
+      moduleEngine.registerVirtualModule("ranger:probe", MODULE_SOURCE);
+      const original = console.log;
+      console.log = () => {};
+      try {
+        moduleEngine.loadScript(MODULE_ENTRY);
+      } finally {
+        console.log = original;
+      }
+      for (const [fn] of [...MODULE_EXPECTATIONS, ...MODULE_KNOWN_GAPS]) {
+        moduleResults.set(fn, engineValue(moduleEngine, fn));
+      }
+    }, 120000);
+
+    for (const [fn, expected, what] of MODULE_EXPECTATIONS) {
+      it(what, () => {
+        expect(moduleResults.get(fn)).toEqual(expected);
+      });
+    }
+
+    it("export is not yet a visibility gate (known gap)", () => {
+      // `export` changes nothing inside a module; it only decides what another
+      // module may import. Today every top-level binding is reachable, so these
+      // report REACHABLE rather than blocked.
+      const unexpectedlyBlocked = MODULE_KNOWN_GAPS.filter(
+        ([fn]) => moduleResults.get(fn) === "blocked"
+      ).map(([fn]) => fn);
+      expect(unexpectedlyBlocked).toEqual([]);
+    });
+  });
+});

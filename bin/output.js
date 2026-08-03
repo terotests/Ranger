@@ -6,10 +6,10 @@ class CmdParams  {
     this.values = [];
   }
   hasParam (name) {
-    return ( typeof(this.params[name] ) != "undefined" && this.params.hasOwnProperty(name) );
+    return ( typeof(this.params[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.params, name) );
   };
   getParam (name) {
-    return ( this.params.hasOwnProperty(name) ? this.params[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(this.params, name) ? this.params[name] : undefined );
   };
   collect () {
     let cnt = (process.argv.length - 2);
@@ -43,7 +43,7 @@ class CmdParams  {
       const keyList = Object.keys(this.flags);
       for ( let index = 0; index < keyList.length; index++) {
         var keyname = keyList[index];
-        const item = (( this.flags.hasOwnProperty(keyname) ? this.flags[keyname] : undefined ));
+        const item = (( Object.prototype.hasOwnProperty.call(this.flags, keyname) ? this.flags[keyname] : undefined ));
         values_1[keyname] = item;
       };
       res["flags"] = values_1;
@@ -51,7 +51,7 @@ class CmdParams  {
       const keyList_1 = Object.keys(this.params);
       for ( let index_1 = 0; index_1 < keyList_1.length; index_1++) {
         var keyname_1 = keyList_1[index_1];
-        const item_1 = (( this.params.hasOwnProperty(keyname_1) ? this.params[keyname_1] : undefined ));
+        const item_1 = (( Object.prototype.hasOwnProperty.call(this.params, keyname_1) ? this.params[keyname_1] : undefined ));
         values_2[keyname_1] = item_1;
       };
       res["params"] = values_2;
@@ -128,7 +128,7 @@ class test_cmdparams  {
     const pNames = Object.keys(prms.params);
     for ( let i = 0; i < pNames.length; i++) {
       var v = pNames[i];
-      console.log((v + " = ") + ((( prms.params.hasOwnProperty(v) ? prms.params[v] : undefined ))));
+      console.log((v + " = ") + ((( Object.prototype.hasOwnProperty.call(prms.params, v) ? prms.params[v] : undefined ))));
     };
     console.log("--- flags ----");
     const flagNames = Object.keys(prms.flags);
@@ -302,7 +302,7 @@ class InputEnv  {
       const keyList = Object.keys(this.envVars);
       for ( let index = 0; index < keyList.length; index++) {
         var keyname = keyList[index];
-        const item = (( this.envVars.hasOwnProperty(keyname) ? this.envVars[keyname] : undefined ));
+        const item = (( Object.prototype.hasOwnProperty.call(this.envVars, keyname) ? this.envVars[keyname] : undefined ));
         values[keyname] = item;
       };
       res["envVars"] = values;
@@ -386,15 +386,15 @@ class RangerParamEventMap  {
   clearAllEvents () {
   };
   addEvent (name, e) {
-    if ( (( typeof(this.events[name] ) != "undefined" && this.events.hasOwnProperty(name) )) == false ) {
+    if ( (( typeof(this.events[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.events, name) )) == false ) {
       this.events[name] = new RangerParamEventList();
     }
-    const list = (( this.events.hasOwnProperty(name) ? this.events[name] : undefined ));
+    const list = (( Object.prototype.hasOwnProperty.call(this.events, name) ? this.events[name] : undefined ));
     list.list.push(e);
   };
   fireEvent (name, from) {
-    if ( ( typeof(this.events[name] ) != "undefined" && this.events.hasOwnProperty(name) ) ) {
-      const list = (( this.events.hasOwnProperty(name) ? this.events[name] : undefined ));
+    if ( ( typeof(this.events[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.events, name) ) ) {
+      const list = (( Object.prototype.hasOwnProperty.call(this.events, name) ? this.events[name] : undefined ));
       for ( let i = 0; i < list.list.length; i++) {
         var ev = list.list[i];
         ev.callback(from);
@@ -1035,7 +1035,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     return false;
   };
   hasOwnMethod (m_name) {
-    if ( ( typeof(this.defined_methods[m_name] ) != "undefined" && this.defined_methods.hasOwnProperty(m_name) ) ) {
+    if ( ( typeof(this.defined_methods[m_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.defined_methods, m_name) ) ) {
       return true;
     }
     return false;
@@ -1055,11 +1055,11 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     return sig;
   };
   hasDuplicateMethodSignature (fnDesc) {
-    if ( ( typeof(this.defined_methods[fnDesc.name] ) != "undefined" && this.defined_methods.hasOwnProperty(fnDesc.name) ) ) {
+    if ( ( typeof(this.defined_methods[fnDesc.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.defined_methods, fnDesc.name) ) ) {
     } else {
       return false;
     }
-    const mVs = ( this.method_variants.hasOwnProperty(fnDesc.name) ? this.method_variants[fnDesc.name] : undefined );
+    const mVs = ( Object.prototype.hasOwnProperty.call(this.method_variants, fnDesc.name) ? this.method_variants[fnDesc.name] : undefined );
     if ( typeof(mVs) === "undefined" ) {
       return false;
     }
@@ -1074,7 +1074,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     return false;
   };
   hasMethod (m_name) {
-    if ( ( typeof(this.defined_methods[m_name] ) != "undefined" && this.defined_methods.hasOwnProperty(m_name) ) ) {
+    if ( ( typeof(this.defined_methods[m_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.defined_methods, m_name) ) ) {
       return true;
     }
     for ( let i = 0; i < this.extends_classes.length; i++) {
@@ -1092,7 +1092,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     for ( let i = 0; i < vNames.length; i++) {
       var mname = vNames[i];
       if ( mname == f_name ) {
-        const list = (( this.method_variants.hasOwnProperty(mname) ? this.method_variants[mname] : undefined ));
+        const list = (( Object.prototype.hasOwnProperty.call(this.method_variants, mname) ? this.method_variants[mname] : undefined ));
         res = list.variants[0];
         return res;
       }
@@ -1182,7 +1182,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
         return true;
       }
     }
-    return ( typeof(this.defined_static_methods[m_name] ) != "undefined" && this.defined_static_methods.hasOwnProperty(m_name) );
+    return ( typeof(this.defined_static_methods[m_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.defined_static_methods, m_name) );
   };
   findStaticMethod (f_name) {
     if ( f_name == "__singleton" ) {
@@ -1354,7 +1354,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   addMethod (desc) {
     this.defined_methods[desc.name] = true;
     this.methods.push(desc);
-    const defVs = ( this.method_variants.hasOwnProperty(desc.name) ? this.method_variants[desc.name] : undefined );
+    const defVs = ( Object.prototype.hasOwnProperty.call(this.method_variants, desc.name) ? this.method_variants[desc.name] : undefined );
     if ( typeof(defVs) === "undefined" ) {
       const new_v = new RangerAppMethodVariants();
       this.method_variants[desc.name] = new_v;
@@ -1523,7 +1523,7 @@ class CodeNodeLiteral  {
       const keyList = Object.keys(this.props);
       for ( let index = 0; index < keyList.length; index++) {
         var keyname = keyList[index];
-        const item_1 = (( this.props.hasOwnProperty(keyname) ? this.props[keyname] : undefined ));
+        const item_1 = (( Object.prototype.hasOwnProperty.call(this.props, keyname) ? this.props[keyname] : undefined ));
         const obj = item_1.toDictionary();
         values_1[keyname] = obj;
       };
@@ -2115,21 +2115,21 @@ class CodeNode  {
     return s;
   };
   hasExpressionProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       return ann.expression;
     }
     return false;
   };
   getExpressionProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       return ann;
     }
     return ann;
   };
   hasIntProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       const fc = ann.children[0];
       if ( fc.value_type == 3 ) {
@@ -2139,7 +2139,7 @@ class CodeNode  {
     return false;
   };
   getIntProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       const fc = ann.children[0];
       if ( fc.value_type == 3 ) {
@@ -2149,7 +2149,7 @@ class CodeNode  {
     return 0;
   };
   hasDoubleProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 2 ) {
         return true;
@@ -2158,7 +2158,7 @@ class CodeNode  {
     return false;
   };
   getDoubleProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 2 ) {
         return ann.double_value;
@@ -2170,10 +2170,10 @@ class CodeNode  {
     this.props[name] = CodeNode.newStr(value);
   };
   hasStringProperty (name) {
-    if ( false == (( typeof(this.props[name] ) != "undefined" && this.props.hasOwnProperty(name) )) ) {
+    if ( false == (( typeof(this.props[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.props, name) )) ) {
       return false;
     }
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 4 ) {
         return true;
@@ -2182,7 +2182,7 @@ class CodeNode  {
     return false;
   };
   getStringProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 4 ) {
         return ann.string_value;
@@ -2191,7 +2191,7 @@ class CodeNode  {
     return "";
   };
   hasBooleanProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 5 ) {
         return true;
@@ -2200,7 +2200,7 @@ class CodeNode  {
     return false;
   };
   getBooleanProperty (name) {
-    const ann = ( this.props.hasOwnProperty(name) ? this.props[name] : undefined );
+    const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 5 ) {
         return ann.boolean_value;
@@ -2544,8 +2544,8 @@ class CodeNode  {
   };
   cloneWithType (match, changeVref) {
     const newNode = new CodeNode(this.code, this.sp, this.ep);
-    if ( ( typeof(match.nodes[this.vref] ) != "undefined" && match.nodes.hasOwnProperty(this.vref) ) ) {
-      const ast = (( match.nodes.hasOwnProperty(this.vref) ? match.nodes[this.vref] : undefined ));
+    if ( ( typeof(match.nodes[this.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(match.nodes, this.vref) ) ) {
+      const ast = (( Object.prototype.hasOwnProperty.call(match.nodes, this.vref) ? match.nodes[this.vref] : undefined ));
       return ast.rebuildWithType(match, true);
     }
     newNode.has_operator = this.has_operator;
@@ -2611,7 +2611,7 @@ class CodeNode  {
     for ( let i_1 = 0; i_1 < this.prop_keys.length; i_1++) {
       var key = this.prop_keys[i_1];
       newNode.prop_keys.push(key);
-      const oldp = ( this.props.hasOwnProperty(key) ? this.props[key] : undefined );
+      const oldp = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
       const np = oldp.cloneWithType(match, changeVref);
       newNode.props[key] = np;
     };
@@ -2630,8 +2630,8 @@ class CodeNode  {
   };
   rebuildWithType (match, changeVref) {
     const newNode = new CodeNode(this.code, this.sp, this.ep);
-    if ( ( typeof(match.nodes[this.vref] ) != "undefined" && match.nodes.hasOwnProperty(this.vref) ) ) {
-      const ast = (( match.nodes.hasOwnProperty(this.vref) ? match.nodes[this.vref] : undefined ));
+    if ( ( typeof(match.nodes[this.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(match.nodes, this.vref) ) ) {
+      const ast = (( Object.prototype.hasOwnProperty.call(match.nodes, this.vref) ? match.nodes[this.vref] : undefined ));
       if ( ast == this ) {
         const tmp = this;
         return tmp;
@@ -2703,7 +2703,7 @@ class CodeNode  {
     for ( let i_1 = 0; i_1 < this.prop_keys.length; i_1++) {
       var key = this.prop_keys[i_1];
       newNode.prop_keys.push(key);
-      const oldp = ( this.props.hasOwnProperty(key) ? this.props[key] : undefined );
+      const oldp = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
       const np = oldp.rebuildWithType(match, changeVref);
       newNode.props[key] = np;
     };
@@ -3442,8 +3442,8 @@ class RangerAppWriterContext  {
     this.rust_moved_vars[varName] = true;
   };
   rustIsMoved (varName) {
-    if ( ( typeof(this.rust_moved_vars[varName] ) != "undefined" && this.rust_moved_vars.hasOwnProperty(varName) ) ) {
-      return (( this.rust_moved_vars.hasOwnProperty(varName) ? this.rust_moved_vars[varName] : undefined ));
+    if ( ( typeof(this.rust_moved_vars[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rust_moved_vars, varName) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.rust_moved_vars, varName) ? this.rust_moved_vars[varName] : undefined ));
     }
     if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
       return this.parent.rustIsMoved(varName);
@@ -3454,16 +3454,16 @@ class RangerAppWriterContext  {
     this.rust_moved_vars[varName] = false;
   };
   rustIncUsage (varName) {
-    if ( ( typeof(this.rust_usage_count[varName] ) != "undefined" && this.rust_usage_count.hasOwnProperty(varName) ) ) {
-      const cnt = (( this.rust_usage_count.hasOwnProperty(varName) ? this.rust_usage_count[varName] : undefined ));
+    if ( ( typeof(this.rust_usage_count[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rust_usage_count, varName) ) ) {
+      const cnt = (( Object.prototype.hasOwnProperty.call(this.rust_usage_count, varName) ? this.rust_usage_count[varName] : undefined ));
       this.rust_usage_count[varName] = cnt + 1;
     } else {
       this.rust_usage_count[varName] = 1;
     }
   };
   rustGetUsageCount (varName) {
-    if ( ( typeof(this.rust_usage_count[varName] ) != "undefined" && this.rust_usage_count.hasOwnProperty(varName) ) ) {
-      return (( this.rust_usage_count.hasOwnProperty(varName) ? this.rust_usage_count[varName] : undefined ));
+    if ( ( typeof(this.rust_usage_count[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rust_usage_count, varName) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.rust_usage_count, varName) ? this.rust_usage_count[varName] : undefined ));
     }
     if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
       return this.parent.rustGetUsageCount(varName);
@@ -3503,16 +3503,16 @@ class RangerAppWriterContext  {
     return false;
   };
   addOpFn (name, code) {
-    if ( false == (( typeof(this.opFnsList[name] ) != "undefined" && this.opFnsList.hasOwnProperty(name) )) ) {
+    if ( false == (( typeof(this.opFnsList[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.opFnsList, name) )) ) {
       this.opFnsList[name] = CodeNode.expressionNode();
     }
-    const rootNode = (( this.opFnsList.hasOwnProperty(name) ? this.opFnsList[name] : undefined ));
+    const rootNode = (( Object.prototype.hasOwnProperty.call(this.opFnsList, name) ? this.opFnsList[name] : undefined ));
     rootNode.children.push(code);
   };
   async getOpFns (name) {
     let rv = [];
-    if ( ( typeof(this.opFnsList[name] ) != "undefined" && this.opFnsList.hasOwnProperty(name) ) ) {
-      const ol = (( this.opFnsList.hasOwnProperty(name) ? this.opFnsList[name] : undefined ));
+    if ( ( typeof(this.opFnsList[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.opFnsList, name) ) ) {
+      const ol = (( Object.prototype.hasOwnProperty.call(this.opFnsList, name) ? this.opFnsList[name] : undefined ));
       await operatorsOf.forEach_15(ol.children, ((item, index) => { 
         const tmp = item;
         rv.push(tmp);
@@ -3551,8 +3551,8 @@ class RangerAppWriterContext  {
       if ( (fc.ns.length) > 0 ) {
         const firstNS = fc.ns[0];
         const root = this.getRoot();
-        if ( ( typeof(root.pluginSpecificOperators[firstNS] ) != "undefined" && root.pluginSpecificOperators.hasOwnProperty(firstNS) ) ) {
-          return (( root.pluginSpecificOperators.hasOwnProperty(firstNS) ? root.pluginSpecificOperators[firstNS] : undefined ));
+        if ( ( typeof(root.pluginSpecificOperators[firstNS] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.pluginSpecificOperators, firstNS) ) ) {
+          return (( Object.prototype.hasOwnProperty.call(root.pluginSpecificOperators, firstNS) ? root.pluginSpecificOperators[firstNS] : undefined ));
         }
       }
     }
@@ -3574,16 +3574,16 @@ class RangerAppWriterContext  {
   };
   addTypeClass (name) {
     const root = this.getRoot();
-    if ( false == (( typeof(root.typeClasses[name] ) != "undefined" && root.typeClasses.hasOwnProperty(name) )) ) {
+    if ( false == (( typeof(root.typeClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.typeClasses, name) )) ) {
       const newClass = new RangerTypeClass();
       root.typeClasses[name] = newClass;
       return newClass;
     }
-    return (( root.typeClasses.hasOwnProperty(name) ? root.typeClasses[name] : undefined ));
+    return (( Object.prototype.hasOwnProperty.call(root.typeClasses, name) ? root.typeClasses[name] : undefined ));
   };
   getTypeClass (name) {
     const root = this.getRoot();
-    return ( root.typeClasses.hasOwnProperty(name) ? root.typeClasses[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.typeClasses, name) ? root.typeClasses[name] : undefined );
   };
   getParser () {
     if ( typeof(this.parser) === "undefined" ) {
@@ -3604,7 +3604,7 @@ class RangerAppWriterContext  {
   async getTypedNodes (name) {
     const root = this.getRoot();
     let res = [];
-    const list = ( root.typedNodes.hasOwnProperty(name) ? root.typedNodes[name] : undefined );
+    const list = ( Object.prototype.hasOwnProperty.call(root.typedNodes, name) ? root.typedNodes[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
       await operatorsOf.forEach_15(list.items, ((item, index) => { 
         const tmp = item;
@@ -3615,8 +3615,8 @@ class RangerAppWriterContext  {
   };
   addTypedNode (name, op) {
     const root = this.getRoot();
-    if ( ( typeof(root.typedNodes[name] ) != "undefined" && root.typedNodes.hasOwnProperty(name) ) ) {
-      const orig_list = (( root.typedNodes.hasOwnProperty(name) ? root.typedNodes[name] : undefined ));
+    if ( ( typeof(root.typedNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.typedNodes, name) ) ) {
+      const orig_list = (( Object.prototype.hasOwnProperty.call(root.typedNodes, name) ? root.typedNodes[name] : undefined ));
       orig_list.items.push(op);
     } else {
       const new_list = new RangerNodeList();
@@ -3627,7 +3627,7 @@ class RangerAppWriterContext  {
   async getPluginNodes (name) {
     const root = this.getRoot();
     let res = [];
-    const list = ( root.pluginNodes.hasOwnProperty(name) ? root.pluginNodes[name] : undefined );
+    const list = ( Object.prototype.hasOwnProperty.call(root.pluginNodes, name) ? root.pluginNodes[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
       await operatorsOf.forEach_15(list.items, ((item, index) => { 
         const tmp = item;
@@ -3638,8 +3638,8 @@ class RangerAppWriterContext  {
   };
   addPluginNode (name, op) {
     const root = this.getRoot();
-    if ( ( typeof(root.pluginNodes[name] ) != "undefined" && root.pluginNodes.hasOwnProperty(name) ) ) {
-      const orig_list = (( root.pluginNodes.hasOwnProperty(name) ? root.pluginNodes[name] : undefined ));
+    if ( ( typeof(root.pluginNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.pluginNodes, name) ) ) {
+      const orig_list = (( Object.prototype.hasOwnProperty.call(root.pluginNodes, name) ? root.pluginNodes[name] : undefined ));
       orig_list.items.push(op);
     } else {
       const new_list = new RangerNodeList();
@@ -3650,8 +3650,8 @@ class RangerAppWriterContext  {
   addOperator (op) {
     const root = this.getRoot();
     if ( (op.name.length) > 0 ) {
-      if ( ( typeof(root.op_list[op.name] ) != "undefined" && root.op_list.hasOwnProperty(op.name) ) ) {
-        const orig_list = (( root.op_list.hasOwnProperty(op.name) ? root.op_list[op.name] : undefined ));
+      if ( ( typeof(root.op_list[op.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.op_list, op.name) ) ) {
+        const orig_list = (( Object.prototype.hasOwnProperty.call(root.op_list, op.name) ? root.op_list[op.name] : undefined ));
         orig_list.items.push(op);
       } else {
         const new_list = new RangerOperatorList();
@@ -3674,7 +3674,7 @@ class RangerAppWriterContext  {
   getOperatorsOf (name) {
     const root = this.getRoot();
     let res = [];
-    const list = ( root.op_list.hasOwnProperty(name) ? root.op_list[name] : undefined );
+    const list = ( Object.prototype.hasOwnProperty.call(root.op_list, name) ? root.op_list[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
       return operatorsOf.clone_18(list.items);
     }
@@ -3804,8 +3804,8 @@ class RangerAppWriterContext  {
   };
   getViewClass (s_name) {
     let res;
-    if ( ( typeof(this.viewClassBody[s_name] ) != "undefined" && this.viewClassBody.hasOwnProperty(s_name) ) ) {
-      res = ( this.viewClassBody.hasOwnProperty(s_name) ? this.viewClassBody[s_name] : undefined );
+    if ( ( typeof(this.viewClassBody[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.viewClassBody, s_name) ) ) {
+      res = ( Object.prototype.hasOwnProperty.call(this.viewClassBody, s_name) ? this.viewClassBody[s_name] : undefined );
       return res;
     }
     if ( typeof(this.parent) === "undefined" ) {
@@ -3936,7 +3936,7 @@ class RangerAppWriterContext  {
       let handled = {};
       for ( let i_2 = 0; i_2 < opNamespace.length; i_2++) {
         var ss = opNamespace[i_2];
-        if ( ( typeof(handled[ss] ) != "undefined" && handled.hasOwnProperty(ss) ) ) {
+        if ( ( typeof(handled[ss] ) != "undefined" && Object.prototype.hasOwnProperty.call(handled, ss) ) ) {
           continue;
         }
         handled[ss] = true;
@@ -3969,7 +3969,7 @@ class RangerAppWriterContext  {
     return nothingFound;
   };
   isLocalToCapture (name) {
-    if ( ( typeof(this.localVariables[name] ) != "undefined" && this.localVariables.hasOwnProperty(name) ) ) {
+    if ( ( typeof(this.localVariables[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localVariables, name) ) ) {
       return true;
     }
     if ( this.is_capturing ) {
@@ -4026,8 +4026,8 @@ class RangerAppWriterContext  {
     };
     const root = this.getRoot();
     root.initReservedWords();
-    if ( ( typeof(root.refTransform[input_word] ) != "undefined" && root.refTransform.hasOwnProperty(input_word) ) ) {
-      return (( root.refTransform.hasOwnProperty(input_word) ? root.refTransform[input_word] : undefined ));
+    if ( ( typeof(root.refTransform[input_word] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.refTransform, input_word) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(root.refTransform, input_word) ? root.refTransform[input_word] : undefined ));
     }
     return input_word;
   };
@@ -4109,7 +4109,7 @@ class RangerAppWriterContext  {
     if ( this.isDefinedClass(typeName) ) {
       const cl = this.findClass(typeName);
       if ( cl.is_system ) {
-        return (( cl.systemNames.hasOwnProperty(operatorsOf_21.getTargetLang_22(this)) ? cl.systemNames[operatorsOf_21.getTargetLang_22(this)] : undefined ));
+        return (( Object.prototype.hasOwnProperty.call(cl.systemNames, operatorsOf_21.getTargetLang_22(this)) ? cl.systemNames[operatorsOf_21.getTargetLang_22(this)] : undefined ));
       }
     }
     return typeName;
@@ -4240,16 +4240,16 @@ class RangerAppWriterContext  {
     const root = this.getRoot();
     const tplArgs = node.vref_annotation;
     const sign = node.vref + tplArgs.getCode();
-    const theName = ( root.classSignatures.hasOwnProperty(sign) ? root.classSignatures[sign] : undefined );
+    const theName = ( Object.prototype.hasOwnProperty.call(root.classSignatures, sign) ? root.classSignatures[sign] : undefined );
     return this.findClass((theName));
   };
   createSignature (origClass, classSig) {
-    if ( ( typeof(this.classSignatures[classSig] ) != "undefined" && this.classSignatures.hasOwnProperty(classSig) ) ) {
-      return (( this.classSignatures.hasOwnProperty(classSig) ? this.classSignatures[classSig] : undefined ));
+    if ( ( typeof(this.classSignatures[classSig] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.classSignatures, classSig) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.classSignatures, classSig) ? this.classSignatures[classSig] : undefined ));
     }
     let ii = 1;
     let sigName = (origClass + "V") + ii;
-    while (( typeof(this.classToSignature[sigName] ) != "undefined" && this.classToSignature.hasOwnProperty(sigName) )) {
+    while (( typeof(this.classToSignature[sigName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.classToSignature, sigName) )) {
       ii = ii + 1;
       sigName = (origClass + "V") + ii;
     };
@@ -4431,7 +4431,7 @@ class RangerAppWriterContext  {
       };
       for ( let i_2 = 0; i_2 < traitClass.defined_variants.length; i_2++) {
         var fnVar = traitClass.defined_variants[i_2];
-        const mVs = ( traitClass.method_variants.hasOwnProperty(fnVar) ? traitClass.method_variants[fnVar] : undefined );
+        const mVs = ( Object.prototype.hasOwnProperty.call(traitClass.method_variants, fnVar) ? traitClass.method_variants[fnVar] : undefined );
         for ( let i_3 = 0; i_3 < mVs.variants.length; i_3++) {
           var variant = mVs.variants[i_3];
           const ccopy_1 = variant.node.rebuildWithType(match, true);
@@ -4458,7 +4458,7 @@ class RangerAppWriterContext  {
       for ( let i = 0; i < cl.defined_variants.length; i++) {
         var fnVar = cl.defined_variants[i];
         if ( fnVar == fname ) {
-          const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+          const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
           for ( let i_1 = 0; i_1 < mVs.variants.length; i_1++) {
             var variant = mVs.variants[i_1];
             res = variant;
@@ -4528,11 +4528,11 @@ class RangerAppWriterContext  {
   };
   hasTemplateNode (name) {
     const root = this.getRoot();
-    return ( typeof(root.templateClassNodes[name] ) != "undefined" && root.templateClassNodes.hasOwnProperty(name) );
+    return ( typeof(root.templateClassNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.templateClassNodes, name) );
   };
   findTemplateNode (name) {
     const root = this.getRoot();
-    return (( root.templateClassNodes.hasOwnProperty(name) ? root.templateClassNodes[name] : undefined ));
+    return (( Object.prototype.hasOwnProperty.call(root.templateClassNodes, name) ? root.templateClassNodes[name] : undefined ));
   };
   setStaticWriter (className, writer) {
     const root = this.getRoot();
@@ -4540,10 +4540,10 @@ class RangerAppWriterContext  {
   };
   getStaticWriter (className) {
     const root = this.getRoot();
-    return (( root.classStaticWriters.hasOwnProperty(className) ? root.classStaticWriters[className] : undefined ));
+    return (( Object.prototype.hasOwnProperty.call(root.classStaticWriters, className) ? root.classStaticWriters[className] : undefined ));
   };
   isEnumDefined (n) {
-    if ( ( typeof(this.definedEnums[n] ) != "undefined" && this.definedEnums.hasOwnProperty(n) ) ) {
+    if ( ( typeof(this.definedEnums[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.definedEnums, n) ) ) {
       return true;
     }
     if ( typeof(this.parent) === "undefined" ) {
@@ -4553,8 +4553,8 @@ class RangerAppWriterContext  {
   };
   getEnum (n) {
     let res;
-    if ( ( typeof(this.definedEnums[n] ) != "undefined" && this.definedEnums.hasOwnProperty(n) ) ) {
-      res = ( this.definedEnums.hasOwnProperty(n) ? this.definedEnums[n] : undefined );
+    if ( ( typeof(this.definedEnums[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.definedEnums, n) ) ) {
+      res = ( Object.prototype.hasOwnProperty.call(this.definedEnums, n) ? this.definedEnums[n] : undefined );
       return res;
     }
     if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
@@ -4563,7 +4563,7 @@ class RangerAppWriterContext  {
     return res;
   };
   isVarDefined (name) {
-    if ( ( typeof(this.localVariables[name] ) != "undefined" && this.localVariables.hasOwnProperty(name) ) ) {
+    if ( ( typeof(this.localVariables[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localVariables, name) ) ) {
       return true;
     }
     if ( typeof(this.parent) === "undefined" ) {
@@ -4575,8 +4575,8 @@ class RangerAppWriterContext  {
     this.contextFlags[name] = value;
   };
   getFlag (name) {
-    if ( ( typeof(this.contextFlags[name] ) != "undefined" && this.contextFlags.hasOwnProperty(name) ) ) {
-      return (( this.contextFlags.hasOwnProperty(name) ? this.contextFlags[name] : undefined ));
+    if ( ( typeof(this.contextFlags[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.contextFlags, name) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.contextFlags, name) ? this.contextFlags[name] : undefined ));
     }
     if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
       return this.parent.getFlag(name);
@@ -4587,7 +4587,7 @@ class RangerAppWriterContext  {
     this.settings[name] = value;
   };
   hasSetting (name) {
-    if ( ( typeof(this.settings[name] ) != "undefined" && this.settings.hasOwnProperty(name) ) ) {
+    if ( ( typeof(this.settings[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.settings, name) ) ) {
       return true;
     }
     if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
@@ -4596,8 +4596,8 @@ class RangerAppWriterContext  {
     return false;
   };
   getSetting (name) {
-    if ( ( typeof(this.settings[name] ) != "undefined" && this.settings.hasOwnProperty(name) ) ) {
-      return (( this.settings.hasOwnProperty(name) ? this.settings[name] : undefined ));
+    if ( ( typeof(this.settings[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.settings, name) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.settings, name) ? this.settings[name] : undefined ));
     }
     if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
       return this.parent.getSetting(name);
@@ -4609,8 +4609,8 @@ class RangerAppWriterContext  {
     root.compilerFlags[name] = value;
   };
   hasCompilerFlag (s_name) {
-    if ( ( typeof(this.compilerFlags[s_name] ) != "undefined" && this.compilerFlags.hasOwnProperty(s_name) ) ) {
-      return (( this.compilerFlags.hasOwnProperty(s_name) ? this.compilerFlags[s_name] : undefined ));
+    if ( ( typeof(this.compilerFlags[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.compilerFlags, s_name) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.compilerFlags, s_name) ? this.compilerFlags[s_name] : undefined ));
     }
     if ( typeof(this.parent) === "undefined" ) {
       return false;
@@ -4622,8 +4622,8 @@ class RangerAppWriterContext  {
     root.compilerSettings[name] = value;
   };
   getCompilerSetting (s_name) {
-    if ( ( typeof(this.compilerSettings[s_name] ) != "undefined" && this.compilerSettings.hasOwnProperty(s_name) ) ) {
-      return (( this.compilerSettings.hasOwnProperty(s_name) ? this.compilerSettings[s_name] : undefined ));
+    if ( ( typeof(this.compilerSettings[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.compilerSettings, s_name) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.compilerSettings, s_name) ? this.compilerSettings[s_name] : undefined ));
     }
     if ( typeof(this.parent) === "undefined" ) {
       return "";
@@ -4631,7 +4631,7 @@ class RangerAppWriterContext  {
     return this.parent.getCompilerSetting(s_name);
   };
   hasCompilerSetting (s_name) {
-    if ( ( typeof(this.compilerSettings[s_name] ) != "undefined" && this.compilerSettings.hasOwnProperty(s_name) ) ) {
+    if ( ( typeof(this.compilerSettings[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.compilerSettings, s_name) ) ) {
       return true;
     }
     if ( typeof(this.parent) === "undefined" ) {
@@ -4640,8 +4640,8 @@ class RangerAppWriterContext  {
     return this.parent.hasCompilerSetting(s_name);
   };
   getVariableDef (name) {
-    if ( ( typeof(this.localVariables[name] ) != "undefined" && this.localVariables.hasOwnProperty(name) ) ) {
-      return (( this.localVariables.hasOwnProperty(name) ? this.localVariables[name] : undefined ));
+    if ( ( typeof(this.localVariables[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localVariables, name) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.localVariables, name) ? this.localVariables[name] : undefined ));
     }
     if ( typeof(this.parent) === "undefined" ) {
       const tmp = new RangerAppParamDesc();
@@ -4661,8 +4661,8 @@ class RangerAppWriterContext  {
   getFnVarCnt (name) {
     const fnCtx = this.findFunctionCtx();
     let ii = 0;
-    if ( ( typeof(fnCtx.defCounts[name] ) != "undefined" && fnCtx.defCounts.hasOwnProperty(name) ) ) {
-      ii = (( fnCtx.defCounts.hasOwnProperty(name) ? fnCtx.defCounts[name] : undefined ));
+    if ( ( typeof(fnCtx.defCounts[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ) ) {
+      ii = (( Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ? fnCtx.defCounts[name] : undefined ));
       ii = 1 + ii;
     } else {
       fnCtx.defCounts[name] = ii;
@@ -4689,8 +4689,8 @@ class RangerAppWriterContext  {
   getVarTotalCnt (name) {
     const fnCtx = this;
     let ii = 0;
-    if ( ( typeof(fnCtx.defCounts[name] ) != "undefined" && fnCtx.defCounts.hasOwnProperty(name) ) ) {
-      ii = (( fnCtx.defCounts.hasOwnProperty(name) ? fnCtx.defCounts[name] : undefined ));
+    if ( ( typeof(fnCtx.defCounts[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ) ) {
+      ii = (( Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ? fnCtx.defCounts[name] : undefined ));
     }
     if ( (typeof(fnCtx.parent) !== "undefined" && fnCtx.parent != null )  ) {
       ii = ii + fnCtx.parent.getVarTotalCnt(name);
@@ -4703,8 +4703,8 @@ class RangerAppWriterContext  {
   getFnVarCnt2 (name) {
     const fnCtx = this;
     let ii = 0;
-    if ( ( typeof(fnCtx.defCounts[name] ) != "undefined" && fnCtx.defCounts.hasOwnProperty(name) ) ) {
-      ii = (( fnCtx.defCounts.hasOwnProperty(name) ? fnCtx.defCounts[name] : undefined ));
+    if ( ( typeof(fnCtx.defCounts[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ) ) {
+      ii = (( Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ? fnCtx.defCounts[name] : undefined ));
       ii = 1 + ii;
       fnCtx.defCounts[name] = ii;
     } else {
@@ -4728,8 +4728,8 @@ class RangerAppWriterContext  {
     const classLevel = this.findMethodLevelContext();
     const fnCtx = this;
     let ii = 0;
-    if ( ( typeof(fnCtx.defCounts[name] ) != "undefined" && fnCtx.defCounts.hasOwnProperty(name) ) ) {
-      ii = (( fnCtx.defCounts.hasOwnProperty(name) ? fnCtx.defCounts[name] : undefined ));
+    if ( ( typeof(fnCtx.defCounts[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ) ) {
+      ii = (( Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ? fnCtx.defCounts[name] : undefined ));
       fnCtx.defCounts[name] = ii + 1;
     } else {
       fnCtx.defCounts[name] = 1;
@@ -4799,7 +4799,7 @@ class RangerAppWriterContext  {
     this.localVarNames.push(name);
   };
   isDefinedClass (name) {
-    if ( ( typeof(this.definedClasses[name] ) != "undefined" && this.definedClasses.hasOwnProperty(name) ) ) {
+    if ( ( typeof(this.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.definedClasses, name) ) ) {
       return true;
     } else {
       if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
@@ -4818,13 +4818,13 @@ class RangerAppWriterContext  {
     let list = [];
     for ( let i = 0; i < this.definedClassList.length; i++) {
       var n = this.definedClassList[i];
-      list.push((( this.definedClasses.hasOwnProperty(n) ? this.definedClasses[n] : undefined )));
+      list.push((( Object.prototype.hasOwnProperty.call(this.definedClasses, n) ? this.definedClasses[n] : undefined )));
     };
     return list;
   };
   addClass (name, desc) {
     const root = this.getRoot();
-    if ( ( typeof(root.definedClasses[name] ) != "undefined" && root.definedClasses.hasOwnProperty(name) ) ) {
+    if ( ( typeof(root.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.definedClasses, name) ) ) {
     } else {
       root.definedClasses[name] = desc;
       root.definedClassList.push(name);
@@ -4832,11 +4832,11 @@ class RangerAppWriterContext  {
   };
   findClass (name) {
     const root = this.getRoot();
-    return (( root.definedClasses.hasOwnProperty(name) ? root.definedClasses[name] : undefined ));
+    return (( Object.prototype.hasOwnProperty.call(root.definedClasses, name) ? root.definedClasses[name] : undefined ));
   };
   hasClass (name) {
     const root = this.getRoot();
-    return ( typeof(root.definedClasses[name] ) != "undefined" && root.definedClasses.hasOwnProperty(name) );
+    return ( typeof(root.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.definedClasses, name) );
   };
   getCurrentMethod () {
     if ( (typeof(this.currentMethod) !== "undefined" && this.currentMethod != null )  ) {
@@ -5038,8 +5038,8 @@ class SourceMapBuilder  {
     if ( this.isSyntheticSource(sourceFile) ) {
       return -1;
     }
-    if ( ( typeof(this.sourceToIdx[sourceFile] ) != "undefined" && this.sourceToIdx.hasOwnProperty(sourceFile) ) ) {
-      return (( this.sourceToIdx.hasOwnProperty(sourceFile) ? this.sourceToIdx[sourceFile] : undefined ));
+    if ( ( typeof(this.sourceToIdx[sourceFile] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.sourceToIdx, sourceFile) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.sourceToIdx, sourceFile) ? this.sourceToIdx[sourceFile] : undefined ));
     }
     const idx = this.sources.length;
     this.sources.push(sourceFile);
@@ -5051,8 +5051,8 @@ class SourceMapBuilder  {
     if ( (name.length) == 0 ) {
       return -1;
     }
-    if ( ( typeof(this.nameToIdx[name] ) != "undefined" && this.nameToIdx.hasOwnProperty(name) ) ) {
-      return (( this.nameToIdx.hasOwnProperty(name) ? this.nameToIdx[name] : undefined ));
+    if ( ( typeof(this.nameToIdx[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.nameToIdx, name) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.nameToIdx, name) ? this.nameToIdx[name] : undefined ));
     }
     const idx = this.names.length;
     this.names.push(name);
@@ -5268,7 +5268,7 @@ class CodeFile  {
     }
   };
   addImport (import_name) {
-    if ( false == (( typeof(this.import_list[import_name] ) != "undefined" && this.import_list.hasOwnProperty(import_name) )) ) {
+    if ( false == (( typeof(this.import_list[import_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.import_list, import_name) )) ) {
       this.import_list[import_name] = import_name;
       this.import_names.push(import_name);
     }
@@ -5573,8 +5573,8 @@ class CodeWriter  {
     return new_writer;
   };
   getTag (name) {
-    if ( ( typeof(this.tags[name] ) != "undefined" && this.tags.hasOwnProperty(name) ) ) {
-      const idx = (( this.tags.hasOwnProperty(name) ? this.tags[name] : undefined ));
+    if ( ( typeof(this.tags[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.tags, name) ) ) {
+      const idx = (( Object.prototype.hasOwnProperty.call(this.tags, name) ? this.tags[name] : undefined ));
       const slice = this.slices[idx];
       return slice.writer;
     } else {
@@ -5585,7 +5585,7 @@ class CodeWriter  {
     return this;
   };
   hasTag (name) {
-    if ( ( typeof(this.tags[name] ) != "undefined" && this.tags.hasOwnProperty(name) ) ) {
+    if ( ( typeof(this.tags[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.tags, name) ) ) {
       return true;
     } else {
       if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
@@ -7251,8 +7251,8 @@ class RangerArgMatch  {
     if ( (tplKeyword.length) > 1 ) {
       return true;
     }
-    if ( ( typeof(this.matched[tplKeyword] ) != "undefined" && this.matched.hasOwnProperty(tplKeyword) ) ) {
-      const s = (( this.matched.hasOwnProperty(tplKeyword) ? this.matched[tplKeyword] : undefined ));
+    if ( ( typeof(this.matched[tplKeyword] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matched, tplKeyword) ) ) {
+      const s = (( Object.prototype.hasOwnProperty.call(this.matched, tplKeyword) ? this.matched[tplKeyword] : undefined ));
       if ( this.areEqualTypes(s, typeName, ctx) ) {
         return true;
       }
@@ -7285,8 +7285,8 @@ class RangerArgMatch  {
     if ( (tplKeyword.length) > 1 ) {
       return true;
     }
-    if ( ( typeof(this.matched[tplKeyword] ) != "undefined" && this.matched.hasOwnProperty(tplKeyword) ) ) {
-      const s = (( this.matched.hasOwnProperty(tplKeyword) ? this.matched[tplKeyword] : undefined ));
+    if ( ( typeof(this.matched[tplKeyword] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matched, tplKeyword) ) ) {
+      const s = (( Object.prototype.hasOwnProperty.call(this.matched, tplKeyword) ? this.matched[tplKeyword] : undefined ));
       if ( this.areEqualATypes(s, typeName, ctx) ) {
         return true;
       }
@@ -7379,8 +7379,8 @@ class RangerArgMatch  {
     const type1 = TTypeRegistry.canonicalScalar(type1o);
     const type2 = TTypeRegistry.canonicalScalar(type2o);
     let t_name = type1;
-    if ( ( typeof(this.matched[type1] ) != "undefined" && this.matched.hasOwnProperty(type1) ) ) {
-      t_name = TTypeRegistry.canonicalScalar(((( this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined ))));
+    if ( ( typeof(this.matched[type1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matched, type1) ) ) {
+      t_name = TTypeRegistry.canonicalScalar(((( Object.prototype.hasOwnProperty.call(this.matched, type1) ? this.matched[type1] : undefined ))));
     }
     switch (t_name ) { 
       case "string" : 
@@ -7416,11 +7416,11 @@ class RangerArgMatch  {
       }
       if ( (typeof(trait1) !== "undefined" && trait1 != null )  ) {
         this.force_add(type2, c1.name, ctx);
-        if ( ( typeof(c1.trait_params[type2] ) != "undefined" && c1.trait_params.hasOwnProperty(type2) ) ) {
-          const pms = (( c1.trait_params.hasOwnProperty(type2) ? c1.trait_params[type2] : undefined ));
+        if ( ( typeof(c1.trait_params[type2] ) != "undefined" && Object.prototype.hasOwnProperty.call(c1.trait_params, type2) ) ) {
+          const pms = (( Object.prototype.hasOwnProperty.call(c1.trait_params, type2) ? c1.trait_params[type2] : undefined ));
           for ( let i = 0; i < pms.param_names.length; i++) {
             var pn = pms.param_names[i];
-            const pn_value = (( pms.values.hasOwnProperty(pn) ? pms.values[pn] : undefined ));
+            const pn_value = (( Object.prototype.hasOwnProperty.call(pms.values, pn) ? pms.values[pn] : undefined ));
             this.add(pn, pn_value, ctx);
           };
         }
@@ -7428,11 +7428,11 @@ class RangerArgMatch  {
       const trait1_1 = c2_1.hasTrait(t_name, ctx);
       if ( (typeof(trait1_1) !== "undefined" && trait1_1 != null )  ) {
         this.force_add(t_name, c2_1.name, ctx);
-        if ( ( typeof(c2_1.trait_params[t_name] ) != "undefined" && c2_1.trait_params.hasOwnProperty(t_name) ) ) {
-          const pms_1 = (( c2_1.trait_params.hasOwnProperty(t_name) ? c2_1.trait_params[t_name] : undefined ));
+        if ( ( typeof(c2_1.trait_params[t_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(c2_1.trait_params, t_name) ) ) {
+          const pms_1 = (( Object.prototype.hasOwnProperty.call(c2_1.trait_params, t_name) ? c2_1.trait_params[t_name] : undefined ));
           for ( let i_1 = 0; i_1 < pms_1.param_names.length; i_1++) {
             var pn_1 = pms_1.param_names[i_1];
-            const pn_value_1 = (( pms_1.values.hasOwnProperty(pn_1) ? pms_1.values[pn_1] : undefined ));
+            const pn_value_1 = (( Object.prototype.hasOwnProperty.call(pms_1.values, pn_1) ? pms_1.values[pn_1] : undefined ));
             this.add(pn_1, pn_value_1, ctx);
           };
         } else {
@@ -7458,8 +7458,8 @@ class RangerArgMatch  {
     const type1 = TTypeRegistry.canonicalScalar(type1i);
     const type2 = TTypeRegistry.canonicalScalar(type2i);
     let t_name = type1;
-    if ( ( typeof(this.matched[type1] ) != "undefined" && this.matched.hasOwnProperty(type1) ) ) {
-      t_name = TTypeRegistry.canonicalScalar(((( this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined ))));
+    if ( ( typeof(this.matched[type1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matched, type1) ) ) {
+      t_name = TTypeRegistry.canonicalScalar(((( Object.prototype.hasOwnProperty.call(this.matched, type1) ? this.matched[type1] : undefined ))));
     }
     switch (t_name ) { 
       case "string" : 
@@ -7495,11 +7495,11 @@ class RangerArgMatch  {
       }
       if ( (typeof(trait1) !== "undefined" && trait1 != null )  ) {
         this.force_add(type2, c1.name, ctx);
-        if ( ( typeof(c1.trait_params[type2] ) != "undefined" && c1.trait_params.hasOwnProperty(type2) ) ) {
-          const pms = (( c1.trait_params.hasOwnProperty(type2) ? c1.trait_params[type2] : undefined ));
+        if ( ( typeof(c1.trait_params[type2] ) != "undefined" && Object.prototype.hasOwnProperty.call(c1.trait_params, type2) ) ) {
+          const pms = (( Object.prototype.hasOwnProperty.call(c1.trait_params, type2) ? c1.trait_params[type2] : undefined ));
           for ( let i = 0; i < pms.param_names.length; i++) {
             var pn = pms.param_names[i];
-            const pn_value = (( pms.values.hasOwnProperty(pn) ? pms.values[pn] : undefined ));
+            const pn_value = (( Object.prototype.hasOwnProperty.call(pms.values, pn) ? pms.values[pn] : undefined ));
             this.add(pn, pn_value, ctx);
           };
         }
@@ -7507,11 +7507,11 @@ class RangerArgMatch  {
       const trait1_1 = c2.hasTrait(t_name, ctx);
       if ( (typeof(trait1_1) !== "undefined" && trait1_1 != null )  ) {
         this.force_add(t_name, c2.name, ctx);
-        if ( ( typeof(c2.trait_params[t_name] ) != "undefined" && c2.trait_params.hasOwnProperty(t_name) ) ) {
-          const pms_1 = (( c2.trait_params.hasOwnProperty(t_name) ? c2.trait_params[t_name] : undefined ));
+        if ( ( typeof(c2.trait_params[t_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(c2.trait_params, t_name) ) ) {
+          const pms_1 = (( Object.prototype.hasOwnProperty.call(c2.trait_params, t_name) ? c2.trait_params[t_name] : undefined ));
           for ( let i_1 = 0; i_1 < pms_1.param_names.length; i_1++) {
             var pn_1 = pms_1.param_names[i_1];
-            const pn_value_1 = (( pms_1.values.hasOwnProperty(pn_1) ? pms_1.values[pn_1] : undefined ));
+            const pn_value_1 = (( Object.prototype.hasOwnProperty.call(pms_1.values, pn_1) ? pms_1.values[pn_1] : undefined ));
             this.add(pn_1, pn_value_1, ctx);
           };
         } else {
@@ -7529,8 +7529,8 @@ class RangerArgMatch  {
   };
   getTypeName (n) {
     let t_name = n;
-    if ( ( typeof(this.matched[t_name] ) != "undefined" && this.matched.hasOwnProperty(t_name) ) ) {
-      t_name = (( this.matched.hasOwnProperty(t_name) ? this.matched[t_name] : undefined ));
+    if ( ( typeof(this.matched[t_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matched, t_name) ) ) {
+      t_name = (( Object.prototype.hasOwnProperty.call(this.matched, t_name) ? this.matched[t_name] : undefined ));
     }
     if ( 0 == (t_name.length) ) {
       return "";
@@ -7539,8 +7539,8 @@ class RangerArgMatch  {
   };
   getType (n) {
     let t_name = n;
-    if ( ( typeof(this.matched[t_name] ) != "undefined" && this.matched.hasOwnProperty(t_name) ) ) {
-      t_name = (( this.matched.hasOwnProperty(t_name) ? this.matched[t_name] : undefined ));
+    if ( ( typeof(this.matched[t_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matched, t_name) ) ) {
+      t_name = (( Object.prototype.hasOwnProperty.call(this.matched, t_name) ? this.matched[t_name] : undefined ));
     }
     if ( 0 == (t_name.length) ) {
       return 0;
@@ -7569,8 +7569,8 @@ class RangerArgMatch  {
       node.setFlag("immutable");
     }
     if ( (arg.value_type != 7) && (arg.value_type != 6) ) {
-      if ( ( typeof(this.matchedLambdas[arg.type_name] ) != "undefined" && this.matchedLambdas.hasOwnProperty(arg.type_name) ) ) {
-        const lam = ( this.matchedLambdas.hasOwnProperty(arg.type_name) ? this.matchedLambdas[arg.type_name] : undefined );
+      if ( ( typeof(this.matchedLambdas[arg.type_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matchedLambdas, arg.type_name) ) ) {
+        const lam = ( Object.prototype.hasOwnProperty.call(this.matchedLambdas, arg.type_name) ? this.matchedLambdas[arg.type_name] : undefined );
         node.eval_type = 20;
         node.expression_value = lam.copy();
         return true;
@@ -7840,40 +7840,40 @@ class DictNode  {
   };
   getString (key) {
     let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const k = ( this.objects.hasOwnProperty(key) ? this.objects[key] : undefined );
+    if ( ( typeof(this.objects[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.objects, key) ) ) {
+      const k = ( Object.prototype.hasOwnProperty.call(this.objects, key) ? this.objects[key] : undefined );
       res = k.string_value;
     }
     return res;
   };
   getDouble (key) {
     let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const k = ( this.objects.hasOwnProperty(key) ? this.objects[key] : undefined );
+    if ( ( typeof(this.objects[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.objects, key) ) ) {
+      const k = ( Object.prototype.hasOwnProperty.call(this.objects, key) ? this.objects[key] : undefined );
       res = k.double_value;
     }
     return res;
   };
   getInt (key) {
     let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const k = ( this.objects.hasOwnProperty(key) ? this.objects[key] : undefined );
+    if ( ( typeof(this.objects[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.objects, key) ) ) {
+      const k = ( Object.prototype.hasOwnProperty.call(this.objects, key) ? this.objects[key] : undefined );
       res = k.int_value;
     }
     return res;
   };
   getBoolean (key) {
     let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const k = ( this.objects.hasOwnProperty(key) ? this.objects[key] : undefined );
+    if ( ( typeof(this.objects[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.objects, key) ) ) {
+      const k = ( Object.prototype.hasOwnProperty.call(this.objects, key) ? this.objects[key] : undefined );
       res = k.boolean_value;
     }
     return res;
   };
   getArray (key) {
     let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const obj = ( this.objects.hasOwnProperty(key) ? this.objects[key] : undefined );
+    if ( ( typeof(this.objects[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.objects, key) ) ) {
+      const obj = ( Object.prototype.hasOwnProperty.call(this.objects, key) ? this.objects[key] : undefined );
       if ( obj.is_property ) {
         res = obj.object_value;
       }
@@ -7889,8 +7889,8 @@ class DictNode  {
   };
   getObject (key) {
     let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const obj = ( this.objects.hasOwnProperty(key) ? this.objects[key] : undefined );
+    if ( ( typeof(this.objects[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.objects, key) ) ) {
+      const obj = ( Object.prototype.hasOwnProperty.call(this.objects, key) ? this.objects[key] : undefined );
       if ( obj.is_property ) {
         res = obj.object_value;
       }
@@ -7974,7 +7974,7 @@ class DictNode  {
           if ( i_1 > 0 ) {
             str_1 = str_1 + ",";
           }
-          const item_1 = ( this.objects.hasOwnProperty(key) ? this.objects[key] : undefined );
+          const item_1 = ( Object.prototype.hasOwnProperty.call(this.objects, key) ? this.objects[key] : undefined );
           str_1 = str_1 + item_1.stringify();
         };
         str_1 = str_1 + "}";
@@ -8165,7 +8165,7 @@ class RangerSerializeClass  {
     }
     for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
       var pvar_1 = cl.variables[i_2];
-      if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
+      if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
         continue;
       }
       const nn_1 = pvar_1.nameNode;
@@ -8453,7 +8453,7 @@ class RangerSerializeClass  {
     }
     for ( let i = 0; i < cl.variables.length; i++) {
       var pvar = cl.variables[i];
-      if ( ( typeof(declaredVariable[pvar.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar.name) ) ) {
+      if ( ( typeof(declaredVariable[pvar.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar.name) ) ) {
         continue;
       }
       const nn = pvar.nameNode;
@@ -8488,7 +8488,7 @@ class RangerSerializeClass  {
     }
     for ( let i_3 = 0; i_3 < cl.variables.length; i_3++) {
       var pvar_2 = cl.variables[i_3];
-      if ( ( typeof(declaredVariable[pvar_2.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_2.name) ) ) {
+      if ( ( typeof(declaredVariable[pvar_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_2.name) ) ) {
         continue;
       }
       const nn_2 = pvar_2.nameNode;
@@ -8565,7 +8565,7 @@ class RangerImmutableExtension  {
     wr.out("}", true);
     for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
       var pvar_1 = cl.variables[i_2];
-      if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
+      if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
         continue;
       }
       const nn_1 = pvar_1.nameNode;
@@ -9046,7 +9046,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       ctx.addError(errNode, ((("proc_send: " + recvClass.name) + " has no handler \"") + methodName) + "\"");
       return noMatch;
     }
-    const mVs = ( recvClass.method_variants.hasOwnProperty(methodName) ? recvClass.method_variants[methodName] : undefined );
+    const mVs = ( Object.prototype.hasOwnProperty.call(recvClass.method_variants, methodName) ? recvClass.method_variants[methodName] : undefined );
     if ( typeof(mVs) === "undefined" ) {
       ctx.addError(errNode, (("proc_send: no handler \"" + methodName) + "\" on ") + recvClass.name);
       return noMatch;
@@ -10078,8 +10078,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     getVoidNameSignature () {
       const s = "void";
-      if ( ( typeof(this.isDefinedSignature[s] ) != "undefined" && this.isDefinedSignature.hasOwnProperty(s) ) ) {
-        const cc = (( this.isDefinedSignature.hasOwnProperty(s) ? this.isDefinedSignature[s] : undefined ));
+      if ( ( typeof(this.isDefinedSignature[s] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.isDefinedSignature, s) ) ) {
+        const cc = (( Object.prototype.hasOwnProperty.call(this.isDefinedSignature, s) ? this.isDefinedSignature[s] : undefined ));
         return "void_" + cc;
       }
       this.signatureCnt = this.signatureCnt + 1;
@@ -10088,8 +10088,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     getNameSignature (node) {
       const s = node.type_name + node.buildTypeSignature();
-      if ( ( typeof(this.isDefinedSignature[s] ) != "undefined" && this.isDefinedSignature.hasOwnProperty(s) ) ) {
-        const cc = (( this.isDefinedSignature.hasOwnProperty(s) ? this.isDefinedSignature[s] : undefined ));
+      if ( ( typeof(this.isDefinedSignature[s] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.isDefinedSignature, s) ) ) {
+        const cc = (( Object.prototype.hasOwnProperty.call(this.isDefinedSignature, s) ? this.isDefinedSignature[s] : undefined ));
         if ( cc == 1 ) {
           return node.type_name;
         }
@@ -10109,8 +10109,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         exp_s = exp_s + arg.buildTypeSignature();
         exp_s = exp_s + ",";
       };
-      if ( ( typeof(this.isDefinedArgSignature[exp_s] ) != "undefined" && this.isDefinedArgSignature.hasOwnProperty(exp_s) ) ) {
-        const cc = (( this.isDefinedArgSignature.hasOwnProperty(exp_s) ? this.isDefinedArgSignature[exp_s] : undefined ));
+      if ( ( typeof(this.isDefinedArgSignature[exp_s] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.isDefinedArgSignature, exp_s) ) ) {
+        const cc = (( Object.prototype.hasOwnProperty.call(this.isDefinedArgSignature, exp_s) ? this.isDefinedArgSignature[exp_s] : undefined ));
         if ( cc == 1 ) {
           return "";
         }
@@ -10198,10 +10198,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const enumName = node.ns[1];
         const ee = ctx.getEnum(rootObjName);
         const e = ee;
-        if ( ( typeof(e.values[enumName] ) != "undefined" && e.values.hasOwnProperty(enumName) ) ) {
+        if ( ( typeof(e.values[enumName] ) != "undefined" && Object.prototype.hasOwnProperty.call(e.values, enumName) ) ) {
           node.eval_type = 13;
           node.eval_type_name = rootObjName;
-          node.int_value = (( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ));
+          node.int_value = (( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ));
         } else {
           ctx.addError(node, (("Undefined Enum " + rootObjName) + ".") + enumName);
           node.eval_type = 1;
@@ -10337,7 +10337,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       for ( let i_1 = 0; i_1 < subCtx.localVarNames.length; i_1++) {
         var n = subCtx.localVarNames[i_1];
-        const p = ( subCtx.localVariables.hasOwnProperty(n) ? subCtx.localVariables[n] : undefined );
+        const p = ( Object.prototype.hasOwnProperty.call(subCtx.localVariables, n) ? subCtx.localVariables[n] : undefined );
         if ( p.set_cnt > 0 ) {
           if ( p.is_immutable ) {
             ctx.addError(node, "Immutable variable was assigned a value");
@@ -10853,7 +10853,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( cl.hasMethod(methodName) == false ) {
         return noMatch;
       }
-      const mVs = ( cl.method_variants.hasOwnProperty(methodName) ? cl.method_variants[methodName] : undefined );
+      const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, methodName) ? cl.method_variants[methodName] : undefined );
       if ( typeof(mVs) === "undefined" ) {
         return noMatch;
       }
@@ -10932,7 +10932,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const cl = ctx.findClass(obj_2.eval_type_name);
         let m;
         if ( cl.hasMethod(method_2.vref) ) {
-          const mVs = ( cl.method_variants.hasOwnProperty(method_2.vref) ? cl.method_variants[method_2.vref] : undefined );
+          const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, method_2.vref) ? cl.method_variants[method_2.vref] : undefined );
           if ( ((typeof(mVs) !== "undefined" && mVs != null ) ) && ((mVs.variants.length) > 0) ) {
             m = await this.matchMethodCall(cl, method_2.vref, callArgs_2, ctx, wr, node);
             if ( typeof(m) === "undefined" ) {
@@ -11808,7 +11808,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       for ( let i_1 = 0; i_1 < subCtx.localVarNames.length; i_1++) {
         var n = subCtx.localVarNames[i_1];
-        const p = ( subCtx.localVariables.hasOwnProperty(n) ? subCtx.localVariables[n] : undefined );
+        const p = ( Object.prototype.hasOwnProperty.call(subCtx.localVariables, n) ? subCtx.localVariables[n] : undefined );
         if ( p.set_cnt > 0 ) {
           if ( p.is_immutable ) {
             ctx.addError(p.nameNode, "Immutable variable was assigned a value");
@@ -11945,10 +11945,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let regNames = {};
       if ( false == ((node.register_name.length) > 0) ) {
         await opBody.forTree((async (item, i) => { 
-          if ( ( typeof(regToArg[item.vref] ) != "undefined" && regToArg.hasOwnProperty(item.vref) ) ) {
-            if ( ( typeof(opParamSet[item.vref] ) != "undefined" && opParamSet.hasOwnProperty(item.vref) ) ) {
-              if ( false == (( typeof(regParams[item.vref] ) != "undefined" && regParams.hasOwnProperty(item.vref) )) ) {
-                const realArg = (( regToArg.hasOwnProperty(item.vref) ? regToArg[item.vref] : undefined ));
+          if ( ( typeof(regToArg[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(regToArg, item.vref) ) ) {
+            if ( ( typeof(opParamSet[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(opParamSet, item.vref) ) ) {
+              if ( false == (( typeof(regParams[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(regParams, item.vref) )) ) {
+                const realArg = (( Object.prototype.hasOwnProperty.call(regToArg, item.vref) ? regToArg[item.vref] : undefined ));
                 if ( (realArg.register_name.length) > 0 ) {
                 } else {
                   const regName = ctx.createNewRegName();
@@ -12025,8 +12025,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let newOps = [];
       let tryTypes = ["string", "int", "double", "boolean"];
       const codeStrHash = origNode.getSource();
-      if ( ( typeof(this.match_types[codeStrHash] ) != "undefined" && this.match_types.hasOwnProperty(codeStrHash) ) ) {
-        tryTypes.splice(0, 0, (( this.match_types.hasOwnProperty(codeStrHash) ? this.match_types[codeStrHash] : undefined )));
+      if ( ( typeof(this.match_types[codeStrHash] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.match_types, codeStrHash) ) ) {
+        tryTypes.splice(0, 0, (( Object.prototype.hasOwnProperty.call(this.match_types, codeStrHash) ? this.match_types[codeStrHash] : undefined )));
       }
       const cList = (ctx.getRoot()).getClasses().slice().reverse();
       operatorsOf.forEach_31(cList, ((item, index) => { 
@@ -12136,10 +12136,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         let newRNodes = [];
         if ( false == ((node.register_name.length) > 0) ) {
           await opBody_1.forTree((async (item, i) => { 
-            if ( ( typeof(regToArg[item.vref] ) != "undefined" && regToArg.hasOwnProperty(item.vref) ) ) {
-              if ( ( typeof(opParamSet[item.vref] ) != "undefined" && opParamSet.hasOwnProperty(item.vref) ) ) {
-                if ( false == (( typeof(regParams[item.vref] ) != "undefined" && regParams.hasOwnProperty(item.vref) )) ) {
-                  const realArg = (( regToArg.hasOwnProperty(item.vref) ? regToArg[item.vref] : undefined ));
+            if ( ( typeof(regToArg[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(regToArg, item.vref) ) ) {
+              if ( ( typeof(opParamSet[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(opParamSet, item.vref) ) ) {
+                if ( false == (( typeof(regParams[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(regParams, item.vref) )) ) {
+                  const realArg = (( Object.prototype.hasOwnProperty.call(regToArg, item.vref) ? regToArg[item.vref] : undefined ));
                   if ( (realArg.register_name.length) > 0 ) {
                   } else {
                     const regName = ctx.createNewRegName();
@@ -12811,7 +12811,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( node.isFirstVref("Import") ) {
         const fNameNode = node.children[1];
         const import_file = fNameNode.string_value;
-        if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && ctx.already_imported.hasOwnProperty(import_file) ) ) {
+        if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
           return;
         }
         let source_code = "";
@@ -12947,7 +12947,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           for ( let i_3 = 0; i_3 < traitClass.defined_variants.length; i_3++) {
             var fnVar = traitClass.defined_variants[i_3];
-            const mVs = ( traitClass.method_variants.hasOwnProperty(fnVar) ? traitClass.method_variants[fnVar] : undefined );
+            const mVs = ( Object.prototype.hasOwnProperty.call(traitClass.method_variants, fnVar) ? traitClass.method_variants[fnVar] : undefined );
             for ( let i_4 = 0; i_4 < mVs.variants.length; i_4++) {
               var variant = mVs.variants[i_4];
               const ccopy_1 = variant.node.rebuildWithType(match, true);
@@ -13088,7 +13088,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       for ( let i_11 = 0; i_11 < ctx.definedClassList.length; i_11++) {
         var cname = ctx.definedClassList[i_11];
         allTypes.push(cname);
-        const c = (( ctx.definedClasses.hasOwnProperty(cname) ? ctx.definedClasses[cname] : undefined ));
+        const c = (( Object.prototype.hasOwnProperty.call(ctx.definedClasses, cname) ? ctx.definedClasses[cname] : undefined ));
         if ( ((c.is_system || c.is_interface) || c.is_template) || c.is_trait ) {
           continue;
         }
@@ -13100,7 +13100,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         };
         await operatorsOf_13.forEach_30(c.method_variants, (async (item, index) => { 
           await operatorsOf.forEach_29(item.variants, ((item, index) => { 
-            if ( ( typeof(varNames[item.name] ) != "undefined" && varNames.hasOwnProperty(item.name) ) ) {
+            if ( ( typeof(varNames[item.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(varNames, item.name) ) ) {
               ctx.addError(item.nameNode, "Class has defined method and variable of the same name.");
             }
           }));
@@ -13124,7 +13124,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let did_push = {};
       for ( let i_14 = 0; i_14 < allTypes.length; i_14++) {
         var typeName_1 = allTypes[i_14];
-        if ( ( typeof(did_push[typeName_1] ) != "undefined" && did_push.hasOwnProperty(typeName_1) ) ) {
+        if ( ( typeof(did_push[typeName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(did_push, typeName_1) ) ) {
           continue;
         }
         new_class.is_union_of.push(typeName_1);
@@ -13691,7 +13691,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         const fNameNode_2 = node.children[1];
         const import_file = fNameNode_2.string_value;
-        if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && ctx.already_imported.hasOwnProperty(import_file) ) ) {
+        if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
           for ( let i_9 = 0; i_9 < node.children.length; i_9++) {
             var item_4 = node.children[i_9];
             await this.WalkCollectMethods(item_4, ctx, wr);
@@ -14393,7 +14393,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           continue;
         }
         const path = cl_1.process_path;
-        const prev = ( seen.hasOwnProperty(path) ? seen[path] : undefined );
+        const prev = ( Object.prototype.hasOwnProperty.call(seen, path) ? seen[path] : undefined );
         if ( (typeof(prev) === "undefined") == false ) {
           const errNode = cl_1.nameNode;
           if ( (typeof(errNode) === "undefined") == false ) {
@@ -14872,7 +14872,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   const opName_1 = (item.getSecond()).int_value;
                   const opArg_1 = args.children[(opName_1 - 1)];
-                  if ( ( typeof(opCnts[opName_1] ) != "undefined" && opCnts.hasOwnProperty(opName_1) ) ) {
+                  if ( ( typeof(opCnts[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(opCnts, opName_1) ) ) {
                     let regName_2 = "";
                     const realArg_1 = callArgs.children[opName_1];
                     let just_vref = ((a) => { 
@@ -14893,11 +14893,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( await just_vref(realArg_1) ) {
                       return;
                     }
-                    if ( ( typeof(regNames[opName_1] ) != "undefined" && regNames.hasOwnProperty(opName_1) ) ) {
+                    if ( ( typeof(regNames[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(regNames, opName_1) ) ) {
                       if ( (realArg_1.register_name.length) > 0 ) {
                         regName_2 = realArg_1.register_name;
                       } else {
-                        regName_2 = (( regNames.hasOwnProperty(opName_1) ? regNames[opName_1] : undefined ));
+                        regName_2 = (( Object.prototype.hasOwnProperty.call(regNames, opName_1) ? regNames[opName_1] : undefined ));
                       }
                       realArg_1.register_name = regName_2;
                     } else {
@@ -15046,7 +15046,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               fCtx.function_level_context = true;
               for ( let i_5 = 0; i_5 < fCtx.localVarNames.length; i_5++) {
                 var n = fCtx.localVarNames[i_5];
-                const p_1 = ( fCtx.localVariables.hasOwnProperty(n) ? fCtx.localVariables[n] : undefined );
+                const p_1 = ( Object.prototype.hasOwnProperty.call(fCtx.localVariables, n) ? fCtx.localVariables[n] : undefined );
                 if ( p_1.set_cnt > 0 ) {
                   if ( p_1.is_immutable ) {
                     ctx.addError(callArgs, "Immutable variable was assigned");
@@ -15144,8 +15144,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const macroRoot = ctx.getRoot();
               const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + ((callArgs.sp.toString()));
               let macroActive = false;
-              if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && macroRoot.active_macros.hasOwnProperty(macroKey) ) ) {
-                macroActive = (( macroRoot.active_macros.hasOwnProperty(macroKey) ? macroRoot.active_macros[macroKey] : undefined ));
+              if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ) ) {
+                macroActive = (( Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ? macroRoot.active_macros[macroKey] : undefined ));
               }
               if ( macroActive ) {
                 ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' is recursive: expanding it reaches the same call site again, so it never terminates.");
@@ -15496,8 +15496,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     async addSystemImport (cl, ctx, wr) {
       if ( cl.is_system ) {
         const langName = operatorsOf_21.getTargetLang_22(ctx);
-        if ( ( typeof(cl.systemNodes[langName] ) != "undefined" && cl.systemNodes.hasOwnProperty(langName) ) ) {
-          const sNode = (( cl.systemNodes.hasOwnProperty(langName) ? cl.systemNodes[langName] : undefined ));
+        if ( ( typeof(cl.systemNodes[langName] ) != "undefined" && Object.prototype.hasOwnProperty.call(cl.systemNodes, langName) ) ) {
+          const sNode = (( Object.prototype.hasOwnProperty.call(cl.systemNodes, langName) ? cl.systemNodes[langName] : undefined ));
           if ( (sNode.children.length) > 2 ) {
             const impDefs = sNode.children[2];
             await impDefs.forTree(((item, i) => { 
@@ -15559,7 +15559,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const e = ctx.getEnum(rootObjName);
         if ( (typeof(e) !== "undefined" && e != null )  ) {
           const enumName = node.ns[1];
-          wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+          wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
         } else {
           if ( node.hasParamDesc ) {
             const pp = node.paramDesc;
@@ -15622,7 +15622,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     release_local_vars (node, ctx, wr) {
       for ( let i = 0; i < ctx.localVarNames.length; i++) {
         var n = ctx.localVarNames[i];
-        const p = ( ctx.localVariables.hasOwnProperty(n) ? ctx.localVariables[n] : undefined );
+        const p = ( Object.prototype.hasOwnProperty.call(ctx.localVariables, n) ? ctx.localVariables[n] : undefined );
         if ( p.ref_cnt == 0 ) {
           continue;
         }
@@ -15703,7 +15703,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const enumName = node.ns[1];
           const e = ctx.getEnum(rootObjName);
           if ( (typeof(e) !== "undefined" && e != null )  ) {
-            wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+            wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
             return;
           }
         }
@@ -16017,7 +16017,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       for ( let i_2 = 0; i_2 < cl.defined_variants.length; i_2++) {
         var fnVar = cl.defined_variants[i_2];
-        const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+        const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
         for ( let i_3 = 0; i_3 < mVs.variants.length; i_3++) {
           var variant = mVs.variants[i_3];
           wr.out(("function " + variant.name) + "() {", true);
@@ -16239,7 +16239,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.iface_created = {};
     }
     getSignatureInterface (s) {
-      const idx = ( this.signatures.hasOwnProperty(s) ? this.signatures[s] : undefined );
+      const idx = ( Object.prototype.hasOwnProperty.call(this.signatures, s) ? this.signatures[s] : undefined );
       if ( (typeof(idx) !== "undefined" && idx != null )  ) {
         return "LambdaSignature" + (idx);
       }
@@ -16272,7 +16272,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const cc = ctx.findClass(type_string);
         if ( cc.is_system ) {
           const current_sys = ctx;
-          const sName = (( cc.systemNames.hasOwnProperty("java7") ? cc.systemNames["java7"] : undefined ));
+          const sName = (( Object.prototype.hasOwnProperty.call(cc.systemNames, "java7") ? cc.systemNames["java7"] : undefined ));
           await this.addSystemImport(cc, ctx, wr);
           return sName;
         }
@@ -16335,7 +16335,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const package_name = ctx.getCompilerSetting("package");
               wr.addImport(package_name + ".interfaces.*");
             }
-            if ( (( typeof(this.iface_created[iface_name] ) != "undefined" && this.iface_created.hasOwnProperty(iface_name) )) == false ) {
+            if ( (( typeof(this.iface_created[iface_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.iface_created, iface_name) )) == false ) {
               const fnNode = node.expression_value.children[0];
               const args = node.expression_value.children[1];
               this.iface_created[iface_name] = true;
@@ -16428,7 +16428,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const iface_name_1 = this.getSignatureInterface(sig_1);
             wr.out(iface_name_1, false);
             const package_name_2 = ctx.getCompilerSetting("package");
-            if ( (( typeof(this.iface_created[iface_name_1] ) != "undefined" && this.iface_created.hasOwnProperty(iface_name_1) )) == false ) {
+            if ( (( typeof(this.iface_created[iface_name_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.iface_created, iface_name_1) )) == false ) {
               const fnNode_1 = node.expression_value.children[0];
               const args_1 = node.expression_value.children[1];
               this.iface_created[iface_name_1] = true;
@@ -16510,7 +16510,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               if ( cc_1.is_system ) {
                 await this.addSystemImport(cc_1, ctx, wr);
-                const sName = (( cc_1.systemNames.hasOwnProperty("java7") ? cc_1.systemNames["java7"] : undefined ));
+                const sName = (( Object.prototype.hasOwnProperty.call(cc_1.systemNames, "java7") ? cc_1.systemNames["java7"] : undefined ));
                 wr.out(sName, false);
                 return;
               }
@@ -16542,7 +16542,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const enumName = node.ns[1];
           const e = ctx.getEnum(rootObjName);
           if ( (typeof(e) !== "undefined" && e != null )  ) {
-            wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+            wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
             return;
           }
         }
@@ -16840,7 +16840,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const sig = this.buildLambdaSignature(node);
       const iface_name = this.getSignatureInterface(sig);
       const package_name = ctx.getCompilerSetting("package");
-      if ( (( typeof(this.iface_created[iface_name] ) != "undefined" && this.iface_created.hasOwnProperty(iface_name) )) == false ) {
+      if ( (( typeof(this.iface_created[iface_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.iface_created, iface_name) )) == false ) {
         this.iface_created[iface_name] = true;
         const utilWr = wr.getFileWriter("./interfaces/", (iface_name + ".java"));
         let iface_dir = ".";
@@ -17011,7 +17011,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       wr.createTag("utilities");
       for ( let i_4 = 0; i_4 < cl.variables.length; i_4++) {
         var pvar_1 = cl.variables[i_4];
-        if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
+        if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
           continue;
         }
         wr.out("public ", false);
@@ -17060,7 +17060,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
         var fnVar = cl.defined_variants[i_6];
-        const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+        const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
         for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
           var variant_1 = mVs.variants[i_7];
           wr.out("", true);
@@ -17120,7 +17120,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return "Any";
         }
         if ( cc.is_system ) {
-          const sysName = ( cc.systemNames.hasOwnProperty("swift3") ? cc.systemNames["swift3"] : undefined );
+          const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "swift3") ? cc.systemNames["swift3"] : undefined );
           if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
             return sysName;
           } else {
@@ -17243,7 +17243,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return;
             }
             if ( cc.is_system ) {
-              const sysName = ( cc.systemNames.hasOwnProperty("swift3") ? cc.systemNames["swift3"] : undefined );
+              const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "swift3") ? cc.systemNames["swift3"] : undefined );
               if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
                 wr.out(sysName, false);
               } else {
@@ -17268,7 +17268,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const e = ctx.getEnum(rootObjName);
         if ( (typeof(e) !== "undefined" && e != null )  ) {
           const enumName = node.ns[1];
-          wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+          wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
         } else {
           if ( node.hasParamDesc ) {
             const pp = node.paramDesc;
@@ -17289,7 +17289,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const enumName = node.ns[1];
           const e = ctx.getEnum(rootObjName);
           if ( (typeof(e) !== "undefined" && e != null )  ) {
-            wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+            wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
             return;
           }
         }
@@ -17703,7 +17703,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           for ( let i_2 = 0; i_2 < pC.defined_variants.length; i_2++) {
             var fnVar = pC.defined_variants[i_2];
-            const mVs = ( pC.method_variants.hasOwnProperty(fnVar) ? pC.method_variants[fnVar] : undefined );
+            const mVs = ( Object.prototype.hasOwnProperty.call(pC.method_variants, fnVar) ? pC.method_variants[fnVar] : undefined );
             for ( let i_3 = 0; i_3 < mVs.variants.length; i_3++) {
               var variant = mVs.variants[i_3];
               declaredFunction[variant.name] = true;
@@ -17742,7 +17742,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       wr.out("}", true);
       for ( let i_6 = 0; i_6 < cl.variables.length; i_6++) {
         var pvar_1 = cl.variables[i_6];
-        if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
+        if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
           wr.out("// WAS DECLARED : " + pvar_1.name, true);
           continue;
         }
@@ -17819,19 +17819,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       for ( let i_9 = 0; i_9 < cl.defined_variants.length; i_9++) {
         var fnVar_1 = cl.defined_variants[i_9];
-        const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
+        const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
         for ( let i_10 = 0; i_10 < mVs_1.variants.length; i_10++) {
           var variant_3 = mVs_1.variants[i_10];
-          if ( ( typeof(dblDeclaredFunction[variant_3.name] ) != "undefined" && dblDeclaredFunction.hasOwnProperty(variant_3.name) ) ) {
+          if ( ( typeof(dblDeclaredFunction[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(dblDeclaredFunction, variant_3.name) ) ) {
             continue;
           }
-          if ( ( typeof(declaredFunction[variant_3.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_3.name) ) ) {
+          if ( ( typeof(declaredFunction[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_3.name) ) ) {
             wr.out("override ", false);
           }
           dblDeclaredFunction[variant_3.name] = true;
           wr.out(("func " + variant_3.compiledName) + "(", false);
-          if ( ( typeof(parentFunction[variant_3.name] ) != "undefined" && parentFunction.hasOwnProperty(variant_3.name) ) ) {
-            await this.writeArgsDefWithLocals((( parentFunction.hasOwnProperty(variant_3.name) ? parentFunction[variant_3.name] : undefined )), variant_3, ctx, wr);
+          if ( ( typeof(parentFunction[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(parentFunction, variant_3.name) ) ) {
+            await this.writeArgsDefWithLocals((( Object.prototype.hasOwnProperty.call(parentFunction, variant_3.name) ? parentFunction[variant_3.name] : undefined )), variant_3, ctx, wr);
           } else {
             await this.writeArgsDef(variant_3, ctx, wr);
           }
@@ -17895,9 +17895,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return "Any";
         }
         if ( cc.is_system ) {
-          let sysName = ( cc.systemNames.hasOwnProperty("swift6") ? cc.systemNames["swift6"] : undefined );
+          let sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "swift6") ? cc.systemNames["swift6"] : undefined );
           if ( typeof(sysName) === "undefined" ) {
-            sysName = ( cc.systemNames.hasOwnProperty("swift3") ? cc.systemNames["swift3"] : undefined );
+            sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "swift3") ? cc.systemNames["swift3"] : undefined );
           }
           if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
             return sysName;
@@ -18069,9 +18069,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return;
             }
             if ( cc.is_system ) {
-              let sysName = ( cc.systemNames.hasOwnProperty("swift6") ? cc.systemNames["swift6"] : undefined );
+              let sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "swift6") ? cc.systemNames["swift6"] : undefined );
               if ( typeof(sysName) === "undefined" ) {
-                sysName = ( cc.systemNames.hasOwnProperty("swift3") ? cc.systemNames["swift3"] : undefined );
+                sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "swift3") ? cc.systemNames["swift3"] : undefined );
               }
               if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
                 wr.out(sysName, false);
@@ -18097,7 +18097,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const e = ctx.getEnum(rootObjName);
         if ( (typeof(e) !== "undefined" && e != null )  ) {
           const enumName = node.ns[1];
-          wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+          wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
         } else {
           if ( node.hasParamDesc ) {
             const pp = node.paramDesc;
@@ -18118,7 +18118,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const enumName = node.ns[1];
           const e = ctx.getEnum(rootObjName);
           if ( (typeof(e) !== "undefined" && e != null )  ) {
-            wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+            wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
             return;
           }
         }
@@ -18661,7 +18661,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           for ( let i_2 = 0; i_2 < pC.defined_variants.length; i_2++) {
             var fnVar = pC.defined_variants[i_2];
-            const mVs = ( pC.method_variants.hasOwnProperty(fnVar) ? pC.method_variants[fnVar] : undefined );
+            const mVs = ( Object.prototype.hasOwnProperty.call(pC.method_variants, fnVar) ? pC.method_variants[fnVar] : undefined );
             for ( let i_3 = 0; i_3 < mVs.variants.length; i_3++) {
               var variant = mVs.variants[i_3];
               declaredFunction[variant.name] = true;
@@ -18708,7 +18708,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       for ( let i_6 = 0; i_6 < cl.variables.length; i_6++) {
         var pvar_1 = cl.variables[i_6];
-        if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
+        if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
           wr.out("// WAS DECLARED : " + pvar_1.name, true);
           continue;
         }
@@ -18780,8 +18780,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( variant_2.nameNode.hasFlag("main") ) {
           continue;
         }
-        if ( ( typeof(parentStaticFunction[variant_2.name] ) != "undefined" && parentStaticFunction.hasOwnProperty(variant_2.name) ) ) {
-          const pStatic = (( parentStaticFunction.hasOwnProperty(variant_2.name) ? parentStaticFunction[variant_2.name] : undefined ));
+        if ( ( typeof(parentStaticFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(parentStaticFunction, variant_2.name) ) ) {
+          const pStatic = (( Object.prototype.hasOwnProperty.call(parentStaticFunction, variant_2.name) ? parentStaticFunction[variant_2.name] : undefined ));
           if ( this.haveSameSig(variant_2, pStatic, ctx) ) {
             wr.out("override ", false);
           }
@@ -18831,19 +18831,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       for ( let i_10 = 0; i_10 < cl.defined_variants.length; i_10++) {
         var fnVar_1 = cl.defined_variants[i_10];
-        const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
+        const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
         for ( let i_11 = 0; i_11 < mVs_1.variants.length; i_11++) {
           var variant_3 = mVs_1.variants[i_11];
-          if ( ( typeof(dblDeclaredFunction[variant_3.compiledName] ) != "undefined" && dblDeclaredFunction.hasOwnProperty(variant_3.compiledName) ) ) {
+          if ( ( typeof(dblDeclaredFunction[variant_3.compiledName] ) != "undefined" && Object.prototype.hasOwnProperty.call(dblDeclaredFunction, variant_3.compiledName) ) ) {
             continue;
           }
-          if ( ( typeof(declaredFunction[variant_3.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_3.name) ) ) {
+          if ( ( typeof(declaredFunction[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_3.name) ) ) {
             wr.out("override ", false);
           }
           dblDeclaredFunction[variant_3.compiledName] = true;
           wr.out(("func " + variant_3.compiledName) + "(", false);
-          if ( ( typeof(parentFunction[variant_3.name] ) != "undefined" && parentFunction.hasOwnProperty(variant_3.name) ) ) {
-            await this.writeArgsDefWithLocals((( parentFunction.hasOwnProperty(variant_3.name) ? parentFunction[variant_3.name] : undefined )), variant_3, ctx, wr);
+          if ( ( typeof(parentFunction[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(parentFunction, variant_3.name) ) ) {
+            await this.writeArgsDefWithLocals((( Object.prototype.hasOwnProperty.call(parentFunction, variant_3.name) ? parentFunction[variant_3.name] : undefined )), variant_3, ctx, wr);
           } else {
             await this.writeArgsDef(variant_3, ctx, wr);
           }
@@ -19408,7 +19408,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const enumName = node.ns[1];
           const e = ctx.getEnum(rootObjName);
           if ( (typeof(e) !== "undefined" && e != null )  ) {
-            wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+            wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
             return;
           }
         }
@@ -20126,7 +20126,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         let found = false;
         for ( let i = 0; i < cl.defined_variants.length; i++) {
           var fnVar = cl.defined_variants[i];
-          const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+          const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
           for ( let j = 0; j < mVs.variants.length; j++) {
             var variant = mVs.variants[j];
             if ( await this.cppUsesThisValue(variant.fnBody) ) {
@@ -20178,7 +20178,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.indent(1);
         for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
           var pvar_1 = cl.variables[i_2];
-          if ( (( typeof(inheritedVars[pvar_1.name] ) != "undefined" && inheritedVars.hasOwnProperty(pvar_1.name) )) == false ) {
+          if ( (( typeof(inheritedVars[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(inheritedVars, pvar_1.name) )) == false ) {
             await this.writeCppHeaderVar(pvar_1.node, ctx, wr, false);
           }
         };
@@ -20214,7 +20214,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( i_4 == 0 ) {
             wr.out("/* instance methods */ ", true);
           }
-          const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+          const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
           for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
             var variant_1 = mVs.variants[i_5];
             if ( cl.is_inherited ) {
@@ -20406,7 +20406,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         };
         for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
           var fnVar = cl.defined_variants[i_6];
-          const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+          const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
           for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
             var variant_1 = mVs.variants[i_7];
             await this.writeReturnTypeDef(variant_1, ctx, wr);
@@ -20584,7 +20584,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             return ("Rc<RefCell<dyn " + type_string) + "Trait>>";
           }
           if ( tc.is_system ) {
-            const sysName = ( tc.systemNames.hasOwnProperty("rust") ? tc.systemNames["rust"] : undefined );
+            const sysName = ( Object.prototype.hasOwnProperty.call(tc.systemNames, "rust") ? tc.systemNames["rust"] : undefined );
             if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
               return sysName;
             }
@@ -20782,7 +20782,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const enumName = node.ns[1];
             const e = ctx.getEnum(rootObjName);
             if ( (typeof(e) !== "undefined" && e != null )  ) {
-              wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+              wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
               return;
             }
           }
@@ -21769,7 +21769,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       buildClassMutationGraph (cl, ctx, directMutations, callGraph) {
         for ( let i = 0; i < cl.defined_variants.length; i++) {
           var fnVar = cl.defined_variants[i];
-          const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+          const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
           for ( let i_1 = 0; i_1 < mVs.variants.length; i_1++) {
             var variant = mVs.variants[i_1];
             const fnB = variant.fnBody;
@@ -21797,15 +21797,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
         };
         visited.push(methodName);
-        if ( ( typeof(directMutations[methodName] ) != "undefined" && directMutations.hasOwnProperty(methodName) ) ) {
+        if ( ( typeof(directMutations[methodName] ) != "undefined" && Object.prototype.hasOwnProperty.call(directMutations, methodName) ) ) {
           let dmMutates = false;
-          dmMutates = (( directMutations.hasOwnProperty(methodName) ? directMutations[methodName] : undefined ));
+          dmMutates = (( Object.prototype.hasOwnProperty.call(directMutations, methodName) ? directMutations[methodName] : undefined ));
           if ( dmMutates ) {
             return true;
           }
         }
-        if ( ( typeof(callGraph[methodName] ) != "undefined" && callGraph.hasOwnProperty(methodName) ) ) {
-          const callList = ( callGraph.hasOwnProperty(methodName) ? callGraph[methodName] : undefined );
+        if ( ( typeof(callGraph[methodName] ) != "undefined" && Object.prototype.hasOwnProperty.call(callGraph, methodName) ) ) {
+          const callList = ( Object.prototype.hasOwnProperty.call(callGraph, methodName) ? callGraph[methodName] : undefined );
           for ( let i_1 = 0; i_1 < callList.calls.length; i_1++) {
             var calledMethod = callList.calls[i_1];
             if ( this.methodTransitivelyMutates(calledMethod, directMutations, callGraph, visited) ) {
@@ -23198,7 +23198,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           for ( let i_5 = 0; i_5 < cl.defined_variants.length; i_5++) {
             var fnVar = cl.defined_variants[i_5];
-            const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+            const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
             for ( let i_6 = 0; i_6 < mVs.variants.length; i_6++) {
               var variant_1 = mVs.variants[i_6];
               const fnB_2 = variant_1.fnBody;
@@ -23228,7 +23228,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( (typeof(extParentClass) !== "undefined" && extParentClass != null )  ) {
                       const epc = extParentClass;
                       if ( epc.is_extended_by_children ) {
-                        if ( ( typeof(epc.defined_methods[variant_1.name] ) != "undefined" && epc.defined_methods.hasOwnProperty(variant_1.name) ) ) {
+                        if ( ( typeof(epc.defined_methods[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(epc.defined_methods, variant_1.name) ) ) {
                           method_is_in_trait = true;
                         }
                       }
@@ -23278,10 +23278,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("// Inherited methods from parent class " + parentName, true);
                 for ( let i_7 = 0; i_7 < pc.defined_variants.length; i_7++) {
                   var fnVar_1 = pc.defined_variants[i_7];
-                  const mVs_1 = ( pc.method_variants.hasOwnProperty(fnVar_1) ? pc.method_variants[fnVar_1] : undefined );
+                  const mVs_1 = ( Object.prototype.hasOwnProperty.call(pc.method_variants, fnVar_1) ? pc.method_variants[fnVar_1] : undefined );
                   for ( let i_8 = 0; i_8 < mVs_1.variants.length; i_8++) {
                     var variant_2 = mVs_1.variants[i_8];
-                    if ( ( typeof(cl.defined_methods[variant_2.name] ) != "undefined" && cl.defined_methods.hasOwnProperty(variant_2.name) ) ) {
+                    if ( ( typeof(cl.defined_methods[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(cl.defined_methods, variant_2.name) ) ) {
                       continue;
                     }
                     const fnB_3 = variant_2.fnBody;
@@ -23339,7 +23339,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.indent(1);
             for ( let i_9 = 0; i_9 < cl.defined_variants.length; i_9++) {
               var fnVar_2 = cl.defined_variants[i_9];
-              const mVs_2 = ( cl.method_variants.hasOwnProperty(fnVar_2) ? cl.method_variants[fnVar_2] : undefined );
+              const mVs_2 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_2) ? cl.method_variants[fnVar_2] : undefined );
               for ( let i_10 = 0; i_10 < mVs_2.variants.length; i_10++) {
                 var variant_3 = mVs_2.variants[i_10];
                 wr.out(("fn " + variant_3.name) + "(&mut self", false);
@@ -23360,7 +23360,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.indent(1);
             for ( let i_11 = 0; i_11 < cl.defined_variants.length; i_11++) {
               var fnVar_3 = cl.defined_variants[i_11];
-              const mVs_3 = ( cl.method_variants.hasOwnProperty(fnVar_3) ? cl.method_variants[fnVar_3] : undefined );
+              const mVs_3 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_3) ? cl.method_variants[fnVar_3] : undefined );
               for ( let i_12 = 0; i_12 < mVs_3.variants.length; i_12++) {
                 var variant_4 = mVs_3.variants[i_12];
                 wr.out(("fn " + variant_4.name) + "(&mut self", false);
@@ -23412,7 +23412,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.indent(1);
                   for ( let i_13 = 0; i_13 < pc_1.defined_variants.length; i_13++) {
                     var fnVar_4 = pc_1.defined_variants[i_13];
-                    const mVs_4 = ( pc_1.method_variants.hasOwnProperty(fnVar_4) ? pc_1.method_variants[fnVar_4] : undefined );
+                    const mVs_4 = ( Object.prototype.hasOwnProperty.call(pc_1.method_variants, fnVar_4) ? pc_1.method_variants[fnVar_4] : undefined );
                     for ( let i_14 = 0; i_14 < mVs_4.variants.length; i_14++) {
                       var variant_5 = mVs_4.variants[i_14];
                       wr.out(("fn " + variant_5.name) + "(&mut self", false);
@@ -23427,9 +23427,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       wr.out(" {", true);
                       wr.indent(1);
                       let isStatic = variant_5.rust_can_be_static;
-                      if ( ( typeof(cl.defined_methods[variant_5.name] ) != "undefined" && cl.defined_methods.hasOwnProperty(variant_5.name) ) ) {
-                        if ( ( typeof(cl.method_variants[variant_5.name] ) != "undefined" && cl.method_variants.hasOwnProperty(variant_5.name) ) ) {
-                          const cmvs = ( cl.method_variants.hasOwnProperty(variant_5.name) ? cl.method_variants[variant_5.name] : undefined );
+                      if ( ( typeof(cl.defined_methods[variant_5.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(cl.defined_methods, variant_5.name) ) ) {
+                        if ( ( typeof(cl.method_variants[variant_5.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(cl.method_variants, variant_5.name) ) ) {
+                          const cmvs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, variant_5.name) ? cl.method_variants[variant_5.name] : undefined );
                           if ( (cmvs.variants.length) > 0 ) {
                             const childVariant = cmvs.variants[0];
                             isStatic = childVariant.rust_can_be_static;
@@ -23498,8 +23498,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
           };
           if ( this.rustProgramHasMainFlag(ctx) == false ) {
-            if ( ( typeof(cl.defined_methods["main"] ) != "undefined" && cl.defined_methods.hasOwnProperty("main") ) ) {
-              const freeMVs = ( cl.method_variants.hasOwnProperty("main") ? cl.method_variants["main"] : undefined );
+            if ( ( typeof(cl.defined_methods["main"] ) != "undefined" && Object.prototype.hasOwnProperty.call(cl.defined_methods, "main") ) ) {
+              const freeMVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, "main") ? cl.method_variants["main"] : undefined );
               for ( let fmvi = 0; fmvi < freeMVs.variants.length; fmvi++) {
                 var variant_7 = freeMVs.variants[fmvi];
                 if ( (variant_7.params.length) == 0 ) {
@@ -24961,7 +24961,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const enumName = node.ns[1];
                 const e = ctx.getEnum(rootObjName);
                 if ( (typeof(e) !== "undefined" && e != null )  ) {
-                  wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                   return;
                 }
               }
@@ -25221,7 +25221,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const parentClass = ctx.findClass(pName);
                 for ( let j = 0; j < parentClass.defined_variants.length; j++) {
                   var fnVar = parentClass.defined_variants[j];
-                  const mVs = ( parentClass.method_variants.hasOwnProperty(fnVar) ? parentClass.method_variants[fnVar] : undefined );
+                  const mVs = ( Object.prototype.hasOwnProperty.call(parentClass.method_variants, fnVar) ? parentClass.method_variants[fnVar] : undefined );
                   for ( let k = 0; k < mVs.variants.length; k++) {
                     var variant = mVs.variants[k];
                     declaredFunction[variant.name] = true;
@@ -25376,7 +25376,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
               var fnVar_1 = cl.defined_variants[i_6];
-              const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
+              const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
               for ( let i_7 = 0; i_7 < mVs_1.variants.length; i_7++) {
                 var variant_2 = mVs_1.variants[i_7];
                 wr.out("", true);
@@ -25384,7 +25384,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( variant_2.nameNode.hasFlag("override") ) {
                   shouldOverride = true;
                 }
-                if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_2.name) ) ) {
+                if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_2.name) ) ) {
                   shouldOverride = true;
                 }
                 if ( (variant_2.compiledName == "toString") || ((variant_2.compiledName == "hashCode") || (variant_2.compiledName == "equals")) ) {
@@ -25457,7 +25457,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return "dynamic";
               }
               if ( cc.is_system ) {
-                const sysName = ( cc.systemNames.hasOwnProperty("csharp") ? cc.systemNames["csharp"] : undefined );
+                const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "csharp") ? cc.systemNames["csharp"] : undefined );
                 if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
                   return sysName;
                 } else {
@@ -25624,7 +25624,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     return;
                   }
                   if ( cc.is_system ) {
-                    const sysName = ( cc.systemNames.hasOwnProperty("csharp") ? cc.systemNames["csharp"] : undefined );
+                    const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "csharp") ? cc.systemNames["csharp"] : undefined );
                     if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
                       wr.out(sysName, false);
                     } else {
@@ -25644,7 +25644,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const enumName = node.ns[1];
                 const e = ctx.getEnum(rootObjName);
                 if ( (typeof(e) !== "undefined" && e != null )  ) {
-                  wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                   return;
                 }
               }
@@ -25868,7 +25868,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
             for ( let i_3 = 0; i_3 < cl.defined_variants.length; i_3++) {
               var fnVar = cl.defined_variants[i_3];
-              const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
               for ( let i_4 = 0; i_4 < mVs.variants.length; i_4++) {
                 var variant_1 = mVs.variants[i_4];
                 wr.out("public ", false);
@@ -26136,7 +26136,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const enumName = node.ns[1];
                 const e = ctx.getEnum(rootObjName);
                 if ( (typeof(e) !== "undefined" && e != null )  ) {
-                  wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                   return;
                 }
               }
@@ -26496,7 +26496,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const pC = ctx.findClass(pName);
                   for ( let i_1 = 0; i_1 < pC.defined_variants.length; i_1++) {
                     var fnVar = pC.defined_variants[i_1];
-                    const mVs = ( pC.method_variants.hasOwnProperty(fnVar) ? pC.method_variants[fnVar] : undefined );
+                    const mVs = ( Object.prototype.hasOwnProperty.call(pC.method_variants, fnVar) ? pC.method_variants[fnVar] : undefined );
                     for ( let i_2 = 0; i_2 < mVs.variants.length; i_2++) {
                       var variant = mVs.variants[i_2];
                       declaredFunction[variant.name] = true;
@@ -26546,10 +26546,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
                 var fnVar_1 = cl.defined_variants[i_6];
-                const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
+                const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
                 for ( let i_7 = 0; i_7 < mVs_1.variants.length; i_7++) {
                   var variant_1 = mVs_1.variants[i_7];
-                  if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_1.name) ) ) {
+                  if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_1.name) ) ) {
                     wr.out("override ", false);
                   }
                   wr.out("def ", false);
@@ -26987,7 +26987,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const cc_2 = ctx.findClass(t_name);
                   b_iface = cc_2.is_interface;
                   if ( cc_2.is_system ) {
-                    const sysName = ( cc_2.systemNames.hasOwnProperty("go") ? cc_2.systemNames["go"] : undefined );
+                    const sysName = ( Object.prototype.hasOwnProperty.call(cc_2.systemNames, "go") ? cc_2.systemNames["go"] : undefined );
                     if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
                       wr.out(sysName, false);
                     } else {
@@ -27025,7 +27025,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const enumName = node.ns[1];
                 const e = ctx.getEnum(rootObjName);
                 if ( (typeof(e) !== "undefined" && e != null )  ) {
-                  wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                   return;
                 }
               }
@@ -27161,7 +27161,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const enumName = node.ns[1];
               const e = ctx.getEnum(rootObjName);
               if ( (typeof(e) !== "undefined" && e != null )  ) {
-                wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+                wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                 return;
               }
             }
@@ -28015,7 +28015,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.indent(1);
             for ( let i = 0; i < cl.defined_variants.length; i++) {
               var fnVar = cl.defined_variants[i];
-              const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
               for ( let i_1 = 0; i_1 < mVs.variants.length; i_1++) {
                 var variant = mVs.variants[i_1];
                 wr.out(variant.compiledName + "(", false);
@@ -28060,7 +28060,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("// inherited from parent class " + pName, true);
                 for ( let i_2 = 0; i_2 < pC.variables.length; i_2++) {
                   var pvar_1 = pC.variables[i_2];
-                  if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
+                  if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
                     continue;
                   }
                   await this.writeStructField(pvar_1.node, ctx, wr);
@@ -28093,10 +28093,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               };
               for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
                 var fnVar = cl.defined_variants[i_4];
-                const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+                const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
                 for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
                   var variant = mVs.variants[i_5];
-                  if ( ( typeof(declaredIfFunction[variant.name] ) != "undefined" && declaredIfFunction.hasOwnProperty(variant.name) ) ) {
+                  if ( ( typeof(declaredIfFunction[variant.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredIfFunction, variant.name) ) ) {
                     continue;
                   }
                   declaredIfFunction[variant.name] = true;
@@ -28249,10 +28249,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             let declaredFn = {};
             for ( let i_13 = 0; i_13 < cl.defined_variants.length; i_13++) {
               var fnVar_1 = cl.defined_variants[i_13];
-              const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
+              const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
               for ( let i_14 = 0; i_14 < mVs_1.variants.length; i_14++) {
                 var variant_2 = mVs_1.variants[i_14];
-                if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_2.name) ) ) {
+                if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_2.name) ) ) {
                   continue;
                 }
                 declaredFunction[variant_2.name] = true;
@@ -28283,10 +28283,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("// inherited methods from parent class " + pName_2, true);
                 for ( let i_16 = 0; i_16 < pC_2.defined_variants.length; i_16++) {
                   var fnVar_2 = pC_2.defined_variants[i_16];
-                  const mVs_2 = ( pC_2.method_variants.hasOwnProperty(fnVar_2) ? pC_2.method_variants[fnVar_2] : undefined );
+                  const mVs_2 = ( Object.prototype.hasOwnProperty.call(pC_2.method_variants, fnVar_2) ? pC_2.method_variants[fnVar_2] : undefined );
                   for ( let i_17 = 0; i_17 < mVs_2.variants.length; i_17++) {
                     var variant_3 = mVs_2.variants[i_17];
-                    if ( ( typeof(declaredFn[variant_3.name] ) != "undefined" && declaredFn.hasOwnProperty(variant_3.name) ) ) {
+                    if ( ( typeof(declaredFn[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFn, variant_3.name) ) ) {
                       continue;
                     }
                     wr.out(((("func (this *" + cl.name) + ") ") + variant_3.compiledName) + " (", false);
@@ -28354,7 +28354,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out("// inherited getters and setters from the parent class " + pName_3, true);
                   for ( let i_20 = 0; i_20 < pC_3.variables.length; i_20++) {
                     var p_2 = pC_3.variables[i_20];
-                    if ( ( typeof(declaredGetter[p_2.name] ) != "undefined" && declaredGetter.hasOwnProperty(p_2.name) ) ) {
+                    if ( ( typeof(declaredGetter[p_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredGetter, p_2.name) ) ) {
                       continue;
                     }
                     wr.newline();
@@ -28777,7 +28777,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const enumName = node.ns[1];
                 const e = ctx.getEnum(rootObjName);
                 if ( (typeof(e) !== "undefined" && e != null )  ) {
-                  wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                   return;
                 }
               }
@@ -29283,10 +29283,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
             for ( let i_5 = 0; i_5 < cl.defined_variants.length; i_5++) {
               var fnVar = cl.defined_variants[i_5];
-              const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
               for ( let i_6 = 0; i_6 < mVs.variants.length; i_6++) {
                 var variant_1 = mVs.variants[i_6];
-                if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_1.name) ) ) {
+                if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_1.name) ) ) {
                   continue;
                 }
                 declaredFunction[variant_1.name] = true;
@@ -29400,7 +29400,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const enumName = node.ns[1];
                 const e = ctx.getEnum(rootObjName);
                 if ( (typeof(e) !== "undefined" && e != null )  ) {
-                  wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                   return;
                 }
               }
@@ -29647,7 +29647,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( ctx.isDefinedClass(tn) ) {
               const cc = ctx.findClass(tn);
               if ( cc.is_system ) {
-                const sysName = ( cc.systemNames.hasOwnProperty("python") ? cc.systemNames["python"] : undefined );
+                const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "python") ? cc.systemNames["python"] : undefined );
                 if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
                   return sysName;
                 }
@@ -29861,10 +29861,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
             for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
               var fnVar = cl.defined_variants[i_4];
-              const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
               for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
                 var variant_1 = mVs.variants[i_5];
-                if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_1.name) ) ) {
+                if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_1.name) ) ) {
                   continue;
                 }
                 declaredFunction[variant_1.name] = true;
@@ -30163,13 +30163,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( cc.is_system ) {
                 let sName = "";
                 if ( this.target_typescript ) {
-                  if ( ( typeof(cc.systemNames["ts"] ) != "undefined" && cc.systemNames.hasOwnProperty("ts") ) ) {
-                    sName = (( cc.systemNames.hasOwnProperty("ts") ? cc.systemNames["ts"] : undefined ));
+                  if ( ( typeof(cc.systemNames["ts"] ) != "undefined" && Object.prototype.hasOwnProperty.call(cc.systemNames, "ts") ) ) {
+                    sName = (( Object.prototype.hasOwnProperty.call(cc.systemNames, "ts") ? cc.systemNames["ts"] : undefined ));
                   }
                 }
                 if ( (sName.length) == 0 ) {
-                  if ( ( typeof(cc.systemNames["es6"] ) != "undefined" && cc.systemNames.hasOwnProperty("es6") ) ) {
-                    sName = (( cc.systemNames.hasOwnProperty("es6") ? cc.systemNames["es6"] : undefined ));
+                  if ( ( typeof(cc.systemNames["es6"] ) != "undefined" && Object.prototype.hasOwnProperty.call(cc.systemNames, "es6") ) ) {
+                    sName = (( Object.prototype.hasOwnProperty.call(cc.systemNames, "es6") ? cc.systemNames["es6"] : undefined ));
                   }
                 }
                 return sName;
@@ -30345,13 +30345,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( cc.is_system ) {
                     let sName = "";
                     if ( this.target_typescript ) {
-                      if ( ( typeof(cc.systemNames["ts"] ) != "undefined" && cc.systemNames.hasOwnProperty("ts") ) ) {
-                        sName = (( cc.systemNames.hasOwnProperty("ts") ? cc.systemNames["ts"] : undefined ));
+                      if ( ( typeof(cc.systemNames["ts"] ) != "undefined" && Object.prototype.hasOwnProperty.call(cc.systemNames, "ts") ) ) {
+                        sName = (( Object.prototype.hasOwnProperty.call(cc.systemNames, "ts") ? cc.systemNames["ts"] : undefined ));
                       }
                     }
                     if ( (sName.length) == 0 ) {
-                      if ( ( typeof(cc.systemNames["es6"] ) != "undefined" && cc.systemNames.hasOwnProperty("es6") ) ) {
-                        sName = (( cc.systemNames.hasOwnProperty("es6") ? cc.systemNames["es6"] : undefined ));
+                      if ( ( typeof(cc.systemNames["es6"] ) != "undefined" && Object.prototype.hasOwnProperty.call(cc.systemNames, "es6") ) ) {
+                        sName = (( Object.prototype.hasOwnProperty.call(cc.systemNames, "es6") ? cc.systemNames["es6"] : undefined ));
                       }
                     }
                     if ( useTsStructuralTypes ) {
@@ -30388,7 +30388,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const enumName = node.ns[1];
                 const e = ctx.getEnum(rootObjName);
                 if ( (typeof(e) !== "undefined" && e != null )  ) {
-                  wr.out("" + ((( e.values.hasOwnProperty(enumName) ? e.values[enumName] : undefined ))), false);
+                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                   return;
                 }
               }
@@ -30957,7 +30957,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
               var fnVar = cl.defined_variants[i_4];
-              const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
               for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
                 var variant = mVs.variants[i_5];
                 if ( variant.nameNode.hasFlag("async") ) {
@@ -31619,7 +31619,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
             for ( let i_3 = 0; i_3 < cl.defined_variants.length; i_3++) {
               var fnVar = cl.defined_variants[i_3];
-              const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
+              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
               for ( let i_4 = 0; i_4 < mVs.variants.length; i_4++) {
                 var variant_1 = mVs.variants[i_4];
                 wr.out("", true);
@@ -33491,7 +33491,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( cName == "RangerStaticMethods" ) {
                 continue;
               }
-              const cl = (( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined ));
+              const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined ));
               if ( ((cl.is_operator_class || cl.is_trait) || cl.is_system) || cl.is_union ) {
                 continue;
               }
@@ -33855,7 +33855,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return true;
             }
-            if ( ( typeof(lctx.objectSlots[node.vref] ) != "undefined" && lctx.objectSlots.hasOwnProperty(node.vref) ) ) {
+            if ( ( typeof(lctx.objectSlots[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, node.vref) ) ) {
               return true;
             }
             return false;
@@ -34610,8 +34610,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( this.isClassField(vr, lctx.className, this.irModule) ) {
                 return this.fieldArrayElemType(lctx.className, vr, lctx);
               }
-              if ( ( typeof(lctx.ptrArrayElemTypes[vr] ) != "undefined" && lctx.ptrArrayElemTypes.hasOwnProperty(vr) ) ) {
-                return (( lctx.ptrArrayElemTypes.hasOwnProperty(vr) ? lctx.ptrArrayElemTypes[vr] : undefined ));
+              if ( ( typeof(lctx.ptrArrayElemTypes[vr] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.ptrArrayElemTypes, vr) ) ) {
+                return (( Object.prototype.hasOwnProperty.call(lctx.ptrArrayElemTypes, vr) ? lctx.ptrArrayElemTypes[vr] : undefined ));
               }
             }
             return "";
@@ -34744,7 +34744,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const idxEnd = this.loadSlot(idxName, "i32", lctx);
             const one = builder.emitConst("i32", "1");
             const idxNext = builder.emitBin("add", "i32", idxEnd, one);
-            const idxSlot = (( lctx.slots.hasOwnProperty(idxName) ? lctx.slots[idxName] : undefined ));
+            const idxSlot = (( Object.prototype.hasOwnProperty.call(lctx.slots, idxName) ? lctx.slots[idxName] : undefined ));
             builder.emitStore("i32", idxNext, idxSlot);
             builder.terminateBr(condLabel);
             builder.startBlock(exitLabel);
@@ -34906,8 +34906,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             return ctx.hasCompilerFlag("wasmrc");
           };
           collectionKind (varName, lctx) {
-            if ( ( typeof(lctx.collectionSlots[varName] ) != "undefined" && lctx.collectionSlots.hasOwnProperty(varName) ) ) {
-              return (( lctx.collectionSlots.hasOwnProperty(varName) ? lctx.collectionSlots[varName] : undefined ));
+            if ( ( typeof(lctx.collectionSlots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.collectionSlots, varName) ) ) {
+              return (( Object.prototype.hasOwnProperty.call(lctx.collectionSlots, varName) ? lctx.collectionSlots[varName] : undefined ));
             }
             return "";
           };
@@ -35263,8 +35263,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           bindSlot (varName, irType, value, lctx) {
             const builder = lctx.builder;
-            if ( ( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) ) ) {
-              const slot = (( lctx.slots.hasOwnProperty(varName) ? lctx.slots[varName] : undefined ));
+            if ( ( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) ) ) {
+              const slot = (( Object.prototype.hasOwnProperty.call(lctx.slots, varName) ? lctx.slots[varName] : undefined ));
               builder.emitStore(irType, value, slot);
               lctx.slotTypes[varName] = irType;
               return;
@@ -35281,14 +35281,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             lctx.slotTypes[varName] = irType;
           };
           loadSlot (varName, irType, lctx) {
-            if ( ( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) ) ) {
-              const slot = (( lctx.slots.hasOwnProperty(varName) ? lctx.slots[varName] : undefined ));
+            if ( ( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) ) ) {
+              const slot = (( Object.prototype.hasOwnProperty.call(lctx.slots, varName) ? lctx.slots[varName] : undefined ));
               const builder = lctx.builder;
               let loadType = irType;
-              if ( ( typeof(lctx.slotTypes[varName] ) != "undefined" && lctx.slotTypes.hasOwnProperty(varName) ) ) {
-                loadType = (( lctx.slotTypes.hasOwnProperty(varName) ? lctx.slotTypes[varName] : undefined ));
+              if ( ( typeof(lctx.slotTypes[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ) ) {
+                loadType = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ? lctx.slotTypes[varName] : undefined ));
               }
-              if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && lctx.objectSlots.hasOwnProperty(varName) ) ) {
+              if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) ) ) {
                 loadType = lctx.ptrType;
               }
               return builder.emitLoad(loadType, slot);
@@ -35408,8 +35408,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return this.emitFieldLoad(vref, lctx);
               }
             }
-            if ( ( typeof(lctx.collectionSlots[vref] ) != "undefined" && lctx.collectionSlots.hasOwnProperty(vref) ) ) {
-              const kind = (( lctx.collectionSlots.hasOwnProperty(vref) ? lctx.collectionSlots[vref] : undefined ));
+            if ( ( typeof(lctx.collectionSlots[vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.collectionSlots, vref) ) ) {
+              const kind = (( Object.prototype.hasOwnProperty.call(lctx.collectionSlots, vref) ? lctx.collectionSlots[vref] : undefined ));
               if ( kind == "ptr_array" ) {
                 return this.loadSlot(vref, lctx.ptrType, lctx);
               }
@@ -35435,10 +35435,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           fieldArrayElemType (className, fieldName, lctx) {
             const appCtx = lctx.ctx;
-            if ( false == (( typeof(appCtx.definedClasses[className] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(className) )) ) {
+            if ( false == (( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) )) ) {
               return "";
             }
-            const cl = (( appCtx.definedClasses.hasOwnProperty(className) ? appCtx.definedClasses[className] : undefined ));
+            const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined ));
             for ( let i = 0; i < cl.variables.length; i++) {
               var v = cl.variables[i];
               if ( v.name == fieldName ) {
@@ -35476,8 +35476,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   return true;
                 }
               }
-              if ( ( typeof(lctx.ptrArrayElemTypes[vr] ) != "undefined" && lctx.ptrArrayElemTypes.hasOwnProperty(vr) ) ) {
-                if ( ((( lctx.ptrArrayElemTypes.hasOwnProperty(vr) ? lctx.ptrArrayElemTypes[vr] : undefined ))) == "int" ) {
+              if ( ( typeof(lctx.ptrArrayElemTypes[vr] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.ptrArrayElemTypes, vr) ) ) {
+                if ( ((( Object.prototype.hasOwnProperty.call(lctx.ptrArrayElemTypes, vr) ? lctx.ptrArrayElemTypes[vr] : undefined ))) == "int" ) {
                   return true;
                 }
               }
@@ -35647,10 +35647,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           fieldObjectClassName (className, fieldName, lctx) {
             const appCtx = lctx.ctx;
-            if ( false == (( typeof(appCtx.definedClasses[className] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(className) )) ) {
+            if ( false == (( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) )) ) {
               return "";
             }
-            const cl = (( appCtx.definedClasses.hasOwnProperty(className) ? appCtx.definedClasses[className] : undefined ));
+            const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined ));
             for ( let i = 0; i < cl.variables.length; i++) {
               var v = cl.variables[i];
               if ( v.name == fieldName ) {
@@ -35660,7 +35660,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const nn = v.nameNode;
                 const tn = nn.type_name;
                 if ( (tn.length) > 0 ) {
-                  if ( ( typeof(appCtx.definedClasses[tn] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(tn) ) ) {
+                  if ( ( typeof(appCtx.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn) ) ) {
                     return tn;
                   }
                 }
@@ -35673,7 +35673,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( varName == "this" ) {
               return lctx.selfPtr;
             }
-            if ( ( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) ) ) {
+            if ( ( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) ) ) {
               const addr = this.loadSlot(varName, lctx.ptrType, lctx);
               return lctx.builder.emitIntToStructPtr(className, addr);
             }
@@ -35736,8 +35736,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( varName == "this" ) {
               return lctx.className;
             }
-            if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && lctx.objectSlots.hasOwnProperty(varName) ) ) {
-              return (( lctx.objectSlots.hasOwnProperty(varName) ? lctx.objectSlots[varName] : undefined ));
+            if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) ) ) {
+              return (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) ? lctx.objectSlots[varName] : undefined ));
             }
             if ( this.isClassField(varName, lctx.className, this.irModule) ) {
               const fc = this.fieldObjectClassName(lctx.className, varName, lctx);
@@ -35796,19 +35796,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const sec = node.getSecond();
             const nm = sec.vref;
             if ( (nm.length) > 0 ) {
-              if ( ( typeof(appCtx.definedClasses[nm] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(nm) ) ) {
+              if ( ( typeof(appCtx.definedClasses[nm] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, nm) ) ) {
                 return nm;
               }
             }
             const tn = node.eval_type_name;
             if ( (tn.length) > 0 ) {
-              if ( ( typeof(appCtx.definedClasses[tn] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(tn) ) ) {
+              if ( ( typeof(appCtx.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn) ) ) {
                 return tn;
               }
             }
             const tn2 = node.type_name;
             if ( (tn2.length) > 0 ) {
-              if ( ( typeof(appCtx.definedClasses[tn2] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(tn2) ) ) {
+              if ( ( typeof(appCtx.definedClasses[tn2] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn2) ) ) {
                 return tn2;
               }
             }
@@ -35831,10 +35831,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           initFieldDefaultsInObject (className, objPtr, lctx) {
             const appCtx = lctx.ctx;
-            if ( false == (( typeof(appCtx.definedClasses[className] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(className) )) ) {
+            if ( false == (( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) )) ) {
               return;
             }
-            const cl = (( appCtx.definedClasses.hasOwnProperty(className) ? appCtx.definedClasses[className] : undefined ));
+            const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined ));
             for ( let i = 0; i < cl.variables.length; i++) {
               var v = cl.variables[i];
               if ( this.isObjectArrayField(v) ) {
@@ -35977,8 +35977,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             let ctorDesc;
             if ( (typeof(lctx.ctx) !== "undefined" && lctx.ctx != null )  ) {
               const appCtx = lctx.ctx;
-              if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(className) ) ) {
-                const cl = (( appCtx.definedClasses.hasOwnProperty(className) ? appCtx.definedClasses[className] : undefined ));
+              if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
+                const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined ));
                 if ( cl.has_constructor ) {
                   if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
                     ctorDesc = cl.constructor_fn;
@@ -36270,10 +36270,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( cName == "RangerStaticMethods" ) {
                 continue;
               }
-              if ( false == (( typeof(appCtx.definedClasses[cName] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(cName) )) ) {
+              if ( false == (( typeof(appCtx.definedClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) )) ) {
                 continue;
               }
-              const cl = (( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined ));
+              const cl = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined ));
               if ( cl.is_operator_class || cl.is_trait ) {
                 continue;
               }
@@ -36339,8 +36339,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           lowerLambdaBodies (appCtx) {
             for ( let i = 0; i < this.lambdaNames.length; i++) {
               var name = this.lambdaNames[i];
-              if ( ( typeof(this.lambdaByName[name] ) != "undefined" && this.lambdaByName.hasOwnProperty(name) ) ) {
-                this.lowerLambdaFunction((( this.lambdaByName.hasOwnProperty(name) ? this.lambdaByName[name] : undefined )), name, appCtx);
+              if ( ( typeof(this.lambdaByName[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaByName, name) ) ) {
+                this.lowerLambdaFunction((( Object.prototype.hasOwnProperty.call(this.lambdaByName, name) ? this.lambdaByName[name] : undefined )), name, appCtx);
               }
             };
           };
@@ -36403,8 +36403,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 lctx.objectSlots[p.name] = paramTypeName;
               }
             };
-            if ( ( typeof(this.lambdaCaptures[fnName] ) != "undefined" && this.lambdaCaptures.hasOwnProperty(fnName) ) ) {
-              const cinfo = (( this.lambdaCaptures.hasOwnProperty(fnName) ? this.lambdaCaptures[fnName] : undefined ));
+            if ( ( typeof(this.lambdaCaptures[fnName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaCaptures, fnName) ) ) {
+              const cinfo = (( Object.prototype.hasOwnProperty.call(this.lambdaCaptures, fnName) ? this.lambdaCaptures[fnName] : undefined ));
               const envRef = "%__env";
               let ci = 0;
               const cn2 = cinfo.names.length;
@@ -36507,8 +36507,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           computeLambdaCaptures (node, lam, lctx) {
             const key = lam.compiledName;
-            if ( ( typeof(this.lambdaCaptures[key] ) != "undefined" && this.lambdaCaptures.hasOwnProperty(key) ) ) {
-              return (( this.lambdaCaptures.hasOwnProperty(key) ? this.lambdaCaptures[key] : undefined ));
+            if ( ( typeof(this.lambdaCaptures[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.lambdaCaptures, key) ) ) {
+              return (( Object.prototype.hasOwnProperty.call(this.lambdaCaptures, key) ? this.lambdaCaptures[key] : undefined ));
             }
             const info = new LambdaCaptureInfo();
             let off = 4;
@@ -36516,23 +36516,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const lamCtx = node.lambda_ctx;
               for ( let i = 0; i < lamCtx.captured_variables.length; i++) {
                 var cn = lamCtx.captured_variables[i];
-                if ( ( typeof(lctx.slots[cn] ) != "undefined" && lctx.slots.hasOwnProperty(cn) ) ) {
+                if ( ( typeof(lctx.slots[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, cn) ) ) {
                   let kind = 0;
                   let objCls = "";
                   let cirt = lctx.ptrType;
-                  if ( ( typeof(lctx.boxedLocals[cn] ) != "undefined" && lctx.boxedLocals.hasOwnProperty(cn) ) ) {
+                  if ( ( typeof(lctx.boxedLocals[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, cn) ) ) {
                     kind = 3;
                   } else {
-                    if ( ( typeof(lctx.objectSlots[cn] ) != "undefined" && lctx.objectSlots.hasOwnProperty(cn) ) ) {
+                    if ( ( typeof(lctx.objectSlots[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, cn) ) ) {
                       kind = 2;
-                      objCls = (( lctx.objectSlots.hasOwnProperty(cn) ? lctx.objectSlots[cn] : undefined ));
+                      objCls = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, cn) ? lctx.objectSlots[cn] : undefined ));
                     } else {
                       let isStr = false;
                       if ( this.isOwnedStringLocal(cn, lctx) ) {
                         isStr = true;
                       }
-                      if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && lctx.slotTypes.hasOwnProperty(cn) ) ) {
-                        if ( ((( lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined ))) == "i8*" ) {
+                      if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, cn) ) ) {
+                        if ( ((( Object.prototype.hasOwnProperty.call(lctx.slotTypes, cn) ? lctx.slotTypes[cn] : undefined ))) == "i8*" ) {
                           isStr = true;
                         }
                       }
@@ -36541,8 +36541,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         cirt = "i8*";
                       } else {
                         kind = 0;
-                        if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && lctx.slotTypes.hasOwnProperty(cn) ) ) {
-                          cirt = (( lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined ));
+                        if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, cn) ) ) {
+                          cirt = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, cn) ? lctx.slotTypes[cn] : undefined ));
                         }
                       }
                     }
@@ -36686,10 +36686,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( this.objRcEnabled(lctx) == false ) {
               return;
             }
-            if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && lctx.escapedLocals.hasOwnProperty(varName) ) ) {
+            if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.escapedLocals, varName) ) ) {
               return;
             }
-            if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) )) ) {
+            if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) )) ) {
               return;
             }
             const builder = lctx.builder;
@@ -36801,10 +36801,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( this.wasmStrEnabled(lctx) == false ) {
               return;
             }
-            if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && lctx.escapedLocals.hasOwnProperty(varName) ) ) {
+            if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.escapedLocals, varName) ) ) {
               return;
             }
-            if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) )) ) {
+            if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) )) ) {
               return;
             }
             const builder = lctx.builder;
@@ -36817,10 +36817,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             builder.emitCall("ranger_str_release", voidType, args, argTypes);
           };
           releaseOwnedCollectionLocal (varName, lctx) {
-            if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && lctx.escapedLocals.hasOwnProperty(varName) ) ) {
+            if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.escapedLocals, varName) ) ) {
               return;
             }
-            if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) )) ) {
+            if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) )) ) {
               return;
             }
             const desc = this.loadSlot(varName, lctx.ptrType, lctx);
@@ -36881,7 +36881,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             builder.emitComment("ownership[manual]: scope-exit disposition");
             for ( let i = 0; i < lctx.ownedObjectLocals.length; i++) {
               var name = lctx.ownedObjectLocals[i];
-              if ( ( typeof(lctx.escapedLocals[name] ) != "undefined" && lctx.escapedLocals.hasOwnProperty(name) ) ) {
+              if ( ( typeof(lctx.escapedLocals[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.escapedLocals, name) ) ) {
                 builder.emitComment(("  owned object '" + name) + "' -> escaped (moved/returned), caller owns");
               } else {
                 builder.emitComment(("  owned object '" + name) + "' -> released");
@@ -36889,7 +36889,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
             for ( let i_1 = 0; i_1 < lctx.ownedCollectionLocals.length; i_1++) {
               var name_1 = lctx.ownedCollectionLocals[i_1];
-              if ( ( typeof(lctx.escapedLocals[name_1] ) != "undefined" && lctx.escapedLocals.hasOwnProperty(name_1) ) ) {
+              if ( ( typeof(lctx.escapedLocals[name_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.escapedLocals, name_1) ) ) {
                 builder.emitComment(("  owned array '" + name_1) + "' -> escaped, caller owns");
               } else {
                 builder.emitComment(("  owned array '" + name_1) + "' -> released (elements freed)");
@@ -37216,7 +37216,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               irType = "i1";
             }
             if ( this.objRcEnabled(lctx) ) {
-              if ( ( typeof(lctx.boxedCandidates[varName] ) != "undefined" && lctx.boxedCandidates.hasOwnProperty(varName) ) ) {
+              if ( ( typeof(lctx.boxedCandidates[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedCandidates, varName) ) ) {
                 if ( (irType == "i32") || (irType == "i1") ) {
                   const cellBytes = lctx.builder.emitConst("i32", "4");
                   const cellTd = lctx.builder.emitConst("i32", "0");
@@ -37286,7 +37286,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             } else {
               tmp = this.lowerExpr(rhs, lctx);
             }
-            if ( ( typeof(lctx.boxedLocals[varName] ) != "undefined" && lctx.boxedLocals.hasOwnProperty(varName) ) ) {
+            if ( ( typeof(lctx.boxedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, varName) ) ) {
               const cellPtr = this.loadSlot(varName, lctx.ptrType, lctx);
               builder.emitStoreI32At(cellPtr, 0, tmp);
               return;
@@ -37319,18 +37319,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.emitFieldStoreOnEx(lctx.className, lctx.selfPtr, varName, tmp, rhs.hasNewOper, lctx);
               return;
             }
-            if ( ( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) ) ) {
-              const slot = (( lctx.slots.hasOwnProperty(varName) ? lctx.slots[varName] : undefined ));
+            if ( ( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) ) ) {
+              const slot = (( Object.prototype.hasOwnProperty.call(lctx.slots, varName) ? lctx.slots[varName] : undefined ));
               if ( rhs.hasNewOper ) {
-                if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && lctx.objectSlots.hasOwnProperty(varName) ) ) {
+                if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) ) ) {
                   if ( this.isOwnedObjectLocal(varName, lctx) ) {
                     this.releaseOwnedLocal(varName, lctx);
                   }
                 }
               }
               let storeType = irType;
-              if ( ( typeof(lctx.slotTypes[varName] ) != "undefined" && lctx.slotTypes.hasOwnProperty(varName) ) ) {
-                storeType = (( lctx.slotTypes.hasOwnProperty(varName) ? lctx.slotTypes[varName] : undefined ));
+              if ( ( typeof(lctx.slotTypes[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ) ) {
+                storeType = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ? lctx.slotTypes[varName] : undefined ));
               }
               if ( rhs.value_type == 5 ) {
                 if ( storeType != "i1" ) {
@@ -37353,7 +37353,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( (node.children.length) > 1 ) {
               const valNode = node.getSecond();
               if ( valNode.value_type == 11 ) {
-                if ( ( typeof(lctx.boxedLocals[valNode.vref] ) != "undefined" && lctx.boxedLocals.hasOwnProperty(valNode.vref) ) ) {
+                if ( ( typeof(lctx.boxedLocals[valNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, valNode.vref) ) ) {
                 } else {
                   lctx.escapedLocals[valNode.vref] = "1";
                 }
@@ -37437,8 +37437,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
             if ( exprNode.value_type == 11 ) {
-              if ( ( typeof(lctx.slotTypes[exprNode.vref] ) != "undefined" && lctx.slotTypes.hasOwnProperty(exprNode.vref) ) ) {
-                const st = (( lctx.slotTypes.hasOwnProperty(exprNode.vref) ? lctx.slotTypes[exprNode.vref] : undefined ));
+              if ( ( typeof(lctx.slotTypes[exprNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, exprNode.vref) ) ) {
+                const st = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, exprNode.vref) ? lctx.slotTypes[exprNode.vref] : undefined ));
                 if ( st == "i1" ) {
                   return true;
                 }
@@ -37495,8 +37495,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const condNode = this.unwrapCondExpr(node);
             if ( condNode.value_type == 11 ) {
               const vref = condNode.vref;
-              if ( ( typeof(lctx.slotTypes[vref] ) != "undefined" && lctx.slotTypes.hasOwnProperty(vref) ) ) {
-                const st = (( lctx.slotTypes.hasOwnProperty(vref) ? lctx.slotTypes[vref] : undefined ));
+              if ( ( typeof(lctx.slotTypes[vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, vref) ) ) {
+                const st = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, vref) ? lctx.slotTypes[vref] : undefined ));
                 if ( st == "i1" ) {
                   return this.loadSlot(vref, "i1", lctx);
                 }
@@ -37513,8 +37513,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             const vref_1 = this.condVref(condNode);
             if ( (vref_1.length) > 0 ) {
-              if ( ( typeof(lctx.slotTypes[vref_1] ) != "undefined" && lctx.slotTypes.hasOwnProperty(vref_1) ) ) {
-                const st_1 = (( lctx.slotTypes.hasOwnProperty(vref_1) ? lctx.slotTypes[vref_1] : undefined ));
+              if ( ( typeof(lctx.slotTypes[vref_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, vref_1) ) ) {
+                const st_1 = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, vref_1) ? lctx.slotTypes[vref_1] : undefined ));
                 if ( st_1 == "i1" ) {
                   return v;
                 }
@@ -37845,7 +37845,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
             if ( node.value_type == 11 ) {
-              if ( ( typeof(lctx.boxedLocals[node.vref] ) != "undefined" && lctx.boxedLocals.hasOwnProperty(node.vref) ) ) {
+              if ( ( typeof(lctx.boxedLocals[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, node.vref) ) ) {
                 const cellPtr = this.loadSlot(node.vref, lctx.ptrType, lctx);
                 return builder.emitLoadI32At(cellPtr, 0);
               }
@@ -37865,8 +37865,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( this.isClassField(node.vref, lctx.className, this.irModule) ) {
                 return this.emitFieldLoad(node.vref, lctx);
               }
-              if ( ( typeof(lctx.collectionSlots[node.vref] ) != "undefined" && lctx.collectionSlots.hasOwnProperty(node.vref) ) ) {
-                const collKind = (( lctx.collectionSlots.hasOwnProperty(node.vref) ? lctx.collectionSlots[node.vref] : undefined ));
+              if ( ( typeof(lctx.collectionSlots[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.collectionSlots, node.vref) ) ) {
+                const collKind = (( Object.prototype.hasOwnProperty.call(lctx.collectionSlots, node.vref) ? lctx.collectionSlots[node.vref] : undefined ));
                 if ( collKind == "ptr_array" ) {
                   return this.loadSlot(node.vref, lctx.ptrType, lctx);
                 }
@@ -37974,8 +37974,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                 }
               }
-              if ( ( typeof(lctx.slotTypes[exprNode.vref] ) != "undefined" && lctx.slotTypes.hasOwnProperty(exprNode.vref) ) ) {
-                const st = (( lctx.slotTypes.hasOwnProperty(exprNode.vref) ? lctx.slotTypes[exprNode.vref] : undefined ));
+              if ( ( typeof(lctx.slotTypes[exprNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, exprNode.vref) ) ) {
+                const st = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, exprNode.vref) ? lctx.slotTypes[exprNode.vref] : undefined ));
                 if ( st == "i8*" ) {
                   return true;
                 }
@@ -38228,9 +38228,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   calleeNode.eval_type_name = lctx.className;
                   return this.lowerInstanceCallOn(node, "this", calleeNode, methPart, lctx);
                 }
-                if ( ( typeof(lctx.objectSlots[recvPart] ) != "undefined" && lctx.objectSlots.hasOwnProperty(recvPart) ) ) {
+                if ( ( typeof(lctx.objectSlots[recvPart] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, recvPart) ) ) {
                   const methPart_1 = calleeParts[1];
-                  calleeNode.eval_type_name = (( lctx.objectSlots.hasOwnProperty(recvPart) ? lctx.objectSlots[recvPart] : undefined ));
+                  calleeNode.eval_type_name = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, recvPart) ? lctx.objectSlots[recvPart] : undefined ));
                   return this.lowerInstanceCallOn(node, recvPart, calleeNode, methPart_1, lctx);
                 }
                 const fcls = this.fieldReceiverClass(recvPart, lctx);
@@ -38244,8 +38244,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( (calleeNode.ns.length) >= 2 ) {
               const recvName = calleeNode.ns[0];
               const methName = calleeNode.ns[1];
-              if ( ( typeof(lctx.objectSlots[recvName] ) != "undefined" && lctx.objectSlots.hasOwnProperty(recvName) ) ) {
-                calleeNode.eval_type_name = (( lctx.objectSlots.hasOwnProperty(recvName) ? lctx.objectSlots[recvName] : undefined ));
+              if ( ( typeof(lctx.objectSlots[recvName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, recvName) ) ) {
+                calleeNode.eval_type_name = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, recvName) ? lctx.objectSlots[recvName] : undefined ));
                 return this.lowerInstanceCallOn(node, recvName, calleeNode, methName, lctx);
               }
               const fcls_1 = this.fieldReceiverClass(recvName, lctx);
@@ -38295,8 +38295,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( (node.children.length) > 3 ) {
                 const recv = node.getSecond();
                 const meth = node.getThird();
-                if ( ( typeof(lctx.objectSlots[recv.vref] ) != "undefined" && lctx.objectSlots.hasOwnProperty(recv.vref) ) ) {
-                  recv.eval_type_name = (( lctx.objectSlots.hasOwnProperty(recv.vref) ? lctx.objectSlots[recv.vref] : undefined ));
+                if ( ( typeof(lctx.objectSlots[recv.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, recv.vref) ) ) {
+                  recv.eval_type_name = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, recv.vref) ? lctx.objectSlots[recv.vref] : undefined ));
                   return this.finishObjectCall(this.lowerInstanceCallOn(node, recv.vref, recv, meth.vref, lctx));
                 }
               }
@@ -38324,9 +38324,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   callee.eval_type_name = lctx.className;
                   return this.finishObjectCall(this.lowerInstanceCallOn(node, recvName, callee, methName_1, lctx));
                 }
-                if ( ( typeof(lctx.objectSlots[recvName] ) != "undefined" && lctx.objectSlots.hasOwnProperty(recvName) ) ) {
+                if ( ( typeof(lctx.objectSlots[recvName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, recvName) ) ) {
                   const methName_2 = parts[1];
-                  callee.eval_type_name = (( lctx.objectSlots.hasOwnProperty(recvName) ? lctx.objectSlots[recvName] : undefined ));
+                  callee.eval_type_name = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, recvName) ? lctx.objectSlots[recvName] : undefined ));
                   return this.finishObjectCall(this.lowerInstanceCallOn(node, recvName, callee, methName_2, lctx));
                 }
                 const fcls = this.fieldReceiverClass(recvName, lctx);
@@ -38338,7 +38338,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
             if ( callee.value_type == 11 ) {
-              if ( ( typeof(lctx.objectSlots[callee.vref] ) != "undefined" && lctx.objectSlots.hasOwnProperty(callee.vref) ) ) {
+              if ( ( typeof(lctx.objectSlots[callee.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, callee.vref) ) ) {
                 return this.finishObjectCall(this.lowerInstanceCallOn(node, callee.vref, callee, node.vref, lctx));
               }
             }
@@ -38385,8 +38385,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return "i8*";
             }
             if ( arg.value_type == 11 ) {
-              if ( ( typeof(lctx.slotTypes[arg.vref] ) != "undefined" && lctx.slotTypes.hasOwnProperty(arg.vref) ) ) {
-                const st = (( lctx.slotTypes.hasOwnProperty(arg.vref) ? lctx.slotTypes[arg.vref] : undefined ));
+              if ( ( typeof(lctx.slotTypes[arg.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, arg.vref) ) ) {
+                const st = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, arg.vref) ? lctx.slotTypes[arg.vref] : undefined ));
                 if ( (st.length) > 0 ) {
                   return st;
                 }
@@ -38414,8 +38414,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               className = lctx.className;
             } else {
               if ( (className.length) == 0 ) {
-                if ( ( typeof(lctx.objectSlots[receiverName] ) != "undefined" && lctx.objectSlots.hasOwnProperty(receiverName) ) ) {
-                  className = (( lctx.objectSlots.hasOwnProperty(receiverName) ? lctx.objectSlots[receiverName] : undefined ));
+                if ( ( typeof(lctx.objectSlots[receiverName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, receiverName) ) ) {
+                  className = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, receiverName) ? lctx.objectSlots[receiverName] : undefined ));
                 }
               }
               if ( (receiverName.indexOf(".")) >= 0 ) {
@@ -39186,8 +39186,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             return m;
           };
           localTypeOf (m, wn) {
-            if ( ( typeof(m[wn] ) != "undefined" && m.hasOwnProperty(wn) ) ) {
-              return (( m.hasOwnProperty(wn) ? m[wn] : undefined ));
+            if ( ( typeof(m[wn] ) != "undefined" && Object.prototype.hasOwnProperty.call(m, wn) ) ) {
+              return (( Object.prototype.hasOwnProperty.call(m, wn) ? m[wn] : undefined ));
             }
             return "i32";
           };
@@ -39273,7 +39273,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 var ins = bb.instrs[i_2];
                 if ( (ins.dest.length) > 0 ) {
                   const wn = this.wasmName(ins.dest);
-                  if ( ( typeof(seen[wn] ) != "undefined" && seen.hasOwnProperty(wn) ) ) {
+                  if ( ( typeof(seen[wn] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, wn) ) ) {
                     continue;
                   }
                   seen[wn] = "local";
@@ -39318,7 +39318,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             visited[label] = true;
           };
           isVisited (label, visited) {
-            return ( typeof(visited[label] ) != "undefined" && visited.hasOwnProperty(label) );
+            return ( typeof(visited[label] ) != "undefined" && Object.prototype.hasOwnProperty.call(visited, label) );
           };
           emitRegion (fn, startIdx, boundIdx, wr, visited) {
             let cur = startIdx;
@@ -39620,16 +39620,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 break;
               case "str_ptr" : 
                 let addr = 0;
-                if ( ( typeof(this.strAddrs[ins.arg1] ) != "undefined" && this.strAddrs.hasOwnProperty(ins.arg1) ) ) {
-                  addr = (( this.strAddrs.hasOwnProperty(ins.arg1) ? this.strAddrs[ins.arg1] : undefined ));
+                if ( ( typeof(this.strAddrs[ins.arg1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.strAddrs, ins.arg1) ) ) {
+                  addr = (( Object.prototype.hasOwnProperty.call(this.strAddrs, ins.arg1) ? this.strAddrs[ins.arg1] : undefined ));
                 }
                 wr.out("      i32.const " + ("" + addr), true);
                 wr.out("      local.set " + this.wasmName(ins.dest), true);
                 break;
               case "typedesc_ptr" : 
                 let tdAddr = 0;
-                if ( ( typeof(this.typeDescAddrs[ins.arg1] ) != "undefined" && this.typeDescAddrs.hasOwnProperty(ins.arg1) ) ) {
-                  tdAddr = (( this.typeDescAddrs.hasOwnProperty(ins.arg1) ? this.typeDescAddrs[ins.arg1] : undefined ));
+                if ( ( typeof(this.typeDescAddrs[ins.arg1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.typeDescAddrs, ins.arg1) ) ) {
+                  tdAddr = (( Object.prototype.hasOwnProperty.call(this.typeDescAddrs, ins.arg1) ? this.typeDescAddrs[ins.arg1] : undefined ));
                 }
                 wr.out("      i32.const " + ("" + tdAddr), true);
                 wr.out("      local.set " + this.wasmName(ins.dest), true);
@@ -39783,8 +39783,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             for ( let i = 0; i < this.stdCommands.children.length; i++) {
               var lch = this.stdCommands.children[i];
               const fc = lch.getFirst();
-              if ( ( typeof(this.opHash[fc.vref] ) != "undefined" && this.opHash.hasOwnProperty(fc.vref) ) ) {
-                const opList = (( this.opHash.hasOwnProperty(fc.vref) ? this.opHash[fc.vref] : undefined ));
+              if ( ( typeof(this.opHash[fc.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.opHash, fc.vref) ) ) {
+                const opList = (( Object.prototype.hasOwnProperty.call(this.opHash, fc.vref) ? this.opHash[fc.vref] : undefined ));
                 opList.list.push(lch);
               } else {
                 const newOpList = new OpList();
@@ -39799,7 +39799,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( false == this.initialized ) {
               await this.initializeOpCache();
             }
-            const items = ( this.opHash.hasOwnProperty(name) ? this.opHash[name] : undefined );
+            const items = ( Object.prototype.hasOwnProperty.call(this.opHash, name) ? this.opHash[name] : undefined );
             if ( (typeof(items) !== "undefined" && items != null )  ) {
               return items.list;
             }
@@ -39989,7 +39989,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           createPolyfill (location, code, ctx, wr) {
             const p_write = wr.getTag(location);
-            if ( (( typeof(p_write.compiledTags[code] ) != "undefined" && p_write.compiledTags.hasOwnProperty(code) )) == false ) {
+            if ( (( typeof(p_write.compiledTags[code] ) != "undefined" && Object.prototype.hasOwnProperty.call(p_write.compiledTags, code) )) == false ) {
               p_write.raw(code, true);
               p_write.compiledTags[code] = true;
             }
@@ -39998,7 +39998,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             this.createPolyfill("utilities", code, ctx, wr);
           };
           async installFile (filename, ctx, wr) {
-            if ( ( typeof(this.installedFile[filename] ) != "undefined" && this.installedFile.hasOwnProperty(filename) ) ) {
+            if ( ( typeof(this.installedFile[filename] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.installedFile, filename) ) ) {
               return;
             }
             const env = ctx.getEnv();
@@ -40038,7 +40038,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const stdClass = ctx.findClass("RangerStaticMethods");
                     const runCtx = appCtx.fork();
                     let b_failed = false;
-                    if ( false == (( typeof(stdClass.defined_static_methods[stdFnName] ) != "undefined" && stdClass.defined_static_methods.hasOwnProperty(stdFnName) )) ) {
+                    if ( false == (( typeof(stdClass.defined_static_methods[stdFnName] ) != "undefined" && Object.prototype.hasOwnProperty.call(stdClass.defined_static_methods, stdFnName) )) ) {
                       runCtx.setInMethod();
                       const m = new RangerAppFunctionDesc();
                       m.name = stdFnName;
@@ -40472,7 +40472,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( (node.children.length) >= idx ) {
                     const arg = node.children[idx];
                     const root = ctx.getRoot();
-                    const sNode = ( root.appServices.hasOwnProperty(arg.vref) ? root.appServices[arg.vref] : undefined );
+                    const sNode = ( Object.prototype.hasOwnProperty.call(root.appServices, arg.vref) ? root.appServices[arg.vref] : undefined );
                     if ( (typeof(sNode) !== "undefined" && sNode != null )  ) {
                       wr.out(sNode.appGUID, false);
                     } else {
@@ -40931,7 +40931,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   try {
                     const fName = cmdArg.string_value + ".java";
                     const p_write = wr.getTag("utilities");
-                    if ( (( typeof(p_write.compiledTags[fName] ) != "undefined" && p_write.compiledTags.hasOwnProperty(fName) )) == false ) {
+                    if ( (( typeof(p_write.compiledTags[fName] ) != "undefined" && Object.prototype.hasOwnProperty.call(p_write.compiledTags, fName) )) == false ) {
                       const code = cmd.getThird();
                       const classWr = wr.getFileWriter(".", fName);
                       if ( (classWr.getCode().length) > 0 ) {
@@ -40965,7 +40965,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   await this.walkCommandList(cmdArg, node, testCtx, newWriter);
                   const p_str = newWriter.getCode();
                   const root_1 = ctx.getRoot();
-                  if ( (( typeof(p_write_1.compiledTags[p_str] ) != "undefined" && p_write_1.compiledTags.hasOwnProperty(p_str) )) == false ) {
+                  if ( (( typeof(p_write_1.compiledTags[p_str] ) != "undefined" && Object.prototype.hasOwnProperty.call(p_write_1.compiledTags, p_str) )) == false ) {
                     p_write_1.compiledTags[p_str] = true;
                     const mCtx = ctx.fork();
                     mCtx.restartExpressionLevel();
@@ -41736,8 +41736,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             this.mutatingOps["put"] = true;
           };
           isMutatingOperator (opName) {
-            if ( ( typeof(this.mutatingOps[opName] ) != "undefined" && this.mutatingOps.hasOwnProperty(opName) ) ) {
-              return (( this.mutatingOps.hasOwnProperty(opName) ? this.mutatingOps[opName] : undefined ));
+            if ( ( typeof(this.mutatingOps[opName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.mutatingOps, opName) ) ) {
+              return (( Object.prototype.hasOwnProperty.call(this.mutatingOps, opName) ? this.mutatingOps[opName] : undefined ));
             }
             return false;
           };
@@ -44368,7 +44368,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "cpp", "php", "csharp", "python", "rust", "llvm"];
                                         const params = env.commandLine;
                                         const cli = new CLIProgress();
-                                        if ( ( typeof(params.flags["no-color"] ) != "undefined" && params.flags.hasOwnProperty("no-color") ) ) {
+                                        if ( ( typeof(params.flags["no-color"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-color") ) ) {
                                           cli.setUseColors(false);
                                         }
                                         let the_file = "";
@@ -44376,7 +44376,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
                                         const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
                                         const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
-                                        if ( ( typeof(params.flags["compiler"] ) != "undefined" && params.flags.hasOwnProperty("compiler") ) ) {
+                                        if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
                                           cli.printHeader();
                                           console.log(cli.info("Re-compiling the compiler itself"));
                                           console.log("");
@@ -44459,10 +44459,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         const code = new SourceCode(c);
                                         code.filename = the_file;
                                         const parser = new RangerLispParser(code);
-                                        if ( ( typeof(params.flags["no-op-transform"] ) != "undefined" && params.flags.hasOwnProperty("no-op-transform") ) ) {
+                                        if ( ( typeof(params.flags["no-op-transform"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-op-transform") ) ) {
                                           parser.disableOperators = true;
                                         }
-                                        parser.parse(( typeof(params.flags["no-op-transform"] ) != "undefined" && params.flags.hasOwnProperty("no-op-transform") ));
+                                        parser.parse(( typeof(params.flags["no-op-transform"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-op-transform") ));
                                         if ( parser.had_error ) {
                                           cli.printHeader();
                                           console.log(cli.error(("Parse error in " + the_file)));
@@ -44822,8 +44822,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           }
                                           switch (appCtx.targetLangName ) { 
                                             case "java7" : 
-                                              if ( ( typeof(comp_attrs["android_res_dir"] ) != "undefined" && comp_attrs.hasOwnProperty("android_res_dir") ) ) {
-                                                const resDir = (( comp_attrs.hasOwnProperty("android_res_dir") ? comp_attrs["android_res_dir"] : undefined ));
+                                              if ( ( typeof(comp_attrs["android_res_dir"] ) != "undefined" && Object.prototype.hasOwnProperty.call(comp_attrs, "android_res_dir") ) ) {
+                                                const resDir = (( Object.prototype.hasOwnProperty.call(comp_attrs, "android_res_dir") ? comp_attrs["android_res_dir"] : undefined ));
                                                 const resFs = new CodeFileSystem();
                                                 const file_2 = resFs.getFile(".", "README.txt");
                                                 const wr_2 = file_2.getWriter();
@@ -44835,9 +44835,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                               }
                                               break;
                                             case "es6" : 
-                                              if ( ( typeof(comp_attrs["web_res_dir"] ) != "undefined" && comp_attrs.hasOwnProperty("web_res_dir") ) ) {
+                                              if ( ( typeof(comp_attrs["web_res_dir"] ) != "undefined" && Object.prototype.hasOwnProperty.call(comp_attrs, "web_res_dir") ) ) {
                                                 console.log("--> had web res dir");
-                                                const resDir_1 = (( comp_attrs.hasOwnProperty("web_res_dir") ? comp_attrs["web_res_dir"] : undefined ));
+                                                const resDir_1 = (( Object.prototype.hasOwnProperty.call(comp_attrs, "web_res_dir") ? comp_attrs["web_res_dir"] : undefined ));
                                                 const resFs_1 = new CodeFileSystem();
                                                 const file_3 = resFs_1.getFile(".", "webviews.html");
                                                 const wr_3 = file_3.getWriter();
@@ -44856,8 +44856,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           wr.createTag("utilities");
                                           const theEnd = wr.createTag("file_end");
                                           if ( appCtx.hasCompilerFlag("typescript") ) {
-                                            if ( ( typeof(appCtx.compilerSettings["processTsHelpers"] ) != "undefined" && appCtx.compilerSettings.hasOwnProperty("processTsHelpers") ) ) {
-                                              const __rgrTs = (( appCtx.compilerSettings.hasOwnProperty("processTsHelpers") ? appCtx.compilerSettings["processTsHelpers"] : undefined ));
+                                            if ( ( typeof(appCtx.compilerSettings["processTsHelpers"] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.compilerSettings, "processTsHelpers") ) ) {
+                                              const __rgrTs = (( Object.prototype.hasOwnProperty.call(appCtx.compilerSettings, "processTsHelpers") ? appCtx.compilerSettings["processTsHelpers"] : undefined ));
                                               if ( (__rgrTs.length) > 0 ) {
                                                 theEnd.raw(__rgrTs, false);
                                                 theEnd.newline();
@@ -44869,10 +44869,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
                                             var cName = appCtx.definedClassList[i_4];
                                             if ( cName == "RangerStaticMethods" ) {
-                                              staticMethods = ( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined );
+                                              staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
                                               continue;
                                             }
-                                            const cl = ( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined );
+                                            const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
                                             if ( cl.is_operator_class ) {
                                               continue;
                                             }
@@ -44891,17 +44891,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                             if ( cl.is_union ) {
                                               continue;
                                             }
-                                            if ( ( typeof(handledClasses[cName] ) != "undefined" && handledClasses.hasOwnProperty(cName) ) ) {
+                                            if ( ( typeof(handledClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName) ) ) {
                                               continue;
                                             }
                                             handledClasses[cName] = true;
                                             if ( (cl.extends_classes.length) > 0 ) {
                                               for ( let i_5 = 0; i_5 < cl.extends_classes.length; i_5++) {
                                                 var eClassName = cl.extends_classes[i_5];
-                                                if ( ( typeof(handledClasses[eClassName] ) != "undefined" && handledClasses.hasOwnProperty(eClassName) ) ) {
+                                                if ( ( typeof(handledClasses[eClassName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, eClassName) ) ) {
                                                   continue;
                                                 }
-                                                const parentCl = ( appCtx.definedClasses.hasOwnProperty(eClassName) ? appCtx.definedClasses[eClassName] : undefined );
+                                                const parentCl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, eClassName) ? appCtx.definedClasses[eClassName] : undefined );
                                                 await lcc.WalkNode(parentCl.classNode, appCtx, wr);
                                                 handledClasses[eClassName] = true;
                                               };
@@ -44918,14 +44918,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           };
                                           for ( let i_7 = 0; i_7 < appCtx.definedClassList.length; i_7++) {
                                             var cName_1 = appCtx.definedClassList[i_7];
-                                            if ( ( typeof(handledClasses[cName_1] ) != "undefined" && handledClasses.hasOwnProperty(cName_1) ) ) {
+                                            if ( ( typeof(handledClasses[cName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName_1) ) ) {
                                               continue;
                                             }
                                             if ( cName_1 == "RangerStaticMethods" ) {
-                                              staticMethods = ( appCtx.definedClasses.hasOwnProperty(cName_1) ? appCtx.definedClasses[cName_1] : undefined );
+                                              staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
                                               continue;
                                             }
-                                            const cl_1 = ( appCtx.definedClasses.hasOwnProperty(cName_1) ? appCtx.definedClasses[cName_1] : undefined );
+                                            const cl_1 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
                                             if ( cl_1.is_operator_class ) {
                                               continue;
                                             }
@@ -44954,7 +44954,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           };
                                           for ( let i_8 = 0; i_8 < appCtx.definedClassList.length; i_8++) {
                                             var cName_2 = appCtx.definedClassList[i_8];
-                                            const cl_2 = ( appCtx.definedClasses.hasOwnProperty(cName_2) ? appCtx.definedClasses[cName_2] : undefined );
+                                            const cl_2 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_2) ? appCtx.definedClasses[cName_2] : undefined );
                                             if ( cl_2.is_operator_class ) {
                                               await lcc.WalkNode(cl_2.classNode, appCtx, wr);
                                             }
@@ -44969,7 +44969,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           let added_import = {};
                                           for ( let i_9 = 0; i_9 < import_list.length; i_9++) {
                                             var codeStr = import_list[i_9];
-                                            if ( ( typeof(added_import[codeStr] ) != "undefined" && added_import.hasOwnProperty(codeStr) ) ) {
+                                            if ( ( typeof(added_import[codeStr] ) != "undefined" && Object.prototype.hasOwnProperty.call(added_import, codeStr) ) ) {
                                               continue;
                                             }
                                             added_import[codeStr] = true;
@@ -45307,7 +45307,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       for ( let i_29 = 0; i_29 < __self.length; i_29++) {
                                         var it_20 = __self[i_29];
                                         const key = cb(it_20);
-                                        if ( false == (( typeof(mapper[key] ) != "undefined" && mapper.hasOwnProperty(key) )) ) {
+                                        if ( false == (( typeof(mapper[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(mapper, key) )) ) {
                                           res_14.push(it_20);
                                           mapper[key] = true;
                                         }
@@ -45467,8 +45467,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     };
                                     operatorsOf_8.envc95var_54 = function(env, name) {
                                       if ( env.use_real ) {
-                                        if ( ( typeof(env.envVars[name] ) != "undefined" && env.envVars.hasOwnProperty(name) ) ) {
-                                          return (( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ));
+                                        if ( ( typeof(env.envVars[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(env.envVars, name) ) ) {
+                                          return (( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined ));
                                         }
                                         const ev = process.env[name];
                                         if ( (typeof(ev) !== "undefined" && ev != null )  ) {
@@ -45476,7 +45476,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         }
                                         return "";
                                       }
-                                      return ((typeof((( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ))) !== "undefined" && (( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined )) != null ) ) ? ((( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ))) : "";
+                                      return ((typeof((( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined ))) !== "undefined" && (( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined )) != null ) ) ? ((( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined ))) : "";
                                     };
                                     operatorsOf_8.currentc95directory_51 = function(env) {
                                       if ( env.use_real ) {
@@ -45492,7 +45492,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       const list = Object.keys(__self);
                                       for ( let i_7 = 0; i_7 < list.length; i_7++) {
                                         var kk = list[i_7];
-                                        const value = (( __self.hasOwnProperty(kk) ? __self[kk] : undefined ));
+                                        const value = (( Object.prototype.hasOwnProperty.call(__self, kk) ? __self[kk] : undefined ));
                                         await cb(value, kk);
                                       };
                                     };
@@ -45500,7 +45500,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       const list_1 = Object.keys(__self);
                                       for ( let i_9 = 0; i_9 < list_1.length; i_9++) {
                                         var kk_1 = list_1[i_9];
-                                        const value_1 = (( __self.hasOwnProperty(kk_1) ? __self[kk_1] : undefined ));
+                                        const value_1 = (( Object.prototype.hasOwnProperty.call(__self, kk_1) ? __self[kk_1] : undefined ));
                                         await cb(value_1, kk_1);
                                       };
                                     };
@@ -45508,7 +45508,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       const list_2 = Object.keys(__self);
                                       for ( let i_12 = 0; i_12 < list_2.length; i_12++) {
                                         var kk_2 = list_2[i_12];
-                                        const value_2 = (( __self.hasOwnProperty(kk_2) ? __self[kk_2] : undefined ));
+                                        const value_2 = (( Object.prototype.hasOwnProperty.call(__self, kk_2) ? __self[kk_2] : undefined ));
                                         await cb(value_2, kk_2);
                                       };
                                     };
@@ -45516,7 +45516,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       const list_3 = Object.keys(__self);
                                       for ( let i_13 = 0; i_13 < list_3.length; i_13++) {
                                         var kk_3 = list_3[i_13];
-                                        const value_3 = (( __self.hasOwnProperty(kk_3) ? __self[kk_3] : undefined ));
+                                        const value_3 = (( Object.prototype.hasOwnProperty.call(__self, kk_3) ? __self[kk_3] : undefined ));
                                         await cb(value_3, kk_3);
                                       };
                                     };
@@ -45524,7 +45524,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       const list_4 = Object.keys(__self);
                                       for ( let i_14 = 0; i_14 < list_4.length; i_14++) {
                                         var kk_4 = list_4[i_14];
-                                        const value_4 = (( __self.hasOwnProperty(kk_4) ? __self[kk_4] : undefined ));
+                                        const value_4 = (( Object.prototype.hasOwnProperty.call(__self, kk_4) ? __self[kk_4] : undefined ));
                                         await cb(value_4, kk_4);
                                       };
                                     };
@@ -45532,7 +45532,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       const list_5 = Object.keys(__self);
                                       for ( let i_16 = 0; i_16 < list_5.length; i_16++) {
                                         var kk_5 = list_5[i_16];
-                                        const value_5 = (( __self.hasOwnProperty(kk_5) ? __self[kk_5] : undefined ));
+                                        const value_5 = (( Object.prototype.hasOwnProperty.call(__self, kk_5) ? __self[kk_5] : undefined ));
                                         await cb(value_5, kk_5);
                                       };
                                     };
@@ -45540,7 +45540,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       const list_6 = Object.keys(__self);
                                       for ( let i_22 = 0; i_22 < list_6.length; i_22++) {
                                         var kk_6 = list_6[i_22];
-                                        const value_6 = (( __self.hasOwnProperty(kk_6) ? __self[kk_6] : undefined ));
+                                        const value_6 = (( Object.prototype.hasOwnProperty.call(__self, kk_6) ? __self[kk_6] : undefined ));
                                         cb(value_6, kk_6);
                                       };
                                     };
@@ -45548,7 +45548,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       const list_7 = Object.keys(__self);
                                       for ( let i_30 = 0; i_30 < list_7.length; i_30++) {
                                         var kk_7 = list_7[i_30];
-                                        const value_7 = (( __self.hasOwnProperty(kk_7) ? __self[kk_7] : undefined ));
+                                        const value_7 = (( Object.prototype.hasOwnProperty.call(__self, kk_7) ? __self[kk_7] : undefined ));
                                         cb(value_7, kk_7);
                                       };
                                     };
