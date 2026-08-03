@@ -642,6 +642,16 @@ them aside cannot quietly flatter the remaining number.
 
 ### 2.4 Known-wrong, pinned rather than hidden
 
+- **A loop exits after 100000 iterations, silently.** Every loop runner carries a
+  `maxIterations` guard against a runaway program hanging the host, and reaching it
+  ends the loop as if the condition had gone false — no error, no diagnostic. A
+  program that legitimately iterates more than that gets a wrong answer with nothing
+  to say so, which is the worst shape a limit can have. Nothing in the ES5 corpus
+  reaches it, so the conformance score does not see it; `bench/bench.cjs` does, and
+  its same-answer check is what surfaced it. Recorded here because the fix is a
+  decision — raise the ceiling, or make hitting it throw — not an oversight.
+
+
 - **A map key literally named `__proto__` cannot be stored.** The es6 target
   compiles a Ranger string map to a plain JavaScript object, and assigning that
   name sets the object's prototype instead of creating a property — so
