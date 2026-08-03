@@ -25835,7 +25835,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       WriteScalarValue (node, ctx, wr) {
         switch (node.value_type ) { 
           case 2 : 
-            wr.out(node.getParsedString(), false);
+            const dd_str = "" + node.double_value;
+            const ii_str = "" + (Math.floor( node.double_value));
+            if ( dd_str == ii_str ) {
+              wr.out(("" + node.double_value) + ".0", false);
+            } else {
+              wr.out("" + node.double_value, false);
+            }
             break;
           case 4 : 
             const s = this.EncodeString(node, ctx, wr);
@@ -38984,6 +38990,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       treeReferencesVRef (node, name) {
         if ( node.value_type == 11 ) {
           if ( node.vref == name ) {
+            return true;
+          }
+        }
+        if ( (node.ns.length) >= 2 ) {
+          if ( (node.ns[0]) == name ) {
             return true;
           }
         }

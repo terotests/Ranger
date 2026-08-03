@@ -60,6 +60,11 @@ each target.
 
 - **Integer division.** `/` on two integers gives a double. Use `to_int` when
   the program needs a whole number.
+- **`to_int` of a negative double.** The reference semantics is floor:
+  `(to_int -1.5)` is `-2`. JavaScript, C++, Python, PHP, Rust and Go follow
+  it; C#, Swift, Kotlin and Scala still truncate toward zero (`-1`), so the
+  two families differ on every negative value until those targets are
+  aligned.
 - **The remainder of a negative number.** The sign of the result of `%` follows
   the target language.
 - **String indexes.** The index of a character is a code point index. The

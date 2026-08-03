@@ -24,6 +24,12 @@ class LiveCompiler {
         return true
       }
     }
+    ; a field path references its root: `tag.tagName` references `tag`
+    if ((array_length node.ns) >= 2) {
+      if ((itemAt node.ns 0) == name) {
+        return true
+      }
+    }
     for node.children ch:CodeNode i {
       if (this.treeReferencesVRef(ch name)) {
         return true

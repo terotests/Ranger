@@ -291,8 +291,9 @@ along:
    template table splits the twelve targets: JS, C++, Python and PHP floor;
    Rust (`as i64`), C#, Go, Swift, Kotlin and Scala truncate — and the two
    differ on every negative quotient, which is exactly the encoder's
-   quantization of negative coefficients. The Rust template now floors.
-   (The other truncating targets remain to be aligned; recorded here.)
+   quantization of negative coefficients. The Rust template now floors,
+   and Go followed (`int64(math.Floor(…))` — see the Go section below).
+   C#, Swift, Kotlin and Scala remain to be aligned; recorded here.
 
 The sharing analysis grew four eyes it was missing, each found the same way:
 a local defined inside a while or an if body lives in a sub-context the
@@ -359,3 +360,59 @@ not seven copies per program.
 (The jpeg image itself is byte-identical before/after but still wrong versus
 the C++ image — that is fault 2/the object model, and step 1 does not claim
 it.)
+
+## The Go target, brought to the same gate
+
+Running the same conformance gate against Go surfaced two writer faults and
+one semantics gap, none specific to the ownership work but all blocking the
+byte-identical bar:
+
+1. **Double literals were emitted as source slices.** The Go writer's
+   `WriteScalarValue` Double case called `node.getParsedString()`, which
+   re-reads the source file at the node's recorded position. Under
+   macro-shifted positions the slice lands on unrelated bytes — `1.0` came
+   out as fragments of neighbouring lines and the generated program did not
+   parse. The case now formats `double_value` (with a `.0` suffix on whole
+   values so Go types them as `float64`), the same scheme the other writers
+   use.
+2. **The `for`-loop item binding was dropped when the body only used a
+   field path.** `go_for_bind` asks `treeReferencesVRef` whether the loop
+   body mentions the item; the walk checked `vref` and recursed into
+   children but never matched a namespaced path's root, so a body reading
+   only `tag.tagName` was judged not to reference `tag` and the binding
+   line was omitted (`undefined: tag`). The walk now matches the first
+   segment of any `ns` path.
+3. **`to_int` truncated.** Same fault as Rust's, fixed the same way:
+   `int64(…)` became `int64(math.Floor(…))` with the `math` import.
+
+With the three fixes the Go build of `jpeg_scaler.rgr` is byte-identical to
+the reference at both sizes — 180280 bytes / `2d08fcfb…` at 600px and
+1996479 bytes / `4994f691…` at 2400px — making four targets that agree to
+the byte: ES6, C++, Rust (`-rust-shared-classes`) and Go. Regression
+coverage lives in `tests/codegen-go-writer.test.ts`.
+
+Swift 6 could not join the runtime comparison: the sandbox has no Swift
+toolchain and cannot fetch one, though the compiler emits the Swift source
+for the scaler without errors. Swift's `Int(…)` truncates, so it will need
+the same `to_int` alignment (`Int((…).rounded(.down))`) before it can pass
+the byte-identical gate.
+
+## Performance of the same program, per target
+
+The identical scaler, timed end-to-end (decode → scale → encode of
+`Example.jpg`, quality 85) on the same machine; medians of 7 runs at 600px
+and 5 runs at 2400px. Every binary writes the byte-identical output above.
+
+| Target | Build | 600px | 2400px |
+| --- | --- | --- | --- |
+| Rust (`-rust-shared-classes`) | `rustc -O` | ~104 ms | ~1429 ms |
+| C++ | `g++ -O2` | ~108 ms | ~1470 ms |
+| Go | `go build` | ~160 ms | ~1734 ms |
+| ES6 | node 22 | ~506 ms | ~6242 ms |
+
+The ordering is the expected one — the two ahead-of-time natives lead, Go's
+`Rc<RefCell>`-free garbage-collected model lands within ~1.2× of them, and
+node pays the interpreter/JIT-warmup tax on a short-lived CPU-bound binary.
+The Rust flag's `Rc<RefCell<T>>` cells cost nothing measurable against C++
+`shared_ptr` here: the hot loops index flat arrays, and the borrow checks
+sit outside them.

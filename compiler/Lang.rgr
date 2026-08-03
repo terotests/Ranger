@@ -3083,7 +3083,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 kotlin ( (e 1 ) ".toInt()" )
                 scala ( (e 1 ) ".toInt" )
                 rust ( "(" (e 1 ) ").floor() as i64 " )
-                go ( "int64(" (e 1) ")")
+                go ( "int64(math.Floor(" (e 1) "))" (imp "math"))
                 php ( "floor(" (e 1) ")")
                 java7 ( "Double.valueOf(" (e 1) ").intValue()")
                 cpp ( "(int)floor( " (e 1) ")" (imp "<math.h>"))
