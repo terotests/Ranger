@@ -142,17 +142,91 @@ class RegexCompiler {
                 if ((this.peekIs("|")) || (this.peekIs(")"))) {
                     looping = false
                 } {
+                    ; A quantifier needs an ATOM in front of it. `*a`, `+a`,
+                    ; `?a` and a well-formed `{n,m}` in term position are all
+                    ; SyntaxErrors -- the parser used to read the `*` as a
+                    ; literal and accept the pattern.
+                    if (this.quantifierAhead()) {
+                        failed = true
+                        failMessage = "Nothing to repeat"
+                        looping = false
+                    } {
                     def atom:RegexNode (this.parseAtom())
                     if failed {
                         looping = false
                     } {
                         this.applyQuantifier(atom)
-                        push seq.children atom
+                        if failed {
+                            looping = false
+                        } {
+                            push seq.children atom
+                        }
+                    }
                     }
                 }
             }
         }
         return seq
+    }
+
+    ; True when a QUANTIFIER starts here. `{` counts only when it is a
+    ; well-formed bound: a lone `{` is a literal brace, which is what Annex B
+    ; and web reality settled on.
+    fn quantifierAhead:boolean () {
+        if (pos >= (strlen src)) {
+            return false
+        }
+        def c:string (substring src pos (pos + 1))
+        if (c == "*") { return true }
+        if (c == "+") { return true }
+        if (c == "?") { return true }
+        if (c == "{") {
+            return (this.boundAhead())
+        }
+        return false
+    }
+
+    ; Whether `{` at `pos` opens a well-formed `{n}` / `{n,}` / `{n,m}`.
+    fn boundAhead:boolean () {
+        def p:int (pos + 1)
+        def digits:int 0
+        def scanning:boolean true
+        while (scanning && (p < (strlen src))) {
+            def d:int (charAt src p)
+            if ((d >= 48) && (d <= 57)) {
+                digits = (digits + 1)
+                p = (p + 1)
+            } {
+                scanning = false
+            }
+        }
+        if (digits == 0) {
+            return false
+        }
+        if (p >= (strlen src)) {
+            return false
+        }
+        def nx:string (substring src p (p + 1))
+        if (nx == "}") {
+            return true
+        }
+        if (nx != ",") {
+            return false
+        }
+        p = (p + 1)
+        def scanning2:boolean true
+        while (scanning2 && (p < (strlen src))) {
+            def d2:int (charAt src p)
+            if ((d2 >= 48) && (d2 <= 57)) {
+                p = (p + 1)
+            } {
+                scanning2 = false
+            }
+        }
+        if (p >= (strlen src)) {
+            return false
+        }
+        return ((substring src p (p + 1)) == "}")
     }
 
     fn peekIs:boolean (c:string) {
@@ -276,6 +350,22 @@ class RegexCompiler {
             if (this.peekIs("?")) {
                 n.greedy = false
                 pos = (pos + 1)
+            }
+            ; A quantifier cannot quantify a quantifier: `a**`, `a???` and
+            ; `x{1,2}{1}` are SyntaxErrors. The lazy `?` was consumed just
+            ; above, so anything still here is a second quantifier.
+            if (this.quantifierAhead()) {
+                failed = true
+                failMessage = "Nothing to repeat"
+                return
+            }
+            ; `{n,m}` with n greater than m is out of order.
+            if (n.max >= 0) {
+                if (n.min > n.max) {
+                    failed = true
+                    failMessage = "numbers out of order in {} quantifier"
+                    return
+                }
             }
         }
     }
@@ -406,6 +496,17 @@ class RegexCompiler {
                         pos = (pos + 1)
                         def hi:int (this.readClassAtom(cls))
                         if (hi >= 0) {
+                            ; A range whose start is above its end is a
+                            ; SyntaxError -- `[b-a]`, `[z-a]`, `[{-z]`. It used
+                            ; to be accepted and simply never match. A range
+                            ; involving a SHORTHAND (`[\d-G]`) is not a range at
+                            ; all: the `-` there is literal, which is the branch
+                            ; below.
+                            if (lo > hi) {
+                                failed = true
+                                failMessage = "Range out of order in character class"
+                                closed = true
+                            }
                             push cls.ranges lo
                             push cls.ranges hi
                         } {
@@ -481,6 +582,11 @@ class RegexCompiler {
     fn readEscapedChar:int () {
         pos = (pos + 1)
         if (pos >= (strlen src)) {
+            ; A backslash with nothing after it is not a literal backslash: the
+            ; pattern simply ends mid-escape, which is a SyntaxError. Answering
+            ; 92 accepted `new RegExp("\\")` as a one-character pattern.
+            failed = true
+            failMessage = "\\ at end of pattern"
             return 92
         }
         def e:int (charAt src pos)

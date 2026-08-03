@@ -358,6 +358,27 @@ them aside cannot quietly flatter the remaining number.
   was read, so the loop ran its body with `k` never set. A property deleted before
   it is reached is also no longer visited — the key list is snapshotted at entry.
 
+- **An invalid RegExp pattern is a `SyntaxError`.** The compiler accepted every
+  pattern it was given: `a**`, `*a`, `0{2,1}`, `x{1,2}{1}`, `[b-a]`, `[a-dc-b]` and a
+  trailing backslash all built a working RegExp that simply never matched. A
+  quantifier now needs an atom in front of it and cannot quantify another
+  quantifier, `{n,m}` bounds must be in order, and a class range must not run
+  backwards — while `[\d-G]` stays legal, because a `-` beside a class escape is a
+  literal. Flags are validated too: exactly `g`, `i`, `m`, each at most once.
+
+- **A pending exception is never replaced by a later one.** Three paths built their
+  result and carried on while a throw was already in flight, and the exception they
+  then raised took its place: an error constructor's argument
+  (`throw new Error("x" + (new RegExp("a**")))` reported an Error), a throw
+  statement's own operand, and a method call's receiver
+  (`new RegExp("[b-a]").exec("a")` reported a TypeError). That masking is what kept
+  ~90 pattern-validation tests failing after the validation itself was correct.
+
+- **`RegExp(re)` called as a function is `re` itself**, while `new RegExp(re)`
+  copies; `exec` and `test` require a real RegExp receiver; a RegExp is neither
+  callable nor constructible; and `RegExp.prototype.constructor` used as a
+  constructor builds a RegExp.
+
 - **A generic `Array.prototype` method asks the object, not a snapshot.**
   `length` is read with a full `[[Get]]` so an accessor runs (and a throwing one is
   the answer, ahead of the callback-callable check, as the spec orders it); each
@@ -373,6 +394,21 @@ them aside cannot quietly flatter the remaining number.
   inherited index too, and no longer spreads a receiver that is not an array —
   `Object.prototype.concat = Array.prototype.concat; ({0: 0}).concat()` is one
   element, whatever `length` it happens to inherit.
+
+- **`Array.prototype.toString` IS `join(",")`.** A separate renderer disagreed with
+  join about an object element (which must run its own `toString`) and about a hole
+  the prototype supplies a value for. An absent, null or undefined element
+  contributes the empty string to both.
+
+- **`Array.prototype` is itself an array**, so `Array.isArray(Array.prototype)` is
+  true and its `length` is 0 — just as `Function.prototype` is itself callable.
+
+- **A length past what the dense store can hold is DECLARED, not materialised.**
+  `new Array(4294967295)` is legal and has no elements at all; it used to be a
+  RangeError, which confused "too big to allocate" with "not a length". Shrinking
+  `length` now also deletes the FAR index properties kept in the property map, and
+  `delete arr[i]` clears an accessor defined on that index rather than only
+  blanking the dense slot.
 
 - **`Array.prototype.toLocaleString` exists.** It called nothing and answered
   undefined; it now calls each element's own `toLocaleString` and joins with a
@@ -455,6 +491,11 @@ backtracks against everything that follows the group.
 | `i`, `g`, `m` | |
 | backtracking into a quantified group's body | |
 | capture reset per repetition | |
+| rejecting a malformed pattern at construction | |
+
+The whole directory passes now, which it did not when this section was written: the
+gap that remained after the matcher was correct was that the compiler *accepted
+everything*, so a malformed pattern built a RegExp that simply never matched.
 
 The compiled program is recompiled from source at each use: a `RegexProgram` cannot be
 stored inside an `EvalValue`. Slower, and invisible to the guest.
@@ -514,7 +555,11 @@ emergent from where a branch happened to sit in a chain.
 
 ## 4. Where the score stands
 
-Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
+Sampled over the ES5-tagged corpus (6839 files), excluding Temporal and intl402.
+`built-ins/RegExp` used to be excluded from the sample as well, back when there was
+no RegExp at all; now that it is at 100% of its own directory the exclusion is gone
+and the corpus is 490 files larger, so the percentage below is measured against
+more, not less.
 
 | Area | Result |
 |---|---|
@@ -525,18 +570,19 @@ Sampled over the ES5-tagged corpus (6349 files), excluding Temporal and intl402:
 | `built-ins/Boolean` | **100%** (7/7, whole directory) |
 | `built-ins/Object` | **100%** (2080/2080, whole directory) |
 | `built-ins/Function` | **100%** (361/361, whole directory) |
+| `built-ins/RegExp` | **100%** (490/490, whole directory) |
+| `built-ins/Array` | **100%** (212/212, whole directory) |
 | `language/statements` | 93% (522/562) |
 | `built-ins/Math` | 91% (74/81) |
-| `built-ins/Array` | 87% (184/212) |
-| `built-ins/RegExp` | 77% (375/490) |
-| ES5 overall | **96.3%** (867/900 sampled) |
+| ES5 overall | **97.7%** (879/900 sampled) |
 
-`built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function` and
+`built-ins/Number`, `built-ins/String`, `built-ins/Object`, `built-ins/Function`,
+`built-ins/RegExp`, `built-ins/Array`, `built-ins/Date`, `built-ins/Boolean` and
 `language/expressions` are each at 100% of their whole directory — no sampling, no
 exclusions beyond the era filter.
 
-The runtime-conformance suite is at 1086 checks, every one of them derived from Node —
-1074 expression probes plus 12 script-level probes run through Node's `vm` so the
+The runtime-conformance suite is at 1126 checks, every one of them derived from Node —
+1114 expression probes plus 12 script-level probes run through Node's `vm` so the
 script global is real.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

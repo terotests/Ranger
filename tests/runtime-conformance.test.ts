@@ -1373,6 +1373,52 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["concat-copies-inherited-index", "Object.defineProperty(Array.prototype, '1', { value: 1, configurable: true }); var x = [0]; x.length = 2; var arr = x.concat(); var out = String(arr[0]) + ',' + String(arr[1]) + ',' + String(arr.hasOwnProperty('1')); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
   ["array-hole-reads-prototype", "Object.defineProperty(Array.prototype, '1', { value: 7, configurable: true }); var x = [0]; x.length = 2; var out = String(x[1]); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylike"],
 
+  // --- array length, join/toString agreement, and index accessors -----------
+  ["array-huge-declared-length", "return String(new Array(4294967295).length);", "arraylen2"],
+  ["array-length-too-big-throws", "try { new Array(4294967296); return 'no-throw'; } catch (e) { return e.name; }", "arraylen2"],
+  ["array-length-fractional-throws", "try { new Array(1.5); return 'no-throw'; } catch (e) { return e.name; }", "arraylen2"],
+  ["array-shrink-drops-far-index", "var x = [0, 1, 2]; x[4294967294] = 4294967294; x.length = 2; return String(x[2]) + '/' + String(x[4294967294]) + '/' + String(x.length);", "arraylen2"],
+  ["array-tostring-is-join", "var x = []; x[0] = 0; x[3] = 3; return x.toString() + '|' + x.join();", "arraylen2"],
+  ["array-tostring-object-element", "var x = [{ valueOf: function () { return 7; } }]; return x.toString() + '|' + x.join();", "arraylen2"],
+  ["array-tostring-nulls", "var x = new Array(null, null, null); return x.toString() + '|' + x.join();", "arraylen2"],
+  ["array-tostring-reads-prototype", "Object.defineProperty(Array.prototype, '1', { value: 1, configurable: true }); var x = [0]; x.length = 2; var out = x.toString(); delete Array.prototype[1]; Array.prototype.length = 0; return out;", "arraylen2"],
+  ["array-index-accessor-runs", "var arr = [1, 2]; Object.defineProperty(arr, '0', { get: function () { return 9; }, configurable: true }); return String(arr[0]) + '/' + arr.join(',');", "arraylen2"],
+  ["array-delete-clears-accessor", "var arr = [1, 2]; Object.defineProperty(arr, '1', { get: function () { return 6; }, configurable: true }); delete arr[1]; return String(arr[1]) + '/' + String(1 in arr);", "arraylen2"],
+  ["array-hex-string-length", "var obj = { 1: 11, 2: 9, length: '0x0002' }; var seen = ''; Array.prototype.forEach.call(obj, function (v) { seen += v; }); return seen;", "arraylen2"],
+  ["array-isarray-prototype", "return String(Array.isArray(Array.prototype));", "arraylen2"],
+  ["array-prototype-length", "return String(Array.prototype.length);", "arraylen2"],
+
+  // --- an invalid RegExp pattern is a SyntaxError at construction ------------
+  ["rx-double-star", "try { new RegExp('a**'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-double-plus", "try { new RegExp('a++'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-triple-question", "try { new RegExp('a???'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-leading-star", "try { new RegExp('*a'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-leading-question", "try { new RegExp('?a'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-bound-out-of-order", "try { new RegExp('0{2,1}'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-bound-then-bound", "try { new RegExp('x{1,2}{1}'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-class-range-out-of-order", "try { new RegExp('[b-a]'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-class-second-range-out-of-order", "try { new RegExp('[a-dc-b]'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-trailing-backslash", "try { new RegExp('\\\\'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-unknown-flag", "try { new RegExp('a', 'z'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-duplicate-flag", "try { new RegExp('a', 'ii'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-lazy-is-legal", "return new RegExp('a*?').source;", "rxvalid"],
+  ["rx-class-escape-dash-is-legal", "return new RegExp('[\\\\d-G]').source;", "rxvalid"],
+  ["rx-lone-brace-is-literal", "return String(new RegExp('x{').test('x{'));", "rxvalid"],
+  ["rx-good-flags", "var r = new RegExp('a', 'gim'); return String(r.global) + String(r.ignoreCase) + String(r.multiline);", "rxvalid"],
+  ["rx-call-form-is-identity", "var re = /x/i; var i2 = RegExp(re); re.indicator = 1; return String(i2.indicator);", "rxvalid"],
+  ["rx-new-form-copies", "var re = /x/i; var i2 = new RegExp(re); re.indicator = 1; return String(i2.indicator);", "rxvalid"],
+  ["rx-not-callable", "try { var q = /a/(); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-not-constructible", "try { var q = new /a/(); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-exec-needs-regexp", "var o = {}; o.exec = RegExp.prototype.exec; try { o.exec('x'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-test-needs-regexp", "var o = {}; o.test = RegExp.prototype.test; try { o.test('x'); return 'no-throw'; } catch (e) { return e.name; }", "rxvalid"],
+  ["rx-constructor-length", "return String(RegExp.length);", "rxvalid"],
+  ["rx-constructor-alias-constructs", "var F = RegExp.prototype.constructor; var i = new F(); return String(i instanceof RegExp);", "rxvalid"],
+
+  // --- a pending exception is never replaced by a later one ------------------
+  ["throw-arg-throws-first", "try { throw new Error('x' + (new RegExp('a**'))); } catch (e) { return e.name; }", "rxvalid"],
+  ["receiver-throw-beats-typeerror", "try { return String(new RegExp('[b-a]').exec('a')); } catch (e) { return e.name; }", "rxvalid"],
+  ["call-arg-throw-propagates", "function f(x) { return 'called'; } try { return f(new RegExp('a**')); } catch (e) { return e.name; }", "rxvalid"],
+
   // --- a built-in prototype stringifies like the value it stands for, and
   // never leaks the engine's own debug rendering. -----------------------------
   ["protostr-error-prototype", "return String(Error.prototype);", "protostr"],

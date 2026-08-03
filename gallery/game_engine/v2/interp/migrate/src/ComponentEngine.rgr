@@ -1281,16 +1281,24 @@ class ComponentEngine {
                 ; be a host crash ("Invalid array length") rather than a guest
                 ; error the test could catch.
                 def rawLen:double (only.toNumber())
-                def slots:int (to_int rawLen)
                 if ((rawLen < 0.0) || (rawLen > 4294967295.0)) {
                     return (this.throwSpecError("RangeError" "Invalid array length"))
                 }
-                if ((to_double slots) != rawLen) {
+                ; Integrality is tested on the DOUBLE. Round-tripping through an
+                ; int first wrapped 4294967295 to a negative number, so the one
+                ; length at the top of the legal range was rejected as invalid.
+                if ((this.floorNum(rawLen)) != rawLen) {
                     return (this.throwSpecError("RangeError" "Invalid array length"))
                 }
-                ; Beyond this the allocation is the failure, not the program.
+                def slots:int (to_int rawLen)
+                ; D-ARRAYSPARSE: a length past what the dense store can hold is
+                ; DECLARED rather than materialised -- `new Array(4294967295)`
+                ; is legal and has no elements at all, and a RangeError for it
+                ; confused "too big to allocate" with "not a length".
                 if (slots > 10000000) {
-                    return (this.throwSpecError("RangeError" "Invalid array length"))
+                    def bigArr2:EvalValue (EvalValue.array(items))
+                    bigArr2.declaredLength = slots
+                    return bigArr2
                 }
                 ; D-HOLES: `new Array(5)` has five ABSENT elements, so forEach
                 ; visits none of them -- filling with undefined made every
@@ -3645,7 +3653,17 @@ class ComponentEngine {
         }
         if (stmt.nodeType == "ThrowStatement") {
             if stmt.left {
-                scriptThrowValue = (this.evaluateExpr((unwrap stmt.left)))
+                def thrownV:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                ; A throw raised while EVALUATING the operand is the one that
+                ; propagates. Overwriting it with the operand's (undefined)
+                ; value replaced the real exception -- which is exactly what
+                ; `throw new Error("x" + (new RegExp("a**")))` is written to
+                ; catch, and the reason a whole family of pattern-validation
+                ; tests saw an Error where they expected a SyntaxError.
+                if scriptThrew {
+                    return
+                }
+                scriptThrowValue = thrownV
             } {
                 scriptThrowValue = (EvalValue.undefined())
             }
@@ -5204,6 +5222,12 @@ class ComponentEngine {
         if (name == "Array") {
             return (this.buildArrayFromValues(args))
         }
+        ; D-REGEX: the constructor reached through a VALUE -- `var F =
+        ; RegExp.prototype.constructor; new F()`. Without a case here it fell off
+        ; the end and answered null, so the result was not a RegExp at all.
+        if (name == "RegExp") {
+            return (this.buildRegexFromValues(args asNew))
+        }
         if (name == "Date") {
             if asNew {
                 return (this.makeDateValue(args))
@@ -5250,15 +5274,24 @@ class ComponentEngine {
             def only:EvalValue (itemAt args 0)
             if (only.isNumber()) {
                 def rawLen:double (only.toNumber())
-                def slots:int (to_int rawLen)
                 if ((rawLen < 0.0) || (rawLen > 4294967295.0)) {
                     return (this.throwSpecError("RangeError" "Invalid array length"))
                 }
-                if ((to_double slots) != rawLen) {
+                ; Integrality is tested on the DOUBLE. Round-tripping through an
+                ; int first wrapped 4294967295 to a negative number, so the one
+                ; length at the top of the legal range was rejected as invalid.
+                if ((this.floorNum(rawLen)) != rawLen) {
                     return (this.throwSpecError("RangeError" "Invalid array length"))
                 }
+                def slots:int (to_int rawLen)
+                ; D-ARRAYSPARSE: a length past what the dense store can hold is
+                ; DECLARED rather than materialised -- `new Array(4294967295)`
+                ; is legal and has no elements at all, and raising a RangeError
+                ; for it confused "too big to allocate" with "not a length".
                 if (slots > 10000000) {
-                    return (this.throwSpecError("RangeError" "Invalid array length"))
+                    def bigArr:EvalValue (EvalValue.array(items))
+                    bigArr.declaredLength = slots
+                    return bigArr
                 }
                 def si:int 0
                 while (si < slots) {
@@ -6377,6 +6410,15 @@ class ComponentEngine {
                 if callee.left {
                     def objNode:TSNode (unwrap callee.left)
                     obj = (this.evaluateExpr(objNode))
+                    ; A throw while evaluating the RECEIVER is the exception that
+                    ; propagates. Carrying on called a method on the undefined
+                    ; the aborted expression left behind, and the resulting
+                    ; "not a function" TypeError replaced the real one --
+                    ; `new RegExp("[b-a]").exec("a")` reported a TypeError where
+                    ; the SyntaxError from the constructor was the answer.
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
                 }
                 
                 ; Get the method name - try callee.name first (direct property)
@@ -7522,8 +7564,18 @@ class ComponentEngine {
                     def emsg:string ""
                     if ((array_length node.children) > 0) {
                         def emv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        ; A throw from the ARGUMENT is the answer -- building the
+                        ; error anyway replaced the exception the guest raised
+                        ; with an ordinary Error, which is what `throw new
+                        ; Error("x" + (new RegExp("a**")))` is written to detect.
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
                         if (false == (emv.isUndefined())) {
                             emsg = (this.toStringOf(emv))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
                         }
                     }
                     return (this.makeError(fnName emsg))
@@ -7762,6 +7814,10 @@ class ComponentEngine {
                 if (callee.nodeType == "NewExpression") { litCallee = true }
                 if (callee.nodeType == "ObjectExpression") { litCallee = true }
                 if (callee.nodeType == "ArrayExpression") { litCallee = true }
+                ; A REGEXP is not callable: `/[^a]*/()` is a TypeError. The node
+                ; type was missing from this list, so the call fell through to
+                ; null and did nothing at all.
+                if (callee.nodeType == "RegExpLiteral") { litCallee = true }
                 ; A callee that is itself a CALL -- `String("a")()` -- has to be
                 ; evaluated to know: `f()()` is legal when the inner call
                 ; returns a function.
@@ -8748,6 +8804,8 @@ class ComponentEngine {
         if (nsName == "Number") { return 1 }
         if (nsName == "Boolean") { return 1 }
         if (nsName == "Function") { return 1 }
+        ; RegExp takes (pattern, flags).
+        if (nsName == "RegExp") { return 2 }
         if (nsName == "Date") { return 7 }
         if (nsName == "Map") { return 0 }
         if (nsName == "Set") { return 0 }
@@ -9248,6 +9306,14 @@ class ComponentEngine {
         ; Function.prototype is itself a function -- `typeof Function.prototype`
         ; is "function" and calling it returns undefined. Every other built-in
         ; prototype is an ordinary object.
+        ; D-PROTOKIND: Array.prototype is itself an ARRAY -- `Array.isArray`
+        ; says so and its `length` is 0 -- just as Function.prototype is itself
+        ; callable. Making it a plain object meant both answered wrongly for a
+        ; value the spec is explicit about.
+        if (nsName == "Array") {
+            def emptyEls:[EvalValue]
+            p = (EvalValue.array(emptyEls))
+        }
         if (nsName == "Function") {
             p = (EvalValue.nativeFunction(""))
             ; Calling it returns undefined whatever it is handed. Marked so the
@@ -10236,7 +10302,9 @@ class ComponentEngine {
     ; the registry checks here first. Only a registered built-in prototype can
     ; carry such a record; an ordinary object's delete is the map's business.
     fn isBuiltinPrototypeObject:boolean (v:EvalValue) {
-        if (v.valueType != 5) {
+        ; Array.prototype is an array and Function.prototype is a function, so
+        ; the check cannot be "is it a plain object".
+        if (false == (this.isDescriptorObject(v))) {
             return false
         }
         def names:[string] (keys builtinProtos)
@@ -10252,7 +10320,7 @@ class ComponentEngine {
     }
 
     fn registryMethodDeleted:boolean (v:EvalValue name:string) {
-        if (v.valueType == 5) {
+        if (this.isDescriptorObject(v)) {
             if (has v.suppressedKeys name) {
                 if (false == (has v.objectMap name)) {
                     return true
@@ -10298,6 +10366,7 @@ class ComponentEngine {
         if (false == (has p.suppressedKeys name)) {
             return false
         }
+
         ; Putting the name BACK -- `Number.prototype.toString = saved` -- undoes
         ; the deletion. The record would otherwise outlive the property it
         ; describes and keep answering "gone" for something plainly there.
@@ -10357,6 +10426,16 @@ class ComponentEngine {
             def boolRecv:EvalValue (this.unwrapPrimitive(recv))
             if (boolRecv.valueType != 3) {
                 return (this.throwSpecError("TypeError" ("Boolean.prototype." + name + " called on a non-boolean")))
+            }
+        }
+        ; D-THISCHECK: exec and test read the receiver's pattern and lastIndex,
+        ; so borrowing one onto a plain object -- `o.exec = RegExp.prototype.exec;
+        ; o.exec("x")` -- is a TypeError rather than a match against nothing.
+        if (kind == "regexp") {
+            if ((name == "exec") || (name == "test")) {
+                if (false == (this.isRegexValue(recv))) {
+                    return (this.throwSpecError("TypeError" ("RegExp.prototype." + name + " called on a non-RegExp")))
+                }
             }
         }
         ; D-REGEXACCESSOR: the accessor halves published on RegExp.prototype.
@@ -10522,7 +10601,12 @@ class ComponentEngine {
         }
         if (name == "toString") {
             if (kind == "array") {
-                return (EvalValue.string((this.arrayJoinString(recv ","))))
+                ; D-ARRAYLIKE: `toString` IS `join(",")` -- same element
+                ; conversion, same prototype-chain reads, same treatment of
+                ; absent elements. A separate renderer disagreed with join
+                ; about an object element (which must run its own toString) and
+                ; about a hole that the prototype supplies a value for.
+                return (this.arrayJoinLive(recv ","))
             }
             if (kind == "object") {
                 ; D-CLASSOF: this is Object.prototype.toString. A user `toString`
@@ -11394,6 +11478,13 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvalValue.undefined())
                 }
+                ; ToUint32 of it, too: the conversion can run a `toString` that
+                ; throws, and the spec does that before it asks whether the
+                ; callback is callable.
+                def lenProbeNum:double (this.toNumberOf(lenProbe))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
                 def cb0:EvalValue (EvalValue.undefined())
                 if ((array_length args) > 0) {
                     cb0 = (itemAt args 0)
@@ -11494,7 +11585,22 @@ class ComponentEngine {
                         def ii:int 0
                         while (ii < alen) {
                             if (ii > 0) { out = (out + sep) }
-                            out = (out + ((this.arrayElemAt(recv ii)).toString()))
+                            ; An element that is absent, null or undefined
+                            ; contributes the EMPTY string -- `[0,,,3].join()` is
+                            ; "0,,,3". The raw value rendering wrote "undefined"
+                            ; for each, which is also why join and toString
+                            ; disagreed about the same array.
+                            def jv:EvalValue (this.arrayElemAt(recv ii))
+                            def jSkip:boolean false
+                            if jv.isHole { jSkip = true }
+                            if (jv.isNull()) { jSkip = true }
+                            if (jv.isUndefined()) { jSkip = true }
+                            if (false == jSkip) {
+                                out = (out + (this.toStringOf(jv)))
+                                if scriptThrew {
+                                    return (EvalValue.undefined())
+                                }
+                            }
                             ii = (ii + 1)
                         }
                         return (EvalValue.string(out))
@@ -12960,24 +13066,63 @@ class ComponentEngine {
     ; entirely invisible to the guest, which is the trade this design makes.
     ; --------------------------------------------------------------------------
     fn buildRegexFromArgs:EvalValue (argNodes:[TSNode]) {
+        return (this.buildRegexFromArgNodes(argNodes false))
+    }
+
+    ; D-REGEX: `RegExp(re)` called as a FUNCTION with no flags answers `re`
+    ; ITSELF -- 15.10.3.1 -- while `new RegExp(re)` makes a copy. Copying in both
+    ; forms meant a property later put on the original was invisible through the
+    ; result.
+    fn buildRegexFromArgNodes:EvalValue (argNodes:[TSNode] asNew:boolean) {
         def pattern:string ""
         def flags:string ""
+        def sawFlags:boolean false
+        def srcRegex:EvalValue (EvalValue.null())
         if ((array_length argNodes) > 0) {
             def pv:EvalValue (this.evaluateExpr((itemAt argNodes 0)))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
             if (this.isRegexValue(pv)) {
+                srcRegex = pv
                 pattern = (this.regexSourceOf(pv))
                 flags = (this.regexFlagsOf(pv))
             } {
                 if (false == (pv.isUndefined())) {
                     pattern = (this.toStringOf(pv))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
                 }
             }
         }
         if ((array_length argNodes) > 1) {
             def fv:EvalValue (this.evaluateExpr((itemAt argNodes 1)))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
             if (false == (fv.isUndefined())) {
                 flags = (this.toStringOf(fv))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                sawFlags = true
             }
+        }
+        ; D-REGEX: the plain call form answers its argument UNCHANGED when it is
+        ; already a RegExp and no flags are given (15.10.3.1). Supplying flags
+        ; re-reads the source with them -- ES5 made that a TypeError, ES2015
+        ; allows it, and the current corpus is written against ES2015.
+        if (srcRegex.valueType == 5) {
+            if (false == sawFlags) {
+                if (false == asNew) {
+                    return srcRegex
+                }
+            }
+        }
+        def flagErr:string (this.regexFlagError(flags))
+        if ((strlen flagErr) > 0) {
+            return (this.throwSpecError("SyntaxError" flagErr))
         }
         ; A malformed pattern is a SyntaxError at construction, not at first use.
         def probe (new RegexCompiler)
@@ -12986,6 +13131,94 @@ class ComponentEngine {
             return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + prog.errorMessage)))
         }
         return (this.makeRegexValue(pattern flags))
+    }
+
+    ; D-REGEX: the same construction as buildRegexFromArgNodes, from values that
+    ; have already been evaluated -- which is what a captured constructor has.
+    fn buildRegexFromValues:EvalValue (args:[EvalValue] asNew:boolean) {
+        def pattern:string ""
+        def flags:string ""
+        def sawFlags:boolean false
+        def srcRegex:EvalValue (EvalValue.null())
+        if ((array_length args) > 0) {
+            def pv:EvalValue (itemAt args 0)
+            if (this.isRegexValue(pv)) {
+                srcRegex = pv
+                pattern = (this.regexSourceOf(pv))
+                flags = (this.regexFlagsOf(pv))
+            } {
+                if (false == (pv.isUndefined())) {
+                    pattern = (this.toStringOf(pv))
+                    if scriptThrew {
+                        return (EvalValue.undefined())
+                    }
+                }
+            }
+        }
+        if ((array_length args) > 1) {
+            def fv:EvalValue (itemAt args 1)
+            if (false == (fv.isUndefined())) {
+                flags = (this.toStringOf(fv))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+                sawFlags = true
+            }
+        }
+        if (srcRegex.valueType == 5) {
+            if (false == sawFlags) {
+                if (false == asNew) {
+                    return srcRegex
+                }
+            }
+        }
+        def flagErr2:string (this.regexFlagError(flags))
+        if ((strlen flagErr2) > 0) {
+            return (this.throwSpecError("SyntaxError" flagErr2))
+        }
+        def probe2 (new RegexCompiler)
+        def prog2:RegexProgram (probe2.compile(pattern flags))
+        if (false == prog2.valid) {
+            return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + prog2.errorMessage)))
+        }
+        return (this.makeRegexValue(pattern flags))
+    }
+
+    ; D-REGEX: the ES5 flag set is exactly g, i and m, each at most once.
+    ; Anything else is a SyntaxError; the flags string used to be scanned for
+    ; the three it knew and everything else silently ignored.
+    fn regexFlagError:string (flags:string) {
+        def seenG:boolean false
+        def seenI:boolean false
+        def seenM:boolean false
+        def i:int 0
+        while (i < (strlen flags)) {
+            def f:string (substring flags i (i + 1))
+            if (f == "g") {
+                if seenG {
+                    return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
+                }
+                seenG = true
+            } {
+                if (f == "i") {
+                    if seenI {
+                        return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
+                    }
+                    seenI = true
+                } {
+                    if (f == "m") {
+                        if seenM {
+                            return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
+                        }
+                        seenM = true
+                    } {
+                        return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 
     fn makeRegexValue:EvalValue (pattern:string flags:string) {
@@ -13303,7 +13536,14 @@ class ComponentEngine {
         if (lenV.isUndefined()) {
             return out
         }
-        def n:int (to_int (lenV.toNumber()))
+        ; D-STRNUM: ToUint32 goes through the engine's ToNumber, which follows
+        ; the StringNumericLiteral grammar -- a `length` of "0x0002" is 2, not
+        ; NaN. Reading the value's own toNumber knew nothing of the radix
+        ; prefixes, so an array-like with a hex length iterated zero times.
+        def n:int (to_int (this.toNumberOf(lenV)))
+        if scriptThrew {
+            return out
+        }
         if (n < 0) {
             return out
         }
@@ -13341,6 +13581,16 @@ class ComponentEngine {
     ; look for, so no call site has to learn a new shape.
     fn arrayElemAt:EvalValue (recv:EvalValue idx:int) {
         if (recv.isArray()) {
+            ; D-ACCESSORS: an index redefined as an ACCESSOR --
+            ; `Object.defineProperty(arr, "0", {get: …})` -- is a real property
+            ; of the array and its getter runs. Reading the dense slot first
+            ; skipped it, so a callback that mutates the array from inside such
+            ; a getter never ran.
+            def gkey:string (to_string idx)
+            def gFnA:EvalValue (this.resolveGetterOn(recv gkey))
+            if (gFnA.valueType == 6) {
+                return (this.getPropertyValue(recv gkey))
+            }
             if (idx < (array_length recv.arrayValue)) {
                 def slot:EvalValue (itemAt recv.arrayValue idx)
                 if (false == slot.isHole) {
@@ -13389,6 +13639,48 @@ class ComponentEngine {
             return (this.invokeBuiltin(rk name recv args))
         }
         return (this.throwSpecError("TypeError" (name + " is not a function")))
+    }
+
+    ; D-ARRAYLIKE: join over the LIVE receiver -- each element read at the step
+    ; that needs it, an absent/null/undefined one contributing the empty string,
+    ; and everything else through ToString so an object runs its own.
+    fn arrayJoinLive:EvalValue (recv:EvalValue sep:string) {
+        def n:int (recv.arrayLength())
+        if (false == (recv.isArray())) {
+            def lv:EvalValue (this.getPropertyValue(recv "length"))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            n = (to_int (this.toNumberOf(lv)))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            if (n < 0) { n = 0 }
+            if (n > 1000000) { n = 1000000 }
+        }
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                out = (out + sep)
+            }
+            def v:EvalValue (this.arrayElemAt(recv i))
+            if scriptThrew {
+                return (EvalValue.undefined())
+            }
+            def skip:boolean false
+            if v.isHole { skip = true }
+            if (v.isNull()) { skip = true }
+            if (v.isUndefined()) { skip = true }
+            if (false == skip) {
+                out = (out + (this.toStringOf(v)))
+                if scriptThrew {
+                    return (EvalValue.undefined())
+                }
+            }
+            i = (i + 1)
+        }
+        return (EvalValue.string(out))
     }
 
     ; D-ARRAYLIKE: a full [[Get]] of one property -- runs an accessor found
@@ -13509,6 +13801,19 @@ class ComponentEngine {
             }
             if (has walk.objectMap key) {
                 return (unwrap (get walk.objectMap key))
+            }
+            ; A prototype may itself be an ARRAY -- Array.prototype is one -- and
+            ; then an index property lives in its elements rather than its map.
+            if (walk.valueType == 4) {
+                def wi:int (this.canonicalArrayIndex(key))
+                if (wi >= 0) {
+                    if (wi < (array_length walk.arrayValue)) {
+                        def wslot:EvalValue (itemAt walk.arrayValue wi)
+                        if (false == wslot.isHole) {
+                            return wslot
+                        }
+                    }
+                }
             }
             walk = (this.protoOfValue(walk))
             steps = (steps + 1)
@@ -14029,7 +14334,48 @@ class ComponentEngine {
         obj.declaredLength = (0 - 1)
     }
 
+    ; D-ARRAYSPARSE: shrinking `length` deletes every index property at or above
+    ; the new length, including the FAR ones kept in the property map because the
+    ; dense store could not reach them. Trimming only the dense store left
+    ; `x[4294967294]` readable after `x.length = 2`.
+    fn dropFarIndexesAbove:void (obj:EvalValue newLen:int) {
+        def survivors:[string]
+        def ks:[string] (keys obj.objectMap)
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            def ki:int (this.canonicalArrayIndex(k))
+            def keep:boolean true
+            if (ki >= 0) {
+                if (ki >= newLen) {
+                    keep = false
+                }
+            }
+            if keep {
+                push survivors k
+            }
+            i = (i + 1)
+        }
+        if ((array_length survivors) != (array_length ks)) {
+            def j:int 0
+            while (j < (array_length ks)) {
+                def dk:string (itemAt ks j)
+                def stillThere:boolean false
+                def m:int 0
+                while (m < (array_length survivors)) {
+                    if ((itemAt survivors m) == dk) { stillThere = true }
+                    m = (m + 1)
+                }
+                if (false == stillThere) {
+                    obj.removeMember(dk)
+                }
+                j = (j + 1)
+            }
+        }
+    }
+
     fn resizeArrayTo:void (obj:EvalValue newLen:int) {
+        this.dropFarIndexesAbove(obj newLen)
         def resized:[EvalValue]
         def li:int 0
         while (li < newLen) {
@@ -14763,6 +15109,12 @@ class ComponentEngine {
                                 if didx {
                                     def dn:int (unwrap didx)
                                     if ((dn >= 0) && (dn < (array_length obj.arrayValue))) {
+                                        ; D-ACCESSORS: an index redefined as an
+                                        ; accessor lives in the getter/setter
+                                        ; maps, so blanking the dense slot alone
+                                        ; left the property readable through its
+                                        ; getter after `delete a[1]`.
+                                        obj.removeMember(dkey)
                                         obj.setIndexAt(dn (EvalValue.hole()))
                                         return (EvalValue.boolean(true))
                                     }
@@ -15246,6 +15598,14 @@ class ComponentEngine {
             } {
                 push argVals (this.evaluateExpr(an))
             }
+            ; A throw while evaluating an ARGUMENT aborts the call -- the callee
+            ; never runs. Carrying on entered the function with a half-built
+            ; argument list and swallowed the exception the argument raised.
+            if scriptThrew {
+                scriptDidReturn = savedDidReturn
+                scriptReturnValue = savedReturnValue
+                return (EvalValue.undefined())
+            }
             i = (i + 1)
         }
         ; Root the call scope lexically at the DEFINING module (D-MODULES scope
@@ -15382,8 +15742,14 @@ class ComponentEngine {
                     def msg:string ""
                     if ((array_length node.children) > 0) {
                         def mv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        if scriptThrew {
+                            return (EvalValue.undefined())
+                        }
                         if (false == (mv.isUndefined())) {
                             msg = (this.toStringOf(mv))
+                            if scriptThrew {
+                                return (EvalValue.undefined())
+                            }
                         }
                     }
                     return (this.makeError(kindV.stringValue msg))
@@ -15429,6 +15795,8 @@ class ComponentEngine {
             def ncKind:string newCallee.nodeType
             def calleeIsExpr:boolean false
             if (ncKind == "NumericLiteral") { calleeIsExpr = true }
+            ; `new /z/()` -- a RegExp is not a constructor either.
+            if (ncKind == "RegExpLiteral") { calleeIsExpr = true }
             if (ncKind == "StringLiteral") { calleeIsExpr = true }
             if (ncKind == "BooleanLiteral") { calleeIsExpr = true }
             if (ncKind == "NullLiteral") { calleeIsExpr = true }
@@ -15535,6 +15903,17 @@ class ComponentEngine {
                     def aliasV:EvalValue (context.lookup(className))
                     if (aliasV.valueType == 6) {
                         def aliasName:EvalValue (aliasV.getMember("name"))
+                        ; A built-in constructor global need not carry `name` as
+                        ; a stored property -- `RegExp.prototype.constructor`
+                        ; does not -- so the value's own function name is the
+                        ; fallback. Without it `var F = RegExp.prototype.constructor;
+                        ; new F` built a plain object.
+                        if (false == (aliasName.isString())) {
+                            def aliasCtor:string (this.builtinCtorNameOf(aliasV))
+                            if ((strlen aliasCtor) > 0) {
+                                aliasName = (EvalValue.string(aliasCtor))
+                            }
+                        }
                         if (aliasName.isString()) {
                             def an:string aliasName.stringValue
                             if (this.isBuiltinCtorName(an)) {
@@ -15556,7 +15935,7 @@ class ComponentEngine {
                                     return (this.toObjectValue(aObj))
                                 }
                                 if (an == "RegExp") {
-                                    return (this.buildRegexFromArgs(node.children))
+                                    return (this.buildRegexFromArgNodes(node.children true))
                                 }
                             }
                         }
@@ -15567,7 +15946,7 @@ class ComponentEngine {
         ; D-REGEX: `new RegExp(pattern, flags)`. A RegExp argument is copied,
         ; which is what `new RegExp(/x/)` means.
         if (className == "RegExp") {
-            return (this.buildRegexFromArgs(node.children))
+            return (this.buildRegexFromArgNodes(node.children true))
         }
         ; D-TOOBJECT: `new Object(...)` had no case here at all -- it fell through
         ; to class instantiation and produced something that could not hold a
