@@ -18,7 +18,7 @@
  *      so a target that gets worse and a target that gets better both fail,
  *      and the message says which. Re-record with:
  *
- *        UPDATE_SYNTAX_APP_BASELINE=1 npx vitest run --config tests/vitest.config.ts syntax-app.test.ts
+ *        UPDATE_SYNTAX_APP_BASELINE=1 npm run test:syntaxapp
  *
  *   3. It pins the constructs of tests/syntax_app/gaps/, each of which is a
  *      short program that does not work today. If one starts to work, the test

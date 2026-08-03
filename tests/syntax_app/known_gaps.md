@@ -197,7 +197,6 @@ Things that surprised on the way and are documented at the site instead of in
   Of a double or an int they do not.
 - `get` gives an optional on an array as well as on a map. `itemAt` and `at` do
   not.
-- `replace` replaces the first occurrence only.
 - `buffer_copy` and its `int_` and `double_` siblings take the **destination**
   first: `(dest destOffset src srcOffset length)`.
 - `buffer_fill` takes `(buf value start end)` and the end is excluded.

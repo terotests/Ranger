@@ -7,23 +7,23 @@ failed; `-` = the Ranger compiler rejected it.
 
 | unit | es6 | typescript | go | python | rust | cpp | kotlin | swift6 | swift3 | java7 | csharp | scala | php | llvm |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| app | ok | run | run | - | - | run | - | c | - | - | - | - | - | - |
-| section:numeric | ok | run | ok | - | - | diff | - | c | c | - | - | - | ok | - |
-| section:bitwise | ok | ok | ok | ok | run | ok | c | c | c | - | c | c | run | run |
-| section:strings | ok | ok | run | run | run | run | c | c | c | - | - | - | run | - |
-| section:arrays | ok | ok | run | run | run | run | c | c | - | - | - | - | ok | - |
-| section:maps | ok | ok | run | run | run | diff | c | c | c | - | c | c | ok | - |
-| section:optionals | ok | ok | run | ok | run | run | c | c | c | - | c | c | ok | run |
-| section:control | ok | ok | diff | run | - | ok | c | c | c | - | c | c | ok | run |
-| section:oop | ok | run | run | - | - | run | c | c | c | - | - | - | run | - |
-| section:lambdas | ok | ok | ok | run | run | ok | c | c | c | - | c | c | ok | run |
-| section:buffers | ok | run | ok | run | run | diff | - | c | - | - | c | - | - | - |
-| section:operators | ok | run | ok | run | run | ok | c | c | c | - | c | c | run | run |
-| section:stdlib | ok | ok | run | run | run | ok | c | c | c | - | c | c | run | - |
-| narrow | ok | ok | - | - | - | - | - | - | - | - | - | - | - | - |
+| app | ok | run | run | run | - | run | - | c | - | run | c | - | - | - |
+| section:numeric | ok | run | ok | ok | run | ok | c | c | c | ok | c | c | ok | - |
+| section:bitwise | ok | ok | ok | ok | run | ok | c | c | c | ok | c | c | run | run |
+| section:strings | ok | ok | ok | ok | - | ok | c | c | c | run | c | c | ok | - |
+| section:arrays | ok | ok | run | run | run | run | c | c | c | run | c | - | ok | - |
+| section:maps | ok | ok | run | run | run | diff | c | c | c | run | c | c | ok | - |
+| section:optionals | ok | ok | run | ok | run | run | c | c | c | run | c | c | ok | run |
+| section:control | ok | ok | diff | ok | run | ok | c | c | c | ok | c | c | ok | run |
+| section:oop | ok | run | run | ok | run | run | c | c | c | ok | c | c | run | - |
+| section:lambdas | ok | ok | ok | run | run | ok | c | c | c | ok | c | c | ok | run |
+| section:buffers | ok | run | ok | run | run | diff | - | c | - | run | c | - | - | - |
+| section:operators | ok | run | ok | run | run | ok | c | c | c | ok | c | c | run | run |
+| section:stdlib | ok | ok | run | run | run | ok | c | c | c | ok | c | c | run | - |
+| narrow | ok | ok | run | run | run | run | c | c | c | - | - | c | run | - |
 | hostops | c | c | - | - | - | - | - | - | - | - | - | - | - | - |
 | http | c | c | c | c | c | c | - | - | - | - | - | - | - | - |
-| process | ok | ok | run | run | run | run | c | c | c | - | c | - | run | run |
+| process | ok | ok | run | run | run | run | c | c | c | run | c | - | run | run |
 
 ## Operators with no template for a target
 
@@ -34,63 +34,36 @@ unknown type does not match anything either.
 
 | target | unit | operators |
 | --- | --- | --- |
-| go | narrow | for remove reverse |
 | go | hostops | async_read_file md5 random strlen |
-| python | app | cast to_double |
-| python | section:numeric | to_double |
-| python | section:oop | cast |
-| python | narrow | = error_msg for remove reverse sort |
 | python | hostops | > async_read_file create_immutable_array create_immutable_hash env_var file_mtime if md5 read_file sha256 shell_arg shell_arg_cnt strlen write_file |
-| rust | app | cast fabs if |
-| rust | section:numeric | fabs |
-| rust | section:control | if |
-| rust | section:oop | cast |
-| rust | narrow | = error_msg for remove reverse sort |
+| rust | app | regex_test |
+| rust | section:strings | regex_test |
 | rust | hostops | ! async_read_file create_dir create_immutable_array create_immutable_hash dir_exists env_var md5 random sha256 strlen wait |
-| cpp | narrow | for remove reverse sort |
 | cpp | hostops | async_read_file create_immutable_array create_immutable_hash md5 random strlen |
-| kotlin | app | + < = M_PI buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set fabs int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set tan while |
-| kotlin | section:numeric | M_PI fabs tan |
+| kotlin | app | + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
 | kotlin | section:buffers | + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
-| kotlin | narrow | = error_msg for reverse sort |
 | kotlin | hostops | ! async_read_file buffer_from_string buffer_length buffer_read_file buffer_write_file create_dir create_immutable_array create_immutable_hash dir_exists env_var file_exists file_mtime if md5 sha256 strlen wait write_file |
 | kotlin | http | buffer_from_string |
-| swift6 | narrow | = error_msg for reverse sort |
 | swift6 | hostops | async_read_file create_immutable_array create_immutable_hash env_var file_mtime md5 sha256 strlen |
-| swift3 | app | + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set insert int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
-| swift3 | section:arrays | insert |
+| swift3 | app | + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
 | swift3 | section:buffers | + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
-| swift3 | narrow | = error_msg for remove reverse sort |
 | swift3 | hostops | async_read_file buffer_from_string buffer_length buffer_read_file buffer_write_file create_immutable_array create_immutable_hash env_var file_mtime md5 sha256 strlen |
 | swift3 | http | buffer_from_string |
-| java7 | app | insert |
-| java7 | section:arrays | insert |
-| java7 | narrow | for remove reverse sort |
+| java7 | narrow | for sort |
 | java7 | hostops | < async_read_file create_immutable_array create_immutable_hash env_var file_mtime md5 random sha256 strlen |
-| csharp | app | M_PI cast fabs indexOf indexOfFrom insert lastIndexOf tan to_double |
-| csharp | section:numeric | M_PI fabs tan to_double |
-| csharp | section:strings | indexOf indexOfFrom lastIndexOf |
-| csharp | section:arrays | insert |
-| csharp | section:oop | cast |
-| csharp | narrow | = error_msg for remove reverse sort |
+| csharp | narrow | for sort |
 | csharp | hostops | < async_read_file create_immutable_array create_immutable_hash env_var file_exists file_mtime if md5 random read_file sha256 strlen wait |
-| scala | app | + < = M_PI buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string cast double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set fabs indexOf indexOfFrom insert int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set lastIndexOf tan while |
-| scala | section:numeric | M_PI fabs tan |
-| scala | section:strings | indexOf indexOfFrom lastIndexOf |
-| scala | section:arrays | insert |
-| scala | section:oop | cast |
+| scala | app | + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
 | scala | section:buffers | + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
-| scala | narrow | = error_msg for remove reverse sort |
 | scala | hostops | < > async_read_file buffer_from_string buffer_length buffer_read_file buffer_write_file create_immutable_array create_immutable_hash env_var file_exists file_mtime if md5 random sha256 shell_arg shell_arg_cnt strlen wait |
 | scala | http | buffer_from_string |
 | php | app | + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
 | php | section:buffers | + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
-| php | narrow | for remove reverse sort |
 | php | hostops | < async_read_file buffer_from_string buffer_length buffer_read_file buffer_write_file create_immutable_array create_immutable_hash file_mtime md5 random strlen |
 | php | http | buffer_from_string |
-| llvm | app | < M_PI array_length buffer_copy buffer_fill buffer_from_string buffer_slice buffer_to_base64 buffer_to_string cast contains double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set endsWith fabs for indexOf indexOfFrom insert int_buffer_copy int_buffer_length keys lastIndexOf replace startsWith tan to_lowercase to_uppercase while |
+| llvm | app | < M_PI array_length buffer_copy buffer_fill buffer_from_string buffer_slice buffer_to_base64 buffer_to_string cast contains double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set endsWith fabs for indexOf indexOfFrom insert int_buffer_copy int_buffer_length keys lastIndexOf regex_test replace startsWith tan to_lowercase to_uppercase while |
 | llvm | section:numeric | M_PI fabs tan |
-| llvm | section:strings | contains endsWith indexOf indexOfFrom lastIndexOf replace startsWith to_lowercase to_uppercase |
+| llvm | section:strings | contains endsWith indexOf indexOfFrom lastIndexOf regex_test replace startsWith to_lowercase to_uppercase |
 | llvm | section:arrays | insert |
 | llvm | section:maps | array_length for keys |
 | llvm | section:oop | cast |
@@ -105,65 +78,50 @@ unknown type does not match anything either.
 Only the cells that are not `ok` and not a plain `compiled` appear here.
 
 - **app / typescript** (run-error): syntax_app.ts(104,43): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'. syntax_app.ts(679,11): error TS2554: Expected 0 arguments, but got 1. syntax_app.ts(697,11): error TS2554: Expected 0 arguments, but got 1. syntax_app.ts(856,11): error TS2740: Type 'ArrayBuffer' is missing the following properties from type 'Uint8Array<ArrayBufferLike>': BYTES_PER_ELEME
-- **app / go** (run-error): # command-line-arguments ./syntax_app.go:68:23: syntax error: missing type constraint ./syntax_app.go:507:58: syntax error: unexpected literal "C[a-z]+r" in argument list; possibly missing comma or ) ./syntax_app.go:508:59: syntax error: unexpected literal "^Compiler" in argument list; possibly missing comma or ) ./syntax_app.go:676:21: syntax error: unexpected =, expected type ./syntax_app.go:821
-- **app / python** (compile-error): no template for: cast to_double
-- **app / rust** (compile-error): no template for: cast fabs if
-- **app / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/app/syntax_app.cpp: In member function 'virtual void StringsSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/app/syntax_app.cpp:754:7: error: 'class std::vector<std::__cxx11::basic_string<char> >' has no member named 'push' 754 | acc.push(std::string("x")); | ^~~~ /home/user/Ranger/tests/.output-syntax-app/cpp/app/syntax_app.cpp:755:7: 
-- **app / kotlin** (compile-error): no template for: + < = M_PI buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set fabs int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set tan while
-- **app / swift3** (compile-error): no template for: + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set insert int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
-- **app / java7** (compile-error): no template for: insert
-- **app / csharp** (compile-error): no template for: M_PI cast fabs indexOf indexOfFrom insert lastIndexOf tan to_double
-- **app / scala** (compile-error): no template for: + < = M_PI buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string cast double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set fabs indexOf indexOfFrom insert int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length
+- **app / go** (run-error): # command-line-arguments ./syntax_app.go:78:23: syntax error: missing type constraint ./syntax_app.go:686:21: syntax error: unexpected =, expected type ./syntax_app.go:831:33: syntax error: unexpected =, expected type ./syntax_app.go:840:80: syntax error: unexpected ), expected type ./syntax_app.go:1558:80: syntax error: unexpected ), expected type
+- **app / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/app/syntax_app.py", line 696 double = lambda n: ^ SyntaxError: invalid syntax
+- **app / rust** (compile-error): no template for: regex_test
+- **app / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/app/syntax_app.cpp: In member function 'virtual void ArraysSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/app/syntax_app.cpp:837:47: error: conversion from '__gnu_cxx::__alloc_traits<std::allocator<int>, int>::value_type' {aka 'int'} to non-scalar type 'r_optional_primitive<int>' requested 837 | r_optional_primitive<int> gotLast = num
+- **app / kotlin** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
+- **app / swift3** (compile-error): no template for: + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
+- **app / java7** (run-error): Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=34805 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|anthropic.com|*.anthropic.com|*.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.
+- **app / scala** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
 - **app / php** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
-- **app / llvm** (compile-error): no template for: < M_PI array_length buffer_copy buffer_fill buffer_from_string buffer_slice buffer_to_base64 buffer_to_string cast contains double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set endsWith fabs for indexOf indexOfFrom insert int_buffer_copy int_buffer_length keys lastIndexOf replace startsWith tan to_lowercase to_uppercase
+- **app / llvm** (compile-error): no template for: < M_PI array_length buffer_copy buffer_fill buffer_from_string buffer_slice buffer_to_base64 buffer_to_string cast contains double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set endsWith fabs for indexOf indexOfFrom insert int_buffer_copy int_buffer_length keys lastIndexOf regex_test replace startsWith tan to_lowercase t
 - **section:numeric / typescript** (run-error): drv_numeric.ts(104,43): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
-- **section:numeric / python** (compile-error): no template for: to_double
-- **section:numeric / rust** (compile-error): no template for: fabs
-- **section:numeric / cpp** (output-differs): line 18: expected " double2str_len = 3", got " double2str_len = 8"
-- **section:numeric / kotlin** (compile-error): no template for: M_PI fabs tan
-- **section:numeric / csharp** (compile-error): no template for: M_PI fabs tan to_double
-- **section:numeric / scala** (compile-error): no template for: M_PI fabs tan
+- **section:numeric / rust** (run-error): error[E0609]: no field `rows` on type `&mut NumericSection` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_numeric/drv_numeric.rs:226:22 | 226 | for i in 0..self.rows.len() { | ^^^^ unknown field error[E0609]: no field `rows` on type `&mut NumericSection` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_numeric/drv_numeric.rs:227:26 | 227 | let mut row = self.rows[i].clone(
 - **section:numeric / llvm** (compile-error): no template for: M_PI fabs tan
 - **section:bitwise / rust** (run-error): error[E0609]: no field `rows` on type `&mut BitwiseSection` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_bitwise/drv_bitwise.rs:198:22 | 198 | for i in 0..self.rows.len() { | ^^^^ unknown field error[E0609]: no field `rows` on type `&mut BitwiseSection` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_bitwise/drv_bitwise.rs:199:26 | 199 | let mut row = self.rows[i].clone(
 - **section:bitwise / php** (run-error): PHP Parse error: syntax error, unexpected token ">" in /home/user/Ranger/tests/.output-syntax-app/php/section_bitwise/drv_bitwise.php on line 94
 - **section:bitwise / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/section_bitwise/drv_bitwise.ll:65:44: error: '%.v4' defined with type 'ptr' but expected 'i32' call void @RtPtrArray_push(i32 %.v1, i32 %.v4) ^
-- **section:strings / go** (run-error): # command-line-arguments ./drv_strings.go:231:58: syntax error: unexpected literal "C[a-z]+r" in argument list; possibly missing comma or ) ./drv_strings.go:232:59: syntax error: unexpected literal "^Compiler" in argument list; possibly missing comma or )
-- **section:strings / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/section_strings/drv_strings.py", line 124 self.sayBool("regex_hit", (RegexMatch.testIgnoreCase(s "C[a-z]+r"))) ^^^^^^^^^^ SyntaxError: invalid syntax
-- **section:strings / rust** (run-error): error: expected one of `!`, `)`, `,`, `.`, `::`, `?`, `{`, or an operator, found `"C[a-z]+r"` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_strings/drv_strings.rs:220:72 | 220 | self.sayBool("regex_hit".to_string(), (RegexMatch.testIgnoreCase(s "C[a-z]+r".to_string()))); | -^^^^^^^^^^ expected one of 8 possible tokens | | | help: missing `,` error: expected one of `!`, `)`, `,`, `.`,
-- **section:strings / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/section_strings/drv_strings.cpp: In member function 'virtual void StringsSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/section_strings/drv_strings.cpp:370:7: error: 'class std::vector<std::__cxx11::basic_string<char> >' has no member named 'push' 370 | acc.push(std::string("x")); | ^~~~ /home/user/Ranger/tests/.output-syntax-app/cpp/
-- **section:strings / csharp** (compile-error): no template for: indexOf indexOfFrom lastIndexOf
-- **section:strings / scala** (compile-error): no template for: indexOf indexOfFrom lastIndexOf
-- **section:strings / php** (run-error): PHP Parse error: syntax error, unexpected double-quoted string "C[a-z]+r", expecting ")" in /home/user/Ranger/tests/.output-syntax-app/php/section_strings/drv_strings.php on line 138
-- **section:strings / llvm** (compile-error): no template for: contains endsWith indexOf indexOfFrom lastIndexOf replace startsWith to_lowercase to_uppercase
+- **section:strings / rust** (compile-error): no template for: regex_test
+- **section:strings / java7** (run-error): Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=34805 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|anthropic.com|*.anthropic.com|*.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.
+- **section:strings / llvm** (compile-error): no template for: contains endsWith indexOf indexOfFrom lastIndexOf regex_test replace startsWith to_lowercase to_uppercase
 - **section:arrays / go** (run-error): # command-line-arguments ./drv_arrays.go:263:21: syntax error: unexpected =, expected type
-- **section:arrays / python** (run-error): Traceback (most recent call last): File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 155, in <module> main() File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 152, in main s.run() File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 92, in run self.say("after_insert", work.joi
+- **section:arrays / python** (run-error): Traceback (most recent call last): File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 155, in <module> main() File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 152, in main s.run() File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 101, in run pulled = taken.splice(1, 1).pop(
 - **section:arrays / rust** (run-error): error[E0425]: cannot find type `int` in this scope --> /home/user/Ranger/tests/.output-syntax-app/rust/section_arrays/drv_arrays.rs:254:25 | 254 | let mut grid : Vec<[int]> = Vec::new(); | ^^^ not found in this scope | help: perhaps you intended to use this type | 254 - let mut grid : Vec<[int]> = Vec::new(); 254 + let mut grid : Vec<[i32]> = Vec::new(); | help: you might be missing a type paramet
 - **section:arrays / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/section_arrays/drv_arrays.cpp: In member function 'virtual void ArraysSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/section_arrays/drv_arrays.cpp:191:4: error: 'r_optional_primitive' was not declared in this scope 191 | r_optional_primitive<int> gotLast = nums[4]; | ^~~~~~~~~~~~~~~~~~~~ /home/user/Ranger/tests/.output-syntax-app/cpp/
-- **section:arrays / swift3** (compile-error): no template for: insert
-- **section:arrays / java7** (compile-error): no template for: insert
-- **section:arrays / csharp** (compile-error): no template for: insert
-- **section:arrays / scala** (compile-error): no template for: insert
+- **section:arrays / java7** (run-error): Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=34805 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|anthropic.com|*.anthropic.com|*.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.
+- **section:arrays / scala** (compile-error): [FAIL] oops, sorry. Currently Scala output can not handle for-loops with continue :/
 - **section:arrays / llvm** (compile-error): no template for: insert
 - **section:maps / go** (run-error): # command-line-arguments ./drv_maps.go:30:23: syntax error: missing type constraint ./drv_maps.go:253:33: syntax error: unexpected =, expected type ./drv_maps.go:262:80: syntax error: unexpected ), expected type
 - **section:maps / python** (run-error): Traceback (most recent call last): File "/home/user/Ranger/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 118, in <module> main() File "/home/user/Ranger/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 115, in main s.run() File "/home/user/Ranger/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 68, in run missing = ages["nobody"] ~~~~^^^^^^^^^^ KeyEr
 - **section:maps / rust** (run-error): error[E0425]: cannot find type `int` in this scope --> /home/user/Ranger/tests/.output-syntax-app/rust/section_maps/drv_maps.rs:210:39 | 210 | let mut buckets : HashMap<String,[int]> = HashMap::new(); | ^^^ not found in this scope | help: perhaps you intended to use this type | 210 - let mut buckets : HashMap<String,[int]> = HashMap::new(); 210 + let mut buckets : HashMap<String,[i32]> = HashMap::
 - **section:maps / cpp** (output-differs): line 6: expected " get_miss = true", got " get_miss = false"
+- **section:maps / java7** (run-error): Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=34805 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|anthropic.com|*.anthropic.com|*.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.
 - **section:maps / llvm** (compile-error): no template for: array_length for keys
 - **section:optionals / go** (run-error): # command-line-arguments ./drv_optionals.go:179:13: cannot use "here" (untyped string constant) as *GoNullable value in assignment ./drv_optionals.go:187:13: cannot use "temporary" (untyped string constant) as *GoNullable value in assignment ./drv_optionals.go:194:14: cannot use "yes" (untyped string constant) as *GoNullable value in assignment ./drv_optionals.go:204:14: cannot use int64(5) (const
 - **section:optionals / rust** (run-error): error[E0308]: mismatched types --> /home/user/Ranger/tests/.output-syntax-app/rust/section_optionals/drv_optionals.rs:172:5 | 171 | fn findNext(&mut self) -> Rc<RefCell<Holder>> { | ------------------- expected `Rc<RefCell<Holder>>` because of return type 172 | self.next.clone() | ^^^^^^^^^^^^^^^^^ expected `Rc<RefCell<Holder>>`, found `Option<Rc<RefCell<Holder>>>` | = note: expected struct `Rc<_>
 - **section:optionals / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/section_optionals/drv_optionals.cpp: In member function 'virtual void OptionalsSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/section_optionals/drv_optionals.cpp:184:17: error: no match for 'operator!=' (operand types are 'std::string' {aka 'std::__cxx11::basic_string<char>'} and 'long int') 184 | if ( maybeSet != NULL ) { | ^ In file
+- **section:optionals / java7** (run-error): Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=34805 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|anthropic.com|*.anthropic.com|*.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.
 - **section:optionals / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/section_optionals/drv_optionals.ll:80:44: error: '%.v4' defined with type 'ptr' but expected 'i32' call void @RtPtrArray_push(i32 %.v1, i32 %.v4) ^
 - **section:control / go** (output-differs): line 4: expected " if_not = not-huge", got " if_not = small"
-- **section:control / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/section_control/drv_control.py", line 60 throw "negative value"; ^^^^^^^^^^^^^^^^ SyntaxError: invalid syntax
-- **section:control / rust** (compile-error): no template for: if
+- **section:control / rust** (run-error): error[E0609]: no field `rows` on type `&mut ControlSection` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_control/drv_control.rs:315:22 | 315 | for i in 0..self.rows.len() { | ^^^^ unknown field error[E0609]: no field `rows` on type `&mut ControlSection` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_control/drv_control.rs:316:26 | 316 | let mut row = self.rows[i].clone(
 - **section:control / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/section_control/drv_control.ll:90:44: error: '%.v4' defined with type 'ptr' but expected 'i32' call void @RtPtrArray_push(i32 %.v1, i32 %.v4) ^
 - **section:oop / typescript** (run-error): drv_oop.ts(114,11): error TS2554: Expected 0 arguments, but got 1. drv_oop.ts(132,11): error TS2554: Expected 0 arguments, but got 1.
 - **section:oop / go** (run-error): # command-line-arguments ./drv_oop.go:450:80: syntax error: unexpected ), expected type
-- **section:oop / python** (compile-error): no template for: cast
-- **section:oop / rust** (compile-error): no template for: cast
+- **section:oop / rust** (run-error): error[E0308]: mismatched types --> /home/user/Ranger/tests/.output-syntax-app/rust/section_oop/drv_oop.rs:173:81 | 173 | let mut s : Rc<RefCell<Rc<RefCell<dyn ShapeTrait>>>> = Rc::new(RefCell::new(Shape::new())); | ------------ ^^^^^^^^^^^^ expected `Rc<RefCell<dyn ShapeTrait>>`, found `Shape` | | | arguments to this function are incorrect | = note: expected struct `Rc<RefCell<dyn ShapeTrait>>` fo
 - **section:oop / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/section_oop/drv_oop.cpp: In member function 'virtual void OopSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/section_oop/drv_oop.cpp:304:77: error: no matching function for call to 'get<std::shared_ptr<Rectangle> >(std::shared_ptr<Shape>&)' 304 | std::shared_ptr<Rectangle> asRect = mpark::get<std::shared_ptr<Rectangle>>(asShape); | ~~~
-- **section:oop / csharp** (compile-error): no template for: cast
-- **section:oop / scala** (compile-error): no template for: cast
 - **section:oop / php** (run-error): PHP Warning: Undefined variable $Shape in /home/user/Ranger/tests/.output-syntax-app/php/section_oop/drv_oop.php on line 164 PHP Fatal error: Uncaught Error: Call to a member function unit() on null in /home/user/Ranger/tests/.output-syntax-app/php/section_oop/drv_oop.php:164 Stack trace: #0 /home/user/Ranger/tests/.output-syntax-app/php/section_oop/drv_oop.php(223): OopSection->run() #1 {main} th
 - **section:oop / llvm** (compile-error): no template for: cast
 - **section:lambdas / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/section_lambdas/drv_lambdas.py", line 66 double = lambda n: ^ SyntaxError: invalid syntax
@@ -175,6 +133,7 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - **section:buffers / cpp** (output-differs): line 10: expected " buffer_from_string = 6", got " buffer_from_string = 38"
 - **section:buffers / kotlin** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
 - **section:buffers / swift3** (compile-error): no template for: + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
+- **section:buffers / java7** (run-error): Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=34805 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|anthropic.com|*.anthropic.com|*.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.
 - **section:buffers / scala** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
 - **section:buffers / php** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
 - **section:buffers / llvm** (compile-error): no template for: < buffer_copy buffer_fill buffer_from_string buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_copy int_buffer_length while
@@ -188,17 +147,13 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - **section:stdlib / rust** (run-error): error: expected one of `)`, `,`, `.`, `?`, or an operator, found `=>` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_stdlib/drv_stdlib.rs:172:49 | 172 | operatorsOf::forEach_2(&nums, (item, index) => { | ^^ expected one of `)`, `,`, `.`, `?`, or an operator error: expected one of `)`, `,`, `.`, `?`, or an operator, found `=>` --> /home/user/Ranger/tests/.output-syntax-app/rust/section
 - **section:stdlib / php** (run-error): PHP Warning: Undefined variable $operatorsOf in /home/user/Ranger/tests/.output-syntax-app/php/section_stdlib/drv_stdlib.php on line 89 PHP Fatal error: Uncaught Error: Call to a member function forEach_2() on null in /home/user/Ranger/tests/.output-syntax-app/php/section_stdlib/drv_stdlib.php:89 Stack trace: #0 /home/user/Ranger/tests/.output-syntax-app/php/section_stdlib/drv_stdlib.php(176): Std
 - **section:stdlib / llvm** (compile-error): no template for: array_length for keys
-- **narrow / go** (compile-error): no template for: for remove reverse
-- **narrow / python** (compile-error): no template for: = error_msg for remove reverse sort
-- **narrow / rust** (compile-error): no template for: = error_msg for remove reverse sort
-- **narrow / cpp** (compile-error): no template for: for remove reverse sort
-- **narrow / kotlin** (compile-error): no template for: = error_msg for reverse sort
-- **narrow / swift6** (compile-error): no template for: = error_msg for reverse sort
-- **narrow / swift3** (compile-error): no template for: = error_msg for remove reverse sort
-- **narrow / java7** (compile-error): no template for: for remove reverse sort
-- **narrow / csharp** (compile-error): no template for: = error_msg for remove reverse sort
-- **narrow / scala** (compile-error): no template for: = error_msg for remove reverse sort
-- **narrow / php** (compile-error): no template for: for remove reverse sort
+- **narrow / go** (run-error): # command-line-arguments ./drv_narrow.go:236:46: syntax error: unexpected literal "2024-02-27", expected ) ./drv_narrow.go:237:54: syntax error: unexpected literal "2024-01-01", expected ) ./drv_narrow.go:238:54: syntax error: unexpected literal "2024-01-01", expected ) ./drv_narrow.go:239:51: syntax error: unexpected literal "2024-03-01", expected ) ./drv_narrow.go:240:51: syntax error: unexpecte
+- **narrow / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/narrow/drv_narrow.py", line 66 if left < right: ^^ SyntaxError: invalid syntax
+- **narrow / rust** (run-error): error: expected one of `.`, `;`, `?`, `else`, or an operator, found `=>` --> /home/user/Ranger/tests/.output-syntax-app/rust/narrow/drv_narrow.rs:177:92 | 177 | let mut sorted : Vec<i64> = { let mut __v = unsorted.clone(); let __cb = (left, right) => { | ^^ expected one of `.`, `;`, `?`, `else`, or an operator | help: you might have meant to write a "greater than or equal to" comparison | 177 - le
+- **narrow / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/narrow/drv_narrow.cpp: In member function 'virtual void NarrowSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/narrow/drv_narrow.cpp:234:43: error: 'DateMath' was not declared in this scope 234 | this->say(std::string("iso_add_days"), (DateMath.addDays std::string("2024-02-27") 3)); | ^~~~~~~~ /home/user/Ranger/tests/.output-syntax-app/
+- **narrow / java7** (compile-error): no template for: for sort
+- **narrow / csharp** (compile-error): no template for: for sort
+- **narrow / php** (run-error): PHP Parse error: syntax error, unexpected double-quoted string "2024-02-27" in /home/user/Ranger/tests/.output-syntax-app/php/narrow/drv_narrow.php on line 149
 - **narrow / llvm** (compile-error): no template for: = error_msg for remove reverse sort
 - **hostops / go** (compile-error): no template for: async_read_file md5 random strlen
 - **hostops / python** (compile-error): no template for: > async_read_file create_immutable_array create_immutable_hash env_var file_mtime if md5 read_file sha256 shell_arg shell_arg_cnt strlen write_file
@@ -223,7 +178,8 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - **process / go** (run-error): # command-line-arguments ./sx_process.go:1141:51: syntax error: unexpected semicolon, expected expression ./sx_process.go:1143:36: syntax error: unexpected ) at end of statement ./sx_process.go:1145:3: syntax error: non-declaration statement outside function body ./sx_process.go:1145:43: method has no receiver
 - **process / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/process/sx_process.py", line 54 def __rangerInvokeStart(self): ^ IndentationError: expected an indented block after function definition on line 53
 - **process / rust** (run-error): error: expected expression, found `;` --> /home/user/Ranger/tests/.output-syntax-app/rust/process/sx_process.rs:963:116 | 963 | let mut found : Rc<RefCell<Option<Rc<RefCell<dyn RangerProcessBaseTrait>>>>> = /* find_process not implemented */; | ^ expected expression warning: unnecessary trailing semicolon --> /home/user/Ranger/tests/.output-syntax-app/rust/process/sx_process.rs:576:37 | 576 | /* p
-- **process / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/process/sx_process.cpp: In function 'int main(int, char**)': /home/user/Ranger/tests/.output-syntax-app/cpp/process/sx_process.cpp:860:80: error: expected primary-expression before ';' token 860 | std::shared_ptr<RangerProcessBase> found = /* find_process not implemented */; | ^
+- **process / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/process/sx_process.cpp: In function 'int main(int, char**)': /home/user/Ranger/tests/.output-syntax-app/cpp/process/sx_process.cpp:863:80: error: expected primary-expression before ';' token 863 | std::shared_ptr<RangerProcessBase> found = /* find_process not implemented */; | ^
+- **process / java7** (run-error): Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=34805 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|anthropic.com|*.anthropic.com|*.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.
 - **process / scala** (compile-error): [FAIL] oops, sorry. Currently Scala output can not handle for-loops with continue :/
 - **process / php** (run-error): PHP Parse error: syntax error, unexpected token ";" in /home/user/Ranger/tests/.output-syntax-app/php/process/sx_process.php on line 613
 - **process / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/process/sx_process.ll:111:47: error: invalid getelementptr indices %.f6 = getelementptr %struct.ProcessUiHost, %struct.ProcessUiHost* %.p5, i32 0, i32 -1 ^

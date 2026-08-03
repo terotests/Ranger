@@ -1,6 +1,7 @@
 ## narrow
   sort = 13579
-  reverse = 123
+  reverse = 321
+  reverse_source_kept = 123
   remove = b,c
   error_msg = true
   for_hash_value = 77
