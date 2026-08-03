@@ -20520,9 +20520,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const nn = pvar.node;
           if ( (nn.children.length) > 2 ) {
             const valueNode = nn.children[2];
-            wr.out(("this->" + pvar.compiledName) + " = ", false);
-            await this.WalkNode(valueNode, ctx, wr);
-            wr.out(";", true);
+            let skipDefaultInit = false;
+            if ( valueNode.value_type == 4 ) {
+              if ( (valueNode.string_value.length) == 0 ) {
+                skipDefaultInit = true;
+              }
+            }
+            if ( skipDefaultInit == false ) {
+              wr.out(("this->" + pvar.compiledName) + " = ", false);
+              await this.WalkNode(valueNode, ctx, wr);
+              wr.out(";", true);
+            }
           }
         };
         if ( cl.has_constructor ) {

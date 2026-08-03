@@ -63,18 +63,21 @@
 >
 > | case | engine on Node | Rust | C++ |
 > |---|---|---|---|
-> | loop | 42.7 | 32.7 | 48.2 |
-> | fib | 21.6 | 21.2 | 26.7 |
-> | strcat | 23.9 | 53.0 | 44.9 |
-> | array | 88.3 | 62.9 | 100.9 |
-> | object | 36.8 | 27.8 | 39.0 |
-> | method | 65.0 | 62.0 | 81.7 |
-> | regex | 40.5 | 34.9 | 47.4 |
+> | loop | 45.6 | 33.0 | 35.7 |
+> | fib | 22.9 | 21.5 | 26.8 |
+> | strcat | 24.9 | 55.0 | 37.0 |
+> | array | 89.7 | 62.9 | 90.9 |
+> | object | 36.5 | 28.0 | 33.0 |
+> | method | 63.1 | 60.0 | 72.2 |
+> | regex | 42.1 | 35.1 | 43.2 |
 >
-> Geometric mean: **Rust 0.96x — FASTER than the same engine on Node**,
+> Geometric mean: **Rust 0.94x — FASTER than the same engine on Node**,
 > beating V8 on six of seven cases (only `strcat` loses: V8's rope
 > strings make `+=` amortized O(1) where immutable native strings copy).
-> C++ is at 1.25x, down from 1.88x. Both targets started this branch
+> C++ is at **1.06x — effective parity**, down from 1.88x; its last big
+> step was dropping the `std::string("")` assignments the constructor
+> made to already-default-constructed members (a temporary per string
+> field per object). Both targets started this branch
 > unable to compile (Rust) or 4x-and-quadratic (C++). What got them
 > here, in measured order of impact: integer-interned nodeType/operator
 > dispatch, borrowed `&String` parameters, FxHash + bare-literal map

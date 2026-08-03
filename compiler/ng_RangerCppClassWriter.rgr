@@ -1823,9 +1823,20 @@ class RangerCppClassWriter {
 ;      }
       if ((array_length nn.children) > 2) {
         def valueNode:CodeNode (itemAt nn.children 2)
-        wr.out((("this->" + pvar.compiledName) + " = ") false)
-        this.WalkNode(valueNode ctx wr)
-        wr.out(";" true)
+        ; assigning std::string("") to a default-constructed string member
+        ; is pure overhead — a temporary construction and an assignment per
+        ; field per object, and value-heavy programs construct constantly
+        def skipDefaultInit:boolean false
+        if (valueNode.value_type == RangerNodeType.String) {
+          if ((strlen valueNode.string_value) == 0) {
+            skipDefaultInit = true
+          }
+        }
+        if (skipDefaultInit == false) {
+          wr.out((("this->" + pvar.compiledName) + " = ") false)
+          this.WalkNode(valueNode ctx wr)
+          wr.out(";" true)
+        }
       }
       ; if (nn.hasFlag("optional")) {
     }
